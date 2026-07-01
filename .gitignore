@@ -1,0 +1,14 @@
+node_modules
+dist
+.agents
+.claude/*
+!.claude/skills
+.superpowers
+.goose
+.DS_Store
+
+# local-only config (kept out of the repo)
+/.mcp.json
+
+# lockfiles regenerate against whatever registry npm is configured with — keep out
+package-lock.json

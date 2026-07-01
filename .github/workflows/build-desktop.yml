@@ -1,0 +1,100 @@
+name: Build desktop (macOS dmg)
+
+# Builds the Tauri desktop app as a macOS .dmg:
+#   - push to main / manual run  -> build + publish a unique, versioned pre-release
+#                                   per push (tag v<version>-build.<run_number>)
+#   - push a tag like v0.1.1     -> build + publish the stable, versioned Release
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write # required to create Releases and their tags
+
+jobs:
+  build-dmg:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/src-tauri -> target
+
+      - name: Install frontend deps
+        working-directory: desktop
+        run: npm install
+
+      - name: Build .dmg
+        working-directory: desktop
+        run: npm run tauri build -- --bundles dmg
+
+      - name: Upload .dmg artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mux-macos-dmg
+          path: desktop/src-tauri/target/release/bundle/dmg/*.dmg
+          if-no-files-found: error
+
+      # --- Versioned stable release: only when a vX.Y.Z tag is pushed ---
+      - name: Publish versioned Release (on tag)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: desktop/src-tauri/target/release/bundle/dmg/*.dmg
+          fail_on_unmatched_files: true
+          generate_release_notes: true
+
+      # --- Per-push pre-release: every push to main (and manual runs) ---
+      # Each push publishes its own uniquely-tagged pre-release so every build is
+      # downloadable and kept in history. The tag is derived automatically from the
+      # app version + the monotonic run number (e.g. v0.1.1-build.42) — no manual
+      # tagging needed. The tag/release are created with the default GITHUB_TOKEN,
+      # which does NOT re-trigger this workflow, so there is no build->tag->build loop.
+      - name: Derive build tag
+        if: github.ref == 'refs/heads/main'
+        id: meta
+        run: |
+          VER=$(node -p "require('./desktop/src-tauri/tauri.conf.json').version")
+          echo "tag=v${VER}-build.${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+
+      # Rename the dmg so the downloaded file itself carries the full build tag
+      # (e.g. MUX_v0.1.1-build.6_aarch64.dmg) instead of just the bare app version.
+      - name: Tag dmg filename
+        if: github.ref == 'refs/heads/main'
+        id: dmg
+        run: |
+          SRC=$(ls desktop/src-tauri/target/release/bundle/dmg/*.dmg | head -1)
+          ARCH=$(basename "$SRC" | sed -E 's/^MUX_[^_]+_(.+)\.dmg$/\1/')
+          DEST="desktop/src-tauri/target/release/bundle/dmg/MUX_${{ steps.meta.outputs.tag }}_${ARCH}.dmg"
+          mv "$SRC" "$DEST"
+          echo "path=$DEST" >> "$GITHUB_OUTPUT"
+
+      - name: Publish per-push pre-release
+        if: github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.meta.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          name: ${{ steps.meta.outputs.tag }}
+          prerelease: true
+          files: ${{ steps.dmg.outputs.path }}
+          fail_on_unmatched_files: true
+          generate_release_notes: true
+          body: |
+            🤖 Automatic build from `main` (build #${{ github.run_number }}).
+            Pre-release — for stable, hand-cut versions see the `vX.Y.Z` releases.
+
+            Commit: ${{ github.sha }}

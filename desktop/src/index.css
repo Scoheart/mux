@@ -1,0 +1,245 @@
+@import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --color-blue: #007AFF;
+  --color-blue-hover: #0066D6;
+  --color-blue-press: #0051A3;
+  --color-green: #34C759;
+  --color-red: #FF3B30;
+  --color-gray-50: #F5F5F7;
+  --color-gray-100: #FAFAFC;
+  --color-gray-150: #ECECEF;
+  --color-gray-200: #E2E2E6;
+  --color-gray-400: #8E8E93;
+  --color-gray-600: #6E6E73;
+  --color-gray-900: #1D1D1F;
+  --color-brand-gold: #FFC83C;
+  --color-brand-coral: #FF8C64;
+  --color-brand-magenta: #E664C8;
+  --radius-mac: 10px;
+  --radius-mac-lg: 14px;
+  --radius-pill: 9999px;
+  --shadow-card: 0 1px 2px rgba(0,0,0,.04), 0 1px 3px rgba(0,0,0,.06);
+  --shadow-hover: 0 4px 12px rgba(0,0,0,.08), 0 2px 4px rgba(0,0,0,.06);
+  --shadow-sheet: 0 12px 48px rgba(0,0,0,.18), 0 2px 8px rgba(0,0,0,.12);
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", system-ui, sans-serif;
+  --font-mono: "SF Mono", ui-monospace, "Menlo", monospace;
+}
+
+:root {
+  --surface-app: var(--color-gray-50);
+  --surface-raised: #FFFFFF;
+  --surface-sidebar: rgba(250,250,252,.72);
+  /* Opaque-ish overlay for modals/drawers (kept legible over the dim backdrop). */
+  --surface-overlay: rgba(255,255,255,.82);
+  --text-primary: var(--color-gray-900);
+  --text-secondary: var(--color-gray-400);
+  --border-hairline: var(--color-gray-200);
+  --header-bg: rgba(245,245,247,.55);
+  color-scheme: light;
+
+  /* Liquid-glass material tokens — a CSS approximation of Apple's Liquid Glass
+     (the real NSGlassEffectView is native AppKit, not reachable from a webview).
+     Translucent fills + backdrop blur/saturation + a specular top highlight read
+     as frosted glass *because* there is a colored backdrop behind them (see body). */
+  --glass-fill: rgba(255,255,255,.55);
+  --glass-fill-strong: rgba(255,255,255,.72);
+  --glass-blur: 24px;          /* chrome: toolbar, headers, popovers, modals */
+  --glass-blur-card: 14px;     /* lighter, for the card grid (perf) */
+  --glass-saturate: 180%;
+  --glass-border: rgba(255,255,255,.55);
+  --glass-highlight: inset 0 1px 0 rgba(255,255,255,.7);
+  --glass-shadow: 0 8px 32px rgba(31,38,135,.10), 0 2px 8px rgba(0,0,0,.06);
+}
+
+/* Dark theme — toggled by adding `.dark` on <html>. Overrides the semantic +
+   gray tokens so everything built on var() flips; brand accents stay as-is. */
+.dark {
+  color-scheme: dark;
+  --color-gray-50:  #161618;
+  --color-gray-100: #1C1C1E;
+  --color-gray-150: #2C2C2E;
+  --color-gray-200: #38383A;
+  --color-gray-400: #8E8E93;
+  --color-gray-600: #A1A1A6;
+  --color-gray-900: #F5F5F7;
+
+  --surface-app: #161618;
+  --surface-raised: #1F1F22;
+  --surface-sidebar: rgba(30,30,32,.72);
+  --surface-overlay: rgba(38,38,42,.86);
+  --text-primary: #F5F5F7;
+  --text-secondary: #98989D;
+  --border-hairline: #3A3A3C;
+  --header-bg: rgba(22,22,24,.55);
+
+  --glass-fill: rgba(44,44,48,.50);
+  --glass-fill-strong: rgba(48,48,52,.68);
+  --glass-border: rgba(255,255,255,.10);
+  --glass-highlight: inset 0 1px 0 rgba(255,255,255,.08);
+  --glass-shadow: 0 8px 32px rgba(0,0,0,.45), 0 2px 8px rgba(0,0,0,.35);
+}
+
+/* Forced light: the chosen aesthetic is "macOS 原生浅色". We intentionally do
+   NOT follow the system dark mode — the app always renders the light design. */
+
+html, body, #root { height: 100%; margin: 0; }
+body {
+  font-family: var(--font-sans);
+  /* Soft tinted wash in the corners over the neutral base, so the glass surfaces
+     have something colorful to refract/blur. Fixed so it doesn't scroll. */
+  background:
+    radial-gradient(58% 48% at 10% 4%, color-mix(in srgb, var(--color-brand-gold) 20%, transparent), transparent 72%),
+    radial-gradient(52% 42% at 90% 2%, color-mix(in srgb, var(--color-brand-magenta) 16%, transparent), transparent 72%),
+    radial-gradient(70% 60% at 96% 98%, color-mix(in srgb, var(--color-blue) 15%, transparent), transparent 72%),
+    radial-gradient(60% 55% at 2% 96%, color-mix(in srgb, var(--color-brand-coral) 15%, transparent), transparent 72%),
+    var(--surface-app);
+  background-attachment: fixed;
+  color: var(--text-primary);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Reusable glass materials. `.glass-strong` for chrome (heavier blur), `.glass`
+   for lighter surfaces. Compose with layout classes; they own background +
+   backdrop-filter + the specular highlight, so remove any solid inline bg. */
+.glass, .glass-strong {
+  background: var(--glass-fill);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-shadow), var(--glass-highlight);
+}
+.glass-strong { background: var(--glass-fill-strong); }
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* Card list (CC-Switch-style) — frosted glass */
+.mux-card {
+  background: var(--glass-fill);
+  -webkit-backdrop-filter: blur(var(--glass-blur-card)) saturate(var(--glass-saturate));
+  backdrop-filter: blur(var(--glass-blur-card)) saturate(var(--glass-saturate));
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-mac-lg);
+  box-shadow: var(--glass-shadow), var(--glass-highlight);
+  transition: box-shadow .16s ease, border-color .16s ease, background .16s ease;
+}
+.mux-card:hover { background: var(--glass-fill-strong); box-shadow: var(--shadow-hover), var(--glass-highlight); }
+.mux-card[data-selected="true"] {
+  border-color: var(--color-blue);
+  box-shadow: 0 0 0 1px var(--color-blue), var(--shadow-hover), var(--glass-highlight);
+}
+
+/* Toolbar that fades in on hover; always visible when card is selected */
+.mux-toolbar { opacity: 0; transition: opacity .14s ease; }
+.mux-card:hover .mux-toolbar,
+.mux-card[data-selected="true"] .mux-toolbar { opacity: 1; }
+
+/* Registry tile (grid card) — frosted glass */
+.mux-tile {
+  display: flex;
+  flex-direction: column;
+  background: var(--glass-fill);
+  -webkit-backdrop-filter: blur(var(--glass-blur-card)) saturate(var(--glass-saturate));
+  backdrop-filter: blur(var(--glass-blur-card)) saturate(var(--glass-saturate));
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-mac-lg);
+  box-shadow: var(--glass-shadow), var(--glass-highlight);
+  cursor: pointer;
+  transition: box-shadow .16s ease, transform .16s ease, border-color .16s ease, background .16s ease;
+}
+.mux-tile:hover {
+  background: var(--glass-fill-strong);
+  box-shadow: var(--shadow-hover), var(--glass-highlight);
+  transform: translateY(-2px);
+  border-color: color-mix(in srgb, var(--color-blue) 35%, var(--glass-border));
+}
+.mux-tile .mux-toolbar { opacity: 0; transition: opacity .14s ease; }
+.mux-tile:hover .mux-toolbar { opacity: 1; }
+.mux-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 14px;
+}
+
+/* Square icon button */
+.mux-icon-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 30px; height: 30px; border: 0; border-radius: 8px;
+  background: transparent; color: var(--color-gray-600); cursor: pointer;
+  transition: background .12s ease, color .12s ease;
+}
+.mux-icon-btn:hover { background: var(--color-gray-150); color: var(--text-primary); }
+.mux-icon-btn[data-active="true"] {
+  background: color-mix(in srgb, var(--color-blue) 12%, transparent);
+  color: var(--color-blue);
+}
+.mux-icon-btn:disabled { opacity: .35; cursor: default; }
+.mux-icon-btn:disabled:hover { background: transparent; color: var(--color-gray-600); }
+
+/* Add-agent accent button (top-bar, right) */
+.mux-add-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 30px; height: 30px; border: 0; border-radius: 9999px; cursor: pointer;
+  background: linear-gradient(135deg, var(--color-brand-gold), var(--color-brand-coral), var(--color-brand-magenta));
+  box-shadow: 0 1px 4px color-mix(in srgb, var(--color-brand-coral) 45%, transparent);
+  transition: filter .12s ease, transform .12s ease;
+}
+.mux-add-btn:hover { filter: brightness(1.06); }
+.mux-add-btn:active { transform: scale(0.94); }
+
+/* Segmented control (top-bar tabs) */
+.mux-seg {
+  display: inline-flex; gap: 2px; padding: 3px;
+  background: rgba(120,120,128,.16); border-radius: 10px;
+}
+.mux-seg-item {
+  padding: 5px 16px; font-size: 13px; font-weight: 600; line-height: 1;
+  border: 0; border-radius: 8px; background: transparent;
+  color: var(--color-gray-600); cursor: pointer;
+  transition: background .14s ease, color .14s ease, box-shadow .14s ease;
+}
+.mux-seg-item:hover { color: var(--text-primary); }
+.mux-seg-item[data-active="true"] {
+  background: var(--surface-raised); color: var(--color-blue);
+  box-shadow: var(--shadow-card);
+}
+
+/* Agent icon button (top-bar brand-icon group) */
+.mux-agent-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  padding: 4px; border: 0; border-radius: 10px; background: transparent;
+  cursor: pointer; opacity: .6;
+  transition: background .14s ease, box-shadow .14s ease, opacity .14s ease, transform .14s ease;
+}
+.mux-agent-btn:hover { opacity: 1; background: color-mix(in srgb, #000 5%, transparent); transform: translateY(-1px); }
+.mux-agent-btn:active { transform: translateY(0) scale(0.95); }
+.mux-agent-btn[data-active="true"] {
+  opacity: 1; background: var(--surface-raised);
+  box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--color-blue) 55%, transparent), var(--shadow-card);
+}
+
+/* Button system: a solid primary action + a quiet ghost/secondary. */
+.btn-primary {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 8px 14px; font-size: 13px; font-weight: 600; line-height: 1;
+  border: 0; border-radius: var(--radius-mac); cursor: pointer; white-space: nowrap;
+  background: var(--color-blue); color: #fff;
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--color-blue) 35%, transparent);
+  transition: background .12s ease, transform .12s ease, box-shadow .12s ease;
+}
+.btn-primary:hover { background: var(--color-blue-hover); }
+.btn-primary:active { transform: scale(0.97); }
+.btn-primary:disabled { opacity: .45; cursor: default; background: var(--color-gray-400); box-shadow: none; }
+.btn-ghost {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 8px 12px; font-size: 13px; font-weight: 500; line-height: 1;
+  border: 0; border-radius: var(--radius-mac); cursor: pointer; white-space: nowrap;
+  background: transparent; color: var(--text-secondary);
+  transition: background .12s ease, color .12s ease;
+}
+.btn-ghost:hover { background: var(--color-gray-150); color: var(--text-primary); }
+
+/* Hide scrollbar on the horizontal agent strip */
+.mux-noscroll { scrollbar-width: none; }
+.mux-noscroll::-webkit-scrollbar { display: none; }

@@ -12,14 +12,34 @@ export interface McpHttpConfig {
 
 export type McpConfig = McpStdioConfig | McpHttpConfig;
 
-/** Provenance of a custom registry entry. `kind` is "discovered" (scanned from
- *  a local app config) or "manual" (created by the user). For discovered entries
- *  `agent`/`scope` identify the source app; omitted for manual ones. Absent
- *  entirely on builtin entries (origin is inferred at runtime). */
+/** Provenance of a catalog entry:
+ *  - "discovered" — scanned from a local app config (`agent`/`scope` set),
+ *  - "manual"     — created by the user by hand,
+ *  - "remote"     — from a subscribed remote source (`source` = its id),
+ *  - "local"      — from a local file source (`source` = its id). */
 export interface RegistryOrigin {
-  kind: "discovered" | "manual";
+  kind: "discovered" | "manual" | "remote" | "local";
   agent?: string;
   scope?: "global" | "project";
+  source?: string;
+}
+
+/** A catalog source: a subscribed remote URL or a local file. Servers are parsed
+ *  from a cached copy under ~/.mux/sources/<kind>/<id>.<ext>. Shape matches the
+ *  desktop's Rust SourceDef (snake_case) so both tools share settings.json. */
+export interface SourceDef {
+  id: string;
+  kind: "remote" | "local";
+  name: string;
+  url?: string;
+  path?: string;
+  format: string;
+  key: string;
+  enabled: boolean;
+  added_at?: string;
+  synced_at?: string;
+  server_count?: number;
+  error?: string;
 }
 
 export interface RegistryEntry {

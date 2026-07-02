@@ -41,11 +41,12 @@ describe("cross-tool passthrough", () => {
   it("a desktop-owned `disabled` section survives a CLI registry write", () => {
     // Simulate the desktop having written a disabled section.
     saveSettings({ disabled: { "claude-code": [{ name: "figma", transport: "http", scope: "global", config: { type: "http", url: "x" } }] } } as never);
-    // CLI mutates the registry section only.
+    // CLI adds a manual entry (now stored in a managed local source, whose
+    // registration lives in settings.sources — not settings.registry).
     writeRegistryEntry({ name: "z", description: "", tags: [], config: { stdio: { command: "c" } } });
     const raw = readSettingsFile();
     expect(raw.disabled["claude-code"]).toHaveLength(1);
-    expect(raw.registry.find((e: { name: string }) => e.name === "z")).toBeDefined();
+    expect(raw.sources.find((s: { id: string }) => s.id === "manual")).toBeDefined();
   });
 
   it("unknown future keys round-trip untouched", () => {

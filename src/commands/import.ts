@@ -1,7 +1,7 @@
 import pc from "picocolors";
 import { readAgents, writeAgents } from "../core/agents.js";
 import { scanAgents } from "../core/scanner.js";
-import { readRegistry, writeRegistryEntry, keyOf } from "../core/registry.js";
+import { readRegistry, writeDiscoveredEntry, keyOf } from "../core/registry.js";
 import type { RegistryEntry, McpConfig, McpStdioConfig, McpHttpConfig } from "../types.js";
 
 /** Composite key for a scanned config (mirrors keyOf for registry entries). */
@@ -55,7 +55,7 @@ export function importCommand(): void {
     if (existing.has(k)) continue;
     const source = sourceMap.get(k)!;
     const entry = configToRegistryEntry(name, config, source);
-    writeRegistryEntry(entry);
+    writeDiscoveredEntry(entry);
     existing.add(k);
     imported++;
     console.log(pc.green(`  + ${name}`) + pc.dim(` (from ${source.agent} [${source.scope}])`));

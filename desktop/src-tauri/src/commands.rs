@@ -85,6 +85,74 @@ pub fn list_custom_registry_keys() -> Vec<String> {
     user_override_keys()
 }
 
+/// Locate the `name -> config` server map in a pasted config value: under
+/// `mcpServers` / `mcp_servers` / `servers`, or the top-level object itself when
+/// its values all look like server configs (have `command` or `url`).
+fn extract_servers(v: &serde_json::Value) -> Option<serde_json::Map<String, serde_json::Value>> {
+    let obj = v.as_object()?;
+    for key in ["mcpServers", "mcp_servers", "servers"] {
+        if let Some(m) = obj.get(key).and_then(|x| x.as_object()) {
+            return Some(m.clone());
+        }
+    }
+    let looks_like_map = !obj.is_empty()
+        && obj.values().all(|val| {
+            val.as_object()
+                .map(|o| o.contains_key("command") || o.contains_key("url"))
+                .unwrap_or(false)
+        });
+    if looks_like_map {
+        return Some(obj.clone());
+    }
+    None
+}
+
+/// Parse a pasted config blob (JSON or TOML) and add every MCP server it contains
+/// to the managed "manual" source. Returns the names that were added. Servers that
+/// don't fit the stdio/http shape are skipped; an empty result is an error so the
+/// UI can tell the user nothing was recognized.
+#[tauri::command]
+pub fn import_pasted_config(text: String) -> Result<Vec<String>, String> {
+    use crate::core::types::{McpConfig, RegistryConfig};
+    let text = text.trim();
+    if text.is_empty() {
+        return Err("粘贴内容为空".into());
+    }
+    let value: serde_json::Value = match serde_json::from_str(text) {
+        Ok(v) => v,
+        Err(_) => {
+            let t: toml::Value =
+                toml::from_str(text).map_err(|e| format!("内容既不是有效的 JSON 也不是 TOML：{}", e))?;
+            serde_json::to_value(t).map_err(|e| e.to_string())?
+        }
+    };
+    let servers = extract_servers(&value)
+        .ok_or("未识别到 MCP 配置：需要包含 mcpServers，或直接是「名称→配置」的映射")?;
+    let mut added = Vec::new();
+    for (name, cfg_val) in servers {
+        let Ok(cfg) = serde_json::from_value::<McpConfig>(cfg_val) else {
+            continue; // skip entries that aren't a valid stdio/http config
+        };
+        let config = match cfg {
+            McpConfig::Stdio(c) => RegistryConfig { stdio: Some(c), http: None },
+            McpConfig::Http(c) => RegistryConfig { stdio: None, http: Some(c) },
+        };
+        let entry = RegistryEntry {
+            name: name.clone(),
+            description: String::new(),
+            tags: Vec::new(),
+            config,
+            origin: None,
+        };
+        write_manual_entry(&entry).map_err(|e| e.to_string())?;
+        added.push(name);
+    }
+    if added.is_empty() {
+        return Err("未在粘贴内容中找到可用的 MCP server".into());
+    }
+    Ok(added)
+}
+
 // ── Catalog sources (subscribe remote / add local) ────────────────────────
 
 use crate::core::settings::{load_settings, mutate_settings};

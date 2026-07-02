@@ -6,6 +6,7 @@ import { AgentGlyph, agentName } from "./brandIcons";
 import { CopyIcon, EditIcon, PlusIcon, LinkIcon, TerminalIcon, XIcon, CloudIcon, FolderIcon } from "./icons";
 import { Avatar, Badge, IconButton, SearchBar } from "./ui";
 import { useToast } from "./Toast";
+import { PasteConfigDialog } from "./PasteConfigDialog";
 
 interface RegistryViewProps {
   state: InstallState;
@@ -114,6 +115,7 @@ export function RegistryView({ state, onEdit, onCreate }: RegistryViewProps) {
   const [q, setQ] = useState("");
   const [filter, setFilter] = useState<OriginBucket>("all");
   const [detail, setDetail] = useState<RegistryEntry | null>(null);
+  const [pasteOpen, setPasteOpen] = useState(false);
 
   const sourceName = useCallback(
     (id: string) => sources.find((s) => s.id === id)?.name ?? id,
@@ -162,6 +164,13 @@ export function RegistryView({ state, onEdit, onCreate }: RegistryViewProps) {
           <span className="text-xs flex-shrink-0" style={{ color: "var(--text-secondary)" }}>
             {filtered.length} 个
           </span>
+          <button
+            onClick={() => setPasteOpen(true)}
+            className="btn-ghost flex-shrink-0"
+            title="粘贴 mcpServers 配置，自动识别并加入手动来源"
+          >
+            粘贴配置
+          </button>
           <button onClick={onCreate} className="btn-primary flex-shrink-0">
             <PlusIcon className="w-4 h-4" />
             新建 MCP
@@ -257,6 +266,8 @@ export function RegistryView({ state, onEdit, onCreate }: RegistryViewProps) {
           </div>
         )}
       </div>
+
+      {pasteOpen && <PasteConfigDialog state={state} onClose={() => setPasteOpen(false)} />}
 
       {detail && (
         <RegistryDetail

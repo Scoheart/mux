@@ -19,6 +19,7 @@ import {
   refreshSource,
   setSourceEnabled,
   removeSource,
+  importPastedConfig,
 } from "../lib/api";
 import type { RegistryEntry, AgentInfo, InstalledMcp, SourceView } from "../lib/types";
 import { keyOf, transportOf, installedKey } from "../lib/mcp";
@@ -61,6 +62,8 @@ export interface InstallState {
   refreshOneSource(id: string): Promise<void>;
   toggleSource(id: string, enabled: boolean): Promise<void>;
   deleteSource(id: string): Promise<void>;
+  /** Parse a pasted config blob and add its servers to the manual source. */
+  importPaste(text: string): Promise<string[]>;
 }
 
 export function useInstallState(): InstallState {
@@ -426,6 +429,16 @@ export function useInstallState(): InstallState {
     [afterSourceChange]
   );
 
+  const importPaste = useCallback(
+    async (text: string) => {
+      const names = await importPastedConfig(text);
+      // New entries land in the manual source → refresh the catalog + source list.
+      await Promise.all([refreshRegistry().catch(console.error), refreshSources().catch(console.error)]);
+      return names;
+    },
+    [refreshRegistry, refreshSources]
+  );
+
   return {
     entries,
     agents,
@@ -452,5 +465,6 @@ export function useInstallState(): InstallState {
     refreshOneSource,
     toggleSource,
     deleteSource,
+    importPaste,
   };
 }

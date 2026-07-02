@@ -23,6 +23,7 @@ pub fn run() {
             commands::upsert_registry_entry,
             commands::delete_registry_entry,
             commands::list_custom_registry_keys,
+            commands::import_pasted_config,
             commands::list_sources,
             commands::subscribe_source,
             commands::add_local_source,

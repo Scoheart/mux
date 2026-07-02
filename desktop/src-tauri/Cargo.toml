@@ -27,3 +27,10 @@ chrono = "0.4"
 dirs = "5"
 tauri-plugin-dialog = "2"
 ureq = "2"
+
+# Tuned for CI build time (and a smaller dmg). Runtime perf is irrelevant for a
+# config-manager GUI, so we trade a little optimization for faster compiles.
+[profile.release]
+codegen-units = 256   # more parallel codegen → faster compile
+opt-level = 2         # 2 vs 3 is imperceptible here, compiles quicker
+strip = true          # strip symbols → smaller binary, no separate strip step

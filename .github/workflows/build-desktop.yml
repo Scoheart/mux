@@ -4,6 +4,9 @@ name: Build desktop (macOS dmg)
 #   - push to main / manual run  -> build + publish a unique, versioned pre-release
 #                                   per push (tag v<version>-build.<run_number>)
 #   - push a tag like v0.1.1     -> build + publish the stable, versioned Release
+#
+# Build time is dominated by Rust compilation. We cache it two ways: Swatinem
+# rust-cache (deps + target) and sccache (per-unit compile cache across runs).
 on:
   push:
     branches: [main]
@@ -16,6 +19,10 @@ permissions:
 jobs:
   build-dmg:
     runs-on: macos-latest
+    env:
+      # Route rustc through sccache and back its cache with the GitHub Actions cache.
+      RUSTC_WRAPPER: sccache
+      SCCACHE_GHA_ENABLED: "true"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -28,25 +35,32 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Setup sccache
+        uses: mozilla-actions/sccache-action@v0.0.6
+
       - name: Cache Rust build
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: desktop/src-tauri -> target
+          cache-on-failure: true
+
+      - name: Cache npm downloads
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: npm-${{ runner.os }}-${{ hashFiles('desktop/package.json') }}
+          restore-keys: npm-${{ runner.os }}-
 
       - name: Install frontend deps
         working-directory: desktop
-        run: npm install
+        run: npm install --prefer-offline --no-audit --no-fund
 
       - name: Build .dmg
         working-directory: desktop
         run: npm run tauri build -- --bundles dmg
 
-      - name: Upload .dmg artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: mux-macos-dmg
-          path: desktop/src-tauri/target/release/bundle/dmg/*.dmg
-          if-no-files-found: error
+      - name: sccache stats
+        run: sccache --show-stats
 
       # --- Versioned stable release: only when a vX.Y.Z tag is pushed ---
       - name: Publish versioned Release (on tag)

@@ -55,7 +55,7 @@ export function RegistryEditPage({ state, name, transport: editTransport, onBack
   const [argsText, setArgsText] = useState((existing?.config.stdio?.args ?? []).join("\n"));
   const [env, setEnv] = useState<Record<string, string>>(existing?.config.stdio?.env ?? {});
 
-  const [httpType, setHttpType] = useState<"http" | "sse">(existing?.config.http?.type ?? "http");
+  const [httpType, setHttpType] = useState<string>(existing?.config.http?.type ?? "http");
   const [url, setUrl] = useState(existing?.config.http?.url ?? "");
   const [headers, setHeaders] = useState<Record<string, string>>(existing?.config.http?.headers ?? {});
 
@@ -76,7 +76,7 @@ export function RegistryEditPage({ state, name, transport: editTransport, onBack
               env: compact(env),
             },
           }
-        : { http: { type: httpType, url: url.trim(), headers: compact(headers) } },
+        : { http: { type: httpType.trim() || "http", url: url.trim(), headers: compact(headers) } },
     // Preserve a recorded origin across edits; brand-new entries are manual.
     origin: existing?.origin ?? { kind: "manual" },
   });
@@ -233,15 +233,28 @@ export function RegistryEditPage({ state, name, transport: editTransport, onBack
             ) : (
               <>
                 <div className="mb-4">
-                  <label className={labelCls} style={labelStyle}>类型</label>
-                  <div className="mux-seg">
-                    <button className="mux-seg-item" data-active={httpType === "http" ? "true" : undefined} onClick={() => setHttpType("http")}>
-                      http
-                    </button>
-                    <button className="mux-seg-item" data-active={httpType === "sse" ? "true" : undefined} onClick={() => setHttpType("sse")}>
-                      sse
-                    </button>
+                  <label className={labelCls} style={labelStyle}>类型 type</label>
+                  <div className="mux-seg mb-2">
+                    {["http", "sse", "streamable-http"].map((t) => (
+                      <button
+                        key={t}
+                        className="mux-seg-item"
+                        data-active={httpType === t ? "true" : undefined}
+                        onClick={() => setHttpType(t)}
+                      >
+                        {t}
+                      </button>
+                    ))}
                   </div>
+                  <input
+                    style={{ ...inputStyle, fontFamily: "var(--font-mono)" }}
+                    value={httpType}
+                    onChange={(e) => setHttpType(e.target.value)}
+                    placeholder="http / sse / streamable-http / 自定义"
+                  />
+                  <p className="text-[11px] mt-1" style={{ color: "var(--text-secondary)" }}>
+                    可点上面预设，或直接输入任意 type（如 streamable-http）。写入配置文件的就是这里的原值。
+                  </p>
                 </div>
                 <div className="mb-4">
                   <label className={labelCls} style={labelStyle}>URL</label>

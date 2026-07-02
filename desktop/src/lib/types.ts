@@ -1,5 +1,5 @@
 export interface StdioConfig { command: string; args?: string[]; env?: Record<string, string>; }
-export interface HttpConfig { type: "http" | "sse"; url: string; headers?: Record<string, string>; }
+export interface HttpConfig { type: string; url: string; headers?: Record<string, string>; }
 /** Provenance of a catalog entry:
  *  - "discovered" — scanned from a local app config (`agent`/`scope` set),
  *  - "manual"     — created by the user by hand,

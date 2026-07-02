@@ -161,7 +161,11 @@ function SourceCard({
   onRemove: () => void;
 }) {
   const isRemote = source.kind === "remote";
-  const location = isRemote ? source.url ?? "" : source.path ?? "（内嵌）";
+  const location = isRemote
+    ? source.url ?? ""
+    : source.managed
+      ? "MUX 自动管理的本地条目"
+      : source.path ?? "（内嵌）";
   return (
     <div className="mux-tile p-3.5" style={{ opacity: source.enabled ? 1 : 0.6 }}>
       {/* Header: avatar + name + kind badge */}
@@ -209,14 +213,18 @@ function SourceCard({
         <span className="text-[11px] truncate" style={{ color: "var(--text-secondary)" }}>
           {source.synced_at ? `同步于 ${source.synced_at.replace("T", " ")}` : "未同步"}
         </span>
-        <div className="flex items-center gap-0.5">
-          <IconButton title="刷新（重新抓取 / 重新读取）" onClick={onRefresh} disabled={busy}>
-            <RefreshIcon className="w-4 h-4" style={busy ? { animation: "spin 0.8s linear infinite" } : undefined} />
-          </IconButton>
-          <IconButton title="删除来源" onClick={onRemove} disabled={busy}>
-            <TrashIcon className="w-4 h-4" />
-          </IconButton>
-        </div>
+        {source.managed ? (
+          <span className="text-[11px]" style={{ color: "var(--text-secondary)" }}>自动管理</span>
+        ) : (
+          <div className="flex items-center gap-0.5">
+            <IconButton title="刷新（重新抓取 / 重新读取）" onClick={onRefresh} disabled={busy}>
+              <RefreshIcon className="w-4 h-4" style={busy ? { animation: "spin 0.8s linear infinite" } : undefined} />
+            </IconButton>
+            <IconButton title="删除来源" onClick={onRemove} disabled={busy}>
+              <TrashIcon className="w-4 h-4" />
+            </IconButton>
+          </div>
+        )}
       </div>
     </div>
   );

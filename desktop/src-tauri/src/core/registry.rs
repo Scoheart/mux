@@ -1,111 +1,192 @@
-use crate::core::settings::{load_settings, mutate_settings};
-use crate::core::types::RegistryEntry;
+use crate::core::settings::{load_settings, mutate_settings, Settings};
+use crate::core::sources::{cached_path, source_entries};
+use crate::core::types::{RegistryEntry, RegistryOrigin, SourceDef};
+use std::fs;
+use std::path::Path;
 
 /// The bundled "official" collection, embedded at compile time from the repo-root
-/// data/registry.json. It is **no longer a built-in catalog base** — the catalog
-/// is entirely source-driven now. This is exposed only so the user can opt in to
-/// it as a one-click *local* source ("官方精选合集"); see
-/// `commands::add_builtin_collection`.
+/// data/registry.json. It is **not a built-in catalog base** — the catalog is
+/// entirely source-driven. Exposed only so the user can opt in to it as a
+/// one-click *local* source ("官方精选合集"); see `commands::add_builtin_collection`.
 const BUILTIN_JSON: &str = include_str!("../../../../data/registry.json");
 
 pub fn builtin_registry() -> Vec<RegistryEntry> {
     serde_json::from_str(BUILTIN_JSON).expect("registry.json must be valid")
 }
 
-/// Insert or replace `entry` in the user list, keyed by composite key.
-fn upsert(list: &mut Vec<RegistryEntry>, entry: RegistryEntry) {
+/// Ids of the two **managed** local sources. Manually-created and auto-discovered
+/// entries are stored as ordinary local-source files under
+/// `~/.mux/sources/local/<id>.json`, exactly like an added local file — not in
+/// `settings.registry`. They appear in the Sources list like any other source.
+pub const MANUAL_ID: &str = "manual";
+pub const DISCOVERED_ID: &str = "discovered";
+
+fn now_iso() -> String {
+    chrono::Local::now().format("%Y-%m-%dT%H:%M:%S").to_string()
+}
+
+/// An in-memory `SourceDef` for a managed local source (enough to resolve its
+/// cached file path and parse it). Not persisted by itself.
+fn managed_def(id: &str, name: &str) -> SourceDef {
+    SourceDef {
+        id: id.into(),
+        kind: "local".into(),
+        name: name.into(),
+        url: None,
+        path: None,
+        format: "json".into(),
+        key: "mcpServers".into(),
+        enabled: true,
+        added_at: Some(now_iso()),
+        synced_at: None,
+        server_count: None,
+        error: None,
+    }
+}
+
+/// Register a managed source in `settings.sources` if it isn't there yet.
+fn ensure_managed(settings: &mut Settings, id: &str, name: &str) {
+    let list = settings.sources.get_or_insert_with(Vec::new);
+    if !list.iter().any(|d| d.id == id) {
+        list.push(managed_def(id, name));
+    }
+}
+
+fn read_array(path: &Path) -> Vec<RegistryEntry> {
+    fs::read_to_string(path)
+        .ok()
+        .and_then(|c| serde_json::from_str::<Vec<RegistryEntry>>(&c).ok())
+        .unwrap_or_default()
+}
+
+fn write_array(path: &Path, list: &[RegistryEntry]) -> std::io::Result<()> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let json = serde_json::to_string_pretty(list)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+    fs::write(path, json)
+}
+
+/// The entries currently stored in a managed source's file (origins preserved).
+fn managed_entries(id: &str) -> Vec<RegistryEntry> {
+    source_entries(&managed_def(id, id))
+}
+
+/// Upsert `entry` (by composite key) into a managed source's rich-array file,
+/// creating the source registration on first use.
+fn write_managed(id: &str, name: &str, entry: RegistryEntry) -> std::io::Result<()> {
+    mutate_settings(|s| ensure_managed(s, id, name))?;
+    let path = cached_path(&managed_def(id, name)).expect("managed source has a cached path");
+    let mut list = read_array(&path);
     let key = entry.key();
     list.retain(|e| e.key() != key);
     list.push(entry);
+    write_array(&path, &list)
 }
 
-/// Remove the user entry matching `name`+`transport`, if present.
-fn remove(list: &mut Vec<RegistryEntry>, name: &str, transport: &str) {
-    let target = format!("{}::{}", name, transport);
-    list.retain(|e| e.key() != target);
+/// Remove the entry matching `target_key` from a managed source's file.
+fn remove_managed(id: &str, name: &str, target_key: &str) -> std::io::Result<()> {
+    let path = cached_path(&managed_def(id, name)).expect("managed source has a cached path");
+    let mut list = read_array(&path);
+    let before = list.len();
+    list.retain(|e| e.key() != target_key);
+    if list.len() != before {
+        write_array(&path, &list)?;
+    }
+    Ok(())
 }
 
-/// All catalog entries: servers from every **enabled** source (remote + local),
-/// with the user's `settings.registry` (manual / discovered / overrides) layered
-/// on top — a user entry shadows a source entry with the same composite key
-/// (`name::transport`). No built-in base is included.
+/// Store a user-created / edited catalog entry into the **manual** local source
+/// (the user's own layer, highest precedence). Origin is normalized to "manual".
+pub fn write_manual_entry(entry: &RegistryEntry) -> std::io::Result<()> {
+    let mut e = entry.clone();
+    e.origin = Some(RegistryOrigin {
+        kind: "manual".into(),
+        agent: None,
+        scope: None,
+        source: Some(MANUAL_ID.into()),
+    });
+    write_managed(MANUAL_ID, "手动添加", e)
+}
+
+/// Store an auto-discovered entry into the **discovered** local source. The
+/// entry keeps its `origin` ("discovered" + source app).
+pub fn write_discovered_entry(entry: &RegistryEntry) -> std::io::Result<()> {
+    write_managed(DISCOVERED_ID, "自动探索", entry.clone())
+}
+
+/// All catalog entries, assembled from every enabled source and deduped by
+/// composite key (`name::transport`) with precedence low→high:
+///   external sources (subscribed remote + added local, in list order)
+///     < discovered (auto-detected)
+///     < manual (the user's own edits win over everything).
 pub fn read_registry() -> Vec<RegistryEntry> {
     use std::collections::HashMap;
-    let settings = load_settings();
+    let defs = load_settings().sources.unwrap_or_default();
     let mut by_key: HashMap<String, RegistryEntry> = HashMap::new();
-    // Sources in list order — a later source shadows an earlier one on key clash.
-    for def in settings.sources.as_deref().unwrap_or_default() {
-        if !def.enabled {
-            continue;
-        }
-        for e in crate::core::sources::source_entries(def) {
+    // 1. external sources (everything that isn't a managed source), in order.
+    for def in defs
+        .iter()
+        .filter(|d| d.enabled && d.id != MANUAL_ID && d.id != DISCOVERED_ID)
+    {
+        for e in source_entries(def) {
             by_key.insert(e.key(), e);
         }
     }
-    // User registry entries always win (edits / manual / discovered / overrides).
-    for e in settings.registry.unwrap_or_default() {
-        by_key.insert(e.key(), e);
+    // 2. discovered layer.
+    if let Some(def) = defs.iter().find(|d| d.id == DISCOVERED_ID && d.enabled) {
+        for e in source_entries(def) {
+            by_key.insert(e.key(), e);
+        }
+    }
+    // 3. manual layer (highest precedence).
+    if let Some(def) = defs.iter().find(|d| d.id == MANUAL_ID && d.enabled) {
+        for e in source_entries(def) {
+            by_key.insert(e.key(), e);
+        }
     }
     by_key.into_values().collect()
 }
 
-/// Persist (create or overwrite) a user registry entry into `settings.registry`.
-pub fn write_registry_entry(entry: &RegistryEntry) -> std::io::Result<()> {
-    mutate_settings(|s| upsert(s.registry.get_or_insert_with(Vec::new), entry.clone()))
-}
-
-/// Composite keys (`name::transport`) of entries that have a user override
-/// (i.e. live in `settings.registry` — manual, discovered, or an edited source
-/// entry). Used by the UI to mark an entry as customized / revertable.
+/// Composite keys of entries in the **manual** source — i.e. user overrides that
+/// the UI can revert ("恢复默认").
 pub fn user_override_keys() -> Vec<String> {
-    load_settings()
-        .registry
-        .unwrap_or_default()
-        .iter()
-        .map(|e| e.key())
-        .collect()
+    managed_entries(MANUAL_ID).iter().map(|e| e.key()).collect()
 }
 
-/// Remove the user override for `name`+`transport`. If a source still provides
-/// that key, the source's version shows through again; otherwise it disappears
-/// from the catalog. A missing entry is a no-op success.
+/// Remove a user override (`name`+`transport`) from the manual source. If another
+/// source still provides that key, it shows through again. A missing entry is a
+/// no-op success.
 pub fn delete_registry_entry(name: &str, transport: &str) -> std::io::Result<()> {
-    mutate_settings(|s| {
-        if let Some(list) = s.registry.as_mut() {
-            remove(list, name, transport);
+    remove_managed(MANUAL_ID, "手动添加", &format!("{}::{}", name, transport))
+}
+
+/// One-time migration: fold any legacy `settings.registry` entries into the
+/// managed source files (discovered→discovered, everything else→manual), then
+/// clear `settings.registry`. Idempotent (no-op once the section is empty).
+pub fn migrate_registry_to_sources() {
+    let Some(entries) = load_settings().registry.filter(|r| !r.is_empty()) else {
+        return;
+    };
+    for e in entries {
+        let discovered = e
+            .origin
+            .as_ref()
+            .map(|o| o.kind == "discovered")
+            .unwrap_or(false);
+        if discovered {
+            let _ = write_discovered_entry(&e);
+        } else {
+            let _ = write_manual_entry(&e);
         }
-    })
+    }
+    let _ = mutate_settings(|s| s.registry = None);
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::types::{HttpConfig, RegistryConfig, StdioConfig};
-
-    fn stdio(name: &str, cmd: &str) -> RegistryEntry {
-        RegistryEntry {
-            name: name.into(),
-            description: cmd.into(),
-            tags: vec![],
-            config: RegistryConfig {
-                stdio: Some(StdioConfig { command: cmd.into(), args: None, env: None }),
-                http: None,
-            },
-            origin: None,
-        }
-    }
-    fn http(name: &str, url: &str) -> RegistryEntry {
-        RegistryEntry {
-            name: name.into(),
-            description: url.into(),
-            tags: vec![],
-            config: RegistryConfig {
-                stdio: None,
-                http: Some(HttpConfig { kind: "http".into(), url: url.into(), headers: None }),
-            },
-            origin: None,
-        }
-    }
 
     #[test]
     fn builtin_collection_loads_40_plus() {
@@ -115,29 +196,12 @@ mod tests {
     }
 
     #[test]
-    fn upsert_replaces_same_key_and_remove_deletes() {
-        let mut list = vec![stdio("filesystem", "a")];
-        upsert(&mut list, stdio("filesystem", "b"));
-        assert_eq!(list.len(), 1);
-        assert_eq!(list[0].config.stdio.as_ref().unwrap().command, "b");
-
-        remove(&mut list, "filesystem", "stdio");
-        assert!(list.is_empty());
-        // Deleting again is a no-op.
-        remove(&mut list, "filesystem", "stdio");
-        assert!(list.is_empty());
-    }
-
-    #[test]
-    fn same_name_different_transport_coexist() {
-        let mut list = Vec::new();
-        upsert(&mut list, stdio("zz-tool", "npx"));
-        upsert(&mut list, http("zz-tool", "https://x"));
-        assert_eq!(list.len(), 2);
-
-        // Deleting one transport leaves the other intact.
-        remove(&mut list, "zz-tool", "stdio");
-        assert_eq!(list.len(), 1);
-        assert_eq!(list[0].transport(), "http");
+    fn managed_def_paths_are_stable() {
+        assert!(cached_path(&managed_def(MANUAL_ID, "手动添加"))
+            .unwrap()
+            .ends_with("local/manual.json"));
+        assert!(cached_path(&managed_def(DISCOVERED_ID, "自动探索"))
+            .unwrap()
+            .ends_with("local/discovered.json"));
     }
 }

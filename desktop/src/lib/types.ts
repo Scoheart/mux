@@ -65,6 +65,9 @@ export interface SourceView {
   synced_at: string | null;
   server_count: number;
   error: string | null;
+  /** True for the auto-managed sources (手动添加 / 自动探索); the UI hides
+   *  refresh/remove for these. */
+  managed: boolean;
 }
 
 export interface InstallRequest {

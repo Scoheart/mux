@@ -1,6 +1,6 @@
 use crate::core::registry::{
     delete_registry_entry as delete_entry, read_registry, user_override_keys,
-    write_registry_entry as write_entry,
+    write_discovered_entry, write_manual_entry, DISCOVERED_ID, MANUAL_ID,
 };
 use crate::core::types::RegistryEntry;
 
@@ -14,7 +14,8 @@ pub fn list_registry() -> Vec<RegistryEntry> {
 /// Persist (create or overwrite) a user registry entry into settings.registry.
 #[tauri::command]
 pub fn upsert_registry_entry(entry: RegistryEntry) -> Result<(), String> {
-    write_entry(&entry).map_err(|e| e.to_string())
+    // User-created / edited entries live in the managed "manual" local source.
+    write_manual_entry(&entry).map_err(|e| e.to_string())
 }
 
 /// Remove a user registry override for a given name+transport; reverts to
@@ -51,13 +52,17 @@ pub struct SourceView {
     pub synced_at: Option<String>,
     pub server_count: u32,
     pub error: Option<String>,
+    /// True for the two auto-managed sources ("手动添加" / "自动探索") — the UI
+    /// hides refresh/remove for these to avoid accidental data loss.
+    pub managed: bool,
 }
 
 fn to_view(def: SourceDef, count: u32) -> SourceView {
+    let managed = def.id == MANUAL_ID || def.id == DISCOVERED_ID;
     SourceView {
         id: def.id, kind: def.kind, name: def.name, url: def.url, path: def.path,
         format: def.format, enabled: def.enabled, added_at: def.added_at,
-        synced_at: def.synced_at, server_count: count, error: def.error,
+        synced_at: def.synced_at, server_count: count, error: def.error, managed,
     }
 }
 
@@ -529,7 +534,7 @@ pub fn import_discovered(project_dir: Option<String>) -> Result<usize, String> {
                 source: None,
             }),
         };
-        write_entry(&entry).map_err(|e| e.to_string())?;
+        write_discovered_entry(&entry).map_err(|e| e.to_string())?;
         imported += 1;
     }
     Ok(imported)
@@ -817,19 +822,23 @@ mod tests {
 
     #[test]
     fn preview_returns_planned_write_for_seeded_server() {
-        // No built-in catalog anymore: seed a user registry entry in an isolated
-        // ~/.mux and confirm preview resolves it against a builtin agent.
+        use crate::core::types::{RegistryConfig, RegistryEntry, StdioConfig};
+        // No built-in catalog anymore: seed a manual entry through the real store
+        // (a managed local source) in an isolated ~/.mux, then preview it.
         let home = std::env::temp_dir().join(format!("mux-preview-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&home);
         std::fs::create_dir_all(home.join(".mux")).unwrap();
         std::env::set_var("HOME", &home);
-        std::fs::write(
-            home.join(".mux/settings.json"),
-            r#"{"version":1,"registry":[
-                {"name":"seeded","description":"","tags":[],
-                 "config":{"stdio":{"command":"npx","args":["-y","seeded"]}}}
-            ]}"#,
-        )
+        crate::core::registry::write_manual_entry(&RegistryEntry {
+            name: "seeded".into(),
+            description: String::new(),
+            tags: vec![],
+            config: RegistryConfig {
+                stdio: Some(StdioConfig { command: "npx".into(), args: Some(vec!["-y".into(), "seeded".into()]), env: None }),
+                http: None,
+            },
+            origin: None,
+        })
         .unwrap();
         let req = InstallRequest {
             server_name: "seeded".into(), transport: "stdio".into(), scope: "global".into(),

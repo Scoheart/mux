@@ -55,10 +55,15 @@ pub fn parse_file(path: &Path, format: &str, key: &str, origin: &RegistryOrigin)
     if format != "toml" {
         if let Ok(content) = fs::read_to_string(path) {
             if let Ok(arr) = serde_json::from_str::<Vec<RegistryEntry>>(&content) {
+                // Preserve an entry's own origin if it carries one (managed
+                // manual/discovered files store explicit origins); otherwise tag
+                // it with this source's origin.
                 return arr
                     .into_iter()
                     .map(|mut e| {
-                        e.origin = Some(origin.clone());
+                        if e.origin.is_none() {
+                            e.origin = Some(origin.clone());
+                        }
                         e
                     })
                     .collect();

@@ -5,7 +5,8 @@ export interface McpStdioConfig {
 }
 
 export interface McpHttpConfig {
-  type: "http" | "sse";
+  /** Transport type: "http" | "sse" | "streamable-http" | any custom value. */
+  type: string;
   url: string;
   headers?: Record<string, string>;
 }

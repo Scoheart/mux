@@ -20,7 +20,7 @@ interface FormState {
   args: string;
   env: string;
   url: string;
-  httpType: "http" | "sse";
+  httpType: string;
   headers: string;
 }
 
@@ -140,10 +140,6 @@ export function RegistryEditView({ entry, onSave, onCancel }: Props) {
         setForm((f) => ({ ...f, mcpType: f.mcpType === "stdio" ? "http" : "stdio" }));
         return;
       }
-      if (field === "httpType") {
-        setForm((f) => ({ ...f, httpType: f.httpType === "http" ? "sse" : "http" }));
-        return;
-      }
       setEditing(true);
       return;
     }
@@ -181,8 +177,6 @@ export function RegistryEditView({ entry, onSave, onCancel }: Props) {
                   <Text color={isCursor ? "yellow" : "gray"}>{getFieldLabel(field)}:</Text>
                 </Box>
                 {field === "mcpType" ? (
-                  <Text color="cyan">{value} <Text dimColor>(Enter to toggle)</Text></Text>
-                ) : field === "httpType" ? (
                   <Text color="cyan">{value} <Text dimColor>(Enter to toggle)</Text></Text>
                 ) : isEditing ? (
                   <TextInput

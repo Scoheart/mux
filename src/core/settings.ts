@@ -8,7 +8,7 @@ import {
 } from "node:fs";
 import { join, dirname } from "node:path";
 import { homedir } from "node:os";
-import type { RegistryEntry, AgentDefinition, StateConfig } from "../types.js";
+import type { RegistryEntry, AgentDefinition, StateConfig, SourceDef } from "../types.js";
 
 /**
  * Single consolidated user-data file: `~/.mux/settings.json`.
@@ -36,6 +36,9 @@ export interface Settings {
   imported?: string;
   /** Desktop-owned disable snapshots — opaque to the CLI, carried through. */
   disabled?: unknown;
+  /** Catalog sources (subscribed remote + local files, incl. the managed
+   *  manual/discovered local sources). Shared with the desktop. */
+  sources?: SourceDef[];
   /** Forward-compat: unknown top-level keys round-trip untouched. */
   [key: string]: unknown;
 }

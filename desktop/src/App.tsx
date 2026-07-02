@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Layout } from "./components/Layout";
 import { RegistryView } from "./components/RegistryView";
+import { SourcesView } from "./components/SourcesView";
 import { RegistryEditPage } from "./components/RegistryEditPage";
 import { AgentView } from "./components/AgentView";
 import { AddAgentDialog } from "./components/AddAgentDialog";
@@ -29,6 +30,7 @@ function App() {
       agents={state.agents}
       view={view}
       onSelectRegistry={() => setView({ kind: "registry" })}
+      onSelectSources={() => setView({ kind: "sources" })}
       onSelectAgent={(id) => setView({ kind: "agent", id })}
       onAddAgent={() => setAddAgentOpen(true)}
       onRescan={state.refreshAll}
@@ -46,6 +48,8 @@ function App() {
           onEdit={(name, transport) => setView({ kind: "mcp-edit", name, transport })}
           onCreate={() => setView({ kind: "mcp-edit", name: null })}
         />
+      ) : view.kind === "sources" ? (
+        <SourcesView state={state} />
       ) : (
         <AgentView state={state} agentId={view.id} />
       )}

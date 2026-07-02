@@ -9,6 +9,9 @@ pub fn run() {
         .setup(|_app| {
             // Fold any legacy ~/.mux files into a single settings.json on first run.
             core::settings::migrate_if_needed();
+            // Move any legacy settings.registry entries into the managed
+            // "manual"/"discovered" local-source files (one-time).
+            core::registry::migrate_registry_to_sources();
             // Pre-detect each agent's existing MCP servers into the Registry so they
             // show up (and become manageable) the moment the app opens. Global scope
             // only here (no project dir at launch); best-effort.
@@ -20,6 +23,14 @@ pub fn run() {
             commands::upsert_registry_entry,
             commands::delete_registry_entry,
             commands::list_custom_registry_keys,
+            commands::list_sources,
+            commands::subscribe_source,
+            commands::add_local_source,
+            commands::add_local_source_dialog,
+            commands::add_builtin_collection,
+            commands::refresh_source,
+            commands::set_source_enabled,
+            commands::remove_source,
             commands::list_agents,
             commands::add_agent,
             commands::update_agent,

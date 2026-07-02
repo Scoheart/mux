@@ -13,7 +13,7 @@
 
 use crate::core::disabled::DisabledEntry;
 use crate::core::paths::{backups_dir, mux_dir, registry_dir, settings_file, user_agents_file};
-use crate::core::types::{AgentDefinition, RegistryEntry};
+use crate::core::types::{AgentDefinition, RegistryEntry, SourceDef};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
@@ -29,9 +29,14 @@ pub struct Settings {
     /// User agent map. Absent ⇒ fall back to the builtin agents.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agents: Option<BTreeMap<String, AgentDefinition>>,
-    /// User/custom/override registry entries (merged over builtins on read).
+    /// User/custom/override registry entries (manual + discovered + overrides),
+    /// layered over the entries contributed by `sources` on read.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub registry: Option<Vec<RegistryEntry>>,
+    /// User-added catalog sources (subscribed remote URLs + local files). Their
+    /// servers are parsed from cached files under `~/.mux/sources/` on read.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sources: Option<Vec<SourceDef>>,
     /// Disable snapshots, keyed by agent id.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub disabled: Option<BTreeMap<String, Vec<DisabledEntry>>>,

@@ -1,9 +1,13 @@
 #!/usr/bin/env node
 import { program } from "commander";
 import { migrateIfNeeded } from "./core/settings.js";
+import { migrateRegistryToSources } from "./core/sources.js";
 
-// Fold any legacy ~/.mux files into a single settings.json on first run.
+// Fold any legacy ~/.mux files into a single settings.json on first run, then
+// move manual/discovered registry entries into managed local-source files so the
+// CLI and desktop share the same source-based storage.
 migrateIfNeeded();
+migrateRegistryToSources();
 
 program
   .name("mux")

@@ -7,6 +7,7 @@ pub mod adapter;
 pub mod json_adapter;
 pub mod toml_adapter;
 pub mod registry;
+pub mod sources;
 pub mod disabled;
 pub mod r#override;
 pub mod scanner;

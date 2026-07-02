@@ -1,13 +1,15 @@
 export interface StdioConfig { command: string; args?: string[]; env?: Record<string, string>; }
 export interface HttpConfig { type: "http" | "sse"; url: string; headers?: Record<string, string>; }
-/** Provenance of a custom registry entry. `kind` is "discovered" (scanned from
- *  a local app config) or "manual" (created by the user). For discovered entries
- *  `agent`/`scope` identify the source app; omitted for manual ones. Absent
- *  entirely on builtin entries (origin is inferred at runtime). */
+/** Provenance of a catalog entry:
+ *  - "discovered" — scanned from a local app config (`agent`/`scope` set),
+ *  - "manual"     — created by the user by hand,
+ *  - "remote"     — from a subscribed remote source (`source` = its id),
+ *  - "local"      — from a local file source (`source` = its id). */
 export interface RegistryOrigin {
-  kind: "discovered" | "manual";
+  kind: "discovered" | "manual" | "remote" | "local";
   agent?: string;
   scope?: string;
+  source?: string;
 }
 export interface RegistryEntry {
   name: string; description: string; tags: string[];
@@ -44,8 +46,29 @@ export interface PatchInput {
  *  full-page MCP editor (name === null means creating a new entry). */
 export type View =
   | { kind: "registry" }
+  | { kind: "sources" }
   | { kind: "agent"; id: string }
   | { kind: "mcp-edit"; name: string | null; transport?: "stdio" | "http" };
+
+/** A catalog source (mirrors Rust SourceView): a subscribed remote URL or a
+ *  local file. Its servers are parsed from a cached copy under ~/.mux/sources/. */
+export type SourceKind = "remote" | "local";
+export interface SourceView {
+  id: string;
+  kind: SourceKind;
+  name: string;
+  url: string | null;
+  path: string | null;
+  format: string;
+  enabled: boolean;
+  added_at: string | null;
+  synced_at: string | null;
+  server_count: number;
+  error: string | null;
+  /** True for the auto-managed sources (手动添加 / 自动探索); the UI hides
+   *  refresh/remove for these. */
+  managed: boolean;
+}
 
 export interface InstallRequest {
   server_name: string; transport: "stdio" | "http"; scope: "global" | "project"; agents: string[];

@@ -1,6 +1,6 @@
 import { ReactNode, useState } from "react";
 import type { AgentInfo, View } from "../lib/types";
-import { RefreshIcon, PackageIcon, PlusIcon, SunIcon, MoonIcon } from "./icons";
+import { RefreshIcon, PackageIcon, PlusIcon, SunIcon, MoonIcon, CloudIcon } from "./icons";
 import { AgentGlyph, agentName } from "./brandIcons";
 import { applyTheme, getInitialTheme, type Theme } from "../lib/theme";
 
@@ -9,6 +9,7 @@ interface LayoutProps {
   agents: AgentInfo[];
   view: View;
   onSelectRegistry: () => void;
+  onSelectSources: () => void;
   onSelectAgent: (id: string) => void;
   onAddAgent?: () => void;
   onRescan?: () => Promise<unknown> | void;
@@ -19,6 +20,7 @@ export function Layout({
   agents,
   view,
   onSelectRegistry,
+  onSelectSources,
   onSelectAgent,
   onAddAgent,
   onRescan,
@@ -64,7 +66,7 @@ export function Layout({
           MUX
         </span>
 
-        {/* Registry entry (isolated group) */}
+        {/* Catalog + Sources (isolated group) */}
         <div className="mux-seg flex-shrink-0">
           <button
             className="mux-seg-item"
@@ -74,6 +76,16 @@ export function Layout({
             <span className="flex items-center gap-1.5">
               <PackageIcon className="w-3.5 h-3.5" />
               Registry
+            </span>
+          </button>
+          <button
+            className="mux-seg-item"
+            data-active={view.kind === "sources" ? "true" : undefined}
+            onClick={onSelectSources}
+          >
+            <span className="flex items-center gap-1.5">
+              <CloudIcon className="w-3.5 h-3.5" />
+              来源
             </span>
           </button>
         </div>

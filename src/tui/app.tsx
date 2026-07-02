@@ -13,7 +13,7 @@ import { RegistryAddView } from "./registry-add-view.js";
 import { RegistryDeleteConfirm } from "./registry-delete-confirm.js";
 import { expandTilde } from "../utils/path.js";
 import { MCP_HUB_DIR, BACKUPS_DIR } from "../constants.js";
-import { readRegistry, writeRegistryEntry, removeRegistryEntry, keyOf, transportOf } from "../core/registry.js";
+import { readRegistry, writeRegistryEntry, writeDiscoveredEntry, removeRegistryEntry, keyOf, transportOf } from "../core/registry.js";
 import { readAgents, getEnabledAgents, writeAgents } from "../core/agents.js";
 import { loadSettings, mutateSettings } from "../core/settings.js";
 import type { McpStdioConfig, McpHttpConfig, Scope, AgentsConfig } from "../types.js";
@@ -365,7 +365,7 @@ export function App() {
               }
               const k = keyOf(entry);
               if (existingKeys.has(k)) continue;
-              writeRegistryEntry(entry);
+              writeDiscoveredEntry(entry);
               existingKeys.add(k);
             }
 

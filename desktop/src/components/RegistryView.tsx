@@ -3,7 +3,7 @@ import type { InstallState } from "../hooks/useInstallState";
 import type { RegistryEntry } from "../lib/types";
 import { keyOf, transportOf, transportLabel, type Transport } from "../lib/mcp";
 import { AgentGlyph, agentName } from "./brandIcons";
-import { CopyIcon, EditIcon, PlusIcon, LinkIcon, TerminalIcon, XIcon } from "./icons";
+import { CopyIcon, EditIcon, PlusIcon, LinkIcon, TerminalIcon, XIcon, CloudIcon, FolderIcon } from "./icons";
 import { Avatar, Badge, IconButton, SearchBar } from "./ui";
 import { useToast } from "./Toast";
 
@@ -11,6 +11,27 @@ interface RegistryViewProps {
   state: InstallState;
   onEdit: (name: string, transport: Transport) => void;
   onCreate: () => void;
+}
+
+/** Origin buckets used by the source filter. */
+type OriginBucket = "all" | "remote" | "local" | "manual" | "discovered";
+
+const FILTERS: { value: OriginBucket; label: string }[] = [
+  { value: "all", label: "全部" },
+  { value: "remote", label: "订阅" },
+  { value: "local", label: "本地" },
+  { value: "manual", label: "手动" },
+  { value: "discovered", label: "探索" },
+];
+
+/** Classify an entry's origin into a filter bucket. Entries with no origin, or a
+ *  legacy/unknown kind, fall into "discovered" (scanned-from-machine). */
+function bucketOf(entry: RegistryEntry): Exclude<OriginBucket, "all"> {
+  const k = entry.origin?.kind;
+  if (k === "remote") return "remote";
+  if (k === "local") return "local";
+  if (k === "manual") return "manual";
+  return "discovered";
 }
 
 function endpointOf(entry: RegistryEntry): { text: string; link: boolean } {
@@ -22,8 +43,7 @@ function endpointOf(entry: RegistryEntry): { text: string; link: boolean } {
   return { text: entry.description || "—", link: false };
 }
 
-/** Small pill showing an entry's transport (stdio / http / sse). Sized to sit
- *  on the same baseline as the origin Badge in the unified label row. */
+/** Small pill showing an entry's transport (stdio / http / sse). */
 function TransportTag({ entry }: { entry: RegistryEntry }) {
   return (
     <span
@@ -39,20 +59,38 @@ function TransportTag({ entry }: { entry: RegistryEntry }) {
   );
 }
 
-/** Origin indicator: 内置 (builtin) / 机器探索 (discovered, with source app icon) /
- *  手动添加 (manual). Falls back to deriving the source app from where the server is
- *  currently installed for legacy entries that predate the recorded origin. */
+/** Provenance indicator: 订阅:X (remote source) / 本地:X (local source) / 手动添加 /
+ *  来自 {agent} (discovered). There is no built-in bucket anymore. */
 function OriginTag({
   entry,
-  isCustom,
   installedAgents,
+  sourceName,
 }: {
   entry: RegistryEntry;
-  isCustom: boolean;
   installedAgents: string[];
+  sourceName: (id: string) => string;
 }) {
-  if (!isCustom) return <Badge tone="neutral">内置</Badge>;
   const origin = entry.origin;
+  if (origin?.kind === "remote") {
+    return (
+      <span className="inline-flex items-center gap-1" title={`订阅：${origin.source ? sourceName(origin.source) : ""}`}>
+        <CloudIcon className="w-3.5 h-3.5" style={{ color: "var(--color-blue)" }} />
+        <span className="text-[11px]" style={{ color: "var(--text-secondary)" }}>
+          订阅{origin.source ? `：${sourceName(origin.source)}` : ""}
+        </span>
+      </span>
+    );
+  }
+  if (origin?.kind === "local") {
+    return (
+      <span className="inline-flex items-center gap-1" title={`本地：${origin.source ? sourceName(origin.source) : ""}`}>
+        <FolderIcon className="w-3.5 h-3.5" style={{ color: "var(--text-secondary)" }} />
+        <span className="text-[11px]" style={{ color: "var(--text-secondary)" }}>
+          本地{origin.source ? `：${sourceName(origin.source)}` : ""}
+        </span>
+      </span>
+    );
+  }
   if (origin?.kind === "manual") return <Badge tone="info">手动添加</Badge>;
   // discovered (recorded) or legacy custom: show the source app when known.
   const agent = origin?.agent ?? installedAgents[0];
@@ -66,30 +104,34 @@ function OriginTag({
       </span>
     );
   }
-  // Custom entry whose source app is unknown (no recorded origin, not currently
-  // installed anywhere) — it still came from a machine scan, so label it 机器探索.
   return <Badge tone="neutral">机器探索</Badge>;
 }
 
 export function RegistryView({ state, onEdit, onCreate }: RegistryViewProps) {
-  const { entries, agentsForServer, customKeys } = state;
+  const { entries, agentsForServer, sources } = state;
   const toast = useToast();
 
   const [q, setQ] = useState("");
+  const [filter, setFilter] = useState<OriginBucket>("all");
   const [detail, setDetail] = useState<RegistryEntry | null>(null);
+
+  const sourceName = useCallback(
+    (id: string) => sources.find((s) => s.id === id)?.name ?? id,
+    [sources]
+  );
 
   const filtered = useMemo(() => {
     const s = q.trim().toLowerCase();
-    const list = s
+    let list = s
       ? entries.filter(
           (e) => e.name.toLowerCase().includes(s) || e.description.toLowerCase().includes(s)
         )
       : entries;
-    // Alphabetical order by name (case-insensitive).
+    if (filter !== "all") list = list.filter((e) => bucketOf(e) === filter);
     return [...list].sort((a, b) =>
       a.name.localeCompare(b.name, undefined, { sensitivity: "base" })
     );
-  }, [entries, q]);
+  }, [entries, q, filter]);
 
   const copyConfig = useCallback(
     (entry: RegistryEntry) => {
@@ -103,7 +145,7 @@ export function RegistryView({ state, onEdit, onCreate }: RegistryViewProps) {
 
   return (
     <div className="h-full min-h-0 overflow-y-auto">
-      {/* Sticky header: search + new */}
+      {/* Sticky header: search + new, then a source filter row */}
       <div
         className="sticky top-0 z-10 px-6 py-4"
         style={{
@@ -125,12 +167,28 @@ export function RegistryView({ state, onEdit, onCreate }: RegistryViewProps) {
             新建 MCP
           </button>
         </div>
+        <div className="max-w-[1280px] mx-auto mt-3 flex items-center gap-2">
+          <div className="mux-seg">
+            {FILTERS.map((f) => (
+              <button
+                key={f.value}
+                className="mux-seg-item"
+                data-active={filter === f.value ? "true" : undefined}
+                onClick={() => setFilter(f.value)}
+              >
+                {f.label}
+              </button>
+            ))}
+          </div>
+        </div>
       </div>
 
       <div className="max-w-[1280px] mx-auto px-6 pt-5 pb-8">
         {filtered.length === 0 ? (
           <div className="py-16 text-sm text-center" style={{ color: "var(--text-secondary)" }}>
-            未找到匹配的 MCP
+            {entries.length === 0
+              ? "目录为空 —— 到「来源」页订阅一个 URL 或添加本地配置文件。"
+              : "未找到匹配的 MCP"}
           </div>
         ) : (
           <div className="mux-grid">
@@ -138,17 +196,10 @@ export function RegistryView({ state, onEdit, onCreate }: RegistryViewProps) {
               const sKey = keyOf(entry);
               const installedAgents = agentsForServer(sKey);
               const usedBy = installedAgents.length;
-              const isCustom = customKeys.has(sKey);
               const ep = endpointOf(entry);
 
               return (
-                <div
-                  key={sKey}
-                  className="mux-tile p-3.5"
-                  onClick={() => setDetail(entry)}
-                >
-                  {/* Header: avatar + name; meta labels (transport + origin) on a
-                      single tidy row beneath the name. */}
+                <div key={sKey} className="mux-tile p-3.5" onClick={() => setDetail(entry)}>
                   <div className="flex items-center gap-2.5">
                     <Avatar seed={entry.name} size={34} />
                     <div className="flex-1 min-w-0">
@@ -161,23 +212,16 @@ export function RegistryView({ state, onEdit, onCreate }: RegistryViewProps) {
                       </div>
                       <div className="flex items-center gap-1.5 mt-1">
                         <TransportTag entry={entry} />
-                        <OriginTag entry={entry} isCustom={isCustom} installedAgents={installedAgents} />
+                        <OriginTag entry={entry} installedAgents={installedAgents} sourceName={sourceName} />
                       </div>
                     </div>
                   </div>
 
-                  {/* Endpoint / command */}
                   <div className="flex items-center gap-1.5 mt-2.5 min-w-0">
                     {ep.link ? (
-                      <LinkIcon
-                        className="w-3.5 h-3.5 flex-shrink-0"
-                        style={{ color: "var(--color-blue)" }}
-                      />
+                      <LinkIcon className="w-3.5 h-3.5 flex-shrink-0" style={{ color: "var(--color-blue)" }} />
                     ) : (
-                      <TerminalIcon
-                        className="w-3.5 h-3.5 flex-shrink-0"
-                        style={{ color: "var(--text-secondary)" }}
-                      />
+                      <TerminalIcon className="w-3.5 h-3.5 flex-shrink-0" style={{ color: "var(--text-secondary)" }} />
                     )}
                     <span
                       className="text-[11px] truncate"
@@ -191,7 +235,6 @@ export function RegistryView({ state, onEdit, onCreate }: RegistryViewProps) {
                     </span>
                   </div>
 
-                  {/* Footer: usage status + hover toolbar */}
                   <div className="flex items-center justify-between mt-3 pt-3" style={{ borderTop: "1px solid var(--border-hairline)" }}>
                     {usedBy > 0 ? (
                       <Badge tone="success">{usedBy} 个 agent 使用</Badge>
@@ -215,12 +258,11 @@ export function RegistryView({ state, onEdit, onCreate }: RegistryViewProps) {
         )}
       </div>
 
-      {/* Read-only detail modal */}
       {detail && (
         <RegistryDetail
           entry={detail}
-          isCustom={customKeys.has(keyOf(detail))}
           installedAgents={agentsForServer(keyOf(detail))}
+          sourceName={sourceName}
           onClose={() => setDetail(null)}
           onCopy={() => copyConfig(detail)}
           onEdit={() => {
@@ -237,15 +279,15 @@ export function RegistryView({ state, onEdit, onCreate }: RegistryViewProps) {
 
 function RegistryDetail({
   entry,
-  isCustom,
   installedAgents,
+  sourceName,
   onClose,
   onCopy,
   onEdit,
 }: {
   entry: RegistryEntry;
-  isCustom: boolean;
   installedAgents: string[];
+  sourceName: (id: string) => string;
   onClose: () => void;
   onCopy: () => void;
   onEdit: () => void;
@@ -267,11 +309,7 @@ function RegistryDetail({
         }}
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Header */}
-        <div
-          className="flex items-center gap-3 px-6 py-5"
-          style={{ borderBottom: "1px solid var(--border-hairline)" }}
-        >
+        <div className="flex items-center gap-3 px-6 py-5" style={{ borderBottom: "1px solid var(--border-hairline)" }}>
           <Avatar seed={entry.name} size={40} />
           <div className="flex-1 min-w-0">
             <h2 className="text-base font-semibold m-0 truncate" style={{ color: "var(--text-primary)" }}>
@@ -279,7 +317,7 @@ function RegistryDetail({
             </h2>
             <div className="flex items-center gap-1.5 mt-1">
               <TransportTag entry={entry} />
-              <OriginTag entry={entry} isCustom={isCustom} installedAgents={installedAgents} />
+              <OriginTag entry={entry} installedAgents={installedAgents} sourceName={sourceName} />
             </div>
           </div>
           <button
@@ -291,7 +329,6 @@ function RegistryDetail({
           </button>
         </div>
 
-        {/* Body */}
         <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
           {entry.description && (
             <p className="text-sm leading-relaxed m-0" style={{ color: "var(--text-secondary)" }}>
@@ -323,11 +360,7 @@ function RegistryDetail({
           </div>
         </div>
 
-        {/* Footer */}
-        <div
-          className="flex items-center justify-end gap-2 px-6 py-4"
-          style={{ borderTop: "1px solid var(--border-hairline)" }}
-        >
+        <div className="flex items-center justify-end gap-2 px-6 py-4" style={{ borderTop: "1px solid var(--border-hairline)" }}>
           <button
             onClick={onCopy}
             className="flex items-center gap-1.5 px-4 py-2 text-sm rounded-mac cursor-pointer"

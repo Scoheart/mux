@@ -12,8 +12,15 @@ import {
   listCustomRegistryKeys,
   upsertRegistry,
   importDiscovered,
+  listSources,
+  subscribeSource,
+  addLocalSourceDialog,
+  addBuiltinCollection,
+  refreshSource,
+  setSourceEnabled,
+  removeSource,
 } from "../lib/api";
-import type { RegistryEntry, AgentInfo, InstalledMcp } from "../lib/types";
+import type { RegistryEntry, AgentInfo, InstalledMcp, SourceView } from "../lib/types";
 import { keyOf, transportOf, installedKey } from "../lib/mcp";
 import { useToast } from "../components/Toast";
 
@@ -45,6 +52,15 @@ export interface InstallState {
   refreshAll(): Promise<void>;
   refreshRegistry(): Promise<RegistryEntry[]>;
   refreshAgents(): Promise<AgentInfo[]>;
+  /** Catalog sources: subscribed remote URLs + local files. */
+  sources: SourceView[];
+  refreshSources(): Promise<SourceView[]>;
+  subscribe(url: string, name?: string): Promise<SourceView>;
+  pickLocalSource(): Promise<SourceView | null>;
+  addCuratedCollection(): Promise<SourceView>;
+  refreshOneSource(id: string): Promise<void>;
+  toggleSource(id: string, enabled: boolean): Promise<void>;
+  deleteSource(id: string): Promise<void>;
 }
 
 export function useInstallState(): InstallState {
@@ -54,6 +70,7 @@ export function useInstallState(): InstallState {
   const [loading, setLoading] = useState(true);
   const [pending, setPending] = useState<Set<string>>(new Set());
   const [customKeys, setCustomKeys] = useState<Set<string>>(new Set());
+  const [sources, setSources] = useState<SourceView[]>([]);
   const toast = useToast();
 
   // Ref to prevent stale closure issues with pending state
@@ -88,20 +105,31 @@ export function useInstallState(): InstallState {
     return data;
   }, []);
 
+  const refreshSources = useCallback(async () => {
+    const data = await listSources();
+    setSources(data);
+    return data;
+  }, []);
+
   // Full sync (toolbar refresh): detect any newly-added agent MCPs into the
   // registry, then refresh the registry + the install scan together.
   const refreshAll = useCallback(async () => {
     await importDiscovered().catch(console.error);
-    await Promise.all([refreshRegistry().catch(console.error), doScan().catch(console.error)]);
-  }, [refreshRegistry, doScan]);
+    await Promise.all([
+      refreshRegistry().catch(console.error),
+      refreshSources().catch(console.error),
+      doScan().catch(console.error),
+    ]);
+  }, [refreshRegistry, refreshSources, doScan]);
 
   useEffect(() => {
     Promise.all([
       refreshRegistry().catch(console.error),
+      refreshSources().catch(console.error),
       listAgents().then(setAgents).catch(console.error),
       doScan().catch(console.error),
     ]).finally(() => setLoading(false));
-  }, [doScan, refreshRegistry]);
+  }, [doScan, refreshRegistry, refreshSources]);
 
   // The Matrix/Registry views care about *active* installs only, so these maps
   // filter to enabled rows. Disabled servers (remembered in ~/.mux/disabled.json,
@@ -344,6 +372,60 @@ export function useInstallState(): InstallState {
     [doScan, toast]
   );
 
+  // ── Source actions: each mutation refreshes the source list AND the catalog
+  // (the aggregated registry changes when a source is added/toggled/removed).
+  const afterSourceChange = useCallback(async () => {
+    await Promise.all([
+      refreshSources().catch(console.error),
+      refreshRegistry().catch(console.error),
+    ]);
+  }, [refreshSources, refreshRegistry]);
+
+  const subscribe = useCallback(
+    async (url: string, name?: string) => {
+      const v = await subscribeSource(url, name);
+      await afterSourceChange();
+      return v;
+    },
+    [afterSourceChange]
+  );
+
+  const pickLocalSource = useCallback(async () => {
+    const v = await addLocalSourceDialog();
+    if (v) await afterSourceChange();
+    return v;
+  }, [afterSourceChange]);
+
+  const addCuratedCollection = useCallback(async () => {
+    const v = await addBuiltinCollection();
+    await afterSourceChange();
+    return v;
+  }, [afterSourceChange]);
+
+  const refreshOneSource = useCallback(
+    async (id: string) => {
+      await refreshSource(id);
+      await afterSourceChange();
+    },
+    [afterSourceChange]
+  );
+
+  const toggleSource = useCallback(
+    async (id: string, enabled: boolean) => {
+      await setSourceEnabled(id, enabled);
+      await afterSourceChange();
+    },
+    [afterSourceChange]
+  );
+
+  const deleteSource = useCallback(
+    async (id: string) => {
+      await removeSource(id);
+      await afterSourceChange();
+    },
+    [afterSourceChange]
+  );
+
   return {
     entries,
     agents,
@@ -362,5 +444,13 @@ export function useInstallState(): InstallState {
     refreshAll,
     refreshRegistry,
     refreshAgents,
+    sources,
+    refreshSources,
+    subscribe,
+    pickLocalSource,
+    addCuratedCollection,
+    refreshOneSource,
+    toggleSource,
+    deleteSource,
   };
 }

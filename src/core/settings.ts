@@ -36,6 +36,9 @@ export interface Settings {
   imported?: string;
   /** Desktop-owned disable snapshots — opaque to the CLI, carried through. */
   disabled?: unknown;
+  /** Desktop-owned catalog sources (subscribed remote + local files) — opaque to
+   *  the CLI (it doesn't browse subscribed servers yet), carried through. */
+  sources?: unknown;
   /** Forward-compat: unknown top-level keys round-trip untouched. */
   [key: string]: unknown;
 }

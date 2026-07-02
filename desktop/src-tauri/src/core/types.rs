@@ -80,10 +80,14 @@ impl RegistryEntry {
     }
 }
 
-/// Provenance of a custom registry entry.
-/// `kind` is "discovered" (scanned from a local app config) or "manual"
-/// (created by the user). `agent`/`scope` describe the source app for
-/// discovered entries and are omitted for manual ones.
+/// Provenance of a catalog entry.
+/// `kind` is one of:
+///   - "discovered" — scanned from a local app config (`agent`/`scope` set),
+///   - "manual"     — created by the user by hand,
+///   - "remote"     — came from a subscribed remote source (`source` = its id),
+///   - "local"      — came from a local file source (`source` = its id).
+/// `agent`/`scope` describe the source app for discovered entries; `source`
+/// references the owning `SourceDef` for remote/local entries.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct RegistryOrigin {
     pub kind: String,
@@ -91,6 +95,44 @@ pub struct RegistryOrigin {
     pub agent: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scope: Option<String>,
+    /// Id of the `SourceDef` this entry came from (remote/local sources only).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
+}
+
+fn default_mcp_key() -> String {
+    "mcpServers".to_string()
+}
+
+/// A user-added catalog source: either a subscribed remote URL or a local file.
+/// The actual servers are parsed from a cached copy on disk under
+/// `~/.mux/sources/<kind>/<id>.<ext>`. There is intentionally no "builtin" kind —
+/// the catalog is entirely user-driven (subscribe / add local).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SourceDef {
+    pub id: String,
+    pub kind: String, // "remote" | "local"
+    pub name: String,
+    /// Remote sources: the subscribed URL.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+    /// Local sources: the original picked path (stored portably as `~/…`), used
+    /// for re-copy on refresh.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    pub format: String, // "json" | "toml"
+    #[serde(default = "default_mcp_key")]
+    pub key: String, // config section key, default "mcpServers"
+    pub enabled: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub added_at: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub synced_at: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub server_count: Option<u32>,
+    /// Last fetch/parse error, if any (keeps the source visible but flagged).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

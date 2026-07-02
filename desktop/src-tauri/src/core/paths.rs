@@ -10,6 +10,21 @@ pub fn backups_dir() -> PathBuf {
     mux_dir().join("backups")
 }
 
+/// `~/.mux/sources` —— 用户来源(订阅/本地)缓存文件的根目录
+pub fn sources_dir() -> PathBuf {
+    mux_dir().join("sources")
+}
+
+/// `~/.mux/sources/remote` —— 订阅(远程 URL)抓取后的缓存副本
+pub fn remote_sources_dir() -> PathBuf {
+    sources_dir().join("remote")
+}
+
+/// `~/.mux/sources/local` —— 本地添加的配置文件副本
+pub fn local_sources_dir() -> PathBuf {
+    sources_dir().join("local")
+}
+
 /// `~/.mux/settings.json` —— 所有用户数据(registry/agents/disabled/state…)的单一文件
 pub fn settings_file() -> PathBuf {
     mux_dir().join("settings.json")

@@ -31,6 +31,271 @@ pub fn list_custom_registry_keys() -> Vec<String> {
     user_override_keys()
 }
 
+// ── Catalog sources (subscribe remote / add local) ────────────────────────
+
+use crate::core::settings::{load_settings, mutate_settings};
+use crate::core::sources;
+use crate::core::types::SourceDef;
+
+/// A source as shown in the UI: its stored definition plus a live server count.
+#[derive(Serialize)]
+pub struct SourceView {
+    pub id: String,
+    pub kind: String,
+    pub name: String,
+    pub url: Option<String>,
+    pub path: Option<String>,
+    pub format: String,
+    pub enabled: bool,
+    pub added_at: Option<String>,
+    pub synced_at: Option<String>,
+    pub server_count: u32,
+    pub error: Option<String>,
+}
+
+fn to_view(def: SourceDef, count: u32) -> SourceView {
+    SourceView {
+        id: def.id, kind: def.kind, name: def.name, url: def.url, path: def.path,
+        format: def.format, enabled: def.enabled, added_at: def.added_at,
+        synced_at: def.synced_at, server_count: count, error: def.error,
+    }
+}
+
+fn push_source(def: &SourceDef) -> Result<(), String> {
+    mutate_settings(|s| s.sources.get_or_insert_with(Vec::new).push(def.clone()))
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn list_sources() -> Vec<SourceView> {
+    load_settings()
+        .sources
+        .unwrap_or_default()
+        .into_iter()
+        .map(|d| {
+            let count = sources::source_count(&d);
+            to_view(d, count)
+        })
+        .collect()
+}
+
+/// Subscribe to a remote config URL: fetch, validate, cache it under
+/// `~/.mux/sources/remote/<id>`, and register it as an enabled source.
+#[tauri::command]
+pub fn subscribe_source(url: String, name: Option<String>) -> Result<SourceView, String> {
+    let url = url.trim().to_string();
+    if url.is_empty() {
+        return Err("URL 不能为空".into());
+    }
+    let body = sources::fetch(&url)?;
+    let format = sources::detect_format(&url, &body).to_string();
+    sources::validate_parseable(&body, &format)?;
+    let display = name
+        .map(|n| n.trim().to_string())
+        .filter(|n| !n.is_empty())
+        .unwrap_or_else(|| sources::host_of(&url));
+    let now = sources::now_iso();
+    let mut def = SourceDef {
+        id: sources::gen_id("remote", &display),
+        kind: "remote".into(),
+        name: display,
+        url: Some(url),
+        path: None,
+        format,
+        key: "mcpServers".into(),
+        enabled: true,
+        added_at: Some(now.clone()),
+        synced_at: Some(now),
+        server_count: None,
+        error: None,
+    };
+    let path = sources::cached_path(&def).ok_or("无法确定缓存路径")?;
+    sources::write_source_file(&path, &body)?;
+    let count = sources::source_count(&def);
+    def.server_count = Some(count);
+    if count == 0 {
+        def.error = Some("未在该文件中发现 MCP server".into());
+    }
+    push_source(&def)?;
+    Ok(to_view(def, count))
+}
+
+/// Register a local config file as a source: read it, validate, and copy it under
+/// `~/.mux/sources/local/<id>` (the app then reads the copy, not the original).
+fn add_local_impl(path: String, name: Option<String>) -> Result<SourceView, String> {
+    let src = crate::core::scanner::expand_tilde(&path);
+    let content = std::fs::read_to_string(&src).map_err(|e| format!("读取文件失败: {}", e))?;
+    let format = sources::detect_format(&path, &content).to_string();
+    sources::validate_parseable(&content, &format)?;
+    let display = name
+        .map(|n| n.trim().to_string())
+        .filter(|n| !n.is_empty())
+        .unwrap_or_else(|| {
+            std::path::Path::new(&path)
+                .file_name()
+                .and_then(|s| s.to_str())
+                .unwrap_or("本地配置")
+                .to_string()
+        });
+    let now = sources::now_iso();
+    let mut def = SourceDef {
+        id: sources::gen_id("local", &display),
+        kind: "local".into(),
+        name: display,
+        url: None,
+        path: Some(collapse_home(&path)),
+        format,
+        key: "mcpServers".into(),
+        enabled: true,
+        added_at: Some(now.clone()),
+        synced_at: Some(now),
+        server_count: None,
+        error: None,
+    };
+    let cache = sources::cached_path(&def).ok_or("无法确定缓存路径")?;
+    sources::write_source_file(&cache, &content)?;
+    let count = sources::source_count(&def);
+    def.server_count = Some(count);
+    if count == 0 {
+        def.error = Some("未在该文件中发现 MCP server".into());
+    }
+    push_source(&def)?;
+    Ok(to_view(def, count))
+}
+
+/// Add a local source from an explicit path.
+#[tauri::command]
+pub fn add_local_source(path: String, name: Option<String>) -> Result<SourceView, String> {
+    add_local_impl(path, name)
+}
+
+/// Open a native file picker and add the chosen file as a local source. Returns
+/// `None` if the user cancels.
+#[tauri::command]
+pub fn add_local_source_dialog(app: tauri::AppHandle) -> Result<Option<SourceView>, String> {
+    use tauri_plugin_dialog::DialogExt;
+    let picked = app
+        .dialog()
+        .file()
+        .add_filter("MCP 配置", &["json", "toml"])
+        .blocking_pick_file();
+    let Some(fp) = picked else { return Ok(None) };
+    add_local_impl(fp.to_string(), None).map(Some)
+}
+
+/// Add the bundled curated collection as an opt-in *local* source (it is not part
+/// of the default catalog). Reuses the embedded `data/registry.json`.
+#[tauri::command]
+pub fn add_builtin_collection() -> Result<SourceView, String> {
+    let entries = crate::core::registry::builtin_registry();
+    let content = serde_json::to_string_pretty(&entries).map_err(|e| e.to_string())?;
+    let now = sources::now_iso();
+    let mut def = SourceDef {
+        id: sources::gen_id("local", "curated"),
+        kind: "local".into(),
+        name: "官方精选合集".into(),
+        url: None,
+        path: None,
+        format: "json".into(),
+        key: "mcpServers".into(),
+        enabled: true,
+        added_at: Some(now.clone()),
+        synced_at: Some(now),
+        server_count: None,
+        error: None,
+    };
+    let cache = sources::cached_path(&def).ok_or("无法确定缓存路径")?;
+    sources::write_source_file(&cache, &content)?;
+    let count = sources::source_count(&def);
+    def.server_count = Some(count);
+    push_source(&def)?;
+    Ok(to_view(def, count))
+}
+
+/// Re-fetch (remote) or re-copy (local) a source's file and update its status.
+#[tauri::command]
+pub fn refresh_source(id: String) -> Result<SourceView, String> {
+    let Some(mut def) = load_settings()
+        .sources
+        .unwrap_or_default()
+        .into_iter()
+        .find(|d| d.id == id)
+    else {
+        return Err("source 不存在".into());
+    };
+    let fetched: Result<String, String> = match def.kind.as_str() {
+        "remote" => {
+            let url = def.url.clone().ok_or("该来源缺少 URL")?;
+            sources::fetch(&url)
+        }
+        "local" => match def.path.as_ref() {
+            Some(p) => {
+                let src = crate::core::scanner::expand_tilde(p);
+                std::fs::read_to_string(&src).map_err(|e| format!("读取原文件失败: {}", e))
+            }
+            None => Err("该本地来源没有可刷新的原文件".into()),
+        },
+        _ => Err("不支持刷新该来源".into()),
+    };
+    match fetched {
+        Ok(body) => {
+            if let Some(path) = sources::cached_path(&def) {
+                sources::write_source_file(&path, &body)?;
+            }
+            def.synced_at = Some(sources::now_iso());
+            def.error = None;
+        }
+        Err(e) => {
+            def.error = Some(e);
+        }
+    }
+    let count = sources::source_count(&def);
+    def.server_count = Some(count);
+    let saved = def.clone();
+    mutate_settings(move |s| {
+        if let Some(list) = s.sources.as_mut() {
+            for d in list.iter_mut() {
+                if d.id == saved.id {
+                    *d = saved.clone();
+                }
+            }
+        }
+    })
+    .map_err(|e| e.to_string())?;
+    Ok(to_view(def, count))
+}
+
+/// Enable or disable a source (its servers join/leave the catalog).
+#[tauri::command]
+pub fn set_source_enabled(id: String, enabled: bool) -> Result<(), String> {
+    mutate_settings(|s| {
+        if let Some(list) = s.sources.as_mut() {
+            for d in list.iter_mut() {
+                if d.id == id {
+                    d.enabled = enabled;
+                }
+            }
+        }
+    })
+    .map_err(|e| e.to_string())
+}
+
+/// Remove a source and delete its cached file.
+#[tauri::command]
+pub fn remove_source(id: String) -> Result<(), String> {
+    mutate_settings(|s| {
+        if let Some(list) = s.sources.as_mut() {
+            if let Some(pos) = list.iter().position(|d| d.id == id) {
+                let def = list.remove(pos);
+                if let Some(p) = sources::cached_path(&def) {
+                    let _ = std::fs::remove_file(p);
+                }
+            }
+        }
+    })
+    .map_err(|e| e.to_string())
+}
+
 use crate::core::agents::{load_agents, save_agents};
 use crate::core::scanner::scan_agents;
 use crate::core::types::AgentDefinition;
@@ -261,6 +526,7 @@ pub fn import_discovered(project_dir: Option<String>) -> Result<usize, String> {
                 kind: "discovered".into(),
                 agent: Some(s.agent.clone()),
                 scope: Some(s.scope.clone()),
+                source: None,
             }),
         };
         write_entry(&entry).map_err(|e| e.to_string())?;
@@ -550,10 +816,23 @@ mod tests {
     use crate::core::types::{McpConfig, StdioConfig};
 
     #[test]
-    fn preview_returns_planned_write_for_known_server() {
-        // filesystem 是内置服务器
+    fn preview_returns_planned_write_for_seeded_server() {
+        // No built-in catalog anymore: seed a user registry entry in an isolated
+        // ~/.mux and confirm preview resolves it against a builtin agent.
+        let home = std::env::temp_dir().join(format!("mux-preview-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&home);
+        std::fs::create_dir_all(home.join(".mux")).unwrap();
+        std::env::set_var("HOME", &home);
+        std::fs::write(
+            home.join(".mux/settings.json"),
+            r#"{"version":1,"registry":[
+                {"name":"seeded","description":"","tags":[],
+                 "config":{"stdio":{"command":"npx","args":["-y","seeded"]}}}
+            ]}"#,
+        )
+        .unwrap();
         let req = InstallRequest {
-            server_name: "filesystem".into(), transport: "stdio".into(), scope: "global".into(),
+            server_name: "seeded".into(), transport: "stdio".into(), scope: "global".into(),
             agents: vec!["claude-code".into()], project_dir: None,
             overrides: HashMap::new(),
         };
@@ -561,6 +840,8 @@ mod tests {
         assert_eq!(plan.len(), 1);
         assert_eq!(plan[0].agent, "claude-code");
         assert!(plan[0].config_json.contains("command"));
+        std::env::remove_var("HOME");
+        let _ = std::fs::remove_dir_all(&home);
     }
 
     #[test]

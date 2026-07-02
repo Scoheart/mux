@@ -1,0 +1,74 @@
+// End-to-end for the source-based catalog: add a local config file as a source,
+// confirm its servers populate the catalog, toggle it off/on, and remove it.
+// HOME is redirected to a temp dir so ~/.mux stays isolated. No network.
+use std::fs;
+
+use desktop_lib::commands::{
+    add_builtin_collection, add_local_source, list_registry, remove_source, set_source_enabled,
+};
+
+fn unique_dir(tag: &str) -> std::path::PathBuf {
+    let d = std::env::temp_dir().join(format!("mux-src-e2e-{}-{}", tag, std::process::id()));
+    fs::create_dir_all(&d).unwrap();
+    d
+}
+
+#[test]
+fn local_source_flow_populates_toggles_and_removes() {
+    let home = unique_dir("home");
+    std::env::set_var("HOME", &home);
+
+    // A standard mcpServers config file the user "adds" as a local source.
+    let cfg = home.join("team-mcp.json");
+    fs::write(
+        &cfg,
+        r#"{"mcpServers":{
+            "git":{"command":"npx","args":["-y","git-mcp"]},
+            "wiki":{"url":"https://deepwiki.example/mcp","type":"http"}
+        }}"#,
+    )
+    .unwrap();
+
+    // Empty catalog to start (no built-in base anymore).
+    assert_eq!(list_registry().len(), 0, "catalog should start empty");
+
+    // Add it as a local source.
+    let view = add_local_source(cfg.display().to_string(), Some("团队配置".into()))
+        .expect("add_local_source should succeed");
+    assert_eq!(view.kind, "local");
+    assert_eq!(view.server_count, 2);
+    let id = view.id.clone();
+
+    // Its two servers now populate the catalog, tagged with the source origin.
+    let cat = list_registry();
+    assert_eq!(cat.len(), 2, "both servers should be in the catalog");
+    assert!(cat.iter().all(|e| e.origin.as_ref().map(|o| o.kind == "local"
+        && o.source.as_deref() == Some(id.as_str())).unwrap_or(false)));
+    assert!(cat.iter().any(|e| e.name == "git" && e.transport() == "stdio"));
+    assert!(cat.iter().any(|e| e.name == "wiki" && e.transport() == "http"));
+
+    // The cached copy exists under ~/.mux/sources/local/.
+    let cached = home.join(".mux").join("sources").join("local").join(format!("{}.json", id));
+    assert!(cached.exists(), "cached local copy should exist at {:?}", cached);
+
+    // Disabling the source removes its servers from the catalog…
+    set_source_enabled(id.clone(), false).unwrap();
+    assert_eq!(list_registry().len(), 0, "disabled source contributes nothing");
+    // …and re-enabling brings them back.
+    set_source_enabled(id.clone(), true).unwrap();
+    assert_eq!(list_registry().len(), 2);
+
+    // Removing the source deletes its cached file and empties the catalog.
+    remove_source(id.clone()).unwrap();
+    assert_eq!(list_registry().len(), 0);
+    assert!(!cached.exists(), "cached file should be deleted on remove");
+
+    // The opt-in curated collection is available as a local source (no network).
+    let curated = add_builtin_collection().expect("add_builtin_collection should succeed");
+    assert_eq!(curated.kind, "local");
+    assert!(curated.server_count >= 40, "curated collection has the bundled servers");
+    assert!(list_registry().len() >= 40);
+
+    std::env::remove_var("HOME");
+    let _ = fs::remove_dir_all(&home);
+}

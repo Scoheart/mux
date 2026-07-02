@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { RegistryEntry, AgentInfo, AgentDefinitionInput, InstalledMcp, PlannedWrite, InstallRequest } from "./types";
+import type { RegistryEntry, AgentInfo, AgentDefinitionInput, InstalledMcp, PlannedWrite, InstallRequest, SourceView } from "./types";
 
 export const listRegistry = () => invoke<RegistryEntry[]>("list_registry");
 export const upsertRegistry = (entry: RegistryEntry) =>
@@ -35,6 +35,29 @@ export const enableMcp = (req: InstallRequest) =>
 /** Hard-delete: remove from the agent file AND forget any disabled snapshot. */
 export const deleteMcp = (req: InstallRequest) =>
   invoke<void>("delete_mcp", { req });
+
+// ── Catalog sources (subscribe remote / add local) ────────────────────────
+export const listSources = () => invoke<SourceView[]>("list_sources");
+/** Subscribe to a remote config URL: fetch + cache + register as a source. */
+export const subscribeSource = (url: string, name?: string) =>
+  invoke<SourceView>("subscribe_source", { url, name: name ?? null });
+/** Register a local file (explicit path) as a source. */
+export const addLocalSource = (path: string, name?: string) =>
+  invoke<SourceView>("add_local_source", { path, name: name ?? null });
+/** Open a native file picker and add the chosen file as a local source.
+ *  Resolves to null if the user cancels. */
+export const addLocalSourceDialog = () =>
+  invoke<SourceView | null>("add_local_source_dialog");
+/** Add the bundled curated collection as an opt-in local source. */
+export const addBuiltinCollection = () =>
+  invoke<SourceView>("add_builtin_collection");
+/** Re-fetch (remote) / re-copy (local) a source's file. */
+export const refreshSource = (id: string) =>
+  invoke<SourceView>("refresh_source", { id });
+export const setSourceEnabled = (id: string, enabled: boolean) =>
+  invoke<void>("set_source_enabled", { id, enabled });
+export const removeSource = (id: string) =>
+  invoke<void>("remove_source", { id });
 
 /** Stable key for an (server, agent) cell in the matrix. `serverKey` is the
  *  composite registry key (`name::transport`), so stdio and http variants of the

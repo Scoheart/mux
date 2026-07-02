@@ -17,6 +17,16 @@ fn install_flow_writes_config_applies_override_and_backs_up() {
     let home = unique_dir("home");
     std::env::set_var("HOME", &home);
 
+    // No built-in catalog anymore — seed a `filesystem` entry into this isolated
+    // ~/.mux so the install flow has something to resolve.
+    fs::create_dir_all(home.join(".mux")).unwrap();
+    fs::write(
+        home.join(".mux").join("settings.json"),
+        r#"{"version":1,"registry":[{"name":"filesystem","description":"","tags":[],
+            "config":{"stdio":{"command":"npx","args":["-y","@modelcontextprotocol/server-filesystem","."]}}}]}"#,
+    )
+    .unwrap();
+
     let project = unique_dir("proj");
 
     // —— 1) 预览：filesystem 装到 claude-code 的项目配置（.mcp.json）——

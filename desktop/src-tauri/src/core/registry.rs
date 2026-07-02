@@ -1,30 +1,15 @@
 use crate::core::settings::{load_settings, mutate_settings};
 use crate::core::types::RegistryEntry;
 
-/// Built-in registry: embedded at compile time from the repo-root data/registry.json
-/// (the single shared source of truth, also consumed by the TS CLI). Pointing
-/// directly at the root file avoids a hand-synced desktop/data copy drifting.
+/// The bundled "official" collection, embedded at compile time from the repo-root
+/// data/registry.json. It is **no longer a built-in catalog base** — the catalog
+/// is entirely source-driven now. This is exposed only so the user can opt in to
+/// it as a one-click *local* source ("官方精选合集"); see
+/// `commands::add_builtin_collection`.
 const BUILTIN_JSON: &str = include_str!("../../../../data/registry.json");
 
 pub fn builtin_registry() -> Vec<RegistryEntry> {
     serde_json::from_str(BUILTIN_JSON).expect("registry.json must be valid")
-}
-
-/// Merge user entries over builtins: a user entry shadows the builtin with the
-/// same composite key (`name::transport`); user entries are deduped, last wins.
-fn merge_with_builtin(user: Vec<RegistryEntry>) -> Vec<RegistryEntry> {
-    use std::collections::HashMap;
-    let mut user_by_key: HashMap<String, RegistryEntry> = HashMap::new();
-    for e in user {
-        user_by_key.insert(e.key(), e);
-    }
-    let user_keys: std::collections::HashSet<_> = user_by_key.keys().cloned().collect();
-    let mut result: Vec<RegistryEntry> = builtin_registry()
-        .into_iter()
-        .filter(|b| !user_keys.contains(&b.key()))
-        .collect();
-    result.extend(user_by_key.into_values());
-    result
 }
 
 /// Insert or replace `entry` in the user list, keyed by composite key.
@@ -40,9 +25,28 @@ fn remove(list: &mut Vec<RegistryEntry>, name: &str, transport: &str) {
     list.retain(|e| e.key() != target);
 }
 
-/// All registry entries: builtins merged with the user's `settings.registry`.
+/// All catalog entries: servers from every **enabled** source (remote + local),
+/// with the user's `settings.registry` (manual / discovered / overrides) layered
+/// on top — a user entry shadows a source entry with the same composite key
+/// (`name::transport`). No built-in base is included.
 pub fn read_registry() -> Vec<RegistryEntry> {
-    merge_with_builtin(load_settings().registry.unwrap_or_default())
+    use std::collections::HashMap;
+    let settings = load_settings();
+    let mut by_key: HashMap<String, RegistryEntry> = HashMap::new();
+    // Sources in list order — a later source shadows an earlier one on key clash.
+    for def in settings.sources.as_deref().unwrap_or_default() {
+        if !def.enabled {
+            continue;
+        }
+        for e in crate::core::sources::source_entries(def) {
+            by_key.insert(e.key(), e);
+        }
+    }
+    // User registry entries always win (edits / manual / discovered / overrides).
+    for e in settings.registry.unwrap_or_default() {
+        by_key.insert(e.key(), e);
+    }
+    by_key.into_values().collect()
 }
 
 /// Persist (create or overwrite) a user registry entry into `settings.registry`.
@@ -50,7 +54,9 @@ pub fn write_registry_entry(entry: &RegistryEntry) -> std::io::Result<()> {
     mutate_settings(|s| upsert(s.registry.get_or_insert_with(Vec::new), entry.clone()))
 }
 
-/// Composite keys (`name::transport`) of entries that have a user override.
+/// Composite keys (`name::transport`) of entries that have a user override
+/// (i.e. live in `settings.registry` — manual, discovered, or an edited source
+/// entry). Used by the UI to mark an entry as customized / revertable.
 pub fn user_override_keys() -> Vec<String> {
     load_settings()
         .registry
@@ -60,8 +66,9 @@ pub fn user_override_keys() -> Vec<String> {
         .collect()
 }
 
-/// Remove the user override for `name`+`transport` (reverting to builtin if one
-/// exists). A missing entry is a no-op success.
+/// Remove the user override for `name`+`transport`. If a source still provides
+/// that key, the source's version shows through again; otherwise it disappears
+/// from the catalog. A missing entry is a no-op success.
 pub fn delete_registry_entry(name: &str, transport: &str) -> std::io::Result<()> {
     mutate_settings(|s| {
         if let Some(list) = s.registry.as_mut() {
@@ -101,21 +108,14 @@ mod tests {
     }
 
     #[test]
-    fn builtin_loads_40_plus() {
+    fn builtin_collection_loads_40_plus() {
+        // Still parseable (used by the opt-in curated local source), just no
+        // longer part of the default catalog.
         assert!(builtin_registry().len() >= 40);
     }
 
     #[test]
-    fn user_entry_overrides_builtin() {
-        let merged = merge_with_builtin(vec![stdio("filesystem", "custom-cmd")]);
-        let fs_entry = merged.iter().find(|e| e.name == "filesystem").unwrap();
-        assert_eq!(fs_entry.config.stdio.as_ref().unwrap().command, "custom-cmd");
-        // Exactly one filesystem entry (the override replaced the builtin).
-        assert_eq!(merged.iter().filter(|e| e.name == "filesystem").count(), 1);
-    }
-
-    #[test]
-    fn upsert_replaces_same_key_and_delete_reverts() {
+    fn upsert_replaces_same_key_and_remove_deletes() {
         let mut list = vec![stdio("filesystem", "a")];
         upsert(&mut list, stdio("filesystem", "b"));
         assert_eq!(list.len(), 1);
@@ -126,9 +126,6 @@ mod tests {
         // Deleting again is a no-op.
         remove(&mut list, "filesystem", "stdio");
         assert!(list.is_empty());
-        // And with the override gone, the builtin shows through.
-        let merged = merge_with_builtin(list);
-        assert!(merged.iter().any(|e| e.name == "filesystem"));
     }
 
     #[test]

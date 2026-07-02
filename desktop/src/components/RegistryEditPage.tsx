@@ -31,7 +31,7 @@ const inputStyle = {
 } as const;
 
 export function RegistryEditPage({ state, name, transport: editTransport, onBack }: RegistryEditPageProps) {
-  const { entries, customKeys, refreshRegistry } = state;
+  const { entries, customKeys, refreshRegistry, rescan } = state;
   const toast = useToast();
 
   const isNew = name === null;
@@ -98,7 +98,9 @@ export function RegistryEditPage({ state, name, transport: editTransport, onBack
     setSaving(true);
     try {
       await upsertRegistry(draft);
-      await refreshRegistry();
+      // The edit may have propagated into installed agents — refresh both the
+      // catalog and the install scan so usage/customized flags stay accurate.
+      await Promise.all([refreshRegistry(), rescan()]);
       toast.show({ kind: "success", msg: `已保存 ${serverName.trim()}` });
       onBack();
     } catch (err) {
@@ -113,7 +115,7 @@ export function RegistryEditPage({ state, name, transport: editTransport, onBack
     setSaving(true);
     try {
       await deleteRegistry(name, transportOf(existing));
-      await refreshRegistry();
+      await Promise.all([refreshRegistry(), rescan()]);
       toast.show({ kind: "success", msg: `已恢复默认: ${name}` });
       onBack();
     } catch (err) {

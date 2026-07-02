@@ -14,15 +14,68 @@ pub fn list_registry() -> Vec<RegistryEntry> {
 /// Persist (create or overwrite) a user registry entry into settings.registry.
 #[tauri::command]
 pub fn upsert_registry_entry(entry: RegistryEntry) -> Result<(), String> {
+    // Capture the currently-effective config BEFORE overwriting it, so we can
+    // propagate the change to agents that installed it "clean" (§ propagate).
+    let prev = read_registry()
+        .into_iter()
+        .find(|e| e.name == entry.name && e.transport() == entry.transport());
     // User-created / edited entries live in the managed "manual" local source.
-    write_manual_entry(&entry).map_err(|e| e.to_string())
+    write_manual_entry(&entry).map_err(|e| e.to_string())?;
+    propagate_edit_to_installs(prev.as_ref(), Some(&entry));
+    Ok(())
 }
 
 /// Remove a user registry override for a given name+transport; reverts to
 /// builtin if one exists.
 #[tauri::command]
 pub fn delete_registry_entry(name: String, transport: String) -> Result<(), String> {
-    delete_entry(&name, &transport).map_err(|e| e.to_string())
+    // On revert, the entry falls back to whatever a source provides (or nothing).
+    // Propagate that fallback config to clean installs too, for symmetry with edit.
+    let prev = read_registry()
+        .into_iter()
+        .find(|e| e.name == name && e.transport() == transport);
+    delete_entry(&name, &transport).map_err(|e| e.to_string())?;
+    let now = read_registry()
+        .into_iter()
+        .find(|e| e.name == name && e.transport() == transport);
+    propagate_edit_to_installs(prev.as_ref(), now.as_ref());
+    Ok(())
+}
+
+/// Propagate a registry-entry config change to agents that have it installed.
+///
+/// Registry installs write a *snapshot* of the config into each agent file, so a
+/// later edit would otherwise not reach those agents. Here we re-stamp the new
+/// config into every agent that currently holds this server at global scope —
+/// but ONLY where the on-disk config still equals the previous registry config
+/// (a "clean" install). Agents whose config was hand-customized (differs from the
+/// old base) are left untouched, preserving intentional per-agent tweaks.
+///
+/// No-ops when: the entry is brand-new (`prev` is None), it was fully removed
+/// (`new` is None), or the config didn't actually change. Global scope only —
+/// project-scoped installs need a project dir we don't have at edit time.
+fn propagate_edit_to_installs(prev: Option<&RegistryEntry>, new: Option<&RegistryEntry>) {
+    use crate::core::effective::base_config;
+    use crate::core::types::transport_of;
+    let (Some(prev), Some(new)) = (prev, new) else { return };
+    let (Some(old_cfg), Some(new_cfg)) = (base_config(prev), base_config(new)) else { return };
+    if old_cfg == new_cfg {
+        return; // description/tags-only edit, or no real change
+    }
+    let transport = new.transport();
+    let agents = load_agents();
+    let timestamp = chrono::Local::now().format("%Y-%m-%dT%H-%M-%S").to_string();
+    for s in scan_agents(&agents, None, true) {
+        if s.name == new.name
+            && s.scope == "global"
+            && transport_of(&s.config) == transport
+            && s.config == old_cfg
+        {
+            if let Some(def) = agents.get(&s.agent) {
+                let _ = add_one(&s.agent, def, &new.name, new_cfg.clone(), "global", None, &timestamp);
+            }
+        }
+    }
 }
 
 /// Composite keys (`name::transport`) of registry entries that currently have a

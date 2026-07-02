@@ -36,6 +36,11 @@ export const enableMcp = (req: InstallRequest) =>
 export const deleteMcp = (req: InstallRequest) =>
   invoke<void>("delete_mcp", { req });
 
+/** Parse a pasted config blob (JSON/TOML) and add its servers to the manual
+ *  source. Returns the added server names. */
+export const importPastedConfig = (text: string) =>
+  invoke<string[]>("import_pasted_config", { text });
+
 // ── Catalog sources (subscribe remote / add local) ────────────────────────
 export const listSources = () => invoke<SourceView[]>("list_sources");
 /** Subscribe to a remote config URL: fetch + cache + register as a source. */

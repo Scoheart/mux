@@ -84,7 +84,11 @@
 /* Forced light: the chosen aesthetic is "macOS 原生浅色". We intentionally do
    NOT follow the system dark mode — the app always renders the light design. */
 
-html, body, #root { height: 100%; margin: 0; }
+/* Lock the root box: the document itself must never scroll or elastic-bounce
+   (WebKit rubber-band). All scrolling happens inside inner overflow-y-auto
+   containers; without this the whole app could be dragged down, exposing a
+   blank strip above the header. */
+html, body, #root { height: 100%; margin: 0; overflow: hidden; overscroll-behavior: none; }
 body {
   font-family: var(--font-sans);
   /* Soft tinted wash in the corners over the neutral base, so the glass surfaces

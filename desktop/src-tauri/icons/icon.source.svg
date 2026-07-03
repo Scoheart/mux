@@ -1,0 +1,42 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="brand" x1="150" y1="130" x2="890" y2="910" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFC24D"/>
+      <stop offset="0.42" stop-color="#FF7F57"/>
+      <stop offset="0.78" stop-color="#F45CB0"/>
+      <stop offset="1" stop-color="#D64FE0"/>
+    </linearGradient>
+    <radialGradient id="gloss" cx="0.30" cy="0.22" r="0.9">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.40"/>
+      <stop offset="0.42" stop-color="#ffffff" stop-opacity="0.08"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="edge" x1="512" y1="72" x2="512" y2="700" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.6"/>
+      <stop offset="0.6" stop-color="#ffffff" stop-opacity="0.05"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+    <filter id="glyphShadow" x="-40%" y="-40%" width="180%" height="180%">
+      <feDropShadow dx="0" dy="8" stdDeviation="11" flood-color="#5B1846" flood-opacity="0.28"/>
+    </filter>
+  </defs>
+
+  <!-- app tile (squircle) — no baked drop shadow; macOS adds its own in the Dock -->
+  <rect x="80" y="72" width="864" height="864" rx="214" fill="url(#brand)"/>
+  <rect x="80" y="72" width="864" height="864" rx="214" fill="url(#gloss)"/>
+  <rect x="81.5" y="73.5" width="861" height="861" rx="212.5" fill="none" stroke="url(#edge)" stroke-width="3"/>
+
+  <!-- multiplex glyph: three inputs converging into one output -->
+  <g filter="url(#glyphShadow)" fill="none" stroke="#ffffff" stroke-width="34" stroke-linecap="round">
+    <path d="M360 388 L648 512"/>
+    <path d="M360 512 L648 512"/>
+    <path d="M360 636 L648 512"/>
+  </g>
+  <g filter="url(#glyphShadow)" fill="#ffffff">
+    <circle cx="360" cy="388" r="34"/>
+    <circle cx="360" cy="512" r="34"/>
+    <circle cx="360" cy="636" r="34"/>
+    <circle cx="664" cy="512" r="58"/>
+  </g>
+  <circle cx="664" cy="512" r="24" fill="url(#brand)"/>
+</svg>

@@ -27,6 +27,18 @@ function syntheticEntry(serverKey: string): RegistryEntry {
   };
 }
 
+/** Small pill showing an entry's transport (stdio / http / sse). */
+function TransportPill({ entry }: { entry: RegistryEntry }) {
+  return (
+    <span
+      className="px-1.5 py-0.5 rounded text-[10px] font-medium uppercase tracking-wide flex-shrink-0"
+      style={{ background: "var(--color-gray-150)", color: "var(--color-gray-600)", fontFamily: "var(--font-mono)" }}
+    >
+      {transportLabel(entry)}
+    </span>
+  );
+}
+
 export function AgentView({ state, agentId }: AgentViewProps) {
   const { entries, agents, installed, pending, toggle, setEnabled, remove, refreshAgents, rescan } = state;
 
@@ -256,14 +268,19 @@ export function AgentView({ state, agentId }: AgentViewProps) {
                               e.currentTarget.style.background = "transparent";
                             }}
                           >
-                            <Avatar seed={entry.name} />
-                            <div className="min-w-0">
-                              <div className="text-xs font-medium truncate" style={{ color: "var(--text-primary)" }}>
-                                {entry.name}
+                            <Avatar seed={entry.name} size={30} />
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-xs font-medium truncate" style={{ color: "var(--text-primary)" }}>
+                                  {entry.name}
+                                </span>
+                                <TransportPill entry={entry} />
                               </div>
-                              <div className="text-xs truncate mt-0.5" style={{ color: "var(--text-secondary)" }}>
-                                {entry.description}
-                              </div>
+                              {entry.description && (
+                                <div className="text-xs truncate mt-0.5" style={{ color: "var(--text-secondary)" }}>
+                                  {entry.description}
+                                </div>
+                              )}
                             </div>
                           </button>
                         );
@@ -276,41 +293,36 @@ export function AgentView({ state, agentId }: AgentViewProps) {
           </div>
         </div>
 
-        {/* Installed list */}
-        <div className="flex flex-col gap-2">
-          {installedEntries.length === 0 ? (
-            <div
-              className="flex flex-col items-center gap-2 py-12 text-center rounded-mac-lg"
-              style={{ border: `1px dashed ${borderColor}` }}
-            >
-              <PackageIcon className="w-7 h-7" style={{ color: "var(--text-secondary)", opacity: 0.5 }} />
-              <div className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>
-                还没有安装任何 MCP
-              </div>
-              <div className="text-xs" style={{ color: "var(--text-secondary)" }}>
-                点右上角「添加 MCP」开始
-              </div>
+        {/* Installed list — compact responsive grid to use the horizontal space */}
+        {installedEntries.length === 0 ? (
+          <div
+            className="flex flex-col items-center gap-2 py-12 text-center rounded-mac-lg"
+            style={{ border: `1px dashed ${borderColor}` }}
+          >
+            <PackageIcon className="w-7 h-7" style={{ color: "var(--text-secondary)", opacity: 0.5 }} />
+            <div className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>
+              还没有安装任何 MCP
             </div>
-          ) : (
-            installedEntries.map(({ entry, enabled }) => {
+            <div className="text-xs" style={{ color: "var(--text-secondary)" }}>
+              点右上角「添加 MCP」开始
+            </div>
+          </div>
+        ) : (
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 8 }}>
+            {installedEntries.map(({ entry, enabled }) => {
               const isPending = pending.has(cellKey(keyOf(entry), agentId));
               return (
                 <div
                   key={keyOf(entry)}
-                  className="mux-card flex items-center gap-3 px-4 py-3"
+                  className="mux-card flex items-center gap-2.5 px-3 py-2.5"
                   style={{ opacity: isPending ? 0.5 : enabled ? 1 : 0.55 }}
                 >
-                  <Avatar seed={entry.name} />
+                  <Avatar seed={entry.name} size={30} />
                   <span className="flex items-center gap-1.5 flex-1 min-w-0">
                     <span className="text-sm font-medium truncate" style={{ color: "var(--text-primary)" }}>
                       {entry.name}
                     </span>
-                    <span
-                      className="px-1.5 py-0.5 rounded text-[10px] font-medium uppercase tracking-wide flex-shrink-0"
-                      style={{ background: "var(--color-gray-150)", color: "var(--color-gray-600)", fontFamily: "var(--font-mono)" }}
-                    >
-                      {transportLabel(entry)}
-                    </span>
+                    <TransportPill entry={entry} />
                   </span>
                   <Switch
                     checked={enabled}
@@ -333,9 +345,9 @@ export function AgentView({ state, agentId }: AgentViewProps) {
                   </IconButton>
                 </div>
               );
-            })
-          )}
-        </div>
+            })}
+          </div>
+        )}
       </div>
     </div>
   );

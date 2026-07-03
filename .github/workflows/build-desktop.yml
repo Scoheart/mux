@@ -5,8 +5,8 @@ name: Build desktop (macOS dmg)
 #                                   per push (tag v<version>-build.<run_number>)
 #   - push a tag like v0.1.1     -> build + publish the stable, versioned Release
 #
-# Build time is dominated by Rust compilation. We cache it two ways: Swatinem
-# rust-cache (deps + target) and sccache (per-unit compile cache across runs).
+# Build time is dominated by Rust compilation, cached across runs by
+# Swatinem/rust-cache (deps + target).
 on:
   push:
     branches: [main]
@@ -19,10 +19,6 @@ permissions:
 jobs:
   build-dmg:
     runs-on: macos-latest
-    env:
-      # Route rustc through sccache and back its cache with the GitHub Actions cache.
-      RUSTC_WRAPPER: sccache
-      SCCACHE_GHA_ENABLED: "true"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -34,9 +30,6 @@ jobs:
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
-
-      - name: Setup sccache
-        uses: mozilla-actions/sccache-action@v0.0.6
 
       - name: Cache Rust build
         uses: Swatinem/rust-cache@v2
@@ -58,9 +51,6 @@ jobs:
       - name: Build .dmg
         working-directory: desktop
         run: npm run tauri build -- --bundles dmg
-
-      - name: sccache stats
-        run: sccache --show-stats
 
       # --- Versioned stable release: only when a vX.Y.Z tag is pushed ---
       - name: Publish versioned Release (on tag)

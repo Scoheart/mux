@@ -98,6 +98,11 @@ export function RegistryEditPage({ state, name, transport: editTransport, onBack
     setSaving(true);
     try {
       await upsertRegistry(draft);
+      // Renamed (or changed transport) a custom entry → the new name is written
+      // above; remove the old entry so it doesn't linger as a duplicate.
+      if (existing && isCustom && keyOf(existing) !== draftKey) {
+        await deleteRegistry(existing.name, transportOf(existing));
+      }
       // The edit may have propagated into installed agents — refresh both the
       // catalog and the install scan so usage/customized flags stay accurate.
       await Promise.all([refreshRegistry(), rescan()]);
@@ -165,10 +170,15 @@ export function RegistryEditPage({ state, name, transport: editTransport, onBack
                 <input
                   style={{ ...inputStyle, fontFamily: "var(--font-mono)" }}
                   value={serverName}
-                  disabled={!isNew}
+                  disabled={!isNew && !isCustom}
                   onChange={(e) => setServerName(e.target.value)}
                   placeholder="server-name"
                 />
+                {!isNew && isCustom && existing && serverName.trim() !== existing.name && (
+                  <p className="text-[11px] mt-1" style={{ color: "var(--text-secondary)" }}>
+                    改名后按新名保存并移除旧条目；已安装到 agent 的旧名不会自动改名。
+                  </p>
+                )}
               </div>
               <div className="flex-[1.6] min-w-0">
                 <label className={labelCls} style={labelStyle}>描述</label>

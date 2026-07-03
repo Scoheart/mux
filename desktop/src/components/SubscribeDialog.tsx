@@ -2,17 +2,29 @@ import { useState } from "react";
 import type { InstallState } from "../hooks/useInstallState";
 import { useToast } from "./Toast";
 
+/** The official curated collection, subscribed as a remote source (the repo's
+ *  raw registry.json). Kept here so the Sources page can pre-fill this dialog. */
+export const OFFICIAL_SOURCE = {
+  url: "https://raw.githubusercontent.com/Scoheart/mux/main/data/registry.json",
+  name: "官方精选合集",
+};
+
 /** Modal for subscribing to a remote MCP config URL. On success the source's
- *  servers join the catalog. Mirrors AddAgentDialog's glass styling. */
+ *  servers join the catalog. Mirrors AddAgentDialog's glass styling. Pass
+ *  `initialUrl`/`initialName` to pre-fill (e.g. the official source). */
 export function SubscribeDialog({
   state,
   onClose,
+  initialUrl,
+  initialName,
 }: {
   state: InstallState;
   onClose: () => void;
+  initialUrl?: string;
+  initialName?: string;
 }) {
-  const [url, setUrl] = useState("");
-  const [name, setName] = useState("");
+  const [url, setUrl] = useState(initialUrl ?? "");
+  const [name, setName] = useState(initialName ?? "");
   const [busy, setBusy] = useState(false);
   const toast = useToast();
 
@@ -68,7 +80,7 @@ export function SubscribeDialog({
               订阅远程来源
             </h2>
             <p className="text-xs m-0 leading-relaxed" style={{ color: "var(--text-secondary)" }}>
-              填写一个指向 MCP 配置文件的 URL（JSON / TOML）。抓取后会缓存到本地，其中的 server 会加入目录。
+              订阅一个<b>远程</b>配置源：填一个指向 MCP 配置文件的 URL（JSON / TOML）。MUX 抓取后缓存一份，其中的 server 加入目录，之后可「刷新」重抓、随远端更新。（本机已有的文件请用「导入本地文件」。）
             </p>
           </div>
           <button
@@ -82,6 +94,17 @@ export function SubscribeDialog({
 
         {/* Body */}
         <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
+          <div>
+            <button
+              type="button"
+              onClick={() => { setUrl(OFFICIAL_SOURCE.url); setName(OFFICIAL_SOURCE.name); }}
+              className="text-[11px] px-2.5 py-1 rounded-full cursor-pointer border-0"
+              style={{ background: "var(--surface-raised)", color: "var(--color-blue)" }}
+              title="填入官方精选合集的订阅地址"
+            >
+              使用官方精选合集
+            </button>
+          </div>
           <div>
             <label className="text-xs font-medium block mb-1.5" style={{ color: "var(--text-secondary)" }}>
               配置文件 URL <span style={{ color: "#FF375F" }}>*</span>

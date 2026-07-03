@@ -15,7 +15,6 @@ import {
   listSources,
   subscribeSource,
   addLocalSourceDialog,
-  addBuiltinCollection,
   refreshSource,
   setSourceEnabled,
   removeSource,
@@ -58,7 +57,8 @@ export interface InstallState {
   refreshSources(): Promise<SourceView[]>;
   subscribe(url: string, name?: string): Promise<SourceView>;
   pickLocalSource(): Promise<SourceView | null>;
-  addCuratedCollection(): Promise<SourceView>;
+  /** Re-run agent discovery (the 自动探索 source's refresh). */
+  rescanDiscovered(): Promise<void>;
   refreshOneSource(id: string): Promise<void>;
   toggleSource(id: string, enabled: boolean): Promise<void>;
   deleteSource(id: string): Promise<void>;
@@ -399,11 +399,14 @@ export function useInstallState(): InstallState {
     return v;
   }, [afterSourceChange]);
 
-  const addCuratedCollection = useCallback(async () => {
-    const v = await addBuiltinCollection();
-    await afterSourceChange();
-    return v;
-  }, [afterSourceChange]);
+  const rescanDiscovered = useCallback(async () => {
+    await importDiscovered().catch(console.error);
+    await Promise.all([
+      refreshRegistry().catch(console.error),
+      refreshSources().catch(console.error),
+      doScan().catch(console.error),
+    ]);
+  }, [refreshRegistry, refreshSources, doScan]);
 
   const refreshOneSource = useCallback(
     async (id: string) => {
@@ -461,7 +464,7 @@ export function useInstallState(): InstallState {
     refreshSources,
     subscribe,
     pickLocalSource,
-    addCuratedCollection,
+    rescanDiscovered,
     refreshOneSource,
     toggleSource,
     deleteSource,

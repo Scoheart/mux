@@ -53,9 +53,6 @@ export const addLocalSource = (path: string, name?: string) =>
  *  Resolves to null if the user cancels. */
 export const addLocalSourceDialog = () =>
   invoke<SourceView | null>("add_local_source_dialog");
-/** Add the bundled curated collection as an opt-in local source. */
-export const addBuiltinCollection = () =>
-  invoke<SourceView>("add_builtin_collection");
 /** Re-fetch (remote) / re-copy (local) a source's file. */
 export const refreshSource = (id: string) =>
   invoke<SourceView>("refresh_source", { id });

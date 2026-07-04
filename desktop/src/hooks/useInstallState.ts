@@ -10,7 +10,6 @@ import {
   deleteMcp,
   cellKey,
   listCustomRegistryKeys,
-  upsertRegistry,
   importDiscovered,
   listSources,
   subscribeSource,
@@ -22,6 +21,7 @@ import {
 } from "../lib/api";
 import type { RegistryEntry, AgentInfo, InstalledMcp, SourceView } from "../lib/types";
 import { keyOf, transportOf, installedKey } from "../lib/mcp";
+import { formatError } from "../lib/format";
 import { useToast } from "../components/Toast";
 
 export interface InstallState {
@@ -30,13 +30,10 @@ export interface InstallState {
   installed: InstalledMcp[];
   loading: boolean;
   pending: Set<string>;
-  /** All cell/server lookups are keyed by the composite registry key
-   *  (`name::transport`, see keyOf/installedKey), so stdio and http variants of
-   *  the same server are tracked independently. */
-  isInstalled(serverKey: string, agentId: string): boolean;
-  customizedOf(serverKey: string, agentId: string): boolean;
+  /** Agents a server is actively installed in. Keyed by the composite registry
+   *  key (`name::transport`, see keyOf/installedKey), so stdio and http variants
+   *  of the same server are tracked independently. */
   agentsForServer(serverKey: string): string[];
-  serversForAgent(agentId: string): string[];
   /** Composite keys (`name::transport`) of registry entries that have a user
    *  override (vs builtin). */
   customKeys: Set<string>;
@@ -79,9 +76,6 @@ export function useInstallState(): InstallState {
   // Ref to prevent stale closure issues with pending state
   const pendingRef = useRef(pending);
   pendingRef.current = pending;
-
-  // Guards the one-shot origin backfill so it runs at most once per mount.
-  const backfilledRef = useRef(false);
 
   const doScan = useCallback(async () => {
     const data = await scanInstalled();
@@ -134,19 +128,20 @@ export function useInstallState(): InstallState {
     ]).finally(() => setLoading(false));
   }, [doScan, refreshRegistry, refreshSources]);
 
-  // The Matrix/Registry views care about *active* installs only, so these maps
-  // filter to enabled rows. Disabled servers (remembered in ~/.mux/disabled.json,
-  // enabled === false) are surfaced separately in the Agent view via `installed`.
+  // These lookups care about *active* installs only, so they filter to enabled
+  // rows. Disabled servers (remembered in ~/.mux/disabled.json, enabled === false)
+  // are surfaced separately in the Agent view via `installed`.
 
-  // Map from cellKey(serverKey, agent) → customized (global, enabled)
-  const installedMap = useMemo(() => {
-    const m = new Map<string, boolean>();
+  // Cell keys (serverKey + agent) of active installs — drives toggle()'s
+  // install-vs-uninstall decision.
+  const installedCells = useMemo(() => {
+    const cells = new Set<string>();
     for (const item of installed) {
       if (item.scope === "global" && item.enabled) {
-        m.set(cellKey(installedKey(item), item.agent), item.customized ?? false);
+        cells.add(cellKey(installedKey(item), item.agent));
       }
     }
-    return m;
+    return cells;
   }, [installed]);
 
   // Map: serverKey → agentId[] (global, enabled)
@@ -162,63 +157,11 @@ export function useInstallState(): InstallState {
     return m;
   }, [installed]);
 
-  // Map: agentId → serverKey[] (global, enabled)
-  const agentToServers = useMemo(() => {
-    const m = new Map<string, string[]>();
-    for (const item of installed) {
-      if (item.scope === "global" && item.enabled) {
-        const arr = m.get(item.agent) ?? [];
-        arr.push(installedKey(item));
-        m.set(item.agent, arr);
-      }
-    }
-    return m;
-  }, [installed]);
 
-  // One-shot origin backfill: legacy custom entries imported before the `origin`
-  // field existed have no recorded source. Once the initial scan has landed, for
-  // any such entry that IS currently installed in an agent, stamp its source app
-  // (discovered + that agent) and persist it so the「来自 X」label survives even if
-  // the app later removes the server. Orphaned (未使用) entries are left untouched —
-  // we can't know their source, so they render the generic 机器探索 fallback rather
-  // than being mislabeled durably.
-  useEffect(() => {
-    if (loading || backfilledRef.current) return;
-    if (entries.length === 0 || installed.length === 0) return;
-    const toStamp = entries.filter(
-      (e) => customKeys.has(keyOf(e)) && !e.origin && (serverToAgents.get(keyOf(e))?.length ?? 0) > 0
-    );
-    backfilledRef.current = true;
-    if (toStamp.length === 0) return;
-    (async () => {
-      for (const e of toStamp) {
-        const agent = serverToAgents.get(keyOf(e))![0];
-        await upsertRegistry({ ...e, origin: { kind: "discovered", agent, scope: "global" } }).catch(
-          console.error
-        );
-      }
-      await refreshRegistry().catch(console.error);
-    })();
-  }, [loading, entries, installed, customKeys, serverToAgents, refreshRegistry]);
-
-  const isInstalled = useCallback(
-    (serverKey: string, agentId: string) => installedMap.has(cellKey(serverKey, agentId)),
-    [installedMap]
-  );
-
-  const customizedOf = useCallback(
-    (serverKey: string, agentId: string) => installedMap.get(cellKey(serverKey, agentId)) ?? false,
-    [installedMap]
-  );
 
   const agentsForServer = useCallback(
     (serverKey: string) => serverToAgents.get(serverKey) ?? [],
     [serverToAgents]
-  );
-
-  const serversForAgent = useCallback(
-    (agentId: string) => agentToServers.get(agentId) ?? [],
-    [agentToServers]
   );
 
   const toggle = useCallback(
@@ -229,7 +172,7 @@ export function useInstallState(): InstallState {
       const key = cellKey(serverKey, agentId);
       if (pendingRef.current.has(key)) return;
 
-      const wasInstalled = installedMap.has(key);
+      const wasInstalled = installedCells.has(key);
 
       // Mark pending
       setPending((prev) => new Set(prev).add(key));
@@ -269,7 +212,7 @@ export function useInstallState(): InstallState {
       } catch (err) {
         // Revert via re-scan
         await doScan().catch(console.error);
-        const msg = Array.isArray(err) ? err.join("; ") : String(err);
+        const msg = formatError(err);
         toast.show({ kind: "error", msg: `操作失败: ${msg}` });
       } finally {
         setPending((prev) => {
@@ -279,7 +222,7 @@ export function useInstallState(): InstallState {
         });
       }
     },
-    [installedMap, doScan, toast]
+    [installedCells, doScan, toast]
   );
 
   // Enable/disable an installed server. Disabling removes it from the agent file
@@ -319,7 +262,7 @@ export function useInstallState(): InstallState {
         await doScan();
       } catch (err) {
         await doScan().catch(console.error);
-        const msg = Array.isArray(err) ? err.join("; ") : String(err);
+        const msg = formatError(err);
         toast.show({ kind: "error", msg: `操作失败: ${msg}` });
       } finally {
         setPending((prev) => {
@@ -362,7 +305,7 @@ export function useInstallState(): InstallState {
         await doScan();
       } catch (err) {
         await doScan().catch(console.error);
-        const msg = Array.isArray(err) ? err.join("; ") : String(err);
+        const msg = formatError(err);
         toast.show({ kind: "error", msg: `操作失败: ${msg}` });
       } finally {
         setPending((prev) => {
@@ -448,10 +391,7 @@ export function useInstallState(): InstallState {
     installed,
     loading,
     pending,
-    isInstalled,
-    customizedOf,
     agentsForServer,
-    serversForAgent,
     customKeys,
     toggle,
     setEnabled,

@@ -43,7 +43,7 @@ const LOGOS: Record<string, string> = {
 const FULL_BLEED = new Set<string>(["qoder", "kiro", "roo-code"]);
 
 /** Human-readable product names + brand colour (colour used for the monogram fallback). */
-export const AGENT_META: Record<string, { name: string; color: string }> = {
+const AGENT_META: Record<string, { name: string; color: string }> = {
   "claude-code": { name: "Claude Code", color: "#D97757" },
   "claude-desktop": { name: "Claude Desktop", color: "#C15F3C" },
   cursor: { name: "Cursor", color: "#111827" },

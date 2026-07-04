@@ -2,7 +2,6 @@ import { useState, useEffect } from "react";
 import { Box, Text, useApp, useStdout } from "ink";
 import Spinner from "ink-spinner";
 import { McpList, type McpSelection, type ScopeTab } from "./mcp-list.js";
-import { Logo } from "./logo.js";
 import { ConfigPanel } from "./config-panel.js";
 import { ConfirmView } from "./confirm-view.js";
 import { ScanView, type ScannedItem } from "./scan-view.js";

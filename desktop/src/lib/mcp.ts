@@ -14,11 +14,6 @@ export function keyOf(entry: RegistryEntry): string {
   return `${entry.name}::${transportOf(entry)}`;
 }
 
-/** Composite key from a (name, transport) pair — for installed rows / requests. */
-export function makeKey(name: string, transport: string): string {
-  return `${name}::${transport}`;
-}
-
 /** Composite key of an installed (scanned) server. */
 export function installedKey(item: InstalledMcp): string {
   return `${item.name}::${item.transport}`;

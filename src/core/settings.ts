@@ -9,6 +9,7 @@ import {
 import { join, dirname } from "node:path";
 import { homedir } from "node:os";
 import type { RegistryEntry, AgentDefinition, StateConfig, SourceDef } from "../types.js";
+import { keyOf } from "./key.js";
 
 /**
  * Single consolidated user-data file: `~/.mux/settings.json`.
@@ -48,7 +49,7 @@ function muxDir(): string {
   return join(homedir(), ".mux");
 }
 
-export function settingsPath(): string {
+function settingsPath(): string {
   return join(muxDir(), "settings.json");
 }
 
@@ -64,7 +65,7 @@ export function loadSettings(): Settings {
 }
 
 /** Atomic write (temp sibling + rename) so a crash can't leave a torn file. */
-function writeAtomic(path: string, data: string): void {
+export function writeAtomic(path: string, data: string): void {
   mkdirSync(dirname(path), { recursive: true });
   const tmp = `${path}.tmp`;
   writeFileSync(tmp, data);
@@ -82,11 +83,6 @@ export function mutateSettings(fn: (s: Settings) => void): void {
   const settings = loadSettings();
   fn(settings);
   saveSettings(settings);
-}
-
-/** Composite key `name::transport` (inlined to avoid a cycle with registry.ts). */
-function keyOf(e: RegistryEntry): string {
-  return `${e.name}::${e.config.stdio ? "stdio" : "http"}`;
 }
 
 /**

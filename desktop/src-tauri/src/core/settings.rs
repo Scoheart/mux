@@ -187,7 +187,7 @@ pub fn migrate_if_needed() {
     if save_settings(&s).is_err() {
         return;
     }
-    let stamp = chrono::Local::now().format("%Y-%m-%dT%H-%M-%S").to_string();
+    let stamp = super::paths::backup_timestamp();
     let legacy_dir = backups_dir().join(format!("legacy-{}", stamp));
     archive(&reg_dir, &legacy_dir, "registry");
     archive(&agents_path, &legacy_dir, "agents.json");

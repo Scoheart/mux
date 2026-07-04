@@ -38,7 +38,6 @@ export interface InstalledMcp {
    *  remembered in MUX's disabled store (false). */
   enabled: boolean;
 }
-export interface PlannedWrite { agent: string; file_path: string; config_json: string; }
 export interface PatchInput {
   args?: string[]; env?: Record<string, string>; url?: string; headers?: Record<string, string>;
 }

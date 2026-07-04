@@ -1,12 +1,15 @@
 import { describe, it, expect } from "vitest";
-import { BUILTIN_REGISTRY } from "../../src/builtin-registry.js";
+import registryData from "../../data/registry.json" with { type: "json" };
 import { DEFAULT_AGENTS } from "../../src/constants.js";
+import type { RegistryEntry } from "../../src/types.js";
+
+const CURATED = registryData as RegistryEntry[];
 
 describe("shared data", () => {
-  it("registry loads from JSON with expected shape", () => {
-    expect(Array.isArray(BUILTIN_REGISTRY)).toBe(true);
-    expect(BUILTIN_REGISTRY.length).toBeGreaterThanOrEqual(40);
-    const first = BUILTIN_REGISTRY.find((e) => e.name === "filesystem");
+  it("curated collection loads from JSON with expected shape", () => {
+    expect(Array.isArray(CURATED)).toBe(true);
+    expect(CURATED.length).toBeGreaterThanOrEqual(40);
+    const first = CURATED.find((e) => e.name === "filesystem");
     expect(first).toBeDefined();
     expect(first!.config.stdio?.command).toBe("npx");
   });

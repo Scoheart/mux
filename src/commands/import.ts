@@ -1,13 +1,9 @@
 import pc from "picocolors";
-import { readAgents, writeAgents } from "../core/agents.js";
+import { readAgents } from "../core/agents.js";
 import { scanAgents } from "../core/scanner.js";
-import { readRegistry, writeDiscoveredEntry, keyOf } from "../core/registry.js";
+import { readRegistry, writeDiscoveredEntry } from "../core/registry.js";
+import { keyOf, configKey } from "../core/key.js";
 import type { RegistryEntry, McpConfig, McpStdioConfig, McpHttpConfig } from "../types.js";
-
-/** Composite key for a scanned config (mirrors keyOf for registry entries). */
-function scannedKey(name: string, config: McpConfig): string {
-  return `${name}::${"command" in config ? "stdio" : "http"}`;
-}
 
 function configToRegistryEntry(
   name: string,
@@ -41,7 +37,7 @@ export function importCommand(): void {
   const sourceMap = new Map<string, { agent: string; scope: "global" | "project" }>();
 
   for (const s of scanned) {
-    const k = scannedKey(s.name, s.config);
+    const k = configKey(s.name, s.config);
     if (!configByKey.has(k)) {
       configByKey.set(k, { name: s.name, config: s.config });
       sourceMap.set(k, { agent: s.source.agent, scope: s.source.scope });
@@ -63,6 +59,4 @@ export function importCommand(): void {
 
   console.log(pc.bold(`\n${imported} new MCPs imported, ${existing.size} already registered.`));
 
-  writeAgents(targetsConfig);
-  console.log(pc.dim(`\nagents saved.`));
 }

@@ -3,7 +3,7 @@ import type { InstallState } from "../hooks/useInstallState";
 import type { RegistryEntry } from "../lib/types";
 import { keyOf, transportLabel, installedKey } from "../lib/mcp";
 import { XIcon, PlusIcon, EditIcon, PackageIcon } from "./icons";
-import { Avatar, Badge, IconButton, SearchBar, Switch } from "./ui";
+import { Avatar, Badge, IconButton, SearchBar, Switch, TransportPill } from "./ui";
 import { AgentGlyph, agentName } from "./brandIcons";
 import { AddAgentDialog } from "./AddAgentDialog";
 import { cellKey } from "../lib/api";
@@ -25,18 +25,6 @@ function syntheticEntry(serverKey: string): RegistryEntry {
     tags: [],
     config: transport === "http" ? { http: { type: "http", url: "" } } : { stdio: { command: "" } },
   };
-}
-
-/** Small pill showing an entry's transport (stdio / http / sse). */
-function TransportPill({ entry }: { entry: RegistryEntry }) {
-  return (
-    <span
-      className="px-1.5 py-0.5 rounded text-[10px] font-medium uppercase tracking-wide flex-shrink-0"
-      style={{ background: "var(--color-gray-150)", color: "var(--color-gray-600)", fontFamily: "var(--font-mono)" }}
-    >
-      {transportLabel(entry)}
-    </span>
-  );
 }
 
 export function AgentView({ state, agentId }: AgentViewProps) {
@@ -274,7 +262,7 @@ export function AgentView({ state, agentId }: AgentViewProps) {
                                 <span className="text-xs font-medium truncate" style={{ color: "var(--text-primary)" }}>
                                   {entry.name}
                                 </span>
-                                <TransportPill entry={entry} />
+                                <TransportPill entry={entry} compact />
                               </div>
                               {entry.description && (
                                 <div className="text-xs truncate mt-0.5" style={{ color: "var(--text-secondary)" }}>
@@ -322,7 +310,7 @@ export function AgentView({ state, agentId }: AgentViewProps) {
                     <span className="text-sm font-medium truncate" style={{ color: "var(--text-primary)" }}>
                       {entry.name}
                     </span>
-                    <TransportPill entry={entry} />
+                    <TransportPill entry={entry} compact />
                   </span>
                   <Switch
                     checked={enabled}

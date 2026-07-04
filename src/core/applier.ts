@@ -1,15 +1,8 @@
 import { copyFileSync, existsSync, mkdirSync } from "node:fs";
 import { join, basename } from "node:path";
 import type { DiffEntry, AgentsConfig, RegistryEntry, McpConfig } from "../types.js";
-import { JsonAdapter } from "../adapters/json-adapter.js";
-import { TomlAdapter } from "../adapters/toml-adapter.js";
-import type { Adapter } from "../adapters/adapter.js";
+import { pickAdapter } from "../adapters/index.js";
 import { expandTilde, resolvePath } from "../utils/path.js";
-
-function getAdapter(format: string, key: string): Adapter {
-  if (format === "toml") return new TomlAdapter();
-  return new JsonAdapter(key);
-}
 
 function resolveConfigForMcp(entry: RegistryEntry): McpConfig {
   if (entry.config.stdio) return entry.config.stdio;
@@ -29,7 +22,8 @@ function getFilePath(
   return resolvePath(agentDef.project, "project", projectDir);
 }
 
-function backup(filePath: string, backupsDir: string): void {
+/** Copy a config file into the backups dir with a filename-safe timestamp. */
+export function backupFile(filePath: string, backupsDir: string): void {
   if (!existsSync(filePath)) return;
   mkdirSync(backupsDir, { recursive: true });
   const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
@@ -55,11 +49,11 @@ export function applyDiffs(
     if (!filePath) continue;
 
     if (!backedUp.has(filePath) && existsSync(filePath)) {
-      backup(filePath, backupsDir);
+      backupFile(filePath, backupsDir);
       backedUp.add(filePath);
     }
 
-    const adapter = getAdapter(agentDef.format, agentDef.key);
+    const adapter = pickAdapter(agentDef.format, agentDef.key);
 
     if (diff.action === "add") {
       const entry = registryMap.get(diff.mcpName);

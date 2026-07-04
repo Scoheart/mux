@@ -19,7 +19,6 @@
   --color-brand-magenta: #E664C8;
   --radius-mac: 10px;
   --radius-mac-lg: 14px;
-  --radius-pill: 9999px;
   --shadow-card: 0 1px 2px rgba(0,0,0,.04), 0 1px 3px rgba(0,0,0,.06);
   --shadow-hover: 0 4px 12px rgba(0,0,0,.08), 0 2px 4px rgba(0,0,0,.06);
   --shadow-sheet: 0 12px 48px rgba(0,0,0,.18), 0 2px 8px rgba(0,0,0,.12);
@@ -104,18 +103,6 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* Reusable glass materials. `.glass-strong` for chrome (heavier blur), `.glass`
-   for lighter surfaces. Compose with layout classes; they own background +
-   backdrop-filter + the specular highlight, so remove any solid inline bg. */
-.glass, .glass-strong {
-  background: var(--glass-fill);
-  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
-  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
-  border: 1px solid var(--glass-border);
-  box-shadow: var(--glass-shadow), var(--glass-highlight);
-}
-.glass-strong { background: var(--glass-fill-strong); }
-
 @keyframes spin { to { transform: rotate(360deg); } }
 
 /* Card list (CC-Switch-style) — frosted glass */
@@ -129,16 +116,6 @@ body {
   transition: box-shadow .16s ease, border-color .16s ease, background .16s ease;
 }
 .mux-card:hover { background: var(--glass-fill-strong); box-shadow: var(--shadow-hover), var(--glass-highlight); }
-.mux-card[data-selected="true"] {
-  border-color: var(--color-blue);
-  box-shadow: 0 0 0 1px var(--color-blue), var(--shadow-hover), var(--glass-highlight);
-}
-
-/* Toolbar that fades in on hover; always visible when card is selected */
-.mux-toolbar { opacity: 0; transition: opacity .14s ease; }
-.mux-card:hover .mux-toolbar,
-.mux-card[data-selected="true"] .mux-toolbar { opacity: 1; }
-
 /* Registry tile (grid card) — frosted glass */
 .mux-tile {
   display: flex;

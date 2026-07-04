@@ -1,6 +1,8 @@
 import { useState } from "react";
 import type { InstallState } from "../hooks/useInstallState";
 import { useToast } from "./Toast";
+import { Modal, ModalHeader } from "./ui";
+import { formatError } from "../lib/format";
 
 /** The official curated collection, subscribed as a remote source (the repo's
  *  raw registry.json). Kept here so the Sources page can pre-fill this dialog. */
@@ -38,7 +40,7 @@ export function SubscribeDialog({
       toast.show({ kind: "success", msg: `已订阅：${v.name}（${v.server_count} 个 server）` });
       onClose();
     } catch (e) {
-      toast.show({ kind: "error", msg: "订阅失败：" + (Array.isArray(e) ? e.join("; ") : String(e)) });
+      toast.show({ kind: "error", msg: "订阅失败：" + formatError(e) });
     } finally {
       setBusy(false);
     }
@@ -51,46 +53,18 @@ export function SubscribeDialog({
   } as const;
 
   return (
-    <div
-      className="fixed inset-0 flex items-center justify-center z-40"
-      style={{ background: "rgba(0,0,0,.3)", backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)" }}
-      onClick={onClose}
-    >
-      <div
-        className="flex flex-col w-[520px] max-h-[82vh] rounded-mac-lg overflow-hidden"
-        style={{
-          background: "var(--surface-overlay)",
-          backdropFilter: "blur(var(--glass-blur)) saturate(var(--glass-saturate))",
-          WebkitBackdropFilter: "blur(var(--glass-blur)) saturate(var(--glass-saturate))",
-          border: "1px solid var(--glass-border)",
-          boxShadow: "var(--shadow-sheet), var(--glass-highlight)",
-        }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Header */}
-        <div className="flex items-start gap-4 px-6 py-5" style={{ borderBottom: "1px solid var(--border-hairline)" }}>
-          <div
-            className="w-11 h-11 rounded-mac flex-shrink-0 flex items-center justify-center text-white text-2xl font-semibold leading-none"
-            style={{ background: "linear-gradient(135deg, var(--color-brand-gold), var(--color-brand-coral), var(--color-brand-magenta))" }}
-          >
-            ☁
-          </div>
-          <div className="flex-1 min-w-0">
-            <h2 className="text-base font-semibold m-0 mb-1" style={{ color: "var(--text-primary)" }}>
-              订阅远程来源
-            </h2>
-            <p className="text-xs m-0 leading-relaxed" style={{ color: "var(--text-secondary)" }}>
-              订阅一个<b>远程</b>配置源：填一个指向 MCP 配置文件的 URL（JSON / TOML）。MUX 抓取后缓存一份，其中的 server 加入目录，之后可「刷新」重抓、随远端更新。（本机已有的文件请用「导入本地文件」。）
-            </p>
-          </div>
-          <button
-            onClick={onClose}
-            className="flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center border-0 cursor-pointer mt-0.5"
-            style={{ background: "var(--border-hairline)", color: "var(--text-secondary)" }}
-          >
-            <span className="text-xs font-medium">✕</span>
-          </button>
-        </div>
+    <Modal width={520} onClose={onClose}>
+        <ModalHeader
+          glyph="☁"
+          title="订阅远程来源"
+          subtitle={
+            <>
+              订阅一个<b>远程</b>配置源：填一个指向 MCP 配置文件的 URL（JSON / TOML）。MUX
+              抓取后缓存一份，其中的 server 加入目录，之后可「刷新」重抓、随远端更新。（本机已有的文件请用「导入本地文件」。）
+            </>
+          }
+          onClose={onClose}
+        />
 
         {/* Body */}
         <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
@@ -144,7 +118,6 @@ export function SubscribeDialog({
             {busy ? "订阅中…" : "订阅"}
           </button>
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

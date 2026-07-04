@@ -1,5 +1,6 @@
 import type { RegistryEntry } from "../types.js";
 import { loadSettings } from "./settings.js";
+import { keyOf } from "./key.js";
 import {
   MANUAL_ID,
   DISCOVERED_ID,
@@ -9,16 +10,7 @@ import {
   removeManualEntry,
 } from "./sources.js";
 
-/** Transport bucket of an entry: "stdio" (local process) or "http" (remote,
- *  covers http+sse). An entry carries exactly one transport; stdio wins if both. */
-export function transportOf(entry: RegistryEntry): "stdio" | "http" {
-  return entry.config.stdio ? "stdio" : "http";
-}
-
-/** Composite identity `name::transport`. */
-export function keyOf(entry: RegistryEntry): string {
-  return `${entry.name}::${transportOf(entry)}`;
-}
+export { keyOf, transportOf } from "./key.js";
 
 /** All catalog entries: assembled from every enabled source and deduped by
  *  composite key with precedence external < discovered < manual (the user's own
@@ -47,9 +39,4 @@ export { writeDiscoveredEntry };
 /** Remove a user override from the manual source. Returns true if one went. */
 export function removeRegistryEntry(name: string, transport: "stdio" | "http"): boolean {
   return removeManualEntry(name, transport);
-}
-
-/** Names of all catalog entries. */
-export function listRegistry(): string[] {
-  return readRegistry().map((e) => e.name);
 }

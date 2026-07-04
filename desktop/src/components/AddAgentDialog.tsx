@@ -2,6 +2,8 @@ import { useState } from "react";
 import { addAgent, updateAgent } from "../lib/api";
 import type { AgentDefinitionInput, AgentInfo } from "../lib/types";
 import { useToast } from "./Toast";
+import { Modal, ModalHeader } from "./ui";
+import { formatError } from "../lib/format";
 
 const FORMATS = [
   { value: "json", label: "JSON" },
@@ -61,7 +63,7 @@ export function AddAgentDialog({
       onClose();
     } catch (e) {
       const verb = isEdit ? "更新" : "添加";
-      toast.show({ kind: "error", msg: `${verb}失败：` + (Array.isArray(e) ? e.join("; ") : String(e)) });
+      toast.show({ kind: "error", msg: `${verb}失败：` + formatError(e) });
     } finally {
       setBusy(false);
     }
@@ -74,51 +76,17 @@ export function AddAgentDialog({
   } as const;
 
   return (
-    <div
-      className="fixed inset-0 flex items-center justify-center z-40"
-      style={{ background: "rgba(0,0,0,.3)", backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)" }}
-      onClick={onClose}
-    >
-      <div
-        className="flex flex-col w-[520px] max-h-[82vh] rounded-mac-lg overflow-hidden"
-        style={{
-          background: "var(--surface-overlay)",
-          backdropFilter: "blur(var(--glass-blur)) saturate(var(--glass-saturate))",
-          WebkitBackdropFilter: "blur(var(--glass-blur)) saturate(var(--glass-saturate))",
-          border: "1px solid var(--glass-border)",
-          boxShadow: "var(--shadow-sheet), var(--glass-highlight)",
-        }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Header */}
-        <div
-          className="flex items-start gap-4 px-6 py-5"
-          style={{ borderBottom: "1px solid var(--border-hairline)" }}
-        >
-          <div
-            className="w-11 h-11 rounded-mac flex-shrink-0 flex items-center justify-center text-white text-2xl font-semibold leading-none"
-            style={{ background: "linear-gradient(135deg, var(--color-brand-gold), var(--color-brand-coral), var(--color-brand-magenta))" }}
-          >
-            {isEdit ? "✎" : "+"}
-          </div>
-          <div className="flex-1 min-w-0">
-            <h2 className="text-base font-semibold m-0 mb-1" style={{ color: "var(--text-primary)" }}>
-              {isEdit ? "编辑 Agent" : "添加 Agent"}
-            </h2>
-            <p className="text-xs m-0 leading-relaxed" style={{ color: "var(--text-secondary)" }}>
-              {isEdit
-                ? "修改该工具的配置文件路径 / 格式 / Key。路径请用 ~ 开头（如 ~/Library/…），勿写死用户名。"
-                : "注册一个自定义工具，MCP 配置将写入它的配置文件。"}
-            </p>
-          </div>
-          <button
-            onClick={onClose}
-            className="flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center border-0 cursor-pointer mt-0.5"
-            style={{ background: "var(--border-hairline)", color: "var(--text-secondary)" }}
-          >
-            <span className="text-xs font-medium">✕</span>
-          </button>
-        </div>
+    <Modal width={520} onClose={onClose}>
+        <ModalHeader
+          glyph={isEdit ? "✎" : "+"}
+          title={isEdit ? "编辑 Agent" : "添加 Agent"}
+          subtitle={
+            isEdit
+              ? "修改该工具的配置文件路径 / 格式 / Key。路径请用 ~ 开头（如 ~/Library/…），勿写死用户名。"
+              : "注册一个自定义工具，MCP 配置将写入它的配置文件。"
+          }
+          onClose={onClose}
+        />
 
         {/* Body */}
         <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
@@ -220,7 +188,6 @@ export function AddAgentDialog({
             {busy ? (isEdit ? "保存中…" : "添加中…") : isEdit ? "保存" : "添加"}
           </button>
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

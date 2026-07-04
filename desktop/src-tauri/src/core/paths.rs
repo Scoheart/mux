@@ -51,3 +51,8 @@ mod tests {
         assert!(backups_dir().starts_with(mux_dir()));
     }
 }
+
+/// Filename-safe local timestamp (`%Y-%m-%dT%H-%M-%S`) used for backup artifacts.
+pub fn backup_timestamp() -> String {
+    chrono::Local::now().format("%Y-%m-%dT%H-%M-%S").to_string()
+}

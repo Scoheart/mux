@@ -7,7 +7,7 @@
 
 use crate::core::adapter::get_adapter;
 use crate::core::paths::{local_sources_dir, remote_sources_dir};
-use crate::core::types::{McpConfig, RegistryConfig, RegistryEntry, RegistryOrigin, SourceDef};
+use crate::core::types::{McpConfig, RegistryEntry, RegistryOrigin, SourceDef};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -34,10 +34,7 @@ fn origin_for(def: &SourceDef) -> RegistryOrigin {
 }
 
 fn entry_from(name: String, cfg: McpConfig, origin: &RegistryOrigin) -> RegistryEntry {
-    let config = match cfg {
-        McpConfig::Stdio(c) => RegistryConfig { stdio: Some(c), http: None },
-        McpConfig::Http(c) => RegistryConfig { stdio: None, http: Some(c) },
-    };
+    let config = cfg.into();
     RegistryEntry {
         name,
         description: String::new(),

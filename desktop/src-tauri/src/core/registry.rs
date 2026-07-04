@@ -21,10 +21,6 @@ pub fn builtin_registry() -> Vec<RegistryEntry> {
 pub const MANUAL_ID: &str = "manual";
 pub const DISCOVERED_ID: &str = "discovered";
 
-fn now_iso() -> String {
-    chrono::Local::now().format("%Y-%m-%dT%H:%M:%S").to_string()
-}
-
 /// An in-memory `SourceDef` for a managed local source (enough to resolve its
 /// cached file path and parse it). Not persisted by itself.
 fn managed_def(id: &str, name: &str) -> SourceDef {
@@ -37,7 +33,7 @@ fn managed_def(id: &str, name: &str) -> SourceDef {
         format: "json".into(),
         key: "mcpServers".into(),
         enabled: true,
-        added_at: Some(now_iso()),
+        added_at: Some(super::sources::now_iso()),
         synced_at: None,
         server_count: None,
         error: None,

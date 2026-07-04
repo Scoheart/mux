@@ -3,10 +3,9 @@ import pc from "picocolors";
 import { expandTilde } from "../utils/path.js";
 import { MCP_HUB_DIR, BACKUPS_DIR } from "../constants.js";
 import { readAgents } from "../core/agents.js";
-import { JsonAdapter } from "../adapters/json-adapter.js";
-import { TomlAdapter } from "../adapters/toml-adapter.js";
-import { existsSync, copyFileSync, mkdirSync } from "node:fs";
-import { basename } from "node:path";
+import { pickAdapter } from "../adapters/index.js";
+import { backupFile } from "../core/applier.js";
+import { existsSync } from "node:fs";
 
 export function cleanCommand(options: { agent?: string }): void {
   const hubDir = expandTilde(MCP_HUB_DIR);
@@ -18,14 +17,12 @@ export function cleanCommand(options: { agent?: string }): void {
     if (options.agent && name !== options.agent) continue;
     if (!def.enabled) continue;
 
-    const adapter = def.format === "toml" ? new TomlAdapter() : new JsonAdapter(def.key);
+    const adapter = pickAdapter(def.format, def.key);
 
     if (def.global) {
       const filePath = expandTilde(def.global);
       if (existsSync(filePath)) {
-        mkdirSync(backupsDir, { recursive: true });
-        const ts = new Date().toISOString().replace(/[:.]/g, "-");
-        copyFileSync(filePath, join(backupsDir, `${basename(filePath)}-${ts}`));
+        backupFile(filePath, backupsDir);
         adapter.write(filePath, {});
         console.log(pc.green(`  ✓ ${name} [global] cleaned`));
         cleaned++;

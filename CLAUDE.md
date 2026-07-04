@@ -62,10 +62,10 @@ Stored agent paths must use `~/…`, **never** a hardcoded home like `/Users/nam
 Editing a catalog entry re-stamps the new config into agents that installed it *clean* (on-disk config == the pre-edit registry config); hand-customized installs are left untouched (`propagate_edit_to_installs` in `commands.rs`).
 
 ### Shared defaults
-`data/agents.json` (18 agents) and `data/registry.json` are the single source of truth, embedded on both sides (`include_str!` in Rust, JSON import in TS). `scripts/extract-data.ts` regenerates them from the legacy constants.
+`data/agents.json` (18 agents) and `data/registry.json` are the single source of truth, embedded on both sides (`include_str!` in Rust, JSON import in TS). Edit those JSON files directly.
 
 ## Gotchas
 
 - **Integration-test `$HOME` races**: `cargo test` runs a file's tests in parallel threads. Tests that `std::env::set_var("HOME", …)` to isolate `~/.mux` must be **one test per file** (or merged into one) — two in the same binary clobber each other's HOME.
 - **CI**: pushing to `main` builds a macOS `.dmg` pre-release (`.github/workflows/build-desktop.yml`). Don't re-add `sccache` (its GHA-cache backend broke the build); changing `[profile.release]` invalidates the Rust cache and forces one cold rebuild.
-- The `MatrixView`/`ServerDetail`/`InstallDialog` components are **orphaned** (not wired into `App.tsx`); the live desktop nav is Registry / Sources / per-Agent + a full-page editor.
+- The live desktop nav is Registry / Sources / per-Agent + a full-page editor. (The old orphaned `MatrixView`/`ServerDetail`/`InstallDialog`/`RegistryGrid` components were deleted; `preview_install` and the `overrides` patch path in Rust are kept — test-covered request surface with no current UI caller.)

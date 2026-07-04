@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { readRegistry, writeRegistryEntry, listRegistry } from "../../src/core/registry.js";
+import { readRegistry, writeRegistryEntry } from "../../src/core/registry.js";
 import { mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -77,10 +77,10 @@ describe("readRegistry", () => {
   });
 });
 
-describe("listRegistry", () => {
-  it("returns names of all user-registered MCPs", () => {
+describe("catalog names", () => {
+  it("readRegistry surfaces all user-registered MCPs", () => {
     writeRegistryEntry({ name: "x", description: "", tags: [], config: { stdio: { command: "c" } } });
     writeRegistryEntry({ name: "y", description: "", tags: [], config: { stdio: { command: "c" } } });
-    expect(listRegistry().sort()).toEqual(["x", "y"]);
+    expect(readRegistry().map((e) => e.name).sort()).toEqual(["x", "y"]);
   });
 });

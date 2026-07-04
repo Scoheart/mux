@@ -1,10 +1,11 @@
 import { useMemo, useState } from "react";
 import type { InstallState } from "../hooks/useInstallState";
 import type { SourceView } from "../lib/types";
-import { Avatar, Badge, IconButton, Switch } from "./ui";
+import { Avatar, Badge, IconButton, Switch, stickyHeaderStyle } from "./ui";
 import { CloudIcon, FolderIcon, LinkIcon, RefreshIcon, TrashIcon, PackageIcon } from "./icons";
 import { SubscribeDialog, OFFICIAL_SOURCE } from "./SubscribeDialog";
 import { useToast } from "./Toast";
+import { formatError } from "../lib/format";
 
 interface SourcesViewProps {
   state: InstallState;
@@ -42,7 +43,7 @@ export function SourcesView({ state }: SourcesViewProps) {
       const v = await state.pickLocalSource();
       if (v) toast.show({ kind: "success", msg: `已导入本地来源：${v.name}（${v.server_count} 个 server）` });
     } catch (e) {
-      toast.show({ kind: "error", msg: "导入失败：" + (Array.isArray(e) ? e.join("; ") : String(e)) });
+      toast.show({ kind: "error", msg: "导入失败：" + formatError(e) });
     }
   };
 
@@ -57,7 +58,7 @@ export function SourcesView({ state }: SourcesViewProps) {
         toast.show({ kind: "success", msg: `已刷新：${s.name}` });
       }
     } catch (e) {
-      toast.show({ kind: "error", msg: "刷新失败：" + (Array.isArray(e) ? e.join("; ") : String(e)) });
+      toast.show({ kind: "error", msg: "刷新失败：" + formatError(e) });
     } finally {
       setBusyId(null);
     }
@@ -67,7 +68,7 @@ export function SourcesView({ state }: SourcesViewProps) {
     try {
       await state.toggleSource(s.id, on);
     } catch (e) {
-      toast.show({ kind: "error", msg: "操作失败：" + (Array.isArray(e) ? e.join("; ") : String(e)) });
+      toast.show({ kind: "error", msg: "操作失败：" + formatError(e) });
     }
   };
 
@@ -77,7 +78,7 @@ export function SourcesView({ state }: SourcesViewProps) {
       await state.deleteSource(s.id);
       toast.show({ kind: "success", msg: `已删除来源：${s.name}` });
     } catch (e) {
-      toast.show({ kind: "error", msg: "删除失败：" + (Array.isArray(e) ? e.join("; ") : String(e)) });
+      toast.show({ kind: "error", msg: "删除失败：" + formatError(e) });
     } finally {
       setBusyId(null);
     }
@@ -86,15 +87,7 @@ export function SourcesView({ state }: SourcesViewProps) {
   return (
     <div className="h-full min-h-0 overflow-y-auto">
       {/* Sticky header: title + actions + legend */}
-      <div
-        className="sticky top-0 z-10 px-6 py-4"
-        style={{
-          background: "var(--header-bg)",
-          backdropFilter: "blur(var(--glass-blur)) saturate(var(--glass-saturate))",
-          WebkitBackdropFilter: "blur(var(--glass-blur)) saturate(var(--glass-saturate))",
-          borderBottom: "1px solid color-mix(in srgb, var(--glass-border) 55%, transparent)",
-        }}
-      >
+      <div className="sticky top-0 z-10 px-6 py-4" style={stickyHeaderStyle}>
         <div className="max-w-[1280px] mx-auto flex items-center gap-3">
           <div className="flex-1 min-w-0">
             <h1 className="text-base font-semibold m-0" style={{ color: "var(--text-primary)" }}>

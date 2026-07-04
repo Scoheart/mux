@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { RegistryEntry, AgentInfo, AgentDefinitionInput, InstalledMcp, PlannedWrite, InstallRequest, SourceView } from "./types";
+import type { RegistryEntry, AgentInfo, AgentDefinitionInput, InstalledMcp, InstallRequest, SourceView } from "./types";
 
 export const listRegistry = () => invoke<RegistryEntry[]>("list_registry");
 export const upsertRegistry = (entry: RegistryEntry) =>
@@ -19,8 +19,6 @@ export const scanInstalled = (projectDir?: string) =>
  *  the number newly imported. */
 export const importDiscovered = (projectDir?: string) =>
   invoke<number>("import_discovered", { projectDir: projectDir ?? null });
-export const previewInstall = (req: InstallRequest) =>
-  invoke<PlannedWrite[]>("preview_install", { req });
 export const applyInstall = (req: InstallRequest) =>
   invoke<void>("apply_install", { req });
 export const uninstall = (req: InstallRequest) =>
@@ -46,9 +44,6 @@ export const listSources = () => invoke<SourceView[]>("list_sources");
 /** Subscribe to a remote config URL: fetch + cache + register as a source. */
 export const subscribeSource = (url: string, name?: string) =>
   invoke<SourceView>("subscribe_source", { url, name: name ?? null });
-/** Register a local file (explicit path) as a source. */
-export const addLocalSource = (path: string, name?: string) =>
-  invoke<SourceView>("add_local_source", { path, name: name ?? null });
 /** Open a native file picker and add the chosen file as a local source.
  *  Resolves to null if the user cancels. */
 export const addLocalSourceDialog = () =>

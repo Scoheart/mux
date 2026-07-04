@@ -64,7 +64,7 @@ fn propagate_edit_to_installs(prev: Option<&RegistryEntry>, new: Option<&Registr
     }
     let transport = new.transport();
     let agents = load_agents();
-    let timestamp = chrono::Local::now().format("%Y-%m-%dT%H-%M-%S").to_string();
+    let timestamp = crate::core::paths::backup_timestamp();
     for s in scan_agents(&agents, None, true) {
         if s.name == new.name
             && s.scope == "global"
@@ -113,7 +113,7 @@ fn extract_servers(v: &serde_json::Value) -> Option<serde_json::Map<String, serd
 /// UI can tell the user nothing was recognized.
 #[tauri::command]
 pub fn import_pasted_config(text: String) -> Result<Vec<String>, String> {
-    use crate::core::types::{McpConfig, RegistryConfig};
+    use crate::core::types::McpConfig;
     let text = text.trim();
     if text.is_empty() {
         return Err("粘贴内容为空".into());
@@ -133,10 +133,7 @@ pub fn import_pasted_config(text: String) -> Result<Vec<String>, String> {
         let Ok(cfg) = serde_json::from_value::<McpConfig>(cfg_val) else {
             continue; // skip entries that aren't a valid stdio/http config
         };
-        let config = match cfg {
-            McpConfig::Stdio(c) => RegistryConfig { stdio: Some(c), http: None },
-            McpConfig::Http(c) => RegistryConfig { stdio: None, http: Some(c) },
-        };
+        let config = cfg.into();
         let entry = RegistryEntry {
             name: name.clone(),
             description: String::new(),
@@ -221,20 +218,7 @@ pub fn subscribe_source(url: String, name: Option<String>) -> Result<SourceView,
         .filter(|n| !n.is_empty())
         .unwrap_or_else(|| sources::host_of(&url));
     let now = sources::now_iso();
-    let mut def = SourceDef {
-        id: sources::gen_id("remote", &display),
-        kind: "remote".into(),
-        name: display,
-        url: Some(url),
-        path: None,
-        format,
-        key: "mcpServers".into(),
-        enabled: true,
-        added_at: Some(now.clone()),
-        synced_at: Some(now),
-        server_count: None,
-        error: None,
-    };
+    let mut def = SourceDef::new_remote(sources::gen_id("remote", &display), display.clone(), url, format, now);
     let path = sources::cached_path(&def).ok_or("无法确定缓存路径")?;
     sources::write_source_file(&path, &body)?;
     let count = sources::source_count(&def);
@@ -264,20 +248,13 @@ fn add_local_impl(path: String, name: Option<String>) -> Result<SourceView, Stri
                 .to_string()
         });
     let now = sources::now_iso();
-    let mut def = SourceDef {
-        id: sources::gen_id("local", &display),
-        kind: "local".into(),
-        name: display,
-        url: None,
-        path: Some(collapse_home(&path)),
+    let mut def = SourceDef::new_local(
+        sources::gen_id("local", &display),
+        display.clone(),
+        Some(collapse_home(&path)),
         format,
-        key: "mcpServers".into(),
-        enabled: true,
-        added_at: Some(now.clone()),
-        synced_at: Some(now),
-        server_count: None,
-        error: None,
-    };
+        now,
+    );
     let cache = sources::cached_path(&def).ok_or("无法确定缓存路径")?;
     sources::write_source_file(&cache, &content)?;
     let count = sources::source_count(&def);
@@ -316,20 +293,13 @@ pub fn add_builtin_collection() -> Result<SourceView, String> {
     let entries = crate::core::registry::builtin_registry();
     let content = serde_json::to_string_pretty(&entries).map_err(|e| e.to_string())?;
     let now = sources::now_iso();
-    let mut def = SourceDef {
-        id: sources::gen_id("local", "curated"),
-        kind: "local".into(),
-        name: "官方精选合集".into(),
-        url: None,
-        path: None,
-        format: "json".into(),
-        key: "mcpServers".into(),
-        enabled: true,
-        added_at: Some(now.clone()),
-        synced_at: Some(now),
-        server_count: None,
-        error: None,
-    };
+    let mut def = SourceDef::new_local(
+        sources::gen_id("local", "curated"),
+        "官方精选合集".into(),
+        None,
+        "json".into(),
+        now,
+    );
     let cache = sources::cached_path(&def).ok_or("无法确定缓存路径")?;
     sources::write_source_file(&cache, &content)?;
     let count = sources::source_count(&def);
@@ -627,7 +597,7 @@ pub fn scan_installed(project_dir: Option<String>) -> Vec<InstalledMcp> {
 /// in the Registry (with a「来自 X」label) and become manageable like any other.
 #[tauri::command]
 pub fn import_discovered(project_dir: Option<String>) -> Result<usize, String> {
-    use crate::core::types::{transport_of, RegistryConfig, RegistryOrigin};
+    use crate::core::types::{transport_of, RegistryOrigin};
     let agents = load_agents();
     let pd = project_dir.as_deref().map(Path::new);
     let existing: std::collections::HashSet<String> =
@@ -639,10 +609,7 @@ pub fn import_discovered(project_dir: Option<String>) -> Result<usize, String> {
         if existing.contains(&key) || !seen.insert(key) {
             continue;
         }
-        let config = match &s.config {
-            McpConfig::Stdio(c) => RegistryConfig { stdio: Some(c.clone()), http: None },
-            McpConfig::Http(c) => RegistryConfig { stdio: None, http: Some(c.clone()) },
-        };
+        let config = s.config.clone().into();
         let entry = RegistryEntry {
             name: s.name.clone(),
             description: String::new(),
@@ -662,6 +629,23 @@ pub fn import_discovered(project_dir: Option<String>) -> Result<usize, String> {
 }
 
 use crate::core::applier::apply_diffs;
+
+/// Flatten per-target apply errors into the command's error list.
+fn push_apply_errors(errors: &mut Vec<String>, errs: Vec<crate::core::applier::ApplyError>) {
+    for e in errs {
+        errors.push(format!("{}: {}", e.target, e.error));
+    }
+}
+
+/// Persist the disabled store, downgrading an IO failure to a reported error.
+fn save_disabled_or_log(
+    store: &std::collections::BTreeMap<String, Vec<crate::core::disabled::DisabledEntry>>,
+    errors: &mut Vec<String>,
+) {
+    if let Err(e) = crate::core::disabled::save_disabled(store) {
+        errors.push(format!("save disabled: {}", e));
+    }
+}
 use crate::core::differ::DiffEntry;
 use crate::core::differ::DiffAction;
 use crate::core::effective::effective_config;
@@ -793,7 +777,7 @@ pub fn apply_install(req: InstallRequest) -> Result<(), Vec<String>> {
     let entry = resolve_entry(&req.server_name, &req.transport).map_err(|e| vec![e])?;
     let agents = load_agents();
     let mut errors: Vec<String> = Vec::new();
-    let timestamp = chrono::Local::now().format("%Y-%m-%dT%H-%M-%S").to_string();
+    let timestamp = crate::core::paths::backup_timestamp();
     for agent_id in &req.agents {
         let Some(def) = agents.get(agent_id) else { continue };
         if target_file(def, &req.scope, req.project_dir.as_deref()).is_none() { continue; }
@@ -805,7 +789,7 @@ pub fn apply_install(req: InstallRequest) -> Result<(), Vec<String>> {
         };
         if let Err(errs) = add_one(agent_id, def, &req.server_name, cfg, &req.scope,
             req.project_dir.as_deref(), &timestamp) {
-            for e in errs { errors.push(format!("{}: {}", e.target, e.error)); }
+            push_apply_errors(&mut errors, errs);
         }
     }
     if errors.is_empty() { Ok(()) } else { Err(errors) }
@@ -815,13 +799,13 @@ pub fn apply_install(req: InstallRequest) -> Result<(), Vec<String>> {
 pub fn uninstall(req: InstallRequest) -> Result<(), Vec<String>> {
     let agents = load_agents();
     let mut errors = Vec::new();
-    let timestamp = chrono::Local::now().format("%Y-%m-%dT%H-%M-%S").to_string();
+    let timestamp = crate::core::paths::backup_timestamp();
     for agent_id in &req.agents {
         let Some(def) = agents.get(agent_id) else { continue };
         if target_file(def, &req.scope, req.project_dir.as_deref()).is_none() { continue; }
         if let Err(errs) = remove_one(agent_id, def, &req.server_name, &req.scope,
             req.project_dir.as_deref(), &timestamp) {
-            for e in errs { errors.push(format!("{}: {}", e.target, e.error)); }
+            push_apply_errors(&mut errors, errs);
         }
     }
     if errors.is_empty() { Ok(()) } else { Err(errors) }
@@ -832,7 +816,7 @@ pub fn uninstall(req: InstallRequest) -> Result<(), Vec<String>> {
 /// snapshot lets `enable_mcp` restore the exact config (customizations included).
 #[tauri::command]
 pub fn disable_mcp(req: InstallRequest) -> Result<(), Vec<String>> {
-    use crate::core::disabled::{load_disabled, save_disabled, DisabledEntry};
+    use crate::core::disabled::{load_disabled, DisabledEntry};
     use crate::core::scanner::scan_agents;
     use crate::core::types::transport_of;
     let agents = load_agents();
@@ -840,7 +824,7 @@ pub fn disable_mcp(req: InstallRequest) -> Result<(), Vec<String>> {
     let scanned = scan_agents(&agents, pd, true);
     let mut store = load_disabled();
     let mut errors = Vec::new();
-    let timestamp = chrono::Local::now().format("%Y-%m-%dT%H-%M-%S").to_string();
+    let timestamp = crate::core::paths::backup_timestamp();
     for agent_id in &req.agents {
         let Some(def) = agents.get(agent_id) else { continue };
         if target_file(def, &req.scope, req.project_dir.as_deref()).is_none() { continue; }
@@ -859,14 +843,14 @@ pub fn disable_mcp(req: InstallRequest) -> Result<(), Vec<String>> {
         // Remove from the file first; only remember it once the removal succeeds.
         if let Err(errs) = remove_one(agent_id, def, &req.server_name, &req.scope,
             req.project_dir.as_deref(), &timestamp) {
-            for e in errs { errors.push(format!("{}: {}", e.target, e.error)); }
+            push_apply_errors(&mut errors, errs);
             continue;
         }
         let list = store.entry(agent_id.clone()).or_default();
         list.retain(|d| !(d.name == entry.name && d.transport == entry.transport && d.scope == entry.scope));
         list.push(entry);
     }
-    if let Err(e) = save_disabled(&store) { errors.push(format!("save disabled: {}", e)); }
+    save_disabled_or_log(&store, &mut errors);
     if errors.is_empty() { Ok(()) } else { Err(errors) }
 }
 
@@ -874,11 +858,11 @@ pub fn disable_mcp(req: InstallRequest) -> Result<(), Vec<String>> {
 /// back into the agent file, then drop it from the disabled store.
 #[tauri::command]
 pub fn enable_mcp(req: InstallRequest) -> Result<(), Vec<String>> {
-    use crate::core::disabled::{load_disabled, save_disabled};
+    use crate::core::disabled::load_disabled;
     let agents = load_agents();
     let mut store = load_disabled();
     let mut errors = Vec::new();
-    let timestamp = chrono::Local::now().format("%Y-%m-%dT%H-%M-%S").to_string();
+    let timestamp = crate::core::paths::backup_timestamp();
     for agent_id in &req.agents {
         let Some(def) = agents.get(agent_id) else { continue };
         let entry = store.get(agent_id).and_then(|list| {
@@ -892,7 +876,7 @@ pub fn enable_mcp(req: InstallRequest) -> Result<(), Vec<String>> {
         };
         if let Err(errs) = add_one(agent_id, def, &req.server_name, entry.config.clone(),
             &req.scope, req.project_dir.as_deref(), &timestamp) {
-            for e in errs { errors.push(format!("{}: {}", e.target, e.error)); }
+            push_apply_errors(&mut errors, errs);
             continue;
         }
         if let Some(list) = store.get_mut(agent_id) {
@@ -900,7 +884,7 @@ pub fn enable_mcp(req: InstallRequest) -> Result<(), Vec<String>> {
             if list.is_empty() { store.remove(agent_id); }
         }
     }
-    if let Err(e) = save_disabled(&store) { errors.push(format!("save disabled: {}", e)); }
+    save_disabled_or_log(&store, &mut errors);
     if errors.is_empty() { Ok(()) } else { Err(errors) }
 }
 
@@ -909,18 +893,18 @@ pub fn enable_mcp(req: InstallRequest) -> Result<(), Vec<String>> {
 /// already-disabled ones.
 #[tauri::command]
 pub fn delete_mcp(req: InstallRequest) -> Result<(), Vec<String>> {
-    use crate::core::disabled::{load_disabled, save_disabled};
+    use crate::core::disabled::load_disabled;
     let agents = load_agents();
     let mut store = load_disabled();
     let mut store_changed = false;
     let mut errors = Vec::new();
-    let timestamp = chrono::Local::now().format("%Y-%m-%dT%H-%M-%S").to_string();
+    let timestamp = crate::core::paths::backup_timestamp();
     for agent_id in &req.agents {
         let Some(def) = agents.get(agent_id) else { continue };
         if target_file(def, &req.scope, req.project_dir.as_deref()).is_some() {
             if let Err(errs) = remove_one(agent_id, def, &req.server_name, &req.scope,
                 req.project_dir.as_deref(), &timestamp) {
-                for e in errs { errors.push(format!("{}: {}", e.target, e.error)); }
+                push_apply_errors(&mut errors, errs);
             }
         }
         if let Some(list) = store.get_mut(agent_id) {
@@ -931,7 +915,7 @@ pub fn delete_mcp(req: InstallRequest) -> Result<(), Vec<String>> {
         }
     }
     if store_changed {
-        if let Err(e) = save_disabled(&store) { errors.push(format!("save disabled: {}", e)); }
+        save_disabled_or_log(&store, &mut errors);
     }
     if errors.is_empty() { Ok(()) } else { Err(errors) }
 }

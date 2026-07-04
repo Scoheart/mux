@@ -135,6 +135,44 @@ pub struct SourceDef {
     pub error: Option<String>,
 }
 
+impl From<McpConfig> for RegistryConfig {
+    fn from(cfg: McpConfig) -> Self {
+        match cfg {
+            McpConfig::Stdio(c) => RegistryConfig { stdio: Some(c), http: None },
+            McpConfig::Http(c) => RegistryConfig { stdio: None, http: Some(c) },
+        }
+    }
+}
+
+impl SourceDef {
+    /// A subscribed remote URL source, enabled, stamped now, `mcpServers` key.
+    pub fn new_remote(id: String, name: String, url: String, format: String, now: String) -> Self {
+        Self { url: Some(url), ..Self::base(id, "remote", name, format, now) }
+    }
+
+    /// A local-file source (imported or managed), enabled, stamped now.
+    pub fn new_local(id: String, name: String, path: Option<String>, format: String, now: String) -> Self {
+        Self { path, ..Self::base(id, "local", name, format, now) }
+    }
+
+    fn base(id: String, kind: &str, name: String, format: String, now: String) -> Self {
+        Self {
+            id,
+            kind: kind.into(),
+            name,
+            url: None,
+            path: None,
+            format,
+            key: "mcpServers".into(),
+            enabled: true,
+            added_at: Some(now.clone()),
+            synced_at: Some(now),
+            server_count: None,
+            error: None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AgentDefinition {
     pub global: Option<String>,

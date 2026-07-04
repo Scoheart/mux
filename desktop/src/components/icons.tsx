@@ -84,15 +84,6 @@ export function PackageIcon({ className, style }: IconProps) {
   );
 }
 
-export function ChevronIcon({ className, style }: IconProps) {
-  return (
-    <svg viewBox="0 0 24 24" className={className} style={style} stroke="currentColor" fill="none"
-      strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <polyline points="9 18 15 12 9 6" />
-    </svg>
-  );
-}
-
 export function PlusIcon({ className, style }: IconProps) {
   return (
     <svg viewBox="0 0 24 24" className={className} style={style} stroke="currentColor" fill="none"
@@ -114,19 +105,6 @@ export function XIcon({ className, style }: IconProps) {
 }
 
 /** Two columns of dots — drag handle affordance */
-export function GripIcon({ className, style }: IconProps) {
-  return (
-    <svg viewBox="0 0 24 24" className={className} style={style} fill="currentColor">
-      <circle cx="9" cy="6" r="1.6" />
-      <circle cx="9" cy="12" r="1.6" />
-      <circle cx="9" cy="18" r="1.6" />
-      <circle cx="15" cy="6" r="1.6" />
-      <circle cx="15" cy="12" r="1.6" />
-      <circle cx="15" cy="18" r="1.6" />
-    </svg>
-  );
-}
-
 export function CopyIcon({ className, style }: IconProps) {
   return (
     <svg viewBox="0 0 24 24" className={className} style={style} stroke="currentColor" fill="none"
@@ -144,15 +122,6 @@ export function RefreshIcon({ className, style }: IconProps) {
       <polyline points="23 4 23 10 17 10" />
       <polyline points="1 20 1 14 7 14" />
       <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
-    </svg>
-  );
-}
-
-export function ChevronDownIcon({ className, style }: IconProps) {
-  return (
-    <svg viewBox="0 0 24 24" className={className} style={style} stroke="currentColor" fill="none"
-      strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <polyline points="6 9 12 15 18 9" />
     </svg>
   );
 }
@@ -209,13 +178,3 @@ export function TerminalIcon({ className, style }: IconProps) {
 }
 
 /** Half-filled circle (◐) to indicate customized/overridden state */
-export function HalfDotIcon({ className, style }: IconProps) {
-  return (
-    <svg viewBox="0 0 24 24" className={className} style={style} fill="currentColor">
-      {/* left half filled */}
-      <path d="M12 3 A9 9 0 0 0 12 21 Z" />
-      {/* full circle outline */}
-      <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="2" fill="none" />
-    </svg>
-  );
-}

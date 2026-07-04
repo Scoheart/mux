@@ -1,10 +1,10 @@
 import { useState, useMemo, useCallback } from "react";
 import type { InstallState } from "../hooks/useInstallState";
 import type { RegistryEntry } from "../lib/types";
-import { keyOf, transportOf, transportLabel, type Transport } from "../lib/mcp";
+import { keyOf, transportOf, type Transport } from "../lib/mcp";
 import { AgentGlyph, agentName } from "./brandIcons";
 import { CopyIcon, EditIcon, PlusIcon, LinkIcon, TerminalIcon, XIcon, CloudIcon, FolderIcon } from "./icons";
-import { Avatar, Badge, IconButton, SearchBar } from "./ui";
+import { Avatar, Badge, IconButton, SearchBar, Modal, TransportPill, stickyHeaderStyle } from "./ui";
 import { useToast } from "./Toast";
 import { PasteConfigDialog } from "./PasteConfigDialog";
 
@@ -42,22 +42,6 @@ function endpointOf(entry: RegistryEntry): { text: string; link: boolean } {
     return { text: [command, ...(args ?? [])].join(" "), link: false };
   }
   return { text: entry.description || "—", link: false };
-}
-
-/** Small pill showing an entry's transport (stdio / http / sse). */
-function TransportTag({ entry }: { entry: RegistryEntry }) {
-  return (
-    <span
-      className="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-medium uppercase tracking-wide whitespace-nowrap flex-shrink-0"
-      style={{
-        background: "var(--color-gray-150)",
-        color: "var(--color-gray-600)",
-        fontFamily: "var(--font-mono)",
-      }}
-    >
-      {transportLabel(entry)}
-    </span>
-  );
 }
 
 /** Provenance indicator: 订阅:X (remote source) / 本地:X (local source) / 手动添加 /
@@ -148,15 +132,7 @@ export function RegistryView({ state, onEdit, onCreate }: RegistryViewProps) {
   return (
     <div className="h-full min-h-0 overflow-y-auto">
       {/* Sticky header: search + new, then a source filter row */}
-      <div
-        className="sticky top-0 z-10 px-6 py-4"
-        style={{
-          background: "var(--header-bg)",
-          backdropFilter: "blur(var(--glass-blur)) saturate(var(--glass-saturate))",
-          WebkitBackdropFilter: "blur(var(--glass-blur)) saturate(var(--glass-saturate))",
-          borderBottom: "1px solid color-mix(in srgb, var(--glass-border) 55%, transparent)",
-        }}
-      >
+      <div className="sticky top-0 z-10 px-6 py-4" style={stickyHeaderStyle}>
         <div className="max-w-[1280px] mx-auto flex items-center gap-3">
           <div className="flex-1">
             <SearchBar value={q} onChange={setQ} placeholder="搜索 MCP Registry…" />
@@ -220,7 +196,7 @@ export function RegistryView({ state, onEdit, onCreate }: RegistryViewProps) {
                         {entry.name}
                       </div>
                       <div className="flex items-center gap-1.5 mt-1">
-                        <TransportTag entry={entry} />
+                        <TransportPill entry={entry} />
                         <OriginTag entry={entry} installedAgents={installedAgents} sourceName={sourceName} />
                       </div>
                     </div>
@@ -304,22 +280,7 @@ function RegistryDetail({
   onEdit: () => void;
 }) {
   return (
-    <div
-      className="fixed inset-0 flex items-center justify-center z-40"
-      style={{ background: "rgba(0,0,0,.3)", backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)" }}
-      onClick={onClose}
-    >
-      <div
-        className="flex flex-col w-[560px] max-h-[82vh] rounded-mac-lg overflow-hidden"
-        style={{
-          background: "var(--surface-overlay)",
-          backdropFilter: "blur(var(--glass-blur)) saturate(var(--glass-saturate))",
-          WebkitBackdropFilter: "blur(var(--glass-blur)) saturate(var(--glass-saturate))",
-          border: "1px solid var(--glass-border)",
-          boxShadow: "var(--shadow-sheet), var(--glass-highlight)",
-        }}
-        onClick={(e) => e.stopPropagation()}
-      >
+    <Modal width={560} onClose={onClose}>
         <div className="flex items-center gap-3 px-6 py-5" style={{ borderBottom: "1px solid var(--border-hairline)" }}>
           <Avatar seed={entry.name} size={40} />
           <div className="flex-1 min-w-0">
@@ -327,7 +288,7 @@ function RegistryDetail({
               {entry.name}
             </h2>
             <div className="flex items-center gap-1.5 mt-1">
-              <TransportTag entry={entry} />
+              <TransportPill entry={entry} />
               <OriginTag entry={entry} installedAgents={installedAgents} sourceName={sourceName} />
             </div>
           </div>
@@ -389,7 +350,6 @@ function RegistryDetail({
             编辑
           </button>
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

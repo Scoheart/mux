@@ -164,7 +164,7 @@ export function Layout({
         )}
 
         <span className="text-[11px] flex-shrink-0" style={{ color: "var(--text-secondary)" }}>
-          v0.1.1
+          v0.1.2
         </span>
       </header>
 

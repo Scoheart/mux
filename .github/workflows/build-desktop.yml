@@ -72,7 +72,11 @@ jobs:
         id: meta
         run: |
           VER=$(node -p "require('./desktop/src-tauri/tauri.conf.json').version")
-          echo "tag=v${VER}-build.${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+          # Zero-pad the run number so the release tags sort correctly on GitHub
+          # (which compares the build suffix lexicographically, not numerically —
+          # unpadded, build.10/11 would sort below build.9).
+          BUILD=$(printf '%05d' "${{ github.run_number }}")
+          echo "tag=v${VER}-build.${BUILD}" >> "$GITHUB_OUTPUT"
 
       # Rename the dmg so the downloaded file itself carries the full build tag
       # (e.g. MUX_v0.1.1-build.6_aarch64.dmg) instead of just the bare app version.

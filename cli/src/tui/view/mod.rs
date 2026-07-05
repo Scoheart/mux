@@ -74,9 +74,9 @@ fn footer_hint(model: &Model) -> &'static str {
         return "输入以搜索 · Enter/Esc 结束 · Backspace 删除";
     }
     match model.screen {
-        Screen::Registry => "↑↓ 移动 · / 搜索 · ←→ 过滤 · Enter 详情 · r 刷新 · ? 帮助 · q 退出",
+        Screen::Registry => "↑↓ 移动 · / 搜索 · ←→ 过滤 · i 安装 · Enter 详情 · r 刷新 · ? 帮助 · q 退出",
         Screen::Sources => "↑↓ 移动 · r 刷新 · ? 帮助 · 1/2/3 切换 · q 退出",
-        Screen::Agents => "↑↓ 移动 · →/Enter 进入 · ←/Esc 返回 · ? 帮助 · q 退出",
+        Screen::Agents => "↑↓ 移动 · →/Enter 进入 · a 添加 · Space 启停 · d 删除 · ←/Esc 返回 · q 退出",
     }
 }
 

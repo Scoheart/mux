@@ -7,7 +7,9 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use super::effect::Effect;
 use super::message::Msg;
-use super::model::{AgentPane, Data, Model, Modal, Screen};
+use super::model::{
+    AddMcpState, AgentPane, ConfirmState, Data, InstallWizard, Model, Modal, Screen,
+};
 
 pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
     match msg {
@@ -25,7 +27,13 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
             };
             clamp_cursors(model);
         }
-        Msg::Error(e) => model.status = Some(e),
+        Msg::Mutated { label, result } => match result {
+            Ok(()) => {
+                model.status = Some(format!("✓ {}", label));
+                return vec![Effect::LoadAll];
+            }
+            Err(e) => model.status = Some(format!("✗ {}：{}", label, e)),
+        },
         Msg::Key(k) => return on_key(model, k),
     }
     vec![]
@@ -53,10 +61,7 @@ fn clamp(cursor: usize, len: usize) -> usize {
 fn on_key(model: &mut Model, k: KeyEvent) -> Vec<Effect> {
     // A modal captures all input until dismissed.
     if model.modal.is_some() {
-        if matches!(k.code, KeyCode::Esc | KeyCode::Char('q') | KeyCode::Enter) {
-            model.modal = None;
-        }
-        return vec![];
+        return modal_key(model, k);
     }
 
     // The registry search box captures text while focused.
@@ -79,16 +84,18 @@ fn on_key(model: &mut Model, k: KeyEvent) -> Vec<Effect> {
             model.loading = true;
             return vec![Effect::LoadAll];
         }
-        _ => match model.screen {
-            Screen::Registry => registry_key(model, k),
-            Screen::Sources => sources_key(model, k),
-            Screen::Agents => agents_key(model, k),
-        },
+        _ => {
+            return match model.screen {
+                Screen::Registry => registry_key(model, k),
+                Screen::Sources => sources_key(model, k),
+                Screen::Agents => agents_key(model, k),
+            }
+        }
     }
     vec![]
 }
 
-fn registry_key(model: &mut Model, k: KeyEvent) {
+fn registry_key(model: &mut Model, k: KeyEvent) -> Vec<Effect> {
     let len = model.filtered_registry().len();
     match k.code {
         KeyCode::Up | KeyCode::Char('k') => {
@@ -112,8 +119,32 @@ fn registry_key(model: &mut Model, k: KeyEvent) {
                 model.modal = Some(Modal::Detail { key });
             }
         }
+        KeyCode::Char('i') => open_install_wizard(model),
         _ => {}
     }
+    vec![]
+}
+
+/// Open the multi-agent install target picker for the entry under the cursor.
+fn open_install_wizard(model: &mut Model) {
+    let (server, transport) = {
+        let entries = model.filtered_registry();
+        let Some(e) = entries.get(model.registry_ui.cursor) else {
+            return;
+        };
+        (e.name.clone(), e.transport().to_string())
+    };
+    let n = model.installable_agents().len();
+    if n == 0 {
+        model.status = Some("没有可安装的 agent（缺少全局配置路径）".into());
+        return;
+    }
+    model.modal = Some(Modal::Install(InstallWizard {
+        server,
+        transport,
+        cursor: 0,
+        selected: vec![false; n],
+    }));
 }
 
 fn registry_search_key(model: &mut Model, k: KeyEvent) -> Vec<Effect> {
@@ -132,7 +163,7 @@ fn registry_search_key(model: &mut Model, k: KeyEvent) -> Vec<Effect> {
     vec![]
 }
 
-fn sources_key(model: &mut Model, k: KeyEvent) {
+fn sources_key(model: &mut Model, k: KeyEvent) -> Vec<Effect> {
     let len = model.data.sources.len();
     match k.code {
         KeyCode::Up | KeyCode::Char('k') => {
@@ -143,9 +174,10 @@ fn sources_key(model: &mut Model, k: KeyEvent) {
         }
         _ => {}
     }
+    vec![]
 }
 
-fn agents_key(model: &mut Model, k: KeyEvent) {
+fn agents_key(model: &mut Model, k: KeyEvent) -> Vec<Effect> {
     match model.agents_ui.pane {
         AgentPane::List => {
             let len = model.data.agents.len();
@@ -163,6 +195,7 @@ fn agents_key(model: &mut Model, k: KeyEvent) {
                         model.agents_ui.pane = AgentPane::Installed;
                     }
                 }
+                KeyCode::Char('a') => open_add_mcp(model),
                 _ => {}
             }
         }
@@ -179,10 +212,165 @@ fn agents_key(model: &mut Model, k: KeyEvent) {
                 KeyCode::Left | KeyCode::Char('h') | KeyCode::Esc => {
                     model.agents_ui.pane = AgentPane::List;
                 }
+                KeyCode::Char('a') => open_add_mcp(model),
+                KeyCode::Char(' ') => return toggle_installed(model),
+                KeyCode::Char('d') => open_delete_confirm(model),
                 _ => {}
             }
         }
     }
+    vec![]
+}
+
+/// The installed row currently under the cursor, as (server, transport, agent).
+fn selected_installed(model: &Model) -> Option<(String, String, String)> {
+    let row = model
+        .installed_for_selected_agent()
+        .get(model.agents_ui.installed_cursor)
+        .copied()?;
+    Some((row.name.clone(), row.transport.clone(), row.agent.clone()))
+}
+
+/// Space on an installed row: enable a disabled server, or disable an active one.
+fn toggle_installed(model: &mut Model) -> Vec<Effect> {
+    let Some(row) = model
+        .installed_for_selected_agent()
+        .get(model.agents_ui.installed_cursor)
+        .copied()
+    else {
+        return vec![];
+    };
+    let (server, transport, agent) = (row.name.clone(), row.transport.clone(), row.agent.clone());
+    if row.enabled {
+        vec![Effect::Disable { server, transport, agent }]
+    } else {
+        vec![Effect::Enable { server, transport, agent }]
+    }
+}
+
+/// `d` on an installed row: gate a hard delete behind a Confirm modal.
+fn open_delete_confirm(model: &mut Model) {
+    let Some((server, transport, agent)) = selected_installed(model) else {
+        return;
+    };
+    model.modal = Some(Modal::Confirm(ConfirmState {
+        prompt: format!("从 {} 删除 {}？此操作会写回配置文件（有备份）。", agent, server),
+        effect: Effect::Delete { server, transport, agent },
+    }));
+}
+
+/// `a`: open the "add MCP to this agent" search popover for the selected agent.
+fn open_add_mcp(model: &mut Model) {
+    let Some(agent) = model.data.agents.get(model.agents_ui.agent_cursor) else {
+        return;
+    };
+    if !agent.has_global {
+        model.status = Some("该 agent 无全局路径，无法安装".into());
+        return;
+    }
+    model.modal = Some(Modal::AddMcp(AddMcpState {
+        agent: agent.id.clone(),
+        query: String::new(),
+        cursor: 0,
+    }));
+}
+
+/// Route input to the open modal. The modal is taken out of the model; handlers
+/// that keep it open put it back, ones that close it (cancel / commit) don't.
+fn modal_key(model: &mut Model, k: KeyEvent) -> Vec<Effect> {
+    let Some(modal) = model.modal.take() else {
+        return vec![];
+    };
+    match modal {
+        Modal::Detail { .. } | Modal::Help => {
+            if !matches!(k.code, KeyCode::Esc | KeyCode::Char('q') | KeyCode::Enter) {
+                model.modal = Some(modal); // ignore other keys, stay open
+            }
+            vec![]
+        }
+        Modal::Install(w) => install_key(model, w, k),
+        Modal::AddMcp(st) => add_mcp_key(model, st, k),
+        Modal::Confirm(c) => match k.code {
+            KeyCode::Char('y') | KeyCode::Enter => vec![c.effect], // commit + close
+            _ => vec![],                                           // n / Esc / other → cancel
+        },
+    }
+}
+
+fn install_key(model: &mut Model, mut w: InstallWizard, k: KeyEvent) -> Vec<Effect> {
+    let ctrl = k.modifiers.contains(KeyModifiers::CONTROL);
+    let agents: Vec<String> = model.installable_agents().iter().map(|a| a.id.clone()).collect();
+    match k.code {
+        KeyCode::Esc => return vec![], // cancel (already taken out)
+        KeyCode::Up | KeyCode::Char('k') => w.cursor = w.cursor.saturating_sub(1),
+        KeyCode::Down | KeyCode::Char('j') => w.cursor = clamp(w.cursor + 1, agents.len()),
+        KeyCode::Char(' ') => {
+            if let Some(s) = w.selected.get_mut(w.cursor) {
+                *s = !*s;
+            }
+        }
+        KeyCode::Char('a') if ctrl => {
+            let all_on = w.selected.iter().all(|s| *s);
+            for s in w.selected.iter_mut() {
+                *s = !all_on;
+            }
+        }
+        KeyCode::Enter => {
+            let chosen: Vec<String> = agents
+                .iter()
+                .zip(&w.selected)
+                .filter(|(_, s)| **s)
+                .map(|(a, _)| a.clone())
+                .collect();
+            if chosen.is_empty() {
+                model.status = Some("请至少选择一个 agent".into());
+            } else {
+                return vec![Effect::Install {
+                    server: w.server,
+                    transport: w.transport,
+                    agents: chosen,
+                }]; // commit + close
+            }
+        }
+        _ => {}
+    }
+    model.modal = Some(Modal::Install(w));
+    vec![]
+}
+
+fn add_mcp_key(model: &mut Model, mut st: AddMcpState, k: KeyEvent) -> Vec<Effect> {
+    // The popover is a search field: printable keys type into the query; only
+    // arrows navigate, Enter installs, Esc cancels.
+    let matches: Vec<(String, String)> = model
+        .addable_entries(&st.agent, &st.query)
+        .iter()
+        .map(|e| (e.name.clone(), e.transport().to_string()))
+        .collect();
+    match k.code {
+        KeyCode::Esc => return vec![], // cancel
+        KeyCode::Up => st.cursor = st.cursor.saturating_sub(1),
+        KeyCode::Down => st.cursor = clamp(st.cursor + 1, matches.len()),
+        KeyCode::Backspace => {
+            st.query.pop();
+            st.cursor = 0;
+        }
+        KeyCode::Enter => {
+            if let Some((server, transport)) = matches.get(st.cursor).cloned() {
+                return vec![Effect::Install {
+                    server,
+                    transport,
+                    agents: vec![st.agent],
+                }]; // commit + close
+            }
+        }
+        KeyCode::Char(c) => {
+            st.query.push(c);
+            st.cursor = 0;
+        }
+        _ => {}
+    }
+    model.modal = Some(Modal::AddMcp(st));
+    vec![]
 }
 
 #[cfg(test)]
@@ -298,5 +486,92 @@ mod tests {
         let mut m2 = Model::new();
         update(&mut m2, Msg::Key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL)));
         assert!(m2.should_quit);
+    }
+
+    fn agent(id: &str, has_global: bool) -> mux_core::agents::AgentInfo {
+        mux_core::agents::AgentInfo {
+            id: id.into(),
+            format: "json".into(),
+            key: "mcpServers".into(),
+            has_global,
+            has_project: false,
+            enabled: true,
+            global: has_global.then(|| "~/x.json".to_string()),
+            project: None,
+        }
+    }
+
+    fn loaded_full(entries: Vec<RegistryEntry>, agents: Vec<mux_core::agents::AgentInfo>) -> Msg {
+        Msg::Loaded(Box::new(LoadedData {
+            registry: entries,
+            custom_keys: vec![],
+            sources: vec![],
+            agents,
+            installed: vec![],
+        }))
+    }
+
+    #[test]
+    fn install_wizard_select_and_apply_emits_install() {
+        let mut m = Model::new();
+        update(&mut m, loaded_full(vec![entry("git", "manual")], vec![agent("claude", true), agent("cursor", true)]));
+        update(&mut m, key('i')); // open wizard
+        assert!(matches!(m.modal, Some(Modal::Install(_))));
+        update(&mut m, Msg::Key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::empty()))); // select claude
+        let eff = update(&mut m, code(KeyCode::Enter));
+        assert_eq!(eff.len(), 1);
+        assert!(matches!(&eff[0], Effect::Install { server, agents, .. } if server == "git" && agents == &vec!["claude".to_string()]));
+        assert!(m.modal.is_none()); // closed on commit
+    }
+
+    #[test]
+    fn install_wizard_empty_selection_refuses() {
+        let mut m = Model::new();
+        update(&mut m, loaded_full(vec![entry("git", "manual")], vec![agent("claude", true)]));
+        update(&mut m, key('i'));
+        let eff = update(&mut m, code(KeyCode::Enter)); // nothing selected
+        assert!(eff.is_empty());
+        assert!(matches!(m.modal, Some(Modal::Install(_)))); // stays open
+    }
+
+    #[test]
+    fn install_needs_an_installable_agent() {
+        let mut m = Model::new();
+        update(&mut m, loaded_full(vec![entry("git", "manual")], vec![agent("nopath", false)]));
+        update(&mut m, key('i'));
+        assert!(m.modal.is_none()); // no wizard — nothing installable
+        assert!(m.status.is_some());
+    }
+
+    #[test]
+    fn confirm_yes_runs_effect_no_cancels() {
+        use crate::tui::model::ConfirmState;
+        let mut m = Model::new();
+        m.modal = Some(Modal::Confirm(ConfirmState {
+            prompt: "x".into(),
+            effect: Effect::Delete { server: "git".into(), transport: "stdio".into(), agent: "claude".into() },
+        }));
+        let eff = update(&mut m, key('y'));
+        assert_eq!(eff.len(), 1);
+        assert!(matches!(&eff[0], Effect::Delete { .. }));
+        assert!(m.modal.is_none());
+
+        // 'n' cancels without an effect
+        let mut m2 = Model::new();
+        m2.modal = Some(Modal::Confirm(ConfirmState {
+            prompt: "x".into(),
+            effect: Effect::Delete { server: "git".into(), transport: "stdio".into(), agent: "claude".into() },
+        }));
+        let eff2 = update(&mut m2, key('n'));
+        assert!(eff2.is_empty());
+        assert!(m2.modal.is_none());
+    }
+
+    #[test]
+    fn mutated_ok_sets_status_and_reloads() {
+        let mut m = Model::new();
+        let eff = update(&mut m, Msg::Mutated { label: "安装 git".into(), result: Ok(()) });
+        assert_eq!(eff.len(), 1); // reload
+        assert!(m.status.as_deref().unwrap().contains("✓"));
     }
 }

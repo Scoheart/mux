@@ -140,17 +140,14 @@ fn main() {
             _ => cmd_agents_list(),
         },
         None => {
-            // The interactive TUI is still being built; gate it behind MUX_TUI=1
-            // so `mux` with no args keeps printing help until it's ready to be the
-            // default (see docs/tui-architecture.md, phase plan).
-            if std::env::var_os("MUX_TUI").is_some() {
-                if let Err(e) = tui::run() {
-                    eprintln!("TUI 错误: {}", e);
-                    std::process::exit(1);
-                }
-            } else {
+            // No subcommand → launch the interactive TUI. Set MUX_NO_TUI to fall
+            // back to printing help instead (e.g. in scripts / non-tty contexts).
+            if std::env::var_os("MUX_NO_TUI").is_some() {
                 let _ = <Cli as clap::CommandFactory>::command().print_help();
                 println!();
+            } else if let Err(e) = tui::run() {
+                eprintln!("TUI 错误: {}", e);
+                std::process::exit(1);
             }
         }
     }

@@ -7,14 +7,110 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
 use ratatui::Frame;
 
-use crate::tui::model::{Modal, Model};
+use crate::tui::model::{AddMcpState, ConfirmState, InstallWizard, Modal, Model};
 
 pub fn render(model: &Model, f: &mut Frame) {
     match model.modal.as_ref() {
         Some(Modal::Detail { key }) => render_detail(model, f, key),
         Some(Modal::Help) => render_help(f),
+        Some(Modal::Install(w)) => render_install(model, f, w),
+        Some(Modal::AddMcp(st)) => render_add_mcp(model, f, st),
+        Some(Modal::Confirm(c)) => render_confirm(f, c),
         None => {}
     }
+}
+
+fn render_install(model: &Model, f: &mut Frame, w: &InstallWizard) {
+    let area = centered(f.area(), 60, 70);
+    f.render_widget(Clear, area);
+    let agents = model.installable_agents();
+    let mut lines = vec![
+        Line::from(vec![
+            Span::from("安装 "),
+            Span::from(w.server.clone()).green().bold(),
+            Span::from(format!("  [{}]", w.transport)).dim(),
+        ]),
+        Line::from(Span::from("选择要安装到的 agent（全局）：").dim()),
+        Line::from(""),
+    ];
+    for (i, a) in agents.iter().enumerate() {
+        let checked = w.selected.get(i).copied().unwrap_or(false);
+        let cbox = if checked {
+            Span::from("◉ ").green()
+        } else {
+            Span::from("○ ").dim()
+        };
+        let caret = if i == w.cursor {
+            Span::from("› ").cyan().bold()
+        } else {
+            Span::from("  ")
+        };
+        lines.push(Line::from(vec![caret, cbox, Span::from(a.id.clone())]));
+    }
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::new().cyan())
+        .title(Span::from(" 安装到 agent "))
+        .title_bottom(Line::from(
+            Span::from(" Space 选择 · Ctrl-A 全选 · Enter 应用 · Esc 取消 ").dim(),
+        ));
+    f.render_widget(Paragraph::new(lines).block(block), area);
+}
+
+fn render_add_mcp(model: &Model, f: &mut Frame, st: &AddMcpState) {
+    let area = centered(f.area(), 70, 70);
+    f.render_widget(Clear, area);
+    let entries = model.addable_entries(&st.agent, &st.query);
+    let mut lines = vec![
+        Line::from(vec![
+            Span::from("🔎 "),
+            Span::from(st.query.clone()),
+            Span::from("▏").cyan(),
+        ]),
+        Line::from(""),
+    ];
+    if entries.is_empty() {
+        lines.push(Line::from(Span::from("无可添加的条目").dim()));
+    }
+    for (i, e) in entries.iter().enumerate() {
+        let caret = if i == st.cursor {
+            Span::from("› ").cyan().bold()
+        } else {
+            Span::from("  ")
+        };
+        lines.push(Line::from(vec![
+            caret,
+            Span::from(e.name.clone()).green(),
+            Span::from(format!("  [{}]", e.transport())).dim(),
+        ]));
+    }
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::new().green())
+        .title(Span::from(format!(" 添加 MCP → {} ", st.agent)))
+        .title_bottom(Line::from(
+            Span::from(" 输入搜索 · ↑↓ 选择 · Enter 安装 · Esc 取消 ").dim(),
+        ));
+    f.render_widget(Paragraph::new(lines).block(block), area);
+}
+
+fn render_confirm(f: &mut Frame, c: &ConfirmState) {
+    let area = centered(f.area(), 60, 30);
+    f.render_widget(Clear, area);
+    let lines = vec![
+        Line::from(c.prompt.clone()),
+        Line::from(""),
+        Line::from(vec![
+            Span::from(" y 确认 ").black().on_red().bold(),
+            Span::from("    "),
+            Span::from("n / Esc 取消").dim(),
+        ]),
+    ];
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::new().red())
+        .title(Span::from(" 确认 "));
+    f.render_widget(Paragraph::new(lines).block(block).wrap(Wrap { trim: false }), area);
 }
 
 /// A centered rect `pct_x` × `pct_y` percent of `area`.

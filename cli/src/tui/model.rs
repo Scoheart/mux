@@ -155,11 +155,36 @@ impl Default for AgentsUi {
     }
 }
 
-/// Overlay dialogs. Phase 2 has the read-only ones.
+/// Multi-agent target picker for installing a catalog entry (global scope in v1).
+pub struct InstallWizard {
+    pub server: String,
+    pub transport: String,
+    pub cursor: usize,
+    /// Parallel to `Model::installable_agents()`; which targets are checked.
+    pub selected: Vec<bool>,
+}
+
+/// The "add MCP to this agent" search popover on the Agents screen.
+pub struct AddMcpState {
+    pub agent: String,
+    pub query: String,
+    pub cursor: usize,
+}
+
+/// A destructive-action gate. `effect` fires on confirm.
+pub struct ConfirmState {
+    pub prompt: String,
+    pub effect: super::effect::Effect,
+}
+
+/// Overlay dialogs.
 pub enum Modal {
     /// Read-only catalog-entry detail, keyed by `name::transport`.
     Detail { key: String },
     Help,
+    Install(InstallWizard),
+    AddMcp(AddMcpState),
+    Confirm(ConfirmState),
 }
 
 pub struct Model {
@@ -240,5 +265,46 @@ impl Model {
             self.data.installed.iter().filter(|i| i.agent == agent.id).collect();
         rows.sort_by(|a, b| a.name.cmp(&b.name).then(a.transport.cmp(&b.transport)));
         rows
+    }
+
+    /// Agents that can receive a global-scope install (they have a global path).
+    pub fn installable_agents(&self) -> Vec<&AgentInfo> {
+        self.data.agents.iter().filter(|a| a.has_global).collect()
+    }
+
+    /// Catalog entries not already active in `agent_id`, matching `query`.
+    pub fn addable_entries(&self, agent_id: &str, query: &str) -> Vec<&RegistryEntry> {
+        let active: HashSet<(&str, &'static str)> = self
+            .data
+            .installed
+            .iter()
+            .filter(|i| i.enabled && i.agent == agent_id)
+            .map(|i| (i.name.as_str(), transport_str(&i.transport)))
+            .collect();
+        let matcher = SkimMatcherV2::default();
+        let q = query.trim();
+        let mut out: Vec<&RegistryEntry> = self
+            .data
+            .registry
+            .iter()
+            .filter(|e| !active.contains(&(e.name.as_str(), e.transport())))
+            .filter(|e| {
+                q.is_empty() || {
+                    let hay = format!("{} {}", e.name, e.description);
+                    matcher.fuzzy_match(&hay, q).is_some()
+                }
+            })
+            .collect();
+        out.sort_by(|a, b| a.name.cmp(&b.name));
+        out
+    }
+}
+
+/// Normalize a stored transport string to the interned `"stdio"`/`"http"`.
+fn transport_str(t: &str) -> &'static str {
+    if t == "stdio" {
+        "stdio"
+    } else {
+        "http"
     }
 }

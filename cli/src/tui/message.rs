@@ -20,10 +20,12 @@ pub enum Msg {
     Tick,
     /// Result of `Effect::LoadAll`: every cache, read from core.
     Loaded(Box<LoadedData>),
-    /// An effect failed; surface the message in the status line. (No fallible
-    /// effect exists until later phases; kept so the failure path is wired.)
-    #[allow(dead_code)]
-    Error(String),
+    /// Result of a mutation effect (install/enable/disable/delete): a human
+    /// label plus success/error. Ok triggers a reload.
+    Mutated {
+        label: String,
+        result: Result<(), String>,
+    },
 }
 
 /// The four caches plus the set of user-overridden keys, loaded together.

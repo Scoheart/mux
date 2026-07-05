@@ -10,7 +10,7 @@ use mux_core::agents::list_infos;
 use mux_core::ops::{self, scan_installed};
 use mux_core::registry::{read_registry, user_override_keys};
 use mux_core::sources;
-use mux_core::types::RegistryEntry;
+use mux_core::types::{AgentDefinition, RegistryEntry};
 
 use super::message::{LoadedData, Msg};
 
@@ -47,6 +47,8 @@ pub enum Effect {
     RemoveSource { id: String },
     /// Re-scan agents and register newly discovered servers.
     ImportDiscovered,
+    /// Create or edit an agent definition.
+    PutAgent { id: String, def: AgentDefinition, overwrite: bool },
 }
 
 pub struct EffectRunner {
@@ -137,6 +139,10 @@ fn run_effect(eff: Effect) -> Msg {
         Effect::ImportDiscovered => match ops::import_discovered(None) {
             Ok(n) => Msg::Mutated { label: format!("探索到 {} 个新 server", n), result: Ok(()) },
             Err(e) => Msg::Mutated { label: "探索".into(), result: Err(e) },
+        },
+        Effect::PutAgent { id, def, overwrite } => Msg::Mutated {
+            label: format!("保存 agent {}", id),
+            result: mux_core::agents::put(id, def, overwrite),
         },
     }
 }

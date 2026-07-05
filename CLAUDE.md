@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 MUX manages MCP (Model Context Protocol) servers across AI coding agents. It has **two front-ends that share one data directory** (`~/.mux/`), both built on **one shared Rust core crate, `mux-core` (`core/`)**:
 
-- **CLI** — Rust, `cli/` (clap; bin `mux`). No TUI yet — no-arg `mux` prints help.
+- **CLI + TUI** — Rust, `cli/` (clap; bin `mux`). Subcommands for scripting; no-arg `mux` launches an interactive **ratatui TUI** (`cli/src/tui/`, The Elm Architecture over `mux-core` — see `docs/tui-architecture.md`). `MUX_NO_TUI=1` forces the help fallback.
 - **Desktop app** — Tauri v2 (`desktop/src-tauri/src/`, depends on `mux-core`) + React 19 in `desktop/src/`.
 
 Because both front-ends consume the same `mux-core`, **the data model lives in exactly one place (`core/src/`) — edit it once.** (Historically it had to be changed twice, once in Rust and once in a parallel TypeScript CLI; that TS CLI was removed and its logic folded into `mux-core`.) **Orchestration is shared too and lives in core, not in a front-end**: install/uninstall/import/clean, registry upsert/remove/paste (with edit-propagation), install-status scan, and enable/disable/delete all live in `core/src/ops.rs`; source management (subscribe/local/refresh/toggle/remove) in `core/src/sources.rs`; agent put/list in `core/src/agents.rs` — all tauri-free. The desktop Tauri commands (`commands.rs`) and the CLI are thin delegators over these. When adding an operation, put the logic in core and delegate, so the front-ends can't diverge.

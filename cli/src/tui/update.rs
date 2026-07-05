@@ -8,9 +8,11 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use super::effect::Effect;
 use super::message::Msg;
 use super::model::{
-    AddMcpState, AgentPane, ConfirmState, Data, EditorState, EditorTransport, InstallWizard,
-    LocalForm, Model, Modal, PasteState, Screen, SubscribeForm, EDITOR_FIELDS,
+    AddMcpState, AgentForm, AgentPane, ConfirmState, Data, EditorState, EditorTransport,
+    InstallWizard, LocalForm, Model, Modal, PasteState, Screen, SubscribeForm, AGENT_FIELDS,
+    EDITOR_FIELDS,
 };
+use mux_core::types::AgentDefinition;
 
 /// The GitHub raw URL of the curated collection, offered as a remote subscribe.
 const OFFICIAL_URL: &str = "https://raw.githubusercontent.com/Scoheart/mux/main/data/registry.json";
@@ -384,6 +386,9 @@ fn agents_key(model: &mut Model, k: KeyEvent) -> Vec<Effect> {
                     }
                 }
                 KeyCode::Char('a') => open_add_mcp(model),
+                KeyCode::Char(' ') => return toggle_agent_enabled(model),
+                KeyCode::Char('e') => open_agent_edit(model),
+                KeyCode::Char('n') => model.modal = Some(Modal::AddAgent(AgentForm::new_agent())),
                 _ => {}
             }
         }
@@ -463,6 +468,90 @@ fn open_add_mcp(model: &mut Model) {
     }));
 }
 
+/// Space on an agent row: flip its enabled flag (persisted via agents::put).
+fn toggle_agent_enabled(model: &mut Model) -> Vec<Effect> {
+    let Some(a) = model.data.agents.get(model.agents_ui.agent_cursor) else {
+        return vec![];
+    };
+    let def = AgentDefinition {
+        global: a.global.clone(),
+        project: a.project.clone(),
+        format: a.format.clone(),
+        key: a.key.clone(),
+        enabled: !a.enabled,
+        builtin: None,
+    };
+    vec![Effect::PutAgent { id: a.id.clone(), def, overwrite: true }]
+}
+
+/// `e` on an agent row: open its config-path editor.
+fn open_agent_edit(model: &mut Model) {
+    let Some(a) = model.data.agents.get(model.agents_ui.agent_cursor) else {
+        return;
+    };
+    model.modal = Some(Modal::AddAgent(AgentForm::from_agent(a)));
+}
+
+fn agent_form_key(model: &mut Model, mut form: AgentForm, k: KeyEvent) -> Vec<Effect> {
+    let ctrl = k.modifiers.contains(KeyModifiers::CONTROL);
+    if ctrl && matches!(k.code, KeyCode::Char('s')) {
+        let (id, def) = form.to_def();
+        let err = if id.is_empty() {
+            Some("ID 不能为空")
+        } else if def.key.trim().is_empty() {
+            Some("配置 key 不能为空")
+        } else if def.global.is_none() && def.project.is_none() {
+            Some("至少填写一个配置路径")
+        } else {
+            None
+        };
+        if let Some(e) = err {
+            form.error = Some(e.into());
+            model.modal = Some(Modal::AddAgent(form));
+            return vec![];
+        }
+        let overwrite = form.is_edit;
+        return vec![Effect::PutAgent { id, def, overwrite }]; // commit + close
+    }
+    form.error = None;
+
+    if form.editing {
+        let field = form.field;
+        match k.code {
+            KeyCode::Enter | KeyCode::Esc => form.editing = false,
+            KeyCode::Backspace => {
+                if let Some(buf) = form.field_mut(field) {
+                    buf.pop();
+                }
+            }
+            KeyCode::Char(c) => {
+                if let Some(buf) = form.field_mut(field) {
+                    buf.push(c);
+                }
+            }
+            _ => {}
+        }
+        model.modal = Some(Modal::AddAgent(form));
+        return vec![];
+    }
+
+    match k.code {
+        KeyCode::Esc => return vec![], // cancel
+        KeyCode::Up | KeyCode::Char('k') => form.field = form.field.saturating_sub(1),
+        KeyCode::Down | KeyCode::Char('j') => form.field = clamp(form.field + 1, AGENT_FIELDS),
+        KeyCode::Enter => {
+            if form.field == 1 {
+                form.format_toml = !form.format_toml;
+            } else if form.field_mut(form.field).is_some() {
+                form.editing = true;
+            }
+        }
+        _ => {}
+    }
+    model.modal = Some(Modal::AddAgent(form));
+    vec![]
+}
+
 /// Route input to the open modal. The modal is taken out of the model; handlers
 /// that keep it open put it back, ones that close it (cancel / commit) don't.
 fn modal_key(model: &mut Model, k: KeyEvent) -> Vec<Effect> {
@@ -499,6 +588,7 @@ fn modal_key(model: &mut Model, k: KeyEvent) -> Vec<Effect> {
         Modal::Paste(st) => paste_key(model, st, k),
         Modal::Subscribe(form) => subscribe_key(model, form, k),
         Modal::AddLocal(form) => local_key(model, form, k),
+        Modal::AddAgent(form) => agent_form_key(model, form, k),
     }
 }
 
@@ -989,5 +1079,54 @@ mod tests {
         update(&mut m, loaded_sources(vec![source("discovered", true, true)]));
         let eff = update(&mut m, key('r'));
         assert!(matches!(&eff[0], Effect::ImportDiscovered));
+    }
+
+    #[test]
+    fn space_toggles_agent_enabled() {
+        let mut m = Model::new();
+        m.screen = Screen::Agents;
+        update(&mut m, loaded_full(vec![], vec![agent("claude", true)]));
+        let eff = update(&mut m, key(' '));
+        assert!(matches!(&eff[0], Effect::PutAgent { id, def, overwrite: true }
+            if id == "claude" && !def.enabled));
+    }
+
+    #[test]
+    fn new_agent_form_fill_and_save() {
+        let mut m = Model::new();
+        m.screen = Screen::Agents;
+        update(&mut m, loaded_full(vec![], vec![agent("claude", true)]));
+        update(&mut m, key('n'));
+        assert!(matches!(m.modal, Some(Modal::AddAgent(_))));
+        update(&mut m, code(KeyCode::Enter)); // edit id
+        typed(&mut m, "myagent");
+        update(&mut m, code(KeyCode::Enter));
+        for _ in 0..3 {
+            update(&mut m, code(KeyCode::Down)); // to global path (field 3)
+        }
+        update(&mut m, code(KeyCode::Enter));
+        typed(&mut m, "~/x.json");
+        update(&mut m, code(KeyCode::Enter));
+        let eff = update(&mut m, ctrl('s'));
+        assert!(matches!(&eff[0], Effect::PutAgent { id, overwrite: false, .. } if id == "myagent"));
+        assert!(m.modal.is_none());
+    }
+
+    #[test]
+    fn agent_form_requires_a_path() {
+        let mut m = Model::new();
+        m.screen = Screen::Agents;
+        update(&mut m, loaded_full(vec![], vec![agent("claude", true)]));
+        update(&mut m, key('n'));
+        update(&mut m, code(KeyCode::Enter)); // edit id
+        typed(&mut m, "x");
+        update(&mut m, code(KeyCode::Enter));
+        let eff = update(&mut m, ctrl('s')); // no path given
+        assert!(eff.is_empty());
+        if let Some(Modal::AddAgent(form)) = &m.modal {
+            assert!(form.error.is_some());
+        } else {
+            panic!("form should stay open with an error");
+        }
     }
 }

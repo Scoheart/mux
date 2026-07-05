@@ -23,8 +23,56 @@ pub fn render(model: &Model, f: &mut Frame) {
         Some(Modal::AddLocal(form)) => {
             render_form(f, " 导入本地文件 ", ["文件路径", "名称（可选）"], [&form.path, &form.name], form.field)
         }
+        Some(Modal::AddAgent(form)) => render_agent_form(f, form),
         None => {}
     }
+}
+
+fn render_agent_form(f: &mut Frame, form: &crate::tui::model::AgentForm) {
+    use crate::tui::model::AGENT_FIELDS;
+    let area = centered(f.area(), 70, 55);
+    f.render_widget(Clear, area);
+    let labels = form.labels();
+    let mut lines: Vec<Line> = Vec::new();
+    for i in 0..AGENT_FIELDS {
+        let focused = i == form.field;
+        let caret = if focused {
+            Span::from("› ").cyan().bold()
+        } else {
+            Span::from("  ")
+        };
+        let raw = form.value(i);
+        let editing = focused && form.editing;
+        let val = if raw.is_empty() && !editing {
+            Span::from("—").dim()
+        } else if i == 0 && !form.id_editable() {
+            Span::from(raw).dim()
+        } else if focused {
+            Span::from(raw).white()
+        } else {
+            Span::from(raw)
+        };
+        let mut spans = vec![caret, Span::from(format!("{:<12}", labels[i])).dim(), val];
+        if editing {
+            spans.push(Span::from("▏").cyan());
+        }
+        lines.push(Line::from(spans));
+    }
+    lines.push(Line::from(""));
+    if let Some(err) = &form.error {
+        lines.push(Line::from(Span::from(format!("✗ {}", err)).red()));
+    } else if form.field == 1 {
+        lines.push(Line::from(Span::from("Enter 切换 json ↔ toml").dim()));
+    }
+    let title = if form.is_edit { " 编辑 Agent " } else { " 新建 Agent " };
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::new().cyan())
+        .title(Span::from(title).bold())
+        .title_bottom(Line::from(
+            Span::from(" ↑↓ 字段 · Enter 编辑/切换 · Ctrl-S 保存 · Esc 取消 ").dim(),
+        ));
+    f.render_widget(Paragraph::new(lines).block(block), area);
 }
 
 /// A small two-field form (Subscribe / AddLocal): Tab switches field, Enter submits.

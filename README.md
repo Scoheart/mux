@@ -7,7 +7,8 @@
 MUX ships as **two front-ends that share the same data** (`~/.mux/`):
 
 - 🖥️ a **macOS desktop app** (Tauri + React) — a visual manager, and
-- ⌨️ a **CLI** (`mux`, a native Rust binary) — for the terminal.
+- ⌨️ a **CLI + TUI** (`mux`, a native Rust binary) — an interactive terminal UI
+  plus scriptable subcommands.
 
 Point either one at your tools — Claude Code, Codex, Cursor, VS Code, Zed, Windsurf, Gemini CLI, Qoder, and ~10 more — and install, toggle, or remove MCP servers per agent from one catalog.
 
@@ -69,6 +70,14 @@ cargo build --release -p mux-cli   # → target/release/mux
 
 Everything runs against `~/.mux/`, shared with the desktop app.
 
+Run `mux` with **no arguments** for the **interactive TUI** — a keyboard-driven
+terminal manager with three screens (Registry / 来源 / Agents): browse and search
+the catalog, install to agents (multi-select), enable / disable / delete, edit or
+paste catalog entries, and manage sources and agents. Press `?` for the keymap,
+`q` to quit. (Set `MUX_NO_TUI=1` to fall back to printing help in scripts.)
+
+Or drive it non-interactively with subcommands:
+
 ```bash
 mux import          # scan agents and import discovered servers
 mux list            # list catalog entries
@@ -79,8 +88,6 @@ mux status          # show what's active across agents
 mux clean [--agent <name>]   # clear MCPs from enabled agents
 mux agents [list | enable <name> | disable <name>]
 ```
-
-> The interactive TUI (the old `mux` with no arguments) isn't in the Rust CLI yet — for now, running `mux` with no command prints help. Use the desktop app for a visual manager.
 
 ---
 

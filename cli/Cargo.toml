@@ -10,3 +10,6 @@ path = "src/main.rs"
 [dependencies]
 mux-core = { path = "../core" }
 clap = { version = "4", features = ["derive"] }
+ratatui = "0.29"
+crossterm = "0.28"
+fuzzy-matcher = "0.3"

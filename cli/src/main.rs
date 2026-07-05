@@ -5,6 +5,8 @@
 use std::collections::{HashMap, HashSet};
 use std::io::{self, Write};
 
+mod tui;
+
 use clap::{Parser, Subcommand};
 
 use mux_core::agents::{load_agents, save_agents};
@@ -138,9 +140,18 @@ fn main() {
             _ => cmd_agents_list(),
         },
         None => {
-            // No interactive TUI in the Rust CLI (yet) — show help instead.
-            let _ = <Cli as clap::CommandFactory>::command().print_help();
-            println!();
+            // The interactive TUI is still being built; gate it behind MUX_TUI=1
+            // so `mux` with no args keeps printing help until it's ready to be the
+            // default (see docs/tui-architecture.md, phase plan).
+            if std::env::var_os("MUX_TUI").is_some() {
+                if let Err(e) = tui::run() {
+                    eprintln!("TUI 错误: {}", e);
+                    std::process::exit(1);
+                }
+            } else {
+                let _ = <Cli as clap::CommandFactory>::command().print_help();
+                println!();
+            }
         }
     }
 }

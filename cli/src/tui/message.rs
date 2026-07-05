@@ -4,6 +4,11 @@
 
 use crossterm::event::KeyEvent;
 
+use mux_core::agents::AgentInfo;
+use mux_core::ops::InstalledMcp;
+use mux_core::sources::SourceView;
+use mux_core::types::RegistryEntry;
+
 pub enum Msg {
     /// First message: kick off the initial data load.
     Init,
@@ -13,15 +18,19 @@ pub enum Msg {
     Redraw,
     /// Animation/idle tick (unused while nothing animates).
     Tick,
-    /// Result of `Effect::LoadAll`: cache sizes for the three screens.
-    Loaded {
-        registry: usize,
-        agents: usize,
-        sources: usize,
-        installed: usize,
-    },
+    /// Result of `Effect::LoadAll`: every cache, read from core.
+    Loaded(Box<LoadedData>),
     /// An effect failed; surface the message in the status line. (No fallible
-    /// effect exists until Phase 2+; kept so the failure path is already wired.)
+    /// effect exists until later phases; kept so the failure path is wired.)
     #[allow(dead_code)]
     Error(String),
+}
+
+/// The four caches plus the set of user-overridden keys, loaded together.
+pub struct LoadedData {
+    pub registry: Vec<RegistryEntry>,
+    pub custom_keys: Vec<String>,
+    pub sources: Vec<SourceView>,
+    pub agents: Vec<AgentInfo>,
+    pub installed: Vec<InstalledMcp>,
 }

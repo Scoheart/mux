@@ -712,6 +712,7 @@ dependencies = [
  "fuzzy-matcher",
  "mux-core",
  "ratatui",
+ "serde_json",
 ]
 
 [[package]]

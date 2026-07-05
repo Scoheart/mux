@@ -1,6 +1,11 @@
-//! Pure rendering: read the model, draw widgets. Never mutates. Phase 1 draws
-//! the persistent chrome (tab bar + footer) and a placeholder body; Phase 2
-//! fills each screen in its own file under here.
+//! Pure rendering: read the model, draw widgets. Never mutates. Persistent chrome
+//! (tab bar + footer) wraps a per-screen body; modals overlay everything.
+
+mod agents;
+mod modal;
+mod registry;
+mod sources;
+mod theme;
 
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Style, Stylize};
@@ -12,7 +17,7 @@ use super::model::{Model, Screen};
 
 pub fn view(model: &Model, f: &mut Frame) {
     let rows = Layout::vertical([
-        Constraint::Length(3), // tab bar
+        Constraint::Length(2), // tab bar
         Constraint::Min(0),    // body
         Constraint::Length(1), // footer / status
     ])
@@ -21,13 +26,16 @@ pub fn view(model: &Model, f: &mut Frame) {
     render_tabs(model, f, rows[0]);
     render_body(model, f, rows[1]);
     render_footer(model, f, rows[2]);
+
+    if model.modal.is_some() {
+        modal::render(model, f);
+    }
 }
 
 fn render_tabs(model: &Model, f: &mut Frame, area: Rect) {
     let mut spans: Vec<Span> = vec![Span::from("MUX").bold().magenta(), Span::from("   ")];
     for (i, s) in Screen::ALL.iter().enumerate() {
-        let n = i + 1;
-        let label = format!(" {} {} ", n, s.title());
+        let label = format!(" {} {} ", i + 1, s.title());
         if *s == model.screen {
             spans.push(Span::styled(label, Style::new().black().on_cyan().bold()));
         } else {
@@ -40,49 +48,87 @@ fn render_tabs(model: &Model, f: &mut Frame, area: Rect) {
 }
 
 fn render_body(model: &Model, f: &mut Frame, area: Rect) {
-    let text = if model.loading {
-        vec![Line::from(Span::from("加载中…").dim())]
-    } else if let Some(c) = &model.counts {
-        match model.screen {
-            Screen::Registry => vec![
-                Line::from(format!("{} 个 MCP 在目录中", c.registry)),
-                Line::from(Span::from("（Phase 2 将在这里渲染目录列表）").dim()),
-            ],
-            Screen::Sources => vec![
-                Line::from(format!("{} 个来源", c.sources)),
-                Line::from(Span::from("（Phase 2 将在这里渲染来源卡片）").dim()),
-            ],
-            Screen::Agents => vec![
-                Line::from(format!("{} 个 agent · {} 处已安装", c.agents, c.installed)),
-                Line::from(Span::from("（Phase 2 将在这里渲染每-agent 安装管理）").dim()),
-            ],
-        }
+    if model.loading {
+        f.render_widget(Paragraph::new(Span::from("加载中…").dim()), area);
+        return;
+    }
+    match model.screen {
+        Screen::Registry => registry::render(model, f, area),
+        Screen::Sources => sources::render(model, f, area),
+        Screen::Agents => agents::render(model, f, area),
+    }
+}
+
+fn render_footer(model: &Model, f: &mut Frame, area: Rect) {
+    let line = if let Some(status) = &model.status {
+        Line::from(Span::from(status.clone()).yellow())
     } else {
-        vec![Line::from(Span::from("无数据").dim())]
+        Line::from(Span::from(footer_hint(model)).dim())
     };
-    let block = Block::default().borders(Borders::NONE);
-    f.render_widget(Paragraph::new(text).block(block), area);
+    f.render_widget(Paragraph::new(line), area);
+}
+
+/// Context-sensitive footer, so the UI documents itself.
+fn footer_hint(model: &Model) -> &'static str {
+    if model.registry_ui.searching {
+        return "输入以搜索 · Enter/Esc 结束 · Backspace 删除";
+    }
+    match model.screen {
+        Screen::Registry => "↑↓ 移动 · / 搜索 · ←→ 过滤 · Enter 详情 · r 刷新 · ? 帮助 · q 退出",
+        Screen::Sources => "↑↓ 移动 · r 刷新 · ? 帮助 · 1/2/3 切换 · q 退出",
+        Screen::Agents => "↑↓ 移动 · →/Enter 进入 · ←/Esc 返回 · ? 帮助 · q 退出",
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use super::super::model::Counts;
+    use crate::tui::message::LoadedData;
+    use crate::tui::update::update;
+    use crate::tui::message::Msg;
+    use mux_core::types::{RegistryConfig, RegistryEntry, RegistryOrigin, StdioConfig};
     use ratatui::backend::TestBackend;
     use ratatui::Terminal;
 
-    /// Flatten the rendered buffer into a whitespace-free string. Wide (CJK)
-    /// glyphs render into two cells (the second a blank continuation), so we drop
-    /// whitespace before substring-matching to keep needles contiguous.
+    fn entry(name: &str, kind: &str) -> RegistryEntry {
+        RegistryEntry {
+            name: name.into(),
+            description: String::new(),
+            tags: vec![],
+            config: RegistryConfig {
+                stdio: Some(StdioConfig { command: "npx".into(), args: None, env: None }),
+                http: None,
+            },
+            origin: Some(RegistryOrigin { kind: kind.into(), agent: None, scope: None, source: None }),
+        }
+    }
+
+    /// Flatten the buffer, dropping whitespace so CJK wide-glyph continuation
+    /// cells don't split needles.
     fn render(model: &Model) -> String {
-        let mut terminal = Terminal::new(TestBackend::new(80, 12)).unwrap();
+        let mut terminal = Terminal::new(TestBackend::new(90, 16)).unwrap();
         terminal.draw(|f| view(model, f)).unwrap();
-        let buf = terminal.backend().buffer().clone();
-        buf.content()
+        terminal
+            .backend()
+            .buffer()
+            .content()
             .iter()
             .flat_map(|c| c.symbol().chars())
             .filter(|c| !c.is_whitespace())
             .collect()
+    }
+
+    fn loaded(model: &mut Model, entries: Vec<RegistryEntry>) {
+        update(
+            model,
+            Msg::Loaded(Box::new(LoadedData {
+                registry: entries,
+                custom_keys: vec![],
+                sources: vec![],
+                agents: vec![],
+                installed: vec![],
+            })),
+        );
     }
 
     #[test]
@@ -95,22 +141,20 @@ mod tests {
     }
 
     #[test]
-    fn renders_registry_counts_when_loaded() {
+    fn renders_registry_entries_after_load() {
         let mut m = Model::new();
-        m.loading = false;
-        m.counts = Some(Counts { registry: 7, agents: 18, sources: 2, installed: 3 });
+        loaded(&mut m, vec![entry("filesystem", "manual"), entry("wiki", "remote")]);
         let text = render(&m);
-        assert!(text.contains("7个MCP"));
+        assert!(text.contains("filesystem"));
+        assert!(text.contains("wiki"));
+        assert!(!text.contains("加载中"));
     }
-}
 
-fn render_footer(model: &Model, f: &mut Frame, area: Rect) {
-    let line = if let Some(status) = &model.status {
-        Line::from(Span::from(status.clone()).yellow())
-    } else {
-        Line::from(vec![
-            Span::from("1/2/3 切换 · Tab 循环 · r 刷新 · q 退出").dim(),
-        ])
-    };
-    f.render_widget(Paragraph::new(line), area);
+    #[test]
+    fn empty_catalog_shows_hint() {
+        let mut m = Model::new();
+        loaded(&mut m, vec![]);
+        let text = render(&m);
+        assert!(text.contains("目录为空"));
+    }
 }

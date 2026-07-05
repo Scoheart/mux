@@ -7,13 +7,13 @@ use std::thread;
 
 use mux_core::agents::list_infos;
 use mux_core::ops::scan_installed;
-use mux_core::registry::read_registry;
+use mux_core::registry::{read_registry, user_override_keys};
 use mux_core::sources::list_views;
 
-use super::message::Msg;
+use super::message::{LoadedData, Msg};
 
 pub enum Effect {
-    /// Read all four caches from core (Phase 1: just their sizes).
+    /// Read all caches from core.
     LoadAll,
 }
 
@@ -38,11 +38,12 @@ impl EffectRunner {
 
 fn run_effect(eff: Effect) -> Msg {
     match eff {
-        Effect::LoadAll => Msg::Loaded {
-            registry: read_registry().len(),
-            agents: list_infos().len(),
-            sources: list_views().len(),
-            installed: scan_installed(None).len(),
-        },
+        Effect::LoadAll => Msg::Loaded(Box::new(LoadedData {
+            registry: read_registry(),
+            custom_keys: user_override_keys(),
+            sources: list_views(),
+            agents: list_infos(),
+            installed: scan_installed(None),
+        })),
     }
 }

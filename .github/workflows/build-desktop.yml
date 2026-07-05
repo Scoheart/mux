@@ -34,7 +34,11 @@ jobs:
       - name: Cache Rust build
         uses: Swatinem/rust-cache@v2
         with:
-          workspaces: desktop/src-tauri -> target
+          # Two independent target dirs: the desktop Tauri app, and the root
+          # Cargo workspace (core + cli) that produces the `mux` binary.
+          workspaces: |
+            desktop/src-tauri -> target
+            . -> target
           cache-on-failure: true
 
       - name: Cache npm downloads
@@ -52,12 +56,36 @@ jobs:
         working-directory: desktop
         run: npm run tauri build -- --bundles dmg
 
+      # Build the `mux` CLI (root workspace) and tar it up so the same Release
+      # carries a ready-to-run binary next to the .dmg — no cargo needed. The
+      # tarball name embeds the release tag + target triple.
+      - name: Build & package CLI (mux)
+        id: cli
+        run: |
+          cargo build --release -p mux-cli
+          case "$(uname -m)" in
+            arm64|aarch64) TRIPLE=aarch64-apple-darwin ;;
+            x86_64) TRIPLE=x86_64-apple-darwin ;;
+            *) TRIPLE="$(uname -m)-apple-darwin" ;;
+          esac
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            NAME="${{ github.ref_name }}"
+          else
+            VER=$(node -p "require('./desktop/src-tauri/tauri.conf.json').version")
+            NAME="v${VER}-build.$(printf '%05d' "${{ github.run_number }}")"
+          fi
+          OUT="mux_${NAME}_${TRIPLE}.tar.gz"
+          tar -C target/release -czf "$OUT" mux
+          echo "path=$OUT" >> "$GITHUB_OUTPUT"
+
       # --- Versioned stable release: only when a vX.Y.Z tag is pushed ---
       - name: Publish versioned Release (on tag)
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: desktop/src-tauri/target/release/bundle/dmg/*.dmg
+          files: |
+            desktop/src-tauri/target/release/bundle/dmg/*.dmg
+            ${{ steps.cli.outputs.path }}
           fail_on_unmatched_files: true
           generate_release_notes: true
 
@@ -98,11 +126,16 @@ jobs:
           target_commitish: ${{ github.sha }}
           name: ${{ steps.meta.outputs.tag }}
           prerelease: true
-          files: ${{ steps.dmg.outputs.path }}
+          files: |
+            ${{ steps.dmg.outputs.path }}
+            ${{ steps.cli.outputs.path }}
           fail_on_unmatched_files: true
           generate_release_notes: true
           body: |
             🤖 Automatic build from `main` (build #${{ github.run_number }}).
             Pre-release — for stable, hand-cut versions see the `vX.Y.Z` releases.
+
+            **CLI:** download `mux_<tag>_<arch>.tar.gz`, then
+            `tar xzf mux_*.tar.gz && ./mux` (or move it onto your PATH).
 
             Commit: ${{ github.sha }}

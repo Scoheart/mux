@@ -1,7 +1,4 @@
-use mux_core::registry::{
-    delete_registry_entry as delete_entry, read_registry, user_override_keys,
-    write_manual_entry, DISCOVERED_ID, MANUAL_ID,
-};
+use mux_core::registry::{read_registry, user_override_keys};
 use mux_core::types::RegistryEntry;
 
 #[tauri::command]
@@ -11,71 +8,17 @@ pub fn list_registry() -> Vec<RegistryEntry> {
     read_registry()
 }
 
-/// Persist (create or overwrite) a user registry entry into settings.registry.
+/// Persist (create or overwrite) a user registry entry; propagates to clean installs.
 #[tauri::command]
 pub fn upsert_registry_entry(entry: RegistryEntry) -> Result<(), String> {
-    // Capture the currently-effective config BEFORE overwriting it, so we can
-    // propagate the change to agents that installed it "clean" (§ propagate).
-    let prev = read_registry()
-        .into_iter()
-        .find(|e| e.name == entry.name && e.transport() == entry.transport());
-    // User-created / edited entries live in the managed "manual" local source.
-    write_manual_entry(&entry).map_err(|e| e.to_string())?;
-    propagate_edit_to_installs(prev.as_ref(), Some(&entry));
-    Ok(())
+    mux_core::ops::upsert_entry(entry)
 }
 
 /// Remove a user registry override for a given name+transport; reverts to
-/// builtin if one exists.
+/// whatever a source provides (or nothing).
 #[tauri::command]
 pub fn delete_registry_entry(name: String, transport: String) -> Result<(), String> {
-    // On revert, the entry falls back to whatever a source provides (or nothing).
-    // Propagate that fallback config to clean installs too, for symmetry with edit.
-    let prev = read_registry()
-        .into_iter()
-        .find(|e| e.name == name && e.transport() == transport);
-    delete_entry(&name, &transport).map_err(|e| e.to_string())?;
-    let now = read_registry()
-        .into_iter()
-        .find(|e| e.name == name && e.transport() == transport);
-    propagate_edit_to_installs(prev.as_ref(), now.as_ref());
-    Ok(())
-}
-
-/// Propagate a registry-entry config change to agents that have it installed.
-///
-/// Registry installs write a *snapshot* of the config into each agent file, so a
-/// later edit would otherwise not reach those agents. Here we re-stamp the new
-/// config into every agent that currently holds this server at global scope —
-/// but ONLY where the on-disk config still equals the previous registry config
-/// (a "clean" install). Agents whose config was hand-customized (differs from the
-/// old base) are left untouched, preserving intentional per-agent tweaks.
-///
-/// No-ops when: the entry is brand-new (`prev` is None), it was fully removed
-/// (`new` is None), or the config didn't actually change. Global scope only —
-/// project-scoped installs need a project dir we don't have at edit time.
-fn propagate_edit_to_installs(prev: Option<&RegistryEntry>, new: Option<&RegistryEntry>) {
-    use mux_core::effective::base_config;
-    use mux_core::types::transport_of;
-    let (Some(prev), Some(new)) = (prev, new) else { return };
-    let (Some(old_cfg), Some(new_cfg)) = (base_config(prev), base_config(new)) else { return };
-    if old_cfg == new_cfg {
-        return; // description/tags-only edit, or no real change
-    }
-    let transport = new.transport();
-    let agents = load_agents();
-    let timestamp = mux_core::paths::backup_timestamp();
-    for s in scan_agents(&agents, None, true) {
-        if s.name == new.name
-            && s.scope == "global"
-            && transport_of(&s.config) == transport
-            && s.config == old_cfg
-        {
-            if let Some(def) = agents.get(&s.agent) {
-                let _ = add_one(&s.agent, def, &new.name, new_cfg.clone(), "global", None, &timestamp);
-            }
-        }
-    }
+    mux_core::ops::remove_entry(&name, &transport)
 }
 
 /// Composite keys (`name::transport`) of registry entries that currently have a
@@ -85,195 +28,36 @@ pub fn list_custom_registry_keys() -> Vec<String> {
     user_override_keys()
 }
 
-/// Locate the `name -> config` server map in a pasted config value: under
-/// `mcpServers` / `mcp_servers` / `servers`, or the top-level object itself when
-/// its values all look like server configs (have `command` or `url`).
-fn extract_servers(v: &serde_json::Value) -> Option<serde_json::Map<String, serde_json::Value>> {
-    let obj = v.as_object()?;
-    for key in ["mcpServers", "mcp_servers", "servers"] {
-        if let Some(m) = obj.get(key).and_then(|x| x.as_object()) {
-            return Some(m.clone());
-        }
-    }
-    let looks_like_map = !obj.is_empty()
-        && obj.values().all(|val| {
-            val.as_object()
-                .map(|o| o.contains_key("command") || o.contains_key("url"))
-                .unwrap_or(false)
-        });
-    if looks_like_map {
-        return Some(obj.clone());
-    }
-    None
-}
-
 /// Parse a pasted config blob (JSON or TOML) and add every MCP server it contains
-/// to the managed "manual" source. Returns the names that were added. Servers that
-/// don't fit the stdio/http shape are skipped; an empty result is an error so the
-/// UI can tell the user nothing was recognized.
+/// to the managed "manual" source. Returns the names that were added.
 #[tauri::command]
 pub fn import_pasted_config(text: String) -> Result<Vec<String>, String> {
-    use mux_core::types::McpConfig;
-    let text = text.trim();
-    if text.is_empty() {
-        return Err("粘贴内容为空".into());
-    }
-    let value: serde_json::Value = match serde_json::from_str(text) {
-        Ok(v) => v,
-        Err(_) => {
-            let t: toml::Value =
-                toml::from_str(text).map_err(|e| format!("内容既不是有效的 JSON 也不是 TOML：{}", e))?;
-            serde_json::to_value(t).map_err(|e| e.to_string())?
-        }
-    };
-    let servers = extract_servers(&value)
-        .ok_or("未识别到 MCP 配置：需要包含 mcpServers，或直接是「名称→配置」的映射")?;
-    let mut added = Vec::new();
-    for (name, cfg_val) in servers {
-        let Ok(cfg) = serde_json::from_value::<McpConfig>(cfg_val) else {
-            continue; // skip entries that aren't a valid stdio/http config
-        };
-        let config = cfg.into();
-        let entry = RegistryEntry {
-            name: name.clone(),
-            description: String::new(),
-            tags: Vec::new(),
-            config,
-            origin: None,
-        };
-        write_manual_entry(&entry).map_err(|e| e.to_string())?;
-        added.push(name);
-    }
-    if added.is_empty() {
-        return Err("未在粘贴内容中找到可用的 MCP server".into());
-    }
-    Ok(added)
+    mux_core::ops::import_pasted(&text)
 }
 
 // ── Catalog sources (subscribe remote / add local) ────────────────────────
+// Orchestration lives in `mux_core::sources`; these are thin command wrappers.
 
-use mux_core::settings::{load_settings, mutate_settings};
-use mux_core::sources;
-use mux_core::types::SourceDef;
-
-/// A source as shown in the UI: its stored definition plus a live server count.
-#[derive(Serialize)]
-pub struct SourceView {
-    pub id: String,
-    pub kind: String,
-    pub name: String,
-    pub url: Option<String>,
-    pub path: Option<String>,
-    pub format: String,
-    pub enabled: bool,
-    pub added_at: Option<String>,
-    pub synced_at: Option<String>,
-    pub server_count: u32,
-    pub error: Option<String>,
-    /// True for the two auto-managed sources ("手动添加" / "自动探索") — the UI
-    /// hides refresh/remove for these to avoid accidental data loss.
-    pub managed: bool,
-}
-
-fn to_view(def: SourceDef, count: u32) -> SourceView {
-    let managed = def.id == MANUAL_ID || def.id == DISCOVERED_ID;
-    SourceView {
-        id: def.id, kind: def.kind, name: def.name, url: def.url, path: def.path,
-        format: def.format, enabled: def.enabled, added_at: def.added_at,
-        synced_at: def.synced_at, server_count: count, error: def.error, managed,
-    }
-}
-
-fn push_source(def: &SourceDef) -> Result<(), String> {
-    mutate_settings(|s| s.sources.get_or_insert_with(Vec::new).push(def.clone()))
-        .map_err(|e| e.to_string())
-}
+use mux_core::sources::{self, SourceView};
 
 #[tauri::command]
 pub fn list_sources() -> Vec<SourceView> {
-    load_settings()
-        .sources
-        .unwrap_or_default()
-        .into_iter()
-        .map(|d| {
-            let count = sources::source_count(&d);
-            to_view(d, count)
-        })
-        .collect()
+    sources::list_views()
 }
 
-/// Subscribe to a remote config URL: fetch, validate, cache it under
-/// `~/.mux/sources/remote/<id>`, and register it as an enabled source.
 #[tauri::command]
 pub fn subscribe_source(url: String, name: Option<String>) -> Result<SourceView, String> {
-    let url = url.trim().to_string();
-    if url.is_empty() {
-        return Err("URL 不能为空".into());
-    }
-    let body = sources::fetch(&url)?;
-    let format = sources::detect_format(&url, &body).to_string();
-    sources::validate_parseable(&body, &format)?;
-    let display = name
-        .map(|n| n.trim().to_string())
-        .filter(|n| !n.is_empty())
-        .unwrap_or_else(|| sources::host_of(&url));
-    let now = sources::now_iso();
-    let mut def = SourceDef::new_remote(sources::gen_id("remote", &display), display.clone(), url, format, now);
-    let path = sources::cached_path(&def).ok_or("无法确定缓存路径")?;
-    sources::write_source_file(&path, &body)?;
-    let count = sources::source_count(&def);
-    def.server_count = Some(count);
-    if count == 0 {
-        def.error = Some("未在该文件中发现 MCP server".into());
-    }
-    push_source(&def)?;
-    Ok(to_view(def, count))
-}
-
-/// Register a local config file as a source: read it, validate, and copy it under
-/// `~/.mux/sources/local/<id>` (the app then reads the copy, not the original).
-fn add_local_impl(path: String, name: Option<String>) -> Result<SourceView, String> {
-    let src = mux_core::scanner::expand_tilde(&path);
-    let content = std::fs::read_to_string(&src).map_err(|e| format!("读取文件失败: {}", e))?;
-    let format = sources::detect_format(&path, &content).to_string();
-    sources::validate_parseable(&content, &format)?;
-    let display = name
-        .map(|n| n.trim().to_string())
-        .filter(|n| !n.is_empty())
-        .unwrap_or_else(|| {
-            std::path::Path::new(&path)
-                .file_name()
-                .and_then(|s| s.to_str())
-                .unwrap_or("本地配置")
-                .to_string()
-        });
-    let now = sources::now_iso();
-    let mut def = SourceDef::new_local(
-        sources::gen_id("local", &display),
-        display.clone(),
-        Some(collapse_home(&path)),
-        format,
-        now,
-    );
-    let cache = sources::cached_path(&def).ok_or("无法确定缓存路径")?;
-    sources::write_source_file(&cache, &content)?;
-    let count = sources::source_count(&def);
-    def.server_count = Some(count);
-    if count == 0 {
-        def.error = Some("未在该文件中发现 MCP server".into());
-    }
-    push_source(&def)?;
-    Ok(to_view(def, count))
+    sources::subscribe(url, name)
 }
 
 /// Add a local source from an explicit path.
 #[tauri::command]
 pub fn add_local_source(path: String, name: Option<String>) -> Result<SourceView, String> {
-    add_local_impl(path, name)
+    sources::add_local(path, name)
 }
 
 /// Open a native file picker and add the chosen file as a local source. Returns
-/// `None` if the user cancels.
+/// `None` if the user cancels. Desktop-only (native dialog); delegates to core.
 #[tauri::command]
 pub fn add_local_source_dialog(app: tauri::AppHandle) -> Result<Option<SourceView>, String> {
     use tauri_plugin_dialog::DialogExt;
@@ -283,310 +67,57 @@ pub fn add_local_source_dialog(app: tauri::AppHandle) -> Result<Option<SourceVie
         .add_filter("MCP 配置", &["json", "toml"])
         .blocking_pick_file();
     let Some(fp) = picked else { return Ok(None) };
-    add_local_impl(fp.to_string(), None).map(Some)
+    sources::add_local(fp.to_string(), None).map(Some)
 }
 
-/// Add the bundled curated collection as an opt-in *local* source (it is not part
-/// of the default catalog). Reuses the embedded `data/registry.json`.
+/// Add the bundled curated collection as an opt-in *local* source.
 #[tauri::command]
 pub fn add_builtin_collection() -> Result<SourceView, String> {
-    let entries = mux_core::registry::builtin_registry();
-    let content = serde_json::to_string_pretty(&entries).map_err(|e| e.to_string())?;
-    let now = sources::now_iso();
-    let mut def = SourceDef::new_local(
-        sources::gen_id("local", "curated"),
-        "官方精选合集".into(),
-        None,
-        "json".into(),
-        now,
-    );
-    let cache = sources::cached_path(&def).ok_or("无法确定缓存路径")?;
-    sources::write_source_file(&cache, &content)?;
-    let count = sources::source_count(&def);
-    def.server_count = Some(count);
-    push_source(&def)?;
-    Ok(to_view(def, count))
+    sources::add_official()
 }
 
-/// Re-fetch (remote) or re-copy (local) a source's file and update its status.
 #[tauri::command]
 pub fn refresh_source(id: String) -> Result<SourceView, String> {
-    let Some(mut def) = load_settings()
-        .sources
-        .unwrap_or_default()
-        .into_iter()
-        .find(|d| d.id == id)
-    else {
-        return Err("source 不存在".into());
-    };
-    let fetched: Result<String, String> = match def.kind.as_str() {
-        "remote" => {
-            let url = def.url.clone().ok_or("该来源缺少 URL")?;
-            sources::fetch(&url)
-        }
-        "local" => match def.path.as_ref() {
-            Some(p) => {
-                let src = mux_core::scanner::expand_tilde(p);
-                std::fs::read_to_string(&src).map_err(|e| format!("读取原文件失败: {}", e))
-            }
-            None => Err("该本地来源没有可刷新的原文件".into()),
-        },
-        _ => Err("不支持刷新该来源".into()),
-    };
-    match fetched {
-        Ok(body) => {
-            if let Some(path) = sources::cached_path(&def) {
-                sources::write_source_file(&path, &body)?;
-            }
-            def.synced_at = Some(sources::now_iso());
-            def.error = None;
-        }
-        Err(e) => {
-            def.error = Some(e);
-        }
-    }
-    let count = sources::source_count(&def);
-    def.server_count = Some(count);
-    let saved = def.clone();
-    mutate_settings(move |s| {
-        if let Some(list) = s.sources.as_mut() {
-            for d in list.iter_mut() {
-                if d.id == saved.id {
-                    *d = saved.clone();
-                }
-            }
-        }
-    })
-    .map_err(|e| e.to_string())?;
-    Ok(to_view(def, count))
+    sources::refresh(id)
 }
 
-/// Enable or disable a source (its servers join/leave the catalog).
 #[tauri::command]
 pub fn set_source_enabled(id: String, enabled: bool) -> Result<(), String> {
-    mutate_settings(|s| {
-        if let Some(list) = s.sources.as_mut() {
-            for d in list.iter_mut() {
-                if d.id == id {
-                    d.enabled = enabled;
-                }
-            }
-        }
-    })
-    .map_err(|e| e.to_string())
+    sources::set_enabled(id, enabled)
 }
 
-/// Remove a source and delete its cached file.
 #[tauri::command]
 pub fn remove_source(id: String) -> Result<(), String> {
-    mutate_settings(|s| {
-        if let Some(list) = s.sources.as_mut() {
-            if let Some(pos) = list.iter().position(|d| d.id == id) {
-                let def = list.remove(pos);
-                if let Some(p) = sources::cached_path(&def) {
-                    let _ = std::fs::remove_file(p);
-                }
-            }
-        }
-    })
-    .map_err(|e| e.to_string())
+    sources::remove(id)
 }
 
-use mux_core::agents::{load_agents, save_agents};
-use mux_core::scanner::scan_agents;
+use mux_core::agents::{load_agents, AgentInfo};
 use mux_core::types::AgentDefinition;
-use serde::Serialize;
-use std::path::Path;
-
-#[derive(Serialize)]
-pub struct AgentInfo {
-    pub id: String,
-    pub format: String,
-    pub key: String,
-    pub has_global: bool,
-    pub has_project: bool,
-    pub enabled: bool,
-    /// Raw stored config paths (e.g. `~/Library/Application Support/…/mcp.json`),
-    /// so the UI can display + prefill the path editor.
-    pub global: Option<String>,
-    pub project: Option<String>,
-}
-
-/// Collapse an absolute path under the user's home directory back to `~/…` so
-/// stored agent paths stay portable (we never hardcode `/Users/<name>`). Paths
-/// that already start with `~`, or that live outside home, are returned as-is.
-fn collapse_home(path: &str) -> String {
-    let path = path.trim();
-    if path.starts_with('~') {
-        return path.to_string();
-    }
-    if let Some(home) = dirs::home_dir() {
-        if let Some(home_str) = home.to_str() {
-            if path == home_str {
-                return "~".to_string();
-            }
-            if let Some(rest) = path.strip_prefix(&format!("{}/", home_str)) {
-                return format!("~/{}", rest);
-            }
-        }
-    }
-    path.to_string()
-}
-
-/// Validate + normalize an agent definition, then write it. `allow_overwrite`
-/// distinguishes create (`add_agent`, errors on existing) from edit
-/// (`update_agent`, replaces in place). Global paths are collapsed to `~/…`;
-/// project paths are relative to the project root and left untouched (only trimmed).
-fn put_agent(id: String, mut def: AgentDefinition, allow_overwrite: bool) -> Result<(), String> {
-    let id = id.trim().to_string();
-    if id.is_empty() {
-        return Err("agent id 不能为空".into());
-    }
-    if def.key.trim().is_empty() {
-        return Err("配置 key 不能为空".into());
-    }
-    def.global = def
-        .global
-        .as_deref()
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .map(collapse_home);
-    def.project = def
-        .project
-        .as_deref()
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .map(str::to_string);
-    if def.global.is_none() && def.project.is_none() {
-        return Err("至少需要填写一个配置路径（全局或项目）".into());
-    }
-    let mut agents = load_agents();
-    if !allow_overwrite && agents.contains_key(&id) {
-        return Err(format!("agent 已存在: {}", id));
-    }
-    agents.insert(id, def);
-    save_agents(&agents).map_err(|e| e.to_string())
-}
 
 /// 新增一个自定义 agent，持久化到 settings.agents（在内置/已有定义之上合并）。
 /// id 为空或已存在时报错，避免误覆盖内置 agent。
 #[tauri::command]
 pub fn add_agent(id: String, def: AgentDefinition) -> Result<(), String> {
-    put_agent(id, def, false)
+    mux_core::agents::put(id, def, false)
 }
 
 /// 编辑一个已存在 agent 的配置（路径 / 格式 / key），覆盖写回 settings.agents。
 #[tauri::command]
 pub fn update_agent(id: String, def: AgentDefinition) -> Result<(), String> {
-    put_agent(id, def, true)
+    mux_core::agents::put(id, def, true)
 }
 
 #[tauri::command]
 pub fn list_agents() -> Vec<AgentInfo> {
-    load_agents()
-        .into_iter()
-        .map(|(id, d)| AgentInfo {
-            id,
-            format: d.format,
-            key: d.key,
-            has_global: d.global.is_some(),
-            has_project: d.project.is_some(),
-            enabled: d.enabled,
-            global: d.global,
-            project: d.project,
-        })
-        .collect()
+    mux_core::agents::list_infos()
 }
 
-#[cfg(test)]
-mod agent_path_tests {
-    use super::collapse_home;
-    #[test]
-    fn tilde_and_outside_paths_unchanged() {
-        assert_eq!(collapse_home("~/Library/X/mcp.json"), "~/Library/X/mcp.json");
-        assert_eq!(collapse_home("/etc/elsewhere.json"), "/etc/elsewhere.json");
-    }
-    #[test]
-    fn absolute_home_path_collapses_to_tilde() {
-        if let Some(home) = dirs::home_dir() {
-            let abs = format!("{}/Library/App Support/mcp.json", home.display());
-            assert_eq!(collapse_home(&abs), "~/Library/App Support/mcp.json");
-        }
-    }
-}
-
-#[derive(Serialize)]
-pub struct InstalledMcp {
-    pub name: String,
-    pub agent: String,
-    pub scope: String,
-    pub file_path: String,
-    /// Transport bucket of the installed config ("stdio" | "http"), used to
-    /// attribute the install to the matching registry variant.
-    pub transport: String,
-    #[serde(default)]
-    pub customized: bool,
-    /// Whether this server is currently active in the agent's config file
-    /// (`true`) or merely remembered in MUX's disabled store (`false`).
-    #[serde(default)]
-    pub enabled: bool,
-}
+pub use mux_core::ops::InstalledMcp;
 
 /// 扫描真实配置文件，返回「谁装在哪」。project_dir 为空则只扫 global。
 #[tauri::command]
 pub fn scan_installed(project_dir: Option<String>) -> Vec<InstalledMcp> {
-    use mux_core::effective::base_config;
-    use mux_core::types::transport_of;
-    // Build (name::transport) -> base McpConfig map from read_registry (same
-    // source as apply_install) so each transport variant compares independently.
-    let base_map: HashMap<String, mux_core::types::McpConfig> = {
-        let reg = read_registry();
-        reg.into_iter()
-            .filter_map(|e| {
-                let key = e.key();
-                let base = base_config(&e)?;
-                Some((key, base))
-            })
-            .collect()
-    };
-    let agents = load_agents();
-    let pd = project_dir.as_deref().map(Path::new);
-    let mut out: Vec<InstalledMcp> = scan_agents(&agents, pd, true)
-        .into_iter()
-        .map(|s| {
-            let transport = transport_of(&s.config);
-            let key = format!("{}::{}", s.name, transport);
-            let customized = base_map
-                .get(&key)
-                .map(|base| base != &s.config)
-                .unwrap_or(false);
-            InstalledMcp {
-                name: s.name, agent: s.agent, scope: s.scope,
-                file_path: s.file_path, transport: transport.to_string(),
-                customized, enabled: true,
-            }
-        })
-        .collect();
-    // Append MUX-remembered disabled servers so the UI can show an "off" row for
-    // a server that was removed from the agent file but can be re-enabled.
-    let active: std::collections::HashSet<(String, String, String, String)> = out
-        .iter()
-        .map(|i| (i.agent.clone(), i.name.clone(), i.transport.clone(), i.scope.clone()))
-        .collect();
-    for (agent, list) in mux_core::disabled::load_disabled() {
-        for d in list {
-            // Edge case: if somehow also present in the file, the active row wins.
-            if active.contains(&(agent.clone(), d.name.clone(), d.transport.clone(), d.scope.clone())) {
-                continue;
-            }
-            out.push(InstalledMcp {
-                name: d.name, agent: agent.clone(), scope: d.scope,
-                file_path: String::new(), transport: d.transport,
-                customized: false, enabled: false,
-            });
-        }
-    }
-    out
+    mux_core::ops::scan_installed(project_dir.as_deref())
 }
 
 /// Pre-detect: scan every agent's real config and register any discovered server
@@ -600,17 +131,7 @@ pub fn import_discovered(project_dir: Option<String>) -> Result<usize, String> {
     mux_core::ops::import_discovered(project_dir.as_deref())
 }
 
-use mux_core::ops::{add_one, push_apply_errors, remove_one, resolve_entry, target_file};
-
-/// Persist the disabled store, downgrading an IO failure to a reported error.
-fn save_disabled_or_log(
-    store: &std::collections::BTreeMap<String, Vec<mux_core::disabled::DisabledEntry>>,
-    errors: &mut Vec<String>,
-) {
-    if let Err(e) = mux_core::disabled::save_disabled(store) {
-        errors.push(format!("save disabled: {}", e));
-    }
-}
+use mux_core::ops::{resolve_entry, target_file};
 use mux_core::effective::effective_config;
 use mux_core::r#override::OverridePatch;
 use std::collections::HashMap;
@@ -692,112 +213,23 @@ pub fn uninstall(req: InstallRequest) -> Result<(), Vec<String>> {
 }
 
 /// Disable a server: snapshot its current on-disk config into MUX's disabled
-/// store, then remove it from the agent file so the agent stops loading it. The
-/// snapshot lets `enable_mcp` restore the exact config (customizations included).
+/// store, then remove it from the agent file.
 #[tauri::command]
 pub fn disable_mcp(req: InstallRequest) -> Result<(), Vec<String>> {
-    use mux_core::disabled::{load_disabled, DisabledEntry};
-    use mux_core::scanner::scan_agents;
-    use mux_core::types::transport_of;
-    let agents = load_agents();
-    let pd = req.project_dir.as_deref().map(std::path::Path::new);
-    let scanned = scan_agents(&agents, pd, true);
-    let mut store = load_disabled();
-    let mut errors = Vec::new();
-    let timestamp = mux_core::paths::backup_timestamp();
-    for agent_id in &req.agents {
-        let Some(def) = agents.get(agent_id) else { continue };
-        if target_file(def, &req.scope, req.project_dir.as_deref()).is_none() { continue; }
-        // Snapshot the config currently installed for this (agent, name, transport, scope).
-        let Some(found) = scanned.iter().find(|s| {
-            s.agent == *agent_id && s.name == req.server_name && s.scope == req.scope
-                && transport_of(&s.config) == req.transport
-        }) else {
-            errors.push(format!("{}: not installed", agent_id));
-            continue;
-        };
-        let entry = DisabledEntry {
-            name: req.server_name.clone(), transport: req.transport.clone(),
-            scope: req.scope.clone(), config: found.config.clone(),
-        };
-        // Remove from the file first; only remember it once the removal succeeds.
-        if let Err(errs) = remove_one(agent_id, def, &req.server_name, &req.scope,
-            req.project_dir.as_deref(), &timestamp) {
-            push_apply_errors(&mut errors, errs);
-            continue;
-        }
-        let list = store.entry(agent_id.clone()).or_default();
-        list.retain(|d| !(d.name == entry.name && d.transport == entry.transport && d.scope == entry.scope));
-        list.push(entry);
-    }
-    save_disabled_or_log(&store, &mut errors);
-    if errors.is_empty() { Ok(()) } else { Err(errors) }
+    mux_core::ops::disable(&req.server_name, &req.transport, &req.scope, &req.agents, req.project_dir.as_deref())
 }
 
-/// Re-enable a previously disabled server: write its remembered config snapshot
-/// back into the agent file, then drop it from the disabled store.
+/// Re-enable a previously disabled server from its remembered config snapshot.
 #[tauri::command]
 pub fn enable_mcp(req: InstallRequest) -> Result<(), Vec<String>> {
-    use mux_core::disabled::load_disabled;
-    let agents = load_agents();
-    let mut store = load_disabled();
-    let mut errors = Vec::new();
-    let timestamp = mux_core::paths::backup_timestamp();
-    for agent_id in &req.agents {
-        let Some(def) = agents.get(agent_id) else { continue };
-        let entry = store.get(agent_id).and_then(|list| {
-            list.iter()
-                .find(|d| d.name == req.server_name && d.transport == req.transport && d.scope == req.scope)
-                .cloned()
-        });
-        let Some(entry) = entry else {
-            errors.push(format!("{}: no disabled snapshot", agent_id));
-            continue;
-        };
-        if let Err(errs) = add_one(agent_id, def, &req.server_name, entry.config.clone(),
-            &req.scope, req.project_dir.as_deref(), &timestamp) {
-            push_apply_errors(&mut errors, errs);
-            continue;
-        }
-        if let Some(list) = store.get_mut(agent_id) {
-            list.retain(|d| !(d.name == req.server_name && d.transport == req.transport && d.scope == req.scope));
-            if list.is_empty() { store.remove(agent_id); }
-        }
-    }
-    save_disabled_or_log(&store, &mut errors);
-    if errors.is_empty() { Ok(()) } else { Err(errors) }
+    mux_core::ops::enable(&req.server_name, &req.transport, &req.scope, &req.agents, req.project_dir.as_deref())
 }
 
-/// Hard-delete a server from an agent: remove it from the file (if present) and
-/// purge any remembered disabled snapshot. Covers deleting both active rows and
-/// already-disabled ones.
+/// Hard-delete a server from an agent: remove it from the file and purge any
+/// remembered disabled snapshot.
 #[tauri::command]
 pub fn delete_mcp(req: InstallRequest) -> Result<(), Vec<String>> {
-    use mux_core::disabled::load_disabled;
-    let agents = load_agents();
-    let mut store = load_disabled();
-    let mut store_changed = false;
-    let mut errors = Vec::new();
-    let timestamp = mux_core::paths::backup_timestamp();
-    for agent_id in &req.agents {
-        let Some(def) = agents.get(agent_id) else { continue };
-        if target_file(def, &req.scope, req.project_dir.as_deref()).is_some() {
-            if let Err(errs) = remove_one(agent_id, def, &req.server_name, &req.scope,
-                req.project_dir.as_deref(), &timestamp) {
-                push_apply_errors(&mut errors, errs);
-            }
-        }
-        if let Some(list) = store.get_mut(agent_id) {
-            let before = list.len();
-            list.retain(|d| !(d.name == req.server_name && d.transport == req.transport && d.scope == req.scope));
-            if list.len() != before { store_changed = true; }
-            if list.is_empty() { store.remove(agent_id); }
-        }
-    }
-    if store_changed {
-        save_disabled_or_log(&store, &mut errors);
-    }
-    if errors.is_empty() { Ok(()) } else { Err(errors) }
+    mux_core::ops::delete(&req.server_name, &req.transport, &req.scope, &req.agents, req.project_dir.as_deref())
 }
 
 #[cfg(test)]

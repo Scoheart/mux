@@ -9,7 +9,7 @@ MUX manages MCP (Model Context Protocol) servers across AI coding agents. It has
 - **CLI** — Rust, `cli/` (clap; bin `mux`). No TUI yet — no-arg `mux` prints help.
 - **Desktop app** — Tauri v2 (`desktop/src-tauri/src/`, depends on `mux-core`) + React 19 in `desktop/src/`.
 
-Because both front-ends consume the same `mux-core`, **the data model lives in exactly one place (`core/src/`) — edit it once.** (Historically it had to be changed twice, once in Rust and once in a parallel TypeScript CLI; that TS CLI was removed and its logic folded into `mux-core`.) Install/uninstall/import orchestration is shared too, in `core/src/ops.rs` (tauri-free), called by both the desktop Tauri commands and the CLI.
+Because both front-ends consume the same `mux-core`, **the data model lives in exactly one place (`core/src/`) — edit it once.** (Historically it had to be changed twice, once in Rust and once in a parallel TypeScript CLI; that TS CLI was removed and its logic folded into `mux-core`.) **Orchestration is shared too and lives in core, not in a front-end**: install/uninstall/import/clean, registry upsert/remove/paste (with edit-propagation), install-status scan, and enable/disable/delete all live in `core/src/ops.rs`; source management (subscribe/local/refresh/toggle/remove) in `core/src/sources.rs`; agent put/list in `core/src/agents.rs` — all tauri-free. The desktop Tauri commands (`commands.rs`) and the CLI are thin delegators over these. When adding an operation, put the logic in core and delegate, so the front-ends can't diverge.
 
 The repo is a **Cargo workspace** (`core`, `cli`) with the **desktop `exclude`d** from it — so Tauri's bundle output stays at `desktop/src-tauri/target/` and CI's dmg path is unaffected.
 
@@ -58,7 +58,7 @@ All user data is one `~/.mux/settings.json`. **`mux-core` fully types only the s
 Agent files are edited through the `Adapter` trait (`core/src/adapter.rs`, `json_adapter.rs`, `toml_adapter.rs`): `read` / `upsert(one server)` / `remove(one server)`. **These operate per-server and preserve sibling servers' raw bytes** — a past data-loss bug came from rewriting the whole `mcpServers` map, so keep single-entry semantics. Installs also back up the target file first (`core/src/applier.rs`).
 
 ### Config-path portability (hard rule)
-Stored agent paths must use `~/…`, **never** a hardcoded home like `/Users/name/…`. Use `collapse_home` (commands.rs) on write and `expand_tilde` (scanner.rs) on read.
+Stored agent paths must use `~/…`, **never** a hardcoded home like `/Users/name/…`. Use `collapse_home` on write and `expand_tilde` on read — both in `core/src/scanner.rs`.
 
 ### Edit propagation
 Editing a catalog entry re-stamps the new config into agents that installed it *clean* (on-disk config == the pre-edit registry config); hand-customized installs are left untouched (`propagate_edit_to_installs` in `commands.rs`).

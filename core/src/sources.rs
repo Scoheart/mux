@@ -174,6 +174,228 @@ pub fn host_of(url: &str) -> String {
         .to_string()
 }
 
+// ── Source management (subscribe / local / refresh / toggle / remove) ──────
+//
+// These orchestrate the primitives above over `settings.sources`, and are shared
+// by both front-ends. The desktop's native file-picker command stays desktop-side
+// and calls `add_local` with the chosen path.
+
+use crate::registry::{builtin_registry, DISCOVERED_ID, MANUAL_ID};
+use crate::scanner::{collapse_home, expand_tilde};
+use crate::settings::{load_settings, mutate_settings};
+use serde::Serialize;
+
+/// A source as shown in a UI: its stored definition plus a live server count.
+#[derive(Serialize)]
+pub struct SourceView {
+    pub id: String,
+    pub kind: String,
+    pub name: String,
+    pub url: Option<String>,
+    pub path: Option<String>,
+    pub format: String,
+    pub enabled: bool,
+    pub added_at: Option<String>,
+    pub synced_at: Option<String>,
+    pub server_count: u32,
+    pub error: Option<String>,
+    /// True for the two auto-managed sources ("手动添加" / "自动探索") — the UI
+    /// hides refresh/remove for these to avoid accidental data loss.
+    pub managed: bool,
+}
+
+fn to_view(def: SourceDef, count: u32) -> SourceView {
+    let managed = def.id == MANUAL_ID || def.id == DISCOVERED_ID;
+    SourceView {
+        id: def.id, kind: def.kind, name: def.name, url: def.url, path: def.path,
+        format: def.format, enabled: def.enabled, added_at: def.added_at,
+        synced_at: def.synced_at, server_count: count, error: def.error, managed,
+    }
+}
+
+fn push_source(def: &SourceDef) -> Result<(), String> {
+    mutate_settings(|s| s.sources.get_or_insert_with(Vec::new).push(def.clone()))
+        .map_err(|e| e.to_string())
+}
+
+/// List every source with a live `server_count`.
+pub fn list_views() -> Vec<SourceView> {
+    load_settings()
+        .sources
+        .unwrap_or_default()
+        .into_iter()
+        .map(|d| {
+            let count = source_count(&d);
+            to_view(d, count)
+        })
+        .collect()
+}
+
+/// Subscribe to a remote config URL: fetch, validate, cache it under
+/// `~/.mux/sources/remote/<id>`, and register it as an enabled source.
+pub fn subscribe(url: String, name: Option<String>) -> Result<SourceView, String> {
+    let url = url.trim().to_string();
+    if url.is_empty() {
+        return Err("URL 不能为空".into());
+    }
+    let body = fetch(&url)?;
+    let format = detect_format(&url, &body).to_string();
+    validate_parseable(&body, &format)?;
+    let display = name
+        .map(|n| n.trim().to_string())
+        .filter(|n| !n.is_empty())
+        .unwrap_or_else(|| host_of(&url));
+    let now = now_iso();
+    let mut def = SourceDef::new_remote(gen_id("remote", &display), display, url, format, now);
+    let path = cached_path(&def).ok_or("无法确定缓存路径")?;
+    write_source_file(&path, &body)?;
+    let count = source_count(&def);
+    def.server_count = Some(count);
+    if count == 0 {
+        def.error = Some("未在该文件中发现 MCP server".into());
+    }
+    push_source(&def)?;
+    Ok(to_view(def, count))
+}
+
+/// Register a local config file as a source: read it, validate, and copy it under
+/// `~/.mux/sources/local/<id>` (the app then reads the copy, not the original).
+pub fn add_local(path: String, name: Option<String>) -> Result<SourceView, String> {
+    let src = expand_tilde(&path);
+    let content = fs::read_to_string(&src).map_err(|e| format!("读取文件失败: {}", e))?;
+    let format = detect_format(&path, &content).to_string();
+    validate_parseable(&content, &format)?;
+    let display = name
+        .map(|n| n.trim().to_string())
+        .filter(|n| !n.is_empty())
+        .unwrap_or_else(|| {
+            Path::new(&path)
+                .file_name()
+                .and_then(|s| s.to_str())
+                .unwrap_or("本地配置")
+                .to_string()
+        });
+    let now = now_iso();
+    let mut def = SourceDef::new_local(
+        gen_id("local", &display),
+        display,
+        Some(collapse_home(&path)),
+        format,
+        now,
+    );
+    let cache = cached_path(&def).ok_or("无法确定缓存路径")?;
+    write_source_file(&cache, &content)?;
+    let count = source_count(&def);
+    def.server_count = Some(count);
+    if count == 0 {
+        def.error = Some("未在该文件中发现 MCP server".into());
+    }
+    push_source(&def)?;
+    Ok(to_view(def, count))
+}
+
+/// Add the bundled curated collection as an opt-in *local* source (not part of
+/// the default catalog). Serializes the embedded `data/registry.json`.
+pub fn add_official() -> Result<SourceView, String> {
+    let entries = builtin_registry();
+    let content = serde_json::to_string_pretty(&entries).map_err(|e| e.to_string())?;
+    let now = now_iso();
+    let mut def = SourceDef::new_local(
+        gen_id("local", "curated"),
+        "官方精选合集".into(),
+        None,
+        "json".into(),
+        now,
+    );
+    let cache = cached_path(&def).ok_or("无法确定缓存路径")?;
+    write_source_file(&cache, &content)?;
+    let count = source_count(&def);
+    def.server_count = Some(count);
+    push_source(&def)?;
+    Ok(to_view(def, count))
+}
+
+/// Re-fetch (remote) or re-copy (local) a source's file and update its status.
+pub fn refresh(id: String) -> Result<SourceView, String> {
+    let Some(mut def) = load_settings()
+        .sources
+        .unwrap_or_default()
+        .into_iter()
+        .find(|d| d.id == id)
+    else {
+        return Err("source 不存在".into());
+    };
+    let fetched: Result<String, String> = match def.kind.as_str() {
+        "remote" => {
+            let url = def.url.clone().ok_or("该来源缺少 URL")?;
+            fetch(&url)
+        }
+        "local" => match def.path.as_ref() {
+            Some(p) => {
+                let src = expand_tilde(p);
+                fs::read_to_string(&src).map_err(|e| format!("读取原文件失败: {}", e))
+            }
+            None => Err("该本地来源没有可刷新的原文件".into()),
+        },
+        _ => Err("不支持刷新该来源".into()),
+    };
+    match fetched {
+        Ok(body) => {
+            if let Some(path) = cached_path(&def) {
+                write_source_file(&path, &body)?;
+            }
+            def.synced_at = Some(now_iso());
+            def.error = None;
+        }
+        Err(e) => {
+            def.error = Some(e);
+        }
+    }
+    let count = source_count(&def);
+    def.server_count = Some(count);
+    let saved = def.clone();
+    mutate_settings(move |s| {
+        if let Some(list) = s.sources.as_mut() {
+            for d in list.iter_mut() {
+                if d.id == saved.id {
+                    *d = saved.clone();
+                }
+            }
+        }
+    })
+    .map_err(|e| e.to_string())?;
+    Ok(to_view(def, count))
+}
+
+/// Enable or disable a source (its servers join/leave the catalog).
+pub fn set_enabled(id: String, enabled: bool) -> Result<(), String> {
+    mutate_settings(|s| {
+        if let Some(list) = s.sources.as_mut() {
+            for d in list.iter_mut() {
+                if d.id == id {
+                    d.enabled = enabled;
+                }
+            }
+        }
+    })
+    .map_err(|e| e.to_string())
+}
+
+/// Remove a source and delete its cached file.
+pub fn remove(id: String) -> Result<(), String> {
+    mutate_settings(|s| {
+        if let Some(list) = s.sources.as_mut() {
+            if let Some(pos) = list.iter().position(|d| d.id == id) {
+                let def = list.remove(pos);
+                if let Some(p) = cached_path(&def) {
+                    let _ = fs::remove_file(p);
+                }
+            }
+        }
+    })
+    .map_err(|e| e.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

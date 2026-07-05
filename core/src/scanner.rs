@@ -21,6 +21,28 @@ pub fn expand_tilde(p: &str) -> PathBuf {
     PathBuf::from(p)
 }
 
+/// Collapse an absolute path under the user's home directory back to `~/…` so
+/// stored agent paths stay portable (we never hardcode `/Users/<name>`). Paths
+/// that already start with `~`, or that live outside home, are returned as-is.
+/// The read-side inverse of [`expand_tilde`].
+pub fn collapse_home(path: &str) -> String {
+    let path = path.trim();
+    if path.starts_with('~') {
+        return path.to_string();
+    }
+    if let Some(home) = dirs::home_dir() {
+        if let Some(home_str) = home.to_str() {
+            if path == home_str {
+                return "~".to_string();
+            }
+            if let Some(rest) = path.strip_prefix(&format!("{}/", home_str)) {
+                return format!("~/{}", rest);
+            }
+        }
+    }
+    path.to_string()
+}
+
 fn read_section(format: &str, key: &str, path: &Path) -> BTreeMap<String, McpConfig> {
     get_adapter(format, key).read(path)
 }
@@ -91,5 +113,19 @@ mod tests {
             enabled: false, builtin: None,
         });
         assert_eq!(scan_agents(&agents, None, false).len(), 0);
+    }
+
+    #[test]
+    fn collapse_home_tilde_and_outside_paths_unchanged() {
+        assert_eq!(collapse_home("~/Library/X/mcp.json"), "~/Library/X/mcp.json");
+        assert_eq!(collapse_home("/etc/elsewhere.json"), "/etc/elsewhere.json");
+    }
+
+    #[test]
+    fn collapse_home_absolute_home_path_collapses_to_tilde() {
+        if let Some(home) = dirs::home_dir() {
+            let abs = format!("{}/Library/App Support/mcp.json", home.display());
+            assert_eq!(collapse_home(&abs), "~/Library/App Support/mcp.json");
+        }
     }
 }

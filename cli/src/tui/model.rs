@@ -9,7 +9,7 @@ use fuzzy_matcher::FuzzyMatcher;
 use mux_core::agents::AgentInfo;
 use mux_core::ops::InstalledMcp;
 use mux_core::sources::SourceView;
-use mux_core::types::RegistryEntry;
+use mux_core::types::{HttpConfig, RegistryConfig, RegistryEntry, StdioConfig};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Screen {
@@ -177,6 +177,12 @@ pub struct ConfirmState {
     pub effect: super::effect::Effect,
 }
 
+/// Paste-a-config dialog: a single text buffer of JSON/TOML.
+#[derive(Default)]
+pub struct PasteState {
+    pub text: String,
+}
+
 /// Overlay dialogs.
 pub enum Modal {
     /// Read-only catalog-entry detail, keyed by `name::transport`.
@@ -185,6 +191,206 @@ pub enum Modal {
     Install(InstallWizard),
     AddMcp(AddMcpState),
     Confirm(ConfirmState),
+    Paste(PasteState),
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum EditorTransport {
+    Stdio,
+    Http,
+}
+
+/// The full-page catalog-entry editor (create or edit). Multi-value fields are
+/// single-line and comma-separated (`args`, `tags`) or `KEY=val,` (`env`,
+/// `headers`), mirroring the old `mux add` form. Field 3 (transport) toggles
+/// instead of taking text; the name is only editable when new or custom.
+pub struct EditorState {
+    pub original_key: Option<String>,
+    pub is_custom: bool,
+    pub name: String,
+    pub description: String,
+    pub tags: String,
+    pub transport: EditorTransport,
+    pub command: String,
+    pub args: String,
+    pub env: String,
+    pub http_type: String,
+    pub url: String,
+    pub headers: String,
+    pub field: usize,
+    pub editing: bool,
+    pub error: Option<String>,
+}
+
+/// Number of fields (constant across transports; field 3 swaps meaning).
+pub const EDITOR_FIELDS: usize = 7;
+
+impl EditorState {
+    /// A blank editor for a new entry.
+    pub fn new_entry() -> Self {
+        Self {
+            original_key: None,
+            is_custom: true,
+            name: String::new(),
+            description: String::new(),
+            tags: String::new(),
+            transport: EditorTransport::Stdio,
+            command: String::new(),
+            args: String::new(),
+            env: String::new(),
+            http_type: "http".into(),
+            url: String::new(),
+            headers: String::new(),
+            field: 0,
+            editing: false,
+            error: None,
+        }
+    }
+
+    /// An editor pre-filled from an existing entry.
+    pub fn from_entry(entry: &RegistryEntry, is_custom: bool) -> Self {
+        let mut s = Self::new_entry();
+        s.original_key = Some(entry.key());
+        s.is_custom = is_custom;
+        s.name = entry.name.clone();
+        s.description = entry.description.clone();
+        s.tags = entry.tags.join(", ");
+        if let Some(stdio) = &entry.config.stdio {
+            s.transport = EditorTransport::Stdio;
+            s.command = stdio.command.clone();
+            s.args = stdio.args.clone().unwrap_or_default().join(", ");
+            s.env = kv_to_string(stdio.env.as_ref());
+        } else if let Some(http) = &entry.config.http {
+            s.transport = EditorTransport::Http;
+            s.http_type = http.kind.clone();
+            s.url = http.url.clone();
+            s.headers = kv_to_string(http.headers.as_ref());
+        }
+        s
+    }
+
+    pub fn name_editable(&self) -> bool {
+        self.original_key.is_none() || self.is_custom
+    }
+
+    pub fn labels(&self) -> [&'static str; EDITOR_FIELDS] {
+        match self.transport {
+            EditorTransport::Stdio => {
+                ["名称", "描述", "标签（逗号）", "传输", "命令", "参数（逗号）", "环境（KEY=val,）"]
+            }
+            EditorTransport::Http => {
+                ["名称", "描述", "标签（逗号）", "传输", "类型", "URL", "请求头（KEY=val,）"]
+            }
+        }
+    }
+
+    /// The display value of field `i`.
+    pub fn value(&self, i: usize) -> String {
+        match (i, self.transport) {
+            (0, _) => self.name.clone(),
+            (1, _) => self.description.clone(),
+            (2, _) => self.tags.clone(),
+            (3, EditorTransport::Stdio) => "stdio".into(),
+            (3, EditorTransport::Http) => "http / sse".into(),
+            (4, EditorTransport::Stdio) => self.command.clone(),
+            (5, EditorTransport::Stdio) => self.args.clone(),
+            (6, EditorTransport::Stdio) => self.env.clone(),
+            (4, EditorTransport::Http) => self.http_type.clone(),
+            (5, EditorTransport::Http) => self.url.clone(),
+            (6, EditorTransport::Http) => self.headers.clone(),
+            _ => String::new(),
+        }
+    }
+
+    /// Mutable text buffer for field `i`, or `None` for the transport toggle
+    /// (field 3) and the name when it isn't editable.
+    pub fn field_mut(&mut self, i: usize) -> Option<&mut String> {
+        match (i, self.transport) {
+            (0, _) if self.name_editable() => Some(&mut self.name),
+            (0, _) => None,
+            (1, _) => Some(&mut self.description),
+            (2, _) => Some(&mut self.tags),
+            (3, _) => None,
+            (4, EditorTransport::Stdio) => Some(&mut self.command),
+            (5, EditorTransport::Stdio) => Some(&mut self.args),
+            (6, EditorTransport::Stdio) => Some(&mut self.env),
+            (4, EditorTransport::Http) => Some(&mut self.http_type),
+            (5, EditorTransport::Http) => Some(&mut self.url),
+            (6, EditorTransport::Http) => Some(&mut self.headers),
+            _ => None,
+        }
+    }
+
+    /// Validate the form and build a `RegistryEntry`, preserving `origin`.
+    pub fn to_entry(&self, origin: Option<mux_core::types::RegistryOrigin>) -> Result<RegistryEntry, String> {
+        let name = self.name.trim();
+        if name.is_empty() {
+            return Err("名称不能为空".into());
+        }
+        let tags = split_commas(&self.tags);
+        let config = match self.transport {
+            EditorTransport::Stdio => {
+                if self.command.trim().is_empty() {
+                    return Err("stdio 需要填写命令".into());
+                }
+                let args = split_commas(&self.args);
+                RegistryConfig {
+                    stdio: Some(StdioConfig {
+                        command: self.command.trim().to_string(),
+                        args: if args.is_empty() { None } else { Some(args) },
+                        env: parse_kv(&self.env),
+                    }),
+                    http: None,
+                }
+            }
+            EditorTransport::Http => {
+                if self.url.trim().is_empty() {
+                    return Err("http 需要填写 URL".into());
+                }
+                let kind = self.http_type.trim();
+                RegistryConfig {
+                    stdio: None,
+                    http: Some(HttpConfig {
+                        kind: if kind.is_empty() { "http".into() } else { kind.to_string() },
+                        url: self.url.trim().to_string(),
+                        headers: parse_kv(&self.headers),
+                    }),
+                }
+            }
+        };
+        Ok(RegistryEntry {
+            name: name.to_string(),
+            description: self.description.trim().to_string(),
+            tags,
+            config,
+            origin,
+        })
+    }
+}
+
+fn split_commas(raw: &str) -> Vec<String> {
+    raw.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect()
+}
+
+/// Parse `KEY=val, KEY2=val2` into a map (None if empty).
+fn parse_kv(raw: &str) -> Option<std::collections::HashMap<String, String>> {
+    let map: std::collections::HashMap<String, String> = raw
+        .split(',')
+        .filter_map(|pair| {
+            let (k, v) = pair.split_once('=')?;
+            let (k, v) = (k.trim(), v.trim());
+            if k.is_empty() { None } else { Some((k.to_string(), v.to_string())) }
+        })
+        .collect();
+    if map.is_empty() { None } else { Some(map) }
+}
+
+/// Serialize a map back to `KEY=val, KEY2=val2` (keys sorted for stability).
+fn kv_to_string(map: Option<&std::collections::HashMap<String, String>>) -> String {
+    let Some(map) = map else { return String::new() };
+    let mut pairs: Vec<(&String, &String)> = map.iter().collect();
+    pairs.sort_by(|a, b| a.0.cmp(b.0));
+    pairs.iter().map(|(k, v)| format!("{}={}", k, v)).collect::<Vec<_>>().join(", ")
 }
 
 pub struct Model {
@@ -197,6 +403,8 @@ pub struct Model {
     pub sources_ui: SourcesUi,
     pub agents_ui: AgentsUi,
     pub modal: Option<Modal>,
+    /// Full-page catalog editor; when `Some`, it replaces the screen body.
+    pub editor: Option<EditorState>,
     pub status: Option<String>,
 }
 
@@ -212,6 +420,7 @@ impl Model {
             sources_ui: SourcesUi::default(),
             agents_ui: AgentsUi::default(),
             modal: None,
+            editor: None,
             status: None,
         }
     }

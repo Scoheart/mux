@@ -2,6 +2,7 @@
 //! (tab bar + footer) wraps a per-screen body; modals overlay everything.
 
 mod agents;
+mod editor;
 mod modal;
 mod registry;
 mod sources;
@@ -48,6 +49,10 @@ fn render_tabs(model: &Model, f: &mut Frame, area: Rect) {
 }
 
 fn render_body(model: &Model, f: &mut Frame, area: Rect) {
+    if model.editor.is_some() {
+        editor::render(model, f, area);
+        return;
+    }
     if model.loading {
         f.render_widget(Paragraph::new(Span::from("加载中…").dim()), area);
         return;
@@ -70,11 +75,14 @@ fn render_footer(model: &Model, f: &mut Frame, area: Rect) {
 
 /// Context-sensitive footer, so the UI documents itself.
 fn footer_hint(model: &Model) -> &'static str {
+    if model.editor.is_some() {
+        return "↑↓ 字段 · Enter 编辑/切换 · Ctrl-S 保存 · r 恢复默认 · Esc 取消";
+    }
     if model.registry_ui.searching {
         return "输入以搜索 · Enter/Esc 结束 · Backspace 删除";
     }
     match model.screen {
-        Screen::Registry => "↑↓ 移动 · / 搜索 · ←→ 过滤 · i 安装 · Enter 详情 · r 刷新 · ? 帮助 · q 退出",
+        Screen::Registry => "↑↓ 移动 · / 搜索 · ←→ 过滤 · i 安装 · n 新建 · e 编辑 · p 粘贴 · Enter 详情 · q 退出",
         Screen::Sources => "↑↓ 移动 · r 刷新 · ? 帮助 · 1/2/3 切换 · q 退出",
         Screen::Agents => "↑↓ 移动 · →/Enter 进入 · a 添加 · Space 启停 · d 删除 · ←/Esc 返回 · q 退出",
     }

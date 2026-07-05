@@ -7,7 +7,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
 use ratatui::Frame;
 
-use crate::tui::model::{AddMcpState, ConfirmState, InstallWizard, Modal, Model};
+use crate::tui::model::{AddMcpState, ConfirmState, InstallWizard, Modal, Model, PasteState};
 
 pub fn render(model: &Model, f: &mut Frame) {
     match model.modal.as_ref() {
@@ -16,8 +16,26 @@ pub fn render(model: &Model, f: &mut Frame) {
         Some(Modal::Install(w)) => render_install(model, f, w),
         Some(Modal::AddMcp(st)) => render_add_mcp(model, f, st),
         Some(Modal::Confirm(c)) => render_confirm(f, c),
+        Some(Modal::Paste(st)) => render_paste(f, st),
         None => {}
     }
+}
+
+fn render_paste(f: &mut Frame, st: &PasteState) {
+    let area = centered(f.area(), 75, 75);
+    f.render_widget(Clear, area);
+    let mut lines: Vec<Line> = if st.text.is_empty() {
+        vec![Line::from(Span::from("在此粘贴 mcpServers JSON / TOML …").dim())]
+    } else {
+        st.text.lines().map(|l| Line::from(l.to_string())).collect()
+    };
+    lines.push(Line::from(Span::from("▏").cyan()));
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::new().green())
+        .title(Span::from(" 粘贴配置 "))
+        .title_bottom(Line::from(Span::from(" Ctrl-S 识别并添加 · Esc 取消 ").dim()));
+    f.render_widget(Paragraph::new(lines).block(block).wrap(Wrap { trim: false }), area);
 }
 
 fn render_install(model: &Model, f: &mut Frame, w: &InstallWizard) {

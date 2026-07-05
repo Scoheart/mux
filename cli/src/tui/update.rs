@@ -8,7 +8,8 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use super::effect::Effect;
 use super::message::Msg;
 use super::model::{
-    AddMcpState, AgentPane, ConfirmState, Data, InstallWizard, Model, Modal, Screen,
+    AddMcpState, AgentPane, ConfirmState, Data, EditorState, EditorTransport, InstallWizard,
+    Model, Modal, PasteState, Screen, EDITOR_FIELDS,
 };
 
 pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
@@ -62,6 +63,10 @@ fn on_key(model: &mut Model, k: KeyEvent) -> Vec<Effect> {
     // A modal captures all input until dismissed.
     if model.modal.is_some() {
         return modal_key(model, k);
+    }
+    // The full-page editor captures all input (including digits/q) while open.
+    if model.editor.is_some() {
+        return editor_key(model, k);
     }
 
     // The registry search box captures text while focused.
@@ -120,9 +125,135 @@ fn registry_key(model: &mut Model, k: KeyEvent) -> Vec<Effect> {
             }
         }
         KeyCode::Char('i') => open_install_wizard(model),
+        KeyCode::Char('n') => model.editor = Some(EditorState::new_entry()),
+        KeyCode::Char('e') => open_editor_edit(model),
+        KeyCode::Char('p') => model.modal = Some(Modal::Paste(PasteState::default())),
         _ => {}
     }
     vec![]
+}
+
+/// Open the full-page editor pre-filled from the entry under the cursor.
+fn open_editor_edit(model: &mut Model) {
+    let ed = {
+        let entries = model.filtered_registry();
+        let Some(e) = entries.get(model.registry_ui.cursor) else {
+            return;
+        };
+        let is_custom = model.data.custom_keys.contains(&e.key());
+        EditorState::from_entry(e, is_custom)
+    };
+    model.editor = Some(ed);
+}
+
+fn editor_key(model: &mut Model, k: KeyEvent) -> Vec<Effect> {
+    let ctrl = k.modifiers.contains(KeyModifiers::CONTROL);
+    if ctrl && matches!(k.code, KeyCode::Char('c')) {
+        model.should_quit = true;
+        return vec![];
+    }
+    if ctrl && matches!(k.code, KeyCode::Char('s')) {
+        return save_editor(model);
+    }
+    let Some(ed) = model.editor.as_mut() else {
+        return vec![];
+    };
+    ed.error = None;
+
+    if ed.editing {
+        let field = ed.field;
+        match k.code {
+            KeyCode::Enter | KeyCode::Esc => ed.editing = false,
+            KeyCode::Backspace => {
+                if let Some(buf) = ed.field_mut(field) {
+                    buf.pop();
+                }
+            }
+            KeyCode::Char(c) => {
+                if let Some(buf) = ed.field_mut(field) {
+                    buf.push(c);
+                }
+            }
+            _ => {}
+        }
+        return vec![];
+    }
+
+    // Navigation mode.
+    match k.code {
+        KeyCode::Up | KeyCode::Char('k') => ed.field = ed.field.saturating_sub(1),
+        KeyCode::Down | KeyCode::Char('j') => ed.field = clamp(ed.field + 1, EDITOR_FIELDS),
+        KeyCode::Enter => {
+            if ed.field == 3 {
+                ed.transport = match ed.transport {
+                    EditorTransport::Stdio => EditorTransport::Http,
+                    EditorTransport::Http => EditorTransport::Stdio,
+                };
+            } else if ed.field_mut(ed.field).is_some() {
+                ed.editing = true;
+            }
+        }
+        KeyCode::Esc => model.editor = None, // cancel
+        KeyCode::Char('r') => {
+            // Revert a custom entry to its source default.
+            if ed.is_custom {
+                if let Some(old) = ed.original_key.clone() {
+                    if let Some((name, transport)) = old.rsplit_once("::") {
+                        let eff = Effect::RevertEntry {
+                            name: name.to_string(),
+                            transport: transport.to_string(),
+                        };
+                        model.editor = None;
+                        return vec![eff];
+                    }
+                }
+            }
+        }
+        _ => {}
+    }
+    vec![]
+}
+
+/// Validate the editor form, guard collisions, and emit the save effect.
+fn save_editor(model: &mut Model) -> Vec<Effect> {
+    let (result, original_key, is_custom) = {
+        let Some(ed) = model.editor.as_ref() else {
+            return vec![];
+        };
+        let origin = ed
+            .original_key
+            .as_ref()
+            .and_then(|k| model.data.registry.iter().find(|e| &e.key() == k))
+            .and_then(|e| e.origin.clone());
+        (ed.to_entry(origin), ed.original_key.clone(), ed.is_custom)
+    };
+    match result {
+        Err(msg) => {
+            if let Some(ed) = model.editor.as_mut() {
+                ed.error = Some(msg);
+            }
+            vec![]
+        }
+        Ok(entry) => {
+            let new_key = entry.key();
+            let collides = original_key.as_deref() != Some(new_key.as_str())
+                && model.data.registry.iter().any(|e| e.key() == new_key);
+            if collides {
+                if let Some(ed) = model.editor.as_mut() {
+                    ed.error = Some("已存在同名同传输的条目".into());
+                }
+                return vec![];
+            }
+            let delete_old = match &original_key {
+                Some(old) if *old != new_key && is_custom => {
+                    old.rsplit_once("::").map(|(n, t)| (n.to_string(), t.to_string()))
+                }
+                _ => None,
+            };
+            model.editor = None;
+            vec![Effect::UpsertEntry { entry, delete_old }]
+        }
+    }
 }
 
 /// Open the multi-agent install target picker for the entry under the cursor.
@@ -282,9 +413,23 @@ fn modal_key(model: &mut Model, k: KeyEvent) -> Vec<Effect> {
         return vec![];
     };
     match modal {
-        Modal::Detail { .. } | Modal::Help => {
+        Modal::Detail { key } => {
+            // `e` jumps straight to editing this entry.
+            if matches!(k.code, KeyCode::Char('e')) {
+                if let Some(entry) = model.data.registry.iter().find(|e| e.key() == key) {
+                    let is_custom = model.data.custom_keys.contains(&key);
+                    model.editor = Some(EditorState::from_entry(entry, is_custom));
+                }
+                return vec![];
+            }
             if !matches!(k.code, KeyCode::Esc | KeyCode::Char('q') | KeyCode::Enter) {
-                model.modal = Some(modal); // ignore other keys, stay open
+                model.modal = Some(Modal::Detail { key }); // ignore other keys, stay open
+            }
+            vec![]
+        }
+        Modal::Help => {
+            if !matches!(k.code, KeyCode::Esc | KeyCode::Char('q') | KeyCode::Enter) {
+                model.modal = Some(Modal::Help);
             }
             vec![]
         }
@@ -294,7 +439,30 @@ fn modal_key(model: &mut Model, k: KeyEvent) -> Vec<Effect> {
             KeyCode::Char('y') | KeyCode::Enter => vec![c.effect], // commit + close
             _ => vec![],                                           // n / Esc / other → cancel
         },
+        Modal::Paste(st) => paste_key(model, st, k),
     }
+}
+
+fn paste_key(model: &mut Model, mut st: PasteState, k: KeyEvent) -> Vec<Effect> {
+    let ctrl = k.modifiers.contains(KeyModifiers::CONTROL);
+    match k.code {
+        KeyCode::Esc => return vec![], // cancel
+        KeyCode::Char('s') if ctrl => {
+            if st.text.trim().is_empty() {
+                model.status = Some("粘贴内容为空".into());
+            } else {
+                return vec![Effect::ImportPaste(st.text)]; // commit + close
+            }
+        }
+        KeyCode::Enter => st.text.push('\n'),
+        KeyCode::Backspace => {
+            st.text.pop();
+        }
+        KeyCode::Char(c) => st.text.push(c),
+        _ => {}
+    }
+    model.modal = Some(Modal::Paste(st));
+    vec![]
 }
 
 fn install_key(model: &mut Model, mut w: InstallWizard, k: KeyEvent) -> Vec<Effect> {
@@ -573,5 +741,71 @@ mod tests {
         let eff = update(&mut m, Msg::Mutated { label: "安装 git".into(), result: Ok(()) });
         assert_eq!(eff.len(), 1); // reload
         assert!(m.status.as_deref().unwrap().contains("✓"));
+    }
+
+    fn ctrl(c: char) -> Msg {
+        Msg::Key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::CONTROL))
+    }
+    fn typed(m: &mut Model, s: &str) {
+        for c in s.chars() {
+            update(m, key(c));
+        }
+    }
+
+    #[test]
+    fn new_entry_fill_and_save_emits_upsert() {
+        let mut m = Model::new();
+        update(&mut m, loaded(vec![]));
+        update(&mut m, key('n'));
+        assert!(m.editor.is_some());
+        update(&mut m, code(KeyCode::Enter)); // edit name
+        typed(&mut m, "git");
+        update(&mut m, code(KeyCode::Enter)); // commit name
+        assert_eq!(m.editor.as_ref().unwrap().name, "git");
+        for _ in 0..4 {
+            update(&mut m, code(KeyCode::Down)); // to command field (index 4)
+        }
+        update(&mut m, code(KeyCode::Enter));
+        typed(&mut m, "npx");
+        update(&mut m, code(KeyCode::Enter));
+        let eff = update(&mut m, ctrl('s'));
+        assert_eq!(eff.len(), 1);
+        assert!(matches!(&eff[0], Effect::UpsertEntry { entry, delete_old: None } if entry.name == "git"));
+        assert!(m.editor.is_none());
+    }
+
+    #[test]
+    fn save_with_empty_name_shows_error_and_stays() {
+        let mut m = Model::new();
+        update(&mut m, loaded(vec![]));
+        update(&mut m, key('n'));
+        let eff = update(&mut m, ctrl('s'));
+        assert!(eff.is_empty());
+        assert!(m.editor.as_ref().unwrap().error.is_some());
+    }
+
+    #[test]
+    fn transport_toggle_swaps_field_set() {
+        let mut m = Model::new();
+        update(&mut m, loaded(vec![]));
+        update(&mut m, key('n'));
+        for _ in 0..3 {
+            update(&mut m, code(KeyCode::Down)); // to transport field (index 3)
+        }
+        assert!(matches!(m.editor.as_ref().unwrap().transport, EditorTransport::Stdio));
+        update(&mut m, code(KeyCode::Enter)); // toggle
+        assert!(matches!(m.editor.as_ref().unwrap().transport, EditorTransport::Http));
+    }
+
+    #[test]
+    fn paste_types_and_imports() {
+        let mut m = Model::new();
+        update(&mut m, loaded(vec![]));
+        update(&mut m, key('p'));
+        assert!(matches!(m.modal, Some(Modal::Paste(_))));
+        typed(&mut m, "{}");
+        let eff = update(&mut m, ctrl('s'));
+        assert_eq!(eff.len(), 1);
+        assert!(matches!(&eff[0], Effect::ImportPaste(t) if t == "{}"));
     }
 }

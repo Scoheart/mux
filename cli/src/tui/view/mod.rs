@@ -83,7 +83,7 @@ fn footer_hint(model: &Model) -> &'static str {
     }
     match model.screen {
         Screen::Registry => "↑↓ 移动 · / 搜索 · ←→ 过滤 · i 安装 · n 新建 · e 编辑 · p 粘贴 · Enter 详情 · q 退出",
-        Screen::Sources => "↑↓ 移动 · r 刷新 · ? 帮助 · 1/2/3 切换 · q 退出",
+        Screen::Sources => "↑↓ 移动 · Space 启停 · r 刷新 · d 删除 · s 订阅 · l 导入 · o 官方 · q 退出",
         Screen::Agents => "↑↓ 移动 · →/Enter 进入 · a 添加 · Space 启停 · d 删除 · ←/Esc 返回 · q 退出",
     }
 }

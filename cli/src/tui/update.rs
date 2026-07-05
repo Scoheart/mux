@@ -9,8 +9,11 @@ use super::effect::Effect;
 use super::message::Msg;
 use super::model::{
     AddMcpState, AgentPane, ConfirmState, Data, EditorState, EditorTransport, InstallWizard,
-    Model, Modal, PasteState, Screen, EDITOR_FIELDS,
+    LocalForm, Model, Modal, PasteState, Screen, SubscribeForm, EDITOR_FIELDS,
 };
+
+/// The GitHub raw URL of the curated collection, offered as a remote subscribe.
+const OFFICIAL_URL: &str = "https://raw.githubusercontent.com/Scoheart/mux/main/data/registry.json";
 
 pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
     match msg {
@@ -85,7 +88,7 @@ fn on_key(model: &mut Model, k: KeyEvent) -> Vec<Effect> {
         KeyCode::Char('3') => model.screen = Screen::Agents,
         KeyCode::Tab => model.screen = model.screen.next(),
         KeyCode::BackTab => model.screen = model.screen.prev(),
-        KeyCode::Char('r') => {
+        KeyCode::Char('r') if ctrl => {
             model.loading = true;
             return vec![Effect::LoadAll];
         }
@@ -303,9 +306,63 @@ fn sources_key(model: &mut Model, k: KeyEvent) -> Vec<Effect> {
         KeyCode::Down | KeyCode::Char('j') => {
             model.sources_ui.cursor = clamp(model.sources_ui.cursor + 1, len);
         }
+        KeyCode::Char(' ') | KeyCode::Enter => return toggle_source(model),
+        KeyCode::Char('r') => return refresh_source(model),
+        KeyCode::Char('d') => open_remove_source_confirm(model),
+        KeyCode::Char('s') => model.modal = Some(Modal::Subscribe(SubscribeForm::default())),
+        KeyCode::Char('l') => model.modal = Some(Modal::AddLocal(LocalForm::default())),
+        KeyCode::Char('o') => {
+            model.modal = Some(Modal::Subscribe(SubscribeForm {
+                url: OFFICIAL_URL.into(),
+                name: "官方精选合集".into(),
+                field: 0,
+            }))
+        }
         _ => {}
     }
     vec![]
+}
+
+/// The source row under the cursor.
+fn current_source(model: &Model) -> Option<&mux_core::sources::SourceView> {
+    model.data.sources.get(model.sources_ui.cursor)
+}
+
+fn toggle_source(model: &mut Model) -> Vec<Effect> {
+    let Some(s) = current_source(model) else {
+        return vec![];
+    };
+    vec![Effect::SetSourceEnabled { id: s.id.clone(), on: !s.enabled }]
+}
+
+/// `r`: refresh a remote/local source, or re-scan for the managed discovered one.
+fn refresh_source(model: &mut Model) -> Vec<Effect> {
+    let Some(s) = current_source(model) else {
+        return vec![];
+    };
+    if s.managed {
+        if s.id == "discovered" {
+            return vec![Effect::ImportDiscovered];
+        }
+        model.status = Some("手动来源无需刷新".into());
+        return vec![];
+    }
+    vec![Effect::RefreshSource { id: s.id.clone() }]
+}
+
+fn open_remove_source_confirm(model: &mut Model) {
+    let Some(s) = current_source(model) else {
+        return;
+    };
+    if s.managed {
+        model.status = Some("MUX 维护的来源不可删除".into());
+        return;
+    }
+    let (id, name) = (s.id.clone(), s.name.clone());
+    model.modal = Some(Modal::Confirm(ConfirmState {
+        prompt: format!("删除来源「{}」？其缓存文件会一并删除。", name),
+        effect: Effect::RemoveSource { id },
+    }));
 }
 
 fn agents_key(model: &mut Model, k: KeyEvent) -> Vec<Effect> {
@@ -440,7 +497,65 @@ fn modal_key(model: &mut Model, k: KeyEvent) -> Vec<Effect> {
             _ => vec![],                                           // n / Esc / other → cancel
         },
         Modal::Paste(st) => paste_key(model, st, k),
+        Modal::Subscribe(form) => subscribe_key(model, form, k),
+        Modal::AddLocal(form) => local_key(model, form, k),
     }
+}
+
+/// Trim a form value to an `Option` (empty → None).
+fn opt(s: &str) -> Option<String> {
+    let t = s.trim();
+    if t.is_empty() { None } else { Some(t.to_string()) }
+}
+
+fn subscribe_key(model: &mut Model, mut form: SubscribeForm, k: KeyEvent) -> Vec<Effect> {
+    match k.code {
+        KeyCode::Esc => return vec![], // cancel
+        KeyCode::Tab | KeyCode::Down | KeyCode::Up => form.field = 1 - form.field,
+        KeyCode::Enter => {
+            if form.url.trim().is_empty() {
+                model.status = Some("URL 不能为空".into());
+            } else {
+                return vec![Effect::Subscribe { url: form.url.clone(), name: opt(&form.name) }];
+            }
+        }
+        KeyCode::Backspace => {
+            let buf = if form.field == 0 { &mut form.url } else { &mut form.name };
+            buf.pop();
+        }
+        KeyCode::Char(c) => {
+            let buf = if form.field == 0 { &mut form.url } else { &mut form.name };
+            buf.push(c);
+        }
+        _ => {}
+    }
+    model.modal = Some(Modal::Subscribe(form));
+    vec![]
+}
+
+fn local_key(model: &mut Model, mut form: LocalForm, k: KeyEvent) -> Vec<Effect> {
+    match k.code {
+        KeyCode::Esc => return vec![], // cancel
+        KeyCode::Tab | KeyCode::Down | KeyCode::Up => form.field = 1 - form.field,
+        KeyCode::Enter => {
+            if form.path.trim().is_empty() {
+                model.status = Some("路径不能为空".into());
+            } else {
+                return vec![Effect::AddLocal { path: form.path.clone(), name: opt(&form.name) }];
+            }
+        }
+        KeyCode::Backspace => {
+            let buf = if form.field == 0 { &mut form.path } else { &mut form.name };
+            buf.pop();
+        }
+        KeyCode::Char(c) => {
+            let buf = if form.field == 0 { &mut form.path } else { &mut form.name };
+            buf.push(c);
+        }
+        _ => {}
+    }
+    model.modal = Some(Modal::AddLocal(form));
+    vec![]
 }
 
 fn paste_key(model: &mut Model, mut st: PasteState, k: KeyEvent) -> Vec<Effect> {
@@ -807,5 +922,72 @@ mod tests {
         let eff = update(&mut m, ctrl('s'));
         assert_eq!(eff.len(), 1);
         assert!(matches!(&eff[0], Effect::ImportPaste(t) if t == "{}"));
+    }
+
+    fn source(id: &str, enabled: bool, managed: bool) -> mux_core::sources::SourceView {
+        mux_core::sources::SourceView {
+            id: id.into(),
+            kind: "remote".into(),
+            name: id.into(),
+            url: Some("http://x".into()),
+            path: None,
+            format: "json".into(),
+            enabled,
+            added_at: None,
+            synced_at: None,
+            server_count: 1,
+            error: None,
+            managed,
+        }
+    }
+
+    fn loaded_sources(srcs: Vec<mux_core::sources::SourceView>) -> Msg {
+        Msg::Loaded(Box::new(LoadedData {
+            registry: vec![],
+            custom_keys: vec![],
+            sources: srcs,
+            agents: vec![],
+            installed: vec![],
+        }))
+    }
+
+    #[test]
+    fn space_toggles_source_enabled() {
+        let mut m = Model::new();
+        m.screen = Screen::Sources;
+        update(&mut m, loaded_sources(vec![source("s1", true, false)]));
+        let eff = update(&mut m, key(' '));
+        assert!(matches!(&eff[0], Effect::SetSourceEnabled { id, on: false } if id == "s1"));
+    }
+
+    #[test]
+    fn managed_source_cannot_be_removed() {
+        let mut m = Model::new();
+        m.screen = Screen::Sources;
+        update(&mut m, loaded_sources(vec![source("manual", true, true)]));
+        update(&mut m, key('d'));
+        assert!(m.modal.is_none()); // no confirm
+        assert!(m.status.is_some());
+    }
+
+    #[test]
+    fn subscribe_form_submits() {
+        let mut m = Model::new();
+        m.screen = Screen::Sources;
+        update(&mut m, loaded_sources(vec![]));
+        update(&mut m, key('s'));
+        assert!(matches!(m.modal, Some(Modal::Subscribe(_))));
+        typed(&mut m, "http://example.com/r.json");
+        let eff = update(&mut m, code(KeyCode::Enter));
+        assert!(matches!(&eff[0], Effect::Subscribe { url, .. } if url == "http://example.com/r.json"));
+    }
+
+    #[test]
+    fn discovered_refresh_triggers_import() {
+        let mut m = Model::new();
+        m.screen = Screen::Sources;
+        update(&mut m, loaded_sources(vec![source("discovered", true, true)]));
+        let eff = update(&mut m, key('r'));
+        assert!(matches!(&eff[0], Effect::ImportDiscovered));
     }
 }

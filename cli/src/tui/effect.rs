@@ -9,7 +9,7 @@ use std::thread;
 use mux_core::agents::list_infos;
 use mux_core::ops::{self, scan_installed};
 use mux_core::registry::{read_registry, user_override_keys};
-use mux_core::sources::list_views;
+use mux_core::sources;
 use mux_core::types::RegistryEntry;
 
 use super::message::{LoadedData, Msg};
@@ -35,6 +35,18 @@ pub enum Effect {
     RevertEntry { name: String, transport: String },
     /// Import MCP servers from a pasted JSON/TOML blob.
     ImportPaste(String),
+    /// Subscribe to a remote source URL (network).
+    Subscribe { url: String, name: Option<String> },
+    /// Import a local file as a source.
+    AddLocal { path: String, name: Option<String> },
+    /// Re-fetch/re-read a source (network for remote).
+    RefreshSource { id: String },
+    /// Toggle a source enabled/disabled.
+    SetSourceEnabled { id: String, on: bool },
+    /// Remove a source and its cache.
+    RemoveSource { id: String },
+    /// Re-scan agents and register newly discovered servers.
+    ImportDiscovered,
 }
 
 pub struct EffectRunner {
@@ -66,7 +78,7 @@ fn run_effect(eff: Effect) -> Msg {
         Effect::LoadAll => Msg::Loaded(Box::new(LoadedData {
             registry: read_registry(),
             custom_keys: user_override_keys(),
-            sources: list_views(),
+            sources: sources::list_views(),
             agents: list_infos(),
             installed: scan_installed(None),
         })),
@@ -101,6 +113,30 @@ fn run_effect(eff: Effect) -> Msg {
         Effect::ImportPaste(text) => match ops::import_pasted(&text) {
             Ok(names) => Msg::Mutated { label: format!("导入 {} 个 server", names.len()), result: Ok(()) },
             Err(e) => Msg::Mutated { label: "导入".into(), result: Err(e) },
+        },
+        Effect::Subscribe { url, name } => Msg::Mutated {
+            label: "订阅来源".into(),
+            result: sources::subscribe(url, name).map(|_| ()),
+        },
+        Effect::AddLocal { path, name } => Msg::Mutated {
+            label: "导入本地来源".into(),
+            result: sources::add_local(path, name).map(|_| ()),
+        },
+        Effect::RefreshSource { id } => Msg::Mutated {
+            label: "刷新来源".into(),
+            result: sources::refresh(id).map(|_| ()),
+        },
+        Effect::SetSourceEnabled { id, on } => Msg::Mutated {
+            label: if on { "启用来源" } else { "停用来源" }.into(),
+            result: sources::set_enabled(id, on),
+        },
+        Effect::RemoveSource { id } => Msg::Mutated {
+            label: "删除来源".into(),
+            result: sources::remove(id),
+        },
+        Effect::ImportDiscovered => match ops::import_discovered(None) {
+            Ok(n) => Msg::Mutated { label: format!("探索到 {} 个新 server", n), result: Ok(()) },
+            Err(e) => Msg::Mutated { label: "探索".into(), result: Err(e) },
         },
     }
 }

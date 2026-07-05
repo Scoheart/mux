@@ -183,6 +183,22 @@ pub struct PasteState {
     pub text: String,
 }
 
+/// Two-field form (url + optional name) for subscribing to a remote source.
+#[derive(Default)]
+pub struct SubscribeForm {
+    pub url: String,
+    pub name: String,
+    pub field: usize, // 0 = url, 1 = name
+}
+
+/// Two-field form (path + optional name) for importing a local source file.
+#[derive(Default)]
+pub struct LocalForm {
+    pub path: String,
+    pub name: String,
+    pub field: usize, // 0 = path, 1 = name
+}
+
 /// Overlay dialogs.
 pub enum Modal {
     /// Read-only catalog-entry detail, keyed by `name::transport`.
@@ -192,6 +208,8 @@ pub enum Modal {
     AddMcp(AddMcpState),
     Confirm(ConfirmState),
     Paste(PasteState),
+    Subscribe(SubscribeForm),
+    AddLocal(LocalForm),
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]

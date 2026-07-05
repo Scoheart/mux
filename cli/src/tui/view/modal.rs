@@ -17,8 +17,46 @@ pub fn render(model: &Model, f: &mut Frame) {
         Some(Modal::AddMcp(st)) => render_add_mcp(model, f, st),
         Some(Modal::Confirm(c)) => render_confirm(f, c),
         Some(Modal::Paste(st)) => render_paste(f, st),
+        Some(Modal::Subscribe(form)) => {
+            render_form(f, " 订阅 URL ", ["配置文件 URL", "名称（可选）"], [&form.url, &form.name], form.field)
+        }
+        Some(Modal::AddLocal(form)) => {
+            render_form(f, " 导入本地文件 ", ["文件路径", "名称（可选）"], [&form.path, &form.name], form.field)
+        }
         None => {}
     }
+}
+
+/// A small two-field form (Subscribe / AddLocal): Tab switches field, Enter submits.
+fn render_form(f: &mut Frame, title: &str, labels: [&str; 2], values: [&str; 2], field: usize) {
+    let area = centered(f.area(), 66, 30);
+    f.render_widget(Clear, area);
+    let mut lines = Vec::new();
+    for i in 0..2 {
+        let caret = if i == field {
+            Span::from("› ").cyan().bold()
+        } else {
+            Span::from("  ")
+        };
+        let val = if values[i].is_empty() {
+            Span::from("—").dim()
+        } else if i == field {
+            Span::from(values[i].to_string()).white()
+        } else {
+            Span::from(values[i].to_string())
+        };
+        let mut spans = vec![caret, Span::from(format!("{:<16}", labels[i])).dim(), val];
+        if i == field {
+            spans.push(Span::from("▏").cyan());
+        }
+        lines.push(Line::from(spans));
+    }
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::new().cyan())
+        .title(Span::from(title).bold())
+        .title_bottom(Line::from(Span::from(" Tab 切换 · Enter 提交 · Esc 取消 ").dim()));
+    f.render_widget(Paragraph::new(lines).block(block), area);
 }
 
 fn render_paste(f: &mut Frame, st: &PasteState) {
@@ -186,7 +224,7 @@ fn render_help(f: &mut Frame) {
         ("/", "在 Registry 搜索（Esc 退出）"),
         ("← →", "切换来源过滤（Registry）"),
         ("Enter", "打开详情 / 进入面板"),
-        ("r", "重新加载"),
+        ("Ctrl-R", "重新加载全部"),
         ("?", "帮助"),
         ("q / Ctrl-C", "退出"),
     ];

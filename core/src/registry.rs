@@ -185,10 +185,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn builtin_collection_loads_40_plus() {
+    fn builtin_collection_parses() {
         // Still parseable (used by the opt-in curated local source), just no
-        // longer part of the default catalog.
-        assert!(builtin_registry().len() >= 40);
+        // longer part of the default catalog. Currently trimmed to two entries.
+        let names: Vec<String> = builtin_registry().into_iter().map(|e| e.name).collect();
+        assert_eq!(names, vec!["context7".to_string(), "supabase".to_string()]);
     }
 
     #[test]

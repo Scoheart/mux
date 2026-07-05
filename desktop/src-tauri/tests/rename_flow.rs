@@ -3,7 +3,7 @@
 use std::fs;
 
 use desktop_lib::commands::{delete_registry_entry, list_registry, upsert_registry_entry};
-use desktop_lib::core::types::{RegistryConfig, RegistryEntry, StdioConfig};
+use mux_core::types::{RegistryConfig, RegistryEntry, StdioConfig};
 
 fn entry(name: &str) -> RegistryEntry {
     RegistryEntry {

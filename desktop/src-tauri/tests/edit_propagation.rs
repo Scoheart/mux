@@ -6,7 +6,7 @@ use std::fs;
 use serde_json::Value;
 
 use desktop_lib::commands::{add_agent, apply_install, upsert_registry_entry, InstallRequest};
-use desktop_lib::core::types::{AgentDefinition, RegistryConfig, RegistryEntry, StdioConfig};
+use mux_core::types::{AgentDefinition, RegistryConfig, RegistryEntry, StdioConfig};
 
 fn unique_dir(tag: &str) -> std::path::PathBuf {
     let d = std::env::temp_dir().join(format!("mux-edit-{}-{}", tag, std::process::id()));

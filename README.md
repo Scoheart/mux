@@ -7,7 +7,7 @@
 MUX ships as **two front-ends that share the same data** (`~/.mux/`):
 
 - 🖥️ a **macOS desktop app** (Tauri + React) — a visual manager, and
-- ⌨️ a **CLI / TUI** (`@scoheart/mux`) — for the terminal.
+- ⌨️ a **CLI** (`mux`, a native Rust binary) — for the terminal.
 
 Point either one at your tools — Claude Code, Codex, Cursor, VS Code, Zed, Windsurf, Gemini CLI, Qoder, and ~10 more — and install, toggle, or remove MCP servers per agent from one catalog.
 
@@ -34,7 +34,7 @@ A one-click **官方精选合集 (official collection)** subscribes you to a cur
 - **Paste a config** — drop a `{"mcpServers": {…}}` block and MUX recognizes the servers and adds them.
 - **Edits propagate** — changing a catalog entry re-stamps it into agents that installed it *clean*, while leaving hand-customized per-agent configs untouched.
 - **Safe writes** — atomic file writes + a timestamped **backup** before touching any agent config.
-- **CLI ⇄ Desktop in sync** — both read/write `~/.mux/`, so a change in one shows up in the other.
+- **CLI ⇄ Desktop in sync** — both are built on one shared Rust core (`mux-core`) and read/write `~/.mux/`, so a change in one shows up in the other.
 - **Dark mode** and a macOS "liquid glass" UI.
 
 ## Supported agents (18)
@@ -59,25 +59,28 @@ npm run tauri build      # or: npm run tauri dev
 
 ## CLI
 
+The `mux` CLI is a native Rust binary built on the same `mux-core` as the desktop app. Build and install it from source:
+
 ```bash
-npm install -g @scoheart/mux    # then run:
-mux                             # interactive TUI
-# or, without installing:
-npx @scoheart/mux
+cargo install --path cli    # installs the `mux` binary onto your PATH
+# or just build it:
+cargo build --release -p mux-cli   # → target/release/mux
 ```
 
-First launch scans your existing tool configs and offers to import discovered MCP servers.
+Everything runs against `~/.mux/`, shared with the desktop app.
 
 ```bash
-mux                 # interactive TUI
 mux import          # scan agents and import discovered servers
 mux list            # list catalog entries
 mux apply <names…>  # apply MCPs non-interactively (--scope, --agent, --project)
 mux add <name>      # add a server to the manual source
 mux remove <name>   # remove a manual entry
 mux status          # show what's active across agents
-mux agents [enable|disable <name>]
+mux clean [--agent <name>]   # clear MCPs from enabled agents
+mux agents [list | enable <name> | disable <name>]
 ```
+
+> The interactive TUI (the old `mux` with no arguments) isn't in the Rust CLI yet — for now, running `mux` with no command prints help. Use the desktop app for a visual manager.
 
 ---
 
@@ -103,18 +106,21 @@ Everything lives under `~/.mux/`:
 
 ## Development
 
-Monorepo:
+A Cargo workspace plus the Tauri desktop app:
 
 ```
-src/            # TypeScript CLI + TUI (ink/react)
-desktop/        # Tauri v2 (Rust core) + React 19 + Vite + Tailwind v4
-data/           # shared agent defaults + the curated collection
-tests/          # CLI tests (vitest)
+core/           # mux-core — the shared Rust core (types, settings, sources, adapters, ops)
+cli/            # mux-cli  — the clap-based `mux` binary, built on mux-core
+desktop/        # Tauri v2 (Rust, depends on mux-core) + React 19 + Vite + Tailwind v4
+data/           # shared agent defaults + the curated collection (embedded on both sides)
 ```
+
+The desktop app is a separate build (`exclude`d from the workspace) so its Tauri bundle output path stays put.
 
 ```bash
-npm install && npm test          # CLI: typecheck + vitest
-cd desktop/src-tauri && cargo test   # Rust core + integration tests
+cargo test                            # mux-core + mux-cli
+cd desktop/src-tauri && cargo test    # Rust core + integration tests (desktop)
+cd desktop && npm run build           # desktop frontend (tsc + vite)
 ```
 
 ## License

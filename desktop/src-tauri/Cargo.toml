@@ -27,6 +27,7 @@ chrono = "0.4"
 dirs = "5"
 tauri-plugin-dialog = "2"
 ureq = "2"
+mux-core = { path = "../../core" }
 
 # Tuned for CI build time (and a smaller dmg). Runtime perf is irrelevant for a
 # config-manager GUI, so we trade a little optimization for faster compiles.

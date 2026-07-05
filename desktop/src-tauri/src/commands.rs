@@ -1,8 +1,8 @@
-use crate::core::registry::{
+use mux_core::registry::{
     delete_registry_entry as delete_entry, read_registry, user_override_keys,
-    write_discovered_entry, write_manual_entry, DISCOVERED_ID, MANUAL_ID,
+    write_manual_entry, DISCOVERED_ID, MANUAL_ID,
 };
-use crate::core::types::RegistryEntry;
+use mux_core::types::RegistryEntry;
 
 #[tauri::command]
 pub fn list_registry() -> Vec<RegistryEntry> {
@@ -55,8 +55,8 @@ pub fn delete_registry_entry(name: String, transport: String) -> Result<(), Stri
 /// (`new` is None), or the config didn't actually change. Global scope only —
 /// project-scoped installs need a project dir we don't have at edit time.
 fn propagate_edit_to_installs(prev: Option<&RegistryEntry>, new: Option<&RegistryEntry>) {
-    use crate::core::effective::base_config;
-    use crate::core::types::transport_of;
+    use mux_core::effective::base_config;
+    use mux_core::types::transport_of;
     let (Some(prev), Some(new)) = (prev, new) else { return };
     let (Some(old_cfg), Some(new_cfg)) = (base_config(prev), base_config(new)) else { return };
     if old_cfg == new_cfg {
@@ -64,7 +64,7 @@ fn propagate_edit_to_installs(prev: Option<&RegistryEntry>, new: Option<&Registr
     }
     let transport = new.transport();
     let agents = load_agents();
-    let timestamp = crate::core::paths::backup_timestamp();
+    let timestamp = mux_core::paths::backup_timestamp();
     for s in scan_agents(&agents, None, true) {
         if s.name == new.name
             && s.scope == "global"
@@ -113,7 +113,7 @@ fn extract_servers(v: &serde_json::Value) -> Option<serde_json::Map<String, serd
 /// UI can tell the user nothing was recognized.
 #[tauri::command]
 pub fn import_pasted_config(text: String) -> Result<Vec<String>, String> {
-    use crate::core::types::McpConfig;
+    use mux_core::types::McpConfig;
     let text = text.trim();
     if text.is_empty() {
         return Err("粘贴内容为空".into());
@@ -152,9 +152,9 @@ pub fn import_pasted_config(text: String) -> Result<Vec<String>, String> {
 
 // ── Catalog sources (subscribe remote / add local) ────────────────────────
 
-use crate::core::settings::{load_settings, mutate_settings};
-use crate::core::sources;
-use crate::core::types::SourceDef;
+use mux_core::settings::{load_settings, mutate_settings};
+use mux_core::sources;
+use mux_core::types::SourceDef;
 
 /// A source as shown in the UI: its stored definition plus a live server count.
 #[derive(Serialize)]
@@ -233,7 +233,7 @@ pub fn subscribe_source(url: String, name: Option<String>) -> Result<SourceView,
 /// Register a local config file as a source: read it, validate, and copy it under
 /// `~/.mux/sources/local/<id>` (the app then reads the copy, not the original).
 fn add_local_impl(path: String, name: Option<String>) -> Result<SourceView, String> {
-    let src = crate::core::scanner::expand_tilde(&path);
+    let src = mux_core::scanner::expand_tilde(&path);
     let content = std::fs::read_to_string(&src).map_err(|e| format!("读取文件失败: {}", e))?;
     let format = sources::detect_format(&path, &content).to_string();
     sources::validate_parseable(&content, &format)?;
@@ -290,7 +290,7 @@ pub fn add_local_source_dialog(app: tauri::AppHandle) -> Result<Option<SourceVie
 /// of the default catalog). Reuses the embedded `data/registry.json`.
 #[tauri::command]
 pub fn add_builtin_collection() -> Result<SourceView, String> {
-    let entries = crate::core::registry::builtin_registry();
+    let entries = mux_core::registry::builtin_registry();
     let content = serde_json::to_string_pretty(&entries).map_err(|e| e.to_string())?;
     let now = sources::now_iso();
     let mut def = SourceDef::new_local(
@@ -326,7 +326,7 @@ pub fn refresh_source(id: String) -> Result<SourceView, String> {
         }
         "local" => match def.path.as_ref() {
             Some(p) => {
-                let src = crate::core::scanner::expand_tilde(p);
+                let src = mux_core::scanner::expand_tilde(p);
                 std::fs::read_to_string(&src).map_err(|e| format!("读取原文件失败: {}", e))
             }
             None => Err("该本地来源没有可刷新的原文件".into()),
@@ -392,9 +392,9 @@ pub fn remove_source(id: String) -> Result<(), String> {
     .map_err(|e| e.to_string())
 }
 
-use crate::core::agents::{load_agents, save_agents};
-use crate::core::scanner::scan_agents;
-use crate::core::types::AgentDefinition;
+use mux_core::agents::{load_agents, save_agents};
+use mux_core::scanner::scan_agents;
+use mux_core::types::AgentDefinition;
 use serde::Serialize;
 use std::path::Path;
 
@@ -535,11 +535,11 @@ pub struct InstalledMcp {
 /// 扫描真实配置文件，返回「谁装在哪」。project_dir 为空则只扫 global。
 #[tauri::command]
 pub fn scan_installed(project_dir: Option<String>) -> Vec<InstalledMcp> {
-    use crate::core::effective::base_config;
-    use crate::core::types::transport_of;
+    use mux_core::effective::base_config;
+    use mux_core::types::transport_of;
     // Build (name::transport) -> base McpConfig map from read_registry (same
     // source as apply_install) so each transport variant compares independently.
-    let base_map: HashMap<String, crate::core::types::McpConfig> = {
+    let base_map: HashMap<String, mux_core::types::McpConfig> = {
         let reg = read_registry();
         reg.into_iter()
             .filter_map(|e| {
@@ -573,7 +573,7 @@ pub fn scan_installed(project_dir: Option<String>) -> Vec<InstalledMcp> {
         .iter()
         .map(|i| (i.agent.clone(), i.name.clone(), i.transport.clone(), i.scope.clone()))
         .collect();
-    for (agent, list) in crate::core::disabled::load_disabled() {
+    for (agent, list) in mux_core::disabled::load_disabled() {
         for d in list {
             // Edge case: if somehow also present in the file, the active row wins.
             if active.contains(&(agent.clone(), d.name.clone(), d.transport.clone(), d.scope.clone())) {
@@ -597,62 +597,23 @@ pub fn scan_installed(project_dir: Option<String>) -> Vec<InstalledMcp> {
 /// in the Registry (with a「来自 X」label) and become manageable like any other.
 #[tauri::command]
 pub fn import_discovered(project_dir: Option<String>) -> Result<usize, String> {
-    use crate::core::types::{transport_of, RegistryOrigin};
-    let agents = load_agents();
-    let pd = project_dir.as_deref().map(Path::new);
-    let existing: std::collections::HashSet<String> =
-        read_registry().iter().map(|e| e.key()).collect();
-    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
-    let mut imported = 0usize;
-    for s in scan_agents(&agents, pd, true) {
-        let key = format!("{}::{}", s.name, transport_of(&s.config));
-        if existing.contains(&key) || !seen.insert(key) {
-            continue;
-        }
-        let config = s.config.clone().into();
-        let entry = RegistryEntry {
-            name: s.name.clone(),
-            description: String::new(),
-            tags: Vec::new(),
-            config,
-            origin: Some(RegistryOrigin {
-                kind: "discovered".into(),
-                agent: Some(s.agent.clone()),
-                scope: Some(s.scope.clone()),
-                source: None,
-            }),
-        };
-        write_discovered_entry(&entry).map_err(|e| e.to_string())?;
-        imported += 1;
-    }
-    Ok(imported)
+    mux_core::ops::import_discovered(project_dir.as_deref())
 }
 
-use crate::core::applier::apply_diffs;
-
-/// Flatten per-target apply errors into the command's error list.
-fn push_apply_errors(errors: &mut Vec<String>, errs: Vec<crate::core::applier::ApplyError>) {
-    for e in errs {
-        errors.push(format!("{}: {}", e.target, e.error));
-    }
-}
+use mux_core::ops::{add_one, push_apply_errors, remove_one, resolve_entry, target_file};
 
 /// Persist the disabled store, downgrading an IO failure to a reported error.
 fn save_disabled_or_log(
-    store: &std::collections::BTreeMap<String, Vec<crate::core::disabled::DisabledEntry>>,
+    store: &std::collections::BTreeMap<String, Vec<mux_core::disabled::DisabledEntry>>,
     errors: &mut Vec<String>,
 ) {
-    if let Err(e) = crate::core::disabled::save_disabled(store) {
+    if let Err(e) = mux_core::disabled::save_disabled(store) {
         errors.push(format!("save disabled: {}", e));
     }
 }
-use crate::core::differ::DiffEntry;
-use crate::core::differ::DiffAction;
-use crate::core::effective::effective_config;
-use crate::core::r#override::OverridePatch;
-use crate::core::paths::backups_dir;
-use crate::core::types::McpConfig;
-use std::collections::{BTreeMap, HashMap};
+use mux_core::effective::effective_config;
+use mux_core::r#override::OverridePatch;
+use std::collections::HashMap;
 
 #[derive(serde::Deserialize)]
 pub struct PatchInput {
@@ -693,64 +654,7 @@ pub struct PlannedWrite {
     pub config_json: String,
 }
 
-fn resolve_entry(server_name: &str, transport: &str) -> Result<crate::core::types::RegistryEntry, String> {
-    let reg = read_registry();
-    reg.into_iter()
-        .find(|e| e.name == server_name && e.transport() == transport)
-        .ok_or_else(|| format!("server not found: {} ({})", server_name, transport))
-}
 
-fn target_file(agent: &crate::core::types::AgentDefinition, scope: &str, project_dir: Option<&str>) -> Option<std::path::PathBuf> {
-    use crate::core::scanner::expand_tilde;
-    if scope == "global" {
-        agent.global.as_ref().map(|g| expand_tilde(g))
-    } else {
-        match (&agent.project, project_dir) {
-            (Some(p), Some(base)) => Some(std::path::Path::new(base).join(p)),
-            _ => None,
-        }
-    }
-}
-
-/// Write a single server's config into one agent's file (Add diff). Shared by
-/// `apply_install` and `enable_mcp`.
-fn add_one(
-    agent_id: &str,
-    def: &crate::core::types::AgentDefinition,
-    server_name: &str,
-    cfg: McpConfig,
-    scope: &str,
-    project_dir: Option<&str>,
-    timestamp: &str,
-) -> Result<(), Vec<crate::core::applier::ApplyError>> {
-    let mut one: BTreeMap<String, McpConfig> = BTreeMap::new();
-    one.insert(server_name.to_string(), cfg);
-    let mut adef = BTreeMap::new();
-    adef.insert(agent_id.to_string(), def.clone());
-    let diff = vec![DiffEntry { action: DiffAction::Add,
-        mcp_name: server_name.to_string(), agent: agent_id.to_string(), scope: scope.to_string() }];
-    apply_diffs(&diff, &adef, &one, &backups_dir(),
-        project_dir.map(std::path::Path::new), timestamp)
-}
-
-/// Remove a single server from one agent's file (Remove diff). Shared by
-/// `uninstall`, `disable_mcp`, and `delete_mcp`.
-fn remove_one(
-    agent_id: &str,
-    def: &crate::core::types::AgentDefinition,
-    server_name: &str,
-    scope: &str,
-    project_dir: Option<&str>,
-    timestamp: &str,
-) -> Result<(), Vec<crate::core::applier::ApplyError>> {
-    let mut adef = BTreeMap::new();
-    adef.insert(agent_id.to_string(), def.clone());
-    let diff = vec![DiffEntry { action: DiffAction::Remove,
-        mcp_name: server_name.to_string(), agent: agent_id.to_string(), scope: scope.to_string() }];
-    let empty: BTreeMap<String, McpConfig> = BTreeMap::new();
-    apply_diffs(&diff, &adef, &empty, &backups_dir(),
-        project_dir.map(std::path::Path::new), timestamp)
-}
 
 #[tauri::command]
 pub fn preview_install(req: InstallRequest) -> Result<Vec<PlannedWrite>, String> {
@@ -774,41 +678,17 @@ pub fn preview_install(req: InstallRequest) -> Result<Vec<PlannedWrite>, String>
 
 #[tauri::command]
 pub fn apply_install(req: InstallRequest) -> Result<(), Vec<String>> {
-    let entry = resolve_entry(&req.server_name, &req.transport).map_err(|e| vec![e])?;
-    let agents = load_agents();
-    let mut errors: Vec<String> = Vec::new();
-    let timestamp = crate::core::paths::backup_timestamp();
-    for agent_id in &req.agents {
-        let Some(def) = agents.get(agent_id) else { continue };
-        if target_file(def, &req.scope, req.project_dir.as_deref()).is_none() { continue; }
-        let patch = req.overrides.get(agent_id).map(|p| p.to_patch());
-        let Some(cfg) = effective_config(&entry, patch.as_ref()) else {
-            // align with preview_install: surface unconfigurable entries instead of silently skipping
-            errors.push(format!("{}: no config (no stdio/http transport)", agent_id));
-            continue;
-        };
-        if let Err(errs) = add_one(agent_id, def, &req.server_name, cfg, &req.scope,
-            req.project_dir.as_deref(), &timestamp) {
-            push_apply_errors(&mut errors, errs);
-        }
-    }
-    if errors.is_empty() { Ok(()) } else { Err(errors) }
+    let overrides: HashMap<String, OverridePatch> =
+        req.overrides.iter().map(|(k, v)| (k.clone(), v.to_patch())).collect();
+    mux_core::ops::install(
+        &req.server_name, &req.transport, &req.scope, &req.agents,
+        req.project_dir.as_deref(), &overrides,
+    )
 }
 
 #[tauri::command]
 pub fn uninstall(req: InstallRequest) -> Result<(), Vec<String>> {
-    let agents = load_agents();
-    let mut errors = Vec::new();
-    let timestamp = crate::core::paths::backup_timestamp();
-    for agent_id in &req.agents {
-        let Some(def) = agents.get(agent_id) else { continue };
-        if target_file(def, &req.scope, req.project_dir.as_deref()).is_none() { continue; }
-        if let Err(errs) = remove_one(agent_id, def, &req.server_name, &req.scope,
-            req.project_dir.as_deref(), &timestamp) {
-            push_apply_errors(&mut errors, errs);
-        }
-    }
-    if errors.is_empty() { Ok(()) } else { Err(errors) }
+    mux_core::ops::uninstall(&req.server_name, &req.scope, &req.agents, req.project_dir.as_deref())
 }
 
 /// Disable a server: snapshot its current on-disk config into MUX's disabled
@@ -816,15 +696,15 @@ pub fn uninstall(req: InstallRequest) -> Result<(), Vec<String>> {
 /// snapshot lets `enable_mcp` restore the exact config (customizations included).
 #[tauri::command]
 pub fn disable_mcp(req: InstallRequest) -> Result<(), Vec<String>> {
-    use crate::core::disabled::{load_disabled, DisabledEntry};
-    use crate::core::scanner::scan_agents;
-    use crate::core::types::transport_of;
+    use mux_core::disabled::{load_disabled, DisabledEntry};
+    use mux_core::scanner::scan_agents;
+    use mux_core::types::transport_of;
     let agents = load_agents();
     let pd = req.project_dir.as_deref().map(std::path::Path::new);
     let scanned = scan_agents(&agents, pd, true);
     let mut store = load_disabled();
     let mut errors = Vec::new();
-    let timestamp = crate::core::paths::backup_timestamp();
+    let timestamp = mux_core::paths::backup_timestamp();
     for agent_id in &req.agents {
         let Some(def) = agents.get(agent_id) else { continue };
         if target_file(def, &req.scope, req.project_dir.as_deref()).is_none() { continue; }
@@ -858,11 +738,11 @@ pub fn disable_mcp(req: InstallRequest) -> Result<(), Vec<String>> {
 /// back into the agent file, then drop it from the disabled store.
 #[tauri::command]
 pub fn enable_mcp(req: InstallRequest) -> Result<(), Vec<String>> {
-    use crate::core::disabled::load_disabled;
+    use mux_core::disabled::load_disabled;
     let agents = load_agents();
     let mut store = load_disabled();
     let mut errors = Vec::new();
-    let timestamp = crate::core::paths::backup_timestamp();
+    let timestamp = mux_core::paths::backup_timestamp();
     for agent_id in &req.agents {
         let Some(def) = agents.get(agent_id) else { continue };
         let entry = store.get(agent_id).and_then(|list| {
@@ -893,12 +773,12 @@ pub fn enable_mcp(req: InstallRequest) -> Result<(), Vec<String>> {
 /// already-disabled ones.
 #[tauri::command]
 pub fn delete_mcp(req: InstallRequest) -> Result<(), Vec<String>> {
-    use crate::core::disabled::load_disabled;
+    use mux_core::disabled::load_disabled;
     let agents = load_agents();
     let mut store = load_disabled();
     let mut store_changed = false;
     let mut errors = Vec::new();
-    let timestamp = crate::core::paths::backup_timestamp();
+    let timestamp = mux_core::paths::backup_timestamp();
     for agent_id in &req.agents {
         let Some(def) = agents.get(agent_id) else { continue };
         if target_file(def, &req.scope, req.project_dir.as_deref()).is_some() {
@@ -923,18 +803,18 @@ pub fn delete_mcp(req: InstallRequest) -> Result<(), Vec<String>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::types::{McpConfig, StdioConfig};
+    use mux_core::types::{McpConfig, StdioConfig};
 
     #[test]
     fn preview_returns_planned_write_for_seeded_server() {
-        use crate::core::types::{RegistryConfig, RegistryEntry, StdioConfig};
+        use mux_core::types::{RegistryConfig, RegistryEntry, StdioConfig};
         // No built-in catalog anymore: seed a manual entry through the real store
         // (a managed local source) in an isolated ~/.mux, then preview it.
         let home = std::env::temp_dir().join(format!("mux-preview-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&home);
         std::fs::create_dir_all(home.join(".mux")).unwrap();
         std::env::set_var("HOME", &home);
-        crate::core::registry::write_manual_entry(&RegistryEntry {
+        mux_core::registry::write_manual_entry(&RegistryEntry {
             name: "seeded".into(),
             description: String::new(),
             tags: vec![],

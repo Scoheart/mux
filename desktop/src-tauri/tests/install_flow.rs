@@ -20,12 +20,12 @@ fn install_flow_writes_config_applies_override_and_backs_up() {
     // No built-in catalog anymore — seed a `filesystem` entry through the real
     // store (a managed local source) so the install flow has something to resolve.
     fs::create_dir_all(home.join(".mux")).unwrap();
-    desktop_lib::core::registry::write_manual_entry(&desktop_lib::core::types::RegistryEntry {
+    mux_core::registry::write_manual_entry(&mux_core::types::RegistryEntry {
         name: "filesystem".into(),
         description: String::new(),
         tags: vec![],
-        config: desktop_lib::core::types::RegistryConfig {
-            stdio: Some(desktop_lib::core::types::StdioConfig {
+        config: mux_core::types::RegistryConfig {
+            stdio: Some(mux_core::types::StdioConfig {
                 command: "npx".into(),
                 args: Some(vec!["-y".into(), "@modelcontextprotocol/server-filesystem".into(), ".".into()]),
                 env: None,

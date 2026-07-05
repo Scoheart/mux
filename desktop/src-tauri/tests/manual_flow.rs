@@ -3,7 +3,7 @@
 use std::fs;
 
 use desktop_lib::commands::{list_registry, list_sources, upsert_registry_entry};
-use desktop_lib::core::types::{RegistryConfig, RegistryEntry, StdioConfig};
+use mux_core::types::{RegistryConfig, RegistryEntry, StdioConfig};
 
 fn unique_dir(tag: &str) -> std::path::PathBuf {
     let d = std::env::temp_dir().join(format!("mux-manual-{}-{}", tag, std::process::id()));

@@ -12,3 +12,6 @@ dist
 
 # lockfiles regenerate against whatever registry npm is configured with — keep out
 package-lock.json
+
+# Rust build artifacts (workspace)
+/target

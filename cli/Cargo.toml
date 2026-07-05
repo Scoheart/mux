@@ -1,0 +1,12 @@
+[package]
+name = "mux-cli"
+version = "0.1.2"
+edition = "2021"
+
+[[bin]]
+name = "mux"
+path = "src/main.rs"
+
+[dependencies]
+mux-core = { path = "../core" }
+clap = { version = "4", features = ["derive"] }

@@ -189,7 +189,10 @@ mod tests {
         // Still parseable (used by the opt-in curated local source), just no
         // longer part of the default catalog. Currently trimmed to two entries.
         let names: Vec<String> = builtin_registry().into_iter().map(|e| e.name).collect();
-        assert_eq!(names, vec!["context7".to_string(), "supabase".to_string()]);
+        assert_eq!(
+            names,
+            vec!["context7".to_string(), "supabase".to_string(), "luma".to_string()]
+        );
     }
 
     #[test]

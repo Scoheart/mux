@@ -93,8 +93,9 @@ export function Layout({
         {/* Spacer — pushes the agent group to the right */}
         <div className="flex-1" />
 
-        {/* Agent brand-icon group (right-aligned, horizontally scrollable) */}
-        <div className="min-w-0 overflow-x-auto mux-noscroll">
+        {/* Agent brand-icon group: a fixed-width, horizontally-scrollable strip so
+            it stays compact no matter how many agents there are (scroll for the rest). */}
+        <div className="min-w-0 overflow-x-auto mux-noscroll max-w-[460px]">
           <div className="mux-seg" style={{ width: "max-content" }}>
             {agents.map((a) => {
               const active = view.kind === "agent" && view.id === a.id;
@@ -107,7 +108,7 @@ export function Layout({
                   title={`${agentName(a.id)}${warn ? "（无配置路径）" : ""}`}
                   onClick={() => onSelectAgent(a.id)}
                 >
-                  <AgentGlyph id={a.id} size={20} />
+                  <AgentGlyph id={a.id} size={26} />
                   {warn && (
                     <span
                       className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full"

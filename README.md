@@ -38,9 +38,9 @@ A one-click **官方精选合集 (official collection)** subscribes you to a cur
 - **CLI ⇄ Desktop in sync** — both are built on one shared Rust core (`mux-core`) and read/write `~/.mux/`, so a change in one shows up in the other.
 - **Dark mode** and a macOS "liquid glass" UI.
 
-## Supported agents (18)
+## Supported agents (20)
 
-Claude Code · Claude Desktop · Cursor · VS Code · Codex · Zed · Windsurf · Roo Code · Gemini CLI · Qoder · Devin · Kiro · Junie · Amazon Q · OpenCode · Copilot CLI · Cline · Continue
+Claude Code · Claude Desktop · Cursor · VS Code · Codex · Zed · Windsurf · Roo Code · Gemini CLI · Qoder · Devin · Kiro · Junie · Amazon Q · OpenCode · Copilot CLI · Cline · Continue · Warp · Pi
 
 Each agent's config path/format is editable in the app; paths are stored portably (`~/…`, never a hardcoded home).
 

@@ -62,6 +62,8 @@ const AGENT_META: Record<string, { name: string; color: string }> = {
   "copilot-cli": { name: "Copilot CLI", color: "#24292E" },
   cline: { name: "Cline", color: "#2563EB" },
   continue: { name: "Continue", color: "#111827" },
+  warp: { name: "Warp", color: "#00B4C6" },
+  pi: { name: "Pi", color: "#8B5CF6" },
 };
 
 export function agentName(id: string): string {

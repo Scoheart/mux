@@ -67,7 +67,7 @@ Editing a catalog entry re-stamps the new config into agents that installed it *
 **`ops::forget_entry(name, transport)`** (`core/src/ops.rs`) deletes a user-owned entry from the **manual and discovered** managed sources AND uninstalls it from every agent that has it (global; active or disabled-store). Only manual/discovered entries are deletable this way — remote/local source entries have nothing user-owned to remove (manage them via their source). Exposed as the desktop `forget_entry` command + the Registry card/detail 删除 button (shown only for manual/discovered), and the TUI Registry `d` key (→ Confirm; hint for remote/local).
 
 ### Shared defaults
-`data/agents.json` (18 agents) and `data/registry.json` are the single source of truth, embedded by `mux-core` via `include_str!` (`core/src/agents.rs`, `registry.rs`) — so both front-ends share them. Edit those JSON files directly.
+`data/agents.json` (20 agents) and `data/registry.json` are the single source of truth, embedded by `mux-core` via `include_str!` (`core/src/agents.rs`, `registry.rs`) — so both front-ends share them. Edit those JSON files directly.
 
 ## Gotchas
 

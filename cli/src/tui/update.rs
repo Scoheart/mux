@@ -40,6 +40,28 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
             }
             Err(e) => model.status = Some(format!("✗ {}：{}", label, e)),
         },
+        Msg::Resynced { name, transport, result } => match result {
+            Ok(outcome) => {
+                if !outcome.skipped_customized.is_empty() {
+                    // Some installs are hand-customized — offer to force-overwrite.
+                    model.modal = Some(Modal::Confirm(ConfirmState {
+                        prompt: format!(
+                            "{} 个 agent 的配置被手改过（{}），强制覆盖为当前配置？",
+                            outcome.skipped_customized.len(),
+                            outcome.skipped_customized.join("、")
+                        ),
+                        effect: Effect::ResyncEntry { name, transport, force: true },
+                    }));
+                } else if outcome.synced.is_empty() {
+                    model.status = Some(format!("没有需要同步的已安装 agent：{}", name));
+                } else {
+                    model.status = Some(format!("✓ 已同步 {} 到 {} 个 agent", name, outcome.synced.len()));
+                }
+                // Reflect any clean installs that were just re-stamped.
+                return vec![Effect::LoadAll];
+            }
+            Err(e) => model.status = Some(format!("✗ 同步失败：{}", e)),
+        },
         Msg::Key(k) => return on_key(model, k),
     }
     vec![]
@@ -133,9 +155,24 @@ fn registry_key(model: &mut Model, k: KeyEvent) -> Vec<Effect> {
         KeyCode::Char('n') => model.editor = Some(EditorState::new_entry()),
         KeyCode::Char('e') => open_editor_edit(model),
         KeyCode::Char('p') => model.modal = Some(Modal::Paste(PasteState::default())),
+        KeyCode::Char('S') => return resync_selected(model),
         _ => {}
     }
     vec![]
+}
+
+/// `S`: re-sync the selected entry's current config to its installed agents.
+fn resync_selected(model: &mut Model) -> Vec<Effect> {
+    let sel = {
+        let entries = model.filtered_registry();
+        entries
+            .get(model.registry_ui.cursor)
+            .map(|e| (e.name.clone(), e.transport().to_string()))
+    };
+    match sel {
+        Some((name, transport)) => vec![Effect::ResyncEntry { name, transport, force: false }],
+        None => vec![],
+    }
 }
 
 /// Open the full-page editor pre-filled from the entry under the cursor.
@@ -1110,6 +1147,49 @@ mod tests {
         let eff = update(&mut m, ctrl('s'));
         assert!(matches!(&eff[0], Effect::PutAgent { id, overwrite: false, .. } if id == "myagent"));
         assert!(m.modal.is_none());
+    }
+
+    #[test]
+    fn shift_s_resyncs_selected_entry() {
+        let mut m = Model::new();
+        update(&mut m, loaded(vec![entry("git", "manual")]));
+        let eff = update(&mut m, Msg::Key(KeyEvent::new(KeyCode::Char('S'), KeyModifiers::SHIFT)));
+        assert!(matches!(&eff[0], Effect::ResyncEntry { name, force: false, .. } if name == "git"));
+    }
+
+    #[test]
+    fn resynced_with_customized_opens_force_confirm() {
+        let mut m = Model::new();
+        let outcome = mux_core::ops::ResyncOutcome {
+            synced: vec![],
+            skipped_customized: vec!["qoder".into()],
+        };
+        update(
+            &mut m,
+            Msg::Resynced { name: "luma".into(), transport: "stdio".into(), result: Ok(outcome) },
+        );
+        match &m.modal {
+            Some(Modal::Confirm(c)) => {
+                assert!(matches!(&c.effect, Effect::ResyncEntry { force: true, name, .. } if name == "luma"));
+            }
+            _ => panic!("expected a force-confirm modal"),
+        }
+    }
+
+    #[test]
+    fn resynced_clean_only_sets_status_no_modal() {
+        let mut m = Model::new();
+        let outcome = mux_core::ops::ResyncOutcome {
+            synced: vec!["claude-code".into()],
+            skipped_customized: vec![],
+        };
+        let eff = update(
+            &mut m,
+            Msg::Resynced { name: "luma".into(), transport: "stdio".into(), result: Ok(outcome) },
+        );
+        assert!(m.modal.is_none());
+        assert!(m.status.as_deref().unwrap().contains("已同步"));
+        assert_eq!(eff.len(), 1); // reload
     }
 
     #[test]

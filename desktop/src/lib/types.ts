@@ -73,3 +73,12 @@ export interface InstallRequest {
   server_name: string; transport: "stdio" | "http"; scope: "global" | "project"; agents: string[];
   project_dir?: string; overrides: Record<string, PatchInput>;
 }
+
+/** Result of re-syncing an edited entry to its installed agents. */
+export interface ResyncOutcome {
+  /** Agent ids the current config was re-stamped into. */
+  synced: string[];
+  /** Agent ids skipped because their on-disk config was hand-customized
+   *  (only populated when force = false). */
+  skipped_customized: string[];
+}

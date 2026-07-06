@@ -61,7 +61,7 @@ Agent files are edited through the `Adapter` trait (`core/src/adapter.rs`, `json
 Stored agent paths must use `~/…`, **never** a hardcoded home like `/Users/name/…`. Use `collapse_home` on write and `expand_tilde` on read — both in `core/src/scanner.rs`.
 
 ### Edit propagation
-Editing a catalog entry re-stamps the new config into agents that installed it *clean* (on-disk config == the pre-edit registry config); hand-customized installs are left untouched (`propagate_edit_to_installs` in `commands.rs`).
+Editing a catalog entry re-stamps the new config into agents that installed it *clean* (on-disk config == the pre-edit registry config); hand-customized and project-scope installs are left untouched (`propagate_edit_to_installs` in `core/src/ops.rs`, run by `upsert_entry`/`remove_entry`). Because that auto-propagation is deliberately conservative (global-scope + clean only), an install that ever drifted stays stale. The explicit escape hatch is **`ops::resync_entry(name, transport, force)`** (`core/src/ops.rs`): it re-stamps the current config to all agents that have the entry actively installed at global scope — `force=false` skips customized installs and reports them in `skipped_customized`; `force=true` overwrites. Exposed as the desktop `resync_entry` command + the editor's「重新同步」button, and the TUI Registry `S` key (customized → Confirm → force).
 
 ### Shared defaults
 `data/agents.json` (18 agents) and `data/registry.json` are the single source of truth, embedded by `mux-core` via `include_str!` (`core/src/agents.rs`, `registry.rs`) — so both front-ends share them. Edit those JSON files directly.

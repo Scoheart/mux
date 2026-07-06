@@ -1,11 +1,11 @@
 import { useMemo, useState } from "react";
 import type { InstallState } from "../hooks/useInstallState";
 import type { RegistryEntry } from "../lib/types";
-import { upsertRegistry, deleteRegistry } from "../lib/api";
+import { upsertRegistry, deleteRegistry, resyncEntry } from "../lib/api";
 import { keyOf, transportOf, type Transport } from "../lib/mcp";
 import { EnvEditor } from "./EnvEditor";
 import { Avatar } from "./ui";
-import { ArrowLeftIcon, SaveIcon } from "./icons";
+import { ArrowLeftIcon, SaveIcon, RefreshIcon } from "./icons";
 import { useToast } from "./Toast";
 
 interface RegistryEditPageProps {
@@ -110,6 +110,36 @@ export function RegistryEditPage({ state, name, transport: editTransport, onBack
       onBack();
     } catch (err) {
       toast.show({ kind: "error", msg: `保存失败: ${String(err)}` });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // Explicit re-sync: push this entry's *current saved* config into the agents
+  // that have it installed. Safe by default (skips hand-customized installs);
+  // if any were skipped, offer to force-overwrite.
+  const handleResync = async () => {
+    if (!existing || saving) return;
+    const t = transportOf(existing);
+    setSaving(true);
+    try {
+      let out = await resyncEntry(existing.name, t, false);
+      if (out.skipped_customized.length > 0) {
+        const ok = window.confirm(
+          `${out.skipped_customized.length} 个 agent 的配置被手改过（${out.skipped_customized.join(", ")}），是否强制覆盖为当前配置？`
+        );
+        if (ok) out = await resyncEntry(existing.name, t, true);
+      }
+      await rescan();
+      toast.show({
+        kind: "success",
+        msg:
+          out.synced.length > 0
+            ? `已同步到 ${out.synced.length} 个 agent（${out.synced.join(", ")}）`
+            : "没有需要同步的已安装 agent",
+      });
+    } catch (err) {
+      toast.show({ kind: "error", msg: `同步失败: ${String(err)}` });
     } finally {
       setSaving(false);
     }
@@ -299,6 +329,18 @@ export function RegistryEditPage({ state, name, transport: editTransport, onBack
             title="删除自定义，恢复内置默认"
           >
             恢复默认
+          </button>
+        )}
+        {!isNew && existing && (
+          <button
+            onClick={handleResync}
+            disabled={saving}
+            className="flex items-center gap-1.5 text-sm px-3 py-2 rounded-mac cursor-pointer"
+            style={{ background: "var(--surface-raised)", border: "1px solid var(--border-hairline)", color: "var(--text-primary)" }}
+            title="把当前保存的配置重新同步到已安装此 MCP 的 agent（全局）"
+          >
+            <RefreshIcon className="w-4 h-4" />
+            重新同步
           </button>
         )}
         <div className="flex-1" />

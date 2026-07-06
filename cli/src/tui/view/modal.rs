@@ -272,6 +272,7 @@ fn render_help(f: &mut Frame) {
         ("/", "在 Registry 搜索（Esc 退出）"),
         ("← →", "切换来源过滤（Registry）"),
         ("Enter", "打开详情 / 进入面板"),
+        ("S", "把选中条目重新同步到已安装 agent"),
         ("Ctrl-R", "重新加载全部"),
         ("?", "帮助"),
         ("q / Ctrl-C", "退出"),

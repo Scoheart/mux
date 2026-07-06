@@ -1,11 +1,15 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { RegistryEntry, AgentInfo, AgentDefinitionInput, InstalledMcp, InstallRequest, SourceView } from "./types";
+import type { RegistryEntry, AgentInfo, AgentDefinitionInput, InstalledMcp, InstallRequest, SourceView, ResyncOutcome } from "./types";
 
 export const listRegistry = () => invoke<RegistryEntry[]>("list_registry");
 export const upsertRegistry = (entry: RegistryEntry) =>
   invoke<void>("upsert_registry_entry", { entry });
 export const deleteRegistry = (name: string, transport: string) =>
   invoke<void>("delete_registry_entry", { name, transport });
+/** Re-stamp an entry's current config into agents that have it installed (global).
+ *  force=false skips hand-customized installs (reported in skipped_customized). */
+export const resyncEntry = (name: string, transport: string, force: boolean) =>
+  invoke<ResyncOutcome>("resync_entry", { name, transport, force });
 export const listCustomRegistryKeys = () =>
   invoke<string[]>("list_custom_registry_keys");
 export const listAgents = () => invoke<AgentInfo[]>("list_agents");

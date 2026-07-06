@@ -416,6 +416,52 @@ pub fn scan_installed(project_dir: Option<&str>) -> Vec<InstalledMcp> {
     out
 }
 
+/// Outcome of [`resync_entry`]: which agents got the current config re-stamped,
+/// and (when not forcing) which were skipped because their on-disk config was
+/// hand-customized.
+#[derive(Serialize)]
+pub struct ResyncOutcome {
+    pub synced: Vec<String>,
+    pub skipped_customized: Vec<String>,
+}
+
+/// Re-stamp a catalog entry's *current* config into every agent that has it
+/// actively installed at global scope — an explicit, user-invoked counterpart to
+/// the conservative auto-propagation in [`upsert_entry`].
+///
+/// `force == false`: only "clean" installs (on-disk == registry base) are
+/// updated; hand-customized ones are reported in `skipped_customized` so the
+/// caller can offer to force. `force == true`: customized installs are
+/// overwritten too.
+///
+/// Scope: global only. Disabled-store installs (`enabled == false`) are excluded
+/// — they live in the snapshot store, not the agent file, and `install` would
+/// wrongly re-activate them. Reuses [`scan_installed`] + [`install`], so the
+/// re-stamp is backed up like any other write.
+pub fn resync_entry(name: &str, transport: &str, force: bool) -> Result<ResyncOutcome, Vec<String>> {
+    // Confirm the entry still exists in the aggregated catalog.
+    resolve_entry(name, transport).map_err(|e| vec![e])?;
+
+    // Active, global installs of this exact (name, transport).
+    let (customized, clean): (Vec<InstalledMcp>, Vec<InstalledMcp>) = scan_installed(None)
+        .into_iter()
+        .filter(|i| i.enabled && i.scope == "global" && i.name == name && i.transport == transport)
+        .partition(|i| i.customized);
+
+    let mut target: Vec<String> = clean.iter().map(|i| i.agent.clone()).collect();
+    let skipped_customized: Vec<String> = if force {
+        target.extend(customized.iter().map(|i| i.agent.clone()));
+        Vec::new()
+    } else {
+        customized.iter().map(|i| i.agent.clone()).collect()
+    };
+
+    if !target.is_empty() {
+        install(name, transport, "global", &target, None, &HashMap::new())?;
+    }
+    Ok(ResyncOutcome { synced: target, skipped_customized })
+}
+
 /// Persist the disabled store, downgrading an IO failure to a reported error.
 fn save_disabled_or_log(
     store: &BTreeMap<String, Vec<DisabledEntry>>,

@@ -49,6 +49,9 @@ pub enum Effect {
     ImportDiscovered,
     /// Create or edit an agent definition.
     PutAgent { id: String, def: AgentDefinition, overwrite: bool },
+    /// Re-stamp an entry's current config into the agents that have it installed
+    /// (global). force=false skips customized installs; force=true overwrites.
+    ResyncEntry { name: String, transport: String, force: bool },
 }
 
 pub struct EffectRunner {
@@ -144,5 +147,9 @@ fn run_effect(eff: Effect) -> Msg {
             label: format!("保存 agent {}", id),
             result: mux_core::agents::put(id, def, overwrite),
         },
+        Effect::ResyncEntry { name, transport, force } => {
+            let result = ops::resync_entry(&name, &transport, force).map_err(|v| v.join("；"));
+            Msg::Resynced { name, transport, result }
+        }
     }
 }

@@ -212,6 +212,18 @@ pub fn uninstall(req: InstallRequest) -> Result<(), Vec<String>> {
     mux_core::ops::uninstall(&req.server_name, &req.scope, &req.agents, req.project_dir.as_deref())
 }
 
+/// Re-stamp an entry's current config into the agents that have it installed
+/// (global scope). `force=false` skips hand-customized installs (reported back);
+/// `force=true` overwrites them.
+#[tauri::command]
+pub fn resync_entry(
+    name: String,
+    transport: String,
+    force: bool,
+) -> Result<mux_core::ops::ResyncOutcome, Vec<String>> {
+    mux_core::ops::resync_entry(&name, &transport, force)
+}
+
 /// Disable a server: snapshot its current on-disk config into MUX's disabled
 /// store, then remove it from the agent file.
 #[tauri::command]

@@ -172,7 +172,7 @@ export function RegistryView({ state, onEdit, onCreate }: RegistryViewProps) {
         {filtered.length === 0 ? (
           <div className="py-16 text-sm text-center" style={{ color: "var(--text-secondary)" }}>
             {entries.length === 0
-              ? "目录为空 —— 到「来源」页订阅一个 URL 或添加本地配置文件。"
+              ? "目录为空 —— 到「来源」页订阅远程配置或导入本地配置。"
               : "未找到匹配的 MCP"}
           </div>
         ) : (

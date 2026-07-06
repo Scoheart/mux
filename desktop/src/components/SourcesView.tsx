@@ -107,11 +107,11 @@ export function SourcesView({ state }: SourcesViewProps) {
           </button>
           <button onClick={pickLocal} className="btn-ghost flex-shrink-0" title="从本机选择一个配置文件导入">
             <FolderIcon className="w-4 h-4" />
-            导入本地文件
+            导入本地配置
           </button>
           <button onClick={() => setSubscribe({})} className="btn-primary flex-shrink-0" title="订阅一个远程配置 URL">
             <CloudIcon className="w-4 h-4" />
-            订阅 URL
+            订阅远程配置
           </button>
         </div>
         <div className="max-w-[1280px] mx-auto mt-2 text-[11px] leading-relaxed" style={{ color: "var(--text-secondary)" }}>

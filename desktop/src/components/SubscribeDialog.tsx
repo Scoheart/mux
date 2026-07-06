@@ -56,11 +56,11 @@ export function SubscribeDialog({
     <Modal width={520} onClose={onClose}>
         <ModalHeader
           glyph="☁"
-          title="订阅远程来源"
+          title="订阅远程配置"
           subtitle={
             <>
               订阅一个<b>远程</b>配置源：填一个指向 MCP 配置文件的 URL（JSON / TOML）。MUX
-              抓取后缓存一份，其中的 server 加入目录，之后可「刷新」重抓、随远端更新。（本机已有的文件请用「导入本地文件」。）
+              抓取后缓存一份，其中的 server 加入目录，之后可「刷新」重抓、随远端更新。（本机已有的文件请用「导入本地配置」。）
             </>
           }
           onClose={onClose}

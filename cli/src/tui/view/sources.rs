@@ -22,7 +22,7 @@ pub fn render(model: &Model, f: &mut Frame, area: Rect) {
 
     let block = Block::default().borders(Borders::TOP).border_style(Style::new().dim());
     if model.data.sources.is_empty() {
-        let msg = "还没有来源。订阅一个 URL、导入本地文件，或添加官方精选合集。";
+        let msg = "还没有来源。订阅远程配置、导入本地配置，或添加官方精选合集。";
         f.render_widget(Paragraph::new(Line::from(Span::from(msg).dim())).block(block), rows[1]);
         return;
     }

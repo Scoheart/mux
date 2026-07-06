@@ -58,14 +58,24 @@ pub fn add_local_source(path: String, name: Option<String>) -> Result<SourceView
 
 /// Open a native file picker and add the chosen file as a local source. Returns
 /// `None` if the user cancels. Desktop-only (native dialog); delegates to core.
+///
+/// **Must not block the main thread.** Sync Tauri commands run on the main
+/// thread, and `blocking_pick_file` there deadlocks: the panel needs the main
+/// run loop to process the user's click, but the thread is parked waiting for
+/// that very click → beachball/hang. So this is an `async` command (runs off the
+/// main thread) and the blocking pick is pushed onto a worker via
+/// `spawn_blocking`, leaving the main thread free to drive the panel.
 #[tauri::command]
-pub fn add_local_source_dialog(app: tauri::AppHandle) -> Result<Option<SourceView>, String> {
+pub async fn add_local_source_dialog(app: tauri::AppHandle) -> Result<Option<SourceView>, String> {
     use tauri_plugin_dialog::DialogExt;
-    let picked = app
-        .dialog()
-        .file()
-        .add_filter("MCP 配置", &["json", "toml"])
-        .blocking_pick_file();
+    let picked = tauri::async_runtime::spawn_blocking(move || {
+        app.dialog()
+            .file()
+            .add_filter("MCP 配置", &["json", "toml"])
+            .blocking_pick_file()
+    })
+    .await
+    .map_err(|e| e.to_string())?;
     let Some(fp) = picked else { return Ok(None) };
     sources::add_local(fp.to_string(), None).map(Some)
 }

@@ -18,10 +18,10 @@ pub fn render(model: &Model, f: &mut Frame) {
         Some(Modal::Confirm(c)) => render_confirm(f, c),
         Some(Modal::Paste(st)) => render_paste(f, st),
         Some(Modal::Subscribe(form)) => {
-            render_form(f, " 订阅 URL ", ["配置文件 URL", "名称（可选）"], [&form.url, &form.name], form.field)
+            render_form(f, " 订阅远程配置 ", ["配置文件 URL", "名称（可选）"], [&form.url, &form.name], form.field)
         }
         Some(Modal::AddLocal(form)) => {
-            render_form(f, " 导入本地文件 ", ["文件路径", "名称（可选）"], [&form.path, &form.name], form.field)
+            render_form(f, " 导入本地配置 ", ["文件路径", "名称（可选）"], [&form.path, &form.name], form.field)
         }
         Some(Modal::AddAgent(form)) => render_agent_form(f, form),
         None => {}

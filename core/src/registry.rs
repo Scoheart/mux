@@ -191,7 +191,12 @@ mod tests {
         let names: Vec<String> = builtin_registry().into_iter().map(|e| e.name).collect();
         assert_eq!(
             names,
-            vec!["context7".to_string(), "supabase".to_string(), "luma".to_string()]
+            vec![
+                "context7".to_string(),
+                "supabase".to_string(),
+                "luma".to_string(),
+                "firecrawl".to_string(),
+            ]
         );
     }
 

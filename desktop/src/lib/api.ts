@@ -10,6 +10,9 @@ export const deleteRegistry = (name: string, transport: string) =>
  *  force=false skips hand-customized installs (reported in skipped_customized). */
 export const resyncEntry = (name: string, transport: string, force: boolean) =>
   invoke<ResyncOutcome>("resync_entry", { name, transport, force });
+/** Delete a manual/discovered catalog entry and uninstall it from all agents. */
+export const forgetEntry = (name: string, transport: string) =>
+  invoke<void>("forget_entry", { name, transport });
 export const listCustomRegistryKeys = () =>
   invoke<string[]>("list_custom_registry_keys");
 export const listAgents = () => invoke<AgentInfo[]>("list_agents");

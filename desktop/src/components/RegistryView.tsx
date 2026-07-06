@@ -2,8 +2,9 @@ import { useState, useMemo, useCallback } from "react";
 import type { InstallState } from "../hooks/useInstallState";
 import type { RegistryEntry } from "../lib/types";
 import { keyOf, transportOf, type Transport } from "../lib/mcp";
+import { forgetEntry } from "../lib/api";
 import { AgentGlyph, agentName } from "./brandIcons";
-import { CopyIcon, EditIcon, PlusIcon, LinkIcon, TerminalIcon, XIcon, CloudIcon, FolderIcon } from "./icons";
+import { CopyIcon, EditIcon, PlusIcon, LinkIcon, TerminalIcon, XIcon, CloudIcon, FolderIcon, TrashIcon } from "./icons";
 import { Avatar, Badge, IconButton, SearchBar, Modal, TransportPill, stickyHeaderStyle } from "./ui";
 import { useToast } from "./Toast";
 import { PasteConfigDialog } from "./PasteConfigDialog";
@@ -129,6 +130,38 @@ export function RegistryView({ state, onEdit, onCreate }: RegistryViewProps) {
     [toast]
   );
 
+  // Only user-owned entries (手动添加 / 探索) can be deleted; subscription/local
+  // entries belong to a source and are managed on the 来源 page.
+  const deletable = useCallback(
+    (entry: RegistryEntry) => {
+      const b = bucketOf(entry);
+      return b === "manual" || b === "discovered";
+    },
+    []
+  );
+
+  const deleteEntry = useCallback(
+    async (entry: RegistryEntry) => {
+      if (!deletable(entry)) return;
+      const t = transportOf(entry);
+      if (
+        !window.confirm(
+          `删除「${entry.name}」（${t}）？会从目录移除，并从所有已安装的 agent 卸载（写回配置文件，有备份）。`
+        )
+      )
+        return;
+      try {
+        await forgetEntry(entry.name, t);
+        await Promise.all([state.refreshRegistry(), state.rescan()]);
+        setDetail(null);
+        toast.show({ kind: "success", msg: `已删除 ${entry.name}` });
+      } catch (e) {
+        toast.show({ kind: "error", msg: `删除失败：${String(e)}` });
+      }
+    },
+    [deletable, state, toast]
+  );
+
   return (
     <div className="h-full min-h-0 overflow-y-auto">
       {/* Sticky header: search + new, then a source filter row */}
@@ -234,6 +267,11 @@ export function RegistryView({ state, onEdit, onCreate }: RegistryViewProps) {
                       <IconButton title="编辑配置" onClick={() => onEdit(entry.name, transportOf(entry))}>
                         <EditIcon className="w-4 h-4" />
                       </IconButton>
+                      {deletable(entry) && (
+                        <IconButton title="删除条目（并从所有 agent 卸载）" onClick={() => deleteEntry(entry)}>
+                          <TrashIcon className="w-4 h-4" />
+                        </IconButton>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -258,6 +296,7 @@ export function RegistryView({ state, onEdit, onCreate }: RegistryViewProps) {
             setDetail(null);
             onEdit(name, transport);
           }}
+          onDelete={deletable(detail) ? () => deleteEntry(detail) : undefined}
         />
       )}
     </div>
@@ -271,6 +310,7 @@ function RegistryDetail({
   onClose,
   onCopy,
   onEdit,
+  onDelete,
 }: {
   entry: RegistryEntry;
   installedAgents: string[];
@@ -278,6 +318,7 @@ function RegistryDetail({
   onClose: () => void;
   onCopy: () => void;
   onEdit: () => void;
+  onDelete?: () => void;
 }) {
   return (
     <Modal width={560} onClose={onClose}>
@@ -332,7 +373,19 @@ function RegistryDetail({
           </div>
         </div>
 
-        <div className="flex items-center justify-end gap-2 px-6 py-4" style={{ borderTop: "1px solid var(--border-hairline)" }}>
+        <div className="flex items-center gap-2 px-6 py-4" style={{ borderTop: "1px solid var(--border-hairline)" }}>
+          {onDelete && (
+            <button
+              onClick={onDelete}
+              className="flex items-center gap-1.5 px-3 py-2 text-sm rounded-mac border-0 cursor-pointer"
+              style={{ background: "transparent", color: "#FF3B30" }}
+              title="删除条目（并从所有 agent 卸载）"
+            >
+              <TrashIcon className="w-4 h-4" />
+              删除
+            </button>
+          )}
+          <div className="flex-1" />
           <button
             onClick={onCopy}
             className="flex items-center gap-1.5 px-4 py-2 text-sm rounded-mac cursor-pointer"

@@ -63,6 +63,9 @@ Stored agent paths must use `~/…`, **never** a hardcoded home like `/Users/nam
 ### Edit propagation
 Editing a catalog entry re-stamps the new config into agents that installed it *clean* (on-disk config == the pre-edit registry config); hand-customized and project-scope installs are left untouched (`propagate_edit_to_installs` in `core/src/ops.rs`, run by `upsert_entry`/`remove_entry`). Because that auto-propagation is deliberately conservative (global-scope + clean only), an install that ever drifted stays stale. The explicit escape hatch is **`ops::resync_entry(name, transport, force)`** (`core/src/ops.rs`): it re-stamps the current config to all agents that have the entry actively installed at global scope — `force=false` skips customized installs and reports them in `skipped_customized`; `force=true` overwrites. Exposed as the desktop `resync_entry` command + the editor's「重新同步」button, and the TUI Registry `S` key (customized → Confirm → force).
 
+### Deleting a catalog entry
+**`ops::forget_entry(name, transport)`** (`core/src/ops.rs`) deletes a user-owned entry from the **manual and discovered** managed sources AND uninstalls it from every agent that has it (global; active or disabled-store). Only manual/discovered entries are deletable this way — remote/local source entries have nothing user-owned to remove (manage them via their source). Exposed as the desktop `forget_entry` command + the Registry card/detail 删除 button (shown only for manual/discovered), and the TUI Registry `d` key (→ Confirm; hint for remote/local).
+
 ### Shared defaults
 `data/agents.json` (18 agents) and `data/registry.json` are the single source of truth, embedded by `mux-core` via `include_str!` (`core/src/agents.rs`, `registry.rs`) — so both front-ends share them. Edit those JSON files directly.
 

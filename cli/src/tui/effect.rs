@@ -52,6 +52,8 @@ pub enum Effect {
     /// Re-stamp an entry's current config into the agents that have it installed
     /// (global). force=false skips customized installs; force=true overwrites.
     ResyncEntry { name: String, transport: String, force: bool },
+    /// Delete a manual/discovered catalog entry and uninstall it from all agents.
+    ForgetEntry { name: String, transport: String },
 }
 
 pub struct EffectRunner {
@@ -151,5 +153,9 @@ fn run_effect(eff: Effect) -> Msg {
             let result = ops::resync_entry(&name, &transport, force).map_err(|v| v.join("；"));
             Msg::Resynced { name, transport, result }
         }
+        Effect::ForgetEntry { name, transport } => Msg::Mutated {
+            label: format!("删除 {}", name),
+            result: ops::forget_entry(&name, &transport).map_err(|v| v.join("；")),
+        },
     }
 }

@@ -11,7 +11,10 @@ use std::collections::HashSet;
 use crate::effective::{base_config, effective_config};
 use crate::r#override::OverridePatch;
 use crate::paths::{backup_timestamp, backups_dir};
-use crate::registry::{delete_registry_entry, read_registry, write_discovered_entry, write_manual_entry};
+use crate::registry::{
+    delete_discovered_entry, delete_registry_entry, read_registry, write_discovered_entry,
+    write_manual_entry,
+};
 use crate::scanner::{expand_tilde, scan_agents};
 use crate::types::{transport_of, AgentDefinition, McpConfig, RegistryEntry, RegistryOrigin};
 use std::collections::{BTreeMap, HashMap};
@@ -460,6 +463,32 @@ pub fn resync_entry(name: &str, transport: &str, force: bool) -> Result<ResyncOu
         install(name, transport, "global", &target, None, &HashMap::new())?;
     }
     Ok(ResyncOutcome { synced: target, skipped_customized })
+}
+
+/// Delete a user catalog entry (from the manual and/or discovered managed
+/// sources) AND uninstall it from every agent that has it — active in a config
+/// file or remembered in the disabled store — at global scope. Intended for
+/// manual/discovered entries; entries provided by a remote/local source are not
+/// removed here (there is nothing user-owned to delete — manage them via their
+/// source). A discovered entry may reappear on the next scan if it's still in an
+/// agent's config.
+pub fn forget_entry(name: &str, transport: &str) -> Result<(), Vec<String>> {
+    // Uninstall from every agent that has it (dedup; delete handles both an
+    // active file entry and a remembered disabled snapshot).
+    let mut agents: Vec<String> = scan_installed(None)
+        .into_iter()
+        .filter(|i| i.name == name && i.transport == transport)
+        .map(|i| i.agent)
+        .collect();
+    agents.sort();
+    agents.dedup();
+    if !agents.is_empty() {
+        delete(name, transport, "global", &agents, None)?;
+    }
+    // Drop the entry from the user-owned catalog sources.
+    delete_registry_entry(name, transport).map_err(|e| vec![e.to_string()])?;
+    delete_discovered_entry(name, transport).map_err(|e| vec![e.to_string()])?;
+    Ok(())
 }
 
 /// Persist the disabled store, downgrading an IO failure to a reported error.

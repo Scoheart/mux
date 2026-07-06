@@ -158,6 +158,13 @@ pub fn delete_registry_entry(name: &str, transport: &str) -> std::io::Result<()>
     remove_managed(MANUAL_ID, "手动添加", &format!("{}::{}", name, transport))
 }
 
+/// Remove an auto-discovered entry (`name`+`transport`) from the discovered
+/// source. It may reappear on the next scan if still present in an agent's config.
+/// A missing entry is a no-op success.
+pub fn delete_discovered_entry(name: &str, transport: &str) -> std::io::Result<()> {
+    remove_managed(DISCOVERED_ID, "自动探索", &format!("{}::{}", name, transport))
+}
+
 /// One-time migration: fold any legacy `settings.registry` entries into the
 /// managed source files (discovered→discovered, everything else→manual), then
 /// clear `settings.registry`. Idempotent (no-op once the section is empty).

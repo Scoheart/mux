@@ -8,7 +8,7 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use super::effect::Effect;
 use super::message::Msg;
 use super::model::{
-    AddMcpState, AgentForm, AgentPane, ConfirmState, Data, EditorState, EditorTransport,
+    bucket_of, AddMcpState, AgentForm, AgentPane, ConfirmState, Data, EditorState, EditorTransport,
     InstallWizard, LocalForm, Model, Modal, PasteState, Screen, SubscribeForm, AGENT_FIELDS,
     EDITOR_FIELDS,
 };
@@ -156,9 +156,33 @@ fn registry_key(model: &mut Model, k: KeyEvent) -> Vec<Effect> {
         KeyCode::Char('e') => open_editor_edit(model),
         KeyCode::Char('p') => model.modal = Some(Modal::Paste(PasteState::default())),
         KeyCode::Char('S') => return resync_selected(model),
+        KeyCode::Char('d') => open_forget_confirm(model),
         _ => {}
     }
     vec![]
+}
+
+/// `d`: delete the selected entry — only for user-owned (manual/discovered)
+/// entries; subscription/local entries are managed on the Sources screen.
+fn open_forget_confirm(model: &mut Model) {
+    let sel = {
+        let entries = model.filtered_registry();
+        entries
+            .get(model.registry_ui.cursor)
+            .map(|e| (e.name.clone(), e.transport().to_string(), bucket_of(e)))
+    };
+    let Some((name, transport, bucket)) = sel else { return };
+    if bucket != "manual" && bucket != "discovered" {
+        model.status = Some("订阅/本地来源的条目请到「来源」页管理".into());
+        return;
+    }
+    model.modal = Some(Modal::Confirm(ConfirmState {
+        prompt: format!(
+            "删除「{}」（{}）？会从目录移除，并从所有 agent 卸载（有备份）。",
+            name, transport
+        ),
+        effect: Effect::ForgetEntry { name, transport },
+    }));
 }
 
 /// `S`: re-sync the selected entry's current config to its installed agents.
@@ -1174,6 +1198,28 @@ mod tests {
             }
             _ => panic!("expected a force-confirm modal"),
         }
+    }
+
+    #[test]
+    fn d_on_manual_entry_opens_forget_confirm() {
+        let mut m = Model::new();
+        update(&mut m, loaded(vec![entry("git", "manual")]));
+        update(&mut m, key('d'));
+        match &m.modal {
+            Some(Modal::Confirm(c)) => {
+                assert!(matches!(&c.effect, Effect::ForgetEntry { name, .. } if name == "git"));
+            }
+            _ => panic!("expected a forget-confirm modal"),
+        }
+    }
+
+    #[test]
+    fn d_on_remote_entry_shows_hint_not_confirm() {
+        let mut m = Model::new();
+        update(&mut m, loaded(vec![entry("wiki", "remote")]));
+        update(&mut m, key('d'));
+        assert!(m.modal.is_none(), "remote entries aren't deletable here");
+        assert!(m.status.is_some());
     }
 
     #[test]

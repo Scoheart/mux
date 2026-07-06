@@ -42,7 +42,8 @@ pub fn run() {
             commands::disable_mcp,
             commands::enable_mcp,
             commands::delete_mcp,
-            commands::resync_entry
+            commands::resync_entry,
+            commands::forget_entry
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

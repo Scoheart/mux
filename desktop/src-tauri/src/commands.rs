@@ -28,6 +28,13 @@ pub fn list_custom_registry_keys() -> Vec<String> {
     user_override_keys()
 }
 
+/// Delete a manual/discovered catalog entry AND uninstall it from every agent
+/// that has it. (Remote/local source entries have nothing user-owned to delete.)
+#[tauri::command]
+pub fn forget_entry(name: String, transport: String) -> Result<(), Vec<String>> {
+    mux_core::ops::forget_entry(&name, &transport)
+}
+
 /// Parse a pasted config blob (JSON or TOML) and add every MCP server it contains
 /// to the managed "manual" source. Returns the names that were added.
 #[tauri::command]

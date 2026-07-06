@@ -189,7 +189,7 @@ body {
 /* Agent icon button (top-bar brand-icon group) */
 .mux-agent-btn {
   display: inline-flex; align-items: center; justify-content: center;
-  padding: 4px; border: 0; border-radius: 10px; background: transparent;
+  padding: 3px; border: 0; border-radius: 9px; background: transparent;
   cursor: pointer; opacity: .6;
   transition: background .14s ease, box-shadow .14s ease, opacity .14s ease, transform .14s ease;
 }

@@ -107,7 +107,7 @@ export function Layout({
                   title={`${agentName(a.id)}${warn ? "（无配置路径）" : ""}`}
                   onClick={() => onSelectAgent(a.id)}
                 >
-                  <AgentGlyph id={a.id} size={26} />
+                  <AgentGlyph id={a.id} size={20} />
                   {warn && (
                     <span
                       className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full"

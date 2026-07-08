@@ -15,6 +15,8 @@ export interface RegistryEntry {
   name: string; description: string; tags: string[];
   config: { stdio?: StdioConfig; http?: HttpConfig };
   origin?: RegistryOrigin;
+  /** Optional homepage / source repo URL (e.g. a GitHub repo), shown as a link. */
+  repo?: string;
 }
 export interface AgentInfo {
   id: string; format: string; key: string;

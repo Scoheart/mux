@@ -331,13 +331,14 @@ pub struct EditorState {
     pub http_type: String,
     pub url: String,
     pub headers: String,
+    pub repo: String,
     pub field: usize,
     pub editing: bool,
     pub error: Option<String>,
 }
 
-/// Number of fields (constant across transports; field 3 swaps meaning).
-pub const EDITOR_FIELDS: usize = 7;
+/// Number of fields (field 3 swaps meaning by transport; field 7 = repo, common).
+pub const EDITOR_FIELDS: usize = 8;
 
 impl EditorState {
     /// A blank editor for a new entry.
@@ -355,6 +356,7 @@ impl EditorState {
             http_type: "http".into(),
             url: String::new(),
             headers: String::new(),
+            repo: String::new(),
             field: 0,
             editing: false,
             error: None,
@@ -380,6 +382,7 @@ impl EditorState {
             s.url = http.url.clone();
             s.headers = kv_to_string(http.headers.as_ref());
         }
+        s.repo = entry.repo.clone().unwrap_or_default();
         s
     }
 
@@ -390,10 +393,10 @@ impl EditorState {
     pub fn labels(&self) -> [&'static str; EDITOR_FIELDS] {
         match self.transport {
             EditorTransport::Stdio => {
-                ["名称", "描述", "标签（逗号）", "传输", "命令", "参数（逗号）", "环境（KEY=val,）"]
+                ["名称", "描述", "标签（逗号）", "传输", "命令", "参数（逗号）", "环境（KEY=val,）", "仓库 URL"]
             }
             EditorTransport::Http => {
-                ["名称", "描述", "标签（逗号）", "传输", "类型", "URL", "请求头（KEY=val,）"]
+                ["名称", "描述", "标签（逗号）", "传输", "类型", "URL", "请求头（KEY=val,）", "仓库 URL"]
             }
         }
     }
@@ -412,6 +415,7 @@ impl EditorState {
             (4, EditorTransport::Http) => self.http_type.clone(),
             (5, EditorTransport::Http) => self.url.clone(),
             (6, EditorTransport::Http) => self.headers.clone(),
+            (7, _) => self.repo.clone(),
             _ => String::new(),
         }
     }
@@ -431,6 +435,7 @@ impl EditorState {
             (4, EditorTransport::Http) => Some(&mut self.http_type),
             (5, EditorTransport::Http) => Some(&mut self.url),
             (6, EditorTransport::Http) => Some(&mut self.headers),
+            (7, _) => Some(&mut self.repo),
             _ => None,
         }
     }
@@ -472,12 +477,14 @@ impl EditorState {
                 }
             }
         };
+        let repo = self.repo.trim();
         Ok(RegistryEntry {
             name: name.to_string(),
             description: self.description.trim().to_string(),
             tags,
             config,
             origin,
+            repo: if repo.is_empty() { None } else { Some(repo.to_string()) },
         })
     }
 }

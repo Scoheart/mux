@@ -3,6 +3,7 @@ import type { InstallState } from "../hooks/useInstallState";
 import type { RegistryEntry } from "../lib/types";
 import { keyOf, transportOf, type Transport } from "../lib/mcp";
 import { forgetEntry } from "../lib/api";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { AgentGlyph, agentName } from "./brandIcons";
 import { CopyIcon, EditIcon, PlusIcon, LinkIcon, TerminalIcon, XIcon, CloudIcon, FolderIcon, TrashIcon } from "./icons";
 import { Avatar, Badge, IconButton, SearchBar, Modal, TransportPill, stickyHeaderStyle } from "./ui";
@@ -261,6 +262,11 @@ export function RegistryView({ state, onEdit, onCreate }: RegistryViewProps) {
                     )}
 
                     <div className="mux-toolbar flex items-center gap-0.5" onClick={(e) => e.stopPropagation()}>
+                      {entry.repo && (
+                        <IconButton title={`打开仓库：${entry.repo}`} onClick={() => openUrl(entry.repo!)}>
+                          <LinkIcon className="w-4 h-4" />
+                        </IconButton>
+                      )}
                       <IconButton title="复制配置 JSON" onClick={() => copyConfig(entry)}>
                         <CopyIcon className="w-4 h-4" />
                       </IconButton>
@@ -353,6 +359,22 @@ function RegistryDetail({
               {entry.tags.map((t) => (
                 <Badge key={t} tone="info">{t}</Badge>
               ))}
+            </div>
+          )}
+          {entry.repo && (
+            <div>
+              <label className="text-xs font-medium block mb-1.5" style={{ color: "var(--text-secondary)" }}>
+                仓库 / 主页
+              </label>
+              <button
+                onClick={() => openUrl(entry.repo!)}
+                className="inline-flex items-center gap-1.5 text-sm border-0 bg-transparent cursor-pointer p-0 break-all text-left"
+                style={{ color: "var(--color-blue)" }}
+                title="在浏览器中打开"
+              >
+                <LinkIcon className="w-3.5 h-3.5 flex-shrink-0" />
+                {entry.repo}
+              </button>
             </div>
           )}
           <div>

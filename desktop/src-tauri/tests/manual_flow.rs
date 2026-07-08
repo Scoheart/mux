@@ -21,6 +21,7 @@ fn entry(name: &str, cmd: &str) -> RegistryEntry {
             http: None,
         },
         origin: None,
+        repo: None,
     }
 }
 

@@ -167,6 +167,7 @@ pub fn import_discovered(project_dir: Option<&str>) -> Result<usize, String> {
                 scope: Some(s.scope.clone()),
                 source: None,
             }),
+            repo: None,
         };
         write_discovered_entry(&entry).map_err(|e| e.to_string())?;
         imported += 1;
@@ -333,6 +334,7 @@ pub fn import_pasted(text: &str) -> Result<Vec<String>, String> {
             tags: Vec::new(),
             config: cfg.into(),
             origin: None,
+            repo: None,
         };
         write_manual_entry(&entry).map_err(|e| e.to_string())?;
         added.push(name);

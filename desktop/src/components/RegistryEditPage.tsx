@@ -58,6 +58,7 @@ export function RegistryEditPage({ state, name, transport: editTransport, onBack
   const [httpType, setHttpType] = useState<string>(existing?.config.http?.type ?? "http");
   const [url, setUrl] = useState(existing?.config.http?.url ?? "");
   const [headers, setHeaders] = useState<Record<string, string>>(existing?.config.http?.headers ?? {});
+  const [repo, setRepo] = useState(existing?.repo ?? "");
 
   const [saving, setSaving] = useState(false);
 
@@ -79,6 +80,7 @@ export function RegistryEditPage({ state, name, transport: editTransport, onBack
         : { http: { type: httpType.trim() || "http", url: url.trim(), headers: compact(headers) } },
     // Preserve a recorded origin across edits; brand-new entries are manual.
     origin: existing?.origin ?? { kind: "manual" },
+    repo: repo.trim() || undefined,
   });
 
   const valid =
@@ -229,6 +231,17 @@ export function RegistryEditPage({ state, name, transport: editTransport, onBack
                 value={tagsText}
                 onChange={(e) => setTagsText(e.target.value)}
                 placeholder="official, builtin"
+              />
+            </div>
+
+            {/* Repo / homepage */}
+            <div className="mb-4">
+              <label className={labelCls} style={labelStyle}>仓库 / 主页（可选）</label>
+              <input
+                style={{ ...inputStyle, fontFamily: "var(--font-mono)" }}
+                value={repo}
+                onChange={(e) => setRepo(e.target.value)}
+                placeholder="https://github.com/owner/repo"
               />
             </div>
 

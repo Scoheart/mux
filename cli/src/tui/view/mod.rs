@@ -108,6 +108,7 @@ mod tests {
                 http: None,
             },
             origin: Some(RegistryOrigin { kind: kind.into(), agent: None, scope: None, source: None }),
+            repo: None,
         }
     }
 

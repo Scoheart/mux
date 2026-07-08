@@ -33,6 +33,7 @@ mod tests {
                 http: None,
             },
             origin: None,
+            repo: None,
         }
     }
     #[test]

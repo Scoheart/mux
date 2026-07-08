@@ -243,6 +243,7 @@ fn cmd_add(name: &str) {
             scope: None,
             source: None,
         }),
+        repo: None,
     };
     match write_manual_entry(&entry) {
         Ok(()) => println!("{}", green(&format!("✓ {} added to registry", name))),

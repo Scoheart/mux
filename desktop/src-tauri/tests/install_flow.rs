@@ -33,6 +33,7 @@ fn install_flow_writes_config_applies_override_and_backs_up() {
             http: None,
         },
         origin: None,
+        repo: None,
     })
     .unwrap();
 

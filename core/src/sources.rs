@@ -41,6 +41,7 @@ fn entry_from(name: String, cfg: McpConfig, origin: &RegistryOrigin) -> Registry
         tags: Vec::new(),
         config,
         origin: Some(origin.clone()),
+        repo: None,
     }
 }
 

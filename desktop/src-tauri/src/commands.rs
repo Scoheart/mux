@@ -284,6 +284,7 @@ mod tests {
                 http: None,
             },
             origin: None,
+            repo: None,
         })
         .unwrap();
         let req = InstallRequest {

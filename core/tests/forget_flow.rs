@@ -27,6 +27,7 @@ fn forget_removes_from_catalog_and_uninstalls() {
             http: None,
         },
         origin: None,
+        repo: None,
     })
     .unwrap();
     ops::install("srv", "stdio", "global", &["claude-code".into()], None, &HashMap::new()).unwrap();

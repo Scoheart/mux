@@ -51,6 +51,10 @@ pub struct RegistryEntry {
     /// inferred at runtime); present for entries written to ~/.mux/registry.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub origin: Option<RegistryOrigin>,
+    /// Optional homepage / source repository URL (e.g. a GitHub repo). Shown as a
+    /// link in the UI; free-form, not part of the entry's identity.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repo: Option<String>,
 }
 
 /// Transport bucket of a config: "stdio" (local process) or "http" (remote,

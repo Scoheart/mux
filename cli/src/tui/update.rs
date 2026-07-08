@@ -830,6 +830,7 @@ mod tests {
                 http: None,
             },
             origin: Some(RegistryOrigin { kind: kind.into(), agent: None, scope: None, source: None }),
+            repo: None,
         }
     }
 
@@ -1048,6 +1049,17 @@ mod tests {
         let eff = update(&mut m, ctrl('s'));
         assert!(eff.is_empty());
         assert!(m.editor.as_ref().unwrap().error.is_some());
+    }
+
+    #[test]
+    fn editor_preserves_repo_round_trip() {
+        use crate::tui::model::EditorState;
+        let mut e = entry("git", "manual");
+        e.repo = Some("https://github.com/x/y".into());
+        let ed = EditorState::from_entry(&e, true);
+        assert_eq!(ed.repo, "https://github.com/x/y");
+        let out = ed.to_entry(None).unwrap();
+        assert_eq!(out.repo.as_deref(), Some("https://github.com/x/y"));
     }
 
     #[test]

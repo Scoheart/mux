@@ -246,6 +246,13 @@ fn render_detail(model: &Model, f: &mut Frame, key: &str) {
         lines.push(Line::from(""));
         lines.push(Line::from(entry.description.clone()));
     }
+    if let Some(repo) = &entry.repo {
+        lines.push(Line::from(""));
+        lines.push(Line::from(vec![
+            Span::from("仓库：").dim(),
+            Span::from(repo.clone()).cyan().underlined(),
+        ]));
+    }
     lines.push(Line::from(""));
     lines.push(Line::from(Span::from("配置：").dim()));
     if let Ok(json) = serde_json::to_string_pretty(&entry.config) {

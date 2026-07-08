@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import type { InstallState } from "../hooks/useInstallState";
 import type { SourceView } from "../lib/types";
 import { Switch, IconButton } from "./ui";
-import { CloudIcon, FolderIcon, PackageIcon, RefreshIcon, TrashIcon, LayersIcon } from "./icons";
+import { CloudIcon, FolderIcon, PackageIcon, RefreshIcon, TrashIcon, LayersIcon, EditIcon, SearchIcon } from "./icons";
 import { SubscribeDialog, OFFICIAL_SOURCE } from "./SubscribeDialog";
 import { useToast } from "./Toast";
 import { formatError } from "../lib/format";
@@ -16,9 +16,12 @@ function rank(s: SourceView): number {
 }
 
 function kindIconOf(s: SourceView) {
-  if (s.kind === "remote") return <CloudIcon className="w-3.5 h-3.5" />;
-  if (s.managed) return <PackageIcon className="w-3.5 h-3.5" />;
-  return <FolderIcon className="w-3.5 h-3.5" />;
+  if (s.kind === "remote") return <CloudIcon className="w-3.5 h-3.5" />;      // 订阅（远程 URL）
+  if (s.managed) {
+    // 手动添加（用户手建/编辑）vs 自动探索（扫描各 agent 发现）
+    return s.id === "discovered" ? <SearchIcon className="w-3.5 h-3.5" /> : <EditIcon className="w-3.5 h-3.5" />;
+  }
+  return <FolderIcon className="w-3.5 h-3.5" />;                              // 本地文件
 }
 
 /**

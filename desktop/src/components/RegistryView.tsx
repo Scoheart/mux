@@ -4,6 +4,7 @@ import type { RegistryEntry } from "../lib/types";
 import { keyOf, transportOf, type Transport } from "../lib/mcp";
 import { forgetEntry } from "../lib/api";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { SourcesSidebar } from "./SourcesSidebar";
 import { AgentGlyph, agentName } from "./brandIcons";
 import { CopyIcon, EditIcon, PlusIcon, LinkIcon, TerminalIcon, XIcon, CloudIcon, FolderIcon, TrashIcon } from "./icons";
 import { Avatar, Badge, IconButton, SearchBar, Modal, TransportPill, stickyHeaderStyle } from "./ui";
@@ -16,25 +17,25 @@ interface RegistryViewProps {
   onCreate: () => void;
 }
 
-/** Origin buckets used by the source filter. */
-type OriginBucket = "all" | "remote" | "local" | "manual" | "discovered";
+/** Origin buckets — still used to decide which entries are user-deletable. */
+type OriginBucket = "remote" | "local" | "manual" | "discovered";
 
-const FILTERS: { value: OriginBucket; label: string }[] = [
-  { value: "all", label: "全部" },
-  { value: "remote", label: "订阅" },
-  { value: "local", label: "本地" },
-  { value: "manual", label: "手动" },
-  { value: "discovered", label: "探索" },
-];
-
-/** Classify an entry's origin into a filter bucket. Entries with no origin, or a
+/** Classify an entry's origin into a bucket. Entries with no origin, or a
  *  legacy/unknown kind, fall into "discovered" (scanned-from-machine). */
-function bucketOf(entry: RegistryEntry): Exclude<OriginBucket, "all"> {
+function bucketOf(entry: RegistryEntry): OriginBucket {
   const k = entry.origin?.kind;
   if (k === "remote") return "remote";
   if (k === "local") return "local";
   if (k === "manual") return "manual";
   return "discovered";
+}
+
+/** Does `entry` belong to the sidebar-selected source? Managed sources match by
+ *  origin kind ("manual" / "discovered"); remote/local match by origin.source id. */
+function inSource(entry: RegistryEntry, sourceId: string): boolean {
+  if (sourceId === "manual") return entry.origin?.kind === "manual";
+  if (sourceId === "discovered") return entry.origin?.kind === "discovered";
+  return entry.origin?.source === sourceId;
 }
 
 function endpointOf(entry: RegistryEntry): { text: string; link: boolean } {
@@ -99,7 +100,9 @@ export function RegistryView({ state, onEdit, onCreate }: RegistryViewProps) {
   const toast = useToast();
 
   const [q, setQ] = useState("");
-  const [filter, setFilter] = useState<OriginBucket>("all");
+  // Which source the grid is filtered to. null = 全部. Managed sources use their
+  // ids ("manual" / "discovered"); remote/local use their source id.
+  const [selectedSource, setSelectedSource] = useState<string | null>(null);
   const [detail, setDetail] = useState<RegistryEntry | null>(null);
   const [pasteOpen, setPasteOpen] = useState(false);
 
@@ -115,11 +118,11 @@ export function RegistryView({ state, onEdit, onCreate }: RegistryViewProps) {
           (e) => e.name.toLowerCase().includes(s) || e.description.toLowerCase().includes(s)
         )
       : entries;
-    if (filter !== "all") list = list.filter((e) => bucketOf(e) === filter);
+    if (selectedSource !== null) list = list.filter((e) => inSource(e, selectedSource));
     return [...list].sort((a, b) =>
       a.name.localeCompare(b.name, undefined, { sensitivity: "base" })
     );
-  }, [entries, q, filter]);
+  }, [entries, q, selectedSource]);
 
   const copyConfig = useCallback(
     (entry: RegistryEntry) => {
@@ -164,8 +167,11 @@ export function RegistryView({ state, onEdit, onCreate }: RegistryViewProps) {
   );
 
   return (
-    <div className="h-full min-h-0 overflow-y-auto">
-      {/* Sticky header: search + new, then a source filter row */}
+    <div className="flex h-full min-h-0">
+      <SourcesSidebar state={state} selectedId={selectedSource} onSelect={setSelectedSource} />
+
+      <div className="flex-1 min-w-0 min-h-0 overflow-y-auto">
+      {/* Sticky header: search + paste + new */}
       <div className="sticky top-0 z-10 px-6 py-4" style={stickyHeaderStyle}>
         <div className="max-w-[1280px] mx-auto flex items-center gap-3">
           <div className="flex-1">
@@ -186,27 +192,13 @@ export function RegistryView({ state, onEdit, onCreate }: RegistryViewProps) {
             新建 MCP
           </button>
         </div>
-        <div className="max-w-[1280px] mx-auto mt-3 flex items-center gap-2">
-          <div className="mux-seg">
-            {FILTERS.map((f) => (
-              <button
-                key={f.value}
-                className="mux-seg-item"
-                data-active={filter === f.value ? "true" : undefined}
-                onClick={() => setFilter(f.value)}
-              >
-                {f.label}
-              </button>
-            ))}
-          </div>
-        </div>
       </div>
 
       <div className="max-w-[1280px] mx-auto px-6 pt-5 pb-8">
         {filtered.length === 0 ? (
           <div className="py-16 text-sm text-center" style={{ color: "var(--text-secondary)" }}>
             {entries.length === 0
-              ? "目录为空 —— 到「来源」页订阅远程配置或导入本地配置。"
+              ? "目录为空 —— 在左侧订阅远程配置或导入本地配置。"
               : "未找到匹配的 MCP"}
           </div>
         ) : (
@@ -305,6 +297,7 @@ export function RegistryView({ state, onEdit, onCreate }: RegistryViewProps) {
           onDelete={deletable(detail) ? () => deleteEntry(detail) : undefined}
         />
       )}
+      </div>
     </div>
   );
 }

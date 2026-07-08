@@ -47,7 +47,6 @@ export interface PatchInput {
  *  full-page MCP editor (name === null means creating a new entry). */
 export type View =
   | { kind: "registry" }
-  | { kind: "sources" }
   | { kind: "agent"; id: string }
   | { kind: "mcp-edit"; name: string | null; transport?: "stdio" | "http" };
 

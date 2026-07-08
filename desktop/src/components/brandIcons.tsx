@@ -15,6 +15,8 @@ import devinLogo from "../assets/agents/devin.svg";
 import continueLogo from "../assets/agents/continue.png";
 import clineLogo from "../assets/agents/cline.png";
 import rooLogo from "../assets/agents/roo-code.png";
+import warpLogo from "../assets/agents/warp.svg";
+import piLogo from "../assets/agents/pi.svg";
 
 /** Real brand logos (svgl / simpleicons) per agent id. */
 const LOGOS: Record<string, string> = {
@@ -36,11 +38,13 @@ const LOGOS: Record<string, string> = {
   continue: continueLogo,
   cline: clineLogo,
   "roo-code": rooLogo,
+  warp: warpLogo,
+  pi: piLogo,
 };
 
 /** Logos that are complete app icons (own background + rounded corners), so they
  *  render edge-to-edge instead of as a mark centered on a white tile. */
-const FULL_BLEED = new Set<string>(["qoder", "kiro", "roo-code"]);
+const FULL_BLEED = new Set<string>(["qoder", "kiro", "roo-code", "warp", "pi"]);
 
 /** Human-readable product names + brand colour (colour used for the monogram fallback). */
 const AGENT_META: Record<string, { name: string; color: string }> = {

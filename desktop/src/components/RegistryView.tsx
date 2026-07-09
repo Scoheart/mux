@@ -30,6 +30,14 @@ function bucketOf(entry: RegistryEntry): OriginBucket {
   return "discovered";
 }
 
+/** User-owned entries (手动添加 / 自动探索) can be edited and deleted here.
+ *  Remote/local subscription entries belong to a source and are read-only — edit
+ *  them at their upstream, or override via a new manual entry. */
+function isUserOwned(entry: RegistryEntry): boolean {
+  const b = bucketOf(entry);
+  return b === "manual" || b === "discovered";
+}
+
 /** Does `entry` belong to the sidebar-selected source? Managed sources match by
  *  origin kind ("manual" / "discovered"); remote/local match by origin.source id. */
 function inSource(entry: RegistryEntry, sourceId: string): boolean {
@@ -134,15 +142,10 @@ export function RegistryView({ state, onEdit, onCreate }: RegistryViewProps) {
     [toast]
   );
 
-  // Only user-owned entries (手动添加 / 探索) can be deleted; subscription/local
-  // entries belong to a source and are managed on the 来源 page.
-  const deletable = useCallback(
-    (entry: RegistryEntry) => {
-      const b = bucketOf(entry);
-      return b === "manual" || b === "discovered";
-    },
-    []
-  );
+  // Only user-owned entries (手动添加 / 探索) can be edited/deleted; subscription/
+  // local entries belong to a source and are managed on the 来源 page.
+  const deletable = useCallback((entry: RegistryEntry) => isUserOwned(entry), []);
+  const editable = useCallback((entry: RegistryEntry) => isUserOwned(entry), []);
 
   const deleteEntry = useCallback(
     async (entry: RegistryEntry) => {
@@ -210,29 +213,29 @@ export function RegistryView({ state, onEdit, onCreate }: RegistryViewProps) {
               const ep = endpointOf(entry);
 
               return (
-                <div key={sKey} className="mux-tile p-3.5" onClick={() => setDetail(entry)}>
-                  <div className="flex items-center gap-2.5">
-                    <Avatar seed={entry.name} size={34} />
+                <div key={sKey} className="mux-tile p-3" onClick={() => setDetail(entry)}>
+                  <div className="flex items-center gap-2">
+                    <Avatar seed={entry.name} size={28} />
                     <div className="flex-1 min-w-0">
                       <div
-                        className="text-sm font-semibold truncate"
+                        className="text-[13px] font-semibold truncate leading-tight"
                         style={{ color: "var(--text-primary)" }}
                         title={entry.name}
                       >
                         {entry.name}
                       </div>
-                      <div className="flex items-center gap-1.5 mt-1">
+                      <div className="flex items-center gap-1.5 mt-0.5">
                         <TransportPill entry={entry} />
                         <OriginTag entry={entry} installedAgents={installedAgents} sourceName={sourceName} />
                       </div>
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-1.5 mt-2.5 min-w-0">
+                  <div className="flex items-center gap-1.5 mt-2 min-w-0">
                     {ep.link ? (
-                      <LinkIcon className="w-3.5 h-3.5 flex-shrink-0" style={{ color: "var(--color-blue)" }} />
+                      <LinkIcon className="w-3 h-3 flex-shrink-0" style={{ color: "var(--color-blue)" }} />
                     ) : (
-                      <TerminalIcon className="w-3.5 h-3.5 flex-shrink-0" style={{ color: "var(--text-secondary)" }} />
+                      <TerminalIcon className="w-3 h-3 flex-shrink-0" style={{ color: "var(--text-secondary)" }} />
                     )}
                     <span
                       className="text-[11px] truncate"
@@ -246,7 +249,7 @@ export function RegistryView({ state, onEdit, onCreate }: RegistryViewProps) {
                     </span>
                   </div>
 
-                  <div className="flex items-center justify-between mt-3 pt-3" style={{ borderTop: "1px solid var(--border-hairline)" }}>
+                  <div className="flex items-center justify-between mt-2 pt-2" style={{ borderTop: "1px solid var(--border-hairline)" }}>
                     {usedBy > 0 ? (
                       <Badge tone="success">{usedBy} 个 agent 使用</Badge>
                     ) : (
@@ -262,9 +265,11 @@ export function RegistryView({ state, onEdit, onCreate }: RegistryViewProps) {
                       <IconButton title="复制配置 JSON" onClick={() => copyConfig(entry)}>
                         <CopyIcon className="w-4 h-4" />
                       </IconButton>
-                      <IconButton title="编辑配置" onClick={() => onEdit(entry.name, transportOf(entry))}>
-                        <EditIcon className="w-4 h-4" />
-                      </IconButton>
+                      {editable(entry) && (
+                        <IconButton title="编辑配置" onClick={() => onEdit(entry.name, transportOf(entry))}>
+                          <EditIcon className="w-4 h-4" />
+                        </IconButton>
+                      )}
                       {deletable(entry) && (
                         <IconButton title="删除条目（并从所有 agent 卸载）" onClick={() => deleteEntry(entry)}>
                           <TrashIcon className="w-4 h-4" />
@@ -288,12 +293,16 @@ export function RegistryView({ state, onEdit, onCreate }: RegistryViewProps) {
           sourceName={sourceName}
           onClose={() => setDetail(null)}
           onCopy={() => copyConfig(detail)}
-          onEdit={() => {
-            const { name } = detail;
-            const transport = transportOf(detail);
-            setDetail(null);
-            onEdit(name, transport);
-          }}
+          onEdit={
+            editable(detail)
+              ? () => {
+                  const { name } = detail;
+                  const transport = transportOf(detail);
+                  setDetail(null);
+                  onEdit(name, transport);
+                }
+              : undefined
+          }
           onDelete={deletable(detail) ? () => deleteEntry(detail) : undefined}
         />
       )}
@@ -316,7 +325,7 @@ function RegistryDetail({
   sourceName: (id: string) => string;
   onClose: () => void;
   onCopy: () => void;
-  onEdit: () => void;
+  onEdit?: () => void;
   onDelete?: () => void;
 }) {
   return (
@@ -409,14 +418,16 @@ function RegistryDetail({
             <CopyIcon className="w-4 h-4" />
             复制 JSON
           </button>
-          <button
-            onClick={onEdit}
-            className="flex items-center gap-1.5 px-4 py-2 text-sm rounded-mac border-0 cursor-pointer font-medium"
-            style={{ background: "#007AFF", color: "#fff" }}
-          >
-            <EditIcon className="w-4 h-4" />
-            编辑
-          </button>
+          {onEdit && (
+            <button
+              onClick={onEdit}
+              className="flex items-center gap-1.5 px-4 py-2 text-sm rounded-mac border-0 cursor-pointer font-medium"
+              style={{ background: "#007AFF", color: "#fff" }}
+            >
+              <EditIcon className="w-4 h-4" />
+              编辑
+            </button>
+          )}
         </div>
     </Modal>
   );

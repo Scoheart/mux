@@ -1,0 +1,28 @@
+[
+  {
+    "name": "context7",
+    "description": "库/框架文档实时查询",
+    "tags": ["development", "documentation"],
+    "config": {
+      "http": {
+        "type": "http",
+        "url": "https://mcp.context7.com/mcp",
+        "headers": { "CONTEXT7_API_KEY": "" }
+      }
+    },
+    "repo": "https://github.com/upstash/context7"
+  },
+  {
+    "name": "filesystem",
+    "description": "本地文件系统读写",
+    "tags": ["files"],
+    "config": {
+      "stdio": {
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/dir"],
+        "env": {}
+      }
+    },
+    "repo": "https://github.com/modelcontextprotocol/servers"
+  }
+]

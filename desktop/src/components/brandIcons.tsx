@@ -10,6 +10,7 @@ import opencodeLogo from "../assets/agents/opencode.svg";
 import jetbrainsLogo from "../assets/agents/jetbrains.svg";
 import amazonqLogo from "../assets/agents/amazon-q.svg";
 import qoderLogo from "../assets/agents/qoder.svg";
+import qoderworkLogo from "../assets/agents/qoderwork.svg";
 import kiroLogo from "../assets/agents/kiro.svg";
 import devinLogo from "../assets/agents/devin.svg";
 import continueLogo from "../assets/agents/continue.png";
@@ -33,6 +34,7 @@ const LOGOS: Record<string, string> = {
   junie: jetbrainsLogo,
   opencode: opencodeLogo,
   qoder: qoderLogo,
+  qoderwork: qoderworkLogo,
   kiro: kiroLogo,
   devin: devinLogo,
   continue: continueLogo,
@@ -44,7 +46,7 @@ const LOGOS: Record<string, string> = {
 
 /** Logos that are complete app icons (own background + rounded corners), so they
  *  render edge-to-edge instead of as a mark centered on a white tile. */
-const FULL_BLEED = new Set<string>(["qoder", "kiro", "roo-code", "warp", "pi"]);
+const FULL_BLEED = new Set<string>(["qoder", "qoderwork", "kiro", "roo-code", "warp", "pi"]);
 
 /** Human-readable product names + brand colour (colour used for the monogram fallback). */
 const AGENT_META: Record<string, { name: string; color: string }> = {
@@ -58,6 +60,7 @@ const AGENT_META: Record<string, { name: string; color: string }> = {
   "roo-code": { name: "Roo Code", color: "#6C47FF" },
   gemini: { name: "Gemini", color: "#4285F4" },
   qoder: { name: "Qoder", color: "#6E56CF" },
+  qoderwork: { name: "QoderWork", color: "#6E56CF" },
   devin: { name: "Devin", color: "#1F2937" },
   kiro: { name: "Kiro", color: "#7C3AED" },
   junie: { name: "Junie", color: "#E5484D" },

@@ -69,9 +69,9 @@ function OriginTag({
   const origin = entry.origin;
   if (origin?.kind === "remote") {
     return (
-      <span className="inline-flex items-center gap-1" title={`订阅：${origin.source ? sourceName(origin.source) : ""}`}>
-        <CloudIcon className="w-3.5 h-3.5" style={{ color: "var(--color-blue)" }} />
-        <span className="text-[11px]" style={{ color: "var(--text-secondary)" }}>
+      <span className="inline-flex items-center gap-1 min-w-0" title={`订阅：${origin.source ? sourceName(origin.source) : ""}`}>
+        <CloudIcon className="w-3.5 h-3.5 flex-shrink-0" style={{ color: "var(--color-blue)" }} />
+        <span className="text-[11px] truncate" style={{ color: "var(--text-secondary)" }}>
           订阅{origin.source ? `：${sourceName(origin.source)}` : ""}
         </span>
       </span>
@@ -79,9 +79,9 @@ function OriginTag({
   }
   if (origin?.kind === "local") {
     return (
-      <span className="inline-flex items-center gap-1" title={`本地：${origin.source ? sourceName(origin.source) : ""}`}>
-        <FolderIcon className="w-3.5 h-3.5" style={{ color: "var(--text-secondary)" }} />
-        <span className="text-[11px]" style={{ color: "var(--text-secondary)" }}>
+      <span className="inline-flex items-center gap-1 min-w-0" title={`本地：${origin.source ? sourceName(origin.source) : ""}`}>
+        <FolderIcon className="w-3.5 h-3.5 flex-shrink-0" style={{ color: "var(--text-secondary)" }} />
+        <span className="text-[11px] truncate" style={{ color: "var(--text-secondary)" }}>
           本地{origin.source ? `：${sourceName(origin.source)}` : ""}
         </span>
       </span>
@@ -92,9 +92,9 @@ function OriginTag({
   const agent = origin?.agent ?? installedAgents[0];
   if (agent) {
     return (
-      <span className="inline-flex items-center gap-1" title={`来自 ${agentName(agent)}`}>
-        <AgentGlyph id={agent} size={16} />
-        <span className="text-[11px]" style={{ color: "var(--text-secondary)" }}>
+      <span className="inline-flex items-center gap-1 min-w-0" title={`来自 ${agentName(agent)}`}>
+        <span className="flex-shrink-0 inline-flex"><AgentGlyph id={agent} size={16} /></span>
+        <span className="text-[11px] truncate" style={{ color: "var(--text-secondary)" }}>
           来自 {agentName(agent)}
         </span>
       </span>
@@ -341,7 +341,7 @@ function RegistryCard({
               </span>
             )}
           </div>
-          <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+          <div className="flex items-center gap-1.5 mt-1 min-w-0">
             <TransportPill entry={entry} />
             <OriginTag entry={entry} installedAgents={installedAgents} sourceName={sourceName} />
           </div>
@@ -367,8 +367,9 @@ function RegistryCard({
         </span>
       </div>
 
-      {/* Footer: usage dot + hover actions */}
-      <div className="flex items-center justify-between mt-2.5 pt-2.5" style={{ borderTop: "1px solid var(--border-hairline)" }}>
+      {/* Footer: usage dot + hover actions — pinned to the card bottom so every
+          card in a row lines up (grid stretches them to equal height). */}
+      <div className="flex items-center justify-between mt-auto pt-2.5" style={{ borderTop: "1px solid var(--border-hairline)" }}>
         <span
           className="inline-flex items-center gap-1.5 text-[11px]"
           style={{ color: usedBy > 0 ? "var(--color-green)" : "var(--text-secondary)" }}

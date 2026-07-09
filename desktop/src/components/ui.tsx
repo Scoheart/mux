@@ -1,6 +1,6 @@
 import { CSSProperties, ReactNode } from "react";
 import { SearchIcon } from "./icons";
-import { transportLabel } from "../lib/mcp";
+import { transportLabel, transportOf } from "../lib/mcp";
 import type { RegistryEntry } from "../lib/types";
 
 /* ── Avatar ──────────────────────────────────────────────────────────── */
@@ -287,14 +287,20 @@ export function ModalHeader({
 /** Gray mono pill showing an entry's transport (stdio / http / sse / custom).
  *  `compact` is the tighter list-row variant. */
 export function TransportPill({ entry, compact }: { entry: RegistryEntry; compact?: boolean }) {
+  const full = transportLabel(entry);
+  // Long/custom http types (e.g. "streamable-http") collapse to the transport
+  // bucket so the pill stays short and card meta rows don't wrap; the exact type
+  // is kept in the tooltip.
+  const label = full.length <= 5 ? full : transportOf(entry);
   return (
     <span
+      title={full}
       className={`inline-flex items-center text-[10px] font-medium uppercase tracking-wide whitespace-nowrap flex-shrink-0 ${
         compact ? "px-1.5 py-0.5 rounded" : "px-2.5 py-1 rounded-full"
       }`}
       style={{ background: "var(--color-gray-150)", color: "var(--color-gray-600)", fontFamily: "var(--font-mono)" }}
     >
-      {transportLabel(entry)}
+      {label}
     </span>
   );
 }

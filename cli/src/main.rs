@@ -83,6 +83,13 @@ enum Command {
     Add { name: String },
     /// Remove an MCP from registry
     Remove { name: String },
+    /// Export all manually-added MCPs to a config file (JSON). Prints to stdout
+    /// unless --out is given.
+    Export {
+        /// Write to this file instead of stdout
+        #[arg(long)]
+        out: Option<String>,
+    },
     /// Apply MCPs non-interactively
     Apply {
         names: Vec<String>,
@@ -128,6 +135,7 @@ fn main() {
         Some(Command::Status) => cmd_status(),
         Some(Command::Add { name }) => cmd_add(&name),
         Some(Command::Remove { name }) => cmd_remove(&name),
+        Some(Command::Export { out }) => cmd_export(out.as_deref()),
         Some(Command::Apply {
             names,
             scope,
@@ -263,6 +271,23 @@ fn cmd_remove(name: &str) {
         println!("{}", green(&format!("✓ {} removed from registry", name)));
     } else {
         println!("{}", red(&format!("\"{}\" not found in registry.", name)));
+    }
+}
+
+fn cmd_export(out: Option<&str>) {
+    let content = match ops::export_manual() {
+        Ok(c) => c,
+        Err(e) => {
+            println!("{}", red(&format!("导出失败: {}", e)));
+            return;
+        }
+    };
+    match out {
+        Some(path) => match std::fs::write(path, &content) {
+            Ok(_) => println!("{}", green(&format!("✓ 已导出手动添加的 MCP → {}", path))),
+            Err(e) => println!("{}", red(&format!("写入 {} 失败: {}", path, e))),
+        },
+        None => println!("{}", content),
     }
 }
 

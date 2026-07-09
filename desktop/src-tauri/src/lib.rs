@@ -27,6 +27,7 @@ pub fn run() {
             commands::subscribe_source,
             commands::add_local_source,
             commands::add_local_source_dialog,
+            commands::export_manual_dialog,
             commands::add_builtin_collection,
             commands::refresh_source,
             commands::set_source_enabled,

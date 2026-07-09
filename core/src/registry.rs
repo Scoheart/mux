@@ -151,6 +151,12 @@ pub fn user_override_keys() -> Vec<String> {
     managed_entries(MANUAL_ID).iter().map(|e| e.key()).collect()
 }
 
+/// All entries currently stored in the **manual** source (the user's own,
+/// hand-added / edited layer). Used to export them as a shareable config file.
+pub fn manual_entries() -> Vec<RegistryEntry> {
+    managed_entries(MANUAL_ID)
+}
+
 /// Remove a user override (`name`+`transport`) from the manual source. If another
 /// source still provides that key, it shows through again. A missing entry is a
 /// no-op success.

@@ -2,10 +2,11 @@ import { useMemo, useState } from "react";
 import type { InstallState } from "../hooks/useInstallState";
 import type { SourceView } from "../lib/types";
 import { Switch, IconButton } from "./ui";
-import { CloudIcon, FolderIcon, PackageIcon, RefreshIcon, TrashIcon, LayersIcon, EditIcon, SearchIcon } from "./icons";
+import { CloudIcon, FolderIcon, PackageIcon, RefreshIcon, TrashIcon, LayersIcon, EditIcon, SearchIcon, DownloadIcon } from "./icons";
 import { SubscribeDialog, OFFICIAL_SOURCE } from "./SubscribeDialog";
 import { useToast } from "./Toast";
 import { formatError } from "../lib/format";
+import { exportManualDialog } from "../lib/api";
 
 type SubscribePreset = { url?: string; name?: string } | null;
 
@@ -61,6 +62,15 @@ export function SourcesSidebar({
     }
   };
 
+  const doExport = async () => {
+    try {
+      const path = await exportManualDialog();
+      if (path) toast.show({ kind: "success", msg: `已导出手动添加的 MCP → ${path}` });
+    } catch (e) {
+      toast.show({ kind: "error", msg: "导出失败：" + formatError(e) });
+    }
+  };
+
   const doRefresh = async (s: SourceView) => {
     setBusyId(s.id);
     try {
@@ -87,7 +97,7 @@ export function SourcesSidebar({
   };
 
   const doRemove = async (s: SourceView) => {
-    if (!window.confirm(`删除来源「${s.name}」？其缓存文件会一并删除（不影响已装到 agent 的配置）。`)) return;
+    if (!window.confirm(`删除来源「${s.name}」？缓存一并删除，不影响已装配置。`)) return;
     setBusyId(s.id);
     try {
       await state.deleteSource(s.id);
@@ -116,6 +126,9 @@ export function SourcesSidebar({
         <IconButton title="导入本地配置文件" onClick={pickLocal}>
           <FolderIcon className="w-4 h-4" />
         </IconButton>
+        <IconButton title="导出手动添加的 MCP 为配置文件" onClick={doExport}>
+          <DownloadIcon className="w-4 h-4" />
+        </IconButton>
         <IconButton title="订阅远程配置 URL" onClick={() => setSubscribe({})}>
           <CloudIcon className="w-4 h-4" />
         </IconButton>
@@ -136,7 +149,7 @@ export function SourcesSidebar({
 
         {sorted.length === 0 ? (
           <div className="text-[11px] px-3 py-4 leading-relaxed" style={{ color: "var(--text-secondary)" }}>
-            还没有来源。用上方按钮订阅远程配置、导入本地配置，或添加官方精选合集。
+            还没有来源。用上方按钮订阅、导入或添加官方精选合集。
           </div>
         ) : (
           sorted.map((s) => (

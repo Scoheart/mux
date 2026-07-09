@@ -345,6 +345,18 @@ pub fn import_pasted(text: &str) -> Result<Vec<String>, String> {
     Ok(added)
 }
 
+/// Serialize every manually-added catalog entry into a shareable MUX-array JSON
+/// string (the same format `subscribe`/`import`/`import_pasted` consume, so it
+/// round-trips). Origins are stripped so the file is portable across machines.
+/// Returns a pretty `[]` when there are no manual entries.
+pub fn export_manual() -> Result<String, String> {
+    let mut entries = crate::registry::manual_entries();
+    for e in &mut entries {
+        e.origin = None;
+    }
+    serde_json::to_string_pretty(&entries).map_err(|e| e.to_string())
+}
+
 // ── Install status scan + enable / disable / delete ────────────────────────
 
 /// A server found installed in an agent's real config file, or remembered in

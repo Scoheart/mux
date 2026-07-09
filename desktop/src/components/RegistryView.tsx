@@ -150,7 +150,7 @@ export function RegistryView({ state, onEdit, onCreate }: RegistryViewProps) {
       const t = transportOf(entry);
       if (
         !window.confirm(
-          `删除「${entry.name}」（${t}）？会从目录移除，并从所有已安装的 agent 卸载（写回配置文件，有备份）。`
+          `删除「${entry.name}」（${t}）？将从目录移除并从所有 agent 卸载（有备份）。`
         )
       )
         return;
@@ -198,7 +198,7 @@ export function RegistryView({ state, onEdit, onCreate }: RegistryViewProps) {
         {filtered.length === 0 ? (
           <div className="py-16 text-sm text-center" style={{ color: "var(--text-secondary)" }}>
             {entries.length === 0
-              ? "目录为空 —— 在左侧订阅远程配置或导入本地配置。"
+              ? "目录为空 —— 在左侧订阅或导入配置。"
               : "未找到匹配的 MCP"}
           </div>
         ) : (

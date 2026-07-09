@@ -208,7 +208,7 @@ export function RegistryEditPage({ state, name, transport: editTransport, onBack
                 />
                 {!isNew && isCustom && existing && serverName.trim() !== existing.name && (
                   <p className="text-[11px] mt-1" style={{ color: "var(--text-secondary)" }}>
-                    改名后按新名保存并移除旧条目；已安装到 agent 的旧名不会自动改名。
+                    改名会移除旧条目；已装到 agent 的旧名不会自动改。
                   </p>
                 )}
               </div>
@@ -306,7 +306,7 @@ export function RegistryEditPage({ state, name, transport: editTransport, onBack
                     placeholder="http / sse / streamable-http / 自定义"
                   />
                   <p className="text-[11px] mt-1" style={{ color: "var(--text-secondary)" }}>
-                    可点上面预设，或直接输入任意 type（如 streamable-http）。写入配置文件的就是这里的原值。
+                    可点预设或输入任意 type（如 streamable-http），原值写入配置。
                   </p>
                 </div>
                 <div className="mb-4">

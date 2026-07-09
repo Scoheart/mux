@@ -82,8 +82,8 @@ export function AddAgentDialog({
           title={isEdit ? "编辑 Agent" : "添加 Agent"}
           subtitle={
             isEdit
-              ? "修改该工具的配置文件路径 / 格式 / Key。路径请用 ~ 开头（如 ~/Library/…），勿写死用户名。"
-              : "注册一个自定义工具，MCP 配置将写入它的配置文件。"
+              ? "修改配置文件路径 / 格式 / Key。路径用 ~ 开头，勿写死用户名。"
+              : "注册自定义工具，MCP 写入它的配置文件。"
           }
           onClose={onClose}
         />

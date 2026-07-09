@@ -48,8 +48,7 @@ export function PasteConfigDialog({
           title="粘贴配置"
           subtitle={
             <>
-              直接粘贴一段 <code style={{ fontFamily: "var(--font-mono)" }}>mcpServers</code> 配置（JSON /
-              TOML），MUX 会识别其中的 server 并加入「手动添加」。
+              粘贴一段 <code style={{ fontFamily: "var(--font-mono)" }}>mcpServers</code> 配置，server 加入「手动添加」。
             </>
           }
           onClose={onClose}

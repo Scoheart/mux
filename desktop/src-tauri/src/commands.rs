@@ -1,4 +1,4 @@
-use mux_core::registry::{read_registry, user_override_keys};
+use mux_core::registry::{read_registry, read_registry_all, user_override_keys, CatalogItem};
 use mux_core::types::RegistryEntry;
 
 #[tauri::command]
@@ -6,6 +6,14 @@ pub fn list_registry() -> Vec<RegistryEntry> {
     // Read user overrides from settings.registry merged over builtin — same source
     // scan_installed / apply_install resolve against, so the UI stays consistent.
     read_registry()
+}
+
+/// Every entry copy from all enabled sources (not deduped), each flagged with
+/// whether it's the in-effect (winning) copy. Drives the Registry's "全部" /
+/// per-source views that must show shadowed copies too.
+#[tauri::command]
+pub fn list_registry_all() -> Vec<CatalogItem> {
+    read_registry_all()
 }
 
 /// Persist (create or overwrite) a user registry entry; propagates to clean installs.

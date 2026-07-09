@@ -19,6 +19,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::list_registry,
+            commands::list_registry_all,
             commands::upsert_registry_entry,
             commands::delete_registry_entry,
             commands::list_custom_registry_keys,

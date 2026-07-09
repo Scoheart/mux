@@ -1,7 +1,9 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { RegistryEntry, AgentInfo, AgentDefinitionInput, InstalledMcp, InstallRequest, SourceView, ResyncOutcome } from "./types";
+import type { RegistryEntry, CatalogItem, AgentInfo, AgentDefinitionInput, InstalledMcp, InstallRequest, SourceView, ResyncOutcome } from "./types";
 
 export const listRegistry = () => invoke<RegistryEntry[]>("list_registry");
+/** All entry copies across sources (not deduped), each flagged in_effect. */
+export const listRegistryAll = () => invoke<CatalogItem[]>("list_registry_all");
 export const upsertRegistry = (entry: RegistryEntry) =>
   invoke<void>("upsert_registry_entry", { entry });
 export const deleteRegistry = (name: string, transport: string) =>

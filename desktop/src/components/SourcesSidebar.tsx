@@ -1,14 +1,18 @@
 import { useMemo, useState } from "react";
 import type { InstallState } from "../hooks/useInstallState";
 import type { SourceView } from "../lib/types";
-import { Switch, IconButton } from "./ui";
-import { CloudIcon, FolderIcon, PackageIcon, RefreshIcon, TrashIcon, LayersIcon, EditIcon, SearchIcon, DownloadIcon } from "./icons";
+import { IconButton } from "./ui";
+import { CloudIcon, FolderIcon, PackageIcon, RefreshIcon, TrashIcon, LayersIcon, EditIcon, SearchIcon, DownloadIcon, CheckIcon } from "./icons";
 import { SubscribeDialog, OFFICIAL_SOURCE } from "./SubscribeDialog";
 import { useToast } from "./Toast";
 import { formatError } from "../lib/format";
 import { exportManualDialog } from "../lib/api";
 
 type SubscribePreset = { url?: string; name?: string } | null;
+
+/** Sentinel `selectedId` for the "生效中" filter (the deduped effective catalog).
+ *  `null` = 全部 (all copies); a real source id = that source's copies. */
+export const EFFECTIVE_ID = "__effective__";
 
 /** Sort rank: remote (0) → user local (1) → managed manual/discovered (2). */
 function rank(s: SourceView): number {
@@ -40,7 +44,7 @@ export function SourcesSidebar({
   selectedId: string | null;
   onSelect: (id: string | null) => void;
 }) {
-  const { sources, entries } = state;
+  const { sources, entries, catalog } = state;
   const toast = useToast();
   const [subscribe, setSubscribe] = useState<SubscribePreset>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -88,14 +92,6 @@ export function SourcesSidebar({
     }
   };
 
-  const doToggle = async (s: SourceView, on: boolean) => {
-    try {
-      await state.toggleSource(s.id, on);
-    } catch (e) {
-      toast.show({ kind: "error", msg: "操作失败：" + formatError(e) });
-    }
-  };
-
   const doRemove = async (s: SourceView) => {
     if (!window.confirm(`删除来源「${s.name}」？缓存一并删除，不影响已装配置。`)) return;
     setBusyId(s.id);
@@ -136,13 +132,20 @@ export function SourcesSidebar({
 
       {/* List */}
       <div className="flex-1 min-h-0 overflow-y-auto px-2 pb-3 mux-noscroll">
-        {/* 全部 */}
+        {/* 全部（所有来源的全部副本）+ 生效中（去重后胜出的） */}
         <Row
           active={selectedId === null}
           icon={<LayersIcon className="w-3.5 h-3.5" />}
           name="全部"
-          count={entries.length}
+          count={catalog.length}
           onClick={() => onSelect(null)}
+        />
+        <Row
+          active={selectedId === EFFECTIVE_ID}
+          icon={<CheckIcon className="w-3.5 h-3.5" />}
+          name="生效中"
+          count={entries.length}
+          onClick={() => onSelect(EFFECTIVE_ID)}
         />
 
         <div className="my-1.5 mx-2 h-px" style={{ background: "var(--border-hairline)" }} />
@@ -159,10 +162,8 @@ export function SourcesSidebar({
               icon={kindIconOf(s)}
               name={s.name}
               count={s.server_count}
-              dimmed={!s.enabled}
               busy={busyId === s.id}
               onClick={() => onSelect(s.id)}
-              toggle={<Switch checked={s.enabled} onChange={(on) => doToggle(s, on)} title={s.enabled ? "已启用" : "已停用"} />}
               actions={
                 <>
                   {(s.kind === "remote" || !s.managed || s.id === "discovered") && (

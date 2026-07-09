@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   listRegistry,
+  listRegistryAll,
   listAgents,
   scanInstalled,
   applyInstall,
@@ -19,13 +20,17 @@ import {
   removeSource,
   importPastedConfig,
 } from "../lib/api";
-import type { RegistryEntry, AgentInfo, InstalledMcp, SourceView } from "../lib/types";
+import type { RegistryEntry, CatalogItem, AgentInfo, InstalledMcp, SourceView } from "../lib/types";
 import { keyOf, transportOf, installedKey } from "../lib/mcp";
 import { formatError } from "../lib/format";
 import { useToast } from "../components/Toast";
 
 export interface InstallState {
   entries: RegistryEntry[];
+  /** Every entry copy across all sources (not deduped), each flagged in_effect.
+   *  Drives the Registry so shadowed copies stay visible. `entries` remains the
+   *  deduped effective set used for installs/scans. */
+  catalog: CatalogItem[];
   agents: AgentInfo[];
   installed: InstalledMcp[];
   loading: boolean;
@@ -65,6 +70,7 @@ export interface InstallState {
 
 export function useInstallState(): InstallState {
   const [entries, setEntries] = useState<RegistryEntry[]>([]);
+  const [catalog, setCatalog] = useState<CatalogItem[]>([]);
   const [agents, setAgents] = useState<AgentInfo[]>([]);
   const [installed, setInstalled] = useState<InstalledMcp[]>([]);
   const [loading, setLoading] = useState(true);
@@ -95,6 +101,9 @@ export function useInstallState(): InstallState {
         setEntries(d);
         return d;
       }),
+      listRegistryAll()
+        .then(setCatalog)
+        .catch(console.error),
       listCustomRegistryKeys()
         .then((keys) => setCustomKeys(new Set(keys)))
         .catch(console.error),
@@ -387,6 +396,7 @@ export function useInstallState(): InstallState {
 
   return {
     entries,
+    catalog,
     agents,
     installed,
     loading,

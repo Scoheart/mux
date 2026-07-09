@@ -18,6 +18,13 @@ export interface RegistryEntry {
   /** Optional homepage / source repo URL (e.g. a GitHub repo), shown as a link. */
   repo?: string;
 }
+/** One entry copy from a source, plus whether it's the in-effect (winning) copy
+ *  for its composite key. Copies with `in_effect === false` are shadowed by a
+ *  higher-precedence source but still shown so nothing is hidden. */
+export interface CatalogItem {
+  entry: RegistryEntry;
+  in_effect: boolean;
+}
 export interface AgentInfo {
   id: string; format: string; key: string;
   has_global: boolean; has_project: boolean; enabled: boolean;

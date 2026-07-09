@@ -1,6 +1,7 @@
 use crate::settings::{load_settings, mutate_settings, Settings};
 use crate::sources::{cached_path, source_entries};
 use crate::types::{RegistryEntry, RegistryOrigin, SourceDef};
+use serde::Serialize;
 use std::fs;
 use std::path::Path;
 
@@ -112,37 +113,81 @@ pub fn write_discovered_entry(entry: &RegistryEntry) -> std::io::Result<()> {
     write_managed(DISCOVERED_ID, "自动探索", entry.clone())
 }
 
-/// All catalog entries, assembled from every enabled source and deduped by
-/// composite key (`name::transport`) with precedence low→high:
+/// Every copy of every entry from all enabled sources, concatenated in
+/// precedence order (low→high), **without** deduping:
 ///   external sources (subscribed remote + added local, in list order)
 ///     < discovered (auto-detected)
 ///     < manual (the user's own edits win over everything).
-pub fn read_registry() -> Vec<RegistryEntry> {
-    use std::collections::HashMap;
+/// The last copy of a given composite key in this order is the one that "wins"
+/// in `read_registry`. Each entry carries its own `origin`.
+fn enabled_source_entries_in_order() -> Vec<RegistryEntry> {
     let defs = load_settings().sources.unwrap_or_default();
-    let mut by_key: HashMap<String, RegistryEntry> = HashMap::new();
+    let mut out: Vec<RegistryEntry> = Vec::new();
     // 1. external sources (everything that isn't a managed source), in order.
     for def in defs
         .iter()
         .filter(|d| d.enabled && d.id != MANUAL_ID && d.id != DISCOVERED_ID)
     {
-        for e in source_entries(def) {
-            by_key.insert(e.key(), e);
-        }
+        out.extend(source_entries(def));
     }
     // 2. discovered layer.
     if let Some(def) = defs.iter().find(|d| d.id == DISCOVERED_ID && d.enabled) {
-        for e in source_entries(def) {
-            by_key.insert(e.key(), e);
-        }
+        out.extend(source_entries(def));
     }
     // 3. manual layer (highest precedence).
     if let Some(def) = defs.iter().find(|d| d.id == MANUAL_ID && d.enabled) {
-        for e in source_entries(def) {
-            by_key.insert(e.key(), e);
-        }
+        out.extend(source_entries(def));
+    }
+    out
+}
+
+/// All catalog entries, assembled from every enabled source and deduped by
+/// composite key (`name::transport`) with the precedence order above (manual
+/// wins). This is the **effective** catalog used by install / scan / edit
+/// propagation — its dedup semantics are load-bearing, do not change them.
+pub fn read_registry() -> Vec<RegistryEntry> {
+    use std::collections::HashMap;
+    let mut by_key: HashMap<String, RegistryEntry> = HashMap::new();
+    for e in enabled_source_entries_in_order() {
+        by_key.insert(e.key(), e);
     }
     by_key.into_values().collect()
+}
+
+/// One entry copy plus whether it's the one that wins precedence (in effect).
+#[derive(Debug, Clone, Serialize)]
+pub struct CatalogItem {
+    pub entry: RegistryEntry,
+    /// True for the copy that `read_registry` keeps (highest precedence for its
+    /// composite key); false for copies shadowed by a higher-precedence source.
+    pub in_effect: bool,
+}
+
+/// Every copy of every entry from all enabled sources (**not** deduped), each
+/// flagged with whether it's the in-effect (winning) copy for its composite key.
+/// For display only — lets the Registry show shadowed copies that `read_registry`
+/// would drop, and mark which source's copy actually takes effect.
+pub fn read_registry_all() -> Vec<CatalogItem> {
+    flag_in_effect(enabled_source_entries_in_order())
+}
+
+/// Flag each entry with whether it's the last (highest-precedence) copy of its
+/// composite key in `ordered` — the copy `read_registry`'s dedup would keep.
+/// Pure over its input, so it's unit-testable without touching `~/.mux`.
+fn flag_in_effect(ordered: Vec<RegistryEntry>) -> Vec<CatalogItem> {
+    use std::collections::HashMap;
+    let mut last_idx: HashMap<String, usize> = HashMap::new();
+    for (i, e) in ordered.iter().enumerate() {
+        last_idx.insert(e.key(), i);
+    }
+    ordered
+        .into_iter()
+        .enumerate()
+        .map(|(i, entry)| {
+            let in_effect = last_idx.get(&entry.key()) == Some(&i);
+            CatalogItem { entry, in_effect }
+        })
+        .collect()
 }
 
 /// Composite keys of entries in the **manual** source — i.e. user overrides that
@@ -221,5 +266,49 @@ mod tests {
         assert!(cached_path(&managed_def(DISCOVERED_ID, "自动探索"))
             .unwrap()
             .ends_with("local/discovered.json"));
+    }
+
+    fn stdio_entry(name: &str, kind: &str, source: &str) -> RegistryEntry {
+        use crate::types::{RegistryConfig, StdioConfig};
+        RegistryEntry {
+            name: name.into(),
+            description: String::new(),
+            tags: Vec::new(),
+            config: RegistryConfig {
+                stdio: Some(StdioConfig { command: source.into(), args: None, env: None }),
+                http: None,
+            },
+            origin: Some(RegistryOrigin {
+                kind: kind.into(),
+                agent: None,
+                scope: None,
+                source: Some(source.into()),
+            }),
+            repo: None,
+        }
+    }
+
+    #[test]
+    fn flag_in_effect_keeps_all_copies_marks_last_winner() {
+        // Same composite key (context7::stdio) from a remote source then the
+        // manual source — mirrors read_registry's ordering (manual last/wins).
+        let ordered = vec![
+            stdio_entry("context7", "remote", "official"),
+            stdio_entry("solo", "manual", "manual"),
+            stdio_entry("context7", "manual", "manual"),
+        ];
+        let items = flag_in_effect(ordered);
+        // Nothing is deduped away — all three copies survive.
+        assert_eq!(items.len(), 3);
+        // The two context7 copies: only the later (manual) one is in effect.
+        let ctx: Vec<&CatalogItem> = items.iter().filter(|i| i.entry.name == "context7").collect();
+        assert_eq!(ctx.len(), 2);
+        let remote = ctx.iter().find(|i| i.entry.origin.as_ref().unwrap().kind == "remote").unwrap();
+        let manual = ctx.iter().find(|i| i.entry.origin.as_ref().unwrap().kind == "manual").unwrap();
+        assert!(!remote.in_effect, "shadowed remote copy must not be in effect");
+        assert!(manual.in_effect, "manual copy wins precedence");
+        // A single-source entry is trivially in effect.
+        let solo = items.iter().find(|i| i.entry.name == "solo").unwrap();
+        assert!(solo.in_effect);
     }
 }

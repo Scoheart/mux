@@ -1,10 +1,10 @@
 import { useState, useMemo, useCallback } from "react";
 import type { InstallState } from "../hooks/useInstallState";
-import type { RegistryEntry } from "../lib/types";
+import type { RegistryEntry, RegistryOrigin, CatalogItem } from "../lib/types";
 import { keyOf, transportOf, type Transport } from "../lib/mcp";
 import { forgetEntry } from "../lib/api";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { SourcesSidebar } from "./SourcesSidebar";
+import { SourcesSidebar, EFFECTIVE_ID } from "./SourcesSidebar";
 import { AgentGlyph, agentName } from "./brandIcons";
 import { CopyIcon, EditIcon, PlusIcon, LinkIcon, TerminalIcon, XIcon, CloudIcon, FolderIcon, TrashIcon } from "./icons";
 import { Avatar, Badge, IconButton, SearchBar, Modal, TransportPill, stickyHeaderStyle } from "./ui";
@@ -103,13 +103,23 @@ function OriginTag({
   return <Badge tone="neutral">机器探索</Badge>;
 }
 
+/** Short human label for an origin, for the "被『X』覆盖" tooltip. */
+function originLabel(origin: RegistryOrigin | undefined, sourceName: (id: string) => string): string {
+  if (!origin) return "其它来源";
+  if (origin.kind === "manual") return "手动添加";
+  if (origin.kind === "discovered") return origin.agent ? `来自 ${agentName(origin.agent)}` : "自动探索";
+  const label = origin.source ? sourceName(origin.source) : "";
+  return (origin.kind === "remote" ? "订阅" : "本地") + (label ? `：${label}` : "");
+}
+
 export function RegistryView({ state, onEdit, onCreate }: RegistryViewProps) {
-  const { entries, agentsForServer, sources } = state;
+  const { catalog, agentsForServer, sources } = state;
   const toast = useToast();
 
   const [q, setQ] = useState("");
-  // Which source the grid is filtered to. null = 全部. Managed sources use their
-  // ids ("manual" / "discovered"); remote/local use their source id.
+  // Which source the grid is filtered to. null = 全部 (all copies), EFFECTIVE_ID =
+  // 生效中 (deduped winners). Managed sources use their ids ("manual" /
+  // "discovered"); remote/local use their source id.
   const [selectedSource, setSelectedSource] = useState<string | null>(null);
   const [detail, setDetail] = useState<RegistryEntry | null>(null);
   const [pasteOpen, setPasteOpen] = useState(false);
@@ -119,18 +129,33 @@ export function RegistryView({ state, onEdit, onCreate }: RegistryViewProps) {
     [sources]
   );
 
+  // For each composite key, the origin of the in-effect (winning) copy — used to
+  // tell an overridden card which source actually takes effect.
+  const winningOriginByKey = useMemo(() => {
+    const m = new Map<string, RegistryOrigin | undefined>();
+    for (const item of catalog) {
+      if (item.in_effect) m.set(keyOf(item.entry), item.entry.origin);
+    }
+    return m;
+  }, [catalog]);
+
   const filtered = useMemo(() => {
     const s = q.trim().toLowerCase();
-    let list = s
-      ? entries.filter(
-          (e) => e.name.toLowerCase().includes(s) || e.description.toLowerCase().includes(s)
-        )
-      : entries;
-    if (selectedSource !== null) list = list.filter((e) => inSource(e, selectedSource));
-    return [...list].sort((a, b) =>
-      a.name.localeCompare(b.name, undefined, { sensitivity: "base" })
+    let list = catalog;
+    if (selectedSource === EFFECTIVE_ID) list = list.filter((it) => it.in_effect);
+    else if (selectedSource !== null) list = list.filter((it) => inSource(it.entry, selectedSource));
+    if (s)
+      list = list.filter(
+        (it) => it.entry.name.toLowerCase().includes(s) || it.entry.description.toLowerCase().includes(s)
+      );
+    // Alphabetical by name, then transport; in-effect copy first within a group.
+    return [...list].sort(
+      (a, b) =>
+        a.entry.name.localeCompare(b.entry.name, undefined, { sensitivity: "base" }) ||
+        transportOf(a.entry).localeCompare(transportOf(b.entry)) ||
+        Number(b.in_effect) - Number(a.in_effect)
     );
-  }, [entries, q, selectedSource]);
+  }, [catalog, q, selectedSource]);
 
   const copyConfig = useCallback(
     (entry: RegistryEntry) => {
@@ -200,86 +225,31 @@ export function RegistryView({ state, onEdit, onCreate }: RegistryViewProps) {
       <div className="max-w-[1280px] mx-auto px-6 pt-5 pb-8">
         {filtered.length === 0 ? (
           <div className="py-16 text-sm text-center" style={{ color: "var(--text-secondary)" }}>
-            {entries.length === 0
+            {catalog.length === 0
               ? "目录为空 —— 在左侧订阅或导入配置。"
               : "未找到匹配的 MCP"}
           </div>
         ) : (
           <div className="mux-grid">
-            {filtered.map((entry) => {
-              const sKey = keyOf(entry);
-              const installedAgents = agentsForServer(sKey);
-              const usedBy = installedAgents.length;
-              const ep = endpointOf(entry);
-
-              return (
-                <div key={sKey} className="mux-tile p-3" onClick={() => setDetail(entry)}>
-                  <div className="flex items-center gap-2">
-                    <Avatar seed={entry.name} size={28} />
-                    <div className="flex-1 min-w-0">
-                      <div
-                        className="text-[13px] font-semibold truncate leading-tight"
-                        style={{ color: "var(--text-primary)" }}
-                        title={entry.name}
-                      >
-                        {entry.name}
-                      </div>
-                      <div className="flex items-center gap-1.5 mt-0.5">
-                        <TransportPill entry={entry} />
-                        <OriginTag entry={entry} installedAgents={installedAgents} sourceName={sourceName} />
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-1.5 mt-2 min-w-0">
-                    {ep.link ? (
-                      <LinkIcon className="w-3 h-3 flex-shrink-0" style={{ color: "var(--color-blue)" }} />
-                    ) : (
-                      <TerminalIcon className="w-3 h-3 flex-shrink-0" style={{ color: "var(--text-secondary)" }} />
-                    )}
-                    <span
-                      className="text-[11px] truncate"
-                      style={{
-                        color: ep.link ? "var(--color-blue)" : "var(--text-secondary)",
-                        fontFamily: "var(--font-mono)",
-                      }}
-                      title={ep.text}
-                    >
-                      {ep.text}
-                    </span>
-                  </div>
-
-                  <div className="flex items-center justify-between mt-2 pt-2" style={{ borderTop: "1px solid var(--border-hairline)" }}>
-                    {usedBy > 0 ? (
-                      <Badge tone="success">{usedBy} 个 agent 使用</Badge>
-                    ) : (
-                      <Badge tone="neutral">未使用</Badge>
-                    )}
-
-                    <div className="mux-toolbar flex items-center gap-0.5" onClick={(e) => e.stopPropagation()}>
-                      {entry.repo && (
-                        <IconButton title={`打开仓库：${entry.repo}`} onClick={() => openUrl(entry.repo!)}>
-                          <LinkIcon className="w-4 h-4" />
-                        </IconButton>
-                      )}
-                      <IconButton title="复制配置 JSON" onClick={() => copyConfig(entry)}>
-                        <CopyIcon className="w-4 h-4" />
-                      </IconButton>
-                      {editable(entry) && (
-                        <IconButton title="编辑配置" onClick={() => onEdit(entry.name, transportOf(entry))}>
-                          <EditIcon className="w-4 h-4" />
-                        </IconButton>
-                      )}
-                      {deletable(entry) && (
-                        <IconButton title="删除条目（并从所有 agent 卸载）" onClick={() => deleteEntry(entry)}>
-                          <TrashIcon className="w-4 h-4" />
-                        </IconButton>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
+            {filtered.map((item) => (
+              <RegistryCard
+                key={`${keyOf(item.entry)}@${item.entry.origin?.source ?? item.entry.origin?.kind ?? ""}`}
+                item={item}
+                installedAgents={agentsForServer(keyOf(item.entry))}
+                sourceName={sourceName}
+                overriddenBy={
+                  item.in_effect
+                    ? undefined
+                    : originLabel(winningOriginByKey.get(keyOf(item.entry)), sourceName)
+                }
+                editable={editable(item.entry)}
+                deletable={deletable(item.entry)}
+                onOpen={() => setDetail(item.entry)}
+                onCopy={() => copyConfig(item.entry)}
+                onEdit={() => onEdit(item.entry.name, transportOf(item.entry))}
+                onDelete={() => deleteEntry(item.entry)}
+              />
+            ))}
           </div>
         )}
       </div>
@@ -306,6 +276,134 @@ export function RegistryView({ state, onEdit, onCreate }: RegistryViewProps) {
           onDelete={deletable(detail) ? () => deleteEntry(detail) : undefined}
         />
       )}
+      </div>
+    </div>
+  );
+}
+
+/** A single catalog card. Refined layout: rounded-square avatar, name + optional
+ *  「已被覆盖」chip, transport/origin chips, an inset code strip for the endpoint,
+ *  and a footer with a usage dot + hover-revealed actions. */
+function RegistryCard({
+  item,
+  installedAgents,
+  sourceName,
+  overriddenBy,
+  editable,
+  deletable,
+  onOpen,
+  onCopy,
+  onEdit,
+  onDelete,
+}: {
+  item: CatalogItem;
+  installedAgents: string[];
+  sourceName: (id: string) => string;
+  /** Label of the source that takes effect instead — presence marks this copy as shadowed. */
+  overriddenBy?: string;
+  editable: boolean;
+  deletable: boolean;
+  onOpen: () => void;
+  onCopy: () => void;
+  onEdit: () => void;
+  onDelete: () => void;
+}) {
+  const { entry } = item;
+  const usedBy = installedAgents.length;
+  const ep = endpointOf(entry);
+  const overridden = !!overriddenBy;
+
+  return (
+    <div
+      className="mux-tile p-3"
+      style={overridden ? { opacity: 0.6 } : undefined}
+      onClick={onOpen}
+    >
+      {/* Header: avatar + name (+ overridden chip) + transport/origin chips */}
+      <div className="flex items-start gap-2.5">
+        <Avatar seed={entry.name} size={34} />
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-1.5 min-w-0">
+            <span
+              className="text-[13px] font-semibold truncate leading-tight"
+              style={{ color: "var(--text-primary)" }}
+              title={entry.name}
+            >
+              {entry.name}
+            </span>
+            {overridden && (
+              <span
+                className="text-[10px] px-1.5 py-px rounded-full flex-shrink-0 whitespace-nowrap"
+                style={{ background: "var(--surface-raised)", color: "var(--text-secondary)", border: "1px solid var(--border-hairline)" }}
+                title={`已被覆盖：当前以「${overriddenBy}」为准`}
+              >
+                已被覆盖
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+            <TransportPill entry={entry} />
+            <OriginTag entry={entry} installedAgents={installedAgents} sourceName={sourceName} />
+          </div>
+        </div>
+      </div>
+
+      {/* Endpoint as an inset code strip */}
+      <div
+        className="flex items-center gap-1.5 mt-2.5 px-2 py-1.5 rounded-mac min-w-0"
+        style={{ background: "var(--surface-app)", border: "1px solid var(--border-hairline)" }}
+      >
+        {ep.link ? (
+          <LinkIcon className="w-3 h-3 flex-shrink-0" style={{ color: "var(--color-blue)" }} />
+        ) : (
+          <TerminalIcon className="w-3 h-3 flex-shrink-0" style={{ color: "var(--text-secondary)" }} />
+        )}
+        <span
+          className="text-[11px] truncate"
+          style={{ color: ep.link ? "var(--color-blue)" : "var(--text-secondary)", fontFamily: "var(--font-mono)" }}
+          title={ep.text}
+        >
+          {ep.text}
+        </span>
+      </div>
+
+      {/* Footer: usage dot + hover actions */}
+      <div className="flex items-center justify-between mt-2.5 pt-2.5" style={{ borderTop: "1px solid var(--border-hairline)" }}>
+        <span
+          className="inline-flex items-center gap-1.5 text-[11px]"
+          style={{ color: usedBy > 0 ? "var(--color-green)" : "var(--text-secondary)" }}
+        >
+          <span
+            className="w-1.5 h-1.5 rounded-full flex-shrink-0"
+            style={{ background: usedBy > 0 ? "var(--color-green)" : "var(--text-secondary)", opacity: usedBy > 0 ? 1 : 0.4 }}
+          />
+          {usedBy > 0 ? `${usedBy} 个 agent 使用` : "未使用"}
+        </span>
+
+        <div
+          className="mux-toolbar flex items-center gap-0.5 rounded-mac px-0.5"
+          style={{ background: "var(--surface-raised)" }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          {entry.repo && (
+            <IconButton title={`打开仓库：${entry.repo}`} onClick={() => openUrl(entry.repo!)}>
+              <LinkIcon className="w-4 h-4" />
+            </IconButton>
+          )}
+          <IconButton title="复制配置 JSON" onClick={onCopy}>
+            <CopyIcon className="w-4 h-4" />
+          </IconButton>
+          {editable && (
+            <IconButton title="编辑配置" onClick={onEdit}>
+              <EditIcon className="w-4 h-4" />
+            </IconButton>
+          )}
+          {deletable && (
+            <IconButton title="删除条目（并从所有 agent 卸载）" onClick={onDelete}>
+              <TrashIcon className="w-4 h-4" />
+            </IconButton>
+          )}
+        </div>
       </div>
     </div>
   );

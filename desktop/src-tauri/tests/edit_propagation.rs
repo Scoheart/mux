@@ -1,5 +1,8 @@
-// Editing a registry entry must propagate the new config to agents that
-// installed it "clean", while leaving hand-customized installs untouched.
+// Editing a registry entry must auto-sync the new config to every agent that
+// has it installed — clean AND hand-customized/drifted copies alike (each write
+// is backed up first). This replaced the old conservative "clean installs only"
+// propagation, which left drifted installs permanently stale and forced a
+// manual 重新同步 after every edit.
 use std::collections::HashMap;
 use std::fs;
 
@@ -33,7 +36,7 @@ fn git_entry(args: &[&str]) -> RegistryEntry {
 }
 
 #[test]
-fn editing_registry_propagates_to_clean_installs_but_not_customized() {
+fn editing_registry_auto_syncs_all_installs_including_customized() {
     let home = unique_dir("home");
     std::env::set_var("HOME", &home);
 
@@ -62,8 +65,9 @@ fn editing_registry_propagates_to_clean_installs_but_not_customized() {
             .collect()
     };
 
-    // Seed + install git (a clean install).
-    upsert_registry_entry(git_entry(&["-y", "git-mcp"])).unwrap();
+    // Seed + install git. A brand-new entry has no installs → nothing synced.
+    let synced = upsert_registry_entry(git_entry(&["-y", "git-mcp"])).unwrap();
+    assert!(synced.is_empty(), "brand-new entry has nothing to sync");
     apply_install(InstallRequest {
         server_name: "git".into(),
         transport: "stdio".into(),
@@ -75,26 +79,34 @@ fn editing_registry_propagates_to_clean_installs_but_not_customized() {
     .unwrap();
     assert_eq!(read_args(), vec!["-y", "git-mcp"]);
 
-    // EDIT the registry entry → the clean install should now follow it. (THE FIX)
-    upsert_registry_entry(git_entry(&["-y", "git-mcp", "--verbose"])).unwrap();
+    // EDIT the registry entry → the clean install follows it, and the save
+    // reports which agents were synced.
+    let synced = upsert_registry_entry(git_entry(&["-y", "git-mcp", "--verbose"])).unwrap();
+    assert_eq!(synced, vec!["myagent".to_string()]);
     assert_eq!(
         read_args(),
         vec!["-y", "git-mcp", "--verbose"],
         "a clean install should update when the registry entry is edited"
     );
 
-    // Hand-customize the agent's copy, then edit the registry again →
-    // the customized install must be preserved (not clobbered).
+    // Hand-customize the agent's copy, then edit the registry again → saving
+    // auto-syncs the customized copy too (the old conservative behavior left it
+    // permanently stale; the file write is backed up first).
     let mut v: Value = serde_json::from_str(&fs::read_to_string(&agent_file).unwrap()).unwrap();
     v["mcpServers"]["git"]["args"] = serde_json::json!(["custom-arg"]);
     fs::write(&agent_file, serde_json::to_string_pretty(&v).unwrap()).unwrap();
 
-    upsert_registry_entry(git_entry(&["-y", "final"])).unwrap();
+    let synced = upsert_registry_entry(git_entry(&["-y", "final"])).unwrap();
+    assert_eq!(synced, vec!["myagent".to_string()]);
     assert_eq!(
         read_args(),
-        vec!["custom-arg"],
-        "a hand-customized install must NOT be overwritten by a registry edit"
+        vec!["-y", "final"],
+        "a hand-customized install is auto-synced on save too"
     );
+
+    // Description/tags-only edit (same config) → no sync, no rewrite.
+    let synced = upsert_registry_entry(git_entry(&["-y", "final"])).unwrap();
+    assert!(synced.is_empty(), "config-unchanged save syncs nothing");
 
     std::env::remove_var("HOME");
     let _ = fs::remove_dir_all(&home);

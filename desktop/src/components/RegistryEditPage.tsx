@@ -99,16 +99,22 @@ export function RegistryEditPage({ state, name, transport: editTransport, onBack
     }
     setSaving(true);
     try {
-      await upsertRegistry(draft);
+      const synced = await upsertRegistry(draft);
       // Renamed (or changed transport) a custom entry → the new name is written
       // above; remove the old entry so it doesn't linger as a duplicate.
       if (existing && isCustom && keyOf(existing) !== draftKey) {
         await deleteRegistry(existing.name, transportOf(existing));
       }
-      // The edit may have propagated into installed agents — refresh both the
-      // catalog and the install scan so usage/customized flags stay accurate.
+      // Saving auto-synced the new config into installed agents — refresh both
+      // the catalog and the install scan so usage/customized flags stay accurate.
       await Promise.all([refreshRegistry(), rescan()]);
-      toast.show({ kind: "success", msg: `已保存 ${serverName.trim()}` });
+      toast.show({
+        kind: "success",
+        msg:
+          synced.length > 0
+            ? `已保存 ${serverName.trim()}，并自动同步到 ${synced.length} 个 agent（${synced.join(", ")}）`
+            : `已保存 ${serverName.trim()}`,
+      });
       onBack();
     } catch (err) {
       toast.show({ kind: "error", msg: `保存失败: ${String(err)}` });

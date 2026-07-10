@@ -107,15 +107,22 @@ fn run_effect(eff: Effect) -> Msg {
         },
         Effect::UpsertEntry { entry, delete_old } => {
             let name = entry.name.clone();
-            let result = ops::upsert_entry(entry).and_then(|()| match delete_old {
-                Some((n, t)) => ops::remove_entry(&n, &t),
-                None => Ok(()),
+            let result = ops::upsert_entry(entry).and_then(|synced| match delete_old {
+                Some((n, t)) => ops::remove_entry(&n, &t).map(|_| synced),
+                None => Ok(synced),
             });
-            Msg::Mutated { label: format!("保存 {}", name), result }
+            // Saving auto-syncs the new config to installed agents — say so.
+            let label = match &result {
+                Ok(synced) if !synced.is_empty() => {
+                    format!("保存 {}（已同步 {} 个 agent）", name, synced.len())
+                }
+                _ => format!("保存 {}", name),
+            };
+            Msg::Mutated { label, result: result.map(|_| ()) }
         }
         Effect::RevertEntry { name, transport } => Msg::Mutated {
             label: format!("恢复默认 {}", name),
-            result: ops::remove_entry(&name, &transport),
+            result: ops::remove_entry(&name, &transport).map(|_| ()),
         },
         Effect::ImportPaste(text) => match ops::import_pasted(&text) {
             Ok(names) => Msg::Mutated { label: format!("导入 {} 个 server", names.len()), result: Ok(()) },

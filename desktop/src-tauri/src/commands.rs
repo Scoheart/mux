@@ -16,16 +16,18 @@ pub fn list_registry_all() -> Vec<CatalogItem> {
     read_registry_all()
 }
 
-/// Persist (create or overwrite) a user registry entry; propagates to clean installs.
+/// Persist (create or overwrite) a user registry entry; auto-syncs the new
+/// config to every agent that has it installed. Returns the synced agents.
 #[tauri::command]
-pub fn upsert_registry_entry(entry: RegistryEntry) -> Result<(), String> {
+pub fn upsert_registry_entry(entry: RegistryEntry) -> Result<Vec<String>, String> {
     mux_core::ops::upsert_entry(entry)
 }
 
 /// Remove a user registry override for a given name+transport; reverts to
-/// whatever a source provides (or nothing).
+/// whatever a source provides (or nothing), auto-syncing the fallback config
+/// to installed agents. Returns the synced agents.
 #[tauri::command]
-pub fn delete_registry_entry(name: String, transport: String) -> Result<(), String> {
+pub fn delete_registry_entry(name: String, transport: String) -> Result<Vec<String>, String> {
     mux_core::ops::remove_entry(&name, &transport)
 }
 

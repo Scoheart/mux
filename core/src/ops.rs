@@ -223,22 +223,22 @@ pub fn clean(only_agent: Option<&str>) -> Vec<String> {
 // ── Registry entry editing (upsert / remove / paste-import) ────────────────
 
 /// Create or overwrite a user registry entry (stored in the managed "manual"
-/// source), propagating the config change to agents that installed it clean.
-pub fn upsert_entry(entry: RegistryEntry) -> Result<(), String> {
+/// source), auto-syncing the config change to every agent that has it installed.
+/// Returns the agents that were synced (empty when nothing needed syncing).
+pub fn upsert_entry(entry: RegistryEntry) -> Result<Vec<String>, String> {
     // Capture the currently-effective config BEFORE overwriting it, so we can
-    // propagate the change to agents that installed it "clean".
+    // tell whether the config actually changed (vs a description/tags-only edit).
     let prev = read_registry()
         .into_iter()
         .find(|e| e.name == entry.name && e.transport() == entry.transport());
     write_manual_entry(&entry).map_err(|e| e.to_string())?;
-    propagate_edit_to_installs(prev.as_ref(), Some(&entry));
-    Ok(())
+    Ok(autosync_after_edit(prev.as_ref(), Some(&entry)))
 }
 
 /// Remove a user registry override for `name`+`transport`; the entry reverts to
-/// whatever a source provides (or vanishes). The fallback config is propagated to
-/// clean installs too, for symmetry with edit.
-pub fn remove_entry(name: &str, transport: &str) -> Result<(), String> {
+/// whatever a source provides (or vanishes). The fallback config is auto-synced
+/// to installs too, for symmetry with edit. Returns the agents synced.
+pub fn remove_entry(name: &str, transport: &str) -> Result<Vec<String>, String> {
     let prev = read_registry()
         .into_iter()
         .find(|e| e.name == name && e.transport() == transport);
@@ -246,39 +246,34 @@ pub fn remove_entry(name: &str, transport: &str) -> Result<(), String> {
     let now = read_registry()
         .into_iter()
         .find(|e| e.name == name && e.transport() == transport);
-    propagate_edit_to_installs(prev.as_ref(), now.as_ref());
-    Ok(())
+    Ok(autosync_after_edit(prev.as_ref(), now.as_ref()))
 }
 
-/// Propagate a registry-entry config change to agents that have it installed.
+/// Auto-sync a registry-entry config change to agents that have it installed.
 ///
 /// Registry installs write a *snapshot* of the config into each agent file, so a
-/// later edit would otherwise not reach those agents. Here we re-stamp the new
-/// config into every agent that currently holds this server at global scope —
-/// but ONLY where the on-disk config still equals the previous registry config
-/// (a "clean" install). Hand-customized installs are left untouched.
+/// later edit would otherwise not reach those agents. Saving an edit re-stamps
+/// the new config into every agent that has this server actively installed at
+/// global scope — including copies that drifted or were hand-customized (each
+/// write is backed up first, like any install). This replaces the old
+/// conservative "clean installs only" propagation, which left drifted installs
+/// permanently stale and forced a manual 重新同步 after every edit.
 ///
 /// No-ops when the entry is brand-new (`prev` None), fully removed (`new` None),
-/// or the config didn't change. Global scope only.
-fn propagate_edit_to_installs(prev: Option<&RegistryEntry>, new: Option<&RegistryEntry>) {
-    let (Some(prev), Some(new)) = (prev, new) else { return };
-    let (Some(old_cfg), Some(new_cfg)) = (base_config(prev), base_config(new)) else { return };
+/// or the base config didn't change (description/tags-only edit). Global scope
+/// only; best-effort — a failed agent write never fails the save itself.
+/// Returns the agents that got the new config.
+fn autosync_after_edit(prev: Option<&RegistryEntry>, new: Option<&RegistryEntry>) -> Vec<String> {
+    let (Some(prev), Some(new)) = (prev, new) else { return Vec::new() };
+    let (Some(old_cfg), Some(new_cfg)) = (base_config(prev), base_config(new)) else {
+        return Vec::new();
+    };
     if old_cfg == new_cfg {
-        return; // description/tags-only edit, or no real change
+        return Vec::new(); // description/tags-only edit, or no real change
     }
-    let transport = new.transport();
-    let agents = load_agents();
-    let timestamp = backup_timestamp();
-    for s in scan_agents(&agents, None, true) {
-        if s.name == new.name
-            && s.scope == "global"
-            && transport_of(&s.config) == transport
-            && s.config == old_cfg
-        {
-            if let Some(def) = agents.get(&s.agent) {
-                let _ = add_one(&s.agent, def, &new.name, new_cfg.clone(), "global", None, &timestamp);
-            }
-        }
+    match resync_entry(&new.name, &new.transport(), true) {
+        Ok(out) => out.synced,
+        Err(_) => Vec::new(),
     }
 }
 
@@ -443,8 +438,9 @@ pub struct ResyncOutcome {
 }
 
 /// Re-stamp a catalog entry's *current* config into every agent that has it
-/// actively installed at global scope — an explicit, user-invoked counterpart to
-/// the conservative auto-propagation in [`upsert_entry`].
+/// actively installed at global scope. Runs automatically (forced) on every
+/// config-changing save via [`upsert_entry`]; also exposed as an explicit
+/// user-invoked repair for installs that drifted without a registry edit.
 ///
 /// `force == false`: only "clean" installs (on-disk == registry base) are
 /// updated; hand-customized ones are reported in `skipped_customized` so the

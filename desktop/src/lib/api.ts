@@ -4,10 +4,11 @@ import type { RegistryEntry, CatalogItem, AgentInfo, AgentDefinitionInput, Insta
 export const listRegistry = () => invoke<RegistryEntry[]>("list_registry");
 /** All entry copies across sources (not deduped), each flagged in_effect. */
 export const listRegistryAll = () => invoke<CatalogItem[]>("list_registry_all");
+/** Save auto-syncs the new config to installed agents; returns their names. */
 export const upsertRegistry = (entry: RegistryEntry) =>
-  invoke<void>("upsert_registry_entry", { entry });
+  invoke<string[]>("upsert_registry_entry", { entry });
 export const deleteRegistry = (name: string, transport: string) =>
-  invoke<void>("delete_registry_entry", { name, transport });
+  invoke<string[]>("delete_registry_entry", { name, transport });
 /** Re-stamp an entry's current config into agents that have it installed (global).
  *  force=false skips hand-customized installs (reported in skipped_customized). */
 export const resyncEntry = (name: string, transport: string, force: boolean) =>

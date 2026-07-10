@@ -4,6 +4,10 @@ import type { RegistryEntry, CatalogItem, AgentInfo, AgentDefinitionInput, Insta
 export const listRegistry = () => invoke<RegistryEntry[]>("list_registry");
 /** All entry copies across sources (not deduped), each flagged in_effect. */
 export const listRegistryAll = () => invoke<CatalogItem[]>("list_registry_all");
+/** 桌面包内 mux CLI 的安装状态（sidecar → ~/.local/bin 软链）。 */
+export type CliStatus = { bundled: boolean; installed: boolean; link_path: string; in_path: boolean };
+export const cliStatus = () => invoke<CliStatus>("cli_status");
+export const installCli = () => invoke<CliStatus>("install_cli");
 /** Save auto-syncs the new config to installed agents; returns their names. */
 export const upsertRegistry = (entry: RegistryEntry) =>
   invoke<string[]>("upsert_registry_entry", { entry });

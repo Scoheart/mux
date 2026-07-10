@@ -176,6 +176,14 @@ fn main() {
 
 fn cmd_upgrade() {
     let current = env!("CARGO_PKG_VERSION");
+    // 桌面 App 里带出来的 CLI（sidecar 软链）随 App 自动更新，不自行替换。
+    if let Some(real) = mux_core::update::managed_by_desktop_app() {
+        println!(
+            "此 mux 由桌面 App 提供（{}），会随桌面 App 自动更新，无需单独升级。",
+            real.display()
+        );
+        return;
+    }
     println!("当前版本 v{}，正在检查最新稳定版…", current);
     match mux_core::update::upgrade_cli(current) {
         Ok(Some(o)) => {

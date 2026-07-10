@@ -1,3 +1,4 @@
+pub mod cli_tool;
 pub mod commands;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -50,7 +51,9 @@ pub fn run() {
             commands::enable_mcp,
             commands::delete_mcp,
             commands::resync_entry,
-            commands::forget_entry
+            commands::forget_entry,
+            cli_tool::cli_status,
+            cli_tool::install_cli
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

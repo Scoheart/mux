@@ -26,10 +26,11 @@ cargo install --path cli       # install the `mux` binary
 Desktop:
 ```bash
 cd desktop && npm run build    # tsc + vite build (frontend)
+bash desktop/scripts/prepare-sidecar.sh          # stage the CLI sidecar — required once before any src-tauri cargo build/test (externalBin is validated at compile time)
 cd desktop/src-tauri && cargo test               # Rust unit + integration tests
 cargo test --test sources_flow                   # one integration test file
 cd desktop && npm run tauri dev                  # run the app (needs a display)
-cd desktop && npm run tauri build -- --bundles dmg
+cd desktop && npm run tauri build -- --bundles dmg   # beforeBuildCommand stages the sidecar automatically
 cd desktop && npm run tauri -- icon <1024.png>   # regenerate the icon set
 ```
 
@@ -69,7 +70,10 @@ Saving a catalog entry whose **base config actually changed** auto-syncs the new
 ### Self-update (stable channel only)
 Both front-ends update from the **newest stable `vX.Y.Z` GitHub Release** — per-push `-build.N` pre-releases never reach users:
 - **Desktop**: `tauri-plugin-updater` polls `releases/latest/download/latest.json` (endpoint + minisign pubkey in `tauri.conf.json`; `bundle.createUpdaterArtifacts` on). The UX lives in `desktop/src/hooks/useUpdater.ts` + `components/UpdateBanner.tsx` (silent startup check, non-blocking card, per-version "稍后" dismissal in localStorage); manual check = clicking the header version number. **Because `createUpdaterArtifacts` is on, every `tauri build` needs the signing key**: CI uses the `TAURI_SIGNING_PRIVATE_KEY`(+`_PASSWORD`) secrets; locally export `TAURI_SIGNING_PRIVATE_KEY=$(cat ~/.tauri/mux_updater.key)` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD=""` first. On tag builds CI signs the `.app.tar.gz` and publishes it + `latest.json` with the Release.
-- **CLI**: `mux upgrade` (logic in `core/src/update.rs`) replaces the running binary from the release `tar.gz`; other commands print a once-a-day passive "new version" notice (cache `~/.mux/update-check.json`, opt out with `MUX_NO_UPDATE_CHECK=1`).
+- **CLI**: `mux upgrade` (logic in `core/src/update.rs`) replaces the running binary from the release `tar.gz`; other commands print a once-a-day passive "new version" notice (cache `~/.mux/update-check.json`, opt out with `MUX_NO_UPDATE_CHECK=1`). When the running `mux` resolves into a `.app` bundle (`update::managed_by_desktop_app`), `upgrade` and the passive notice both stand down — that copy updates with the desktop app.
+
+### CLI ships inside the desktop app (sidecar)
+The `mux` CLI is bundled into `MUX.app/Contents/MacOS/mux` via `bundle.externalBin` (staged by `desktop/scripts/prepare-sidecar.sh`, wired into `beforeBuildCommand`; the file must exist for **any** src-tauri cargo build/test). On startup the frontend (`useCliTool.ts`) silently symlinks it to `~/.local/bin/mux` (`cli_tool.rs` commands `cli_status`/`install_cli`) — no admin prompt, auto-repairs broken links, and because the link points into the bundle the CLI updates with the app. It refuses to overwrite a real file at that path (e.g. a `cargo install`ed mux). One-time toasts cover first install and a missing `~/.local/bin` in PATH.
 
 ### Shared defaults
 `data/agents.json` (20 agents) and `data/registry.json` are the single source of truth, embedded by `mux-core` via `include_str!` (`core/src/agents.rs`, `registry.rs`) — so both front-ends share them. Edit those JSON files directly.

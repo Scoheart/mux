@@ -19,6 +19,16 @@ fn api_agent() -> ureq::Agent {
         .build()
 }
 
+/// 当前运行的 `mux` 由桌面 App 提供时(真身在某个 `.app` 包内——直接运行包内
+/// 二进制，或经 `~/.local/bin/mux` 软链)，返回真身路径。这种安装随桌面 App
+/// 自动更新，`upgrade` 不应自行替换(会破坏 .app 的签名/更新一致性)。
+pub fn managed_by_desktop_app() -> Option<PathBuf> {
+    let real = std::env::current_exe().ok()?.canonicalize().ok()?;
+    real.components()
+        .any(|c| c.as_os_str().to_string_lossy().ends_with(".app"))
+        .then_some(real)
+}
+
 /// 查询最新稳定 Release 的版本号(去掉 `v` 前缀)。预发布(-build.N)不会出现在
 /// `releases/latest`，所以这里天然只追正式版通道。
 pub fn fetch_latest_version() -> Result<String, String> {
@@ -162,6 +172,10 @@ pub fn upgrade_cli(current_version: &str) -> Result<Option<UpgradeOutcome>, Stri
 /// 设置 `MUX_NO_UPDATE_CHECK=1` 可完全关闭。
 pub fn passive_check_notice(current_version: &str) -> Option<String> {
     if std::env::var_os("MUX_NO_UPDATE_CHECK").is_some() {
+        return None;
+    }
+    // 桌面 App 带出来的 CLI 随 App 更新——提示 `mux upgrade` 没有意义。
+    if managed_by_desktop_app().is_some() {
         return None;
     }
     let cache_file = mux_dir().join("update-check.json");

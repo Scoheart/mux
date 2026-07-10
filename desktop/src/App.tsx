@@ -6,6 +6,7 @@ import { AgentView } from "./components/AgentView";
 import { AddAgentDialog } from "./components/AddAgentDialog";
 import { useInstallState } from "./hooks/useInstallState";
 import { useUpdater } from "./hooks/useUpdater";
+import { useCliTool } from "./hooks/useCliTool";
 import { UpdateBanner } from "./components/UpdateBanner";
 import type { View } from "./lib/types";
 
@@ -16,6 +17,8 @@ function App() {
   // Hoisted here (not in Layout) so an in-flight download survives navigating
   // into the full-page editor, which renders without the Layout chrome.
   const updater = useUpdater();
+  // 启动后静默安装/修复 ~/.local/bin/mux 软链（装 App 即带 CLI）。
+  useCliTool();
 
   // Full-page MCP editor — rendered without the top tab bar.
   if (view.kind === "mcp-edit") {

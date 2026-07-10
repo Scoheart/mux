@@ -188,12 +188,15 @@ body {
 
 /* Source sidebar row (Registry left column) */
 .mux-src-row {
+  height: 30px; /* fixed: hover swaps count → action buttons; must not change row height */
   transition: background .12s ease;
 }
 .mux-src-row:hover { background: color-mix(in srgb, var(--text-primary) 6%, transparent); }
 .mux-src-row[data-active="true"] {
   background: color-mix(in srgb, var(--color-blue) 14%, transparent);
 }
+/* Hover-revealed row actions: shrink to fit inside the 30px row */
+.mux-src-row .mux-icon-btn { width: 24px; height: 24px; border-radius: 6px; }
 
 /* Agent icon button (top-bar brand-icon group) */
 .mux-agent-btn {

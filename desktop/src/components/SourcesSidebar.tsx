@@ -224,7 +224,7 @@ function Row({
 }) {
   return (
     <div
-      className="mux-src-row group flex items-center gap-2 px-2.5 py-1.5 rounded-mac cursor-pointer"
+      className="mux-src-row group flex items-center gap-2 px-2.5 rounded-mac cursor-pointer"
       data-active={active ? "true" : undefined}
       style={{ opacity: dimmed ? 0.5 : 1 }}
       onClick={onClick}

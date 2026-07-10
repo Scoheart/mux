@@ -2,6 +2,10 @@
 
 **MUX（MCP Multiplexer）** 是一个跨 AI 编码 agent 统一管理 **MCP（Model Context Protocol）服务器** 的工具。
 
+![MUX 桌面 App 界面总览](/img/registry-overview.png)
+
+> 上图各区域详解见 [桌面 App 图文教程](/guide/desktop#界面总览)。
+
 ## 它解决什么问题
 
 如果你同时用多个 AI 编码工具（Claude Code、Cursor、VS Code、Codex、Zed……），每个工具都有自己的一份 MCP 配置文件，格式、路径、字段各不相同。给它们都配上同一个 MCP（比如 `filesystem`、`github`、`context7`），你得：

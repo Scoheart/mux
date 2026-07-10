@@ -1,6 +1,6 @@
 [package]
 name = "desktop"
-version = "0.1.1"
+version = "0.1.2"
 description = "A Tauri App"
 authors = ["you"]
 edition = "2021"
@@ -26,6 +26,8 @@ toml = "0.8"
 chrono = "0.4"
 dirs = "5"
 tauri-plugin-dialog = "2"
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"
 ureq = "2"
 mux-core = { path = "../../core" }
 

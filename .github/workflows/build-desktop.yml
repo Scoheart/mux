@@ -54,7 +54,15 @@ jobs:
 
       - name: Build .dmg
         working-directory: desktop
-        run: npm run tauri build -- --bundles dmg
+        env:
+          # Signs the updater artifacts (bundle.createUpdaterArtifacts) so the
+          # installed app can verify them against the pubkey in tauri.conf.json.
+          # Both secrets are REQUIRED once createUpdaterArtifacts is on.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        # "app" is bundled explicitly so the updater's .app.tar.gz (+ .sig) is
+        # always produced next to the dmg.
+        run: npm run tauri build -- --bundles app,dmg
 
       # Build the `mux` CLI (root workspace) and tar it up so the same Release
       # carries a ready-to-run binary next to the .dmg — no cargo needed. The
@@ -79,6 +87,39 @@ jobs:
           echo "path=$OUT" >> "$GITHUB_OUTPUT"
 
       # --- Versioned stable release: only when a vX.Y.Z tag is pushed ---
+      # Stable releases carry the auto-update channel: the signed .app.tar.gz
+      # plus a latest.json manifest. Installed apps poll
+      # releases/latest/download/latest.json (see tauri.conf.json), which GitHub
+      # resolves to the *newest non-prerelease* — so only these hand-cut vX.Y.Z
+      # releases ever push updates to users.
+      - name: Package updater artifact + latest.json (on tag)
+        if: startsWith(github.ref, 'refs/tags/')
+        id: updater
+        run: |
+          case "$(uname -m)" in
+            arm64|aarch64) ARCH=aarch64 ;;
+            *) ARCH=x86_64 ;;
+          esac
+          TAR=$(ls desktop/src-tauri/target/release/bundle/macos/*.app.tar.gz | head -1)
+          SIG=$(cat "${TAR}.sig")
+          VER=$(node -p "require('./desktop/src-tauri/tauri.conf.json').version")
+          ASSET="MUX_${{ github.ref_name }}_${ARCH}.app.tar.gz"
+          cp "$TAR" "$ASSET"
+          cat > latest.json <<EOF
+          {
+            "version": "${VER}",
+            "notes": "MUX ${{ github.ref_name }} — https://github.com/${{ github.repository }}/releases/tag/${{ github.ref_name }}",
+            "pub_date": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "platforms": {
+              "darwin-${ARCH}": {
+                "signature": "${SIG}",
+                "url": "https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/${ASSET}"
+              }
+            }
+          }
+          EOF
+          echo "asset=$ASSET" >> "$GITHUB_OUTPUT"
+
       - name: Publish versioned Release (on tag)
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
@@ -86,6 +127,8 @@ jobs:
           files: |
             desktop/src-tauri/target/release/bundle/dmg/*.dmg
             ${{ steps.cli.outputs.path }}
+            ${{ steps.updater.outputs.asset }}
+            latest.json
           fail_on_unmatched_files: true
           generate_release_notes: true
 

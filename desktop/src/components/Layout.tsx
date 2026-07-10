@@ -1,8 +1,11 @@
-import { ReactNode, useState } from "react";
+import { ReactNode, useEffect, useState } from "react";
+import { getVersion } from "@tauri-apps/api/app";
 import type { AgentInfo, View } from "../lib/types";
 import { RefreshIcon, PackageIcon, PlusIcon, SunIcon, MoonIcon } from "./icons";
 import { AgentGlyph, agentName } from "./brandIcons";
 import { applyTheme, getInitialTheme, type Theme } from "../lib/theme";
+import { useToast } from "./Toast";
+import type { UpdaterState } from "../hooks/useUpdater";
 
 interface LayoutProps {
   children: ReactNode;
@@ -12,6 +15,7 @@ interface LayoutProps {
   onSelectAgent: (id: string) => void;
   onAddAgent?: () => void;
   onRescan?: () => Promise<unknown> | void;
+  updater?: UpdaterState;
 }
 
 export function Layout({
@@ -22,9 +26,25 @@ export function Layout({
   onSelectAgent,
   onAddAgent,
   onRescan,
+  updater,
 }: LayoutProps) {
   const [rescanning, setRescanning] = useState(false);
   const [theme, setTheme] = useState<Theme>(getInitialTheme);
+  const [version, setVersion] = useState("");
+  const toast = useToast();
+
+  useEffect(() => {
+    getVersion().then(setVersion).catch(() => {});
+  }, []);
+
+  const checkingUpdate = updater?.phase.kind === "checking";
+  const handleCheckUpdate = async () => {
+    if (!updater || checkingUpdate) return;
+    const result = await updater.checkNow({ manual: true });
+    // "available"/"error" both surface via the UpdateBanner; only the quiet
+    // outcome needs feedback here.
+    if (result === "latest") toast.show({ kind: "success", msg: "已是最新版本" });
+  };
 
   const toggleTheme = () => {
     const next: Theme = theme === "dark" ? "light" : "dark";
@@ -152,9 +172,17 @@ export function Layout({
           </button>
         )}
 
-        <span className="text-[11px] flex-shrink-0" style={{ color: "var(--text-secondary)" }}>
-          v0.1.2
-        </span>
+        {/* Version — click to check for updates against the stable channel. */}
+        <button
+          type="button"
+          className="text-[11px] flex-shrink-0 cursor-pointer bg-transparent border-0 p-0"
+          style={{ color: "var(--text-secondary)" }}
+          title="检查更新"
+          disabled={checkingUpdate}
+          onClick={() => void handleCheckUpdate()}
+        >
+          {checkingUpdate ? "检查更新中…" : version ? `v${version}` : ""}
+        </button>
       </header>
 
       {/* Content — transparent so the body's tinted backdrop shows through the

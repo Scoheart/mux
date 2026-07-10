@@ -66,6 +66,11 @@ Editing a catalog entry re-stamps the new config into agents that installed it *
 ### Deleting a catalog entry
 **`ops::forget_entry(name, transport)`** (`core/src/ops.rs`) deletes a user-owned entry from the **manual and discovered** managed sources AND uninstalls it from every agent that has it (global; active or disabled-store). Only manual/discovered entries are deletable this way — remote/local source entries have nothing user-owned to remove (manage them via their source). Exposed as the desktop `forget_entry` command + the Registry card/detail 删除 button (shown only for manual/discovered), and the TUI Registry `d` key (→ Confirm; hint for remote/local).
 
+### Self-update (stable channel only)
+Both front-ends update from the **newest stable `vX.Y.Z` GitHub Release** — per-push `-build.N` pre-releases never reach users:
+- **Desktop**: `tauri-plugin-updater` polls `releases/latest/download/latest.json` (endpoint + minisign pubkey in `tauri.conf.json`; `bundle.createUpdaterArtifacts` on). The UX lives in `desktop/src/hooks/useUpdater.ts` + `components/UpdateBanner.tsx` (silent startup check, non-blocking card, per-version "稍后" dismissal in localStorage); manual check = clicking the header version number. **Because `createUpdaterArtifacts` is on, every `tauri build` needs the signing key**: CI uses the `TAURI_SIGNING_PRIVATE_KEY`(+`_PASSWORD`) secrets; locally export `TAURI_SIGNING_PRIVATE_KEY=$(cat ~/.tauri/mux_updater.key)` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD=""` first. On tag builds CI signs the `.app.tar.gz` and publishes it + `latest.json` with the Release.
+- **CLI**: `mux upgrade` (logic in `core/src/update.rs`) replaces the running binary from the release `tar.gz`; other commands print a once-a-day passive "new version" notice (cache `~/.mux/update-check.json`, opt out with `MUX_NO_UPDATE_CHECK=1`).
+
 ### Shared defaults
 `data/agents.json` (20 agents) and `data/registry.json` are the single source of truth, embedded by `mux-core` via `include_str!` (`core/src/agents.rs`, `registry.rs`) — so both front-ends share them. Edit those JSON files directly.
 

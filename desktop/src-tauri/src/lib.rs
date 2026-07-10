@@ -5,6 +5,11 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        // Self-update: checks the stable-release channel (latest.json on the
+        // newest vX.Y.Z GitHub Release); the frontend drives the UX.
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        // Needed to relaunch the app after an update is installed.
+        .plugin(tauri_plugin_process::init())
         .setup(|_app| {
             // Fold any legacy ~/.mux files into a single settings.json on first run.
             mux_core::settings::migrate_if_needed();

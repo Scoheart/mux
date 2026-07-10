@@ -108,6 +108,8 @@ enum Command {
         #[command(subcommand)]
         action: Option<AgentsAction>,
     },
+    /// Upgrade mux to the latest stable release
+    Upgrade,
 }
 
 #[derive(Subcommand)]
@@ -147,6 +149,10 @@ fn main() {
             Some(AgentsAction::Disable { name }) => cmd_agents_set(&name, false),
             _ => cmd_agents_list(),
         },
+        Some(Command::Upgrade) => {
+            cmd_upgrade();
+            return; // upgrade 自身不需要再叠加被动提醒
+        }
         None => {
             // No subcommand → launch the interactive TUI. Set MUX_NO_TUI to fall
             // back to printing help instead (e.g. in scripts / non-tty contexts).
@@ -157,6 +163,31 @@ fn main() {
                 eprintln!("TUI 错误: {}", e);
                 std::process::exit(1);
             }
+            return; // TUI 会话结束后不打扰
+        }
+    }
+
+    // 被动更新提醒：普通命令结束后追加一行(每天最多联网检查一次，
+    // MUX_NO_UPDATE_CHECK=1 关闭)。
+    if let Some(notice) = mux_core::update::passive_check_notice(env!("CARGO_PKG_VERSION")) {
+        eprintln!("\n{}", yellow(&notice));
+    }
+}
+
+fn cmd_upgrade() {
+    let current = env!("CARGO_PKG_VERSION");
+    println!("当前版本 v{}，正在检查最新稳定版…", current);
+    match mux_core::update::upgrade_cli(current) {
+        Ok(Some(o)) => {
+            println!(
+                "{}",
+                green(&format!("✔ 已从 v{} 升级到 v{}", o.from, o.to))
+            );
+        }
+        Ok(None) => println!("{}", dim("已是最新版本。")),
+        Err(e) => {
+            eprintln!("{}", red(&format!("升级失败: {}", e)));
+            std::process::exit(1);
         }
     }
 }

@@ -14,3 +14,4 @@ pub mod scanner;
 pub mod differ;
 pub mod applier;
 pub mod ops;
+pub mod update;

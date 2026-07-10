@@ -5,27 +5,36 @@ import { RegistryEditPage } from "./components/RegistryEditPage";
 import { AgentView } from "./components/AgentView";
 import { AddAgentDialog } from "./components/AddAgentDialog";
 import { useInstallState } from "./hooks/useInstallState";
+import { useUpdater } from "./hooks/useUpdater";
+import { UpdateBanner } from "./components/UpdateBanner";
 import type { View } from "./lib/types";
 
 function App() {
   const [view, setView] = useState<View>({ kind: "registry" });
   const [addAgentOpen, setAddAgentOpen] = useState(false);
   const state = useInstallState();
+  // Hoisted here (not in Layout) so an in-flight download survives navigating
+  // into the full-page editor, which renders without the Layout chrome.
+  const updater = useUpdater();
 
   // Full-page MCP editor — rendered without the top tab bar.
   if (view.kind === "mcp-edit") {
     return (
-      <RegistryEditPage
-        state={state}
-        name={view.name}
-        transport={view.transport}
-        onBack={() => setView({ kind: "registry" })}
-      />
+      <>
+        <UpdateBanner updater={updater} />
+        <RegistryEditPage
+          state={state}
+          name={view.name}
+          transport={view.transport}
+          onBack={() => setView({ kind: "registry" })}
+        />
+      </>
     );
   }
 
   return (
     <Layout
+      updater={updater}
       agents={state.agents}
       view={view}
       onSelectRegistry={() => setView({ kind: "registry" })}
@@ -56,6 +65,8 @@ function App() {
           onAdded={state.refreshAgents}
         />
       )}
+
+      <UpdateBanner updater={updater} />
     </Layout>
   );
 }

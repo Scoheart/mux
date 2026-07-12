@@ -245,12 +245,20 @@ mod tests {
     #[test]
     fn builtin_collection_parses() {
         // Still parseable (used by the opt-in curated local source), just no
-        // longer part of the default catalog. Currently trimmed to two entries.
-        let names: Vec<String> = builtin_registry().into_iter().map(|e| e.name).collect();
+        // longer part of the default catalog.
+        let entries = builtin_registry();
+        let github = entries.iter().find(|e| e.name == "github").unwrap();
+        assert_eq!(
+            github.config.http.as_ref().unwrap().url,
+            "https://api.githubcopilot.com/mcp/"
+        );
+
+        let names: Vec<String> = entries.into_iter().map(|e| e.name).collect();
         assert_eq!(
             names,
             vec![
                 "context7".to_string(),
+                "github".to_string(),
                 "supabase".to_string(),
                 "luma".to_string(),
                 "firecrawl".to_string(),

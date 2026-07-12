@@ -60,6 +60,6 @@ fn local_source_flow_populates_toggles_and_removes() {
     // The opt-in curated collection is available as a local source (no network).
     let curated = add_builtin_collection().expect("add_builtin_collection should succeed");
     assert_eq!(curated.kind, "local");
-    assert_eq!(curated.server_count, 4, "curated collection has the bundled servers");
-    assert_eq!(list_registry().len(), 4);
+    assert_eq!(curated.server_count, 5, "curated collection has the bundled servers");
+    assert_eq!(list_registry().len(), 5);
 }

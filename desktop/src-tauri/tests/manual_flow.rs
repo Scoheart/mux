@@ -5,12 +5,6 @@ use std::fs;
 use desktop_lib::commands::{list_registry, list_sources, upsert_registry_entry};
 use mux_core::types::{RegistryConfig, RegistryEntry, StdioConfig};
 
-fn unique_dir(tag: &str) -> std::path::PathBuf {
-    let d = std::env::temp_dir().join(format!("mux-manual-{}-{}", tag, std::process::id()));
-    fs::create_dir_all(&d).unwrap();
-    d
-}
-
 fn entry(name: &str, cmd: &str) -> RegistryEntry {
     RegistryEntry {
         name: name.into(),
@@ -27,8 +21,8 @@ fn entry(name: &str, cmd: &str) -> RegistryEntry {
 
 #[test]
 fn manual_entry_is_stored_as_a_managed_local_source_file() {
-    let home = unique_dir("home");
-    std::env::set_var("HOME", &home);
+    let th = mux_core::testenv::TestHome::new("manual");
+    let home = th.home.clone();
 
     upsert_registry_entry(entry("my-tool", "my-cmd")).expect("create manual entry");
 
@@ -52,7 +46,4 @@ fn manual_entry_is_stored_as_a_managed_local_source_file() {
     assert_eq!(manual_src.kind, "local");
     assert!(manual_src.managed);
     assert_eq!(manual_src.server_count, 1);
-
-    std::env::remove_var("HOME");
-    let _ = fs::remove_dir_all(&home);
 }

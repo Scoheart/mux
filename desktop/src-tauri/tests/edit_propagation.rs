@@ -11,12 +11,6 @@ use serde_json::Value;
 use desktop_lib::commands::{add_agent, apply_install, upsert_registry_entry, InstallRequest};
 use mux_core::types::{AgentDefinition, RegistryConfig, RegistryEntry, StdioConfig};
 
-fn unique_dir(tag: &str) -> std::path::PathBuf {
-    let d = std::env::temp_dir().join(format!("mux-edit-{}-{}", tag, std::process::id()));
-    fs::create_dir_all(&d).unwrap();
-    d
-}
-
 fn git_entry(args: &[&str]) -> RegistryEntry {
     RegistryEntry {
         name: "git".into(),
@@ -37,8 +31,8 @@ fn git_entry(args: &[&str]) -> RegistryEntry {
 
 #[test]
 fn editing_registry_auto_syncs_all_installs_including_customized() {
-    let home = unique_dir("home");
-    std::env::set_var("HOME", &home);
+    let th = mux_core::testenv::TestHome::new("edit-prop");
+    let home = th.home.clone();
 
     // An agent with a known global config file under HOME.
     add_agent(
@@ -107,7 +101,4 @@ fn editing_registry_auto_syncs_all_installs_including_customized() {
     // Description/tags-only edit (same config) → no sync, no rewrite.
     let synced = upsert_registry_entry(git_entry(&["-y", "final"])).unwrap();
     assert!(synced.is_empty(), "config-unchanged save syncs nothing");
-
-    std::env::remove_var("HOME");
-    let _ = fs::remove_dir_all(&home);
 }

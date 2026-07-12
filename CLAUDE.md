@@ -80,6 +80,6 @@ The `mux` CLI is bundled into `MUX.app/Contents/MacOS/mux` via `bundle.externalB
 
 ## Gotchas
 
-- **Integration-test `$HOME` races**: `cargo test` runs a file's tests in parallel threads. Tests that `std::env::set_var("HOME", …)` to isolate `~/.mux` must be **one test per file** (or merged into one) — two in the same binary clobber each other's HOME.
+- **Test env isolation**: any test that touches `~/.mux` or agent config paths must use `mux_core::testenv::TestHome` (RAII guard: process-wide mutex + fake `HOME`/`MUX_HOME` + restore-on-drop). Never hand-roll `set_var("HOME")`/`remove_var("HOME")` — `remove_var` is not a restore (`dirs::home_dir()` falls back to the real home) and parallel tests race on the process-global env; this corrupted the real `~/.mux/sources/remote/*` cache on 2026-07-08. With the guard, multiple tests per file are safe. `MUX_HOME` (the data dir itself, like `CARGO_HOME`) is also a user-facing override honored by `paths::mux_dir()`.
 - **CI**: pushing to `main` builds a macOS `.dmg` pre-release (`.github/workflows/build-desktop.yml`). Don't re-add `sccache` (its GHA-cache backend broke the build); changing `[profile.release]` invalidates the Rust cache and forces one cold rebuild.
 - The live desktop nav is Registry / Sources / per-Agent + a full-page editor. (The old orphaned `MatrixView`/`ServerDetail`/`InstallDialog`/`RegistryGrid` components were deleted; `preview_install` and the `overrides` patch path in Rust are kept — test-covered request surface with no current UI caller.)

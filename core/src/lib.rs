@@ -15,3 +15,5 @@ pub mod differ;
 pub mod applier;
 pub mod ops;
 pub mod update;
+#[doc(hidden)]
+pub mod testenv;

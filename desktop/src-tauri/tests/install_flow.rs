@@ -13,13 +13,12 @@ fn unique_dir(tag: &str) -> std::path::PathBuf {
 
 #[test]
 fn install_flow_writes_config_applies_override_and_backs_up() {
-    // 隔离 HOME（备份目录 ~/.mux/backups 与 agent 解析都基于 home）
-    let home = unique_dir("home");
-    std::env::set_var("HOME", &home);
+    // 隔离 HOME/MUX_HOME（备份目录 ~/.mux/backups 与 agent 解析都基于 home）
+    let th = mux_core::testenv::TestHome::new("install");
+    let home = th.home.clone();
 
     // No built-in catalog anymore — seed a `filesystem` entry through the real
     // store (a managed local source) so the install flow has something to resolve.
-    fs::create_dir_all(home.join(".mux")).unwrap();
     mux_core::registry::write_manual_entry(&mux_core::types::RegistryEntry {
         name: "filesystem".into(),
         description: String::new(),
@@ -111,7 +110,6 @@ fn install_flow_writes_config_applies_override_and_backs_up() {
         .map(|e| e.unwrap().file_name().to_string_lossy().to_string()).collect();
     println!("===== {} 下的备份 =====\n{:?}\n", backups.display(), backup_names);
 
-    // 清理
+    // 清理（home 由 TestHome Drop 负责）
     let _ = fs::remove_dir_all(&project);
-    let _ = fs::remove_dir_all(&home);
 }

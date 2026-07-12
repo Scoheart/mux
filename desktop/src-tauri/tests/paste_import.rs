@@ -1,15 +1,11 @@
 // Pasting a config blob (e.g. a `mcpServers` JSON object) adds its servers to the
-// managed "manual" source. One test (single $HOME) to avoid env races.
-use std::fs;
-
+// managed "manual" source.
 use desktop_lib::commands::{import_pasted_config, list_registry};
 
 #[test]
 fn paste_import_recognizes_and_adds_manual_entries() {
-    let h = std::env::temp_dir().join(format!("mux-paste-{}", std::process::id()));
-    let _ = fs::remove_dir_all(&h);
-    fs::create_dir_all(&h).unwrap();
-    std::env::set_var("HOME", &h);
+    let th = mux_core::testenv::TestHome::new("paste");
+    let h = th.home.clone();
 
     // 1) A standard mcpServers block (the yunxiao example).
     let text = r#"{
@@ -40,7 +36,4 @@ fn paste_import_recognizes_and_adds_manual_entries() {
     assert!(import_pasted_config("hello world".into()).is_err());
     assert!(import_pasted_config(r#"{"foo":123}"#.into()).is_err());
     assert!(import_pasted_config("".into()).is_err());
-
-    std::env::remove_var("HOME");
-    let _ = fs::remove_dir_all(&h);
 }

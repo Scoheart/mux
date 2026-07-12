@@ -1,14 +1,11 @@
 //! `ops::resync_entry` end-to-end: it re-stamps a clean install, skips a
 //! hand-customized one unless forced, and force overwrites it.
-//!
-//! One test per file — it mutates `$HOME` to isolate `~/.mux` (see the
-//! integration-test `$HOME` race gotcha in CLAUDE.md).
 
 use std::collections::HashMap;
-use std::fs;
 
 use mux_core::ops;
 use mux_core::registry::write_manual_entry;
+use mux_core::testenv::TestHome;
 use mux_core::types::{RegistryConfig, RegistryEntry, StdioConfig};
 
 fn stdio_entry(args: &[&str]) -> RegistryEntry {
@@ -39,10 +36,7 @@ fn is_customized(agent: &str) -> bool {
 
 #[test]
 fn resync_pushes_clean_skips_then_forces_customized() {
-    let home = std::env::temp_dir().join(format!("mux-resync-{}", std::process::id()));
-    let _ = fs::remove_dir_all(&home);
-    fs::create_dir_all(home.join(".mux")).unwrap();
-    std::env::set_var("HOME", &home);
+    let _th = TestHome::new("resync");
 
     // Seed a manual entry (v1) and install it to a builtin global agent.
     write_manual_entry(&stdio_entry(&["-y", "srv-a"])).unwrap();
@@ -65,7 +59,4 @@ fn resync_pushes_clean_skips_then_forces_customized() {
     assert_eq!(out.synced, vec!["claude-code".to_string()]);
     assert!(out.skipped_customized.is_empty());
     assert!(!is_customized("claude-code"), "forced resync re-stamped v2");
-
-    std::env::remove_var("HOME");
-    let _ = fs::remove_dir_all(&home);
 }

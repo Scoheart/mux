@@ -303,10 +303,7 @@ mod tests {
         use mux_core::types::{RegistryConfig, RegistryEntry, StdioConfig};
         // No built-in catalog anymore: seed a manual entry through the real store
         // (a managed local source) in an isolated ~/.mux, then preview it.
-        let home = std::env::temp_dir().join(format!("mux-preview-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&home);
-        std::fs::create_dir_all(home.join(".mux")).unwrap();
-        std::env::set_var("HOME", &home);
+        let _th = mux_core::testenv::TestHome::new("preview");
         mux_core::registry::write_manual_entry(&RegistryEntry {
             name: "seeded".into(),
             description: String::new(),
@@ -328,8 +325,6 @@ mod tests {
         assert_eq!(plan.len(), 1);
         assert_eq!(plan[0].agent, "claude-code");
         assert!(plan[0].config_json.contains("command"));
-        std::env::remove_var("HOME");
-        let _ = std::fs::remove_dir_all(&home);
     }
 
     #[test]

@@ -1,22 +1,16 @@
 // End-to-end for the source-based catalog: add a local config file as a source,
 // confirm its servers populate the catalog, toggle it off/on, and remove it.
-// HOME is redirected to a temp dir so ~/.mux stays isolated. No network.
+// HOME/MUX_HOME are redirected to a temp dir so ~/.mux stays isolated. No network.
 use std::fs;
 
 use desktop_lib::commands::{
     add_builtin_collection, add_local_source, list_registry, remove_source, set_source_enabled,
 };
 
-fn unique_dir(tag: &str) -> std::path::PathBuf {
-    let d = std::env::temp_dir().join(format!("mux-src-e2e-{}-{}", tag, std::process::id()));
-    fs::create_dir_all(&d).unwrap();
-    d
-}
-
 #[test]
 fn local_source_flow_populates_toggles_and_removes() {
-    let home = unique_dir("home");
-    std::env::set_var("HOME", &home);
+    let th = mux_core::testenv::TestHome::new("sources");
+    let home = th.home.clone();
 
     // A standard mcpServers config file the user "adds" as a local source.
     let cfg = home.join("team-mcp.json");
@@ -68,7 +62,4 @@ fn local_source_flow_populates_toggles_and_removes() {
     assert_eq!(curated.kind, "local");
     assert_eq!(curated.server_count, 4, "curated collection has the bundled servers");
     assert_eq!(list_registry().len(), 4);
-
-    std::env::remove_var("HOME");
-    let _ = fs::remove_dir_all(&home);
 }

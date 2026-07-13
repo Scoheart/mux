@@ -28,6 +28,7 @@ TUI 有三个屏幕，顶部用数字键切换：
 | 键 | 作用 |
 |---|---|
 | `↑`/`k`、`↓`/`j` | 上下移动 |
+| `Tab` / `Shift-Tab` | 在三个屏幕间前后切换 |
 | `?` | 显示帮助 / 键位表 |
 | `q` 或 `Ctrl-C` | 退出 |
 | `Ctrl-R` | 刷新 |
@@ -78,26 +79,49 @@ mux status                       # 各 agent 当前生效的 MCP
 mux add <名字>                   # 交互式添加一个 server 到手动来源
 mux remove <名字>                # 从手动来源删除一个条目
 mux apply <名字…>                # 非交互安装
+mux export [--out <文件>]        # 导出去重后的生效目录；默认输出到 stdout
 mux clean [--agent <名字>]       # 清空（已启用）agent 的 MCP
 mux agents                       # 列出所有 agent
 mux agents enable <名字>         # 启用一个 agent
 mux agents disable <名字>        # 停用一个 agent
+mux upgrade                      # 升级独立安装的 CLI
 ```
 
 ### `mux apply` 的参数
 
 ```bash
 mux apply github filesystem \
-  --scope global \        # global | project | both（默认 global）
-  --agent all \           # 逗号分隔的 agent 名，或 "all"（默认 all）
-  --project <目录>        # project 作用域时的项目目录
+  --agent all             # 逗号分隔的 agent 名，或 "all"（默认 all）
 ```
+
+`mux apply` 只写入 Agent 的全局配置。
 
 举例：只把 `github` 装到 Claude Code 和 Cursor：
 
 ```bash
 mux apply github --agent "claude-code,cursor"
 ```
+
+如果同名条目同时存在 stdio 和 HTTP 版本，`mux apply <名字>` 会处理该名字下的所有传输版本。
+
+### 导出
+
+```bash
+mux export                    # JSON 输出到 stdout
+mux export --out mcp.json     # 保存到文件
+```
+
+导出内容是完整的**生效目录**：每个 `name::transport` 只保留优先级最高的副本。
+
+### 更新
+
+独立下载或 `cargo install` 的 CLI 可运行：
+
+```bash
+mux upgrade
+```
+
+普通子命令执行后每天最多检查一次最新正式版；设置 `MUX_NO_UPDATE_CHECK=1` 可关闭。桌面 App 自带的 CLI 由 App 更新，不会自行替换包内二进制。
 
 ## 和桌面 App 的关系
 

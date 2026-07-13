@@ -11,7 +11,7 @@ const FORMATS = [
 ] as const;
 
 /** Modal form for registering a new custom agent, or editing an existing one's
- *  config paths/format/key (persisted to settings.agents). Pass `existing` to
+ *  global config path/format/key (persisted to settings.agents). Pass `existing` to
  *  open in edit mode (the id is then read-only). */
 export function AddAgentDialog({
   onClose,
@@ -29,7 +29,6 @@ export function AddAgentDialog({
   );
   const [key, setKey] = useState(existing?.key ?? "mcpServers");
   const [global, setGlobal] = useState(existing?.global ?? "");
-  const [project, setProject] = useState(existing?.project ?? "");
   const [busy, setBusy] = useState(false);
   const toast = useToast();
 
@@ -37,7 +36,7 @@ export function AddAgentDialog({
   const canSubmit =
     trimmedId.length > 0 &&
     key.trim().length > 0 &&
-    (global.trim().length > 0 || project.trim().length > 0) &&
+    global.trim().length > 0 &&
     !busy;
 
   const submit = async () => {
@@ -45,7 +44,9 @@ export function AddAgentDialog({
     setBusy(true);
     const def: AgentDefinitionInput = {
       global: global.trim() || null,
-      project: project.trim() || null,
+      // Preserve legacy metadata when editing, but project scope is no longer
+      // exposed by the product.
+      project: existing?.project ?? null,
       format,
       key: key.trim(),
       enabled: existing?.enabled ?? true,
@@ -82,8 +83,8 @@ export function AddAgentDialog({
           title={isEdit ? "编辑 Agent" : "添加 Agent"}
           subtitle={
             isEdit
-              ? "修改配置文件路径 / 格式 / Key。路径用 ~ 开头，勿写死用户名。"
-              : "注册自定义工具，MCP 写入它的配置文件。"
+              ? "修改全局配置路径、格式和 Key。"
+              : "注册自定义工具及其全局 MCP 配置。"
           }
           onClose={onClose}
         />
@@ -146,7 +147,7 @@ export function AddAgentDialog({
           {/* global path */}
           <div>
             <label className="text-xs font-medium block mb-1.5" style={{ color: "var(--text-secondary)" }}>
-              全局配置路径
+              全局配置路径 <span style={{ color: "#FF375F" }}>*</span>
             </label>
             <input
               className="w-full px-3 py-2 text-sm rounded-mac outline-none"
@@ -157,23 +158,6 @@ export function AddAgentDialog({
             />
           </div>
 
-          {/* project path */}
-          <div>
-            <label className="text-xs font-medium block mb-1.5" style={{ color: "var(--text-secondary)" }}>
-              项目配置路径（相对项目根目录）
-            </label>
-            <input
-              className="w-full px-3 py-2 text-sm rounded-mac outline-none"
-              style={{ ...fieldStyle, fontFamily: "var(--font-mono)" }}
-              placeholder=".mytool/mcp.json"
-              value={project}
-              onChange={(e) => setProject(e.target.value)}
-            />
-          </div>
-
-          <p className="text-[11px] m-0 leading-relaxed" style={{ color: "var(--text-secondary)" }}>
-            全局与项目路径至少填写一个。
-          </p>
         </div>
 
         {/* Footer */}

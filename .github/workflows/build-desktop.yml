@@ -65,8 +65,9 @@ jobs:
         run: npm run tauri build -- --bundles app,dmg
 
       # Build the `mux` CLI (root workspace) and tar it up so the same Release
-      # carries a ready-to-run binary next to the .dmg — no cargo needed. The
-      # tarball name embeds the release tag + target triple.
+      # carries a ready-to-run binary next to the .dmg — no cargo needed. Keep
+      # its compatibility filename for self-updates; GitHub's Asset Label gives
+      # it a human-readable purpose in the compact mobile UI.
       - name: Build & package CLI (mux)
         id: cli
         run: |
@@ -82,6 +83,9 @@ jobs:
             VER=$(node -p "require('./desktop/src-tauri/tauri.conf.json').version")
             NAME="v${VER}-build.$(printf '%05d' "${{ github.run_number }}")"
           fi
+          # Keep this compatibility filename: released CLI binaries resolve it
+          # directly when running `mux upgrade`. A friendly
+          # GitHub asset label below makes its purpose clear to humans.
           OUT="mux_${NAME}_${TRIPLE}.tar.gz"
           tar -C target/release -czf "$OUT" mux
           echo "path=$OUT" >> "$GITHUB_OUTPUT"
@@ -97,13 +101,13 @@ jobs:
         id: updater
         run: |
           case "$(uname -m)" in
-            arm64|aarch64) ARCH=aarch64 ;;
-            *) ARCH=x86_64 ;;
+            arm64|aarch64) ARCH=aarch64; ARCH_LABEL=Apple-Silicon ;;
+            *) ARCH=x86_64; ARCH_LABEL=Intel ;;
           esac
           TAR=$(ls desktop/src-tauri/target/release/bundle/macos/*.app.tar.gz | head -1)
           SIG=$(cat "${TAR}.sig")
           VER=$(node -p "require('./desktop/src-tauri/tauri.conf.json').version")
-          ASSET="MUX_${{ github.ref_name }}_${ARCH}.app.tar.gz"
+          ASSET="MUX-Desktop-AutoUpdate-${{ github.ref_name }}-macOS-${ARCH_LABEL}.app.tar.gz"
           cp "$TAR" "$ASSET"
           cat > latest.json <<EOF
           {
@@ -120,17 +124,54 @@ jobs:
           EOF
           echo "asset=$ASSET" >> "$GITHUB_OUTPUT"
 
+      - name: Name stable desktop installer
+        if: startsWith(github.ref, 'refs/tags/')
+        id: installer
+        run: |
+          SRC=$(ls desktop/src-tauri/target/release/bundle/dmg/*.dmg | head -1)
+          case "$(uname -m)" in
+            arm64|aarch64) ARCH_LABEL=Apple-Silicon ;;
+            *) ARCH_LABEL=Intel ;;
+          esac
+          DEST="desktop/src-tauri/target/release/bundle/dmg/MUX-Desktop-Installer-${{ github.ref_name }}-macOS-${ARCH_LABEL}.dmg"
+          mv "$SRC" "$DEST"
+          echo "path=$DEST" >> "$GITHUB_OUTPUT"
+
       - name: Publish versioned Release (on tag)
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            desktop/src-tauri/target/release/bundle/dmg/*.dmg
+            ${{ steps.installer.outputs.path }}
             ${{ steps.cli.outputs.path }}
             ${{ steps.updater.outputs.asset }}
             latest.json
           fail_on_unmatched_files: true
           generate_release_notes: true
+          body: |
+            ## Download guide
+
+            - **Desktop app:** download `MUX-Desktop-Installer-${{ github.ref_name }}-macOS-Apple-Silicon.dmg`.
+            - **Command line:** choose the asset labelled **Command-line tool · Apple Silicon**.
+            - `latest.json` and `Desktop-AutoUpdate` are used by the app automatically; do not download them manually.
+
+      - name: Label stable release assets
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          RELEASE="repos/${{ github.repository }}/releases/tags/${{ github.ref_name }}"
+          label_asset() {
+            NAME="$1"
+            LABEL="$2"
+            ID=$(gh api "$RELEASE" --jq ".assets[] | select(.name == \"$NAME\") | .id")
+            test -n "$ID"
+            gh api --method PATCH "repos/${{ github.repository }}/releases/assets/$ID" -f label="$LABEL" --silent
+          }
+          label_asset "$(basename '${{ steps.installer.outputs.path }}')" "Desktop installer · Apple Silicon"
+          label_asset "$(basename '${{ steps.cli.outputs.path }}')" "Command-line tool · Apple Silicon"
+          label_asset "${{ steps.updater.outputs.asset }}" "Desktop auto-update payload · no manual download"
+          label_asset "latest.json" "Auto-update manifest · no manual download"
 
       # --- Per-push pre-release: every push to main (and manual runs) ---
       # Each push publishes its own uniquely-tagged pre-release so every build is
@@ -149,15 +190,18 @@ jobs:
           BUILD=$(printf '%05d' "${{ github.run_number }}")
           echo "tag=v${VER}-build.${BUILD}" >> "$GITHUB_OUTPUT"
 
-      # Rename the dmg so the downloaded file itself carries the full build tag
-      # (e.g. MUX_v0.1.1-build.6_aarch64.dmg) instead of just the bare app version.
-      - name: Tag dmg filename
+      # Give pre-release installers the same descriptive naming scheme as stable
+      # releases while retaining the unique build tag.
+      - name: Name pre-release desktop installer
         if: github.ref == 'refs/heads/main'
         id: dmg
         run: |
           SRC=$(ls desktop/src-tauri/target/release/bundle/dmg/*.dmg | head -1)
-          ARCH=$(basename "$SRC" | sed -E 's/^MUX_[^_]+_(.+)\.dmg$/\1/')
-          DEST="desktop/src-tauri/target/release/bundle/dmg/MUX_${{ steps.meta.outputs.tag }}_${ARCH}.dmg"
+          case "$(uname -m)" in
+            arm64|aarch64) ARCH_LABEL=Apple-Silicon ;;
+            *) ARCH_LABEL=Intel ;;
+          esac
+          DEST="desktop/src-tauri/target/release/bundle/dmg/MUX-Desktop-Installer-${{ steps.meta.outputs.tag }}-macOS-${ARCH_LABEL}.dmg"
           mv "$SRC" "$DEST"
           echo "path=$DEST" >> "$GITHUB_OUTPUT"
 
@@ -178,7 +222,25 @@ jobs:
             🤖 Automatic build from `main` (build #${{ github.run_number }}).
             Pre-release — for stable, hand-cut versions see the `vX.Y.Z` releases.
 
-            **CLI:** download `mux_<tag>_<arch>.tar.gz`, then
+            **Desktop app:** download `MUX-Desktop-Installer-<tag>-macOS-Apple-Silicon.dmg`.
+
+            **CLI:** choose the asset labelled **Command-line tool · Apple Silicon**, then
             `tar xzf mux_*.tar.gz && ./mux` (or move it onto your PATH).
 
             Commit: ${{ github.sha }}
+
+      - name: Label pre-release assets
+        if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          RELEASE="repos/${{ github.repository }}/releases/tags/${{ steps.meta.outputs.tag }}"
+          label_asset() {
+            NAME="$1"
+            LABEL="$2"
+            ID=$(gh api "$RELEASE" --jq ".assets[] | select(.name == \"$NAME\") | .id")
+            test -n "$ID"
+            gh api --method PATCH "repos/${{ github.repository }}/releases/assets/$ID" -f label="$LABEL" --silent
+          }
+          label_asset "$(basename '${{ steps.dmg.outputs.path }}')" "Desktop installer · Apple Silicon"
+          label_asset "$(basename '${{ steps.cli.outputs.path }}')" "Command-line tool · Apple Silicon"

@@ -44,8 +44,8 @@ pub fn save_agents(map: &BTreeMap<String, AgentDefinition>) -> std::io::Result<(
 /// Validate + normalize an agent definition, then persist it (merged over
 /// builtin/existing defs in `settings.agents`). `allow_overwrite` distinguishes
 /// create (errors on an existing id) from edit (replaces in place). Global paths
-/// are collapsed to `~/…`; project paths (relative to the project root) are only
-/// trimmed. At least one path is required.
+/// are collapsed to `~/…`. The legacy project field is retained for backward
+/// compatibility, but every usable definition must have a global path.
 pub fn put(id: String, mut def: AgentDefinition, allow_overwrite: bool) -> Result<(), String> {
     let id = id.trim().to_string();
     if id.is_empty() {
@@ -66,8 +66,8 @@ pub fn put(id: String, mut def: AgentDefinition, allow_overwrite: bool) -> Resul
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .map(str::to_string);
-    if def.global.is_none() && def.project.is_none() {
-        return Err("至少需要填写一个配置路径（全局或项目）".into());
+    if def.global.is_none() {
+        return Err("全局配置路径不能为空".into());
     }
     let mut agents = load_agents();
     if !allow_overwrite && agents.contains_key(&id) {

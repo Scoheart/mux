@@ -38,8 +38,8 @@ fn render_agent_list(model: &Model, f: &mut Frame, area: Rect) {
                 Span::from("○ ").dim()
             };
             let mut spans = vec![state, Span::from(a.id.clone())];
-            if !a.has_global && !a.has_project {
-                spans.push(Span::from("  无路径").red());
+            if !a.has_global {
+                spans.push(Span::from("  无全局路径").red());
             }
             ListItem::new(Line::from(spans))
         })
@@ -58,8 +58,7 @@ fn render_installed(model: &Model, f: &mut Frame, area: Rect) {
     let path = agent
         .global
         .clone()
-        .or_else(|| agent.project.clone().map(|p| format!("项目：{}", p)))
-        .unwrap_or_else(|| "未设置路径".into());
+        .unwrap_or_else(|| "未设置全局路径".into());
     let head = vec![
         Line::from(vec![Span::from(agent.id.clone()).bold(), Span::from(format!("  · {}", agent.format)).dim()]),
         Line::from(Span::from(path).dim()),

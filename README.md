@@ -29,26 +29,26 @@ A one-click **Mux 精选 (curated collection)** subscribes you to a curated set.
 
 ## Features
 
-- **Aggregated catalog** with search and filters by **source** and **transport**.
+- **Aggregated catalog** with search, source filtering, and an explicit view of copies shadowed by precedence.
 - **Per-agent** install / enable / disable / delete. *Disable* removes a server from the agent's file but remembers its exact config so you can flip it back.
 - **Transport-aware** — `stdio` / `http` / `sse`, plus a **custom `type`** (e.g. `streamable-http`). Same-named stdio and http variants are tracked separately.
 - **Paste a config** — drop a `{"mcpServers": {…}}` block and MUX recognizes the servers and adds them.
 - **Edits propagate** — changing a catalog entry re-stamps it into agents that installed it *clean*, while leaving hand-customized per-agent configs untouched.
-- **Safe writes** — atomic file writes + a timestamped **backup** before touching any agent config.
+- **Safe writes** — a timestamped **backup** before touching an agent config; unrelated keys, servers, and unmodelled fields are preserved.
 - **CLI ⇄ Desktop in sync** — both are built on one shared Rust core (`mux-core`) and read/write `~/.mux/`, so a change in one shows up in the other.
 - **Dark mode** and a macOS "liquid glass" UI.
 
-## Supported agents (20)
+## Supported agents (21)
 
-Claude Code · Claude Desktop · Cursor · VS Code · Codex · Zed · Windsurf · Roo Code · Gemini CLI · Qoder · Devin · Kiro · Junie · Amazon Q · OpenCode · Copilot CLI · Cline · Continue · Warp · Pi
+Claude Code · Claude Desktop · Cursor · VS Code · Codex · Zed · Windsurf · Roo Code · Gemini CLI · Qoder · Devin · Kiro · Junie · Amazon Q · OpenCode · Copilot CLI · Cline · Continue · Warp · Pi · QoderWork
 
-Each agent's config path/format is editable in the app; paths are stored portably (`~/…`, never a hardcoded home).
+Each agent's config path/format is editable in the app. Paths inside the home directory are normalized to the portable `~/…` form.
 
 ---
 
 ## Desktop app
 
-Grab the latest **`.dmg`** (Apple Silicon) from [**Releases**](../../releases) — every push to `main` publishes a versioned pre-release.
+Grab the **Desktop installer · Apple Silicon** asset from the latest stable [**Release**](../../releases/latest). The app checks that stable channel automatically and also exposes a manual **Check for updates** action. Installing the app makes its bundled `mux` CLI available through `~/.local/bin/mux` when that directory is on `PATH`.
 
 Build from source:
 
@@ -60,7 +60,7 @@ npm run tauri build      # or: npm run tauri dev
 
 ## CLI
 
-The `mux` CLI is a native Rust binary built on the same `mux-core` as the desktop app. Build and install it from source:
+The `mux` CLI is a native Rust binary built on the same `mux-core` as the desktop app. It is bundled with the desktop app, can be downloaded separately from Releases, or built from source:
 
 ```bash
 cargo install --path cli    # installs the `mux` binary onto your PATH
@@ -81,12 +81,14 @@ Or drive it non-interactively with subcommands:
 ```bash
 mux import          # scan agents and import discovered servers
 mux list            # list catalog entries
-mux apply <names…>  # apply MCPs non-interactively (--scope, --agent, --project)
+mux apply <names…>  # apply MCPs to global agent configs (--agent)
 mux add <name>      # add a server to the manual source
 mux remove <name>   # remove a manual entry
 mux status          # show what's active across agents
+mux export [--out <file>]  # export the effective catalog as JSON
 mux clean [--agent <name>]   # clear MCPs from enabled agents
 mux agents [list | enable <name> | disable <name>]
+mux upgrade         # upgrade a standalone CLI from the latest stable Release
 ```
 
 ---
@@ -97,7 +99,7 @@ Everything lives under `~/.mux/`:
 
 ```
 ~/.mux/
-├── settings.json           # one document: agents · registry (manual/discovered) · sources · disabled · state
+├── settings.json           # one document: agents · sources · disabled · state
 ├── sources/
 │   ├── remote/<id>.json    # cached copies of subscribed URLs
 │   └── local/<id>.(json|toml)   # imported local files + the managed manual/discovered sources

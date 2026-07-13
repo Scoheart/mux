@@ -2,7 +2,7 @@
 
 **MUX（MCP Multiplexer）** 是一个跨 AI 编码 agent 统一管理 **MCP（Model Context Protocol）服务器** 的工具。
 
-![MUX 桌面 App 界面总览](/img/registry-overview.png)
+![MUX v1.1.4 桌面 App 界面总览](/img/registry-overview-current.jpg)
 
 > 上图各区域详解见 [桌面 App 图文教程](/guide/desktop#界面总览)。
 
@@ -25,7 +25,7 @@ MUX 有两个界面，它们**共享同一个数据目录 `~/.mux/`**：
 | **桌面 App** | macOS 应用（Tauri + React）。可视化管理，适合鼠标操作。 |
 | **命令行 / TUI** | 原生 Rust 二进制 `mux`。子命令可脚本化；无参数时进入交互式终端界面（TUI）。 |
 
-因为两者都构建在**同一个 Rust 核心 crate（`mux-core`）**之上，数据模型只存在一处、两端永不分叉。你在桌面里的改动，命令行里立刻可见,反之亦然。
+因为两者都构建在**同一个 Rust 核心 crate（`mux-core`）**之上，数据模型只存在一处。你在桌面里的改动，命令行刷新后可见，反之亦然。
 
 ## 核心思路：来源驱动的目录
 
@@ -46,7 +46,9 @@ MUX **不内置**一份写死的 MCP 清单。你的目录是由**来源（Sourc
 - **删除**：从 agent 卸载，或从目录彻底删除。
 - **编辑 / 粘贴**：可视化编辑 MCP 配置，或粘贴一段 `mcpServers` JSON/TOML 自动识别。
 - **重新同步**：把编辑后的配置显式推给所有已安装该 MCP 的 agent。
+- **导出生效目录**：把去重后的完整目录导出为标准 MCP JSON。
 - **来源管理**：订阅、导入、刷新、启停、删除来源。
 - **agent 管理**：新增自定义 agent、编辑其配置文件路径。
+- **自动更新**：桌面 App 与独立 CLI 都跟随最新正式版通道。
 
 下一步 → [安装](/guide/install)

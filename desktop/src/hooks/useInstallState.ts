@@ -208,7 +208,6 @@ export function useInstallState(): InstallState {
           transport,
           scope: "global" as const,
           agents: [agentId],
-          project_dir: undefined,
           overrides: {},
         };
         if (wasInstalled) {
@@ -260,7 +259,6 @@ export function useInstallState(): InstallState {
           transport,
           scope: "global" as const,
           agents: [agentId],
-          project_dir: undefined,
           overrides: {},
         };
         if (on) {
@@ -308,7 +306,6 @@ export function useInstallState(): InstallState {
           transport,
           scope: "global" as const,
           agents: [agentId],
-          project_dir: undefined,
           overrides: {},
         });
         await doScan();

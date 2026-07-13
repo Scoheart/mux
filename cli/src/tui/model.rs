@@ -199,7 +199,7 @@ pub struct LocalForm {
     pub field: usize, // 0 = path, 1 = name
 }
 
-pub const AGENT_FIELDS: usize = 5;
+pub const AGENT_FIELDS: usize = 4;
 
 /// Create/edit an agent definition. Field 1 (format) toggles json↔toml; the id
 /// is locked when editing. Navigate-vs-edit like the catalog editor.
@@ -209,7 +209,8 @@ pub struct AgentForm {
     pub format_toml: bool,
     pub key: String,
     pub global: String,
-    pub project: String,
+    /// Retained when editing an older definition; not exposed in the form.
+    pub legacy_project: Option<String>,
     pub field: usize,
     pub editing: bool,
     pub error: Option<String>,
@@ -223,7 +224,7 @@ impl AgentForm {
             format_toml: false,
             key: "mcpServers".into(),
             global: String::new(),
-            project: String::new(),
+            legacy_project: None,
             field: 0,
             editing: false,
             error: None,
@@ -237,7 +238,7 @@ impl AgentForm {
             format_toml: a.format == "toml",
             key: a.key.clone(),
             global: a.global.clone().unwrap_or_default(),
-            project: a.project.clone().unwrap_or_default(),
+            legacy_project: a.project.clone(),
             field: 3, // land on the global path — the usual thing to edit
             editing: false,
             error: None,
@@ -245,7 +246,7 @@ impl AgentForm {
     }
 
     pub fn labels(&self) -> [&'static str; AGENT_FIELDS] {
-        ["ID", "格式", "配置 key", "全局路径", "项目路径"]
+        ["ID", "格式", "配置 key", "全局路径"]
     }
 
     pub fn value(&self, i: usize) -> String {
@@ -254,7 +255,6 @@ impl AgentForm {
             1 => if self.format_toml { "toml" } else { "json" }.into(),
             2 => self.key.clone(),
             3 => self.global.clone(),
-            4 => self.project.clone(),
             _ => String::new(),
         }
     }
@@ -268,13 +268,12 @@ impl AgentForm {
             0 if self.id_editable() => Some(&mut self.id),
             2 => Some(&mut self.key),
             3 => Some(&mut self.global),
-            4 => Some(&mut self.project),
             _ => None, // id (locked) or format (toggle)
         }
     }
 
     /// Build (id, AgentDefinition). Core's `agents::put` does the real validation
-    /// (id/key non-empty, at least one path); this just assembles the fields.
+    /// (id/key/global path non-empty); this just assembles the fields.
     pub fn to_def(&self) -> (String, mux_core::types::AgentDefinition) {
         let opt = |s: &str| {
             let t = s.trim();
@@ -284,7 +283,7 @@ impl AgentForm {
             self.id.trim().to_string(),
             mux_core::types::AgentDefinition {
                 global: opt(&self.global),
-                project: opt(&self.project),
+                project: self.legacy_project.clone(),
                 format: if self.format_toml { "toml".into() } else { "json".into() },
                 key: self.key.trim().to_string(),
                 enabled: true,

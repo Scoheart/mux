@@ -19,7 +19,7 @@ hero:
 features:
   - icon: 🗂️
     title: 一个目录，管所有 agent
-    details: Claude Code、Cursor、VS Code、Codex、Zed、Warp、Pi 等 20 个 agent，同一份 MCP 目录，逐个 agent 安装 / 开关 / 删除。
+    details: Claude Code、Cursor、VS Code、Codex、Zed、Warp、Pi、QoderWork 等 21 个 agent，同一份 MCP 目录，逐个 agent 安装 / 开关 / 删除。
   - icon: 🔗
     title: 来源驱动，不写死清单
     details: 目录由你订阅的远程 URL、导入的本地文件、手动添加与自动探索共同组成，随来源刷新更新。
@@ -34,7 +34,7 @@ features:
     details: 改一个目录条目，自动重刷进"干净"安装的 agent；被手改过的保留不动，也可显式"重新同步"。
   - icon: 🛟
     title: 安全写入
-    details: 每次写入前先给目标文件做时间戳备份；按条目改写、保留同文件里其它 server 的原始字节。
+    details: 每次写入前先给目标文件做时间戳备份；按条目改写，并保留同文件里的其它 server 和未建模字段。
 ---
 
 <div style="max-width: 960px; margin: 48px auto 0; padding: 0 24px;">
@@ -46,10 +46,10 @@ features:
 它有两个前端，共享同一份数据目录 `~/.mux/`：
 
 - **桌面 App**（macOS，Tauri + React）—— 可视化管理，鼠标操作。
-- **CLI / TUI**（原生 Rust 二进制 `mux`）—— 终端里用,可脚本化,无参数进交互式界面。
+- **CLI / TUI**（原生 Rust 二进制 `mux`）—— 终端里使用，可脚本化，无参数时进入交互式界面。
 
-两者都构建在同一个 Rust 核心之上,所以数据模型只有一份、永不分叉。
+两者都构建在同一个 Rust 核心之上，所以数据模型只有一份。
 
-> 新手从 [MUX 是什么](/guide/what-is-mux) 开始;想直接装,看 [安装](/guide/install)。
+> 新手从 [MUX 是什么](/guide/what-is-mux) 开始；想直接安装，请看 [安装](/guide/install)。
 
 </div>

@@ -107,7 +107,7 @@ export function Layout({
           <div className="mux-seg" style={{ width: "max-content" }}>
             {agents.map((a) => {
               const active = view.kind === "agent" && view.id === a.id;
-              const warn = !a.has_global && !a.has_project;
+              const warn = !a.has_global;
               return (
                 <button
                   key={a.id}

@@ -34,6 +34,7 @@ export interface AgentInfo {
 /** Payload for creating a custom agent (mirrors Rust AgentDefinition). */
 export interface AgentDefinitionInput {
   global: string | null;
+  /** Legacy metadata retained when editing an existing definition. */
   project: string | null;
   format: "json" | "toml";
   key: string;
@@ -78,8 +79,8 @@ export interface SourceView {
 }
 
 export interface InstallRequest {
-  server_name: string; transport: "stdio" | "http"; scope: "global" | "project"; agents: string[];
-  project_dir?: string; overrides: Record<string, PatchInput>;
+  server_name: string; transport: "stdio" | "http"; scope: "global"; agents: string[];
+  overrides: Record<string, PatchInput>;
 }
 
 /** Result of re-syncing an edited entry to its installed agents. */

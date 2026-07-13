@@ -93,15 +93,9 @@ enum Command {
     /// Apply MCPs non-interactively
     Apply {
         names: Vec<String>,
-        /// Scope: global, project, both
-        #[arg(long, default_value = "global")]
-        scope: String,
         /// Comma-separated agent names, or "all"
         #[arg(long, default_value = "all")]
         agent: String,
-        /// Project directory for project scope
-        #[arg(long)]
-        project: Option<String>,
     },
     /// Manage AI coding agents
     Agents {
@@ -138,12 +132,7 @@ fn main() {
         Some(Command::Add { name }) => cmd_add(&name),
         Some(Command::Remove { name }) => cmd_remove(&name),
         Some(Command::Export { out }) => cmd_export(out.as_deref()),
-        Some(Command::Apply {
-            names,
-            scope,
-            agent,
-            project,
-        }) => cmd_apply(names, &scope, &agent, project.as_deref()),
+        Some(Command::Apply { names, agent }) => cmd_apply(names, &agent),
         Some(Command::Agents { action }) => match action {
             Some(AgentsAction::Enable { name }) => cmd_agents_set(&name, true),
             Some(AgentsAction::Disable { name }) => cmd_agents_set(&name, false),
@@ -330,7 +319,7 @@ fn cmd_export(out: Option<&str>) {
     }
 }
 
-fn cmd_apply(names: Vec<String>, scope: &str, agent: &str, project: Option<&str>) {
+fn cmd_apply(names: Vec<String>, agent: &str) {
     let agents = load_agents();
     let agent_ids: Vec<String> = if agent == "all" {
         agents
@@ -342,11 +331,6 @@ fn cmd_apply(names: Vec<String>, scope: &str, agent: &str, project: Option<&str>
         agent.split(',').map(|s| s.trim().to_string()).collect()
     };
     let registry = read_registry();
-    let scopes: Vec<&str> = if scope == "both" {
-        vec!["global", "project"]
-    } else {
-        vec![scope]
-    };
     let overrides = HashMap::new();
     let mut applied = 0;
     let mut errors: Vec<String> = Vec::new();
@@ -363,11 +347,9 @@ fn cmd_apply(names: Vec<String>, scope: &str, agent: &str, project: Option<&str>
             continue;
         }
         for t in transports {
-            for sc in &scopes {
-                match ops::install(name, t, sc, &agent_ids, project, &overrides) {
-                    Ok(()) => applied += 1,
-                    Err(e) => errors.extend(e),
-                }
+            match ops::install(name, t, "global", &agent_ids, None, &overrides) {
+                Ok(()) => applied += 1,
+                Err(e) => errors.extend(e),
             }
         }
     }
@@ -408,9 +390,6 @@ fn cmd_agents_list() {
         println!("  {} [{}]", name, status);
         if let Some(g) = &def.global {
             println!("    global:  {}", dim(g));
-        }
-        if let Some(p) = &def.project {
-            println!("    project: {}", dim(p));
         }
     }
 }

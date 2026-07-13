@@ -150,10 +150,6 @@ export function AgentView({ state, agentId }: AgentViewProps) {
             <span className="text-xs break-all" style={{ color: "var(--text-primary)", fontFamily: "var(--font-mono)" }}>
               {agent.global}
             </span>
-          ) : agent.project ? (
-            <span className="text-xs break-all" style={{ color: "var(--text-primary)", fontFamily: "var(--font-mono)" }}>
-              项目： {agent.project}
-            </span>
           ) : (
             <span className="text-xs" style={{ color: "var(--text-secondary)" }}>
               未设置路径，点击「编辑」添加

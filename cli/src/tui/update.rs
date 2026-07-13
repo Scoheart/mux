@@ -561,8 +561,8 @@ fn agent_form_key(model: &mut Model, mut form: AgentForm, k: KeyEvent) -> Vec<Ef
             Some("ID 不能为空")
         } else if def.key.trim().is_empty() {
             Some("配置 key 不能为空")
-        } else if def.global.is_none() && def.project.is_none() {
-            Some("至少填写一个配置路径")
+        } else if def.global.is_none() {
+            Some("全局配置路径不能为空")
         } else {
             None
         };

@@ -2,7 +2,7 @@
 
 ## MUX 会改我 agent 配置里已有的其它 server 吗？
 
-不会。MUX **按单个 server 操作**——安装 / 卸载只动它自己那一个条目，保留同文件里其它 server 的原始字节。而且每次写入前都会先把目标文件**备份**到 `~/.mux/backups/`。
+不会删除其它 server。MUX 增删目标条目时会保留其它顶层键、其它 server 和未建模字段，而且写入前会把原文件备份到 `~/.mux/backups/`。不过 JSON / TOML 会重新序列化，缩进和键顺序可能变化。
 
 ## 桌面 App 和命令行的数据是分开的吗？
 
@@ -10,7 +10,7 @@
 
 ## 提示「MUX 已损坏，无法打开」怎么办？
 
-这是 macOS 对**未签名应用**的隔离，不是应用坏了。执行：
+当前发布包未经过 Apple Developer ID 公证，macOS 可能因隔离属性阻止启动，不是应用内容损坏。确认文件来自本项目 Release 后执行：
 
 ```bash
 xattr -dr com.apple.quarantine /Applications/MUX.app
@@ -31,7 +31,7 @@ xattr -dr com.apple.quarantine /Applications/MUX.app
 
 ## 我改了一个目录条目，为什么某个 agent 没更新？
 
-编辑传播是**有意保守**的：只自动重刷进「干净」安装了它的**全局作用域** agent（磁盘配置 == 编辑前的目录配置）。**被手改过**或**项目作用域**的安装会被保留不动。
+编辑传播是**有意保守**的：只自动重刷进「干净」安装了它的 Agent（磁盘配置 == 编辑前的目录配置）。被手改过的安装会保留不动。
 
 想强制推送，用**重新同步（Resync）**——桌面编辑器里的按钮，或 TUI Registry 屏幕的 `S` 键。定制过的会被跳过并报告，可选强制覆盖。详见 [编辑传播](/guide/concepts#编辑传播-edit-propagation)。
 
@@ -41,7 +41,7 @@ xattr -dr com.apple.quarantine /Applications/MUX.app
 
 ## 目录里的条目从哪来？我能只留一部分吗？
 
-目录是所有**已启用来源**的并集，MUX 不内置写死的清单。你可以**单独启停**每个来源来控制目录内容——停用一个来源，它的条目就消失（底层文件不删）。详见 [来源](/guide/concepts#来源-sources)。
+目录是所有**已启用来源**的并集，MUX 不内置写死的清单。TUI 来源屏幕可单独启停来源；桌面 `v1.1.4` 暂时只提供按来源过滤、刷新和删除。停用来源不会删除底层文件。详见 [来源](/guide/concepts#来源-sources)。
 
 ## Mux 精选是必须的吗？
 
@@ -49,7 +49,11 @@ xattr -dr com.apple.quarantine /Applications/MUX.app
 
 ## 数据能在多台机器间同步吗？
 
-MUX 所有数据都在 `~/.mux/` 下，且配置路径都用可移植的 `~/…` 形式，所以理论上把 `~/.mux/` 同步过去就行。但注意：不同机器上 agent 的实际安装位置可能不同，跨机器时留意路径差异。
+MUX 的目录、来源和状态都在 `~/.mux/` 下。主目录内的 Agent 路径会保存为 `~/…`，但主目录外的自定义绝对路径保持原值；跨机器同步后仍需核对 Agent 是否安装在相同位置。
+
+## MUX 如何更新？
+
+桌面 App 启动后静默检查最新正式版，也可以点击顶部 **检查更新**。独立安装的 CLI 使用 `mux upgrade`；随桌面 App 安装到 `~/.local/bin/mux` 的 CLI 会跟随 App 更新。
 
 ## 还有问题？
 

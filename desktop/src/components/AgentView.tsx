@@ -1,7 +1,7 @@
 import { useState, useMemo, useCallback } from "react";
 import type { InstallState } from "../hooks/useInstallState";
 import type { RegistryEntry } from "../lib/types";
-import { keyOf, transportLabel, installedKey } from "../lib/mcp";
+import { keyOf, transportLabel, installedKey, transportOf } from "../lib/mcp";
 import { XIcon, PlusIcon, EditIcon, PackageIcon } from "./icons";
 import { Avatar, Badge, IconButton, SearchBar, Switch, TransportPill } from "./ui";
 import { AgentGlyph, agentName } from "./brandIcons";
@@ -74,6 +74,7 @@ export function AgentView({ state, agentId }: AgentViewProps) {
     const s = addSearch.trim().toLowerCase();
     return entries
       .filter((e) => {
+        if (!agent?.supported_transports.includes(transportOf(e))) return false;
         const notInstalled = !installedKeySet.has(keyOf(e));
         if (!s) return notInstalled;
         return notInstalled && (e.name.toLowerCase().includes(s) || e.description.toLowerCase().includes(s));
@@ -83,7 +84,7 @@ export function AgentView({ state, agentId }: AgentViewProps) {
           a.name.localeCompare(b.name, undefined, { sensitivity: "base" }) ||
           transportLabel(a).localeCompare(transportLabel(b))
       );
-  }, [entries, installedKeySet, addSearch]);
+  }, [entries, installedKeySet, addSearch, agent]);
 
   const handleToggle = useCallback(
     (entry: RegistryEntry) => {

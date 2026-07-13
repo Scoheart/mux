@@ -2,7 +2,11 @@
 
 ## MUX 会改我 agent 配置里已有的其它 server 吗？
 
-不会删除其它 server。MUX 增删目标条目时会保留其它顶层键、其它 server 和未建模字段，而且写入前会把原文件备份到 `~/.mux/backups/`。不过 JSON / TOML 会重新序列化，缩进和键顺序可能变化。
+不会。MUX 只定位 MCP 节点中的目标条目，更新受管连接字段；其它顶层键、其它 server、目标条目里的权限 / OAuth / 工具策略、注释和排版都会保留。写入前会先备份，再以原子替换落盘；备份失败、配置结构不合法或文件在写入期间被其它进程修改时都会拒绝写入。
+
+## 为什么 Claude Desktop 里看不到远程 HTTP MCP？
+
+`claude_desktop_config.json` 是本地 MCP 配置，只接收 stdio server。远程 MCP 由 Claude Connector 管理，不是同一个本地文件接口；MUX 会隐藏并拒绝向 Claude Desktop 安装 HTTP 条目。
 
 ## 桌面 App 和命令行的数据是分开的吗？
 
@@ -24,14 +28,14 @@ xattr -dr com.apple.quarantine /Applications/MUX.app
 
 ## 「停用」和「删除」有什么区别？
 
-- **停用（Disable）**：从 agent 配置里移除该 server，但**记住它的完整配置**——随时能开回来。适合临时关掉。
+- **停用（Disable）**：先保存该 server 的完整语义配置（含 Agent 专属策略），再从 Agent 配置移除；恢复时不会覆盖期间重建的同名条目。适合临时关掉。
 - **删除**：从 agent 卸载。对 manual / 探索 条目，还能从目录**彻底删除**（Forget），同时从所有 agent 卸载。
 
 详见 [核心概念](/guide/concepts#安装-开关-删除)。
 
 ## 我改了一个目录条目，为什么某个 agent 没更新？
 
-编辑传播是**有意保守**的：只自动重刷进「干净」安装了它的 Agent（磁盘配置 == 编辑前的目录配置）。被手改过的安装会保留不动。
+编辑目录条目的连接配置会自动重刷进所有正在使用它的全局 Agent，包括已手改的副本；每个文件都会先备份。仅修改描述或标签不会触发同步。
 
 想强制推送，用**重新同步（Resync）**——桌面编辑器里的按钮，或 TUI Registry 屏幕的 `S` 键。定制过的会被跳过并报告，可选强制覆盖。详见 [编辑传播](/guide/concepts#编辑传播-edit-propagation)。
 
@@ -41,7 +45,7 @@ xattr -dr com.apple.quarantine /Applications/MUX.app
 
 ## 目录里的条目从哪来？我能只留一部分吗？
 
-目录是所有**已启用来源**的并集，MUX 不内置写死的清单。TUI 来源屏幕可单独启停来源；桌面 `v1.1.4` 暂时只提供按来源过滤、刷新和删除。停用来源不会删除底层文件。详见 [来源](/guide/concepts#来源-sources)。
+目录是所有**已启用来源**的并集，MUX 不内置写死的清单。TUI 来源屏幕可单独启停来源；桌面 `v1.1.5` 暂时只提供按来源过滤、刷新和删除。停用来源不会删除底层文件。详见 [来源](/guide/concepts#来源-sources)。
 
 ## Mux 精选是必须的吗？
 

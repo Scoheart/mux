@@ -13,11 +13,13 @@
 
 use crate::disabled::DisabledEntry;
 use crate::paths::{backups_dir, mux_dir, registry_dir, settings_file, user_agents_file};
+use crate::safe_write::write_private_if_unchanged;
 use crate::types::{AgentDefinition, RegistryEntry, SourceDef};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
 use std::fs;
+use std::io::{Error, ErrorKind};
 use std::path::Path;
 use std::sync::Mutex;
 
@@ -52,9 +54,8 @@ pub struct Settings {
     pub extra: BTreeMap<String, Value>,
 }
 
-/// Serializes read-modify-write within this process so two concurrent commands
-/// can't lose each other's section update. Cross-process races (CLI + desktop
-/// at once) are rare and bounded by the atomic rename in `save_settings`.
+/// Serializes read-modify-write within this process. Cross-process changes are
+/// detected by an optimistic content check before atomic replacement.
 static LOCK: Mutex<()> = Mutex::new(());
 
 /// Read the whole settings document. Missing or corrupt file ⇒ defaults
@@ -66,25 +67,45 @@ pub fn load_settings() -> Settings {
         .unwrap_or_default()
 }
 
-/// Atomically write `bytes` to `path` (temp sibling + rename) so a crash mid-write
-/// can never leave a torn settings file.
-fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)?;
+fn read_optional(path: &Path) -> std::io::Result<Option<String>> {
+    match fs::read_to_string(path) {
+        Ok(content) => Ok(Some(content)),
+        Err(error) if error.kind() == ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error),
     }
-    let tmp = path.with_extension("tmp");
-    fs::write(&tmp, bytes)?;
-    fs::rename(&tmp, path)?;
-    Ok(())
+}
+
+fn parse_for_update(path: &Path) -> std::io::Result<(Settings, Option<String>)> {
+    let original = read_optional(path)?;
+    let settings = match original.as_deref() {
+        Some(content) => serde_json::from_str(content).map_err(|error| {
+            Error::new(
+                ErrorKind::InvalidData,
+                format!(
+                    "refusing to replace invalid MUX settings at {}: {}",
+                    path.display(),
+                    error
+                ),
+            )
+        })?,
+        None => Settings::default(),
+    };
+    Ok((settings, original))
+}
+
+fn save_with_expected(settings: &Settings, original: Option<&str>) -> std::io::Result<()> {
+    let mut settings = settings.clone();
+    settings.version.get_or_insert(1);
+    let json = serde_json::to_string_pretty(&settings)
+        .map_err(|error| Error::new(ErrorKind::InvalidData, error))?;
+    write_private_if_unchanged(&settings_file(), original, &json).map_err(Error::other)
 }
 
 /// Persist the whole settings document (pretty JSON, atomic). Stamps `version`.
 pub fn save_settings(settings: &Settings) -> std::io::Result<()> {
-    let mut settings = settings.clone();
-    settings.version.get_or_insert(1);
-    let json = serde_json::to_string_pretty(&settings)
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
-    write_atomic(&settings_file(), json.as_bytes())
+    let path = settings_file();
+    let original = read_optional(&path)?;
+    save_with_expected(settings, original.as_deref())
 }
 
 /// Load → apply `f` to one section → save, under the process lock. Returns
@@ -94,9 +115,9 @@ where
     F: FnOnce(&mut Settings) -> R,
 {
     let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    let mut settings = load_settings();
+    let (mut settings, original) = parse_for_update(&settings_file())?;
     let out = f(&mut settings);
-    save_settings(&settings)?;
+    save_with_expected(&settings, original.as_deref())?;
     Ok(out)
 }
 
@@ -233,7 +254,12 @@ mod tests {
             description: "".into(),
             tags: vec![],
             config: RegistryConfig {
-                stdio: Some(StdioConfig { command: "c".into(), args: None, env: None }),
+                stdio: Some(StdioConfig {
+                    command: "c".into(),
+                    args: None,
+                    env: None,
+                    cwd: None,
+                }),
                 http: None,
             },
             origin: None,
@@ -244,5 +270,35 @@ mod tests {
         assert!(back.contains("\"weird\":true"));
         assert!(back.contains("\"active\""));
         assert!(back.contains("\"name\":\"x\""));
+    }
+
+    #[test]
+    fn mutation_refuses_to_replace_corrupt_settings() {
+        let th = crate::testenv::TestHome::new("settings-corrupt");
+        let path = th.home.join(".mux/settings.json");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let original = r#"{"registry": ["#;
+        std::fs::write(&path, original).unwrap();
+
+        let result = mutate_settings(|settings| settings.imported = Some("now".into()));
+
+        assert!(result.is_err());
+        assert_eq!(std::fs::read_to_string(path).unwrap(), original);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn settings_are_written_with_private_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let th = crate::testenv::TestHome::new("settings-mode");
+        mutate_settings(|settings| settings.imported = Some("now".into())).unwrap();
+
+        let mode = std::fs::metadata(th.home.join(".mux/settings.json"))
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777;
+        assert_eq!(mode, 0o600);
     }
 }

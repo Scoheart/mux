@@ -128,7 +128,12 @@ pub struct RegistryUi {
 
 impl Default for RegistryUi {
     fn default() -> Self {
-        Self { query: String::new(), filter: OriginFilter::All, cursor: 0, searching: false }
+        Self {
+            query: String::new(),
+            filter: OriginFilter::All,
+            cursor: 0,
+            searching: false,
+        }
     }
 }
 
@@ -151,7 +156,11 @@ pub struct AgentsUi {
 
 impl Default for AgentsUi {
     fn default() -> Self {
-        Self { agent_cursor: 0, installed_cursor: 0, pane: AgentPane::List }
+        Self {
+            agent_cursor: 0,
+            installed_cursor: 0,
+            pane: AgentPane::List,
+        }
     }
 }
 
@@ -277,14 +286,22 @@ impl AgentForm {
     pub fn to_def(&self) -> (String, mux_core::types::AgentDefinition) {
         let opt = |s: &str| {
             let t = s.trim();
-            if t.is_empty() { None } else { Some(t.to_string()) }
+            if t.is_empty() {
+                None
+            } else {
+                Some(t.to_string())
+            }
         };
         (
             self.id.trim().to_string(),
             mux_core::types::AgentDefinition {
                 global: opt(&self.global),
                 project: self.legacy_project.clone(),
-                format: if self.format_toml { "toml".into() } else { "json".into() },
+                format: if self.format_toml {
+                    "toml".into()
+                } else {
+                    "json".into()
+                },
                 key: self.key.trim().to_string(),
                 enabled: true,
                 builtin: None,
@@ -296,7 +313,9 @@ impl AgentForm {
 /// Overlay dialogs.
 pub enum Modal {
     /// Read-only catalog-entry detail, keyed by `name::transport`.
-    Detail { key: String },
+    Detail {
+        key: String,
+    },
     Help,
     Install(InstallWizard),
     AddMcp(AddMcpState),
@@ -391,12 +410,26 @@ impl EditorState {
 
     pub fn labels(&self) -> [&'static str; EDITOR_FIELDS] {
         match self.transport {
-            EditorTransport::Stdio => {
-                ["名称", "描述", "标签（逗号）", "传输", "命令", "参数（逗号）", "环境（KEY=val,）", "仓库 URL"]
-            }
-            EditorTransport::Http => {
-                ["名称", "描述", "标签（逗号）", "传输", "类型", "URL", "请求头（KEY=val,）", "仓库 URL"]
-            }
+            EditorTransport::Stdio => [
+                "名称",
+                "描述",
+                "标签（逗号）",
+                "传输",
+                "命令",
+                "参数（逗号）",
+                "环境（KEY=val,）",
+                "仓库 URL",
+            ],
+            EditorTransport::Http => [
+                "名称",
+                "描述",
+                "标签（逗号）",
+                "传输",
+                "类型",
+                "URL",
+                "请求头（KEY=val,）",
+                "仓库 URL",
+            ],
         }
     }
 
@@ -440,7 +473,10 @@ impl EditorState {
     }
 
     /// Validate the form and build a `RegistryEntry`, preserving `origin`.
-    pub fn to_entry(&self, origin: Option<mux_core::types::RegistryOrigin>) -> Result<RegistryEntry, String> {
+    pub fn to_entry(
+        &self,
+        origin: Option<mux_core::types::RegistryOrigin>,
+    ) -> Result<RegistryEntry, String> {
         let name = self.name.trim();
         if name.is_empty() {
             return Err("名称不能为空".into());
@@ -457,6 +493,7 @@ impl EditorState {
                         command: self.command.trim().to_string(),
                         args: if args.is_empty() { None } else { Some(args) },
                         env: parse_kv(&self.env),
+                        cwd: None,
                     }),
                     http: None,
                 }
@@ -469,7 +506,11 @@ impl EditorState {
                 RegistryConfig {
                     stdio: None,
                     http: Some(HttpConfig {
-                        kind: if kind.is_empty() { "http".into() } else { kind.to_string() },
+                        kind: if kind.is_empty() {
+                            "http".into()
+                        } else {
+                            kind.to_string()
+                        },
                         url: self.url.trim().to_string(),
                         headers: parse_kv(&self.headers),
                     }),
@@ -483,13 +524,20 @@ impl EditorState {
             tags,
             config,
             origin,
-            repo: if repo.is_empty() { None } else { Some(repo.to_string()) },
+            repo: if repo.is_empty() {
+                None
+            } else {
+                Some(repo.to_string())
+            },
         })
     }
 }
 
 fn split_commas(raw: &str) -> Vec<String> {
-    raw.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect()
+    raw.split(',')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect()
 }
 
 /// Parse `KEY=val, KEY2=val2` into a map (None if empty).
@@ -499,10 +547,18 @@ fn parse_kv(raw: &str) -> Option<std::collections::HashMap<String, String>> {
         .filter_map(|pair| {
             let (k, v) = pair.split_once('=')?;
             let (k, v) = (k.trim(), v.trim());
-            if k.is_empty() { None } else { Some((k.to_string(), v.to_string())) }
+            if k.is_empty() {
+                None
+            } else {
+                Some((k.to_string(), v.to_string()))
+            }
         })
         .collect();
-    if map.is_empty() { None } else { Some(map) }
+    if map.is_empty() {
+        None
+    } else {
+        Some(map)
+    }
 }
 
 /// Serialize a map back to `KEY=val, KEY2=val2` (keys sorted for stability).
@@ -510,7 +566,11 @@ fn kv_to_string(map: Option<&std::collections::HashMap<String, String>>) -> Stri
     let Some(map) = map else { return String::new() };
     let mut pairs: Vec<(&String, &String)> = map.iter().collect();
     pairs.sort_by(|a, b| a.0.cmp(b.0));
-    pairs.iter().map(|(k, v)| format!("{}={}", k, v)).collect::<Vec<_>>().join(", ")
+    pairs
+        .iter()
+        .map(|(k, v)| format!("{}={}", k, v))
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 pub struct Model {
@@ -590,8 +650,12 @@ impl Model {
         let Some(agent) = self.data.agents.get(self.agents_ui.agent_cursor) else {
             return Vec::new();
         };
-        let mut rows: Vec<&InstalledMcp> =
-            self.data.installed.iter().filter(|i| i.agent == agent.id).collect();
+        let mut rows: Vec<&InstalledMcp> = self
+            .data
+            .installed
+            .iter()
+            .filter(|i| i.agent == agent.id)
+            .collect();
         rows.sort_by(|a, b| a.name.cmp(&b.name).then(a.transport.cmp(&b.transport)));
         rows
     }
@@ -601,8 +665,21 @@ impl Model {
         self.data.agents.iter().filter(|a| a.has_global).collect()
     }
 
+    pub fn installable_agents_for(&self, transport: &str) -> Vec<&AgentInfo> {
+        self.installable_agents()
+            .into_iter()
+            .filter(|agent| agent.supported_transports.contains(&transport))
+            .collect()
+    }
+
     /// Catalog entries not already active in `agent_id`, matching `query`.
     pub fn addable_entries(&self, agent_id: &str, query: &str) -> Vec<&RegistryEntry> {
+        let supported = self
+            .data
+            .agents
+            .iter()
+            .find(|agent| agent.id == agent_id)
+            .map(|agent| &agent.supported_transports);
         let active: HashSet<(&str, &'static str)> = self
             .data
             .installed
@@ -616,6 +693,9 @@ impl Model {
             .data
             .registry
             .iter()
+            .filter(|entry| {
+                supported.is_some_and(|transports| transports.contains(&entry.transport()))
+            })
             .filter(|e| !active.contains(&(e.name.as_str(), e.transport())))
             .filter(|e| {
                 q.is_empty() || {

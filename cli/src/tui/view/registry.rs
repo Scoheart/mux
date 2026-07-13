@@ -53,7 +53,9 @@ fn render_filter(model: &Model, f: &mut Frame, area: Rect) {
 
 fn render_catalog(model: &Model, f: &mut Frame, area: Rect) {
     let entries = model.filtered_registry();
-    let block = Block::default().borders(Borders::TOP).border_style(Style::new().dim());
+    let block = Block::default()
+        .borders(Borders::TOP)
+        .border_style(Style::new().dim());
 
     if entries.is_empty() {
         let msg = if model.data.registry.is_empty() {
@@ -61,7 +63,10 @@ fn render_catalog(model: &Model, f: &mut Frame, area: Rect) {
         } else {
             "没有匹配的条目。"
         };
-        f.render_widget(Paragraph::new(Line::from(Span::from(msg).dim())).block(block), area);
+        f.render_widget(
+            Paragraph::new(Line::from(Span::from(msg).dim())).block(block),
+            area,
+        );
         return;
     }
 
@@ -89,5 +94,12 @@ fn render_catalog(model: &Model, f: &mut Frame, area: Rect) {
         })
         .collect();
 
-    render_list(f, area, block, items, model.registry_ui.cursor, !model.registry_ui.searching);
+    render_list(
+        f,
+        area,
+        block,
+        items,
+        model.registry_ui.cursor,
+        !model.registry_ui.searching,
+    );
 }

@@ -1,0 +1,21 @@
+model = "gpt-private"
+
+[history]
+persistence = "save-all"
+
+[mcp_servers.figma]
+url = "https://old.example.com/mcp"
+bearer_token_env_var = "FIGMA_TOKEN"
+enabled_tools = ["open", "screenshot"] # keep policy and comment
+startup_timeout_sec = 20
+
+[mcp_servers.figma.http_headers]
+X-Old = "remove-me"
+
+[mcp_servers.figma.tools.open]
+approval_mode = "approve"
+
+[mcp_servers.local]
+command = "npx"
+args = ["-y", "local-server"]
+cwd = "/private/worktree"

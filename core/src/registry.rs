@@ -213,7 +213,11 @@ pub fn delete_registry_entry(name: &str, transport: &str) -> std::io::Result<()>
 /// source. It may reappear on the next scan if still present in an agent's config.
 /// A missing entry is a no-op success.
 pub fn delete_discovered_entry(name: &str, transport: &str) -> std::io::Result<()> {
-    remove_managed(DISCOVERED_ID, "自动探索", &format!("{}::{}", name, transport))
+    remove_managed(
+        DISCOVERED_ID,
+        "自动探索",
+        &format!("{}::{}", name, transport),
+    )
 }
 
 /// One-time migration: fold any legacy `settings.registry` entries into the
@@ -260,7 +264,10 @@ mod tests {
         };
 
         for entry in entries {
-            assert!(!entry.name.trim().is_empty(), "entry name must not be empty");
+            assert!(
+                !entry.name.trim().is_empty(),
+                "entry name must not be empty"
+            );
             assert!(
                 !entry.description.trim().is_empty(),
                 "{}: description must not be empty",
@@ -271,7 +278,11 @@ mod tests {
                 "{}: tags must not be empty",
                 entry.name
             );
-            assert!(keys.insert(entry.key()), "{}: duplicate identity", entry.name);
+            assert!(
+                keys.insert(entry.key()),
+                "{}: duplicate identity",
+                entry.name
+            );
 
             match (&entry.config.stdio, &entry.config.http) {
                 (Some(stdio), None) => {
@@ -344,7 +355,12 @@ mod tests {
             description: String::new(),
             tags: Vec::new(),
             config: RegistryConfig {
-                stdio: Some(StdioConfig { command: source.into(), args: None, env: None }),
+                stdio: Some(StdioConfig {
+                    command: source.into(),
+                    args: None,
+                    env: None,
+                    cwd: None,
+                }),
                 http: None,
             },
             origin: Some(RegistryOrigin {
@@ -370,11 +386,23 @@ mod tests {
         // Nothing is deduped away — all three copies survive.
         assert_eq!(items.len(), 3);
         // The two context7 copies: only the later (manual) one is in effect.
-        let ctx: Vec<&CatalogItem> = items.iter().filter(|i| i.entry.name == "context7").collect();
+        let ctx: Vec<&CatalogItem> = items
+            .iter()
+            .filter(|i| i.entry.name == "context7")
+            .collect();
         assert_eq!(ctx.len(), 2);
-        let remote = ctx.iter().find(|i| i.entry.origin.as_ref().unwrap().kind == "remote").unwrap();
-        let manual = ctx.iter().find(|i| i.entry.origin.as_ref().unwrap().kind == "manual").unwrap();
-        assert!(!remote.in_effect, "shadowed remote copy must not be in effect");
+        let remote = ctx
+            .iter()
+            .find(|i| i.entry.origin.as_ref().unwrap().kind == "remote")
+            .unwrap();
+        let manual = ctx
+            .iter()
+            .find(|i| i.entry.origin.as_ref().unwrap().kind == "manual")
+            .unwrap();
+        assert!(
+            !remote.in_effect,
+            "shadowed remote copy must not be in effect"
+        );
         assert!(manual.in_effect, "manual copy wins precedence");
         // A single-source entry is trivially in effect.
         let solo = items.iter().find(|i| i.entry.name == "solo").unwrap();

@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "docs": {
+      "serverUrl": "https://example.com/mcp",
+      "headers": { "X-Region": "us" }
+    }
+  }
+}

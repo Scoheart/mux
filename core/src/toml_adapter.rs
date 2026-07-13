@@ -1,4 +1,6 @@
 use crate::adapter::Adapter;
+use crate::codec::{Codec, EntryPatch};
+use crate::safe_write::write_if_unchanged;
 use crate::types::McpConfig;
 use std::collections::BTreeMap;
 use std::fs;
@@ -9,6 +11,7 @@ use toml_edit::{Document, Item, Table};
 
 pub struct TomlAdapter {
     pub key: String,
+    codec: Codec,
 }
 
 impl TomlAdapter {
@@ -16,8 +19,13 @@ impl TomlAdapter {
     // section name `mcp_servers`, whereas this Rust adapter honors the `key`
     // passed by the caller. The Rust behavior is the more correct/general one.
     pub fn new(key: &str) -> Self {
+        Self::with_codec(key, Codec::Standard)
+    }
+
+    pub fn with_codec(key: &str, codec: Codec) -> Self {
         Self {
             key: key.to_string(),
+            codec,
         }
     }
 
@@ -29,31 +37,44 @@ impl TomlAdapter {
             .unwrap_or_else(|| Toml::Table(toml::map::Map::new()))
     }
 
-    fn read_document(&self, path: &Path) -> Result<Document, String> {
+    fn read_document(&self, path: &Path) -> Result<(Document, Option<String>), String> {
         match fs::read_to_string(path) {
-            Ok(text) => text.parse::<Document>().map_err(|e| {
-                format!(
-                    "refusing to modify invalid TOML at {}: {}",
-                    path.display(),
-                    e
-                )
-            }),
-            Err(e) if e.kind() == ErrorKind::NotFound => Ok(Document::new()),
+            Ok(text) => {
+                let document = text.parse::<Document>().map_err(|e| {
+                    format!(
+                        "refusing to modify invalid TOML at {}: {}",
+                        path.display(),
+                        e
+                    )
+                })?;
+                Ok((document, Some(text)))
+            }
+            Err(e) if e.kind() == ErrorKind::NotFound => Ok((Document::new(), None)),
             Err(e) => Err(format!("failed to read {}: {}", path.display(), e)),
         }
     }
 
-    fn write_document(&self, path: &Path, document: &Document) -> Result<(), String> {
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-        }
-        fs::write(path, document.to_string()).map_err(|e| e.to_string())
+    fn write_document(
+        &self,
+        path: &Path,
+        document: &Document,
+        original: Option<&str>,
+    ) -> Result<(), String> {
+        write_if_unchanged(path, original, &document.to_string())
     }
 
-    fn config_item(cfg: &McpConfig) -> Result<Item, String> {
-        toml_edit::ser::to_document(cfg)
-            .map(|document| Item::Table(document.as_table().clone()))
+    fn fields_table(fields: Vec<(String, serde_json::Value)>) -> Result<Table, String> {
+        let value = serde_json::Value::Object(fields.into_iter().collect());
+        toml_edit::ser::to_document(&value)
+            .map(|document| document.as_table().clone())
             .map_err(|e| e.to_string())
+    }
+
+    fn insert_new(section: &mut Table, name: &str, patch: EntryPatch) -> Result<(), String> {
+        let mut fields = patch.fields;
+        fields.extend(patch.defaults);
+        section.insert(name, Item::Table(Self::fields_table(fields)?));
+        Ok(())
     }
 }
 
@@ -70,14 +91,14 @@ impl Adapter for TomlAdapter {
             .filter_map(|(name, val)| {
                 serde_json::to_value(val)
                     .ok()
-                    .and_then(|j| serde_json::from_value::<McpConfig>(j).ok())
+                    .and_then(|j| self.codec.decode(&j))
                     .map(|cfg| (name.clone(), cfg))
             })
             .collect()
     }
 
     fn upsert(&self, path: &Path, name: &str, cfg: &McpConfig) -> Result<(), String> {
-        let mut document = self.read_document(path)?;
+        let (mut document, original) = self.read_document(path)?;
         if !document.as_table().contains_key(&self.key) {
             document
                 .as_table_mut()
@@ -94,15 +115,41 @@ impl Adapter for TomlAdapter {
                     self.key
                 )
             })?;
-        section.insert(name, Self::config_item(cfg)?);
-        self.write_document(path, &document)
+        let patch = self.codec.patch(cfg)?;
+        if let Some(item) = section.get_mut(name) {
+            let target = item.as_table_mut().ok_or_else(|| {
+                format!(
+                    "refusing to modify {}: '{}.{}' is not a TOML table",
+                    path.display(),
+                    self.key,
+                    name
+                )
+            })?;
+            let fields = Self::fields_table(patch.fields)?;
+            for field in patch.controlled {
+                if let Some(value) = fields.get(field).cloned() {
+                    target.insert(field, value);
+                } else {
+                    target.remove(field);
+                }
+            }
+            let defaults = Self::fields_table(patch.defaults)?;
+            for (field, value) in defaults.iter() {
+                if !target.contains_key(field) {
+                    target.insert(field, value.clone());
+                }
+            }
+        } else {
+            Self::insert_new(section, name, patch)?;
+        }
+        self.write_document(path, &document, original.as_deref())
     }
 
     fn remove(&self, path: &Path, names: &[String]) -> Result<(), String> {
         if !path.exists() {
             return Ok(());
         }
-        let mut document = self.read_document(path)?;
+        let (mut document, original) = self.read_document(path)?;
         let Some(section_item) = document.as_table_mut().get_mut(&self.key) else {
             return Ok(());
         };
@@ -118,9 +165,139 @@ impl Adapter for TomlAdapter {
             changed |= section.remove(name).is_some();
         }
         if changed {
-            self.write_document(path, &document)?;
+            self.write_document(path, &document, original.as_deref())?;
         }
         Ok(())
+    }
+
+    fn snapshot(&self, path: &Path, name: &str) -> Result<Option<serde_json::Value>, String> {
+        let (document, _) = self.read_document(path)?;
+        let Some(section_item) = document.as_table().get(&self.key) else {
+            return Ok(None);
+        };
+        let section = section_item.as_table().ok_or_else(|| {
+            format!(
+                "refusing to read {}: '{}' is not a TOML table",
+                path.display(),
+                self.key
+            )
+        })?;
+        let Some(item) = section.get(name) else {
+            return Ok(None);
+        };
+        if !item.is_table() {
+            return Err(format!(
+                "refusing to read {}: '{}.{}' is not a TOML table",
+                path.display(),
+                self.key,
+                name
+            ));
+        }
+        let semantic = document
+            .to_string()
+            .parse::<Toml>()
+            .map_err(|error| error.to_string())?;
+        let value = semantic
+            .get(&self.key)
+            .and_then(Toml::as_table)
+            .and_then(|section| section.get(name))
+            .ok_or_else(|| "TOML snapshot disappeared during conversion".to_string())?;
+        serde_json::to_value(value)
+            .map(Some)
+            .map_err(|error| error.to_string())
+    }
+
+    fn remove_snapshot(
+        &self,
+        path: &Path,
+        name: &str,
+        snapshot: &serde_json::Value,
+    ) -> Result<(), String> {
+        let (mut document, original) = self.read_document(path)?;
+        let semantic = document
+            .to_string()
+            .parse::<Toml>()
+            .map_err(|error| error.to_string())?;
+        let current = semantic
+            .get(&self.key)
+            .and_then(Toml::as_table)
+            .and_then(|section| section.get(name))
+            .ok_or_else(|| {
+                format!(
+                    "refusing to remove {}: '{}.{}' no longer exists",
+                    path.display(),
+                    self.key,
+                    name
+                )
+            })?;
+        let current = serde_json::to_value(current).map_err(|error| error.to_string())?;
+        if &current != snapshot {
+            return Err(format!(
+                "refusing to remove {}: '{}.{}' changed after its snapshot was saved",
+                path.display(),
+                self.key,
+                name
+            ));
+        }
+        let section = document
+            .as_table_mut()
+            .get_mut(&self.key)
+            .and_then(Item::as_table_mut)
+            .ok_or_else(|| {
+                format!(
+                    "refusing to modify {}: '{}' is not a TOML table",
+                    path.display(),
+                    self.key
+                )
+            })?;
+        section.remove(name).ok_or_else(|| {
+            format!(
+                "refusing to remove {}: '{}.{}' no longer exists",
+                path.display(),
+                self.key,
+                name
+            )
+        })?;
+        self.write_document(path, &document, original.as_deref())
+    }
+
+    fn restore(&self, path: &Path, name: &str, snapshot: &serde_json::Value) -> Result<(), String> {
+        if !snapshot.is_object() {
+            return Err("refusing to restore a non-table MCP snapshot".into());
+        }
+        let (mut document, original) = self.read_document(path)?;
+        if !document.as_table().contains_key(&self.key) {
+            document
+                .as_table_mut()
+                .insert(&self.key, Item::Table(Table::new()));
+        }
+        let section = document
+            .as_table_mut()
+            .get_mut(&self.key)
+            .and_then(Item::as_table_mut)
+            .ok_or_else(|| {
+                format!(
+                    "refusing to modify {}: '{}' is not a TOML table",
+                    path.display(),
+                    self.key
+                )
+            })?;
+        if section.contains_key(name) {
+            return Err(format!(
+                "refusing to restore {}: '{}.{}' already exists",
+                path.display(),
+                self.key,
+                name
+            ));
+        }
+        let fields = snapshot
+            .as_object()
+            .expect("snapshot object checked above")
+            .iter()
+            .map(|(key, value)| (key.clone(), value.clone()))
+            .collect();
+        section.insert(name, Item::Table(Self::fields_table(fields)?));
+        self.write_document(path, &document, original.as_deref())
     }
 }
 
@@ -140,6 +317,7 @@ mod tests {
             command: cmd.into(),
             args: None,
             env: None,
+            cwd: None,
         })
     }
 
@@ -243,6 +421,61 @@ cwd = "/tmp" # unmodelled field
         let adapter = TomlAdapter::new("mcp_servers");
         adapter.remove(&p, &["a".to_string()]).unwrap();
         assert!(!p.exists());
+    }
+
+    #[test]
+    fn snapshot_restore_preserves_agent_owned_fields() {
+        let p = tmp("snapshot-restore");
+        std::fs::write(
+            &p,
+            r#"model = "gpt-private"
+
+[mcp_servers.git]
+command = "npx"
+args = ["-y", "git"]
+enabled = false
+timeout_sec = 120
+allowed_tools = ["read"]
+
+[mcp_servers.git.oauth]
+client_id = "client"
+
+[mcp_servers.sibling]
+command = "keep"
+"#,
+        )
+        .unwrap();
+        let adapter = TomlAdapter::new("mcp_servers");
+
+        let snapshot = adapter.snapshot(&p, "git").unwrap().unwrap();
+        adapter.remove(&p, &["git".to_string()]).unwrap();
+        adapter.restore(&p, "git", &snapshot).unwrap();
+
+        let written: Toml = std::fs::read_to_string(&p).unwrap().parse().unwrap();
+        assert_eq!(written["model"].as_str(), Some("gpt-private"));
+        assert_eq!(
+            written["mcp_servers"]["sibling"]["command"].as_str(),
+            Some("keep")
+        );
+        let restored = serde_json::to_value(&written["mcp_servers"]["git"]).unwrap();
+        assert_eq!(restored, snapshot);
+        let _ = std::fs::remove_file(&p);
+    }
+
+    #[test]
+    fn snapshot_removal_refuses_a_changed_target() {
+        let p = tmp("snapshot-changed");
+        let adapter = TomlAdapter::new("mcp_servers");
+        std::fs::write(&p, "[mcp_servers.git]\ncommand = \"npx\"\ntimeout = 10\n").unwrap();
+        let snapshot = adapter.snapshot(&p, "git").unwrap().unwrap();
+        let newer = "[mcp_servers.git]\ncommand = \"npx\"\ntimeout = 20\n";
+        std::fs::write(&p, newer).unwrap();
+
+        let result = adapter.remove_snapshot(&p, "git", &snapshot);
+
+        assert!(result.is_err());
+        assert_eq!(std::fs::read_to_string(&p).unwrap(), newer);
+        let _ = std::fs::remove_file(&p);
     }
 
     #[test]

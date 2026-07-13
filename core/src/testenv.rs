@@ -83,17 +83,19 @@ mod tests {
 
     #[test]
     fn redirects_and_restores_env() {
-        let before_home = std::env::var_os("HOME");
-        let before_mux = std::env::var_os("MUX_HOME");
-        {
-            let th = TestHome::new("selftest");
-            assert_eq!(std::env::var_os("HOME"), Some(th.home.clone().into()));
-            assert_eq!(
-                crate::paths::mux_dir(),
-                th.home.join(".mux"),
-                "mux_dir must resolve into the fake home"
-            );
-        }
+        // Capture the original values from inside TestHome, after it owns the
+        // process-wide lock. Reading before acquisition races another test's
+        // temporary HOME even though both mutations themselves are serialized.
+        let th = TestHome::new("selftest");
+        let before_home = th.saved_home.clone();
+        let before_mux = th.saved_mux_home.clone();
+        assert_eq!(std::env::var_os("HOME"), Some(th.home.clone().into()));
+        assert_eq!(
+            crate::paths::mux_dir(),
+            th.home.join(".mux"),
+            "mux_dir must resolve into the fake home"
+        );
+        drop(th);
         assert_eq!(std::env::var_os("HOME"), before_home, "HOME restored");
         assert_eq!(
             std::env::var_os("MUX_HOME"),

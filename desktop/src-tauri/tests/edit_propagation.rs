@@ -21,6 +21,7 @@ fn git_entry(args: &[&str]) -> RegistryEntry {
                 command: "npx".into(),
                 args: Some(args.iter().map(|s| s.to_string()).collect()),
                 env: None,
+                cwd: None,
             }),
             http: None,
         },
@@ -65,9 +66,7 @@ fn editing_registry_auto_syncs_all_installs_including_customized() {
     apply_install(InstallRequest {
         server_name: "git".into(),
         transport: "stdio".into(),
-        scope: "global".into(),
         agents: vec!["myagent".into()],
-        project_dir: None,
         overrides: HashMap::new(),
     })
     .unwrap();

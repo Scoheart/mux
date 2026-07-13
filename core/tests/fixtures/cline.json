@@ -1,0 +1,25 @@
+{
+  "account": { "profile": "private" },
+  "mcpServers": {
+    "shared-local": {
+      "transport": {
+        "type": "stdio",
+        "command": "npx",
+        "args": ["-y", "old-server"],
+        "cwd": "/old/worktree",
+        "env": { "TOKEN": "old-value" }
+      },
+      "disabled": true,
+      "metadata": { "owner": "user" },
+      "oauth": { "tokens": { "access_token": "fixture-token" } }
+    },
+    "shared-http": {
+      "transport": {
+        "type": "streamableHttp",
+        "url": "https://old.example.com/mcp",
+        "headers": { "X-Existing": "keep-until-edited" }
+      },
+      "disabled": false
+    }
+  }
+}

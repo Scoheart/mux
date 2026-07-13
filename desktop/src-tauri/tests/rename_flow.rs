@@ -9,7 +9,12 @@ fn entry(name: &str) -> RegistryEntry {
         description: "d".into(),
         tags: vec![],
         config: RegistryConfig {
-            stdio: Some(StdioConfig { command: "uvx".into(), args: Some(vec!["mcp-jenkins".into()]), env: None }),
+            stdio: Some(StdioConfig {
+                command: "uvx".into(),
+                args: Some(vec!["mcp-jenkins".into()]),
+                env: None,
+                cwd: None,
+            }),
             http: None,
         },
         origin: None,
@@ -30,7 +35,17 @@ fn renaming_a_manual_entry_replaces_it_without_duplicate() {
     delete_registry_entry("my-mcp-server".into(), "stdio".into()).unwrap();
 
     let cat = list_registry();
-    assert!(cat.iter().any(|e| e.name == "jenkins"), "renamed entry present");
-    assert!(!cat.iter().any(|e| e.name == "my-mcp-server"), "old name gone");
-    assert_eq!(cat.iter().filter(|e| e.name == "jenkins").count(), 1, "no duplicate");
+    assert!(
+        cat.iter().any(|e| e.name == "jenkins"),
+        "renamed entry present"
+    );
+    assert!(
+        !cat.iter().any(|e| e.name == "my-mcp-server"),
+        "old name gone"
+    );
+    assert_eq!(
+        cat.iter().filter(|e| e.name == "jenkins").count(),
+        1,
+        "no duplicate"
+    );
 }

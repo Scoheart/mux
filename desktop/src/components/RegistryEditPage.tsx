@@ -117,7 +117,16 @@ export function RegistryEditPage({ state, name, transport: editTransport, onBack
       });
       onBack();
     } catch (err) {
-      toast.show({ kind: "error", msg: `保存失败: ${String(err)}` });
+      // The catalog write happens before Agent propagation. Refresh from disk
+      // even on failure so a partial sync is never hidden behind stale UI.
+      await Promise.all([refreshRegistry().catch(console.error), rescan().catch(console.error)]);
+      const message = String(err);
+      toast.show({
+        kind: "error",
+        msg: message.includes("catalog saved, but Agent sync failed")
+          ? `已保存 ${serverName.trim()}，但部分 Agent 同步失败: ${message}`
+          : `保存失败: ${message}`,
+      });
     } finally {
       setSaving(false);
     }

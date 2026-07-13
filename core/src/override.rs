@@ -17,6 +17,7 @@ pub fn apply_override(base: &McpConfig, patch: &OverridePatch) -> McpConfig {
             command: s.command.clone(),
             args: patch.args.clone().or_else(|| s.args.clone()),
             env: patch.env.clone().or_else(|| s.env.clone()),
+            cwd: s.cwd.clone(),
         }),
         McpConfig::Http(h) => McpConfig::Http(HttpConfig {
             kind: h.kind.clone(),
@@ -35,10 +36,14 @@ mod tests {
             command: "npx".into(),
             args: Some(vec!["-y".into()]),
             env: Some(HashMap::from([("T".into(), "a".into())])),
+            cwd: None,
         });
         let mut env = HashMap::new();
         env.insert("T".to_string(), "b".to_string());
-        let patch = OverridePatch { env: Some(env), ..Default::default() };
+        let patch = OverridePatch {
+            env: Some(env),
+            ..Default::default()
+        };
         if let McpConfig::Stdio(eff) = apply_override(&base, &patch) {
             assert_eq!(eff.command, "npx");
             assert_eq!(eff.env.unwrap().get("T").unwrap(), "b");

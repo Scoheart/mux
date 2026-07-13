@@ -27,9 +27,16 @@ mod tests {
     use crate::types::{RegistryConfig, StdioConfig};
     fn entry() -> RegistryEntry {
         RegistryEntry {
-            name: "git".into(), description: "d".into(), tags: vec![],
+            name: "git".into(),
+            description: "d".into(),
+            tags: vec![],
             config: RegistryConfig {
-                stdio: Some(StdioConfig { command: "npx".into(), args: Some(vec!["-y".into()]), env: None }),
+                stdio: Some(StdioConfig {
+                    command: "npx".into(),
+                    args: Some(vec!["-y".into()]),
+                    env: None,
+                    cwd: None,
+                }),
                 http: None,
             },
             origin: None,
@@ -39,12 +46,21 @@ mod tests {
     #[test]
     fn no_patch_returns_base() {
         let c = effective_config(&entry(), None).unwrap();
-        match c { McpConfig::Stdio(s) => assert_eq!(s.command, "npx"), _ => panic!() }
+        match c {
+            McpConfig::Stdio(s) => assert_eq!(s.command, "npx"),
+            _ => panic!(),
+        }
     }
     #[test]
     fn patch_applies() {
-        let patch = OverridePatch { args: Some(vec!["-x".into()]), ..Default::default() };
+        let patch = OverridePatch {
+            args: Some(vec!["-x".into()]),
+            ..Default::default()
+        };
         let c = effective_config(&entry(), Some(&patch)).unwrap();
-        match c { McpConfig::Stdio(s) => assert_eq!(s.args.unwrap(), vec!["-x"]), _ => panic!() }
+        match c {
+            McpConfig::Stdio(s) => assert_eq!(s.args.unwrap(), vec!["-x"]),
+            _ => panic!(),
+        }
     }
 }

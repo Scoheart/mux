@@ -176,10 +176,7 @@ fn cmd_upgrade() {
     println!("当前版本 v{}，正在检查最新稳定版…", current);
     match mux_core::update::upgrade_cli(current) {
         Ok(Some(o)) => {
-            println!(
-                "{}",
-                green(&format!("✔ 已从 v{} 升级到 v{}", o.from, o.to))
-            );
+            println!("{}", green(&format!("✔ 已从 v{} 升级到 v{}", o.from, o.to)));
         }
         Ok(None) => println!("{}", dim("已是最新版本。")),
         Err(e) => {
@@ -199,7 +196,10 @@ fn cmd_list() {
         return;
     }
     entries.sort_by(|a, b| a.name.cmp(&b.name));
-    println!("{}", bold(&format!("{} MCPs in registry:\n", entries.len())));
+    println!(
+        "{}",
+        bold(&format!("{} MCPs in registry:\n", entries.len()))
+    );
     for e in &entries {
         let tags = if e.tags.is_empty() {
             String::new()
@@ -270,6 +270,7 @@ fn cmd_add(name: &str) {
                 command,
                 args: if args.is_empty() { None } else { Some(args) },
                 env: None,
+                cwd: None,
             }),
             http: None,
         },
@@ -364,17 +365,24 @@ fn cmd_apply(names: Vec<String>, agent: &str) {
 }
 
 fn cmd_clean(agent: Option<&str>) {
-    let cleaned = ops::clean(agent);
-    if cleaned.is_empty() {
-        println!("{}", dim("Nothing to clean."));
+    let outcome = ops::clean(agent);
+    for error in &outcome.errors {
+        eprintln!("{}", red(&format!("  ✗ {}", error)));
+    }
+    if outcome.cleaned.is_empty() {
+        if outcome.errors.is_empty() {
+            println!("{}", dim("Nothing to clean."));
+        } else {
+            println!("{}", red("No agent config was cleaned."));
+        }
         return;
     }
-    for name in &cleaned {
+    for name in &outcome.cleaned {
         println!("{}", green(&format!("  ✓ {} [global] cleaned", name)));
     }
     println!(
         "{}",
-        bold(&format!("\n{} agent(s) cleaned.", cleaned.len()))
+        bold(&format!("\n{} agent(s) cleaned.", outcome.cleaned.len()))
     );
 }
 

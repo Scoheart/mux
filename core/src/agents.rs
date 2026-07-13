@@ -17,6 +17,23 @@ pub struct AgentInfo {
     pub enabled: bool,
     pub global: Option<String>,
     pub project: Option<String>,
+    pub supported_transports: Vec<&'static str>,
+}
+
+pub fn supports_transport(agent_id: &str, transport: &str) -> bool {
+    match transport {
+        "stdio" => true,
+        "http" => agent_id != "claude-desktop",
+        _ => false,
+    }
+}
+
+fn supported_transports(agent_id: &str) -> Vec<&'static str> {
+    if supports_transport(agent_id, "http") {
+        vec!["stdio", "http"]
+    } else {
+        vec!["stdio"]
+    }
 }
 
 /// 内置 agent 定义：编译期内嵌 root agents.json（与 TS CLI 共用的单一数据源）
@@ -29,9 +46,57 @@ pub fn builtin_agents() -> BTreeMap<String, AgentDefinition> {
 /// 优先读 settings.agents（与 CLI 共用），缺失或为空时用内置。
 pub fn load_agents() -> BTreeMap<String, AgentDefinition> {
     match load_settings().agents {
-        Some(map) if !map.is_empty() => map,
+        Some(map) if !map.is_empty() => merge_builtin_updates(map),
         _ => builtin_agents(),
     }
+}
+
+fn merge_builtin_updates(
+    mut stored: BTreeMap<String, AgentDefinition>,
+) -> BTreeMap<String, AgentDefinition> {
+    let builtins = builtin_agents();
+    for (id, current) in builtins {
+        let Some(saved) = stored.get_mut(&id) else {
+            stored.insert(id, current);
+            continue;
+        };
+        if saved.builtin != Some(true) {
+            continue;
+        }
+        match id.as_str() {
+            "qoder"
+                if saved.global.as_deref()
+                    == Some("~/Library/Application Support/Qoder/SharedClientCache/mcp.json") =>
+            {
+                saved.global = current.global;
+            }
+            "amazon-q" if saved.global.as_deref() == Some("~/.aws/amazonq/mcp.json") => {
+                saved.global = current.global;
+                if saved.project.as_deref() == Some(".amazonq/mcp.json") {
+                    saved.project = current.project;
+                }
+            }
+            "cline"
+                if saved.global.as_deref()
+                    == Some(
+                        "~/Library/Application Support/Code/User/globalStorage/saoudrizwan.claude-dev/settings/cline_mcp_settings.json",
+                    ) =>
+            {
+                saved.global = current.global;
+            }
+            "continue" if saved.global.as_deref() == Some("~/.continue/config.json") => {
+                saved.global = current.global;
+                if saved.project.as_deref() == Some(".continue/config.json") {
+                    saved.project = current.project;
+                }
+            }
+            "qoderwork" if saved.global.as_deref() == Some("~/.qoderwork/mcp.json") => {
+                saved.global = current.global;
+            }
+            _ => {}
+        }
+    }
+    stored
 }
 
 /// 将完整 agent map 写入 settings.agents（保留其它分区不动）。
@@ -82,6 +147,7 @@ pub fn list_infos() -> Vec<AgentInfo> {
     load_agents()
         .into_iter()
         .map(|(id, d)| AgentInfo {
+            supported_transports: supported_transports(&id),
             id,
             format: d.format,
             key: d.key,
@@ -103,5 +169,57 @@ mod tests {
         assert!(a.len() >= 18);
         assert_eq!(a["claude-code"].key, "mcpServers");
         assert_eq!(a["codex"].format, "toml");
+        assert!(!supports_transport("claude-desktop", "http"));
+        assert!(supports_transport("claude-desktop", "stdio"));
+        assert!(supports_transport("claude-code", "http"));
+    }
+
+    #[test]
+    fn stale_builtin_paths_migrate_without_touching_custom_agents() {
+        let mut stored = builtin_agents();
+        stored.get_mut("qoder").unwrap().global =
+            Some("~/Library/Application Support/Qoder/SharedClientCache/mcp.json".into());
+        stored.get_mut("amazon-q").unwrap().global = Some("~/.aws/amazonq/mcp.json".into());
+        stored.get_mut("amazon-q").unwrap().project = Some(".amazonq/mcp.json".into());
+        stored.get_mut("cline").unwrap().global = Some(
+            "~/Library/Application Support/Code/User/globalStorage/saoudrizwan.claude-dev/settings/cline_mcp_settings.json".into(),
+        );
+        stored.get_mut("cline").unwrap().enabled = false;
+        stored.get_mut("continue").unwrap().global = Some("~/.continue/config.json".into());
+        stored.get_mut("continue").unwrap().project = Some(".continue/config.json".into());
+        stored.get_mut("qoderwork").unwrap().global = Some("~/.qoderwork/mcp.json".into());
+        let custom = AgentDefinition {
+            global: Some("~/.custom/mcp.json".into()),
+            project: None,
+            format: "json".into(),
+            key: "mcpServers".into(),
+            enabled: false,
+            builtin: Some(false),
+        };
+        stored.insert("custom".into(), custom.clone());
+
+        let merged = merge_builtin_updates(stored);
+
+        assert_eq!(
+            merged["qoder"].global.as_deref(),
+            Some("~/.qoder/settings.json")
+        );
+        assert_eq!(
+            merged["amazon-q"].global.as_deref(),
+            Some("~/.aws/amazonq/default.json")
+        );
+        assert_eq!(
+            merged["amazon-q"].project.as_deref(),
+            Some(".amazonq/default.json")
+        );
+        assert_eq!(
+            merged["cline"].global.as_deref(),
+            Some("~/.cline/data/settings/cline_mcp_settings.json")
+        );
+        assert!(!merged["cline"].enabled);
+        assert!(merged["continue"].global.is_none());
+        assert!(merged["continue"].project.is_none());
+        assert!(merged["qoderwork"].global.is_none());
+        assert_eq!(merged["custom"], custom);
     }
 }

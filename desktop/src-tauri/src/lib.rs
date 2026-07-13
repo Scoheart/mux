@@ -22,7 +22,7 @@ pub fn run() {
             // Pre-detect each agent's existing MCP servers into the Registry so they
             // show up (and become manageable) the moment the app opens. Global scope
             // only here (no project dir at launch); best-effort.
-            let _ = commands::import_discovered(None);
+            let _ = commands::import_discovered();
 
             // macOS may keep the process alive after the last window closes.
             // Always restore the configured main window on a fresh launch.

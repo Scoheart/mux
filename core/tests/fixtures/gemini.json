@@ -1,0 +1,15 @@
+{
+  "theme": "private",
+  "mcpServers": {
+    "docs": {
+      "httpUrl": "https://example.com/mcp",
+      "headers": { "Authorization": "Bearer token" },
+      "trust": false,
+      "includeTools": ["search"]
+    },
+    "legacy": {
+      "url": "https://example.com/sse",
+      "excludeTools": ["delete"]
+    }
+  }
+}

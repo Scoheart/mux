@@ -1,22 +1,23 @@
 //! Install / uninstall / discovery orchestration, shared by the desktop (Tauri
 //! commands) and the CLI. Tauri-free — plain functions over the core stores.
 
-use crate::adapter::get_adapter;
-use crate::agents::load_agents;
-use crate::applier::{apply_diffs, ApplyError};
+use crate::adapter::get_agent_adapter;
+use crate::agents::{load_agents, supports_transport};
+use crate::applier::{apply_diffs, remove_snapshot, restore_snapshot, ApplyError};
+use crate::codec::{decode_any, normalize_for_agent, Codec};
 use crate::differ::{DiffAction, DiffEntry};
-use crate::disabled::{load_disabled, save_disabled, DisabledEntry};
-use serde::Serialize;
-use std::collections::HashSet;
+use crate::disabled::{load_disabled, purge, remember, remove_if_unchanged, DisabledEntry};
 use crate::effective::{base_config, effective_config};
-use crate::r#override::OverridePatch;
 use crate::paths::{backup_timestamp, backups_dir};
+use crate::r#override::OverridePatch;
 use crate::registry::{
     delete_discovered_entry, delete_registry_entry, read_registry, write_discovered_entry,
     write_manual_entry,
 };
 use crate::scanner::{expand_tilde, scan_agents};
 use crate::types::{transport_of, AgentDefinition, McpConfig, RegistryEntry, RegistryOrigin};
+use serde::Serialize;
+use std::collections::HashSet;
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 
@@ -29,7 +30,11 @@ pub fn resolve_entry(server_name: &str, transport: &str) -> Result<RegistryEntry
 }
 
 /// The on-disk config file for an agent at a given scope.
-pub fn target_file(agent: &AgentDefinition, scope: &str, project_dir: Option<&str>) -> Option<PathBuf> {
+pub fn target_file(
+    agent: &AgentDefinition,
+    scope: &str,
+    project_dir: Option<&str>,
+) -> Option<PathBuf> {
     if scope == "global" {
         agent.global.as_ref().map(|g| expand_tilde(g))
     } else {
@@ -67,7 +72,14 @@ pub fn add_one(
         agent: agent_id.to_string(),
         scope: scope.to_string(),
     }];
-    apply_diffs(&diff, &adef, &one, &backups_dir(), project_dir.map(Path::new), timestamp)
+    apply_diffs(
+        &diff,
+        &adef,
+        &one,
+        &backups_dir(),
+        project_dir.map(Path::new),
+        timestamp,
+    )
 }
 
 /// Remove one server from a single agent's file (Remove diff, backed up).
@@ -88,7 +100,14 @@ pub fn remove_one(
         scope: scope.to_string(),
     }];
     let empty: BTreeMap<String, McpConfig> = BTreeMap::new();
-    apply_diffs(&diff, &adef, &empty, &backups_dir(), project_dir.map(Path::new), timestamp)
+    apply_diffs(
+        &diff,
+        &adef,
+        &empty,
+        &backups_dir(),
+        project_dir.map(Path::new),
+        timestamp,
+    )
 }
 
 /// Install a catalog server (`name`+`transport`) into the given agents.
@@ -105,8 +124,19 @@ pub fn install(
     let ts = backup_timestamp();
     let mut errors = Vec::new();
     for agent_id in agents {
-        let Some(def) = defs.get(agent_id) else { continue };
+        let Some(def) = defs.get(agent_id) else {
+            errors.push(format!("{agent_id}: unknown Agent"));
+            continue;
+        };
+        if !supports_transport(agent_id, transport) {
+            errors.push(format!(
+                "{}: {} transport is not supported by this agent",
+                agent_id, transport
+            ));
+            continue;
+        }
         if target_file(def, scope, project_dir).is_none() {
+            errors.push(format!("{agent_id}: {scope} config path is unavailable"));
             continue;
         }
         let Some(cfg) = effective_config(&entry, overrides.get(agent_id)) else {
@@ -117,7 +147,11 @@ pub fn install(
             push_apply_errors(&mut errors, errs);
         }
     }
-    if errors.is_empty() { Ok(()) } else { Err(errors) }
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors)
+    }
 }
 
 /// Remove a server from the given agents' files.
@@ -131,15 +165,23 @@ pub fn uninstall(
     let ts = backup_timestamp();
     let mut errors = Vec::new();
     for agent_id in agents {
-        let Some(def) = defs.get(agent_id) else { continue };
+        let Some(def) = defs.get(agent_id) else {
+            errors.push(format!("{agent_id}: unknown Agent"));
+            continue;
+        };
         if target_file(def, scope, project_dir).is_none() {
+            errors.push(format!("{agent_id}: {scope} config path is unavailable"));
             continue;
         }
         if let Err(errs) = remove_one(agent_id, def, server_name, scope, project_dir, &ts) {
             push_apply_errors(&mut errors, errs);
         }
     }
-    if errors.is_empty() { Ok(()) } else { Err(errors) }
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors)
+    }
 }
 
 /// Scan every agent's config and register any server the catalog doesn't yet
@@ -178,11 +220,27 @@ pub fn import_discovered(project_dir: Option<&str>) -> Result<usize, String> {
 /// Clear every MCP server from enabled agents' global config files. If
 /// `only_agent` is set, restrict to that one agent. Sibling (non-section) bytes
 /// are preserved — this removes the servers, it doesn't clobber the whole file.
-/// Returns the ids of the agents that had something removed.
-pub fn clean(only_agent: Option<&str>) -> Vec<String> {
+pub struct CleanOutcome {
+    pub cleaned: Vec<String>,
+    pub errors: Vec<String>,
+}
+
+/// Returns both successful targets and any failures so a backup or write error
+/// can never be reported as a successful clean.
+pub fn clean(only_agent: Option<&str>) -> CleanOutcome {
     let defs = load_agents();
     let ts = backup_timestamp();
     let mut cleaned = Vec::new();
+    let mut errors = Vec::new();
+    if let Some(agent_id) = only_agent {
+        match defs.get(agent_id) {
+            None => errors.push(format!("{agent_id}: unknown Agent")),
+            Some(def) if def.global.is_none() => {
+                errors.push(format!("{agent_id}: global config path is unavailable"))
+            }
+            _ => {}
+        }
+    }
     for (agent_id, def) in &defs {
         if only_agent.is_some_and(|a| a != agent_id) {
             continue;
@@ -195,7 +253,7 @@ pub fn clean(only_agent: Option<&str>) -> Vec<String> {
         if !path.exists() {
             continue;
         }
-        let names: Vec<String> = get_adapter(&def.format, &def.key)
+        let names: Vec<String> = get_agent_adapter(&def.format, &def.key, agent_id)
             .read(&path)
             .into_keys()
             .collect();
@@ -214,10 +272,12 @@ pub fn clean(only_agent: Option<&str>) -> Vec<String> {
         let mut adef = BTreeMap::new();
         adef.insert(agent_id.clone(), def.clone());
         let empty: BTreeMap<String, McpConfig> = BTreeMap::new();
-        let _ = apply_diffs(&diffs, &adef, &empty, &backups_dir(), None, &ts);
-        cleaned.push(agent_id.clone());
+        match apply_diffs(&diffs, &adef, &empty, &backups_dir(), None, &ts) {
+            Ok(()) => cleaned.push(agent_id.clone()),
+            Err(apply_errors) => push_apply_errors(&mut errors, apply_errors),
+        }
     }
-    cleaned
+    CleanOutcome { cleaned, errors }
 }
 
 // ── Registry entry editing (upsert / remove / paste-import) ────────────────
@@ -232,7 +292,7 @@ pub fn upsert_entry(entry: RegistryEntry) -> Result<Vec<String>, String> {
         .into_iter()
         .find(|e| e.name == entry.name && e.transport() == entry.transport());
     write_manual_entry(&entry).map_err(|e| e.to_string())?;
-    Ok(autosync_after_edit(prev.as_ref(), Some(&entry)))
+    autosync_after_edit(prev.as_ref(), Some(&entry))
 }
 
 /// Remove a user registry override for `name`+`transport`; the entry reverts to
@@ -246,7 +306,7 @@ pub fn remove_entry(name: &str, transport: &str) -> Result<Vec<String>, String> 
     let now = read_registry()
         .into_iter()
         .find(|e| e.name == name && e.transport() == transport);
-    Ok(autosync_after_edit(prev.as_ref(), now.as_ref()))
+    autosync_after_edit(prev.as_ref(), now.as_ref())
 }
 
 /// Auto-sync a registry-entry config change to agents that have it installed.
@@ -261,40 +321,62 @@ pub fn remove_entry(name: &str, transport: &str) -> Result<Vec<String>, String> 
 ///
 /// No-ops when the entry is brand-new (`prev` None), fully removed (`new` None),
 /// or the base config didn't change (description/tags-only edit). Global scope
-/// only; best-effort — a failed agent write never fails the save itself.
+/// only. The catalog edit is already durable when propagation begins, but any
+/// failed Agent write is returned to the caller instead of being reported as a
+/// successful sync.
 /// Returns the agents that got the new config.
-fn autosync_after_edit(prev: Option<&RegistryEntry>, new: Option<&RegistryEntry>) -> Vec<String> {
-    let (Some(prev), Some(new)) = (prev, new) else { return Vec::new() };
+fn autosync_after_edit(
+    prev: Option<&RegistryEntry>,
+    new: Option<&RegistryEntry>,
+) -> Result<Vec<String>, String> {
+    let (Some(prev), Some(new)) = (prev, new) else {
+        return Ok(Vec::new());
+    };
     let (Some(old_cfg), Some(new_cfg)) = (base_config(prev), base_config(new)) else {
-        return Vec::new();
+        return Ok(Vec::new());
     };
     if old_cfg == new_cfg {
-        return Vec::new(); // description/tags-only edit, or no real change
+        return Ok(Vec::new()); // description/tags-only edit, or no real change
     }
-    match resync_entry(&new.name, &new.transport(), true) {
-        Ok(out) => out.synced,
-        Err(_) => Vec::new(),
+    match resync_entry(&new.name, new.transport(), true) {
+        Ok(out) => Ok(out.synced),
+        Err(errors) => Err(format!(
+            "catalog saved, but Agent sync failed: {}",
+            errors.join("; ")
+        )),
     }
 }
 
-/// Locate the `name -> config` server map in a pasted config value: under
-/// `mcpServers` / `mcp_servers` / `servers`, or the top-level object itself when
-/// its values all look like server configs (have `command` or `url`).
-fn extract_servers(v: &serde_json::Value) -> Option<serde_json::Map<String, serde_json::Value>> {
+/// Locate the `name -> config` server map in a pasted config value: under a
+/// known Agent section key, or the top-level object itself when its values all
+/// look like server configs (including Agent-specific URL fields).
+fn extract_servers(
+    v: &serde_json::Value,
+) -> Option<(serde_json::Map<String, serde_json::Value>, Option<Codec>)> {
     let obj = v.as_object()?;
-    for key in ["mcpServers", "mcp_servers", "servers"] {
+    for (key, codec) in [
+        ("mcpServers", None),
+        ("mcp_servers", Some(Codec::Codex)),
+        ("servers", Some(Codec::VsCode)),
+        ("mcp", Some(Codec::OpenCode)),
+        ("context_servers", Some(Codec::Standard)),
+    ] {
         if let Some(m) = obj.get(key).and_then(|x| x.as_object()) {
-            return Some(m.clone());
+            return Some((m.clone(), codec));
         }
     }
     let looks_like_map = !obj.is_empty()
         && obj.values().all(|val| {
             val.as_object()
-                .map(|o| o.contains_key("command") || o.contains_key("url"))
+                .map(|o| {
+                    ["command", "url", "httpUrl", "serverUrl"]
+                        .iter()
+                        .any(|key| o.contains_key(*key))
+                })
                 .unwrap_or(false)
         });
     if looks_like_map {
-        return Some(obj.clone());
+        return Some((obj.clone(), None));
     }
     None
 }
@@ -311,16 +393,20 @@ pub fn import_pasted(text: &str) -> Result<Vec<String>, String> {
     let value: serde_json::Value = match serde_json::from_str(text) {
         Ok(v) => v,
         Err(_) => {
-            let t: toml::Value =
-                toml::from_str(text).map_err(|e| format!("内容既不是有效的 JSON 也不是 TOML：{}", e))?;
+            let t: toml::Value = toml::from_str(text)
+                .map_err(|e| format!("内容既不是有效的 JSON 也不是 TOML：{}", e))?;
             serde_json::to_value(t).map_err(|e| e.to_string())?
         }
     };
-    let servers = extract_servers(&value)
-        .ok_or("未识别到 MCP 配置：需要包含 mcpServers，或直接是「名称→配置」的映射")?;
+    let (servers, codec) = extract_servers(&value).ok_or(
+        "未识别到 MCP 配置：需要包含 mcpServers、mcp、mcp_servers、servers 或 context_servers",
+    )?;
     let mut added = Vec::new();
     for (name, cfg_val) in servers {
-        let Ok(cfg) = serde_json::from_value::<McpConfig>(cfg_val) else {
+        let cfg = codec
+            .and_then(|codec| codec.decode(&cfg_val))
+            .or_else(|| decode_any(&cfg_val));
+        let Some(cfg) = cfg else {
             continue; // skip entries that aren't a valid stdio/http config
         };
         let entry = RegistryEntry {
@@ -402,12 +488,16 @@ pub fn scan_installed(project_dir: Option<&str>) -> Vec<InstalledMcp> {
             let key = format!("{}::{}", s.name, transport);
             let customized = base_map
                 .get(&key)
-                .map(|base| base != &s.config)
+                .map(|base| normalize_for_agent(&s.agent, base) != s.config)
                 .unwrap_or(false);
             InstalledMcp {
-                name: s.name, agent: s.agent, scope: s.scope,
-                file_path: s.file_path, transport: transport.to_string(),
-                customized, enabled: true,
+                name: s.name,
+                agent: s.agent,
+                scope: s.scope,
+                file_path: s.file_path,
+                transport: transport.to_string(),
+                customized,
+                enabled: true,
             }
         })
         .collect();
@@ -415,18 +505,34 @@ pub fn scan_installed(project_dir: Option<&str>) -> Vec<InstalledMcp> {
     // server removed from the file but re-enable-able.
     let active: HashSet<(String, String, String, String)> = out
         .iter()
-        .map(|i| (i.agent.clone(), i.name.clone(), i.transport.clone(), i.scope.clone()))
+        .map(|i| {
+            (
+                i.agent.clone(),
+                i.name.clone(),
+                i.transport.clone(),
+                i.scope.clone(),
+            )
+        })
         .collect();
     for (agent, list) in load_disabled() {
         for d in list {
             // Edge case: if somehow also present in the file, the active row wins.
-            if active.contains(&(agent.clone(), d.name.clone(), d.transport.clone(), d.scope.clone())) {
+            if active.contains(&(
+                agent.clone(),
+                d.name.clone(),
+                d.transport.clone(),
+                d.scope.clone(),
+            )) {
                 continue;
             }
             out.push(InstalledMcp {
-                name: d.name, agent: agent.clone(), scope: d.scope,
-                file_path: String::new(), transport: d.transport,
-                customized: false, enabled: false,
+                name: d.name,
+                agent: agent.clone(),
+                scope: d.scope,
+                file_path: String::new(),
+                transport: d.transport,
+                customized: false,
+                enabled: false,
             });
         }
     }
@@ -456,7 +562,11 @@ pub struct ResyncOutcome {
 /// — they live in the snapshot store, not the agent file, and `install` would
 /// wrongly re-activate them. Reuses [`scan_installed`] + [`install`], so the
 /// re-stamp is backed up like any other write.
-pub fn resync_entry(name: &str, transport: &str, force: bool) -> Result<ResyncOutcome, Vec<String>> {
+pub fn resync_entry(
+    name: &str,
+    transport: &str,
+    force: bool,
+) -> Result<ResyncOutcome, Vec<String>> {
     // Confirm the entry still exists in the aggregated catalog.
     resolve_entry(name, transport).map_err(|e| vec![e])?;
 
@@ -477,7 +587,10 @@ pub fn resync_entry(name: &str, transport: &str, force: bool) -> Result<ResyncOu
     if !target.is_empty() {
         install(name, transport, "global", &target, None, &HashMap::new())?;
     }
-    Ok(ResyncOutcome { synced: target, skipped_customized })
+    Ok(ResyncOutcome {
+        synced: target,
+        skipped_customized,
+    })
 }
 
 /// Delete a user catalog entry (from the manual and/or discovered managed
@@ -506,19 +619,10 @@ pub fn forget_entry(name: &str, transport: &str) -> Result<(), Vec<String>> {
     Ok(())
 }
 
-/// Persist the disabled store, downgrading an IO failure to a reported error.
-fn save_disabled_or_log(
-    store: &BTreeMap<String, Vec<DisabledEntry>>,
-    errors: &mut Vec<String>,
-) {
-    if let Err(e) = save_disabled(store) {
-        errors.push(format!("save disabled: {}", e));
-    }
-}
-
-/// Disable a server: snapshot its current on-disk config into the disabled store,
-/// then remove it from the agent file. The snapshot lets [`enable`] restore the
-/// exact config (customizations included).
+/// Disable a server: durably snapshot its complete semantic entry, then remove it
+/// from the Agent file. Saving first means a settings failure can never remove
+/// the only live copy. If removal later fails, the still-active entry wins in the
+/// UI and the retained snapshot makes a retry safe.
 pub fn disable(
     server_name: &str,
     transport: &str,
@@ -528,14 +632,17 @@ pub fn disable(
 ) -> Result<(), Vec<String>> {
     let defs = load_agents();
     let scanned = scan_agents(&defs, project_dir.map(Path::new), true);
-    let mut store = load_disabled();
     let mut errors = Vec::new();
     let ts = backup_timestamp();
     for agent_id in agents {
-        let Some(def) = defs.get(agent_id) else { continue };
-        if target_file(def, scope, project_dir).is_none() {
+        let Some(def) = defs.get(agent_id) else {
+            errors.push(format!("{agent_id}: unknown Agent"));
             continue;
-        }
+        };
+        let Some(path) = target_file(def, scope, project_dir) else {
+            errors.push(format!("{agent_id}: {scope} config path is unavailable"));
+            continue;
+        };
         // Snapshot the config currently installed for this (agent, name, transport, scope).
         let Some(found) = scanned.iter().find(|s| {
             s.agent == *agent_id
@@ -546,21 +653,51 @@ pub fn disable(
             errors.push(format!("{}: not installed", agent_id));
             continue;
         };
+        let snapshot =
+            match get_agent_adapter(&def.format, &def.key, agent_id).snapshot(&path, server_name) {
+                Ok(Some(snapshot)) => snapshot,
+                Ok(None) => {
+                    errors.push(format!(
+                        "{}: target entry disappeared before snapshot",
+                        agent_id
+                    ));
+                    continue;
+                }
+                Err(error) => {
+                    errors.push(format!("{}: {}", agent_id, error));
+                    continue;
+                }
+            };
         let entry = DisabledEntry {
-            name: server_name.to_string(), transport: transport.to_string(),
-            scope: scope.to_string(), config: found.config.clone(),
+            name: server_name.to_string(),
+            transport: transport.to_string(),
+            scope: scope.to_string(),
+            config: found.config.clone(),
+            snapshot: Some(snapshot.clone()),
         };
-        // Remove from the file first; only remember it once the removal succeeds.
-        if let Err(errs) = remove_one(agent_id, def, server_name, scope, project_dir, &ts) {
+        if let Err(error) = remember(agent_id, entry) {
+            errors.push(format!("{}: save disabled snapshot: {}", agent_id, error));
+            continue;
+        }
+
+        if let Err(errs) = remove_snapshot(
+            agent_id,
+            def,
+            server_name,
+            &snapshot,
+            scope,
+            project_dir.map(Path::new),
+            &ts,
+        ) {
             push_apply_errors(&mut errors, errs);
             continue;
         }
-        let list = store.entry(agent_id.clone()).or_default();
-        list.retain(|d| !(d.name == entry.name && d.transport == entry.transport && d.scope == entry.scope));
-        list.push(entry);
     }
-    save_disabled_or_log(&store, &mut errors);
-    if errors.is_empty() { Ok(()) } else { Err(errors) }
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors)
+    }
 }
 
 /// Re-enable a previously disabled server: write its remembered config snapshot
@@ -573,12 +710,14 @@ pub fn enable(
     project_dir: Option<&str>,
 ) -> Result<(), Vec<String>> {
     let defs = load_agents();
-    let mut store = load_disabled();
     let mut errors = Vec::new();
     let ts = backup_timestamp();
     for agent_id in agents {
-        let Some(def) = defs.get(agent_id) else { continue };
-        let entry = store.get(agent_id).and_then(|list| {
+        let Some(def) = defs.get(agent_id) else {
+            errors.push(format!("{agent_id}: unknown Agent"));
+            continue;
+        };
+        let entry = load_disabled().get(agent_id).and_then(|list| {
             list.iter()
                 .find(|d| d.name == server_name && d.transport == transport && d.scope == scope)
                 .cloned()
@@ -587,19 +726,50 @@ pub fn enable(
             errors.push(format!("{}: no disabled snapshot", agent_id));
             continue;
         };
-        if let Err(errs) = add_one(agent_id, def, server_name, entry.config.clone(), scope, project_dir, &ts) {
+        if target_file(def, scope, project_dir).is_none() {
+            errors.push(format!("{}: target config path is unavailable", agent_id));
+            continue;
+        }
+        let result = if let Some(snapshot) = entry.snapshot.as_ref() {
+            restore_snapshot(
+                agent_id,
+                def,
+                server_name,
+                snapshot,
+                scope,
+                project_dir.map(Path::new),
+                &ts,
+            )
+        } else {
+            // Backward compatibility for snapshots written before v1.1.5.
+            add_one(
+                agent_id,
+                def,
+                server_name,
+                entry.config.clone(),
+                scope,
+                project_dir,
+                &ts,
+            )
+        };
+        if let Err(errs) = result {
             push_apply_errors(&mut errors, errs);
             continue;
         }
-        if let Some(list) = store.get_mut(agent_id) {
-            list.retain(|d| !(d.name == server_name && d.transport == transport && d.scope == scope));
-            if list.is_empty() {
-                store.remove(agent_id);
-            }
+        match remove_if_unchanged(agent_id, &entry) {
+            Ok(true) => {}
+            Ok(false) => errors.push(format!(
+                "{}: disabled snapshot changed concurrently and was retained",
+                agent_id
+            )),
+            Err(error) => errors.push(format!("{}: remove disabled snapshot: {}", agent_id, error)),
         }
     }
-    save_disabled_or_log(&store, &mut errors);
-    if errors.is_empty() { Ok(()) } else { Err(errors) }
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors)
+    }
 }
 
 /// Hard-delete a server from an agent: remove it from the file (if present) and
@@ -612,30 +782,33 @@ pub fn delete(
     project_dir: Option<&str>,
 ) -> Result<(), Vec<String>> {
     let defs = load_agents();
-    let mut store = load_disabled();
-    let mut store_changed = false;
     let mut errors = Vec::new();
     let ts = backup_timestamp();
     for agent_id in agents {
-        let Some(def) = defs.get(agent_id) else { continue };
-        if target_file(def, scope, project_dir).is_some() {
-            if let Err(errs) = remove_one(agent_id, def, server_name, scope, project_dir, &ts) {
-                push_apply_errors(&mut errors, errs);
-            }
+        let Some(def) = defs.get(agent_id) else {
+            errors.push(format!("{agent_id}: unknown Agent"));
+            continue;
+        };
+        if target_file(def, scope, project_dir).is_none() {
+            errors.push(format!(
+                "{agent_id}: {scope} config path is unavailable; disabled snapshot retained"
+            ));
+            continue;
         }
-        if let Some(list) = store.get_mut(agent_id) {
-            let before = list.len();
-            list.retain(|d| !(d.name == server_name && d.transport == transport && d.scope == scope));
-            if list.len() != before {
-                store_changed = true;
-            }
-            if list.is_empty() {
-                store.remove(agent_id);
+        let mut may_purge_snapshot = true;
+        if let Err(errs) = remove_one(agent_id, def, server_name, scope, project_dir, &ts) {
+            push_apply_errors(&mut errors, errs);
+            may_purge_snapshot = false;
+        }
+        if may_purge_snapshot {
+            if let Err(error) = purge(agent_id, server_name, transport, scope) {
+                errors.push(format!("{}: purge disabled snapshot: {}", agent_id, error));
             }
         }
     }
-    if store_changed {
-        save_disabled_or_log(&store, &mut errors);
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors)
     }
-    if errors.is_empty() { Ok(()) } else { Err(errors) }
 }

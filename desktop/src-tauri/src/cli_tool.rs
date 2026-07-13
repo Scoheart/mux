@@ -28,7 +28,9 @@ fn bundled_cli() -> Option<PathBuf> {
 /// 用户的登录 shell PATH 是否包含 `~/.local/bin`。GUI 进程从 launchd 继承的
 /// PATH 不代表终端环境，所以走一次 `$SHELL -lc` 取真实值；失败则回退环境变量。
 fn local_bin_in_path() -> bool {
-    let Some(home) = dirs_home() else { return false };
+    let Some(home) = dirs_home() else {
+        return false;
+    };
     let needle = home.join(".local/bin");
     let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into());
     let path = std::process::Command::new(&shell)

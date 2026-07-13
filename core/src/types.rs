@@ -8,6 +8,8 @@ pub struct StdioConfig {
     pub args: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub env: Option<HashMap<String, String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cwd: Option<String>,
 }
 
 fn default_http_type() -> String {
@@ -142,8 +144,14 @@ pub struct SourceDef {
 impl From<McpConfig> for RegistryConfig {
     fn from(cfg: McpConfig) -> Self {
         match cfg {
-            McpConfig::Stdio(c) => RegistryConfig { stdio: Some(c), http: None },
-            McpConfig::Http(c) => RegistryConfig { stdio: None, http: Some(c) },
+            McpConfig::Stdio(c) => RegistryConfig {
+                stdio: Some(c),
+                http: None,
+            },
+            McpConfig::Http(c) => RegistryConfig {
+                stdio: None,
+                http: Some(c),
+            },
         }
     }
 }
@@ -151,12 +159,24 @@ impl From<McpConfig> for RegistryConfig {
 impl SourceDef {
     /// A subscribed remote URL source, enabled, stamped now, `mcpServers` key.
     pub fn new_remote(id: String, name: String, url: String, format: String, now: String) -> Self {
-        Self { url: Some(url), ..Self::base(id, "remote", name, format, now) }
+        Self {
+            url: Some(url),
+            ..Self::base(id, "remote", name, format, now)
+        }
     }
 
     /// A local-file source (imported or managed), enabled, stamped now.
-    pub fn new_local(id: String, name: String, path: Option<String>, format: String, now: String) -> Self {
-        Self { path, ..Self::base(id, "local", name, format, now) }
+    pub fn new_local(
+        id: String,
+        name: String,
+        path: Option<String>,
+        format: String,
+        now: String,
+    ) -> Self {
+        Self {
+            path,
+            ..Self::base(id, "local", name, format, now)
+        }
     }
 
     fn base(id: String, kind: &str, name: String, format: String, now: String) -> Self {

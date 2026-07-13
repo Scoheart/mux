@@ -2,7 +2,7 @@
 
 **MUX（MCP Multiplexer）** 是一个跨 AI 编码 agent 统一管理 **MCP（Model Context Protocol）服务器** 的工具。
 
-![MUX v1.1.4 桌面 App 界面总览](/img/registry-overview-current.jpg)
+![MUX v1.1.5 桌面 App 界面总览](/img/registry-overview-current.jpg)
 
 > 上图各区域详解见 [桌面 App 图文教程](/guide/desktop#界面总览)。
 

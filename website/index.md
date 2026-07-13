@@ -34,7 +34,7 @@ features:
     details: 改一个目录条目，自动重刷进"干净"安装的 agent；被手改过的保留不动，也可显式"重新同步"。
   - icon: 🛟
     title: 安全写入
-    details: 每次写入前先给目标文件做时间戳备份；按条目改写，并保留同文件里的其它 server 和未建模字段。
+    details: 修改已有文件前先做独立备份；按条目原子更新，并保留其它 server、策略字段、注释与排版。
 ---
 
 <div style="max-width: 960px; margin: 48px auto 0; padding: 0 24px;">

@@ -8,16 +8,16 @@
   "windsurf": { "global": "~/.codeium/windsurf/mcp_config.json", "project": null, "format": "json", "key": "mcpServers", "enabled": true, "builtin": true },
   "roo-code": { "global": "~/Library/Application Support/Code/User/globalStorage/rooveterinaryinc.roo-cline/settings/mcp_settings.json", "project": ".roo/mcp.json", "format": "json", "key": "mcpServers", "enabled": true, "builtin": true },
   "gemini": { "global": "~/.gemini/settings.json", "project": ".gemini/settings.json", "format": "json", "key": "mcpServers", "enabled": true, "builtin": true },
-  "qoder": { "global": "~/Library/Application Support/Qoder/SharedClientCache/mcp.json", "project": null, "format": "json", "key": "mcpServers", "enabled": true, "builtin": true },
+  "qoder": { "global": "~/.qoder/settings.json", "project": null, "format": "json", "key": "mcpServers", "enabled": true, "builtin": true },
   "devin": { "global": null, "project": null, "format": "json", "key": "mcpServers", "enabled": true, "builtin": true },
   "kiro": { "global": "~/.kiro/settings/mcp.json", "project": ".kiro/settings/mcp.json", "format": "json", "key": "mcpServers", "enabled": true, "builtin": true },
   "junie": { "global": "~/.junie/mcp/mcp.json", "project": ".junie/mcp/mcp.json", "format": "json", "key": "mcpServers", "enabled": true, "builtin": true },
-  "amazon-q": { "global": "~/.aws/amazonq/mcp.json", "project": ".amazonq/mcp.json", "format": "json", "key": "mcpServers", "enabled": true, "builtin": true },
+  "amazon-q": { "global": "~/.aws/amazonq/default.json", "project": ".amazonq/default.json", "format": "json", "key": "mcpServers", "enabled": true, "builtin": true },
   "opencode": { "global": "~/.config/opencode/opencode.json", "project": "opencode.json", "format": "json", "key": "mcp", "enabled": true, "builtin": true },
   "copilot-cli": { "global": "~/.copilot/mcp-config.json", "project": ".github/mcp.json", "format": "json", "key": "mcpServers", "enabled": true, "builtin": true },
-  "cline": { "global": "~/Library/Application Support/Code/User/globalStorage/saoudrizwan.claude-dev/settings/cline_mcp_settings.json", "project": null, "format": "json", "key": "mcpServers", "enabled": true, "builtin": true },
-  "continue": { "global": "~/.continue/config.json", "project": ".continue/config.json", "format": "json", "key": "mcpServers", "enabled": true, "builtin": true },
+  "cline": { "global": "~/.cline/data/settings/cline_mcp_settings.json", "project": null, "format": "json", "key": "mcpServers", "enabled": true, "builtin": true },
+  "continue": { "global": null, "project": null, "format": "json", "key": "mcpServers", "enabled": true, "builtin": true },
   "warp": { "global": "~/.warp/.mcp.json", "project": ".warp/.mcp.json", "format": "json", "key": "mcpServers", "enabled": true, "builtin": true },
   "pi": { "global": "~/.pi/agent/mcp.json", "project": ".pi/mcp.json", "format": "json", "key": "mcpServers", "enabled": true, "builtin": true },
-  "qoderwork": { "global": "~/.qoderwork/mcp.json", "project": null, "format": "json", "key": "mcpServers", "enabled": true, "builtin": true }
+  "qoderwork": { "global": null, "project": null, "format": "json", "key": "mcpServers", "enabled": true, "builtin": true }
 }

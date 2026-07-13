@@ -13,21 +13,37 @@ use mux_core::sources::SourceView;
 pub fn render(model: &Model, f: &mut Frame, area: Rect) {
     let rows = Layout::vertical([Constraint::Length(1), Constraint::Min(0)]).split(area);
 
-    let enabled: u32 = model.data.sources.iter().filter(|s| s.enabled).map(|s| s.server_count).sum();
+    let enabled: u32 = model
+        .data
+        .sources
+        .iter()
+        .filter(|s| s.enabled)
+        .map(|s| s.server_count)
+        .sum();
     let header = Line::from(vec![
         Span::from(format!("共 {} 个 server", enabled)).bold(),
         Span::from("（已启用来源）").dim(),
     ]);
     f.render_widget(Paragraph::new(header), rows[0]);
 
-    let block = Block::default().borders(Borders::TOP).border_style(Style::new().dim());
+    let block = Block::default()
+        .borders(Borders::TOP)
+        .border_style(Style::new().dim());
     if model.data.sources.is_empty() {
         let msg = "还没有来源。订阅远程配置、导入本地配置，或添加 Mux 精选。";
-        f.render_widget(Paragraph::new(Line::from(Span::from(msg).dim())).block(block), rows[1]);
+        f.render_widget(
+            Paragraph::new(Line::from(Span::from(msg).dim())).block(block),
+            rows[1],
+        );
         return;
     }
 
-    let items: Vec<ListItem> = model.data.sources.iter().map(|s| ListItem::new(source_line(s))).collect();
+    let items: Vec<ListItem> = model
+        .data
+        .sources
+        .iter()
+        .map(|s| ListItem::new(source_line(s)))
+        .collect();
     render_list(f, rows[1], block, items, model.sources_ui.cursor, true);
 }
 

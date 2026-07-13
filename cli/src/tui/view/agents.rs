@@ -11,7 +11,8 @@ use super::theme::render_list;
 use crate::tui::model::{AgentPane, Model};
 
 pub fn render(model: &Model, f: &mut Frame, area: Rect) {
-    let cols = Layout::horizontal([Constraint::Percentage(34), Constraint::Percentage(66)]).split(area);
+    let cols =
+        Layout::horizontal([Constraint::Percentage(34), Constraint::Percentage(66)]).split(area);
     render_agent_list(model, f, cols[0]);
     render_installed(model, f, cols[1]);
 }
@@ -23,7 +24,10 @@ fn render_agent_list(model: &Model, f: &mut Frame, area: Rect) {
         .title(Span::from(" Agents ").bold());
 
     if model.data.agents.is_empty() {
-        f.render_widget(Paragraph::new(Span::from("无 agent").dim()).block(block), area);
+        f.render_widget(
+            Paragraph::new(Span::from("无 agent").dim()).block(block),
+            area,
+        );
         return;
     }
 
@@ -60,7 +64,10 @@ fn render_installed(model: &Model, f: &mut Frame, area: Rect) {
         .clone()
         .unwrap_or_else(|| "未设置全局路径".into());
     let head = vec![
-        Line::from(vec![Span::from(agent.id.clone()).bold(), Span::from(format!("  · {}", agent.format)).dim()]),
+        Line::from(vec![
+            Span::from(agent.id.clone()).bold(),
+            Span::from(format!("  · {}", agent.format)).dim(),
+        ]),
         Line::from(Span::from(path).dim()),
     ];
     f.render_widget(Paragraph::new(head), rows[0]);
@@ -72,7 +79,10 @@ fn render_installed(model: &Model, f: &mut Frame, area: Rect) {
         .title(Span::from(format!(" 已安装 MCP（{}）", installed.len())));
 
     if installed.is_empty() {
-        f.render_widget(Paragraph::new(Span::from("暂无安装").dim()).block(block), rows[1]);
+        f.render_widget(
+            Paragraph::new(Span::from("暂无安装").dim()).block(block),
+            rows[1],
+        );
         return;
     }
 
@@ -89,7 +99,11 @@ fn render_installed(model: &Model, f: &mut Frame, area: Rect) {
             } else {
                 Span::from(i.name.clone()).dim()
             };
-            let mut spans = vec![state, name, Span::from(format!("  [{}]", i.transport)).dim()];
+            let mut spans = vec![
+                state,
+                name,
+                Span::from(format!("  [{}]", i.transport)).dim(),
+            ];
             if i.customized {
                 spans.push(Span::from("  ✎ 已改").yellow());
             }
@@ -98,5 +112,12 @@ fn render_installed(model: &Model, f: &mut Frame, area: Rect) {
         .collect();
 
     let focused = model.agents_ui.pane == AgentPane::Installed;
-    render_list(f, rows[1], block, items, model.agents_ui.installed_cursor, focused);
+    render_list(
+        f,
+        rows[1],
+        block,
+        items,
+        model.agents_ui.installed_cursor,
+        focused,
+    );
 }

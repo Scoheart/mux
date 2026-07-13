@@ -20,17 +20,36 @@ pub enum Effect {
     /// Read all caches from core.
     LoadAll,
     /// Install a catalog entry into the given agents (global scope).
-    Install { server: String, transport: String, agents: Vec<String> },
+    Install {
+        server: String,
+        transport: String,
+        agents: Vec<String>,
+    },
     /// Re-enable a previously disabled server for one agent.
-    Enable { server: String, transport: String, agent: String },
+    Enable {
+        server: String,
+        transport: String,
+        agent: String,
+    },
     /// Disable (snapshot + remove) a server for one agent.
-    Disable { server: String, transport: String, agent: String },
+    Disable {
+        server: String,
+        transport: String,
+        agent: String,
+    },
     /// Hard-delete a server from one agent.
-    Delete { server: String, transport: String, agent: String },
+    Delete {
+        server: String,
+        transport: String,
+        agent: String,
+    },
     /// Save a catalog entry (create/edit). `delete_old` handles a rename: the old
     /// key is removed after the upsert, sequentially, so the shared manual source
     /// file isn't clobbered by a concurrent write.
-    UpsertEntry { entry: RegistryEntry, delete_old: Option<(String, String)> },
+    UpsertEntry {
+        entry: RegistryEntry,
+        delete_old: Option<(String, String)>,
+    },
     /// Revert a custom entry to its source-provided default (or remove it).
     RevertEntry { name: String, transport: String },
     /// Import MCP servers from a pasted JSON/TOML blob.
@@ -48,10 +67,18 @@ pub enum Effect {
     /// Re-scan agents and register newly discovered servers.
     ImportDiscovered,
     /// Create or edit an agent definition.
-    PutAgent { id: String, def: AgentDefinition, overwrite: bool },
+    PutAgent {
+        id: String,
+        def: AgentDefinition,
+        overwrite: bool,
+    },
     /// Re-stamp an entry's current config into the agents that have it installed
     /// (global). force=false skips customized installs; force=true overwrites.
-    ResyncEntry { name: String, transport: String, force: bool },
+    ResyncEntry {
+        name: String,
+        transport: String,
+        force: bool,
+    },
     /// Delete a manual/discovered catalog entry and uninstall it from all agents.
     ForgetEntry { name: String, transport: String },
 }
@@ -89,19 +116,42 @@ fn run_effect(eff: Effect) -> Msg {
             agents: list_infos(),
             installed: scan_installed(None),
         })),
-        Effect::Install { server, transport, agents } => Msg::Mutated {
+        Effect::Install {
+            server,
+            transport,
+            agents,
+        } => Msg::Mutated {
             label: format!("安装 {}", server),
-            result: join(ops::install(&server, &transport, "global", &agents, None, &HashMap::new())),
+            result: join(ops::install(
+                &server,
+                &transport,
+                "global",
+                &agents,
+                None,
+                &HashMap::new(),
+            )),
         },
-        Effect::Enable { server, transport, agent } => Msg::Mutated {
+        Effect::Enable {
+            server,
+            transport,
+            agent,
+        } => Msg::Mutated {
             label: format!("启用 {}", server),
             result: join(ops::enable(&server, &transport, "global", &[agent], None)),
         },
-        Effect::Disable { server, transport, agent } => Msg::Mutated {
+        Effect::Disable {
+            server,
+            transport,
+            agent,
+        } => Msg::Mutated {
             label: format!("停用 {}", server),
             result: join(ops::disable(&server, &transport, "global", &[agent], None)),
         },
-        Effect::Delete { server, transport, agent } => Msg::Mutated {
+        Effect::Delete {
+            server,
+            transport,
+            agent,
+        } => Msg::Mutated {
             label: format!("删除 {}", server),
             result: join(ops::delete(&server, &transport, "global", &[agent], None)),
         },
@@ -118,15 +168,24 @@ fn run_effect(eff: Effect) -> Msg {
                 }
                 _ => format!("保存 {}", name),
             };
-            Msg::Mutated { label, result: result.map(|_| ()) }
+            Msg::Mutated {
+                label,
+                result: result.map(|_| ()),
+            }
         }
         Effect::RevertEntry { name, transport } => Msg::Mutated {
             label: format!("恢复默认 {}", name),
             result: ops::remove_entry(&name, &transport).map(|_| ()),
         },
         Effect::ImportPaste(text) => match ops::import_pasted(&text) {
-            Ok(names) => Msg::Mutated { label: format!("导入 {} 个 server", names.len()), result: Ok(()) },
-            Err(e) => Msg::Mutated { label: "导入".into(), result: Err(e) },
+            Ok(names) => Msg::Mutated {
+                label: format!("导入 {} 个 server", names.len()),
+                result: Ok(()),
+            },
+            Err(e) => Msg::Mutated {
+                label: "导入".into(),
+                result: Err(e),
+            },
         },
         Effect::Subscribe { url, name } => Msg::Mutated {
             label: "订阅来源".into(),
@@ -149,16 +208,30 @@ fn run_effect(eff: Effect) -> Msg {
             result: sources::remove(id),
         },
         Effect::ImportDiscovered => match ops::import_discovered(None) {
-            Ok(n) => Msg::Mutated { label: format!("探索到 {} 个新 server", n), result: Ok(()) },
-            Err(e) => Msg::Mutated { label: "探索".into(), result: Err(e) },
+            Ok(n) => Msg::Mutated {
+                label: format!("探索到 {} 个新 server", n),
+                result: Ok(()),
+            },
+            Err(e) => Msg::Mutated {
+                label: "探索".into(),
+                result: Err(e),
+            },
         },
         Effect::PutAgent { id, def, overwrite } => Msg::Mutated {
             label: format!("保存 agent {}", id),
             result: mux_core::agents::put(id, def, overwrite),
         },
-        Effect::ResyncEntry { name, transport, force } => {
+        Effect::ResyncEntry {
+            name,
+            transport,
+            force,
+        } => {
             let result = ops::resync_entry(&name, &transport, force).map_err(|v| v.join("；"));
-            Msg::Resynced { name, transport, result }
+            Msg::Resynced {
+                name,
+                transport,
+                result,
+            }
         }
         Effect::ForgetEntry { name, transport } => Msg::Mutated {
             label: format!("删除 {}", name),

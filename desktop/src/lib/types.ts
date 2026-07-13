@@ -1,4 +1,4 @@
-export interface StdioConfig { command: string; args?: string[]; env?: Record<string, string>; }
+export interface StdioConfig { command: string; args?: string[]; env?: Record<string, string>; cwd?: string; }
 export interface HttpConfig { type: string; url: string; headers?: Record<string, string>; }
 /** Provenance of a catalog entry:
  *  - "discovered" — scanned from a local app config (`agent`/`scope` set),
@@ -28,6 +28,7 @@ export interface CatalogItem {
 export interface AgentInfo {
   id: string; format: string; key: string;
   has_global: boolean; has_project: boolean; enabled: boolean;
+  supported_transports: Array<"stdio" | "http">;
   /** Raw stored config paths (e.g. `~/Library/Application Support/…/mcp.json`). */
   global: string | null; project: string | null;
 }
@@ -79,7 +80,7 @@ export interface SourceView {
 }
 
 export interface InstallRequest {
-  server_name: string; transport: "stdio" | "http"; scope: "global"; agents: string[];
+  server_name: string; transport: "stdio" | "http"; agents: string[];
   overrides: Record<string, PatchInput>;
 }
 

@@ -20,15 +20,27 @@ fn paste_import_recognizes_and_adds_manual_entries() {
     let added = import_pasted_config(text.into()).expect("paste import should succeed");
     assert_eq!(added, vec!["yunxiao".to_string()]);
 
-    let e = list_registry().into_iter().find(|e| e.name == "yunxiao").expect("yunxiao present");
+    let e = list_registry()
+        .into_iter()
+        .find(|e| e.name == "yunxiao")
+        .expect("yunxiao present");
     assert_eq!(e.origin.as_ref().unwrap().kind, "manual");
     let stdio = e.config.stdio.as_ref().unwrap();
     assert_eq!(stdio.command, "npx");
-    assert_eq!(stdio.env.as_ref().unwrap().get("YUNXIAO_ACCESS_TOKEN").unwrap(), "<YOUR_TOKEN>");
+    assert_eq!(
+        stdio
+            .env
+            .as_ref()
+            .unwrap()
+            .get("YUNXIAO_ACCESS_TOKEN")
+            .unwrap(),
+        "<YOUR_TOKEN>"
+    );
     assert!(h.join(".mux/sources/local/manual.json").exists());
 
     // 2) A bare name->config map (no mcpServers wrapper).
-    let added = import_pasted_config(r#"{"git":{"command":"npx","args":["-y","git-mcp"]}}"#.into()).unwrap();
+    let added = import_pasted_config(r#"{"git":{"command":"npx","args":["-y","git-mcp"]}}"#.into())
+        .unwrap();
     assert_eq!(added, vec!["git".to_string()]);
     assert!(list_registry().iter().any(|e| e.name == "git"));
 

@@ -15,8 +15,9 @@ npm run tauri dev   # Opens the MUX window (requires a display)
 - Browse and search the built-in MCP registry (40+ servers)
 - Install MCPs into global agent configs
 - Per-agent env overrides
-- Preview the exact JSON that will be written before applying
-- Automatic backup to `~/.mux/backups/` before every write
+- Preview each target path and its effective connection config before applying
+- Per-Agent backup of existing config files; failed backups abort the write
+- Atomic config replacement with concurrent-edit detection
 
 ## Data
 

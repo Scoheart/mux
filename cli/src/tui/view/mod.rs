@@ -44,7 +44,9 @@ fn render_tabs(model: &Model, f: &mut Frame, area: Rect) {
         }
         spans.push(Span::from(" "));
     }
-    let block = Block::default().borders(Borders::BOTTOM).border_style(Style::new().dim());
+    let block = Block::default()
+        .borders(Borders::BOTTOM)
+        .border_style(Style::new().dim());
     f.render_widget(Paragraph::new(Line::from(spans)).block(block), area);
 }
 
@@ -92,8 +94,8 @@ fn footer_hint(model: &Model) -> &'static str {
 mod tests {
     use super::*;
     use crate::tui::message::LoadedData;
-    use crate::tui::update::update;
     use crate::tui::message::Msg;
+    use crate::tui::update::update;
     use mux_core::types::{RegistryConfig, RegistryEntry, RegistryOrigin, StdioConfig};
     use ratatui::backend::TestBackend;
     use ratatui::Terminal;
@@ -104,10 +106,20 @@ mod tests {
             description: String::new(),
             tags: vec![],
             config: RegistryConfig {
-                stdio: Some(StdioConfig { command: "npx".into(), args: None, env: None }),
+                stdio: Some(StdioConfig {
+                    command: "npx".into(),
+                    args: None,
+                    env: None,
+                    cwd: None,
+                }),
                 http: None,
             },
-            origin: Some(RegistryOrigin { kind: kind.into(), agent: None, scope: None, source: None }),
+            origin: Some(RegistryOrigin {
+                kind: kind.into(),
+                agent: None,
+                scope: None,
+                source: None,
+            }),
             repo: None,
         }
     }
@@ -152,7 +164,10 @@ mod tests {
     #[test]
     fn renders_registry_entries_after_load() {
         let mut m = Model::new();
-        loaded(&mut m, vec![entry("filesystem", "manual"), entry("wiki", "remote")]);
+        loaded(
+            &mut m,
+            vec![entry("filesystem", "manual"), entry("wiki", "remote")],
+        );
         let text = render(&m);
         assert!(text.contains("filesystem"));
         assert!(text.contains("wiki"));

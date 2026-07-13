@@ -27,12 +27,10 @@ export const addAgent = (id: string, def: AgentDefinitionInput) =>
   invoke<void>("add_agent", { id, def });
 export const updateAgent = (id: string, def: AgentDefinitionInput) =>
   invoke<void>("update_agent", { id, def });
-export const scanInstalled = (projectDir?: string) =>
-  invoke<InstalledMcp[]>("scan_installed", { projectDir: projectDir ?? null });
+export const scanInstalled = () => invoke<InstalledMcp[]>("scan_installed");
 /** Register any discovered-but-unregistered agent MCPs into the registry. Returns
  *  the number newly imported. */
-export const importDiscovered = (projectDir?: string) =>
-  invoke<number>("import_discovered", { projectDir: projectDir ?? null });
+export const importDiscovered = () => invoke<number>("import_discovered");
 export const applyInstall = (req: InstallRequest) =>
   invoke<void>("apply_install", { req });
 export const uninstall = (req: InstallRequest) =>

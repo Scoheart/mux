@@ -17,12 +17,20 @@ pub fn render(model: &Model, f: &mut Frame) {
         Some(Modal::AddMcp(st)) => render_add_mcp(model, f, st),
         Some(Modal::Confirm(c)) => render_confirm(f, c),
         Some(Modal::Paste(st)) => render_paste(f, st),
-        Some(Modal::Subscribe(form)) => {
-            render_form(f, " 订阅远程配置 ", ["配置文件 URL", "名称（可选）"], [&form.url, &form.name], form.field)
-        }
-        Some(Modal::AddLocal(form)) => {
-            render_form(f, " 导入本地配置 ", ["文件路径", "名称（可选）"], [&form.path, &form.name], form.field)
-        }
+        Some(Modal::Subscribe(form)) => render_form(
+            f,
+            " 订阅远程配置 ",
+            ["配置文件 URL", "名称（可选）"],
+            [&form.url, &form.name],
+            form.field,
+        ),
+        Some(Modal::AddLocal(form)) => render_form(
+            f,
+            " 导入本地配置 ",
+            ["文件路径", "名称（可选）"],
+            [&form.path, &form.name],
+            form.field,
+        ),
         Some(Modal::AddAgent(form)) => render_agent_form(f, form),
         None => {}
     }
@@ -64,7 +72,11 @@ fn render_agent_form(f: &mut Frame, form: &crate::tui::model::AgentForm) {
     } else if form.field == 1 {
         lines.push(Line::from(Span::from("Enter 切换 json ↔ toml").dim()));
     }
-    let title = if form.is_edit { " 编辑 Agent " } else { " 新建 Agent " };
+    let title = if form.is_edit {
+        " 编辑 Agent "
+    } else {
+        " 新建 Agent "
+    };
     let block = Block::default()
         .borders(Borders::ALL)
         .border_style(Style::new().cyan())
@@ -103,7 +115,9 @@ fn render_form(f: &mut Frame, title: &str, labels: [&str; 2], values: [&str; 2],
         .borders(Borders::ALL)
         .border_style(Style::new().cyan())
         .title(Span::from(title).bold())
-        .title_bottom(Line::from(Span::from(" Tab 切换 · Enter 提交 · Esc 取消 ").dim()));
+        .title_bottom(Line::from(
+            Span::from(" Tab 切换 · Enter 提交 · Esc 取消 ").dim(),
+        ));
     f.render_widget(Paragraph::new(lines).block(block), area);
 }
 
@@ -111,7 +125,9 @@ fn render_paste(f: &mut Frame, st: &PasteState) {
     let area = centered(f.area(), 75, 75);
     f.render_widget(Clear, area);
     let mut lines: Vec<Line> = if st.text.is_empty() {
-        vec![Line::from(Span::from("在此粘贴 mcpServers JSON / TOML …").dim())]
+        vec![Line::from(
+            Span::from("在此粘贴 mcpServers JSON / TOML …").dim(),
+        )]
     } else {
         st.text.lines().map(|l| Line::from(l.to_string())).collect()
     };
@@ -120,14 +136,21 @@ fn render_paste(f: &mut Frame, st: &PasteState) {
         .borders(Borders::ALL)
         .border_style(Style::new().green())
         .title(Span::from(" 粘贴配置 "))
-        .title_bottom(Line::from(Span::from(" Ctrl-S 识别并添加 · Esc 取消 ").dim()));
-    f.render_widget(Paragraph::new(lines).block(block).wrap(Wrap { trim: false }), area);
+        .title_bottom(Line::from(
+            Span::from(" Ctrl-S 识别并添加 · Esc 取消 ").dim(),
+        ));
+    f.render_widget(
+        Paragraph::new(lines)
+            .block(block)
+            .wrap(Wrap { trim: false }),
+        area,
+    );
 }
 
 fn render_install(model: &Model, f: &mut Frame, w: &InstallWizard) {
     let area = centered(f.area(), 60, 70);
     f.render_widget(Clear, area);
-    let agents = model.installable_agents();
+    let agents = model.installable_agents_for(&w.transport);
     let mut lines = vec![
         Line::from(vec![
             Span::from("安装 "),
@@ -214,7 +237,12 @@ fn render_confirm(f: &mut Frame, c: &ConfirmState) {
         .borders(Borders::ALL)
         .border_style(Style::new().red())
         .title(Span::from(" 确认 "));
-    f.render_widget(Paragraph::new(lines).block(block).wrap(Wrap { trim: false }), area);
+    f.render_widget(
+        Paragraph::new(lines)
+            .block(block)
+            .wrap(Wrap { trim: false }),
+        area,
+    );
 }
 
 /// A centered rect `pct_x` × `pct_y` percent of `area`.
@@ -266,7 +294,12 @@ fn render_detail(model: &Model, f: &mut Frame, key: &str) {
         .border_style(Style::new().cyan())
         .title(Span::from(" 详情 "))
         .title_bottom(Line::from(Span::from(" Esc 关闭 · y 复制 · e 编辑 ").dim()));
-    f.render_widget(Paragraph::new(lines).block(block).wrap(Wrap { trim: false }), area);
+    f.render_widget(
+        Paragraph::new(lines)
+            .block(block)
+            .wrap(Wrap { trim: false }),
+        area,
+    );
 }
 
 fn render_help(f: &mut Frame) {

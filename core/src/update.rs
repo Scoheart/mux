@@ -142,13 +142,12 @@ pub fn upgrade_cli(current_version: &str) -> Result<Option<UpgradeOutcome>, Stri
     }
 
     // 原子替换：老的先挪走(运行中的二进制可以 rename)，新的挪进来，失败则回滚。
-    let current_exe =
-        std::env::current_exe().map_err(|e| format!("定位当前二进制失败: {}", e))?;
+    let current_exe = std::env::current_exe().map_err(|e| format!("定位当前二进制失败: {}", e))?;
     let backup: PathBuf = current_exe.with_extension("old");
     let _ = fs::remove_file(&backup);
     fs::rename(&current_exe, &backup).map_err(|e| format!("备份当前二进制失败: {}", e))?;
-    if let Err(e) = fs::rename(&new_bin, &current_exe)
-        .or_else(|_| fs::copy(&new_bin, &current_exe).map(|_| ()))
+    if let Err(e) =
+        fs::rename(&new_bin, &current_exe).or_else(|_| fs::copy(&new_bin, &current_exe).map(|_| ()))
     {
         let _ = fs::rename(&backup, &current_exe); // 回滚
         return Err(format!("替换二进制失败: {}", e));
@@ -186,9 +185,7 @@ pub fn passive_check_notice(current_version: &str) -> Option<String> {
         .ok()
         .and_then(|s| serde_json::from_str(&s).ok());
     let latest = match &cached {
-        Some(c)
-            if now - c["checked_at"].as_i64().unwrap_or(0) < PASSIVE_CHECK_INTERVAL_SECS =>
-        {
+        Some(c) if now - c["checked_at"].as_i64().unwrap_or(0) < PASSIVE_CHECK_INTERVAL_SECS => {
             c["latest"].as_str().map(str::to_string)
         }
         _ => {

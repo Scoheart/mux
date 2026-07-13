@@ -87,7 +87,7 @@ mux upgrade         # 升级独立安装的 CLI
 ├── sources/
 │   ├── remote/<id>.json    # 订阅 URL 的缓存
 │   └── local/<id>.(json|toml)  # 导入的本地文件 + 手动/探索两个托管来源
-└── backups/                # 每次写入 agent 配置前的时间戳备份
+└── backups/                # 修改已有 Agent 配置前的独立时间戳备份
 ```
 
 桌面和 CLI 都读写这里，所以两端天然同步。

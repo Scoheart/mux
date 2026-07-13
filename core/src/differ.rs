@@ -1,5 +1,8 @@
 #[derive(Debug, Clone, PartialEq)]
-pub enum DiffAction { Add, Remove }
+pub enum DiffAction {
+    Add,
+    Remove,
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct DiffEntry {

@@ -163,10 +163,10 @@ pub fn list_agents() -> Vec<AgentInfo> {
 
 pub use mux_core::ops::InstalledMcp;
 
-/// 扫描真实配置文件，返回「谁装在哪」。project_dir 为空则只扫 global。
+/// 扫描全局配置文件，返回「谁装在哪」。MUX 当前不管理项目级配置。
 #[tauri::command]
-pub fn scan_installed(project_dir: Option<String>) -> Vec<InstalledMcp> {
-    mux_core::ops::scan_installed(project_dir.as_deref())
+pub fn scan_installed() -> Vec<InstalledMcp> {
+    mux_core::ops::scan_installed(None)
 }
 
 /// Pre-detect: scan every agent's real config and register any discovered server
@@ -176,12 +176,12 @@ pub fn scan_installed(project_dir: Option<String>) -> Vec<InstalledMcp> {
 /// number newly imported. This is what makes an agent's pre-existing MCPs show up
 /// in the Registry (with a「来自 X」label) and become manageable like any other.
 #[tauri::command]
-pub fn import_discovered(project_dir: Option<String>) -> Result<usize, String> {
-    mux_core::ops::import_discovered(project_dir.as_deref())
+pub fn import_discovered() -> Result<usize, String> {
+    mux_core::ops::import_discovered(None)
 }
 
-use mux_core::ops::{resolve_entry, target_file};
 use mux_core::effective::effective_config;
+use mux_core::ops::{resolve_entry, target_file};
 use mux_core::r#override::OverridePatch;
 use std::collections::HashMap;
 
@@ -194,8 +194,12 @@ pub struct PatchInput {
 }
 impl PatchInput {
     fn to_patch(&self) -> OverridePatch {
-        OverridePatch { args: self.args.clone(), env: self.env.clone(),
-            url: self.url.clone(), headers: self.headers.clone() }
+        OverridePatch {
+            args: self.args.clone(),
+            env: self.env.clone(),
+            url: self.url.clone(),
+            headers: self.headers.clone(),
+        }
     }
 }
 
@@ -206,9 +210,7 @@ pub struct InstallRequest {
     /// older callers. The on-disk app config is still keyed by `server_name`.
     #[serde(default = "default_transport")]
     pub transport: String,
-    pub scope: String,                       // "global" | "project"
     pub agents: Vec<String>,
-    pub project_dir: Option<String>,
     #[serde(default)]
     pub overrides: HashMap<String, PatchInput>, // agentId -> patch
 }
@@ -224,16 +226,23 @@ pub struct PlannedWrite {
     pub config_json: String,
 }
 
-
-
 #[tauri::command]
 pub fn preview_install(req: InstallRequest) -> Result<Vec<PlannedWrite>, String> {
     let entry = resolve_entry(&req.server_name, &req.transport)?;
     let agents = load_agents();
     let mut out = Vec::new();
     for agent_id in &req.agents {
-        let Some(def) = agents.get(agent_id) else { continue };
-        let Some(path) = target_file(def, &req.scope, req.project_dir.as_deref()) else { continue };
+        let def = agents
+            .get(agent_id)
+            .ok_or_else(|| format!("{agent_id}: unknown Agent"))?;
+        if !mux_core::agents::supports_transport(agent_id, &req.transport) {
+            return Err(format!(
+                "{agent_id}: {} transport is not supported by this agent",
+                req.transport
+            ));
+        }
+        let path = target_file(def, "global", None)
+            .ok_or_else(|| format!("{agent_id}: global config path is unavailable"))?;
         let patch = req.overrides.get(agent_id).map(|p| p.to_patch());
         let cfg = effective_config(&entry, patch.as_ref())
             .ok_or_else(|| format!("no config for {}", req.server_name))?;
@@ -248,17 +257,24 @@ pub fn preview_install(req: InstallRequest) -> Result<Vec<PlannedWrite>, String>
 
 #[tauri::command]
 pub fn apply_install(req: InstallRequest) -> Result<(), Vec<String>> {
-    let overrides: HashMap<String, OverridePatch> =
-        req.overrides.iter().map(|(k, v)| (k.clone(), v.to_patch())).collect();
+    let overrides: HashMap<String, OverridePatch> = req
+        .overrides
+        .iter()
+        .map(|(k, v)| (k.clone(), v.to_patch()))
+        .collect();
     mux_core::ops::install(
-        &req.server_name, &req.transport, &req.scope, &req.agents,
-        req.project_dir.as_deref(), &overrides,
+        &req.server_name,
+        &req.transport,
+        "global",
+        &req.agents,
+        None,
+        &overrides,
     )
 }
 
 #[tauri::command]
 pub fn uninstall(req: InstallRequest) -> Result<(), Vec<String>> {
-    mux_core::ops::uninstall(&req.server_name, &req.scope, &req.agents, req.project_dir.as_deref())
+    mux_core::ops::uninstall(&req.server_name, "global", &req.agents, None)
 }
 
 /// Re-stamp an entry's current config into the agents that have it installed
@@ -277,20 +293,38 @@ pub fn resync_entry(
 /// store, then remove it from the agent file.
 #[tauri::command]
 pub fn disable_mcp(req: InstallRequest) -> Result<(), Vec<String>> {
-    mux_core::ops::disable(&req.server_name, &req.transport, &req.scope, &req.agents, req.project_dir.as_deref())
+    mux_core::ops::disable(
+        &req.server_name,
+        &req.transport,
+        "global",
+        &req.agents,
+        None,
+    )
 }
 
 /// Re-enable a previously disabled server from its remembered config snapshot.
 #[tauri::command]
 pub fn enable_mcp(req: InstallRequest) -> Result<(), Vec<String>> {
-    mux_core::ops::enable(&req.server_name, &req.transport, &req.scope, &req.agents, req.project_dir.as_deref())
+    mux_core::ops::enable(
+        &req.server_name,
+        &req.transport,
+        "global",
+        &req.agents,
+        None,
+    )
 }
 
 /// Hard-delete a server from an agent: remove it from the file and purge any
 /// remembered disabled snapshot.
 #[tauri::command]
 pub fn delete_mcp(req: InstallRequest) -> Result<(), Vec<String>> {
-    mux_core::ops::delete(&req.server_name, &req.transport, &req.scope, &req.agents, req.project_dir.as_deref())
+    mux_core::ops::delete(
+        &req.server_name,
+        &req.transport,
+        "global",
+        &req.agents,
+        None,
+    )
 }
 
 #[cfg(test)]
@@ -309,21 +343,34 @@ mod tests {
             description: String::new(),
             tags: vec![],
             config: RegistryConfig {
-                stdio: Some(StdioConfig { command: "npx".into(), args: Some(vec!["-y".into(), "seeded".into()]), env: None }),
+                stdio: Some(StdioConfig {
+                    command: "npx".into(),
+                    args: Some(vec!["-y".into(), "seeded".into()]),
+                    env: None,
+                    cwd: None,
+                }),
                 http: None,
             },
             origin: None,
             repo: None,
         })
         .unwrap();
-        let req = InstallRequest {
-            server_name: "seeded".into(), transport: "stdio".into(), scope: "global".into(),
-            agents: vec!["claude-code".into()], project_dir: None,
-            overrides: HashMap::new(),
-        };
+        // Legacy callers may still send project fields. Serde ignores them and
+        // the command resolves the global path unconditionally.
+        let req: InstallRequest = serde_json::from_value(serde_json::json!({
+            "server_name": "seeded",
+            "transport": "stdio",
+            "scope": "project",
+            "project_dir": "/tmp/must-not-be-used",
+            "agents": ["claude-code"],
+            "overrides": {}
+        }))
+        .unwrap();
         let plan = preview_install(req).unwrap();
         assert_eq!(plan.len(), 1);
         assert_eq!(plan[0].agent, "claude-code");
+        assert!(plan[0].file_path.ends_with(".claude.json"));
+        assert!(!plan[0].file_path.contains("must-not-be-used"));
         assert!(plan[0].config_json.contains("command"));
     }
 
@@ -334,16 +381,22 @@ mod tests {
             command: "npx".into(),
             args: Some(vec!["-y".into(), "server".into()]),
             env: None,
+            cwd: None,
         });
         let same = McpConfig::Stdio(StdioConfig {
             command: "npx".into(),
             args: Some(vec!["-y".into(), "server".into()]),
             env: None,
+            cwd: None,
         });
         let modified = McpConfig::Stdio(StdioConfig {
             command: "npx".into(),
             args: Some(vec!["-y".into(), "server".into()]),
-            env: Some(std::collections::HashMap::from([("KEY".into(), "val".into())])),
+            env: Some(std::collections::HashMap::from([(
+                "KEY".into(),
+                "val".into(),
+            )])),
+            cwd: None,
         });
         // 未修改 → customized = false
         assert!(!(&base != &same));

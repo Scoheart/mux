@@ -30,11 +30,11 @@ A one-click **Mux 精选 (curated collection)** subscribes you to a curated set.
 ## Features
 
 - **Aggregated catalog** with search, source filtering, and an explicit view of copies shadowed by precedence.
-- **Per-agent** install / enable / disable / delete. *Disable* removes a server from the agent's file but remembers its exact config so you can flip it back.
+- **Per-agent** install / enable / disable / delete. *Disable* first saves the server's complete semantic entry, including Agent-owned policy fields, then removes it from the Agent file so it can be restored safely.
 - **Transport-aware** — `stdio` / `http` / `sse`, plus a **custom `type`** (e.g. `streamable-http`). Same-named stdio and http variants are tracked separately.
 - **Paste a config** — drop a `{"mcpServers": {…}}` block and MUX recognizes the servers and adds them.
-- **Edits propagate** — changing a catalog entry re-stamps it into agents that installed it *clean*, while leaving hand-customized per-agent configs untouched.
-- **Safe, local writes** — MUX reads and edits only the configured MCP section on this machine. It never uploads the complete agent config. A timestamped **backup** is created before every change; unrelated keys, comments, formatting, servers, and unmodelled fields are preserved.
+- **Edits propagate** — changing a catalog entry's connection config re-stamps it into every active global install, including drifted copies; failed targets are reported instead of silently counted as synced.
+- **Safe, local writes** — MUX reads and edits only the configured MCP entry on this machine. It never uploads the complete agent config. Existing files are backed up first, then atomically replaced only if they have not changed concurrently; unrelated keys, comments, formatting, servers, policy fields, permissions, and symlinks are preserved.
 - **CLI ⇄ Desktop in sync** — both are built on one shared Rust core (`mux-core`) and read/write `~/.mux/`, so a change in one shows up in the other.
 - **Dark mode** and a macOS "liquid glass" UI.
 
@@ -42,7 +42,7 @@ A one-click **Mux 精选 (curated collection)** subscribes you to a curated set.
 
 Claude Code · Claude Desktop · Cursor · VS Code · Codex · Zed · Windsurf · Roo Code · Gemini CLI · Qoder · Devin · Kiro · Junie · Amazon Q · OpenCode · Copilot CLI · Cline · Continue · Warp · Pi · QoderWork
 
-Each agent's config path/format is editable in the app. Paths inside the home directory are normalized to the portable `~/…` form.
+Eighteen built-ins have verified global config targets. Claude Desktop's local file accepts stdio only; remote Claude MCPs are account Connectors. Devin, Continue, and QoderWork stay unavailable by default because no stable user-level config file is documented for the global-only workflow. Every path/format remains editable in the app; paths inside the home directory are normalized to the portable `~/…` form.
 
 ---
 
@@ -103,14 +103,14 @@ Everything lives under `~/.mux/`:
 ├── sources/
 │   ├── remote/<id>.json    # cached copies of subscribed URLs
 │   └── local/<id>.(json|toml)   # imported local files + the managed manual/discovered sources
-└── backups/                # timestamped backups made before each write
+└── backups/                # per-agent timestamped backups made before existing-file writes
 ```
 
 ## How it works
 
 1. **Add sources** — subscribe to a URL, import a file, add the official collection, create/paste a server by hand, or let MUX auto-discover what's already in your agents.
 2. **Browse the catalog** — the Registry aggregates every enabled source (precedence: external sources < discovered < your manual edits).
-3. **Install to an agent** — pick an agent, toggle servers on/off; MUX writes that agent's real config file (backing it up first).
+3. **Install to an agent** — pick an agent, toggle servers on/off; MUX writes only that MCP entry using the Agent's native schema (backing up existing files first).
 4. **Stay in sync** — enable/disable/edit/remove flow through `~/.mux/`, visible to both the CLI and the desktop app.
 
 ## Development

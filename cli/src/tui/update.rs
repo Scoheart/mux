@@ -9,7 +9,7 @@ use super::effect::Effect;
 use super::message::Msg;
 use super::model::{
     bucket_of, AddMcpState, AgentForm, AgentPane, ConfirmState, Data, EditorState, EditorTransport,
-    InstallWizard, LocalForm, Model, Modal, PasteState, Screen, SubscribeForm, AGENT_FIELDS,
+    InstallWizard, LocalForm, Modal, Model, PasteState, Screen, SubscribeForm, AGENT_FIELDS,
     EDITOR_FIELDS,
 };
 use mux_core::types::AgentDefinition;
@@ -40,7 +40,11 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
             }
             Err(e) => model.status = Some(format!("✗ {}：{}", label, e)),
         },
-        Msg::Resynced { name, transport, result } => match result {
+        Msg::Resynced {
+            name,
+            transport,
+            result,
+        } => match result {
             Ok(outcome) => {
                 if !outcome.skipped_customized.is_empty() {
                     // Some installs are hand-customized — offer to force-overwrite.
@@ -50,12 +54,20 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
                             outcome.skipped_customized.len(),
                             outcome.skipped_customized.join("、")
                         ),
-                        effect: Effect::ResyncEntry { name, transport, force: true },
+                        effect: Effect::ResyncEntry {
+                            name,
+                            transport,
+                            force: true,
+                        },
                     }));
                 } else if outcome.synced.is_empty() {
                     model.status = Some(format!("没有需要同步的已安装 agent：{}", name));
                 } else {
-                    model.status = Some(format!("✓ 已同步 {} 到 {} 个 agent", name, outcome.synced.len()));
+                    model.status = Some(format!(
+                        "✓ 已同步 {} 到 {} 个 agent",
+                        name,
+                        outcome.synced.len()
+                    ));
                 }
                 // Reflect any clean installs that were just re-stamped.
                 return vec![Effect::LoadAll];
@@ -171,7 +183,9 @@ fn open_forget_confirm(model: &mut Model) {
             .get(model.registry_ui.cursor)
             .map(|e| (e.name.clone(), e.transport().to_string(), bucket_of(e)))
     };
-    let Some((name, transport, bucket)) = sel else { return };
+    let Some((name, transport, bucket)) = sel else {
+        return;
+    };
     if bucket != "manual" && bucket != "discovered" {
         model.status = Some("订阅/本地来源的条目请到「来源」页管理".into());
         return;
@@ -194,7 +208,11 @@ fn resync_selected(model: &mut Model) -> Vec<Effect> {
             .map(|e| (e.name.clone(), e.transport().to_string()))
     };
     match sel {
-        Some((name, transport)) => vec![Effect::ResyncEntry { name, transport, force: false }],
+        Some((name, transport)) => vec![Effect::ResyncEntry {
+            name,
+            transport,
+            force: false,
+        }],
         None => vec![],
     }
 }
@@ -311,9 +329,9 @@ fn save_editor(model: &mut Model) -> Vec<Effect> {
                 return vec![];
             }
             let delete_old = match &original_key {
-                Some(old) if *old != new_key && is_custom => {
-                    old.rsplit_once("::").map(|(n, t)| (n.to_string(), t.to_string()))
-                }
+                Some(old) if *old != new_key && is_custom => old
+                    .rsplit_once("::")
+                    .map(|(n, t)| (n.to_string(), t.to_string())),
                 _ => None,
             };
             model.editor = None;
@@ -331,7 +349,7 @@ fn open_install_wizard(model: &mut Model) {
         };
         (e.name.clone(), e.transport().to_string())
     };
-    let n = model.installable_agents().len();
+    let n = model.installable_agents_for(&transport).len();
     if n == 0 {
         model.status = Some("没有可安装的 agent（缺少全局配置路径）".into());
         return;
@@ -395,7 +413,10 @@ fn toggle_source(model: &mut Model) -> Vec<Effect> {
     let Some(s) = current_source(model) else {
         return vec![];
     };
-    vec![Effect::SetSourceEnabled { id: s.id.clone(), on: !s.enabled }]
+    vec![Effect::SetSourceEnabled {
+        id: s.id.clone(),
+        on: !s.enabled,
+    }]
 }
 
 /// `r`: refresh a remote/local source, or re-scan for the managed discovered one.
@@ -461,7 +482,8 @@ fn agents_key(model: &mut Model, k: KeyEvent) -> Vec<Effect> {
                         model.agents_ui.installed_cursor.saturating_sub(1);
                 }
                 KeyCode::Down | KeyCode::Char('j') => {
-                    model.agents_ui.installed_cursor = clamp(model.agents_ui.installed_cursor + 1, len);
+                    model.agents_ui.installed_cursor =
+                        clamp(model.agents_ui.installed_cursor + 1, len);
                 }
                 KeyCode::Left | KeyCode::Char('h') | KeyCode::Esc => {
                     model.agents_ui.pane = AgentPane::List;
@@ -496,9 +518,17 @@ fn toggle_installed(model: &mut Model) -> Vec<Effect> {
     };
     let (server, transport, agent) = (row.name.clone(), row.transport.clone(), row.agent.clone());
     if row.enabled {
-        vec![Effect::Disable { server, transport, agent }]
+        vec![Effect::Disable {
+            server,
+            transport,
+            agent,
+        }]
     } else {
-        vec![Effect::Enable { server, transport, agent }]
+        vec![Effect::Enable {
+            server,
+            transport,
+            agent,
+        }]
     }
 }
 
@@ -508,8 +538,15 @@ fn open_delete_confirm(model: &mut Model) {
         return;
     };
     model.modal = Some(Modal::Confirm(ConfirmState {
-        prompt: format!("从 {} 删除 {}？此操作会写回配置文件（有备份）。", agent, server),
-        effect: Effect::Delete { server, transport, agent },
+        prompt: format!(
+            "从 {} 删除 {}？此操作会写回配置文件（有备份）。",
+            agent, server
+        ),
+        effect: Effect::Delete {
+            server,
+            transport,
+            agent,
+        },
     }));
 }
 
@@ -542,7 +579,11 @@ fn toggle_agent_enabled(model: &mut Model) -> Vec<Effect> {
         enabled: !a.enabled,
         builtin: None,
     };
-    vec![Effect::PutAgent { id: a.id.clone(), def, overwrite: true }]
+    vec![Effect::PutAgent {
+        id: a.id.clone(),
+        def,
+        overwrite: true,
+    }]
 }
 
 /// `e` on an agent row: open its config-path editor.
@@ -656,7 +697,11 @@ fn modal_key(model: &mut Model, k: KeyEvent) -> Vec<Effect> {
 /// Trim a form value to an `Option` (empty → None).
 fn opt(s: &str) -> Option<String> {
     let t = s.trim();
-    if t.is_empty() { None } else { Some(t.to_string()) }
+    if t.is_empty() {
+        None
+    } else {
+        Some(t.to_string())
+    }
 }
 
 fn subscribe_key(model: &mut Model, mut form: SubscribeForm, k: KeyEvent) -> Vec<Effect> {
@@ -667,15 +712,26 @@ fn subscribe_key(model: &mut Model, mut form: SubscribeForm, k: KeyEvent) -> Vec
             if form.url.trim().is_empty() {
                 model.status = Some("URL 不能为空".into());
             } else {
-                return vec![Effect::Subscribe { url: form.url.clone(), name: opt(&form.name) }];
+                return vec![Effect::Subscribe {
+                    url: form.url.clone(),
+                    name: opt(&form.name),
+                }];
             }
         }
         KeyCode::Backspace => {
-            let buf = if form.field == 0 { &mut form.url } else { &mut form.name };
+            let buf = if form.field == 0 {
+                &mut form.url
+            } else {
+                &mut form.name
+            };
             buf.pop();
         }
         KeyCode::Char(c) => {
-            let buf = if form.field == 0 { &mut form.url } else { &mut form.name };
+            let buf = if form.field == 0 {
+                &mut form.url
+            } else {
+                &mut form.name
+            };
             buf.push(c);
         }
         _ => {}
@@ -692,15 +748,26 @@ fn local_key(model: &mut Model, mut form: LocalForm, k: KeyEvent) -> Vec<Effect>
             if form.path.trim().is_empty() {
                 model.status = Some("路径不能为空".into());
             } else {
-                return vec![Effect::AddLocal { path: form.path.clone(), name: opt(&form.name) }];
+                return vec![Effect::AddLocal {
+                    path: form.path.clone(),
+                    name: opt(&form.name),
+                }];
             }
         }
         KeyCode::Backspace => {
-            let buf = if form.field == 0 { &mut form.path } else { &mut form.name };
+            let buf = if form.field == 0 {
+                &mut form.path
+            } else {
+                &mut form.name
+            };
             buf.pop();
         }
         KeyCode::Char(c) => {
-            let buf = if form.field == 0 { &mut form.path } else { &mut form.name };
+            let buf = if form.field == 0 {
+                &mut form.path
+            } else {
+                &mut form.name
+            };
             buf.push(c);
         }
         _ => {}
@@ -733,7 +800,11 @@ fn paste_key(model: &mut Model, mut st: PasteState, k: KeyEvent) -> Vec<Effect> 
 
 fn install_key(model: &mut Model, mut w: InstallWizard, k: KeyEvent) -> Vec<Effect> {
     let ctrl = k.modifiers.contains(KeyModifiers::CONTROL);
-    let agents: Vec<String> = model.installable_agents().iter().map(|a| a.id.clone()).collect();
+    let agents: Vec<String> = model
+        .installable_agents_for(&w.transport)
+        .iter()
+        .map(|a| a.id.clone())
+        .collect();
     match k.code {
         KeyCode::Esc => return vec![], // cancel (already taken out)
         KeyCode::Up | KeyCode::Char('k') => w.cursor = w.cursor.saturating_sub(1),
@@ -811,7 +882,7 @@ fn add_mcp_key(model: &mut Model, mut st: AddMcpState, k: KeyEvent) -> Vec<Effec
 mod tests {
     use super::*;
     use crate::tui::message::LoadedData;
-    use mux_core::types::{RegistryConfig, RegistryEntry, RegistryOrigin, StdioConfig};
+    use mux_core::types::{HttpConfig, RegistryConfig, RegistryEntry, RegistryOrigin, StdioConfig};
 
     fn key(c: char) -> Msg {
         Msg::Key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::empty()))
@@ -826,10 +897,20 @@ mod tests {
             description: String::new(),
             tags: vec![],
             config: RegistryConfig {
-                stdio: Some(StdioConfig { command: "npx".into(), args: None, env: None }),
+                stdio: Some(StdioConfig {
+                    command: "npx".into(),
+                    args: None,
+                    env: None,
+                    cwd: None,
+                }),
                 http: None,
             },
-            origin: Some(RegistryOrigin { kind: kind.into(), agent: None, scope: None, source: None }),
+            origin: Some(RegistryOrigin {
+                kind: kind.into(),
+                agent: None,
+                scope: None,
+                source: None,
+            }),
             repo: None,
         }
     }
@@ -853,7 +934,10 @@ mod tests {
     #[test]
     fn loaded_fills_data_and_clears_loading() {
         let mut m = Model::new();
-        update(&mut m, loaded(vec![entry("git", "manual"), entry("fs", "remote")]));
+        update(
+            &mut m,
+            loaded(vec![entry("git", "manual"), entry("fs", "remote")]),
+        );
         assert!(!m.loading);
         assert_eq!(m.data.registry.len(), 2);
     }
@@ -887,7 +971,10 @@ mod tests {
     #[test]
     fn origin_filter_narrows_registry() {
         let mut m = Model::new();
-        update(&mut m, loaded(vec![entry("git", "manual"), entry("fs", "remote")]));
+        update(
+            &mut m,
+            loaded(vec![entry("git", "manual"), entry("fs", "remote")]),
+        );
         // filter → 订阅 (remote) shows only fs
         update(&mut m, code(KeyCode::Right));
         assert_eq!(m.filtered_registry().len(), 1);
@@ -907,7 +994,10 @@ mod tests {
     #[test]
     fn cursor_clamps_to_filtered_len() {
         let mut m = Model::new();
-        update(&mut m, loaded(vec![entry("a", "manual"), entry("b", "manual")]));
+        update(
+            &mut m,
+            loaded(vec![entry("a", "manual"), entry("b", "manual")]),
+        );
         update(&mut m, code(KeyCode::Down));
         update(&mut m, code(KeyCode::Down)); // past end
         assert_eq!(m.registry_ui.cursor, 1);
@@ -919,7 +1009,10 @@ mod tests {
         update(&mut m, key('q'));
         assert!(m.should_quit);
         let mut m2 = Model::new();
-        update(&mut m2, Msg::Key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL)));
+        update(
+            &mut m2,
+            Msg::Key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL)),
+        );
         assert!(m2.should_quit);
     }
 
@@ -931,6 +1024,7 @@ mod tests {
             has_global,
             has_project: false,
             enabled: true,
+            supported_transports: vec!["stdio", "http"],
             global: has_global.then(|| "~/x.json".to_string()),
             project: None,
         }
@@ -949,20 +1043,34 @@ mod tests {
     #[test]
     fn install_wizard_select_and_apply_emits_install() {
         let mut m = Model::new();
-        update(&mut m, loaded_full(vec![entry("git", "manual")], vec![agent("claude", true), agent("cursor", true)]));
+        update(
+            &mut m,
+            loaded_full(
+                vec![entry("git", "manual")],
+                vec![agent("claude", true), agent("cursor", true)],
+            ),
+        );
         update(&mut m, key('i')); // open wizard
         assert!(matches!(m.modal, Some(Modal::Install(_))));
-        update(&mut m, Msg::Key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::empty()))); // select claude
+        update(
+            &mut m,
+            Msg::Key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::empty())),
+        ); // select claude
         let eff = update(&mut m, code(KeyCode::Enter));
         assert_eq!(eff.len(), 1);
-        assert!(matches!(&eff[0], Effect::Install { server, agents, .. } if server == "git" && agents == &vec!["claude".to_string()]));
+        assert!(
+            matches!(&eff[0], Effect::Install { server, agents, .. } if server == "git" && agents == &vec!["claude".to_string()])
+        );
         assert!(m.modal.is_none()); // closed on commit
     }
 
     #[test]
     fn install_wizard_empty_selection_refuses() {
         let mut m = Model::new();
-        update(&mut m, loaded_full(vec![entry("git", "manual")], vec![agent("claude", true)]));
+        update(
+            &mut m,
+            loaded_full(vec![entry("git", "manual")], vec![agent("claude", true)]),
+        );
         update(&mut m, key('i'));
         let eff = update(&mut m, code(KeyCode::Enter)); // nothing selected
         assert!(eff.is_empty());
@@ -972,9 +1080,32 @@ mod tests {
     #[test]
     fn install_needs_an_installable_agent() {
         let mut m = Model::new();
-        update(&mut m, loaded_full(vec![entry("git", "manual")], vec![agent("nopath", false)]));
+        update(
+            &mut m,
+            loaded_full(vec![entry("git", "manual")], vec![agent("nopath", false)]),
+        );
         update(&mut m, key('i'));
         assert!(m.modal.is_none()); // no wizard — nothing installable
+        assert!(m.status.is_some());
+    }
+
+    #[test]
+    fn install_hides_agents_that_do_not_support_the_transport() {
+        let mut desktop = agent("claude-desktop", true);
+        desktop.supported_transports = vec!["stdio"];
+        let mut remote = entry("remote", "manual");
+        remote.config.stdio = None;
+        remote.config.http = Some(HttpConfig {
+            kind: "http".into(),
+            url: "https://example.com/mcp".into(),
+            headers: None,
+        });
+        let mut m = Model::new();
+        update(&mut m, loaded_full(vec![remote], vec![desktop]));
+
+        update(&mut m, key('i'));
+
+        assert!(m.modal.is_none());
         assert!(m.status.is_some());
     }
 
@@ -984,7 +1115,11 @@ mod tests {
         let mut m = Model::new();
         m.modal = Some(Modal::Confirm(ConfirmState {
             prompt: "x".into(),
-            effect: Effect::Delete { server: "git".into(), transport: "stdio".into(), agent: "claude".into() },
+            effect: Effect::Delete {
+                server: "git".into(),
+                transport: "stdio".into(),
+                agent: "claude".into(),
+            },
         }));
         let eff = update(&mut m, key('y'));
         assert_eq!(eff.len(), 1);
@@ -995,7 +1130,11 @@ mod tests {
         let mut m2 = Model::new();
         m2.modal = Some(Modal::Confirm(ConfirmState {
             prompt: "x".into(),
-            effect: Effect::Delete { server: "git".into(), transport: "stdio".into(), agent: "claude".into() },
+            effect: Effect::Delete {
+                server: "git".into(),
+                transport: "stdio".into(),
+                agent: "claude".into(),
+            },
         }));
         let eff2 = update(&mut m2, key('n'));
         assert!(eff2.is_empty());
@@ -1005,7 +1144,13 @@ mod tests {
     #[test]
     fn mutated_ok_sets_status_and_reloads() {
         let mut m = Model::new();
-        let eff = update(&mut m, Msg::Mutated { label: "安装 git".into(), result: Ok(()) });
+        let eff = update(
+            &mut m,
+            Msg::Mutated {
+                label: "安装 git".into(),
+                result: Ok(()),
+            },
+        );
         assert_eq!(eff.len(), 1); // reload
         assert!(m.status.as_deref().unwrap().contains("✓"));
     }
@@ -1037,7 +1182,9 @@ mod tests {
         update(&mut m, code(KeyCode::Enter));
         let eff = update(&mut m, ctrl('s'));
         assert_eq!(eff.len(), 1);
-        assert!(matches!(&eff[0], Effect::UpsertEntry { entry, delete_old: None } if entry.name == "git"));
+        assert!(
+            matches!(&eff[0], Effect::UpsertEntry { entry, delete_old: None } if entry.name == "git")
+        );
         assert!(m.editor.is_none());
     }
 
@@ -1070,9 +1217,15 @@ mod tests {
         for _ in 0..3 {
             update(&mut m, code(KeyCode::Down)); // to transport field (index 3)
         }
-        assert!(matches!(m.editor.as_ref().unwrap().transport, EditorTransport::Stdio));
+        assert!(matches!(
+            m.editor.as_ref().unwrap().transport,
+            EditorTransport::Stdio
+        ));
         update(&mut m, code(KeyCode::Enter)); // toggle
-        assert!(matches!(m.editor.as_ref().unwrap().transport, EditorTransport::Http));
+        assert!(matches!(
+            m.editor.as_ref().unwrap().transport,
+            EditorTransport::Http
+        ));
     }
 
     #[test]
@@ -1142,14 +1295,19 @@ mod tests {
         assert!(matches!(m.modal, Some(Modal::Subscribe(_))));
         typed(&mut m, "http://example.com/r.json");
         let eff = update(&mut m, code(KeyCode::Enter));
-        assert!(matches!(&eff[0], Effect::Subscribe { url, .. } if url == "http://example.com/r.json"));
+        assert!(
+            matches!(&eff[0], Effect::Subscribe { url, .. } if url == "http://example.com/r.json")
+        );
     }
 
     #[test]
     fn discovered_refresh_triggers_import() {
         let mut m = Model::new();
         m.screen = Screen::Sources;
-        update(&mut m, loaded_sources(vec![source("discovered", true, true)]));
+        update(
+            &mut m,
+            loaded_sources(vec![source("discovered", true, true)]),
+        );
         let eff = update(&mut m, key('r'));
         assert!(matches!(&eff[0], Effect::ImportDiscovered));
     }
@@ -1160,8 +1318,10 @@ mod tests {
         m.screen = Screen::Agents;
         update(&mut m, loaded_full(vec![], vec![agent("claude", true)]));
         let eff = update(&mut m, key(' '));
-        assert!(matches!(&eff[0], Effect::PutAgent { id, def, overwrite: true }
-            if id == "claude" && !def.enabled));
+        assert!(
+            matches!(&eff[0], Effect::PutAgent { id, def, overwrite: true }
+            if id == "claude" && !def.enabled)
+        );
     }
 
     #[test]
@@ -1181,7 +1341,9 @@ mod tests {
         typed(&mut m, "~/x.json");
         update(&mut m, code(KeyCode::Enter));
         let eff = update(&mut m, ctrl('s'));
-        assert!(matches!(&eff[0], Effect::PutAgent { id, overwrite: false, .. } if id == "myagent"));
+        assert!(
+            matches!(&eff[0], Effect::PutAgent { id, overwrite: false, .. } if id == "myagent")
+        );
         assert!(m.modal.is_none());
     }
 
@@ -1189,7 +1351,10 @@ mod tests {
     fn shift_s_resyncs_selected_entry() {
         let mut m = Model::new();
         update(&mut m, loaded(vec![entry("git", "manual")]));
-        let eff = update(&mut m, Msg::Key(KeyEvent::new(KeyCode::Char('S'), KeyModifiers::SHIFT)));
+        let eff = update(
+            &mut m,
+            Msg::Key(KeyEvent::new(KeyCode::Char('S'), KeyModifiers::SHIFT)),
+        );
         assert!(matches!(&eff[0], Effect::ResyncEntry { name, force: false, .. } if name == "git"));
     }
 
@@ -1202,11 +1367,17 @@ mod tests {
         };
         update(
             &mut m,
-            Msg::Resynced { name: "luma".into(), transport: "stdio".into(), result: Ok(outcome) },
+            Msg::Resynced {
+                name: "luma".into(),
+                transport: "stdio".into(),
+                result: Ok(outcome),
+            },
         );
         match &m.modal {
             Some(Modal::Confirm(c)) => {
-                assert!(matches!(&c.effect, Effect::ResyncEntry { force: true, name, .. } if name == "luma"));
+                assert!(
+                    matches!(&c.effect, Effect::ResyncEntry { force: true, name, .. } if name == "luma")
+                );
             }
             _ => panic!("expected a force-confirm modal"),
         }
@@ -1243,7 +1414,11 @@ mod tests {
         };
         let eff = update(
             &mut m,
-            Msg::Resynced { name: "luma".into(), transport: "stdio".into(), result: Ok(outcome) },
+            Msg::Resynced {
+                name: "luma".into(),
+                transport: "stdio".into(),
+                result: Ok(outcome),
+            },
         );
         assert!(m.modal.is_none());
         assert!(m.status.as_deref().unwrap().contains("已同步"));

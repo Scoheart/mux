@@ -206,7 +206,6 @@ export function useInstallState(): InstallState {
         const req = {
           server_name: serverName,
           transport,
-          scope: "global" as const,
           agents: [agentId],
           overrides: {},
         };
@@ -257,7 +256,6 @@ export function useInstallState(): InstallState {
         const req = {
           server_name: serverName,
           transport,
-          scope: "global" as const,
           agents: [agentId],
           overrides: {},
         };
@@ -304,7 +302,6 @@ export function useInstallState(): InstallState {
         await deleteMcp({
           server_name: serverName,
           transport,
-          scope: "global" as const,
           agents: [agentId],
           overrides: {},
         });

@@ -1,7 +1,7 @@
 import { ReactNode, useEffect, useState } from "react";
 import { getVersion } from "@tauri-apps/api/app";
 import type { AgentInfo, View } from "../lib/types";
-import { RefreshIcon, PackageIcon, PlusIcon, SunIcon, MoonIcon } from "./icons";
+import { DownloadIcon, RefreshIcon, PackageIcon, PlusIcon, SunIcon, MoonIcon } from "./icons";
 import { AgentGlyph, agentName } from "./brandIcons";
 import { applyTheme, getInitialTheme, type Theme } from "../lib/theme";
 import { useToast } from "./Toast";
@@ -172,16 +172,22 @@ export function Layout({
           </button>
         )}
 
-        {/* Version — click to check for updates against the stable channel. */}
+        {/* Explicit update action: keep the installed version visible without
+            relying on users to discover that a bare version label is clickable. */}
         <button
           type="button"
-          className="text-[11px] flex-shrink-0 cursor-pointer bg-transparent border-0 p-0"
-          style={{ color: "var(--text-secondary)" }}
-          title="检查更新"
+          className="mux-update-check flex-shrink-0"
+          title={version ? `当前版本 v${version}，点击检查更新` : "检查更新"}
+          aria-label={version ? `检查更新，当前版本 v${version}` : "检查更新"}
           disabled={checkingUpdate}
           onClick={() => void handleCheckUpdate()}
         >
-          {checkingUpdate ? "检查更新中…" : version ? `v${version}` : ""}
+          <DownloadIcon
+            className="w-3.5 h-3.5"
+            style={checkingUpdate ? { animation: "spin 0.8s linear infinite" } : undefined}
+          />
+          <span>{checkingUpdate ? "检查中…" : "检查更新"}</span>
+          {version && <span className="mux-update-version">v{version}</span>}
         </button>
       </header>
 

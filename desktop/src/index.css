@@ -316,6 +316,42 @@ body {
 .mux-icon-btn:disabled { opacity: .35; cursor: default; }
 .mux-icon-btn:disabled:hover { background: transparent; color: var(--color-gray-600); }
 
+/* A visible command replaces the old bare version label. The fixed height and
+   compact version lane keep the top bar stable while update state changes. */
+.mux-update-check {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 9px;
+  border: 1px solid var(--glass-border);
+  border-radius: 8px;
+  background: var(--glass-fill);
+  color: var(--text-primary);
+  font: 600 11px/1 var(--font-sans);
+  white-space: nowrap;
+  cursor: pointer;
+  box-shadow: var(--glass-highlight);
+  transition: background .14s ease, border-color .14s ease, color .14s ease;
+}
+.mux-update-check:hover:not(:disabled) {
+  background: var(--glass-fill-strong);
+  border-color: color-mix(in srgb, var(--color-blue) 32%, var(--glass-border));
+  color: var(--color-blue);
+}
+.mux-update-check:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--color-blue) 58%, transparent);
+  outline-offset: 1px;
+}
+.mux-update-check:disabled { opacity: .62; cursor: default; }
+.mux-update-version {
+  padding-left: 6px;
+  border-left: 1px solid var(--border-hairline);
+  color: var(--text-secondary);
+  font: 500 10px/1 var(--font-mono);
+}
+
 /* Add-agent accent button (top-bar, right) */
 .mux-add-btn {
   display: inline-flex; align-items: center; justify-content: center;

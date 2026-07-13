@@ -571,13 +571,17 @@ fn toggle_agent_enabled(model: &mut Model) -> Vec<Effect> {
     let Some(a) = model.data.agents.get(model.agents_ui.agent_cursor) else {
         return vec![];
     };
+    if !a.has_global {
+        return vec![];
+    }
     let def = AgentDefinition {
         global: a.global.clone(),
         project: a.project.clone(),
         format: a.format.clone(),
         key: a.key.clone(),
         enabled: !a.enabled,
-        builtin: None,
+        builtin: Some(a.builtin),
+        ..Default::default()
     };
     vec![Effect::PutAgent {
         id: a.id.clone(),
@@ -591,6 +595,9 @@ fn open_agent_edit(model: &mut Model) {
     let Some(a) = model.data.agents.get(model.agents_ui.agent_cursor) else {
         return;
     };
+    if !a.has_global {
+        return;
+    }
     model.modal = Some(Modal::AddAgent(AgentForm::from_agent(a)));
 }
 
@@ -643,7 +650,14 @@ fn agent_form_key(model: &mut Model, mut form: AgentForm, k: KeyEvent) -> Vec<Ef
         KeyCode::Down | KeyCode::Char('j') => form.field = clamp(form.field + 1, AGENT_FIELDS),
         KeyCode::Enter => {
             if form.field == 1 {
-                form.format_toml = !form.format_toml;
+                if !form.schema_locked {
+                    form.format = match form.format.as_str() {
+                        "json" => "toml",
+                        "toml" => "yaml",
+                        _ => "json",
+                    }
+                    .into();
+                }
             } else if form.field_mut(form.field).is_some() {
                 form.editing = true;
             }
@@ -1019,6 +1033,7 @@ mod tests {
     fn agent(id: &str, has_global: bool) -> mux_core::agents::AgentInfo {
         mux_core::agents::AgentInfo {
             id: id.into(),
+            name: id.into(),
             format: "json".into(),
             key: "mcpServers".into(),
             has_global,
@@ -1027,6 +1042,12 @@ mod tests {
             supported_transports: vec!["stdio", "http"],
             global: has_global.then(|| "~/x.json".to_string()),
             project: None,
+            docs: None,
+            note: None,
+            category: "custom".into(),
+            evidence: "custom".into(),
+            verified_at: None,
+            builtin: false,
         }
     }
 
@@ -1345,6 +1366,18 @@ mod tests {
             matches!(&eff[0], Effect::PutAgent { id, overwrite: false, .. } if id == "myagent")
         );
         assert!(m.modal.is_none());
+    }
+
+    #[test]
+    fn editing_agent_preserves_disabled_state() {
+        let mut disabled = agent("codex", true);
+        disabled.enabled = false;
+        disabled.builtin = true;
+        let form = AgentForm::from_agent(&disabled);
+        let (_, definition) = form.to_def();
+        assert!(!definition.enabled);
+        assert_eq!(definition.format, "json");
+        assert_eq!(definition.key, "mcpServers");
     }
 
     #[test]

@@ -45,7 +45,7 @@ xattr -dr com.apple.quarantine /Applications/MUX.app
 
 ## 目录里的条目从哪来？我能只留一部分吗？
 
-目录是所有**已启用来源**的并集，MUX 不内置写死的清单。TUI 来源屏幕可单独启停来源；桌面 `v1.1.6` 暂时只提供按来源过滤、刷新和删除。停用来源不会删除底层文件。详见 [来源](/guide/concepts#来源-sources)。
+目录是所有**已启用来源**的并集，MUX 不内置写死的 MCP Server 清单。TUI 来源屏幕可单独启停来源；桌面 `v1.2.0` 暂时只提供按来源过滤、刷新和删除。停用来源不会删除底层文件。详见 [来源](/guide/concepts#来源-sources)。
 
 ## Mux 精选是必须的吗？
 

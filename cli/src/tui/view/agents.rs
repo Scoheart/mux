@@ -36,14 +36,16 @@ fn render_agent_list(model: &Model, f: &mut Frame, area: Rect) {
         .agents
         .iter()
         .map(|a| {
-            let state = if a.enabled {
+            let state = if !a.has_global {
+                Span::from("· ").dim()
+            } else if a.enabled {
                 Span::from("● ").green()
             } else {
                 Span::from("○ ").dim()
             };
-            let mut spans = vec![state, Span::from(a.id.clone())];
+            let mut spans = vec![state, Span::from(a.name.clone())];
             if !a.has_global {
-                spans.push(Span::from("  无全局路径").red());
+                spans.push(Span::from("  目录").dim());
             }
             ListItem::new(Line::from(spans))
         })

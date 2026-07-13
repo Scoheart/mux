@@ -26,18 +26,24 @@ export interface CatalogItem {
   in_effect: boolean;
 }
 export interface AgentInfo {
-  id: string; format: string; key: string;
+  id: string; name: string; format: string; key: string;
   has_global: boolean; has_project: boolean; enabled: boolean;
   supported_transports: Array<"stdio" | "http">;
   /** Raw stored config paths (e.g. `~/Library/Application Support/…/mcp.json`). */
   global: string | null; project: string | null;
+  docs: string | null;
+  note: string | null;
+  category: string;
+  evidence: "official" | "official-source" | "catalog" | "custom" | string;
+  verified_at: string | null;
+  builtin: boolean;
 }
 /** Payload for creating a custom agent (mirrors Rust AgentDefinition). */
 export interface AgentDefinitionInput {
   global: string | null;
   /** Legacy metadata retained when editing an existing definition. */
   project: string | null;
-  format: "json" | "toml";
+  format: "json" | "toml" | "yaml";
   key: string;
   enabled: boolean;
   builtin?: boolean;

@@ -99,12 +99,12 @@ fn unavailable_or_unknown_agents_fail_without_losing_snapshots() {
         "srv",
         "stdio",
         "global",
-        &["continue".into()],
+        &["devin".into()],
         None,
         &HashMap::new(),
     )
     .unwrap_err();
-    assert!(unavailable[0].contains("config path is unavailable"));
+    assert!(unavailable[0].contains("transport is not supported"));
 
     let unknown = ops::install(
         "srv",
@@ -124,11 +124,10 @@ fn unavailable_or_unknown_agents_fail_without_losing_snapshots() {
         config,
         snapshot: Some(serde_json::json!({"command": "npx"})),
     };
-    remember("continue", saved.clone()).unwrap();
-    let delete_error =
-        ops::delete("srv", "stdio", "global", &["continue".into()], None).unwrap_err();
+    remember("devin", saved.clone()).unwrap();
+    let delete_error = ops::delete("srv", "stdio", "global", &["devin".into()], None).unwrap_err();
     assert!(delete_error[0].contains("snapshot retained"));
-    assert_eq!(load_disabled()["continue"], vec![saved]);
+    assert_eq!(load_disabled()["devin"], vec![saved]);
 
     let clean = ops::clean(Some("missing-agent"));
     assert!(clean.cleaned.is_empty());

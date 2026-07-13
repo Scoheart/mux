@@ -1,4 +1,4 @@
-use crate::adapter::get_agent_adapter;
+use crate::adapter::get_agent_adapter_for;
 use crate::types::{AgentDefinition, McpConfig};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -44,12 +44,11 @@ pub fn collapse_home(path: &str) -> String {
 }
 
 fn read_section(
-    format: &str,
-    key: &str,
+    definition: &AgentDefinition,
     agent_id: &str,
     path: &Path,
 ) -> BTreeMap<String, McpConfig> {
-    get_agent_adapter(format, key, agent_id).read(path)
+    get_agent_adapter_for(definition, agent_id).read(path)
 }
 
 pub fn scan_agents(
@@ -64,7 +63,7 @@ pub fn scan_agents(
         }
         if let Some(g) = &def.global {
             let path = expand_tilde(g);
-            for (mcp_name, cfg) in read_section(&def.format, &def.key, name, &path) {
+            for (mcp_name, cfg) in read_section(def, name, &path) {
                 out.push(ScannedMcp {
                     name: mcp_name,
                     config: cfg,
@@ -76,7 +75,7 @@ pub fn scan_agents(
         }
         if let (Some(proj), Some(base)) = (&def.project, project_dir) {
             let path = base.join(proj);
-            for (mcp_name, cfg) in read_section(&def.format, &def.key, name, &path) {
+            for (mcp_name, cfg) in read_section(def, name, &path) {
                 out.push(ScannedMcp {
                     name: mcp_name,
                     config: cfg,
@@ -115,6 +114,7 @@ mod tests {
                 key: "mcpServers".into(),
                 enabled: true,
                 builtin: Some(true),
+                ..Default::default()
             },
         );
         let found = scan_agents(&agents, Some(&base), false);
@@ -136,6 +136,7 @@ mod tests {
                 key: "mcpServers".into(),
                 enabled: false,
                 builtin: None,
+                ..Default::default()
             },
         );
         assert_eq!(scan_agents(&agents, None, false).len(), 0);

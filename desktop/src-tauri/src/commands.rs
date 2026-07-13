@@ -399,8 +399,8 @@ mod tests {
             cwd: None,
         });
         // 未修改 → customized = false
-        assert!(!(&base != &same));
+        assert!(!(base != same));
         // 已修改 → customized = true
-        assert!(&base != &modified);
+        assert!(base != modified);
     }
 }

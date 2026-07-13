@@ -1,4 +1,4 @@
-use crate::adapter::get_agent_adapter;
+use crate::adapter::get_agent_adapter_for;
 use crate::differ::{DiffAction, DiffEntry};
 use crate::scanner::expand_tilde;
 use crate::types::{AgentDefinition, McpConfig};
@@ -6,6 +6,8 @@ use serde_json::Value;
 use std::collections::BTreeMap;
 use std::fs::{self, OpenOptions};
 use std::io::ErrorKind;
+#[cfg(unix)]
+use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 
 /// A single failed apply target, collected so one failure does not abort the rest.
@@ -50,6 +52,9 @@ fn backup(
     }
     fs::create_dir_all(backups_dir)
         .map_err(|error| format!("failed to create backup directory: {}", error))?;
+    #[cfg(unix)]
+    fs::set_permissions(backups_dir, fs::Permissions::from_mode(0o700))
+        .map_err(|error| format!("failed to secure backup directory: {}", error))?;
     let fname = path.file_name().and_then(|s| s.to_str()).unwrap_or("file");
     let base_name = format!(
         "{}-{}-{}-{}",
@@ -58,6 +63,9 @@ fn backup(
         backup_component(agent),
         backup_component(scope)
     );
+    #[cfg(unix)]
+    let permissions = fs::Permissions::from_mode(0o600);
+    #[cfg(not(unix))]
     let permissions = fs::metadata(path)
         .map_err(|error| error.to_string())?
         .permissions();
@@ -69,11 +77,11 @@ fn backup(
             format!("{}-{}", base_name, suffix)
         };
         let backup_path = backups_dir.join(name);
-        let mut destination = match OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&backup_path)
-        {
+        let mut options = OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        options.mode(0o600);
+        let mut destination = match options.open(&backup_path) {
             Ok(file) => file,
             Err(error) if error.kind() == ErrorKind::AlreadyExists => continue,
             Err(error) => {
@@ -144,7 +152,7 @@ pub fn restore_snapshot(
             }]
         })?;
     }
-    get_agent_adapter(&def.format, &def.key, agent_id)
+    get_agent_adapter_for(def, agent_id)
         .restore(&path, server_name, snapshot)
         .map_err(|error| {
             vec![ApplyError {
@@ -186,7 +194,7 @@ pub fn remove_snapshot(
             }]
         })?;
     }
-    get_agent_adapter(&def.format, &def.key, agent_id)
+    get_agent_adapter_for(def, agent_id)
         .remove_snapshot(&path, server_name, snapshot)
         .map_err(|error| {
             vec![ApplyError {
@@ -228,7 +236,7 @@ pub fn apply_diffs(
             }
             backed_up.insert(path.clone());
         }
-        let adapter = get_agent_adapter(&def.format, &def.key, &diff.agent);
+        let adapter = get_agent_adapter_for(def, &diff.agent);
         let result = match diff.action {
             DiffAction::Add => {
                 let Some(cfg) = configs.get(&diff.mcp_name) else {
@@ -279,6 +287,7 @@ mod tests {
                 key: "mcpServers".into(),
                 enabled: true,
                 builtin: None,
+                ..Default::default()
             },
         );
 
@@ -336,6 +345,7 @@ mod tests {
                 key: "mcpServers".into(),
                 enabled: true,
                 builtin: None,
+                ..Default::default()
             },
         );
         let mut configs = BTreeMap::new();
@@ -390,6 +400,7 @@ mod tests {
                 key: "mcpServers".into(),
                 enabled: true,
                 builtin: None,
+                ..Default::default()
             },
         );
         let mut configs = BTreeMap::new();
@@ -444,6 +455,7 @@ mod tests {
                 key: "mcpServers".into(),
                 enabled: true,
                 builtin: None,
+                ..Default::default()
             },
         );
         let mut configs = BTreeMap::new();
@@ -499,6 +511,21 @@ mod tests {
             "second"
         );
         assert_eq!(std::fs::read_dir(&backups).unwrap().count(), 2);
+        #[cfg(unix)]
+        {
+            assert_eq!(
+                std::fs::metadata(&backups).unwrap().permissions().mode() & 0o777,
+                0o700
+            );
+            assert_eq!(
+                std::fs::metadata(backups.join(prefix))
+                    .unwrap()
+                    .permissions()
+                    .mode()
+                    & 0o777,
+                0o600
+            );
+        }
         std::fs::remove_dir_all(&base).ok();
     }
 }

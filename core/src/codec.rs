@@ -66,6 +66,49 @@ const WARP_HTTP_FIELDS: &[&str] = &[
     "url",
     "headers",
 ];
+const KIMI_FIELDS: &[&str] = &[
+    "transport",
+    "type",
+    "command",
+    "args",
+    "env",
+    "cwd",
+    "url",
+    "headers",
+];
+const TRANSPORT_FIELDS: &[&str] = &[
+    "transport",
+    "type",
+    "command",
+    "args",
+    "env",
+    "cwd",
+    "url",
+    "headers",
+];
+const TABNINE_FIELDS: &[&str] = &[
+    "transport",
+    "type",
+    "command",
+    "args",
+    "env",
+    "cwd",
+    "url",
+    "headers",
+];
+const CONTINUE_FIELDS: &[&str] = &["type", "command", "args", "env", "cwd", "url"];
+const GOOSE_FIELDS: &[&str] = &["type", "cmd", "args", "envs", "cwd", "uri", "headers"];
+const VIBE_FIELDS: &[&str] = &[
+    "transport",
+    "type",
+    "command",
+    "args",
+    "env",
+    "cwd",
+    "url",
+    "headers",
+];
+const HEADERS_FIELD: &[&str] = &["headers"];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Codec {
@@ -83,6 +126,19 @@ pub enum Codec {
     Cline,
     Roo,
     Warp,
+    Kimi,
+    Transport,
+    Tabnine,
+    Continue,
+    Goose,
+    Vibe,
+    StdioOnly,
+}
+
+pub struct ObjectPatch {
+    pub parent: &'static str,
+    pub controlled: &'static [&'static str],
+    pub fields: Vec<(String, Value)>,
 }
 
 pub struct EntryPatch {
@@ -90,6 +146,9 @@ pub struct EntryPatch {
     pub fields: Vec<(String, Value)>,
     /// Fields required for a new entry but owned by the user once present.
     pub defaults: Vec<(String, Value)>,
+    /// Connection fields nested inside an Agent-owned object. Adapters patch
+    /// only the listed children so sibling policy fields survive.
+    pub object_patches: Vec<ObjectPatch>,
 }
 
 pub fn for_agent(agent_id: &str) -> Codec {
@@ -111,15 +170,56 @@ pub fn for_agent(agent_id: &str) -> Codec {
     }
 }
 
+pub fn from_name(name: Option<&str>, agent_id: &str) -> Codec {
+    match name {
+        Some("standard") => Codec::Standard,
+        Some("claude_desktop") => Codec::ClaudeDesktop,
+        Some("explicit_type") => Codec::ExplicitType,
+        Some("url_inferred") => Codec::UrlInferred,
+        Some("vscode") => Codec::VsCode,
+        Some("codex") => Codec::Codex,
+        Some("opencode") => Codec::OpenCode,
+        Some("gemini") => Codec::Gemini,
+        Some("windsurf") => Codec::Windsurf,
+        Some("qoder") => Codec::Qoder,
+        Some("copilot") => Codec::Copilot,
+        Some("cline") => Codec::Cline,
+        Some("roo") => Codec::Roo,
+        Some("warp") => Codec::Warp,
+        Some("kimi") => Codec::Kimi,
+        Some("transport") => Codec::Transport,
+        Some("tabnine") => Codec::Tabnine,
+        Some("continue") => Codec::Continue,
+        Some("goose") => Codec::Goose,
+        Some("vibe") => Codec::Vibe,
+        Some("server_url") => Codec::Windsurf,
+        Some("url_transport") => Codec::Kimi,
+        Some("stdio_only") => Codec::StdioOnly,
+        _ => for_agent(agent_id),
+    }
+}
+
 /// Convert a catalog config to the canonical value that will be observed after
 /// writing it to, then reading it back from, a specific Agent. Some formats
 /// collapse several HTTP labels into one wire representation.
 pub fn normalize_for_agent(agent_id: &str, config: &McpConfig) -> McpConfig {
-    let codec = for_agent(agent_id);
+    normalize_with_codec(for_agent(agent_id), config)
+}
+
+pub fn normalize_with_codec(codec: Codec, config: &McpConfig) -> McpConfig {
     let Ok(patch) = codec.patch(config) else {
         return config.clone();
     };
-    let value = Value::Object(patch.fields.into_iter().collect());
+    let mut fields: Map<String, Value> = patch.fields.into_iter().collect();
+    for object_patch in patch.object_patches {
+        if !object_patch.fields.is_empty() {
+            fields.insert(
+                object_patch.parent.into(),
+                Value::Object(object_patch.fields.into_iter().collect()),
+            );
+        }
+    }
+    let value = Value::Object(fields);
     codec.decode(&value).unwrap_or_else(|| config.clone())
 }
 
@@ -153,11 +253,16 @@ impl Codec {
             }
         }
 
-        if let Some(command) = object.get("command").and_then(Value::as_str) {
+        let command_key = if self == Codec::Goose {
+            "cmd"
+        } else {
+            "command"
+        };
+        if let Some(command) = object.get(command_key).and_then(Value::as_str) {
             return Some(McpConfig::Stdio(StdioConfig {
                 command: command.to_string(),
                 args: string_array(object.get("args")),
-                env: string_map(object.get("env")),
+                env: string_map(object.get(if self == Codec::Goose { "envs" } else { "env" })),
                 cwd: string_field(
                     object,
                     if self == Codec::Warp {
@@ -177,13 +282,26 @@ impl Codec {
             Codec::Windsurf if object.get("serverUrl").and_then(Value::as_str).is_some() => {
                 ("serverUrl", "streamable-http")
             }
+            Codec::Goose => ("uri", "streamable-http"),
             _ => ("url", "http"),
         };
         let url = object.get(url_key).and_then(Value::as_str)?.to_string();
-        let raw_kind = object.get("type").and_then(Value::as_str);
+        let raw_kind = object
+            .get(
+                if matches!(
+                    self,
+                    Codec::Kimi | Codec::Transport | Codec::Tabnine | Codec::Vibe
+                ) {
+                    "transport"
+                } else {
+                    "type"
+                },
+            )
+            .and_then(Value::as_str);
         let kind = match (self, raw_kind) {
             (Codec::OpenCode, Some("remote")) => "http",
             (Codec::Cline, Some("streamableHttp")) => "streamable-http",
+            (Codec::Goose, Some("streamable_http")) => "streamable-http",
             (_, Some("remote" | "http")) => "http",
             (_, Some("streamableHttp" | "streamable-http")) => "streamable-http",
             (_, Some("sse")) => "sse",
@@ -192,27 +310,32 @@ impl Codec {
             _ => default_kind,
         }
         .to_string();
-        let headers_key = if self == Codec::Codex {
-            "http_headers"
-        } else {
-            "headers"
+        let headers = match self {
+            Codec::Codex => string_map(object.get("http_headers")),
+            Codec::Continue => nested_string_map(object, "requestOptions", "headers"),
+            Codec::Tabnine => nested_string_map(object, "requestInit", "headers"),
+            _ => string_map(object.get("headers")),
         };
-        Some(McpConfig::Http(HttpConfig {
-            kind,
-            url,
-            headers: string_map(object.get(headers_key)),
-        }))
+        Some(McpConfig::Http(HttpConfig { kind, url, headers }))
     }
 
     pub fn patch(self, config: &McpConfig) -> Result<EntryPatch, String> {
-        if self == Codec::ClaudeDesktop && matches!(config, McpConfig::Http(_)) {
-            return Err(
-                "Claude Desktop's local config accepts stdio servers only; add remote MCPs as Claude Connectors"
-                    .into(),
-            );
+        if matches!(config, McpConfig::Http(_)) {
+            if self == Codec::ClaudeDesktop {
+                return Err(
+                    "Claude Desktop's local config accepts stdio servers only; add remote MCPs as Claude Connectors"
+                        .into(),
+                );
+            }
+            if self == Codec::StdioOnly {
+                return Err(
+                    "this Agent's file-based MCP configuration accepts stdio servers only".into(),
+                );
+            }
         }
         let mut fields = Vec::new();
         let mut defaults = Vec::new();
+        let mut object_patches = Vec::new();
         match config {
             McpConfig::Stdio(stdio) => match self {
                 Codec::ExplicitType | Codec::Qoder => {
@@ -260,6 +383,51 @@ impl Codec {
                     ));
                 }
                 Codec::Warp => push_stdio_fields(&mut fields, stdio, "working_directory"),
+                Codec::Kimi => push_stdio_fields(&mut fields, stdio, "cwd"),
+                Codec::Transport => {
+                    fields.push(("transport".into(), Value::String("stdio".into())));
+                    push_stdio_fields(&mut fields, stdio, "cwd");
+                }
+                Codec::Tabnine => {
+                    push_stdio_fields(&mut fields, stdio, "cwd");
+                    object_patches.push(ObjectPatch {
+                        parent: "requestInit",
+                        controlled: HEADERS_FIELD,
+                        fields: Vec::new(),
+                    });
+                }
+                Codec::Continue => {
+                    fields.push(("type".into(), Value::String("stdio".into())));
+                    push_stdio_fields(&mut fields, stdio, "cwd");
+                    object_patches.push(ObjectPatch {
+                        parent: "requestOptions",
+                        controlled: HEADERS_FIELD,
+                        fields: Vec::new(),
+                    });
+                }
+                Codec::Goose => {
+                    fields.push(("type".into(), Value::String("stdio".into())));
+                    fields.push(("cmd".into(), Value::String(stdio.command.clone())));
+                    fields.push((
+                        "args".into(),
+                        Value::Array(
+                            stdio
+                                .args
+                                .clone()
+                                .unwrap_or_default()
+                                .into_iter()
+                                .map(Value::String)
+                                .collect(),
+                        ),
+                    ));
+                    push_optional(&mut fields, "envs", &stdio.env);
+                    push_optional(&mut fields, "cwd", &stdio.cwd);
+                    defaults.push(("description".into(), Value::String(String::new())));
+                }
+                Codec::Vibe => {
+                    fields.push(("transport".into(), Value::String("stdio".into())));
+                    push_stdio_fields(&mut fields, stdio, "cwd");
+                }
                 _ => push_stdio_fields(&mut fields, stdio, "cwd"),
             },
             McpConfig::Http(http) => match self {
@@ -351,6 +519,80 @@ impl Codec {
                     push_http_fields(&mut fields, http, "url", "headers");
                 }
                 Codec::Warp => push_http_fields(&mut fields, http, "url", "headers"),
+                Codec::Kimi => {
+                    if http.kind == "sse" {
+                        fields.push(("transport".into(), Value::String("sse".into())));
+                    }
+                    push_http_fields(&mut fields, http, "url", "headers");
+                }
+                Codec::Transport => {
+                    fields.push((
+                        "transport".into(),
+                        Value::String(if http.kind == "sse" { "sse" } else { "http" }.into()),
+                    ));
+                    push_http_fields(&mut fields, http, "url", "headers");
+                }
+                Codec::Tabnine => {
+                    if http.kind == "sse" {
+                        fields.push(("transport".into(), Value::String("sse".into())));
+                    }
+                    fields.push(("url".into(), Value::String(http.url.clone())));
+                    let mut nested = Vec::new();
+                    push_optional(&mut nested, "headers", &http.headers);
+                    object_patches.push(ObjectPatch {
+                        parent: "requestInit",
+                        controlled: HEADERS_FIELD,
+                        fields: nested,
+                    });
+                }
+                Codec::Continue => {
+                    fields.push((
+                        "type".into(),
+                        Value::String(
+                            if http.kind == "sse" {
+                                "sse"
+                            } else {
+                                "streamable-http"
+                            }
+                            .into(),
+                        ),
+                    ));
+                    fields.push(("url".into(), Value::String(http.url.clone())));
+                    let mut nested = Vec::new();
+                    push_optional(&mut nested, "headers", &http.headers);
+                    object_patches.push(ObjectPatch {
+                        parent: "requestOptions",
+                        controlled: HEADERS_FIELD,
+                        fields: nested,
+                    });
+                }
+                Codec::Goose => {
+                    if http.kind == "sse" {
+                        return Err(
+                            "Goose no longer accepts SSE extensions; use Streamable HTTP".into(),
+                        );
+                    }
+                    fields.push(("type".into(), Value::String("streamable_http".into())));
+                    push_http_fields(&mut fields, http, "uri", "headers");
+                    defaults.push(("description".into(), Value::String(String::new())));
+                }
+                Codec::Vibe => {
+                    if http.kind == "sse" {
+                        return Err("Mistral Vibe does not support the legacy SSE transport".into());
+                    }
+                    fields.push((
+                        "transport".into(),
+                        Value::String(
+                            if http.kind == "streamable-http" {
+                                "streamable-http"
+                            } else {
+                                "http"
+                            }
+                            .into(),
+                        ),
+                    ));
+                    push_http_fields(&mut fields, http, "url", "headers");
+                }
                 _ => {
                     if http.kind != "http" {
                         fields.push(("type".into(), Value::String(http.kind.clone())));
@@ -369,6 +611,7 @@ impl Codec {
             },
             fields,
             defaults,
+            object_patches,
         })
     }
 
@@ -380,6 +623,12 @@ impl Codec {
             Codec::Windsurf => WINDSURF_FIELDS,
             Codec::Cline => CLINE_FIELDS,
             Codec::Warp => WARP_FIELDS,
+            Codec::Kimi => KIMI_FIELDS,
+            Codec::Transport => TRANSPORT_FIELDS,
+            Codec::Tabnine => TABNINE_FIELDS,
+            Codec::Continue => CONTINUE_FIELDS,
+            Codec::Goose => GOOSE_FIELDS,
+            Codec::Vibe => VIBE_FIELDS,
             _ => STANDARD_FIELDS,
         }
     }
@@ -416,6 +665,17 @@ fn string_map(value: Option<&Value>) -> Option<HashMap<String, String>> {
         .iter()
         .map(|(key, value)| Some((key.clone(), value.as_str()?.to_string())))
         .collect()
+}
+
+fn nested_string_map(
+    object: &Map<String, Value>,
+    parent: &str,
+    child: &str,
+) -> Option<HashMap<String, String>> {
+    object
+        .get(parent)
+        .and_then(Value::as_object)
+        .and_then(|nested| string_map(nested.get(child)))
 }
 
 fn push_stdio_fields(fields: &mut Vec<(String, Value)>, stdio: &StdioConfig, cwd_key: &str) {

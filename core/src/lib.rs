@@ -17,5 +17,7 @@ pub mod sources;
 #[doc(hidden)]
 pub mod testenv;
 pub mod toml_adapter;
+pub mod toml_list_adapter;
 pub mod types;
 pub mod update;
+pub mod yaml_adapter;

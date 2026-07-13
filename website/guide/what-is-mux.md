@@ -2,7 +2,7 @@
 
 **MUX（MCP Multiplexer）** 是一个跨 AI 编码 agent 统一管理 **MCP（Model Context Protocol）服务器** 的工具。
 
-![MUX v1.1.6 桌面 App 界面总览](/img/registry-overview-current.jpg)
+![MUX 桌面 App 界面总览](/img/registry-overview-current.jpg)
 
 > 上图各区域详解见 [桌面 App 图文教程](/guide/desktop#界面总览)。
 
@@ -11,7 +11,7 @@
 如果你同时用多个 AI 编码工具（Claude Code、Cursor、VS Code、Codex、Zed……），每个工具都有自己的一份 MCP 配置文件，格式、路径、字段各不相同。给它们都配上同一个 MCP（比如 `filesystem`、`github`、`context7`），你得：
 
 - 找到每个工具的配置文件路径；
-- 用它各自的格式（JSON / TOML）、各自的键名（`mcpServers` / `servers` / `mcp_servers` / `context_servers` / `mcp`）写一遍；
+- 用它各自的格式（JSON / TOML / YAML）、各自的键名和 map/list 布局写一遍；
 - 想改一个 server 的参数，又得挨个改回去。
 
 MUX 把这些 MCP 收进 **一个目录（Registry）**，让你从一个地方，把任意 MCP **安装 / 开关 / 编辑 / 删除** 到任意 agent —— 每个 agent 该用什么格式、写到哪个文件，MUX 替你处理。

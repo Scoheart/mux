@@ -1,8 +1,17 @@
-import { ReactNode, useEffect, useState } from "react";
+import { ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { getVersion } from "@tauri-apps/api/app";
 import type { AgentInfo, View } from "../lib/types";
-import { DownloadIcon, RefreshIcon, PackageIcon, PlusIcon, SunIcon, MoonIcon } from "./icons";
-import { AgentGlyph, agentName } from "./brandIcons";
+import {
+  ChevronDownIcon,
+  DownloadIcon,
+  RefreshIcon,
+  PackageIcon,
+  PlusIcon,
+  SearchIcon,
+  SunIcon,
+  MoonIcon,
+} from "./icons";
+import { AgentGlyph } from "./brandIcons";
 import { applyTheme, getInitialTheme, type Theme } from "../lib/theme";
 import { useToast } from "./Toast";
 import type { UpdaterState } from "../hooks/useUpdater";
@@ -31,11 +40,53 @@ export function Layout({
   const [rescanning, setRescanning] = useState(false);
   const [theme, setTheme] = useState<Theme>(getInitialTheme);
   const [version, setVersion] = useState("");
+  const [agentPickerOpen, setAgentPickerOpen] = useState(false);
+  const [agentQuery, setAgentQuery] = useState("");
+  const [agentFilter, setAgentFilter] = useState<"writable" | "catalog">("writable");
+  const agentPickerRef = useRef<HTMLDivElement>(null);
   const toast = useToast();
+
+  const selectedAgent =
+    view.kind === "agent" ? agents.find((agent) => agent.id === view.id) ?? null : null;
+  const writableCount = agents.filter((agent) => agent.has_global).length;
+  const catalogCount = agents.length - writableCount;
+  const visibleAgents = useMemo(() => {
+    const query = agentQuery.trim().toLocaleLowerCase();
+    return agents
+      .filter((agent) => (agentFilter === "writable" ? agent.has_global : !agent.has_global))
+      .filter((agent) => {
+        if (!query) return true;
+        return [agent.name, agent.id, agent.category]
+          .join(" ")
+          .toLocaleLowerCase()
+          .includes(query);
+      })
+      .sort((left, right) =>
+        left.name.localeCompare(right.name, undefined, { sensitivity: "base" })
+      );
+  }, [agentFilter, agentQuery, agents]);
 
   useEffect(() => {
     getVersion().then(setVersion).catch(() => {});
   }, []);
+
+  useEffect(() => {
+    if (!agentPickerOpen) return;
+    const closeOutside = (event: PointerEvent) => {
+      if (!agentPickerRef.current?.contains(event.target as Node)) {
+        setAgentPickerOpen(false);
+      }
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setAgentPickerOpen(false);
+    };
+    document.addEventListener("pointerdown", closeOutside);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeOutside);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [agentPickerOpen]);
 
   const checkingUpdate = updater?.phase.kind === "checking";
   const handleCheckUpdate = async () => {
@@ -74,12 +125,14 @@ export function Layout({
           backdropFilter: "blur(var(--glass-blur)) saturate(var(--glass-saturate))",
           WebkitBackdropFilter: "blur(var(--glass-blur)) saturate(var(--glass-saturate))",
           boxShadow: "var(--glass-highlight)",
+          position: "relative",
+          zIndex: 100,
         }}
       >
         {/* MUX wordmark */}
         <span
           className="text-[22px] font-bold bg-gradient-to-r from-brand-gold via-brand-coral to-brand-magenta bg-clip-text select-none flex-shrink-0"
-          style={{ WebkitTextFillColor: "transparent", letterSpacing: "-0.02em" }}
+          style={{ WebkitTextFillColor: "transparent", letterSpacing: 0 }}
         >
           MUX
         </span>
@@ -98,39 +151,94 @@ export function Layout({
           </button>
         </div>
 
-        {/* Spacer — pushes the agent group to the right */}
+        {/* Spacer — pushes Agent navigation to the right */}
         <div className="flex-1" />
 
-        {/* Agent brand-icon group: a fixed-width, horizontally-scrollable strip so
-            it stays compact no matter how many agents there are (scroll for the rest). */}
-        <div className="min-w-0 overflow-x-auto mux-noscroll max-w-[460px]">
-          <div className="mux-seg" style={{ width: "max-content" }}>
-            {agents.map((a) => {
-              const active = view.kind === "agent" && view.id === a.id;
-              const warn = !a.has_global;
-              return (
+        <div ref={agentPickerRef} className="relative flex-shrink-0">
+          <button
+            type="button"
+            className="mux-agent-picker-trigger"
+            data-active={selectedAgent ? "true" : undefined}
+            aria-haspopup="dialog"
+            aria-expanded={agentPickerOpen}
+            onClick={() => {
+              setAgentPickerOpen((open) => !open);
+              setAgentQuery("");
+              setAgentFilter(selectedAgent && !selectedAgent.has_global ? "catalog" : "writable");
+            }}
+          >
+            {selectedAgent ? (
+              <AgentGlyph id={selectedAgent.id} name={selectedAgent.name} size={24} />
+            ) : (
+              <PackageIcon className="w-4 h-4" />
+            )}
+            <span className="truncate">{selectedAgent?.name ?? "Agents"}</span>
+            {!selectedAgent && <span className="mux-agent-picker-count">{agents.length}</span>}
+            <ChevronDownIcon className="w-3.5 h-3.5 flex-shrink-0" />
+          </button>
+
+          {agentPickerOpen && (
+            <div className="mux-agent-picker" role="dialog" aria-label="选择 Agent">
+              <div className="mux-agent-picker-search">
+                <SearchIcon className="w-4 h-4 flex-shrink-0" />
+                <input
+                  autoFocus
+                  value={agentQuery}
+                  onChange={(event) => setAgentQuery(event.target.value)}
+                  placeholder="搜索 Agent"
+                  aria-label="搜索 Agent"
+                />
+              </div>
+              <div className="mux-agent-picker-tabs">
                 <button
-                  key={a.id}
-                  className="mux-agent-btn relative"
-                  data-active={active ? "true" : undefined}
-                  title={`${agentName(a.id)}${warn ? "（无配置路径）" : ""}`}
-                  onClick={() => onSelectAgent(a.id)}
+                  type="button"
+                  data-active={agentFilter === "writable" ? "true" : undefined}
+                  onClick={() => setAgentFilter("writable")}
                 >
-                  <AgentGlyph id={a.id} size={26} />
-                  {warn && (
-                    <span
-                      className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full"
-                      style={{ background: "#FF9500", border: "1.5px solid var(--surface-sidebar)" }}
-                    />
-                  )}
+                  可配置 <span>{writableCount}</span>
                 </button>
-              );
-            })}
-          </div>
+                <button
+                  type="button"
+                  data-active={agentFilter === "catalog" ? "true" : undefined}
+                  onClick={() => setAgentFilter("catalog")}
+                >
+                  客户端目录 <span>{catalogCount}</span>
+                </button>
+              </div>
+              <div className="mux-agent-picker-list" role="listbox">
+                {visibleAgents.length === 0 ? (
+                  <div className="mux-agent-picker-empty">未找到匹配项</div>
+                ) : (
+                  visibleAgents.map((agent) => (
+                    <button
+                      type="button"
+                      role="option"
+                      aria-selected={selectedAgent?.id === agent.id}
+                      key={agent.id}
+                      className="mux-agent-picker-row"
+                      data-active={selectedAgent?.id === agent.id ? "true" : undefined}
+                      onClick={() => {
+                        onSelectAgent(agent.id);
+                        setAgentPickerOpen(false);
+                      }}
+                    >
+                      <AgentGlyph id={agent.id} name={agent.name} size={30} />
+                      <span className="min-w-0 flex-1">
+                        <span className="mux-agent-picker-name">{agent.name}</span>
+                        <span className="mux-agent-picker-meta">
+                          {agent.has_global
+                            ? `${agent.format.toUpperCase()} · ${agent.id}`
+                            : `目录 · ${agent.id}`}
+                        </span>
+                      </span>
+                    </button>
+                  ))
+                )}
+              </div>
+            </div>
+          )}
         </div>
 
-        {/* Add an agent beside the agent strip so the action reads as part of
-            that collection, rather than as a global toolbar command. */}
         {onAddAgent && (
           <button
             type="button"

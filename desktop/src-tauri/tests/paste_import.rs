@@ -1,4 +1,4 @@
-// Pasting a config blob (e.g. a `mcpServers` JSON object) adds its servers to the
+// Pasting a config blob (e.g. a `mcpServers` JSON/YAML object) adds its servers to the
 // managed "manual" source.
 use desktop_lib::commands::{import_pasted_config, list_registry};
 
@@ -44,7 +44,28 @@ fn paste_import_recognizes_and_adds_manual_entries() {
     assert_eq!(added, vec!["git".to_string()]);
     assert!(list_registry().iter().any(|e| e.name == "git"));
 
-    // 3) Junk / no servers → error.
+    // 3) YAML maps use the same safe import path.
+    let added = import_pasted_config(
+        r#"mcpServers:
+  docs:
+    url: https://example.com/mcp
+    headers:
+      Authorization: Bearer test
+"#
+        .into(),
+    )
+    .unwrap();
+    assert_eq!(added, vec!["docs".to_string()]);
+    let docs = list_registry()
+        .into_iter()
+        .find(|entry| entry.name == "docs")
+        .expect("YAML entry present");
+    assert_eq!(
+        docs.config.http.unwrap().headers.unwrap()["Authorization"],
+        "Bearer test"
+    );
+
+    // 4) Junk / no servers → error.
     assert!(import_pasted_config("hello world".into()).is_err());
     assert!(import_pasted_config(r#"{"foo":123}"#.into()).is_err());
     assert!(import_pasted_config("".into()).is_err());

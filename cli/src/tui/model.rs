@@ -210,12 +210,14 @@ pub struct LocalForm {
 
 pub const AGENT_FIELDS: usize = 4;
 
-/// Create/edit an agent definition. Field 1 (format) toggles json↔toml; the id
+/// Create/edit an agent definition. Field 1 cycles json/toml/yaml; the id
 /// is locked when editing. Navigate-vs-edit like the catalog editor.
 pub struct AgentForm {
     pub is_edit: bool,
+    pub schema_locked: bool,
+    pub enabled: bool,
     pub id: String,
-    pub format_toml: bool,
+    pub format: String,
     pub key: String,
     pub global: String,
     /// Retained when editing an older definition; not exposed in the form.
@@ -229,8 +231,10 @@ impl AgentForm {
     pub fn new_agent() -> Self {
         Self {
             is_edit: false,
+            schema_locked: false,
+            enabled: true,
             id: String::new(),
-            format_toml: false,
+            format: "json".into(),
             key: "mcpServers".into(),
             global: String::new(),
             legacy_project: None,
@@ -243,8 +247,10 @@ impl AgentForm {
     pub fn from_agent(a: &AgentInfo) -> Self {
         Self {
             is_edit: true,
+            schema_locked: a.builtin,
+            enabled: a.enabled,
             id: a.id.clone(),
-            format_toml: a.format == "toml",
+            format: a.format.clone(),
             key: a.key.clone(),
             global: a.global.clone().unwrap_or_default(),
             legacy_project: a.project.clone(),
@@ -261,7 +267,7 @@ impl AgentForm {
     pub fn value(&self, i: usize) -> String {
         match i {
             0 => self.id.clone(),
-            1 => if self.format_toml { "toml" } else { "json" }.into(),
+            1 => self.format.clone(),
             2 => self.key.clone(),
             3 => self.global.clone(),
             _ => String::new(),
@@ -275,7 +281,7 @@ impl AgentForm {
     pub fn field_mut(&mut self, i: usize) -> Option<&mut String> {
         match i {
             0 if self.id_editable() => Some(&mut self.id),
-            2 => Some(&mut self.key),
+            2 if !self.schema_locked => Some(&mut self.key),
             3 => Some(&mut self.global),
             _ => None, // id (locked) or format (toggle)
         }
@@ -297,14 +303,11 @@ impl AgentForm {
             mux_core::types::AgentDefinition {
                 global: opt(&self.global),
                 project: self.legacy_project.clone(),
-                format: if self.format_toml {
-                    "toml".into()
-                } else {
-                    "json".into()
-                },
+                format: self.format.clone(),
                 key: self.key.trim().to_string(),
-                enabled: true,
-                builtin: None,
+                enabled: self.enabled,
+                builtin: Some(self.schema_locked),
+                ..Default::default()
             },
         )
     }

@@ -10,7 +10,7 @@ MUX ships as **two front-ends that share the same data** (`~/.mux/`):
 - ⌨️ a **CLI + TUI** (`mux`, a native Rust binary) — an interactive terminal UI
   plus scriptable subcommands.
 
-Point either one at your tools — Claude Code, Codex, Cursor, VS Code, Zed, Windsurf, Gemini CLI, Qoder, and ~10 more — and install, toggle, or remove MCP servers per agent from one catalog.
+Point either one at your tools — Claude Code, Codex, Cursor, VS Code, Zed, Windsurf, Gemini CLI, Qoder, and many more — and install, toggle, or remove MCP servers per agent from one catalog.
 
 ---
 
@@ -38,11 +38,13 @@ A one-click **Mux 精选 (curated collection)** subscribes you to a curated set.
 - **CLI ⇄ Desktop in sync** — both are built on one shared Rust core (`mux-core`) and read/write `~/.mux/`, so a change in one shows up in the other.
 - **Dark mode** and a macOS "liquid glass" UI.
 
-## Supported agents (21)
+## Supported agents
 
-Claude Code · Claude Desktop · Cursor · VS Code · Codex · Zed · Windsurf · Roo Code · Gemini CLI · Qoder · Devin · Kiro · Junie · Amazon Q · OpenCode · Copilot CLI · Cline · Continue · Warp · Pi · QoderWork
+MUX exposes **191 distinct MCP clients** in a searchable catalog. Of those, **39 are deeply audited definitions** and **37 have verified, writable global config targets** with native JSON, TOML, or YAML schemas. The remaining clients are discovery-only until a stable user-level file contract is verified; MUX never guesses a path or writes a generic schema into them.
 
-Eighteen built-ins have verified global config targets. Claude Desktop's local file accepts stdio only; remote Claude MCPs are account Connectors. Devin, Continue, and QoderWork stay unavailable by default because no stable user-level config file is documented for the global-only workflow. Every path/format remains editable in the app; paths inside the home directory are normalized to the portable `~/…` form.
+Audited targets include Claude Code/Desktop, Codex, Cursor, VS Code, Zed, Windsurf, Gemini CLI, Google Antigravity, Amazon Q, OpenCode, Copilot CLI, Cline, Continue, Goose, Hermes, Kimi Code, Qwen Code, Mistral Vibe, Rovo Dev, Tabnine, LM Studio, and others. Claude Desktop and BoltAI local files accept stdio only. Pi is explicitly labeled as a community `pi-mcp-adapter` target because Pi core does not ship MCP support. Devin and QoderWork remain read-only because no stable user-level global config file is documented.
+
+See the [complete audited matrix](website/guide/agents.md) and [catalog methodology](docs/agent-catalog.md). Every writable target's global path remains editable; paths inside the home directory are normalized to the portable `~/…` form.
 
 ---
 
@@ -121,7 +123,7 @@ A Cargo workspace plus the Tauri desktop app:
 core/           # mux-core — the shared Rust core (types, settings, sources, adapters, ops)
 cli/            # mux-cli  — the clap-based `mux` binary, built on mux-core
 desktop/        # Tauri v2 (Rust, depends on mux-core) + React 19 + Vite + Tailwind v4
-data/           # shared agent defaults + the curated collection (embedded on both sides)
+data/           # audited agent definitions + discovery catalog + curated MCP collection
 ```
 
 The desktop app is a separate build (`exclude`d from the workspace) so its Tauri bundle output path stays put.
@@ -130,6 +132,7 @@ The desktop app is a separate build (`exclude`d from the workspace) so its Tauri
 cargo test                            # mux-core + mux-cli
 cd desktop/src-tauri && cargo test    # Rust core + integration tests (desktop)
 cd desktop && npm run build           # desktop frontend (tsc + vite)
+node scripts/update-agent-catalog.mjs # refresh the public client discovery catalog
 ```
 
 ## License

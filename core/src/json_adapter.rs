@@ -1,5 +1,5 @@
 use crate::adapter::Adapter;
-use crate::codec::Codec;
+use crate::codec::{Codec, ObjectPatch};
 use crate::safe_write::{write_if_unchanged, write_if_unchanged_with_settings_lock};
 use crate::types::McpConfig;
 use jsonc_parser::cst::{CstInputValue, CstNode, CstObject, CstRootNode};
@@ -13,6 +13,7 @@ use std::path::Path;
 pub struct JsonAdapter {
     pub key: String,
     codec: Codec,
+    root_defaults: BTreeMap<String, Value>,
 }
 
 impl JsonAdapter {
@@ -21,9 +22,14 @@ impl JsonAdapter {
     }
 
     pub fn with_codec(key: &str, codec: Codec) -> Self {
+        Self::with_spec(key, codec, BTreeMap::new())
+    }
+
+    pub fn with_spec(key: &str, codec: Codec, root_defaults: BTreeMap<String, Value>) -> Self {
         Self {
             key: key.to_string(),
             codec,
+            root_defaults,
         }
     }
 
@@ -154,6 +160,53 @@ impl JsonAdapter {
         }
         Ok(())
     }
+
+    fn patch_nested_object(
+        target: &CstObject,
+        patch: ObjectPatch,
+        path: &Path,
+        context: &str,
+    ) -> Result<(), String> {
+        Self::ensure_unique_property(target, patch.parent, path, context)?;
+        if target.get(patch.parent).is_none() && patch.fields.is_empty() {
+            return Ok(());
+        }
+        let nested = target.object_value_or_create(patch.parent).ok_or_else(|| {
+            format!(
+                "refusing to modify {}: '{}.{}' is not an object",
+                path.display(),
+                context,
+                patch.parent
+            )
+        })?;
+        Self::ensure_unique_keys(&nested, path, &format!("{}.{}", context, patch.parent))?;
+        for field in patch.controlled {
+            if let Some((_, value)) = patch.fields.iter().find(|(name, _)| name == field) {
+                if let Some(property) = nested.get(field) {
+                    property.set_value(Self::input_value(value.clone()));
+                } else {
+                    nested.append(field, Self::input_value(value.clone()));
+                }
+            } else if let Some(property) = nested.get(field) {
+                property.remove();
+            }
+        }
+        Ok(())
+    }
+
+    fn new_entry_value(mut patch: crate::codec::EntryPatch) -> Value {
+        patch.fields.extend(patch.defaults);
+        let mut fields: serde_json::Map<String, Value> = patch.fields.into_iter().collect();
+        for nested in patch.object_patches {
+            if !nested.fields.is_empty() {
+                fields.insert(
+                    nested.parent.into(),
+                    Value::Object(nested.fields.into_iter().collect()),
+                );
+            }
+        }
+        Value::Object(fields)
+    }
 }
 
 impl Adapter for JsonAdapter {
@@ -188,6 +241,13 @@ impl Adapter for JsonAdapter {
                 path.display()
             )
         })?;
+        if original.is_none() {
+            for (field, value) in &self.root_defaults {
+                if object.get(field).is_none() {
+                    object.append(field, Self::input_value(value.clone()));
+                }
+            }
+        }
         Self::ensure_unique_property(&object, &self.key, path, "$root")?;
         let section = object.object_value_or_create(&self.key).ok_or_else(|| {
             format!(
@@ -229,18 +289,21 @@ impl Adapter for JsonAdapter {
                     property.remove();
                 }
             }
+            for nested in patch.object_patches {
+                Self::patch_nested_object(
+                    &target,
+                    nested,
+                    path,
+                    &format!("{}.{}", self.key, name),
+                )?;
+            }
             for (field, value) in patch.defaults {
                 if target.get(&field).is_none() {
                     target.append(&field, Self::input_value(value));
                 }
             }
         } else {
-            let mut fields = patch.fields;
-            fields.extend(patch.defaults);
-            section.append(
-                name,
-                Self::input_value(Value::Object(fields.into_iter().collect())),
-            );
+            section.append(name, Self::input_value(Self::new_entry_value(patch)));
         }
         self.write_document(path, &root, original.as_deref())
     }

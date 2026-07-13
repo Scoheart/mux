@@ -1,65 +1,92 @@
 # 支持的 Agent
 
-MUX 内置 **21 个** AI 编码 Agent 定义，其中 **18 个**有经过核对的全局配置目标。不同产品不只配置文件路径和顶层键不同，单个 MCP 条目的字段也可能不同；MUX 会先转成统一模型，再按目标 Agent 的官方格式写回。
+MUX 的 Agent 数据分为两层：
 
-## 内置列表
+- **可配置目标**：39 个逐项核验的产品定义，其中 37 个有稳定的用户级全局配置文件，可由 MUX 安全读写。
+- **客户端目录**：来自公开 MCP 客户端目录与官方客户端矩阵，只用于发现。和可配置目标去重后，界面共可搜索 **191 个**客户端。
 
-| Agent | 格式 | 配置键 | 全局配置路径 |
-|---|---|---|---|
-| **Claude Code** | JSON | `mcpServers` | `~/.claude.json` |
-| **Claude Desktop** | JSON | `mcpServers` | `~/Library/Application Support/Claude/claude_desktop_config.json` |
-| **Cursor** | JSON | `mcpServers` | `~/.cursor/mcp.json` |
-| **VS Code** | JSON | `servers` | `~/Library/Application Support/Code/User/mcp.json` |
-| **Codex** | TOML | `mcp_servers` | `~/.codex/config.toml` |
-| **Zed** | JSON | `context_servers` | `~/.config/zed/settings.json` |
-| **Windsurf** | JSON | `mcpServers` | `~/.codeium/windsurf/mcp_config.json` |
-| **Roo Code** | JSON | `mcpServers` | `~/Library/…/rooveterinaryinc.roo-cline/settings/mcp_settings.json` |
-| **Gemini CLI** | JSON | `mcpServers` | `~/.gemini/settings.json` |
-| **Qoder** | JSON | `mcpServers` | `~/.qoder/settings.json` |
-| **Devin** | JSON | `mcpServers` | （无默认路径，需自行配置） |
-| **Kiro** | JSON | `mcpServers` | `~/.kiro/settings/mcp.json` |
-| **Junie** | JSON | `mcpServers` | `~/.junie/mcp/mcp.json` |
-| **Amazon Q** | JSON | `mcpServers` | `~/.aws/amazonq/default.json` |
-| **OpenCode** | JSON | `mcp` | `~/.config/opencode/opencode.json` |
-| **Copilot CLI** | JSON | `mcpServers` | `~/.copilot/mcp-config.json` |
-| **Cline** | JSON | `mcpServers` | `~/.cline/data/settings/cline_mcp_settings.json` |
-| **Continue** | JSON | `mcpServers` | （当前官方方案是工作区 `.continue/mcpServers/`，不作为全局目标） |
-| **Warp** | JSON | `mcpServers` | `~/.warp/.mcp.json` |
-| **Pi** | JSON | `mcpServers` | `~/.pi/agent/mcp.json` |
-| **QoderWork** <img src="/img/agent-qoderwork.png" width="18" style="vertical-align:-4px" /> | JSON | `mcpServers` | （未发现公开、稳定的用户级配置文件接口） |
+没有确认全局文件路径、顶层键和条目结构的客户端只展示来源，不允许写入。这样可以持续扩大覆盖面，又不会把通用 JSON 猜测写进未知产品配置。
 
-除 **Claude Desktop** 外，上述可写目标均支持 stdio 与远程 HTTP。`claude_desktop_config.json` 是 Claude Desktop 的本地 MCP 配置，只支持 stdio；远程 MCP 应在 Claude 中作为 Connector 添加，因此 MUX 不会向该文件写入 HTTP 条目。Amazon Q 此处指当前 IDE 共享配置 `default.json`，旧版 `mcp.json` 路径会自动迁移。
+## 已核验列表
 
-## 配置路径可编辑
+以下结果于 **2026-07-14** 逐项对照官方文档或官方源码，并对全部文档链接做了在线可达性检查。
 
-上面是**默认**路径。每个 Agent 的路径都能在 App / TUI 里改（比如你的 VS Code 装在非标准位置）。没有默认路径的 Agent 不会被安装、扫描或清理，除非用户明确配置路径。位于用户主目录内的路径会折叠成 `~/…`；主目录之外的自定义绝对路径会按原值保存。
+| Agent | 格式 | 配置键 | 用户级全局路径 | 原生传输 |
+|---|---|---|---|---|
+| [Amp](https://ampcode.com/manual#model-context-protocol-mcp) | JSON | `amp.mcpServers` | `~/.config/amp/settings.json` | stdio / http |
+| [Amazon Q Developer](https://docs.aws.amazon.com/amazonq/latest/qdeveloper-ug/command-line-mcp-configuration.html) | JSON | `mcpServers` | `~/.aws/amazonq/default.json` | stdio / http |
+| [Google Antigravity](https://antigravity.google/docs/mcp) | JSON | `mcpServers` | `~/.gemini/config/mcp_config.json` | stdio / http |
+| [Augment Code](https://docs.augmentcode.com/cli/integrations) | JSON | `mcpServers` | `~/.augment/settings.json` | stdio / http |
+| [BoltAI](https://docs.boltai.com/docs/plugins/mcp-servers) | JSON | `mcpServers` | `~/.boltai/mcp.json` | stdio |
+| [Claude Code](https://docs.anthropic.com/en/docs/claude-code/mcp) | JSON | `mcpServers` | `~/.claude.json` | stdio / http |
+| [Claude Desktop](https://modelcontextprotocol.io/quickstart/user) | JSON | `mcpServers` | `~/Library/Application Support/Claude/claude_desktop_config.json` | stdio |
+| [Cline](https://docs.cline.bot/mcp/configuring-mcp-servers) | JSON | `mcpServers` | `~/.cline/data/settings/cline_mcp_settings.json` | stdio / http |
+| [CodeBuddy Code](https://www.codebuddy.ai/docs/cli/mcp) | JSON | `mcpServers` | `~/.codebuddy/.mcp.json` | stdio / http |
+| [Codex](https://developers.openai.com/codex/mcp) | TOML | `mcp_servers` | `~/.codex/config.toml` | stdio / http |
+| [Continue](https://docs.continue.dev/customize/deep-dives/mcp) | YAML | `mcpServers` | `~/.continue/config.yaml` | stdio / http |
+| [GitHub Copilot CLI](https://docs.github.com/en/copilot/how-tos/use-copilot-agents/coding-agent/extend-coding-agent-with-mcp) | JSON | `mcpServers` | `~/.copilot/mcp-config.json` | stdio / http |
+| [Crush](https://github.com/charmbracelet/crush#model-context-protocol-mcp) | JSON | `mcp` | `~/.config/crush/crush.json` | stdio / http |
+| [Cursor](https://docs.cursor.com/context/model-context-protocol) | JSON | `mcpServers` | `~/.cursor/mcp.json` | stdio / http |
+| [Devin](https://docs.devin.ai/work-with-devin/mcp) | - | - | 只读目录 | - |
+| [Factory Droid](https://docs.factory.ai/cli/configuration/mcp) | JSON | `mcpServers` | `~/.factory/mcp.json` | stdio / http |
+| [Firebender](https://docs.firebender.com/context/mcp/overview) | JSON | `mcpServers` | `~/.firebender/firebender.json` | stdio / http |
+| [Gemini CLI](https://geminicli.com/docs/tools/mcp-server/) | JSON | `mcpServers` | `~/.gemini/settings.json` | stdio / http |
+| [Goose](https://goose-docs.ai/docs/guides/config-files/) | YAML | `extensions` | `~/Library/Application Support/Block/goose/config/config.yaml` | stdio / http |
+| [Hermes Agent](https://github.com/NousResearch/hermes-agent/blob/main/website/docs/user-guide/features/mcp.md) | YAML | `mcp_servers` | `~/.hermes/config.yaml` | stdio / http |
+| [JetBrains Junie](https://www.jetbrains.com/help/junie/model-context-protocol-mcp.html) | JSON | `mcpServers` | `~/.junie/mcp/mcp.json` | stdio / http |
+| [Kilo Code CLI](https://kilo.ai/docs/automate/mcp/using-in-kilo-code) | JSON | `mcp` | `~/.config/kilo/kilo.jsonc` | stdio / http |
+| [Kimi Code CLI](https://moonshotai.github.io/kimi-code/en/customization/mcp) | JSON | `mcpServers` | `~/.kimi-code/mcp.json` | stdio / http |
+| [Kiro](https://kiro.dev/docs/mcp/configuration/) | JSON | `mcpServers` | `~/.kiro/settings/mcp.json` | stdio / http |
+| [LM Studio](https://lmstudio.ai/docs/app/plugins/mcp) | JSON | `mcpServers` | `~/.lmstudio/mcp.json` | stdio / http |
+| [Mistral Vibe](https://docs.mistral.ai/vibe/code/cli/mcp-servers) | TOML | `mcp_servers` | `~/.vibe/config.toml` | stdio / http |
+| [OpenCode](https://opencode.ai/docs/mcp-servers/) | JSON | `mcp` | `~/.config/opencode/opencode.json` | stdio / http |
+| [OpenHands CLI](https://docs.openhands.dev/openhands/usage/cli/mcp-servers) | JSON | `mcpServers` | `~/.openhands/mcp.json` | stdio / http |
+| [Pi Coding Agent (MCP Adapter)](https://github.com/nicobailon/pi-mcp-adapter) | JSON | `mcpServers` | `~/.pi/agent/mcp.json` | stdio / http |
+| [Qoder](https://docs.qoder.com/user-guide/chat/model-context-protocol) | JSON | `mcpServers` | `~/.qoder/settings.json` | stdio / http |
+| [QoderWork](https://qoder.com/qoderwork) | - | - | 只读目录 | - |
+| [Qwen Code](https://qwenlm.github.io/qwen-code-docs/en/users/features/mcp/) | JSON | `mcpServers` | `~/.qwen/settings.json` | stdio / http |
+| [Roo Code](https://docs.roocode.com/features/mcp/using-mcp-in-roo) | JSON | `mcpServers` | `~/Library/Application Support/Code/User/globalStorage/rooveterinaryinc.roo-cline/settings/mcp_settings.json` | stdio / http |
+| [Atlassian Rovo Dev CLI](https://support.atlassian.com/rovo/docs/connect-to-an-mcp-server-in-rovo-dev-cli/) | JSON | `mcpServers` | `~/.rovodev/mcp.json` | stdio / http |
+| [Tabnine](https://docs.tabnine.com/main/getting-started/tabnine-agent/mcp-intro-and-setup) | JSON | `mcpServers` | `~/.tabnine/mcp_servers.json` | stdio / http |
+| [Visual Studio Code](https://code.visualstudio.com/docs/copilot/chat/mcp-servers) | JSON | `servers` | `~/Library/Application Support/Code/User/mcp.json` | stdio / http |
+| [Warp](https://docs.warp.dev/knowledge-and-collaboration/mcp) | JSON | `mcpServers` | `~/.warp/.mcp.json` | stdio / http |
+| [Windsurf](https://docs.windsurf.com/windsurf/cascade/mcp) | JSON | `mcpServers` | `~/.codeium/windsurf/mcp_config.json` | stdio / http |
+| [Zed](https://zed.dev/docs/ai/mcp) | JSON | `context_servers` | `~/.config/zed/settings.json` | stdio / http |
 
-## 新增自定义 agent
+### 需要特别区分的目标
 
-内置 21 个不够用？可以新增自定义 Agent：给它起名、指定全局配置文件路径、选格式（JSON / TOML）和配置键名。自定义 Agent 使用标准 MCP 条目格式；像 OpenCode 的 `command` 数组、Gemini 的 `httpUrl` 这类专属字段转换只由对应的内置适配器处理。MUX 当前只管理 Agent 的全局配置；桌面命令契约也固定写全局路径，旧调用方即使附带项目参数也不会写入项目文件。
+- **Pi**：Pi 核心不内置 MCP。MUX 的定义只适用于已安装社区 `pi-mcp-adapter` 的环境，因此界面明确标为社区扩展。
+- **Devin / QoderWork**：产品支持 MCP，但没有核验到稳定的用户级全局文件契约，只能查看来源，不能写入。
+- **Claude Desktop / BoltAI**：列出的本地文件只原生支持 stdio。远程 MCP 分别由 Claude Connectors 或 BoltAI 的 `mcp-remote` 方案管理。
+- **Goose**：通用文档示例使用 `~/.config/goose/config.yaml`，当前 macOS 源码实际采用 `~/Library/Application Support/Block/goose/config/config.yaml`；MUX 按运行时代码定位。
 
-- **桌面 App**：顶部 Agent 图标条右侧点虚线 `+`。
-- **TUI**：Agents 屏幕按 `n`。
+## 不同 Agent 的格式差异
 
-## 适配器如何工作
+MUX 不把所有客户端都当成同一种 `mcpServers` JSON：
 
-MUX 的读写分成两层：`Adapter` 只定位并修改指定 MCP 条目，Agent 专属 `Codec` 负责字段映射。例如 OpenCode 使用 `type: local/remote` 与命令数组，Codex 的远程请求头是 `http_headers`，Gemini 区分 `httpUrl` 与 SSE `url`，Windsurf 使用 `serverUrl`，Cline 的当前共享配置把连接参数放在 `transport` 子对象中，Warp 使用 `working_directory` 并让远程条目通过 `url` 推断传输。Claude Code、Amazon Q、Qoder 等写显式传输类型（Qoder 还保留 `ws`）；Zed、Kiro、Junie、Pi 等按 `command` / `url` 推断传输，不会被强行塞入另一套字段。
+- OpenCode / Kilo 使用 `type: local|remote`，本地 `command` 是数组。
+- Codex 使用 TOML 表和 `http_headers`；Mistral Vibe 使用 `[[mcp_servers]]` TOML 列表。
+- Continue 使用 YAML 列表并要求根级 `name`、`version`、`schema`；Goose 和 Hermes 也使用各自的 YAML map。
+- Gemini / Qwen 使用 `httpUrl`；Windsurf 和 Antigravity 使用 `serverUrl`。
+- Cline 把连接字段放在 `transport` 子对象；Tabnine 把 HTTP 头放在 `requestInit.headers`。
+- Rovo、Amazon Q、Augment、OpenHands 等要求显式传输类型；Kimi / Hermes 只在旧 SSE 时写 `transport: sse`。
 
-更新已有条目时，MUX 只接管连接字段（命令、参数、环境变量、工作目录、URL、请求头和传输类型）；`enabled`、`timeout`、OAuth、工具白名单、审批策略等 Agent 专属字段原样保留。其它顶层键、其它 server、注释、缩进和键顺序也不会因一次条目更新被整体重写。遇到无效 JSON / TOML、错误的 MCP 节点类型、非对象条目或重复 JSON 键时，MUX 会拒绝写入。
+每个内置目标有独立 codec。升级时，MUX 会更新官方 schema 元数据，但保留用户对启用状态和全局路径的选择。
 
-停用时，MUX 会先把目标 server 的完整语义条目（含 Agent 专属策略字段）持久化到私有权限的 `~/.mux/settings.json`，删除前再确认线上条目仍与快照一致；恢复时若发现同名条目已被用户或 Agent 重建，则拒绝覆盖。注释与原始排版不属于停用快照，但其它条目和 Agent 顶层配置始终不参与快照或重写。
+## 安全写入边界
 
-修改已有文件前，MUX 会先在 `~/.mux/backups/` 创建带 Agent、作用域和时间戳的独立备份；备份失败就拒绝写入。最终内容通过同目录临时文件原子替换，并在替换前再次确认原文件没有被其它进程改动；文件权限与符号链接目标保持不变。Cline 的共享配置还会遵守其跨 IDE / CLI / SDK 的设置锁。
+MUX 会在本机解析 Agent 文件，但只把目标 MCP 条目的结构化连接字段提供给界面。完整配置文件不会进入界面、日志、来源缓存或网络，也不会通过“反序列化整份再重写”的方式覆盖用户配置。
 
-## 核对依据（2026-07-13）
+- JSON / JSONC 使用语法树定位目标条目，保留注释、缩进、键顺序、其它 server 和其它顶层设置。
+- TOML map 与 TOML list 都做局部编辑；YAML map / list 同样保留未受管内容和注释。
+- `enabled`、OAuth、超时、工具白名单、审批策略等 Agent 私有字段原样保留。
+- 无效文档、错误节点类型、重复目标键、YAML 多文档、备份失败或并发修改都会拒绝写入。
+- 写前创建独立时间戳备份（Unix 下目录 `0700`、文件 `0600`），最终通过同目录临时文件原子替换；符号链接目标和原配置文件权限保持不变。
 
-路径与 wire format 以产品官方文档或官方源码为准：
+MUX 当前只管理用户级全局配置，不提供项目级写入。
 
-- Claude：[Claude Code MCP](https://code.claude.com/docs/en/mcp)、[Claude Desktop 本地 MCP](https://modelcontextprotocol.io/docs/develop/connect-local-servers)、[Claude 远程 Connector](https://support.claude.com/en/articles/11175166-get-started-with-custom-connectors-using-remote-mcp)
-- OpenAI / 编辑器：[Codex MCP](https://developers.openai.com/codex/mcp/)、[Cursor MCP](https://docs.cursor.com/context/model-context-protocol)、[VS Code MCP](https://code.visualstudio.com/docs/agent-customization/mcp-servers)、[Zed MCP](https://zed.dev/docs/ai/mcp)
-- Agent CLI：[OpenCode MCP](https://opencode.ai/docs/mcp-servers/)、[Gemini CLI MCP](https://geminicli.com/docs/tools/mcp-server/)、[GitHub Copilot CLI MCP](https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/add-mcp-servers)、[Qoder CLI MCP](https://docs.qoder.com/en/cli/mcp-servers)
-- 其它内置目标：[Windsurf MCP](https://docs.windsurf.com/windsurf/cascade/mcp)、[Roo Code MCP](https://docs.roocode.com/features/mcp/using-mcp-in-roo)、[Kiro MCP](https://kiro.dev/docs/cli/mcp/configuration/)、[Junie MCP](https://junie.jetbrains.com/docs/junie-cli-mcp-configuration.html)、[Amazon Q IDE MCP](https://docs.aws.amazon.com/amazonq/latest/qdeveloper-ug/mcp-ide.html)
-- 源码级核对：[Cline config loader](https://github.com/cline/cline/blob/main/sdk/packages/core/src/extensions/mcp/config-loader.ts)、[Warp 官方 add-mcp-server skill](https://github.com/warpdotdev/warp/blob/master/resources/bundled/skills/add-mcp-server/SKILL.md)、[Pi MCP adapter](https://github.com/nicobailon/pi-mcp-adapter)
-- Continue 当前使用 YAML / block 方案，暂无与 MUX JSON/TOML 单条目写入模型等价的稳定目标，因此默认不可写：[Continue MCP](https://docs.continue.dev/customize/mcp-tools)。Devin 与 QoderWork 也因未发现公开、稳定的用户级写入接口而保持不可写。
+## 自定义 Agent
+
+桌面 App 的 Agent 选择器旁点 `+`，或在 TUI 的 Agents 屏幕按 `n`，可添加 JSON、TOML 或 YAML 的自定义全局目标。自定义目标使用标准 map 布局；只有已核验内置目标会启用产品专属字段转换。内置目标只允许覆盖路径，避免把官方 schema 意外改成不兼容格式。
 
 下一步 → [常见问题](/guide/faq)

@@ -45,6 +45,7 @@ fn editing_registry_auto_syncs_all_installs_including_customized() {
             key: "mcpServers".into(),
             enabled: true,
             builtin: Some(false),
+            ..Default::default()
         },
     )
     .unwrap();

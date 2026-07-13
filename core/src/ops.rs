@@ -1,10 +1,10 @@
 //! Install / uninstall / discovery orchestration, shared by the desktop (Tauri
 //! commands) and the CLI. Tauri-free — plain functions over the core stores.
 
-use crate::adapter::get_agent_adapter;
+use crate::adapter::get_agent_adapter_for;
 use crate::agents::{load_agents, supports_transport};
 use crate::applier::{apply_diffs, remove_snapshot, restore_snapshot, ApplyError};
-use crate::codec::{decode_any, normalize_for_agent, Codec};
+use crate::codec::{decode_any, from_name, normalize_with_codec, Codec};
 use crate::differ::{DiffAction, DiffEntry};
 use crate::disabled::{load_disabled, purge, remember, remove_if_unchanged, DisabledEntry};
 use crate::effective::{base_config, effective_config};
@@ -253,7 +253,7 @@ pub fn clean(only_agent: Option<&str>) -> CleanOutcome {
         if !path.exists() {
             continue;
         }
-        let names: Vec<String> = get_agent_adapter(&def.format, &def.key, agent_id)
+        let names: Vec<String> = get_agent_adapter_for(def, agent_id)
             .read(&path)
             .into_keys()
             .collect();
@@ -381,7 +381,7 @@ fn extract_servers(
     None
 }
 
-/// Parse a pasted config blob (JSON or TOML) and add every MCP server it contains
+/// Parse a pasted config blob (JSON, TOML, or YAML) and add every MCP server it contains
 /// to the managed "manual" source. Returns the names added. Entries that don't fit
 /// the stdio/http shape are skipped; an empty result is an error so the caller can
 /// tell the user nothing was recognized.
@@ -392,11 +392,19 @@ pub fn import_pasted(text: &str) -> Result<Vec<String>, String> {
     }
     let value: serde_json::Value = match serde_json::from_str(text) {
         Ok(v) => v,
-        Err(_) => {
-            let t: toml::Value = toml::from_str(text)
-                .map_err(|e| format!("内容既不是有效的 JSON 也不是 TOML：{}", e))?;
-            serde_json::to_value(t).map_err(|e| e.to_string())?
-        }
+        Err(_) => match toml::from_str::<toml::Value>(text) {
+            Ok(value) => serde_json::to_value(value).map_err(|e| e.to_string())?,
+            Err(toml_error) => {
+                let value: serde_yaml::Value =
+                    serde_yaml::from_str(text).map_err(|yaml_error| {
+                        format!(
+                            "内容不是有效的 JSON、TOML 或 YAML：TOML: {}; YAML: {}",
+                            toml_error, yaml_error
+                        )
+                    })?;
+                serde_json::to_value(value).map_err(|e| e.to_string())?
+            }
+        },
     };
     let (servers, codec) = extract_servers(&value).ok_or(
         "未识别到 MCP 配置：需要包含 mcpServers、mcp、mcp_servers、servers 或 context_servers",
@@ -488,7 +496,18 @@ pub fn scan_installed(project_dir: Option<&str>) -> Vec<InstalledMcp> {
             let key = format!("{}::{}", s.name, transport);
             let customized = base_map
                 .get(&key)
-                .map(|base| normalize_for_agent(&s.agent, base) != s.config)
+                .map(|base| {
+                    agents
+                        .get(&s.agent)
+                        .map(|definition| {
+                            normalize_with_codec(
+                                from_name(definition.codec.as_deref(), &s.agent),
+                                base,
+                            )
+                        })
+                        .unwrap_or_else(|| base.clone())
+                        != s.config
+                })
                 .unwrap_or(false);
             InstalledMcp {
                 name: s.name,
@@ -653,21 +672,20 @@ pub fn disable(
             errors.push(format!("{}: not installed", agent_id));
             continue;
         };
-        let snapshot =
-            match get_agent_adapter(&def.format, &def.key, agent_id).snapshot(&path, server_name) {
-                Ok(Some(snapshot)) => snapshot,
-                Ok(None) => {
-                    errors.push(format!(
-                        "{}: target entry disappeared before snapshot",
-                        agent_id
-                    ));
-                    continue;
-                }
-                Err(error) => {
-                    errors.push(format!("{}: {}", agent_id, error));
-                    continue;
-                }
-            };
+        let snapshot = match get_agent_adapter_for(def, agent_id).snapshot(&path, server_name) {
+            Ok(Some(snapshot)) => snapshot,
+            Ok(None) => {
+                errors.push(format!(
+                    "{}: target entry disappeared before snapshot",
+                    agent_id
+                ));
+                continue;
+            }
+            Err(error) => {
+                errors.push(format!("{}: {}", agent_id, error));
+                continue;
+            }
+        };
         let entry = DisabledEntry {
             name: server_name.to_string(),
             transport: transport.to_string(),

@@ -73,17 +73,26 @@ const AGENT_META: Record<string, { name: string; color: string }> = {
   pi: { name: "Pi", color: "#8B5CF6" },
 };
 
-export function agentName(id: string): string {
-  return AGENT_META[id]?.name ?? id;
+export function agentName(id: string, explicitName?: string): string {
+  return explicitName || AGENT_META[id]?.name || id;
+}
+
+const FALLBACK_COLORS = ["#3568D4", "#16856B", "#B84A62", "#9A6618", "#5E55B8", "#277B91"];
+
+function fallbackColor(id: string): string {
+  let hash = 0;
+  for (const char of id) hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
+  return FALLBACK_COLORS[hash % FALLBACK_COLORS.length];
 }
 
 /**
  * Square brand badge for an agent: the real logo on a white tile when available,
  * otherwise a brand-coloured monogram.
  */
-export function AgentGlyph({ id, size = 26 }: { id: string; size?: number }) {
+export function AgentGlyph({ id, name, size = 26 }: { id: string; name?: string; size?: number }) {
   const logo = LOGOS[id];
   const meta = AGENT_META[id];
+  const displayName = agentName(id, name);
   const radius = Math.round(size * 0.3);
 
   if (logo) {
@@ -92,7 +101,7 @@ export function AgentGlyph({ id, size = 26 }: { id: string; size?: number }) {
       return (
         <img
           src={logo}
-          alt={meta?.name ?? id}
+          alt={displayName}
           draggable={false}
           style={{ width: size, height: size, borderRadius: radius, objectFit: "cover", display: "block" }}
         />
@@ -111,7 +120,7 @@ export function AgentGlyph({ id, size = 26 }: { id: string; size?: number }) {
       >
         <img
           src={logo}
-          alt={meta?.name ?? id}
+          alt={displayName}
           draggable={false}
           style={{ width: Math.round(size * 0.64), height: Math.round(size * 0.64), objectFit: "contain" }}
         />
@@ -119,7 +128,7 @@ export function AgentGlyph({ id, size = 26 }: { id: string; size?: number }) {
     );
   }
 
-  const label = (meta?.name ?? id)[0]?.toUpperCase() ?? "?";
+  const label = displayName[0]?.toUpperCase() ?? "?";
   return (
     <div
       className="flex items-center justify-center text-white font-semibold select-none"
@@ -127,7 +136,7 @@ export function AgentGlyph({ id, size = 26 }: { id: string; size?: number }) {
         width: size,
         height: size,
         borderRadius: radius,
-        background: meta?.color ?? "#8E8E93",
+        background: meta?.color ?? fallbackColor(id),
         fontSize: Math.round(size * 0.5),
       }}
     >

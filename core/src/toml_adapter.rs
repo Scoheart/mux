@@ -1,5 +1,5 @@
 use crate::adapter::Adapter;
-use crate::codec::{Codec, EntryPatch};
+use crate::codec::{Codec, EntryPatch, ObjectPatch};
 use crate::safe_write::write_if_unchanged;
 use crate::types::McpConfig;
 use std::collections::BTreeMap;
@@ -12,6 +12,7 @@ use toml_edit::{Document, Item, Table};
 pub struct TomlAdapter {
     pub key: String,
     codec: Codec,
+    root_defaults: BTreeMap<String, serde_json::Value>,
 }
 
 impl TomlAdapter {
@@ -23,9 +24,18 @@ impl TomlAdapter {
     }
 
     pub fn with_codec(key: &str, codec: Codec) -> Self {
+        Self::with_spec(key, codec, BTreeMap::new())
+    }
+
+    pub fn with_spec(
+        key: &str,
+        codec: Codec,
+        root_defaults: BTreeMap<String, serde_json::Value>,
+    ) -> Self {
         Self {
             key: key.to_string(),
             codec,
+            root_defaults,
         }
     }
 
@@ -70,10 +80,46 @@ impl TomlAdapter {
             .map_err(|e| e.to_string())
     }
 
+    fn materialize_fields(mut patch: EntryPatch) -> Vec<(String, serde_json::Value)> {
+        patch.fields.extend(patch.defaults);
+        for nested in patch.object_patches {
+            if !nested.fields.is_empty() {
+                patch.fields.push((
+                    nested.parent.into(),
+                    serde_json::Value::Object(nested.fields.into_iter().collect()),
+                ));
+            }
+        }
+        patch.fields
+    }
+
     fn insert_new(section: &mut Table, name: &str, patch: EntryPatch) -> Result<(), String> {
-        let mut fields = patch.fields;
-        fields.extend(patch.defaults);
-        section.insert(name, Item::Table(Self::fields_table(fields)?));
+        section.insert(
+            name,
+            Item::Table(Self::fields_table(Self::materialize_fields(patch))?),
+        );
+        Ok(())
+    }
+
+    fn patch_nested_object(target: &mut Table, patch: ObjectPatch) -> Result<(), String> {
+        if !target.contains_key(patch.parent) && patch.fields.is_empty() {
+            return Ok(());
+        }
+        if !target.contains_key(patch.parent) {
+            target.insert(patch.parent, Item::Table(Table::new()));
+        }
+        let nested = target
+            .get_mut(patch.parent)
+            .and_then(Item::as_table_mut)
+            .ok_or_else(|| format!("'{}' is not a TOML table", patch.parent))?;
+        let fields = Self::fields_table(patch.fields)?;
+        for field in patch.controlled {
+            if let Some(value) = fields.get(field).cloned() {
+                nested.insert(field, value);
+            } else {
+                nested.remove(field);
+            }
+        }
         Ok(())
     }
 }
@@ -99,6 +145,19 @@ impl Adapter for TomlAdapter {
 
     fn upsert(&self, path: &Path, name: &str, cfg: &McpConfig) -> Result<(), String> {
         let (mut document, original) = self.read_document(path)?;
+        if original.is_none() && !self.root_defaults.is_empty() {
+            let defaults = Self::fields_table(
+                self.root_defaults
+                    .iter()
+                    .map(|(key, value)| (key.clone(), value.clone()))
+                    .collect(),
+            )?;
+            for (field, value) in defaults.iter() {
+                if !document.as_table().contains_key(field) {
+                    document.as_table_mut().insert(field, value.clone());
+                }
+            }
+        }
         if !document.as_table().contains_key(&self.key) {
             document
                 .as_table_mut()
@@ -138,6 +197,9 @@ impl Adapter for TomlAdapter {
                 if !target.contains_key(field) {
                     target.insert(field, value.clone());
                 }
+            }
+            for nested in patch.object_patches {
+                Self::patch_nested_object(target, nested)?;
             }
         } else {
             Self::insert_new(section, name, patch)?;

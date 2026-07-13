@@ -1,6 +1,6 @@
-use mux_core::adapter::get_agent_adapter;
+use mux_core::adapter::{get_agent_adapter, get_agent_adapter_for};
 use mux_core::agents::builtin_agents;
-use mux_core::codec::normalize_for_agent;
+use mux_core::codec::{from_name, normalize_with_codec};
 use mux_core::types::{HttpConfig, McpConfig, StdioConfig};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -212,7 +212,7 @@ fn every_writable_builtin_roundtrips_through_its_wire_format() {
         .values()
         .filter(|agent| agent.global.is_some())
         .count();
-    assert_eq!(writable, 18);
+    assert_eq!(writable, 37);
 
     for (agent_id, definition) in agents {
         if definition.global.is_none() {
@@ -220,13 +220,20 @@ fn every_writable_builtin_roundtrips_through_its_wire_format() {
         }
         let path = temp_file(
             &format!("matrix-{agent_id}"),
-            if definition.format == "toml" {
-                "toml"
-            } else {
-                "json"
+            match definition.format.as_str() {
+                "toml" => "toml",
+                "yaml" => "yaml",
+                _ => "json",
             },
         );
-        let adapter = get_agent_adapter(&definition.format, &definition.key, &agent_id);
+        let adapter = get_agent_adapter_for(&definition, &agent_id);
+        let codec = from_name(definition.codec.as_deref(), &agent_id);
+        let supports_http = definition
+            .transports
+            .as_deref()
+            .unwrap_or_default()
+            .iter()
+            .any(|transport| transport == "http");
         let local = McpConfig::Stdio(StdioConfig {
             command: "npx".into(),
             args: Some(vec!["-y".into(), "matrix-server".into()]),
@@ -239,30 +246,49 @@ fn every_writable_builtin_roundtrips_through_its_wire_format() {
             .upsert(&path, "local", &local)
             .unwrap_or_else(|error| panic!("{agent_id} failed to write stdio config: {error}"));
         let remote_result = adapter.upsert(&path, "remote", &remote);
-        if agent_id == "claude-desktop" {
-            assert!(
-                remote_result.is_err(),
-                "Claude Desktop must reject remote MCPs"
-            );
+        if !supports_http {
+            assert!(remote_result.is_err(), "{agent_id} must reject remote MCPs");
         } else {
             remote_result
                 .unwrap_or_else(|error| panic!("{agent_id} failed to write HTTP config: {error}"));
         }
         let scanned = adapter.read(&path);
+        let scanned_local = scanned
+            .get("local")
+            .unwrap_or_else(|| panic!("{agent_id} did not scan its stdio entry"));
         assert_eq!(
-            scanned["local"],
-            normalize_for_agent(&agent_id, &local),
+            scanned_local,
+            &normalize_with_codec(codec, &local),
             "{agent_id}"
         );
-        if agent_id == "claude-desktop" {
+        if !supports_http {
             assert!(!scanned.contains_key("remote"));
         } else {
+            let scanned_remote = scanned
+                .get("remote")
+                .unwrap_or_else(|| panic!("{agent_id} did not scan its HTTP entry"));
             assert_eq!(
-                scanned["remote"],
-                normalize_for_agent(&agent_id, &remote),
+                scanned_remote,
+                &normalize_with_codec(codec, &remote),
                 "{agent_id}"
             );
         }
+        let snapshot = adapter
+            .snapshot(&path, "local")
+            .unwrap_or_else(|error| panic!("{agent_id} failed to snapshot: {error}"))
+            .unwrap_or_else(|| panic!("{agent_id} returned no snapshot"));
+        adapter
+            .remove_snapshot(&path, "local", &snapshot)
+            .unwrap_or_else(|error| panic!("{agent_id} failed to remove snapshot: {error}"));
+        assert!(!adapter.read(&path).contains_key("local"), "{agent_id}");
+        adapter
+            .restore(&path, "local", &snapshot)
+            .unwrap_or_else(|error| panic!("{agent_id} failed to restore snapshot: {error}"));
+        assert_eq!(
+            adapter.read(&path).get("local"),
+            Some(&normalize_with_codec(codec, &local)),
+            "{agent_id}"
+        );
         let _ = std::fs::remove_file(path);
     }
 }
@@ -313,152 +339,480 @@ fn warp_remote_uses_url_inference_and_preserves_environment() {
 fn builtin_global_paths_match_current_product_docs() {
     let agents = builtin_agents();
     let expected = [
+        ("amp", "~/.config/amp/settings.json"),
+        ("amazon-q", "~/.aws/amazonq/default.json"),
+        ("antigravity", "~/.gemini/config/mcp_config.json"),
+        ("augment", "~/.augment/settings.json"),
+        ("boltai", "~/.boltai/mcp.json"),
         ("claude-code", "~/.claude.json"),
         (
             "claude-desktop",
             "~/Library/Application Support/Claude/claude_desktop_config.json",
         ),
-        ("cursor", "~/.cursor/mcp.json"),
-        (
-            "vscode",
-            "~/Library/Application Support/Code/User/mcp.json",
-        ),
+        ("cline", "~/.cline/data/settings/cline_mcp_settings.json"),
+        ("codebuddy-code", "~/.codebuddy/.mcp.json"),
         ("codex", "~/.codex/config.toml"),
-        ("zed", "~/.config/zed/settings.json"),
-        ("windsurf", "~/.codeium/windsurf/mcp_config.json"),
+        ("continue", "~/.continue/config.yaml"),
+        ("copilot-cli", "~/.copilot/mcp-config.json"),
+        ("crush", "~/.config/crush/crush.json"),
+        ("cursor", "~/.cursor/mcp.json"),
+        ("factory-droid", "~/.factory/mcp.json"),
+        ("firebender", "~/.firebender/firebender.json"),
+        ("gemini", "~/.gemini/settings.json"),
+        (
+            "goose",
+            "~/Library/Application Support/Block/goose/config/config.yaml",
+        ),
+        ("hermes", "~/.hermes/config.yaml"),
+        ("junie", "~/.junie/mcp/mcp.json"),
+        ("kilo-code", "~/.config/kilo/kilo.jsonc"),
+        ("kimi-code", "~/.kimi-code/mcp.json"),
+        ("kiro", "~/.kiro/settings/mcp.json"),
+        ("lmstudio", "~/.lmstudio/mcp.json"),
+        ("mistral-vibe", "~/.vibe/config.toml"),
+        ("opencode", "~/.config/opencode/opencode.json"),
+        ("openhands", "~/.openhands/mcp.json"),
+        ("pi", "~/.pi/agent/mcp.json"),
+        ("qoder", "~/.qoder/settings.json"),
+        ("qwen-code", "~/.qwen/settings.json"),
         (
             "roo-code",
             "~/Library/Application Support/Code/User/globalStorage/rooveterinaryinc.roo-cline/settings/mcp_settings.json",
         ),
-        ("gemini", "~/.gemini/settings.json"),
-        ("qoder", "~/.qoder/settings.json"),
-        ("kiro", "~/.kiro/settings/mcp.json"),
-        ("junie", "~/.junie/mcp/mcp.json"),
-        ("amazon-q", "~/.aws/amazonq/default.json"),
-        ("opencode", "~/.config/opencode/opencode.json"),
-        ("copilot-cli", "~/.copilot/mcp-config.json"),
-        ("cline", "~/.cline/data/settings/cline_mcp_settings.json"),
+        ("rovo-dev", "~/.rovodev/mcp.json"),
+        ("tabnine", "~/.tabnine/mcp_servers.json"),
+        (
+            "vscode",
+            "~/Library/Application Support/Code/User/mcp.json",
+        ),
         ("warp", "~/.warp/.mcp.json"),
-        ("pi", "~/.pi/agent/mcp.json"),
+        ("windsurf", "~/.codeium/windsurf/mcp_config.json"),
+        ("zed", "~/.config/zed/settings.json"),
     ];
 
     for (agent_id, path) in expected {
         assert_eq!(agents[agent_id].global.as_deref(), Some(path), "{agent_id}");
     }
-    for agent_id in ["continue", "devin", "qoderwork"] {
+    for agent_id in ["devin", "qoderwork"] {
         assert!(agents[agent_id].global.is_none(), "{agent_id}");
     }
 }
 
 #[test]
-fn every_builtin_writes_the_documented_wire_shape() {
-    let agents = builtin_agents();
-    let local = McpConfig::Stdio(StdioConfig {
-        command: "npx".into(),
-        args: Some(vec!["-y".into(), "matrix-server".into()]),
-        env: Some(HashMap::from([("TOKEN".into(), "fixture".into())])),
-        cwd: Some("/tmp/mux-matrix".into()),
-    });
-    let remote = http("https://example.com/mcp");
+fn verified_and_catalog_definitions_have_auditable_boundaries() {
+    let verified: std::collections::BTreeMap<String, mux_core::types::AgentDefinition> =
+        serde_json::from_str(include_str!("../../data/agents.json")).unwrap();
+    let catalog: std::collections::BTreeMap<String, mux_core::types::AgentDefinition> =
+        serde_json::from_str(include_str!("../../data/agent-catalog.json")).unwrap();
+    let verified_ids: std::collections::BTreeSet<_> = verified.keys().cloned().collect();
+    let catalog_ids: std::collections::BTreeSet<_> = catalog.keys().cloned().collect();
+    let all_ids: std::collections::BTreeSet<_> =
+        verified_ids.union(&catalog_ids).cloned().collect();
 
-    for (agent_id, definition) in agents {
-        if definition.global.is_none() {
-            continue;
-        }
-        let path = temp_file(
-            &format!("wire-{agent_id}"),
-            if definition.format == "toml" {
-                "toml"
-            } else {
-                "json"
-            },
+    assert_eq!(verified.len(), 39);
+    assert_eq!(catalog.len(), 175);
+    assert_eq!(verified_ids.intersection(&catalog_ids).count(), 23);
+    assert_eq!(all_ids.len(), 191);
+    assert_eq!(
+        verified
+            .values()
+            .filter(|item| item.global.is_some())
+            .count(),
+        37
+    );
+    assert!(catalog.len() >= 170);
+    for (id, definition) in verified {
+        assert_eq!(definition.builtin, Some(true), "{id}");
+        assert!(
+            matches!(
+                definition.codec.as_deref(),
+                Some(
+                    "standard"
+                        | "claude_desktop"
+                        | "explicit_type"
+                        | "url_inferred"
+                        | "vscode"
+                        | "codex"
+                        | "opencode"
+                        | "gemini"
+                        | "windsurf"
+                        | "qoder"
+                        | "copilot"
+                        | "cline"
+                        | "roo"
+                        | "warp"
+                        | "kimi"
+                        | "transport"
+                        | "tabnine"
+                        | "continue"
+                        | "goose"
+                        | "vibe"
+                        | "server_url"
+                        | "url_transport"
+                        | "stdio_only"
+                )
+            ),
+            "{id}: unknown codec {:?}",
+            definition.codec
         );
-        let adapter = get_agent_adapter(&definition.format, &definition.key, &agent_id);
-        adapter.upsert(&path, "local", &local).unwrap();
-        if agent_id != "claude-desktop" {
-            adapter.upsert(&path, "remote", &remote).unwrap();
+        assert!(
+            matches!(definition.layout.as_deref(), Some("map" | "list")),
+            "{id}: invalid layout {:?}",
+            definition.layout
+        );
+        if definition.layout.as_deref() == Some("list") {
+            assert!(definition.identity_field.is_some(), "{id}");
+            assert_ne!(definition.format, "json", "{id}");
         }
-
-        if agent_id == "codex" {
-            let root: toml::Value = std::fs::read_to_string(&path).unwrap().parse().unwrap();
-            let local = &root["mcp_servers"]["local"];
-            let remote = &root["mcp_servers"]["remote"];
-            assert_eq!(local["command"].as_str(), Some("npx"));
-            assert_eq!(local["cwd"].as_str(), Some("/tmp/mux-matrix"));
-            assert!(local.get("type").is_none());
-            assert_eq!(remote["url"].as_str(), Some("https://example.com/mcp"));
-            assert!(remote.get("http_headers").is_some());
-            assert!(remote.get("headers").is_none());
-            let _ = std::fs::remove_file(path);
-            continue;
+        let transports = definition.transports.as_deref().unwrap_or_default();
+        assert!(
+            transports
+                .iter()
+                .all(|transport| matches!(transport.as_str(), "stdio" | "http")),
+            "{id}: invalid transport {transports:?}"
+        );
+        let unique_transports: std::collections::BTreeSet<_> = transports.iter().collect();
+        assert_eq!(unique_transports.len(), transports.len(), "{id}");
+        assert!(
+            definition
+                .name
+                .as_deref()
+                .is_some_and(|name| !name.is_empty()),
+            "{id}"
+        );
+        assert!(
+            definition
+                .docs
+                .as_deref()
+                .is_some_and(|url| url.starts_with("https://")),
+            "{id}"
+        );
+        assert_eq!(
+            definition.verified_at.as_deref(),
+            Some("2026-07-14"),
+            "{id}"
+        );
+        if definition.global.is_some() {
+            let evidence = definition.evidence.as_deref().unwrap_or_default();
+            assert!(
+                matches!(
+                    evidence,
+                    "official" | "official-source" | "community-extension"
+                ),
+                "{id}: {evidence}"
+            );
+            if evidence == "community-extension" {
+                assert!(
+                    definition
+                        .note
+                        .as_deref()
+                        .is_some_and(|note| note.contains("pi-mcp-adapter")),
+                    "{id}"
+                );
+            }
+            assert!(
+                matches!(definition.format.as_str(), "json" | "toml" | "yaml"),
+                "{id}"
+            );
+            assert!(!definition.key.is_empty(), "{id}");
+            assert!(
+                !definition
+                    .transports
+                    .as_deref()
+                    .unwrap_or_default()
+                    .is_empty(),
+                "{id}"
+            );
         }
+    }
+    for (id, definition) in catalog {
+        assert_eq!(definition.builtin, Some(true), "{id}");
+        assert!(definition.global.is_none(), "{id}");
+        assert_eq!(definition.format, "unknown", "{id}");
+        assert!(
+            matches!(
+                definition.evidence.as_deref(),
+                Some("catalog" | "official" | "official-source")
+            ),
+            "{id}: invalid evidence {:?}",
+            definition.evidence
+        );
+        assert!(
+            definition
+                .transports
+                .as_deref()
+                .unwrap_or_default()
+                .is_empty(),
+            "{id}"
+        );
+    }
+}
 
+#[test]
+fn continue_yaml_list_is_lossless_and_adds_required_root_metadata() {
+    let definition = &builtin_agents()["continue"];
+    let path = temp_file("continue-policy", "yaml");
+    let original = r#"# keep this comment
+telemetry:
+  apiKey: private
+mcpServers:
+  - name: docs
+    type: streamable-http
+    url: https://old.example/mcp
+    requestOptions:
+      timeout: 9000
+      headers:
+        Old: value
+    toolPolicy:
+      allow: [search]
+"#;
+    std::fs::write(&path, original).unwrap();
+
+    get_agent_adapter_for(definition, "continue")
+        .upsert(&path, "docs", &http("https://new.example/mcp"))
+        .unwrap();
+
+    let written = std::fs::read_to_string(&path).unwrap();
+    let root: Value = serde_yaml::from_str(&written).unwrap();
+    let target = &root["mcpServers"][0];
+    assert!(written.contains("# keep this comment"));
+    assert_eq!(root["telemetry"]["apiKey"], "private");
+    assert!(root.get("name").is_none());
+    assert_eq!(target["name"], "docs");
+    assert_eq!(target["type"], "streamable-http");
+    assert_eq!(target["url"], "https://new.example/mcp");
+    assert_eq!(target["requestOptions"]["timeout"], 9000);
+    assert_eq!(target["requestOptions"]["headers"]["X-New"], "value");
+    assert_eq!(target["toolPolicy"]["allow"][0], "search");
+
+    let new_path = temp_file("continue-new", "yaml");
+    get_agent_adapter_for(definition, "continue")
+        .upsert(&new_path, "docs", &http("https://new.example/mcp"))
+        .unwrap();
+    let root: Value = serde_yaml::from_str(&std::fs::read_to_string(&new_path).unwrap()).unwrap();
+    assert_eq!(root["name"], "Local Config");
+    assert_eq!(root["version"], "0.0.1");
+    assert_eq!(root["schema"], "v1");
+
+    let _ = std::fs::remove_file(path);
+    let _ = std::fs::remove_file(new_path);
+}
+
+#[test]
+fn goose_yaml_map_uses_current_fields_and_preserves_extension_policy() {
+    let definition = &builtin_agents()["goose"];
+    let path = temp_file("goose-policy", "yaml");
+    let original = r#"# private Goose settings
+provider: private-model
+extensions:
+  docs:
+    name: Custom display name
+    type: streamable_http
+    uri: https://old.example/mcp
+    description: keep me
+    enabled: false
+    timeout: 42
+"#;
+    std::fs::write(&path, original).unwrap();
+
+    get_agent_adapter_for(definition, "goose")
+        .upsert(&path, "docs", &http("https://new.example/mcp"))
+        .unwrap();
+
+    let written = std::fs::read_to_string(&path).unwrap();
+    let root: Value = serde_yaml::from_str(&written).unwrap();
+    let target = &root["extensions"]["docs"];
+    assert!(written.contains("# private Goose settings"));
+    assert_eq!(root["provider"], "private-model");
+    assert_eq!(target["name"], "Custom display name");
+    assert_eq!(target["type"], "streamable_http");
+    assert_eq!(target["uri"], "https://new.example/mcp");
+    assert_eq!(target["description"], "keep me");
+    assert_eq!(target["enabled"], false);
+    assert_eq!(target["timeout"], 42);
+    assert!(target.get("url").is_none());
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
+fn vibe_toml_list_is_lossless_and_uses_transport_field() {
+    let definition = &builtin_agents()["mistral-vibe"];
+    let path = temp_file("vibe-policy", "toml");
+    let original = r#"model = "private-model" # keep root
+
+[[mcp_servers]]
+name = "docs"
+transport = "http"
+url = "https://old.example/mcp"
+enabled = false
+timeout = 42 # keep policy
+"#;
+    std::fs::write(&path, original).unwrap();
+
+    get_agent_adapter_for(definition, "mistral-vibe")
+        .upsert(&path, "docs", &http("https://new.example/mcp"))
+        .unwrap();
+
+    let written = std::fs::read_to_string(&path).unwrap();
+    let root: toml::Value = written.parse().unwrap();
+    let target = &root["mcp_servers"][0];
+    assert!(written.contains("# keep root"));
+    assert!(written.contains("# keep policy"));
+    assert_eq!(root["model"].as_str(), Some("private-model"));
+    assert_eq!(target["name"].as_str(), Some("docs"));
+    assert_eq!(target["transport"].as_str(), Some("streamable-http"));
+    assert_eq!(target["url"].as_str(), Some("https://new.example/mcp"));
+    assert_eq!(target["enabled"].as_bool(), Some(false));
+    assert_eq!(target["timeout"].as_integer(), Some(42));
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
+fn new_json_codecs_use_documented_nested_and_transport_fields() {
+    let agents = builtin_agents();
+    let path = temp_file("new-json-codecs", "json");
+    std::fs::write(
+        &path,
+        r#"{"mcpServers":{"docs":{"url":"https://old","requestInit":{"cache":"private","headers":{"Old":"value"}},"policy":{"allow":true}}}}"#,
+    )
+    .unwrap();
+    get_agent_adapter_for(&agents["tabnine"], "tabnine")
+        .upsert(&path, "docs", &http("https://new.example/mcp"))
+        .unwrap();
+    let root: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    let target = &root["mcpServers"]["docs"];
+    assert_eq!(target["requestInit"]["cache"], "private");
+    assert_eq!(target["requestInit"]["headers"]["X-New"], "value");
+    assert_eq!(target["policy"]["allow"], true);
+
+    for (agent_id, expected_transport) in [("rovo-dev", "http"), ("kimi-code", "")] {
+        let path = temp_file(agent_id, "json");
+        get_agent_adapter_for(&agents[agent_id], agent_id)
+            .upsert(&path, "docs", &http("https://new.example/mcp"))
+            .unwrap();
         let root: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
-        let local = &root[&definition.key]["local"];
-        let remote = &root[&definition.key]["remote"];
-
-        match agent_id.as_str() {
-            "opencode" => {
-                assert_eq!(local["type"], "local");
-                assert_eq!(local["command"][0], "npx");
-                assert!(local.get("args").is_none());
-                assert_eq!(local["environment"]["TOKEN"], "fixture");
-                assert_eq!(remote["type"], "remote");
-                assert!(remote.get("url").is_some());
-            }
-            "cline" => {
-                assert_eq!(local["transport"]["type"], "stdio");
-                assert_eq!(local["transport"]["command"], "npx");
-                assert_eq!(remote["transport"]["type"], "streamableHttp");
-                assert!(remote["transport"].get("url").is_some());
-                assert!(local.get("command").is_none());
-                assert!(remote.get("url").is_none());
-            }
-            "gemini" => {
-                assert_eq!(local["command"], "npx");
-                assert!(remote.get("httpUrl").is_some());
-                assert!(remote.get("url").is_none());
-                assert!(remote.get("type").is_none());
-            }
-            "windsurf" => {
-                assert_eq!(local["command"], "npx");
-                assert!(remote.get("serverUrl").is_some());
-                assert!(remote.get("url").is_none());
-                assert!(remote.get("type").is_none());
-            }
-            "warp" => {
-                assert_eq!(local["working_directory"], "/tmp/mux-matrix");
-                assert!(local.get("cwd").is_none());
-                assert!(remote.get("url").is_some());
-                assert!(remote.get("type").is_none());
-            }
-            "copilot-cli" => {
-                assert_eq!(local["type"], "local");
-                assert_eq!(remote["type"], "http");
-                assert_eq!(local["tools"], serde_json::json!(["*"]));
-                assert_eq!(remote["tools"], serde_json::json!(["*"]));
-            }
-            "claude-code" | "amazon-q" | "vscode" | "qoder" => {
-                assert_eq!(local["type"], "stdio", "{agent_id}");
-                assert_eq!(remote["type"], "http", "{agent_id}");
-            }
-            "roo-code" => {
-                assert!(local.get("type").is_none());
-                assert_eq!(remote["type"], "streamable-http");
-            }
-            "claude-desktop" => {
-                assert_eq!(local["command"], "npx");
-                assert!(local.get("type").is_none());
-                assert!(remote.is_null());
-            }
-            "cursor" | "zed" | "kiro" | "junie" | "pi" => {
-                assert_eq!(local["command"], "npx", "{agent_id}");
-                assert!(local.get("type").is_none(), "{agent_id}");
-                assert!(remote.get("url").is_some(), "{agent_id}");
-                assert!(remote.get("type").is_none(), "{agent_id}");
-            }
-            _ => panic!("missing wire-format assertion for {agent_id}"),
+        let target = &root["mcpServers"]["docs"];
+        if expected_transport.is_empty() {
+            assert!(target.get("transport").is_none(), "{agent_id}");
+        } else {
+            assert_eq!(target["transport"], expected_transport, "{agent_id}");
         }
         let _ = std::fs::remove_file(path);
     }
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
+fn audited_remote_schemas_use_exact_documented_fields() {
+    let agents = builtin_agents();
+
+    let path = temp_file("antigravity-server-url", "json");
+    get_agent_adapter_for(&agents["antigravity"], "antigravity")
+        .upsert(&path, "docs", &http("https://new.example/mcp"))
+        .unwrap();
+    let root: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    let target = &root["mcpServers"]["docs"];
+    assert_eq!(target["serverUrl"], "https://new.example/mcp");
+    assert!(target.get("url").is_none());
+    let _ = std::fs::remove_file(path);
+
+    for agent_id in ["augment", "openhands"] {
+        let path = temp_file(agent_id, "json");
+        get_agent_adapter_for(&agents[agent_id], agent_id)
+            .upsert(&path, "docs", &http("https://new.example/mcp"))
+            .unwrap();
+        let root: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        let target = &root["mcpServers"]["docs"];
+        assert_eq!(target["type"], "http", "{agent_id}");
+        assert_eq!(target["url"], "https://new.example/mcp", "{agent_id}");
+        let _ = std::fs::remove_file(path);
+    }
+
+    let path = temp_file("boltai-stdio-only", "json");
+    let error = get_agent_adapter_for(&agents["boltai"], "boltai")
+        .upsert(&path, "docs", &http("https://new.example/mcp"))
+        .unwrap_err();
+    assert!(error.contains("stdio servers only"));
+    assert!(!path.exists());
+}
+
+#[test]
+fn hermes_uses_transport_only_for_legacy_sse() {
+    let agents = builtin_agents();
+    let path = temp_file("hermes-transports", "yaml");
+    let adapter = get_agent_adapter_for(&agents["hermes"], "hermes");
+    adapter
+        .upsert(&path, "http", &http("https://new.example/mcp"))
+        .unwrap();
+    adapter
+        .upsert(
+            &path,
+            "sse",
+            &McpConfig::Http(HttpConfig {
+                kind: "sse".into(),
+                url: "https://new.example/sse".into(),
+                headers: None,
+            }),
+        )
+        .unwrap();
+    let root: Value = serde_yaml::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    assert!(root["mcp_servers"]["http"].get("transport").is_none());
+    assert_eq!(root["mcp_servers"]["sse"]["transport"], "sse");
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
+fn duplicate_yaml_server_keys_fail_closed() {
+    let agents = builtin_agents();
+    let path = temp_file("duplicate-yaml", "yaml");
+    let original =
+        "private: keep\nmcp_servers:\n  docs: {url: https://one}\n  docs: {url: https://two}\n";
+    std::fs::write(&path, original).unwrap();
+    let result = get_agent_adapter_for(&agents["hermes"], "hermes").upsert(
+        &path,
+        "docs",
+        &http("https://new.example/mcp"),
+    );
+    assert!(result.is_err());
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), original);
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
+fn duplicate_toml_list_identities_fail_closed() {
+    let agents = builtin_agents();
+    let path = temp_file("duplicate-toml-list", "toml");
+    let original = r#"private = "keep"
+
+[[mcp_servers]]
+name = "docs"
+transport = "http"
+url = "https://one"
+
+[[mcp_servers]]
+name = "docs"
+transport = "http"
+url = "https://two"
+"#;
+    std::fs::write(&path, original).unwrap();
+    let adapter = get_agent_adapter_for(&agents["mistral-vibe"], "mistral-vibe");
+    assert!(adapter.read(&path).is_empty());
+    assert!(adapter
+        .upsert(&path, "docs", &http("https://new.example/mcp"))
+        .is_err());
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), original);
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
+fn catalog_only_and_unknown_formats_fail_closed() {
+    let definition = &builtin_agents()["devin"];
+    let path = temp_file("unsupported", "json");
+    let result = get_agent_adapter_for(definition, "devin").upsert(
+        &path,
+        "docs",
+        &http("https://new.example/mcp"),
+    );
+    assert!(result.is_err());
+    assert!(!path.exists());
 }

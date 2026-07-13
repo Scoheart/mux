@@ -19,7 +19,7 @@ hero:
 features:
   - icon: 🗂️
     title: 一个目录，管所有 agent
-    details: Claude Code、Cursor、VS Code、Codex、Zed、Warp、Pi、QoderWork 等 21 个 agent，同一份 MCP 目录，逐个 agent 安装 / 开关 / 删除。
+    details: 可搜索 191 个 MCP 客户端；其中 39 个已深度核验、37 个可安全写入全局配置。同一份 MCP 目录，逐个 Agent 安装、开关或删除。
   - icon: 🔗
     title: 来源驱动，不写死清单
     details: 目录由你订阅的远程 URL、导入的本地文件、手动添加与自动探索共同组成，随来源刷新更新。

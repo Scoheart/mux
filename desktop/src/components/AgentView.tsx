@@ -1,10 +1,11 @@
 import { useState, useMemo, useCallback } from "react";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import type { InstallState } from "../hooks/useInstallState";
 import type { RegistryEntry } from "../lib/types";
 import { keyOf, transportLabel, installedKey, transportOf } from "../lib/mcp";
-import { XIcon, PlusIcon, EditIcon, PackageIcon } from "./icons";
+import { XIcon, PlusIcon, EditIcon, LinkIcon, PackageIcon } from "./icons";
 import { Avatar, Badge, IconButton, SearchBar, Switch, TransportPill } from "./ui";
-import { AgentGlyph, agentName } from "./brandIcons";
+import { AgentGlyph } from "./brandIcons";
 import { AddAgentDialog } from "./AddAgentDialog";
 import { cellKey } from "../lib/api";
 
@@ -106,29 +107,84 @@ export function AgentView({ state, agentId }: AgentViewProps) {
     );
   }
 
+  if (!agent.has_global) {
+    return (
+      <div className="h-full min-h-0 overflow-y-auto">
+        <div className="max-w-4xl mx-auto px-6 py-6">
+          <div className="flex items-center gap-3 mb-6">
+            <AgentGlyph id={agent.id} name={agent.name} size={44} />
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2">
+                <h2 className="text-lg font-semibold m-0 truncate" style={{ color: "var(--text-primary)" }}>
+                  {agent.name}
+                </h2>
+                <Badge>客户端目录</Badge>
+              </div>
+              <div className="text-xs mt-0.5" style={{ color: "var(--text-secondary)", fontFamily: "var(--font-mono)" }}>
+                {agent.id}
+              </div>
+            </div>
+            {agent.docs && (
+              <button type="button" className="btn-ghost" onClick={() => openUrl(agent.docs!)}>
+                <LinkIcon className="w-4 h-4" />
+                查看来源
+              </button>
+            )}
+          </div>
+          <div className="py-4" style={{ borderTop: `1px solid ${borderColor}`, borderBottom: `1px solid ${borderColor}` }}>
+            <div className="text-sm" style={{ color: "var(--text-primary)" }}>
+              {agent.note ?? "尚未核验稳定的用户级全局配置。"}
+            </div>
+            <div className="text-xs mt-2" style={{ color: "var(--text-secondary)" }}>
+              {agent.category} · {
+                agent.evidence === "official" || agent.evidence === "official-source"
+                  ? "官方来源"
+                  : agent.evidence === "community-extension"
+                    ? "社区扩展"
+                    : "公开目录"
+              }
+              {agent.verified_at ? ` · ${agent.verified_at}` : ""}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="h-full min-h-0 overflow-y-auto">
       <div className="max-w-4xl mx-auto px-6 py-6">
         {/* Header */}
         <div className="flex items-center gap-3 mb-5">
-          <AgentGlyph id={agent.id} size={44} />
+          <AgentGlyph id={agent.id} name={agent.name} size={44} />
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2">
               <h2
                 className="text-lg font-semibold m-0 truncate"
                 style={{ color: "var(--text-primary)" }}
               >
-                {agentName(agent.id)}
+                {agent.name}
               </h2>
-              {!agent.has_global && <Badge tone="warning">无全局路径</Badge>}
+              {agent.evidence === "community-extension" ? (
+                <Badge tone="warning">社区扩展</Badge>
+              ) : agent.builtin ? (
+                <Badge tone="success">已核验</Badge>
+              ) : (
+                <Badge>自定义</Badge>
+              )}
             </div>
             <div
               className="text-xs mt-0.5"
               style={{ color: "var(--text-secondary)", fontFamily: "var(--font-mono)" }}
             >
-              {agent.id} · {agent.format}
+              {agent.id} · {agent.format.toUpperCase()} · {agent.key}
             </div>
           </div>
+          {agent.docs && (
+            <IconButton title="打开官方文档" onClick={() => openUrl(agent.docs!)}>
+              <LinkIcon className="w-4 h-4" />
+            </IconButton>
+          )}
         </div>
 
         {/* Config file path — always shown (the stored ~/… path), with an edit affordance */}
@@ -147,15 +203,9 @@ export function AgentView({ state, agentId }: AgentViewProps) {
               编辑
             </button>
           </div>
-          {agent.global ? (
-            <span className="text-xs break-all" style={{ color: "var(--text-primary)", fontFamily: "var(--font-mono)" }}>
-              {agent.global}
-            </span>
-          ) : (
-            <span className="text-xs" style={{ color: "var(--text-secondary)" }}>
-              未设置路径，点击「编辑」添加
-            </span>
-          )}
+          <span className="text-xs break-all" style={{ color: "var(--text-primary)", fontFamily: "var(--font-mono)" }}>
+            {agent.global}
+          </span>
         </div>
 
         {editingAgent && (
@@ -210,7 +260,7 @@ export function AgentView({ state, agentId }: AgentViewProps) {
                     backdropFilter: "blur(var(--glass-blur)) saturate(var(--glass-saturate))",
                     WebkitBackdropFilter: "blur(var(--glass-blur)) saturate(var(--glass-saturate))",
                     border: `1px solid var(--glass-border)`,
-                    borderRadius: 12,
+                    borderRadius: 8,
                     boxShadow: "var(--glass-shadow), var(--glass-highlight)",
                     display: "flex",
                     flexDirection: "column",
@@ -287,9 +337,6 @@ export function AgentView({ state, agentId }: AgentViewProps) {
             <PackageIcon className="w-7 h-7" style={{ color: "var(--text-secondary)", opacity: 0.5 }} />
             <div className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>
               还没有安装任何 MCP
-            </div>
-            <div className="text-xs" style={{ color: "var(--text-secondary)" }}>
-              点右上角「添加 MCP」开始
             </div>
           </div>
         ) : (

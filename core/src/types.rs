@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct StdioConfig {
@@ -197,15 +197,44 @@ impl SourceDef {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub struct AgentDefinition {
     pub global: Option<String>,
     pub project: Option<String>,
-    pub format: String, // "json" | "toml"
+    pub format: String, // "json" | "toml" | "yaml"
     pub key: String,
     pub enabled: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub builtin: Option<bool>,
+    /// Display metadata and evidence are intentionally part of the definition:
+    /// the UI must distinguish a verified writable target from a discovered
+    /// catalog entry whose on-disk schema is unknown.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub docs: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub category: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub evidence: Option<String>, // "official" | "catalog" | "custom"
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub verified_at: Option<String>,
+    /// Wire-format metadata. Missing values retain the legacy standard map
+    /// behavior so existing custom Agent definitions remain compatible.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub codec: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub layout: Option<String>, // "map" | "list"
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub identity_field: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transports: Option<Vec<String>>,
+    /// Required top-level fields to add only when creating a new config file.
+    /// Existing values are never overwritten.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub root_defaults: Option<BTreeMap<String, serde_json::Value>>,
 }
 
 #[cfg(test)]

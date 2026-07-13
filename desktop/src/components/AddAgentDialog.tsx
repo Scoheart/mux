@@ -8,11 +8,11 @@ import { formatError } from "../lib/format";
 const FORMATS = [
   { value: "json", label: "JSON" },
   { value: "toml", label: "TOML" },
+  { value: "yaml", label: "YAML" },
 ] as const;
 
-/** Modal form for registering a new custom agent, or editing an existing one's
- *  global config path/format/key (persisted to settings.agents). Pass `existing` to
- *  open in edit mode (the id is then read-only). */
+/** Register a custom global target or edit one already known to MUX. Built-in
+ *  schemas are locked, so their edit mode exposes only the global path. */
 export function AddAgentDialog({
   onClose,
   onAdded,
@@ -23,9 +23,10 @@ export function AddAgentDialog({
   existing?: AgentInfo;
 }) {
   const isEdit = !!existing;
+  const schemaLocked = existing?.builtin ?? false;
   const [id, setId] = useState(existing?.id ?? "");
-  const [format, setFormat] = useState<"json" | "toml">(
-    existing?.format === "toml" ? "toml" : "json"
+  const [format, setFormat] = useState<"json" | "toml" | "yaml">(
+    existing?.format === "toml" || existing?.format === "yaml" ? existing.format : "json"
   );
   const [key, setKey] = useState(existing?.key ?? "mcpServers");
   const [global, setGlobal] = useState(existing?.global ?? "");
@@ -50,7 +51,7 @@ export function AddAgentDialog({
       format,
       key: key.trim(),
       enabled: existing?.enabled ?? true,
-      builtin: false,
+      builtin: existing?.builtin ?? false,
     };
     try {
       if (isEdit) {
@@ -78,19 +79,15 @@ export function AddAgentDialog({
 
   return (
     <Modal width={520} onClose={onClose}>
-        <ModalHeader
-          glyph={isEdit ? "✎" : "+"}
-          title={isEdit ? "编辑 Agent" : "添加 Agent"}
-          subtitle={
-            isEdit
-              ? "修改全局配置路径、格式和 Key。"
-              : "注册自定义工具及其全局 MCP 配置。"
-          }
-          onClose={onClose}
-        />
+      <ModalHeader
+        glyph={isEdit ? "✎" : "+"}
+        title={schemaLocked ? "编辑全局路径" : isEdit ? "编辑 Agent" : "添加 Agent"}
+        subtitle={existing?.name ?? "自定义 Agent"}
+        onClose={onClose}
+      />
 
-        {/* Body */}
-        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
+      {/* Body */}
+      <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
           {/* id */}
           <div>
             <label className="text-xs font-medium block mb-1.5" style={{ color: "var(--text-secondary)" }}>
@@ -117,12 +114,15 @@ export function AddAgentDialog({
                 {FORMATS.map((f) => (
                   <button
                     key={f.value}
+                    disabled={schemaLocked}
                     onClick={() => setFormat(f.value)}
                     className="px-3 py-1.5 text-sm rounded-[8px] border-0 cursor-pointer transition-all font-medium"
                     style={{
                       background: format === f.value ? "var(--surface-raised)" : "transparent",
                       color: format === f.value ? "var(--text-primary)" : "var(--text-secondary)",
                       boxShadow: format === f.value ? "var(--shadow-card)" : "none",
+                      cursor: schemaLocked ? "default" : "pointer",
+                      opacity: schemaLocked && format !== f.value ? 0.35 : 1,
                     }}
                   >
                     {f.label}
@@ -135,8 +135,14 @@ export function AddAgentDialog({
                 配置 Key <span style={{ color: "#FF375F" }}>*</span>
               </label>
               <input
+                disabled={schemaLocked}
                 className="w-full px-3 py-2 text-sm rounded-mac outline-none"
-                style={{ ...fieldStyle, fontFamily: "var(--font-mono)" }}
+                style={{
+                  ...fieldStyle,
+                  fontFamily: "var(--font-mono)",
+                  opacity: schemaLocked ? 0.6 : 1,
+                  cursor: schemaLocked ? "not-allowed" : "text",
+                }}
                 placeholder="mcpServers"
                 value={key}
                 onChange={(e) => setKey(e.target.value)}
@@ -158,20 +164,20 @@ export function AddAgentDialog({
             />
           </div>
 
-        </div>
+      </div>
 
-        {/* Footer */}
-        <div
-          className="flex items-center justify-end gap-2 px-6 py-4"
-          style={{ borderTop: "1px solid var(--border-hairline)" }}
-        >
-          <button onClick={onClose} className="btn-ghost">
-            取消
-          </button>
-          <button disabled={!canSubmit} onClick={submit} className="btn-primary">
-            {busy ? (isEdit ? "保存中…" : "添加中…") : isEdit ? "保存" : "添加"}
-          </button>
-        </div>
+      {/* Footer */}
+      <div
+        className="flex items-center justify-end gap-2 px-6 py-4"
+        style={{ borderTop: "1px solid var(--border-hairline)" }}
+      >
+        <button onClick={onClose} className="btn-ghost">
+          取消
+        </button>
+        <button disabled={!canSubmit} onClick={submit} className="btn-primary">
+          {busy ? (isEdit ? "保存中…" : "添加中…") : isEdit ? "保存" : "添加"}
+        </button>
+      </div>
     </Modal>
   );
 }

@@ -6,9 +6,9 @@
 
 ## 界面总览
 
-打开 App 默认进入 **Registry（目录）**。当前 `v1.1.5` 的主界面由以下区域组成：
+打开 App 默认进入 **Registry（目录）**。当前 `v1.1.6` 的主界面由以下区域组成：
 
-![MUX v1.1.5 Registry 界面](/img/registry-overview-current.jpg)
+![MUX v1.1.6 Registry 界面](/img/registry-overview-current.jpg)
 
 | 区域 | 作用 |
 |---|---|
@@ -79,7 +79,7 @@ Agent 页面中的每个已安装 MCP 都有开关和删除操作：
 
 悬停来源行后，远程订阅、本地文件和自动探索可刷新；非受管来源可以删除。删除来源会移除缓存与目录条目，但不卸载已经写入 Agent 的配置。
 
-来源模型本身支持启停，TUI 的“来源”屏幕用 `Space` / `Enter` 操作。桌面 `v1.1.5` 的来源栏暂未提供启停开关。
+来源模型本身支持启停，TUI 的“来源”屏幕用 `Space` / `Enter` 操作。桌面 `v1.1.6` 的来源栏暂未提供启停开关。
 
 ## Agent 管理
 

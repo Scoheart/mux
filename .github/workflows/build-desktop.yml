@@ -62,7 +62,49 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         # "app" is bundled explicitly so the updater's .app.tar.gz (+ .sig) is
         # always produced next to the dmg.
-        run: npm run tauri build -- --bundles app,dmg
+        run: |
+          rm -rf src-tauri/target/release/bundle
+          npm run tauri build -- --bundles app,dmg
+
+      - name: Verify macOS release artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP=$(find desktop/src-tauri/target/release/bundle/macos -maxdepth 1 -type d -name '*.app' -print -quit)
+          DMG=$(find desktop/src-tauri/target/release/bundle/dmg -maxdepth 1 -type f -name '*.dmg' -print -quit)
+          test -n "$APP"
+          test -n "$DMG"
+
+          EXPECTED=$(node -p "require('./desktop/src-tauri/tauri.conf.json').version")
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            test "${{ github.ref_name }}" = "v$EXPECTED"
+          fi
+
+          verify_app() {
+            local app="$1"
+            local actual
+            test -d "$app"
+            actual=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Contents/Info.plist")
+            test "$actual" = "$EXPECTED"
+            test "$("$app/Contents/MacOS/mux" --version)" = "mux $EXPECTED"
+            codesign --verify --deep --strict --verbose=2 "$app"
+          }
+
+          verify_app "$APP"
+          hdiutil verify "$DMG"
+
+          MOUNT=$(mktemp -d)
+          cleanup() {
+            hdiutil detach "$MOUNT" >/dev/null 2>&1 || true
+            rmdir "$MOUNT" >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+          hdiutil attach -readonly -nobrowse -noautoopen -mountpoint "$MOUNT" "$DMG"
+          PACKAGED_APP=$(find "$MOUNT" -maxdepth 1 -type d -name '*.app' -print -quit)
+          test -n "$PACKAGED_APP"
+          verify_app "$PACKAGED_APP"
+          cleanup
+          trap - EXIT
 
       # Build the `mux` CLI (root workspace) and tar it up so the same Release
       # carries a ready-to-run binary next to the .dmg — no cargo needed. Keep

@@ -62,10 +62,10 @@ export const subscribeSource = (url: string, name?: string) =>
  *  Resolves to null if the user cancels. */
 export const addLocalSourceDialog = () =>
   invoke<SourceView | null>("add_local_source_dialog");
-/** Export all manually-added entries to a JSON file via a native save dialog.
+/** Export the complete effective catalog to JSON via a native save dialog.
  *  Resolves to the written path, or null if the user cancels. */
-export const exportManualDialog = () =>
-  invoke<string | null>("export_manual_dialog");
+export const exportEffectiveDialog = () =>
+  invoke<string | null>("export_effective_dialog");
 /** Re-fetch (remote) / re-copy (local) a source's file. */
 export const refreshSource = (id: string) =>
   invoke<SourceView>("refresh_source", { id });

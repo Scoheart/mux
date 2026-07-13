@@ -1,6 +1,8 @@
 pub mod cli_tool;
 pub mod commands;
 
+use tauri::Manager;
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -11,7 +13,7 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         // Needed to relaunch the app after an update is installed.
         .plugin(tauri_plugin_process::init())
-        .setup(|_app| {
+        .setup(|app| {
             // Fold any legacy ~/.mux files into a single settings.json on first run.
             mux_core::settings::migrate_if_needed();
             // Move any legacy settings.registry entries into the managed
@@ -21,6 +23,13 @@ pub fn run() {
             // show up (and become manageable) the moment the app opens. Global scope
             // only here (no project dir at launch); best-effort.
             let _ = commands::import_discovered(None);
+
+            // macOS may keep the process alive after the last window closes.
+            // Always restore the configured main window on a fresh launch.
+            if let Some(window) = app.get_webview_window("main") {
+                window.show()?;
+                window.set_focus()?;
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -34,7 +43,7 @@ pub fn run() {
             commands::subscribe_source,
             commands::add_local_source,
             commands::add_local_source_dialog,
-            commands::export_manual_dialog,
+            commands::export_effective_dialog,
             commands::add_builtin_collection,
             commands::refresh_source,
             commands::set_source_enabled,
@@ -55,6 +64,18 @@ pub fn run() {
             cli_tool::cli_status,
             cli_tool::install_cli
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            if let tauri::RunEvent::Reopen {
+                has_visible_windows: false,
+                ..
+            } = event
+            {
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                }
+            }
+        });
 }

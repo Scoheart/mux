@@ -2,11 +2,25 @@ import { useState, useMemo, useCallback } from "react";
 import type { InstallState } from "../hooks/useInstallState";
 import type { RegistryEntry, RegistryOrigin, CatalogItem } from "../lib/types";
 import { keyOf, transportOf, type Transport } from "../lib/mcp";
-import { forgetEntry } from "../lib/api";
+import { exportEffectiveDialog, forgetEntry } from "../lib/api";
+import { formatError } from "../lib/format";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { SourcesSidebar, EFFECTIVE_ID } from "./SourcesSidebar";
 import { AgentGlyph, agentName } from "./brandIcons";
-import { CopyIcon, EditIcon, PlusIcon, LinkIcon, TerminalIcon, XIcon, CloudIcon, FolderIcon, TrashIcon } from "./icons";
+import {
+  CheckIcon,
+  CopyIcon,
+  EditIcon,
+  PlusIcon,
+  LinkIcon,
+  TerminalIcon,
+  XIcon,
+  CloudIcon,
+  DownloadIcon,
+  FolderIcon,
+  LayersIcon,
+  TrashIcon,
+} from "./icons";
 import { Avatar, Badge, IconButton, SearchBar, Modal, TransportPill, stickyHeaderStyle } from "./ui";
 import { useToast } from "./Toast";
 import { PasteConfigDialog } from "./PasteConfigDialog";
@@ -19,6 +33,7 @@ interface RegistryViewProps {
 
 /** Origin buckets — still used to decide which entries are user-deletable. */
 type OriginBucket = "remote" | "local" | "manual" | "discovered";
+type StatusFilter = "all" | "effective" | "shadowed";
 
 /** Classify an entry's origin into a bucket. Entries with no origin, or a
  *  legacy/unknown kind, fall into "discovered" (scanned-from-machine). */
@@ -72,7 +87,7 @@ function OriginTag({
       <span className="inline-flex items-center gap-1 min-w-0" title={`订阅：${origin.source ? sourceName(origin.source) : ""}`}>
         <CloudIcon className="w-3.5 h-3.5 flex-shrink-0" style={{ color: "var(--color-blue)" }} />
         <span className="text-[11px] truncate" style={{ color: "var(--text-secondary)" }}>
-          订阅{origin.source ? `：${sourceName(origin.source)}` : ""}
+          {origin.source ? sourceName(origin.source) : "订阅"}
         </span>
       </span>
     );
@@ -82,12 +97,12 @@ function OriginTag({
       <span className="inline-flex items-center gap-1 min-w-0" title={`本地：${origin.source ? sourceName(origin.source) : ""}`}>
         <FolderIcon className="w-3.5 h-3.5 flex-shrink-0" style={{ color: "var(--text-secondary)" }} />
         <span className="text-[11px] truncate" style={{ color: "var(--text-secondary)" }}>
-          本地{origin.source ? `：${sourceName(origin.source)}` : ""}
+          {origin.source ? sourceName(origin.source) : "本地"}
         </span>
       </span>
     );
   }
-  if (origin?.kind === "manual") return <Badge tone="info">手动添加</Badge>;
+  if (origin?.kind === "manual") return <Badge tone="info">手动</Badge>;
   // discovered (recorded) or legacy custom: show the source app when known.
   const agent = origin?.agent ?? installedAgents[0];
   if (agent) {
@@ -95,12 +110,12 @@ function OriginTag({
       <span className="inline-flex items-center gap-1 min-w-0" title={`来自 ${agentName(agent)}`}>
         <span className="flex-shrink-0 inline-flex"><AgentGlyph id={agent} size={16} /></span>
         <span className="text-[11px] truncate" style={{ color: "var(--text-secondary)" }}>
-          来自 {agentName(agent)}
+          {agentName(agent)}
         </span>
       </span>
     );
   }
-  return <Badge tone="neutral">机器探索</Badge>;
+  return <Badge tone="neutral">探索</Badge>;
 }
 
 /** Short human label for an origin, for the "被『X』覆盖" tooltip. */
@@ -113,7 +128,7 @@ function originLabel(origin: RegistryOrigin | undefined, sourceName: (id: string
 }
 
 export function RegistryView({ state, onEdit, onCreate }: RegistryViewProps) {
-  const { catalog, agentsForServer, sources } = state;
+  const { catalog, entries, agentsForServer, sources } = state;
   const toast = useToast();
 
   const [q, setQ] = useState("");
@@ -121,7 +136,8 @@ export function RegistryView({ state, onEdit, onCreate }: RegistryViewProps) {
   // 生效中 (deduped winners). Managed sources use their ids ("manual" /
   // "discovered"); remote/local use their source id.
   const [selectedSource, setSelectedSource] = useState<string | null>(null);
-  const [detail, setDetail] = useState<RegistryEntry | null>(null);
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  const [detail, setDetail] = useState<CatalogItem | null>(null);
   const [pasteOpen, setPasteOpen] = useState(false);
 
   const sourceName = useCallback(
@@ -139,7 +155,7 @@ export function RegistryView({ state, onEdit, onCreate }: RegistryViewProps) {
     return m;
   }, [catalog]);
 
-  const filtered = useMemo(() => {
+  const scoped = useMemo(() => {
     const s = q.trim().toLowerCase();
     let list = catalog;
     if (selectedSource === EFFECTIVE_ID) list = list.filter((it) => it.in_effect);
@@ -157,6 +173,21 @@ export function RegistryView({ state, onEdit, onCreate }: RegistryViewProps) {
     );
   }, [catalog, q, selectedSource]);
 
+  const statusCounts = useMemo(
+    () => ({
+      all: scoped.length,
+      effective: scoped.filter((item) => item.in_effect).length,
+      shadowed: scoped.filter((item) => !item.in_effect).length,
+    }),
+    [scoped]
+  );
+
+  const filtered = useMemo(() => {
+    if (statusFilter === "effective") return scoped.filter((item) => item.in_effect);
+    if (statusFilter === "shadowed") return scoped.filter((item) => !item.in_effect);
+    return scoped;
+  }, [scoped, statusFilter]);
+
   const copyConfig = useCallback(
     (entry: RegistryEntry) => {
       navigator.clipboard
@@ -166,6 +197,15 @@ export function RegistryView({ state, onEdit, onCreate }: RegistryViewProps) {
     },
     [toast]
   );
+
+  const doExport = useCallback(async () => {
+    try {
+      const path = await exportEffectiveDialog();
+      if (path) toast.show({ kind: "success", msg: `已导出 ${entries.length} 项 → ${path}` });
+    } catch (e) {
+      toast.show({ kind: "error", msg: "导出失败：" + formatError(e) });
+    }
+  }, [entries.length, toast]);
 
   // Only user-owned entries (手动添加 / 探索) can be edited/deleted; subscription/
   // local entries belong to a source and are managed on the 来源 page.
@@ -196,29 +236,69 @@ export function RegistryView({ state, onEdit, onCreate }: RegistryViewProps) {
 
   return (
     <div className="flex h-full min-h-0">
-      <SourcesSidebar state={state} selectedId={selectedSource} onSelect={setSelectedSource} />
+      <SourcesSidebar
+        state={state}
+        selectedId={selectedSource}
+        onSelect={(id) => {
+          setSelectedSource(id);
+          setStatusFilter("all");
+        }}
+      />
 
       <div className="flex-1 min-w-0 min-h-0 overflow-y-auto">
-      {/* Sticky header: search + paste + new */}
-      <div className="sticky top-0 z-10 px-6 py-4" style={stickyHeaderStyle}>
-        <div className="max-w-[1280px] mx-auto flex items-center gap-3">
-          <div className="flex-1">
-            <SearchBar value={q} onChange={setQ} placeholder="搜索 MCP Registry…" />
+      {/* Sticky header: search/actions + catalog-state filter. */}
+      <div className="sticky top-0 z-10 px-6 py-3" style={stickyHeaderStyle}>
+        <div className="max-w-[1280px] mx-auto space-y-3">
+          <div className="flex items-center gap-3">
+            <div className="flex-1 min-w-[160px]">
+              <SearchBar value={q} onChange={setQ} placeholder="搜索 MCP…" />
+            </div>
+            <button
+              onClick={() => setPasteOpen(true)}
+              className="btn-ghost flex-shrink-0"
+              title="粘贴 MCP 配置"
+            >
+              粘贴配置
+            </button>
+            <button onClick={onCreate} className="btn-primary flex-shrink-0">
+              <PlusIcon className="w-4 h-4" />
+              新建 MCP
+            </button>
           </div>
-          <span className="text-xs flex-shrink-0" style={{ color: "var(--text-secondary)" }}>
-            {filtered.length} 个
-          </span>
-          <button
-            onClick={() => setPasteOpen(true)}
-            className="btn-ghost flex-shrink-0"
-            title="粘贴 mcpServers 配置，自动识别并加入手动来源"
-          >
-            粘贴配置
-          </button>
-          <button onClick={onCreate} className="btn-primary flex-shrink-0">
-            <PlusIcon className="w-4 h-4" />
-            新建 MCP
-          </button>
+
+          <div className="flex items-center justify-between gap-3">
+            <div className="mux-status-filter" role="group" aria-label="目录配置状态">
+              {(
+                [
+                  ["all", "全部", statusCounts.all],
+                  ["effective", "生效", statusCounts.effective],
+                  ["shadowed", "被覆盖", statusCounts.shadowed],
+                ] as const
+              ).map(([value, label, count]) => (
+                <button
+                  key={value}
+                  type="button"
+                  className="mux-status-filter-item"
+                  data-active={statusFilter === value ? "true" : undefined}
+                  data-status={value}
+                  aria-pressed={statusFilter === value}
+                  disabled={value !== "all" && count === 0}
+                  onClick={() => setStatusFilter(value)}
+                >
+                  <span>{label}</span>
+                  <span className="mux-status-count">{count}</span>
+                </button>
+              ))}
+            </div>
+            <div className="flex items-center gap-1.5 flex-shrink-0">
+              <span className="text-xs" style={{ color: "var(--text-secondary)" }}>
+                {filtered.length} 项
+              </span>
+              <IconButton title="导出生效配置" onClick={doExport} disabled={entries.length === 0}>
+                <DownloadIcon className="w-4 h-4" />
+              </IconButton>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -226,8 +306,12 @@ export function RegistryView({ state, onEdit, onCreate }: RegistryViewProps) {
         {filtered.length === 0 ? (
           <div className="py-16 text-sm text-center" style={{ color: "var(--text-secondary)" }}>
             {catalog.length === 0
-              ? "目录为空 —— 在左侧订阅或导入配置。"
-              : "未找到匹配的 MCP"}
+              ? "暂无配置，请从左侧添加来源。"
+              : statusFilter === "shadowed"
+                ? "没有被覆盖项"
+                : statusFilter === "effective"
+                  ? "没有生效项"
+                  : "没有匹配项"}
           </div>
         ) : (
           <div className="mux-grid">
@@ -244,7 +328,7 @@ export function RegistryView({ state, onEdit, onCreate }: RegistryViewProps) {
                 }
                 editable={editable(item.entry)}
                 deletable={deletable(item.entry)}
-                onOpen={() => setDetail(item.entry)}
+                onOpen={() => setDetail(item)}
                 onCopy={() => copyConfig(item.entry)}
                 onEdit={() => onEdit(item.entry.name, transportOf(item.entry))}
                 onDelete={() => deleteEntry(item.entry)}
@@ -258,22 +342,28 @@ export function RegistryView({ state, onEdit, onCreate }: RegistryViewProps) {
 
       {detail && (
         <RegistryDetail
-          entry={detail}
-          installedAgents={agentsForServer(keyOf(detail))}
+          entry={detail.entry}
+          inEffect={detail.in_effect}
+          overriddenBy={
+            detail.in_effect
+              ? undefined
+              : originLabel(winningOriginByKey.get(keyOf(detail.entry)), sourceName)
+          }
+          installedAgents={agentsForServer(keyOf(detail.entry))}
           sourceName={sourceName}
           onClose={() => setDetail(null)}
-          onCopy={() => copyConfig(detail)}
+          onCopy={() => copyConfig(detail.entry)}
           onEdit={
-            editable(detail)
+            editable(detail.entry)
               ? () => {
-                  const { name } = detail;
-                  const transport = transportOf(detail);
+                  const { name } = detail.entry;
+                  const transport = transportOf(detail.entry);
                   setDetail(null);
                   onEdit(name, transport);
                 }
               : undefined
           }
-          onDelete={deletable(detail) ? () => deleteEntry(detail) : undefined}
+          onDelete={deletable(detail.entry) ? () => deleteEntry(detail.entry) : undefined}
         />
       )}
       </div>
@@ -281,9 +371,8 @@ export function RegistryView({ state, onEdit, onCreate }: RegistryViewProps) {
   );
 }
 
-/** A single catalog card. Refined layout: rounded-square avatar, name + optional
- *  「已被覆盖」chip, transport/origin chips, an inset code strip for the endpoint,
- *  and a footer with a usage dot + hover-revealed actions. */
+/** A single catalog card. The precedence row is intentionally persistent on
+ *  every card so winners and shadowed copies share a directly comparable shape. */
 function RegistryCard({
   item,
   installedAgents,
@@ -316,12 +405,14 @@ function RegistryCard({
   return (
     <div
       className="mux-tile p-3"
-      style={overridden ? { opacity: 0.6 } : undefined}
+      data-state={overridden ? "shadowed" : "effective"}
       onClick={onOpen}
     >
-      {/* Header: avatar + name (+ overridden chip) + transport/origin chips */}
+      {/* Header: identity, provenance, and an explicit catalog state. */}
       <div className="flex items-start gap-2.5">
-        <Avatar seed={entry.name} size={34} />
+        <span className="mux-card-avatar flex-shrink-0">
+          <Avatar seed={entry.name} size={34} />
+        </span>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1.5 min-w-0">
             <span
@@ -333,11 +424,12 @@ function RegistryCard({
             </span>
             {overridden && (
               <span
-                className="text-[10px] px-1.5 py-px rounded-full flex-shrink-0 whitespace-nowrap"
-                style={{ background: "var(--surface-raised)", color: "var(--text-secondary)", border: "1px solid var(--border-hairline)" }}
+                className="mux-state-badge"
+                data-state="shadowed"
                 title={`已被覆盖：当前以「${overriddenBy}」为准`}
               >
-                已被覆盖
+                <LayersIcon className="w-3 h-3" />
+                被覆盖
               </span>
             )}
           </div>
@@ -367,19 +459,46 @@ function RegistryCard({
         </span>
       </div>
 
+      <div
+        className="mux-precedence-row"
+        data-state={overridden ? "shadowed" : "effective"}
+        title={overridden ? `当前采用「${overriddenBy}」的配置` : "当前来源生效"}
+      >
+        {overridden ? (
+          <LayersIcon className="w-3.5 h-3.5 flex-shrink-0" />
+        ) : (
+          <CheckIcon className="w-3.5 h-3.5 flex-shrink-0" />
+        )}
+        {overridden ? (
+          <span className="min-w-0 flex items-center gap-1">
+            <strong className="truncate">{overriddenBy}</strong>
+            <span className="flex-shrink-0">生效</span>
+          </span>
+        ) : (
+          <span>生效</span>
+        )}
+      </div>
+
       {/* Footer: usage dot + hover actions — pinned to the card bottom so every
           card in a row lines up (grid stretches them to equal height). */}
       <div className="flex items-center justify-between mt-auto pt-2.5" style={{ borderTop: "1px solid var(--border-hairline)" }}>
-        <span
-          className="inline-flex items-center gap-1.5 text-[11px]"
-          style={{ color: usedBy > 0 ? "var(--color-green)" : "var(--text-secondary)" }}
-        >
+        {overridden ? (
+          <span className="mux-shadowed-footnote inline-flex items-center gap-1.5 text-[11px]">
+            <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" />
+            不参与安装
+          </span>
+        ) : (
           <span
-            className="w-1.5 h-1.5 rounded-full flex-shrink-0"
-            style={{ background: usedBy > 0 ? "var(--color-green)" : "var(--text-secondary)", opacity: usedBy > 0 ? 1 : 0.4 }}
-          />
-          {usedBy > 0 ? `${usedBy} 个 agent 使用` : "未使用"}
-        </span>
+            className="inline-flex items-center gap-1.5 text-[11px]"
+            style={{ color: usedBy > 0 ? "var(--color-green)" : "var(--text-secondary)" }}
+          >
+            <span
+              className="w-1.5 h-1.5 rounded-full flex-shrink-0"
+              style={{ background: usedBy > 0 ? "var(--color-green)" : "var(--text-secondary)", opacity: usedBy > 0 ? 1 : 0.4 }}
+            />
+            {usedBy > 0 ? `${usedBy} 个 Agent` : "未使用"}
+          </span>
+        )}
 
         <div
           className="mux-toolbar flex items-center gap-0.5 rounded-mac px-0.5"
@@ -412,6 +531,8 @@ function RegistryCard({
 
 function RegistryDetail({
   entry,
+  inEffect,
+  overriddenBy,
   installedAgents,
   sourceName,
   onClose,
@@ -420,6 +541,8 @@ function RegistryDetail({
   onDelete,
 }: {
   entry: RegistryEntry;
+  inEffect: boolean;
+  overriddenBy?: string;
   installedAgents: string[];
   sourceName: (id: string) => string;
   onClose: () => void;
@@ -441,7 +564,10 @@ function RegistryDetail({
             </div>
           </div>
           <button
+            type="button"
             onClick={onClose}
+            aria-label="关闭详情"
+            title="关闭"
             className="flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center border-0 cursor-pointer"
             style={{ background: "var(--border-hairline)", color: "var(--text-secondary)" }}
           >
@@ -449,7 +575,27 @@ function RegistryDetail({
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
+        <div className="px-6 pt-4">
+          <div className="mux-detail-state" data-state={inEffect ? "effective" : "shadowed"}>
+            {inEffect ? (
+              <CheckIcon className="w-4 h-4 flex-shrink-0" />
+            ) : (
+              <LayersIcon className="w-4 h-4 flex-shrink-0" />
+            )}
+            <div className="min-w-0">
+              <div className="text-xs font-semibold">
+                {inEffect ? "当前生效配置" : "此副本已被覆盖"}
+              </div>
+              <div className="text-[11px] mt-0.5 leading-relaxed">
+                {inEffect
+                  ? "安装与同步会使用此来源的配置。"
+                  : `当前以「${overriddenBy ?? "其它来源"}」为准，此处配置不会用于安装与同步。`}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
           {entry.description && (
             <p className="text-sm leading-relaxed m-0" style={{ color: "var(--text-secondary)" }}>
               {entry.description}

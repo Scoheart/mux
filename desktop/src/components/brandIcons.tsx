@@ -10,7 +10,7 @@ import opencodeLogo from "../assets/agents/opencode.svg";
 import jetbrainsLogo from "../assets/agents/jetbrains.svg";
 import amazonqLogo from "../assets/agents/amazon-q.svg";
 import qoderLogo from "../assets/agents/qoder.svg";
-import qoderworkLogo from "../assets/agents/qoderwork.svg";
+import qoderworkLogo from "../assets/agents/qoderwork.png";
 import kiroLogo from "../assets/agents/kiro.svg";
 import devinLogo from "../assets/agents/devin.svg";
 import continueLogo from "../assets/agents/continue.png";
@@ -60,7 +60,7 @@ const AGENT_META: Record<string, { name: string; color: string }> = {
   "roo-code": { name: "Roo Code", color: "#6C47FF" },
   gemini: { name: "Gemini", color: "#4285F4" },
   qoder: { name: "Qoder", color: "#6E56CF" },
-  qoderwork: { name: "QoderWork", color: "#6E56CF" },
+  qoderwork: { name: "QoderWork", color: "#25D959" },
   devin: { name: "Devin", color: "#1F2937" },
   kiro: { name: "Kiro", color: "#7C3AED" },
   junie: { name: "Junie", color: "#E5484D" },

@@ -340,12 +340,17 @@ pub fn import_pasted(text: &str) -> Result<Vec<String>, String> {
     Ok(added)
 }
 
-/// Serialize every manually-added catalog entry into a shareable MUX-array JSON
-/// string (the same format `subscribe`/`import`/`import_pasted` consume, so it
-/// round-trips). Origins are stripped so the file is portable across machines.
-/// Returns a pretty `[]` when there are no manual entries.
-pub fn export_manual() -> Result<String, String> {
-    let mut entries = crate::registry::manual_entries();
+/// Serialize the complete effective catalog into a shareable MUX-array JSON
+/// string. Shadowed copies are excluded by `read_registry`; origins are stripped
+/// so the file is portable, and the output is sorted for stable diffs.
+pub fn export_effective() -> Result<String, String> {
+    let mut entries = read_registry();
+    entries.sort_by(|a, b| {
+        a.name
+            .to_lowercase()
+            .cmp(&b.name.to_lowercase())
+            .then_with(|| a.transport().cmp(b.transport()))
+    });
     for e in &mut entries {
         e.origin = None;
     }

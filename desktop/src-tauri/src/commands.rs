@@ -97,18 +97,18 @@ pub async fn add_local_source_dialog(app: tauri::AppHandle) -> Result<Option<Sou
     sources::add_local(fp.to_string(), None).map(Some)
 }
 
-/// Export all manually-added catalog entries to a JSON file the user picks via a
+/// Export the complete effective catalog to a JSON file the user picks via a
 /// native save dialog. Returns the written path, or `None` if the user cancels.
 /// Async + `spawn_blocking` for the same main-thread reason as the picker above.
 #[tauri::command]
-pub async fn export_manual_dialog(app: tauri::AppHandle) -> Result<Option<String>, String> {
+pub async fn export_effective_dialog(app: tauri::AppHandle) -> Result<Option<String>, String> {
     use tauri_plugin_dialog::DialogExt;
-    let content = mux_core::ops::export_manual()?;
+    let content = mux_core::ops::export_effective()?;
     let picked = tauri::async_runtime::spawn_blocking(move || {
         app.dialog()
             .file()
             .add_filter("MCP 配置", &["json"])
-            .set_file_name("mux-manual.json")
+            .set_file_name("mux-effective.json")
             .blocking_save_file()
     })
     .await
@@ -119,7 +119,7 @@ pub async fn export_manual_dialog(app: tauri::AppHandle) -> Result<Option<String
     Ok(Some(path.display().to_string()))
 }
 
-/// Add the bundled curated collection as an opt-in *local* source.
+/// Add the bundled curated collection as an opt-in local source.
 #[tauri::command]
 pub fn add_builtin_collection() -> Result<SourceView, String> {
     sources::add_official()

@@ -83,8 +83,8 @@ enum Command {
     Add { name: String },
     /// Remove an MCP from registry
     Remove { name: String },
-    /// Export all manually-added MCPs to a config file (JSON). Prints to stdout
-    /// unless --out is given.
+    /// Export the effective MCP catalog to JSON. Prints to stdout unless --out
+    /// is given.
     Export {
         /// Write to this file instead of stdout
         #[arg(long)]
@@ -314,7 +314,7 @@ fn cmd_remove(name: &str) {
 }
 
 fn cmd_export(out: Option<&str>) {
-    let content = match ops::export_manual() {
+    let content = match ops::export_effective() {
         Ok(c) => c,
         Err(e) => {
             println!("{}", red(&format!("导出失败: {}", e)));
@@ -323,7 +323,7 @@ fn cmd_export(out: Option<&str>) {
     };
     match out {
         Some(path) => match std::fs::write(path, &content) {
-            Ok(_) => println!("{}", green(&format!("✓ 已导出手动添加的 MCP → {}", path))),
+            Ok(_) => println!("{}", green(&format!("✓ 已导出生效配置 → {}", path))),
             Err(e) => println!("{}", red(&format!("写入 {} 失败: {}", path, e))),
         },
         None => println!("{}", content),

@@ -7,8 +7,8 @@ use std::path::Path;
 
 /// The bundled "official" collection, embedded at compile time from the repo-root
 /// data/registry.json. It is **not a built-in catalog base** — the catalog is
-/// entirely source-driven. Exposed only so the user can opt in to it as a
-/// one-click *local* source ("Mux 精选"); see `commands::add_builtin_collection`.
+/// entirely source-driven. Exposed only so a client can opt in through
+/// `sources::add_official`.
 const BUILTIN_JSON: &str = include_str!("../../data/registry.json");
 
 pub fn builtin_registry() -> Vec<RegistryEntry> {

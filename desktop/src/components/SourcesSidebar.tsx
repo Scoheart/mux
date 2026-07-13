@@ -2,13 +2,10 @@ import { useMemo, useState } from "react";
 import type { InstallState } from "../hooks/useInstallState";
 import type { SourceView } from "../lib/types";
 import { IconButton } from "./ui";
-import { CloudIcon, FolderIcon, PackageIcon, RefreshIcon, TrashIcon, LayersIcon, EditIcon, SearchIcon, DownloadIcon, CheckIcon } from "./icons";
-import { SubscribeDialog, OFFICIAL_SOURCE } from "./SubscribeDialog";
+import { CloudIcon, FolderIcon, RefreshIcon, TrashIcon, LayersIcon, EditIcon, SearchIcon, CheckIcon } from "./icons";
+import { SubscribeDialog } from "./SubscribeDialog";
 import { useToast } from "./Toast";
 import { formatError } from "../lib/format";
-import { exportManualDialog } from "../lib/api";
-
-type SubscribePreset = { url?: string; name?: string } | null;
 
 /** Sentinel `selectedId` for the "生效中" filter (the deduped effective catalog).
  *  `null` = 全部 (all copies); a real source id = that source's copies. */
@@ -31,7 +28,7 @@ function kindIconOf(s: SourceView) {
 
 /**
  * Left column that both *organizes* the catalog (click a source to filter the
- * grid) and *manages* sources (subscribe / import / official, plus per-source
+ * grid) and *manages* sources (subscribe / import, plus per-source
  * enable / refresh / remove). Replaces the old standalone 来源 page.
  */
 export function SourcesSidebar({
@@ -46,7 +43,7 @@ export function SourcesSidebar({
 }) {
   const { sources, entries, catalog } = state;
   const toast = useToast();
-  const [subscribe, setSubscribe] = useState<SubscribePreset>(null);
+  const [subscribeOpen, setSubscribeOpen] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
 
   const sorted = useMemo(
@@ -60,18 +57,9 @@ export function SourcesSidebar({
   const pickLocal = async () => {
     try {
       const v = await state.pickLocalSource();
-      if (v) toast.show({ kind: "success", msg: `已导入本地来源：${v.name}（${v.server_count} 个 server）` });
+      if (v) toast.show({ kind: "success", msg: `已导入 ${v.name} · ${v.server_count} 项` });
     } catch (e) {
       toast.show({ kind: "error", msg: "导入失败：" + formatError(e) });
-    }
-  };
-
-  const doExport = async () => {
-    try {
-      const path = await exportManualDialog();
-      if (path) toast.show({ kind: "success", msg: `已导出手动添加的 MCP → ${path}` });
-    } catch (e) {
-      toast.show({ kind: "error", msg: "导出失败：" + formatError(e) });
     }
   };
 
@@ -116,17 +104,11 @@ export function SourcesSidebar({
         <span className="text-xs font-semibold uppercase flex-1" style={{ color: "var(--text-secondary)", letterSpacing: "0.06em" }}>
           来源
         </span>
-        <IconButton title="订阅 Mux 精选" onClick={() => setSubscribe({ url: OFFICIAL_SOURCE.url, name: OFFICIAL_SOURCE.name })}>
-          <PackageIcon className="w-4 h-4" />
-        </IconButton>
-        <IconButton title="导入本地配置文件" onClick={pickLocal}>
-          <FolderIcon className="w-4 h-4" />
-        </IconButton>
-        <IconButton title="导出手动添加的 MCP 为配置文件" onClick={doExport}>
-          <DownloadIcon className="w-4 h-4" />
-        </IconButton>
-        <IconButton title="订阅远程配置 URL" onClick={() => setSubscribe({})}>
+        <IconButton title="添加订阅" onClick={() => setSubscribeOpen(true)}>
           <CloudIcon className="w-4 h-4" />
+        </IconButton>
+        <IconButton title="导入配置" onClick={pickLocal}>
+          <FolderIcon className="w-4 h-4" />
         </IconButton>
       </div>
 
@@ -152,7 +134,7 @@ export function SourcesSidebar({
 
         {sorted.length === 0 ? (
           <div className="text-[11px] px-3 py-4 leading-relaxed" style={{ color: "var(--text-secondary)" }}>
-            还没有来源。用上方按钮订阅、导入或添加 Mux 精选。
+            暂无来源。添加订阅或导入配置。
           </div>
         ) : (
           sorted.map((s) => (
@@ -168,7 +150,7 @@ export function SourcesSidebar({
                 <>
                   {(s.kind === "remote" || !s.managed || s.id === "discovered") && (
                     <IconButton
-                      title={s.id === "discovered" ? "重新探索各 Agent 配置" : "刷新（重新抓取 / 读取）"}
+                      title={s.id === "discovered" ? "重新探索" : "刷新来源"}
                       onClick={() => doRefresh(s)}
                       disabled={busyId === s.id}
                     >
@@ -187,12 +169,10 @@ export function SourcesSidebar({
         )}
       </div>
 
-      {subscribe && (
+      {subscribeOpen && (
         <SubscribeDialog
           state={state}
-          initialUrl={subscribe.url}
-          initialName={subscribe.name}
-          onClose={() => setSubscribe(null)}
+          onClose={() => setSubscribeOpen(false)}
         />
       )}
     </aside>

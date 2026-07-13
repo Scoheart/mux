@@ -4,29 +4,22 @@ import { useToast } from "./Toast";
 import { Modal, ModalHeader } from "./ui";
 import { formatError } from "../lib/format";
 
-/** The official curated collection, subscribed as a remote source (the repo's
- *  raw registry.json). Kept here so the Sources page can pre-fill this dialog. */
-export const OFFICIAL_SOURCE = {
+/** Official curated collection preset for the shared subscription flow. */
+const OFFICIAL_SOURCE = {
   url: "https://raw.githubusercontent.com/Scoheart/mux/main/data/registry.json",
   name: "Mux 精选",
 };
 
-/** Modal for subscribing to a remote MCP config URL. On success the source's
- *  servers join the catalog. Mirrors AddAgentDialog's glass styling. Pass
- *  `initialUrl`/`initialName` to pre-fill (e.g. the official source). */
+/** Add a remote MCP config source, optionally using the Mux curated preset. */
 export function SubscribeDialog({
   state,
   onClose,
-  initialUrl,
-  initialName,
 }: {
   state: InstallState;
   onClose: () => void;
-  initialUrl?: string;
-  initialName?: string;
 }) {
-  const [url, setUrl] = useState(initialUrl ?? "");
-  const [name, setName] = useState(initialName ?? "");
+  const [url, setUrl] = useState("");
+  const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
   const toast = useToast();
 
@@ -37,7 +30,7 @@ export function SubscribeDialog({
     setBusy(true);
     try {
       const v = await state.subscribe(url.trim(), name.trim() || undefined);
-      toast.show({ kind: "success", msg: `已订阅：${v.name}（${v.server_count} 个 server）` });
+      toast.show({ kind: "success", msg: `已订阅 ${v.name} · ${v.server_count} 项` });
       onClose();
     } catch (e) {
       toast.show({ kind: "error", msg: "订阅失败：" + formatError(e) });
@@ -56,8 +49,8 @@ export function SubscribeDialog({
     <Modal width={520} onClose={onClose}>
         <ModalHeader
           glyph="☁"
-          title="订阅远程配置"
-          subtitle="填一个指向 MCP 配置文件的 URL，其中的 server 加入目录。本机文件请用「导入本地配置」。"
+          title="添加订阅"
+          subtitle="输入 MCP 配置 URL，或使用 Mux 精选。"
           onClose={onClose}
         />
 
@@ -69,14 +62,14 @@ export function SubscribeDialog({
               onClick={() => { setUrl(OFFICIAL_SOURCE.url); setName(OFFICIAL_SOURCE.name); }}
               className="text-[11px] px-2.5 py-1 rounded-full cursor-pointer border-0"
               style={{ background: "var(--surface-raised)", color: "var(--color-blue)" }}
-              title="填入 Mux 精选的订阅地址"
+              title="使用 Mux 精选"
             >
-              使用 Mux 精选
+              Mux 精选
             </button>
           </div>
           <div>
             <label className="text-xs font-medium block mb-1.5" style={{ color: "var(--text-secondary)" }}>
-              配置文件 URL <span style={{ color: "#FF375F" }}>*</span>
+              配置 URL <span style={{ color: "#FF375F" }}>*</span>
             </label>
             <input
               autoFocus
@@ -90,7 +83,7 @@ export function SubscribeDialog({
           </div>
           <div>
             <label className="text-xs font-medium block mb-1.5" style={{ color: "var(--text-secondary)" }}>
-              名称（可选）
+              名称
             </label>
             <input
               className="w-full px-3 py-2 text-sm rounded-mac outline-none"
@@ -101,9 +94,6 @@ export function SubscribeDialog({
               onKeyDown={(e) => { if (e.key === "Enter") submit(); }}
             />
           </div>
-          <p className="text-[11px] m-0 leading-relaxed" style={{ color: "var(--text-secondary)" }}>
-            支持 <code style={{ fontFamily: "var(--font-mono)" }}>mcpServers</code> 配置或 MUX 目录数组。
-          </p>
         </div>
 
         {/* Footer */}

@@ -8,7 +8,7 @@ import { formatError } from "../lib/format";
  *  raw registry.json). Kept here so the Sources page can pre-fill this dialog. */
 export const OFFICIAL_SOURCE = {
   url: "https://raw.githubusercontent.com/Scoheart/mux/main/data/registry.json",
-  name: "官方精选合集",
+  name: "Mux 精选",
 };
 
 /** Modal for subscribing to a remote MCP config URL. On success the source's
@@ -69,9 +69,9 @@ export function SubscribeDialog({
               onClick={() => { setUrl(OFFICIAL_SOURCE.url); setName(OFFICIAL_SOURCE.name); }}
               className="text-[11px] px-2.5 py-1 rounded-full cursor-pointer border-0"
               style={{ background: "var(--surface-raised)", color: "var(--color-blue)" }}
-              title="填入官方精选合集的订阅地址"
+              title="填入 Mux 精选的订阅地址"
             >
-              使用官方精选合集
+              使用 Mux 精选
             </button>
           </div>
           <div>

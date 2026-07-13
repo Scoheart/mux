@@ -8,7 +8,7 @@ use std::path::Path;
 /// The bundled "official" collection, embedded at compile time from the repo-root
 /// data/registry.json. It is **not a built-in catalog base** — the catalog is
 /// entirely source-driven. Exposed only so the user can opt in to it as a
-/// one-click *local* source ("官方精选合集"); see `commands::add_builtin_collection`.
+/// one-click *local* source ("Mux 精选"); see `commands::add_builtin_collection`.
 const BUILTIN_JSON: &str = include_str!("../../data/registry.json");
 
 pub fn builtin_registry() -> Vec<RegistryEntry> {
@@ -241,29 +241,90 @@ pub fn migrate_registry_to_sources() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashSet;
 
     #[test]
-    fn builtin_collection_parses() {
-        // Still parseable (used by the opt-in curated local source), just no
-        // longer part of the default catalog.
+    fn builtin_collection_is_valid() {
         let entries = builtin_registry();
-        let github = entries.iter().find(|e| e.name == "github").unwrap();
-        assert_eq!(
-            github.config.http.as_ref().unwrap().url,
-            "https://api.githubcopilot.com/mcp/"
-        );
+        assert!(!entries.is_empty(), "curated collection must not be empty");
 
-        let names: Vec<String> = entries.into_iter().map(|e| e.name).collect();
-        assert_eq!(
-            names,
-            vec![
-                "context7".to_string(),
-                "github".to_string(),
-                "supabase".to_string(),
-                "luma".to_string(),
-                "firecrawl".to_string(),
-            ]
-        );
+        let mut keys = HashSet::new();
+        let secrets_are_placeholders = |values: &std::collections::HashMap<String, String>| {
+            values.iter().all(|(key, value)| {
+                let key = key.to_ascii_lowercase();
+                let sensitive = ["key", "token", "secret", "password"]
+                    .iter()
+                    .any(|needle| key.contains(needle));
+                !sensitive || value.is_empty() || value.contains('$')
+            })
+        };
+
+        for entry in entries {
+            assert!(!entry.name.trim().is_empty(), "entry name must not be empty");
+            assert!(
+                !entry.description.trim().is_empty(),
+                "{}: description must not be empty",
+                entry.name
+            );
+            assert!(
+                !entry.tags.is_empty(),
+                "{}: tags must not be empty",
+                entry.name
+            );
+            assert!(keys.insert(entry.key()), "{}: duplicate identity", entry.name);
+
+            match (&entry.config.stdio, &entry.config.http) {
+                (Some(stdio), None) => {
+                    assert!(
+                        !stdio.command.trim().is_empty(),
+                        "{}: stdio command must not be empty",
+                        entry.name
+                    );
+                    if let Some(args) = &stdio.args {
+                        assert!(
+                            args.iter().all(|arg| !arg.trim().is_empty()),
+                            "{}: stdio args must not contain empty values",
+                            entry.name
+                        );
+                    }
+                    if let Some(env) = &stdio.env {
+                        assert!(
+                            secrets_are_placeholders(env),
+                            "{}: do not embed secrets in the public collection",
+                            entry.name
+                        );
+                    }
+                }
+                (None, Some(http)) => {
+                    assert!(
+                        !http.kind.trim().is_empty(),
+                        "{}: HTTP type is required",
+                        entry.name
+                    );
+                    assert!(
+                        http.url.starts_with("https://"),
+                        "{}: remote URL must use HTTPS",
+                        entry.name
+                    );
+                    if let Some(headers) = &http.headers {
+                        assert!(
+                            secrets_are_placeholders(headers),
+                            "{}: do not embed secrets in the public collection",
+                            entry.name
+                        );
+                    }
+                }
+                _ => panic!("{}: configure exactly one transport", entry.name),
+            }
+
+            if let Some(repo) = &entry.repo {
+                assert!(
+                    repo.starts_with("https://"),
+                    "{}: repository URL must use HTTPS",
+                    entry.name
+                );
+            }
+        }
     }
 
     #[test]

@@ -25,7 +25,7 @@ MUX doesn't bundle a fixed server list. Your catalog is **assembled from sources
 | **手动添加 (Manual)** | Servers you create by hand or **paste** in — stored as a managed local source. |
 | **自动探索 (Discovered)** | Servers already configured in your agents, **auto-detected** on launch. |
 
-A one-click **官方精选合集 (official collection)** subscribes you to a curated set. Every source can be toggled on/off; the Registry shows the union of all enabled sources.
+A one-click **Mux 精选 (curated collection)** subscribes you to a curated set. Every source can be toggled on/off; the Registry shows the union of all enabled sources.
 
 ## Features
 

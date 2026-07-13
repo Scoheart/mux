@@ -377,7 +377,7 @@ fn sources_key(model: &mut Model, k: KeyEvent) -> Vec<Effect> {
         KeyCode::Char('o') => {
             model.modal = Some(Modal::Subscribe(SubscribeForm {
                 url: OFFICIAL_URL.into(),
-                name: "官方精选合集".into(),
+                name: "Mux 精选".into(),
                 field: 0,
             }))
         }

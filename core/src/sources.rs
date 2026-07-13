@@ -186,6 +186,9 @@ use crate::scanner::{collapse_home, expand_tilde};
 use crate::settings::{load_settings, mutate_settings};
 use serde::Serialize;
 
+const CURATED_SOURCE_NAME: &str = "Mux 精选";
+const LEGACY_CURATED_SOURCE_NAME: &str = "官方精选合集";
+
 /// A source as shown in a UI: its stored definition plus a live server count.
 #[derive(Serialize)]
 pub struct SourceView {
@@ -207,8 +210,13 @@ pub struct SourceView {
 
 fn to_view(def: SourceDef, count: u32) -> SourceView {
     let managed = def.id == MANUAL_ID || def.id == DISCOVERED_ID;
+    let name = if def.name == LEGACY_CURATED_SOURCE_NAME {
+        CURATED_SOURCE_NAME.to_string()
+    } else {
+        def.name
+    };
     SourceView {
-        id: def.id, kind: def.kind, name: def.name, url: def.url, path: def.path,
+        id: def.id, kind: def.kind, name, url: def.url, path: def.path,
         format: def.format, enabled: def.enabled, added_at: def.added_at,
         synced_at: def.synced_at, server_count: count, error: def.error, managed,
     }
@@ -303,7 +311,7 @@ pub fn add_official() -> Result<SourceView, String> {
     let now = now_iso();
     let mut def = SourceDef::new_local(
         gen_id("local", "curated"),
-        "官方精选合集".into(),
+        CURATED_SOURCE_NAME.into(),
         None,
         "json".into(),
         now,
@@ -470,5 +478,25 @@ mod tests {
         d.kind = "local".into();
         d.format = "toml".into();
         assert!(cached_path(&d).unwrap().ends_with("local/abc.toml"));
+    }
+
+    #[test]
+    fn legacy_curated_source_name_is_normalized() {
+        let def = SourceDef {
+            id: "curated".into(),
+            kind: "remote".into(),
+            name: LEGACY_CURATED_SOURCE_NAME.into(),
+            url: None,
+            path: None,
+            format: "json".into(),
+            key: "mcpServers".into(),
+            enabled: true,
+            added_at: None,
+            synced_at: None,
+            server_count: None,
+            error: None,
+        };
+
+        assert_eq!(to_view(def, 0).name, CURATED_SOURCE_NAME);
     }
 }

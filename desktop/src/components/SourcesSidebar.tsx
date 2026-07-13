@@ -116,7 +116,7 @@ export function SourcesSidebar({
         <span className="text-xs font-semibold uppercase flex-1" style={{ color: "var(--text-secondary)", letterSpacing: "0.06em" }}>
           来源
         </span>
-        <IconButton title="订阅官方精选合集" onClick={() => setSubscribe({ url: OFFICIAL_SOURCE.url, name: OFFICIAL_SOURCE.name })}>
+        <IconButton title="订阅 Mux 精选" onClick={() => setSubscribe({ url: OFFICIAL_SOURCE.url, name: OFFICIAL_SOURCE.name })}>
           <PackageIcon className="w-4 h-4" />
         </IconButton>
         <IconButton title="导入本地配置文件" onClick={pickLocal}>
@@ -152,7 +152,7 @@ export function SourcesSidebar({
 
         {sorted.length === 0 ? (
           <div className="text-[11px] px-3 py-4 leading-relaxed" style={{ color: "var(--text-secondary)" }}>
-            还没有来源。用上方按钮订阅、导入或添加官方精选合集。
+            还没有来源。用上方按钮订阅、导入或添加 Mux 精选。
           </div>
         ) : (
           sorted.map((s) => (

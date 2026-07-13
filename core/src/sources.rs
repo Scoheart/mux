@@ -8,6 +8,7 @@
 use crate::adapter::get_adapter;
 use crate::paths::{local_sources_dir, remote_sources_dir};
 use crate::types::{McpConfig, RegistryEntry, RegistryOrigin, SourceDef};
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -49,7 +50,12 @@ fn entry_from(name: String, cfg: McpConfig, origin: &RegistryOrigin) -> Registry
 /// first (a JSON `[RegistryEntry, …]`, so curated collections keep their
 /// descriptions/tags), else the standard `mcpServers` map via the adapter
 /// (transport auto-detected by `McpConfig`).
-pub fn parse_file(path: &Path, format: &str, key: &str, origin: &RegistryOrigin) -> Vec<RegistryEntry> {
+pub fn parse_file(
+    path: &Path,
+    format: &str,
+    key: &str,
+    origin: &RegistryOrigin,
+) -> Vec<RegistryEntry> {
     if format != "toml" {
         if let Ok(content) = fs::read_to_string(path) {
             if let Ok(arr) = serde_json::from_str::<Vec<RegistryEntry>>(&content) {
@@ -77,7 +83,9 @@ pub fn parse_file(path: &Path, format: &str, key: &str, origin: &RegistryOrigin)
 
 /// Entries a source contributes to the catalog (from its cached file).
 pub fn source_entries(def: &SourceDef) -> Vec<RegistryEntry> {
-    let Some(path) = cached_path(def) else { return Vec::new() };
+    let Some(path) = cached_path(def) else {
+        return Vec::new();
+    };
     if !path.exists() {
         return Vec::new();
     }
@@ -141,6 +149,40 @@ pub fn write_source_file(path: &Path, content: &str) -> Result<(), String> {
         fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
     fs::write(path, content).map_err(|e| e.to_string())
+}
+
+/// Reduce a user-selected local file to the MCP data MUX owns before caching it.
+/// This prevents unrelated account, history, model, or credential fields from
+/// being duplicated under `~/.mux/sources/local/`.
+fn sanitized_local_content(
+    path: &Path,
+    content: &str,
+    format: &str,
+    key: &str,
+) -> Result<String, String> {
+    if format != "toml" {
+        if let Ok(entries) = serde_json::from_str::<Vec<RegistryEntry>>(content) {
+            return serde_json::to_string_pretty(&entries)
+                .map(|text| text + "\n")
+                .map_err(|e| e.to_string());
+        }
+    }
+
+    let configs = get_adapter(format, key).read(path);
+    if format == "toml" {
+        let mut root: BTreeMap<String, BTreeMap<String, McpConfig>> = BTreeMap::new();
+        root.insert(key.to_string(), configs);
+        toml::to_string_pretty(&root).map_err(|e| e.to_string())
+    } else {
+        let mut root = serde_json::Map::new();
+        root.insert(
+            key.to_string(),
+            serde_json::to_value(configs).map_err(|e| e.to_string())?,
+        );
+        serde_json::to_string_pretty(&serde_json::Value::Object(root))
+            .map(|text| text + "\n")
+            .map_err(|e| e.to_string())
+    }
 }
 
 /// Current local time as an ISO-ish stamp.
@@ -216,9 +258,18 @@ fn to_view(def: SourceDef, count: u32) -> SourceView {
         def.name
     };
     SourceView {
-        id: def.id, kind: def.kind, name, url: def.url, path: def.path,
-        format: def.format, enabled: def.enabled, added_at: def.added_at,
-        synced_at: def.synced_at, server_count: count, error: def.error, managed,
+        id: def.id,
+        kind: def.kind,
+        name,
+        url: def.url,
+        path: def.path,
+        format: def.format,
+        enabled: def.enabled,
+        added_at: def.added_at,
+        synced_at: def.synced_at,
+        server_count: count,
+        error: def.error,
+        managed,
     }
 }
 
@@ -267,8 +318,9 @@ pub fn subscribe(url: String, name: Option<String>) -> Result<SourceView, String
     Ok(to_view(def, count))
 }
 
-/// Register a local config file as a source: read it, validate, and copy it under
-/// `~/.mux/sources/local/<id>` (the app then reads the copy, not the original).
+/// Register a local config file as a source: read and validate it, then cache only
+/// its MCP entries under `~/.mux/sources/local/<id>`. Unrelated user settings are
+/// never copied into MUX's source store.
 pub fn add_local(path: String, name: Option<String>) -> Result<SourceView, String> {
     let src = expand_tilde(&path);
     let content = fs::read_to_string(&src).map_err(|e| format!("读取文件失败: {}", e))?;
@@ -293,7 +345,8 @@ pub fn add_local(path: String, name: Option<String>) -> Result<SourceView, Strin
         now,
     );
     let cache = cached_path(&def).ok_or("无法确定缓存路径")?;
-    write_source_file(&cache, &content)?;
+    let sanitized = sanitized_local_content(&src, &content, &def.format, &def.key)?;
+    write_source_file(&cache, &sanitized)?;
     let count = source_count(&def);
     def.server_count = Some(count);
     if count == 0 {
@@ -350,8 +403,19 @@ pub fn refresh(id: String) -> Result<SourceView, String> {
     };
     match fetched {
         Ok(body) => {
+            let cached_body = if def.kind == "local" {
+                validate_parseable(&body, &def.format)?;
+                let source = def
+                    .path
+                    .as_deref()
+                    .map(expand_tilde)
+                    .ok_or("该本地来源没有可刷新的原文件")?;
+                sanitized_local_content(&source, &body, &def.format, &def.key)?
+            } else {
+                body
+            };
             if let Some(path) = cached_path(&def) {
-                write_source_file(&path, &body)?;
+                write_source_file(&path, &cached_body)?;
             }
             def.synced_at = Some(now_iso());
             def.error = None;
@@ -416,7 +480,12 @@ mod tests {
     }
 
     fn origin() -> RegistryOrigin {
-        RegistryOrigin { kind: "local".into(), agent: None, scope: None, source: Some("s1".into()) }
+        RegistryOrigin {
+            kind: "local".into(),
+            agent: None,
+            scope: None,
+            source: Some("s1".into()),
+        }
     }
 
     #[test]
@@ -454,7 +523,35 @@ mod tests {
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].description, "local fs"); // rich meta preserved
         assert_eq!(entries[0].tags, vec!["files".to_string()]);
-        assert_eq!(entries[0].origin.as_ref().unwrap().source.as_deref(), Some("s1"));
+        assert_eq!(
+            entries[0].origin.as_ref().unwrap().source.as_deref(),
+            Some("s1")
+        );
+        let _ = fs::remove_file(&p);
+    }
+
+    #[test]
+    fn local_toml_cache_contains_only_mcp_table() {
+        let p = tmp("toml-private", "toml");
+        let content = r#"model = "private-model"
+token = "must-not-be-cached"
+
+[history]
+persistence = "save-all"
+
+[mcp_servers.github]
+command = "npx"
+args = ["-y", "github-mcp"]
+"#;
+        fs::write(&p, content).unwrap();
+
+        let cached = sanitized_local_content(&p, content, "toml", "mcp_servers").unwrap();
+
+        assert!(cached.contains("[mcp_servers.github]"));
+        assert!(cached.contains("command = \"npx\""));
+        assert!(!cached.contains("private-model"));
+        assert!(!cached.contains("must-not-be-cached"));
+        assert!(!cached.contains("history"));
         let _ = fs::remove_file(&p);
     }
 
@@ -464,15 +561,27 @@ mod tests {
         assert_eq!(detect_format("nohint", "{\"a\":1}"), "json");
         assert!(validate_parseable("{\"a\":1}", "json").is_ok());
         assert!(validate_parseable("not json", "json").is_err());
-        assert_eq!(host_of("https://raw.githubusercontent.com/x/y/main/f.json"), "raw.githubusercontent.com");
+        assert_eq!(
+            host_of("https://raw.githubusercontent.com/x/y/main/f.json"),
+            "raw.githubusercontent.com"
+        );
     }
 
     #[test]
     fn cached_path_by_kind() {
         let mut d = SourceDef {
-            id: "abc".into(), kind: "remote".into(), name: "n".into(), url: None, path: None,
-            format: "json".into(), key: "mcpServers".into(), enabled: true,
-            added_at: None, synced_at: None, server_count: None, error: None,
+            id: "abc".into(),
+            kind: "remote".into(),
+            name: "n".into(),
+            url: None,
+            path: None,
+            format: "json".into(),
+            key: "mcpServers".into(),
+            enabled: true,
+            added_at: None,
+            synced_at: None,
+            server_count: None,
+            error: None,
         };
         assert!(cached_path(&d).unwrap().ends_with("remote/abc.json"));
         d.kind = "local".into();

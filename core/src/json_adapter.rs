@@ -1,8 +1,11 @@
 use crate::adapter::Adapter;
 use crate::types::McpConfig;
-use serde_json::{json, Value};
+use jsonc_parser::cst::{CstInputValue, CstRootNode};
+use jsonc_parser::ParseOptions;
+use serde_json::Value;
 use std::collections::BTreeMap;
 use std::fs;
+use std::io::ErrorKind;
 use std::path::Path;
 
 pub struct JsonAdapter {
@@ -11,72 +14,134 @@ pub struct JsonAdapter {
 
 impl JsonAdapter {
     pub fn new(key: &str) -> Self {
-        Self { key: key.to_string() }
-    }
-
-    /// Parse the whole file as a JSON object (or `{}` if missing/garbage).
-    fn read_root(&self, path: &Path) -> Value {
-        fs::read_to_string(path)
-            .ok()
-            .and_then(|c| serde_json::from_str::<Value>(&c).ok())
-            .filter(Value::is_object)
-            .unwrap_or_else(|| json!({}))
-    }
-
-    fn write_root(&self, path: &Path, root: &Value) -> Result<(), String> {
-        if let Some(parent) = path.parent() {
-            let _ = fs::create_dir_all(parent);
+        Self {
+            key: key.to_string(),
         }
-        let serialized = serde_json::to_string_pretty(root).map_err(|e| e.to_string())?;
-        fs::write(path, serialized + "\n").map_err(|e| e.to_string())
+    }
+
+    fn read_document(&self, path: &Path) -> Result<CstRootNode, String> {
+        let text = match fs::read_to_string(path) {
+            Ok(text) => text,
+            Err(e) if e.kind() == ErrorKind::NotFound => String::new(),
+            Err(e) => return Err(format!("failed to read {}: {}", path.display(), e)),
+        };
+        CstRootNode::parse(&text, &ParseOptions::default()).map_err(|e| {
+            format!(
+                "refusing to modify invalid JSON/JSONC at {}: {}",
+                path.display(),
+                e
+            )
+        })
+    }
+
+    fn write_document(&self, path: &Path, root: &CstRootNode) -> Result<(), String> {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        }
+        fs::write(path, root.to_string()).map_err(|e| e.to_string())
+    }
+
+    fn input_value(value: Value) -> CstInputValue {
+        match value {
+            Value::Null => CstInputValue::Null,
+            Value::Bool(value) => CstInputValue::Bool(value),
+            Value::Number(value) => CstInputValue::Number(value.to_string()),
+            Value::String(value) => CstInputValue::String(value),
+            Value::Array(values) => {
+                CstInputValue::Array(values.into_iter().map(Self::input_value).collect())
+            }
+            Value::Object(values) => CstInputValue::Object(
+                values
+                    .into_iter()
+                    .map(|(name, value)| (name, Self::input_value(value)))
+                    .collect(),
+            ),
+        }
     }
 }
 
 impl Adapter for JsonAdapter {
     fn read(&self, path: &Path) -> BTreeMap<String, McpConfig> {
-        let root = self.read_root(path);
-        let Some(section) = root.get(self.key.as_str()).and_then(Value::as_object) else {
+        let Ok(root) = self.read_document(path) else {
             return BTreeMap::new();
         };
-        // Per-entry: a server that doesn't fit stdio/http is skipped, NOT allowed
-        // to nuke the whole map (which is what caused real configs to be wiped).
+        let Some(section) = root
+            .object_value()
+            .and_then(|object| object.object_value(&self.key))
+        else {
+            return BTreeMap::new();
+        };
         section
-            .iter()
-            .filter_map(|(name, val)| {
-                serde_json::from_value::<McpConfig>(val.clone())
-                    .ok()
-                    .map(|cfg| (name.clone(), cfg))
+            .properties()
+            .into_iter()
+            .filter_map(|property| {
+                let name = property.name()?.decoded_value().ok()?;
+                property
+                    .to_serde_value()
+                    .and_then(|value| serde_json::from_value::<McpConfig>(value).ok())
+                    .map(|cfg| (name, cfg))
             })
             .collect()
     }
 
     fn upsert(&self, path: &Path, name: &str, cfg: &McpConfig) -> Result<(), String> {
-        let mut root = self.read_root(path);
-        // read_root guarantees an object.
-        let obj = root.as_object_mut().expect("root is an object");
-        let section = obj.entry(self.key.clone()).or_insert_with(|| json!({}));
-        if !section.is_object() {
-            *section = json!({});
+        let root = self.read_document(path)?;
+        let object = root.object_value_or_create().ok_or_else(|| {
+            format!(
+                "refusing to modify {}: JSON root is not an object",
+                path.display()
+            )
+        })?;
+        let section = object.object_value_or_create(&self.key).ok_or_else(|| {
+            format!(
+                "refusing to modify {}: '{}' is not an object",
+                path.display(),
+                self.key
+            )
+        })?;
+        let value = serde_json::to_value(cfg)
+            .map(Self::input_value)
+            .map_err(|e| e.to_string())?;
+        if let Some(property) = section.get(name) {
+            property.set_value(value);
+        } else {
+            section.append(name, value);
         }
-        section
-            .as_object_mut()
-            .unwrap()
-            .insert(name.to_string(), serde_json::to_value(cfg).map_err(|e| e.to_string())?);
-        self.write_root(path, &root)
+        self.write_document(path, &root)
     }
 
     fn remove(&self, path: &Path, names: &[String]) -> Result<(), String> {
-        // No-op when the file does not exist (avoid creating an empty section).
         if !path.exists() {
             return Ok(());
         }
-        let mut root = self.read_root(path);
-        if let Some(section) = root.get_mut(self.key.as_str()).and_then(Value::as_object_mut) {
-            for n in names {
-                section.remove(n);
+        let root = self.read_document(path)?;
+        let object = root.object_value().ok_or_else(|| {
+            format!(
+                "refusing to modify {}: JSON root is not an object",
+                path.display()
+            )
+        })?;
+        let Some(section_property) = object.get(&self.key) else {
+            return Ok(());
+        };
+        let section = section_property.object_value().ok_or_else(|| {
+            format!(
+                "refusing to modify {}: '{}' is not an object",
+                path.display(),
+                self.key
+            )
+        })?;
+        let mut changed = false;
+        for name in names {
+            if let Some(property) = section.get(name) {
+                property.remove();
+                changed = true;
             }
         }
-        self.write_root(path, &root)
+        if changed {
+            self.write_document(path, &root)?;
+        }
+        Ok(())
     }
 }
 
@@ -92,7 +157,11 @@ mod tests {
     }
 
     fn git() -> McpConfig {
-        McpConfig::Stdio(StdioConfig { command: "npx".into(), args: Some(vec!["-y".into()]), env: None })
+        McpConfig::Stdio(StdioConfig {
+            command: "npx".into(),
+            args: Some(vec!["-y".into()]),
+            env: None,
+        })
     }
 
     #[test]
@@ -129,6 +198,83 @@ mod tests {
         assert_eq!(servers["mine"]["cwd"], "/tmp");
         assert_eq!(servers["mine"]["disabled"], false);
         assert_eq!(servers["weird"]["transport"], "streamable-http");
+        let _ = std::fs::remove_file(&p);
+    }
+
+    #[test]
+    fn upsert_only_edits_mcp_section_and_preserves_jsonc() {
+        let p = tmp("jsonc-private");
+        let original = r#"{
+  // Private agent settings must never be rewritten or exposed.
+  "account": { "token" : "secret", "flags": [1,  2] },
+  "mcpServers": {
+    // Existing user-managed server.
+    "mine": { "command" : "my-tool", "cwd": "/tmp" },
+  },
+  "theme": "dark"
+}
+"#;
+        std::fs::write(&p, original).unwrap();
+
+        JsonAdapter::new("mcpServers")
+            .upsert(&p, "git", &git())
+            .unwrap();
+
+        let written = std::fs::read_to_string(&p).unwrap();
+        assert!(written.contains(
+            "// Private agent settings must never be rewritten or exposed.\n  \"account\": { \"token\" : \"secret\", \"flags\": [1,  2] },"
+        ));
+        assert!(written.contains(
+            "// Existing user-managed server.\n    \"mine\": { \"command\" : \"my-tool\", \"cwd\": \"/tmp\" },"
+        ));
+        assert!(written.ends_with("  \"theme\": \"dark\"\n}\n"));
+        assert!(JsonAdapter::new("mcpServers").read(&p).contains_key("git"));
+        let _ = std::fs::remove_file(&p);
+    }
+
+    #[test]
+    fn updating_one_server_keeps_sibling_bytes() {
+        let p = tmp("target-only");
+        let sibling = r#""private": { "command" : "keep", "env": {"TOKEN":"secret"} }"#;
+        let original = format!(
+            "{{\n  \"mcpServers\": {{\n    \"git\": {{\"command\":\"old\"}},\n    {}\n  }},\n  \"account\": {{\"id\":7}}\n}}\n",
+            sibling
+        );
+        std::fs::write(&p, &original).unwrap();
+
+        JsonAdapter::new("mcpServers")
+            .upsert(&p, "git", &git())
+            .unwrap();
+
+        let written = std::fs::read_to_string(&p).unwrap();
+        assert!(written.contains(sibling));
+        assert!(written.contains("\"account\": {\"id\":7}"));
+        let _ = std::fs::remove_file(&p);
+    }
+
+    #[test]
+    fn invalid_json_is_never_overwritten() {
+        let p = tmp("invalid");
+        let original = r#"{"private":{"token":"secret"},"mcpServers": "#;
+        std::fs::write(&p, original).unwrap();
+
+        let result = JsonAdapter::new("mcpServers").upsert(&p, "git", &git());
+
+        assert!(result.is_err());
+        assert_eq!(std::fs::read_to_string(&p).unwrap(), original);
+        let _ = std::fs::remove_file(&p);
+    }
+
+    #[test]
+    fn non_object_mcp_section_is_never_replaced() {
+        let p = tmp("wrong-section");
+        let original = r#"{"private":{"token":"secret"},"mcpServers":"managed elsewhere"}"#;
+        std::fs::write(&p, original).unwrap();
+
+        let result = JsonAdapter::new("mcpServers").upsert(&p, "git", &git());
+
+        assert!(result.is_err());
+        assert_eq!(std::fs::read_to_string(&p).unwrap(), original);
         let _ = std::fs::remove_file(&p);
     }
 
@@ -176,5 +322,19 @@ mod tests {
         let adapter = JsonAdapter::new("mcpServers");
         adapter.remove(&p, &["git".to_string()]).unwrap();
         assert!(!p.exists());
+    }
+
+    #[test]
+    fn removing_absent_server_does_not_rewrite_file() {
+        let p = tmp("rm-absent");
+        let original = "{\n  // keep formatting\n  \"mcpServers\": {},\n  \"private\": { \"token\" : \"secret\" }\n}\n";
+        std::fs::write(&p, original).unwrap();
+
+        JsonAdapter::new("mcpServers")
+            .remove(&p, &["missing".to_string()])
+            .unwrap();
+
+        assert_eq!(std::fs::read_to_string(&p).unwrap(), original);
+        let _ = std::fs::remove_file(&p);
     }
 }

@@ -34,7 +34,7 @@ A one-click **Mux 精选 (curated collection)** subscribes you to a curated set.
 - **Transport-aware** — `stdio` / `http` / `sse`, plus a **custom `type`** (e.g. `streamable-http`). Same-named stdio and http variants are tracked separately.
 - **Paste a config** — drop a `{"mcpServers": {…}}` block and MUX recognizes the servers and adds them.
 - **Edits propagate** — changing a catalog entry re-stamps it into agents that installed it *clean*, while leaving hand-customized per-agent configs untouched.
-- **Safe writes** — a timestamped **backup** before touching an agent config; unrelated keys, servers, and unmodelled fields are preserved.
+- **Safe, local writes** — MUX reads and edits only the configured MCP section on this machine. It never uploads the complete agent config. A timestamped **backup** is created before every change; unrelated keys, comments, formatting, servers, and unmodelled fields are preserved.
 - **CLI ⇄ Desktop in sync** — both are built on one shared Rust core (`mux-core`) and read/write `~/.mux/`, so a change in one shows up in the other.
 - **Dark mode** and a macOS "liquid glass" UI.
 

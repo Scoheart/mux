@@ -1958,6 +1958,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "jsonc-parser"
+version = "0.32.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "840785e1a8b4fdb27be18440a35a81af64820dc185c3973ff8b012d4c6282512"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
 name = "jsonptr"
 version = "0.6.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2155,9 +2164,11 @@ version = "1.1.4"
 dependencies = [
  "chrono",
  "dirs 5.0.1",
+ "jsonc-parser",
  "serde",
  "serde_json",
  "toml 0.8.2",
+ "toml_edit 0.20.2",
  "ureq",
 ]
 

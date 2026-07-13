@@ -16,7 +16,7 @@ fn local_source_flow_populates_toggles_and_removes() {
     let cfg = home.join("team-mcp.json");
     fs::write(
         &cfg,
-        r#"{"mcpServers":{
+        r#"{"account":{"token":"must-not-be-cached"},"history":{"enabled":true},"mcpServers":{
             "git":{"command":"npx","args":["-y","git-mcp"]},
             "wiki":{"url":"https://deepwiki.example/mcp","type":"http"}
         }}"#,
@@ -36,18 +36,42 @@ fn local_source_flow_populates_toggles_and_removes() {
     // Its two servers now populate the catalog, tagged with the source origin.
     let cat = list_registry();
     assert_eq!(cat.len(), 2, "both servers should be in the catalog");
-    assert!(cat.iter().all(|e| e.origin.as_ref().map(|o| o.kind == "local"
-        && o.source.as_deref() == Some(id.as_str())).unwrap_or(false)));
-    assert!(cat.iter().any(|e| e.name == "git" && e.transport() == "stdio"));
-    assert!(cat.iter().any(|e| e.name == "wiki" && e.transport() == "http"));
+    assert!(cat.iter().all(|e| e
+        .origin
+        .as_ref()
+        .map(|o| o.kind == "local" && o.source.as_deref() == Some(id.as_str()))
+        .unwrap_or(false)));
+    assert!(cat
+        .iter()
+        .any(|e| e.name == "git" && e.transport() == "stdio"));
+    assert!(cat
+        .iter()
+        .any(|e| e.name == "wiki" && e.transport() == "http"));
 
     // The cached copy exists under ~/.mux/sources/local/.
-    let cached = home.join(".mux").join("sources").join("local").join(format!("{}.json", id));
-    assert!(cached.exists(), "cached local copy should exist at {:?}", cached);
+    let cached = home
+        .join(".mux")
+        .join("sources")
+        .join("local")
+        .join(format!("{}.json", id));
+    assert!(
+        cached.exists(),
+        "cached local copy should exist at {:?}",
+        cached
+    );
+    let cached_text = fs::read_to_string(&cached).unwrap();
+    assert!(cached_text.contains("mcpServers"));
+    assert!(!cached_text.contains("account"));
+    assert!(!cached_text.contains("history"));
+    assert!(!cached_text.contains("must-not-be-cached"));
 
     // Disabling the source removes its servers from the catalog…
     set_source_enabled(id.clone(), false).unwrap();
-    assert_eq!(list_registry().len(), 0, "disabled source contributes nothing");
+    assert_eq!(
+        list_registry().len(),
+        0,
+        "disabled source contributes nothing"
+    );
     // …and re-enabling brings them back.
     set_source_enabled(id.clone(), true).unwrap();
     assert_eq!(list_registry().len(), 2);

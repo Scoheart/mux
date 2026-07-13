@@ -25,7 +25,9 @@ fn target_path(def: &AgentDefinition, scope: &str, project_dir: Option<&Path>) -
 }
 
 fn backup(path: &Path, backups_dir: &Path, stamp: &str) {
-    if !path.exists() { return; }
+    if !path.exists() {
+        return;
+    }
     let _ = fs::create_dir_all(backups_dir);
     let fname = path.file_name().and_then(|s| s.to_str()).unwrap_or("file");
     let _ = fs::copy(path, backups_dir.join(format!("{}-{}", fname, stamp)));
@@ -47,8 +49,12 @@ pub fn apply_diffs(
     let mut backed_up = std::collections::HashSet::new();
     let mut errors: Vec<ApplyError> = Vec::new();
     for diff in diffs {
-        let Some(def) = agents.get(&diff.agent) else { continue };
-        let Some(path) = target_path(def, &diff.scope, project_dir) else { continue };
+        let Some(def) = agents.get(&diff.agent) else {
+            continue;
+        };
+        let Some(path) = target_path(def, &diff.scope, project_dir) else {
+            continue;
+        };
         if !backed_up.contains(&path) && path.exists() {
             backup(&path, backups_dir, timestamp);
             backed_up.insert(path.clone());
@@ -56,7 +62,9 @@ pub fn apply_diffs(
         let adapter = get_adapter(&def.format, &def.key);
         let result = match diff.action {
             DiffAction::Add => {
-                let Some(cfg) = configs.get(&diff.mcp_name) else { continue };
+                let Some(cfg) = configs.get(&diff.mcp_name) else {
+                    continue;
+                };
                 // Single-server upsert: never re-serialize the user's other servers.
                 adapter.upsert(&path, &diff.mcp_name, cfg)
             }
@@ -66,10 +74,17 @@ pub fn apply_diffs(
             }
         };
         if let Err(e) = result {
-            errors.push(ApplyError { target: path.display().to_string(), error: e });
+            errors.push(ApplyError {
+                target: path.display().to_string(),
+                error: e,
+            });
         }
     }
-    if errors.is_empty() { Ok(()) } else { Err(errors) }
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors)
+    }
 }
 
 #[cfg(test)]
@@ -86,17 +101,34 @@ mod tests {
         std::fs::write(&cfg_path, r#"{"mcpServers":{"old":{"command":"x"}}}"#).unwrap();
 
         let mut agents = BTreeMap::new();
-        agents.insert("test".to_string(), AgentDefinition {
-            global: None, project: Some("mcp.json".into()),
-            format: "json".into(), key: "mcpServers".into(),
-            enabled: true, builtin: None });
+        agents.insert(
+            "test".to_string(),
+            AgentDefinition {
+                global: None,
+                project: Some("mcp.json".into()),
+                format: "json".into(),
+                key: "mcpServers".into(),
+                enabled: true,
+                builtin: None,
+            },
+        );
 
         let mut configs = BTreeMap::new();
-        configs.insert("git".to_string(), McpConfig::Stdio(StdioConfig {
-            command: "npx".into(), args: None, env: None }));
+        configs.insert(
+            "git".to_string(),
+            McpConfig::Stdio(StdioConfig {
+                command: "npx".into(),
+                args: None,
+                env: None,
+            }),
+        );
 
-        let diffs = vec![DiffEntry { action: DiffAction::Add,
-            mcp_name: "git".into(), agent: "test".into(), scope: "project".into() }];
+        let diffs = vec![DiffEntry {
+            action: DiffAction::Add,
+            mcp_name: "git".into(),
+            agent: "test".into(),
+            scope: "project".into(),
+        }];
         let backups = base.join("backups");
         let res = apply_diffs(&diffs, &agents, &configs, &backups, Some(&base), "STAMP");
 
@@ -104,6 +136,118 @@ mod tests {
         let written = std::fs::read_to_string(&cfg_path).unwrap();
         assert!(written.contains("git"));
         assert!(backups.join("mcp.json-STAMP").exists());
+        std::fs::remove_dir_all(&base).ok();
+    }
+
+    #[test]
+    fn apply_only_changes_target_mcp_entry() {
+        let mut base = std::env::temp_dir();
+        base.push(format!("mux-apply-private-{}", std::process::id()));
+        std::fs::create_dir_all(&base).unwrap();
+        let cfg_path = base.join("agent.json");
+        let original = r#"{
+  // Private agent data is outside MUX ownership.
+  "account": { "token" : "secret", "history": true },
+  "mcpServers": {
+    "existing": { "command" : "keep", "cwd": "/tmp" },
+  },
+  "theme": "dark"
+}
+"#;
+        std::fs::write(&cfg_path, original).unwrap();
+
+        let mut agents = BTreeMap::new();
+        agents.insert(
+            "test".to_string(),
+            AgentDefinition {
+                global: None,
+                project: Some("agent.json".into()),
+                format: "json".into(),
+                key: "mcpServers".into(),
+                enabled: true,
+                builtin: None,
+            },
+        );
+        let mut configs = BTreeMap::new();
+        configs.insert(
+            "git".to_string(),
+            McpConfig::Stdio(StdioConfig {
+                command: "npx".into(),
+                args: None,
+                env: None,
+            }),
+        );
+        let diffs = vec![DiffEntry {
+            action: DiffAction::Add,
+            mcp_name: "git".into(),
+            agent: "test".into(),
+            scope: "project".into(),
+        }];
+        let backups = base.join("backups");
+
+        apply_diffs(&diffs, &agents, &configs, &backups, Some(&base), "STAMP").unwrap();
+
+        let written = std::fs::read_to_string(&cfg_path).unwrap();
+        assert!(written.contains(
+            "// Private agent data is outside MUX ownership.\n  \"account\": { \"token\" : \"secret\", \"history\": true },"
+        ));
+        assert!(written.contains("\"existing\": { \"command\" : \"keep\", \"cwd\": \"/tmp\" },"));
+        assert!(written.ends_with("  \"theme\": \"dark\"\n}\n"));
+        assert_eq!(
+            std::fs::read_to_string(backups.join("agent.json-STAMP")).unwrap(),
+            original
+        );
+        std::fs::remove_dir_all(&base).ok();
+    }
+
+    #[test]
+    fn apply_refuses_to_replace_invalid_config() {
+        let mut base = std::env::temp_dir();
+        base.push(format!("mux-apply-invalid-{}", std::process::id()));
+        std::fs::create_dir_all(&base).unwrap();
+        let cfg_path = base.join("agent.json");
+        let original = r#"{"account":{"token":"secret"},"mcpServers": "#;
+        std::fs::write(&cfg_path, original).unwrap();
+
+        let mut agents = BTreeMap::new();
+        agents.insert(
+            "test".to_string(),
+            AgentDefinition {
+                global: None,
+                project: Some("agent.json".into()),
+                format: "json".into(),
+                key: "mcpServers".into(),
+                enabled: true,
+                builtin: None,
+            },
+        );
+        let mut configs = BTreeMap::new();
+        configs.insert(
+            "git".to_string(),
+            McpConfig::Stdio(StdioConfig {
+                command: "npx".into(),
+                args: None,
+                env: None,
+            }),
+        );
+        let diffs = vec![DiffEntry {
+            action: DiffAction::Add,
+            mcp_name: "git".into(),
+            agent: "test".into(),
+            scope: "project".into(),
+        }];
+
+        let result = apply_diffs(
+            &diffs,
+            &agents,
+            &configs,
+            &base.join("backups"),
+            Some(&base),
+            "STAMP",
+        );
+
+        assert!(result.is_err());
+        assert_eq!(std::fs::read_to_string(&cfg_path).unwrap(), original);
         std::fs::remove_dir_all(&base).ok();
     }
 }

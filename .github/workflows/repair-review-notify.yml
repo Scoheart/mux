@@ -1,0 +1,35 @@
+name: Notify repair review
+
+on:
+  pull_request_target:
+    types: [opened, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  notify:
+    if: >-
+      (github.event.pull_request.user.login == 'copilot-swe-agent[bot]' ||
+       github.event.pull_request.user.login == 'copilot-swe-agent') &&
+      github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    steps:
+      # Deliberately do not checkout or execute PR code in pull_request_target.
+      - name: Request owner review
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          gh api \
+            --method POST \
+            "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/requested_reviewers" \
+            -f "reviewers[]=${GITHUB_REPOSITORY_OWNER}"
+          gh issue edit "$PR_NUMBER" \
+            --repo "$GITHUB_REPOSITORY" \
+            --add-label needs-review
+          gh pr comment "$PR_NUMBER" \
+            --repo "$GITHUB_REPOSITORY" \
+            --body "@${GITHUB_REPOSITORY_OWNER} 自动修复已完成并等待你的检验。请核对差异、测试结果和原 Issue 验收条件后再合并。"

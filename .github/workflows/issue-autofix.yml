@@ -1,0 +1,71 @@
+name: Dispatch issue repair
+
+on:
+  issues:
+    types: [labeled]
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: Open issue number to repair
+        required: true
+        type: number
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  dispatch:
+    if: >-
+      github.actor == github.repository_owner &&
+      (github.event_name == 'workflow_dispatch' ||
+       (github.event.label.name == 'autofix' && github.event.issue.state == 'open'))
+    runs-on: ubuntu-latest
+    env:
+      COPILOT_PAT_CONFIGURED: ${{ secrets.COPILOT_PAT != '' }}
+    steps:
+      - name: Checkout trusted default branch
+        uses: actions/checkout@v5
+
+      - name: Resolve issue number
+        id: issue
+        env:
+          EVENT_ISSUE: ${{ github.event.issue.number }}
+          INPUT_ISSUE: ${{ inputs.issue_number }}
+        run: echo "number=${INPUT_ISSUE:-$EVENT_ISSUE}" >> "$GITHUB_OUTPUT"
+
+      - name: Require repair credentials
+        if: ${{ env.COPILOT_PAT_CONFIGURED != 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ steps.issue.outputs.number }}
+        run: |
+          gh issue comment "$ISSUE_NUMBER" \
+            --repo "$GITHUB_REPOSITORY" \
+            --body "@${GITHUB_REPOSITORY_OWNER} 无法启动自动修复：仓库缺少 \`COPILOT_PAT\` Secret。"
+          exit 1
+
+      - name: Dispatch Copilot repair
+        id: dispatch
+        continue-on-error: true
+        env:
+          COPILOT_PAT: ${{ secrets.COPILOT_PAT }}
+          ISSUE_NUMBER: ${{ steps.issue.outputs.number }}
+          REPOSITORY: ${{ github.repository }}
+          BASE_BRANCH: main
+        run: .github/scripts/assign-copilot.sh
+
+      - name: Report dispatch failure
+        if: ${{ steps.dispatch.outcome == 'failure' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ steps.issue.outputs.number }}
+        run: |
+          gh issue edit "$ISSUE_NUMBER" \
+            --repo "$GITHUB_REPOSITORY" \
+            --add-label autofix-failed \
+            --remove-label autofix
+          gh issue comment "$ISSUE_NUMBER" \
+            --repo "$GITHUB_REPOSITORY" \
+            --body "@${GITHUB_REPOSITORY_OWNER} 自动修复派发失败，请检查 Copilot cloud agent 权限、\`COPILOT_PAT\` 和工作流日志。"
+          exit 1

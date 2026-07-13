@@ -1,0 +1,167 @@
+name: Quality monitor
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # 09:17 Asia/Shanghai. GitHub cron uses UTC.
+    - cron: "17 1 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: quality-monitor-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    env:
+      FAILURE_ISSUE_TITLE: "[CI] Automated verification is failing"
+      AUTOFIX_CONFIGURED: ${{ secrets.COPILOT_PAT != '' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+
+      - name: Test core and CLI
+        run: cargo test --locked -p mux-core -p mux-cli
+
+      - name: Install desktop dependencies
+        working-directory: desktop
+        run: npm install --no-audit --no-fund
+
+      - name: Build desktop frontend
+        working-directory: desktop
+        run: npm run build
+
+      - name: Install documentation dependencies
+        working-directory: website
+        run: npm install --no-audit --no-fund
+
+      - name: Build documentation
+        working-directory: website
+        run: npm run build
+
+      - name: Open or update failure issue
+        id: report
+        if: ${{ failure() && github.event_name != 'pull_request' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          issue=$(gh issue list \
+            --repo "$GITHUB_REPOSITORY" \
+            --state open \
+            --label ci-failure \
+            --json number \
+            --jq '.[0].number // empty')
+
+          run_url="https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          details=$(cat <<EOF
+          Automated verification failed on \`${GITHUB_SHA}\`.
+
+          - Event: \`${GITHUB_EVENT_NAME}\`
+          - Branch/ref: \`${GITHUB_REF}\`
+          - Workflow run: ${run_url}
+
+          Acceptance criteria:
+          - Reproduce the failing check from the workflow logs.
+          - Fix the root cause without weakening the check.
+          - Add or update focused tests when appropriate.
+          - Make the full Quality monitor workflow pass.
+          EOF
+          )
+
+          if [[ -n "$issue" ]]; then
+            created=false
+            gh issue comment "$issue" --repo "$GITHUB_REPOSITORY" --body "$details"
+          else
+            created=true
+            issue_url=$(gh issue create \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "$FAILURE_ISSUE_TITLE" \
+              --body "$details" \
+              --label bug \
+              --label automated \
+              --label ci-failure)
+            issue=${issue_url##*/}
+          fi
+
+          echo "issue_number=$issue" >> "$GITHUB_OUTPUT"
+          echo "created=$created" >> "$GITHUB_OUTPUT"
+
+      - name: Mark automatic repair as queued
+        if: ${{ failure() && steps.report.outputs.issue_number != '' && env.AUTOFIX_CONFIGURED == 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ steps.report.outputs.issue_number }}
+        run: gh issue edit "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" --add-label autofix
+
+      - name: Dispatch Copilot repair
+        if: ${{ failure() && steps.report.outputs.issue_number != '' && env.AUTOFIX_CONFIGURED == 'true' }}
+        id: dispatch
+        continue-on-error: true
+        env:
+          COPILOT_PAT: ${{ secrets.COPILOT_PAT }}
+          ISSUE_NUMBER: ${{ steps.report.outputs.issue_number }}
+          REPOSITORY: ${{ github.repository }}
+          BASE_BRANCH: main
+        run: .github/scripts/assign-copilot.sh
+
+      - name: Report repair dispatch failure
+        if: ${{ failure() && steps.dispatch.outcome == 'failure' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ steps.report.outputs.issue_number }}
+        run: |
+          gh issue edit "$ISSUE_NUMBER" \
+            --repo "$GITHUB_REPOSITORY" \
+            --add-label autofix-failed \
+            --remove-label autofix
+          gh issue comment "$ISSUE_NUMBER" \
+            --repo "$GITHUB_REPOSITORY" \
+            --body "@${GITHUB_REPOSITORY_OWNER} 自动修复派发失败，请检查 Copilot cloud agent 权限、\`COPILOT_PAT\` 和本次工作流日志。"
+
+      - name: Explain inactive automatic repair
+        if: ${{ failure() && steps.report.outputs.created == 'true' && env.AUTOFIX_CONFIGURED != 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ steps.report.outputs.issue_number }}
+        run: |
+          gh issue comment "$ISSUE_NUMBER" \
+            --repo "$GITHUB_REPOSITORY" \
+            --body "@${GITHUB_REPOSITORY_OWNER} 已检测到问题并创建 Issue。自动修复尚未启用：请启用 Copilot cloud agent，并添加仓库 Secret \`COPILOT_PAT\`。"
+
+      - name: Close recovered failure issue
+        if: ${{ success() && github.event_name != 'pull_request' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          issue=$(gh issue list \
+            --repo "$GITHUB_REPOSITORY" \
+            --state open \
+            --label ci-failure \
+            --json number \
+            --jq '.[0].number // empty')
+          if [[ -n "$issue" ]]; then
+            run_url="https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+            gh issue comment "$issue" \
+              --repo "$GITHUB_REPOSITORY" \
+              --body "Verification recovered on \`${GITHUB_SHA}\`: ${run_url}"
+            gh issue close "$issue" --repo "$GITHUB_REPOSITORY" --reason completed
+          fi

@@ -2,14 +2,10 @@ import { useMemo, useState } from "react";
 import type { InstallState } from "../hooks/useInstallState";
 import type { SourceView } from "../lib/types";
 import { IconButton } from "./ui";
-import { CloudIcon, FolderIcon, RefreshIcon, TrashIcon, LayersIcon, EditIcon, SearchIcon, CheckIcon } from "./icons";
+import { CloudIcon, FolderIcon, RefreshIcon, TrashIcon, LayersIcon, EditIcon, SearchIcon } from "./icons";
 import { SubscribeDialog } from "./SubscribeDialog";
 import { useToast } from "./Toast";
 import { formatError } from "../lib/format";
-
-/** Sentinel `selectedId` for the "生效中" filter (the deduped effective catalog).
- *  `null` = 全部 (all copies); a real source id = that source's copies. */
-export const EFFECTIVE_ID = "__effective__";
 
 /** Sort rank: remote (0) → user local (1) → managed manual/discovered (2). */
 function rank(s: SourceView): number {
@@ -41,7 +37,7 @@ export function SourcesSidebar({
   selectedId: string | null;
   onSelect: (id: string | null) => void;
 }) {
-  const { sources, entries, catalog } = state;
+  const { sources, catalog } = state;
   const toast = useToast();
   const [subscribeOpen, setSubscribeOpen] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -114,7 +110,7 @@ export function SourcesSidebar({
 
       {/* List */}
       <div className="flex-1 min-h-0 overflow-y-auto px-2 pb-3 mux-noscroll">
-        {/* 全部（所有来源的全部副本）+ 生效中（去重后胜出的） */}
+        {/* Status filtering lives in the content toolbar; this list is sources only. */}
         <Row
           active={selectedId === null}
           icon={<LayersIcon className="w-3.5 h-3.5" />}
@@ -122,14 +118,6 @@ export function SourcesSidebar({
           count={catalog.length}
           onClick={() => onSelect(null)}
         />
-        <Row
-          active={selectedId === EFFECTIVE_ID}
-          icon={<CheckIcon className="w-3.5 h-3.5" />}
-          name="生效中"
-          count={entries.length}
-          onClick={() => onSelect(EFFECTIVE_ID)}
-        />
-
         <div className="my-1.5 mx-2 h-px" style={{ background: "var(--border-hairline)" }} />
 
         {sorted.length === 0 ? (

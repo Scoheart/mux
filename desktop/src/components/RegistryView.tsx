@@ -5,10 +5,9 @@ import { keyOf, transportOf, type Transport } from "../lib/mcp";
 import { exportEffectiveDialog, forgetEntry } from "../lib/api";
 import { formatError } from "../lib/format";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { SourcesSidebar, EFFECTIVE_ID } from "./SourcesSidebar";
+import { SourcesSidebar } from "./SourcesSidebar";
 import { AgentGlyph, agentName } from "./brandIcons";
 import {
-  CheckIcon,
   CopyIcon,
   EditIcon,
   PlusIcon,
@@ -33,7 +32,7 @@ interface RegistryViewProps {
 
 /** Origin buckets — still used to decide which entries are user-deletable. */
 type OriginBucket = "remote" | "local" | "manual" | "discovered";
-type StatusFilter = "all" | "effective" | "shadowed";
+type StatusFilter = "all" | "shadowed";
 
 /** Classify an entry's origin into a bucket. Entries with no origin, or a
  *  legacy/unknown kind, fall into "discovered" (scanned-from-machine). */
@@ -122,9 +121,9 @@ function OriginTag({
 function originLabel(origin: RegistryOrigin | undefined, sourceName: (id: string) => string): string {
   if (!origin) return "其它来源";
   if (origin.kind === "manual") return "手动添加";
-  if (origin.kind === "discovered") return origin.agent ? `来自 ${agentName(origin.agent)}` : "自动探索";
+  if (origin.kind === "discovered") return origin.agent ? agentName(origin.agent) : "自动探索";
   const label = origin.source ? sourceName(origin.source) : "";
-  return (origin.kind === "remote" ? "订阅" : "本地") + (label ? `：${label}` : "");
+  return label || (origin.kind === "remote" ? "订阅" : "本地");
 }
 
 export function RegistryView({ state, onEdit, onCreate }: RegistryViewProps) {
@@ -132,9 +131,8 @@ export function RegistryView({ state, onEdit, onCreate }: RegistryViewProps) {
   const toast = useToast();
 
   const [q, setQ] = useState("");
-  // Which source the grid is filtered to. null = 全部 (all copies), EFFECTIVE_ID =
-  // 生效中 (deduped winners). Managed sources use their ids ("manual" /
-  // "discovered"); remote/local use their source id.
+  // Source and status are separate filters: the sidebar owns provenance, while
+  // the compact status control appears only when duplicate copies need review.
   const [selectedSource, setSelectedSource] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [detail, setDetail] = useState<CatalogItem | null>(null);
@@ -158,8 +156,7 @@ export function RegistryView({ state, onEdit, onCreate }: RegistryViewProps) {
   const scoped = useMemo(() => {
     const s = q.trim().toLowerCase();
     let list = catalog;
-    if (selectedSource === EFFECTIVE_ID) list = list.filter((it) => it.in_effect);
-    else if (selectedSource !== null) list = list.filter((it) => inSource(it.entry, selectedSource));
+    if (selectedSource !== null) list = list.filter((it) => inSource(it.entry, selectedSource));
     if (s)
       list = list.filter(
         (it) => it.entry.name.toLowerCase().includes(s) || it.entry.description.toLowerCase().includes(s)
@@ -173,20 +170,17 @@ export function RegistryView({ state, onEdit, onCreate }: RegistryViewProps) {
     );
   }, [catalog, q, selectedSource]);
 
-  const statusCounts = useMemo(
-    () => ({
-      all: scoped.length,
-      effective: scoped.filter((item) => item.in_effect).length,
-      shadowed: scoped.filter((item) => !item.in_effect).length,
-    }),
+  const shadowedCount = useMemo(
+    () => scoped.filter((item) => !item.in_effect).length,
     [scoped]
   );
 
   const filtered = useMemo(() => {
-    if (statusFilter === "effective") return scoped.filter((item) => item.in_effect);
     if (statusFilter === "shadowed") return scoped.filter((item) => !item.in_effect);
     return scoped;
   }, [scoped, statusFilter]);
+
+  const showShadowedFilter = shadowedCount > 0 || statusFilter === "shadowed";
 
   const copyConfig = useCallback(
     (entry: RegistryEntry) => {
@@ -248,11 +242,25 @@ export function RegistryView({ state, onEdit, onCreate }: RegistryViewProps) {
       <div className="flex-1 min-w-0 min-h-0 overflow-y-auto">
       {/* Sticky header: search/actions + catalog-state filter. */}
       <div className="sticky top-0 z-10 px-6 py-3" style={stickyHeaderStyle}>
-        <div className="max-w-[1280px] mx-auto space-y-3">
+        <div className="max-w-[1280px] mx-auto">
           <div className="flex items-center gap-3">
             <div className="flex-1 min-w-[160px]">
               <SearchBar value={q} onChange={setQ} placeholder="搜索 MCP…" />
             </div>
+            {showShadowedFilter && (
+              <button
+                type="button"
+                className="mux-shadowed-filter flex-shrink-0"
+                data-active={statusFilter === "shadowed" ? "true" : undefined}
+                aria-pressed={statusFilter === "shadowed"}
+                title={statusFilter === "shadowed" ? "显示全部配置" : "只看被覆盖配置"}
+                onClick={() => setStatusFilter(statusFilter === "shadowed" ? "all" : "shadowed")}
+              >
+                <LayersIcon className="w-3.5 h-3.5" />
+                <span>被覆盖</span>
+                <span className="tabular-nums opacity-70">{shadowedCount}</span>
+              </button>
+            )}
             <button
               onClick={() => setPasteOpen(true)}
               className="btn-ghost flex-shrink-0"
@@ -260,45 +268,15 @@ export function RegistryView({ state, onEdit, onCreate }: RegistryViewProps) {
             >
               粘贴配置
             </button>
+            <IconButton title="导出生效配置" onClick={doExport} disabled={entries.length === 0}>
+              <DownloadIcon className="w-4 h-4" />
+            </IconButton>
             <button onClick={onCreate} className="btn-primary flex-shrink-0">
               <PlusIcon className="w-4 h-4" />
               新建 MCP
             </button>
           </div>
 
-          <div className="flex items-center justify-between gap-3">
-            <div className="mux-status-filter" role="group" aria-label="目录配置状态">
-              {(
-                [
-                  ["all", "全部", statusCounts.all],
-                  ["effective", "生效", statusCounts.effective],
-                  ["shadowed", "被覆盖", statusCounts.shadowed],
-                ] as const
-              ).map(([value, label, count]) => (
-                <button
-                  key={value}
-                  type="button"
-                  className="mux-status-filter-item"
-                  data-active={statusFilter === value ? "true" : undefined}
-                  data-status={value}
-                  aria-pressed={statusFilter === value}
-                  disabled={value !== "all" && count === 0}
-                  onClick={() => setStatusFilter(value)}
-                >
-                  <span>{label}</span>
-                  <span className="mux-status-count">{count}</span>
-                </button>
-              ))}
-            </div>
-            <div className="flex items-center gap-1.5 flex-shrink-0">
-              <span className="text-xs" style={{ color: "var(--text-secondary)" }}>
-                {filtered.length} 项
-              </span>
-              <IconButton title="导出生效配置" onClick={doExport} disabled={entries.length === 0}>
-                <DownloadIcon className="w-4 h-4" />
-              </IconButton>
-            </div>
-          </div>
         </div>
       </div>
 
@@ -309,9 +287,7 @@ export function RegistryView({ state, onEdit, onCreate }: RegistryViewProps) {
               ? "暂无配置，请从左侧添加来源。"
               : statusFilter === "shadowed"
                 ? "没有被覆盖项"
-                : statusFilter === "effective"
-                  ? "没有生效项"
-                  : "没有匹配项"}
+                : "没有匹配项"}
           </div>
         ) : (
           <div className="mux-grid">
@@ -343,7 +319,6 @@ export function RegistryView({ state, onEdit, onCreate }: RegistryViewProps) {
       {detail && (
         <RegistryDetail
           entry={detail.entry}
-          inEffect={detail.in_effect}
           overriddenBy={
             detail.in_effect
               ? undefined
@@ -371,8 +346,7 @@ export function RegistryView({ state, onEdit, onCreate }: RegistryViewProps) {
   );
 }
 
-/** A single catalog card. The precedence row is intentionally persistent on
- *  every card so winners and shadowed copies share a directly comparable shape. */
+/** Default entries stay visually quiet; only a shadowed copy carries state UI. */
 function RegistryCard({
   item,
   installedAgents,
@@ -405,7 +379,7 @@ function RegistryCard({
   return (
     <div
       className="mux-tile p-3"
-      data-state={overridden ? "shadowed" : "effective"}
+      data-state={overridden ? "shadowed" : undefined}
       onClick={onOpen}
     >
       {/* Header: identity, provenance, and an explicit catalog state. */}
@@ -459,33 +433,15 @@ function RegistryCard({
         </span>
       </div>
 
-      <div
-        className="mux-precedence-row"
-        data-state={overridden ? "shadowed" : "effective"}
-        title={overridden ? `当前采用「${overriddenBy}」的配置` : "当前来源生效"}
-      >
-        {overridden ? (
-          <LayersIcon className="w-3.5 h-3.5 flex-shrink-0" />
-        ) : (
-          <CheckIcon className="w-3.5 h-3.5 flex-shrink-0" />
-        )}
-        {overridden ? (
-          <span className="min-w-0 flex items-center gap-1">
-            <strong className="truncate">{overriddenBy}</strong>
-            <span className="flex-shrink-0">生效</span>
-          </span>
-        ) : (
-          <span>生效</span>
-        )}
-      </div>
-
       {/* Footer: usage dot + hover actions — pinned to the card bottom so every
           card in a row lines up (grid stretches them to equal height). */}
-      <div className="flex items-center justify-between mt-auto pt-2.5" style={{ borderTop: "1px solid var(--border-hairline)" }}>
+      <div className="flex items-center justify-between mt-3 pt-2.5" style={{ borderTop: "1px solid var(--border-hairline)" }}>
         {overridden ? (
-          <span className="mux-shadowed-footnote inline-flex items-center gap-1.5 text-[11px]">
-            <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" />
-            不参与安装
+          <span
+            className="mux-shadowed-source min-w-0 truncate text-[11px]"
+            title={`当前使用「${overriddenBy}」的配置`}
+          >
+            以 {overriddenBy} 为准
           </span>
         ) : (
           <span
@@ -531,7 +487,6 @@ function RegistryCard({
 
 function RegistryDetail({
   entry,
-  inEffect,
   overriddenBy,
   installedAgents,
   sourceName,
@@ -541,7 +496,6 @@ function RegistryDetail({
   onDelete,
 }: {
   entry: RegistryEntry;
-  inEffect: boolean;
   overriddenBy?: string;
   installedAgents: string[];
   sourceName: (id: string) => string;
@@ -575,25 +529,19 @@ function RegistryDetail({
           </button>
         </div>
 
-        <div className="px-6 pt-4">
-          <div className="mux-detail-state" data-state={inEffect ? "effective" : "shadowed"}>
-            {inEffect ? (
-              <CheckIcon className="w-4 h-4 flex-shrink-0" />
-            ) : (
+        {overriddenBy && (
+          <div className="px-6 pt-4">
+            <div className="mux-detail-warning">
               <LayersIcon className="w-4 h-4 flex-shrink-0" />
-            )}
-            <div className="min-w-0">
-              <div className="text-xs font-semibold">
-                {inEffect ? "当前生效配置" : "此副本已被覆盖"}
-              </div>
-              <div className="text-[11px] mt-0.5 leading-relaxed">
-                {inEffect
-                  ? "安装与同步会使用此来源的配置。"
-                  : `当前以「${overriddenBy ?? "其它来源"}」为准，此处配置不会用于安装与同步。`}
+              <div className="min-w-0">
+                <div className="text-xs font-semibold">已被覆盖</div>
+                <div className="text-[11px] mt-0.5 leading-relaxed">
+                  当前使用「{overriddenBy}」，此副本不参与安装。
+                </div>
               </div>
             </div>
           </div>
-        </div>
+        )}
 
         <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
           {entry.description && (

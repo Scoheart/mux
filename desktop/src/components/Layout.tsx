@@ -129,6 +129,20 @@ export function Layout({
           </div>
         </div>
 
+        {/* Add an agent beside the agent strip so the action reads as part of
+            that collection, rather than as a global toolbar command. */}
+        {onAddAgent && (
+          <button
+            type="button"
+            className="mux-agent-add flex-shrink-0"
+            title="添加 Agent"
+            aria-label="添加 Agent"
+            onClick={onAddAgent}
+          >
+            <PlusIcon className="w-4 h-4" />
+          </button>
+        )}
+
         {/* Divider */}
         <div className="h-5 w-px flex-shrink-0" style={{ background: "var(--border-hairline)" }} />
 
@@ -156,19 +170,6 @@ export function Layout({
               className="w-4 h-4"
               style={rescanning ? { animation: "spin 0.8s linear infinite" } : undefined}
             />
-          </button>
-        )}
-
-        {/* Add-agent button — prominent accent action */}
-        {onAddAgent && (
-          <button
-            type="button"
-            className="mux-add-btn flex-shrink-0"
-            title="添加 Agent"
-            aria-label="添加 Agent"
-            onClick={onAddAgent}
-          >
-            <PlusIcon className="w-4 h-4" style={{ color: "#fff" }} />
           </button>
         )}
 

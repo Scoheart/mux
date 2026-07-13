@@ -36,14 +36,11 @@
   --text-secondary: var(--color-gray-400);
   --border-hairline: var(--color-gray-200);
   --header-bg: rgba(245,245,247,.55);
-  --status-effective: #2B6CB0;
-  --status-effective-bg: rgba(0,122,255,.055);
-  --status-effective-border: rgba(0,122,255,.15);
-  --status-shadowed: #9A5A00;
-  --status-shadowed-bg: rgba(255,149,0,.12);
-  --status-shadowed-border: rgba(210,117,0,.42);
-  --status-shadowed-surface: rgba(255,248,226,.78);
-  --status-shadowed-surface-hover: rgba(255,245,218,.90);
+  --status-shadowed: #5654B8;
+  --status-shadowed-bg: rgba(94,92,230,.10);
+  --status-shadowed-border: rgba(94,92,230,.28);
+  --status-shadowed-surface: rgba(246,246,255,.76);
+  --status-shadowed-surface-hover: rgba(241,241,255,.92);
   color-scheme: light;
 
   /* Liquid-glass material tokens — a CSS approximation of Apple's Liquid Glass
@@ -87,14 +84,11 @@
   --glass-highlight: inset 0 1px 0 rgba(255,255,255,.08);
   --glass-shadow: 0 8px 32px rgba(0,0,0,.45), 0 2px 8px rgba(0,0,0,.35);
 
-  --status-effective: #64A8FF;
-  --status-effective-bg: rgba(0,122,255,.14);
-  --status-effective-border: rgba(100,168,255,.28);
-  --status-shadowed: #FFBD5A;
-  --status-shadowed-bg: rgba(255,149,0,.14);
-  --status-shadowed-border: rgba(255,189,90,.38);
-  --status-shadowed-surface: rgba(67,50,24,.82);
-  --status-shadowed-surface-hover: rgba(82,59,24,.90);
+  --status-shadowed: #A7A5FF;
+  --status-shadowed-bg: rgba(94,92,230,.18);
+  --status-shadowed-border: rgba(167,165,255,.34);
+  --status-shadowed-surface: rgba(42,41,68,.82);
+  --status-shadowed-surface-hover: rgba(50,48,82,.90);
 }
 
 /* Forced light: the chosen aesthetic is "macOS 原生浅色". We intentionally do
@@ -151,14 +145,14 @@ body {
 .mux-tile[data-state="shadowed"] {
   background: var(--status-shadowed-surface);
   border-color: var(--status-shadowed-border);
-  box-shadow: 0 2px 10px rgba(122,76,0,.10), var(--glass-highlight);
+  box-shadow: 0 2px 10px rgba(66,63,160,.10), var(--glass-highlight);
 }
 .mux-tile[data-state="shadowed"]::before {
   content: "";
   position: absolute;
   inset: 0 auto 0 0;
   width: 4px;
-  background: #E28A00;
+  background: var(--status-shadowed);
 }
 .mux-tile:hover {
   background: var(--glass-fill-strong);
@@ -168,8 +162,8 @@ body {
 }
 .mux-tile[data-state="shadowed"]:hover {
   background: var(--status-shadowed-surface-hover);
-  border-color: color-mix(in srgb, #D87900 68%, var(--glass-border));
-  box-shadow: 0 5px 16px rgba(122,76,0,.16), var(--glass-highlight);
+  border-color: color-mix(in srgb, var(--status-shadowed) 64%, var(--glass-border));
+  box-shadow: 0 5px 16px rgba(66,63,160,.16), var(--glass-highlight);
 }
 .mux-tile[data-state="shadowed"] .mux-card-avatar {
   filter: saturate(.68);
@@ -183,63 +177,38 @@ body {
   gap: 10px;
 }
 
-/* Catalog state control: status is independent from the source selected in the
-   sidebar, so shadowed copies can be isolated without losing source context. */
-.mux-status-filter {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  padding: 3px;
-  border-radius: 9px;
-  background: rgba(120,120,128,.12);
-  border: 1px solid rgba(120,120,128,.08);
-}
-.mux-status-filter-item {
+/* Conflict is the only exceptional catalog state exposed as a filter. */
+.mux-shadowed-filter {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  min-width: 76px;
-  height: 28px;
+  gap: 5px;
+  height: 30px;
   padding: 0 9px;
-  border: 0;
-  border-radius: 7px;
-  background: transparent;
-  color: var(--color-gray-600);
-  font: 600 12px/1 var(--font-sans);
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--status-shadowed-border) 55%, var(--border-hairline));
+  background: color-mix(in srgb, var(--status-shadowed-bg) 42%, transparent);
+  color: var(--status-shadowed);
+  font: 600 11px/1 var(--font-sans);
+  white-space: nowrap;
   cursor: pointer;
-  transition: background .14s ease, color .14s ease, box-shadow .14s ease;
+  transition: background .14s ease, border-color .14s ease, box-shadow .14s ease;
 }
-.mux-status-filter-item:hover:not(:disabled) { color: var(--text-primary); }
-.mux-status-filter-item:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--color-blue) 58%, transparent);
+.mux-shadowed-filter:hover {
+  background: var(--status-shadowed-bg);
+  border-color: var(--status-shadowed-border);
+}
+.mux-shadowed-filter:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--status-shadowed) 52%, transparent);
   outline-offset: 1px;
 }
-.mux-status-filter-item[data-active="true"] {
-  background: var(--surface-raised);
-  color: var(--text-primary);
-  box-shadow: var(--shadow-card);
-}
-.mux-status-filter-item[data-status="effective"][data-active="true"] {
-  color: var(--status-effective);
-  background: color-mix(in srgb, var(--status-effective-bg) 70%, var(--surface-raised));
-}
-.mux-status-filter-item[data-status="shadowed"][data-active="true"] {
-  color: var(--status-shadowed);
-  background: color-mix(in srgb, var(--status-shadowed-bg) 80%, var(--surface-raised));
-}
-.mux-status-filter-item:disabled { opacity: .38; cursor: default; }
-.mux-status-count {
-  min-width: 18px;
-  padding: 2px 5px;
-  border-radius: 999px;
-  background: color-mix(in srgb, currentColor 9%, transparent);
-  font-size: 10px;
-  line-height: 1;
-  text-align: center;
+.mux-shadowed-filter[data-active="true"] {
+  background: var(--status-shadowed-bg);
+  border-color: var(--status-shadowed-border);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--status-shadowed) 16%, transparent);
 }
 
-/* A fixed precedence lane gives every tile the same comparison anatomy. */
+/* Shadow state is exceptional: normal cards need no repeated status chrome. */
 .mux-state-badge {
   display: inline-flex;
   align-items: center;
@@ -257,45 +226,14 @@ body {
   background: var(--status-shadowed-bg);
   border: 1px solid var(--status-shadowed-border);
 }
-.mux-precedence-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-height: 30px;
-  margin-top: 8px;
-  padding: 6px 8px;
-  border-radius: 7px;
-  font-size: 11px;
-  font-weight: 550;
-  overflow: hidden;
-}
-.mux-precedence-row[data-state="effective"] {
-  color: var(--status-effective);
-  background: var(--status-effective-bg);
-  border: 1px solid var(--status-effective-border);
-}
-.mux-precedence-row[data-state="shadowed"] {
-  color: var(--status-shadowed);
-  background: color-mix(in srgb, var(--status-shadowed-bg) 78%, var(--surface-raised));
-  border: 1px solid var(--status-shadowed-border);
-}
-.mux-precedence-row strong { font-weight: 700; }
-.mux-shadowed-footnote { color: var(--status-shadowed); }
-.mux-shadowed-footnote > span { background: #E28A00; }
+.mux-shadowed-source { color: var(--status-shadowed); }
 
-.mux-detail-state {
+.mux-detail-warning {
   display: flex;
   align-items: flex-start;
   gap: 9px;
   padding: 10px 12px;
   border-radius: 8px;
-}
-.mux-detail-state[data-state="effective"] {
-  color: var(--status-effective);
-  background: var(--status-effective-bg);
-  border: 1px solid var(--status-effective-border);
-}
-.mux-detail-state[data-state="shadowed"] {
   color: var(--status-shadowed);
   background: var(--status-shadowed-bg);
   border: 1px solid var(--status-shadowed-border);
@@ -352,16 +290,34 @@ body {
   font: 500 10px/1 var(--font-mono);
 }
 
-/* Add-agent accent button (top-bar, right) */
-.mux-add-btn {
-  display: inline-flex; align-items: center; justify-content: center;
-  width: 30px; height: 30px; border: 0; border-radius: 9999px; cursor: pointer;
-  background: linear-gradient(135deg, var(--color-brand-gold), var(--color-brand-coral), var(--color-brand-magenta));
-  box-shadow: 0 1px 4px color-mix(in srgb, var(--color-brand-coral) 45%, transparent);
-  transition: filter .12s ease, transform .12s ease;
+/* The add control sits beside the agent strip and reads as one quiet empty
+   slot. Accent color appears on interaction instead of competing at rest. */
+.mux-agent-add {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px dashed color-mix(in srgb, var(--text-secondary) 45%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--surface-raised) 42%, transparent);
+  color: var(--text-secondary);
+  cursor: pointer;
+  box-shadow: var(--glass-highlight);
+  transition: background .14s ease, border-color .14s ease, color .14s ease, transform .14s ease;
 }
-.mux-add-btn:hover { filter: brightness(1.06); }
-.mux-add-btn:active { transform: scale(0.94); }
+.mux-agent-add:hover {
+  border-color: color-mix(in srgb, var(--color-blue) 52%, transparent);
+  background: color-mix(in srgb, var(--color-blue) 9%, var(--glass-fill));
+  color: var(--color-blue);
+  transform: translateY(-1px);
+}
+.mux-agent-add:active { transform: translateY(0) scale(0.95); }
+.mux-agent-add:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--color-blue) 52%, transparent);
+  outline-offset: 2px;
+}
 
 /* Segmented control (top-bar tabs) */
 .mux-seg {

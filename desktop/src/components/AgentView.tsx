@@ -118,7 +118,7 @@ export function AgentView({ state, agentId }: AgentViewProps) {
                 <h2 className="text-lg font-semibold m-0 truncate" style={{ color: "var(--text-primary)" }}>
                   {agent.name}
                 </h2>
-                <Badge>客户端目录</Badge>
+                <Badge>仅供参考</Badge>
               </div>
               <div className="text-xs mt-0.5" style={{ color: "var(--text-secondary)", fontFamily: "var(--font-mono)" }}>
                 {agent.id}
@@ -133,7 +133,7 @@ export function AgentView({ state, agentId }: AgentViewProps) {
           </div>
           <div className="py-4" style={{ borderTop: `1px solid ${borderColor}`, borderBottom: `1px solid ${borderColor}` }}>
             <div className="text-sm" style={{ color: "var(--text-primary)" }}>
-              {agent.note ?? "尚未核验稳定的用户级全局配置。"}
+              {agent.note ?? "未提供可写的用户级全局配置。"}
             </div>
             <div className="text-xs mt-2" style={{ color: "var(--text-secondary)" }}>
               {agent.category} · {

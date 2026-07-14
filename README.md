@@ -40,9 +40,9 @@ A one-click **Mux 精选 (curated collection)** subscribes you to a curated set.
 
 ## Supported agents
 
-MUX exposes **191 distinct MCP clients** in a searchable catalog. Of those, **39 are deeply audited definitions** and **37 have verified, writable global config targets** with native JSON, TOML, or YAML schemas. The remaining clients are discovery-only until a stable user-level file contract is verified; MUX never guesses a path or writes a generic schema into them.
+MUX retains **191 distinct MCP client records** for discovery and verification. Of those, **39 are deeply audited definitions** and **38 have verified, writable global config targets** with native JSON, TOML, or YAML schemas; only those writable targets appear in the desktop Agent picker. MUX never guesses a path or writes a generic schema into the remaining discovery-only records.
 
-Audited targets include Claude Code/Desktop, Codex, Cursor, VS Code, Zed, Windsurf, Gemini CLI, Google Antigravity, Amazon Q, OpenCode, Copilot CLI, Cline, Continue, Goose, Hermes, Kimi Code, Qwen Code, Mistral Vibe, Rovo Dev, Tabnine, LM Studio, and others. Claude Desktop and BoltAI local files accept stdio only. Pi is explicitly labeled as a community `pi-mcp-adapter` target because Pi core does not ship MCP support. Devin and QoderWork remain read-only because no stable user-level global config file is documented.
+Audited targets include Claude Code/Desktop, Codex, Cursor, VS Code, Zed, Windsurf, Gemini CLI, Google Antigravity, Amazon Q, OpenCode, Copilot CLI, Cline, Continue, Goose, Hermes, Kimi Code, Qwen Code, QoderWork, Mistral Vibe, Rovo Dev, Tabnine, LM Studio, and others. Claude Desktop and BoltAI local files accept stdio only. Pi is explicitly labeled as a community `pi-mcp-adapter` target because Pi core does not ship MCP support. Devin remains discovery-only because no stable user-level global config file is documented.
 
 See the [complete audited matrix](website/guide/agents.md) and [catalog methodology](docs/agent-catalog.md). Every writable target's global path remains editable; paths inside the home directory are normalized to the portable `~/…` form.
 

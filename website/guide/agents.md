@@ -2,10 +2,10 @@
 
 MUX 的 Agent 数据分为两层：
 
-- **可配置目标**：39 个逐项核验的产品定义，其中 37 个有稳定的用户级全局配置文件，可由 MUX 安全读写。
-- **客户端目录**：来自公开 MCP 客户端目录与官方客户端矩阵，只用于发现。和可配置目标去重后，界面共可搜索 **191 个**客户端。
+- **可配置目标**：39 个逐项核验的产品定义，其中 38 个有稳定的用户级全局配置文件，可由 MUX 安全读写，并显示在 Agent 选择器中。
+- **发现目录**：来自公开 MCP 客户端目录与官方客户端矩阵，只作为后续核验的数据储备。与可配置目标去重后共保留 **191 个**客户端记录，但不再作为单独标签页展示。
 
-没有确认全局文件路径、顶层键和条目结构的客户端只展示来源，不允许写入。这样可以持续扩大覆盖面，又不会把通用 JSON 猜测写进未知产品配置。
+没有确认全局文件路径、顶层键和条目结构的客户端只保留来源数据，不进入选择器，也不允许写入。这样可以持续扩大覆盖面，又不会把通用 JSON 猜测写进未知产品配置。
 
 ## 已核验列表
 
@@ -43,7 +43,7 @@ MUX 的 Agent 数据分为两层：
 | [OpenHands CLI](https://docs.openhands.dev/openhands/usage/cli/mcp-servers) | JSON | `mcpServers` | `~/.openhands/mcp.json` | stdio / http |
 | [Pi Coding Agent (MCP Adapter)](https://github.com/nicobailon/pi-mcp-adapter) | JSON | `mcpServers` | `~/.pi/agent/mcp.json` | stdio / http |
 | [Qoder](https://docs.qoder.com/user-guide/chat/model-context-protocol) | JSON | `mcpServers` | `~/.qoder/settings.json` | stdio / http |
-| [QoderWork](https://qoder.com/qoderwork) | - | - | 只读目录 | - |
+| [QoderWork](https://docs.qoder.com/qoderwork/connectors) | JSON | `mcpServers` | `~/.qoderwork/mcp.json` | stdio / http |
 | [Qwen Code](https://qwenlm.github.io/qwen-code-docs/en/users/features/mcp/) | JSON | `mcpServers` | `~/.qwen/settings.json` | stdio / http |
 | [Roo Code](https://docs.roocode.com/features/mcp/using-mcp-in-roo) | JSON | `mcpServers` | `~/Library/Application Support/Code/User/globalStorage/rooveterinaryinc.roo-cline/settings/mcp_settings.json` | stdio / http |
 | [Atlassian Rovo Dev CLI](https://support.atlassian.com/rovo/docs/connect-to-an-mcp-server-in-rovo-dev-cli/) | JSON | `mcpServers` | `~/.rovodev/mcp.json` | stdio / http |
@@ -56,7 +56,8 @@ MUX 的 Agent 数据分为两层：
 ### 需要特别区分的目标
 
 - **Pi**：Pi 核心不内置 MCP。MUX 的定义只适用于已安装社区 `pi-mcp-adapter` 的环境，因此界面明确标为社区扩展。
-- **Devin / QoderWork**：产品支持 MCP，但没有核验到稳定的用户级全局文件契约，只能查看来源，不能写入。
+- **Devin**：产品支持 MCP，但没有核验到稳定的用户级全局文件契约，因此保留在发现数据中，不进入 Agent 选择器。
+- **QoderWork**：用户自定义 MCP 保存在 `~/.qoderwork/mcp.json`，使用 `mcpServers`；MUX 不修改客户端数据目录中的内置 MCP。远程连接按官方导入格式写为 `streamable-http` 或 `sse`。
 - **Claude Desktop / BoltAI**：列出的本地文件只原生支持 stdio。远程 MCP 分别由 Claude Connectors 或 BoltAI 的 `mcp-remote` 方案管理。
 - **Goose**：通用文档示例使用 `~/.config/goose/config.yaml`，当前 macOS 源码实际采用 `~/Library/Application Support/Block/goose/config/config.yaml`；MUX 按运行时代码定位。
 

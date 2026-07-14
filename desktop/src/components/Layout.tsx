@@ -44,18 +44,16 @@ export function Layout({
   const [version, setVersion] = useState("");
   const [agentPickerOpen, setAgentPickerOpen] = useState(false);
   const [agentQuery, setAgentQuery] = useState("");
-  const [agentFilter, setAgentFilter] = useState<"writable" | "catalog">("writable");
   const agentPickerRef = useRef<HTMLDivElement>(null);
   const toast = useToast();
 
   const selectedAgent =
     view.kind === "agent" ? agents.find((agent) => agent.id === view.id) ?? null : null;
   const writableCount = agents.filter((agent) => agent.has_global).length;
-  const catalogCount = agents.length - writableCount;
   const visibleAgents = useMemo(() => {
     const query = agentQuery.trim().toLocaleLowerCase();
     return agents
-      .filter((agent) => (agentFilter === "writable" ? agent.has_global : !agent.has_global))
+      .filter((agent) => agent.has_global)
       .filter((agent) => {
         if (!query) return true;
         return [agent.name, agent.id, agent.category]
@@ -66,7 +64,7 @@ export function Layout({
       .sort((left, right) =>
         left.name.localeCompare(right.name, undefined, { sensitivity: "base" })
       );
-  }, [agentFilter, agentQuery, agents]);
+  }, [agentQuery, agents]);
 
   useEffect(() => {
     getVersion().then(setVersion).catch(() => {});
@@ -167,7 +165,6 @@ export function Layout({
             onClick={() => {
               setAgentPickerOpen((open) => !open);
               setAgentQuery("");
-              setAgentFilter(selectedAgent && !selectedAgent.has_global ? "catalog" : "writable");
             }}
           >
             {selectedAgent ? (
@@ -180,7 +177,7 @@ export function Layout({
                 {selectedAgent?.name ?? "选择 Agent"}
               </span>
               <span className="mux-agent-picker-trigger-meta">
-                {selectedAgent?.id ?? `${writableCount} 可配置 · ${catalogCount} 目录`}
+                {selectedAgent?.id ?? `${writableCount} 个可配置 Agent`}
               </span>
             </span>
             <ChevronDownIcon className="mux-agent-picker-chevron" />
@@ -216,27 +213,6 @@ export function Layout({
                 </button>
               </div>
 
-              <div className="mux-agent-picker-tabs" role="tablist" aria-label="Agent 类型">
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={agentFilter === "writable"}
-                  data-active={agentFilter === "writable" ? "true" : undefined}
-                  onClick={() => setAgentFilter("writable")}
-                >
-                  可配置 <span>{writableCount}</span>
-                </button>
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={agentFilter === "catalog"}
-                  data-active={agentFilter === "catalog" ? "true" : undefined}
-                  onClick={() => setAgentFilter("catalog")}
-                >
-                  客户端目录 <span>{catalogCount}</span>
-                </button>
-              </div>
-
               <div className="mux-agent-picker-list" role="listbox">
                 {visibleAgents.length === 0 ? (
                   <div className="mux-agent-picker-empty">未找到匹配项</div>
@@ -260,9 +236,7 @@ export function Layout({
                         <span className="min-w-0 flex-1">
                           <span className="mux-agent-picker-name">{agent.name}</span>
                           <span className="mux-agent-picker-meta">
-                            {agent.has_global
-                              ? `${agent.format.toUpperCase()} · ${agent.id}`
-                              : `目录 · ${agent.id}`}
+                            {agent.format.toUpperCase()} · {agent.id}
                           </span>
                         </span>
                         {active && <CheckIcon className="mux-agent-picker-check" />}

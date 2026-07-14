@@ -212,7 +212,7 @@ fn every_writable_builtin_roundtrips_through_its_wire_format() {
         .values()
         .filter(|agent| agent.global.is_some())
         .count();
-    assert_eq!(writable, 37);
+    assert_eq!(writable, 38);
 
     for (agent_id, definition) in agents {
         if definition.global.is_none() {
@@ -315,6 +315,34 @@ fn standard_agent_update_preserves_target_policy_fields() {
 }
 
 #[test]
+fn qoderwork_update_preserves_file_metadata_and_uses_documented_http_type() {
+    let path = temp_file("qoderwork-mcp", "json");
+    std::fs::write(
+        &path,
+        r#"{
+  "schemaVersion": 1,
+  "privateMetadata": {"owner": "user"},
+  "mcpServers": {"docs": {"type": "sse", "url": "https://old", "disabled": true}}
+}"#,
+    )
+    .unwrap();
+
+    get_agent_adapter("json", "mcpServers", "qoderwork")
+        .upsert(&path, "docs", &http("https://new.example/mcp"))
+        .unwrap();
+
+    let root: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    assert_eq!(root["schemaVersion"], 1);
+    assert_eq!(root["privateMetadata"]["owner"], "user");
+    let target = &root["mcpServers"]["docs"];
+    assert_eq!(target["type"], "streamable-http");
+    assert_eq!(target["url"], "https://new.example/mcp");
+    assert_eq!(target["headers"]["X-New"], "value");
+    assert_eq!(target["disabled"], true);
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
 fn warp_remote_uses_url_inference_and_preserves_environment() {
     let path = temp_file("warp-remote", "json");
     std::fs::write(
@@ -374,6 +402,7 @@ fn builtin_global_paths_match_current_product_docs() {
         ("openhands", "~/.openhands/mcp.json"),
         ("pi", "~/.pi/agent/mcp.json"),
         ("qoder", "~/.qoder/settings.json"),
+        ("qoderwork", "~/.qoderwork/mcp.json"),
         ("qwen-code", "~/.qwen/settings.json"),
         (
             "roo-code",
@@ -393,9 +422,7 @@ fn builtin_global_paths_match_current_product_docs() {
     for (agent_id, path) in expected {
         assert_eq!(agents[agent_id].global.as_deref(), Some(path), "{agent_id}");
     }
-    for agent_id in ["devin", "qoderwork"] {
-        assert!(agents[agent_id].global.is_none(), "{agent_id}");
-    }
+    assert!(agents["devin"].global.is_none());
 }
 
 #[test]
@@ -418,7 +445,7 @@ fn verified_and_catalog_definitions_have_auditable_boundaries() {
             .values()
             .filter(|item| item.global.is_some())
             .count(),
-        37
+        38
     );
     assert!(catalog.len() >= 170);
     for (id, definition) in verified {
@@ -437,6 +464,7 @@ fn verified_and_catalog_definitions_have_auditable_boundaries() {
                         | "gemini"
                         | "windsurf"
                         | "qoder"
+                        | "qoderwork"
                         | "copilot"
                         | "cline"
                         | "roo"

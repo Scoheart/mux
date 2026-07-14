@@ -2,7 +2,12 @@
 
 # MUX — MCP Multiplexer
 
-**One place to manage your MCP (Model Context Protocol) servers across every AI coding agent.**
+**Manage MCP servers for all your AI agents in one place.**
+
+MUX is an MCP configuration manager for Claude Code, Codex, Cursor, QoderWork,
+OpenCode, and many other AI agents. Install, enable, synchronize, and export MCP
+servers from one catalog while MUX adapts each agent's native config format. It
+patches only the MCP section and preserves the rest of your settings.
 
 MUX ships as **two front-ends that share the same data** (`~/.mux/`):
 
@@ -10,7 +15,8 @@ MUX ships as **two front-ends that share the same data** (`~/.mux/`):
 - ⌨️ a **CLI + TUI** (`mux`, a native Rust binary) — an interactive terminal UI
   plus scriptable subcommands.
 
-Point either one at your tools — Claude Code, Codex, Cursor, VS Code, Zed, Windsurf, Gemini CLI, Qoder, and many more — and install, toggle, or remove MCP servers per agent from one catalog.
+Use either interface to install, toggle, or remove MCP servers across supported
+agents from the same catalog.
 
 ---
 
@@ -37,6 +43,15 @@ A one-click **Mux 精选 (curated collection)** subscribes you to a curated set.
 - **Safe, local writes** — MUX reads and edits only the configured MCP entry on this machine. It never uploads the complete agent config. Existing files are backed up first, then atomically replaced only if they have not changed concurrently; unrelated keys, comments, formatting, servers, policy fields, permissions, and symlinks are preserved.
 - **CLI ⇄ Desktop in sync** — both are built on one shared Rust core (`mux-core`) and read/write `~/.mux/`, so a change in one shows up in the other.
 - **Dark mode** and a macOS "liquid glass" UI.
+
+## Screenshots
+
+![MUX MCP catalog with source and conflict visibility](website/public/img/mcps-overview.png)
+
+![QoderWork MCP configuration managed by MUX](website/public/img/qoderwork-config.png)
+
+See the [desktop app guide](website/guide/desktop.md) for Agent search, source
+filtering, and shadowed-configuration screenshots.
 
 ## Supported agents
 

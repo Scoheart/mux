@@ -8,7 +8,7 @@
 
 打开 App 默认进入 **MCPs**。当前主界面由以下区域组成：
 
-![MUX Registry 界面](/img/registry-overview-current.jpg)
+![MUX MCPs 总览：来源、目录和 Agent 入口](/img/mcps-overview.png)
 
 | 区域 | 作用 |
 |---|---|
@@ -30,6 +30,8 @@ Registry 默认显示所有已启用来源中的**每一份副本**。同一个 
 - 点击左侧某个来源，会查看该来源的全部副本；“被覆盖”筛选仍只作用于当前来源。
 
 最终用于安装与导出的，是每个组合键优先级最高的那一份。完整规则见 [优先级](/guide/concepts#优先级-去重规则)。
+
+![只看被覆盖配置](/img/shadowed-config.png)
 
 ## 卡片怎么看
 
@@ -53,6 +55,8 @@ Registry 默认显示所有已启用来源中的**每一份副本**。同一个 
 
 MUX 当前只管理 Agent 的全局安装。
 
+![在顶部搜索可配置 Agent](/img/agent-picker.png)
+
 ## 开关与删除
 
 Agent 页面中的每个已安装 MCP 都有开关和删除操作：
@@ -62,6 +66,8 @@ Agent 页面中的每个已安装 MCP 都有开关和删除操作：
 - **删除**：从该 Agent 卸载。
 
 在 Registry 中删除“手动添加 / 自动探索”条目，会同时从目录和所有全局 Agent 中移除该条目，并保留备份。
+
+![QoderWork 全局配置路径与 MCP 开关](/img/qoderwork-config.png)
 
 ## 编辑、粘贴与导出
 
@@ -78,6 +84,8 @@ Agent 页面中的每个已安装 MCP 都有开关和删除操作：
 - **导入配置**：选择本地 JSON / TOML 配置文件。
 
 悬停来源行后，远程订阅、本地文件和自动探索可刷新；非受管来源可以删除。删除来源会移除缓存与目录条目，但不卸载已经写入 Agent 的配置。
+
+![按 Mux 精选来源筛选 MCP](/img/source-filter.png)
 
 来源模型本身支持启停，TUI 的“来源”屏幕用 `Space` / `Enter` 操作。桌面 `v1.2.0` 的来源栏暂未提供启停开关。
 

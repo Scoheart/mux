@@ -4,7 +4,7 @@ layout: home
 hero:
   name: "MUX"
   text: "统一管理 MCP 服务器"
-  tagline: 一处配置，管好你所有 AI 编码 agent 的 MCP —— 桌面 App 与命令行共享同一份数据。
+  tagline: 集中管理 Claude Code、Codex、Cursor、QoderWork 等 Agent 的 MCP，安全写入，不覆盖其他设置。
   actions:
     - theme: brand
       text: 快速开始
@@ -41,7 +41,9 @@ features:
 
 ## 30 秒了解
 
-**MUX（MCP Multiplexer）** 解决一个具体痛点：你在十几个 AI 编码工具里重复配置同一批 MCP 服务器，改一处要改很多遍。MUX 把这些 MCP 收进**一个目录**，让你从一个地方把它们**安装、开关、编辑、删除**到任意 agent。
+**MUX（MCP Multiplexer）** 是一款 MCP 配置管理工具。它可以集中管理 Claude Code、Codex、Cursor、QoderWork、OpenCode 等 AI Agent 的 MCP 服务，一键安装、启用、同步和导出配置。
+
+MUX 会适配不同 Agent 的配置路径与格式，只修改目标 MCP 部分，不覆盖用户的其他设置。桌面端与命令行共享同一份数据，让多 Agent 的 MCP 管理更简单、更安全。
 
 它有两个前端，共享同一份数据目录 `~/.mux/`：
 

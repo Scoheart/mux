@@ -1,11 +1,13 @@
 {
   "name": "desktop",
   "private": true,
-  "version": "1.2.1",
+  "version": "1.2.2",
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "prebuild": "npm run check:agent-icons",
     "build": "tsc && vite build",
+    "check:agent-icons": "node ../scripts/check-agent-icons.mjs",
     "preview": "vite preview",
     "tauri": "tauri"
   },

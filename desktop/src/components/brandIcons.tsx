@@ -1,52 +1,39 @@
-import claudeLogo from "../assets/agents/claude.svg";
-import openaiLogo from "../assets/agents/openai.svg";
-import geminiLogo from "../assets/agents/gemini.svg";
-import vscodeLogo from "../assets/agents/vscode.svg";
-import copilotLogo from "../assets/agents/copilot.svg";
-import zedLogo from "../assets/agents/zed.svg";
-import windsurfLogo from "../assets/agents/windsurf.svg";
-import cursorLogo from "../assets/agents/cursor.svg";
-import opencodeLogo from "../assets/agents/opencode.svg";
-import jetbrainsLogo from "../assets/agents/jetbrains.svg";
-import amazonqLogo from "../assets/agents/amazon-q.svg";
-import qoderLogo from "../assets/agents/qoder.svg";
-import qoderworkLogo from "../assets/agents/qoderwork.png";
-import kiroLogo from "../assets/agents/kiro.svg";
-import devinLogo from "../assets/agents/devin.svg";
-import continueLogo from "../assets/agents/continue.png";
-import clineLogo from "../assets/agents/cline.png";
-import rooLogo from "../assets/agents/roo-code.png";
-import warpLogo from "../assets/agents/warp.svg";
-import piLogo from "../assets/agents/pi.svg";
+import iconAliases from "../assets/agents/aliases.json";
 
-/** Real brand logos (svgl / simpleicons) per agent id. */
-const LOGOS: Record<string, string> = {
-  "claude-code": claudeLogo,
-  "claude-desktop": claudeLogo,
-  cursor: cursorLogo,
-  vscode: vscodeLogo,
-  codex: openaiLogo,
-  zed: zedLogo,
-  windsurf: windsurfLogo,
-  gemini: geminiLogo,
-  "amazon-q": amazonqLogo,
-  "copilot-cli": copilotLogo,
-  junie: jetbrainsLogo,
-  opencode: opencodeLogo,
-  qoder: qoderLogo,
-  qoderwork: qoderworkLogo,
-  kiro: kiroLogo,
-  devin: devinLogo,
-  continue: continueLogo,
-  cline: clineLogo,
-  "roo-code": rooLogo,
-  warp: warpLogo,
-  pi: piLogo,
-};
+const iconModules = import.meta.glob("../assets/agents/*.{png,svg,webp}", {
+  eager: true,
+  query: "?url",
+  import: "default",
+}) as Record<string, string>;
+
+const LOGOS = Object.fromEntries(
+  Object.entries(iconModules).map(([path, url]) => [path.split("/").pop()!.replace(/\.[^.]+$/, ""), url])
+) as Record<string, string>;
+const ICON_ALIASES: Record<string, string> = iconAliases;
 
 /** Logos that are complete app icons (own background + rounded corners), so they
  *  render edge-to-edge instead of as a mark centered on a white tile. */
-const FULL_BLEED = new Set<string>(["qoder", "qoderwork", "kiro", "roo-code", "warp", "pi"]);
+const FULL_BLEED = new Set<string>([
+  "boltai",
+  "codebuddy-code",
+  "factory-droid",
+  "firebender",
+  "hermes",
+  "kilo-code",
+  "kimi-code",
+  "kiro",
+  "lmstudio",
+  "openhands",
+  "pi",
+  "qoder",
+  "qoderwork",
+  "roo-code",
+  "rovo-dev",
+  "warp",
+]);
+
+const THEMED_MARKS = new Set<string>(["augment"]);
+const WIDE_TILES: Record<string, string> = { crush: "#654cff" };
 
 /** Human-readable product names + brand colour (colour used for the monogram fallback). */
 const AGENT_META: Record<string, { name: string; color: string }> = {
@@ -90,12 +77,34 @@ function fallbackColor(id: string): string {
  * otherwise a brand-coloured monogram.
  */
 export function AgentGlyph({ id, name, size = 26 }: { id: string; name?: string; size?: number }) {
-  const logo = LOGOS[id];
+  const logo = LOGOS[ICON_ALIASES[id] ?? id];
   const meta = AGENT_META[id];
   const displayName = agentName(id, name);
   const radius = Math.round(size * 0.3);
 
   if (logo) {
+    if (WIDE_TILES[id]) {
+      return (
+        <div
+          className="flex items-center justify-center"
+          style={{
+            width: size,
+            height: size,
+            borderRadius: radius,
+            background: WIDE_TILES[id],
+            overflow: "hidden",
+          }}
+        >
+          <img
+            src={logo}
+            alt={displayName}
+            draggable={false}
+            style={{ width: "100%", height: "100%", objectFit: "contain", display: "block" }}
+          />
+        </div>
+      );
+    }
+
     // App-icon logos (own background) fill the badge; mark-only logos sit on a white tile.
     if (FULL_BLEED.has(id)) {
       return (
@@ -114,7 +123,7 @@ export function AgentGlyph({ id, name, size = 26 }: { id: string; name?: string;
           width: size,
           height: size,
           borderRadius: radius,
-          background: "#fff",
+          background: THEMED_MARKS.has(id) ? "var(--surface-app)" : "#fff",
           border: "1px solid var(--border-hairline)",
         }}
       >

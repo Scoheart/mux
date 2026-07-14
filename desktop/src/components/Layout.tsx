@@ -139,7 +139,7 @@ export function Layout({
           MUX
         </span>
 
-        {/* Registry (also the way back from an agent view) */}
+        {/* MCPs (also the way back from an agent view) */}
         <div className="mux-seg flex-shrink-0">
           <button
             className="mux-seg-item"
@@ -148,7 +148,7 @@ export function Layout({
           >
             <span className="flex items-center gap-1.5">
               <PackageIcon className="w-3.5 h-3.5" />
-              Registry
+              MCPs
             </span>
           </button>
         </div>

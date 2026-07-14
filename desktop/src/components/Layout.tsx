@@ -1,5 +1,4 @@
-import { ReactNode, useEffect, useMemo, useState } from "react";
-import { createPortal } from "react-dom";
+import { ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { getVersion } from "@tauri-apps/api/app";
 import type { AgentInfo, View } from "../lib/types";
 import {
@@ -46,6 +45,7 @@ export function Layout({
   const [agentPickerOpen, setAgentPickerOpen] = useState(false);
   const [agentQuery, setAgentQuery] = useState("");
   const [agentFilter, setAgentFilter] = useState<"writable" | "catalog">("writable");
+  const agentPickerRef = useRef<HTMLDivElement>(null);
   const toast = useToast();
 
   const selectedAgent =
@@ -77,9 +77,16 @@ export function Layout({
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key === "Escape") setAgentPickerOpen(false);
     };
+    const closeOnPointerDown = (event: PointerEvent) => {
+      if (!agentPickerRef.current?.contains(event.target as Node)) {
+        setAgentPickerOpen(false);
+      }
+    };
     document.addEventListener("keydown", closeOnEscape);
+    document.addEventListener("pointerdown", closeOnPointerDown);
     return () => {
       document.removeEventListener("keydown", closeOnEscape);
+      document.removeEventListener("pointerdown", closeOnPointerDown);
     };
   }, [agentPickerOpen]);
 
@@ -149,12 +156,13 @@ export function Layout({
         {/* Spacer — pushes Agent navigation to the right */}
         <div className="flex-1" />
 
-        <div className="flex-shrink-0">
+        <div className="mux-agent-picker-anchor flex-shrink-0" ref={agentPickerRef}>
           <button
             type="button"
             className="mux-agent-picker-trigger"
             data-active={selectedAgent ? "true" : undefined}
-            aria-haspopup="dialog"
+            data-open={agentPickerOpen ? "true" : undefined}
+            aria-haspopup="listbox"
             aria-expanded={agentPickerOpen}
             onClick={() => {
               setAgentPickerOpen((open) => !open);
@@ -165,99 +173,23 @@ export function Layout({
             {selectedAgent ? (
               <AgentGlyph id={selectedAgent.id} name={selectedAgent.name} size={24} />
             ) : (
-              <PackageIcon className="w-4 h-4" />
+              <PackageIcon className="w-5 h-5 flex-shrink-0" />
             )}
-            <span className="truncate">{selectedAgent?.name ?? "Agents"}</span>
-            {!selectedAgent && <span className="mux-agent-picker-count">{agents.length}</span>}
-            <ChevronDownIcon className="w-3.5 h-3.5 flex-shrink-0" />
+            <span className="mux-agent-picker-trigger-copy">
+              <span className="mux-agent-picker-trigger-name">
+                {selectedAgent?.name ?? "选择 Agent"}
+              </span>
+              <span className="mux-agent-picker-trigger-meta">
+                {selectedAgent?.id ?? `${writableCount} 可配置 · ${catalogCount} 目录`}
+              </span>
+            </span>
+            <ChevronDownIcon className="mux-agent-picker-chevron" />
           </button>
-        </div>
-
-        {/* Divider */}
-        <div className="h-5 w-px flex-shrink-0" style={{ background: "var(--border-hairline)" }} />
-
-        {/* Right action group */}
-        <button
-          type="button"
-          className="mux-icon-btn flex-shrink-0"
-          title={theme === "dark" ? "切换到浅色" : "切换到深色"}
-          aria-label="切换主题"
-          onClick={toggleTheme}
-        >
-          {theme === "dark" ? <SunIcon className="w-4 h-4" /> : <MoonIcon className="w-4 h-4" />}
-        </button>
-
-        {onRescan && (
-          <button
-            type="button"
-            className="mux-icon-btn flex-shrink-0"
-            title="重新扫描"
-            aria-label="重新扫描"
-            disabled={rescanning}
-            onClick={handleRescan}
-          >
-            <RefreshIcon
-              className="w-4 h-4"
-              style={rescanning ? { animation: "spin 0.8s linear infinite" } : undefined}
-            />
-          </button>
-        )}
-
-        {/* Explicit update action: keep the installed version visible without
-            relying on users to discover that a bare version label is clickable. */}
-        <button
-          type="button"
-          className="mux-update-check flex-shrink-0"
-          title={version ? `当前版本 v${version}，点击检查更新` : "检查更新"}
-          aria-label={version ? `检查更新，当前版本 v${version}` : "检查更新"}
-          disabled={checkingUpdate}
-          onClick={() => void handleCheckUpdate()}
-        >
-          <DownloadIcon
-            className="w-3.5 h-3.5"
-            style={checkingUpdate ? { animation: "spin 0.8s linear infinite" } : undefined}
-          />
-          <span>{checkingUpdate ? "检查中…" : "检查更新"}</span>
-          {version && <span className="mux-update-version">v{version}</span>}
-        </button>
-      </header>
-
-      {/* Content — transparent so the body's tinted backdrop shows through the
-          glass surfaces. min-h-0 is critical for overflow to work. */}
-      <main className="flex-1 min-h-0 overflow-hidden" style={{ background: "transparent" }}>
-        {children}
-      </main>
-
-      {agentPickerOpen &&
-        createPortal(
-          <div
-            className="mux-agent-picker-layer"
-            onPointerDown={(event) => {
-              if (event.target === event.currentTarget) setAgentPickerOpen(false);
-            }}
-          >
+          {agentPickerOpen && (
             <section
               className="mux-agent-picker"
-              role="dialog"
-              aria-modal="true"
-              aria-labelledby="mux-agent-picker-title"
+              aria-label="选择 Agent"
             >
-              <div className="mux-agent-picker-heading">
-                <div className="min-w-0">
-                  <h2 id="mux-agent-picker-title">选择 Agent</h2>
-                  <p>{writableCount} 个可配置，{catalogCount} 个目录条目</p>
-                </div>
-                <button
-                  type="button"
-                  className="mux-agent-picker-close"
-                  aria-label="关闭"
-                  title="关闭"
-                  onClick={() => setAgentPickerOpen(false)}
-                >
-                  <XIcon className="w-4 h-4" />
-                </button>
-              </div>
-
               <div className="mux-agent-picker-search">
                 <SearchIcon className="w-4 h-4 flex-shrink-0" />
                 <input
@@ -355,9 +287,63 @@ export function Layout({
                 </div>
               )}
             </section>
-          </div>,
-          document.body
+          )}
+        </div>
+
+        {/* Divider */}
+        <div className="h-5 w-px flex-shrink-0" style={{ background: "var(--border-hairline)" }} />
+
+        {/* Right action group */}
+        <button
+          type="button"
+          className="mux-icon-btn flex-shrink-0"
+          title={theme === "dark" ? "切换到浅色" : "切换到深色"}
+          aria-label="切换主题"
+          onClick={toggleTheme}
+        >
+          {theme === "dark" ? <SunIcon className="w-4 h-4" /> : <MoonIcon className="w-4 h-4" />}
+        </button>
+
+        {onRescan && (
+          <button
+            type="button"
+            className="mux-icon-btn flex-shrink-0"
+            title="重新扫描"
+            aria-label="重新扫描"
+            disabled={rescanning}
+            onClick={handleRescan}
+          >
+            <RefreshIcon
+              className="w-4 h-4"
+              style={rescanning ? { animation: "spin 0.8s linear infinite" } : undefined}
+            />
+          </button>
         )}
+
+        {/* Explicit update action: keep the installed version visible without
+            relying on users to discover that a bare version label is clickable. */}
+        <button
+          type="button"
+          className="mux-update-check flex-shrink-0"
+          title={version ? `当前版本 v${version}，点击检查更新` : "检查更新"}
+          aria-label={version ? `检查更新，当前版本 v${version}` : "检查更新"}
+          disabled={checkingUpdate}
+          onClick={() => void handleCheckUpdate()}
+        >
+          <DownloadIcon
+            className="w-3.5 h-3.5"
+            style={checkingUpdate ? { animation: "spin 0.8s linear infinite" } : undefined}
+          />
+          <span>{checkingUpdate ? "检查中…" : "检查更新"}</span>
+          {version && <span className="mux-update-version">v{version}</span>}
+        </button>
+      </header>
+
+      {/* Content — transparent so the body's tinted backdrop shows through the
+          glass surfaces. min-h-0 is critical for overflow to work. */}
+      <main className="flex-1 min-h-0 overflow-hidden" style={{ background: "transparent" }}>
+        {children}
+      </main>
     </div>
   );
 }

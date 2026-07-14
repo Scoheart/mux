@@ -8,6 +8,12 @@ export const listRegistryAll = () => invoke<CatalogItem[]>("list_registry_all");
 export type CliStatus = { bundled: boolean; installed: boolean; link_path: string; in_path: boolean };
 export const cliStatus = () => invoke<CliStatus>("cli_status");
 export const installCli = () => invoke<CliStatus>("install_cli");
+export type UpdateEnvironment = {
+  canSelfUpdate: boolean;
+  reason: "disk-image" | "app-translocation" | "read-only-volume" | null;
+};
+export const updateEnvironment = () =>
+  invoke<UpdateEnvironment>("update_environment");
 /** Save auto-syncs the new config to installed agents; returns their names. */
 export const upsertRegistry = (entry: RegistryEntry) =>
   invoke<string[]>("upsert_registry_entry", { entry });

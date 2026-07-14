@@ -1,5 +1,6 @@
 pub mod cli_tool;
 pub mod commands;
+pub mod updater_guard;
 
 use tauri::Manager;
 
@@ -62,7 +63,8 @@ pub fn run() {
             commands::resync_entry,
             commands::forget_entry,
             cli_tool::cli_status,
-            cli_tool::install_cli
+            cli_tool::install_cli,
+            updater_guard::update_environment
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

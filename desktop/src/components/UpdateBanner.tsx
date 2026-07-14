@@ -1,5 +1,8 @@
 import type { UpdaterState } from "../hooks/useUpdater";
-import { DownloadIcon, RefreshIcon, XIcon } from "./icons";
+import { openUrl } from "@tauri-apps/plugin-opener";
+import { DownloadIcon, FolderIcon, RefreshIcon, XIcon } from "./icons";
+
+const LATEST_RELEASE_URL = "https://github.com/Scoheart/mux/releases/latest";
 
 /**
  * Non-blocking update card, floated below the header at the top-right —
@@ -107,6 +110,38 @@ export function UpdateBanner({ updater }: { updater: UpdaterState }) {
         </div>
       )}
 
+      {phase.kind === "requires-install" && (
+        <div className="p-4">
+          <div className="flex items-start gap-2.5">
+            <div
+              className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0"
+              style={{ background: "var(--color-blue)" }}
+            >
+              <FolderIcon className="w-3.5 h-3.5 text-white" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="text-sm font-semibold">请先安装 MUX</div>
+              <div className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>
+                当前应用位于只读磁盘映像或系统隔离目录，无法原地更新。请退出 MUX，
+                将 MUX.app 拖入“应用程序”后重新打开；现有配置不会丢失。
+              </div>
+            </div>
+          </div>
+          <div className="flex justify-end gap-2 mt-3">
+            <button type="button" className="btn-ghost" onClick={updater.later}>
+              关闭
+            </button>
+            <button
+              type="button"
+              className="btn-primary"
+              onClick={() => void openUrl(LATEST_RELEASE_URL)}
+            >
+              下载最新版
+            </button>
+          </div>
+        </div>
+      )}
+
       {phase.kind === "error" && (
         <div className="p-4">
           <div className="flex items-start gap-2.5">
@@ -117,7 +152,13 @@ export function UpdateBanner({ updater }: { updater: UpdaterState }) {
               <XIcon className="w-3.5 h-3.5 text-white" />
             </div>
             <div className="min-w-0 flex-1">
-              <div className="text-sm font-semibold">检查更新失败</div>
+              <div className="text-sm font-semibold">
+                {phase.operation === "install"
+                  ? "安装更新失败"
+                  : phase.operation === "restart"
+                    ? "重启失败"
+                    : "检查更新失败"}
+              </div>
               <div
                 className="mt-1 text-xs break-words overflow-y-auto"
                 style={{ color: "var(--text-secondary)", maxHeight: 96 }}
@@ -133,7 +174,13 @@ export function UpdateBanner({ updater }: { updater: UpdaterState }) {
             <button
               type="button"
               className="btn-primary"
-              onClick={() => void updater.checkNow({ manual: true })}
+              onClick={() =>
+                void (phase.operation === "install"
+                  ? updater.download()
+                  : phase.operation === "restart"
+                    ? updater.restart()
+                    : updater.checkNow({ manual: true }))
+              }
             >
               重试
             </button>

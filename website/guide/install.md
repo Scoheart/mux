@@ -8,6 +8,15 @@ MUX 有桌面 App 和 CLI / TUI 两个入口，共享 `~/.mux/`。桌面 App 已
 2. 打开 dmg，把 **MUX.app** 拖进 `/Applications`。
 3. 首次打开。
 
+不要直接双击 dmg 里的 MUX 长期使用。dmg 是只读磁盘映像，应用无法在其中替换自身；
+直接运行时，MUX 会在更新前提示先将 App 安装到“应用程序”。
+
+### 更新提示只读文件系统？
+
+这表示 MUX 仍从 dmg 或 macOS 的 App Translocation 隔离目录运行。退出当前 MUX，
+将 dmg 里的 **MUX.app** 拖到 `/Applications`（已有旧版时选择替换），再从“应用程序”
+重新打开。目录与 Agent 状态保存在 `~/.mux/`，替换 App 不会删除现有配置。
+
 ### 提示「MUX 已损坏，无法打开」？
 
 当前发布包未经过 Apple Developer ID 公证，macOS 可能因隔离属性（quarantine）阻止首次启动，并不代表文件损坏。确认下载来源是本项目 Release 后，可以清掉隔离属性：

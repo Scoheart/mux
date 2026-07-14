@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { check } from "@tauri-apps/plugin-updater";
 import type { Update } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
+import { updateEnvironment } from "../lib/api";
 
 // Remember the version the user clicked "稍后" on, so the startup check stops
 // nagging about it. A manual check (点版本号) always ignores this.
@@ -13,7 +14,11 @@ export type UpdatePhase =
   | { kind: "available"; version: string; notes: string | null }
   | { kind: "downloading"; percent: number | null }
   | { kind: "ready"; version: string }
-  | { kind: "error"; message: string };
+  | {
+      kind: "requires-install";
+      reason: "disk-image" | "app-translocation" | "read-only-volume";
+    }
+  | { kind: "error"; operation: "check" | "install" | "restart"; message: string };
 
 export interface UpdaterState {
   phase: UpdatePhase;
@@ -57,7 +62,11 @@ export function useUpdater(): UpdaterState {
       } catch (e) {
         // A silent startup check failing (offline, rate-limit…) should never
         // surface UI; only manual checks report the error.
-        setPhase(manual ? { kind: "error", message: String(e) } : { kind: "idle" });
+        setPhase(
+          manual
+            ? { kind: "error", operation: "check", message: String(e) }
+            : { kind: "idle" },
+        );
         return "error" as const;
       }
     },
@@ -67,6 +76,16 @@ export function useUpdater(): UpdaterState {
   const download = useCallback(async () => {
     const update = updateRef.current;
     if (!update) return;
+    try {
+      const environment = await updateEnvironment();
+      if (!environment.canSelfUpdate && environment.reason) {
+        setPhase({ kind: "requires-install", reason: environment.reason });
+        return;
+      }
+    } catch {
+      // If the guard itself is unavailable, let the signed updater run and
+      // preserve its normal error handling below.
+    }
     setPhase({ kind: "downloading", percent: null });
     let total: number | null = null;
     let received = 0;
@@ -88,12 +107,21 @@ export function useUpdater(): UpdaterState {
       });
       setPhase({ kind: "ready", version: update.version });
     } catch (e) {
-      setPhase({ kind: "error", message: String(e) });
+      const message = String(e);
+      if (/read-only file system|os error 30/i.test(message)) {
+        setPhase({ kind: "requires-install", reason: "read-only-volume" });
+      } else {
+        setPhase({ kind: "error", operation: "install", message });
+      }
     }
   }, []);
 
   const restart = useCallback(async () => {
-    await relaunch();
+    try {
+      await relaunch();
+    } catch (e) {
+      setPhase({ kind: "error", operation: "restart", message: String(e) });
+    }
   }, []);
 
   const dismiss = useCallback(() => {

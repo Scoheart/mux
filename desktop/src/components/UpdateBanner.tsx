@@ -75,7 +75,7 @@ export function UpdateBanner({ updater }: { updater: UpdaterState }) {
             />
           </div>
           <div className="mt-2 text-xs" style={{ color: "var(--text-secondary)" }}>
-            下载在后台进行，你可以继续使用。
+            后台下载中，您可继续使用
           </div>
         </div>
       )}

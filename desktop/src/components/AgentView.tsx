@@ -7,11 +7,17 @@ import { XIcon, PlusIcon, EditIcon, LinkIcon, PackageIcon } from "./icons";
 import { Avatar, Badge, IconButton, SearchBar, Switch, TransportPill } from "./ui";
 import { AgentGlyph } from "./brandIcons";
 import { AddAgentDialog } from "./AddAgentDialog";
+import { AgentPicker } from "./AgentPicker";
+import { FeatureTabs } from "./FeatureTabs";
 import { cellKey } from "../lib/api";
 
 interface AgentViewProps {
   state: InstallState;
   agentId: string;
+  onSelectAgent: (id: string) => void;
+  onAddAgent?: () => void;
+  onSelectMcps: () => void;
+  onSelectModels: () => void;
 }
 
 /** Build a minimal entry from a composite key when the installed server isn't in
@@ -28,7 +34,14 @@ function syntheticEntry(serverKey: string): RegistryEntry {
   };
 }
 
-export function AgentView({ state, agentId }: AgentViewProps) {
+export function AgentView({
+  state,
+  agentId,
+  onSelectAgent,
+  onAddAgent,
+  onSelectMcps,
+  onSelectModels,
+}: AgentViewProps) {
   const { entries, agents, installed, pending, toggle, setEnabled, remove, refreshAgents, rescan } = state;
 
   const [showAddPopover, setShowAddPopover] = useState(false);
@@ -154,6 +167,22 @@ export function AgentView({ state, agentId }: AgentViewProps) {
   return (
     <div className="h-full min-h-0 overflow-y-auto">
       <div className="max-w-4xl mx-auto px-6 py-6">
+        <div className="mb-4">
+          <FeatureTabs
+            active="mcps"
+            onSelectMcps={onSelectMcps}
+            onSelectModels={onSelectModels}
+          />
+        </div>
+        <div className="mb-5">
+          <AgentPicker
+            agents={agents}
+            selectedId={agentId}
+            onSelect={onSelectAgent}
+            onAddAgent={onAddAgent}
+          />
+        </div>
+
         {/* Header */}
         <div className="flex items-center gap-3 mb-5">
           <AgentGlyph id={agent.id} name={agent.name} size={44} />

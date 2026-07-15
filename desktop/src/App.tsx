@@ -28,6 +28,9 @@ function App() {
     setView({ kind: "mcp-edit", name, transport });
   };
 
+  const goRegistry = () => setView({ kind: "registry" });
+  const goModels = () => setView({ kind: "models" });
+
   // Full-page MCP editor — rendered without the top tab bar.
   if (view.kind === "mcp-edit") {
     return (
@@ -44,16 +47,7 @@ function App() {
   }
 
   return (
-    <Layout
-      updater={updater}
-      agents={state.agents}
-      view={view}
-      onSelectRegistry={() => setView({ kind: "registry" })}
-      onSelectModels={() => setView({ kind: "models" })}
-      onSelectAgent={(id) => setView({ kind: "agent", id })}
-      onAddAgent={() => setAddAgentOpen(true)}
-      onRescan={state.refreshAll}
-    >
+    <Layout updater={updater} onRescan={state.refreshAll}>
       {state.loading ? (
         <div
           className="flex items-center justify-center h-full text-sm"
@@ -66,14 +60,20 @@ function App() {
           state={state}
           onEdit={(name, transport) => openEditor(name, transport)}
           onCreate={() => openEditor(null)}
+          onSelectAgent={(id) => setView({ kind: "agent", id })}
+          onAddAgent={() => setAddAgentOpen(true)}
+          onSelectModels={goModels}
         />
       ) : view.kind === "models" ? (
-        <ModelsView />
+        <ModelsView onSelectMcps={goRegistry} />
       ) : (
         <AgentView
           state={state}
           agentId={view.id}
-          onEdit={(name, transport) => openEditor(name, transport)}
+          onSelectAgent={(id) => setView({ kind: "agent", id })}
+          onAddAgent={() => setAddAgentOpen(true)}
+          onSelectMcps={goRegistry}
+          onSelectModels={goModels}
         />
       )}
 

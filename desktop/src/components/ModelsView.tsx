@@ -18,6 +18,7 @@ import { AgentGlyph } from "./brandIcons";
 import { Badge, IconButton, Modal, ModalHeader } from "./ui";
 import { CheckIcon, EditIcon, LinkIcon, PlusIcon, TrashIcon } from "./icons";
 import { useToast } from "./Toast";
+import { FeatureTabs } from "./FeatureTabs";
 
 const PROTOCOLS: Array<{ id: ModelProtocol; label: string }> = [
   { id: "anthropic-messages", label: "Anthropic Messages" },
@@ -38,7 +39,7 @@ function protocolLabel(protocol: ModelProtocol) {
   return PROTOCOLS.find((item) => item.id === protocol)?.label ?? protocol;
 }
 
-export function ModelsView() {
+export function ModelsView({ onSelectMcps }: { onSelectMcps: () => void }) {
   const [profiles, setProfiles] = useState<ModelProfileView[]>([]);
   const [agents, setAgents] = useState<ModelAgentView[]>([]);
   const [selectedProfileId, setSelectedProfileId] = useState<string | null>(null);
@@ -119,6 +120,13 @@ export function ModelsView() {
 
   return (
     <div className="mux-models-shell">
+      <div className="mux-models-feature-bar">
+        <FeatureTabs
+          active="models"
+          onSelectMcps={onSelectMcps}
+          onSelectModels={() => {}}
+        />
+      </div>
       <aside className="mux-models-sidebar">
         <div className="mux-models-sidebar-head">
           <div>

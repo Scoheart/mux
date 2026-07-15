@@ -188,10 +188,11 @@ export function SearchBar({
         style={{ color: "var(--text-secondary)" }}
       />
       <input
-        className="w-full pl-9 pr-3 py-2 text-sm rounded-mac outline-none"
+        className="w-full pl-9 pr-3 py-2 text-sm outline-none"
         style={{
           background: "var(--surface-raised)",
           border: "1px solid var(--border-hairline)",
+          borderRadius: "var(--radius-mac)",
           color: "var(--text-primary)",
         }}
         placeholder={placeholder}

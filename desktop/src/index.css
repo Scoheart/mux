@@ -292,7 +292,7 @@ body {
   font: 500 10px/1 var(--font-mono);
 }
 
-/* Segmented control (top-bar tabs) */
+/* Segmented control (forms / editors) */
 .mux-seg {
   display: inline-flex; gap: 2px; padding: 3px;
   background: rgba(120,120,128,.16); border-radius: 10px;
@@ -317,6 +317,59 @@ body {
   line-height: 1;
 }
 
+/** In-app feature tabs — sit in the main column (not above the sidebar) */
+.mux-feature-tabs {
+  display: inline-grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  align-items: stretch;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 10px;
+  background: rgba(120, 120, 128, 0.16);
+}
+.mux-feature-tab {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  box-sizing: border-box;
+  height: 28px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--color-gray-600);
+  font: 600 12px/1 var(--font-sans);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background .14s ease, color .14s ease, box-shadow .14s ease;
+}
+.mux-feature-tab svg {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+}
+.mux-feature-tab:hover { color: var(--text-primary); }
+.mux-feature-tab[data-active="true"] {
+  background: var(--surface-raised);
+  color: var(--color-blue);
+  box-shadow: var(--shadow-card);
+}
+.mux-feature-tab-beta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 14px;
+  padding: 0 4px;
+  border: 1px solid color-mix(in srgb, currentColor 28%, transparent);
+  border-radius: 4px;
+  font-size: 8px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0.02em;
+}
+
 /* Source sidebar row (Registry left column) */
 .mux-src-row {
   height: 30px; /* fixed: hover swaps count → action buttons; must not change row height */
@@ -335,7 +388,7 @@ body {
 .mux-agent-picker-trigger {
   display: inline-flex; align-items: center; gap: 7px;
   width: clamp(300px, 28vw, 360px); height: 40px; padding: 0 10px;
-  border: 1px solid var(--border-hairline); border-radius: 8px;
+  border: 1px solid var(--border-hairline); border-radius: var(--radius-mac);
   background: var(--surface-raised); color: var(--text-primary);
   cursor: pointer; box-shadow: var(--shadow-card), var(--glass-highlight);
   transition: background .14s ease, border-color .14s ease, box-shadow .14s ease;
@@ -367,14 +420,15 @@ body {
   color: var(--color-blue); transform: rotate(180deg);
 }
 .mux-agent-picker {
-  position: absolute; z-index: 520; top: calc(100% + 5px); right: 0;
-  width: 100%; max-height: min(590px, calc(100vh - 70px));
+  position: absolute; z-index: 520; top: calc(100% + 5px); left: 0; right: auto;
+  width: clamp(280px, 32vw, 360px); max-height: min(590px, calc(100vh - 70px));
   display: flex; flex-direction: column; overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--color-blue) 18%, var(--border-hairline)); border-radius: 9px;
   background: var(--surface-popover);
   box-shadow: 0 18px 44px rgba(24, 29, 43, .20), 0 4px 12px rgba(24, 29, 43, .10);
   animation: mux-agent-picker-in .14s ease-out;
 }
+.mux-agent-picker[data-align="right"] { left: auto; right: 0; }
 @keyframes mux-agent-picker-in {
   from { opacity: 0; transform: translateY(-5px) scale(.992); }
   to { opacity: 1; transform: translateY(0) scale(1); }
@@ -486,10 +540,20 @@ body {
 .mux-models-shell {
   display: grid;
   grid-template-columns: 250px minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
   height: 100%; min-height: 0;
   background: color-mix(in srgb, var(--surface-app) 92%, transparent);
 }
+.mux-models-feature-bar {
+  grid-column: 2;
+  grid-row: 1;
+  display: flex;
+  align-items: center;
+  padding: 10px 24px 0;
+}
 .mux-models-sidebar {
+  grid-column: 1;
+  grid-row: 1 / -1;
   display: flex; min-height: 0; flex-direction: column;
   border-right: 1px solid var(--border-hairline);
   background: var(--surface-sidebar);
@@ -535,7 +599,7 @@ body {
 .mux-model-profile-actions button:hover { background: var(--color-gray-150); color: var(--text-primary); }
 .mux-model-profile-actions button[data-danger="true"]:hover { color: var(--color-red); }
 
-.mux-models-main { min-width: 0; min-height: 0; overflow-y: auto; }
+.mux-models-main { grid-column: 2; grid-row: 2; min-width: 0; min-height: 0; overflow-y: auto; }
 .mux-models-main-head {
   position: sticky; top: 0; z-index: 4;
   display: flex; align-items: center; justify-content: space-between; gap: 18px;

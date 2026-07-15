@@ -23,11 +23,16 @@ import {
 import { Avatar, Badge, IconButton, SearchBar, Modal, TransportPill, stickyHeaderStyle } from "./ui";
 import { useToast } from "./Toast";
 import { PasteConfigDialog } from "./PasteConfigDialog";
+import { AgentPicker } from "./AgentPicker";
+import { FeatureTabs } from "./FeatureTabs";
 
 interface RegistryViewProps {
   state: InstallState;
   onEdit: (name: string, transport: Transport) => void;
   onCreate: () => void;
+  onSelectAgent: (id: string) => void;
+  onAddAgent?: () => void;
+  onSelectModels: () => void;
 }
 
 /** Origin buckets — still used to decide which entries are user-deletable. */
@@ -126,8 +131,15 @@ function originLabel(origin: RegistryOrigin | undefined, sourceName: (id: string
   return label || (origin.kind === "remote" ? "订阅" : "本地");
 }
 
-export function RegistryView({ state, onEdit, onCreate }: RegistryViewProps) {
-  const { catalog, entries, agentsForServer, sources } = state;
+export function RegistryView({
+  state,
+  onEdit,
+  onCreate,
+  onSelectAgent,
+  onAddAgent,
+  onSelectModels,
+}: RegistryViewProps) {
+  const { catalog, entries, agentsForServer, sources, agents } = state;
   const toast = useToast();
 
   const [q, setQ] = useState("");
@@ -240,10 +252,21 @@ export function RegistryView({ state, onEdit, onCreate }: RegistryViewProps) {
       />
 
       <div className="flex-1 min-w-0 min-h-0 overflow-y-auto">
-      {/* Sticky header: search/actions + catalog-state filter. */}
-      <div className="sticky top-0 z-10 px-6 py-3" style={stickyHeaderStyle}>
-        <div className="max-w-[1280px] mx-auto">
+      {/* Sticky header: feature tabs + agent/search — aligned to main column */}
+      <div className="sticky top-0 z-10 px-6 pt-3 pb-3" style={stickyHeaderStyle}>
+        <div className="max-w-[1280px] mx-auto flex flex-col gap-2.5">
+          <FeatureTabs
+            active="mcps"
+            onSelectMcps={() => {}}
+            onSelectModels={onSelectModels}
+          />
           <div className="flex items-center gap-3">
+            <AgentPicker
+              agents={agents}
+              selectedId={null}
+              onSelect={onSelectAgent}
+              onAddAgent={onAddAgent}
+            />
             <div className="flex-1 min-w-[160px]">
               <SearchBar value={q} onChange={setQ} placeholder="搜索 MCP…" />
             </div>

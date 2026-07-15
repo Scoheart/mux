@@ -51,8 +51,9 @@ Registry 默认显示所有已启用来源中的**每一份副本**。同一个 
 ## 安装到 Agent
 
 1. 在顶部 Agent 选择器中选择一个 Agent。
-2. 点击 **添加 MCP**，搜索并选择尚未安装的条目。
-3. MUX 先备份目标文件，再按该 Agent 的格式与配置键写入全局配置。
+2. 在 Agent 配置中心确认 **Agent 配置文件**与 **MCP 配置文件**。两者可能是同一文件，也可能是两个独立文件；MUX 会明确标注。
+3. 点击 **添加 MCP**，搜索并选择尚未安装的条目。
+4. MUX 先备份目标文件，再按该 Agent 的格式与配置键写入全局配置。
 
 MUX 当前只管理 Agent 的全局安装。
 
@@ -93,14 +94,16 @@ Agent 页面中的每个已安装 MCP 都有开关和删除操作：
 ## Agent 管理
 
 - 顶部 Agent 选择器右侧的 `+` 用于新增 JSON、TOML 或 YAML 自定义 Agent。
-- 进入内置 Agent 页面后只允许覆盖全局路径；官方格式、配置键和 codec 固定，避免产生不兼容配置。
+- Agent 页面是当前 Agent 的配置中心：同时展示 Agent/模型配置路径、MCP 配置路径、模型分配和已添加 MCP，日常操作不需要在 Models 与 MCPs 之间往返。
+- 两条路径相同时显示“同一文件”；模型设置与 MCP 位于不同文件时显示“独立 MCP 文件”。路径只用于说明配置目标，MUX 不会把完整配置内容提供给界面。
+- 进入内置 Agent 页面后只允许覆盖 MCP 全局路径；官方格式、配置键和 codec 固定，避免产生不兼容配置。
 - 位于用户主目录内的路径保存为 `~/…`；主目录外的绝对路径保持原值。
 
 完整的 40 个核验目标、39 个可配置目标与 192 条保留记录口径见 [支持的 Agent](/guide/agents)。
 
 ## Models（Beta）
 
-顶部 **Models** 页面与 MCPs 使用同一套筛选栏、搜索、资源卡片和右侧详情面板。可以创建可复用端点，并在详情面板中将兼容配置应用到 Claude Code、Codex 或 Pi。每个配置包含协议、Base URL、模型 ID 和可选 token 参数；API Key 只写入 macOS Keychain，不进入 `~/.mux/settings.json`、Agent 配置预览或备份。
+顶部 **Models** 页面与 MCPs 使用同一套筛选栏、搜索、资源卡片和右侧详情面板。可以创建可复用端点，并在详情面板中跨 Agent 管理分配；进入单个 Agent 后，也可在其配置中心选择兼容端点并直接应用。每个配置包含协议、Base URL、模型 ID 和可选 token 参数；API Key 只写入 macOS Keychain，不进入 `~/.mux/settings.json`、Agent 配置预览或备份。
 
 Claude Code 目前只接收 Anthropic Messages 配置，Codex 使用 Responses API，Pi 支持三种首批协议。Qoder 会显示安装状态和官方设置入口，但不会写入它未公开的加密模型存储。完整边界见 [模型接口](/guide/models)。
 

@@ -47,9 +47,10 @@ Hovering a card reveals **Copy config / Edit / Delete** actions. Only "manual" a
 
 ## Install to an agent
 
-1. On the "Configurable" tab of the top agent selector, choose an agent.
-2. Click **Add MCP**, then search and select an entry that isn't installed yet.
-3. MUX backs up the target file first, then writes it into the global config in that agent's format and config key.
+1. Choose an agent from the selector in the top bar.
+2. Confirm the **Agent config file** and **MCP config file** in the agent configuration center. They may be the same file or two separate files; MUX labels the relationship explicitly.
+3. Click **Add MCP**, then search and select an entry that isn't installed yet.
+4. MUX backs up the target file first, then writes it into the global config in that agent's format and config key.
 
 MUX currently manages only agents' global installs.
 
@@ -84,10 +85,18 @@ The source model itself supports enable/disable, which the TUI's "Sources" scree
 ## Agent management
 
 - The `+` to the right of the top agent selector adds a custom JSON, TOML, or YAML agent.
-- Inside a built-in agent's page you may only override the global path; the official format, config key, and codec are fixed, to avoid producing incompatible configs.
+- An agent page is that agent's configuration center: it shows the agent/model path, MCP path, model assignment, and installed MCPs together, so routine work no longer requires switching between Models and MCPs.
+- When the paths match the page shows “Same file”; when model settings and MCP use different files it shows “Separate MCP file.” Paths identify configuration targets only; MUX never returns the complete config to the UI.
+- Inside a built-in agent's page you may only override the global MCP path; the official format, config key, and codec are fixed, to avoid producing incompatible configs.
 - Paths inside the home directory are saved as `~/…`; absolute paths outside it keep their original value.
 
 For the full 40 verified targets and the 192-client directory scope, see [Supported agents](/en/guide/agents).
+
+## Models (Beta)
+
+The top-level **Models** workspace creates reusable endpoints and manages assignments across agents. The same compatible profiles are also available inside each supported agent's configuration center for direct application. A profile contains its protocol, Base URL, model ID, and optional token limits; API keys remain in macOS Keychain and are never included in settings, previews, or backups.
+
+Claude Code currently accepts Anthropic Messages profiles, Codex supports the OpenAI protocols exposed by its provider configuration, and Pi supports all three initial protocols. Qoder shows its verified paths and official setup entry, but MUX does not write its unpublished encrypted model store.
 
 ## Auto-update and the CLI
 

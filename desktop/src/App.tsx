@@ -51,7 +51,11 @@ function App() {
       ) : view.kind === "models" ? (
         <ModelsView />
       ) : (
-        <AgentView state={state} agentId={view.id} />
+        <AgentView
+          state={state}
+          agentId={view.id}
+          onOpenModels={() => setView({ kind: "models" })}
+        />
       )}
 
       {addAgentOpen && (

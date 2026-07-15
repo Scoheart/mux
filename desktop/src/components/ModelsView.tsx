@@ -304,6 +304,7 @@ function ModelCard({
   return (
     <article
       className="mux-tile mux-model-card p-3"
+      data-protocol={profile.protocol}
       data-selected={selected ? "true" : undefined}
       role="button"
       tabIndex={0}
@@ -316,27 +317,30 @@ function ModelCard({
         }
       }}
     >
-      <div className="flex items-start gap-2.5">
-        <Avatar seed={profile.name} label="M" size={34} />
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-1.5 min-w-0">
-            <strong className="mux-resource-title" title={profile.name}>{profile.name}</strong>
+      <div className="mux-model-card-head">
+        <Avatar seed={profile.name} label="M" size={36} />
+        <div className="mux-model-card-identity">
+          <div className="mux-model-card-name">
+            <strong title={profile.name}>{profile.name}</strong>
             {profile.credential_saved && (
               <span className="mux-credential-mark" title="密钥已存入 Keychain">
                 <CheckIcon className="w-3 h-3" />
               </span>
             )}
           </div>
-          <span className="mux-resource-subtitle" title={profile.model}>{profile.model}</span>
-          <div className="mt-1.5">
-            <Badge tone="neutral">{protocolLabel(profile.protocol)}</Badge>
+          <code title={profile.model}>{profile.model}</code>
+          <div className="mux-model-card-tags">
+            <span className="mux-model-protocol-dot" data-protocol={profile.protocol} />
+            <span>{protocolLabel(profile.protocol)}</span>
+            {profile.reasoning && <Badge tone="info">Reasoning</Badge>}
           </div>
         </div>
       </div>
 
-      <div className="mux-resource-endpoint" title={profile.base_url}>
+      <div className="mux-model-card-endpoint" title={profile.base_url}>
         <LinkIcon className="w-3 h-3 flex-shrink-0" />
-        <span>{profile.base_url}</span>
+        <span className="mux-model-card-endpoint-label">Base URL</span>
+        <code>{profile.base_url}</code>
       </div>
 
       <div className="mux-resource-card-footer">

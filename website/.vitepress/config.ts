@@ -18,7 +18,7 @@ export default defineConfig({
     nav: [
       { text: "指南", link: "/guide/what-is-mux", activeMatch: "/guide/" },
       { text: "支持的 Agent", link: "/guide/agents" },
-      { text: "模型接口", link: "/guide/models" },
+      { text: "Models（Beta）", link: "/guide/models" },
       { text: "下载", link: "https://github.com/Scoheart/mux/releases" },
     ],
 
@@ -38,7 +38,7 @@ export default defineConfig({
             { text: "桌面 App 指南", link: "/guide/desktop" },
             { text: "命令行 / TUI", link: "/guide/cli" },
             { text: "支持的 Agent", link: "/guide/agents" },
-            { text: "模型接口（预览）", link: "/guide/models" },
+            { text: "Models（Beta）", link: "/guide/models" },
           ],
         },
         {

@@ -122,7 +122,7 @@ export function ModelsView() {
       <aside className="mux-models-sidebar">
         <div className="mux-models-sidebar-head">
           <div>
-            <h2>模型接口</h2>
+            <h2>Models</h2>
             <span>{profiles.length} 个配置</span>
           </div>
           <IconButton title="新建模型接口" onClick={() => setEditing(null)}>
@@ -173,7 +173,7 @@ export function ModelsView() {
       <section className="mux-models-main">
         <header className="mux-models-main-head">
           <div>
-            <h1>Agent 模型</h1>
+            <h1>Agent Models</h1>
             <p>首批支持 Claude Code、Codex、Pi 与 Qoder。</p>
           </div>
           {selectedProfile && (

@@ -12,7 +12,7 @@
 
 | 区域 | 作用 |
 |---|---|
-| **MCPs / 模型** | 在 MCP 目录和模型接口管理之间切换。 |
+| **MCPs / Models（Beta）** | 在 MCP 目录和模型接口管理之间切换。 |
 | **Agent 选择器** | 搜索已核验、可安全写入全局配置的 Agent。发现目录数据继续保留，但不占用界面标签页。 |
 | **`+`** | 新增自定义 Agent，位置紧邻 Agent 选择器。 |
 | **主题 / 重新扫描 / 检查更新** | 切换外观、重读各 Agent 配置、手动检查正式版更新。 |
@@ -97,9 +97,9 @@ Agent 页面中的每个已安装 MCP 都有开关和删除操作：
 
 完整的 39 个核验目标、38 个可配置目标与 191 条保留记录口径见 [支持的 Agent](/guide/agents)。
 
-## 模型接口（预览）
+## Models（Beta）
 
-顶部 **模型** 页面可以创建可复用端点，并将兼容的配置应用到 Claude Code、Codex 或 Pi。每个配置包含协议、Base URL、模型 ID 和可选 token 参数；API Key 只写入 macOS Keychain，不进入 `~/.mux/settings.json`、Agent 配置预览或备份。
+顶部 **Models** 页面可以创建可复用端点，并将兼容的配置应用到 Claude Code、Codex 或 Pi。每个配置包含协议、Base URL、模型 ID 和可选 token 参数；API Key 只写入 macOS Keychain，不进入 `~/.mux/settings.json`、Agent 配置预览或备份。
 
 Claude Code 目前只接收 Anthropic Messages 配置，Codex 使用 Responses API，Pi 支持三种首批协议。Qoder 会显示安装状态和官方设置入口，但不会写入它未公开的加密模型存储。完整边界见 [模型接口](/guide/models)。
 

@@ -308,6 +308,14 @@ body {
   background: var(--surface-raised); color: var(--color-blue);
   box-shadow: var(--shadow-card);
 }
+.mux-seg-beta {
+  padding: 2px 3px;
+  border: 1px solid color-mix(in srgb, currentColor 25%, transparent);
+  border-radius: 4px;
+  font-size: 8px;
+  font-weight: 700;
+  line-height: 1;
+}
 
 /* Source sidebar row (Registry left column) */
 .mux-src-row {

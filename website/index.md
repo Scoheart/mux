@@ -36,7 +36,7 @@ features:
     title: 安全写入
     details: 修改已有文件前先做独立备份；按条目原子更新，并保留其它 server、策略字段、注释与排版。
   - icon: 🔑
-    title: 模型接口复用
+    title: Models（Beta）
     details: 首批支持 Claude Code、Codex 与 Pi 复用模型端点；API Key 只存 macOS Keychain。Qoder 保留官方交互配置入口。
 ---
 

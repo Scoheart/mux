@@ -6,6 +6,7 @@ pub mod differ;
 pub mod disabled;
 pub mod effective;
 pub mod json_adapter;
+pub mod models;
 pub mod ops;
 pub mod r#override;
 pub mod paths;

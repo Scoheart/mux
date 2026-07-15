@@ -38,6 +38,46 @@ export interface AgentInfo {
   verified_at: string | null;
   builtin: boolean;
 }
+
+export type ModelProtocol =
+  | "anthropic-messages"
+  | "openai-responses"
+  | "openai-completions";
+
+export interface ModelProfile {
+  id: string;
+  name: string;
+  protocol: ModelProtocol;
+  base_url: string;
+  model: string;
+  context_window?: number;
+  max_output_tokens?: number;
+  reasoning: boolean;
+}
+
+export interface ModelProfileView extends ModelProfile {
+  credential_saved: boolean;
+}
+
+export interface ModelAgentView {
+  id: "claude-code" | "codex" | "pi" | "qoder" | string;
+  name: string;
+  mode: "managed" | "guided";
+  installed: boolean;
+  config_path: string;
+  docs: string;
+  assigned_profile: string | null;
+  supported_protocols: ModelProtocol[];
+  note: string;
+}
+
+export interface ModelApplyResult {
+  agent: string;
+  profile: string;
+  files: string[];
+  restart_required: boolean;
+  message: string;
+}
 /** Payload for creating a custom agent (mirrors Rust AgentDefinition). */
 export interface AgentDefinitionInput {
   global: string | null;
@@ -62,6 +102,7 @@ export interface PatchInput {
  *  full-page MCP editor (name === null means creating a new entry). */
 export type View =
   | { kind: "registry" }
+  | { kind: "models" }
   | { kind: "agent"; id: string }
   | { kind: "mcp-edit"; name: string | null; transport?: "stdio" | "http" };
 

@@ -6,14 +6,14 @@
 
 ## 界面总览
 
-打开 App 默认进入 **Registry（目录）**。当前 `v1.2.0` 的主界面由以下区域组成：
+打开 App 默认进入 **MCPs**。当前主界面由以下区域组成：
 
-![MUX Registry 界面](/img/registry-overview-current.jpg)
+![MUX MCPs 总览：来源、目录和 Agent 入口](/img/mcps-overview.png)
 
 | 区域 | 作用 |
 |---|---|
-| **Registry** | 从任意 Agent 页面返回目录。 |
-| **Agent 选择器** | 搜索 191 个客户端；“可配置”列出已核验写入目标，“客户端目录”只展示来源。 |
+| **MCPs / Models（Beta）** | 在 MCP 目录和模型接口管理之间切换。 |
+| **Agent 选择器** | 搜索已核验、可安全写入全局配置的 Agent。发现目录数据继续保留，但不占用界面标签页。 |
 | **`+`** | 新增自定义 Agent，位置紧邻 Agent 选择器。 |
 | **主题 / 重新扫描 / 检查更新** | 切换外观、重读各 Agent 配置、手动检查正式版更新。 |
 | **来源栏** | 按来源过滤目录；顶部提供“添加订阅”和“导入配置”。 |
@@ -31,6 +31,8 @@ Registry 默认显示所有已启用来源中的**每一份副本**。同一个 
 
 最终用于安装与导出的，是每个组合键优先级最高的那一份。完整规则见 [优先级](/guide/concepts#优先级-去重规则)。
 
+![只看被覆盖配置](/img/shadowed-config.png)
+
 ## 卡片怎么看
 
 每张卡片包含：
@@ -47,11 +49,13 @@ Registry 默认显示所有已启用来源中的**每一份副本**。同一个 
 
 ## 安装到 Agent
 
-1. 在顶部 Agent 选择器的“可配置”页选择一个 Agent。
+1. 在顶部 Agent 选择器中选择一个 Agent。
 2. 点击 **添加 MCP**，搜索并选择尚未安装的条目。
 3. MUX 先备份目标文件，再按该 Agent 的格式与配置键写入全局配置。
 
 MUX 当前只管理 Agent 的全局安装。
+
+![在顶部搜索可配置 Agent](/img/agent-picker.png)
 
 ## 开关与删除
 
@@ -62,6 +66,8 @@ Agent 页面中的每个已安装 MCP 都有开关和删除操作：
 - **删除**：从该 Agent 卸载。
 
 在 Registry 中删除“手动添加 / 自动探索”条目，会同时从目录和所有全局 Agent 中移除该条目，并保留备份。
+
+![QoderWork 全局配置路径与 MCP 开关](/img/qoderwork-config.png)
 
 ## 编辑、粘贴与导出
 
@@ -79,6 +85,8 @@ Agent 页面中的每个已安装 MCP 都有开关和删除操作：
 
 悬停来源行后，远程订阅、本地文件和自动探索可刷新；非受管来源可以删除。删除来源会移除缓存与目录条目，但不卸载已经写入 Agent 的配置。
 
+![按 Mux 精选来源筛选 MCP](/img/source-filter.png)
+
 来源模型本身支持启停，TUI 的“来源”屏幕用 `Space` / `Enter` 操作。桌面 `v1.2.0` 的来源栏暂未提供启停开关。
 
 ## Agent 管理
@@ -87,7 +95,13 @@ Agent 页面中的每个已安装 MCP 都有开关和删除操作：
 - 进入内置 Agent 页面后只允许覆盖全局路径；官方格式、配置键和 codec 固定，避免产生不兼容配置。
 - 位于用户主目录内的路径保存为 `~/…`；主目录外的绝对路径保持原值。
 
-完整的 39 个核验目标与 191 个客户端目录口径见 [支持的 Agent](/guide/agents)。
+完整的 39 个核验目标、38 个可配置目标与 191 条保留记录口径见 [支持的 Agent](/guide/agents)。
+
+## Models（Beta）
+
+顶部 **Models** 页面可以创建可复用端点，并将兼容的配置应用到 Claude Code、Codex 或 Pi。每个配置包含协议、Base URL、模型 ID 和可选 token 参数；API Key 只写入 macOS Keychain，不进入 `~/.mux/settings.json`、Agent 配置预览或备份。
+
+Claude Code 目前只接收 Anthropic Messages 配置，Codex 使用 Responses API，Pi 支持三种首批协议。Qoder 会显示安装状态和官方设置入口，但不会写入它未公开的加密模型存储。完整边界见 [模型接口](/guide/models)。
 
 ## 自动更新与 CLI
 
@@ -104,5 +118,6 @@ Agent 页面中的每个已安装 MCP 都有开关和删除操作：
 - 更新已有 server 时只改受管连接字段，保留其权限、OAuth、工具策略等专属字段。
 - 保留其它顶层键、其它 server、注释、缩进和键顺序；JSON、TOML 或 YAML 结构不合法或有歧义时拒绝写入。
 - `~/.mux/settings.json` 使用临时文件加重命名的原子写入。
+- 模型接口同样只修改各 Agent 的受管模型字段；Pi 的两个文件作为事务写入，第二步失败会回滚第一步。
 
 命令行提供同一套核心能力 → [命令行 / TUI](/guide/cli)。

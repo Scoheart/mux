@@ -9,7 +9,7 @@ MUX deliberately separates client discovery from writable configuration support.
 | `data/agents.json` | Deep-audited definitions with product-specific paths, layouts, codecs, transports, and evidence | 39 |
 | `data/agent-catalog.json` | Discovery-only client records; unknown paths and formats always fail closed | 175 |
 
-There are 23 overlapping IDs. Audited definitions override directory records, producing 191 distinct clients in the UI. Of the 39 audited records, 37 have writable user-level global targets. Devin and QoderWork remain read-only.
+There are 23 overlapping IDs. Audited definitions override directory records, producing 191 distinct retained client records. The desktop picker intentionally shows only the 38 writable user-level targets among the 39 audited definitions; catalog-only records remain available to the core for future promotion. Devin remains read-only.
 
 ## Discovery sources
 

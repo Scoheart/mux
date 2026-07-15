@@ -4,6 +4,7 @@ import { RegistryView } from "./components/RegistryView";
 import { RegistryEditPage } from "./components/RegistryEditPage";
 import { AgentView } from "./components/AgentView";
 import { AddAgentDialog } from "./components/AddAgentDialog";
+import { ModelsView } from "./components/ModelsView";
 import { useInstallState } from "./hooks/useInstallState";
 import { useUpdater } from "./hooks/useUpdater";
 import { useCliTool } from "./hooks/useCliTool";
@@ -41,6 +42,7 @@ function App() {
       agents={state.agents}
       view={view}
       onSelectRegistry={() => setView({ kind: "registry" })}
+      onSelectModels={() => setView({ kind: "models" })}
       onSelectAgent={(id) => setView({ kind: "agent", id })}
       onAddAgent={() => setAddAgentOpen(true)}
       onRescan={state.refreshAll}
@@ -58,6 +60,8 @@ function App() {
           onEdit={(name, transport) => setView({ kind: "mcp-edit", name, transport })}
           onCreate={() => setView({ kind: "mcp-edit", name: null })}
         />
+      ) : view.kind === "models" ? (
+        <ModelsView />
       ) : (
         <AgentView state={state} agentId={view.id} />
       )}

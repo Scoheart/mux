@@ -1,5 +1,6 @@
 pub mod cli_tool;
 pub mod commands;
+pub mod updater_guard;
 
 use tauri::Manager;
 
@@ -34,6 +35,11 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::list_registry,
+            commands::list_model_profiles,
+            commands::save_model_profile,
+            commands::delete_model_profile,
+            commands::list_model_agents,
+            commands::apply_model_profile,
             commands::list_registry_all,
             commands::upsert_registry_entry,
             commands::delete_registry_entry,
@@ -62,7 +68,8 @@ pub fn run() {
             commands::resync_entry,
             commands::forget_entry,
             cli_tool::cli_status,
-            cli_tool::install_cli
+            cli_tool::install_cli,
+            updater_guard::update_environment
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

@@ -1,6 +1,6 @@
 [package]
 name = "desktop"
-version = "1.2.4"
+version = "1.2.7"
 description = "A Tauri App"
 authors = ["you"]
 edition = "2021"
@@ -29,6 +29,7 @@ tauri-plugin-dialog = "2"
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
 ureq = "2"
+libc = "0.2"
 mux-core = { path = "../../core" }
 
 # Tuned for CI build time (and a smaller dmg). Runtime perf is irrelevant for a

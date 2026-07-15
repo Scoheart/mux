@@ -2,7 +2,17 @@
 
 # MUX — MCP Multiplexer
 
-**One place to manage your MCP (Model Context Protocol) servers across every AI coding agent.**
+**Manage MCP servers and reusable model endpoints for your AI agents in one place.**
+
+MUX is an MCP configuration manager for Claude Code, Codex, Cursor, QoderWork,
+OpenCode, and many other AI agents. Install, enable, synchronize, and export MCP
+servers from one catalog while MUX adapts each agent's native config format. It
+patches only the MCP section and preserves the rest of your settings.
+
+The desktop preview also manages reusable model endpoint profiles for Claude
+Code, Codex, and Pi. Credentials stay in macOS Keychain; Qoder is detected and
+linked to its official interactive `/model` setup until it exposes a secure
+non-interactive writer.
 
 MUX ships as **two front-ends that share the same data** (`~/.mux/`):
 
@@ -10,7 +20,8 @@ MUX ships as **two front-ends that share the same data** (`~/.mux/`):
 - ⌨️ a **CLI + TUI** (`mux`, a native Rust binary) — an interactive terminal UI
   plus scriptable subcommands.
 
-Point either one at your tools — Claude Code, Codex, Cursor, VS Code, Zed, Windsurf, Gemini CLI, Qoder, and many more — and install, toggle, or remove MCP servers per agent from one catalog.
+Use either interface to install, toggle, or remove MCP servers across supported
+agents from the same catalog.
 
 ---
 
@@ -35,14 +46,24 @@ A one-click **Mux 精选 (curated collection)** subscribes you to a curated set.
 - **Paste a config** — drop a `{"mcpServers": {…}}` block and MUX recognizes the servers and adds them.
 - **Edits propagate** — changing a catalog entry's connection config re-stamps it into every active global install, including drifted copies; failed targets are reported instead of silently counted as synced.
 - **Safe, local writes** — MUX reads and edits only the configured MCP entry on this machine. It never uploads the complete agent config. Existing files are backed up first, then atomically replaced only if they have not changed concurrently; unrelated keys, comments, formatting, servers, policy fields, permissions, and symlinks are preserved.
+- **Reusable model endpoints (preview)** — define a protocol, Base URL, model ID, and optional token limits once, then apply compatible profiles to Claude Code, Codex, or Pi. API keys are stored only in macOS Keychain.
 - **CLI ⇄ Desktop in sync** — both are built on one shared Rust core (`mux-core`) and read/write `~/.mux/`, so a change in one shows up in the other.
 - **Dark mode** and a macOS "liquid glass" UI.
 
+## Screenshots
+
+![MUX MCP catalog with source and conflict visibility](website/public/img/mcps-overview.png)
+
+![QoderWork MCP configuration managed by MUX](website/public/img/qoderwork-config.png)
+
+See the [desktop app guide](website/guide/desktop.md) for Agent search, source
+filtering, and shadowed-configuration screenshots.
+
 ## Supported agents
 
-MUX exposes **191 distinct MCP clients** in a searchable catalog. Of those, **39 are deeply audited definitions** and **37 have verified, writable global config targets** with native JSON, TOML, or YAML schemas. The remaining clients are discovery-only until a stable user-level file contract is verified; MUX never guesses a path or writes a generic schema into them.
+MUX retains **191 distinct MCP client records** for discovery and verification. Of those, **39 are deeply audited definitions** and **38 have verified, writable global config targets** with native JSON, TOML, or YAML schemas; only those writable targets appear in the desktop Agent picker. MUX never guesses a path or writes a generic schema into the remaining discovery-only records.
 
-Audited targets include Claude Code/Desktop, Codex, Cursor, VS Code, Zed, Windsurf, Gemini CLI, Google Antigravity, Amazon Q, OpenCode, Copilot CLI, Cline, Continue, Goose, Hermes, Kimi Code, Qwen Code, Mistral Vibe, Rovo Dev, Tabnine, LM Studio, and others. Claude Desktop and BoltAI local files accept stdio only. Pi is explicitly labeled as a community `pi-mcp-adapter` target because Pi core does not ship MCP support. Devin and QoderWork remain read-only because no stable user-level global config file is documented.
+Audited targets include Claude Code/Desktop, Codex, Cursor, VS Code, Zed, Windsurf, Gemini CLI, Google Antigravity, Amazon Q, OpenCode, Copilot CLI, Cline, Continue, Goose, Hermes, Kimi Code, Qwen Code, QoderWork, Mistral Vibe, Rovo Dev, Tabnine, LM Studio, and others. Claude Desktop and BoltAI local files accept stdio only. Pi is explicitly labeled as a community `pi-mcp-adapter` target because Pi core does not ship MCP support. Devin remains discovery-only because no stable user-level global config file is documented.
 
 See the [complete audited matrix](website/guide/agents.md) and [catalog methodology](docs/agent-catalog.md). Every writable target's global path remains editable; paths inside the home directory are normalized to the portable `~/…` form.
 
@@ -101,12 +122,14 @@ Everything lives under `~/.mux/`:
 
 ```
 ~/.mux/
-├── settings.json           # one document: agents · sources · disabled · state
+├── settings.json           # agents · sources · model profile metadata · state
 ├── sources/
 │   ├── remote/<id>.json    # cached copies of subscribed URLs
 │   └── local/<id>.(json|toml)   # imported local files + the managed manual/discovered sources
 └── backups/                # per-agent timestamped backups made before existing-file writes
 ```
+
+Model API keys are not stored under `~/.mux/`; they remain in macOS Keychain.
 
 ## How it works
 

@@ -1,8 +1,10 @@
 # MUX 是什么
 
-**MUX（MCP Multiplexer）** 是一个跨 AI 编码 agent 统一管理 **MCP（Model Context Protocol）服务器** 的工具。
+**MUX（MCP Multiplexer）** 是一款面向多 Agent 的 **MCP（Model Context Protocol）配置管理工具**。它可以集中管理 Claude Code、Codex、Cursor、QoderWork、OpenCode 等 AI Agent 的 MCP 服务，一键安装、启用、同步和导出配置。
 
-![MUX 桌面 App 界面总览](/img/registry-overview-current.jpg)
+MUX 会适配不同 Agent 的配置路径、文件格式和字段结构，只修改目标 MCP 部分，不覆盖用户的其他设置。桌面端与命令行共享同一份数据，让多 Agent 的 MCP 管理更简单、更安全。
+
+![MUX 桌面 App 界面总览](/img/mcps-overview.png)
 
 > 上图各区域详解见 [桌面 App 图文教程](/guide/desktop#界面总览)。
 

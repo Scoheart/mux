@@ -122,6 +122,7 @@ pub enum Codec {
     Gemini,
     Windsurf,
     Qoder,
+    QoderWork,
     Copilot,
     Cline,
     Roo,
@@ -162,6 +163,7 @@ pub fn for_agent(agent_id: &str) -> Codec {
         "gemini" => Codec::Gemini,
         "windsurf" => Codec::Windsurf,
         "qoder" => Codec::Qoder,
+        "qoderwork" => Codec::QoderWork,
         "copilot-cli" => Codec::Copilot,
         "cline" => Codec::Cline,
         "roo-code" => Codec::Roo,
@@ -182,6 +184,7 @@ pub fn from_name(name: Option<&str>, agent_id: &str) -> Codec {
         Some("gemini") => Codec::Gemini,
         Some("windsurf") => Codec::Windsurf,
         Some("qoder") => Codec::Qoder,
+        Some("qoderwork") => Codec::QoderWork,
         Some("copilot") => Codec::Copilot,
         Some("cline") => Codec::Cline,
         Some("roo") => Codec::Roo,
@@ -338,7 +341,7 @@ impl Codec {
         let mut object_patches = Vec::new();
         match config {
             McpConfig::Stdio(stdio) => match self {
-                Codec::ExplicitType | Codec::Qoder => {
+                Codec::ExplicitType | Codec::Qoder | Codec::QoderWork => {
                     fields.push(("type".into(), Value::String("stdio".into())));
                     push_stdio_fields(&mut fields, stdio, "cwd");
                 }
@@ -451,6 +454,20 @@ impl Codec {
                     "headers",
                 ),
                 Codec::Windsurf => push_http_fields(&mut fields, http, "serverUrl", "headers"),
+                Codec::QoderWork => {
+                    fields.push((
+                        "type".into(),
+                        Value::String(
+                            if http.kind == "sse" {
+                                "sse"
+                            } else {
+                                "streamable-http"
+                            }
+                            .into(),
+                        ),
+                    ));
+                    push_http_fields(&mut fields, http, "url", "headers");
+                }
                 Codec::Qoder => {
                     fields.push((
                         "type".into(),
@@ -829,6 +846,44 @@ mod tests {
 
         assert_eq!(fields["type"], "ws");
         assert_eq!(Codec::Qoder.decode(&Value::Object(fields)), Some(remote));
+    }
+
+    #[test]
+    fn qoderwork_uses_documented_transport_types() {
+        let local = McpConfig::Stdio(StdioConfig {
+            command: "npx".into(),
+            args: Some(vec!["-y".into(), "server".into()]),
+            env: None,
+            cwd: None,
+        });
+        let remote = McpConfig::Http(HttpConfig {
+            kind: "http".into(),
+            url: "https://example.com/mcp".into(),
+            headers: None,
+        });
+        let local_fields: Map<String, Value> = Codec::QoderWork
+            .patch(&local)
+            .unwrap()
+            .fields
+            .into_iter()
+            .collect();
+        let remote_fields: Map<String, Value> = Codec::QoderWork
+            .patch(&remote)
+            .unwrap()
+            .fields
+            .into_iter()
+            .collect();
+
+        assert_eq!(local_fields["type"], "stdio");
+        assert_eq!(remote_fields["type"], "streamable-http");
+        assert_eq!(
+            Codec::QoderWork.decode(&Value::Object(remote_fields)),
+            Some(McpConfig::Http(HttpConfig {
+                kind: "streamable-http".into(),
+                url: "https://example.com/mcp".into(),
+                headers: None,
+            }))
+        );
     }
 
     #[test]

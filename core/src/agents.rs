@@ -105,10 +105,14 @@ fn migrated_builtin_global(
     saved: &AgentDefinition,
     current: &AgentDefinition,
 ) -> Option<String> {
-    // No audited writer means no path override. This keeps Devin/QoderWork and
-    // future catalog-only targets read-only even when old settings claimed a
-    // path for them.
+    // No audited writer means no path override. This keeps catalog-only targets
+    // read-only even when old settings claimed a path for them.
     current.global.as_ref()?;
+    // QoderWork was read-only before its user-level contract was verified. Do
+    // not turn a stale guessed path into a writable override during promotion.
+    if id == "qoderwork" && (saved.format == "unknown" || saved.key.is_empty()) {
+        return current.global.clone();
+    }
     let stale = matches!(
         (id, saved.global.as_deref()),
         (
@@ -122,6 +126,7 @@ fn migrated_builtin_global(
                 )
             )
             | ("continue", Some("~/.continue/config.json"))
+            | ("qoderwork", Some("~/.qoderwork/settings.json"))
     );
     if stale {
         current.global.clone()
@@ -163,7 +168,7 @@ pub fn put(id: String, mut def: AgentDefinition, allow_overwrite: bool) -> Resul
     if let Some(existing) = agents.get(&id) {
         if existing.builtin == Some(true) {
             if existing.global.is_none() {
-                return Err("该 Agent 仅用于客户端目录，尚无可写的全局配置定义".into());
+                return Err("该 Agent 尚无可写的全局配置定义".into());
             }
             // Built-in wire schemas are audited product contracts. All callers,
             // not just the UI, may override only global path and enabled state.
@@ -278,6 +283,8 @@ mod tests {
         stored.get_mut("continue").unwrap().global = Some("~/.continue/config.json".into());
         stored.get_mut("continue").unwrap().project = Some(".continue/config.json".into());
         stored.get_mut("qoderwork").unwrap().global = Some("~/.custom/qoderwork.json".into());
+        stored.get_mut("qoderwork").unwrap().format = "unknown".into();
+        stored.get_mut("qoderwork").unwrap().key.clear();
         let custom = AgentDefinition {
             global: Some("~/.custom/mcp.json".into()),
             project: None,
@@ -313,8 +320,24 @@ mod tests {
             Some("~/.continue/config.yaml")
         );
         assert!(merged["continue"].project.is_none());
-        assert!(merged["qoderwork"].global.is_none());
+        assert_eq!(
+            merged["qoderwork"].global.as_deref(),
+            Some("~/.qoderwork/mcp.json")
+        );
         assert_eq!(merged["custom"], custom);
+    }
+
+    #[test]
+    fn stale_qoderwork_settings_path_migrates_to_mcp_file() {
+        let mut stored = builtin_agents();
+        stored.get_mut("qoderwork").unwrap().global = Some("~/.qoderwork/settings.json".into());
+
+        let merged = merge_builtin_updates(stored);
+
+        assert_eq!(
+            merged["qoderwork"].global.as_deref(),
+            Some("~/.qoderwork/mcp.json")
+        );
     }
 
     #[test]

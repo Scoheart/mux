@@ -129,6 +129,19 @@ pub(crate) fn write_private_if_unchanged(
     write_if_unchanged_impl(path, expected, content, true)
 }
 
+/// Remove a file only when its current contents still match what the caller
+/// prepared against. Used to roll back a newly-created file in a multi-file
+/// model configuration transaction.
+pub(crate) fn remove_if_unchanged(path: &Path, expected: &str) -> Result<(), String> {
+    if read_optional(path)?.as_deref() != Some(expected) {
+        return Err(format!(
+            "refusing to remove {} during rollback: file changed after MUX wrote it",
+            path.display()
+        ));
+    }
+    fs::remove_file(path).map_err(|error| format!("failed to remove {}: {}", path.display(), error))
+}
+
 fn write_if_unchanged_impl(
     path: &Path,
     expected: Option<&str>,

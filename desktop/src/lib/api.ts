@@ -1,7 +1,17 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { RegistryEntry, CatalogItem, AgentInfo, AgentDefinitionInput, InstalledMcp, InstallRequest, SourceView, ResyncOutcome } from "./types";
+import type { RegistryEntry, CatalogItem, AgentInfo, AgentDefinitionInput, InstalledMcp, InstallRequest, SourceView, ResyncOutcome, ModelProfile, ModelProfileView, ModelAgentView, ModelApplyResult } from "./types";
 
 export const listRegistry = () => invoke<RegistryEntry[]>("list_registry");
+export const listModelProfiles = () =>
+  invoke<ModelProfileView[]>("list_model_profiles");
+export const saveModelProfile = (profile: ModelProfile, credential?: string) =>
+  invoke<void>("save_model_profile", { profile, credential: credential ?? null });
+export const deleteModelProfile = (id: string) =>
+  invoke<void>("delete_model_profile", { id });
+export const listModelAgents = () =>
+  invoke<ModelAgentView[]>("list_model_agents");
+export const applyModelProfile = (agentId: string, profileId: string) =>
+  invoke<ModelApplyResult>("apply_model_profile", { agentId, profileId });
 /** All entry copies across sources (not deduped), each flagged in_effect. */
 export const listRegistryAll = () => invoke<CatalogItem[]>("list_registry_all");
 /** 桌面包内 mux CLI 的安装状态（sidecar → ~/.local/bin 软链）。 */

@@ -2,12 +2,17 @@
 
 # MUX — MCP Multiplexer
 
-**Manage MCP servers for all your AI agents in one place.**
+**Manage MCP servers and reusable model endpoints for your AI agents in one place.**
 
 MUX is an MCP configuration manager for Claude Code, Codex, Cursor, QoderWork,
 OpenCode, and many other AI agents. Install, enable, synchronize, and export MCP
 servers from one catalog while MUX adapts each agent's native config format. It
 patches only the MCP section and preserves the rest of your settings.
+
+The desktop preview also manages reusable model endpoint profiles for Claude
+Code, Codex, and Pi. Credentials stay in macOS Keychain; Qoder is detected and
+linked to its official interactive `/model` setup until it exposes a secure
+non-interactive writer.
 
 MUX ships as **two front-ends that share the same data** (`~/.mux/`):
 
@@ -41,6 +46,7 @@ A one-click **Mux 精选 (curated collection)** subscribes you to a curated set.
 - **Paste a config** — drop a `{"mcpServers": {…}}` block and MUX recognizes the servers and adds them.
 - **Edits propagate** — changing a catalog entry's connection config re-stamps it into every active global install, including drifted copies; failed targets are reported instead of silently counted as synced.
 - **Safe, local writes** — MUX reads and edits only the configured MCP entry on this machine. It never uploads the complete agent config. Existing files are backed up first, then atomically replaced only if they have not changed concurrently; unrelated keys, comments, formatting, servers, policy fields, permissions, and symlinks are preserved.
+- **Reusable model endpoints (preview)** — define a protocol, Base URL, model ID, and optional token limits once, then apply compatible profiles to Claude Code, Codex, or Pi. API keys are stored only in macOS Keychain.
 - **CLI ⇄ Desktop in sync** — both are built on one shared Rust core (`mux-core`) and read/write `~/.mux/`, so a change in one shows up in the other.
 - **Dark mode** and a macOS "liquid glass" UI.
 
@@ -116,12 +122,14 @@ Everything lives under `~/.mux/`:
 
 ```
 ~/.mux/
-├── settings.json           # one document: agents · sources · disabled · state
+├── settings.json           # agents · sources · model profile metadata · state
 ├── sources/
 │   ├── remote/<id>.json    # cached copies of subscribed URLs
 │   └── local/<id>.(json|toml)   # imported local files + the managed manual/discovered sources
 └── backups/                # per-agent timestamped backups made before existing-file writes
 ```
+
+Model API keys are not stored under `~/.mux/`; they remain in macOS Keychain.
 
 ## How it works
 

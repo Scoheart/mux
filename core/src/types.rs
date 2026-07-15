@@ -1,6 +1,31 @@
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
 
+/// Wire protocol used by a reusable model endpoint profile. These values match
+/// the provider identifiers supported by the first managed Agent set.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum ModelProtocol {
+    AnthropicMessages,
+    OpenaiResponses,
+    OpenaiCompletions,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ModelProfile {
+    pub id: String,
+    pub name: String,
+    pub protocol: ModelProtocol,
+    pub base_url: String,
+    pub model: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_window: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_output_tokens: Option<u64>,
+    #[serde(default)]
+    pub reasoning: bool,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct StdioConfig {
     pub command: String,

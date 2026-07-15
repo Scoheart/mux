@@ -7,6 +7,7 @@ import {
   DownloadIcon,
   RefreshIcon,
   PackageIcon,
+  LayersIcon,
   PlusIcon,
   SearchIcon,
   SunIcon,
@@ -23,6 +24,7 @@ interface LayoutProps {
   agents: AgentInfo[];
   view: View;
   onSelectRegistry: () => void;
+  onSelectModels: () => void;
   onSelectAgent: (id: string) => void;
   onAddAgent?: () => void;
   onRescan?: () => Promise<unknown> | void;
@@ -34,6 +36,7 @@ export function Layout({
   agents,
   view,
   onSelectRegistry,
+  onSelectModels,
   onSelectAgent,
   onAddAgent,
   onRescan,
@@ -149,12 +152,22 @@ export function Layout({
               MCPs
             </span>
           </button>
+          <button
+            className="mux-seg-item"
+            data-active={view.kind === "models" ? "true" : undefined}
+            onClick={onSelectModels}
+          >
+            <span className="flex items-center gap-1.5">
+              <LayersIcon className="w-3.5 h-3.5" />
+              模型
+            </span>
+          </button>
         </div>
 
         {/* Spacer — pushes Agent navigation to the right */}
         <div className="flex-1" />
 
-        <div className="mux-agent-picker-anchor flex-shrink-0" ref={agentPickerRef}>
+        {view.kind !== "models" && <div className="mux-agent-picker-anchor flex-shrink-0" ref={agentPickerRef}>
           <button
             type="button"
             className="mux-agent-picker-trigger"
@@ -262,7 +275,7 @@ export function Layout({
               )}
             </section>
           )}
-        </div>
+        </div>}
 
         {/* Divider */}
         <div className="h-5 w-px flex-shrink-0" style={{ background: "var(--border-hairline)" }} />

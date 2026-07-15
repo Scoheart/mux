@@ -40,7 +40,7 @@ fn backup_component(value: &str) -> String {
     encoded
 }
 
-fn backup(
+pub(crate) fn backup(
     path: &Path,
     backups_dir: &Path,
     stamp: &str,

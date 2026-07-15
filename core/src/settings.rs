@@ -14,7 +14,7 @@
 use crate::disabled::DisabledEntry;
 use crate::paths::{backups_dir, mux_dir, registry_dir, settings_file, user_agents_file};
 use crate::safe_write::write_private_if_unchanged;
-use crate::types::{AgentDefinition, RegistryEntry, SourceDef};
+use crate::types::{AgentDefinition, ModelProfile, RegistryEntry, SourceDef};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
@@ -42,6 +42,13 @@ pub struct Settings {
     /// Disable snapshots, keyed by agent id.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub disabled: Option<BTreeMap<String, Vec<DisabledEntry>>>,
+    /// Reusable model endpoints. API keys are intentionally excluded and live
+    /// only in the macOS Keychain.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_profiles: Option<BTreeMap<String, ModelProfile>>,
+    /// Managed model Agent id -> profile id.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_assignments: Option<BTreeMap<String, String>>,
     /// CLI-owned: last applied state. Opaque to the desktop — carried through.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub state: Option<Value>,

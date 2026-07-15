@@ -35,6 +35,11 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::list_registry,
+            commands::list_model_profiles,
+            commands::save_model_profile,
+            commands::delete_model_profile,
+            commands::list_model_agents,
+            commands::apply_model_profile,
             commands::list_registry_all,
             commands::upsert_registry_entry,
             commands::delete_registry_entry,

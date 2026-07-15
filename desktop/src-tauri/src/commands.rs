@@ -1,6 +1,39 @@
 use mux_core::registry::{read_registry, read_registry_all, user_override_keys, CatalogItem};
 use mux_core::types::RegistryEntry;
 
+// ── Model endpoint profiles ─────────────────────────────────────────────
+
+#[tauri::command]
+pub fn list_model_profiles() -> Vec<mux_core::models::ModelProfileView> {
+    mux_core::models::list_profiles()
+}
+
+#[tauri::command]
+pub fn save_model_profile(
+    profile: mux_core::types::ModelProfile,
+    credential: Option<String>,
+) -> Result<(), String> {
+    mux_core::models::save_profile(profile, credential)
+}
+
+#[tauri::command]
+pub fn delete_model_profile(id: String) -> Result<(), String> {
+    mux_core::models::delete_profile(&id)
+}
+
+#[tauri::command]
+pub fn list_model_agents() -> Vec<mux_core::models::ModelAgentView> {
+    mux_core::models::list_agents()
+}
+
+#[tauri::command]
+pub fn apply_model_profile(
+    agent_id: String,
+    profile_id: String,
+) -> Result<mux_core::models::ModelApplyResult, String> {
+    mux_core::models::apply_profile(&agent_id, &profile_id)
+}
+
 #[tauri::command]
 pub fn list_registry() -> Vec<RegistryEntry> {
     // Read user overrides from settings.registry merged over builtin — same source

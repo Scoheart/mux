@@ -472,3 +472,123 @@ body {
 /* Hide scrollbar on the horizontal agent strip */
 .mux-noscroll { scrollbar-width: none; }
 .mux-noscroll::-webkit-scrollbar { display: none; }
+
+/* Model endpoint manager: a quiet two-pane workspace. The sidebar is a plain
+   navigation surface; only the repeated Agent targets are framed. */
+.mux-models-shell {
+  display: grid;
+  grid-template-columns: 250px minmax(0, 1fr);
+  height: 100%; min-height: 0;
+  background: color-mix(in srgb, var(--surface-app) 92%, transparent);
+}
+.mux-models-sidebar {
+  display: flex; min-height: 0; flex-direction: column;
+  border-right: 1px solid var(--border-hairline);
+  background: var(--surface-sidebar);
+}
+.mux-models-sidebar-head {
+  display: flex; align-items: center; justify-content: space-between;
+  min-height: 66px; padding: 12px 14px 10px 18px;
+  border-bottom: 1px solid var(--border-hairline);
+}
+.mux-models-sidebar-head h2,
+.mux-models-main-head h1 { margin: 0; color: var(--text-primary); font-size: 15px; font-weight: 680; }
+.mux-models-sidebar-head span { display: block; margin-top: 4px; color: var(--text-secondary); font-size: 10px; }
+.mux-model-profile-list { flex: 1; min-height: 0; overflow-y: auto; padding: 8px; }
+.mux-model-profile-row {
+  display: flex; align-items: center; gap: 9px; width: 100%; min-height: 52px;
+  padding: 7px 9px; border: 0; border-radius: 7px; background: transparent;
+  color: var(--text-primary); text-align: left; cursor: pointer;
+}
+.mux-model-profile-row:hover { background: color-mix(in srgb, var(--text-primary) 6%, transparent); }
+.mux-model-profile-row[data-active="true"] { background: color-mix(in srgb, var(--color-blue) 12%, transparent); }
+.mux-model-profile-row strong,
+.mux-model-profile-row small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mux-model-profile-row strong { font-size: 12px; font-weight: 640; }
+.mux-model-profile-row small { margin-top: 4px; color: var(--text-secondary); font: 10px/1 var(--font-mono); }
+.mux-model-profile-dot { width: 9px; height: 9px; flex: 0 0 auto; border-radius: 50%; background: #8E8E93; }
+.mux-model-profile-dot[data-protocol="anthropic-messages"] { background: #D97757; }
+.mux-model-profile-dot[data-protocol="openai-responses"] { background: #10A37F; }
+.mux-model-profile-dot[data-protocol="openai-completions"] { background: #007AFF; }
+.mux-model-empty {
+  display: flex; align-items: center; justify-content: center; gap: 7px; width: 100%; height: 42px;
+  border: 1px dashed var(--border-hairline); border-radius: 7px; background: transparent;
+  color: var(--color-blue); font-size: 12px; cursor: pointer;
+}
+.mux-model-profile-actions {
+  display: flex; align-items: center; gap: 4px; min-height: 48px; padding: 8px;
+  border-top: 1px solid var(--border-hairline);
+}
+.mux-model-profile-actions button {
+  display: inline-flex; align-items: center; justify-content: center; gap: 5px; flex: 1; height: 30px;
+  border: 0; border-radius: 7px; background: transparent; color: var(--text-secondary);
+  font-size: 11px; cursor: pointer;
+}
+.mux-model-profile-actions button:hover { background: var(--color-gray-150); color: var(--text-primary); }
+.mux-model-profile-actions button[data-danger="true"]:hover { color: var(--color-red); }
+
+.mux-models-main { min-width: 0; min-height: 0; overflow-y: auto; }
+.mux-models-main-head {
+  position: sticky; top: 0; z-index: 4;
+  display: flex; align-items: center; justify-content: space-between; gap: 18px;
+  min-height: 66px; padding: 10px 24px;
+  background: var(--header-bg); border-bottom: 1px solid var(--border-hairline);
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+}
+.mux-models-main-head p { margin: 5px 0 0; color: var(--text-secondary); font-size: 11px; }
+.mux-model-selected-summary { min-width: 0; text-align: right; }
+.mux-model-selected-summary span,
+.mux-model-selected-summary strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mux-model-selected-summary span { color: var(--text-secondary); font-size: 9px; }
+.mux-model-selected-summary strong { margin-top: 4px; max-width: 240px; font-size: 11px; }
+.mux-model-agent-list {
+  display: flex; flex-direction: column; gap: 10px; width: min(100%, 1060px);
+  margin: 0 auto; padding: 18px 24px 28px;
+}
+.mux-model-agent-row {
+  display: grid; grid-template-columns: 38px minmax(180px, 1fr) minmax(280px, 400px);
+  align-items: center; gap: 13px; min-height: 92px; padding: 15px 16px;
+  border: 1px solid var(--glass-border); border-radius: 8px;
+  background: var(--glass-fill); box-shadow: var(--shadow-card), var(--glass-highlight);
+}
+.mux-model-agent-copy { min-width: 0; }
+.mux-model-agent-title { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.mux-model-agent-title strong { font-size: 13px; }
+.mux-model-agent-copy code,
+.mux-model-agent-copy small {
+  display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.mux-model-agent-copy code { margin-top: 7px; color: var(--text-secondary); font: 9px/1 var(--font-mono); }
+.mux-model-agent-copy small { margin-top: 6px; color: #1A9447; font-size: 10px; }
+.mux-model-agent-controls { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; }
+.mux-model-agent-controls select,
+.mux-model-field {
+  width: 100%; height: 36px; min-width: 0; padding: 0 10px;
+  border: 1px solid var(--border-hairline); border-radius: 7px;
+  outline: 0; background: var(--surface-raised); color: var(--text-primary);
+  font: 12px/1 var(--font-sans);
+}
+.mux-model-agent-controls select:focus,
+.mux-model-field:focus {
+  border-color: color-mix(in srgb, var(--color-blue) 62%, var(--border-hairline));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-blue) 10%, transparent);
+}
+
+.mux-model-form { display: flex; flex-direction: column; gap: 14px; padding: 18px 22px; overflow-y: auto; }
+.mux-model-form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.mux-model-form label > span { display: block; margin-bottom: 6px; color: var(--text-secondary); font-size: 11px; font-weight: 600; }
+.mux-model-field:disabled { opacity: .55; cursor: not-allowed; }
+.mux-model-clear-key { display: inline-flex; align-items: center; gap: 7px; color: var(--text-secondary); font-size: 11px; }
+.mux-model-clear-key input { accent-color: var(--color-blue); }
+.mux-model-form-footer {
+  display: flex; align-items: center; justify-content: flex-end; gap: 6px; padding: 12px 22px;
+  border-top: 1px solid var(--border-hairline); background: var(--surface-app);
+}
+
+@media (max-width: 800px) {
+  .mux-models-shell { grid-template-columns: 210px minmax(0, 1fr); }
+  .mux-model-agent-row { grid-template-columns: 34px minmax(0, 1fr); }
+  .mux-model-agent-controls,
+  .mux-model-agent-row > .btn-ghost { grid-column: 2; }
+}

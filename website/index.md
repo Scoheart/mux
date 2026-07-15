@@ -3,8 +3,8 @@ layout: home
 
 hero:
   name: "MUX"
-  text: "统一管理 MCP 服务器"
-  tagline: 集中管理 Claude Code、Codex、Cursor、QoderWork 等 Agent 的 MCP，安全写入，不覆盖其他设置。
+  text: "统一管理 MCP 与模型接口"
+  tagline: 集中管理 Claude Code、Codex、Cursor、Pi、QoderWork 等 Agent 的 MCP 与常用模型端点，安全写入，不覆盖其他设置。
   actions:
     - theme: brand
       text: 快速开始
@@ -35,13 +35,16 @@ features:
   - icon: 🛟
     title: 安全写入
     details: 修改已有文件前先做独立备份；按条目原子更新，并保留其它 server、策略字段、注释与排版。
+  - icon: 🔑
+    title: 模型接口复用
+    details: 首批支持 Claude Code、Codex 与 Pi 复用模型端点；API Key 只存 macOS Keychain。Qoder 保留官方交互配置入口。
 ---
 
 <div style="max-width: 960px; margin: 48px auto 0; padding: 0 24px;">
 
 ## 30 秒了解
 
-**MUX（MCP Multiplexer）** 是一款 MCP 配置管理工具。它可以集中管理 Claude Code、Codex、Cursor、QoderWork、OpenCode 等 AI Agent 的 MCP 服务，一键安装、启用、同步和导出配置。
+**MUX（MCP Multiplexer）** 是一款多 Agent 配置管理工具。它可以集中管理 Claude Code、Codex、Cursor、QoderWork、OpenCode 等 AI Agent 的 MCP 服务，并在桌面预览版中复用常用模型接口。
 
 MUX 会适配不同 Agent 的配置路径与格式，只修改目标 MCP 部分，不覆盖用户的其他设置。桌面端与命令行共享同一份数据，让多 Agent 的 MCP 管理更简单、更安全。
 

@@ -3,5 +3,6 @@
   "claude-desktop": "claude",
   "codex": "openai",
   "copilot-cli": "copilot",
-  "junie": "jetbrains"
+  "junie": "jetbrains",
+  "qoder-cli": "qoder"
 }

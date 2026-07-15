@@ -2,14 +2,14 @@
 
 MUX's agent data comes in two layers:
 
-- **Configurable targets**: 39 individually verified product definitions, 37 of which have a stable user-level global config file that MUX can safely read and write.
-- **Client directory**: sourced from public MCP client directories and the official client matrix, used for discovery only. After deduplication against the configurable targets, the UI can search **191** clients in total.
+- **Configurable targets**: 40 individually verified product definitions, 39 of which have a stable user-level global config file that MUX can safely read and write.
+- **Client directory**: sourced from public MCP client directories and the official client matrix, used for discovery only. After deduplication against the configurable targets, the UI can search **192** clients in total.
 
 Clients whose global file path, top-level key, and entry structure have not been confirmed are shown for discovery only and cannot be written to. This keeps expanding coverage without writing a generic JSON guess into an unknown product's config.
 
 ## Verified list
 
-The results below were checked one by one against official docs or official source code on **2026-07-14**, and every documentation link had its online reachability verified.
+The results below were checked one by one against official docs or official source code on **2026-07-15**, and every documentation link had its online reachability verified.
 
 | Agent | Format | Config key | User-level global path | Native transports |
 |---|---|---|---|---|
@@ -42,8 +42,9 @@ The results below were checked one by one against official docs or official sour
 | [OpenCode](https://opencode.ai/docs/mcp-servers/) | JSON | `mcp` | `~/.config/opencode/opencode.json` | stdio / http |
 | [OpenHands CLI](https://docs.openhands.dev/openhands/usage/cli/mcp-servers) | JSON | `mcpServers` | `~/.openhands/mcp.json` | stdio / http |
 | [Pi Coding Agent (MCP Adapter)](https://github.com/nicobailon/pi-mcp-adapter) | JSON | `mcpServers` | `~/.pi/agent/mcp.json` | stdio / http |
-| [Qoder](https://docs.qoder.com/user-guide/chat/model-context-protocol) | JSON | `mcpServers` | `~/.qoder/settings.json` | stdio / http |
-| [QoderWork](https://qoder.com/qoderwork) | - | - | discovery only | - |
+| [Qoder Desktop](https://docs.qoder.com/user-guide/chat/model-context-protocol) | JSON | `mcpServers` | `~/Library/Application Support/Qoder/SharedClientCache/mcp.json` | stdio / http |
+| [Qoder CLI](https://docs.qoder.com/en/cli/mcp-servers) | JSON | `mcpServers` | `~/.qoder/settings.json` | stdio / http |
+| [QoderWork](https://docs.qoder.com/qoderwork/connectors) | JSON | `mcpServers` | `~/.qoderwork/mcp.json` | stdio / http |
 | [Qwen Code](https://qwenlm.github.io/qwen-code-docs/en/users/features/mcp/) | JSON | `mcpServers` | `~/.qwen/settings.json` | stdio / http |
 | [Roo Code](https://docs.roocode.com/features/mcp/using-mcp-in-roo) | JSON | `mcpServers` | `~/Library/Application Support/Code/User/globalStorage/rooveterinaryinc.roo-cline/settings/mcp_settings.json` | stdio / http |
 | [Atlassian Rovo Dev CLI](https://support.atlassian.com/rovo/docs/connect-to-an-mcp-server-in-rovo-dev-cli/) | JSON | `mcpServers` | `~/.rovodev/mcp.json` | stdio / http |
@@ -56,7 +57,9 @@ The results below were checked one by one against official docs or official sour
 ### Targets that need special distinction
 
 - **Pi**: Pi's core does not include MCP. MUX's definition applies only to environments with the community `pi-mcp-adapter` installed, so the UI clearly labels it a community extension.
-- **Devin / QoderWork**: the products support MCP, but no stable user-level global file contract was verified, so they can only be viewed for discovery and not written to.
+- **Qoder Desktop / Qoder CLI**: these are separate Agents. Qoder Desktop edits `SharedClientCache/mcp.json`, while Qoder CLI's user scope uses `~/.qoder/settings.json`; MUX scans and writes them independently.
+- **Devin**: the product supports MCP, but no stable user-level global file contract was verified, so it can only be viewed for discovery and not written to.
+- **QoderWork**: user-defined MCP servers live in `~/.qoderwork/mcp.json`; MUX does not modify the client's built-in MCP data.
 - **Claude Desktop / BoltAI**: the local files listed natively support stdio only. Remote MCP is managed by Claude Connectors or BoltAI's `mcp-remote` approach, respectively.
 - **Goose**: the generic docs example uses `~/.config/goose/config.yaml`, but the current macOS source actually uses `~/Library/Application Support/Block/goose/config/config.yaml`; MUX locates it by the runtime code.
 

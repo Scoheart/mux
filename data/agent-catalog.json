@@ -2233,7 +2233,7 @@
     "key": "",
     "enabled": true,
     "builtin": true,
-    "name": "Qoder",
+    "name": "Qoder Desktop",
     "docs": "https://glama.ai/mcp/clients/qoder",
     "note": "未确认稳定的用户级全局配置文件；MUX 仅展示，不写入。",
     "category": "client",

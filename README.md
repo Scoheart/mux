@@ -63,9 +63,9 @@ filtering, and shadowed-configuration screenshots.
 
 ## Supported agents
 
-MUX retains **191 distinct MCP client records** for discovery and verification. Of those, **39 are deeply audited definitions** and **38 have verified, writable global config targets** with native JSON, TOML, or YAML schemas; only those writable targets appear in the desktop Agent picker. MUX never guesses a path or writes a generic schema into the remaining discovery-only records.
+MUX retains **192 distinct MCP client records** for discovery and verification. Of those, **40 are deeply audited definitions** and **39 have verified, writable global config targets** with native JSON, TOML, or YAML schemas; only those writable targets appear in the desktop Agent picker. MUX never guesses a path or writes a generic schema into the remaining discovery-only records.
 
-Audited targets include Claude Code/Desktop, Codex, Cursor, VS Code, Zed, Windsurf, Gemini CLI, Google Antigravity, Amazon Q, OpenCode, Copilot CLI, Cline, Continue, Goose, Hermes, Kimi Code, Qwen Code, QoderWork, Mistral Vibe, Rovo Dev, Tabnine, LM Studio, and others. Claude Desktop and BoltAI local files accept stdio only. Pi is explicitly labeled as a community `pi-mcp-adapter` target because Pi core does not ship MCP support. Devin remains discovery-only because no stable user-level global config file is documented.
+Audited targets include Claude Code/Desktop, Codex, Cursor, VS Code, Zed, Windsurf, Gemini CLI, Google Antigravity, Amazon Q, OpenCode, Copilot CLI, Cline, Continue, Goose, Hermes, Kimi Code, Qwen Code, Qoder Desktop, Qoder CLI, QoderWork, Mistral Vibe, Rovo Dev, Tabnine, LM Studio, and others. Claude Desktop and BoltAI local files accept stdio only. Pi is explicitly labeled as a community `pi-mcp-adapter` target because Pi core does not ship MCP support. Devin remains discovery-only because no stable user-level global config file is documented.
 
 See the [complete audited matrix](website/guide/agents.md) and [catalog methodology](docs/agent-catalog.md). Every writable target's global path remains editable; paths inside the home directory are normalized to the portable `~/…` form.
 

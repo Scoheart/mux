@@ -115,10 +115,8 @@ fn migrated_builtin_global(
     }
     let stale = matches!(
         (id, saved.global.as_deref()),
-        (
-            "qoder",
-            Some("~/Library/Application Support/Qoder/SharedClientCache/mcp.json")
-        ) | ("amazon-q", Some("~/.aws/amazonq/mcp.json"))
+        ("qoder", Some("~/.qoder/settings.json"))
+            | ("amazon-q", Some("~/.aws/amazonq/mcp.json"))
             | (
                 "cline",
                 Some(
@@ -272,8 +270,7 @@ mod tests {
     #[test]
     fn stale_builtin_paths_migrate_without_touching_custom_agents() {
         let mut stored = builtin_agents();
-        stored.get_mut("qoder").unwrap().global =
-            Some("~/Library/Application Support/Qoder/SharedClientCache/mcp.json".into());
+        stored.get_mut("qoder").unwrap().global = Some("~/.qoder/settings.json".into());
         stored.get_mut("amazon-q").unwrap().global = Some("~/.aws/amazonq/mcp.json".into());
         stored.get_mut("amazon-q").unwrap().project = Some(".amazonq/mcp.json".into());
         stored.get_mut("cline").unwrap().global = Some(
@@ -300,7 +297,7 @@ mod tests {
 
         assert_eq!(
             merged["qoder"].global.as_deref(),
-            Some("~/.qoder/settings.json")
+            Some("~/Library/Application Support/Qoder/SharedClientCache/mcp.json")
         );
         assert_eq!(
             merged["amazon-q"].global.as_deref(),
@@ -325,6 +322,26 @@ mod tests {
             Some("~/.qoderwork/mcp.json")
         );
         assert_eq!(merged["custom"], custom);
+    }
+
+    #[test]
+    fn stale_qoder_ide_definition_migrates_from_cli_path() {
+        let mut stored = builtin_agents();
+        stored.get_mut("qoder").unwrap().global = Some("~/.qoder/settings.json".into());
+
+        let merged = merge_builtin_updates(stored);
+
+        assert_eq!(
+            merged["qoder"].global.as_deref(),
+            Some("~/Library/Application Support/Qoder/SharedClientCache/mcp.json")
+        );
+
+        let mut customized = builtin_agents();
+        customized.get_mut("qoder").unwrap().global = Some("~/.custom/qoder-mcp.json".into());
+        assert_eq!(
+            merge_builtin_updates(customized)["qoder"].global.as_deref(),
+            Some("~/.custom/qoder-mcp.json")
+        );
     }
 
     #[test]

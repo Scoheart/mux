@@ -13,7 +13,7 @@ Opening the app lands you on the **Registry (catalog)** by default. In the curre
 | Area | Purpose |
 |---|---|
 | **Registry** | Return to the catalog from any agent page. |
-| **Agent selector** | Search 191 clients; "Configurable" lists verified writable targets, "Client directory" shows discovery-only entries. |
+| **Agent selector** | Search 192 clients; "Configurable" lists verified writable targets, "Client directory" shows discovery-only entries. |
 | **`+`** | Add a custom agent, next to the agent selector. |
 | **Theme / Rescan / Check for updates** | Switch appearance, re-read each agent's config, manually check for stable updates. |
 | **Source bar** | Filter the catalog by source; the top offers "Add subscription" and "Import config." |
@@ -87,7 +87,7 @@ The source model itself supports enable/disable, which the TUI's "Sources" scree
 - Inside a built-in agent's page you may only override the global path; the official format, config key, and codec are fixed, to avoid producing incompatible configs.
 - Paths inside the home directory are saved as `~/…`; absolute paths outside it keep their original value.
 
-For the full 39 verified targets and the 191-client directory scope, see [Supported agents](/en/guide/agents).
+For the full 40 verified targets and the 192-client directory scope, see [Supported agents](/en/guide/agents).
 
 ## Auto-update and the CLI
 

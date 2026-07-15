@@ -10,31 +10,19 @@ import { useUpdater } from "./hooks/useUpdater";
 import { useCliTool } from "./hooks/useCliTool";
 import { UpdateBanner } from "./components/UpdateBanner";
 import type { View } from "./lib/types";
+import type { Transport } from "./lib/mcp";
 
 function App() {
   const [view, setView] = useState<View>({ kind: "registry" });
   const [addAgentOpen, setAddAgentOpen] = useState(false);
+  const [mcpEditor, setMcpEditor] = useState<{
+    name: string | null;
+    transport?: Transport;
+  } | null>(null);
   const state = useInstallState();
-  // Hoisted here (not in Layout) so an in-flight download survives navigating
-  // into the full-page editor, which renders without the Layout chrome.
   const updater = useUpdater();
   // 启动后静默安装/修复 ~/.local/bin/mux 软链（装 App 即带 CLI）。
   useCliTool();
-
-  // Full-page MCP editor — rendered without the top tab bar.
-  if (view.kind === "mcp-edit") {
-    return (
-      <>
-        <UpdateBanner updater={updater} />
-        <RegistryEditPage
-          state={state}
-          name={view.name}
-          transport={view.transport}
-          onBack={() => setView({ kind: "registry" })}
-        />
-      </>
-    );
-  }
 
   return (
     <Layout
@@ -57,8 +45,8 @@ function App() {
       ) : view.kind === "registry" ? (
         <RegistryView
           state={state}
-          onEdit={(name, transport) => setView({ kind: "mcp-edit", name, transport })}
-          onCreate={() => setView({ kind: "mcp-edit", name: null })}
+          onEdit={(name, transport) => setMcpEditor({ name, transport })}
+          onCreate={() => setMcpEditor({ name: null })}
         />
       ) : view.kind === "models" ? (
         <ModelsView />
@@ -70,6 +58,15 @@ function App() {
         <AddAgentDialog
           onClose={() => setAddAgentOpen(false)}
           onAdded={state.refreshAgents}
+        />
+      )}
+
+      {mcpEditor && (
+        <RegistryEditPage
+          state={state}
+          name={mcpEditor.name}
+          transport={mcpEditor.transport}
+          onBack={() => setMcpEditor(null)}
         />
       )}
 

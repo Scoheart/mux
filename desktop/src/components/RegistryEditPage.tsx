@@ -4,8 +4,8 @@ import type { RegistryEntry } from "../lib/types";
 import { upsertRegistry, deleteRegistry, resyncEntry } from "../lib/api";
 import { keyOf, transportOf, type Transport } from "../lib/mcp";
 import { EnvEditor } from "./EnvEditor";
-import { Avatar } from "./ui";
-import { ArrowLeftIcon, SaveIcon, RefreshIcon } from "./icons";
+import { Modal, ModalHeader } from "./ui";
+import { SaveIcon, RefreshIcon } from "./icons";
 import { useToast } from "./Toast";
 
 interface RegistryEditPageProps {
@@ -17,10 +17,10 @@ interface RegistryEditPageProps {
   onBack: () => void;
 }
 
-const labelCls = "text-xs font-semibold uppercase mb-1.5 block";
-const labelStyle = { color: "var(--text-secondary)", letterSpacing: "0.06em" } as const;
+const labelCls = "text-xs font-semibold mb-1.5 block";
+const labelStyle = { color: "var(--text-secondary)", letterSpacing: 0 } as const;
 const inputStyle = {
-  background: "var(--surface-app)",
+  background: "var(--surface-raised)",
   border: "1px solid var(--border-hairline)",
   color: "var(--text-primary)",
   fontSize: 13,
@@ -178,38 +178,14 @@ export function RegistryEditPage({ state, name, transport: editTransport, onBack
   };
 
   return (
-    <div className="flex flex-col h-full" style={{ background: "var(--surface-app)" }}>
-      {/* Header */}
-      <header
-        className="flex-shrink-0 flex items-center gap-3 px-5"
-        style={{ height: 56, borderBottom: "1px solid var(--border-hairline)" }}
-      >
-        <button
-          onClick={onBack}
-          className="flex items-center justify-center w-9 h-9 rounded-mac cursor-pointer"
-          style={{ background: "var(--surface-raised)", border: "1px solid var(--border-hairline)", color: "var(--text-primary)" }}
-          title="返回"
-          aria-label="返回"
-        >
-          <ArrowLeftIcon className="w-4 h-4" />
-        </button>
-        <h1 className="text-lg font-semibold m-0" style={{ color: "var(--text-primary)" }}>
-          {isNew ? "新建 MCP" : "编辑 MCP"}
-        </h1>
-      </header>
-
-      {/* Body */}
-      <div className="flex-1 min-h-0 overflow-y-auto">
-        <div className="max-w-3xl mx-auto px-6 py-7">
-          <div
-            className="rounded-mac-lg p-6"
-            style={{ background: "var(--surface-raised)", border: "1px solid var(--border-hairline)" }}
-          >
-            {/* Centered icon */}
-            <div className="flex justify-center mb-6">
-              <Avatar seed={serverName || "?"} size={64} />
-            </div>
-
+    <Modal width={720} maxHeight="90vh" onClose={onBack}>
+      <ModalHeader
+        glyph={(serverName || "M")[0]?.toUpperCase()}
+        title={isNew ? "新建 MCP" : "编辑 MCP"}
+        subtitle={transport === "stdio" ? "stdio · 全局配置" : "HTTP · 全局配置"}
+        onClose={onBack}
+      />
+      <div className="mux-mcp-form">
             {/* Name + description */}
             <div className="flex gap-4 mb-4">
               <div className="flex-1 min-w-0">
@@ -339,21 +315,14 @@ export function RegistryEditPage({ state, name, transport: editTransport, onBack
                 </div>
               </>
             )}
-          </div>
-        </div>
       </div>
 
-      {/* Sticky footer */}
-      <footer
-        className="flex-shrink-0 flex items-center gap-3 px-6"
-        style={{ height: 64, borderTop: "1px solid var(--border-hairline)", background: "var(--surface-sidebar)" }}
-      >
+      <footer className="mux-model-form-footer">
         {!isNew && isCustom && (
           <button
             onClick={handleRevert}
             disabled={saving}
-            className="text-sm px-3 py-2 rounded-mac border-0 cursor-pointer"
-            style={{ background: "transparent", color: "#FF3B30" }}
+            className="btn-danger"
             title="删除自定义，恢复内置默认"
           >
             恢复默认
@@ -363,8 +332,7 @@ export function RegistryEditPage({ state, name, transport: editTransport, onBack
           <button
             onClick={handleResync}
             disabled={saving}
-            className="flex items-center gap-1.5 text-sm px-3 py-2 rounded-mac cursor-pointer"
-            style={{ background: "var(--surface-raised)", border: "1px solid var(--border-hairline)", color: "var(--text-primary)" }}
+            className="btn-secondary"
             title="把当前保存的配置重新同步到已安装此 MCP 的 agent（全局）"
           >
             <RefreshIcon className="w-4 h-4" />
@@ -372,27 +340,18 @@ export function RegistryEditPage({ state, name, transport: editTransport, onBack
           </button>
         )}
         <div className="flex-1" />
-        <button
-          onClick={onBack}
-          className="text-sm px-4 py-2 rounded-mac cursor-pointer"
-          style={{ background: "var(--surface-raised)", border: "1px solid var(--border-hairline)", color: "var(--text-primary)" }}
-        >
+        <button onClick={onBack} className="btn-ghost">
           取消
         </button>
         <button
           onClick={handleSave}
           disabled={!valid || saving}
-          className="flex items-center gap-1.5 text-sm font-medium px-5 py-2 rounded-mac border-0"
-          style={{
-            background: !valid || saving ? "var(--border-hairline)" : "#007AFF",
-            color: !valid || saving ? "var(--text-secondary)" : "#fff",
-            cursor: !valid || saving ? "default" : "pointer",
-          }}
+          className="btn-primary"
         >
           <SaveIcon className="w-4 h-4" />
           {saving ? "保存中…" : "保存"}
         </button>
       </footer>
-    </div>
+    </Modal>
   );
 }

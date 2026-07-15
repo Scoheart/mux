@@ -168,7 +168,7 @@ export function Layout({
         {/* Spacer — pushes Agent navigation to the right */}
         <div className="flex-1" />
 
-        {view.kind !== "models" && <div className="mux-agent-picker-anchor flex-shrink-0" ref={agentPickerRef}>
+        <div className="mux-agent-picker-anchor flex-shrink-0" ref={agentPickerRef}>
           <button
             type="button"
             className="mux-agent-picker-trigger"
@@ -276,7 +276,7 @@ export function Layout({
               )}
             </section>
           )}
-        </div>}
+        </div>
 
         {/* Divider */}
         <div className="h-5 w-px flex-shrink-0" style={{ background: "var(--border-hairline)" }} />

@@ -48,11 +48,13 @@ A one-click **Mux 精选 (curated collection)** subscribes you to a curated set.
 - **Safe, local writes** — MUX reads and edits only the configured MCP entry on this machine. It never uploads the complete agent config. Existing files are backed up first, then atomically replaced only if they have not changed concurrently; unrelated keys, comments, formatting, servers, policy fields, permissions, and symlinks are preserved.
 - **Reusable model endpoints (preview)** — define a protocol, Base URL, model ID, and optional token limits once, then apply compatible profiles to Claude Code, Codex, or Pi. API keys are stored only in macOS Keychain.
 - **CLI ⇄ Desktop in sync** — both are built on one shared Rust core (`mux-core`) and read/write `~/.mux/`, so a change in one shows up in the other.
-- **Dark mode** and a macOS "liquid glass" UI.
+- **Dark mode** and a compact, consistent resource workspace for MCPs and Models.
 
 ## Screenshots
 
 ![MUX MCP catalog with source and conflict visibility](website/public/img/mcps-overview.png)
+
+![MUX reusable model endpoints and agent assignments](website/public/img/model-endpoints.png)
 
 ![QoderWork MCP configuration managed by MUX](website/public/img/qoderwork-config.png)
 

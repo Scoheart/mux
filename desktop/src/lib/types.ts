@@ -98,13 +98,12 @@ export interface InstalledMcp {
 export interface PatchInput {
   args?: string[]; env?: Record<string, string>; url?: string; headers?: Record<string, string>;
 }
-/** Top-level GUI view: registry overview, a single agent's page, or the
- *  full-page MCP editor (name === null means creating a new entry). */
+/** Top-level GUI view. Resource editors are overlays and intentionally remain
+ *  outside navigation state so the app chrome never disappears. */
 export type View =
   | { kind: "registry" }
   | { kind: "models" }
-  | { kind: "agent"; id: string }
-  | { kind: "mcp-edit"; name: string | null; transport?: "stdio" | "http" };
+  | { kind: "agent"; id: string };
 
 /** A catalog source (mirrors Rust SourceView): a subscribed remote URL or a
  *  local file. Its servers are parsed from a cached copy under ~/.mux/sources/. */

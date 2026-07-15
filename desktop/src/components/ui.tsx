@@ -1,5 +1,5 @@
-import { CSSProperties, ReactNode } from "react";
-import { SearchIcon } from "./icons";
+import { CSSProperties, ReactNode, useEffect } from "react";
+import { SearchIcon, XIcon } from "./icons";
 import { transportLabel, transportOf } from "../lib/mcp";
 import type { RegistryEntry } from "../lib/types";
 
@@ -182,31 +182,37 @@ export function SearchBar({
   autoFocus?: boolean;
 }) {
   return (
-    <div className="relative" style={style}>
+    <div className="mux-search" style={style}>
       <SearchIcon
-        className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 pointer-events-none"
-        style={{ color: "var(--text-secondary)" }}
+        className="mux-search-icon"
       />
       <input
-        className="w-full pl-9 pr-3 py-2 text-sm rounded-mac outline-none"
-        style={{
-          background: "var(--surface-raised)",
-          border: "1px solid var(--border-hairline)",
-          color: "var(--text-primary)",
-        }}
+        type="search"
         placeholder={placeholder}
         value={value}
         autoFocus={autoFocus}
         onChange={(e) => onChange(e.target.value)}
       />
+      <button
+        type="button"
+        className="mux-search-clear"
+        data-visible={value ? "true" : undefined}
+        disabled={!value}
+        tabIndex={value ? 0 : -1}
+        onClick={() => onChange("")}
+        title="清除搜索"
+        aria-label="清除搜索"
+      >
+        <XIcon className="w-3.5 h-3.5" />
+      </button>
     </div>
   );
 }
 
 /* ── Modal ───────────────────────────────────────────────────────────── */
 
-/** Glass modal shell: dimmed blurred overlay + centered glass panel. Clicking
- *  the overlay closes; clicks inside are contained. */
+/** Modal shell: dimmed overlay + centered panel. Clicking the overlay closes;
+ *  clicks inside are contained. */
 export function Modal({
   width = 520,
   maxHeight = "82vh",
@@ -218,14 +224,24 @@ export function Modal({
   onClose: () => void;
   children: ReactNode;
 }) {
+  useEffect(() => {
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", closeOnEscape);
+    return () => document.removeEventListener("keydown", closeOnEscape);
+  }, [onClose]);
+
   return (
     <div
       className="fixed inset-0 flex items-center justify-center z-40"
-      style={{ background: "rgba(0,0,0,.3)", backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)" }}
+      style={{ background: "rgba(0,0,0,.3)", backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)", zIndex: 700 }}
       onClick={onClose}
     >
       <div
         className="flex flex-col rounded-mac-lg overflow-hidden"
+        role="dialog"
+        aria-modal="true"
         style={{
           width,
           maxHeight,
@@ -272,11 +288,14 @@ export function ModalHeader({
         </p>
       </div>
       <button
+        type="button"
         onClick={onClose}
+        title="关闭"
+        aria-label="关闭"
         className="flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center border-0 cursor-pointer mt-0.5"
         style={{ background: "var(--border-hairline)", color: "var(--text-secondary)" }}
       >
-        <span className="text-xs font-medium">✕</span>
+        <XIcon className="w-3.5 h-3.5" />
       </button>
     </div>
   );

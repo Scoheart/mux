@@ -1,0 +1,781 @@
+/**
+ * MUX docs — brand, micro-interactions, and Buzzy-inspired home layout.
+ */
+
+:root {
+  /* Brand — violet */
+  --vp-c-brand-1: #7c5cfc;
+  --vp-c-brand-2: #9178ff;
+  --vp-c-brand-3: #6346e8;
+  --vp-c-brand-soft: rgba(124, 92, 252, 0.14);
+
+  --vp-home-hero-name-color: transparent;
+  --vp-home-hero-name-background: linear-gradient(
+    120deg,
+    #a78bfa 0%,
+    #7c5cfc 45%,
+    #6d4dff 100%
+  );
+
+  --vp-button-brand-bg: #7c5cfc;
+  --vp-button-brand-hover-bg: #9178ff;
+  --vp-button-brand-active-bg: #6346e8;
+  --vp-button-brand-border: transparent;
+  --vp-button-brand-hover-border: transparent;
+  --vp-button-brand-active-border: transparent;
+  --vp-button-brand-text: #fff;
+  --vp-button-brand-hover-text: #fff;
+  --vp-button-brand-active-text: #fff;
+
+  /* Motion — Josh micro + Buzzy reveal */
+  --mux-ease-out: cubic-bezier(0.41, 0.1, 0.13, 1);
+  --mux-ease-soft: cubic-bezier(0.06, 0.63, 0.43, 1);
+  --mux-ease-press: cubic-bezier(0, 0.67, 0.6, 1.24);
+  --mux-ease-reveal: cubic-bezier(0.16, 1, 0.3, 1); /* Buzzy seo-feature */
+  --mux-duration-fast: 0.2s;
+  --mux-duration: 0.3s;
+  --mux-duration-enter: 0.55s;
+  --mux-duration-reveal: 0.8s;
+  --mux-color-swap: 0.35s;
+}
+
+.dark {
+  --vp-c-brand-1: #9b85ff;
+  --vp-c-brand-2: #7c5cfc;
+  --vp-c-brand-3: #6d4dff;
+  --vp-c-brand-soft: rgba(155, 133, 255, 0.18);
+
+  --vp-home-hero-name-background: linear-gradient(
+    120deg,
+    #c4b5fd 0%,
+    #9b85ff 45%,
+    #7c5cfc 100%
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* Keyframes                                                                  */
+/* -------------------------------------------------------------------------- */
+
+@keyframes mux-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* -------------------------------------------------------------------------- */
+/* Scroll reveal (Buzzy: opacity 0 + translateY → .is-visible)                */
+/* -------------------------------------------------------------------------- */
+
+[data-reveal] {
+  opacity: 0;
+  transform: translateY(48px);
+  transition:
+    opacity var(--mux-duration-reveal) ease,
+    transform var(--mux-duration-reveal) var(--mux-ease-reveal);
+  will-change: opacity, transform;
+}
+
+[data-reveal].is-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* -------------------------------------------------------------------------- */
+/* Home hero — centered brand-first first viewport                            */
+/* -------------------------------------------------------------------------- */
+
+.VPHome {
+  padding-bottom: 0 !important;
+}
+
+.VPHero {
+  padding-bottom: 64px !important;
+  text-align: center;
+}
+
+.VPHero .container,
+.VPHero .main {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+  max-width: 720px;
+  margin-inline: auto;
+}
+
+.VPHero .heading {
+  align-items: center;
+  width: 100%;
+}
+
+.VPHero .name,
+.VPHero .text,
+.VPHero .tagline {
+  margin-left: auto;
+  margin-right: auto;
+  text-align: center;
+}
+
+.VPHero .name {
+  animation: mux-fade-up var(--mux-duration-enter) var(--mux-ease-out) both;
+  animation-delay: 0.05s;
+}
+
+.VPHero .text {
+  animation: mux-fade-up var(--mux-duration-enter) var(--mux-ease-out) both;
+  animation-delay: 0.14s;
+  letter-spacing: -0.02em;
+  max-width: 18ch;
+}
+
+.VPHero .tagline {
+  animation: mux-fade-up var(--mux-duration-enter) var(--mux-ease-out) both;
+  animation-delay: 0.24s;
+  max-width: 36rem;
+}
+
+.VPHero .actions {
+  display: flex;
+  justify-content: center;
+  animation: mux-fade-up var(--mux-duration-enter) var(--mux-ease-out) both;
+  animation-delay: 0.34s;
+}
+
+/* Primary CTA: trailing arrow (Buzzy-style) */
+.VPHero .VPButton.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding-inline: 24px;
+}
+
+.VPHero .VPButton.brand::after {
+  content: "→";
+  font-weight: 600;
+  transition: transform var(--mux-duration) var(--mux-ease-soft);
+}
+
+.VPHero .VPButton.brand:hover::after {
+  transform: translateX(4px);
+}
+
+/* Hide empty features slot spacing when features omitted */
+.VPHomeFeatures:empty,
+.VPHome .VPFeatures:not(:has(.item)) {
+  display: none;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Buttons — hover + press                                                    */
+/* -------------------------------------------------------------------------- */
+
+.VPButton {
+  transition:
+    color var(--mux-duration-fast),
+    border-color var(--mux-duration-fast),
+    background-color var(--mux-duration-fast),
+    transform var(--mux-duration) var(--mux-ease-soft),
+    filter var(--mux-duration-fast),
+    box-shadow var(--mux-duration-fast) !important;
+  will-change: transform;
+}
+
+.VPButton.brand:hover {
+  filter: brightness(1.08);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px rgba(124, 92, 252, 0.28);
+}
+
+.VPButton.alt:hover {
+  filter: brightness(1.06);
+  transform: translateY(-1px);
+}
+
+.VPButton:active {
+  transform: scale(0.97) translateY(0) !important;
+  filter: brightness(0.98);
+  transition-duration: 0.08s !important;
+  box-shadow: none;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Custom home sections                                                       */
+/* -------------------------------------------------------------------------- */
+
+.mux-home {
+  width: 100%;
+  margin: 0 auto;
+  padding: 0 0 96px;
+  overflow: hidden;
+}
+
+.mux-kicker {
+  margin: 0 0 12px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--vp-c-brand-1);
+}
+
+/* Screenshot band — beat .vp-doc h2 (border-top + left margin) */
+.mux-shot {
+  max-width: 1100px;
+  margin: 24px auto 0;
+  padding: 0 24px;
+  text-align: center;
+}
+
+.mux-shot__inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.vp-doc h2.mux-shot__title,
+.mux-shot__title {
+  margin: 0 auto 16px;
+  padding-top: 0;
+  border-top: none;
+  max-width: min(100%, 52rem);
+  width: max-content;
+  white-space: nowrap;
+  font-size: clamp(1.25rem, 3.2vw, 2.25rem);
+  font-weight: 700;
+  line-height: 1.25;
+  letter-spacing: -0.03em;
+  text-align: center;
+  color: transparent;
+  background: linear-gradient(120deg, #c4b5fd 0%, #9b85ff 40%, #7c5cfc 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+:root:not(.dark) .vp-doc h2.mux-shot__title,
+:root:not(.dark) .mux-shot__title {
+  background: linear-gradient(120deg, #a78bfa 0%, #7c5cfc 45%, #6346e8 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+}
+
+@media (max-width: 768px) {
+  .vp-doc h2.mux-shot__title,
+  .mux-shot__title {
+    white-space: normal;
+    width: auto;
+    max-width: 100%;
+    font-size: 1.375rem;
+  }
+}
+
+.vp-doc p.mux-shot__desc,
+.mux-shot__desc {
+  margin: 0 auto 56px;
+  max-width: 40rem;
+  font-size: 1.0625rem;
+  line-height: 1.65;
+  text-align: center;
+  color: var(--vp-c-text-2);
+}
+
+.mux-shot__frame {
+  position: relative;
+  border-radius: 16px;
+  overflow: hidden;
+  border: 1px solid var(--vp-c-divider);
+  box-shadow:
+    0 8px 40px rgba(0, 0, 0, 0.12),
+    0 2px 8px rgba(0, 0, 0, 0.06);
+  background: var(--vp-c-bg-soft);
+}
+
+.dark .mux-shot__frame {
+  border-color: rgba(255, 255, 255, 0.08);
+  box-shadow:
+    0 8px 40px rgba(0, 0, 0, 0.45),
+    0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+.mux-shot__img {
+  display: block;
+  width: 100%;
+  height: auto;
+  vertical-align: middle;
+}
+
+/* Story section */
+.mux-story {
+  max-width: 1100px;
+  margin: 96px auto 0;
+  padding: 0 24px;
+}
+
+.mux-story__header {
+  margin-bottom: 64px;
+  text-align: center;
+}
+
+.vp-doc h2.mux-story__heading,
+.mux-story__heading {
+  margin: 0 auto;
+  padding-top: 0;
+  border-top: none;
+  max-width: min(100%, 40rem);
+  font-size: clamp(1.5rem, 3.5vw, 2.25rem);
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1.2;
+  text-align: center;
+  color: transparent;
+  background: linear-gradient(120deg, #c4b5fd 0%, #9b85ff 40%, #7c5cfc 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+:root:not(.dark) .vp-doc h2.mux-story__heading,
+:root:not(.dark) .mux-story__heading {
+  background: linear-gradient(120deg, #a78bfa 0%, #7c5cfc 45%, #6346e8 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+}
+
+.mux-row {
+  display: flex;
+  align-items: center;
+  gap: clamp(32px, 6vw, 72px);
+  margin-bottom: 80px;
+}
+
+.mux-row.is-reverse {
+  flex-direction: row-reverse;
+}
+
+.mux-row__visual,
+.mux-row__text {
+  flex: 1;
+  min-width: 0;
+}
+
+.mux-row__title {
+  margin: 0 0 14px;
+  font-size: clamp(1.25rem, 2.4vw, 1.75rem);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.25;
+  color: var(--vp-c-text-1);
+}
+
+.mux-row__desc {
+  margin: 0 0 20px;
+  font-size: 1rem;
+  line-height: 1.7;
+  color: var(--vp-c-text-2);
+}
+
+.vp-doc a.mux-try,
+.mux-try {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 20px;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--vp-c-text-1);
+  border: 1px solid color-mix(in srgb, var(--vp-c-brand-1) 55%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--vp-c-brand-1) 12%, transparent);
+  font-size: 0.875rem;
+  font-weight: 600;
+  text-decoration: none;
+  transition:
+    background var(--mux-duration-fast),
+    border-color var(--mux-duration-fast),
+    box-shadow var(--mux-duration-fast),
+    transform 0.15s var(--mux-ease-soft),
+    color var(--mux-duration-fast);
+}
+
+.vp-doc a.mux-try:hover,
+.mux-try:hover {
+  background: var(--vp-c-brand-soft);
+  border-color: var(--vp-c-brand-1);
+  box-shadow: 0 0 16px rgba(124, 92, 252, 0.22);
+  transform: translateY(-1px);
+  color: var(--vp-c-brand-1);
+  filter: none;
+}
+
+.vp-doc a.mux-try:active,
+.mux-try:active {
+  transform: scale(0.97);
+}
+
+/* Visual panels (lightweight, not decorative noise) */
+.mux-panel {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 220px;
+  padding: 28px;
+  border-radius: 20px;
+  border: 1px solid var(--vp-c-divider);
+  background:
+    radial-gradient(
+      120% 80% at 20% 0%,
+      var(--vp-c-brand-soft),
+      transparent 55%
+    ),
+    var(--vp-c-bg-soft);
+  overflow: hidden;
+}
+
+.dark .mux-panel {
+  border-color: rgba(255, 255, 255, 0.08);
+  background:
+    radial-gradient(
+      120% 80% at 20% 0%,
+      rgba(124, 92, 252, 0.12),
+      transparent 55%
+    ),
+    #16181d;
+}
+
+.mux-panel__sources {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: center;
+  max-width: 280px;
+}
+
+.mux-panel__sources span {
+  padding: 8px 14px;
+  border-radius: 999px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  font-family: var(--vp-font-family-mono);
+  color: var(--vp-c-text-1);
+  background: var(--vp-c-bg);
+  border: 1px solid var(--vp-c-divider);
+}
+
+.mux-panel__dual {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  max-width: 240px;
+}
+
+.mux-panel__chip {
+  width: 100%;
+  text-align: center;
+  padding: 12px 16px;
+  border-radius: 12px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  background: var(--vp-c-bg);
+  border: 1px solid var(--vp-c-divider);
+  color: var(--vp-c-text-1);
+}
+
+.mux-panel__chip--accent {
+  background: var(--vp-c-brand-1);
+  border-color: transparent;
+  color: #fff;
+  box-shadow: 0 8px 24px rgba(124, 92, 252, 0.3);
+}
+
+.mux-panel__safe code {
+  display: inline-block;
+  padding: 14px 18px;
+  border-radius: 12px;
+  font-size: 0.8125rem;
+  background: var(--vp-c-bg);
+  border: 1px solid var(--vp-c-divider);
+  color: var(--vp-c-text-1);
+}
+
+/* CTA band */
+.mux-cta {
+  max-width: 720px;
+  margin: 48px auto 0;
+  padding: 48px 24px;
+  text-align: center;
+}
+
+.vp-doc h2.mux-cta__title,
+.mux-cta__title {
+  margin: 0 auto 12px;
+  padding-top: 0;
+  border-top: none;
+  font-size: clamp(1.5rem, 3vw, 2rem);
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  text-align: center;
+  color: transparent;
+  background: linear-gradient(120deg, #c4b5fd 0%, #9b85ff 40%, #7c5cfc 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+:root:not(.dark) .vp-doc h2.mux-cta__title,
+:root:not(.dark) .mux-cta__title {
+  background: linear-gradient(120deg, #a78bfa 0%, #7c5cfc 45%, #6346e8 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+}
+
+.vp-doc p.mux-cta__desc,
+.mux-cta__desc {
+  margin: 0 auto 28px;
+  max-width: 36rem;
+  font-size: 1.0625rem;
+  line-height: 1.65;
+  text-align: center;
+  color: var(--vp-c-text-2);
+}
+
+.mux-cta__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  justify-content: center;
+}
+
+.vp-doc a.mux-btn,
+.mux-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 8rem;
+  padding: 0 22px;
+  line-height: 42px;
+  border-radius: 999px;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  text-decoration: none;
+  transition:
+    transform var(--mux-duration) var(--mux-ease-soft),
+    filter var(--mux-duration-fast),
+    background var(--mux-duration-fast),
+    border-color var(--mux-duration-fast),
+    box-shadow var(--mux-duration-fast),
+    color var(--mux-duration-fast);
+}
+
+.mux-btn--brand {
+  background: var(--vp-button-brand-bg);
+  color: #fff !important;
+  border: 1px solid transparent;
+}
+
+.mux-btn--brand:hover {
+  background: var(--vp-button-brand-hover-bg);
+  filter: none;
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px rgba(124, 92, 252, 0.28);
+  color: #fff !important;
+}
+
+.mux-btn--alt {
+  background: transparent;
+  color: var(--vp-c-text-1);
+  border: 1px solid color-mix(in srgb, var(--vp-c-brand-1) 55%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--vp-c-brand-1) 12%, transparent);
+}
+
+.mux-btn--alt:hover {
+  background: var(--vp-c-brand-soft);
+  border-color: var(--vp-c-brand-1);
+  box-shadow: 0 0 16px rgba(124, 92, 252, 0.22);
+  transform: translateY(-1px);
+  color: var(--vp-c-brand-1);
+  filter: none;
+}
+
+.mux-btn:active {
+  transform: scale(0.97);
+}
+
+@media (max-width: 768px) {
+  .mux-row,
+  .mux-row.is-reverse {
+    flex-direction: column;
+    gap: 28px;
+    margin-bottom: 64px;
+  }
+
+  .mux-story {
+    margin-top: 64px;
+  }
+
+  .mux-story__header {
+    margin-bottom: 40px;
+  }
+
+  .mux-panel {
+    min-height: 180px;
+  }
+
+  [data-reveal] {
+    transform: translateY(32px);
+  }
+}
+
+/* -------------------------------------------------------------------------- */
+/* Doc links + chrome polish                                                  */
+/* -------------------------------------------------------------------------- */
+
+.vp-doc :not(h1, h2, h3, h4, h5, h6) > a:not(.header-anchor):not(.VPButton):not(.mux-btn):not(.mux-try) {
+  text-decoration: none;
+  box-shadow: 0 1.5px 0 var(--vp-c-brand-1);
+  transition:
+    box-shadow var(--mux-duration-fast) var(--mux-ease-out),
+    color var(--mux-duration-fast);
+}
+
+.vp-doc :not(h1, h2, h3, h4, h5, h6) > a:not(.header-anchor):not(.VPButton):not(.mux-btn):not(.mux-try):hover {
+  box-shadow: 0 0 0 transparent;
+  color: var(--vp-c-brand-1);
+}
+
+.VPNavBarMenuLink,
+.VPLink.link {
+  transition: color var(--mux-duration-fast) var(--mux-ease-out) !important;
+}
+
+.VPSidebarItem .link {
+  transition:
+    color var(--mux-duration-fast),
+    background-color var(--mux-duration-fast) !important;
+}
+
+.VPSidebarItem.link:hover .text,
+.VPSidebarItem .link:hover .text {
+  color: var(--vp-c-brand-1) !important;
+}
+
+.VPSocialLink,
+.VPNavBarExtra .button,
+.VPSwitch {
+  transition:
+    color var(--mux-duration-fast),
+    background-color var(--mux-duration-fast),
+    opacity var(--mux-duration-fast),
+    transform var(--mux-duration) var(--mux-ease-soft) !important;
+}
+
+.VPSocialLink:hover,
+.VPNavBarExtra .button:hover {
+  transform: translateY(-1px);
+}
+
+html {
+  transition:
+    color var(--mux-color-swap) var(--mux-ease-out),
+    background-color var(--mux-color-swap) var(--mux-ease-out);
+}
+
+.VPNavBar,
+.VPSidebar,
+.VPFooter,
+.VPLocalNav,
+.VPDocAside {
+  transition:
+    background-color var(--mux-color-swap) var(--mux-ease-out),
+    border-color var(--mux-color-swap) var(--mux-ease-out),
+    box-shadow var(--mux-color-swap) var(--mux-ease-out);
+}
+
+.VPDocOutlineItem a {
+  transition: color var(--mux-duration-fast) !important;
+}
+
+.VPDocOutlineItem.is-active > a {
+  color: var(--vp-c-brand-1) !important;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Route / page transitions (View Transition API)                             */
+/* -------------------------------------------------------------------------- */
+
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 0.38s;
+  animation-timing-function: var(--mux-ease-reveal);
+}
+
+::view-transition-old(root) {
+  animation-name: mux-page-leave;
+}
+
+::view-transition-new(root) {
+  animation-name: mux-page-enter;
+}
+
+@keyframes mux-page-leave {
+  to {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+}
+
+@keyframes mux-page-enter {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+}
+
+/* Appearance toggle uses a custom clip-path; disable default VT animations */
+html.mux-appearance-pending::view-transition-old(root),
+html.mux-appearance-pending::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Reduced motion                                                             */
+/* -------------------------------------------------------------------------- */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  [data-reveal] {
+    opacity: 1 !important;
+    transform: none !important;
+  }
+
+  .VPButton:hover,
+  .VPButton:active,
+  .VPSocialLink:hover,
+  .mux-btn:hover,
+  .mux-try:hover {
+    transform: none !important;
+    filter: none !important;
+    box-shadow: none !important;
+  }
+
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    animation: none !important;
+  }
+}

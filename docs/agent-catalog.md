@@ -6,10 +6,10 @@ MUX deliberately separates client discovery from writable configuration support.
 
 | File | Purpose | Current size |
 |---|---|---:|
-| `data/agents.json` | Deep-audited definitions with product-specific paths, layouts, codecs, transports, and evidence | 39 |
+| `data/agents.json` | Deep-audited definitions with product-specific paths, layouts, codecs, transports, and evidence | 41 |
 | `data/agent-catalog.json` | Discovery-only client records; unknown paths and formats always fail closed | 175 |
 
-There are 23 overlapping IDs. Audited definitions override directory records, producing 191 distinct retained client records. The desktop picker intentionally shows only the 38 writable user-level targets among the 39 audited definitions; catalog-only records remain available to the core for future promotion. Devin remains read-only.
+There are 23 overlapping IDs. Audited definitions override directory records, producing 193 distinct retained client records. The desktop picker intentionally shows only the 40 writable user-level targets among the 41 audited definitions; catalog-only records remain available to the core for future promotion. Devin remains read-only.
 
 ## Discovery sources
 
@@ -45,7 +45,7 @@ Community extensions are not presented as native support. The current example is
 | `community-extension` | MCP support belongs to a named third-party extension, not the core product. |
 | `catalog` | Public discovery only; never writable. |
 
-Every audited definition records `verified_at`, documentation URL, supported transports, codec, and layout. The 2026-07-14 audit checked all 39 documentation URLs with real GET requests after redirect handling.
+Every audited definition records `verified_at`, documentation URL, supported transports, codec, and layout. The existing set was rechecked through 2026-07-15; Grok Build was verified against its newly published official source on 2026-07-16.
 
 ## Fail-closed rules
 

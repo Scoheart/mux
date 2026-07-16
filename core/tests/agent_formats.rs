@@ -23,6 +23,7 @@ fn fixture(name: &str) -> &'static str {
         "opencode" => include_str!("fixtures/opencode.json"),
         "codex" => include_str!("fixtures/codex.toml"),
         "gemini" => include_str!("fixtures/gemini.json"),
+        "grok-build" => include_str!("fixtures/grok-build.toml"),
         "windsurf" => include_str!("fixtures/windsurf.json"),
         "cline" => include_str!("fixtures/cline.json"),
         _ => panic!("unknown fixture"),
@@ -147,6 +148,41 @@ fn codex_update_preserves_tool_policy_and_uses_http_headers() {
 }
 
 #[test]
+fn grok_build_update_preserves_models_auth_and_mcp_policy() {
+    let path = write_fixture("grok-build", "toml");
+    let adapter = get_agent_adapter("toml", "mcp_servers", "grok-build");
+    let scanned = adapter.read(&path);
+    assert!(matches!(scanned["local"], McpConfig::Stdio(_)));
+    assert!(matches!(scanned["docs"], McpConfig::Http(_)));
+
+    adapter
+        .upsert(&path, "docs", &http("https://new.example.com/mcp"))
+        .unwrap();
+
+    let written = std::fs::read_to_string(&path).unwrap();
+    let root: toml::Value = written.parse().unwrap();
+    let target = &root["mcp_servers"]["docs"];
+    assert_eq!(root["models"]["default"].as_str(), Some("private"));
+    assert_eq!(
+        root["model"]["private"]["api_backend"].as_str(),
+        Some("responses")
+    );
+    assert_eq!(
+        root["auth_provider_command"].as_str(),
+        Some("security find-generic-password -w -s grok")
+    );
+    assert_eq!(target["url"].as_str(), Some("https://new.example.com/mcp"));
+    assert_eq!(target["headers"]["X-New"].as_str(), Some("value"));
+    assert_eq!(target["enabled"].as_bool(), Some(false));
+    assert_eq!(target["startup_timeout_sec"].as_integer(), Some(45));
+    assert_eq!(target["tool_timeout_sec"].as_integer(), Some(6000));
+    assert_eq!(target["tool_timeouts"]["slow"].as_integer(), Some(120));
+    assert_eq!(target["bearer_token_env_var"].as_str(), Some("DOCS_TOKEN"));
+    assert!(written.contains("# keep Grok Build settings and comments"));
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
 fn copilot_defaults_tools_only_for_new_entries() {
     let path = temp_file("copilot", "json");
     std::fs::write(
@@ -222,7 +258,7 @@ fn every_writable_builtin_roundtrips_through_its_wire_format() {
         .values()
         .filter(|agent| agent.global.is_some())
         .count();
-    assert_eq!(writable, 39);
+    assert_eq!(writable, 40);
 
     for (agent_id, definition) in agents {
         if definition.global.is_none() {
@@ -401,6 +437,7 @@ fn builtin_global_paths_match_current_product_docs() {
             "goose",
             "~/Library/Application Support/Block/goose/config/config.yaml",
         ),
+        ("grok-build", "~/.grok/config.toml"),
         ("hermes", "~/.hermes/config.yaml"),
         ("junie", "~/.junie/mcp/mcp.json"),
         ("kilo-code", "~/.config/kilo/kilo.jsonc"),
@@ -450,16 +487,16 @@ fn verified_and_catalog_definitions_have_auditable_boundaries() {
     let all_ids: std::collections::BTreeSet<_> =
         verified_ids.union(&catalog_ids).cloned().collect();
 
-    assert_eq!(verified.len(), 40);
+    assert_eq!(verified.len(), 41);
     assert_eq!(catalog.len(), 175);
     assert_eq!(verified_ids.intersection(&catalog_ids).count(), 23);
-    assert_eq!(all_ids.len(), 192);
+    assert_eq!(all_ids.len(), 193);
     assert_eq!(
         verified
             .values()
             .filter(|item| item.global.is_some())
             .count(),
-        39
+        40
     );
     assert!(catalog.len() >= 170);
     for (id, definition) in verified {

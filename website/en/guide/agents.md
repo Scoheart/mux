@@ -2,14 +2,14 @@
 
 MUX's agent data comes in two layers:
 
-- **Configurable targets**: 40 individually verified product definitions, 39 of which have a stable user-level global config file that MUX can safely read and write.
-- **Client directory**: sourced from public MCP client directories and the official client matrix, used for discovery only. After deduplication against the configurable targets, the UI can search **192** clients in total.
+- **Configurable targets**: 41 individually verified product definitions, 40 of which have a stable user-level global config file that MUX can safely read and write.
+- **Client directory**: sourced from public MCP client directories and the official client matrix, used for discovery only. After deduplication against the configurable targets, the UI can search **193** clients in total.
 
 Clients whose global file path, top-level key, and entry structure have not been confirmed are shown for discovery only and cannot be written to. This keeps expanding coverage without writing a generic JSON guess into an unknown product's config.
 
 ## Verified list
 
-The results below were checked one by one against official docs or official source code on **2026-07-15**, and every documentation link had its online reachability verified.
+The results below are based on official docs or official source through **2026-07-16**; Grok Build was verified from its newly published source and user guides.
 
 | Agent | Format | Config key | User-level global path | Native transports |
 |---|---|---|---|---|
@@ -32,6 +32,7 @@ The results below were checked one by one against official docs or official sour
 | [Firebender](https://docs.firebender.com/context/mcp/overview) | JSON | `mcpServers` | `~/.firebender/firebender.json` | stdio / http |
 | [Gemini CLI](https://geminicli.com/docs/tools/mcp-server/) | JSON | `mcpServers` | `~/.gemini/settings.json` | stdio / http |
 | [Goose](https://goose-docs.ai/docs/guides/config-files/) | YAML | `extensions` | `~/Library/Application Support/Block/goose/config/config.yaml` | stdio / http |
+| [Grok Build](https://github.com/xai-org/grok-build/blob/main/crates/codegen/xai-grok-pager/docs/user-guide/07-mcp-servers.md) | TOML | `mcp_servers` | `~/.grok/config.toml` | stdio / http |
 | [Hermes Agent](https://github.com/NousResearch/hermes-agent/blob/main/website/docs/user-guide/features/mcp.md) | YAML | `mcp_servers` | `~/.hermes/config.yaml` | stdio / http |
 | [JetBrains Junie](https://www.jetbrains.com/help/junie/model-context-protocol-mcp.html) | JSON | `mcpServers` | `~/.junie/mcp/mcp.json` | stdio / http |
 | [Kilo Code CLI](https://kilo.ai/docs/automate/mcp/using-in-kilo-code) | JSON | `mcp` | `~/.config/kilo/kilo.jsonc` | stdio / http |
@@ -62,13 +63,14 @@ The results below were checked one by one against official docs or official sour
 - **QoderWork**: user-defined MCP servers live in `~/.qoderwork/mcp.json`; MUX does not modify the client's built-in MCP data.
 - **Claude Desktop / BoltAI**: the local files listed natively support stdio only. Remote MCP is managed by Claude Connectors or BoltAI's `mcp-remote` approach, respectively.
 - **Goose**: the generic docs example uses `~/.config/goose/config.yaml`, but the current macOS source actually uses `~/Library/Application Support/Block/goose/config/config.yaml`; MUX locates it by the runtime code.
+- **Grok Build**: MCP and custom models share `~/.grok/config.toml`. MUX safely edits only `mcp_servers`, preserving model, auth, timeout, and tool policy. Models remains guided because Grok Build has no per-model credential command that can safely consume a MUX Keychain secret.
 
 ## Format differences across agents
 
 MUX does not treat every client as the same `mcpServers` JSON:
 
 - OpenCode / Kilo use `type: local|remote`, with a local `command` as an array.
-- Codex uses TOML tables and `http_headers`; Mistral Vibe uses a `[[mcp_servers]]` TOML list.
+- Codex uses TOML tables and `http_headers`; Grok Build uses `mcp_servers` TOML tables and `headers`; Mistral Vibe uses a `[[mcp_servers]]` TOML list.
 - Continue uses a YAML list and requires root-level `name`, `version`, and `schema`; Goose and Hermes also use their own YAML maps.
 - Gemini / Qwen use `httpUrl`; Windsurf and Antigravity use `serverUrl`.
 - Cline puts connection fields in a `transport` sub-object; Tabnine puts HTTP headers in `requestInit.headers`.

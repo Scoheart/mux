@@ -1,0 +1,29 @@
+# keep Grok Build settings and comments
+auth_provider_command = "security find-generic-password -w -s grok"
+
+[models]
+default = "private"
+
+[model.private]
+name = "Private Gateway"
+model = "private-model"
+base_url = "https://model.example/v1"
+api_backend = "responses"
+env_key = "PRIVATE_MODEL_TOKEN"
+
+[mcp_servers.docs]
+url = "https://old.example.com/mcp"
+type = "streamable-http"
+enabled = false
+startup_timeout_sec = 45
+tool_timeout_sec = 6000
+tool_timeouts = { slow = 120 }
+bearer_token_env_var = "DOCS_TOKEN"
+
+[mcp_servers.docs.headers]
+X-Old = "remove"
+
+[mcp_servers.local]
+command = "npx"
+args = ["-y", "local-server"]
+enabled = true

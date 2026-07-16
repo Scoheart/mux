@@ -1,6 +1,6 @@
 # Agent icon sources
 
-New assets are copied from official product sites, official repositories, or the vendor's own brand package. Retrieved 2026-07-14.
+New assets are copied from official product sites, official repositories, or the vendor's own brand package. Sources were retrieved on or after 2026-07-14.
 
 | Asset | Official source |
 |---|---|
@@ -13,6 +13,7 @@ New assets are copied from official product sites, official repositories, or the
 | `factory-droid.svg` | <https://www.factory.ai/favicon.svg> |
 | `firebender.svg` | <https://firebender.com/icon.svg> |
 | `goose.png` | <https://github.com/block/goose/blob/main/documentation/docs/assets/logo.png> |
+| `grok-build.png` | <https://github.com/xai-org/grok-build> (official README asset, retrieved 2026-07-16) |
 | `hermes.png` | <https://github.com/NousResearch/hermes-agent/blob/main/apps/desktop/assets/icon.png> |
 | `kilo-code.svg` | <https://github.com/Kilo-Org/kilocode/blob/main/packages/kilo-docs/public/favicon/favicon.svg> |
 | `kimi-code.png` | <https://github.com/MoonshotAI/kimi-cli/blob/main/web/public/logo.png> |

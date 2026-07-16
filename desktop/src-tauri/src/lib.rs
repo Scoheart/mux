@@ -55,6 +55,8 @@ pub fn run() {
             commands::set_source_enabled,
             commands::remove_source,
             commands::list_agents,
+            commands::get_pinned_agents,
+            commands::set_pinned_agents,
             commands::add_agent,
             commands::update_agent,
             commands::scan_installed,

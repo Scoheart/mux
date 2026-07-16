@@ -186,7 +186,13 @@ fn validate_skill_directory(path: &str) -> Result<(), String> {
 
 /// 优先读 settings.agents（与 CLI 共用），缺失或为空时用内置。
 pub fn load_agents() -> BTreeMap<String, AgentDefinition> {
-    match load_settings().agents {
+    load_agents_from_settings(&load_settings())
+}
+
+pub(crate) fn load_agents_from_settings(
+    settings: &crate::settings::Settings,
+) -> BTreeMap<String, AgentDefinition> {
+    match settings.agents.clone() {
         Some(map) if !map.is_empty() => merge_builtin_updates(map),
         _ => builtin_agents(),
     }

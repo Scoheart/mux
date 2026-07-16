@@ -194,6 +194,16 @@ pub fn list_agents() -> Vec<AgentInfo> {
     mux_core::agents::list_infos()
 }
 
+#[tauri::command]
+pub fn get_pinned_agents() -> Result<Vec<String>, String> {
+    mux_core::pinned_agents::get_pinned_agents()
+}
+
+#[tauri::command]
+pub fn set_pinned_agents(agent_ids: Vec<String>) -> Result<Vec<String>, String> {
+    mux_core::pinned_agents::set_pinned_agents(agent_ids)
+}
+
 pub use mux_core::ops::InstalledMcp;
 
 /// 扫描全局配置文件，返回「谁装在哪」。MUX 当前不管理项目级配置。

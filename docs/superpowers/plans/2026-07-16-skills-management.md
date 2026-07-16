@@ -2736,7 +2736,7 @@ export const resolutionFixture = (): SkillSourceResolution => ({
 });
 
 export const sharedTargetPlanFixture = (): OperationPlan => ({
-  operation_id: "plan-fixture",
+  operation_id: "resolve-fixture",
   kind: "install",
   skills: [{
     manifest: {
@@ -3437,13 +3437,13 @@ git commit -m "feat(desktop): add skills workspace" -m "Present managed and exte
 - Modify: `desktop/src/components/SkillsView.tsx`
 - Modify: `desktop/src/components/SkillInspector.tsx`
 - Modify: `desktop/src/components/ui.tsx`
-- Modify: `desktop/src/components/Layout.tsx`
+- Modify: `desktop/src/components/AgentNavigation.tsx`
 - Modify: `desktop/src/index.css`
 - Create: `desktop/src/components/SkillInstallDialog.test.tsx`
 - Create: `desktop/src/components/SkillReviewDialog.test.tsx`
 
 **Interfaces:**
-- Consumes: all plan/commit API calls and wizard reducer
+- Consumes: all plan API calls, the wizard reducer, and the single `useSkillsState` commit/cancel owner
 - Produces: three-step install, shared review for import/update/remove/assignment/repair
 - Produces: plan-bound first confirmation and findings-bound high-risk second confirmation
 
@@ -3584,38 +3584,27 @@ const reviewInstall = async () => {
 };
 ```
 
-Render source as a controlled GitHub field plus native folder button; selection as candidate and installed-Agent checkboxes; and review only from `wizard.plan`. Changing a candidate or Agent after a plan exists first calls `cancelSkillOperation(wizard.plan.operation_id)`, then dispatches the toggle action. The source step shows parsed repository/ref/subpath; selection shows candidate manifest/file counts; review shows immutable revision, all file changes, risk evidence, conflicts, normalized physical targets, and every affected installed Agent.
+Render source as a controlled GitHub field plus native folder button; selection as candidate and installed-Agent checkboxes; and review only from `wizard.plan`. Install resolution and plan use the same staged operation. Changing a candidate or Agent after a plan exists clears only the client-side plan, then replans into that same operation; it must not call `cancelSkillOperation`, which would delete the resolution candidates. Freeze selection while a plan request is pending so a late plan cannot overwrite a newer selection. The source step shows parsed repository/ref/subpath; selection shows candidate manifest/file counts; review shows immutable revision, all file changes, risk evidence, conflicts, normalized physical targets, and every affected installed Agent.
 
 Route the dialog close button, scrim, and Escape through one async `closeDialog` handler. If `wizard.resolution` exists and no commit succeeded, call `cancelSkillOperation(wizard.resolution.operation_id)` before `onClose`; report cancellation errors in the Toast but still allow the user to close. A successful commit marks the operation complete before invoking `onCommitted`, so close does not attempt to delete committed content.
 
 - [ ] **Step 5: Implement one shared review component**
 
-`SkillReviewDialog` receives an `OperationPlan` and operation-specific commit function. It never derives whether an action is safe. The first confirmation submits operation id and candidate hash. When `requires_risk_override`, reveal all High findings, require an unchecked-by-default acknowledgment, then submit the exact `findings_hash`.
+`SkillReviewDialog` receives an `OperationPlan` and the single commit callback owned by the parent `useSkillsState`. It never imports or dispatches commit APIs and never creates a second Skills state hook. The first confirmation passes `null`. Only after core returns `confirmation_required` with an exact hash equal to the current `plan.findings_hash` may it reveal the High findings, require an unchecked-by-default acknowledgment, and pass that exact hash on the second attempt.
 
 Use this exact public component contract and commit dispatch:
 
 ```tsx
 interface SkillReviewDialogProps {
   plan: OperationPlan;
+  onCommit(plan: OperationPlan, findingsConfirmation: string | null): Promise<SkillsInventory>;
   onClose(): void;
   onCommitted(inventory: SkillsInventory): void;
   onRecoveryRequired(message: string): void;
 }
 
-const committers = {
-  install: api.commitSkillInstall,
-  import: api.commitSkillImport,
-  update: api.commitSkillUpdate,
-  remove: api.commitSkillRemove,
-  assignment: api.commitSkillAssignment,
-  repair: api.commitSkillRepair,
-} satisfies Record<SkillOperationKind, (request: SkillCommitRequest) => Promise<SkillsInventory>>;
-
-const commit = (findingsConfirmation: string | null) => committers[plan.kind]({
-  operation_id: plan.operation_id,
-  candidate_hash: plan.candidate_hash,
-  findings_confirmation: findingsConfirmation,
-});
+const commit = (findingsConfirmation: string | null) =>
+  onCommit(plan, findingsConfirmation);
 ```
 
 Handle structured errors:
@@ -3626,7 +3615,11 @@ switch (error.code) {
     setReviewExpired(true);
     break;
   case "confirmation_required":
-    setRiskConfirmation(error.findings_hash ?? plan.findings_hash);
+    if (!error.findings_hash || error.findings_hash !== plan.findings_hash) {
+      setReviewExpired(true);
+      break;
+    }
+    setRiskConfirmation(error.findings_hash);
     break;
   case "recovery_required":
     onRecoveryRequired(error.message);
@@ -3667,7 +3660,7 @@ useEffect(() => {
 
 Pass `ariaLabel="审阅 Skill 操作"` on the review modal and `ariaLabel="确认高风险覆盖"` on the nested modal. Existing callers may omit the new prop.
 
-Also change `Layout`'s Agent-picker Escape listener to close only when `!document.querySelector('[role="dialog"]')`, matching the existing Inspector guard. This prevents the same Escape key from closing background chrome before the topmost dialog handles it.
+Limit topmost queries to `[role="dialog"][aria-modal="true"]`, because `AgentNavigation` intentionally uses a non-modal `role="dialog"` picker. Change the picker Escape listener in `AgentNavigation.tsx` to do nothing while an aria-modal dialog exists; likewise align the Inspector guard. This prevents one Escape key from closing background chrome before the topmost modal handles it.
 
 - [ ] **Step 8: Run all frontend tests and build**
 

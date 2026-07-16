@@ -14,6 +14,7 @@ pub mod registry;
 mod safe_write;
 pub mod scanner;
 pub mod settings;
+pub mod skills;
 pub mod sources;
 #[doc(hidden)]
 pub mod testenv;

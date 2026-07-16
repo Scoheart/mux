@@ -14,6 +14,7 @@
 use crate::disabled::DisabledEntry;
 use crate::paths::{backups_dir, mux_dir, registry_dir, settings_file, user_agents_file};
 use crate::safe_write::write_private_if_unchanged;
+use crate::skills::ManagedSkillRecord;
 use crate::types::{AgentDefinition, ModelProfile, RegistryEntry, SourceDef};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -50,7 +51,7 @@ pub struct Settings {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model_assignments: Option<BTreeMap<String, String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub managed_skills: Option<BTreeMap<String, serde_json::Value>>,
+    pub managed_skills: Option<BTreeMap<String, ManagedSkillRecord>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub skill_assignments: Option<BTreeMap<String, BTreeSet<String>>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

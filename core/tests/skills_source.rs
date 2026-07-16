@@ -14,7 +14,7 @@ use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::os::unix::fs::symlink;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{mpsc, Arc};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 use support::skills::{write_skill, MockGithub, FIXTURE_SHA};
@@ -81,6 +81,103 @@ fn source_resolution_rejects_a_symlinked_staging_parent_without_writing_outside_
     ));
     assert_eq!(fs::read_to_string(outside.join("marker")).unwrap(), "keep");
     assert!(!outside.join("skills").exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn source_pipeline_stays_on_operation_fd_after_staging_parent_swap() {
+    let th = TestHome::new("skills-source-operation-fd");
+    let (server, reached, resume) = ScriptedGithub::paused_archive(valid_archive(&["fd-safe"]));
+    let endpoints = server.endpoints();
+    let resolver = thread::spawn(move || {
+        resolve_source(
+            SkillSourceInput::Github {
+                value: "acme/skills".into(),
+            },
+            endpoints,
+        )
+    });
+    reached
+        .recv_timeout(Duration::from_secs(5))
+        .expect("resolver did not pause at the archive request");
+    let (retained_operation, outside_operation) = substitute_staging_parent(&th);
+    resume.send(()).unwrap();
+
+    let resolution = resolver.join().unwrap().unwrap();
+
+    assert_eq!(directory_names(&outside_operation), vec!["sentinel"]);
+    assert!(retained_operation
+        .join("candidates")
+        .join("fd-safe")
+        .join("SKILL.md")
+        .exists());
+    assert_eq!(
+        resolution
+            .candidates
+            .iter()
+            .map(|candidate| candidate.name.as_str())
+            .collect::<Vec<_>>(),
+        vec!["fd-safe"]
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn source_failure_cleanup_removes_only_anchored_operation_after_parent_swap() {
+    let th = TestHome::new("skills-source-operation-cleanup-fd");
+    let (server, reached, resume) = ScriptedGithub::paused_archive(b"not-a-gzip".to_vec());
+    let endpoints = server.endpoints();
+    let resolver = thread::spawn(move || {
+        resolve_source(
+            SkillSourceInput::Github {
+                value: "acme/skills".into(),
+            },
+            endpoints,
+        )
+    });
+    reached
+        .recv_timeout(Duration::from_secs(5))
+        .expect("resolver did not pause at the archive request");
+    let (retained_operation, outside_operation) = substitute_staging_parent(&th);
+    resume.send(()).unwrap();
+
+    assert!(resolver.join().unwrap().is_err());
+    assert_eq!(directory_names(&outside_operation), vec!["sentinel"]);
+    assert!(!retained_operation.exists());
+}
+
+#[cfg(unix)]
+fn substitute_staging_parent(th: &TestHome) -> (std::path::PathBuf, std::path::PathBuf) {
+    let paths = SkillsPaths::from_env().unwrap();
+    let operation_ids = fs::read_dir(paths.staging_skills_dir())
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(operation_ids.len(), 1);
+    let operation_id = &operation_ids[0];
+    let staging_parent = paths.mux_dir().join("staging");
+    let retained_parent = th.home.join("retained-staging-parent");
+    fs::rename(&staging_parent, &retained_parent).unwrap();
+
+    let outside = th.home.join("outside-staging-parent");
+    let outside_operation = outside.join("skills").join(operation_id);
+    fs::create_dir_all(&outside_operation).unwrap();
+    fs::write(outside_operation.join("sentinel"), "keep").unwrap();
+    symlink(&outside, &staging_parent).unwrap();
+
+    (
+        retained_parent.join("skills").join(operation_id),
+        outside_operation,
+    )
+}
+
+fn directory_names(path: &Path) -> Vec<String> {
+    let mut names = fs::read_dir(path)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+        .collect::<Vec<_>>();
+    names.sort();
+    names
 }
 
 #[test]
@@ -1527,6 +1624,11 @@ fn gzip_large_extension(size: u64) -> Vec<u8> {
 
 enum ArchiveBehavior {
     Bytes(Vec<u8>),
+    Paused {
+        archive: Vec<u8>,
+        reached: mpsc::SyncSender<()>,
+        resume: mpsc::Receiver<()>,
+    },
     Chunked(u64),
     Redirects {
         count: usize,
@@ -1573,6 +1675,20 @@ impl ScriptedGithub {
     fn endpoints(&self) -> GithubEndpoints {
         let base = Url::parse(&format!("http://{}/", self.address)).unwrap();
         GithubEndpoints::for_test(base.clone(), base)
+    }
+
+    fn paused_archive(archive: Vec<u8>) -> (Self, mpsc::Receiver<()>, mpsc::SyncSender<()>) {
+        let (reached_tx, reached_rx) = mpsc::sync_channel(0);
+        let (resume_tx, resume_rx) = mpsc::sync_channel(0);
+        (
+            Self::new(ArchiveBehavior::Paused {
+                archive,
+                reached: reached_tx,
+                resume: resume_rx,
+            }),
+            reached_rx,
+            resume_tx,
+        )
     }
 }
 
@@ -1629,6 +1745,15 @@ fn scripted_connection(mut stream: TcpStream, behavior: &ArchiveBehavior) {
     } else if path == format!("/acme/skills/tar.gz/{FIXTURE_SHA}") || path.starts_with("/hop/") {
         match behavior {
             ArchiveBehavior::Bytes(bytes) => response(&mut stream, "200 OK", &[], bytes),
+            ArchiveBehavior::Paused {
+                archive,
+                reached,
+                resume,
+            } => {
+                if reached.send(()).is_ok() && resume.recv_timeout(Duration::from_secs(5)).is_ok() {
+                    response(&mut stream, "200 OK", &[], archive);
+                }
+            }
             ArchiveBehavior::Chunked(total) => chunked_response(&mut stream, *total),
             ArchiveBehavior::Redirects { count, archive } => {
                 let current = path

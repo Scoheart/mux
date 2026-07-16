@@ -1,3 +1,4 @@
+use super::files::validate_staging_candidate;
 use super::inventory::{declared_targets_for_agents, normalize_assignment_enable};
 use super::source::{load_staged_resolution, stage_private_candidate};
 use super::staging::StagingRoot;
@@ -139,13 +140,12 @@ fn plan_import_inner(request: PlanImportRequest) -> Result<OperationPlan, SkillE
     let operation_id = Uuid::new_v4().hyphenated().to_string();
     create_operation_root(&paths, &operation_id)?;
     let result = (|| {
-        let candidates = StagingRoot::open(&paths)?
-            .open_operation(&operation_id)?
-            .create_private_directory("candidates")?;
-        let staged = candidates.join(&external.name);
+        let operation = StagingRoot::open(&paths)?.open_operation(&operation_id)?;
+        let candidates = operation.create_private_directory("candidates")?;
+        let staged = candidates.create_directory(&external.name)?;
         let before_hash = hash_tree(&external.path)?;
         stage_private_candidate(&external.path, &staged)?;
-        let staged_hash = hash_tree(&staged)?;
+        let staged_hash = validate_staging_candidate(&staged)?.content_hash;
         if hash_tree(&external.path)? != before_hash || staged_hash != before_hash {
             return Err(SkillError::PlanStale {
                 message: "the external Skill changed while it was staged".into(),
@@ -237,6 +237,8 @@ fn build_install_plan(
     let paths = SkillsPaths::resolve_from_env()?;
     let settings = current_settings_snapshot()?;
     let inventory = list_inventory()?;
+    let operation = StagingRoot::open(&paths)?.open_operation(&resolution.operation_id)?;
+    let staged_candidates = operation.root_directory()?.open_directory("candidates")?;
     let selected_names = selected_skill_names(&request.skill_names)?;
     let candidate_summaries = resolution
         .candidates
@@ -253,7 +255,7 @@ fn build_install_plan(
         .collect::<BTreeSet<_>>();
     let mut touched_target_ids = desired_target_ids.clone();
     for name in &selected_names {
-        touched_target_ids.extend(assigned_target_ids(&settings, name));
+        touched_target_ids.extend(known_assigned_target_ids(&settings, &inventory, name));
     }
     let target_views = selected_target_views(
         &inventory,
@@ -265,12 +267,8 @@ fn build_install_plan(
 
     for name in selected_names {
         let summary = candidate_summaries[&name.as_str()];
-        let candidate = paths
-            .staging_skills_dir()
-            .join(&resolution.operation_id)
-            .join("candidates")
-            .join(&name);
-        let validated = validate_candidate(&candidate)?;
+        let candidate = staged_candidates.open_directory(&name)?;
+        let validated = validate_staging_candidate(&candidate)?;
         if validated.content_hash != summary.content_hash || validated.manifest.name != summary.name
         {
             return stale("a staged Skill candidate changed after resolution");
@@ -306,8 +304,11 @@ fn build_install_plan(
             });
         }
         let source = candidate_source(&resolution.source, &summary.relative_path);
-        let risk = audit_skill(&candidate)?;
-        let files = diff_trees(central_hash.as_ref().map(|_| central.as_path()), &candidate)?;
+        let risk = audit_skill(candidate.path())?;
+        let files = diff_trees(
+            central_hash.as_ref().map(|_| central.as_path()),
+            candidate.path(),
+        )?;
         skills.push(PlannedSkill {
             manifest: validated.manifest,
             source,
@@ -398,6 +399,7 @@ fn build_import_plan(
     let paths = SkillsPaths::resolve_from_env()?;
     let settings = current_settings_snapshot()?;
     let inventory = list_inventory()?;
+    let operation = StagingRoot::open(&paths)?.open_operation(&operation_id)?;
     let external = external_item(&paths, &inventory, &request.identity)?;
     if external.name != source_name || external.target_id != source_target_id {
         return stale("the selected external Skill moved after review");
@@ -405,12 +407,11 @@ fn build_import_plan(
     if collapse_home(&external.path, paths.user_home()) != original_path {
         return stale("the selected external Skill path changed after review");
     }
-    let staged = paths
-        .staging_skills_dir()
-        .join(&operation_id)
-        .join("candidates")
-        .join(&source_name);
-    let validated = validate_candidate(&staged)?;
+    let staged = operation
+        .root_directory()?
+        .open_directory("candidates")?
+        .open_directory(&source_name)?;
+    let validated = validate_staging_candidate(&staged)?;
     if hash_tree(&external.path)? != validated.content_hash {
         return stale("the external Skill changed after review");
     }
@@ -419,7 +420,11 @@ fn build_import_plan(
         .collect::<BTreeSet<_>>();
     desired_target_ids.insert(source_target_id.clone());
     let mut touched_target_ids = desired_target_ids.clone();
-    touched_target_ids.extend(assigned_target_ids(&settings, &source_name));
+    touched_target_ids.extend(known_assigned_target_ids(
+        &settings,
+        &inventory,
+        &source_name,
+    ));
     let target_views = selected_target_views(
         &inventory,
         &touched_target_ids.into_iter().collect::<Vec<_>>(),
@@ -463,8 +468,11 @@ fn build_import_plan(
         original_path: original_path.clone(),
         backup_path: backup_path.clone(),
     };
-    let risk = audit_skill(&staged)?;
-    let files = diff_trees(central_hash.as_ref().map(|_| central.as_path()), &staged)?;
+    let risk = audit_skill(staged.path())?;
+    let files = diff_trees(
+        central_hash.as_ref().map(|_| central.as_path()),
+        staged.path(),
+    )?;
     let skill = PlannedSkill {
         manifest: validated.manifest,
         source,
@@ -526,13 +534,13 @@ fn build_assignment_plan(
     if validated.content_hash != record.content_hash {
         return conflict_result("the managed Skill was locally modified");
     }
-    let prior_target_ids = assigned_target_ids(&settings, &request.skill_name);
+    let prior_target_ids = known_assigned_target_ids(&settings, &inventory, &request.skill_name);
     let desired_target_ids = if request.enabled {
         normalize_assignment_enable(&request.agent_ids, &prior_target_ids)?
             .into_iter()
             .collect::<BTreeSet<_>>()
     } else {
-        let removed = assigned_targets_for_agents(&settings, &request)?;
+        let removed = assigned_targets_for_agents(&prior_target_ids, &request)?;
         prior_target_ids
             .difference(&removed)
             .cloned()
@@ -599,14 +607,32 @@ fn build_assignment_plan(
 }
 
 fn assigned_targets_for_agents(
-    settings: &SkillSettingsSnapshot,
+    assigned_target_ids: &BTreeSet<String>,
     request: &PlanAssignmentRequest,
 ) -> Result<BTreeSet<String>, SkillError> {
     let declared = declared_targets_for_agents(&request.agent_ids)?;
-    Ok(assigned_target_ids(settings, &request.skill_name)
+    Ok(assigned_target_ids
         .intersection(&declared)
         .cloned()
         .collect())
+}
+
+fn known_assigned_target_ids(
+    settings: &SkillSettingsSnapshot,
+    inventory: &SkillsInventory,
+    skill_name: &str,
+) -> BTreeSet<String> {
+    let mut target_ids = assigned_target_ids(settings, skill_name);
+    target_ids.extend(inventory.items.iter().filter_map(|item| {
+        if item.name != skill_name || !item.states.contains(&InventoryState::Assigned) {
+            return None;
+        }
+        match &item.location {
+            super::SkillLocation::AgentTarget { target_id, .. } => Some(target_id.clone()),
+            super::SkillLocation::Central => None,
+        }
+    }));
+    target_ids
 }
 
 fn assigned_target_ids(settings: &SkillSettingsSnapshot, skill_name: &str) -> BTreeSet<String> {
@@ -787,16 +813,14 @@ fn install_settings_after(
     persisted: &PersistedPlan,
     settings: &mut SkillSettingsSnapshot,
 ) -> Result<(), SkillError> {
+    let operation = StagingRoot::open(paths)?.open_operation(&persisted.plan.operation_id)?;
+    let staged_candidates = operation.root_directory()?.open_directory("candidates")?;
     let now = Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true);
     let records = settings.managed_skills.get_or_insert_default();
     let assignments = settings.skill_assignments.get_or_insert_default();
     for skill in &persisted.plan.skills {
-        let candidate = paths
-            .staging_skills_dir()
-            .join(&persisted.plan.operation_id)
-            .join("candidates")
-            .join(&skill.manifest.name);
-        let validated = validate_candidate(&candidate)?;
+        let candidate = staged_candidates.open_directory(&skill.manifest.name)?;
+        let validated = validate_staging_candidate(&candidate)?;
         if validated.content_hash != skill.content_hash {
             return Err(stale_error(
                 "a staged Skill candidate changed before commit",

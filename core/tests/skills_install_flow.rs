@@ -141,6 +141,64 @@ fn replacement_install_removes_prior_managed_links_not_in_the_desired_graph() {
 }
 
 #[test]
+fn central_only_reinstall_removes_unrecorded_exact_target_link() {
+    let fixture = SkillsFixture::managed("unrecorded-central");
+    let cursor_link = fixture.target("cursor-user", "unrecorded-central");
+    fs::create_dir_all(cursor_link.parent().unwrap()).unwrap();
+    symlink(fixture.central("unrecorded-central"), &cursor_link).unwrap();
+    let resolution = fixture.resolve_local(&["unrecorded-central"]);
+
+    let plan = plan_install(PlanInstallRequest {
+        resolution_id: resolution.operation_id,
+        skill_names: vec!["unrecorded-central".into()],
+        agent_ids: Vec::new(),
+        replace_conflicts: true,
+    })
+    .unwrap();
+
+    assert_eq!(
+        plan.targets
+            .iter()
+            .map(|target| target.target_id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["cursor-user"]
+    );
+    commit_install(plan.confirmation()).unwrap();
+    assert!(fs::symlink_metadata(cursor_link).is_err());
+}
+
+#[test]
+fn reinstall_normalizes_unrecorded_exact_link_into_requested_agent_graph() {
+    let fixture = SkillsFixture::managed("unrecorded-normalized");
+    let cursor_link = fixture.target("cursor-user", "unrecorded-normalized");
+    fs::create_dir_all(cursor_link.parent().unwrap()).unwrap();
+    symlink(fixture.central("unrecorded-normalized"), &cursor_link).unwrap();
+    let resolution = fixture.resolve_local(&["unrecorded-normalized"]);
+
+    let plan = plan_install(PlanInstallRequest {
+        resolution_id: resolution.operation_id,
+        skill_names: vec!["unrecorded-normalized".into()],
+        agent_ids: vec!["codex".into()],
+        replace_conflicts: true,
+    })
+    .unwrap();
+
+    assert_eq!(
+        plan.targets
+            .iter()
+            .map(|target| target.target_id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["agents-user", "cursor-user"]
+    );
+    commit_install(plan.confirmation()).unwrap();
+    assert_managed_link(
+        fixture.target("agents-user", "unrecorded-normalized"),
+        fixture.central("unrecorded-normalized"),
+    );
+    assert!(fs::symlink_metadata(cursor_link).is_err());
+}
+
+#[test]
 fn settings_hash_ignores_unrelated_fields_but_rejects_skill_section_changes() {
     let fixture = SkillsFixture::installed_agents(&["codex"]);
     let resolution = fixture.resolve_local(&["unrelated"]);

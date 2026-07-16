@@ -14,10 +14,11 @@ struct StagingMetadata<'a> {
 
 #[cfg(unix)]
 mod platform {
+    use super::super::anchored::{AnchoredFileKind, AnchoredIdentity, AnchoredRoot};
     use super::*;
     use rustix::fs::{
-        fchmod, fstat, mkdirat, openat, renameat, statat, unlinkat, AtFlags, Dir, FileType, Mode,
-        OFlags, CWD,
+        fchmod, fstat, mkdirat, openat, renameat, statat, symlinkat, unlinkat, AtFlags, Dir,
+        FileType, Mode, OFlags, CWD,
     };
     use std::ffi::{CStr, CString};
     use std::fs::{self, File};
@@ -33,6 +34,11 @@ mod platform {
         staging_directory: File,
         directory: File,
         operation_id: String,
+        path: PathBuf,
+    }
+
+    pub(crate) struct StagingDirectory {
+        directory: File,
         path: PathBuf,
     }
 
@@ -158,13 +164,37 @@ mod platform {
             &self.path
         }
 
-        pub(crate) fn create_private_directory(&self, name: &str) -> Result<PathBuf, SkillError> {
+        pub(crate) fn root_directory(&self) -> Result<StagingDirectory, SkillError> {
+            Ok(StagingDirectory {
+                directory: self
+                    .directory
+                    .try_clone()
+                    .map_err(|error| io_error(&self.path, error))?,
+                path: self.path.clone(),
+            })
+        }
+
+        pub(crate) fn create_private_directory(
+            &self,
+            name: &str,
+        ) -> Result<StagingDirectory, SkillError> {
             let name_c = safe_component(name)?;
             mkdirat(&self.directory, &name_c, Mode::from_raw_mode(0o700))
                 .map_err(|error| io_error(&self.path, error.into()))?;
-            open_private_directory(&self.directory, &name_c, &self.path.join(name))?;
+            let path = self.path.join(name);
+            let directory = open_private_directory(&self.directory, &name_c, &path)?;
             self.sync()?;
-            Ok(self.path.join(name))
+            Ok(StagingDirectory { directory, path })
+        }
+
+        pub(crate) fn remove_private_directory(&self, name: &str) -> Result<(), SkillError> {
+            let name_c = safe_component(name)?;
+            let path = self.path.join(name);
+            let directory = open_private_directory(&self.directory, &name_c, &path)?;
+            remove_directory_contents(&directory, &path)?;
+            unlinkat(&self.directory, &name_c, AtFlags::REMOVEDIR)
+                .map_err(|error| io_error(&path, error.into()))?;
+            self.sync()
         }
 
         pub(crate) fn write_private_atomic(
@@ -291,6 +321,176 @@ mod platform {
             self.directory
                 .sync_all()
                 .map_err(|error| io_error(&self.path, error))
+        }
+    }
+
+    impl StagingDirectory {
+        pub(crate) fn path(&self) -> &Path {
+            &self.path
+        }
+
+        pub(crate) fn anchored_root(&self) -> Result<AnchoredRoot, SkillError> {
+            let stat =
+                fstat(&self.directory).map_err(|error| io_error(&self.path, error.into()))?;
+            let expected = anchored_identity(&stat);
+            AnchoredRoot::from_open_directory(
+                self.directory
+                    .try_clone()
+                    .map_err(|error| io_error(&self.path, error))?,
+                self.path.clone(),
+                &expected,
+            )
+        }
+
+        pub(crate) fn open_directory(
+            &self,
+            relative: &str,
+        ) -> Result<StagingDirectory, SkillError> {
+            let components = relative_components(relative, true)?;
+            let mut directory = self
+                .directory
+                .try_clone()
+                .map_err(|error| io_error(&self.path, error))?;
+            let mut path = self.path.clone();
+            for component in components {
+                path.push(component.to_string_lossy().as_ref());
+                directory = open_private_directory(&directory, &component, &path)?;
+            }
+            Ok(StagingDirectory { directory, path })
+        }
+
+        pub(crate) fn create_directory(
+            &self,
+            relative: &str,
+        ) -> Result<StagingDirectory, SkillError> {
+            let (parent, name, path) = self.open_relative_parent(relative)?;
+            mkdirat(&parent, &name, Mode::from_raw_mode(0o700))
+                .map_err(|error| io_error(&path, error.into()))?;
+            let directory = open_private_directory(&parent, &name, &path)?;
+            Ok(StagingDirectory { directory, path })
+        }
+
+        pub(crate) fn ensure_directory(
+            &self,
+            relative: &str,
+        ) -> Result<StagingDirectory, SkillError> {
+            let components = relative_components(relative, true)?;
+            let mut directory = self
+                .directory
+                .try_clone()
+                .map_err(|error| io_error(&self.path, error))?;
+            let mut path = self.path.clone();
+            for component in components {
+                path.push(component.to_string_lossy().as_ref());
+                match statat(&directory, &component, AtFlags::SYMLINK_NOFOLLOW) {
+                    Err(error) if error == rustix::io::Errno::NOENT => {
+                        mkdirat(&directory, &component, Mode::from_raw_mode(0o700))
+                            .map_err(|error| io_error(&path, error.into()))?;
+                    }
+                    Err(error) => return Err(io_error(&path, error.into())),
+                    Ok(_) => {}
+                }
+                directory = open_private_directory(&directory, &component, &path)?;
+            }
+            Ok(StagingDirectory { directory, path })
+        }
+
+        pub(crate) fn create_file(
+            &self,
+            relative: &str,
+            executable_bits: u32,
+        ) -> Result<File, SkillError> {
+            let (parent, name, path) = self.open_relative_parent(relative)?;
+            let mode = 0o600 | (executable_bits & 0o111);
+            let descriptor = openat(
+                &parent,
+                &name,
+                OFlags::WRONLY | OFlags::CREATE | OFlags::EXCL | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+                Mode::from_raw_mode(mode as _),
+            )
+            .map_err(|error| io_error(&path, error.into()))?;
+            let file = File::from(descriptor);
+            fchmod(&file, Mode::from_raw_mode(mode as _))
+                .map_err(|error| io_error(&path, error.into()))?;
+            Ok(file)
+        }
+
+        pub(crate) fn open_file(&self, relative: &str) -> Result<File, SkillError> {
+            let (parent, name, path) = self.open_relative_parent(relative)?;
+            let before = statat(&parent, &name, AtFlags::SYMLINK_NOFOLLOW)
+                .map_err(|error| io_error(&path, error.into()))?;
+            validate_private_regular(&before, u64::MAX)?;
+            let descriptor = openat(
+                &parent,
+                &name,
+                OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+                Mode::empty(),
+            )
+            .map_err(|error| io_error(&path, error.into()))?;
+            let file = File::from(descriptor);
+            let after = fstat(&file).map_err(|error| io_error(&path, error.into()))?;
+            validate_private_regular(&after, u64::MAX)?;
+            if before.st_dev != after.st_dev || before.st_ino != after.st_ino {
+                return Err(SkillError::Conflict {
+                    message: "a private Skills staging file changed while opening".into(),
+                    path: String::new(),
+                });
+            }
+            Ok(file)
+        }
+
+        pub(crate) fn remove_file(&self, relative: &str) -> Result<(), SkillError> {
+            let (parent, name, path) = self.open_relative_parent(relative)?;
+            let stat = statat(&parent, &name, AtFlags::SYMLINK_NOFOLLOW)
+                .map_err(|error| io_error(&path, error.into()))?;
+            validate_private_regular(&stat, u64::MAX)?;
+            unlinkat(&parent, &name, AtFlags::empty())
+                .map_err(|error| io_error(&path, error.into()))
+        }
+
+        pub(crate) fn create_symlink(
+            &self,
+            relative: &str,
+            target: &str,
+        ) -> Result<(), SkillError> {
+            let (parent, name, _path) = self.open_relative_parent(relative)?;
+            let target = CString::new(target).map_err(|_| unsafe_staging())?;
+            symlinkat(&target, &parent, &name).map_err(|_| SkillError::InvalidSource {
+                message: "archive symlink entries collide after normalization".into(),
+            })
+        }
+
+        pub(crate) fn is_empty(&self) -> Result<bool, SkillError> {
+            let entries = Dir::read_from(&self.directory)
+                .map_err(|error| io_error(&self.path, error.into()))?;
+            for entry in entries {
+                let entry = entry.map_err(|error| io_error(&self.path, error.into()))?;
+                if !matches!(entry.file_name().to_bytes(), b"." | b"..") {
+                    return Ok(false);
+                }
+            }
+            Ok(true)
+        }
+
+        fn open_relative_parent(
+            &self,
+            relative: &str,
+        ) -> Result<(File, CString, PathBuf), SkillError> {
+            let mut components = relative_components(relative, false)?;
+            let name = components
+                .pop()
+                .expect("non-empty relative paths have a name");
+            let mut parent = self
+                .directory
+                .try_clone()
+                .map_err(|error| io_error(&self.path, error))?;
+            let mut path = self.path.clone();
+            for component in components {
+                path.push(component.to_string_lossy().as_ref());
+                parent = open_private_directory(&parent, &component, &path)?;
+            }
+            path.push(name.to_string_lossy().as_ref());
+            Ok((parent, name, path))
         }
     }
 
@@ -469,7 +669,7 @@ mod platform {
                     .map_err(|error| io_error(&child_path, error.into()))?;
             }
         }
-        directory.sync_all().map_err(|error| io_error(path, error))
+        Ok(())
     }
 
     fn safe_component(value: &str) -> Result<CString, SkillError> {
@@ -481,6 +681,37 @@ mod platform {
             return Err(unsafe_staging());
         }
         c(value)
+    }
+
+    fn relative_components(value: &str, allow_empty: bool) -> Result<Vec<CString>, SkillError> {
+        if value.is_empty() {
+            return if allow_empty {
+                Ok(Vec::new())
+            } else {
+                Err(unsafe_staging())
+            };
+        }
+        if value.starts_with('/') || value.contains(['\\', '\0']) {
+            return Err(unsafe_staging());
+        }
+        value.split('/').map(safe_component).collect()
+    }
+
+    fn anchored_identity(stat: &rustix::fs::Stat) -> AnchoredIdentity {
+        let kind = match FileType::from_raw_mode(stat.st_mode as _) {
+            FileType::RegularFile => AnchoredFileKind::Regular,
+            FileType::Directory => AnchoredFileKind::Directory,
+            FileType::Symlink => AnchoredFileKind::Symlink,
+            _ => AnchoredFileKind::Other,
+        };
+        AnchoredIdentity {
+            kind,
+            device: u64::try_from(stat.st_dev).unwrap_or(u64::MAX),
+            inode: stat.st_ino,
+            links: u64::from(stat.st_nlink),
+            size: u64::try_from(stat.st_size).unwrap_or(u64::MAX),
+            mode: u32::from(stat.st_mode),
+        }
     }
 
     fn c(value: &str) -> Result<CString, SkillError> {
@@ -508,13 +739,16 @@ mod platform {
 }
 
 #[cfg(unix)]
-pub(crate) use platform::{StagingOperation, StagingRoot};
+pub(crate) use platform::{StagingDirectory, StagingOperation, StagingRoot};
 
 #[cfg(not(unix))]
 pub(crate) struct StagingRoot;
 
 #[cfg(not(unix))]
 pub(crate) struct StagingOperation;
+
+#[cfg(not(unix))]
+pub(crate) struct StagingDirectory;
 
 #[cfg(not(unix))]
 impl StagingRoot {
@@ -554,7 +788,18 @@ impl StagingOperation {
         Path::new("")
     }
 
-    pub(crate) fn create_private_directory(&self, _name: &str) -> Result<PathBuf, SkillError> {
+    pub(crate) fn root_directory(&self) -> Result<StagingDirectory, SkillError> {
+        Err(unsupported())
+    }
+
+    pub(crate) fn create_private_directory(
+        &self,
+        _name: &str,
+    ) -> Result<StagingDirectory, SkillError> {
+        Err(unsupported())
+    }
+
+    pub(crate) fn remove_private_directory(&self, _name: &str) -> Result<(), SkillError> {
         Err(unsupported())
     }
 
@@ -576,6 +821,53 @@ impl StagingOperation {
     }
 
     pub(crate) fn remove(&self) -> Result<(), SkillError> {
+        Err(unsupported())
+    }
+}
+
+#[cfg(not(unix))]
+impl StagingDirectory {
+    pub(crate) fn path(&self) -> &Path {
+        Path::new("")
+    }
+
+    pub(crate) fn anchored_root(&self) -> Result<super::anchored::AnchoredRoot, SkillError> {
+        Err(unsupported())
+    }
+
+    pub(crate) fn open_directory(&self, _relative: &str) -> Result<Self, SkillError> {
+        Err(unsupported())
+    }
+
+    pub(crate) fn create_directory(&self, _relative: &str) -> Result<Self, SkillError> {
+        Err(unsupported())
+    }
+
+    pub(crate) fn ensure_directory(&self, _relative: &str) -> Result<Self, SkillError> {
+        Err(unsupported())
+    }
+
+    pub(crate) fn create_file(
+        &self,
+        _relative: &str,
+        _executable_bits: u32,
+    ) -> Result<std::fs::File, SkillError> {
+        Err(unsupported())
+    }
+
+    pub(crate) fn open_file(&self, _relative: &str) -> Result<std::fs::File, SkillError> {
+        Err(unsupported())
+    }
+
+    pub(crate) fn remove_file(&self, _relative: &str) -> Result<(), SkillError> {
+        Err(unsupported())
+    }
+
+    pub(crate) fn create_symlink(&self, _relative: &str, _target: &str) -> Result<(), SkillError> {
+        Err(unsupported())
+    }
+
+    pub(crate) fn is_empty(&self) -> Result<bool, SkillError> {
         Err(unsupported())
     }
 }

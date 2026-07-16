@@ -6,6 +6,7 @@ use super::anchored::{
     consume_bounded_and_hash, verify_anchored_digest, AnchoredFileKind, AnchoredIdentity,
     AnchoredRoot,
 };
+use super::staging::StagingDirectory;
 use super::{
     io_error, normalized_error_path, parse_manifest, FileChangeKind, SkillContentKind, SkillError,
     SkillFile, SkillFileChange, SkillFileKind, ValidatedSkill,
@@ -124,17 +125,111 @@ pub fn copy_tree_secure(source: &Path, destination: &Path) -> Result<(), SkillEr
     copy_tree_secure_with_permissions(source, destination, CopyPermissions::Preserve)
 }
 
-pub(super) fn copy_tree_secure_private(
+pub(super) fn copy_tree_secure_private_to_staging(
     source: &Path,
-    destination: &Path,
+    destination: &StagingDirectory,
 ) -> Result<(), SkillError> {
-    copy_tree_secure_with_permissions(source, destination, CopyPermissions::Private)
+    let snapshot = load_tree(source)?;
+    copy_snapshot_to_staging(snapshot, destination)
+}
+
+pub(super) fn copy_tree_anchored_private_to_staging(
+    source: &AnchoredRoot,
+    destination: &StagingDirectory,
+) -> Result<(), SkillError> {
+    let snapshot = load_tree_anchored(source, None, None)?;
+    copy_snapshot_to_staging(snapshot, destination)
+}
+
+pub(super) fn validate_staging_candidate(
+    directory: &StagingDirectory,
+) -> Result<ValidatedSkill, SkillError> {
+    let root = directory.anchored_root()?;
+    validate_candidate_anchored_private(&root)
+}
+
+pub(super) fn validate_candidate_anchored_private(
+    root: &AnchoredRoot,
+) -> Result<ValidatedSkill, SkillError> {
+    let mut aggregate = 0;
+    let mut entries = 0;
+    validate_candidate_anchored(
+        root,
+        &mut aggregate,
+        MAX_SKILL_BYTES,
+        "skill_content",
+        &mut entries,
+        MAX_ARCHIVE_ENTRIES,
+        "entries",
+    )
+}
+
+fn copy_snapshot_to_staging(
+    snapshot: TreeSnapshot,
+    destination: &StagingDirectory,
+) -> Result<(), SkillError> {
+    if !destination.is_empty()? {
+        return Err(SkillError::Conflict {
+            message: "copy destination already exists".into(),
+            path: normalized_error_path(destination.path()),
+        });
+    }
+    if destination
+        .path()
+        .starts_with(snapshot.root.canonical_path())
+    {
+        return Err(SkillError::UnsafePath {
+            message: "copy destination must not be inside the source tree".into(),
+            path: normalized_error_path(destination.path()),
+        });
+    }
+    for node in &snapshot.nodes {
+        match node.kind {
+            NodeKind::Directory => {
+                destination.ensure_directory(&node.path)?;
+            }
+            NodeKind::File => {
+                let source = snapshot.root.open_regular_relative(
+                    &node.path,
+                    &node.identity,
+                    &node.full_path,
+                )?;
+                let mut target = destination.create_file(&node.path, node.mode & 0o111)?;
+                let consumed = consume_bounded_and_hash(
+                    source,
+                    &mut target,
+                    node.size,
+                    MAX_SINGLE_FILE_BYTES,
+                    &node.full_path,
+                    "single_file",
+                )?;
+                target
+                    .flush()
+                    .map_err(|error| io_error(destination.path(), error))?;
+                verify_anchored_digest(
+                    node.sha256.as_deref().unwrap_or_default(),
+                    &consumed.sha256,
+                    &node.full_path,
+                )?;
+            }
+            NodeKind::Symlink => {
+                let target = node
+                    .link_target
+                    .as_deref()
+                    .ok_or_else(|| SkillError::UnsafePath {
+                        message: "validated symlink is missing its relative target".into(),
+                        path: normalized_error_path(&node.full_path),
+                    })?;
+                destination.create_symlink(&node.path, target)?;
+            }
+        }
+    }
+    Ok(())
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum CopyPermissions {
     Preserve,
-    Private,
 }
 
 fn copy_tree_secure_with_permissions(

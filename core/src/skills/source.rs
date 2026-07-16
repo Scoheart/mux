@@ -1,14 +1,21 @@
-use super::anchored::{AnchoredFileKind, AnchoredRoot};
-use super::staging::{StagingOperation, StagingRoot};
+use super::anchored::{AnchoredFileKind, AnchoredIdentity, AnchoredRoot};
+use super::files::{
+    copy_tree_anchored_private_to_staging, copy_tree_secure_private_to_staging,
+    validate_candidate_anchored_private, validate_staging_candidate,
+};
+use super::staging::{StagingDirectory, StagingOperation, StagingRoot};
 use super::{
-    capped_message, copy_tree_secure_private, io_error, validate_candidate, SkillCandidateSummary,
-    SkillError, SkillSource, SkillSourceInput, SkillSourceResolution, SkillsPaths,
-    MAX_ARCHIVE_BYTES, MAX_ARCHIVE_ENTRIES, MAX_DOWNLOAD_BYTES, MAX_SINGLE_FILE_BYTES,
+    capped_message, io_error, SkillCandidateSummary, SkillError, SkillSource, SkillSourceInput,
+    SkillSourceResolution, SkillsPaths, MAX_ARCHIVE_BYTES, MAX_ARCHIVE_ENTRIES, MAX_DOWNLOAD_BYTES,
+    MAX_SINGLE_FILE_BYTES,
 };
 use flate2::read::GzDecoder;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
-use std::fs::{self, File, OpenOptions};
+use std::ffi::CString;
+#[cfg(test)]
+use std::fs::OpenOptions;
+use std::fs::{self, File};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Component, Path, PathBuf};
 use std::time::Duration;
@@ -16,7 +23,7 @@ use tar::Archive;
 use url::Url;
 use uuid::Uuid;
 
-#[cfg(unix)]
+#[cfg(all(test, unix))]
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
 
 const MAX_SOURCE_BYTES: usize = 4096;
@@ -74,23 +81,21 @@ pub fn resolve_source(
     let paths = SkillsPaths::resolve_from_env().map_err(sanitize_resolution_error)?;
     let operation_id = Uuid::new_v4().hyphenated().to_string();
     let staging = StagingRoot::open_or_create(&paths).map_err(sanitize_resolution_error)?;
-    let staged_operation = staging
-        .create_operation(&operation_id)
-        .map_err(sanitize_resolution_error)?;
-    let operation_root = staged_operation.path().to_path_buf();
-    let operation =
-        OperationDirectory::adopt(operation_root.clone()).map_err(sanitize_resolution_error)?;
-
+    let operation = StagedOperationOwner::new(
+        staging
+            .create_operation(&operation_id)
+            .map_err(sanitize_resolution_error)?,
+    );
     let result = match input {
         SkillSourceInput::Github { value } => {
-            resolve_github(&value, &endpoints, &operation_id, &operation_root)
+            resolve_github(&value, &endpoints, &operation_id, operation.operation())
         }
         SkillSourceInput::Local { path } => {
-            resolve_local(&path, &paths, &operation_id, &operation_root)
+            resolve_local(&path, &paths, &operation_id, operation.operation())
         }
     };
     let result = result.and_then(|resolution| {
-        persist_staged_resolution(&staged_operation, &resolution)?;
+        persist_staged_resolution(operation.operation(), &resolution)?;
         Ok(resolution)
     });
     operation.finish(result).map_err(sanitize_resolution_error)
@@ -142,7 +147,7 @@ pub(crate) fn load_staged_resolution(
     validate_canonical_operation_id(operation_id)?;
     let staging = StagingRoot::open(paths)?;
     let operation = staging.open_operation(operation_id)?;
-    let operation_root = operation.path().to_path_buf();
+    let operation_root = operation.root_directory()?;
     let bytes = operation.read_private(RESOLUTION_FILE, MAX_RESOLUTION_BYTES)?;
     let document: StagedResolutionDocument = serde_json::from_slice(&bytes)
         .map_err(|_| invalid_source_error("the staged Skill resolution metadata is malformed"))?;
@@ -163,9 +168,12 @@ pub(crate) fn load_staged_resolution(
     })
 }
 
-pub(crate) fn stage_private_candidate(source: &Path, destination: &Path) -> Result<(), SkillError> {
-    copy_tree_secure_private(source, destination)?;
-    validate_candidate(destination).map(|_| ())
+pub(crate) fn stage_private_candidate(
+    source: &Path,
+    destination: &StagingDirectory,
+) -> Result<(), SkillError> {
+    copy_tree_secure_private_to_staging(source, destination)?;
+    validate_staging_candidate(destination).map(|_| ())
 }
 
 fn validate_canonical_operation_id(value: &str) -> Result<(), SkillError> {
@@ -180,7 +188,7 @@ fn validate_canonical_operation_id(value: &str) -> Result<(), SkillError> {
 fn validate_staged_resolution_document(
     paths: &SkillsPaths,
     operation: &StagingOperation,
-    operation_root: &Path,
+    operation_root: &StagingDirectory,
     document: &StagedResolutionDocument,
 ) -> Result<(), SkillError> {
     validate_persisted_source(paths, &document.source, &document.resolved_revision)?;
@@ -197,12 +205,9 @@ fn validate_staged_resolution_document(
         return invalid_source("the staged Skill candidates are not canonically ordered");
     }
 
-    let candidates_root = operation_root.join("candidates");
-    let root_metadata = fs::symlink_metadata(&candidates_root)
+    let candidates_root = operation_root
+        .open_directory("candidates")
         .map_err(|_| invalid_source_error("the staged Skill candidates are unavailable"))?;
-    if !root_metadata.file_type().is_dir() {
-        return invalid_source("the staged Skill candidates root is not a directory");
-    }
     let mut expected_names = BTreeSet::new();
     for summary in &document.candidates {
         if !valid_staged_skill_name(&summary.name)
@@ -217,8 +222,10 @@ fn validate_staged_resolution_document(
         {
             return invalid_source("the staged Skill candidate metadata is invalid");
         }
-        let candidate = candidates_root.join(&summary.name);
-        let validated = validate_candidate(&candidate)
+        let candidate = candidates_root
+            .open_directory(&summary.name)
+            .map_err(|_| invalid_source_error("a staged Skill candidate no longer validates"))?;
+        let validated = validate_staging_candidate(&candidate)
             .map_err(|_| invalid_source_error("a staged Skill candidate no longer validates"))?;
         if validated.manifest.name != summary.name
             || validated.manifest.description != summary.description
@@ -330,11 +337,53 @@ fn valid_relative_candidate_path(value: &str) -> bool {
                 .all(|component| !component.is_empty() && !matches!(component, "." | "..")))
 }
 
+struct StagedOperationOwner {
+    operation: StagingOperation,
+    armed: bool,
+}
+
+impl StagedOperationOwner {
+    fn new(operation: StagingOperation) -> Self {
+        Self {
+            operation,
+            armed: true,
+        }
+    }
+
+    fn operation(&self) -> &StagingOperation {
+        &self.operation
+    }
+
+    fn finish<T>(mut self, result: Result<T, SkillError>) -> Result<T, SkillError> {
+        self.armed = false;
+        let Err(original) = result else {
+            return result;
+        };
+        self.operation
+            .remove()
+            .map_err(|_| SkillError::RecoveryRequired {
+                message: "a failed staged source could not be removed; manual recovery is required"
+                    .into(),
+            })?;
+        Err(original)
+    }
+}
+
+impl Drop for StagedOperationOwner {
+    fn drop(&mut self) {
+        if self.armed {
+            let _ = self.operation.remove();
+        }
+    }
+}
+
+#[cfg(test)]
 struct OperationDirectory {
     path: PathBuf,
     armed: bool,
 }
 
+#[cfg(test)]
 impl OperationDirectory {
     #[cfg(test)]
     fn create(path: PathBuf) -> Result<Self, SkillError> {
@@ -372,6 +421,7 @@ impl OperationDirectory {
     }
 }
 
+#[cfg(test)]
 impl Drop for OperationDirectory {
     fn drop(&mut self) {
         if self.armed {
@@ -380,6 +430,7 @@ impl Drop for OperationDirectory {
     }
 }
 
+#[cfg(test)]
 fn finish_operation_with_cleanup<T, F>(
     result: Result<T, SkillError>,
     operation: &Path,
@@ -414,28 +465,27 @@ fn resolve_github(
     value: &str,
     endpoints: &GithubEndpoints,
     operation_id: &str,
-    operation_root: &Path,
+    operation: &StagingOperation,
 ) -> Result<SkillSourceResolution, SkillError> {
     let parsed = parse_github_source(value)?;
     validate_endpoint_base(&endpoints.api_base, endpoints)?;
     validate_endpoint_base(&endpoints.archive_base, endpoints)?;
     let agent = github_agent();
     let resolved = resolve_github_metadata(&agent, &parsed, endpoints)?;
-    let download_path = operation_root.join("source.tar.gz");
+    let operation_root = operation.root_directory()?;
     download_archive(
         &agent,
         &parsed.owner,
         &parsed.repo,
         &resolved.sha,
         endpoints,
-        &download_path,
+        &operation_root,
     )?;
-    let archive_root = operation_root.join("archive");
-    create_private_directory(&archive_root)?;
-    let repository_root = extract_archive(&download_path, &archive_root)?;
-    let requested_root = join_normalized(&repository_root, &resolved.subpath);
-    let candidates = stage_candidates(&requested_root, operation_root)?;
-    remove_transient_directory(&archive_root)?;
+    let archive_root = operation.create_private_directory("archive")?;
+    let repository_root = extract_staged_archive(&operation_root, &archive_root)?;
+    let requested_root = repository_root.open_directory(&resolved.subpath)?;
+    let candidates = stage_candidates_anchored(&requested_root.anchored_root()?, operation)?;
+    operation.remove_private_directory("archive")?;
     Ok(SkillSourceResolution {
         operation_id: operation_id.to_owned(),
         source: SkillSource::Github {
@@ -454,7 +504,7 @@ fn resolve_local(
     value: &str,
     paths: &SkillsPaths,
     operation_id: &str,
-    operation_root: &Path,
+    operation: &StagingOperation,
 ) -> Result<SkillSourceResolution, SkillError> {
     validate_source_text(value)?;
     if value.contains('\0') {
@@ -472,7 +522,7 @@ fn resolve_local(
         });
     }
     let display_path = collapse_home(&selected, paths.user_home());
-    let candidates = stage_candidates(&canonical, operation_root)?;
+    let candidates = stage_candidates_anchored(&AnchoredRoot::open(&canonical)?, operation)?;
     Ok(SkillSourceResolution {
         operation_id: operation_id.to_owned(),
         source: SkillSource::Local {
@@ -909,7 +959,7 @@ fn download_archive(
     repo: &str,
     sha: &str,
     endpoints: &GithubEndpoints,
-    destination: &Path,
+    destination: &StagingDirectory,
 ) -> Result<(), SkillError> {
     let url = endpoint_url(&endpoints.archive_base, &[owner, repo, "tar.gz", sha])?;
     let response = fetch_response(agent, url, endpoints)?;
@@ -926,7 +976,7 @@ fn download_archive(
         enforce_limit("download", declared, MAX_DOWNLOAD_BYTES)?;
     }
     let mut source = response.into_reader();
-    let mut output = create_private_file(destination, 0)?;
+    let mut output = destination.create_file("source.tar.gz", 0)?;
     let mut total = 0_u64;
     let mut buffer = [0_u8; 64 * 1024];
     loop {
@@ -952,12 +1002,14 @@ fn download_archive(
         enforce_limit("download", total, MAX_DOWNLOAD_BYTES)?;
         output
             .write_all(&buffer[..read])
-            .map_err(|error| io_error(destination, error))?;
+            .map_err(|error| io_error(destination.path(), error))?;
     }
     if declared.is_some_and(|declared| declared != total) {
         return invalid_source("the archive size did not match its Content-Length");
     }
-    output.flush().map_err(|error| io_error(destination, error))
+    output
+        .flush()
+        .map_err(|error| io_error(destination.path(), error))
 }
 
 struct PendingSymlink {
@@ -973,6 +1025,7 @@ enum PlannedNodeKind {
     Symlink,
 }
 
+#[cfg(test)]
 fn extract_archive(download: &Path, destination: &Path) -> Result<PathBuf, SkillError> {
     let raw_tar = destination
         .parent()
@@ -986,14 +1039,27 @@ fn extract_archive(download: &Path, destination: &Path) -> Result<PathBuf, Skill
     Ok(repository_root)
 }
 
+fn extract_staged_archive(
+    operation: &StagingDirectory,
+    destination: &StagingDirectory,
+) -> Result<StagingDirectory, SkillError> {
+    decompress_staged_archive(operation)?;
+    operation.remove_file("source.tar.gz")?;
+    let raw_tar = operation.open_file("source.tar")?;
+    let preflight = preflight_tar_file(raw_tar, &operation.path().join("source.tar"))?;
+    let raw_tar = operation.open_file("source.tar")?;
+    let repository_root =
+        materialize_staged_archive(raw_tar, destination, &preflight.normalized_paths)?;
+    operation.remove_file("source.tar")?;
+    Ok(repository_root)
+}
+
+#[cfg(test)]
 fn remove_transient_file(path: &Path) -> Result<(), SkillError> {
     remove_transient_with(path, |path| fs::remove_file(path))
 }
 
-fn remove_transient_directory(path: &Path) -> Result<(), SkillError> {
-    remove_transient_with(path, |path| fs::remove_dir_all(path))
-}
-
+#[cfg(test)]
 fn remove_transient_with<F>(path: &Path, remove: F) -> Result<(), SkillError>
 where
     F: FnOnce(&Path) -> std::io::Result<()>,
@@ -1001,6 +1067,7 @@ where
     remove(path).map_err(|error| io_error(path, error))
 }
 
+#[cfg(test)]
 fn decompress_archive(download: &Path, raw_tar: &Path) -> Result<(), SkillError> {
     let file = File::open(download).map_err(|error| io_error(download, error))?;
     let mut decoder = GzDecoder::new(file);
@@ -1032,12 +1099,50 @@ fn decompress_archive(download: &Path, raw_tar: &Path) -> Result<(), SkillError>
     output.flush().map_err(|error| io_error(raw_tar, error))
 }
 
+fn decompress_staged_archive(operation: &StagingDirectory) -> Result<(), SkillError> {
+    let file = operation.open_file("source.tar.gz")?;
+    let mut decoder = GzDecoder::new(file);
+    let mut output = operation.create_file("source.tar", 0)?;
+    let mut total = 0_u64;
+    let mut buffer = [0_u8; 64 * 1024];
+    loop {
+        let remaining = MAX_ARCHIVE_BYTES.saturating_add(1).saturating_sub(total);
+        let requested = buffer.len().min(remaining as usize);
+        if requested == 0 {
+            return Err(limit_error(
+                "archive",
+                total.saturating_add(1),
+                MAX_ARCHIVE_BYTES,
+            ));
+        }
+        let read = decoder
+            .read(&mut buffer[..requested])
+            .map_err(|_| invalid_source_error("the public GitHub gzip archive is malformed"))?;
+        if read == 0 {
+            break;
+        }
+        total = total.saturating_add(read as u64);
+        enforce_limit("archive", total, MAX_ARCHIVE_BYTES)?;
+        output
+            .write_all(&buffer[..read])
+            .map_err(|error| io_error(operation.path(), error))?;
+    }
+    output
+        .flush()
+        .map_err(|error| io_error(operation.path(), error))
+}
+
 struct TarPreflight {
     normalized_paths: Vec<String>,
 }
 
+#[cfg(test)]
 fn preflight_tar(raw_tar: &Path) -> Result<TarPreflight, SkillError> {
-    let mut file = File::open(raw_tar).map_err(|error| io_error(raw_tar, error))?;
+    let file = File::open(raw_tar).map_err(|error| io_error(raw_tar, error))?;
+    preflight_tar_file(file, raw_tar)
+}
+
+fn preflight_tar_file(mut file: File, raw_tar: &Path) -> Result<TarPreflight, SkillError> {
     let length = file
         .metadata()
         .map_err(|error| io_error(raw_tar, error))?
@@ -1224,12 +1329,90 @@ fn validate_tar_string_padding(field: &[u8], label: &'static str) -> Result<(), 
     tar_string_bytes(field, label).map(|_| ())
 }
 
+trait ArchiveDestination {
+    fn diagnostic_path(&self, relative: &str) -> PathBuf;
+    fn ensure_directory(&self, relative: &str) -> Result<(), SkillError>;
+    fn create_file(&self, relative: &str, executable_bits: u32) -> Result<File, SkillError>;
+    fn create_symlink(&self, relative: &str, target: &str) -> Result<(), SkillError>;
+    fn anchored_root(&self) -> Result<AnchoredRoot, SkillError>;
+}
+
+#[cfg(test)]
+struct PathArchiveDestination<'a> {
+    root: &'a Path,
+}
+
+#[cfg(test)]
+impl ArchiveDestination for PathArchiveDestination<'_> {
+    fn diagnostic_path(&self, relative: &str) -> PathBuf {
+        join_normalized(self.root, relative)
+    }
+
+    fn ensure_directory(&self, relative: &str) -> Result<(), SkillError> {
+        ensure_archive_directory(&self.diagnostic_path(relative))
+    }
+
+    fn create_file(&self, relative: &str, executable_bits: u32) -> Result<File, SkillError> {
+        create_private_file(&self.diagnostic_path(relative), executable_bits)
+    }
+
+    fn create_symlink(&self, relative: &str, target: &str) -> Result<(), SkillError> {
+        create_archive_symlink(target, &self.diagnostic_path(relative))
+    }
+
+    fn anchored_root(&self) -> Result<AnchoredRoot, SkillError> {
+        AnchoredRoot::open(self.root)
+    }
+}
+
+impl ArchiveDestination for StagingDirectory {
+    fn diagnostic_path(&self, relative: &str) -> PathBuf {
+        join_normalized(self.path(), relative)
+    }
+
+    fn ensure_directory(&self, relative: &str) -> Result<(), SkillError> {
+        StagingDirectory::ensure_directory(self, relative).map(|_| ())
+    }
+
+    fn create_file(&self, relative: &str, executable_bits: u32) -> Result<File, SkillError> {
+        StagingDirectory::create_file(self, relative, executable_bits)
+    }
+
+    fn create_symlink(&self, relative: &str, target: &str) -> Result<(), SkillError> {
+        StagingDirectory::create_symlink(self, relative, target)
+    }
+
+    fn anchored_root(&self) -> Result<AnchoredRoot, SkillError> {
+        StagingDirectory::anchored_root(self)
+    }
+}
+
+#[cfg(test)]
 fn materialize_archive(
     raw_tar: &Path,
     destination: &Path,
     normalized_paths: &[String],
 ) -> Result<PathBuf, SkillError> {
     let file = File::open(raw_tar).map_err(|error| io_error(raw_tar, error))?;
+    let destination = PathArchiveDestination { root: destination };
+    let root = materialize_archive_file(file, &destination, normalized_paths)?;
+    Ok(destination.diagnostic_path(&root))
+}
+
+fn materialize_staged_archive(
+    raw_tar: File,
+    destination: &StagingDirectory,
+    normalized_paths: &[String],
+) -> Result<StagingDirectory, SkillError> {
+    let root = materialize_archive_file(raw_tar, destination, normalized_paths)?;
+    destination.open_directory(&root)
+}
+
+fn materialize_archive_file(
+    file: File,
+    destination: &impl ArchiveDestination,
+    normalized_paths: &[String],
+) -> Result<String, SkillError> {
     let mut archive = Archive::new(file);
     let entries = archive.entries().map_err(|_| archive_read_error())?;
     let mut seen = BTreeSet::new();
@@ -1268,19 +1451,16 @@ fn materialize_archive(
             return invalid_source("the archive contains multiple repository roots");
         }
         record_planned_node(&mut planned_nodes, &components, planned_kind)?;
-        let destination_path = components
-            .iter()
-            .fold(destination.to_path_buf(), |path, component| {
-                path.join(component)
-            });
-        ensure_archive_parents(destination, &components[..components.len() - 1])?;
+        let destination_path = destination.diagnostic_path(&relative);
+        ensure_archive_destination_parents(destination, &components[..components.len() - 1])?;
         let declared = entry.size();
         if planned_kind == PlannedNodeKind::File {
             enforce_limit("single_file", declared, MAX_SINGLE_FILE_BYTES)?;
             content_bytes = content_bytes.saturating_add(declared);
             enforce_limit("archive", content_bytes, MAX_ARCHIVE_BYTES)?;
             let archive_mode = entry.header().mode().unwrap_or(0o644);
-            let mut output = create_private_file(&destination_path, archive_mode & 0o111)
+            let mut output = destination
+                .create_file(&relative, archive_mode & 0o111)
                 .map_err(|_| invalid_source_error("archive entries collide after normalization"))?;
             let actual = copy_archive_entry(&mut entry, &mut output, declared)?;
             if actual != declared {
@@ -1293,7 +1473,7 @@ fn materialize_archive(
             if declared != 0 {
                 return invalid_source("archive directory entries must have zero size");
             }
-            ensure_archive_directory(&destination_path)?;
+            destination.ensure_directory(&relative)?;
         } else {
             if declared != 0 {
                 return invalid_source("archive symlink entries must have zero size");
@@ -1323,10 +1503,10 @@ fn materialize_archive(
         .ok_or_else(|| invalid_source_error("the public GitHub archive is empty"))?;
     validate_planned_symlink_graph(&planned_nodes, &pending_symlinks)?;
     for link in &pending_symlinks {
-        create_archive_symlink(&link.target, &link.destination)?;
+        destination.create_symlink(&link.relative, &link.target)?;
     }
-    validate_archive_symlinks(destination, &pending_symlinks)?;
-    Ok(destination.join(root))
+    validate_archive_symlinks_anchored(&destination.anchored_root()?, &pending_symlinks)?;
+    Ok(root)
 }
 
 fn record_planned_node(
@@ -1482,15 +1662,17 @@ fn normalize_archive_path(bytes: &[u8], directory: bool) -> Result<Vec<String>, 
     Ok(components)
 }
 
-fn ensure_archive_parents(root: &Path, components: &[String]) -> Result<(), SkillError> {
-    let mut current = root.to_path_buf();
-    for component in components {
-        current.push(component);
-        ensure_archive_directory(&current)?;
+fn ensure_archive_destination_parents(
+    destination: &impl ArchiveDestination,
+    components: &[String],
+) -> Result<(), SkillError> {
+    for index in 1..=components.len() {
+        destination.ensure_directory(&components[..index].join("/"))?;
     }
     Ok(())
 }
 
+#[cfg(test)]
 fn ensure_archive_directory(path: &Path) -> Result<(), SkillError> {
     match fs::symlink_metadata(path) {
         Ok(metadata) if metadata.file_type().is_dir() => return Ok(()),
@@ -1542,13 +1724,13 @@ fn archive_read_error() -> SkillError {
     invalid_source_error("the preflight-approved GitHub archive could not be materialized")
 }
 
-#[cfg(unix)]
+#[cfg(all(test, unix))]
 fn create_archive_symlink(target: &str, destination: &Path) -> Result<(), SkillError> {
     std::os::unix::fs::symlink(target, destination)
         .map_err(|_| invalid_source_error("archive symlink entries collide after normalization"))
 }
 
-#[cfg(windows)]
+#[cfg(all(test, windows))]
 fn create_archive_symlink(target: &str, destination: &Path) -> Result<(), SkillError> {
     let resolved = destination
         .parent()
@@ -1562,14 +1744,16 @@ fn create_archive_symlink(target: &str, destination: &Path) -> Result<(), SkillE
     result.map_err(|_| invalid_source_error("archive symlink entries collide after normalization"))
 }
 
-#[cfg(all(not(unix), not(windows)))]
+#[cfg(all(test, not(unix), not(windows)))]
 fn create_archive_symlink(_target: &str, _destination: &Path) -> Result<(), SkillError> {
     invalid_source("secure archive symlink extraction is unavailable on this platform")
 }
 
 #[cfg(unix)]
-fn validate_archive_symlinks(root: &Path, links: &[PendingSymlink]) -> Result<(), SkillError> {
-    let anchored = AnchoredRoot::open(root)?;
+fn validate_archive_symlinks_anchored(
+    anchored: &AnchoredRoot,
+    links: &[PendingSymlink],
+) -> Result<(), SkillError> {
     for link in links {
         anchored
             .validate_symlink_target(&link.relative, &link.target, &link.destination)
@@ -1584,7 +1768,10 @@ fn validate_archive_symlinks(root: &Path, links: &[PendingSymlink]) -> Result<()
 }
 
 #[cfg(not(unix))]
-fn validate_archive_symlinks(_root: &Path, links: &[PendingSymlink]) -> Result<(), SkillError> {
+fn validate_archive_symlinks_anchored(
+    _root: &AnchoredRoot,
+    links: &[PendingSymlink],
+) -> Result<(), SkillError> {
     if links.is_empty() {
         Ok(())
     } else {
@@ -1592,11 +1779,11 @@ fn validate_archive_symlinks(_root: &Path, links: &[PendingSymlink]) -> Result<(
     }
 }
 
-fn stage_candidates(
-    source_root: &Path,
-    operation_root: &Path,
+fn stage_candidates_anchored(
+    source_root: &AnchoredRoot,
+    operation: &StagingOperation,
 ) -> Result<Vec<SkillCandidateSummary>, SkillError> {
-    let discovered = discover_candidates(source_root)?;
+    let discovered = discover_candidates_anchored(source_root)?;
     if discovered.is_empty() {
         return invalid_source("the selected source contains no valid Skill candidates");
     }
@@ -1605,8 +1792,8 @@ fn stage_candidates(
     let mut names = BTreeMap::new();
     let mut aggregate = 0_u64;
     for relative in discovered {
-        let path = join_normalized(source_root, &relative);
-        let validated = validate_candidate(&path)?;
+        let candidate = open_anchored_directory(source_root, &relative)?;
+        let validated = validate_candidate_anchored_private(&candidate)?;
         if let Some(previous) = names.insert(validated.manifest.name.clone(), relative.clone()) {
             return Err(SkillError::Conflict {
                 message: format!(
@@ -1618,7 +1805,7 @@ fn stage_candidates(
         }
         aggregate = aggregate.saturating_add(validated.total_bytes);
         enforce_limit("archive", aggregate, MAX_ARCHIVE_BYTES)?;
-        prepared.push((relative, path, validated));
+        prepared.push((relative, candidate, validated));
     }
     prepared.sort_by(|left, right| {
         left.2
@@ -1628,13 +1815,12 @@ fn stage_candidates(
             .then_with(|| left.0.cmp(&right.0))
     });
 
-    let candidates_root = operation_root.join("candidates");
-    create_private_directory(&candidates_root)?;
+    let candidates_root = operation.create_private_directory("candidates")?;
     let mut summaries = Vec::with_capacity(prepared.len());
     for (relative, source, before) in prepared {
-        let destination = candidates_root.join(&before.manifest.name);
-        copy_tree_secure_private(&source, &destination)?;
-        let staged = validate_candidate(&destination)?;
+        let destination = candidates_root.create_directory(&before.manifest.name)?;
+        copy_tree_anchored_private_to_staging(&source, &destination)?;
+        let staged = validate_staging_candidate(&destination)?;
         if staged.manifest.name != before.manifest.name
             || staged.content_hash != before.content_hash
             || staged.total_bytes != before.total_bytes
@@ -1657,10 +1843,9 @@ fn stage_candidates(
     Ok(summaries)
 }
 
-fn discover_candidates(root: &Path) -> Result<Vec<String>, SkillError> {
-    let anchored = AnchoredRoot::open(root)?;
+fn discover_candidates_anchored(anchored: &AnchoredRoot) -> Result<Vec<String>, SkillError> {
     let root_directory = anchored.root_directory()?;
-    if directory_has_manifest(&anchored, &root_directory, anchored.canonical_path())? {
+    if directory_has_manifest(anchored, &root_directory, anchored.canonical_path())? {
         return Ok(vec![String::new()]);
     }
     let mut count = 0_u64;
@@ -1706,6 +1891,31 @@ fn discover_candidates(root: &Path) -> Result<Vec<String>, SkillError> {
     }
     candidates.sort();
     Ok(candidates)
+}
+
+fn open_anchored_directory(
+    root: &AnchoredRoot,
+    relative: &str,
+) -> Result<AnchoredRoot, SkillError> {
+    if relative.is_empty() {
+        return root.try_clone();
+    }
+    let mut directory = root.root_directory()?;
+    let mut path = root.canonical_path().to_path_buf();
+    let mut final_identity: Option<AnchoredIdentity> = None;
+    for component in relative.split('/') {
+        let name = CString::new(component)
+            .map_err(|_| invalid_source_error("a Skill candidate path is invalid"))?;
+        path.push(component);
+        let identity = root.stat_entry(&directory, &name, &path)?;
+        directory = root.open_directory_entry(&directory, &name, &identity, &path)?;
+        final_identity = Some(identity);
+    }
+    AnchoredRoot::from_open_directory(
+        directory,
+        path,
+        &final_identity.expect("non-empty candidate paths have an identity"),
+    )
 }
 
 fn directory_has_manifest(
@@ -1781,14 +1991,14 @@ fn lexical_absolute(path: &Path) -> Result<PathBuf, SkillError> {
     Ok(normalized)
 }
 
-#[cfg(unix)]
+#[cfg(all(test, unix))]
 fn private_directory_builder() -> fs::DirBuilder {
     let mut builder = fs::DirBuilder::new();
     builder.mode(0o700);
     builder
 }
 
-#[cfg(unix)]
+#[cfg(all(test, unix))]
 fn private_file_options(executable_bits: u32) -> OpenOptions {
     let mut options = OpenOptions::new();
     options
@@ -1798,26 +2008,26 @@ fn private_file_options(executable_bits: u32) -> OpenOptions {
     options
 }
 
-#[cfg(unix)]
+#[cfg(all(test, unix))]
 fn create_private_directory(path: &Path) -> Result<(), SkillError> {
     private_directory_builder()
         .create(path)
         .map_err(|error| io_error(path, error))
 }
 
-#[cfg(not(unix))]
+#[cfg(all(test, not(unix)))]
 fn create_private_directory(_path: &Path) -> Result<(), SkillError> {
     invalid_source("private Skill source staging is unavailable on this platform")
 }
 
-#[cfg(unix)]
+#[cfg(all(test, unix))]
 fn create_private_file(path: &Path, executable_bits: u32) -> Result<File, SkillError> {
     private_file_options(executable_bits)
         .open(path)
         .map_err(|error| io_error(path, error))
 }
 
-#[cfg(not(unix))]
+#[cfg(all(test, not(unix)))]
 fn create_private_file(_path: &Path, _executable_bits: u32) -> Result<File, SkillError> {
     invalid_source("private Skill source staging is unavailable on this platform")
 }

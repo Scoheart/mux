@@ -1654,6 +1654,8 @@ mod tests {
         let persisted = load_plan(&paths, &plan.operation_id).unwrap();
         let before_settings = current_settings_snapshot().unwrap();
         let spec = transaction_spec(&paths, &persisted).unwrap();
+        let untouched_parent = home.home.join(".cursor/skills");
+        assert!(!untouched_parent.exists());
 
         let error =
             execute_transaction_with_failpoint(spec, Some(Failpoint::AfterFirstLink)).unwrap_err();
@@ -1662,6 +1664,7 @@ mod tests {
         assert!(!paths.central_skill("rollback-all").exists());
         assert!(!home.home.join(".claude/skills/rollback-all").exists());
         assert!(!home.home.join(".cursor/skills/rollback-all").exists());
+        assert!(!untouched_parent.exists());
         assert_eq!(current_settings_snapshot().unwrap(), before_settings);
         assert!(!paths.staging_skills_dir().join(&plan.operation_id).exists());
         assert!(!paths.journals_skills_dir().exists());

@@ -2824,6 +2824,46 @@ fn rollback_link(
 }
 
 #[cfg(unix)]
+fn skip_unapplied_missing_link_parent(
+    parent_path: &Path,
+    temporary: &Path,
+    mutation: &LinkMutation,
+) -> Result<bool, SkillError> {
+    skip_unapplied_missing_link_parent_with_hook(parent_path, temporary, mutation, None)
+}
+
+#[cfg(unix)]
+fn skip_unapplied_missing_link_parent_with_hook(
+    parent_path: &Path,
+    temporary: &Path,
+    mutation: &LinkMutation,
+    mut after_missing_observation: Option<&mut dyn FnMut()>,
+) -> Result<bool, SkillError> {
+    match fs::symlink_metadata(parent_path) {
+        Ok(metadata) if metadata.file_type().is_dir() => return Ok(false),
+        Ok(_) => return Err(recovery_evidence_error()),
+        Err(error) if error.kind() == ErrorKind::NotFound => {}
+        Err(_) => return Err(recovery_evidence_error()),
+    }
+    if mutation.path.parent() != Some(parent_path)
+        || temporary.parent() != Some(parent_path)
+        || !matches!(mutation.expected, LinkState::Missing)
+        || mutation.backup.is_some()
+        || !matches!(fs::symlink_metadata(&mutation.path), Err(error) if error.kind() == ErrorKind::NotFound)
+        || classify_link_temporary(temporary, mutation)? != LinkTemporaryEvidence::Missing
+    {
+        return Err(recovery_evidence_error());
+    }
+    if let Some(hook) = after_missing_observation.take() {
+        hook();
+    }
+    match fs::symlink_metadata(parent_path) {
+        Err(error) if error.kind() == ErrorKind::NotFound => Ok(true),
+        _ => Err(recovery_evidence_error()),
+    }
+}
+
+#[cfg(unix)]
 fn rollback_link_with_hook(
     spec: &TransactionSpec,
     paths: &SkillsPaths,
@@ -2833,10 +2873,13 @@ fn rollback_link_with_hook(
 ) -> Result<(), SkillError> {
     validate_link_runtime_bounds(mutation, paths)?;
     let parent_path = mutation.path.parent().ok_or_else(recovery_evidence_error)?;
-    let target_root =
-        create_verified_target_root(parent_path, paths).map_err(|_| recovery_evidence_error())?;
     let temporary = link_temp_path(spec, mutation, index);
     validate_link_path(&temporary, &verified_catalog_targets(paths)?)?;
+    if skip_unapplied_missing_link_parent(parent_path, &temporary, mutation)? {
+        return Ok(());
+    }
+    let target_root =
+        create_verified_target_root(parent_path, paths).map_err(|_| recovery_evidence_error())?;
     cleanup_link_temporary_anchored(target_root.try_clone()?, &temporary, mutation, paths, None)?;
     if anchored_link_entry_matches_state(
         &target_root,
@@ -5345,6 +5388,38 @@ mod tests {
             classify_link_temporary(&temporary, &mutation),
             Err(SkillError::RecoveryRequired { .. })
         ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn missing_unapplied_link_parent_race_preserves_new_opaque_state() {
+        let home = TestHome::new("tx-unapplied-parent-race");
+        let parent = home.home.join(".cursor/skills");
+        let mutation = LinkMutation {
+            path: parent.join("unapplied"),
+            expected: LinkState::Missing,
+            desired_target: None,
+            backup: None,
+        };
+        let spec = empty_spec("12310000-0000-4000-8000-000000000007");
+        let temporary = link_temp_path(&spec, &mutation, 0);
+        let opaque = parent.join("opaque");
+        let mut after_missing_observation = || {
+            fs::create_dir_all(&parent).unwrap();
+            fs::write(&opaque, b"concurrent state").unwrap();
+        };
+
+        let result = skip_unapplied_missing_link_parent_with_hook(
+            &parent,
+            &temporary,
+            &mutation,
+            Some(&mut after_missing_observation),
+        );
+
+        assert!(matches!(result, Err(SkillError::RecoveryRequired { .. })));
+        assert_eq!(fs::read(&opaque).unwrap(), b"concurrent state");
+        assert!(!mutation.path.exists());
+        assert!(!temporary.exists());
     }
 
     #[test]

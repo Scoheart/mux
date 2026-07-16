@@ -1,11 +1,12 @@
-use crate::agents::load_agents;
-use crate::settings::{load_settings_strict, mutate_settings, UiSettings};
+use crate::agents::load_agents_from_settings;
+use crate::settings::{load_settings_strict, mutate_settings_checked, Settings, UiSettings};
 use std::collections::BTreeSet;
+use std::io::Error;
 
 pub const MAX_PINNED_AGENTS: usize = 6;
 
-fn configurable_agent_ids() -> BTreeSet<String> {
-    load_agents()
+fn configurable_agent_ids(settings: &Settings) -> BTreeSet<String> {
+    load_agents_from_settings(settings)
         .into_iter()
         .filter_map(|(id, definition)| definition.global.is_some().then_some(id))
         .collect()
@@ -38,21 +39,27 @@ fn validate_requested(ids: &[String], configurable: &BTreeSet<String>) -> Result
 
 pub fn get_pinned_agents() -> Result<Vec<String>, String> {
     let settings = load_settings_strict().map_err(|error| error.to_string())?;
+    let configurable = configurable_agent_ids(&settings);
     let ids = settings.ui.unwrap_or_default().pinned_agents;
-    Ok(normalize_loaded(ids, &configurable_agent_ids()))
+    Ok(normalize_loaded(ids, &configurable))
 }
 
 pub fn set_pinned_agents(ids: Vec<String>) -> Result<Vec<String>, String> {
-    let configurable = configurable_agent_ids();
-    validate_requested(&ids, &configurable)?;
+    mutate_settings_checked(move |settings| set_pinned_agents_in_settings(settings, ids))
+        .map_err(|error| error.to_string())
+}
+
+fn set_pinned_agents_in_settings(
+    settings: &mut Settings,
+    ids: Vec<String>,
+) -> std::io::Result<Vec<String>> {
+    let configurable = configurable_agent_ids(settings);
+    validate_requested(&ids, &configurable).map_err(Error::other)?;
     let saved = ids.clone();
-    mutate_settings(move |settings| {
-        settings
-            .ui
-            .get_or_insert_with(UiSettings::default)
-            .pinned_agents = ids;
-    })
-    .map_err(|error| error.to_string())?;
+    settings
+        .ui
+        .get_or_insert_with(UiSettings::default)
+        .pinned_agents = ids;
     Ok(saved)
 }
 
@@ -60,6 +67,7 @@ pub fn set_pinned_agents(ids: Vec<String>) -> Result<Vec<String>, String> {
 mod tests {
     use super::*;
     use crate::agents::load_agents;
+    use crate::settings::Settings;
     use crate::testenv::TestHome;
     use serde_json::Value;
     use std::fs;
@@ -136,5 +144,27 @@ mod tests {
         assert!(get_pinned_agents().is_err());
         assert!(set_pinned_agents(vec!["codex".into()]).is_err());
         assert_eq!(fs::read_to_string(path).unwrap(), original);
+    }
+
+    #[test]
+    fn validation_uses_agents_from_the_mutation_settings_snapshot() {
+        let mut stale = Settings::default();
+        stale.agents = Some(std::collections::BTreeMap::from([(
+            "snapshot-agent".into(),
+            crate::types::AgentDefinition {
+                global: Some("~/.snapshot/mcp.json".into()),
+                format: "json".into(),
+                key: "mcpServers".into(),
+                enabled: true,
+                ..Default::default()
+            },
+        )]));
+        assert!(configurable_agent_ids(&stale).contains("snapshot-agent"));
+
+        let mut current = Settings::default();
+        let result = set_pinned_agents_in_settings(&mut current, vec!["snapshot-agent".into()]);
+
+        assert!(result.is_err());
+        assert!(current.ui.is_none());
     }
 }

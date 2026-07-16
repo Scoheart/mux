@@ -137,6 +137,19 @@ where
     Ok(out)
 }
 
+/// Load → validate and apply `f` to one section → save, under the process
+/// lock. A closure error leaves the loaded settings snapshot unwritten.
+pub fn mutate_settings_checked<F, R>(f: F) -> std::io::Result<R>
+where
+    F: FnOnce(&mut Settings) -> std::io::Result<R>,
+{
+    let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let (mut settings, original) = parse_for_update(&settings_file())?;
+    let out = f(&mut settings)?;
+    save_with_expected(&settings, original.as_deref())?;
+    Ok(out)
+}
+
 /// Move `from` into `legacy_dir` (best-effort) if it exists.
 fn archive(from: &Path, legacy_dir: &Path, name: &str) {
     if from.exists() {
@@ -335,6 +348,23 @@ mod tests {
             std::fs::read_to_string(path).unwrap(),
             r#"{"imported":"concurrent"}"#,
         );
+    }
+
+    #[test]
+    fn checked_mutation_does_not_write_when_closure_fails() {
+        let home = crate::testenv::TestHome::new("settings-checked-failure");
+        let path = home.home.join(".mux/settings.json");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let original = r#"{"imported":"original"}"#;
+        std::fs::write(&path, original).unwrap();
+
+        let result = mutate_settings_checked(|settings| -> std::io::Result<()> {
+            settings.imported = Some("candidate".into());
+            Err(Error::other("validation failed"))
+        });
+
+        assert!(result.is_err());
+        assert_eq!(std::fs::read_to_string(path).unwrap(), original);
     }
 
     #[cfg(unix)]

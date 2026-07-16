@@ -1,7 +1,78 @@
-import { ReactNode, useEffect } from "react";
+import {
+  createContext,
+  type CSSProperties,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode,
+  useCallback,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { AgentGlyph, agentName } from "./brandIcons";
 import { SearchBar } from "./ui";
 import { XIcon } from "./icons";
+import {
+  MAX_SIDEBAR_WIDTH,
+  MIN_SIDEBAR_WIDTH,
+  SIDEBAR_WIDTH_STORAGE_KEY,
+  clampSidebarWidth,
+  parseSidebarWidth,
+} from "../lib/resourceWorkspace";
+
+interface SidebarResizeSession {
+  previousCursor: string;
+  previousUserSelect: string;
+  onPointerMove: (event: PointerEvent) => void;
+  onPointerUp: () => void;
+}
+
+interface WorkspaceResizeContextValue {
+  isResizing: boolean;
+  sidebarWidth: number;
+  onPointerDown: (event: ReactPointerEvent<HTMLDivElement>) => void;
+  onKeyDown: (event: ReactKeyboardEvent<HTMLDivElement>) => void;
+}
+
+const WorkspaceResizeContext = createContext<WorkspaceResizeContextValue | null>(null);
+
+export interface ResourceTabOption<T extends string> {
+  value: T;
+  label: string;
+  count: number;
+}
+
+export function ResourceTabs<T extends string>({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  value: T;
+  options: ResourceTabOption<T>[];
+  onChange: (value: T) => void;
+}) {
+  return (
+    <div className="mux-resource-tabs" role="tablist" aria-label={label}>
+      {options.map((option) => (
+        <button
+          key={option.value}
+          type="button"
+          className="mux-resource-tab"
+          role="tab"
+          aria-selected={option.value === value}
+          data-active={option.value === value ? "true" : undefined}
+          onClick={() => onChange(option.value)}
+        >
+          <span>{option.label}</span>
+          <span className="mux-resource-tab-count">{option.count}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
 
 export function ResourceWorkspace({
   sidebar,
@@ -10,7 +81,9 @@ export function ResourceWorkspace({
   searchPlaceholder,
   toolbarActions,
   children,
+  filters,
   inspector,
+  onInspectorClose,
 }: {
   sidebar: ReactNode;
   query: string;
@@ -18,22 +91,135 @@ export function ResourceWorkspace({
   searchPlaceholder: string;
   toolbarActions: ReactNode;
   children: ReactNode;
+  filters?: ReactNode;
   inspector?: ReactNode;
+  onInspectorClose?: () => void;
 }) {
+  const [sidebarWidth, setSidebarWidth] = useState(() =>
+    parseSidebarWidth(localStorage.getItem(SIDEBAR_WIDTH_STORAGE_KEY))
+  );
+  const sidebarWidthRef = useRef(sidebarWidth);
+  const resizeSessionRef = useRef<SidebarResizeSession | null>(null);
+  const [isResizing, setIsResizing] = useState(false);
+
+  const persistSidebarWidth = useCallback((width: number) => {
+    localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(width));
+  }, []);
+
+  const updateSidebarWidth = useCallback((width: number) => {
+    const nextWidth = clampSidebarWidth(width);
+    sidebarWidthRef.current = nextWidth;
+    setSidebarWidth(nextWidth);
+    return nextWidth;
+  }, []);
+
+  const finishSidebarResize = useCallback(
+    (persist: boolean) => {
+      const session = resizeSessionRef.current;
+      if (!session) return;
+
+      resizeSessionRef.current = null;
+      window.removeEventListener("pointermove", session.onPointerMove);
+      window.removeEventListener("pointerup", session.onPointerUp);
+      window.removeEventListener("pointercancel", session.onPointerUp);
+      document.body.style.userSelect = session.previousUserSelect;
+      document.body.style.cursor = session.previousCursor;
+      setIsResizing(false);
+
+      if (persist) persistSidebarWidth(sidebarWidthRef.current);
+    },
+    [persistSidebarWidth]
+  );
+
+  const onResizePointerDown = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      if (event.button !== 0) return;
+
+      event.preventDefault();
+      const startWidth = sidebarWidthRef.current;
+      const startX = event.clientX;
+      const previousUserSelect = document.body.style.userSelect;
+      const previousCursor = document.body.style.cursor;
+      document.body.style.userSelect = "none";
+      document.body.style.cursor = "col-resize";
+      setIsResizing(true);
+
+      const session: SidebarResizeSession = {
+        previousCursor,
+        previousUserSelect,
+        onPointerMove: (moveEvent) => {
+          updateSidebarWidth(startWidth + moveEvent.clientX - startX);
+        },
+        onPointerUp: () => finishSidebarResize(true),
+      };
+
+      resizeSessionRef.current = session;
+      window.addEventListener("pointermove", session.onPointerMove);
+      window.addEventListener("pointerup", session.onPointerUp);
+      window.addEventListener("pointercancel", session.onPointerUp);
+    },
+    [finishSidebarResize, updateSidebarWidth]
+  );
+
+  const onResizeKeyDown = useCallback(
+    (event: ReactKeyboardEvent<HTMLDivElement>) => {
+      let nextWidth: number | null = null;
+      if (event.key === "ArrowLeft") nextWidth = sidebarWidthRef.current - 8;
+      if (event.key === "ArrowRight") nextWidth = sidebarWidthRef.current + 8;
+      if (event.key === "Home") nextWidth = MIN_SIDEBAR_WIDTH;
+      if (event.key === "End") nextWidth = MAX_SIDEBAR_WIDTH;
+      if (nextWidth === null) return;
+
+      event.preventDefault();
+      persistSidebarWidth(updateSidebarWidth(nextWidth));
+    },
+    [persistSidebarWidth, updateSidebarWidth]
+  );
+
+  useEffect(() => () => finishSidebarResize(true), [finishSidebarResize]);
+
   return (
-    <div className="mux-workspace">
-      {sidebar}
-      <section className="mux-workspace-stage">
-        <div className="mux-workspace-toolbar">
-          <SearchBar value={query} onChange={onQueryChange} placeholder={searchPlaceholder} />
-          <div className="mux-workspace-actions">{toolbarActions}</div>
-        </div>
-        <div className="mux-workspace-content">
-          <div className="mux-workspace-scroll">{children}</div>
-          {inspector}
-        </div>
-      </section>
-    </div>
+    <WorkspaceResizeContext.Provider
+      value={{
+        isResizing,
+        sidebarWidth,
+        onPointerDown: onResizePointerDown,
+        onKeyDown: onResizeKeyDown,
+      }}
+    >
+      <div
+        className="mux-workspace"
+        style={{ "--mux-workspace-sidebar-width": `${sidebarWidth}px` } as CSSProperties}
+      >
+        {sidebar}
+        <section className="mux-workspace-stage">
+          <div className="mux-workspace-toolbar">
+            <SearchBar value={query} onChange={onQueryChange} placeholder={searchPlaceholder} />
+            <div className="mux-workspace-actions">{toolbarActions}</div>
+          </div>
+          {filters && <div className="mux-workspace-filters">{filters}</div>}
+          <div className="mux-workspace-content">
+            <div className="mux-workspace-scroll">{children}</div>
+            {inspector && (
+              <div className="mux-workspace-inspector-layer">
+                <button
+                  type="button"
+                  className="mux-workspace-inspector-mask"
+                  aria-label="关闭详情"
+                  onClick={() => onInspectorClose?.()}
+                />
+                <div
+                  className="mux-workspace-inspector-surface"
+                  onPointerDown={(event) => event.stopPropagation()}
+                >
+                  {inspector}
+                </div>
+              </div>
+            )}
+          </div>
+        </section>
+      </div>
+    </WorkspaceResizeContext.Provider>
   );
 }
 
@@ -46,6 +232,8 @@ export function WorkspaceSidebar({
   count: number;
   children: ReactNode;
 }) {
+  const resize = useContext(WorkspaceResizeContext);
+
   return (
     <aside className="mux-workspace-sidebar">
       <div className="mux-workspace-sidebar-head">
@@ -53,6 +241,21 @@ export function WorkspaceSidebar({
         <span>{count} 项</span>
       </div>
       <div className="mux-workspace-sidebar-scroll">{children}</div>
+      {resize && (
+        <div
+          className="mux-workspace-sidebar-resize"
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="调整侧边栏宽度"
+          aria-valuemin={MIN_SIDEBAR_WIDTH}
+          aria-valuemax={MAX_SIDEBAR_WIDTH}
+          aria-valuenow={resize.sidebarWidth}
+          tabIndex={0}
+          data-resizing={resize.isResizing ? "true" : undefined}
+          onPointerDown={resize.onPointerDown}
+          onKeyDown={resize.onKeyDown}
+        />
+      )}
     </aside>
   );
 }

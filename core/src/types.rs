@@ -222,6 +222,33 @@ impl SourceDef {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AgentSkillsDirectory {
+    pub target_id: String,
+    pub global_dir: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+pub enum AgentInstallProbe {
+    Path { path: String },
+    Command { name: String },
+    MacBundle { bundle_id: String },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AgentSkillsCapability {
+    pub target_id: String,
+    pub global_dir: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub aliases: Vec<AgentSkillsDirectory>,
+    pub docs: String,
+    pub evidence: String,
+    pub verified_at: String,
+    #[serde(default)]
+    pub probes: Vec<AgentInstallProbe>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub struct AgentDefinition {
     pub global: Option<String>,
@@ -260,6 +287,8 @@ pub struct AgentDefinition {
     /// Existing values are never overwritten.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub root_defaults: Option<BTreeMap<String, serde_json::Value>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub skills: Option<AgentSkillsCapability>,
 }
 
 #[cfg(test)]

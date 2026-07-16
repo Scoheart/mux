@@ -17,7 +17,7 @@ use crate::safe_write::write_private_if_unchanged;
 use crate::types::{AgentDefinition, ModelProfile, RegistryEntry, SourceDef};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::io::{Error, ErrorKind};
 use std::path::Path;
@@ -49,6 +49,12 @@ pub struct Settings {
     /// Managed model Agent id -> profile id.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model_assignments: Option<BTreeMap<String, String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub managed_skills: Option<BTreeMap<String, serde_json::Value>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub skill_assignments: Option<BTreeMap<String, BTreeSet<String>>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub skill_update_checked_at: Option<String>,
     /// CLI-owned: last applied state. Opaque to the desktop — carried through.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub state: Option<Value>,
@@ -68,10 +74,13 @@ static LOCK: Mutex<()> = Mutex::new(());
 /// Read the whole settings document. Missing or corrupt file ⇒ defaults
 /// (empty user data), matching the per-file tolerance this replaced.
 pub fn load_settings() -> Settings {
-    fs::read_to_string(settings_file())
-        .ok()
-        .and_then(|c| serde_json::from_str(&c).ok())
-        .unwrap_or_default()
+    load_settings_strict().unwrap_or_default()
+}
+
+/// Read settings without treating malformed JSON as an empty database.
+/// Missing files still represent the default settings document.
+pub(crate) fn load_settings_strict() -> std::io::Result<Settings> {
+    parse_for_update(&settings_file()).map(|(settings, _)| settings)
 }
 
 fn read_optional(path: &Path) -> std::io::Result<Option<String>> {
@@ -248,6 +257,45 @@ mod tests {
         assert!(back.contains("futureThing"));
         assert!(back.contains("\"active\""));
         assert!(back.contains("2026-01-02T03:04:05"));
+    }
+
+    #[test]
+    fn skill_sections_and_unknown_fields_survive_settings_roundtrip() {
+        let json = r#"{
+          "managed_skills": {},
+          "skill_assignments": {"review-changes":["claude-user"]},
+          "skill_update_checked_at": "2026-07-16T08:00:00Z",
+          "future_section": {"keep": true}
+        }"#;
+        let settings: Settings = serde_json::from_str(json).unwrap();
+        assert!(settings.managed_skills.as_ref().unwrap().is_empty());
+        assert!(
+            settings.skill_assignments.as_ref().unwrap()["review-changes"].contains("claude-user")
+        );
+        assert_eq!(
+            settings.skill_update_checked_at.as_deref(),
+            Some("2026-07-16T08:00:00Z")
+        );
+        let encoded = serde_json::to_value(settings).unwrap();
+        assert_eq!(
+            encoded["skill_assignments"]["review-changes"][0],
+            "claude-user"
+        );
+        assert_eq!(encoded["future_section"]["keep"], true);
+    }
+
+    #[test]
+    fn strict_loader_defaults_missing_and_rejects_corrupt_settings() {
+        let th = crate::testenv::TestHome::new("settings-strict");
+        assert!(load_settings_strict().unwrap().extra.is_empty());
+
+        let path = th.home.join(".mux/settings.json");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, r#"{"managed_skills": ["#).unwrap();
+
+        let error = load_settings_strict().unwrap_err();
+        assert_eq!(error.kind(), ErrorKind::InvalidData);
+        assert!(load_settings().managed_skills.is_none());
     }
 
     #[test]

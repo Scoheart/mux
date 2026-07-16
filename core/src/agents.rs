@@ -60,7 +60,73 @@ pub fn builtin_agents() -> BTreeMap<String, AgentDefinition> {
     let mut catalog: BTreeMap<String, AgentDefinition> =
         serde_json::from_str(CATALOG_AGENTS_JSON).expect("agent-catalog.json must be valid");
     catalog.extend(audited_agents());
+    validate_skill_capabilities(&catalog).expect("builtin Agent Skills capabilities must be valid");
     catalog
+}
+
+fn validate_skill_capabilities(agents: &BTreeMap<String, AgentDefinition>) -> Result<(), String> {
+    let mut paths_by_target = BTreeMap::<String, String>::new();
+    let mut targets_by_path = BTreeMap::<String, String>::new();
+
+    for (agent_id, definition) in agents {
+        let Some(capability) = definition.skills.as_ref() else {
+            continue;
+        };
+        let directories = std::iter::once((
+            capability.target_id.as_str(),
+            capability.global_dir.as_str(),
+        ))
+        .chain(
+            capability
+                .aliases
+                .iter()
+                .map(|alias| (alias.target_id.as_str(), alias.global_dir.as_str())),
+        );
+
+        for (target_id, path) in directories {
+            validate_skill_directory(path)
+                .map_err(|reason| format!("invalid Skills target for {agent_id}: {reason}"))?;
+
+            if let Some(existing) = paths_by_target.get(target_id) {
+                if existing != path {
+                    return Err(format!(
+                        "Skills target {target_id} maps to both {existing} and {path}"
+                    ));
+                }
+            } else {
+                paths_by_target.insert(target_id.to_string(), path.to_string());
+            }
+
+            if let Some(existing) = targets_by_path.get(path) {
+                if existing != target_id {
+                    return Err(format!(
+                        "Skills path {path} maps to both {existing} and {target_id}"
+                    ));
+                }
+            } else {
+                targets_by_path.insert(path.to_string(), target_id.to_string());
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn validate_skill_directory(path: &str) -> Result<(), String> {
+    if !path.starts_with("~/") || !path.ends_with("/skills") {
+        return Err(format!("{path} must be a ~/.../skills path"));
+    }
+    let components: Vec<&str> = path[2..].split('/').collect();
+    if components
+        .iter()
+        .any(|component| component.is_empty() || matches!(*component, "." | ".."))
+    {
+        return Err(format!("{path} contains an unsafe path component"));
+    }
+    if components.first() == Some(&".mux") {
+        return Err(format!("{path} is inside MUX-managed storage"));
+    }
+    Ok(())
 }
 
 /// 优先读 settings.agents（与 CLI 共用），缺失或为空时用内置。
@@ -76,6 +142,11 @@ fn merge_builtin_updates(
 ) -> BTreeMap<String, AgentDefinition> {
     let builtins = builtin_agents();
     let audited = audited_agents();
+    for (id, definition) in &mut stored {
+        if !audited.contains_key(id) {
+            definition.skills = None;
+        }
+    }
     for (id, current) in builtins {
         let Some(saved) = stored.get_mut(&id) else {
             stored.insert(id, current);
@@ -175,8 +246,12 @@ pub fn put(id: String, mut def: AgentDefinition, allow_overwrite: bool) -> Resul
             def.key = existing.key.clone();
         }
         copy_internal_metadata(&mut def, existing);
+        if existing.builtin != Some(true) {
+            def.skills = None;
+        }
     } else {
         def.builtin = Some(false);
+        def.skills = None;
         def.name.get_or_insert_with(|| id.clone());
         def.category.get_or_insert_with(|| "custom".into());
         def.evidence.get_or_insert_with(|| "custom".into());
@@ -251,11 +326,28 @@ fn copy_internal_metadata(definition: &mut AgentDefinition, existing: &AgentDefi
     definition.identity_field = existing.identity_field.clone();
     definition.transports = existing.transports.clone();
     definition.root_defaults = existing.root_defaults.clone();
+    definition.skills = existing.skills.clone();
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::types::{AgentInstallProbe, AgentSkillsCapability, AgentSkillsDirectory};
+
+    fn skills_capability(target_id: &str, global_dir: &str) -> AgentSkillsCapability {
+        AgentSkillsCapability {
+            target_id: target_id.into(),
+            global_dir: global_dir.into(),
+            aliases: Vec::new(),
+            docs: "https://example.com/skills".into(),
+            evidence: "official".into(),
+            verified_at: "2026-07-16".into(),
+            probes: vec![AgentInstallProbe::Path {
+                path: "/Applications/Example.app".into(),
+            }],
+        }
+    }
+
     #[test]
     fn builtin_catalog_and_transport_metadata_load() {
         let a = builtin_agents();
@@ -265,6 +357,143 @@ mod tests {
         assert!(!definition_supports_transport(&a["claude-desktop"], "http"));
         assert!(definition_supports_transport(&a["claude-desktop"], "stdio"));
         assert!(definition_supports_transport(&a["claude-code"], "http"));
+    }
+
+    #[test]
+    fn verified_skill_capabilities_are_data_driven() {
+        let agents = builtin_agents();
+        let codex = agents["codex"].skills.as_ref().unwrap();
+        assert_eq!(codex.target_id, "agents-user");
+        assert_eq!(codex.global_dir, "~/.agents/skills");
+        assert!(codex.aliases.is_empty());
+
+        let cursor = agents["cursor"].skills.as_ref().unwrap();
+        assert_eq!(cursor.global_dir, "~/.cursor/skills");
+        assert_eq!(cursor.aliases[0].target_id, "agents-user");
+        assert_eq!(cursor.aliases[0].global_dir, "~/.agents/skills");
+
+        for id in [
+            "claude-code",
+            "codex",
+            "cursor",
+            "gemini",
+            "opencode",
+            "copilot-cli",
+        ] {
+            let capability = agents[id].skills.as_ref().unwrap();
+            assert!(!capability.docs.is_empty());
+            assert_eq!(capability.evidence, "official");
+            assert!(!capability.probes.is_empty());
+        }
+    }
+
+    #[test]
+    fn skill_target_validation_rejects_unsafe_paths_and_contradictions() {
+        for path in [
+            "/tmp/skills",
+            "~/.agents/not-skills",
+            "~/.agents//skills",
+            "~/.agents/./skills",
+            "~/.agents/../skills",
+            "~/.mux/skills",
+        ] {
+            let agents = BTreeMap::from([(
+                "unsafe".into(),
+                AgentDefinition {
+                    skills: Some(skills_capability("unsafe-user", path)),
+                    ..Default::default()
+                },
+            )]);
+            assert!(
+                validate_skill_capabilities(&agents).is_err(),
+                "accepted unsafe Skills path: {path}"
+            );
+        }
+
+        let mut unsafe_alias = skills_capability("safe-user", "~/.safe/skills");
+        unsafe_alias.aliases.push(AgentSkillsDirectory {
+            target_id: "unsafe-alias".into(),
+            global_dir: "~/.mux/skills".into(),
+        });
+        let agents = BTreeMap::from([(
+            "unsafe-alias".into(),
+            AgentDefinition {
+                skills: Some(unsafe_alias),
+                ..Default::default()
+            },
+        )]);
+        assert!(validate_skill_capabilities(&agents).is_err());
+
+        let conflicting_target = BTreeMap::from([
+            (
+                "one".into(),
+                AgentDefinition {
+                    skills: Some(skills_capability("shared-user", "~/.one/skills")),
+                    ..Default::default()
+                },
+            ),
+            (
+                "two".into(),
+                AgentDefinition {
+                    skills: Some(skills_capability("shared-user", "~/.two/skills")),
+                    ..Default::default()
+                },
+            ),
+        ]);
+        assert!(validate_skill_capabilities(&conflicting_target).is_err());
+
+        let conflicting_path = BTreeMap::from([
+            (
+                "one".into(),
+                AgentDefinition {
+                    skills: Some(skills_capability("one-user", "~/.shared/skills")),
+                    ..Default::default()
+                },
+            ),
+            (
+                "two".into(),
+                AgentDefinition {
+                    skills: Some(skills_capability("two-user", "~/.shared/skills")),
+                    ..Default::default()
+                },
+            ),
+        ]);
+        assert!(validate_skill_capabilities(&conflicting_path).is_err());
+    }
+
+    #[test]
+    fn custom_agents_cannot_persist_or_load_skill_capabilities() {
+        let forged = skills_capability("forged-user", "~/.forged/skills");
+        let mut stored = builtin_agents();
+        stored.insert(
+            "forged".into(),
+            AgentDefinition {
+                global: Some("~/.forged/mcp.json".into()),
+                format: "json".into(),
+                key: "mcpServers".into(),
+                enabled: true,
+                builtin: Some(false),
+                skills: Some(forged.clone()),
+                ..Default::default()
+            },
+        );
+        assert!(merge_builtin_updates(stored)["forged"].skills.is_none());
+
+        let _home = crate::testenv::TestHome::new("agent-skills-lock");
+        put(
+            "forged".into(),
+            AgentDefinition {
+                global: Some("~/.forged/mcp.json".into()),
+                format: "json".into(),
+                key: "mcpServers".into(),
+                enabled: true,
+                skills: Some(forged),
+                ..Default::default()
+            },
+            false,
+        )
+        .unwrap();
+        assert!(load_settings().agents.unwrap()["forged"].skills.is_none());
     }
 
     #[test]

@@ -36,6 +36,22 @@ A catalog client is promoted into `data/agents.json` only after all of these are
 
 Community extensions are not presented as native support. The current example is Pi: Pi core does not ship MCP support, so the writable record is named `Pi Coding Agent (MCP Adapter)` and cites `pi-mcp-adapter`.
 
+## Agent Skills capabilities
+
+Skills support is audited separately from MCP configuration. A built-in definition may carry a nested `skills` capability only when official product documentation confirms a user-level Skills directory and read-only installation evidence. Custom Agent definitions cannot create or override this metadata, and upgrades refresh it from `data/agents.json`.
+
+| Field | Contract |
+|---|---|
+| `target_id` | Stable identity for the preferred physical assignment target. |
+| `global_dir` | Preferred user-level writable directory; it must be a safe `~/.../skills` path outside `~/.mux`. |
+| `aliases` | Other verified target IDs and user-level directories the Agent reads. Aliases are compatibility targets, not the preferred write location. |
+| `docs` | Official documentation that supports the Skills capability. |
+| `evidence` | Verification level for the capability; the initial audited records require `official`. |
+| `verified_at` | Date the Skills-specific evidence was last checked. |
+| `probes` | Read-only command, path, or macOS bundle checks that indicate the Agent is installed. Probe paths are evidence only and may be absolute application paths. |
+
+All preferred directories and aliases are validated before the built-in catalog is returned. The same `target_id` must always name the same path, and a physical path cannot be assigned contradictory target IDs. The initial verified set is Claude Code, Codex, Cursor, Gemini CLI, OpenCode, and GitHub Copilot CLI. Shared directories such as `~/.agents/skills` are never treated as installation evidence by themselves.
+
 ## Evidence levels
 
 | Value | Meaning |

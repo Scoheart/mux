@@ -1,5 +1,4 @@
-use super::{io_error, SkillError};
-use std::fs;
+use super::{anchored::AnchoredRoot, SkillError};
 use std::path::{Component, Path, PathBuf};
 
 #[derive(Debug, Clone)]
@@ -30,15 +29,25 @@ impl SkillsPaths {
 
     pub fn from_env() -> Result<Self, SkillError> {
         let paths = Self::resolve_from_env()?;
+        paths.ensure_mux_root()?;
+        paths.ensure_transaction_roots()?;
+        Ok(paths)
+    }
+
+    pub(crate) fn ensure_mux_root(&self) -> Result<(), SkillError> {
+        create_private_root(&self.mux_dir)
+    }
+
+    pub(crate) fn ensure_transaction_roots(&self) -> Result<(), SkillError> {
         for root in [
-            paths.skills_dir(),
-            paths.staging_skills_dir(),
-            paths.backups_skills_dir(),
-            paths.journals_skills_dir(),
+            self.skills_dir(),
+            self.staging_skills_dir(),
+            self.backups_skills_dir(),
+            self.journals_skills_dir(),
         ] {
             create_private_root(&root)?;
         }
-        Ok(paths)
+        Ok(())
     }
 
     pub fn mux_dir(&self) -> &Path {
@@ -100,27 +109,17 @@ impl SkillsPaths {
     }
 }
 
+#[cfg(unix)]
 fn create_private_root(path: &Path) -> Result<(), SkillError> {
-    fs::create_dir_all(path).map_err(|error| io_error(path, error))?;
-    let metadata = fs::symlink_metadata(path).map_err(|error| io_error(path, error))?;
-    if !metadata.file_type().is_dir() {
-        return Err(SkillError::UnsafePath {
-            message: "a MUX-owned Skills root is not a directory".into(),
-            path: super::normalized_error_path(path),
-        });
-    }
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(path, fs::Permissions::from_mode(0o700))
-            .map_err(|error| io_error(path, error))?;
-        for directory in path.ancestors().take(3) {
-            fs::File::open(directory)
-                .and_then(|file| file.sync_all())
-                .map_err(|error| io_error(directory, error))?;
-        }
-    }
+    AnchoredRoot::open_or_create_private_absolute(path)?;
     Ok(())
+}
+
+#[cfg(not(unix))]
+fn create_private_root(_path: &Path) -> Result<(), SkillError> {
+    Err(SkillError::InvalidSource {
+        message: "secure Skill transaction roots are unavailable on this platform".into(),
+    })
 }
 
 #[cfg(test)]

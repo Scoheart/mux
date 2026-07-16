@@ -117,6 +117,7 @@ impl TransactionFixture {
                 destination: central.clone(),
                 backup,
                 expected_before_hash: Some(before_hash),
+                retain_backup: false,
             }],
             link_mutations: vec![LinkMutation {
                 path: target,

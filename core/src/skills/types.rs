@@ -211,6 +211,7 @@ pub struct ManagedSkillRecord {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct SkillSettingsSnapshot {
     pub managed_skills: Option<BTreeMap<String, ManagedSkillRecord>>,
     pub skill_assignments: Option<BTreeMap<String, BTreeSet<String>>>,
@@ -218,14 +219,18 @@ pub struct SkillSettingsSnapshot {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct DirectoryMutation {
     pub replacement: Option<PathBuf>,
     pub destination: PathBuf,
     pub backup: PathBuf,
     pub expected_before_hash: Option<String>,
+    #[serde(default)]
+    pub retain_backup: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct LinkMutation {
     pub path: PathBuf,
     pub expected: LinkState,
@@ -234,7 +239,7 @@ pub struct LinkMutation {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(tag = "kind", rename_all = "snake_case")]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum LinkState {
     Missing,
     ManagedSymlink { target: PathBuf },
@@ -244,6 +249,7 @@ pub enum LinkState {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct TransactionSpec {
     pub operation_id: String,
     pub order: TransactionOrder,

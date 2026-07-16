@@ -132,10 +132,12 @@ pub(super) fn consume_bounded_and_hash<R: Read, W: Write>(
 mod platform {
     use super::*;
     use rustix::fs::{
-        fstat, openat, readlinkat, statat, AtFlags, Dir, FileType, Mode, OFlags, Stat, CWD,
+        fchmod, fstat, mkdirat, openat, readlinkat, renameat_with, statat, unlinkat, AtFlags, Dir,
+        FileType, Mode, OFlags, RenameFlags, Stat, CWD,
     };
+    use rustix::io::Errno;
     use std::collections::VecDeque;
-    use std::ffi::{CStr, CString};
+    use std::ffi::{CStr, CString, OsStr};
     use std::fs::{self, File};
     use std::path::{Component, Path, PathBuf};
 
@@ -145,6 +147,68 @@ mod platform {
     }
 
     impl AnchoredRoot {
+        pub(crate) fn open_or_create_private_absolute(path: &Path) -> Result<Self, SkillError> {
+            Self::open_or_create_absolute_inner(path, true)
+        }
+
+        pub(crate) fn open_or_create_absolute(path: &Path) -> Result<Self, SkillError> {
+            Self::open_or_create_absolute_inner(path, false)
+        }
+
+        fn open_or_create_absolute_inner(
+            path: &Path,
+            tighten_permissions: bool,
+        ) -> Result<Self, SkillError> {
+            let components = path
+                .components()
+                .map(|component| match component {
+                    Component::RootDir => Ok(None),
+                    Component::Normal(name) => Ok(Some(name)),
+                    _ => Err(unsafe_path(path)),
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            if !matches!(path.components().next(), Some(Component::RootDir)) {
+                return Err(unsafe_path(path));
+            }
+
+            let mut directory = File::from(
+                openat(CWD, Path::new("/"), directory_flags(), Mode::empty())
+                    .map_err(|error| io_error(Path::new("/"), error.into()))?,
+            );
+            let names = components.into_iter().flatten().collect::<Vec<_>>();
+            for (index, name) in names.iter().enumerate() {
+                let child = match openat(&directory, *name, directory_flags(), Mode::empty()) {
+                    Ok(child) => child,
+                    Err(Errno::NOENT) => {
+                        match mkdirat(&directory, *name, Mode::from(0o700)) {
+                            Ok(()) | Err(Errno::EXIST) => {}
+                            Err(error) => return Err(io_error(path, error.into())),
+                        }
+                        directory
+                            .sync_all()
+                            .map_err(|error| io_error(path, error))?;
+                        openat(&directory, *name, directory_flags(), Mode::empty())
+                            .map_err(|_| unsafe_path(path))?
+                    }
+                    Err(_) => return Err(unsafe_path(path)),
+                };
+                directory = File::from(child);
+                if index + 1 == names.len() {
+                    if tighten_permissions {
+                        fchmod(&directory, Mode::from(0o700))
+                            .map_err(|error| io_error(path, error.into()))?;
+                    }
+                    directory
+                        .sync_all()
+                        .map_err(|error| io_error(path, error))?;
+                }
+            }
+            let expected = identity_from_stat(
+                &fstat(&directory).map_err(|error| io_error(path, error.into()))?,
+            );
+            Self::from_open_directory(directory, path.to_path_buf(), &expected)
+        }
+
         pub(crate) fn open(path: &Path) -> Result<Self, SkillError> {
             let expected = Self::inspect_directory(path)?;
             Self::open_expected(path, &expected)
@@ -178,7 +242,7 @@ mod platform {
             let opened = identity_from_stat(
                 &fstat(&directory).map_err(|error| io_error(path, error.into()))?,
             );
-            verify_directory_identity(&expected, &opened, path)?;
+            verify_directory_identity(expected, &opened, path)?;
 
             let canonical_path = fs::canonicalize(path).map_err(|error| io_error(path, error))?;
             let canonical = identity_from_stat(
@@ -227,6 +291,84 @@ mod platform {
             self.directory
                 .try_clone()
                 .map_err(|error| io_error(&self.canonical_path, error))
+        }
+
+        pub(crate) fn rename_entry_noreplace(
+            &self,
+            from: &OsStr,
+            to: &OsStr,
+            path: &Path,
+        ) -> Result<(), SkillError> {
+            renameat_with(
+                &self.directory,
+                from,
+                &self.directory,
+                to,
+                RenameFlags::NOREPLACE,
+            )
+            .map_err(|error| io_error(path, error.into()))?;
+            self.directory
+                .sync_all()
+                .map_err(|error| io_error(path, error))
+        }
+
+        pub(crate) fn rename_entry_noreplace_to(
+            &self,
+            from: &OsStr,
+            destination: &Self,
+            to: &OsStr,
+            path: &Path,
+        ) -> Result<(), SkillError> {
+            renameat_with(
+                &self.directory,
+                from,
+                &destination.directory,
+                to,
+                RenameFlags::NOREPLACE,
+            )
+            .map_err(|error| io_error(path, error.into()))?;
+            self.directory
+                .sync_all()
+                .map_err(|error| io_error(path, error))?;
+            destination
+                .directory
+                .sync_all()
+                .map_err(|error| io_error(path, error))
+        }
+
+        pub(crate) fn exchange_entries(
+            &self,
+            left: &OsStr,
+            right: &OsStr,
+            path: &Path,
+        ) -> Result<(), SkillError> {
+            renameat_with(
+                &self.directory,
+                left,
+                &self.directory,
+                right,
+                RenameFlags::EXCHANGE,
+            )
+            .map_err(|error| io_error(path, error.into()))?;
+            self.directory
+                .sync_all()
+                .map_err(|error| io_error(path, error))
+        }
+
+        pub(crate) fn unlink_entry(
+            &self,
+            directory: &File,
+            name: &CStr,
+            is_directory: bool,
+            path: &Path,
+        ) -> Result<(), SkillError> {
+            let flags = if is_directory {
+                AtFlags::REMOVEDIR
+            } else {
+                AtFlags::empty()
+            };
+            unlinkat(directory, name, flags).map_err(|error| io_error(path, error.into()))?;
+            directory.sync_all().map_err(|error| io_error(path, error))
         }
 
         pub(crate) fn read_directory(
@@ -577,6 +719,14 @@ pub(super) struct AnchoredRoot {
 
 #[cfg(not(unix))]
 impl AnchoredRoot {
+    pub(super) fn open_or_create_private_absolute(_path: &Path) -> Result<Self, SkillError> {
+        Err(unsupported_platform())
+    }
+
+    pub(super) fn open_or_create_absolute(_path: &Path) -> Result<Self, SkillError> {
+        Err(unsupported_platform())
+    }
+
     pub(super) fn open(_path: &Path) -> Result<Self, SkillError> {
         Err(unsupported_platform())
     }
@@ -609,6 +759,44 @@ impl AnchoredRoot {
     }
 
     pub(super) fn root_directory(&self) -> Result<std::fs::File, SkillError> {
+        Err(unsupported_platform())
+    }
+
+    pub(super) fn rename_entry_noreplace(
+        &self,
+        _from: &std::ffi::OsStr,
+        _to: &std::ffi::OsStr,
+        _path: &Path,
+    ) -> Result<(), SkillError> {
+        Err(unsupported_platform())
+    }
+
+    pub(super) fn exchange_entries(
+        &self,
+        _left: &std::ffi::OsStr,
+        _right: &std::ffi::OsStr,
+        _path: &Path,
+    ) -> Result<(), SkillError> {
+        Err(unsupported_platform())
+    }
+
+    pub(super) fn rename_entry_noreplace_to(
+        &self,
+        _from: &std::ffi::OsStr,
+        _destination: &Self,
+        _to: &std::ffi::OsStr,
+        _path: &Path,
+    ) -> Result<(), SkillError> {
+        Err(unsupported_platform())
+    }
+
+    pub(super) fn unlink_entry(
+        &self,
+        _directory: &std::fs::File,
+        _name: &std::ffi::CStr,
+        _is_directory: bool,
+        _path: &Path,
+    ) -> Result<(), SkillError> {
         Err(unsupported_platform())
     }
 

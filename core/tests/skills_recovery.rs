@@ -64,6 +64,82 @@ fn runtime_failure_restores_a_reviewed_real_directory_link() {
 }
 
 #[test]
+fn runtime_failure_restores_a_relative_managed_link_byte_for_byte() {
+    let fixture = TransactionFixture::managed("relative-managed");
+    let link = fixture.spec.link_mutations[0].path.clone();
+    let raw_target = std::path::PathBuf::from("../../.mux/skills/relative-managed");
+    fs::remove_file(&link).unwrap();
+    symlink(&raw_target, &link).unwrap();
+    assert_eq!(
+        fs::canonicalize(&link).unwrap(),
+        fs::canonicalize(fixture.paths.central_skill("relative-managed")).unwrap()
+    );
+    let before = fixture.snapshot();
+    let mut spec = fixture.update_spec();
+    spec.link_mutations[0].expected = LinkState::ManagedSymlink {
+        target: raw_target.clone(),
+    };
+
+    let error =
+        execute_transaction_with_failpoint(spec, Some(Failpoint::AfterFirstLink)).unwrap_err();
+
+    assert!(matches!(error, SkillError::Io { .. }));
+    assert_eq!(fixture.snapshot(), before);
+    assert_eq!(fs::read_link(link).unwrap(), raw_target);
+}
+
+#[test]
+fn relative_managed_link_can_be_safely_disabled() {
+    let fixture = TransactionFixture::managed("relative-disable");
+    let link = fixture.spec.link_mutations[0].path.clone();
+    let raw_target = std::path::PathBuf::from("../../.mux/skills/relative-disable");
+    fs::remove_file(&link).unwrap();
+    symlink(&raw_target, &link).unwrap();
+    let mut spec = fixture.update_spec();
+    spec.directory_mutations.clear();
+    spec.link_mutations[0].expected = LinkState::ManagedSymlink { target: raw_target };
+    spec.link_mutations[0].desired_target = None;
+    spec.settings_after.skill_assignments = None;
+
+    execute_transaction(spec).unwrap();
+
+    assert!(matches!(
+        fs::symlink_metadata(&link),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound
+    ));
+    assert!(fixture.paths.central_skill("relative-disable").exists());
+    assert!(mux_core::settings::load_settings()
+        .skill_assignments
+        .is_none());
+}
+
+#[test]
+fn changing_only_managed_link_raw_bytes_after_review_is_stale() {
+    let fixture = TransactionFixture::managed("relative-stale");
+    let link = fixture.spec.link_mutations[0].path.clone();
+    let reviewed_raw = std::path::PathBuf::from("../../.mux/skills/relative-stale");
+    fs::remove_file(&link).unwrap();
+    symlink(&reviewed_raw, &link).unwrap();
+    let mut spec = fixture.update_spec();
+    spec.directory_mutations.clear();
+    spec.link_mutations[0].expected = LinkState::ManagedSymlink {
+        target: reviewed_raw,
+    };
+    spec.link_mutations[0].desired_target = None;
+
+    fs::remove_file(&link).unwrap();
+    let replacement_raw = fixture.paths.central_skill("relative-stale");
+    symlink(&replacement_raw, &link).unwrap();
+
+    assert!(matches!(
+        execute_transaction(spec),
+        Err(SkillError::PlanStale { .. })
+    ));
+    assert_eq!(fs::read_link(&link).unwrap(), replacement_raw);
+    assert_eq!(journal_count(&fixture), 0);
+}
+
+#[test]
 fn runtime_failure_restores_missing_broken_and_unknown_link_states() {
     for (name, state) in [
         ("missing-link", "missing"),
@@ -301,6 +377,21 @@ fn successful_import_keeps_the_backup_referenced_by_settings() {
 }
 
 #[test]
+fn successful_transaction_keeps_an_explicitly_retained_backup() {
+    let fixture = TransactionFixture::managed("explicit-retained-backup");
+    let mut spec = fixture.update_spec();
+    let mutation = &mut spec.directory_mutations[0];
+    mutation.retain_backup = true;
+    let backup = mutation.backup.clone();
+    let before_hash = mutation.expected_before_hash.clone().unwrap();
+
+    execute_transaction(spec).unwrap();
+
+    assert_eq!(hash_tree(&backup).unwrap(), before_hash);
+    assert!(!fixture.paths.journals_dir().exists());
+}
+
+#[test]
 fn malformed_and_out_of_root_journals_never_mutate_the_named_path() {
     let fixture = TransactionFixture::managed("journal-bounds");
     let outside = fixture.home.home.join("outside");
@@ -395,6 +486,7 @@ fn lexical_root_membership_cannot_hide_a_parent_symlink_escape() {
             .join(TRANSACTION_OPERATION_ID)
             .join("sentinel"),
         expected_before_hash: None,
+        retain_backup: false,
     });
 
     assert!(matches!(

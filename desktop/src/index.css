@@ -359,7 +359,7 @@ body {
 .mux-agent-pin-action[data-pinned="true"] { color: var(--color-blue); }
 .mux-agent-order-handle:hover, .mux-agent-pin-action:hover:not(:disabled):not([aria-disabled="true"]), .mux-agent-picker-search-clear:hover { background: var(--color-gray-150); color: var(--text-primary); }
 .mux-agent-order-handle:disabled, .mux-agent-pin-action:disabled, .mux-agent-pin-action[aria-disabled="true"] { opacity: .32; cursor: default; }
-.mux-agent-picker-select:focus-visible, .mux-agent-order-handle:focus-visible, .mux-agent-pin-action:focus-visible, .mux-agent-picker-footer button:focus-visible { outline: 2px solid color-mix(in srgb, var(--color-blue) 56%, transparent); outline-offset: -2px; }
+.mux-agent-picker-select:focus-visible, .mux-agent-order-handle:focus-visible, .mux-agent-pin-action:focus-visible, .mux-agent-picker-search-clear:focus-visible, .mux-agent-picker-footer button:focus-visible { outline: 2px solid color-mix(in srgb, var(--color-blue) 56%, transparent); outline-offset: -2px; }
 .mux-agent-picker-empty { padding: 28px 12px; color: var(--text-secondary); font-size: 12px; text-align: center; }
 .mux-agent-picker-footer { display: flex; min-height: 48px; align-items: center; padding: 7px 10px; border-top: 1px solid var(--border-hairline); background: var(--surface-app); }
 .mux-agent-picker-footer button { display: inline-flex; height: 32px; align-items: center; gap: 7px; padding: 0 10px; border: 0; border-radius: 7px; background: transparent; color: var(--color-blue); font: 600 12px/1 var(--font-sans); cursor: pointer; }

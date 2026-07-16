@@ -395,7 +395,7 @@ describe("SkillsView", () => {
     empty.items = [];
     const { rerender } = render(<SkillsView state={stateWith(empty)} />);
     expect(screen.getByText("暂无 Skills")).toBeVisible();
-    expect(screen.queryByText("安装 Skill")).not.toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "安装 Skill" })).toHaveLength(1);
 
     rerender(<SkillsView state={skillsStateFixture()} />);
     await userEvent.type(screen.getByPlaceholderText("搜索 Skills"), "no-such-skill");

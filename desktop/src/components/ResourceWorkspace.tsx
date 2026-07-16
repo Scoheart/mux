@@ -13,7 +13,7 @@ import {
   useState,
 } from "react";
 import { AgentGlyph, agentName } from "./brandIcons";
-import { SearchBar } from "./ui";
+import { MODAL_DIALOG_SELECTOR, SearchBar, wasHandledByLayer } from "./ui";
 import { XIcon } from "./icons";
 import {
   MAX_SIDEBAR_WIDTH,
@@ -468,7 +468,9 @@ export function ResourceInspector({
 }) {
   useEffect(() => {
     const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && !document.querySelector('[role="dialog"]')) onClose();
+      if (event.key !== "Escape") return;
+      if (wasHandledByLayer(event) || document.querySelector(MODAL_DIALOG_SELECTOR)) return;
+      onClose();
     };
     document.addEventListener("keydown", closeOnEscape);
     return () => document.removeEventListener("keydown", closeOnEscape);

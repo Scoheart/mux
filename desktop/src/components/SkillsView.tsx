@@ -18,9 +18,11 @@ import {
   type SkillStatusFilter,
 } from "../lib/skills";
 import type {
+  OperationPlan,
   SkillCommandError,
   SkillContentKind,
   SkillDetail,
+  SkillsInventory,
 } from "../lib/types";
 import {
   FolderIcon,
@@ -31,7 +33,13 @@ import {
   TerminalIcon,
 } from "./icons";
 import { SkillCard } from "./SkillCard";
-import { SkillInspector } from "./SkillInspector";
+import { SkillInstallDialog } from "./SkillInstallDialog";
+import {
+  SkillInspector,
+  type SkillLifecycleIntent,
+} from "./SkillInspector";
+import { SkillReviewDialog } from "./SkillReviewDialog";
+import { useToast } from "./Toast";
 import {
   ResourceEmpty,
   ResourceGrid,
@@ -72,6 +80,7 @@ const contentOptions: Array<{
 ];
 
 export function SkillsView({ state }: { state: SkillsState }) {
+  const toast = useToast();
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState<SkillStatusFilter>("all");
   const [source, setSource] = useState<SkillSourceFilter>("all");
@@ -81,8 +90,26 @@ export function SkillsView({ state }: { state: SkillsState }) {
   const [detail, setDetail] = useState<SkillDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<SkillCommandError | null>(null);
+  const [installOpen, setInstallOpen] = useState(false);
+  const [lifecyclePlan, setLifecyclePlan] = useState<OperationPlan | null>(null);
+  const [lifecyclePlanning, setLifecyclePlanning] = useState(false);
+  const [recoveryRequired, setRecoveryRequired] = useState<string | null>(null);
   const detailGeneration = useRef(0);
+  const lifecycleGeneration = useRef(0);
+  const lifecyclePlanRef = useRef<OperationPlan | null>(null);
+  const lifecyclePendingRef = useRef(false);
+  const lifecycleCommittedRef = useRef(new Set<string>());
+  const lifecycleRecoveryRef = useRef(new Set<string>());
+  const lifecycleCancellationsRef = useRef(new Map<string, Promise<void>>());
+  const lifecycleCommitRef = useRef<{
+    operationId: string;
+    promise: Promise<SkillsInventory>;
+  } | null>(null);
+  const cancelRef = useRef(state.cancel);
+  const toastRef = useRef(toast);
   const mounted = useRef(true);
+  cancelRef.current = state.cancel;
+  toastRef.current = toast;
   const items = state.inventory?.items ?? [];
   const filters = { status, source, contentKind, query };
   const filtered = useMemo(
@@ -99,25 +126,190 @@ export function SkillsView({ state }: { state: SkillsState }) {
       contentKind: SkillContentKind | "all";
     }>,
   ) => filterSkills(items, { ...filters, ...override }).length;
-  const recoveryError = state.inventory?.recovery_error ?? null;
+  const recoveryError = recoveryRequired ?? state.inventory?.recovery_error ?? null;
   const checkDisabled =
-    checking || state.loading || state.pendingOperation !== null || recoveryError !== null;
+    checking ||
+    lifecyclePlanning ||
+    state.loading ||
+    state.pendingOperation !== null ||
+    recoveryError !== null;
+
+  const cancelLifecycleOnce = useCallback(
+    (operationId: string, reportError: boolean) => {
+      const existing = lifecycleCancellationsRef.current.get(operationId);
+      if (existing) return existing;
+      const pending = cancelRef.current(operationId).catch((reason: unknown) => {
+        if (reportError && mounted.current) {
+          toastRef.current.show({
+            kind: "error",
+            msg: normalizeSkillCommandError(reason).message,
+          });
+        }
+      });
+      lifecycleCancellationsRef.current.set(operationId, pending);
+      return pending;
+    },
+    [],
+  );
+
+  const cleanupLifecyclePlan = useCallback(
+    async (plan: OperationPlan, reportError: boolean) => {
+      const committing = lifecycleCommitRef.current;
+      if (committing?.operationId === plan.operation_id) {
+        try {
+          await committing.promise;
+        } catch {
+          // A failed commit leaves this plan staged unless recovery owns it.
+        }
+      }
+      if (
+        !lifecycleCommittedRef.current.has(plan.operation_id) &&
+        !lifecycleRecoveryRef.current.has(plan.operation_id)
+      ) {
+        await cancelLifecycleOnce(plan.operation_id, reportError);
+      }
+    },
+    [cancelLifecycleOnce],
+  );
 
   useEffect(() => {
     mounted.current = true;
     return () => {
       mounted.current = false;
       detailGeneration.current += 1;
+      lifecycleGeneration.current += 1;
+      const plan = lifecyclePlanRef.current;
+      if (plan) void cleanupLifecyclePlan(plan, false);
     };
-  }, []);
+  }, [cleanupLifecyclePlan]);
 
   const closeInspector = useCallback(() => {
     detailGeneration.current += 1;
+    lifecycleGeneration.current += 1;
     setSelectedIdentity(null);
     setDetail(null);
     setDetailLoading(false);
     setDetailError(null);
   }, []);
+
+  const planLifecycle = async (intent: SkillLifecycleIntent) => {
+    if (
+      lifecyclePendingRef.current ||
+      lifecyclePlanRef.current ||
+      state.pendingOperation !== null ||
+      recoveryError
+    ) {
+      return;
+    }
+
+    const generation = ++lifecycleGeneration.current;
+    lifecyclePendingRef.current = true;
+    setLifecyclePlanning(true);
+    try {
+      const plan = await (() => {
+        switch (intent.kind) {
+          case "import":
+            return api.planSkillImport({
+              identity: intent.identity,
+              agent_ids: intent.agentIds,
+              replace_conflicts: false,
+            });
+          case "update":
+            return api.planSkillUpdate({
+              skill_name: intent.skillName,
+              replace_local_changes: false,
+            });
+          case "remove":
+            return api.planSkillRemove({ skill_name: intent.skillName });
+          case "assignment":
+            return api.planSkillAssignment({
+              skill_name: intent.skillName,
+              agent_ids: intent.agentIds,
+              enabled: intent.enabled,
+            });
+          case "repair":
+            return api.planSkillRepair({
+              skill_name: intent.skillName,
+              repair: intent.repair,
+            });
+        }
+      })();
+
+      if (!mounted.current || lifecycleGeneration.current !== generation) {
+        await cancelLifecycleOnce(plan.operation_id, false);
+        return;
+      }
+      lifecyclePlanRef.current = plan;
+      setLifecyclePlan(plan);
+    } catch (reason) {
+      if (mounted.current && lifecycleGeneration.current === generation) {
+        const error = normalizeSkillCommandError(reason);
+        if (error.code === "recovery_required") {
+          setRecoveryRequired(error.message);
+        } else {
+          toast.show({ kind: "error", msg: error.message });
+        }
+      }
+    } finally {
+      lifecyclePendingRef.current = false;
+      if (mounted.current) setLifecyclePlanning(false);
+    }
+  };
+
+  const closeLifecycleReview = () => {
+    const plan = lifecyclePlanRef.current;
+    lifecyclePlanRef.current = null;
+    setLifecyclePlan(null);
+    if (plan) return cleanupLifecyclePlan(plan, true);
+  };
+
+  const commitLifecycle: SkillsState["commit"] = (plan, confirmation) => {
+    const pending = state.commit(plan, confirmation);
+    lifecycleCommitRef.current = {
+      operationId: plan.operation_id,
+      promise: pending,
+    };
+    void pending
+      .then(
+        () => {
+          lifecycleCommittedRef.current.add(plan.operation_id);
+        },
+        (reason: unknown) => {
+          if (normalizeSkillCommandError(reason).code === "recovery_required") {
+            lifecycleRecoveryRef.current.add(plan.operation_id);
+          }
+          throw reason;
+        },
+      )
+      .finally(() => {
+        if (lifecycleCommitRef.current?.promise === pending) {
+          lifecycleCommitRef.current = null;
+        }
+      })
+      .catch(() => undefined);
+    return pending;
+  };
+
+  const lifecycleCommitted = (inventory: SkillsInventory) => {
+    const plan = lifecyclePlanRef.current;
+    if (plan) lifecycleCommittedRef.current.add(plan.operation_id);
+    lifecyclePlanRef.current = null;
+    setLifecyclePlan(null);
+    toast.show({ kind: "success", msg: "Skill 操作已完成。" });
+    const selectedName = selected?.name;
+    if (selectedName && !inventory.items.some((item) => item.name === selectedName)) {
+      closeInspector();
+    }
+  };
+
+  const enterRecovery = (message: string) => {
+    const plan = lifecyclePlanRef.current;
+    if (plan) lifecycleRecoveryRef.current.add(plan.operation_id);
+    lifecyclePlanRef.current = null;
+    setLifecyclePlan(null);
+    setInstallOpen(false);
+    setRecoveryRequired(message);
+  };
 
   const changeQuery = (value: string) => {
     closeInspector();
@@ -243,21 +435,31 @@ export function SkillsView({ state }: { state: SkillsState }) {
         onQueryChange={changeQuery}
         searchPlaceholder="搜索 Skills"
         toolbarActions={
-          <button
-            className="btn-secondary"
-            type="button"
-            disabled={checkDisabled}
-            onClick={() => void checkUpdates()}
-          >
-            <span
-              className="mux-skill-check-icon"
-              data-busy={checking ? "true" : undefined}
-              aria-hidden="true"
+          <>
+            <button
+              className="btn-secondary"
+              type="button"
+              disabled={checkDisabled}
+              onClick={() => void checkUpdates()}
             >
-              <RefreshIcon className="w-4 h-4" />
-            </span>
-            {checking ? "检查中…" : "检查更新"}
-          </button>
+              <span
+                className="mux-skill-check-icon"
+                data-busy={checking ? "true" : undefined}
+                aria-hidden="true"
+              >
+                <RefreshIcon className="w-4 h-4" />
+              </span>
+              {checking ? "检查中…" : "检查更新"}
+            </button>
+            <button
+              className="btn-primary"
+              type="button"
+              disabled={checkDisabled}
+              onClick={() => setInstallOpen(true)}
+            >
+              安装 Skill
+            </button>
+          </>
         }
         filters={
           <ResourceTabs
@@ -279,6 +481,9 @@ export function SkillsView({ state }: { state: SkillsState }) {
               loading={detailLoading}
               error={detailError}
               onClose={closeInspector}
+              onPlan={(intent) => void planLifecycle(intent)}
+              planning={lifecyclePlanning}
+              readOnly={recoveryError !== null || state.pendingOperation !== null}
             />
           ) : undefined
         }
@@ -326,6 +531,28 @@ export function SkillsView({ state }: { state: SkillsState }) {
           </>
         )}
       </ResourceWorkspace>
+      {installOpen && state.inventory && (
+        <SkillInstallDialog
+          agents={state.inventory.agents}
+          commit={state.commit}
+          cancel={state.cancel}
+          onClose={() => setInstallOpen(false)}
+          onCommitted={() => {
+            setInstallOpen(false);
+            toast.show({ kind: "success", msg: "Skill 已安装。" });
+          }}
+          onRecoveryRequired={enterRecovery}
+        />
+      )}
+      {lifecyclePlan && (
+        <SkillReviewDialog
+          plan={lifecyclePlan}
+          onCommit={commitLifecycle}
+          onClose={closeLifecycleReview}
+          onCommitted={lifecycleCommitted}
+          onRecoveryRequired={enterRecovery}
+        />
+      )}
     </div>
   );
 }

@@ -1,5 +1,6 @@
 import type {
   InventoryState,
+  PlanRepairRequest,
   SkillAgentView,
   SkillCommandError,
   SkillDetail,
@@ -25,6 +26,22 @@ const stateLabels: Record<InventoryState, string> = {
   update_available: "有更新",
 };
 
+export type SkillLifecycleIntent =
+  | { kind: "import"; identity: string; agentIds: string[] }
+  | { kind: "update"; skillName: string }
+  | { kind: "remove"; skillName: string }
+  | {
+      kind: "assignment";
+      skillName: string;
+      agentIds: string[];
+      enabled: boolean;
+    }
+  | {
+      kind: "repair";
+      skillName: string;
+      repair: PlanRepairRequest["repair"];
+    };
+
 function presentAgentNames(item: SkillInventoryItem, agents: SkillAgentView[]) {
   const names = new Map(agents.map((agent) => [agent.id, agent.name]));
   return [...new Set(item.affected_agent_ids.map((id) => names.get(id) ?? id))];
@@ -44,6 +61,9 @@ export function SkillInspector({
   loading,
   error,
   onClose,
+  onPlan,
+  planning = false,
+  readOnly = false,
 }: {
   item: SkillInventoryItem;
   detail: SkillDetail | null;
@@ -51,8 +71,78 @@ export function SkillInspector({
   loading: boolean;
   error: SkillCommandError | null;
   onClose: () => void;
+  onPlan?: (intent: SkillLifecycleIntent) => void;
+  planning?: boolean;
+  readOnly?: boolean;
 }) {
   const affectedAgentNames = presentAgentNames(item, agents);
+  const managedRecord = item.source !== null;
+  const centralManaged = managedRecord && item.location.kind === "central";
+  const healthyManaged = centralManaged && item.states.includes("managed");
+  const external = item.states.includes("external");
+  const repair = !managedRecord
+    ? null
+    : item.location.kind === "central" &&
+        (item.states.includes("missing") || item.states.includes("broken_link"))
+      ? ({ kind: "central" } as const)
+      : item.location.kind === "agent_target" &&
+          (item.states.includes("missing") || item.states.includes("broken_link"))
+        ? ({ kind: "target", target_id: item.location.target_id } as const)
+        : null;
+  const disabled = planning || readOnly;
+  const footer = onPlan ? (
+    <div className="mux-skill-inspector-actions">
+      {external && (
+        <button
+          type="button"
+          className="btn-primary"
+          disabled={disabled}
+          onClick={() =>
+            onPlan({
+              kind: "import",
+              identity: item.identity,
+              agentIds: item.affected_agent_ids,
+            })
+          }
+        >
+          导入
+        </button>
+      )}
+      {healthyManaged && item.update.available && (
+        <button
+          type="button"
+          className="btn-primary"
+          disabled={disabled}
+          onClick={() => onPlan({ kind: "update", skillName: item.name })}
+        >
+          更新
+        </button>
+      )}
+      {repair && (
+        <button
+          type="button"
+          className="btn-secondary"
+          disabled={disabled}
+          onClick={() =>
+            onPlan({ kind: "repair", skillName: item.name, repair })
+          }
+        >
+          修复
+        </button>
+      )}
+      {centralManaged && (
+        <button
+          type="button"
+          className="btn-danger"
+          disabled={disabled}
+          onClick={() => onPlan({ kind: "remove", skillName: item.name })}
+        >
+          移除
+        </button>
+      )}
+      {planning && <span role="status">正在生成操作计划…</span>}
+    </div>
+  ) : undefined;
 
   return (
     <ResourceInspector
@@ -66,6 +156,7 @@ export function SkillInspector({
         </div>
       }
       onClose={onClose}
+      footer={footer}
     >
       <p className="mux-skill-inspector-description">{item.description}</p>
 
@@ -147,6 +238,36 @@ export function SkillInspector({
           <AgentStack ids={item.affected_agent_ids} />
           <p>{affectedAgentNames.length > 0 ? affectedAgentNames.join("、") : "未影响任何 Agent"}</p>
         </div>
+        {centralManaged && onPlan && (
+          <div className="mux-skill-assignment-list">
+            {agents.map((agent) => {
+              const assigned = item.assigned_target_ids.includes(agent.target_id);
+              return (
+                <label key={agent.id}>
+                  <span>
+                    <strong>{agent.name}</strong>
+                    <code>{agent.global_dir}</code>
+                  </span>
+                  <input
+                    type="checkbox"
+                    role="switch"
+                    aria-label={`${assigned ? "停用" : "启用"} ${agent.name}`}
+                    checked={assigned}
+                    disabled={disabled}
+                    onChange={() =>
+                      onPlan({
+                        kind: "assignment",
+                        skillName: item.name,
+                        agentIds: [agent.id],
+                        enabled: !assigned,
+                      })
+                    }
+                  />
+                </label>
+              );
+            })}
+          </div>
+        )}
       </InspectorSection>
 
       {loading ? (

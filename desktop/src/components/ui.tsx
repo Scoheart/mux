@@ -1,4 +1,5 @@
-import { CSSProperties, ReactNode, useEffect } from "react";
+import { CSSProperties, ReactNode, useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import { SearchIcon, XIcon } from "./icons";
 import { transportLabel, transportOf } from "../lib/mcp";
 import type { RegistryEntry } from "../lib/types";
@@ -211,37 +212,187 @@ export function SearchBar({
 
 /* ── Modal ───────────────────────────────────────────────────────────── */
 
-/** Modal shell: dimmed overlay + centered panel. Clicking the overlay closes;
- *  clicks inside are contained. */
+export const MODAL_DIALOG_SELECTOR = '[role="dialog"][aria-modal="true"]';
+
+const handledLayerKeyboardEvents = new WeakSet<KeyboardEvent>();
+const inertRootStates = new WeakMap<
+  HTMLElement,
+  {
+    count: number;
+    hadAttribute: boolean;
+    propertyValue?: boolean;
+  }
+>();
+
+const FOCUSABLE_SELECTOR = [
+  "a[href]",
+  "button:not([disabled])",
+  "input:not([disabled])",
+  "select:not([disabled])",
+  "textarea:not([disabled])",
+  "summary",
+  '[contenteditable="true"]',
+  '[tabindex]:not([tabindex="-1"])',
+].join(",");
+
+function topmostModal(): HTMLElement | null {
+  const dialogs = document.querySelectorAll<HTMLElement>(MODAL_DIALOG_SELECTOR);
+  return dialogs.item(dialogs.length - 1);
+}
+
+function modalFocusableElements(dialog: HTMLElement): HTMLElement[] {
+  return Array.from(dialog.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)).filter(
+    (element) =>
+      !element.hidden &&
+      element.tabIndex >= 0 &&
+      !element.closest('[aria-hidden="true"]') &&
+      !element.closest("[inert]"),
+  );
+}
+
+function acquireRootInert(): () => void {
+  const root = document.getElementById("root");
+  if (!root) return () => undefined;
+
+  let state = inertRootStates.get(root);
+  if (!state) {
+    state = {
+      count: 0,
+      hadAttribute: root.hasAttribute("inert"),
+      propertyValue: "inert" in root ? root.inert : undefined,
+    };
+    inertRootStates.set(root, state);
+  }
+  state.count += 1;
+  if ("inert" in root) root.inert = true;
+  root.setAttribute("inert", "");
+
+  return () => {
+    const current = inertRootStates.get(root);
+    if (!current) return;
+    current.count -= 1;
+    if (current.count > 0) return;
+
+    if (typeof current.propertyValue === "boolean" && "inert" in root) {
+      root.inert = current.propertyValue;
+    }
+    if (current.hadAttribute) root.setAttribute("inert", "");
+    else root.removeAttribute("inert");
+    inertRootStates.delete(root);
+  };
+}
+
+/** Coordinate one Escape/Tab across independently mounted UI layers. */
+export function claimLayerKeyboardEvent(event: KeyboardEvent): void {
+  handledLayerKeyboardEvents.add(event);
+}
+
+export function wasHandledByLayer(event: KeyboardEvent): boolean {
+  return handledLayerKeyboardEvents.has(event);
+}
+
+/** Portal-backed modal shell with explicit stack, focus, and inert semantics. */
 export function Modal({
   width = 520,
   maxHeight = "82vh",
+  ariaLabel = "对话框",
+  layer,
   onClose,
   children,
 }: {
   width?: number;
   maxHeight?: string;
+  ariaLabel?: string;
+  layer?: string;
   onClose: () => void;
   children: ReactNode;
 }) {
-  useEffect(() => {
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
-    };
-    document.addEventListener("keydown", closeOnEscape);
-    return () => document.removeEventListener("keydown", closeOnEscape);
-  }, [onClose]);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
 
-  return (
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+
+    const activeElement = document.activeElement;
+    const opener = activeElement instanceof HTMLElement && activeElement.isConnected
+      ? activeElement
+      : null;
+    const releaseRootInert = acquireRootInert();
+    const focusFrame = requestAnimationFrame(() => {
+      const initialTarget =
+        dialog.querySelector<HTMLElement>("[data-modal-initial-focus]") ??
+        dialog.querySelector<HTMLElement>("[data-modal-title]") ??
+        modalFocusableElements(dialog)[0] ??
+        dialog;
+      initialTarget.focus();
+    });
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (handledLayerKeyboardEvents.has(event) || topmostModal() !== dialog) return;
+
+      if (event.key === "Escape") {
+        claimLayerKeyboardEvent(event);
+        event.preventDefault();
+        onCloseRef.current();
+        return;
+      }
+
+      if (event.key !== "Tab") return;
+      const focusable = modalFocusableElements(dialog);
+      const active = document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null;
+      const activeIndex = active ? focusable.indexOf(active) : -1;
+      const shouldWrap = event.shiftKey
+        ? activeIndex <= 0
+        : activeIndex === -1 || activeIndex === focusable.length - 1;
+      if (!shouldWrap) return;
+
+      claimLayerKeyboardEvent(event);
+      event.preventDefault();
+      const next = event.shiftKey
+        ? focusable.at(-1) ?? dialog
+        : focusable[0] ?? dialog;
+      next.focus();
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      cancelAnimationFrame(focusFrame);
+      document.removeEventListener("keydown", handleKeyDown);
+      releaseRootInert();
+      requestAnimationFrame(() => {
+        if (!opener?.isConnected) return;
+        const remainingModal = topmostModal();
+        if (!remainingModal || remainingModal.contains(opener)) opener.focus();
+      });
+    };
+  }, []);
+
+  return createPortal(
     <div
       className="fixed inset-0 flex items-center justify-center z-40"
+      data-modal-overlay="true"
+      data-modal-layer={layer}
       style={{ background: "rgba(0,0,0,.3)", backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)", zIndex: 700 }}
-      onClick={onClose}
+      onClick={(event) => {
+        if (event.target === event.currentTarget) event.stopPropagation();
+        if (
+          event.target !== event.currentTarget ||
+          topmostModal() !== dialogRef.current
+        ) return;
+        onCloseRef.current();
+      }}
     >
       <div
+        ref={dialogRef}
         className="flex flex-col rounded-mac-lg overflow-hidden"
         role="dialog"
         aria-modal="true"
+        aria-label={ariaLabel}
+        data-modal-layer={layer}
+        tabIndex={-1}
         style={{
           width,
           maxHeight,
@@ -251,11 +402,12 @@ export function Modal({
           border: "1px solid var(--glass-border)",
           boxShadow: "var(--shadow-sheet), var(--glass-highlight)",
         }}
-        onClick={(e) => e.stopPropagation()}
+        onClick={(event) => event.stopPropagation()}
       >
         {children}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -280,7 +432,12 @@ export function ModalHeader({
         {glyph}
       </div>
       <div className="flex-1 min-w-0">
-        <h2 className="text-base font-semibold m-0 mb-1" style={{ color: "var(--text-primary)" }}>
+        <h2
+          className="text-base font-semibold m-0 mb-1"
+          data-modal-title
+          tabIndex={-1}
+          style={{ color: "var(--text-primary)" }}
+        >
           {title}
         </h2>
         <p className="text-xs m-0 leading-relaxed" style={{ color: "var(--text-secondary)" }}>

@@ -768,12 +768,263 @@ body {
   font: 10px/1.55 var(--font-mono);
 }
 
+/* Skills mutations: every write is staged, reviewed, and committed from a modal. */
+.mux-skill-install-dialog,
+.mux-skill-review-dialog,
+.mux-skill-risk-dialog {
+  display: flex; width: 100%; min-width: 0; min-height: 0; max-height: inherit;
+  flex: 1 1 auto; flex-direction: column; overflow: hidden; background: var(--surface-overlay);
+}
+.mux-skill-install-dialog code,
+.mux-skill-install-dialog pre,
+.mux-skill-review-dialog code,
+.mux-skill-review-dialog pre,
+.mux-skill-risk-dialog code,
+.mux-skill-risk-dialog pre {
+  min-width: 0; max-width: 100%; overflow-wrap: anywhere; word-break: break-word;
+}
+.mux-skill-dialog-header,
+.mux-skill-review-header {
+  display: flex; min-width: 0; flex: 0 0 auto; align-items: flex-start; gap: 12px;
+  padding: 16px 18px 14px; border-bottom: 1px solid var(--border-hairline);
+  background: var(--surface-overlay);
+}
+.mux-skill-dialog-header > div,
+.mux-skill-review-header > div { min-width: 0; flex: 1; }
+.mux-skill-dialog-header h2,
+.mux-skill-review-header h2 {
+  margin: 0; color: var(--text-primary); font-size: 15px; font-weight: 700; line-height: 1.25;
+}
+.mux-skill-dialog-header p,
+.mux-skill-review-header p {
+  margin: 4px 0 0; color: var(--text-secondary); font-size: 10px; line-height: 1.45;
+}
+.mux-skill-dialog-glyph {
+  display: inline-flex; width: 34px; height: 34px; flex: 0 0 34px; align-items: center;
+  justify-content: center; border-radius: 8px; background: linear-gradient(135deg, var(--color-brand-gold), var(--color-brand-coral));
+  color: #fff;
+}
+.mux-skill-dialog-close,
+.mux-skill-review-header > button {
+  display: inline-flex; width: 28px; height: 28px; flex: 0 0 28px; align-items: center;
+  justify-content: center; padding: 0; border: 0; border-radius: 6px; background: transparent;
+  color: var(--text-secondary); cursor: pointer;
+}
+.mux-skill-dialog-close:hover:not(:disabled),
+.mux-skill-review-header > button:hover:not(:disabled) { background: var(--color-gray-150); color: var(--text-primary); }
+.mux-skill-dialog-close:disabled,
+.mux-skill-review-header > button:disabled { opacity: .45; cursor: default; }
+.mux-skill-dialog-steps {
+  display: grid; min-width: 0; flex: 0 0 auto; grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1px; padding: 0 18px; border-bottom: 1px solid var(--border-hairline); background: var(--surface-app);
+}
+.mux-skill-dialog-steps span {
+  min-width: 0; padding: 8px 4px; color: var(--text-secondary); font-size: 9px;
+  font-weight: 650; text-align: center;
+}
+.mux-skill-dialog-steps span[data-active="true"] { color: var(--color-blue); box-shadow: inset 0 -2px var(--color-blue); }
+.mux-skill-dialog-body,
+.mux-skill-review-body {
+  min-width: 0; min-height: 0; flex: 1 1 auto; padding: 16px 18px; overflow-x: hidden;
+  overflow-y: auto; overscroll-behavior: contain; background: var(--surface-overlay);
+}
+.mux-skill-dialog-footer,
+.mux-skill-review-footer {
+  display: flex; min-width: 0; min-height: 54px; flex: 0 0 auto; align-items: center;
+  justify-content: flex-end; gap: 7px; padding: 10px 18px; border-top: 1px solid var(--border-hairline);
+  background: var(--surface-overlay);
+}
+.mux-skill-dialog-footer > :first-child { margin-right: auto; }
+.mux-skill-review-footer > button {
+  display: inline-flex; height: 32px; align-items: center; justify-content: center; padding: 0 12px;
+  border: 1px solid var(--border-hairline); border-radius: var(--radius-mac); background: var(--surface-raised);
+  color: var(--text-primary); font: 600 12px/1 var(--font-sans); cursor: pointer;
+}
+.mux-skill-review-footer > button:last-child { border-color: var(--color-blue); background: var(--color-blue); color: #fff; }
+.mux-skill-review-footer > button:disabled { opacity: .45; cursor: default; }
+
+.mux-skill-source-step { display: grid; min-width: 0; gap: 13px; }
+.mux-skill-source-step > section,
+.mux-skill-resolution-summary,
+.mux-skill-install-impact,
+.mux-skill-review-skill,
+.mux-skill-review-targets,
+.mux-skill-review-warnings {
+  min-width: 0; border: 1px solid var(--border-hairline); border-radius: 8px; background: var(--surface-raised);
+}
+.mux-skill-source-step > section { padding: 13px; }
+.mux-skill-source-heading { display: flex; min-width: 0; align-items: flex-start; gap: 9px; color: var(--color-blue); }
+.mux-skill-source-heading > div { min-width: 0; }
+.mux-skill-source-heading h3,
+.mux-skill-selection-heading h3,
+.mux-skill-review-section h3,
+.mux-skill-review-files h4 { margin: 0; color: var(--text-primary); font-size: 11px; font-weight: 690; }
+.mux-skill-source-heading p,
+.mux-skill-selection-heading p { margin: 3px 0 0; color: var(--text-secondary); font-size: 9px; line-height: 1.45; }
+.mux-skill-source-step > section > label {
+  display: block; margin: 12px 0 6px; color: var(--text-secondary); font-size: 9px; font-weight: 650;
+}
+.mux-skill-source-input-row { display: grid; min-width: 0; grid-template-columns: minmax(0, 1fr) auto; gap: 7px; }
+.mux-skill-source-input-row input {
+  width: 100%; height: 32px; min-width: 0; padding: 0 9px; border: 1px solid var(--border-hairline);
+  border-radius: 6px; outline: 0; background: var(--surface-app); color: var(--text-primary);
+  font: 11px/1 var(--font-mono);
+}
+.mux-skill-source-input-row input:focus { border-color: color-mix(in srgb, var(--color-blue) 55%, var(--border-hairline)); }
+.mux-skill-source-divider { display: flex; align-items: center; gap: 9px; color: var(--text-secondary); font-size: 9px; }
+.mux-skill-source-divider::before,
+.mux-skill-source-divider::after { height: 1px; flex: 1; background: var(--border-hairline); content: ""; }
+.mux-skill-dialog-error,
+.mux-skill-review-error {
+  display: grid; min-width: 0; gap: 4px; margin: 0 0 12px; padding: 9px 10px;
+  border: 1px solid color-mix(in srgb, var(--color-red) 34%, var(--border-hairline));
+  border-radius: 6px; background: color-mix(in srgb, var(--color-red) 7%, var(--surface-raised));
+  color: var(--color-red); font-size: 10px; line-height: 1.45;
+}
+.mux-skill-dialog-error:last-child { margin-bottom: 0; }
+.mux-skill-dialog-error code { font: 9px/1.45 var(--font-mono); }
+
+.mux-skill-selection-step { display: grid; min-width: 0; gap: 15px; }
+.mux-skill-resolution-summary { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 10px; padding: 10px 11px; }
+.mux-skill-resolution-summary span { color: var(--text-secondary); font-size: 9px; }
+.mux-skill-resolution-summary strong { overflow-wrap: anywhere; color: var(--text-primary); font-size: 10px; }
+.mux-skill-resolution-summary code { grid-column: 2; color: var(--text-secondary); font: 9px/1.4 var(--font-mono); }
+.mux-skill-selection-heading,
+.mux-skill-review-section-title,
+.mux-skill-review-file-head {
+  display: flex; min-width: 0; align-items: flex-start; justify-content: space-between; gap: 10px;
+}
+.mux-skill-selection-heading > span,
+.mux-skill-review-section-title > span {
+  flex: 0 0 auto; color: var(--text-secondary); font-size: 9px; font-weight: 650;
+}
+.mux-skill-choice-list,
+.mux-skill-agent-choice-grid { display: grid; min-width: 0; gap: 6px; margin-top: 8px; }
+.mux-skill-agent-choice-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.mux-skill-choice-list > label,
+.mux-skill-agent-choice-grid > label,
+.mux-skill-assignment-list > label {
+  display: flex; min-width: 0; align-items: flex-start; gap: 8px; padding: 9px;
+  border: 1px solid var(--border-hairline); border-radius: 6px; background: var(--surface-app);
+  color: var(--text-primary); cursor: pointer;
+}
+.mux-skill-choice-list input,
+.mux-skill-agent-choice-grid input { flex: 0 0 auto; margin: 2px 0 0; accent-color: var(--color-blue); }
+.mux-skill-choice-list label > span,
+.mux-skill-agent-choice-grid label > span { min-width: 0; flex: 1; }
+.mux-skill-choice-list strong,
+.mux-skill-choice-list small,
+.mux-skill-choice-list code,
+.mux-skill-agent-choice-grid strong,
+.mux-skill-agent-choice-grid code { display: block; min-width: 0; overflow-wrap: anywhere; }
+.mux-skill-choice-list strong,
+.mux-skill-agent-choice-grid strong { font-size: 10px; }
+.mux-skill-choice-list small { margin-top: 3px; color: var(--text-secondary); font-size: 9px; line-height: 1.4; }
+.mux-skill-choice-list code,
+.mux-skill-agent-choice-grid code { margin-top: 4px; color: var(--text-secondary); font: 8px/1.4 var(--font-mono); }
+.mux-skill-install-impact { padding: 10px 11px; }
+.mux-skill-install-impact > div + div { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border-hairline); }
+.mux-skill-install-impact code { color: var(--text-primary); font: 9px/1.4 var(--font-mono); }
+.mux-skill-install-impact p { margin: 4px 0 0; color: var(--text-secondary); font-size: 9px; line-height: 1.45; }
+
+.mux-skill-review-eyebrow { display: block; margin-bottom: 4px; color: var(--color-blue); font-size: 9px; font-weight: 700; }
+.mux-skill-review-section { min-width: 0; }
+.mux-skill-review-section + .mux-skill-review-section { margin-top: 12px; }
+.mux-skill-review-skill { padding: 13px; }
+.mux-skill-review-skill + .mux-skill-review-skill { margin-top: 10px; }
+.mux-skill-review-skill > header { display: flex; min-width: 0; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.mux-skill-review-skill > header > div { min-width: 0; }
+.mux-skill-review-skill > header h3 { margin: 0; color: var(--text-primary); font-size: 12px; }
+.mux-skill-review-skill > header p { margin: 4px 0 0; color: var(--text-secondary); font-size: 9px; line-height: 1.45; }
+.mux-skill-review-metadata { display: grid; min-width: 0; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin: 12px 0; }
+.mux-skill-review-metadata > div,
+.mux-skill-review-files li > dl > div,
+.mux-skill-review-targets li dl > div { min-width: 0; }
+.mux-skill-review-metadata dt,
+.mux-skill-review-files dt,
+.mux-skill-review-targets dt { color: var(--text-secondary); font-size: 8px; }
+.mux-skill-review-metadata dd,
+.mux-skill-review-files dd,
+.mux-skill-review-targets dd { min-width: 0; margin: 3px 0 0; overflow-wrap: anywhere; color: var(--text-primary); font-size: 9px; }
+.mux-skill-review-files { min-width: 0; margin-top: 12px; }
+.mux-skill-review-files > ul,
+.mux-skill-review-findings > ul,
+.mux-skill-review-targets > ul,
+.mux-skill-review-warnings > ul { min-width: 0; margin: 8px 0 0; padding: 0; list-style: none; }
+.mux-skill-review-files > ul > li,
+.mux-skill-review-findings > ul > li,
+.mux-skill-review-targets > ul > li {
+  min-width: 0; padding: 9px; border: 1px solid var(--border-hairline); border-radius: 6px;
+  background: var(--surface-app);
+}
+.mux-skill-review-files > ul > li + li,
+.mux-skill-review-findings > ul > li + li,
+.mux-skill-review-targets > ul > li + li { margin-top: 6px; }
+.mux-skill-review-file-head > code { flex: 1; color: var(--text-primary); font: 9px/1.45 var(--font-mono); }
+.mux-skill-review-file-head > span { flex: 0 0 auto; color: var(--color-blue); font-size: 8px; font-weight: 700; }
+.mux-skill-review-files li > dl,
+.mux-skill-review-targets li > dl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin: 7px 0 0; }
+.mux-skill-review-files pre {
+  max-height: 180px; margin: 8px 0 0; padding: 8px; overflow: auto; overscroll-behavior: contain;
+  border-radius: 5px; background: var(--surface-raised); white-space: pre-wrap; font: 8px/1.5 var(--font-mono);
+}
+.mux-skill-review-findings { min-width: 0; margin-top: 12px; }
+.mux-skill-review-finding-head { display: flex; min-width: 0; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.mux-skill-review-finding-head > code { min-width: 0; flex: 1; color: var(--text-primary); font: 9px/1.45 var(--font-mono); }
+.mux-skill-review-findings li > p { margin: 7px 0; color: var(--text-primary); font-size: 9px; line-height: 1.5; overflow-wrap: anywhere; }
+.mux-skill-review-findings li > code { display: block; color: var(--text-secondary); font: 8px/1.4 var(--font-mono); }
+.mux-skill-review-empty { margin: 8px 0 0; color: var(--text-secondary); font-size: 9px; }
+.mux-skill-review-truncation { margin: 8px 0 0; padding: 6px 7px; border-radius: 5px; background: var(--color-gray-150); color: var(--text-secondary); font-size: 8px; }
+.mux-skill-review-targets,
+.mux-skill-review-warnings { padding: 12px; }
+.mux-skill-review-targets li > code { display: block; color: var(--text-primary); font: 9px/1.45 var(--font-mono); }
+.mux-skill-review-targets li > span { display: block; margin-top: 4px; color: var(--text-secondary); font-size: 8px; }
+.mux-skill-review-warnings li { position: relative; padding-left: 13px; color: var(--text-primary); font-size: 9px; line-height: 1.5; }
+.mux-skill-review-warnings li::before { position: absolute; left: 0; color: var(--color-brand-gold); content: "•"; }
+.mux-skill-risk-acknowledgment {
+  display: flex; min-width: 0; align-items: flex-start; gap: 8px; margin-top: 14px; padding: 10px;
+  border: 1px solid color-mix(in srgb, var(--color-red) 32%, var(--border-hairline)); border-radius: 6px;
+  background: color-mix(in srgb, var(--color-red) 6%, var(--surface-raised)); color: var(--text-primary);
+  font-size: 10px; line-height: 1.45;
+}
+.mux-skill-risk-acknowledgment input { flex: 0 0 auto; margin-top: 2px; accent-color: var(--color-red); }
+
+.mux-skill-inspector-actions { display: flex; min-width: 0; flex: 1; flex-wrap: wrap; align-items: center; gap: 5px; }
+.mux-skill-inspector-actions [role="status"] { margin-left: auto; color: var(--text-secondary); font-size: 9px; }
+.mux-skill-assignment-list { display: grid; min-width: 0; gap: 6px; margin-top: 10px; }
+.mux-skill-assignment-list > label { align-items: center; }
+.mux-skill-assignment-list label > span { min-width: 0; flex: 1; }
+.mux-skill-assignment-list strong,
+.mux-skill-assignment-list code { display: block; min-width: 0; overflow-wrap: anywhere; }
+.mux-skill-assignment-list strong { font-size: 10px; }
+.mux-skill-assignment-list code { margin-top: 4px; color: var(--text-secondary); font: 8px/1.4 var(--font-mono); }
+.mux-skill-assignment-list input[role="switch"] { width: 30px; height: 17px; flex: 0 0 30px; accent-color: var(--color-green); }
+
 @media (max-width: 920px) {
   .mux-skill-workspace .mux-workspace-toolbar { grid-template-columns: minmax(0, 1fr) auto; gap: 8px; padding-right: 12px; padding-left: 12px; }
   .mux-skill-workspace .mux-workspace-filters { padding-right: 10px; padding-left: 10px; overflow-x: auto; }
   .mux-skill-workspace .mux-resource-tabs { min-width: max-content; }
   .mux-skill-workspace .mux-resource-tab { padding-right: 7px; padding-left: 7px; }
   .mux-skill-workspace .mux-workspace-actions { flex: 0 0 auto; }
+  .mux-skill-dialog-header,
+  .mux-skill-review-header { padding: 12px 14px 11px; }
+  .mux-skill-dialog-steps { padding: 0 14px; }
+  .mux-skill-dialog-body,
+  .mux-skill-review-body { padding: 12px 14px; }
+  .mux-skill-dialog-footer,
+  .mux-skill-review-footer { min-height: 50px; padding: 8px 14px; }
+  .mux-skill-agent-choice-grid,
+  .mux-skill-review-metadata { grid-template-columns: minmax(0, 1fr); }
+}
+
+@media (max-height: 640px) {
+  .mux-skill-dialog-header,
+  .mux-skill-review-header { padding-top: 10px; padding-bottom: 9px; }
+  .mux-skill-dialog-glyph { width: 30px; height: 30px; flex-basis: 30px; }
+  .mux-skill-dialog-body,
+  .mux-skill-review-body { padding-top: 10px; padding-bottom: 10px; }
+  .mux-skill-dialog-footer,
+  .mux-skill-review-footer { min-height: 46px; padding-top: 7px; padding-bottom: 7px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

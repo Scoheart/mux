@@ -21,6 +21,11 @@ import {
   SearchIcon,
   XIcon,
 } from "./icons";
+import {
+  claimLayerKeyboardEvent,
+  MODAL_DIALOG_SELECTOR,
+  wasHandledByLayer,
+} from "./ui";
 
 const PIN_LIMIT_DESCRIPTION_ID = "mux-agent-pin-limit-description";
 
@@ -54,15 +59,19 @@ export function AgentNavigation({
   useEffect(() => {
     if (!open) return;
     const closeOnEscape = (event: globalThis.KeyboardEvent) => {
-      if (event.key === "Escape") setOpen(false);
+      if (event.key !== "Escape") return;
+      if (wasHandledByLayer(event) || document.querySelector(MODAL_DIALOG_SELECTOR)) return;
+      claimLayerKeyboardEvent(event);
+      setOpen(false);
     };
     const closeOnPointerDown = (event: PointerEvent) => {
+      if (document.querySelector(MODAL_DIALOG_SELECTOR)) return;
       if (!anchorRef.current?.contains(event.target as Node)) setOpen(false);
     };
-    document.addEventListener("keydown", closeOnEscape);
+    document.addEventListener("keydown", closeOnEscape, true);
     document.addEventListener("pointerdown", closeOnPointerDown);
     return () => {
-      document.removeEventListener("keydown", closeOnEscape);
+      document.removeEventListener("keydown", closeOnEscape, true);
       document.removeEventListener("pointerdown", closeOnPointerDown);
     };
   }, [open]);

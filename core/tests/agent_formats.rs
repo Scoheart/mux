@@ -29,6 +29,16 @@ fn fixture(name: &str) -> &'static str {
     }
 }
 
+fn is_iso_date(value: &str) -> bool {
+    value.len() == 10
+        && value.as_bytes()[4] == b'-'
+        && value.as_bytes()[7] == b'-'
+        && value
+            .bytes()
+            .enumerate()
+            .all(|(index, byte)| matches!(index, 4 | 7) || byte.is_ascii_digit())
+}
+
 fn write_fixture(name: &str, extension: &str) -> PathBuf {
     let path = temp_file(name, extension);
     std::fs::write(&path, fixture(name)).unwrap();
@@ -212,7 +222,7 @@ fn every_writable_builtin_roundtrips_through_its_wire_format() {
         .values()
         .filter(|agent| agent.global.is_some())
         .count();
-    assert_eq!(writable, 38);
+    assert_eq!(writable, 39);
 
     for (agent_id, definition) in agents {
         if definition.global.is_none() {
@@ -401,7 +411,11 @@ fn builtin_global_paths_match_current_product_docs() {
         ("opencode", "~/.config/opencode/opencode.json"),
         ("openhands", "~/.openhands/mcp.json"),
         ("pi", "~/.pi/agent/mcp.json"),
-        ("qoder", "~/.qoder/settings.json"),
+        (
+            "qoder",
+            "~/Library/Application Support/Qoder/SharedClientCache/mcp.json",
+        ),
+        ("qoder-cli", "~/.qoder/settings.json"),
         ("qoderwork", "~/.qoderwork/mcp.json"),
         ("qwen-code", "~/.qwen/settings.json"),
         (
@@ -436,16 +450,16 @@ fn verified_and_catalog_definitions_have_auditable_boundaries() {
     let all_ids: std::collections::BTreeSet<_> =
         verified_ids.union(&catalog_ids).cloned().collect();
 
-    assert_eq!(verified.len(), 39);
+    assert_eq!(verified.len(), 40);
     assert_eq!(catalog.len(), 175);
     assert_eq!(verified_ids.intersection(&catalog_ids).count(), 23);
-    assert_eq!(all_ids.len(), 191);
+    assert_eq!(all_ids.len(), 192);
     assert_eq!(
         verified
             .values()
             .filter(|item| item.global.is_some())
             .count(),
-        38
+        39
     );
     assert!(catalog.len() >= 170);
     for (id, definition) in verified {
@@ -515,10 +529,10 @@ fn verified_and_catalog_definitions_have_auditable_boundaries() {
                 .is_some_and(|url| url.starts_with("https://")),
             "{id}"
         );
-        assert_eq!(
-            definition.verified_at.as_deref(),
-            Some("2026-07-14"),
-            "{id}"
+        assert!(
+            definition.verified_at.as_deref().is_some_and(is_iso_date),
+            "{id}: invalid verification date {:?}",
+            definition.verified_at
         );
         if definition.global.is_some() {
             let evidence = definition.evidence.as_deref().unwrap_or_default();

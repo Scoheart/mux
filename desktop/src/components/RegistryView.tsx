@@ -5,7 +5,7 @@ import { keyOf, transportOf, type Transport } from "../lib/mcp";
 import { exportEffectiveDialog, forgetEntry } from "../lib/api";
 import { formatError } from "../lib/format";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { SourcesSidebar } from "./SourcesSidebar";
+import { SourcesSidebar, type McpStatusCounts, type McpStatusFilter } from "./SourcesSidebar";
 import { AgentGlyph, agentName } from "./brandIcons";
 import {
   CopyIcon,
@@ -13,11 +13,11 @@ import {
   PlusIcon,
   LinkIcon,
   TerminalIcon,
-  XIcon,
   CloudIcon,
   DownloadIcon,
   FolderIcon,
   LayersIcon,
+  PackageIcon,
   TrashIcon,
 } from "./icons";
 import { Avatar, Badge, IconButton, SearchBar, Modal, TransportPill } from "./ui";
@@ -37,8 +37,6 @@ interface RegistryViewProps {
 
 /** Origin buckets — still used to decide which entries are user-deletable. */
 type OriginBucket = "remote" | "local" | "manual" | "discovered";
-type StatusFilter = "all" | "shadowed";
-
 /** Classify an entry's origin into a bucket. Entries with no origin, or a
  *  legacy/unknown kind, fall into "discovered" (scanned-from-machine). */
 function bucketOf(entry: RegistryEntry): OriginBucket {
@@ -146,7 +144,7 @@ export function RegistryView({
   // Source and status are separate filters: the sidebar owns provenance, while
   // the compact status control appears only when duplicate copies need review.
   const [selectedSource, setSelectedSource] = useState<string | null>(null);
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  const [statusFilter, setStatusFilter] = useState<McpStatusFilter>("all");
   const [detail, setDetail] = useState<CatalogItem | null>(null);
   const [pasteOpen, setPasteOpen] = useState(false);
 
@@ -165,10 +163,26 @@ export function RegistryView({
     return m;
   }, [catalog]);
 
+  const sourceScoped = useMemo(() => {
+    if (selectedSource === null) return catalog;
+    return catalog.filter((item) => inSource(item.entry, selectedSource));
+  }, [catalog, selectedSource]);
+
+  const statusCounts = useMemo<McpStatusCounts>(() => {
+    let used = 0;
+    let unused = 0;
+    let shadowed = 0;
+    for (const item of sourceScoped) {
+      if (!item.in_effect) shadowed += 1;
+      if (agentsForServer(keyOf(item.entry)).length > 0 && item.in_effect) used += 1;
+      else if (item.in_effect) unused += 1;
+    }
+    return { all: sourceScoped.length, used, unused, shadowed };
+  }, [agentsForServer, sourceScoped]);
+
   const scoped = useMemo(() => {
     const s = q.trim().toLowerCase();
-    let list = catalog;
-    if (selectedSource !== null) list = list.filter((it) => inSource(it.entry, selectedSource));
+    let list = sourceScoped;
     if (s)
       list = list.filter(
         (it) => it.entry.name.toLowerCase().includes(s) || it.entry.description.toLowerCase().includes(s)
@@ -180,19 +194,22 @@ export function RegistryView({
         transportOf(a.entry).localeCompare(transportOf(b.entry)) ||
         Number(b.in_effect) - Number(a.in_effect)
     );
-  }, [catalog, q, selectedSource]);
-
-  const shadowedCount = useMemo(
-    () => scoped.filter((item) => !item.in_effect).length,
-    [scoped]
-  );
+  }, [q, sourceScoped]);
 
   const filtered = useMemo(() => {
     if (statusFilter === "shadowed") return scoped.filter((item) => !item.in_effect);
+    if (statusFilter === "used") {
+      return scoped.filter(
+        (item) => item.in_effect && agentsForServer(keyOf(item.entry)).length > 0
+      );
+    }
+    if (statusFilter === "unused") {
+      return scoped.filter(
+        (item) => item.in_effect && agentsForServer(keyOf(item.entry)).length === 0
+      );
+    }
     return scoped;
-  }, [scoped, statusFilter]);
-
-  const showShadowedFilter = shadowedCount > 0 || statusFilter === "shadowed";
+  }, [agentsForServer, scoped, statusFilter]);
 
   const copyConfig = useCallback(
     (entry: RegistryEntry) => {
@@ -355,6 +372,81 @@ export function RegistryView({
           }
           onDelete={deletable(detail.entry) ? () => deleteEntry(detail.entry) : undefined}
         />
+      }
+      query={q}
+      onQueryChange={setQ}
+      searchPlaceholder="搜索 MCP"
+      toolbarActions={
+        <>
+          <button onClick={() => setPasteOpen(true)} className="btn-ghost" title="粘贴 MCP 配置">
+            粘贴配置
+          </button>
+          <IconButton title="导出生效配置" onClick={doExport} disabled={entries.length === 0}>
+            <DownloadIcon className="w-4 h-4" />
+          </IconButton>
+          <button onClick={onCreate} className="btn-primary">
+            <PlusIcon className="w-4 h-4" />
+            新建 MCP
+          </button>
+        </>
+      }
+      inspector={
+        detail ? (
+          <RegistryDetail
+            entry={detail.entry}
+            overriddenBy={
+              detail.in_effect
+                ? undefined
+                : originLabel(winningOriginByKey.get(keyOf(detail.entry)), sourceName)
+            }
+            installedAgents={agentsForServer(keyOf(detail.entry))}
+            sourceName={sourceName}
+            onClose={() => setDetail(null)}
+            onCopy={() => copyConfig(detail.entry)}
+            onEdit={
+              editable(detail.entry)
+                ? () => {
+                    const { name } = detail.entry;
+                    const transport = transportOf(detail.entry);
+                    setDetail(null);
+                    onEdit(name, transport);
+                  }
+                : undefined
+            }
+            onDelete={deletable(detail.entry) ? () => deleteEntry(detail.entry) : undefined}
+          />
+        ) : undefined
+      }
+    >
+      {filtered.length === 0 ? (
+        <ResourceEmpty
+          icon={<PackageIcon className="w-6 h-6" />}
+          title={catalog.length === 0 ? "暂无 MCP" : "没有匹配项"}
+          detail={catalog.length === 0 ? "添加订阅、导入配置或新建 MCP" : undefined}
+        />
+      ) : (
+        <ResourceGrid>
+          {filtered.map((item) => (
+            <RegistryCard
+              key={`${keyOf(item.entry)}@${item.entry.origin?.source ?? item.entry.origin?.kind ?? ""}`}
+              item={item}
+              selected={detail === item}
+              installedAgents={agentsForServer(keyOf(item.entry))}
+              sourceName={sourceName}
+              overriddenBy={
+                item.in_effect
+                  ? undefined
+                  : originLabel(winningOriginByKey.get(keyOf(item.entry)), sourceName)
+              }
+              editable={editable(item.entry)}
+              deletable={deletable(item.entry)}
+              onOpen={() => setDetail(item)}
+              onCopy={() => copyConfig(item.entry)}
+              onEdit={() => onEdit(item.entry.name, transportOf(item.entry))}
+              onDelete={() => deleteEntry(item.entry)}
+            />
+          ))}
+        </ResourceGrid>
       )}
     </FeatureShell>
   );
@@ -363,6 +455,7 @@ export function RegistryView({
 /** Default entries stay visually quiet; only a shadowed copy carries state UI. */
 function RegistryCard({
   item,
+  selected,
   installedAgents,
   sourceName,
   overriddenBy,
@@ -374,6 +467,7 @@ function RegistryCard({
   onDelete,
 }: {
   item: CatalogItem;
+  selected: boolean;
   installedAgents: string[];
   sourceName: (id: string) => string;
   /** Label of the source that takes effect instead — presence marks this copy as shadowed. */
@@ -386,7 +480,6 @@ function RegistryCard({
   onDelete: () => void;
 }) {
   const { entry } = item;
-  const usedBy = installedAgents.length;
   const ep = endpointOf(entry);
   const overridden = !!overriddenBy;
 
@@ -394,7 +487,17 @@ function RegistryCard({
     <div
       className="mux-tile p-3"
       data-state={overridden ? "shadowed" : undefined}
+      data-selected={selected ? "true" : undefined}
+      role="button"
+      tabIndex={0}
       onClick={onOpen}
+      onKeyDown={(event) => {
+        if (event.target !== event.currentTarget) return;
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onOpen();
+        }
+      }}
     >
       {/* Header: identity, provenance, and an explicit catalog state. */}
       <div className="flex items-start gap-2.5">
@@ -429,27 +532,20 @@ function RegistryCard({
       </div>
 
       {/* Endpoint as an inset code strip */}
-      <div
-        className="flex items-center gap-1.5 mt-2.5 px-2 py-1.5 rounded-mac min-w-0"
-        style={{ background: "var(--surface-app)", border: "1px solid var(--border-hairline)" }}
-      >
+      <div className="mux-resource-endpoint">
         {ep.link ? (
           <LinkIcon className="w-3 h-3 flex-shrink-0" style={{ color: "var(--color-blue)" }} />
         ) : (
           <TerminalIcon className="w-3 h-3 flex-shrink-0" style={{ color: "var(--text-secondary)" }} />
         )}
-        <span
-          className="text-[11px] truncate"
-          style={{ color: ep.link ? "var(--color-blue)" : "var(--text-secondary)", fontFamily: "var(--font-mono)" }}
-          title={ep.text}
-        >
+        <span style={{ color: ep.link ? "var(--color-blue)" : undefined }} title={ep.text}>
           {ep.text}
         </span>
       </div>
 
       {/* Footer: usage dot + hover actions — pinned to the card bottom so every
           card in a row lines up (grid stretches them to equal height). */}
-      <div className="flex items-center justify-between mt-3 pt-2.5" style={{ borderTop: "1px solid var(--border-hairline)" }}>
+      <div className="mux-resource-card-footer">
         {overridden ? (
           <span
             className="mux-shadowed-source min-w-0 truncate text-[11px]"
@@ -457,18 +553,7 @@ function RegistryCard({
           >
             以 {overriddenBy} 为准
           </span>
-        ) : (
-          <span
-            className="inline-flex items-center gap-1.5 text-[11px]"
-            style={{ color: usedBy > 0 ? "var(--color-green)" : "var(--text-secondary)" }}
-          >
-            <span
-              className="w-1.5 h-1.5 rounded-full flex-shrink-0"
-              style={{ background: usedBy > 0 ? "var(--color-green)" : "var(--text-secondary)", opacity: usedBy > 0 ? 1 : 0.4 }}
-            />
-            {usedBy > 0 ? `${usedBy} 个 Agent` : "未使用"}
-          </span>
-        )}
+        ) : <AgentStack ids={installedAgents} />}
 
         <div
           className="mux-toolbar flex items-center gap-0.5 rounded-mac px-0.5"
@@ -518,112 +603,30 @@ function RegistryDetail({
   onEdit?: () => void;
   onDelete?: () => void;
 }) {
+  const endpoint = endpointOf(entry);
   return (
-    <Modal width={560} onClose={onClose}>
-        <div className="flex items-center gap-3 px-6 py-5" style={{ borderBottom: "1px solid var(--border-hairline)" }}>
-          <Avatar seed={entry.name} size={40} />
-          <div className="flex-1 min-w-0">
-            <h2 className="text-base font-semibold m-0 truncate" style={{ color: "var(--text-primary)" }}>
-              {entry.name}
-            </h2>
-            <div className="flex items-center gap-1.5 mt-1">
-              <TransportPill entry={entry} />
-              <OriginTag entry={entry} installedAgents={installedAgents} sourceName={sourceName} />
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="关闭详情"
-            title="关闭"
-            className="flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center border-0 cursor-pointer"
-            style={{ background: "var(--border-hairline)", color: "var(--text-secondary)" }}
-          >
-            <XIcon className="w-3.5 h-3.5" />
-          </button>
+    <ResourceInspector
+      title={entry.name}
+      avatar={<Avatar seed={entry.name} size={40} />}
+      subtitle={
+        <div className="flex items-center gap-1.5">
+          <TransportPill entry={entry} />
+          <OriginTag entry={entry} installedAgents={installedAgents} sourceName={sourceName} />
         </div>
-
-        {overriddenBy && (
-          <div className="px-6 pt-4">
-            <div className="mux-detail-warning">
-              <LayersIcon className="w-4 h-4 flex-shrink-0" />
-              <div className="min-w-0">
-                <div className="text-xs font-semibold">已被覆盖</div>
-                <div className="text-[11px] mt-0.5 leading-relaxed">
-                  当前使用「{overriddenBy}」，此副本不参与安装。
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
-          {entry.description && (
-            <p className="text-sm leading-relaxed m-0" style={{ color: "var(--text-secondary)" }}>
-              {entry.description}
-            </p>
-          )}
-          {entry.tags.length > 0 && (
-            <div className="flex flex-wrap gap-1.5">
-              {entry.tags.map((t) => (
-                <Badge key={t} tone="info">{t}</Badge>
-              ))}
-            </div>
-          )}
-          {entry.repo && (
-            <div>
-              <label className="text-xs font-medium block mb-1.5" style={{ color: "var(--text-secondary)" }}>
-                仓库 / 主页
-              </label>
-              <button
-                onClick={() => openUrl(entry.repo!)}
-                className="inline-flex items-center gap-1.5 text-sm border-0 bg-transparent cursor-pointer p-0 break-all text-left"
-                style={{ color: "var(--color-blue)" }}
-                title="在浏览器中打开"
-              >
-                <LinkIcon className="w-3.5 h-3.5 flex-shrink-0" />
-                {entry.repo}
-              </button>
-            </div>
-          )}
-          <div>
-            <label className="text-xs font-medium block mb-2" style={{ color: "var(--text-secondary)" }}>
-              配置
-            </label>
-            <pre
-              className="text-xs overflow-x-auto m-0 p-3 rounded-mac"
-              style={{
-                background: "var(--surface-app)",
-                border: "1px solid var(--border-hairline)",
-                fontFamily: "var(--font-mono)",
-                color: "var(--text-primary)",
-              }}
-            >
-              {JSON.stringify(entry.config, null, 2)}
-            </pre>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2 px-6 py-4" style={{ borderTop: "1px solid var(--border-hairline)" }}>
+      }
+      onClose={onClose}
+      footer={
+        <>
           {onDelete && (
-            <button
-              onClick={onDelete}
-              className="flex items-center gap-1.5 px-3 py-2 text-sm rounded-mac border-0 cursor-pointer"
-              style={{ background: "transparent", color: "#FF3B30" }}
-              title="删除条目（并从所有 agent 卸载）"
-            >
+            <button onClick={onDelete} className="btn-danger" title="删除条目并从所有 Agent 卸载">
               <TrashIcon className="w-4 h-4" />
               删除
             </button>
           )}
           <div className="flex-1" />
-          <button
-            onClick={onCopy}
-            className="flex items-center gap-1.5 px-4 py-2 text-sm rounded-mac cursor-pointer"
-            style={{ background: "transparent", border: "1px solid var(--border-hairline)", color: "var(--text-primary)" }}
-          >
+          <button onClick={onCopy} className="btn-ghost">
             <CopyIcon className="w-4 h-4" />
-            复制 JSON
+            复制
           </button>
           {onEdit && (
             <button
@@ -635,7 +638,47 @@ function RegistryDetail({
               编辑
             </button>
           )}
+        </>
+      }
+    >
+      {overriddenBy && (
+        <div className="mux-detail-warning">
+          <LayersIcon className="w-4 h-4 flex-shrink-0" />
+          <div className="min-w-0">
+            <div className="text-xs font-semibold">已被覆盖</div>
+            <div className="text-[11px] mt-0.5 leading-relaxed">
+              当前使用「{overriddenBy}」，此副本不参与安装。
+            </div>
+          </div>
         </div>
-    </Modal>
+      )}
+
+      {entry.description && <p className="mux-inspector-description">{entry.description}</p>}
+
+      <InspectorSection title="连接">
+        <InspectorField label="地址" mono>{endpoint.text}</InspectorField>
+        <InspectorField label="Agent"><AgentStack ids={installedAgents} /></InspectorField>
+        {entry.repo && (
+          <InspectorField label="主页">
+            <button onClick={() => openUrl(entry.repo!)} className="mux-inline-link" title="在浏览器中打开">
+              <LinkIcon className="w-3.5 h-3.5" />
+              {entry.repo}
+            </button>
+          </InspectorField>
+        )}
+      </InspectorSection>
+
+      {entry.tags.length > 0 && (
+        <InspectorSection title="标签">
+          <div className="flex flex-wrap gap-1.5">
+            {entry.tags.map((tag) => <Badge key={tag} tone="info">{tag}</Badge>)}
+          </div>
+        </InspectorSection>
+      )}
+
+      <InspectorSection title="配置">
+        <pre className="mux-config-preview">{JSON.stringify(entry.config, null, 2)}</pre>
+      </InspectorSection>
+    </ResourceInspector>
   );
 }

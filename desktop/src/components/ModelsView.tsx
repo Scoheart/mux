@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import {
   applyModelProfile,
@@ -15,8 +15,16 @@ import type {
 } from "../lib/types";
 import { formatError } from "../lib/format";
 import { AgentGlyph } from "./brandIcons";
-import { Badge, IconButton, Modal, ModalHeader } from "./ui";
-import { CheckIcon, EditIcon, LinkIcon, PlusIcon, TrashIcon } from "./icons";
+import { Avatar, Badge, IconButton, Modal, ModalHeader } from "./ui";
+import {
+  CheckIcon,
+  EditIcon,
+  LayersIcon,
+  LinkIcon,
+  PlusIcon,
+  TrashIcon,
+  XIcon,
+} from "./icons";
 import { useToast } from "./Toast";
 import { FeatureShell } from "./FeatureShell";
 import { SelectMenu } from "./SelectMenu";
@@ -26,6 +34,8 @@ const PROTOCOLS: Array<{ id: ModelProtocol; label: string }> = [
   { id: "openai-responses", label: "OpenAI Responses" },
   { id: "openai-completions", label: "OpenAI Completions" },
 ];
+
+type ModelStatusFilter = "all" | "assigned" | "unassigned";
 
 const emptyProfile = (): ModelProfile => ({
   id: "",
@@ -44,10 +54,12 @@ export function ModelsView({ onSelectMcps }: { onSelectMcps: () => void }) {
   const [profiles, setProfiles] = useState<ModelProfileView[]>([]);
   const [agents, setAgents] = useState<ModelAgentView[]>([]);
   const [selectedProfileId, setSelectedProfileId] = useState<string | null>(null);
-  const [selectedByAgent, setSelectedByAgent] = useState<Record<string, string>>({});
   const [editing, setEditing] = useState<ModelProfileView | null | undefined>(undefined);
   const [busyAgent, setBusyAgent] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [query, setQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState<ModelStatusFilter>("all");
+  const [protocolFilter, setProtocolFilter] = useState<ModelProtocol | null>(null);
   const toast = useToast();
 
   const refresh = useCallback(async () => {
@@ -57,15 +69,9 @@ export function ModelsView({ onSelectMcps }: { onSelectMcps: () => void }) {
     ]);
     setProfiles(nextProfiles);
     setAgents(nextAgents);
-    setSelectedByAgent(
-      Object.fromEntries(
-        nextAgents.map((agent) => [agent.id, agent.assigned_profile ?? ""])
-      )
+    setSelectedProfileId((current) =>
+      current && nextProfiles.some((profile) => profile.id === current) ? current : null
     );
-    setSelectedProfileId((current) => {
-      if (current && nextProfiles.some((profile) => profile.id === current)) return current;
-      return nextProfiles[0]?.id ?? null;
-    });
   }, []);
 
   useEffect(() => {
@@ -76,12 +82,55 @@ export function ModelsView({ onSelectMcps }: { onSelectMcps: () => void }) {
       .finally(() => setLoading(false));
   }, [refresh]);
 
+  const agentsByProfile = useMemo(() => {
+    const map = new Map<string, ModelAgentView[]>();
+    for (const agent of agents) {
+      if (!agent.assigned_profile) continue;
+      const rows = map.get(agent.assigned_profile) ?? [];
+      rows.push(agent);
+      map.set(agent.assigned_profile, rows);
+    }
+    return map;
+  }, [agents]);
+
+  const statusCounts = useMemo(() => {
+    const assigned = profiles.filter((profile) => (agentsByProfile.get(profile.id)?.length ?? 0) > 0).length;
+    return { all: profiles.length, assigned, unassigned: profiles.length - assigned };
+  }, [agentsByProfile, profiles]);
+
+  const protocolCounts = useMemo(
+    () =>
+      Object.fromEntries(
+        PROTOCOLS.map((protocol) => [
+          protocol.id,
+          profiles.filter((profile) => profile.protocol === protocol.id).length,
+        ])
+      ) as Record<ModelProtocol, number>,
+    [profiles]
+  );
+
+  const filteredProfiles = useMemo(() => {
+    const needle = query.trim().toLocaleLowerCase();
+    return profiles.filter((profile) => {
+      const assigned = (agentsByProfile.get(profile.id)?.length ?? 0) > 0;
+      if (statusFilter === "assigned" && !assigned) return false;
+      if (statusFilter === "unassigned" && assigned) return false;
+      if (protocolFilter && profile.protocol !== protocolFilter) return false;
+      if (!needle) return true;
+      return [profile.name, profile.id, profile.model, profile.base_url, protocolLabel(profile.protocol)]
+        .join(" ")
+        .toLocaleLowerCase()
+        .includes(needle);
+    });
+  }, [agentsByProfile, profiles, protocolFilter, query, statusFilter]);
+
   const selectedProfile = profiles.find((profile) => profile.id === selectedProfileId) ?? null;
 
   const removeProfile = async (profile: ModelProfileView) => {
-    if (!window.confirm(`删除模型接口「${profile.name}」？Agent 配置文件不会被回滚。`)) return;
+    if (!window.confirm(`删除模型「${profile.name}」？Agent 配置文件不会被回滚。`)) return;
     try {
       await deleteModelProfile(profile.id);
+      setSelectedProfileId((current) => current === profile.id ? null : current);
       await refresh();
       toast.show({ kind: "success", msg: `已删除：${profile.name}` });
     } catch (error) {
@@ -89,16 +138,12 @@ export function ModelsView({ onSelectMcps }: { onSelectMcps: () => void }) {
     }
   };
 
-  const apply = async (agent: ModelAgentView) => {
-    const profileId = selectedByAgent[agent.id];
-    const profile = profiles.find((item) => item.id === profileId);
-    if (!profile) return;
+  const apply = async (agent: ModelAgentView, profile: ModelProfileView) => {
     if (
       !window.confirm(
         `将「${profile.name}」应用到 ${agent.name}？\n\n目标：${agent.config_path}\nMUX 会先创建备份。`
       )
-    )
-      return;
+    ) return;
     setBusyAgent(agent.id);
     try {
       const result = await applyModelProfile(agent.id, profile.id);
@@ -304,21 +349,13 @@ function ModelProfileDialog({
   const toast = useToast();
 
   const valid =
-    draft.id.trim() &&
-    draft.name.trim() &&
-    draft.base_url.trim() &&
-    draft.model.trim() &&
-    !busy;
+    draft.id.trim() && draft.name.trim() && draft.base_url.trim() && draft.model.trim() && !busy;
 
   const save = async () => {
     if (!valid) return;
     setBusy(true);
     try {
-      const credentialUpdate = clearCredential
-        ? ""
-        : credential
-          ? credential
-          : undefined;
+      const credentialUpdate = clearCredential ? "" : credential || undefined;
       await saveModelProfile(
         {
           ...draft,
@@ -330,7 +367,7 @@ function ModelProfileDialog({
         credentialUpdate
       );
       await onSaved();
-      toast.show({ kind: "success", msg: initial ? "模型接口已更新" : "模型接口已创建" });
+      toast.show({ kind: "success", msg: initial ? "模型已更新" : "模型已创建" });
     } catch (error) {
       toast.show({ kind: "error", msg: "保存失败：" + formatError(error) });
     } finally {
@@ -338,13 +375,12 @@ function ModelProfileDialog({
     }
   };
 
-  const fieldClass = "mux-model-field";
   return (
-    <Modal width={590} maxHeight="88vh" onClose={onClose}>
+    <Modal width={620} maxHeight="88vh" onClose={onClose}>
       <ModalHeader
         glyph="M"
-        title={initial ? "编辑模型接口" : "新建模型接口"}
-        subtitle="API Key 仅保存到 macOS Keychain。"
+        title={initial ? "编辑模型" : "新建模型"}
+        subtitle="API Key 保存在 macOS Keychain。"
         onClose={onClose}
       />
       <div className="mux-model-form">
@@ -353,7 +389,7 @@ function ModelProfileDialog({
             <span>名称</span>
             <input
               autoFocus
-              className={fieldClass}
+              className="mux-model-field"
               value={draft.name}
               onChange={(event) => setDraft({ ...draft, name: event.target.value })}
               placeholder="公司网关"
@@ -362,7 +398,7 @@ function ModelProfileDialog({
           <label>
             <span>ID</span>
             <input
-              className={fieldClass}
+              className="mux-model-field"
               value={draft.id}
               disabled={Boolean(initial)}
               onChange={(event) => setDraft({ ...draft, id: event.target.value.toLowerCase() })}
@@ -391,7 +427,7 @@ function ModelProfileDialog({
         <label>
           <span>Base URL</span>
           <input
-            className={fieldClass}
+            className="mux-model-field"
             value={draft.base_url}
             onChange={(event) => setDraft({ ...draft, base_url: event.target.value })}
             placeholder="https://api.example.com/v1"
@@ -402,7 +438,7 @@ function ModelProfileDialog({
         <label>
           <span>模型 ID</span>
           <input
-            className={fieldClass}
+            className="mux-model-field"
             value={draft.model}
             onChange={(event) => setDraft({ ...draft, model: event.target.value })}
             placeholder="model-name"
@@ -415,7 +451,7 @@ function ModelProfileDialog({
           <input
             type="password"
             autoComplete="new-password"
-            className={fieldClass}
+            className="mux-model-field"
             value={credential}
             disabled={clearCredential}
             onChange={(event) => setCredential(event.target.value)}
@@ -424,7 +460,7 @@ function ModelProfileDialog({
         </label>
 
         {initial?.credential_saved && (
-          <label className="mux-model-clear-key">
+          <label className="mux-model-check">
             <input
               type="checkbox"
               checked={clearCredential}
@@ -434,49 +470,41 @@ function ModelProfileDialog({
           </label>
         )}
 
-        <div className="mux-model-form-grid">
-          <label>
-            <span>上下文窗口（Pi）</span>
+        <details className="mux-model-advanced">
+          <summary>Pi 高级设置</summary>
+          <div className="mux-model-form-grid">
+            <label>
+              <span>上下文窗口</span>
+              <input
+                type="number"
+                min={1}
+                className="mux-model-field"
+                value={draft.context_window ?? ""}
+                onChange={(event) => setDraft({ ...draft, context_window: event.target.value ? Number(event.target.value) : undefined })}
+                placeholder="128000"
+              />
+            </label>
+            <label>
+              <span>最大输出</span>
+              <input
+                type="number"
+                min={1}
+                className="mux-model-field"
+                value={draft.max_output_tokens ?? ""}
+                onChange={(event) => setDraft({ ...draft, max_output_tokens: event.target.value ? Number(event.target.value) : undefined })}
+                placeholder="16384"
+              />
+            </label>
+          </div>
+          <label className="mux-model-check">
             <input
-              type="number"
-              min={1}
-              className={fieldClass}
-              value={draft.context_window ?? ""}
-              onChange={(event) =>
-                setDraft({
-                  ...draft,
-                  context_window: event.target.value ? Number(event.target.value) : undefined,
-                })
-              }
-              placeholder="128000"
+              type="checkbox"
+              checked={draft.reasoning}
+              onChange={(event) => setDraft({ ...draft, reasoning: event.target.checked })}
             />
+            推理模型
           </label>
-          <label>
-            <span>最大输出（Pi）</span>
-            <input
-              type="number"
-              min={1}
-              className={fieldClass}
-              value={draft.max_output_tokens ?? ""}
-              onChange={(event) =>
-                setDraft({
-                  ...draft,
-                  max_output_tokens: event.target.value ? Number(event.target.value) : undefined,
-                })
-              }
-              placeholder="16384"
-            />
-          </label>
-        </div>
-
-        <label className="mux-model-clear-key">
-          <input
-            type="checkbox"
-            checked={draft.reasoning}
-            onChange={(event) => setDraft({ ...draft, reasoning: event.target.checked })}
-          />
-          推理模型（Pi）
-        </label>
+        </details>
       </div>
       <footer className="mux-model-form-footer">
         <button type="button" className="btn-ghost" onClick={onClose}>取消</button>

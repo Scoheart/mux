@@ -46,13 +46,16 @@ A one-click **Mux 精选 (curated collection)** subscribes you to a curated set.
 - **Paste a config** — drop a `{"mcpServers": {…}}` block and MUX recognizes the servers and adds them.
 - **Edits propagate** — changing a catalog entry's connection config re-stamps it into every active global install, including drifted copies; failed targets are reported instead of silently counted as synced.
 - **Safe, local writes** — MUX reads and edits only the configured MCP entry on this machine. It never uploads the complete agent config. Existing files are backed up first, then atomically replaced only if they have not changed concurrently; unrelated keys, comments, formatting, servers, policy fields, permissions, and symlinks are preserved.
-- **Reusable model endpoints (preview)** — define a protocol, Base URL, model ID, and optional token limits once, then apply compatible profiles to Claude Code, Codex, or Pi. API keys are stored only in macOS Keychain.
+- **Unified agent configuration center** — see the verified agent/model path and MCP path together, then assign a compatible model and manage MCPs without switching workflows.
+- **Reusable model endpoints (preview)** — define a protocol, Base URL, model ID, and optional token limits once, then apply compatible profiles from Models or a supported Agent page. API keys are stored only in macOS Keychain.
 - **CLI ⇄ Desktop in sync** — both are built on one shared Rust core (`mux-core`) and read/write `~/.mux/`, so a change in one shows up in the other.
-- **Dark mode** and a macOS "liquid glass" UI.
+- **Dark mode** and a compact, consistent resource workspace for MCPs and Models.
 
 ## Screenshots
 
 ![MUX MCP catalog with source and conflict visibility](website/public/img/mcps-overview.png)
+
+![MUX reusable model endpoints and agent assignments](website/public/img/model-endpoints.png)
 
 ![QoderWork MCP configuration managed by MUX](website/public/img/qoderwork-config.png)
 
@@ -61,9 +64,9 @@ filtering, and shadowed-configuration screenshots.
 
 ## Supported agents
 
-MUX retains **191 distinct MCP client records** for discovery and verification. Of those, **39 are deeply audited definitions** and **38 have verified, writable global config targets** with native JSON, TOML, or YAML schemas; only those writable targets appear in the desktop Agent picker. MUX never guesses a path or writes a generic schema into the remaining discovery-only records.
+MUX retains **192 distinct MCP client records** for discovery and verification. Of those, **40 are deeply audited definitions** and **39 have verified, writable global config targets** with native JSON, TOML, or YAML schemas; only those writable targets appear in the desktop Agent picker. MUX never guesses a path or writes a generic schema into the remaining discovery-only records.
 
-Audited targets include Claude Code/Desktop, Codex, Cursor, VS Code, Zed, Windsurf, Gemini CLI, Google Antigravity, Amazon Q, OpenCode, Copilot CLI, Cline, Continue, Goose, Hermes, Kimi Code, Qwen Code, QoderWork, Mistral Vibe, Rovo Dev, Tabnine, LM Studio, and others. Claude Desktop and BoltAI local files accept stdio only. Pi is explicitly labeled as a community `pi-mcp-adapter` target because Pi core does not ship MCP support. Devin remains discovery-only because no stable user-level global config file is documented.
+Audited targets include Claude Code/Desktop, Codex, Cursor, VS Code, Zed, Windsurf, Gemini CLI, Google Antigravity, Amazon Q, OpenCode, Copilot CLI, Cline, Continue, Goose, Hermes, Kimi Code, Qwen Code, Qoder Desktop, Qoder CLI, QoderWork, Mistral Vibe, Rovo Dev, Tabnine, LM Studio, and others. Claude Desktop and BoltAI local files accept stdio only. Pi is explicitly labeled as a community `pi-mcp-adapter` target because Pi core does not ship MCP support. Devin remains discovery-only because no stable user-level global config file is documented.
 
 See the [complete audited matrix](website/guide/agents.md) and [catalog methodology](docs/agent-catalog.md). Every writable target's global path remains editable; paths inside the home directory are normalized to the portable `~/…` form.
 

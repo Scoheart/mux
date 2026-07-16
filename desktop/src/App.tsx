@@ -14,6 +14,8 @@ import type { Transport } from "./lib/mcp";
 
 function App() {
   const [view, setView] = useState<View>({ kind: "registry" });
+  /** Where to return after closing the full-page MCP editor. */
+  const [editReturn, setEditReturn] = useState<View>({ kind: "registry" });
   const [addAgentOpen, setAddAgentOpen] = useState(false);
   const [mcpEditor, setMcpEditor] = useState<{
     name: string | null;
@@ -24,17 +26,31 @@ function App() {
   // 启动后静默安装/修复 ~/.local/bin/mux 软链（装 App 即带 CLI）。
   useCliTool();
 
+  const openEditor = (name: string | null, transport?: "stdio" | "http") => {
+    setEditReturn(view);
+    setView({ kind: "mcp-edit", name, transport });
+  };
+
+  const goRegistry = () => setView({ kind: "registry" });
+  const goModels = () => setView({ kind: "models" });
+
+  // Full-page MCP editor — rendered without the top tab bar.
+  if (view.kind === "mcp-edit") {
+    return (
+      <>
+        <UpdateBanner updater={updater} />
+        <RegistryEditPage
+          state={state}
+          name={view.name}
+          transport={view.transport}
+          onBack={() => setView(editReturn)}
+        />
+      </>
+    );
+  }
+
   return (
-    <Layout
-      updater={updater}
-      agents={state.agents}
-      view={view}
-      onSelectRegistry={() => setView({ kind: "registry" })}
-      onSelectModels={() => setView({ kind: "models" })}
-      onSelectAgent={(id) => setView({ kind: "agent", id })}
-      onAddAgent={() => setAddAgentOpen(true)}
-      onRescan={state.refreshAll}
-    >
+    <Layout updater={updater} onRescan={state.refreshAll}>
       {state.loading ? (
         <div
           className="flex items-center justify-center h-full text-sm"
@@ -45,16 +61,27 @@ function App() {
       ) : view.kind === "registry" ? (
         <RegistryView
           state={state}
-          onEdit={(name, transport) => setMcpEditor({ name, transport })}
-          onCreate={() => setMcpEditor({ name: null })}
+          onEdit={(name, transport) => openEditor(name, transport)}
+          onCreate={() => openEditor(null)}
+          onSelectAgent={(id) => setView({ kind: "agent", id })}
+          onAddAgent={() => setAddAgentOpen(true)}
+          onSelectModels={goModels}
         />
       ) : view.kind === "models" ? (
-        <ModelsView />
+        <ModelsView
+          state={state}
+          onSelectMcps={goRegistry}
+          onSelectAgent={(id) => setView({ kind: "agent", id })}
+          onAddAgent={() => setAddAgentOpen(true)}
+        />
       ) : (
         <AgentView
           state={state}
           agentId={view.id}
-          onOpenModels={() => setView({ kind: "models" })}
+          onSelectAgent={(id) => setView({ kind: "agent", id })}
+          onAddAgent={() => setAddAgentOpen(true)}
+          onSelectMcps={goRegistry}
+          onSelectModels={goModels}
         />
       )}
 

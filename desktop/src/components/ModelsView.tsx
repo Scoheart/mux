@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import type { InstallState } from "../hooks/useInstallState";
 import {
   applyModelProfile,
   deleteModelProfile,
@@ -15,7 +16,7 @@ import type {
 } from "../lib/types";
 import { formatError } from "../lib/format";
 import { AgentGlyph } from "./brandIcons";
-import { Avatar, Badge, IconButton, Modal, ModalHeader } from "./ui";
+import { Avatar, Badge, IconButton, Modal, ModalHeader, SearchBar } from "./ui";
 import {
   CheckIcon,
   EditIcon,
@@ -26,17 +27,15 @@ import {
   XIcon,
 } from "./icons";
 import { useToast } from "./Toast";
+import { AgentPicker } from "./AgentPicker";
+import { FeatureShell } from "./FeatureShell";
+import { SelectMenu } from "./SelectMenu";
 import {
   AgentStack,
   InspectorField,
   InspectorSection,
   ResourceEmpty,
-  ResourceGrid,
   ResourceInspector,
-  ResourceWorkspace,
-  SidebarItem,
-  SidebarSection,
-  WorkspaceSidebar,
 } from "./ResourceWorkspace";
 
 const PROTOCOLS: Array<{ id: ModelProtocol; label: string }> = [
@@ -60,9 +59,17 @@ function protocolLabel(protocol: ModelProtocol) {
   return PROTOCOLS.find((item) => item.id === protocol)?.label ?? protocol;
 }
 
-export function ModelsView() {
+interface ModelsViewProps {
+  state: InstallState;
+  onSelectMcps: () => void;
+  onSelectAgent: (id: string) => void;
+  onAddAgent?: () => void;
+}
+
+export function ModelsView({ state, onSelectMcps, onSelectAgent, onAddAgent }: ModelsViewProps) {
+  const { agents } = state;
   const [profiles, setProfiles] = useState<ModelProfileView[]>([]);
-  const [agents, setAgents] = useState<ModelAgentView[]>([]);
+  const [modelAgents, setModelAgents] = useState<ModelAgentView[]>([]);
   const [selectedProfileId, setSelectedProfileId] = useState<string | null>(null);
   const [editing, setEditing] = useState<ModelProfileView | null | undefined>(undefined);
   const [busyAgent, setBusyAgent] = useState<string | null>(null);
@@ -78,7 +85,7 @@ export function ModelsView() {
       listModelAgents(),
     ]);
     setProfiles(nextProfiles);
-    setAgents(nextAgents);
+    setModelAgents(nextAgents);
     setSelectedProfileId((current) =>
       current && nextProfiles.some((profile) => profile.id === current) ? current : null
     );
@@ -90,21 +97,23 @@ export function ModelsView() {
         toast.show({ kind: "error", msg: "读取模型配置失败：" + formatError(error) })
       )
       .finally(() => setLoading(false));
-  }, [refresh]);
+  }, [refresh, toast]);
 
   const agentsByProfile = useMemo(() => {
     const map = new Map<string, ModelAgentView[]>();
-    for (const agent of agents) {
+    for (const agent of modelAgents) {
       if (!agent.assigned_profile) continue;
       const rows = map.get(agent.assigned_profile) ?? [];
       rows.push(agent);
       map.set(agent.assigned_profile, rows);
     }
     return map;
-  }, [agents]);
+  }, [modelAgents]);
 
   const statusCounts = useMemo(() => {
-    const assigned = profiles.filter((profile) => (agentsByProfile.get(profile.id)?.length ?? 0) > 0).length;
+    const assigned = profiles.filter(
+      (profile) => (agentsByProfile.get(profile.id)?.length ?? 0) > 0
+    ).length;
     return { all: profiles.length, assigned, unassigned: profiles.length - assigned };
   }, [agentsByProfile, profiles]);
 
@@ -140,7 +149,7 @@ export function ModelsView() {
     if (!window.confirm(`删除模型「${profile.name}」？Agent 配置文件不会被回滚。`)) return;
     try {
       await deleteModelProfile(profile.id);
-      setSelectedProfileId((current) => current === profile.id ? null : current);
+      setSelectedProfileId((current) => (current === profile.id ? null : current));
       await refresh();
       toast.show({ kind: "success", msg: `已删除：${profile.name}` });
     } catch (error) {
@@ -153,7 +162,8 @@ export function ModelsView() {
       !window.confirm(
         `将「${profile.name}」应用到 ${agent.name}？\n\n目标：${agent.config_path}\nMUX 会先创建备份。`
       )
-    ) return;
+    )
+      return;
     setBusyAgent(agent.id);
     try {
       const result = await applyModelProfile(agent.id, profile.id);
@@ -167,110 +177,145 @@ export function ModelsView() {
   };
 
   if (loading) {
-    return <div className="mux-loading">加载中…</div>;
+    return (
+      <FeatureShell active="models" onSelectMcps={onSelectMcps} onSelectModels={() => {}}>
+        <div className="py-16 text-sm text-center" style={{ color: "var(--text-secondary)" }}>
+          加载中…
+        </div>
+      </FeatureShell>
+    );
   }
 
   return (
-    <ResourceWorkspace
+    <FeatureShell
+      active="models"
+      onSelectMcps={onSelectMcps}
+      onSelectModels={() => {}}
       sidebar={
-        <WorkspaceSidebar title="Models" count={profiles.length}>
-          <SidebarSection title="状态">
-            <SidebarItem
+        <aside className="mux-feature-sidebar">
+          <div className="flex items-center gap-1.5 px-3 pt-3.5 pb-2">
+            <span
+              className="text-xs font-semibold uppercase flex-1"
+              style={{ color: "var(--text-secondary)", letterSpacing: "0.06em" }}
+            >
+              Models
+            </span>
+            <span className="text-[10px] tabular-nums" style={{ color: "var(--text-secondary)" }}>
+              {profiles.length} 项
+            </span>
+          </div>
+
+          <div className="flex-1 min-h-0 overflow-y-auto px-2 pb-3 mux-noscroll">
+            <div className="mux-feature-sidebar-section">状态</div>
+            <FilterRow
               active={statusFilter === "all"}
               icon={<LayersIcon className="w-3.5 h-3.5" />}
-              label="全部"
+              name="全部"
               count={statusCounts.all}
               onClick={() => setStatusFilter("all")}
             />
-            <SidebarItem
+            <FilterRow
               active={statusFilter === "assigned"}
               icon={<CheckIcon className="w-3.5 h-3.5" />}
-              label="已分配"
+              name="已分配"
               count={statusCounts.assigned}
               onClick={() => setStatusFilter("assigned")}
             />
-            <SidebarItem
+            <FilterRow
               active={statusFilter === "unassigned"}
               icon={<XIcon className="w-3.5 h-3.5" />}
-              label="未分配"
+              name="未分配"
               count={statusCounts.unassigned}
               onClick={() => setStatusFilter("unassigned")}
             />
-          </SidebarSection>
-          <SidebarSection title="协议">
-            <SidebarItem
+
+            <div className="my-2 mx-2 h-px" style={{ background: "var(--border-hairline)" }} />
+
+            <div className="mux-feature-sidebar-section">协议</div>
+            <FilterRow
               active={protocolFilter === null}
               icon={<LayersIcon className="w-3.5 h-3.5" />}
-              label="全部协议"
+              name="全部协议"
               count={profiles.length}
               onClick={() => setProtocolFilter(null)}
             />
             {PROTOCOLS.map((protocol) => (
-              <SidebarItem
+              <FilterRow
                 key={protocol.id}
                 active={protocolFilter === protocol.id}
                 icon={<span className="mux-model-protocol-dot" data-protocol={protocol.id} />}
-                label={protocol.label}
+                name={protocol.label}
                 count={protocolCounts[protocol.id]}
                 onClick={() => setProtocolFilter(protocol.id)}
               />
             ))}
-          </SidebarSection>
-        </WorkspaceSidebar>
+          </div>
+        </aside>
       }
-      query={query}
-      onQueryChange={setQuery}
-      searchPlaceholder="搜索模型"
-      toolbarActions={
-        <button className="btn-primary" type="button" onClick={() => setEditing(null)}>
-          <PlusIcon className="w-4 h-4" />
-          新建模型
-        </button>
+      toolbar={
+        <div className="mux-feature-chrome-toolbar">
+          <AgentPicker
+            agents={agents}
+            selectedId={null}
+            onSelect={onSelectAgent}
+            onAddAgent={onAddAgent}
+          />
+          <div className="flex-1 min-w-[160px]">
+            <SearchBar value={query} onChange={setQuery} placeholder="搜索模型" />
+          </div>
+          <button className="btn-primary flex-shrink-0" type="button" onClick={() => setEditing(null)}>
+            <PlusIcon className="w-4 h-4" />
+            新建模型
+          </button>
+        </div>
       }
-      inspector={
-        selectedProfile ? (
+    >
+      <div className="mux-feature-stage">
+        <div className="mux-feature-stage-scroll">
+          {filteredProfiles.length === 0 ? (
+            <ResourceEmpty
+              icon={<LayersIcon className="w-6 h-6" />}
+              title={profiles.length === 0 ? "暂无模型" : "没有匹配项"}
+              detail={profiles.length === 0 ? "创建模型后即可分配给 Agent" : undefined}
+              action={
+                profiles.length === 0 ? (
+                  <button className="btn-primary" type="button" onClick={() => setEditing(null)}>
+                    <PlusIcon className="w-4 h-4" />
+                    新建模型
+                  </button>
+                ) : undefined
+              }
+            />
+          ) : (
+            <div className="mux-grid">
+              {filteredProfiles.map((profile) => (
+                <ModelCard
+                  key={profile.id}
+                  profile={profile}
+                  selected={profile.id === selectedProfileId}
+                  agentIds={(agentsByProfile.get(profile.id) ?? []).map((agent) => agent.id)}
+                  onOpen={() => setSelectedProfileId(profile.id)}
+                  onEdit={() => setEditing(profile)}
+                  onDelete={() => void removeProfile(profile)}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+
+        {selectedProfile && (
           <ModelInspector
             profile={selectedProfile}
             profiles={profiles}
-            agents={agents}
+            agents={modelAgents}
             busyAgent={busyAgent}
             onApply={apply}
             onClose={() => setSelectedProfileId(null)}
             onEdit={() => setEditing(selectedProfile)}
             onDelete={() => void removeProfile(selectedProfile)}
           />
-        ) : undefined
-      }
-    >
-      {filteredProfiles.length === 0 ? (
-        <ResourceEmpty
-          icon={<LayersIcon className="w-6 h-6" />}
-          title={profiles.length === 0 ? "暂无模型" : "没有匹配项"}
-          detail={profiles.length === 0 ? "创建模型后即可分配给 Agent" : undefined}
-          action={
-            profiles.length === 0 ? (
-              <button className="btn-primary" type="button" onClick={() => setEditing(null)}>
-                <PlusIcon className="w-4 h-4" />
-                新建模型
-              </button>
-            ) : undefined
-          }
-        />
-      ) : (
-        <ResourceGrid>
-          {filteredProfiles.map((profile) => (
-            <ModelCard
-              key={profile.id}
-              profile={profile}
-              selected={profile.id === selectedProfileId}
-              agentIds={(agentsByProfile.get(profile.id) ?? []).map((agent) => agent.id)}
-              onOpen={() => setSelectedProfileId(profile.id)}
-              onEdit={() => setEditing(profile)}
-              onDelete={() => void removeProfile(profile)}
-            />
-          ))}
-        </ResourceGrid>
-      )}
+        )}
+      </div>
 
       {editing !== undefined && (
         <ModelProfileDialog
@@ -282,7 +327,49 @@ export function ModelsView() {
           }}
         />
       )}
-    </ResourceWorkspace>
+    </FeatureShell>
+  );
+}
+
+function FilterRow({
+  active,
+  icon,
+  name,
+  count,
+  onClick,
+}: {
+  active: boolean;
+  icon: React.ReactNode;
+  name: string;
+  count: number;
+  onClick: () => void;
+}) {
+  return (
+    <div
+      className="mux-src-row group flex items-center gap-2 px-2.5 rounded-mac cursor-pointer"
+      data-active={active ? "true" : undefined}
+      onClick={onClick}
+      title={name}
+    >
+      <span
+        className="flex-shrink-0"
+        style={{ color: active ? "var(--color-blue)" : "var(--text-secondary)" }}
+      >
+        {icon}
+      </span>
+      <span
+        className="text-[13px] truncate flex-1"
+        style={{ color: "var(--text-primary)", fontWeight: active ? 600 : 400 }}
+      >
+        {name}
+      </span>
+      <span
+        className="text-[11px] tabular-nums flex-shrink-0"
+        style={{ color: "var(--text-secondary)" }}
+      >
+        {count}
+      </span>
+    </div>
   );
 }
 
@@ -402,8 +489,12 @@ function ModelInspector({
       }
     >
       <InspectorSection title="接口">
-        <InspectorField label="模型 ID" mono>{profile.model}</InspectorField>
-        <InspectorField label="Base URL" mono>{profile.base_url}</InspectorField>
+        <InspectorField label="模型 ID" mono>
+          {profile.model}
+        </InspectorField>
+        <InspectorField label="Base URL" mono>
+          {profile.base_url}
+        </InspectorField>
         <InspectorField label="API Key">
           <span className={profile.credential_saved ? "mux-status-ok" : "mux-status-muted"}>
             {profile.credential_saved ? "已保存到 Keychain" : "未保存"}
@@ -426,7 +517,13 @@ function ModelInspector({
                 <div className="min-w-0 flex-1">
                   <strong>{agent.name}</strong>
                   <span>
-                    {assigned ? "当前使用" : current ? `当前：${current}` : agent.installed ? "尚未配置" : "未检测到"}
+                    {assigned
+                      ? "当前使用"
+                      : current
+                        ? `当前：${current}`
+                        : agent.installed
+                          ? "尚未配置"
+                          : "未检测到"}
                   </span>
                 </div>
                 {agent.mode === "guided" ? (
@@ -435,7 +532,10 @@ function ModelInspector({
                     设置
                   </button>
                 ) : assigned ? (
-                  <span className="mux-applied-label"><CheckIcon className="w-3.5 h-3.5" />已应用</span>
+                  <span className="mux-applied-label">
+                    <CheckIcon className="w-3.5 h-3.5" />
+                    已应用
+                  </span>
                 ) : (
                   <button
                     type="button"
@@ -533,15 +633,16 @@ function ModelProfileDialog({
 
         <label>
           <span>协议</span>
-          <select
-            className="mux-model-field"
+          <SelectMenu
+            stretch
+            aria-label="协议"
             value={draft.protocol}
-            onChange={(event) => setDraft({ ...draft, protocol: event.target.value as ModelProtocol })}
-          >
-            {PROTOCOLS.map((protocol) => (
-              <option key={protocol.id} value={protocol.id}>{protocol.label}</option>
-            ))}
-          </select>
+            options={PROTOCOLS.map((protocol) => ({
+              value: protocol.id,
+              label: protocol.label,
+            }))}
+            onChange={(next) => setDraft({ ...draft, protocol: next as ModelProtocol })}
+          />
         </label>
 
         <label>
@@ -600,7 +701,12 @@ function ModelProfileDialog({
                 min={1}
                 className="mux-model-field"
                 value={draft.context_window ?? ""}
-                onChange={(event) => setDraft({ ...draft, context_window: event.target.value ? Number(event.target.value) : undefined })}
+                onChange={(event) =>
+                  setDraft({
+                    ...draft,
+                    context_window: event.target.value ? Number(event.target.value) : undefined,
+                  })
+                }
                 placeholder="128000"
               />
             </label>
@@ -611,7 +717,12 @@ function ModelProfileDialog({
                 min={1}
                 className="mux-model-field"
                 value={draft.max_output_tokens ?? ""}
-                onChange={(event) => setDraft({ ...draft, max_output_tokens: event.target.value ? Number(event.target.value) : undefined })}
+                onChange={(event) =>
+                  setDraft({
+                    ...draft,
+                    max_output_tokens: event.target.value ? Number(event.target.value) : undefined,
+                  })
+                }
                 placeholder="16384"
               />
             </label>
@@ -627,7 +738,9 @@ function ModelProfileDialog({
         </details>
       </div>
       <footer className="mux-model-form-footer">
-        <button type="button" className="btn-ghost" onClick={onClose}>取消</button>
+        <button type="button" className="btn-ghost" onClick={onClose}>
+          取消
+        </button>
         <button type="button" className="btn-primary" disabled={!valid} onClick={() => void save()}>
           {busy ? "保存中…" : "保存"}
         </button>

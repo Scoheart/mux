@@ -2,9 +2,10 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 @theme {
-  --color-blue: #007AFF;
-  --color-blue-hover: #0066D6;
-  --color-blue-press: #0051A3;
+  /* Brand accent — match website violet (`website/.vitepress/theme/custom.css`) */
+  --color-blue: #7c5cfc;
+  --color-blue-hover: #9178ff;
+  --color-blue-press: #6346e8;
   --color-green: #34C759;
   --color-red: #FF3B30;
   --color-gray-50: #F5F5F7;
@@ -30,17 +31,18 @@
   --surface-app: #F5F6F8;
   --surface-raised: #FFFFFF;
   --surface-popover: #FFFFFF;
-  --surface-sidebar: #F0F2F5;
-  --surface-overlay: #FFFFFF;
-  --text-primary: #1D2025;
-  --text-secondary: #69707A;
-  --border-hairline: #DDE1E7;
-  --header-bg: #FFFFFF;
-  --status-shadowed: #5654B8;
-  --status-shadowed-bg: rgba(94,92,230,.10);
-  --status-shadowed-border: rgba(94,92,230,.28);
-  --status-shadowed-surface: rgba(246,246,255,.76);
-  --status-shadowed-surface-hover: rgba(241,241,255,.92);
+  --surface-sidebar: rgba(250,250,252,.72);
+  /* Opaque-ish overlay for modals/drawers (kept legible over the dim backdrop). */
+  --surface-overlay: rgba(255,255,255,.82);
+  --text-primary: var(--color-gray-900);
+  --text-secondary: var(--color-gray-400);
+  --border-hairline: var(--color-gray-200);
+  --header-bg: rgba(245,245,247,.55);
+  --status-shadowed: #6346e8;
+  --status-shadowed-bg: rgba(124, 92, 252, 0.10);
+  --status-shadowed-border: rgba(124, 92, 252, 0.28);
+  --status-shadowed-surface: rgba(246, 244, 255, 0.76);
+  --status-shadowed-surface-hover: rgba(240, 237, 255, 0.92);
   color-scheme: light;
 
   --glass-fill: #FFFFFF;
@@ -53,39 +55,42 @@
   --glass-shadow: 0 1px 2px rgba(20, 25, 32, .04);
 }
 
-/* Dark theme — toggled by adding `.dark` on <html>. Overrides the semantic +
-   gray tokens so everything built on var() flips; brand accents stay as-is. */
+/* Dark theme — aligned with website VitePress dark + mux-panel (#16181d) */
 .dark {
   color-scheme: dark;
-  --color-gray-50:  #161618;
-  --color-gray-100: #1C1C1E;
-  --color-gray-150: #2C2C2E;
-  --color-gray-200: #38383A;
-  --color-gray-400: #8E8E93;
-  --color-gray-600: #A1A1A6;
-  --color-gray-900: #F5F5F7;
+  --color-blue: #9b85ff;
+  --color-blue-hover: #b4a6ff;
+  --color-blue-press: #7c5cfc;
 
-  --surface-app: #161618;
-  --surface-raised: #1F1F22;
-  --surface-popover: #242427;
-  --surface-sidebar: #1B1D20;
-  --surface-overlay: #24272B;
-  --text-primary: #F5F5F7;
-  --text-secondary: #98989D;
-  --border-hairline: #3A3A3C;
-  --header-bg: #1F2125;
+  --color-gray-50:  #1b1b1f;
+  --color-gray-100: #202127;
+  --color-gray-150: #2a2b32;
+  --color-gray-200: #3a3a42;
+  --color-gray-400: #9898a0;
+  --color-gray-600: #a8a8b0;
+  --color-gray-900: #f5f5f7;
 
-  --glass-fill: #24272B;
-  --glass-fill-strong: #292C31;
-  --glass-border: #34383F;
-  --glass-highlight: none;
-  --glass-shadow: 0 1px 2px rgba(0,0,0,.28);
+  --surface-app: #1b1b1f;
+  --surface-raised: #22232a;
+  --surface-popover: #272830;
+  --surface-sidebar: rgba(22, 24, 29, 0.86);
+  --surface-overlay: rgba(34, 35, 42, 0.90);
+  --text-primary: #f5f5f7;
+  --text-secondary: #9898a0;
+  --border-hairline: #2e2e36;
+  --header-bg: rgba(27, 27, 31, 0.72);
 
-  --status-shadowed: #A7A5FF;
-  --status-shadowed-bg: rgba(94,92,230,.18);
-  --status-shadowed-border: rgba(167,165,255,.34);
-  --status-shadowed-surface: rgba(42,41,68,.82);
-  --status-shadowed-surface-hover: rgba(50,48,82,.90);
+  --glass-fill: rgba(39, 40, 48, 0.52);
+  --glass-fill-strong: rgba(34, 35, 42, 0.72);
+  --glass-border: rgba(255, 255, 255, 0.08);
+  --glass-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.07);
+  --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.45), 0 2px 8px rgba(0, 0, 0, 0.35);
+
+  --status-shadowed: #b4a6ff;
+  --status-shadowed-bg: rgba(124, 92, 252, 0.18);
+  --status-shadowed-border: rgba(155, 133, 255, 0.34);
+  --status-shadowed-surface: rgba(42, 38, 68, 0.82);
+  --status-shadowed-surface-hover: rgba(52, 46, 82, 0.90);
 }
 
 /* Forced light: the chosen aesthetic is "macOS 原生浅色". We intentionally do
@@ -161,7 +166,151 @@ body {
 .mux-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  align-items: stretch;
   gap: 10px;
+}
+.mux-grid .mux-tile { min-height: 158px; }
+
+/* Registry card internals — endpoint strip + footer pinned to card bottom. */
+.mux-resource-endpoint {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  height: 30px;
+  margin-top: 11px;
+  padding: 0 8px;
+  border: 1px solid var(--border-hairline);
+  border-radius: 6px;
+  background: var(--surface-app);
+  color: var(--text-secondary);
+}
+.mux-resource-endpoint span {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 10px/1 var(--font-mono);
+}
+.mux-resource-card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 35px;
+  margin-top: auto;
+  padding-top: 9px;
+  border-top: 1px solid var(--border-hairline);
+}
+.mux-resource-card-actions { display: flex; align-items: center; gap: 1px; }
+.mux-resource-card-actions .mux-icon-btn { width: 27px; height: 27px; border-radius: 6px; }
+.mux-resource-empty {
+  display: flex;
+  min-height: 300px;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 8px;
+  color: var(--text-secondary);
+  text-align: center;
+}
+.mux-resource-empty-icon { display: inline-flex; margin-bottom: 3px; opacity: .55; }
+.mux-resource-empty strong { color: var(--text-primary); font-size: 13px; }
+.mux-resource-empty > span:not(.mux-resource-empty-icon) { font-size: 11px; }
+.mux-resource-empty .btn-primary { margin-top: 6px; }
+.mux-agent-stack {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 7px;
+  color: var(--text-secondary);
+  font-size: 10px;
+  white-space: nowrap;
+}
+.mux-agent-stack-icons { display: inline-flex; align-items: center; padding-left: 1px; }
+.mux-agent-stack-icon {
+  display: inline-flex;
+  margin-left: -5px;
+  border: 2px solid var(--surface-raised);
+  border-radius: 7px;
+}
+.mux-agent-stack-icon:first-child { margin-left: 0; }
+.mux-resource-usage-empty { color: var(--text-secondary); font-size: 10px; }
+
+/* Detail inspector — right pane inside feature body (author ResourceWorkspace parity). */
+.mux-feature-stage {
+  display: flex;
+  align-items: stretch;
+  width: 100%;
+  min-height: 0;
+}
+.mux-feature-stage-scroll {
+  flex: 1;
+  min-width: 0;
+}
+.mux-resource-inspector {
+  display: flex;
+  width: 390px;
+  min-width: 390px;
+  min-height: 0;
+  flex-direction: column;
+  border-left: 1px solid var(--border-hairline);
+  background: var(--surface-raised);
+  box-shadow: -8px 0 24px rgba(20, 25, 32, .04);
+}
+.mux-resource-inspector-head {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  min-height: 68px;
+  padding: 13px 14px;
+  border-bottom: 1px solid var(--border-hairline);
+}
+.mux-resource-inspector-head h2 {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 680;
+}
+.mux-resource-inspector-subtitle { margin-top: 5px; }
+.mux-inspector-close {
+  display: inline-flex;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+.mux-inspector-close:hover { background: var(--color-gray-150); color: var(--text-primary); }
+.mux-resource-inspector-body { flex: 1; min-height: 0; overflow-y: auto; padding: 16px; }
+.mux-resource-inspector-footer {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 56px;
+  padding: 10px 14px;
+  border-top: 1px solid var(--border-hairline);
+  background: var(--surface-app);
+}
+
+/* Sidebar section labels inside feature sidebar. */
+.mux-feature-sidebar-section {
+  padding: 10px 12px 4px;
+  color: var(--text-secondary);
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 
 /* Conflict is the only exceptional catalog state exposed as a filter. */
@@ -277,7 +426,7 @@ body {
   font: 500 10px/1 var(--font-mono);
 }
 
-/* Segmented control (top-bar tabs) */
+/* Segmented control (forms / editors) */
 .mux-seg {
   display: inline-flex; gap: 2px; padding: 3px;
   background: rgba(120,120,128,.16); border-radius: 10px;
@@ -302,6 +451,132 @@ body {
   line-height: 1;
 }
 
+/* Shared feature workspace: sidebar + main. MCPs / Models / future tabs all
+   mount here so switching only swaps pane content — chrome stays identical. */
+.mux-feature-shell {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+}
+.mux-feature-sidebar {
+  flex: 0 0 232px;
+  width: 232px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-right: 1px solid var(--border-hairline);
+  background: var(--surface-sidebar);
+}
+.mux-feature-main {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+}
+.mux-feature-chrome {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 24px;
+}
+.mux-feature-chrome-toolbar {
+  --mux-toolbar-control-height: 36px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+}
+.mux-feature-chrome-toolbar .mux-agent-picker-trigger {
+  height: var(--mux-toolbar-control-height);
+}
+.mux-feature-chrome-toolbar .mux-search,
+.mux-feature-chrome-toolbar .mux-search input {
+  height: var(--mux-toolbar-control-height);
+}
+.mux-feature-chrome-toolbar .btn-primary,
+.mux-feature-chrome-toolbar .btn-ghost {
+  box-sizing: border-box;
+  height: var(--mux-toolbar-control-height);
+  padding: 0 12px;
+}
+.mux-feature-chrome-toolbar .mux-icon-btn {
+  width: var(--mux-toolbar-control-height);
+  height: var(--mux-toolbar-control-height);
+}
+.mux-feature-body {
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  padding: 0;
+}
+.mux-feature-body > :not(.mux-feature-stage) {
+  width: min(100%, 1280px);
+  margin: 0 auto;
+  padding: 20px 24px 32px;
+}
+.mux-feature-body .mux-feature-stage-scroll {
+  width: min(100%, 1280px);
+  margin: 0 auto;
+  padding: 20px 24px 32px;
+}
+
+/* Compact segmented control — never stretch full-bleed across the main pane */
+.mux-feature-tabs {
+  display: inline-grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  align-items: stretch;
+  gap: 2px;
+  width: max-content;
+  max-width: 100%;
+  padding: 3px;
+  border-radius: 10px;
+  background: rgba(120, 120, 128, 0.16);
+  flex: 0 0 auto;
+}
+.mux-feature-tab {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  box-sizing: border-box;
+  height: 28px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--color-gray-600);
+  font: 600 12px/1 var(--font-sans);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background .14s ease, color .14s ease, box-shadow .14s ease;
+}
+.mux-feature-tab svg {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+}
+.mux-feature-tab:hover { color: var(--text-primary); }
+.mux-feature-tab[data-active="true"] {
+  background: var(--surface-raised);
+  color: var(--color-blue);
+  box-shadow: var(--shadow-card);
+}
+.mux-feature-tab-beta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 14px;
+  padding: 0 4px;
+  border: 1px solid color-mix(in srgb, currentColor 28%, transparent);
+  border-radius: 4px;
+  font-size: 8px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0.02em;
+}
+
 /* Source sidebar row (Registry left column) */
 .mux-src-row {
   height: 30px; /* fixed: hover swaps count → action buttons; must not change row height */
@@ -320,7 +595,7 @@ body {
 .mux-agent-picker-trigger {
   display: inline-flex; align-items: center; gap: 7px;
   width: clamp(300px, 28vw, 360px); height: 40px; padding: 0 10px;
-  border: 1px solid var(--border-hairline); border-radius: 8px;
+  border: 1px solid var(--border-hairline); border-radius: var(--radius-mac);
   background: var(--surface-raised); color: var(--text-primary);
   cursor: pointer; box-shadow: var(--shadow-card), var(--glass-highlight);
   transition: background .14s ease, border-color .14s ease, box-shadow .14s ease;
@@ -336,7 +611,10 @@ body {
 }
 .mux-agent-picker-trigger-copy {
   display: flex; flex: 1; min-width: 0; flex-direction: column; align-items: flex-start; gap: 3px;
-  text-align: left;
+  text-align: left; justify-content: center;
+}
+.mux-agent-picker-trigger[data-placeholder="true"] .mux-agent-picker-trigger-copy {
+  gap: 0;
 }
 .mux-agent-picker-trigger-name,
 .mux-agent-picker-trigger-meta {
@@ -344,6 +622,14 @@ body {
 }
 .mux-agent-picker-trigger-name { font: 650 12px/1 var(--font-sans); }
 .mux-agent-picker-trigger-meta { color: var(--text-secondary); font: 9px/1 var(--font-mono); }
+/* Match SearchBar placeholder: text-sm + muted secondary */
+.mux-agent-picker-trigger-placeholder {
+  display: block; width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: var(--text-secondary); font: 400 12px/1 var(--font-sans);
+}
+.mux-agent-picker-bot {
+  width: 16px; height: 16px; flex: 0 0 auto; color: var(--text-secondary);
+}
 .mux-agent-picker-chevron {
   width: 14px; height: 14px; flex: 0 0 auto; color: var(--text-secondary);
   transition: transform .14s ease, color .14s ease;
@@ -352,17 +638,34 @@ body {
   color: var(--color-blue); transform: rotate(180deg);
 }
 .mux-agent-picker {
-  position: absolute; z-index: 520; top: calc(100% + 5px); right: 0;
-  width: 100%; max-height: min(590px, calc(100vh - 70px));
+  position: absolute; z-index: 520; top: calc(100% + 5px); left: 0; right: auto;
+  width: clamp(280px, 32vw, 360px); max-height: min(590px, calc(100vh - 70px));
   display: flex; flex-direction: column; overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--color-blue) 18%, var(--border-hairline)); border-radius: 9px;
   background: var(--surface-popover);
   box-shadow: 0 18px 44px rgba(24, 29, 43, .20), 0 4px 12px rgba(24, 29, 43, .10);
-  animation: mux-agent-picker-in .14s ease-out;
 }
-@keyframes mux-agent-picker-in {
-  from { opacity: 0; transform: translateY(-5px) scale(.992); }
-  to { opacity: 1; transform: translateY(0) scale(1); }
+.mux-agent-picker[data-align="right"] { left: auto; right: 0; }
+
+/* Shared dropdown open/close — expand from the trigger edge */
+.mux-dropdown-panel {
+  transform-origin: top center;
+  will-change: transform, opacity;
+}
+.mux-dropdown-panel[data-phase="open"] {
+  animation: mux-dropdown-in .16s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.mux-dropdown-panel[data-phase="closing"] {
+  animation: mux-dropdown-out .16s cubic-bezier(0.4, 0, 1, 1) both;
+  pointer-events: none;
+}
+@keyframes mux-dropdown-in {
+  from { opacity: 0; transform: translateY(-8px) scaleY(0.92); }
+  to { opacity: 1; transform: translateY(0) scaleY(1); }
+}
+@keyframes mux-dropdown-out {
+  from { opacity: 1; transform: translateY(0) scaleY(1); }
+  to { opacity: 0; transform: translateY(-6px) scaleY(0.94); }
 }
 .mux-agent-picker-row:focus-visible,
 .mux-agent-picker-footer button:focus-visible {
@@ -406,20 +709,43 @@ body {
   outline-offset: -2px;
 }
 .mux-agent-picker-list {
-  min-height: 220px; overflow-y: auto; padding: 4px 6px 7px;
+  min-height: 220px; overflow-y: auto; padding: 6px 8px 8px;
   border-top: 1px solid var(--border-hairline);
+  display: flex; flex-direction: column; gap: 4px;
 }
 .mux-agent-picker-row {
   display: flex; align-items: center; gap: 9px; width: 100%; min-height: 48px;
-  padding: 6px 8px; border: 0; border-radius: 6px; background: transparent;
-  color: var(--text-primary); text-align: left; cursor: pointer;
+  padding: 7px 9px; border: 1px solid var(--border-hairline); border-radius: var(--radius-mac);
+  background: var(--surface-raised); color: var(--text-primary); text-align: left; cursor: pointer;
+  transition: background .12s ease, border-color .12s ease;
 }
-.mux-agent-picker-row:hover { background: color-mix(in srgb, var(--text-primary) 6%, transparent); }
-.mux-agent-picker-row[data-active="true"] { background: color-mix(in srgb, var(--color-blue) 11%, transparent); }
-.mux-agent-picker-name,
-.mux-agent-picker-meta { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.mux-agent-picker-name { font-size: 12px; font-weight: 600; }
-.mux-agent-picker-meta { margin-top: 3px; color: var(--text-secondary); font: 10px/1 var(--font-mono); }
+.mux-agent-picker-row:hover {
+  background: color-mix(in srgb, var(--text-primary) 5%, var(--surface-raised));
+  border-color: color-mix(in srgb, var(--color-blue) 28%, var(--border-hairline));
+}
+.mux-agent-picker-row[data-active="true"] {
+  background: color-mix(in srgb, var(--color-blue) 11%, var(--surface-raised));
+  border-color: color-mix(in srgb, var(--color-blue) 42%, var(--border-hairline));
+}
+.mux-agent-picker-title {
+  display: flex; align-items: center; gap: 7px; min-width: 0;
+}
+.mux-agent-picker-name {
+  flex: 1; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 12px; font-weight: 600;
+}
+.mux-agent-picker-format {
+  display: inline-flex; align-items: center; flex: 0 0 auto; height: 16px; padding: 0 5px;
+  border: 1px solid color-mix(in srgb, var(--border-hairline) 90%, transparent);
+  border-radius: 4px; font: 650 9px/1 var(--font-mono); letter-spacing: 0.02em;
+  color: var(--text-secondary);
+}
+.mux-agent-picker-id {
+  display: block; margin-top: 4px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: var(--text-secondary); font: 10px/1 var(--font-mono);
+}
 .mux-agent-picker-check { width: 15px; height: 15px; flex: 0 0 auto; color: var(--color-blue); }
 .mux-agent-picker-empty { padding: 28px 12px; color: var(--text-secondary); font-size: 12px; text-align: center; }
 .mux-agent-picker-footer {
@@ -433,12 +759,76 @@ body {
 }
 .mux-agent-picker-footer button:hover { background: color-mix(in srgb, var(--color-blue) 9%, transparent); }
 
+/* Shared app select — same chrome as AgentPicker, used by Models and forms */
+.mux-select-anchor { position: relative; min-width: 0; }
+.mux-select-anchor[data-stretch="true"] { width: 100%; }
+.mux-select-trigger {
+  display: inline-flex; align-items: center; gap: 8px;
+  width: 100%; min-height: 36px; padding: 0 10px;
+  border: 1px solid var(--border-hairline); border-radius: var(--radius-mac);
+  background: var(--surface-raised); color: var(--text-primary);
+  cursor: pointer; box-shadow: var(--shadow-card), var(--glass-highlight);
+  transition: background .14s ease, border-color .14s ease, box-shadow .14s ease;
+}
+.mux-select-trigger:hover {
+  border-color: color-mix(in srgb, var(--color-blue) 38%, var(--border-hairline));
+}
+.mux-select-trigger[data-open="true"] {
+  border-color: color-mix(in srgb, var(--color-blue) 62%, var(--border-hairline));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-blue) 10%, transparent), var(--shadow-card);
+}
+.mux-select-trigger:disabled { opacity: .55; cursor: not-allowed; }
+.mux-select-trigger-label {
+  display: flex; flex: 1; min-width: 0; flex-direction: column; align-items: flex-start; gap: 3px;
+  text-align: left;
+}
+.mux-select-trigger-name,
+.mux-select-trigger-meta {
+  display: block; width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.mux-select-trigger-name { font: 650 12px/1.2 var(--font-sans); }
+.mux-select-trigger[data-placeholder="true"] .mux-select-trigger-name { color: var(--text-secondary); font-weight: 500; }
+.mux-select-trigger-meta { color: var(--text-secondary); font: 10px/1 var(--font-mono); }
+.mux-select-chevron {
+  width: 14px; height: 14px; flex: 0 0 auto; color: var(--text-secondary);
+  transition: transform .14s ease, color .14s ease;
+}
+.mux-select-trigger[data-open="true"] .mux-select-chevron {
+  color: var(--color-blue); transform: rotate(180deg);
+}
+.mux-select-menu {
+  position: absolute; z-index: 520; top: calc(100% + 5px); left: 0; right: 0;
+  max-height: min(280px, calc(100vh - 80px));
+  display: flex; flex-direction: column; overflow: auto;
+  border: 1px solid color-mix(in srgb, var(--color-blue) 18%, var(--border-hairline));
+  border-radius: var(--radius-mac);
+  background: var(--surface-popover);
+  box-shadow: 0 18px 44px rgba(24, 29, 43, .20), 0 4px 12px rgba(24, 29, 43, .10);
+  padding: 4px;
+}
+.mux-select-menu[data-align="right"] { left: auto; right: 0; }
+.mux-select-option {
+  display: flex; align-items: center; gap: 8px; width: 100%; min-height: 36px;
+  padding: 6px 8px; border: 0; border-radius: 7px; background: transparent;
+  color: var(--text-primary); text-align: left; cursor: pointer;
+}
+.mux-select-option:hover { background: color-mix(in srgb, var(--text-primary) 6%, transparent); }
+.mux-select-option[data-active="true"] { background: color-mix(in srgb, var(--color-blue) 11%, transparent); }
+.mux-select-option-name,
+.mux-select-option-meta { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mux-select-option-name { font-size: 12px; font-weight: 600; }
+.mux-select-option-meta { margin-top: 3px; color: var(--text-secondary); font: 10px/1 var(--font-mono); }
+.mux-select-check { width: 14px; height: 14px; flex: 0 0 auto; color: var(--color-blue); }
+.mux-select-empty { padding: 16px 10px; color: var(--text-secondary); font-size: 12px; text-align: center; }
+
+@media (prefers-reduced-motion: reduce) {
+  .mux-dropdown-panel[data-phase="open"],
+  .mux-dropdown-panel[data-phase="closing"] { animation: none; }
+}
+
 @media (max-height: 680px) {
   .mux-agent-picker { max-height: calc(100vh - 66px); }
   .mux-agent-picker-list { min-height: 160px; }
-}
-@media (prefers-reduced-motion: reduce) {
-  .mux-agent-picker { animation: none; }
 }
 
 /* Button system: a solid primary action + a quiet ghost/secondary. */
@@ -497,9 +887,10 @@ body {
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-blue) 9%, transparent);
 }
 .mux-search-clear {
-  position: absolute; right: 5px; top: 4px; display: inline-flex; align-items: center; justify-content: center;
+  position: absolute; right: 5px; top: 50%; display: inline-flex; align-items: center; justify-content: center;
   width: 26px; height: 26px; padding: 0; border: 0; border-radius: 5px;
   background: transparent; color: var(--text-secondary); cursor: pointer;
+  transform: translateY(-50%);
   opacity: 0; pointer-events: none;
 }
 .mux-search-clear[data-visible="true"] { opacity: 1; pointer-events: auto; }
@@ -509,118 +900,86 @@ body {
 .mux-noscroll { scrollbar-width: none; }
 .mux-noscroll::-webkit-scrollbar { display: none; }
 
-/* Shared MCP / Model workspace */
-.mux-workspace {
-  display: grid; grid-template-columns: 224px minmax(0, 1fr);
-  width: 100%; height: 100%; min-height: 0; background: var(--surface-app);
+/* Model feature content — lives inside FeatureShell; chrome comes from the shell. */
+.mux-models-title {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 15px;
+  font-weight: 680;
+  line-height: 1.2;
 }
-.mux-workspace-sidebar {
-  display: flex; min-height: 0; flex-direction: column;
-  border-right: 1px solid var(--border-hairline); background: var(--surface-sidebar);
-}
-.mux-workspace-sidebar-head {
-  display: flex; align-items: baseline; justify-content: space-between;
-  min-height: 58px; padding: 15px 14px 11px 16px;
-  border-bottom: 1px solid var(--border-hairline);
-}
-.mux-workspace-sidebar-head strong { color: var(--text-primary); font-size: 14px; font-weight: 680; }
-.mux-workspace-sidebar-head span { color: var(--text-secondary); font-size: 10px; font-variant-numeric: tabular-nums; }
-.mux-workspace-sidebar-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 8px; }
-.mux-sidebar-section + .mux-sidebar-section { margin-top: 14px; }
-.mux-sidebar-section-head {
-  display: flex; align-items: center; min-height: 28px; padding: 0 6px 4px 8px;
-  color: var(--text-secondary); font-size: 10px; font-weight: 650;
-}
-.mux-sidebar-section-head > span { flex: 1; }
-.mux-sidebar-section-actions { display: flex; align-items: center; gap: 1px; }
-.mux-sidebar-section-actions .mux-icon-btn { width: 25px; height: 25px; border-radius: 5px; }
-.mux-sidebar-section-list { display: flex; flex-direction: column; gap: 2px; }
-.mux-sidebar-item {
-  display: flex; align-items: center; gap: 8px; width: 100%; height: 32px; padding: 0 8px;
-  border-radius: 6px; color: var(--text-primary); cursor: pointer;
-  transition: background .12s ease, color .12s ease;
-}
-.mux-sidebar-item:hover { background: color-mix(in srgb, var(--text-primary) 6%, transparent); }
-.mux-sidebar-item[data-active="true"] { background: color-mix(in srgb, var(--color-blue) 12%, transparent); color: var(--color-blue); }
-.mux-sidebar-item-icon { display: inline-flex; flex: 0 0 auto; color: var(--text-secondary); }
-.mux-sidebar-item[data-active="true"] .mux-sidebar-item-icon { color: var(--color-blue); }
-.mux-sidebar-item-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 520; }
-.mux-sidebar-item[data-active="true"] .mux-sidebar-item-label { font-weight: 650; }
-.mux-sidebar-item-count { flex: 0 0 auto; color: var(--text-secondary); font-size: 10px; font-variant-numeric: tabular-nums; }
-.mux-sidebar-item-actions { align-items: center; gap: 1px; }
-.mux-sidebar-item-actions .mux-icon-btn { width: 24px; height: 24px; border-radius: 5px; }
-.mux-sidebar-empty { padding: 10px 8px; color: var(--text-secondary); font-size: 11px; }
-
-.mux-workspace-stage { display: flex; min-width: 0; min-height: 0; flex-direction: column; }
-.mux-workspace-toolbar {
-  display: grid; grid-template-columns: minmax(180px, 1fr) auto; align-items: center; gap: 12px;
-  min-height: 58px; padding: 11px 18px;
-  border-bottom: 1px solid var(--border-hairline); background: var(--header-bg);
-}
-.mux-workspace-actions { display: flex; align-items: center; justify-content: flex-end; gap: 5px; }
-.mux-workspace-content { position: relative; display: flex; flex: 1; min-width: 0; min-height: 0; }
-.mux-workspace-scroll { flex: 1; min-width: 0; min-height: 0; overflow-y: auto; padding: 16px 18px 28px; }
-.mux-resource-grid {
-  display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
-  align-items: stretch; gap: 10px; width: min(100%, 1280px); margin: 0 auto;
-}
-.mux-resource-grid .mux-tile { min-height: 158px; }
-.mux-resource-title {
-  display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  color: var(--text-primary); font-size: 13px; font-weight: 680; line-height: 1.25;
-}
-.mux-resource-subtitle {
-  display: block; margin-top: 5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  color: var(--text-secondary); font: 10px/1.2 var(--font-mono);
-}
-.mux-resource-endpoint {
-  display: flex; align-items: center; gap: 6px; min-width: 0; height: 30px; margin-top: 11px; padding: 0 8px;
-  border: 1px solid var(--border-hairline); border-radius: 6px; background: var(--surface-app);
+.mux-models-sub {
+  margin: 4px 0 0;
   color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.3;
 }
-.mux-resource-endpoint span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 10px/1 var(--font-mono); }
-.mux-resource-card-footer {
-  display: flex; align-items: center; justify-content: space-between; gap: 8px;
-  min-height: 35px; margin-top: auto; padding-top: 9px; border-top: 1px solid var(--border-hairline);
+.mux-models-toolbar { align-items: flex-start; }
+.mux-model-profile-row {
+  display: flex; align-items: center; gap: 9px; width: 100%; min-height: 44px;
+  margin-bottom: 2px; padding: 7px 9px; border: 0; border-radius: var(--radius-mac);
+  background: transparent; color: var(--text-primary); text-align: left; cursor: pointer;
 }
-.mux-resource-card-actions { display: flex; align-items: center; gap: 1px; }
-.mux-resource-card-actions .mux-icon-btn { width: 27px; height: 27px; border-radius: 6px; }
-.mux-resource-empty {
-  display: flex; min-height: 300px; align-items: center; justify-content: center; flex-direction: column; gap: 8px;
-  color: var(--text-secondary); text-align: center;
+.mux-model-profile-row:hover { background: color-mix(in srgb, var(--text-primary) 6%, transparent); }
+.mux-model-profile-row[data-active="true"] { background: color-mix(in srgb, var(--color-blue) 12%, transparent); }
+.mux-model-profile-row strong,
+.mux-model-profile-row small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mux-model-profile-row strong { font-size: 12px; font-weight: 640; }
+.mux-model-profile-row small { margin-top: 4px; color: var(--text-secondary); font: 10px/1 var(--font-mono); }
+.mux-model-profile-dot { width: 9px; height: 9px; flex: 0 0 auto; border-radius: 50%; background: #8E8E93; }
+.mux-model-profile-dot[data-protocol="anthropic-messages"] { background: #D97757; }
+.mux-model-profile-dot[data-protocol="openai-responses"] { background: #10A37F; }
+.mux-model-profile-dot[data-protocol="openai-completions"] { background: var(--color-blue); }
+.mux-model-empty {
+  display: flex; align-items: center; justify-content: center; gap: 7px; width: 100%; height: 42px;
+  border: 1px dashed var(--border-hairline); border-radius: var(--radius-mac); background: transparent;
+  color: var(--color-blue); font-size: 12px; cursor: pointer;
 }
-.mux-resource-empty-icon { display: inline-flex; margin-bottom: 3px; opacity: .55; }
-.mux-resource-empty strong { color: var(--text-primary); font-size: 13px; }
-.mux-resource-empty > span:not(.mux-resource-empty-icon) { font-size: 11px; }
-.mux-resource-empty .btn-primary { margin-top: 6px; }
-.mux-loading { display: flex; height: 100%; align-items: center; justify-content: center; color: var(--text-secondary); font-size: 12px; }
+.mux-model-profile-actions {
+  display: flex; align-items: center; gap: 4px; min-height: 48px; padding: 8px;
+  border-top: 1px solid var(--border-hairline);
+}
+.mux-model-profile-actions button {
+  display: inline-flex; align-items: center; justify-content: center; gap: 5px; flex: 1; height: 30px;
+  border: 0; border-radius: 7px; background: transparent; color: var(--text-secondary);
+  font-size: 11px; cursor: pointer;
+}
+.mux-model-profile-actions button:hover { background: var(--color-gray-150); color: var(--text-primary); }
+.mux-model-profile-actions button[data-danger="true"]:hover { color: var(--color-red); }
 
-.mux-agent-stack { display: inline-flex; min-width: 0; align-items: center; gap: 7px; color: var(--text-secondary); font-size: 10px; white-space: nowrap; }
-.mux-agent-stack-icons { display: inline-flex; align-items: center; padding-left: 1px; }
-.mux-agent-stack-icon { display: inline-flex; margin-left: -5px; border: 2px solid var(--surface-raised); border-radius: 7px; }
-.mux-agent-stack-icon:first-child { margin-left: 0; }
-.mux-resource-usage-empty { color: var(--text-secondary); font-size: 10px; }
-
-.mux-resource-inspector {
-  display: flex; width: 390px; min-width: 390px; min-height: 0; flex-direction: column;
-  border-left: 1px solid var(--border-hairline); background: var(--surface-raised);
-  box-shadow: -8px 0 24px rgba(20, 25, 32, .04);
+.mux-model-selected-summary { min-width: 0; text-align: right; flex-shrink: 0; }
+.mux-model-selected-summary span,
+.mux-model-selected-summary strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mux-model-selected-summary span { color: var(--text-secondary); font-size: 9px; }
+.mux-model-selected-summary strong { margin-top: 4px; max-width: 240px; font-size: 11px; }
+.mux-model-agent-list {
+  display: flex; flex-direction: column; gap: 10px;
 }
-.mux-resource-inspector-head {
-  display: flex; align-items: center; gap: 11px; min-height: 68px; padding: 13px 14px;
-  border-bottom: 1px solid var(--border-hairline);
+.mux-model-agent-row {
+  display: grid; grid-template-columns: 38px minmax(180px, 1fr) minmax(280px, 400px);
+  align-items: center; gap: 13px; min-height: 92px; padding: 15px 16px;
+  border: 1px solid var(--glass-border); border-radius: 8px;
+  background: var(--glass-fill); box-shadow: var(--shadow-card), var(--glass-highlight);
 }
-.mux-resource-inspector-head h2 { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-primary); font-size: 14px; font-weight: 680; }
-.mux-resource-inspector-subtitle { margin-top: 5px; }
-.mux-inspector-close {
-  display: inline-flex; width: 28px; height: 28px; flex: 0 0 auto; align-items: center; justify-content: center;
-  padding: 0; border: 0; border-radius: 6px; background: transparent; color: var(--text-secondary); cursor: pointer;
+.mux-model-agent-copy { min-width: 0; }
+.mux-model-agent-title { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.mux-model-agent-title strong { font-size: 13px; }
+.mux-model-agent-copy code,
+.mux-model-agent-copy small {
+  display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.mux-inspector-close:hover { background: var(--color-gray-150); color: var(--text-primary); }
-.mux-resource-inspector-body { flex: 1; min-height: 0; overflow-y: auto; padding: 16px; }
-.mux-resource-inspector-footer {
-  display: flex; align-items: center; gap: 5px; min-height: 56px; padding: 10px 14px;
-  border-top: 1px solid var(--border-hairline); background: var(--surface-app);
+.mux-model-agent-copy code { margin-top: 7px; color: var(--text-secondary); font: 9px/1 var(--font-mono); }
+.mux-model-agent-copy small { margin-top: 6px; color: #1A9447; font-size: 10px; }
+.mux-model-agent-controls { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; }
+.mux-model-field {
+  width: 100%; height: 36px; min-width: 0; padding: 0 10px;
+  border: 1px solid var(--border-hairline); border-radius: var(--radius-mac);
+  outline: 0; background: var(--surface-raised); color: var(--text-primary);
+  font: 12px/1 var(--font-sans);
+}
+.mux-model-field:focus {
+  border-color: color-mix(in srgb, var(--color-blue) 62%, var(--border-hairline));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-blue) 10%, transparent);
 }
 .mux-inspector-section + .mux-inspector-section { margin-top: 22px; }
 .mux-inspector-section h3 { margin: 0 0 9px; color: var(--text-secondary); font-size: 10px; font-weight: 680; }
@@ -776,16 +1135,8 @@ body {
   .mux-agent-model-control { grid-template-columns: minmax(225px, .72fr) minmax(360px, 1.28fr); }
 }
 
-@media (max-width: 820px) {
-  .mux-agent-file-map,
-  .mux-agent-model-control { grid-template-columns: minmax(0, 1fr); }
-  .mux-agent-file-row + .mux-agent-file-row { border-top: 1px solid var(--border-hairline); border-left: 0; }
-  .mux-agent-model-current { border-right: 0; border-bottom: 1px solid var(--border-hairline); }
-  .mux-agent-mcp-grid { grid-template-columns: minmax(0, 1fr); }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .mux-tile,
-  .btn-primary,
-  .mux-sidebar-item { transition: none; }
+@media (max-width: 800px) {
+  .mux-model-agent-row { grid-template-columns: 34px minmax(0, 1fr); }
+  .mux-model-agent-controls,
+  .mux-model-agent-row > .btn-ghost { grid-column: 2; }
 }

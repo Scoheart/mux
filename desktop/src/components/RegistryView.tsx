@@ -17,26 +17,27 @@ import {
   DownloadIcon,
   FolderIcon,
   LayersIcon,
-  PackageIcon,
   TrashIcon,
 } from "./icons";
-import { Avatar, Badge, IconButton, TransportPill } from "./ui";
+import { Avatar, Badge, IconButton, SearchBar, TransportPill } from "./ui";
 import { useToast } from "./Toast";
 import { PasteConfigDialog } from "./PasteConfigDialog";
+import { AgentPicker } from "./AgentPicker";
+import { FeatureShell } from "./FeatureShell";
 import {
   AgentStack,
   InspectorField,
   InspectorSection,
-  ResourceEmpty,
-  ResourceGrid,
   ResourceInspector,
-  ResourceWorkspace,
 } from "./ResourceWorkspace";
 
 interface RegistryViewProps {
   state: InstallState;
   onEdit: (name: string, transport: Transport) => void;
   onCreate: () => void;
+  onSelectAgent: (id: string) => void;
+  onAddAgent?: () => void;
+  onSelectModels: () => void;
 }
 
 /** Origin buckets — still used to decide which entries are user-deletable. */
@@ -133,8 +134,15 @@ function originLabel(origin: RegistryOrigin | undefined, sourceName: (id: string
   return label || (origin.kind === "remote" ? "订阅" : "本地");
 }
 
-export function RegistryView({ state, onEdit, onCreate }: RegistryViewProps) {
-  const { catalog, entries, agentsForServer, sources } = state;
+export function RegistryView({
+  state,
+  onEdit,
+  onCreate,
+  onSelectAgent,
+  onAddAgent,
+  onSelectModels,
+}: RegistryViewProps) {
+  const { catalog, entries, agentsForServer, sources, agents } = state;
   const toast = useToast();
 
   const [q, setQ] = useState("");
@@ -254,8 +262,12 @@ export function RegistryView({ state, onEdit, onCreate }: RegistryViewProps) {
     [deletable, state, toast]
   );
 
+
   return (
-    <ResourceWorkspace
+    <FeatureShell
+      active="mcps"
+      onSelectMcps={() => {}}
+      onSelectModels={onSelectModels}
       sidebar={
         <SourcesSidebar
           state={state}
@@ -263,28 +275,83 @@ export function RegistryView({ state, onEdit, onCreate }: RegistryViewProps) {
           statusFilter={statusFilter}
           statusCounts={statusCounts}
           onStatusFilter={setStatusFilter}
-          onSelect={setSelectedSource}
+          onSelect={(id) => {
+            setSelectedSource(id);
+            setStatusFilter("all");
+          }}
         />
       }
-      query={q}
-      onQueryChange={setQ}
-      searchPlaceholder="搜索 MCP"
-      toolbarActions={
-        <>
-          <button onClick={() => setPasteOpen(true)} className="btn-ghost" title="粘贴 MCP 配置">
+      toolbar={
+        <div className="mux-feature-chrome-toolbar">
+          <AgentPicker
+            agents={agents}
+            selectedId={null}
+            onSelect={onSelectAgent}
+            onAddAgent={onAddAgent}
+          />
+          <div className="flex-1 min-w-[160px]">
+            <SearchBar value={q} onChange={setQ} placeholder="搜索 MCP…" />
+          </div>
+          <button
+            onClick={() => setPasteOpen(true)}
+            className="btn-ghost flex-shrink-0"
+            title="粘贴 MCP 配置"
+          >
             粘贴配置
           </button>
           <IconButton title="导出生效配置" onClick={doExport} disabled={entries.length === 0}>
             <DownloadIcon className="w-4 h-4" />
           </IconButton>
-          <button onClick={onCreate} className="btn-primary">
+          <button onClick={onCreate} className="btn-primary flex-shrink-0">
             <PlusIcon className="w-4 h-4" />
             新建 MCP
           </button>
-        </>
+        </div>
       }
-      inspector={
-        detail ? (
+    >
+      <div className="mux-feature-stage">
+        <div className="mux-feature-stage-scroll">
+          {filtered.length === 0 ? (
+            <div className="py-16 text-sm text-center" style={{ color: "var(--text-secondary)" }}>
+              {catalog.length === 0
+                ? "暂无配置，请从左侧添加来源。"
+                : statusFilter === "shadowed"
+                  ? "没有被覆盖项"
+                  : statusFilter === "used"
+                    ? "没有使用中的 MCP"
+                    : statusFilter === "unused"
+                      ? "没有未使用的 MCP"
+                      : "没有匹配项"}
+            </div>
+          ) : (
+            <div className="mux-grid">
+              {filtered.map((item) => (
+                <RegistryCard
+                  key={`${keyOf(item.entry)}@${item.entry.origin?.source ?? item.entry.origin?.kind ?? ""}`}
+                  item={item}
+                  selected={detail === item}
+                  installedAgents={agentsForServer(keyOf(item.entry))}
+                  sourceName={sourceName}
+                  overriddenBy={
+                    item.in_effect
+                      ? undefined
+                      : originLabel(winningOriginByKey.get(keyOf(item.entry)), sourceName)
+                  }
+                  editable={editable(item.entry)}
+                  deletable={deletable(item.entry)}
+                  onOpen={() => setDetail(item)}
+                  onCopy={() => copyConfig(item.entry)}
+                  onEdit={() => onEdit(item.entry.name, transportOf(item.entry))}
+                  onDelete={() => deleteEntry(item.entry)}
+                />
+              ))}
+            </div>
+          )}
+
+          {pasteOpen && <PasteConfigDialog state={state} onClose={() => setPasteOpen(false)} />}
+        </div>
+
+        {detail && (
           <RegistryDetail
             entry={detail.entry}
             overriddenBy={
@@ -308,42 +375,9 @@ export function RegistryView({ state, onEdit, onCreate }: RegistryViewProps) {
             }
             onDelete={deletable(detail.entry) ? () => deleteEntry(detail.entry) : undefined}
           />
-        ) : undefined
-      }
-    >
-      {filtered.length === 0 ? (
-        <ResourceEmpty
-          icon={<PackageIcon className="w-6 h-6" />}
-          title={catalog.length === 0 ? "暂无 MCP" : "没有匹配项"}
-          detail={catalog.length === 0 ? "添加订阅、导入配置或新建 MCP" : undefined}
-        />
-      ) : (
-        <ResourceGrid>
-          {filtered.map((item) => (
-            <RegistryCard
-              key={`${keyOf(item.entry)}@${item.entry.origin?.source ?? item.entry.origin?.kind ?? ""}`}
-              item={item}
-              selected={detail === item}
-              installedAgents={agentsForServer(keyOf(item.entry))}
-              sourceName={sourceName}
-              overriddenBy={
-                item.in_effect
-                  ? undefined
-                  : originLabel(winningOriginByKey.get(keyOf(item.entry)), sourceName)
-              }
-              editable={editable(item.entry)}
-              deletable={deletable(item.entry)}
-              onOpen={() => setDetail(item)}
-              onCopy={() => copyConfig(item.entry)}
-              onEdit={() => onEdit(item.entry.name, transportOf(item.entry))}
-              onDelete={() => deleteEntry(item.entry)}
-            />
-          ))}
-        </ResourceGrid>
-      )}
-
-      {pasteOpen && <PasteConfigDialog state={state} onClose={() => setPasteOpen(false)} />}
-    </ResourceWorkspace>
+        )}
+      </div>
+    </FeatureShell>
   );
 }
 
@@ -524,7 +558,11 @@ function RegistryDetail({
             复制
           </button>
           {onEdit && (
-            <button onClick={onEdit} className="btn-primary">
+            <button
+              onClick={onEdit}
+              className="flex items-center gap-1.5 px-4 py-2 text-sm rounded-mac border-0 cursor-pointer font-medium"
+              style={{ background: "var(--color-blue)", color: "#fff" }}
+            >
               <EditIcon className="w-4 h-4" />
               编辑
             </button>

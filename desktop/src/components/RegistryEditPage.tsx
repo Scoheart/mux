@@ -346,7 +346,12 @@ export function RegistryEditPage({ state, name, transport: editTransport, onBack
         <button
           onClick={handleSave}
           disabled={!valid || saving}
-          className="btn-primary"
+          className="flex items-center gap-1.5 text-sm font-medium px-5 py-2 rounded-mac border-0"
+          style={{
+            background: !valid || saving ? "var(--border-hairline)" : "var(--color-blue)",
+            color: !valid || saving ? "var(--text-secondary)" : "#fff",
+            cursor: !valid || saving ? "default" : "pointer",
+          }}
         >
           <SaveIcon className="w-4 h-4" />
           {saving ? "保存中…" : "保存"}

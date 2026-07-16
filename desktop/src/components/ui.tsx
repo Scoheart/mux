@@ -7,13 +7,13 @@ import type { RegistryEntry } from "../lib/types";
 
 // A small palette of macOS-flavoured gradients; picked deterministically by name.
 const GRADIENTS = [
-  "linear-gradient(135deg, #007AFF, #5AC8FA)",
+  "linear-gradient(135deg, #7c5cfc, #c4b5fd)",
   "linear-gradient(135deg, #FF8C64, #E664C8)",
   "linear-gradient(135deg, #34C759, #30D158)",
   "linear-gradient(135deg, #FFC83C, #FF8C64)",
-  "linear-gradient(135deg, #5E5CE6, #BF5AF2)",
+  "linear-gradient(135deg, #6346e8, #9b85ff)",
   "linear-gradient(135deg, #FF375F, #FF8C64)",
-  "linear-gradient(135deg, #64D2FF, #007AFF)",
+  "linear-gradient(135deg, #a78bfa, #7c5cfc)",
 ];
 
 function gradientFor(seed: string): string {
@@ -58,7 +58,7 @@ const TONE: Record<Tone, { bg: string; fg: string }> = {
   neutral: { bg: "var(--color-gray-150)", fg: "var(--color-gray-600)" },
   success: { bg: "color-mix(in srgb, #34C759 14%, transparent)", fg: "#1A9447" },
   warning: { bg: "color-mix(in srgb, #FF9500 14%, transparent)", fg: "#C26A00" },
-  info: { bg: "color-mix(in srgb, #007AFF 12%, transparent)", fg: "#007AFF" },
+  info: { bg: "color-mix(in srgb, var(--color-blue) 12%, transparent)", fg: "var(--color-blue)" },
 };
 
 export function Badge({
@@ -187,7 +187,13 @@ export function SearchBar({
         className="mux-search-icon"
       />
       <input
-        type="search"
+        className="w-full pl-9 pr-3 py-2 text-sm outline-none"
+        style={{
+          background: "var(--surface-raised)",
+          border: "1px solid var(--border-hairline)",
+          borderRadius: "var(--radius-mac)",
+          color: "var(--text-primary)",
+        }}
         placeholder={placeholder}
         value={value}
         autoFocus={autoFocus}

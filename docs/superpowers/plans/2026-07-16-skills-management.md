@@ -3306,7 +3306,7 @@ git commit -m "test(desktop): establish skills UI contracts" -m "Mirror structur
 - Create: `desktop/src/components/SkillsView.test.tsx`
 
 **Interfaces:**
-- Consumes: `useSkillsState`, `ResourceWorkspace`, pure filter helpers
+- Consumes: the single app-owned `SkillsState`, `ResourceWorkspace`, pure filter helpers
 - Produces: `{ kind: "skills" }` top-level view, filters/cards/inspector/plain-text preview
 - Produces: navigation callback `onSelectSkills`
 
@@ -3352,7 +3352,7 @@ Add a third segmented button using a new `SparklesIcon`, pass `onSelectSkills`, 
 
 ```tsx
 {view.kind === "skills" ? (
-  <SkillsView />
+  <SkillsView state={skillsState} />
 ) : view.kind === "models" ? (
   <ModelsView />
 ) : view.kind === "agent" ? (
@@ -3369,6 +3369,8 @@ Add a third segmented button using a new `SparklesIcon`, pass `onSelectSkills`, 
   />
 )}
 ```
+
+Create `useSkillsState()` exactly once in `App` and pass the same `SkillsState` to this workspace, Task 12 dialogs, and the later Agent-page section. Route Skills before the existing MCP loading gate, and explicitly branch Agent views rather than letting Skills fall through to `view.id`.
 
 - [ ] **Step 4: Implement deterministic filters and cards**
 
@@ -3686,11 +3688,16 @@ git commit -m "feat(desktop): review skill lifecycle changes" -m "Route every Sk
 - Create: `desktop/src/components/AgentSkillsSection.tsx`
 - Modify: `desktop/src/components/AgentView.tsx`
 - Modify: `desktop/src/App.tsx`
+- Modify: `desktop/src/lib/types.ts`
+- Modify: `desktop/src/components/SkillsView.tsx`
+- Modify: `desktop/src/components/SkillsView.test.tsx`
+- Modify: `desktop/src/components/SkillInstallDialog.tsx`
+- Modify: `desktop/src/components/SkillInstallDialog.test.tsx`
 - Modify: `desktop/src/index.css`
 - Create: `desktop/src/components/AgentSkillsSection.test.tsx`
 
 **Interfaces:**
-- Consumes: Skills inventory and assignment planning/commit
+- Consumes: the app-owned Skills inventory/commit owner and assignment planning
 - Produces: assigned Skill rows, guarded switches, Add Skill, and workspace deep-link
 - Changes: `AgentView` gains `onOpenSkills(skillName?: string)`
 
@@ -3739,23 +3746,30 @@ Place it between Model and MCP on writable Agent pages:
 </section>
 ```
 
-Create `const skillsState = useSkillsState()` once near the top of `AgentView`. Each row contains name, risk/update badge, physical target label, affected-Agent warning, Switch, and details button. Switches still request a core plan and open `SkillReviewDialog`; they do not directly mutate links.
+Receive the app-owned `skillsState` as an `AgentView` prop. Do not create another `useSkillsState` instance in `AgentView`, the section, or a dialog. Each row contains name, risk/update badge, actual assigned physical target/status, affected-Agent warning, Switch, and details button. Derive assignments by mapping a central item's `assigned_target_ids` through `inventory.targets` and retaining targets whose `affected_agent_ids` include the current Agent; do not infer assignment from the central item's `states` or global `affected_agent_ids`. Switches request a core plan and open `SkillReviewDialog`; they never directly mutate links or construct a commit request.
 
 - [ ] **Step 4: Add Skills deep-link state**
 
-Let the Skills view accept an initial selection:
+Use a one-shot intent so detail links and Agent-bound install links cannot reopen after inventory refresh:
 
 ```ts
+type SkillNavigationIntent =
+  | { id: number; kind: "detail"; skillName: string }
+  | { id: number; kind: "install"; agentId: string };
+
 type View =
   | { kind: "registry" }
   | { kind: "models" }
-  | { kind: "skills"; selected?: string }
+  | { kind: "skills"; intent?: SkillNavigationIntent }
   | { kind: "agent"; id: string };
 
-const openSkills = (selected?: string) => setView({ kind: "skills", selected });
+const openSkillDetail = (skillName: string) =>
+  setView({ kind: "skills", intent: { id: nextIntentId(), kind: "detail", skillName } });
+const openSkillInstall = (agentId: string) =>
+  setView({ kind: "skills", intent: { id: nextIntentId(), kind: "install", agentId } });
 ```
 
-The Skills workspace clears an unknown selected name after refresh and opens the inspector when it exists.
+The Skills workspace consumes each intent once. A detail intent opens the central managed item when it exists and clears an unknown name after refresh. An install intent opens the Task 12 wizard with `initialAgentId`; only a currently verified installed Skills Agent is preselected, and exactly that one Agent is selected. Normal toolbar installs still default to zero Agents, and shared aliases are never automatically selected.
 
 - [ ] **Step 5: Run Agent/UI tests and build**
 

@@ -1,0 +1,353 @@
+#![cfg(unix)]
+
+mod support;
+
+use mux_core::settings::{load_settings, mutate_settings};
+use mux_core::skills::{commit_install, plan_install, PlanInstallRequest, SkillError, SkillsPaths};
+use serde_json::json;
+use std::fs;
+use std::os::unix::fs::symlink;
+use support::skills::{assert_managed_link, SkillsFixture};
+
+#[test]
+fn install_plan_is_read_only_and_commit_installs_one_copy_with_minimal_links() {
+    let fixture = SkillsFixture::installed_agents(&["codex", "cursor", "gemini"]);
+    let resolution = fixture.resolve_local(&["alpha", "beta"]);
+    let before = fixture.snapshot();
+    let plan = plan_install(PlanInstallRequest {
+        resolution_id: resolution.operation_id,
+        skill_names: vec!["alpha".into(), "beta".into()],
+        agent_ids: vec!["codex".into(), "cursor".into()],
+        replace_conflicts: false,
+    })
+    .unwrap();
+    assert_eq!(fixture.snapshot(), before);
+    assert_eq!(
+        plan.targets
+            .iter()
+            .map(|row| row.target_id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["agents-user"]
+    );
+    assert_eq!(
+        plan.targets[0].affected_agent_ids,
+        vec!["codex", "cursor", "gemini"]
+    );
+
+    commit_install(plan.confirmation()).unwrap();
+    assert!(fixture.central("alpha").join("SKILL.md").exists());
+    assert_managed_link(
+        fixture.agent_target("agents-user", "alpha"),
+        fixture.central("alpha"),
+    );
+    assert!(!fixture.agent_target("cursor-user", "alpha").exists());
+}
+
+#[test]
+fn stale_plan_and_high_risk_without_bound_confirmation_are_rejected() {
+    let fixture = SkillsFixture::installed_agents(&["claude-code"]);
+    let plan = fixture.plan_risky_install();
+    fixture.change_target_after_plan();
+    let stale_result = commit_install(plan.confirmation());
+    assert!(
+        matches!(stale_result, Err(SkillError::PlanStale { .. })),
+        "unexpected stale commit result: {stale_result:?}"
+    );
+
+    fixture.create_real_target("claude-user", "risky");
+    std::fs::remove_dir_all(fixture.target("claude-user", "risky")).unwrap();
+    let fresh = fixture.plan_risky_install();
+    assert!(matches!(
+        commit_install(fresh.confirmation()),
+        Err(SkillError::ConfirmationRequired { .. })
+    ));
+    assert!(commit_install(fresh.high_risk_confirmation()).is_ok());
+}
+
+#[test]
+fn install_with_no_agents_is_central_only_and_duplicate_selections_are_rejected() {
+    let fixture = SkillsFixture::installed_agents(&[]);
+    let resolution = fixture.resolve_local(&["central-only"]);
+    let plan = plan_install(PlanInstallRequest {
+        resolution_id: resolution.operation_id,
+        skill_names: vec!["central-only".into()],
+        agent_ids: Vec::new(),
+        replace_conflicts: false,
+    })
+    .unwrap();
+    assert!(plan.targets.is_empty());
+    commit_install(plan.confirmation()).unwrap();
+    assert!(fixture.central("central-only").join("SKILL.md").exists());
+    assert!(!load_settings()
+        .skill_assignments
+        .as_ref()
+        .is_some_and(|assignments| assignments.contains_key("central-only")));
+
+    let duplicate_skills = fixture.resolve_local(&["duplicate-skill"]);
+    assert!(matches!(
+        plan_install(PlanInstallRequest {
+            resolution_id: duplicate_skills.operation_id,
+            skill_names: vec!["duplicate-skill".into(), "duplicate-skill".into()],
+            agent_ids: Vec::new(),
+            replace_conflicts: false,
+        }),
+        Err(SkillError::InvalidSource { .. })
+    ));
+
+    fs::create_dir_all(fixture.home.home.join(".codex")).unwrap();
+    let duplicate_agents = fixture.resolve_local(&["duplicate-agent"]);
+    assert!(matches!(
+        plan_install(PlanInstallRequest {
+            resolution_id: duplicate_agents.operation_id,
+            skill_names: vec!["duplicate-agent".into()],
+            agent_ids: vec!["codex".into(), "codex".into()],
+            replace_conflicts: false,
+        }),
+        Err(SkillError::InvalidSource { .. })
+    ));
+}
+
+#[test]
+fn settings_hash_ignores_unrelated_fields_but_rejects_skill_section_changes() {
+    let fixture = SkillsFixture::installed_agents(&["codex"]);
+    let resolution = fixture.resolve_local(&["unrelated"]);
+    let plan = plan_install(PlanInstallRequest {
+        resolution_id: resolution.operation_id,
+        skill_names: vec!["unrelated".into()],
+        agent_ids: vec!["codex".into()],
+        replace_conflicts: false,
+    })
+    .unwrap();
+    mutate_settings(|settings| {
+        settings
+            .extra
+            .insert("future".into(), json!({"kept": true}));
+        settings.model_assignments = Some([("codex".into(), "profile".into())].into());
+    })
+    .unwrap();
+    commit_install(plan.confirmation()).unwrap();
+    assert_eq!(
+        load_settings().extra.get("future"),
+        Some(&json!({"kept": true}))
+    );
+
+    let resolution = fixture.resolve_local(&["skills-stale"]);
+    let plan = plan_install(PlanInstallRequest {
+        resolution_id: resolution.operation_id,
+        skill_names: vec!["skills-stale".into()],
+        agent_ids: vec!["codex".into()],
+        replace_conflicts: false,
+    })
+    .unwrap();
+    mutate_settings(|settings| {
+        settings.skill_update_checked_at = Some("2026-07-17T02:00:00Z".into());
+    })
+    .unwrap();
+    assert!(matches!(
+        commit_install(plan.confirmation()),
+        Err(SkillError::PlanStale { .. })
+    ));
+}
+
+#[test]
+fn candidate_changes_and_forged_candidate_hashes_are_rejected_without_mutation() {
+    let fixture = SkillsFixture::installed_agents(&["codex"]);
+    let resolution = fixture.resolve_local(&["candidate-stale"]);
+    let plan = plan_install(PlanInstallRequest {
+        resolution_id: resolution.operation_id,
+        skill_names: vec!["candidate-stale".into()],
+        agent_ids: vec!["codex".into()],
+        replace_conflicts: false,
+    })
+    .unwrap();
+    let before = fixture.snapshot();
+    let staged = SkillsPaths::from_env()
+        .unwrap()
+        .staging_skills_dir()
+        .join(&plan.operation_id)
+        .join("candidates/candidate-stale/SKILL.md");
+    fs::write(
+        staged,
+        "---\nname: candidate-stale\ndescription: changed after plan\n---\n",
+    )
+    .unwrap();
+    assert!(matches!(
+        commit_install(plan.confirmation()),
+        Err(SkillError::PlanStale { .. })
+    ));
+    assert_eq!(fixture.snapshot(), before);
+
+    let resolution = fixture.resolve_local(&["forged-hash"]);
+    let plan = plan_install(PlanInstallRequest {
+        resolution_id: resolution.operation_id,
+        skill_names: vec!["forged-hash".into()],
+        agent_ids: vec!["codex".into()],
+        replace_conflicts: false,
+    })
+    .unwrap();
+    let mut request = plan.confirmation();
+    request.candidate_hash = "0".repeat(64);
+    assert!(matches!(
+        commit_install(request),
+        Err(SkillError::PlanStale { .. })
+    ));
+    assert!(!fixture.central("forged-hash").exists());
+}
+
+#[test]
+fn high_risk_confirmation_must_equal_the_canonical_findings_hash() {
+    let fixture = SkillsFixture::installed_agents(&["claude-code"]);
+    let plan = fixture.plan_risky_install();
+    let mut forged = plan.confirmation();
+    forged.findings_confirmation = Some("f".repeat(64));
+    assert!(matches!(
+        commit_install(forged),
+        Err(SkillError::ConfirmationRequired { ref findings_hash, .. })
+            if findings_hash == &plan.findings_hash
+    ));
+    commit_install(plan.high_risk_confirmation()).unwrap();
+}
+
+#[test]
+fn real_directory_unknown_and_broken_targets_require_reviewed_replacement() {
+    let fixture = SkillsFixture::installed_agents(&["cursor"]);
+
+    let directory = fixture.resolve_local(&["directory-conflict"]);
+    fixture.create_real_target("cursor-user", "directory-conflict");
+    assert!(matches!(
+        plan_install(PlanInstallRequest {
+            resolution_id: directory.operation_id.clone(),
+            skill_names: vec!["directory-conflict".into()],
+            agent_ids: vec!["cursor".into()],
+            replace_conflicts: false,
+        }),
+        Err(SkillError::Conflict { .. })
+    ));
+    let plan = plan_install(PlanInstallRequest {
+        resolution_id: directory.operation_id,
+        skill_names: vec!["directory-conflict".into()],
+        agent_ids: vec!["cursor".into()],
+        replace_conflicts: true,
+    })
+    .unwrap();
+    commit_install(plan.confirmation()).unwrap();
+    assert_managed_link(
+        fixture.target("cursor-user", "directory-conflict"),
+        fixture.central("directory-conflict"),
+    );
+
+    let unknown = fixture.resolve_local(&["unknown-conflict"]);
+    let outside = fixture.home.home.join("outside-unknown");
+    fs::create_dir_all(&outside).unwrap();
+    let unknown_target = fixture.target("cursor-user", "unknown-conflict");
+    fs::create_dir_all(unknown_target.parent().unwrap()).unwrap();
+    symlink(&outside, &unknown_target).unwrap();
+    assert!(matches!(
+        plan_install(PlanInstallRequest {
+            resolution_id: unknown.operation_id.clone(),
+            skill_names: vec!["unknown-conflict".into()],
+            agent_ids: vec!["cursor".into()],
+            replace_conflicts: false,
+        }),
+        Err(SkillError::Conflict { .. })
+    ));
+    let plan = plan_install(PlanInstallRequest {
+        resolution_id: unknown.operation_id,
+        skill_names: vec!["unknown-conflict".into()],
+        agent_ids: vec!["cursor".into()],
+        replace_conflicts: true,
+    })
+    .unwrap();
+    commit_install(plan.confirmation()).unwrap();
+    assert!(outside.exists());
+    assert_managed_link(unknown_target, fixture.central("unknown-conflict"));
+
+    let broken = fixture.resolve_local(&["broken-conflict"]);
+    let broken_target = fixture.target("cursor-user", "broken-conflict");
+    symlink(
+        fixture.home.home.join("missing-link-target"),
+        &broken_target,
+    )
+    .unwrap();
+    assert!(matches!(
+        plan_install(PlanInstallRequest {
+            resolution_id: broken.operation_id,
+            skill_names: vec!["broken-conflict".into()],
+            agent_ids: vec!["cursor".into()],
+            replace_conflicts: false,
+        }),
+        Err(SkillError::Conflict { .. })
+    ));
+}
+
+#[test]
+fn planning_is_blocked_by_pending_recovery_without_touching_reviewed_state() {
+    let fixture = SkillsFixture::installed_agents(&["codex"]);
+    let resolution = fixture.resolve_local(&["recovery-blocked"]);
+    let before = fixture.snapshot();
+    let paths = SkillsPaths::from_env().unwrap();
+    fs::write(
+        paths
+            .journals_skills_dir()
+            .join("20000000-0000-4000-8000-000000000007.json"),
+        "pending",
+    )
+    .unwrap();
+
+    assert!(matches!(
+        plan_install(PlanInstallRequest {
+            resolution_id: resolution.operation_id,
+            skill_names: vec!["recovery-blocked".into()],
+            agent_ids: vec!["codex".into()],
+            replace_conflicts: false,
+        }),
+        Err(SkillError::RecoveryRequired { .. })
+    ));
+    assert_eq!(fixture.snapshot(), before);
+}
+
+#[test]
+fn staged_resolution_and_persisted_plan_reject_unknown_nested_fields() {
+    let fixture = SkillsFixture::installed_agents(&["codex"]);
+    let resolution = fixture.resolve_local(&["strict-resolution"]);
+    let paths = SkillsPaths::from_env().unwrap();
+    let resolution_path = paths
+        .staging_skills_dir()
+        .join(&resolution.operation_id)
+        .join("resolution.json");
+    let mut document: serde_json::Value =
+        serde_json::from_slice(&fs::read(&resolution_path).unwrap()).unwrap();
+    document["candidates"][0]["unexpected"] = json!(true);
+    fs::write(&resolution_path, serde_json::to_vec(&document).unwrap()).unwrap();
+    assert!(matches!(
+        plan_install(PlanInstallRequest {
+            resolution_id: resolution.operation_id,
+            skill_names: vec!["strict-resolution".into()],
+            agent_ids: vec!["codex".into()],
+            replace_conflicts: false,
+        }),
+        Err(SkillError::InvalidSource { .. })
+    ));
+
+    let resolution = fixture.resolve_local(&["strict-plan"]);
+    let plan = plan_install(PlanInstallRequest {
+        resolution_id: resolution.operation_id,
+        skill_names: vec!["strict-plan".into()],
+        agent_ids: vec!["codex".into()],
+        replace_conflicts: false,
+    })
+    .unwrap();
+    let plan_path = paths
+        .staging_skills_dir()
+        .join(&plan.operation_id)
+        .join("plan.json");
+    let mut document: serde_json::Value =
+        serde_json::from_slice(&fs::read(&plan_path).unwrap()).unwrap();
+    document["plan"]["unexpected"] = json!(true);
+    fs::write(&plan_path, serde_json::to_vec(&document).unwrap()).unwrap();
+    assert!(matches!(
+        commit_install(plan.confirmation()),
+        Err(SkillError::InvalidSource { .. })
+    ));
+    assert!(!fixture.central("strict-plan").exists());
+}

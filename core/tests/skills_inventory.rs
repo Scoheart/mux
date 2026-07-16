@@ -5,12 +5,51 @@ mod support;
 use mux_core::settings::mutate_settings;
 use mux_core::skills::{
     get_skill_detail, hash_tree, list_inventory, list_skill_agents, normalize_agent_selection,
-    InventoryState, SkillError,
+    recover_pending_with_paths, InventoryState, JournalPhase, SkillError,
 };
 use mux_core::testenv::TestHome;
 use std::fs;
 use std::os::unix::fs::{symlink, PermissionsExt};
-use support::skills::{has_state, managed_record, write_skill};
+use support::skills::{has_state, managed_record, write_skill, TransactionFixture};
+
+#[test]
+fn inventory_surfaces_pending_recovery_without_mutating_it_and_clears_after_recovery() {
+    let fixture = TransactionFixture::crashed_at(JournalPhase::Prepared);
+    let journal_root = fixture.paths.journals_skills_dir();
+
+    let pending = list_inventory().unwrap();
+
+    assert_eq!(
+        pending.recovery_error.as_deref(),
+        Some("A pending Skills operation requires recovery.")
+    );
+    assert!(
+        journal_root.exists(),
+        "inventory unexpectedly recovered a journal"
+    );
+    let rendered = serde_json::to_string(&pending).unwrap();
+    assert!(!rendered.contains(fixture.home.home.to_string_lossy().as_ref()));
+
+    recover_pending_with_paths(&fixture.paths).unwrap();
+    assert_eq!(list_inventory().unwrap().recovery_error, None);
+}
+
+#[test]
+fn inventory_turns_recovery_required_root_evidence_into_a_path_free_status() {
+    let th = TestHome::new("inventory-recovery-status");
+    fs::create_dir_all(th.home.join(".mux/journals")).unwrap();
+    fs::write(th.home.join(".mux/journals/skills"), "not a directory").unwrap();
+
+    let inventory = list_inventory().unwrap();
+
+    assert_eq!(
+        inventory.recovery_error.as_deref(),
+        Some("A pending Skills operation requires recovery.")
+    );
+    let rendered = serde_json::to_string(&inventory).unwrap();
+    assert!(!rendered.contains(th.home.to_string_lossy().as_ref()));
+    assert!(th.home.join(".mux/journals/skills").is_file());
+}
 
 fn install_cursor(home: &std::path::Path) {
     fs::create_dir_all(home.join("Library/Application Support/Cursor")).unwrap();

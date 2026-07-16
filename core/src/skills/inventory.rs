@@ -203,7 +203,19 @@ pub fn list_inventory() -> Result<SkillsInventory, SkillError> {
     let paths = SkillsPaths::resolve_from_env()?;
     let settings = strict_settings()?;
     let graph = build_target_graph(&paths, &settings)?;
-    build_inventory(&paths, &settings, &graph)
+    let mut inventory = build_inventory(&paths, &settings, &graph)?;
+    inventory.recovery_error = inventory_recovery_error()?;
+    Ok(inventory)
+}
+
+fn inventory_recovery_error() -> Result<Option<String>, SkillError> {
+    match super::transaction::has_pending_recovery() {
+        Ok(false) => Ok(None),
+        Ok(true) | Err(SkillError::RecoveryRequired { .. }) => {
+            Ok(Some("A pending Skills operation requires recovery.".into()))
+        }
+        Err(error) => Err(error),
+    }
 }
 
 fn build_inventory(

@@ -5,7 +5,7 @@ use super::{
     MAX_ARCHIVE_BYTES, MAX_ARCHIVE_ENTRIES, MAX_DOWNLOAD_BYTES, MAX_SINGLE_FILE_BYTES,
 };
 use flate2::read::GzDecoder;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
@@ -22,6 +22,8 @@ const MAX_SOURCE_BYTES: usize = 4096;
 const MAX_REF_PROBES: usize = 16;
 const MAX_REDIRECTS: usize = 5;
 const MAX_METADATA_BYTES: u64 = 1024 * 1024;
+const MAX_RESOLUTION_BYTES: u64 = 1024 * 1024;
+const RESOLUTION_FILE: &str = "resolution.json";
 const TAR_BLOCK_BYTES: u64 = 512;
 const MAX_SYMLINK_HOPS: usize = 64;
 
@@ -82,7 +84,288 @@ pub fn resolve_source(
             resolve_local(&path, &paths, &operation_id, &operation_root)
         }
     };
+    let result = result.and_then(|resolution| {
+        persist_staged_resolution(&operation_root, &resolution)?;
+        Ok(resolution)
+    });
     operation.finish(result).map_err(sanitize_resolution_error)
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct StagedResolutionDocument {
+    operation_id: String,
+    source: SkillSource,
+    resolved_revision: Option<String>,
+    candidates: Vec<SkillCandidateSummary>,
+}
+
+impl From<&SkillSourceResolution> for StagedResolutionDocument {
+    fn from(resolution: &SkillSourceResolution) -> Self {
+        Self {
+            operation_id: resolution.operation_id.clone(),
+            source: resolution.source.clone(),
+            resolved_revision: resolution.resolved_revision.clone(),
+            candidates: resolution.candidates.clone(),
+        }
+    }
+}
+
+fn persist_staged_resolution(
+    operation_root: &Path,
+    resolution: &SkillSourceResolution,
+) -> Result<(), SkillError> {
+    validate_canonical_operation_id(&resolution.operation_id)?;
+    let document = StagedResolutionDocument::from(resolution);
+    let bytes = serde_json::to_vec(&document).map_err(|_| {
+        invalid_source_error("the staged Skill resolution could not be encoded safely")
+    })?;
+    if bytes.len() as u64 > MAX_RESOLUTION_BYTES {
+        return Err(SkillError::LimitExceeded {
+            limit: "resolution_metadata".into(),
+            actual: bytes.len() as u64,
+            allowed: MAX_RESOLUTION_BYTES,
+        });
+    }
+    let destination = operation_root.join(RESOLUTION_FILE);
+    let temporary = operation_root.join(format!(".{RESOLUTION_FILE}.tmp"));
+    let mut file = create_private_file(&temporary, 0)?;
+    let result = (|| {
+        file.write_all(&bytes)
+            .map_err(|error| io_error(&temporary, error))?;
+        file.sync_all()
+            .map_err(|error| io_error(&temporary, error))?;
+        fs::rename(&temporary, &destination).map_err(|error| io_error(&destination, error))?;
+        File::open(operation_root)
+            .and_then(|directory| directory.sync_all())
+            .map_err(|error| io_error(operation_root, error))
+    })();
+    drop(file);
+    if result.is_err() {
+        let _ = fs::remove_file(&temporary);
+    }
+    result
+}
+
+pub(crate) fn load_staged_resolution(
+    paths: &SkillsPaths,
+    operation_id: &str,
+) -> Result<SkillSourceResolution, SkillError> {
+    validate_canonical_operation_id(operation_id)?;
+    let operation_root = paths.staging_skills_dir().join(operation_id);
+    validate_private_operation_root(&operation_root)?;
+    let resolution_path = operation_root.join(RESOLUTION_FILE);
+    let bytes = read_private_resolution_file(&resolution_path)?;
+    let document: StagedResolutionDocument = serde_json::from_slice(&bytes)
+        .map_err(|_| invalid_source_error("the staged Skill resolution metadata is malformed"))?;
+    let canonical = serde_json::to_vec(&document)
+        .map_err(|_| invalid_source_error("the staged Skill resolution metadata is malformed"))?;
+    if canonical != bytes {
+        return invalid_source("the staged Skill resolution metadata is not canonical");
+    }
+    if document.operation_id != operation_id {
+        return invalid_source("the staged Skill resolution id does not match its operation");
+    }
+    validate_staged_resolution_document(&operation_root, &document)?;
+    Ok(SkillSourceResolution {
+        operation_id: document.operation_id,
+        source: document.source,
+        resolved_revision: document.resolved_revision,
+        candidates: document.candidates,
+    })
+}
+
+pub(crate) fn stage_private_candidate(source: &Path, destination: &Path) -> Result<(), SkillError> {
+    copy_tree_secure_private(source, destination)?;
+    validate_candidate(destination).map(|_| ())
+}
+
+fn validate_canonical_operation_id(value: &str) -> Result<(), SkillError> {
+    let parsed = uuid::Uuid::parse_str(value)
+        .map_err(|_| invalid_source_error("the Skills operation id is invalid"))?;
+    if parsed.hyphenated().to_string() != value {
+        return invalid_source("the Skills operation id is invalid");
+    }
+    Ok(())
+}
+
+fn validate_private_operation_root(path: &Path) -> Result<(), SkillError> {
+    let metadata = fs::symlink_metadata(path)
+        .map_err(|_| invalid_source_error("the staged Skill resolution is unavailable"))?;
+    if !metadata.file_type().is_dir() {
+        return invalid_source("the staged Skill operation root is not a directory");
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if metadata.permissions().mode() & 0o077 != 0 {
+            return invalid_source("the staged Skill operation root is not private");
+        }
+    }
+    Ok(())
+}
+
+fn read_private_resolution_file(path: &Path) -> Result<Vec<u8>, SkillError> {
+    let mut file = open_resolution_nofollow(path)
+        .map_err(|_| invalid_source_error("the staged Skill resolution is unavailable"))?;
+    let metadata = file
+        .metadata()
+        .map_err(|_| invalid_source_error("the staged Skill resolution is unavailable"))?;
+    if !metadata.is_file() || metadata.len() > MAX_RESOLUTION_BYTES {
+        return invalid_source("the staged Skill resolution metadata is not a bounded file");
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+        if metadata.permissions().mode() & 0o077 != 0 || metadata.nlink() != 1 {
+            return invalid_source("the staged Skill resolution metadata is not private");
+        }
+    }
+    let mut bytes = Vec::with_capacity(metadata.len() as usize);
+    Read::by_ref(&mut file)
+        .take(MAX_RESOLUTION_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|_| invalid_source_error("the staged Skill resolution could not be read"))?;
+    if bytes.len() as u64 > MAX_RESOLUTION_BYTES {
+        return Err(SkillError::LimitExceeded {
+            limit: "resolution_metadata".into(),
+            actual: bytes.len() as u64,
+            allowed: MAX_RESOLUTION_BYTES,
+        });
+    }
+    Ok(bytes)
+}
+
+#[cfg(unix)]
+fn open_resolution_nofollow(path: &Path) -> std::io::Result<File> {
+    use rustix::fs::{openat, Mode, OFlags, CWD};
+
+    openat(
+        CWD,
+        path,
+        OFlags::RDONLY | OFlags::CLOEXEC | OFlags::NOFOLLOW,
+        Mode::empty(),
+    )
+    .map(File::from)
+    .map_err(Into::into)
+}
+
+#[cfg(not(unix))]
+fn open_resolution_nofollow(path: &Path) -> std::io::Result<File> {
+    let metadata = fs::symlink_metadata(path)?;
+    if metadata.file_type().is_symlink() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "refusing to follow a symlink",
+        ));
+    }
+    OpenOptions::new().read(true).open(path)
+}
+
+fn validate_staged_resolution_document(
+    operation_root: &Path,
+    document: &StagedResolutionDocument,
+) -> Result<(), SkillError> {
+    match (&document.source, &document.resolved_revision) {
+        (SkillSource::Github { .. }, Some(revision))
+            if revision.len() == 40
+                && revision
+                    .bytes()
+                    .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase()) => {}
+        (SkillSource::Local { .. }, None) => {}
+        _ => return invalid_source("the staged Skill source revision is inconsistent"),
+    }
+    if document.candidates.is_empty() {
+        return invalid_source("the staged Skill resolution contains no candidates");
+    }
+    let mut sorted = document.candidates.clone();
+    sorted.sort_by(|left, right| {
+        left.name
+            .cmp(&right.name)
+            .then(left.relative_path.cmp(&right.relative_path))
+    });
+    if sorted != document.candidates {
+        return invalid_source("the staged Skill candidates are not canonically ordered");
+    }
+
+    let candidates_root = operation_root.join("candidates");
+    let root_metadata = fs::symlink_metadata(&candidates_root)
+        .map_err(|_| invalid_source_error("the staged Skill candidates are unavailable"))?;
+    if !root_metadata.file_type().is_dir() {
+        return invalid_source("the staged Skill candidates root is not a directory");
+    }
+    let mut expected_names = BTreeSet::new();
+    for summary in &document.candidates {
+        if !valid_staged_skill_name(&summary.name)
+            || !valid_relative_candidate_path(&summary.relative_path)
+            || summary.content_hash.len() != 64
+            || !summary
+                .content_hash
+                .bytes()
+                .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
+            || summary.file_count == 0
+            || !expected_names.insert(summary.name.clone())
+        {
+            return invalid_source("the staged Skill candidate metadata is invalid");
+        }
+        let candidate = candidates_root.join(&summary.name);
+        let validated = validate_candidate(&candidate)
+            .map_err(|_| invalid_source_error("a staged Skill candidate no longer validates"))?;
+        if validated.manifest.name != summary.name
+            || validated.manifest.description != summary.description
+            || validated.content_kind != summary.content_kind
+            || validated.content_hash != summary.content_hash
+            || validated.files.len() as u64 != summary.file_count
+            || validated.total_bytes != summary.total_bytes
+        {
+            return Err(SkillError::PlanStale {
+                message: "a staged Skill candidate changed after resolution".into(),
+            });
+        }
+    }
+    let observed_names = fs::read_dir(&candidates_root)
+        .map_err(|_| invalid_source_error("the staged Skill candidates could not be listed"))?
+        .map(|entry| {
+            entry
+                .map_err(|_| invalid_source_error("the staged Skill candidates changed"))
+                .and_then(|entry| {
+                    let metadata = entry.metadata().map_err(|_| {
+                        invalid_source_error("a staged Skill candidate changed type")
+                    })?;
+                    let name = entry.file_name().into_string().map_err(|_| {
+                        invalid_source_error("a staged Skill candidate name is not UTF-8")
+                    })?;
+                    if !metadata.is_dir() || !valid_staged_skill_name(&name) {
+                        return invalid_source("a staged Skill candidate entry is invalid");
+                    }
+                    Ok(name)
+                })
+        })
+        .collect::<Result<BTreeSet<_>, _>>()?;
+    if observed_names != expected_names {
+        return invalid_source("the staged Skill candidate set changed after resolution");
+    }
+    Ok(())
+}
+
+fn valid_staged_skill_name(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 64
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
+        && !value.starts_with('-')
+        && !value.ends_with('-')
+        && !value.contains("--")
+}
+
+fn valid_relative_candidate_path(value: &str) -> bool {
+    value.is_empty()
+        || (!value.starts_with('/')
+            && !value.contains('\\')
+            && value
+                .split('/')
+                .all(|component| !component.is_empty() && !matches!(component, "." | "..")))
 }
 
 struct OperationDirectory {

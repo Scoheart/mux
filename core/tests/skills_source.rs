@@ -1036,7 +1036,8 @@ fn github_success_retains_only_private_candidate_snapshots() {
         );
     }
     let candidate = operation.join("candidates/review/SKILL.md");
-    for file in [candidate] {
+    let resolution = operation.join("resolution.json");
+    for file in [candidate, resolution] {
         assert_eq!(
             fs::metadata(&file).unwrap().permissions().mode() & 0o777,
             0o600,
@@ -1060,7 +1061,7 @@ fn github_success_retains_only_private_candidate_snapshots() {
         .map(|entry| entry.unwrap().file_name())
         .collect::<Vec<_>>();
     retained.sort();
-    assert_eq!(retained, vec!["candidates"]);
+    assert_eq!(retained, vec!["candidates", "resolution.json"]);
 }
 
 #[cfg(unix)]

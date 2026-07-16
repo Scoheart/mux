@@ -137,7 +137,7 @@ pub enum SkillSourceInput {
     Local { path: String },
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SkillCandidateSummary {
     pub name: String,
     pub description: String,
@@ -148,7 +148,7 @@ pub struct SkillCandidateSummary {
     pub total_bytes: u64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SkillSourceResolution {
     pub operation_id: String,
     pub source: SkillSource,
@@ -183,6 +183,107 @@ pub struct SkillRiskSummary {
     pub finding_count: u64,
     #[serde(default)]
     pub findings_truncated: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum SkillOperationKind {
+    Install,
+    Import,
+    Update,
+    Remove,
+    Assignment,
+    Repair,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct OperationPlan {
+    pub operation_id: String,
+    pub kind: SkillOperationKind,
+    pub skills: Vec<PlannedSkill>,
+    pub targets: Vec<PlannedTarget>,
+    pub settings_hash: String,
+    pub candidate_hash: String,
+    pub findings_hash: String,
+    pub requires_risk_override: bool,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PlannedSkill {
+    pub manifest: SkillManifest,
+    pub source: SkillSource,
+    pub resolved_revision: Option<String>,
+    pub files: Vec<SkillFileChange>,
+    pub risk: SkillRiskSummary,
+    pub existing_states: BTreeSet<InventoryState>,
+    pub replace_existing: bool,
+    pub content_hash: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PlannedTarget {
+    pub target_id: String,
+    pub global_dir: String,
+    pub expected: PlannedLinkState,
+    pub primary_agent_ids: Vec<String>,
+    pub affected_agent_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+#[serde(rename_all = "snake_case")]
+pub enum PlannedLinkState {
+    Missing,
+    Managed,
+    Broken,
+    Directory,
+    UnknownSymlink,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SkillCommitRequest {
+    pub operation_id: String,
+    pub candidate_hash: String,
+    pub findings_confirmation: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PlanInstallRequest {
+    pub resolution_id: String,
+    pub skill_names: Vec<String>,
+    pub agent_ids: Vec<String>,
+    pub replace_conflicts: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PlanImportRequest {
+    pub identity: String,
+    pub agent_ids: Vec<String>,
+    pub replace_conflicts: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PlanAssignmentRequest {
+    pub skill_name: String,
+    pub agent_ids: Vec<String>,
+    pub enabled: bool,
+}
+
+impl OperationPlan {
+    pub fn confirmation(&self) -> SkillCommitRequest {
+        SkillCommitRequest {
+            operation_id: self.operation_id.clone(),
+            candidate_hash: self.candidate_hash.clone(),
+            findings_confirmation: None,
+        }
+    }
+
+    pub fn high_risk_confirmation(&self) -> SkillCommitRequest {
+        SkillCommitRequest {
+            findings_confirmation: Some(self.findings_hash.clone()),
+            ..self.confirmation()
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]

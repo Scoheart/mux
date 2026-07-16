@@ -57,8 +57,12 @@ test("search merges pinned and available matches without duplicates", () => {
 });
 
 test("toggle removes existing pins, appends new pins, and enforces the limit", () => {
-  assert.deepEqual(togglePinnedAgent(["codex", "qoder"], "codex"), ["qoder"]);
-  assert.deepEqual(togglePinnedAgent(["codex"], "qoder"), ["codex", "qoder"]);
+  const removed = ["codex", "qoder"];
+  const appended = ["codex"];
+  assert.deepEqual(togglePinnedAgent(removed, "codex"), ["qoder"]);
+  assert.deepEqual(togglePinnedAgent(appended, "qoder"), ["codex", "qoder"]);
+  assert.deepEqual(removed, ["codex", "qoder"]);
+  assert.deepEqual(appended, ["codex"]);
   const full = Array.from({ length: MAX_PINNED_AGENTS }, (_, index) => `agent-${index}`);
   assert.deepEqual(togglePinnedAgent(full, "overflow"), full);
 });
@@ -69,4 +73,35 @@ test("keyboard and drag ordering are stable at boundaries", () => {
   assert.deepEqual(movePinnedAgentBy(ids, "claude-code", -1), ids);
   assert.deepEqual(movePinnedAgentBefore(ids, "qoder", "claude-code"), ["qoder", "claude-code", "codex"]);
   assert.deepEqual(movePinnedAgentBefore(ids, "codex", "codex"), ids);
+});
+
+test("keyboard ordering moves down and preserves the lower boundary", () => {
+  const ids = ["claude-code", "codex", "qoder"];
+  const snapshot = [...ids];
+
+  assert.deepEqual(movePinnedAgentBy(ids, "codex", 1), ["claude-code", "qoder", "codex"]);
+  assert.deepEqual(movePinnedAgentBy(ids, "qoder", 1), ids);
+  assert.deepEqual(movePinnedAgentBy(ids, "missing", 1), ids);
+  assert.deepEqual(ids, snapshot);
+});
+
+test("drag ordering is stable for unknown source and target IDs", () => {
+  const ids = ["claude-code", "codex", "qoder"];
+  const snapshot = [...ids];
+
+  assert.deepEqual(movePinnedAgentBefore(ids, "missing", "codex"), ids);
+  assert.deepEqual(movePinnedAgentBefore(ids, "codex", "missing"), ids);
+  assert.deepEqual(ids, snapshot);
+});
+
+test("reorder operations preserve original input arrays", () => {
+  const keyboardIds = ["claude-code", "codex", "qoder"];
+  const dragIds = ["claude-code", "codex", "qoder"];
+  const keyboardSnapshot = [...keyboardIds];
+  const dragSnapshot = [...dragIds];
+
+  assert.deepEqual(movePinnedAgentBy(keyboardIds, "codex", 1), ["claude-code", "qoder", "codex"]);
+  assert.deepEqual(movePinnedAgentBefore(dragIds, "qoder", "claude-code"), ["qoder", "claude-code", "codex"]);
+  assert.deepEqual(keyboardIds, keyboardSnapshot);
+  assert.deepEqual(dragIds, dragSnapshot);
 });

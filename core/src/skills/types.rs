@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Component, Path, PathBuf};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -182,6 +182,85 @@ pub struct ManagedSkillRecord {
     pub risk: SkillRiskSummary,
     #[serde(default)]
     pub update: SkillUpdateState,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SkillAgentView {
+    pub id: String,
+    pub name: String,
+    pub target_id: String,
+    pub global_dir: String,
+    pub affected_agent_ids: Vec<String>,
+    pub docs: String,
+    pub evidence: String,
+    pub verified_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SkillTargetView {
+    pub target_id: String,
+    pub global_dir: String,
+    pub primary_agent_ids: Vec<String>,
+    pub affected_agent_ids: Vec<String>,
+    pub assignable: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+#[serde(rename_all = "snake_case")]
+pub enum InventoryState {
+    Managed,
+    Assigned,
+    External,
+    LocallyModified,
+    BrokenLink,
+    ConflictingLink,
+    Missing,
+    UpdateAvailable,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum SkillLocation {
+    Central,
+    AgentTarget {
+        target_id: String,
+        global_dir: String,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SkillInventoryItem {
+    pub identity: String,
+    pub name: String,
+    pub description: String,
+    pub content_kind: SkillContentKind,
+    pub states: BTreeSet<InventoryState>,
+    pub location: SkillLocation,
+    pub source: Option<SkillSource>,
+    pub resolved_revision: Option<String>,
+    pub content_hash: Option<String>,
+    pub risk: Option<SkillRiskSummary>,
+    pub update: SkillUpdateState,
+    pub assigned_target_ids: Vec<String>,
+    pub affected_agent_ids: Vec<String>,
+    pub installed_at: Option<String>,
+    pub updated_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SkillsInventory {
+    pub items: Vec<SkillInventoryItem>,
+    pub agents: Vec<SkillAgentView>,
+    pub targets: Vec<SkillTargetView>,
+    pub recovery_error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SkillDetail {
+    pub item: SkillInventoryItem,
+    pub files: Vec<SkillFile>,
+    pub skill_md: String,
+    pub skill_md_truncated: bool,
 }
 
 pub(crate) fn capped_message(message: impl AsRef<str>) -> String {

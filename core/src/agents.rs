@@ -51,17 +51,52 @@ fn supported_transports(definition: &AgentDefinition) -> Vec<&'static str> {
 /// 内置 agent 定义：编译期内嵌 root agents.json（与 TS CLI 共用的单一数据源）
 const BUILTIN_AGENTS_JSON: &str = include_str!("../../data/agents.json");
 const CATALOG_AGENTS_JSON: &str = include_str!("../../data/agent-catalog.json");
+const VERIFIED_SKILL_AGENT_IDS: &[&str] = &[
+    "claude-code",
+    "codex",
+    "copilot-cli",
+    "cursor",
+    "gemini",
+    "opencode",
+];
 
 fn audited_agents() -> BTreeMap<String, AgentDefinition> {
     serde_json::from_str(BUILTIN_AGENTS_JSON).expect("agents.json must be valid")
 }
 
 pub fn builtin_agents() -> BTreeMap<String, AgentDefinition> {
-    let mut catalog: BTreeMap<String, AgentDefinition> =
+    let catalog: BTreeMap<String, AgentDefinition> =
         serde_json::from_str(CATALOG_AGENTS_JSON).expect("agent-catalog.json must be valid");
-    catalog.extend(audited_agents());
-    validate_skill_capabilities(&catalog).expect("builtin Agent Skills capabilities must be valid");
-    catalog
+    merge_builtin_definitions(catalog, audited_agents())
+        .expect("builtin Agent Skills capabilities must be valid")
+}
+
+fn merge_builtin_definitions(
+    mut catalog: BTreeMap<String, AgentDefinition>,
+    audited: BTreeMap<String, AgentDefinition>,
+) -> Result<BTreeMap<String, AgentDefinition>, String> {
+    for definition in catalog.values_mut() {
+        definition.skills = None;
+    }
+    validate_audited_skill_capabilities(&audited)?;
+    catalog.extend(audited);
+    Ok(catalog)
+}
+
+fn validate_audited_skill_capabilities(
+    audited: &BTreeMap<String, AgentDefinition>,
+) -> Result<(), String> {
+    let capability_ids: Vec<&str> = audited
+        .iter()
+        .filter_map(|(id, definition)| definition.skills.as_ref().map(|_| id.as_str()))
+        .collect();
+    if capability_ids != VERIFIED_SKILL_AGENT_IDS {
+        return Err(format!(
+            "audited Skills capability IDs must be {:?}, found {:?}",
+            VERIFIED_SKILL_AGENT_IDS, capability_ids
+        ));
+    }
+    validate_skill_capabilities(audited)
 }
 
 fn validate_skill_capabilities(agents: &BTreeMap<String, AgentDefinition>) -> Result<(), String> {
@@ -72,6 +107,26 @@ fn validate_skill_capabilities(agents: &BTreeMap<String, AgentDefinition>) -> Re
         let Some(capability) = definition.skills.as_ref() else {
             continue;
         };
+        if capability.evidence != "official" {
+            return Err(format!(
+                "Skills capability for {agent_id} requires official evidence"
+            ));
+        }
+        if capability.docs.trim().is_empty() {
+            return Err(format!(
+                "Skills capability for {agent_id} requires documentation"
+            ));
+        }
+        if capability.verified_at.trim().is_empty() {
+            return Err(format!(
+                "Skills capability for {agent_id} requires a verification date"
+            ));
+        }
+        if capability.probes.is_empty() {
+            return Err(format!(
+                "Skills capability for {agent_id} requires an install probe"
+            ));
+        }
         let directories = std::iter::once((
             capability.target_id.as_str(),
             capability.global_dir.as_str(),
@@ -362,6 +417,22 @@ mod tests {
     #[test]
     fn verified_skill_capabilities_are_data_driven() {
         let agents = builtin_agents();
+        let capability_ids: Vec<&str> = agents
+            .iter()
+            .filter_map(|(id, definition)| definition.skills.as_ref().map(|_| id.as_str()))
+            .collect();
+        assert_eq!(
+            capability_ids,
+            [
+                "claude-code",
+                "codex",
+                "copilot-cli",
+                "cursor",
+                "gemini",
+                "opencode",
+            ]
+        );
+
         let codex = agents["codex"].skills.as_ref().unwrap();
         assert_eq!(codex.target_id, "agents-user");
         assert_eq!(codex.global_dir, "~/.agents/skills");
@@ -385,6 +456,77 @@ mod tests {
             assert_eq!(capability.evidence, "official");
             assert!(!capability.probes.is_empty());
         }
+    }
+
+    #[test]
+    fn skill_capabilities_require_complete_official_evidence() {
+        let mut unofficial = skills_capability("unofficial-user", "~/.unofficial/skills");
+        unofficial.evidence = "catalog".into();
+        let mut undocumented = skills_capability("undocumented-user", "~/.undocumented/skills");
+        undocumented.docs = "  ".into();
+        let mut unverified = skills_capability("unverified-user", "~/.unverified/skills");
+        unverified.verified_at = "".into();
+        let mut unprobed = skills_capability("unprobed-user", "~/.unprobed/skills");
+        unprobed.probes.clear();
+
+        for (id, capability) in [
+            ("unofficial", unofficial),
+            ("undocumented", undocumented),
+            ("unverified", unverified),
+            ("unprobed", unprobed),
+        ] {
+            let agents = BTreeMap::from([(
+                id.into(),
+                AgentDefinition {
+                    skills: Some(capability),
+                    ..Default::default()
+                },
+            )]);
+            assert!(
+                validate_skill_capabilities(&agents).is_err(),
+                "accepted incomplete Skills evidence for {id}"
+            );
+        }
+    }
+
+    #[test]
+    fn catalog_only_skill_capability_cannot_survive_merge() {
+        let catalog = BTreeMap::from([(
+            "catalog-forged".into(),
+            AgentDefinition {
+                builtin: Some(false),
+                skills: Some(skills_capability(
+                    "catalog-forged-user",
+                    "~/.catalog-forged/skills",
+                )),
+                ..Default::default()
+            },
+        )]);
+
+        let merged = merge_builtin_definitions(catalog, audited_agents()).unwrap();
+
+        assert!(merged["catalog-forged"].skills.is_none());
+    }
+
+    #[test]
+    fn audited_skill_capabilities_must_match_approved_agent_set() {
+        let mut missing = audited_agents();
+        missing.get_mut("codex").unwrap().skills = None;
+        assert!(merge_builtin_definitions(BTreeMap::new(), missing).is_err());
+
+        let mut extra = audited_agents();
+        extra.insert(
+            "extra-audited".into(),
+            AgentDefinition {
+                builtin: Some(true),
+                skills: Some(skills_capability(
+                    "extra-audited-user",
+                    "~/.extra-audited/skills",
+                )),
+                ..Default::default()
+            },
+        );
+        assert!(merge_builtin_definitions(BTreeMap::new(), extra).is_err());
     }
 
     #[test]

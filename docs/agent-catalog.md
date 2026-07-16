@@ -38,7 +38,7 @@ Community extensions are not presented as native support. The current example is
 
 ## Agent Skills capabilities
 
-Skills support is audited separately from MCP configuration. A built-in definition may carry a nested `skills` capability only when official product documentation confirms a user-level Skills directory and read-only installation evidence. Custom Agent definitions cannot create or override this metadata, and upgrades refresh it from `data/agents.json`.
+Skills support is audited separately from MCP configuration. Only definitions from `data/agents.json` may carry a trusted nested `skills` capability, and only when official product documentation confirms a user-level Skills directory and read-only installation evidence. Any such field from the discovery-only `data/agent-catalog.json` is discarded before the data sets are merged. Custom Agent definitions cannot create or override this metadata, and upgrades refresh it from audited data.
 
 | Field | Contract |
 |---|---|
@@ -50,7 +50,7 @@ Skills support is audited separately from MCP configuration. A built-in definiti
 | `verified_at` | Date the Skills-specific evidence was last checked. |
 | `probes` | Read-only command, path, or macOS bundle checks that indicate the Agent is installed. Probe paths are evidence only and may be absolute application paths. |
 
-All preferred directories and aliases are validated before the built-in catalog is returned. The same `target_id` must always name the same path, and a physical path cannot be assigned contradictory target IDs. The initial verified set is Claude Code, Codex, Cursor, Gemini CLI, OpenCode, and GitHub Copilot CLI. Shared directories such as `~/.agents/skills` are never treated as installation evidence by themselves.
+All preferred directories and aliases are validated before the built-in catalog is returned. The same `target_id` must always name the same path, and a physical path cannot be assigned contradictory target IDs. The audited capability-bearing ID set must be exactly Claude Code, Codex, Cursor, Gemini CLI, OpenCode, and GitHub Copilot CLI; missing or extra IDs, non-`official` evidence, blank documentation or verification dates, and empty probe lists reject the built-in catalog. Shared directories such as `~/.agents/skills` are never treated as installation evidence by themselves.
 
 ## Evidence levels
 

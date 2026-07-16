@@ -29,7 +29,7 @@ import { AgentGlyph } from "./brandIcons";
 import { AddAgentDialog } from "./AddAgentDialog";
 import { AgentPicker } from "./AgentPicker";
 import { FeatureShell } from "./FeatureShell";
-import { cellKey } from "../lib/api";
+import { useToast } from "./Toast";
 
 interface AgentViewProps {
   state: InstallState;
@@ -52,6 +52,16 @@ function syntheticEntry(serverKey: string): RegistryEntry {
   };
 }
 
+function protocolLabel(protocol: ModelProtocol) {
+  if (protocol === "anthropic-messages") return "Anthropic Messages";
+  if (protocol === "openai-responses") return "OpenAI Responses";
+  return "OpenAI Completions";
+}
+
+function samePath(left: string, right: string) {
+  return left.trim().replace(/\/+$/, "") === right.trim().replace(/\/+$/, "");
+}
+
 export function AgentView({
   state,
   agentId,
@@ -60,6 +70,7 @@ export function AgentView({
   onSelectMcps,
   onSelectModels,
 }: AgentViewProps) {
+  const onOpenModels = onSelectModels;
   const { entries, agents, installed, pending, toggle, setEnabled, remove, refreshAgents, rescan } = state;
   const { show: showToast } = useToast();
 
@@ -228,31 +239,15 @@ export function AgentView({
         </div>
       }
     >
-      <div className="max-w-4xl">
-        {/* Header */}
-        <div className="flex items-center gap-3 mb-5">
-          <AgentGlyph id={agent.id} name={agent.name} size={44} />
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2">
-              <h2
-                className="text-lg font-semibold m-0 truncate"
-                style={{ color: "var(--text-primary)" }}
-              >
-                {agent.name}
-              </h2>
-              {agent.evidence === "community-extension" ? (
-                <Badge tone="warning">社区扩展</Badge>
-              ) : agent.builtin ? (
-                <Badge tone="success">已核验</Badge>
-              ) : (
-                <Badge>自定义</Badge>
-              )}
-            </div>
-            <div
-              className="text-xs mt-0.5"
-              style={{ color: "var(--text-secondary)", fontFamily: "var(--font-mono)" }}
-            >
-              {agent.id} · {agent.format.toUpperCase()} · {agent.key}
+      <div className="mux-agent-page">
+      <div className="mux-agent-shell">
+        <AgentHeader agent={agent} />
+
+        <section className="mux-agent-section" aria-labelledby="agent-files-title">
+          <div className="mux-agent-section-head">
+            <div>
+              <h3 id="agent-files-title">配置文件</h3>
+              <p>明确模型设置与 MCP 管理使用的全局文件。</p>
             </div>
             <Badge tone={sharedConfig ? "info" : "neutral"}>
               {sharedConfig ? "同一文件" : "独立 MCP 文件"}
@@ -299,97 +294,64 @@ export function AgentView({
             onApply={() => void handleApplyModel()}
             onOpenModels={onOpenModels}
           />
-        )}
+        </section>
 
-        {/* Installed MCP header + add */}
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="text-xs font-semibold uppercase m-0" style={{ color: "var(--text-secondary)", letterSpacing: "0.06em" }}>
-            已安装 MCP（{installedEntries.length}）
-          </h3>
-
-          <div style={{ position: "relative", zIndex: 50 }}>
-            <button
-              onClick={() => {
-                if (!agent.has_global) return;
-                setShowAddPopover((v) => !v);
-                setAddSearch("");
-              }}
-              disabled={!agent.has_global}
-              className="btn-primary"
-              title={agent.has_global ? "添加 MCP" : "无全局配置路径，无法添加"}
-            >
-              <PlusIcon className="w-3.5 h-3.5" />
-              添加 MCP
-            </button>
-
-            {showAddPopover && (
-              <>
-                <div
-                  style={{ position: "fixed", inset: 0, zIndex: 40 }}
-                  onClick={() => {
-                    setShowAddPopover(false);
-                    setAddSearch("");
-                  }}
-                />
-                <div
-                  style={{
-                    position: "absolute",
-                    top: "calc(100% + 6px)",
-                    right: 0,
-                    width: 340,
-                    maxHeight: 380,
-                    background: "var(--glass-fill-strong)",
-                    backdropFilter: "blur(var(--glass-blur)) saturate(var(--glass-saturate))",
-                    WebkitBackdropFilter: "blur(var(--glass-blur)) saturate(var(--glass-saturate))",
-                    border: `1px solid var(--glass-border)`,
-                    borderRadius: 8,
-                    boxShadow: "var(--glass-shadow), var(--glass-highlight)",
-                    display: "flex",
-                    flexDirection: "column",
-                    overflow: "hidden",
-                    zIndex: 50,
-                  }}
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <div className="p-2 flex-shrink-0" style={{ borderBottom: `1px solid ${borderColor}` }}>
-                    <SearchBar value={addSearch} onChange={setAddSearch} placeholder="搜索 MCP…" autoFocus />
-                  </div>
-                  <div className="flex-1 overflow-y-auto">
-                    {notInstalledEntries.length === 0 ? (
-                      <div className="px-3 py-4 text-xs text-center" style={{ color: "var(--text-secondary)" }}>
-                        {entries.length === installedEntries.length ? "所有 MCP 均已安装" : "未找到匹配的 MCP"}
-                      </div>
-                    ) : (
-                      notInstalledEntries.map((entry) => {
-                        const isPending = pending.has(cellKey(keyOf(entry), agentId));
-                        return (
-                          <button
-                            key={keyOf(entry)}
-                            onClick={() => {
-                              handleToggle(entry);
-                              setShowAddPopover(false);
-                              setAddSearch("");
-                            }}
-                            disabled={isPending}
-                            className="w-full text-left px-3 py-2.5 border-0 transition-colors flex items-center gap-2.5"
-                            style={{
-                              background: "transparent",
-                              borderBottom: `1px solid ${borderColor}`,
-                              opacity: isPending ? 0.5 : 1,
-                              cursor: isPending ? "default" : "pointer",
-                            }}
-                            onMouseEnter={(e) => {
-                              if (!isPending) e.currentTarget.style.background = "color-mix(in srgb, var(--color-blue) 6%, transparent)";
-                            }}
-                            onMouseLeave={(e) => {
-                              e.currentTarget.style.background = "transparent";
-                            }}
-                          >
-                            <Avatar seed={entry.name} size={30} />
-                            <div className="min-w-0 flex-1">
-                              <div className="flex items-center gap-1.5">
-                                <span className="text-xs font-medium truncate" style={{ color: "var(--text-primary)" }}>
-                                  {entry.name}
+        <section className="mux-agent-section" aria-labelledby="agent-mcp-title">
+          <div className="mux-agent-section-head mux-agent-mcp-head">
+            <div>
+              <h3 id="agent-mcp-title">MCP</h3>
+              <p>{installedEntries.length} 个已添加，开关会同步更新 MCP 配置区。</p>
+            </div>
+            <div className="mux-agent-add-wrap">
+              <button
+                type="button"
+                className="btn-primary"
+                onClick={() => {
+                  setShowAddPopover((value) => !value);
+                  setAddSearch("");
+                }}
+              >
+                <PlusIcon className="w-3.5 h-3.5" />
+                添加 MCP
+              </button>
+              {showAddPopover && (
+                <>
+                  <div
+                    className="mux-agent-popover-scrim"
+                    onClick={() => {
+                      setShowAddPopover(false);
+                      setAddSearch("");
+                    }}
+                  />
+                  <div className="mux-agent-add-popover" onClick={(event) => event.stopPropagation()}>
+                    <div className="mux-agent-add-search">
+                      <SearchBar value={addSearch} onChange={setAddSearch} placeholder="搜索 MCP…" autoFocus />
+                    </div>
+                    <div className="mux-agent-add-list">
+                      {notInstalledEntries.length === 0 ? (
+                        <div className="mux-agent-add-empty">
+                          {entries.length === installedEntries.length ? "所有 MCP 均已添加" : "未找到匹配的 MCP"}
+                        </div>
+                      ) : (
+                        notInstalledEntries.map((entry) => {
+                          const isPending = pending.has(cellKey(keyOf(entry), agentId));
+                          return (
+                            <button
+                              key={keyOf(entry)}
+                              type="button"
+                              className="mux-agent-add-item"
+                              disabled={isPending}
+                              onClick={() => {
+                                handleToggle(entry);
+                                setShowAddPopover(false);
+                                setAddSearch("");
+                              }}
+                            >
+                              <Avatar seed={entry.name} size={30} />
+                              <span className="mux-agent-add-copy">
+                                <span>
+                                  <strong>{entry.name}</strong>
+                                  <TransportPill entry={entry} compact />
                                 </span>
                                 {entry.description && <small>{entry.description}</small>}
                               </span>
@@ -462,6 +424,7 @@ export function AgentView({
         />
       )}
     </div>
+    </FeatureShell>
   );
 }
 
@@ -630,6 +593,6 @@ function ModelAssignment({
           {applying ? "应用中…" : alreadyApplied ? "已应用" : "应用模型"}
         </button>
       </div>
-    </FeatureShell>
+    </div>
   );
 }

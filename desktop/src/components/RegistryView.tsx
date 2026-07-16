@@ -17,14 +17,19 @@ import {
   DownloadIcon,
   FolderIcon,
   LayersIcon,
-  PackageIcon,
   TrashIcon,
 } from "./icons";
-import { Avatar, Badge, IconButton, SearchBar, Modal, TransportPill } from "./ui";
+import { Avatar, Badge, IconButton, SearchBar, TransportPill } from "./ui";
 import { useToast } from "./Toast";
 import { PasteConfigDialog } from "./PasteConfigDialog";
 import { AgentPicker } from "./AgentPicker";
 import { FeatureShell } from "./FeatureShell";
+import {
+  AgentStack,
+  InspectorField,
+  InspectorSection,
+  ResourceInspector,
+} from "./ResourceWorkspace";
 
 interface RegistryViewProps {
   state: InstallState;
@@ -257,6 +262,9 @@ export function RegistryView({
     [deletable, state, toast]
   );
 
+  const shadowedCount = statusCounts.shadowed;
+  const showShadowedFilter = shadowedCount > 0 || statusFilter === "shadowed";
+
   return (
     <FeatureShell
       active="mcps"
@@ -328,6 +336,7 @@ export function RegistryView({
             <RegistryCard
               key={`${keyOf(item.entry)}@${item.entry.origin?.source ?? item.entry.origin?.kind ?? ""}`}
               item={item}
+              selected={detail === item}
               installedAgents={agentsForServer(keyOf(item.entry))}
               sourceName={sourceName}
               overriddenBy={
@@ -372,81 +381,6 @@ export function RegistryView({
           }
           onDelete={deletable(detail.entry) ? () => deleteEntry(detail.entry) : undefined}
         />
-      }
-      query={q}
-      onQueryChange={setQ}
-      searchPlaceholder="搜索 MCP"
-      toolbarActions={
-        <>
-          <button onClick={() => setPasteOpen(true)} className="btn-ghost" title="粘贴 MCP 配置">
-            粘贴配置
-          </button>
-          <IconButton title="导出生效配置" onClick={doExport} disabled={entries.length === 0}>
-            <DownloadIcon className="w-4 h-4" />
-          </IconButton>
-          <button onClick={onCreate} className="btn-primary">
-            <PlusIcon className="w-4 h-4" />
-            新建 MCP
-          </button>
-        </>
-      }
-      inspector={
-        detail ? (
-          <RegistryDetail
-            entry={detail.entry}
-            overriddenBy={
-              detail.in_effect
-                ? undefined
-                : originLabel(winningOriginByKey.get(keyOf(detail.entry)), sourceName)
-            }
-            installedAgents={agentsForServer(keyOf(detail.entry))}
-            sourceName={sourceName}
-            onClose={() => setDetail(null)}
-            onCopy={() => copyConfig(detail.entry)}
-            onEdit={
-              editable(detail.entry)
-                ? () => {
-                    const { name } = detail.entry;
-                    const transport = transportOf(detail.entry);
-                    setDetail(null);
-                    onEdit(name, transport);
-                  }
-                : undefined
-            }
-            onDelete={deletable(detail.entry) ? () => deleteEntry(detail.entry) : undefined}
-          />
-        ) : undefined
-      }
-    >
-      {filtered.length === 0 ? (
-        <ResourceEmpty
-          icon={<PackageIcon className="w-6 h-6" />}
-          title={catalog.length === 0 ? "暂无 MCP" : "没有匹配项"}
-          detail={catalog.length === 0 ? "添加订阅、导入配置或新建 MCP" : undefined}
-        />
-      ) : (
-        <ResourceGrid>
-          {filtered.map((item) => (
-            <RegistryCard
-              key={`${keyOf(item.entry)}@${item.entry.origin?.source ?? item.entry.origin?.kind ?? ""}`}
-              item={item}
-              selected={detail === item}
-              installedAgents={agentsForServer(keyOf(item.entry))}
-              sourceName={sourceName}
-              overriddenBy={
-                item.in_effect
-                  ? undefined
-                  : originLabel(winningOriginByKey.get(keyOf(item.entry)), sourceName)
-              }
-              editable={editable(item.entry)}
-              deletable={deletable(item.entry)}
-              onOpen={() => setDetail(item)}
-              onCopy={() => copyConfig(item.entry)}
-              onEdit={() => onEdit(item.entry.name, transportOf(item.entry))}
-              onDelete={() => deleteEntry(item.entry)}
-            />
-          ))}
-        </ResourceGrid>
       )}
     </FeatureShell>
   );

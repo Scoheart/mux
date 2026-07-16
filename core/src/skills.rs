@@ -6,6 +6,7 @@ mod manifest;
 mod ops;
 mod paths;
 mod source;
+mod staging;
 mod transaction;
 mod types;
 

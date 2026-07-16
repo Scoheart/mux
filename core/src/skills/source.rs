@@ -1,4 +1,5 @@
 use super::anchored::{AnchoredFileKind, AnchoredRoot};
+use super::staging::{StagingOperation, StagingRoot};
 use super::{
     capped_message, copy_tree_secure_private, io_error, validate_candidate, SkillCandidateSummary,
     SkillError, SkillSource, SkillSourceInput, SkillSourceResolution, SkillsPaths,
@@ -70,11 +71,15 @@ pub fn resolve_source(
     input: SkillSourceInput,
     endpoints: GithubEndpoints,
 ) -> Result<SkillSourceResolution, SkillError> {
-    let paths = SkillsPaths::from_env().map_err(sanitize_resolution_error)?;
+    let paths = SkillsPaths::resolve_from_env().map_err(sanitize_resolution_error)?;
     let operation_id = Uuid::new_v4().hyphenated().to_string();
-    let operation_root = paths.staging_skills_dir().join(&operation_id);
+    let staging = StagingRoot::open_or_create(&paths).map_err(sanitize_resolution_error)?;
+    let staged_operation = staging
+        .create_operation(&operation_id)
+        .map_err(sanitize_resolution_error)?;
+    let operation_root = staged_operation.path().to_path_buf();
     let operation =
-        OperationDirectory::create(operation_root.clone()).map_err(sanitize_resolution_error)?;
+        OperationDirectory::adopt(operation_root.clone()).map_err(sanitize_resolution_error)?;
 
     let result = match input {
         SkillSourceInput::Github { value } => {
@@ -85,7 +90,7 @@ pub fn resolve_source(
         }
     };
     let result = result.and_then(|resolution| {
-        persist_staged_resolution(&operation_root, &resolution)?;
+        persist_staged_resolution(&staged_operation, &resolution)?;
         Ok(resolution)
     });
     operation.finish(result).map_err(sanitize_resolution_error)
@@ -112,7 +117,7 @@ impl From<&SkillSourceResolution> for StagedResolutionDocument {
 }
 
 fn persist_staged_resolution(
-    operation_root: &Path,
+    operation: &StagingOperation,
     resolution: &SkillSourceResolution,
 ) -> Result<(), SkillError> {
     validate_canonical_operation_id(&resolution.operation_id)?;
@@ -127,24 +132,7 @@ fn persist_staged_resolution(
             allowed: MAX_RESOLUTION_BYTES,
         });
     }
-    let destination = operation_root.join(RESOLUTION_FILE);
-    let temporary = operation_root.join(format!(".{RESOLUTION_FILE}.tmp"));
-    let mut file = create_private_file(&temporary, 0)?;
-    let result = (|| {
-        file.write_all(&bytes)
-            .map_err(|error| io_error(&temporary, error))?;
-        file.sync_all()
-            .map_err(|error| io_error(&temporary, error))?;
-        fs::rename(&temporary, &destination).map_err(|error| io_error(&destination, error))?;
-        File::open(operation_root)
-            .and_then(|directory| directory.sync_all())
-            .map_err(|error| io_error(operation_root, error))
-    })();
-    drop(file);
-    if result.is_err() {
-        let _ = fs::remove_file(&temporary);
-    }
-    result
+    operation.write_private_atomic(RESOLUTION_FILE, &bytes, MAX_RESOLUTION_BYTES)
 }
 
 pub(crate) fn load_staged_resolution(
@@ -152,10 +140,10 @@ pub(crate) fn load_staged_resolution(
     operation_id: &str,
 ) -> Result<SkillSourceResolution, SkillError> {
     validate_canonical_operation_id(operation_id)?;
-    let operation_root = paths.staging_skills_dir().join(operation_id);
-    validate_private_operation_root(&operation_root)?;
-    let resolution_path = operation_root.join(RESOLUTION_FILE);
-    let bytes = read_private_resolution_file(&resolution_path)?;
+    let staging = StagingRoot::open(paths)?;
+    let operation = staging.open_operation(operation_id)?;
+    let operation_root = operation.path().to_path_buf();
+    let bytes = operation.read_private(RESOLUTION_FILE, MAX_RESOLUTION_BYTES)?;
     let document: StagedResolutionDocument = serde_json::from_slice(&bytes)
         .map_err(|_| invalid_source_error("the staged Skill resolution metadata is malformed"))?;
     let canonical = serde_json::to_vec(&document)
@@ -166,7 +154,7 @@ pub(crate) fn load_staged_resolution(
     if document.operation_id != operation_id {
         return invalid_source("the staged Skill resolution id does not match its operation");
     }
-    validate_staged_resolution_document(&operation_root, &document)?;
+    validate_staged_resolution_document(paths, &operation, &operation_root, &document)?;
     Ok(SkillSourceResolution {
         operation_id: document.operation_id,
         source: document.source,
@@ -189,92 +177,13 @@ fn validate_canonical_operation_id(value: &str) -> Result<(), SkillError> {
     Ok(())
 }
 
-fn validate_private_operation_root(path: &Path) -> Result<(), SkillError> {
-    let metadata = fs::symlink_metadata(path)
-        .map_err(|_| invalid_source_error("the staged Skill resolution is unavailable"))?;
-    if !metadata.file_type().is_dir() {
-        return invalid_source("the staged Skill operation root is not a directory");
-    }
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        if metadata.permissions().mode() & 0o077 != 0 {
-            return invalid_source("the staged Skill operation root is not private");
-        }
-    }
-    Ok(())
-}
-
-fn read_private_resolution_file(path: &Path) -> Result<Vec<u8>, SkillError> {
-    let mut file = open_resolution_nofollow(path)
-        .map_err(|_| invalid_source_error("the staged Skill resolution is unavailable"))?;
-    let metadata = file
-        .metadata()
-        .map_err(|_| invalid_source_error("the staged Skill resolution is unavailable"))?;
-    if !metadata.is_file() || metadata.len() > MAX_RESOLUTION_BYTES {
-        return invalid_source("the staged Skill resolution metadata is not a bounded file");
-    }
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::{MetadataExt, PermissionsExt};
-        if metadata.permissions().mode() & 0o077 != 0 || metadata.nlink() != 1 {
-            return invalid_source("the staged Skill resolution metadata is not private");
-        }
-    }
-    let mut bytes = Vec::with_capacity(metadata.len() as usize);
-    Read::by_ref(&mut file)
-        .take(MAX_RESOLUTION_BYTES + 1)
-        .read_to_end(&mut bytes)
-        .map_err(|_| invalid_source_error("the staged Skill resolution could not be read"))?;
-    if bytes.len() as u64 > MAX_RESOLUTION_BYTES {
-        return Err(SkillError::LimitExceeded {
-            limit: "resolution_metadata".into(),
-            actual: bytes.len() as u64,
-            allowed: MAX_RESOLUTION_BYTES,
-        });
-    }
-    Ok(bytes)
-}
-
-#[cfg(unix)]
-fn open_resolution_nofollow(path: &Path) -> std::io::Result<File> {
-    use rustix::fs::{openat, Mode, OFlags, CWD};
-
-    openat(
-        CWD,
-        path,
-        OFlags::RDONLY | OFlags::CLOEXEC | OFlags::NOFOLLOW,
-        Mode::empty(),
-    )
-    .map(File::from)
-    .map_err(Into::into)
-}
-
-#[cfg(not(unix))]
-fn open_resolution_nofollow(path: &Path) -> std::io::Result<File> {
-    let metadata = fs::symlink_metadata(path)?;
-    if metadata.file_type().is_symlink() {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::InvalidInput,
-            "refusing to follow a symlink",
-        ));
-    }
-    OpenOptions::new().read(true).open(path)
-}
-
 fn validate_staged_resolution_document(
+    paths: &SkillsPaths,
+    operation: &StagingOperation,
     operation_root: &Path,
     document: &StagedResolutionDocument,
 ) -> Result<(), SkillError> {
-    match (&document.source, &document.resolved_revision) {
-        (SkillSource::Github { .. }, Some(revision))
-            if revision.len() == 40
-                && revision
-                    .bytes()
-                    .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase()) => {}
-        (SkillSource::Local { .. }, None) => {}
-        _ => return invalid_source("the staged Skill source revision is inconsistent"),
-    }
+    validate_persisted_source(paths, &document.source, &document.resolved_revision)?;
     if document.candidates.is_empty() {
         return invalid_source("the staged Skill resolution contains no candidates");
     }
@@ -323,27 +232,80 @@ fn validate_staged_resolution_document(
             });
         }
     }
-    let observed_names = fs::read_dir(&candidates_root)
-        .map_err(|_| invalid_source_error("the staged Skill candidates could not be listed"))?
-        .map(|entry| {
-            entry
-                .map_err(|_| invalid_source_error("the staged Skill candidates changed"))
-                .and_then(|entry| {
-                    let metadata = entry.metadata().map_err(|_| {
-                        invalid_source_error("a staged Skill candidate changed type")
-                    })?;
-                    let name = entry.file_name().into_string().map_err(|_| {
-                        invalid_source_error("a staged Skill candidate name is not UTF-8")
-                    })?;
-                    if !metadata.is_dir() || !valid_staged_skill_name(&name) {
-                        return invalid_source("a staged Skill candidate entry is invalid");
-                    }
-                    Ok(name)
-                })
+    let observed_names = operation
+        .list_private_directory("candidates")?
+        .into_iter()
+        .map(|name| {
+            if !valid_staged_skill_name(&name) {
+                return invalid_source("a staged Skill candidate entry is invalid");
+            }
+            Ok(name)
         })
-        .collect::<Result<BTreeSet<_>, _>>()?;
+        .collect::<Result<BTreeSet<_>, SkillError>>()?;
     if observed_names != expected_names {
         return invalid_source("the staged Skill candidate set changed after resolution");
+    }
+    Ok(())
+}
+
+fn validate_persisted_source(
+    paths: &SkillsPaths,
+    source: &SkillSource,
+    resolved_revision: &Option<String>,
+) -> Result<(), SkillError> {
+    match (source, resolved_revision) {
+        (
+            SkillSource::Github {
+                owner,
+                repo,
+                subpath,
+                requested_ref,
+                pinned,
+            },
+            Some(revision),
+        ) => {
+            validate_repository_components(owner, repo)?;
+            validate_relative_source_path(subpath)?;
+            decode_api_ref(requested_ref)?;
+            if *pinned != is_sha(requested_ref) {
+                return invalid_source("the staged GitHub pinned state is inconsistent");
+            }
+            if !is_sha(revision) || revision.bytes().any(|byte| byte.is_ascii_uppercase()) {
+                return invalid_source("the staged GitHub revision is not canonical");
+            }
+            if *pinned && requested_ref != revision {
+                return invalid_source("the staged pinned GitHub revision is inconsistent");
+            }
+            Ok(())
+        }
+        (SkillSource::Local { path, subpath }, None) => {
+            validate_source_text(path)?;
+            if path.contains(['\0', '\\']) {
+                return invalid_source("the staged local source path is not canonical");
+            }
+            let expanded = paths
+                .expand_user(path)
+                .ok_or_else(|| invalid_source_error("the staged local source path is invalid"))?;
+            let normalized = lexical_absolute(&expanded)?;
+            if collapse_home(&normalized, paths.user_home()) != *path {
+                return invalid_source("the staged local source path is not canonical");
+            }
+            validate_relative_source_path(subpath)
+        }
+        _ => invalid_source("the staged Skill source revision is inconsistent"),
+    }
+}
+
+fn validate_relative_source_path(value: &str) -> Result<(), SkillError> {
+    if value.is_empty() {
+        return Ok(());
+    }
+    validate_source_text(value)?;
+    if value.starts_with('/') || value.contains(['\\', '\0']) {
+        return invalid_source("the staged Skill source subpath is not canonical");
+    }
+    for component in value.split('/') {
+        validate_decoded_source_component(component)?;
     }
     Ok(())
 }
@@ -374,8 +336,13 @@ struct OperationDirectory {
 }
 
 impl OperationDirectory {
+    #[cfg(test)]
     fn create(path: PathBuf) -> Result<Self, SkillError> {
         create_private_directory(&path)?;
+        Self::adopt(path)
+    }
+
+    fn adopt(path: PathBuf) -> Result<Self, SkillError> {
         let owner = Self { path, armed: true };
         if let Err(error) = owner.verify_setup() {
             return owner.finish(Err(error));
@@ -619,17 +586,24 @@ fn decode_source_component(value: &str) -> Result<String, SkillError> {
     }
     let decoded = String::from_utf8(decoded)
         .map_err(|_| invalid_source_error("source path components must be valid UTF-8"))?;
-    if decoded.is_empty()
-        || matches!(decoded.as_str(), "." | "..")
-        || decoded.contains(['/', '\\', '\0'])
-        || decoded.chars().any(char::is_control)
-    {
-        return invalid_source("source path components are not safe");
-    }
+    validate_decoded_source_component(&decoded)?;
     Ok(decoded)
 }
 
+fn validate_decoded_source_component(value: &str) -> Result<(), SkillError> {
+    if value.is_empty()
+        || matches!(value, "." | "..")
+        || value.contains(['/', '\\', '\0'])
+        || value.chars().any(char::is_control)
+    {
+        return invalid_source("source path components are not safe");
+    }
+    Ok(())
+}
+
 fn validate_repository_components(owner: &str, repo: &str) -> Result<(), SkillError> {
+    validate_decoded_source_component(owner)?;
+    validate_decoded_source_component(repo)?;
     if owner.is_empty()
         || repo.is_empty()
         || repo.to_ascii_lowercase().ends_with(".git")
@@ -736,6 +710,9 @@ fn decode_api_ref(value: &str) -> Result<String, SkillError> {
             .any(|part| part.is_empty() || matches!(part, "." | ".."))
     {
         return invalid_source("GitHub returned an invalid default branch");
+    }
+    for component in value.split('/') {
+        validate_decoded_source_component(component)?;
     }
     Ok(value.to_owned())
 }

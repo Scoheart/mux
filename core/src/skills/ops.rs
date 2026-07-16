@@ -1,4 +1,6 @@
+use super::inventory::{declared_targets_for_agents, normalize_assignment_enable};
 use super::source::{load_staged_resolution, stage_private_candidate};
+use super::staging::StagingRoot;
 use super::transaction::{acquire_skills_lock, validate_operation_id};
 use super::{
     audit_skill, diff_trees, execute_transaction, findings_digest, has_pending_recovery, hash_tree,
@@ -14,13 +16,13 @@ use chrono::{SecondsFormat, Utc};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
-use std::fs::{self, File, OpenOptions};
-use std::io::{ErrorKind, Read, Write};
+use std::fs;
+use std::io::ErrorKind;
 use std::path::{Component, Path, PathBuf};
 use uuid::Uuid;
 
 #[cfg(unix)]
-use std::os::unix::fs::{MetadataExt, PermissionsExt};
+use std::os::unix::fs::MetadataExt;
 
 const PLAN_SCHEMA_VERSION: u32 = 1;
 const PLAN_FILE: &str = "plan.json";
@@ -34,6 +36,7 @@ struct PersistedPlan {
     input: PersistedPlanInput,
     expected_central: Vec<ExpectedCentral>,
     expected_links: Vec<ExpectedLink>,
+    expected_target_roots: Vec<ExpectedTargetRoot>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -68,6 +71,19 @@ struct ExpectedLink {
     skill_name: String,
     target_id: String,
     state: LinkState,
+    desired_managed: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+#[serde(deny_unknown_fields)]
+struct ExpectedTargetRoot {
+    target_id: String,
+    root_path: String,
+    anchor_path: String,
+    anchor_device: u64,
+    anchor_inode: u64,
+    anchor_mode: u32,
+    remaining_components: Vec<String>,
 }
 
 #[derive(Serialize)]
@@ -81,6 +97,7 @@ struct CandidateBinding<'a> {
     assignment_enabled: Option<bool>,
     expected_central: &'a [ExpectedCentral],
     expected_links: &'a [ExpectedLink],
+    expected_target_roots: &'a [ExpectedTargetRoot],
 }
 
 #[derive(Serialize)]
@@ -120,10 +137,11 @@ fn plan_import_inner(request: PlanImportRequest) -> Result<OperationPlan, SkillE
     let inventory = list_inventory()?;
     let external = external_item(&paths, &inventory, &request.identity)?;
     let operation_id = Uuid::new_v4().hyphenated().to_string();
-    let operation_root = create_operation_root(&paths, &operation_id)?;
+    create_operation_root(&paths, &operation_id)?;
     let result = (|| {
-        let candidates = operation_root.join("candidates");
-        create_private_directory(&candidates)?;
+        let candidates = StagingRoot::open(&paths)?
+            .open_operation(&operation_id)?
+            .create_private_directory("candidates")?;
         let staged = candidates.join(&external.name);
         let before_hash = hash_tree(&external.path)?;
         stage_private_candidate(&external.path, &staged)?;
@@ -151,7 +169,7 @@ fn plan_import_inner(request: PlanImportRequest) -> Result<OperationPlan, SkillE
         Ok(persisted.plan)
     })();
     if result.is_err() {
-        remove_unjournaled_operation(&operation_root)?;
+        remove_unjournaled_operation(&paths, &operation_id)?;
     }
     result
 }
@@ -168,14 +186,14 @@ fn plan_assignment_inner(request: PlanAssignmentRequest) -> Result<OperationPlan
     ensure_recovery_clear()?;
     let paths = SkillsPaths::resolve_from_env()?;
     let operation_id = Uuid::new_v4().hyphenated().to_string();
-    let operation_root = create_operation_root(&paths, &operation_id)?;
+    create_operation_root(&paths, &operation_id)?;
     let result = (|| {
-        let persisted = build_assignment_plan(request, operation_id)?;
+        let persisted = build_assignment_plan(request, operation_id.clone())?;
         persist_plan(&paths, &persisted)?;
         Ok(persisted.plan)
     })();
     if result.is_err() {
-        remove_unjournaled_operation(&operation_root)?;
+        remove_unjournaled_operation(&paths, &operation_id)?;
     }
     result
 }
@@ -190,7 +208,7 @@ pub fn cancel_operation(operation_id: &str) -> Result<(), SkillError> {
 
 fn cancel_operation_inner(operation_id: &str) -> Result<(), SkillError> {
     validate_operation_id(operation_id)?;
-    let paths = SkillsPaths::from_env()?;
+    let paths = SkillsPaths::resolve_from_env()?;
     let _lock = acquire_skills_lock(&paths)?;
     let journal = paths
         .journals_skills_dir()
@@ -204,18 +222,9 @@ fn cancel_operation_inner(operation_id: &str) -> Result<(), SkillError> {
             })
         }
     }
-    let operation = paths.staging_skills_dir().join(operation_id);
-    match fs::symlink_metadata(&operation) {
-        Err(error) if error.kind() == ErrorKind::NotFound => Ok(()),
-        Err(error) => Err(io_error(&operation, error)),
-        Ok(metadata) if metadata.file_type().is_dir() => {
-            fs::remove_dir_all(&operation).map_err(|error| io_error(&operation, error))?;
-            sync_directory(&paths.staging_skills_dir())
-        }
-        Ok(_) => Err(SkillError::RecoveryRequired {
-            message: "the named Skills staging operation is not a removable directory".into(),
-        }),
-    }
+    StagingRoot::open(&paths)?
+        .remove_operation_if_exists(operation_id)
+        .map(|_| ())
 }
 
 fn build_install_plan(
@@ -239,8 +248,17 @@ fn build_install_plan(
             return invalid_source("a selected Skill is not part of the staged resolution");
         }
     }
-    let target_ids = normalize_agent_selection(&request.agent_ids)?;
-    let target_views = selected_target_views(&inventory, &target_ids)?;
+    let desired_target_ids = normalize_agent_selection(&request.agent_ids)?
+        .into_iter()
+        .collect::<BTreeSet<_>>();
+    let mut touched_target_ids = desired_target_ids.clone();
+    for name in &selected_names {
+        touched_target_ids.extend(assigned_target_ids(&settings, name));
+    }
+    let target_views = selected_target_views(
+        &inventory,
+        &touched_target_ids.into_iter().collect::<Vec<_>>(),
+    )?;
     let mut expected_central = Vec::new();
     let mut expected_links = Vec::new();
     let mut skills = Vec::new();
@@ -269,16 +287,22 @@ fn build_install_plan(
         let mut replaces_target = false;
         for target in &target_views {
             let state = inspect_link(&target_path(&paths, target, &name)?, &central, &paths)?;
-            if is_link_conflict(&state) {
+            let desired_managed = desired_target_ids.contains(&target.target_id);
+            if desired_managed && is_link_conflict(&state) {
                 if !request.replace_conflicts {
                     return conflict("an Agent Skill target conflicts with this install");
                 }
                 replaces_target = true;
+            } else if !desired_managed && !is_safe_absent_transition(&state) {
+                return conflict(
+                    "a prior Agent Skill assignment is no longer an exact managed link",
+                );
             }
             expected_links.push(ExpectedLink {
                 skill_name: name.clone(),
                 target_id: target.target_id.clone(),
                 state,
+                desired_managed,
             });
         }
         let source = candidate_source(&resolution.source, &summary.relative_path);
@@ -315,6 +339,7 @@ fn build_install_plan(
         },
         expected_central,
         expected_links,
+        expected_target_roots: Vec::new(),
     })
 }
 
@@ -389,11 +414,16 @@ fn build_import_plan(
     if hash_tree(&external.path)? != validated.content_hash {
         return stale("the external Skill changed after review");
     }
-    let mut target_ids = normalize_agent_selection(&request.agent_ids)?;
-    target_ids.push(source_target_id.clone());
-    target_ids.sort();
-    target_ids.dedup();
-    let target_views = selected_target_views(&inventory, &target_ids)?;
+    let mut desired_target_ids = normalize_agent_selection(&request.agent_ids)?
+        .into_iter()
+        .collect::<BTreeSet<_>>();
+    desired_target_ids.insert(source_target_id.clone());
+    let mut touched_target_ids = desired_target_ids.clone();
+    touched_target_ids.extend(assigned_target_ids(&settings, &source_name));
+    let target_views = selected_target_views(
+        &inventory,
+        &touched_target_ids.into_iter().collect::<Vec<_>>(),
+    )?;
     let central = paths.central_skill(&source_name);
     let central_hash = inspect_central(&central)?;
     if central_hash.is_some() && !request.replace_conflicts {
@@ -408,19 +438,25 @@ fn build_import_plan(
             &paths,
         )?;
         let is_source = target.target_id == source_target_id;
+        let desired_managed = desired_target_ids.contains(&target.target_id);
         if is_source && !matches!(state, LinkState::Directory { .. }) {
             return stale("the selected external Skill changed type after review");
         }
-        if !is_source && is_link_conflict(&state) {
+        if desired_managed && !is_source && is_link_conflict(&state) {
             if !request.replace_conflicts {
                 return conflict_result("an Agent Skill target conflicts with this import");
             }
             replaces_target = true;
+        } else if !desired_managed && !is_safe_absent_transition(&state) {
+            return conflict_result(
+                "a prior Agent Skill assignment is no longer an exact managed link",
+            );
         }
         expected_links.push(ExpectedLink {
             skill_name: source_name.clone(),
             target_id: target.target_id.clone(),
             state,
+            desired_managed,
         });
     }
     let source = SkillSource::Imported {
@@ -464,6 +500,7 @@ fn build_import_plan(
             content_hash: central_hash,
         }],
         expected_links,
+        expected_target_roots: Vec::new(),
     })
 }
 
@@ -489,13 +526,23 @@ fn build_assignment_plan(
     if validated.content_hash != record.content_hash {
         return conflict_result("the managed Skill was locally modified");
     }
-    let normalized = normalize_agent_selection(&request.agent_ids)?;
-    let target_ids = if request.enabled {
-        normalized
+    let prior_target_ids = assigned_target_ids(&settings, &request.skill_name);
+    let desired_target_ids = if request.enabled {
+        normalize_assignment_enable(&request.agent_ids, &prior_target_ids)?
+            .into_iter()
+            .collect::<BTreeSet<_>>()
     } else {
-        assigned_targets_for_agents(&inventory, &settings, &request)?
+        let removed = assigned_targets_for_agents(&settings, &request)?;
+        prior_target_ids
+            .difference(&removed)
+            .cloned()
+            .collect::<BTreeSet<_>>()
     };
-    let target_views = selected_target_views(&inventory, &target_ids)?;
+    let touched_target_ids = prior_target_ids
+        .union(&desired_target_ids)
+        .cloned()
+        .collect::<Vec<_>>();
+    let target_views = selected_target_views(&inventory, &touched_target_ids)?;
     let mut expected_links = Vec::new();
     for target in &target_views {
         let state = inspect_link(
@@ -503,19 +550,18 @@ fn build_assignment_plan(
             &central,
             &paths,
         )?;
-        if request.enabled {
-            if is_link_conflict(&state) {
-                return conflict_result(
-                    "assignment would overwrite an unreviewed Agent Skill target",
-                );
-            }
-        } else if !matches!(state, LinkState::ManagedSymlink { .. }) {
+        let desired_managed = desired_target_ids.contains(&target.target_id);
+        if desired_managed && is_link_conflict(&state) {
+            return conflict_result("assignment would overwrite an unreviewed Agent Skill target");
+        }
+        if !desired_managed && !is_safe_absent_transition(&state) {
             return conflict_result("only an exact managed Skill link can be disabled");
         }
         expected_links.push(ExpectedLink {
             skill_name: request.skill_name.clone(),
             target_id: target.target_id.clone(),
             state,
+            desired_managed,
         });
     }
     let risk = audit_skill(&central)?;
@@ -548,38 +594,28 @@ fn build_assignment_plan(
             content_hash: Some(record.content_hash.clone()),
         }],
         expected_links,
+        expected_target_roots: Vec::new(),
     })
 }
 
 fn assigned_targets_for_agents(
-    inventory: &SkillsInventory,
     settings: &SkillSettingsSnapshot,
     request: &PlanAssignmentRequest,
-) -> Result<Vec<String>, SkillError> {
-    let selected = request.agent_ids.iter().collect::<BTreeSet<_>>();
-    let assigned = settings
+) -> Result<BTreeSet<String>, SkillError> {
+    let declared = declared_targets_for_agents(&request.agent_ids)?;
+    Ok(assigned_target_ids(settings, &request.skill_name)
+        .intersection(&declared)
+        .cloned()
+        .collect())
+}
+
+fn assigned_target_ids(settings: &SkillSettingsSnapshot, skill_name: &str) -> BTreeSet<String> {
+    settings
         .skill_assignments
         .as_ref()
-        .and_then(|assignments| assignments.get(&request.skill_name))
+        .and_then(|assignments| assignments.get(skill_name))
         .cloned()
-        .unwrap_or_default();
-    let mut targets = Vec::new();
-    for target_id in assigned {
-        let target = inventory
-            .targets
-            .iter()
-            .find(|target| target.target_id == target_id)
-            .ok_or_else(|| invalid_source_error("an assigned Skill target is unavailable"))?;
-        if target
-            .affected_agent_ids
-            .iter()
-            .any(|agent_id| selected.contains(agent_id))
-        {
-            targets.push(target_id);
-        }
-    }
-    targets.sort();
-    Ok(targets)
+        .unwrap_or_default()
 }
 
 fn commit_plan(
@@ -587,7 +623,7 @@ fn commit_plan(
     expected_kind: SkillOperationKind,
 ) -> Result<SkillsInventory, SkillError> {
     validate_operation_id(&request.operation_id)?;
-    let paths = SkillsPaths::from_env()?;
+    let paths = SkillsPaths::resolve_from_env()?;
     let persisted = load_plan(&paths, &request.operation_id)?;
     if persisted.plan.operation_id != request.operation_id
         || persisted.plan.kind != expected_kind
@@ -710,10 +746,6 @@ fn transaction_spec(
         .iter()
         .map(|target| (target.target_id.as_str(), target))
         .collect::<BTreeMap<_, _>>();
-    let assignment_enabled = match &persisted.input {
-        PersistedPlanInput::Assignment { request } => Some(request.enabled),
-        _ => None,
-    };
     let mut link_mutations = Vec::new();
     for expected in &persisted.expected_links {
         let target = target_by_id
@@ -723,10 +755,10 @@ fn transaction_spec(
             .expand_user(&target.global_dir)
             .ok_or_else(|| invalid_source_error("a planned Skill target path is unavailable"))?
             .join(&expected.skill_name);
-        let desired_target = if assignment_enabled == Some(false) {
-            None
-        } else {
+        let desired_target = if expected.desired_managed {
             Some(paths.central_skill(&expected.skill_name))
+        } else {
+            None
         };
         let backup = if matches!(expected.state, LinkState::Directory { .. }) {
             Some(import_or_replacement_backup(paths, persisted, expected)?)
@@ -758,12 +790,6 @@ fn install_settings_after(
     let now = Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true);
     let records = settings.managed_skills.get_or_insert_default();
     let assignments = settings.skill_assignments.get_or_insert_default();
-    let target_ids = persisted
-        .plan
-        .targets
-        .iter()
-        .map(|target| target.target_id.clone())
-        .collect::<BTreeSet<_>>();
     for skill in &persisted.plan.skills {
         let candidate = paths
             .staging_skills_dir()
@@ -795,10 +821,16 @@ fn install_settings_after(
                 update: SkillUpdateState::default(),
             },
         );
-        if target_ids.is_empty() {
+        let desired_target_ids = persisted
+            .expected_links
+            .iter()
+            .filter(|link| link.skill_name == skill.manifest.name && link.desired_managed)
+            .map(|link| link.target_id.clone())
+            .collect::<BTreeSet<_>>();
+        if desired_target_ids.is_empty() {
             assignments.remove(&skill.manifest.name);
         } else {
-            assignments.insert(skill.manifest.name.clone(), target_ids.clone());
+            assignments.insert(skill.manifest.name.clone(), desired_target_ids);
         }
     }
     if assignments.is_empty() {
@@ -813,16 +845,16 @@ fn assignment_settings_after(
     settings: &mut SkillSettingsSnapshot,
 ) {
     let assignments = settings.skill_assignments.get_or_insert_default();
-    let entry = assignments.entry(request.skill_name.clone()).or_default();
-    for target in &persisted.plan.targets {
-        if request.enabled {
-            entry.insert(target.target_id.clone());
-        } else {
-            entry.remove(&target.target_id);
-        }
-    }
-    if entry.is_empty() {
+    let desired_target_ids = persisted
+        .expected_links
+        .iter()
+        .filter(|link| link.skill_name == request.skill_name && link.desired_managed)
+        .map(|link| link.target_id.clone())
+        .collect::<BTreeSet<_>>();
+    if desired_target_ids.is_empty() {
         assignments.remove(&request.skill_name);
+    } else {
+        assignments.insert(request.skill_name.clone(), desired_target_ids);
     }
     if assignments.is_empty() {
         settings.skill_assignments = None;
@@ -890,6 +922,9 @@ fn finalize_plan(mut persisted: PersistedPlan) -> Result<PersistedPlan, SkillErr
             .cmp(&right.skill_name)
             .then(left.target_id.cmp(&right.target_id))
     });
+    persisted.expected_target_roots =
+        expected_target_roots(&SkillsPaths::resolve_from_env()?, &persisted.plan.targets)?;
+    persisted.expected_target_roots.sort();
     persisted.plan.candidate_hash = candidate_hash(&persisted)?;
     Ok(persisted)
 }
@@ -934,6 +969,7 @@ fn candidate_hash(persisted: &PersistedPlan) -> Result<String, SkillError> {
         assignment_enabled,
         expected_central: &persisted.expected_central,
         expected_links: &persisted.expected_links,
+        expected_target_roots: &persisted.expected_target_roots,
     };
     canonical_hash(&binding)
 }
@@ -1061,6 +1097,108 @@ fn target_path(
         .ok_or_else(|| invalid_source_error("a verified Agent Skill target path is invalid"))
 }
 
+fn expected_target_roots(
+    paths: &SkillsPaths,
+    targets: &[PlannedTarget],
+) -> Result<Vec<ExpectedTargetRoot>, SkillError> {
+    targets
+        .iter()
+        .map(|target| expected_target_root(paths, target))
+        .collect()
+}
+
+fn expected_target_root(
+    paths: &SkillsPaths,
+    target: &PlannedTarget,
+) -> Result<ExpectedTargetRoot, SkillError> {
+    let root = paths
+        .expand_user(&target.global_dir)
+        .filter(|path| path.is_absolute())
+        .ok_or_else(|| invalid_source_error("a verified Agent Skill target path is invalid"))?;
+    let root_path = normalized_physical_path(&root)?;
+    let mut anchor = root.clone();
+    let mut remaining_components = Vec::new();
+
+    loop {
+        match fs::symlink_metadata(&anchor) {
+            Ok(metadata) => {
+                if !metadata.file_type().is_dir() && !metadata.file_type().is_symlink() {
+                    return Err(SkillError::UnsafePath {
+                        message: "a verified Agent Skill target parent is not a directory".into(),
+                        path: String::new(),
+                    });
+                }
+                let canonical =
+                    fs::canonicalize(&anchor).map_err(|error| io_error(&anchor, error))?;
+                let canonical_metadata = fs::symlink_metadata(&canonical)
+                    .map_err(|error| io_error(&canonical, error))?;
+                if !canonical_metadata.file_type().is_dir() {
+                    return Err(SkillError::UnsafePath {
+                        message: "a verified Agent Skill target parent is not a directory".into(),
+                        path: String::new(),
+                    });
+                }
+                remaining_components.reverse();
+                let (anchor_device, anchor_inode, anchor_mode) =
+                    directory_identity(&canonical_metadata);
+                return Ok(ExpectedTargetRoot {
+                    target_id: target.target_id.clone(),
+                    root_path,
+                    anchor_path: normalized_physical_path(&canonical)?,
+                    anchor_device,
+                    anchor_inode,
+                    anchor_mode,
+                    remaining_components,
+                });
+            }
+            Err(error) if error.kind() == ErrorKind::NotFound => {
+                let component = anchor
+                    .file_name()
+                    .and_then(|value| value.to_str())
+                    .filter(|value| !value.is_empty() && !matches!(*value, "." | ".."))
+                    .ok_or_else(|| {
+                        invalid_source_error("a verified Agent Skill target path is invalid")
+                    })?;
+                remaining_components.push(component.to_owned());
+                anchor = anchor
+                    .parent()
+                    .ok_or_else(|| {
+                        invalid_source_error("a verified Agent Skill target path is invalid")
+                    })?
+                    .to_path_buf();
+            }
+            Err(error) => return Err(io_error(&anchor, error)),
+        }
+    }
+}
+
+fn normalized_physical_path(path: &Path) -> Result<String, SkillError> {
+    if !path.is_absolute()
+        || path
+            .components()
+            .any(|component| matches!(component, Component::CurDir | Component::ParentDir))
+    {
+        return invalid_source("a verified Agent Skill target path is invalid");
+    }
+    path.to_str()
+        .map(|value| value.replace('\\', "/"))
+        .ok_or_else(|| invalid_source_error("a verified Agent Skill target path is not UTF-8"))
+}
+
+#[cfg(unix)]
+fn directory_identity(metadata: &fs::Metadata) -> (u64, u64, u32) {
+    (metadata.dev(), metadata.ino(), metadata.mode())
+}
+
+#[cfg(not(unix))]
+fn directory_identity(metadata: &fs::Metadata) -> (u64, u64, u32) {
+    (
+        0,
+        metadata.len(),
+        u32::from(metadata.permissions().readonly()),
+    )
+}
+
 fn inspect_central(path: &Path) -> Result<Option<String>, SkillError> {
     match fs::symlink_metadata(path) {
         Err(error) if error.kind() == ErrorKind::NotFound => Ok(None),
@@ -1135,6 +1273,10 @@ fn is_link_conflict(state: &LinkState) -> bool {
             | LinkState::Directory { .. }
             | LinkState::UnknownSymlink { .. }
     )
+}
+
+fn is_safe_absent_transition(state: &LinkState) -> bool {
+    matches!(state, LinkState::Missing | LinkState::ManagedSymlink { .. })
 }
 
 fn existing_states(inventory: &SkillsInventory, name: &str) -> BTreeSet<InventoryState> {
@@ -1223,40 +1365,13 @@ fn ensure_recovery_clear() -> Result<(), SkillError> {
 
 fn create_operation_root(paths: &SkillsPaths, operation_id: &str) -> Result<PathBuf, SkillError> {
     validate_operation_id(operation_id)?;
-    create_private_directory(&paths.staging_skills_dir())?;
-    let operation = paths.staging_skills_dir().join(operation_id);
-    create_private_directory(&operation)?;
-    Ok(operation)
-}
-
-fn create_private_directory(path: &Path) -> Result<(), SkillError> {
-    match fs::symlink_metadata(path) {
-        Ok(metadata) if metadata.file_type().is_dir() => {
-            #[cfg(unix)]
-            fs::set_permissions(path, fs::Permissions::from_mode(0o700))
-                .map_err(|error| io_error(path, error))?;
-            Ok(())
-        }
-        Ok(_) => Err(SkillError::UnsafePath {
-            message: "a private Skills staging path is not a directory".into(),
-            path: String::new(),
-        }),
-        Err(error) if error.kind() == ErrorKind::NotFound => {
-            fs::create_dir_all(path).map_err(|error| io_error(path, error))?;
-            #[cfg(unix)]
-            fs::set_permissions(path, fs::Permissions::from_mode(0o700))
-                .map_err(|error| io_error(path, error))?;
-            Ok(())
-        }
-        Err(error) => Err(io_error(path, error)),
-    }
+    Ok(StagingRoot::open_or_create(paths)?
+        .create_operation(operation_id)?
+        .path()
+        .to_path_buf())
 }
 
 fn persist_plan(paths: &SkillsPaths, persisted: &PersistedPlan) -> Result<(), SkillError> {
-    let operation = paths
-        .staging_skills_dir()
-        .join(&persisted.plan.operation_id);
-    validate_operation_directory(&operation)?;
     let bytes = serde_json::to_vec(persisted).map_err(|_| SkillError::InvalidSource {
         message: "the Skills plan could not be encoded safely".into(),
     })?;
@@ -1267,54 +1382,15 @@ fn persist_plan(paths: &SkillsPaths, persisted: &PersistedPlan) -> Result<(), Sk
             allowed: MAX_PLAN_BYTES,
         });
     }
-    let destination = operation.join(PLAN_FILE);
-    validate_replaceable_private_file(&destination)?;
-    let temporary = operation.join(format!(".{PLAN_FILE}.tmp"));
-    remove_private_temporary(&temporary)?;
-    let mut file = create_private_file(&temporary)?;
-    let result = (|| {
-        file.write_all(&bytes)
-            .map_err(|error| io_error(&temporary, error))?;
-        file.sync_all()
-            .map_err(|error| io_error(&temporary, error))?;
-        fs::rename(&temporary, &destination).map_err(|error| io_error(&destination, error))?;
-        sync_directory(&operation)
-    })();
-    drop(file);
-    if result.is_err() {
-        let _ = fs::remove_file(&temporary);
-    }
-    result
+    StagingRoot::open(paths)?
+        .open_operation(&persisted.plan.operation_id)?
+        .write_private_atomic(PLAN_FILE, &bytes, MAX_PLAN_BYTES)
 }
 
 fn load_plan(paths: &SkillsPaths, operation_id: &str) -> Result<PersistedPlan, SkillError> {
-    let operation = paths.staging_skills_dir().join(operation_id);
-    validate_operation_directory(&operation)?;
-    let path = operation.join(PLAN_FILE);
-    let mut file = open_private_nofollow(&path)
-        .map_err(|_| invalid_source_error("the reviewed Skills plan is unavailable"))?;
-    let metadata = file
-        .metadata()
-        .map_err(|_| invalid_source_error("the reviewed Skills plan is unavailable"))?;
-    if !metadata.is_file() || metadata.len() > MAX_PLAN_BYTES {
-        return invalid_source("the reviewed Skills plan is not a bounded private file");
-    }
-    #[cfg(unix)]
-    if metadata.permissions().mode() & 0o077 != 0 || metadata.nlink() != 1 {
-        return invalid_source("the reviewed Skills plan is not private");
-    }
-    let mut bytes = Vec::with_capacity(metadata.len() as usize);
-    Read::by_ref(&mut file)
-        .take(MAX_PLAN_BYTES + 1)
-        .read_to_end(&mut bytes)
-        .map_err(|_| invalid_source_error("the reviewed Skills plan could not be read"))?;
-    if bytes.len() as u64 > MAX_PLAN_BYTES {
-        return Err(SkillError::LimitExceeded {
-            limit: "operation_plan".into(),
-            actual: bytes.len() as u64,
-            allowed: MAX_PLAN_BYTES,
-        });
-    }
+    let bytes = StagingRoot::open(paths)?
+        .open_operation(operation_id)?
+        .read_private(PLAN_FILE, MAX_PLAN_BYTES)?;
     let persisted: PersistedPlan = serde_json::from_slice(&bytes)
         .map_err(|_| invalid_source_error("the reviewed Skills plan is malformed"))?;
     let canonical = serde_json::to_vec(&persisted)
@@ -1334,109 +1410,10 @@ fn load_plan(paths: &SkillsPaths, operation_id: &str) -> Result<PersistedPlan, S
     Ok(persisted)
 }
 
-fn validate_operation_directory(path: &Path) -> Result<(), SkillError> {
-    let metadata = fs::symlink_metadata(path)
-        .map_err(|_| invalid_source_error("the Skills staging operation is unavailable"))?;
-    if !metadata.file_type().is_dir() {
-        return invalid_source("the Skills staging operation is not a directory");
-    }
-    #[cfg(unix)]
-    if metadata.permissions().mode() & 0o077 != 0 {
-        return invalid_source("the Skills staging operation is not private");
-    }
-    Ok(())
-}
-
-fn validate_replaceable_private_file(path: &Path) -> Result<(), SkillError> {
-    match fs::symlink_metadata(path) {
-        Err(error) if error.kind() == ErrorKind::NotFound => Ok(()),
-        Err(error) => Err(io_error(path, error)),
-        Ok(metadata) if metadata.file_type().is_file() => {
-            #[cfg(unix)]
-            if metadata.permissions().mode() & 0o077 != 0 || metadata.nlink() != 1 {
-                return invalid_source("an existing Skills plan is not private");
-            }
-            Ok(())
-        }
-        Ok(_) => invalid_source("an existing Skills plan is not a regular file"),
-    }
-}
-
-fn remove_private_temporary(path: &Path) -> Result<(), SkillError> {
-    match fs::symlink_metadata(path) {
-        Err(error) if error.kind() == ErrorKind::NotFound => Ok(()),
-        Err(error) => Err(io_error(path, error)),
-        Ok(metadata) if metadata.file_type().is_file() => {
-            fs::remove_file(path).map_err(|error| io_error(path, error))
-        }
-        Ok(_) => Err(SkillError::RecoveryRequired {
-            message: "a Skills plan temporary path requires recovery".into(),
-        }),
-    }
-}
-
-#[cfg(unix)]
-fn create_private_file(path: &Path) -> Result<File, SkillError> {
-    use std::os::unix::fs::OpenOptionsExt;
-    OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .mode(0o600)
-        .open(path)
-        .map_err(|error| io_error(path, error))
-}
-
-#[cfg(not(unix))]
-fn create_private_file(path: &Path) -> Result<File, SkillError> {
-    OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(path)
-        .map_err(|error| io_error(path, error))
-}
-
-#[cfg(unix)]
-fn open_private_nofollow(path: &Path) -> std::io::Result<File> {
-    use rustix::fs::{openat, Mode, OFlags, CWD};
-    openat(
-        CWD,
-        path,
-        OFlags::RDONLY | OFlags::CLOEXEC | OFlags::NOFOLLOW,
-        Mode::empty(),
-    )
-    .map(File::from)
-    .map_err(Into::into)
-}
-
-#[cfg(not(unix))]
-fn open_private_nofollow(path: &Path) -> std::io::Result<File> {
-    let metadata = fs::symlink_metadata(path)?;
-    if metadata.file_type().is_symlink() {
-        return Err(std::io::Error::new(
-            ErrorKind::InvalidInput,
-            "refusing to follow a symlink",
-        ));
-    }
-    OpenOptions::new().read(true).open(path)
-}
-
-fn remove_unjournaled_operation(path: &Path) -> Result<(), SkillError> {
-    match fs::symlink_metadata(path) {
-        Err(error) if error.kind() == ErrorKind::NotFound => Ok(()),
-        Err(error) => Err(io_error(path, error)),
-        Ok(metadata) if metadata.file_type().is_dir() => {
-            fs::remove_dir_all(path).map_err(|error| io_error(path, error))
-        }
-        Ok(_) => Err(SkillError::RecoveryRequired {
-            message: "a failed Skills plan staging path requires recovery".into(),
-        }),
-    }
-}
-
-fn sync_directory(path: &Path) -> Result<(), SkillError> {
-    File::open(path)
-        .and_then(|directory| directory.sync_all())
-        .map_err(|error| io_error(path, error))
+fn remove_unjournaled_operation(paths: &SkillsPaths, operation_id: &str) -> Result<(), SkillError> {
+    StagingRoot::open(paths)?
+        .remove_operation_if_exists(operation_id)
+        .map(|_| ())
 }
 
 fn collapse_home(path: &Path, home: &Path) -> String {

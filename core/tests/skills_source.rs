@@ -3,13 +3,15 @@ mod support;
 use flate2::write::GzEncoder;
 use flate2::Compression;
 use mux_core::skills::{
-    resolve_source, GithubEndpoints, SkillError, SkillSource, SkillSourceInput, MAX_ARCHIVE_BYTES,
-    MAX_ARCHIVE_ENTRIES, MAX_DOWNLOAD_BYTES, MAX_SINGLE_FILE_BYTES,
+    resolve_source, GithubEndpoints, SkillError, SkillSource, SkillSourceInput, SkillsPaths,
+    MAX_ARCHIVE_BYTES, MAX_ARCHIVE_ENTRIES, MAX_DOWNLOAD_BYTES, MAX_SINGLE_FILE_BYTES,
 };
 use mux_core::testenv::TestHome;
 use std::fs;
 use std::io::{Cursor, Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
+#[cfg(unix)]
+use std::os::unix::fs::symlink;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -50,6 +52,35 @@ fn local_folder_is_copied_not_linked_and_can_contain_multiple_skills() {
         .unwrap(),
         "changed after resolve"
     );
+}
+
+#[cfg(unix)]
+#[test]
+fn source_resolution_rejects_a_symlinked_staging_parent_without_writing_outside_mux() {
+    let th = TestHome::new("skills-source-staging-parent");
+    let source = th.home.join("source");
+    write_skill(&source.join("safe"), "safe", "Safe fixture");
+    let paths = SkillsPaths::from_env().unwrap();
+    let staging_parent = paths.mux_dir().join("staging");
+    let retained_parent = paths.mux_dir().join("retained-staging");
+    fs::rename(&staging_parent, &retained_parent).unwrap();
+    let outside = th.home.join("outside-staging");
+    fs::create_dir(&outside).unwrap();
+    fs::write(outside.join("marker"), "keep").unwrap();
+    symlink(&outside, &staging_parent).unwrap();
+
+    let result = resolve_source(
+        SkillSourceInput::Local {
+            path: source.display().to_string(),
+        },
+        GithubEndpoints::production(),
+    );
+    assert!(matches!(
+        result,
+        Err(SkillError::UnsafePath { .. }) | Err(SkillError::InvalidSource { .. })
+    ));
+    assert_eq!(fs::read_to_string(outside.join("marker")).unwrap(), "keep");
+    assert!(!outside.join("skills").exists());
 }
 
 #[test]
@@ -1061,7 +1092,10 @@ fn github_success_retains_only_private_candidate_snapshots() {
         .map(|entry| entry.unwrap().file_name())
         .collect::<Vec<_>>();
     retained.sort();
-    assert_eq!(retained, vec!["candidates", "resolution.json"]);
+    assert_eq!(
+        retained,
+        vec!["candidates", "metadata.json", "resolution.json"]
+    );
 }
 
 #[cfg(unix)]

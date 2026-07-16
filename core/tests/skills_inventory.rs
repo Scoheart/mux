@@ -5,7 +5,7 @@ mod support;
 use mux_core::settings::mutate_settings;
 use mux_core::skills::{
     get_skill_detail, hash_tree, list_inventory, list_skill_agents, normalize_agent_selection,
-    recover_pending_with_paths, InventoryState, JournalPhase, SkillError,
+    recover_pending_with_paths, InventoryState, JournalPhase, SkillError, SkillsPaths,
 };
 use mux_core::testenv::TestHome;
 use std::fs;
@@ -49,6 +49,26 @@ fn inventory_turns_recovery_required_root_evidence_into_a_path_free_status() {
     let rendered = serde_json::to_string(&inventory).unwrap();
     assert!(!rendered.contains(th.home.to_string_lossy().as_ref()));
     assert!(th.home.join(".mux/journals/skills").is_file());
+}
+
+#[test]
+fn inventory_reports_journal_inspection_io_as_recovery_status_after_inventory_succeeds() {
+    let th = TestHome::new("inventory-journal-inspection-io");
+    fs::create_dir_all(th.home.join(".codex")).unwrap();
+    let paths = SkillsPaths::from_env().unwrap();
+    let journals = paths.journals_skills_dir();
+    fs::set_permissions(&journals, fs::Permissions::from_mode(0o000)).unwrap();
+
+    let result = list_inventory();
+
+    fs::set_permissions(&journals, fs::Permissions::from_mode(0o700)).unwrap();
+    let inventory = result.expect("journal inspection must not hide a readable inventory");
+    assert_eq!(
+        inventory.recovery_error.as_deref(),
+        Some("A pending Skills operation requires recovery.")
+    );
+    let rendered = serde_json::to_string(&inventory).unwrap();
+    assert!(!rendered.contains(th.home.to_string_lossy().as_ref()));
 }
 
 fn install_cursor(home: &std::path::Path) {

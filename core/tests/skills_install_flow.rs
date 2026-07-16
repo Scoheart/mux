@@ -3,11 +3,14 @@
 mod support;
 
 use mux_core::settings::{load_settings, mutate_settings};
-use mux_core::skills::{commit_install, plan_install, PlanInstallRequest, SkillError, SkillsPaths};
+use mux_core::skills::{
+    commit_install, plan_install, resolve_source, PlanInstallRequest, SkillError, SkillSource,
+    SkillSourceInput, SkillsPaths,
+};
 use serde_json::json;
 use std::fs;
 use std::os::unix::fs::symlink;
-use support::skills::{assert_managed_link, SkillsFixture};
+use support::skills::{assert_managed_link, MockGithub, SkillsFixture, FIXTURE_SHA};
 
 #[test]
 fn install_plan_is_read_only_and_commit_installs_one_copy_with_minimal_links() {
@@ -108,6 +111,36 @@ fn install_with_no_agents_is_central_only_and_duplicate_selections_are_rejected(
 }
 
 #[test]
+fn replacement_install_removes_prior_managed_links_not_in_the_desired_graph() {
+    let fixture = SkillsFixture::managed_on_targets("replace-safe", &["cursor-user"]);
+    let resolution = fixture.resolve_local(&["replace-safe"]);
+    let old_link = fixture.target("cursor-user", "replace-safe");
+
+    let plan = plan_install(PlanInstallRequest {
+        resolution_id: resolution.operation_id,
+        skill_names: vec!["replace-safe".into()],
+        agent_ids: Vec::new(),
+        replace_conflicts: true,
+    })
+    .unwrap();
+    assert_eq!(
+        plan.targets
+            .iter()
+            .map(|target| target.target_id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["cursor-user"]
+    );
+
+    commit_install(plan.confirmation()).unwrap();
+    assert!(fs::symlink_metadata(old_link).is_err());
+    assert!(!load_settings()
+        .skill_assignments
+        .as_ref()
+        .is_some_and(|assignments| assignments.contains_key("replace-safe")));
+    assert!(fixture.central("replace-safe").join("SKILL.md").exists());
+}
+
+#[test]
 fn settings_hash_ignores_unrelated_fields_but_rejects_skill_section_changes() {
     let fixture = SkillsFixture::installed_agents(&["codex"]);
     let resolution = fixture.resolve_local(&["unrelated"]);
@@ -192,6 +225,33 @@ fn candidate_changes_and_forged_candidate_hashes_are_rejected_without_mutation()
         Err(SkillError::PlanStale { .. })
     ));
     assert!(!fixture.central("forged-hash").exists());
+}
+
+#[test]
+fn commit_rejects_a_target_root_created_or_swapped_after_review() {
+    let fixture = SkillsFixture::installed_agents(&["codex"]);
+    let resolution = fixture.resolve_local(&["root-stale"]);
+    let plan = plan_install(PlanInstallRequest {
+        resolution_id: resolution.operation_id,
+        skill_names: vec!["root-stale".into()],
+        agent_ids: vec!["codex".into()],
+        replace_conflicts: false,
+    })
+    .unwrap();
+    let target_root = fixture.home.home.join(".agents/skills");
+    assert!(!target_root.exists());
+    fs::create_dir_all(&target_root).unwrap();
+
+    let result = commit_install(plan.confirmation());
+    assert!(matches!(&result, Err(SkillError::PlanStale { .. })));
+    let message = format!("{:?}", result.unwrap_err());
+    assert!(!message.contains(fixture.home.home.to_string_lossy().as_ref()));
+    assert!(!fixture.central("root-stale").exists());
+    assert!(!target_root.join("root-stale").exists());
+    assert!(!load_settings()
+        .managed_skills
+        .as_ref()
+        .is_some_and(|skills| skills.contains_key("root-stale")));
 }
 
 #[test]
@@ -350,4 +410,95 @@ fn staged_resolution_and_persisted_plan_reject_unknown_nested_fields() {
         Err(SkillError::InvalidSource { .. })
     ));
     assert!(!fixture.central("strict-plan").exists());
+}
+
+#[test]
+fn staged_resolution_reuses_strict_source_component_and_path_validation() {
+    let fixture = SkillsFixture::installed_agents(&[]);
+    let assert_rejected = |operation_id: String, skill_name: &str, from: &str, to: &str| {
+        let path = SkillsPaths::from_env()
+            .unwrap()
+            .staging_skills_dir()
+            .join(&operation_id)
+            .join("resolution.json");
+        let document = fs::read_to_string(&path).unwrap();
+        assert!(document.contains(from), "missing tamper source {from}");
+        fs::write(&path, document.replacen(from, to, 1)).unwrap();
+        assert!(matches!(
+            plan_install(PlanInstallRequest {
+                resolution_id: operation_id,
+                skill_names: vec![skill_name.into()],
+                agent_ids: Vec::new(),
+                replace_conflicts: false,
+            }),
+            Err(SkillError::InvalidSource { .. }) | Err(SkillError::UnsafePath { .. })
+        ));
+    };
+
+    let local = fixture.resolve_local(&["strict-local-path"]);
+    let SkillSource::Local { path, .. } = &local.source else {
+        unreachable!()
+    };
+    assert_rejected(
+        local.operation_id,
+        "strict-local-path",
+        &format!("\"path\":{}", serde_json::to_string(path).unwrap()),
+        "\"path\":\"../outside\"",
+    );
+
+    let local = fixture.resolve_local(&["strict-local-subpath"]);
+    assert_rejected(
+        local.operation_id,
+        "strict-local-subpath",
+        "\"subpath\":\"\"",
+        "\"subpath\":\"../outside\"",
+    );
+
+    let server = MockGithub::start(&["strict-github"]);
+    for (from, to) in [
+        ("\"owner\":\"acme\"", "\"owner\":\"../acme\""),
+        ("\"repo\":\"skills\"", "\"repo\":\"bad/repo\""),
+        ("\"subpath\":\"\"", "\"subpath\":\"../outside\""),
+        (
+            "\"requested_ref\":\"main\"",
+            "\"requested_ref\":\"../main\"",
+        ),
+    ] {
+        let github = resolve_source(
+            SkillSourceInput::Github {
+                value: "acme/skills".into(),
+            },
+            server.endpoints(),
+        )
+        .unwrap();
+        assert_rejected(github.operation_id, "strict-github", from, to);
+    }
+
+    let pinned = resolve_source(
+        SkillSourceInput::Github {
+            value: format!("https://github.com/acme/skills/tree/{FIXTURE_SHA}/catalog"),
+        },
+        server.endpoints(),
+    )
+    .unwrap();
+    assert_rejected(
+        pinned.operation_id,
+        "strict-github",
+        &format!("\"resolved_revision\":\"{FIXTURE_SHA}\""),
+        "\"resolved_revision\":\"1123456789abcdef0123456789abcdef01234567\"",
+    );
+
+    let pinned = resolve_source(
+        SkillSourceInput::Github {
+            value: format!("https://github.com/acme/skills/tree/{FIXTURE_SHA}/catalog"),
+        },
+        server.endpoints(),
+    )
+    .unwrap();
+    assert_rejected(
+        pinned.operation_id,
+        "strict-github",
+        "\"pinned\":true",
+        "\"pinned\":false",
+    );
 }

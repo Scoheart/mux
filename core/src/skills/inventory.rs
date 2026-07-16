@@ -138,8 +138,75 @@ pub fn normalize_agent_selection(agent_ids: &[String]) -> Result<Vec<String>, Sk
     let paths = SkillsPaths::resolve_from_env()?;
     let settings = strict_settings()?;
     let graph = build_target_graph(&paths, &settings)?;
+    let selected_ids = validate_agent_selection(&graph, agent_ids, true)?;
+    Ok(normalize_selected_targets(&graph, &selected_ids))
+}
+
+pub(crate) fn normalize_assignment_enable(
+    agent_ids: &[String],
+    existing_target_ids: &BTreeSet<String>,
+) -> Result<Vec<String>, SkillError> {
+    let paths = SkillsPaths::resolve_from_env()?;
+    let settings = strict_settings()?;
+    let graph = build_target_graph(&paths, &settings)?;
+    let mut selected_ids = validate_agent_selection(&graph, agent_ids, true)?;
+    let mut retained_without_live_owner = BTreeSet::new();
+
+    for target_id in existing_target_ids {
+        if !graph.targets.contains_key(target_id) {
+            return Err(invalid_source(
+                "Skills settings reference an unknown physical target",
+            ));
+        }
+        let mut represented = false;
+        for agent in graph
+            .catalog_agents
+            .values()
+            .filter(|agent| agent.installed)
+        {
+            if agent_declares_target(agent, target_id) {
+                selected_ids.insert(agent.id.clone());
+                represented = true;
+            }
+        }
+        if !represented {
+            retained_without_live_owner.insert(target_id.clone());
+        }
+    }
+
+    let mut retained = normalize_selected_targets(&graph, &selected_ids);
+    retained.extend(retained_without_live_owner);
+    Ok(retained.into_iter().collect())
+}
+
+pub(crate) fn declared_targets_for_agents(
+    agent_ids: &[String],
+) -> Result<BTreeSet<String>, SkillError> {
+    let paths = SkillsPaths::resolve_from_env()?;
+    let settings = strict_settings()?;
+    let graph = build_target_graph(&paths, &settings)?;
+    let selected = validate_agent_selection(&graph, agent_ids, false)?;
+    let mut targets = BTreeSet::new();
+    for agent_id in selected {
+        let agent = &graph.catalog_agents[&agent_id];
+        targets.insert(agent.capability.target_id.clone());
+        targets.extend(
+            agent
+                .capability
+                .aliases
+                .iter()
+                .map(|alias| alias.target_id.clone()),
+        );
+    }
+    Ok(targets)
+}
+
+fn validate_agent_selection(
+    graph: &TargetGraph,
+    agent_ids: &[String],
+    require_installed: bool,
+) -> Result<BTreeSet<String>, SkillError> {
     let mut selected_ids = BTreeSet::new();
-    let mut retained = BTreeSet::new();
 
     for agent_id in agent_ids {
         if !valid_name(agent_id) {
@@ -151,23 +218,27 @@ pub fn normalize_agent_selection(agent_ids: &[String]) -> Result<Vec<String>, Sk
         let Some(agent) = graph.catalog_agents.get(agent_id) else {
             return Err(invalid_source("Agent selection contains an unknown id"));
         };
-        if !agent.installed {
+        if require_installed && !agent.installed {
             return Err(invalid_source(
                 "Agent selection requires current verified installation evidence",
             ));
         }
-        retained.insert(agent.capability.target_id.clone());
     }
+    Ok(selected_ids)
+}
+
+fn normalize_selected_targets(graph: &TargetGraph, selected_ids: &BTreeSet<String>) -> Vec<String> {
+    let mut retained = selected_ids
+        .iter()
+        .map(|agent_id| graph.catalog_agents[agent_id].capability.target_id.clone())
+        .collect::<BTreeSet<_>>();
 
     loop {
         let mut candidates: Vec<(usize, String)> = retained
             .iter()
             .map(|target_id| {
                 let target = &graph.targets[target_id];
-                let coverage = target
-                    .affected_agent_ids
-                    .intersection(&selected_ids)
-                    .count();
+                let coverage = target.affected_agent_ids.intersection(selected_ids).count();
                 (coverage, target_id.clone())
             })
             .collect();
@@ -176,7 +247,7 @@ pub fn normalize_agent_selection(agent_ids: &[String]) -> Result<Vec<String>, Sk
         let removable = candidates.into_iter().find_map(|(_, target_id)| {
             let selected_primary: Vec<&String> = graph.targets[&target_id]
                 .primary_agent_ids
-                .intersection(&selected_ids)
+                .intersection(selected_ids)
                 .collect();
             let all_observed_elsewhere = !selected_primary.is_empty()
                 && selected_primary.iter().all(|agent_id| {
@@ -196,7 +267,16 @@ pub fn normalize_agent_selection(agent_ids: &[String]) -> Result<Vec<String>, Sk
         retained.remove(&target_id);
     }
 
-    Ok(retained.into_iter().collect())
+    retained.into_iter().collect()
+}
+
+fn agent_declares_target(agent: &CatalogSkillAgent, target_id: &str) -> bool {
+    agent.capability.target_id == target_id
+        || agent
+            .capability
+            .aliases
+            .iter()
+            .any(|alias| alias.target_id == target_id)
 }
 
 pub fn list_inventory() -> Result<SkillsInventory, SkillError> {
@@ -211,10 +291,7 @@ pub fn list_inventory() -> Result<SkillsInventory, SkillError> {
 fn inventory_recovery_error() -> Result<Option<String>, SkillError> {
     match super::transaction::has_pending_recovery() {
         Ok(false) => Ok(None),
-        Ok(true) | Err(SkillError::RecoveryRequired { .. }) => {
-            Ok(Some("A pending Skills operation requires recovery.".into()))
-        }
-        Err(error) => Err(error),
+        Ok(true) | Err(_) => Ok(Some("A pending Skills operation requires recovery.".into())),
     }
 }
 

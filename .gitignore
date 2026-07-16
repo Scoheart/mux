@@ -4,6 +4,7 @@ dist
 .claude/*
 !.claude/skills
 .superpowers
+.worktrees/
 .goose
 .DS_Store
 

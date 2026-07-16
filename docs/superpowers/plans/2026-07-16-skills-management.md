@@ -3859,14 +3859,19 @@ Expected: every command exits 0. If a command fails, fix the implementation and 
 Before any UI automation, read `../../skills/tool/mux-ui-review/SKILL.md` completely and follow it. Build the production bundle:
 
 ```bash
+rm -rf desktop/src-tauri/target/release/bundle
 (cd desktop && npm run tauri build -- --bundles app,dmg)
 ```
 
-Mount the generated DMG, copy its signed/packaged `MUX.app` into `/Applications/MUX.app` using the normal DMG installation path, detach the image, then verify the running app reports the source version. Never launch a target bundle, preview app, browser mock, or renamed application for acceptance.
+If local updater signing credentials are unavailable, disable updater artifacts only for this acceptance build with `--config '{"bundle":{"createUpdaterArtifacts":false}}'`; never print, synthesize, or commit a signing key. Require exactly one fresh app and DMG after clearing the ignored bundle directory. Verify the DMG, mount it read-only, and validate its `MUX.app` identifier, version, arm64 main/sidecar executables, bundled CLI version, signature, and hashes before installation.
+
+Copy the verified app into a same-filesystem staging path under `/Applications`, revalidate it, then replace `/Applications/MUX.app` with a rollback rename available until acceptance completes. The actual `CFBundleExecutable` is `desktop`, while `Contents/MacOS/mux` is the bundled CLI sidecar. Because the feature build intentionally retains version `1.2.14`, prove installation by matching the DMG/installed executable hashes and by the visible Skills page, not by version text alone. Never launch a target bundle, preview app, browser mock, or renamed application for acceptance.
 
 - [ ] **Step 6: Exercise the real UI at both required viewports**
 
-Create `/tmp/mux-skills-review/home` and seed only public fixture Agent probes plus inert local Skills beneath it. Launch `/Applications/MUX.app/Contents/MacOS/MUX` with `HOME=/tmp/mux-skills-review/home` and `MUX_HOME=/tmp/mux-skills-review/home/.mux`; this is the installed production bundle executable, while the disposable environment prevents private inventory from entering screenshots. Use `https://github.com/obra/superpowers/tree/main/skills/brainstorming` for the public GitHub source flow and the plan's `risky` fixture copied into the disposable home for the high-risk flow. Do not reuse the developer's real home or installed Skills.
+Create canonical `/private/tmp/mux-skills-review/home` fixture directories (no symlink) and seed only public fixture Agent probes plus inert local Skills beneath it. Stop only an existing process whose exact executable is `/Applications/MUX.app/Contents/MacOS/desktop`, then launch that executable with `HOME` set to the fixture home, `MUX_HOME=$HOME/.mux`, `MUX_TEST_PROBE_ROOT=$HOME`, and a restricted fixture-only `PATH`. This prevents Agent probing from reaching real `/Applications`, Homebrew, the developer PATH, or private inventory. Abort without screenshots if any unseeded real Agent appears.
+
+Use `https://github.com/obra/superpowers/tree/main/skills/brainstorming` for the public GitHub source flow and the repository's safe/risky fixtures copied into the disposable home for local-picker flows. First cancel the native folder picker and verify it returns unchanged state/no staging operation; then select a fixture folder. Do not reuse the developer's real home or installed Skills.
 
 Using only that installed app process, verify and capture:
 
@@ -3881,7 +3886,9 @@ Keyboard: Escape closes risk dialog, then review dialog, then Inspector
 Console: no uncaught error, failed promise, or React warning
 ```
 
-Store review artifacts first under `/tmp/mux-skills-review/`. Copy one approved, privacy-safe `1200×820` Skills overview to `website/public/img/skills-overview.png`; it must not show usernames, private paths, private repositories, credentials, or local-only Skill names.
+Store review artifacts first under `/private/tmp/mux-skills-review/`. Copy one approved, privacy-safe `1200×820` Skills overview to `website/public/img/skills-overview.png`; it must not show usernames, private paths, private repositories, credentials, or local-only Skill names.
+
+Every lifecycle state must have a deterministic fixture construction recorded before it is claimed. In particular, do not rely on GitHub `main` changing to produce `update_available`; seed a known old public revision/managed record or report that acceptance item as unverified. Playwright/browser previews may verify the website only and can never substitute for the installed Tauri app or produce its acceptance screenshot.
 
 - [ ] **Step 7: Mark acceptance evidence in the spec**
 

@@ -130,6 +130,32 @@ pub enum SkillSource {
     },
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum SkillSourceInput {
+    Github { value: String },
+    Local { path: String },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SkillCandidateSummary {
+    pub name: String,
+    pub description: String,
+    pub relative_path: String,
+    pub content_kind: SkillContentKind,
+    pub content_hash: String,
+    pub file_count: u64,
+    pub total_bytes: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SkillSourceResolution {
+    pub operation_id: String,
+    pub source: SkillSource,
+    pub resolved_revision: Option<String>,
+    pub candidates: Vec<SkillCandidateSummary>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 #[serde(rename_all = "snake_case")]
 pub enum RiskLevel {

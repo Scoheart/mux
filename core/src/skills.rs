@@ -4,6 +4,7 @@ mod files;
 mod inventory;
 mod manifest;
 mod paths;
+mod source;
 mod types;
 
 pub use audit::*;
@@ -13,4 +14,5 @@ pub use inventory::{
 };
 pub use manifest::*;
 pub use paths::*;
+pub use source::{resolve_source, GithubEndpoints};
 pub use types::*;

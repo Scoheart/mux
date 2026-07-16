@@ -1,6 +1,6 @@
 use super::anchored::{AnchoredFileKind, AnchoredRoot};
 use super::{
-    capped_message, copy_tree_secure, io_error, validate_candidate, SkillCandidateSummary,
+    capped_message, copy_tree_secure_private, io_error, validate_candidate, SkillCandidateSummary,
     SkillError, SkillSource, SkillSourceInput, SkillSourceResolution, SkillsPaths,
     MAX_ARCHIVE_BYTES, MAX_ARCHIVE_ENTRIES, MAX_DOWNLOAD_BYTES, MAX_SINGLE_FILE_BYTES,
 };
@@ -8,19 +8,22 @@ use flate2::read::GzDecoder;
 use serde::Deserialize;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, File, OpenOptions};
-use std::io::{Read, Write};
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Component, Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
 use std::time::Duration;
 use tar::Archive;
 use url::Url;
 use uuid::Uuid;
 
+#[cfg(unix)]
+use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
+
 const MAX_SOURCE_BYTES: usize = 4096;
 const MAX_REF_PROBES: usize = 16;
 const MAX_REDIRECTS: usize = 5;
 const MAX_METADATA_BYTES: u64 = 1024 * 1024;
+const TAR_BLOCK_BYTES: u64 = 512;
+const MAX_SYMLINK_HOPS: usize = 64;
 
 #[derive(Debug, Clone)]
 pub struct GithubEndpoints {
@@ -68,7 +71,8 @@ pub fn resolve_source(
     let paths = SkillsPaths::from_env().map_err(sanitize_resolution_error)?;
     let operation_id = Uuid::new_v4().hyphenated().to_string();
     let operation_root = paths.staging_skills_dir().join(&operation_id);
-    create_private_directory(&operation_root).map_err(sanitize_resolution_error)?;
+    let operation =
+        OperationDirectory::create(operation_root.clone()).map_err(sanitize_resolution_error)?;
 
     let result = match input {
         SkillSourceInput::Github { value } => {
@@ -78,19 +82,69 @@ pub fn resolve_source(
             resolve_local(&path, &paths, &operation_id, &operation_root)
         }
     };
-    match result {
-        Ok(resolution) => Ok(resolution),
-        Err(error) => {
-            if fs::remove_dir_all(&operation_root).is_err() {
-                return Err(SkillError::RecoveryRequired {
-                    message:
-                        "a failed staged source could not be removed; manual recovery is required"
-                            .into(),
-                });
+    operation.finish(result).map_err(sanitize_resolution_error)
+}
+
+struct OperationDirectory {
+    path: PathBuf,
+    armed: bool,
+}
+
+impl OperationDirectory {
+    fn create(path: PathBuf) -> Result<Self, SkillError> {
+        create_private_directory(&path)?;
+        let owner = Self { path, armed: true };
+        if let Err(error) = owner.verify_setup() {
+            return owner.finish(Err(error));
+        }
+        Ok(owner)
+    }
+
+    fn verify_setup(&self) -> Result<(), SkillError> {
+        let metadata =
+            fs::symlink_metadata(&self.path).map_err(|error| io_error(&self.path, error))?;
+        if !metadata.file_type().is_dir() {
+            return invalid_source("the staged source operation root is not a private directory");
+        }
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            if metadata.permissions().mode() & 0o077 != 0 {
+                return invalid_source("the staged source operation root is not private");
             }
-            Err(sanitize_resolution_error(error))
+        }
+        Ok(())
+    }
+
+    fn finish<T>(mut self, result: Result<T, SkillError>) -> Result<T, SkillError> {
+        self.armed = false;
+        finish_operation_with_cleanup(result, &self.path, |path| fs::remove_dir_all(path))
+    }
+}
+
+impl Drop for OperationDirectory {
+    fn drop(&mut self) {
+        if self.armed {
+            let _ = fs::remove_dir_all(&self.path);
         }
     }
+}
+
+fn finish_operation_with_cleanup<T, F>(
+    result: Result<T, SkillError>,
+    operation: &Path,
+    cleanup: F,
+) -> Result<T, SkillError>
+where
+    F: FnOnce(&Path) -> std::io::Result<()>,
+{
+    let Err(original) = result else {
+        return result;
+    };
+    cleanup(operation).map_err(|_| SkillError::RecoveryRequired {
+        message: "a failed staged source could not be removed; manual recovery is required".into(),
+    })?;
+    Err(original)
 }
 
 struct ParsedGithub {
@@ -443,7 +497,9 @@ fn validate_request_url(url: &Url, endpoints: &GithubEndpoints) -> Result<(), Sk
     {
         return invalid_source("a GitHub request or redirect left the approved public hosts");
     }
-    if url.scheme() == "https" {
+    if url.scheme() == "https"
+        && (endpoints.allow_http_loopback || url.port_or_known_default() == Some(443))
+    {
         return Ok(());
     }
     if endpoints.allow_http_loopback
@@ -500,20 +556,47 @@ fn fetch_response(
 }
 
 fn ensure_public_status(response: &ureq::Response, resource: &str) -> Result<(), SkillError> {
+    let (rate_limited, retry_at) = rate_limit_evidence(response);
     match response.status() {
         200..=299 => Ok(()),
+        403 if rate_limited => Err(SkillError::Network {
+            message: "GitHub rate-limited the public source request".into(),
+            retry_at,
+        }),
         401 | 403 | 404 => invalid_source(&format!(
             "the {resource} is unavailable as an unauthenticated public GitHub source"
         )),
         429 => Err(SkillError::Network {
             message: "GitHub rate-limited the public source request".into(),
-            retry_at: response.header("Retry-After").map(capped_message),
+            retry_at,
         }),
         _ => Err(SkillError::Network {
             message: "GitHub returned an unsuccessful response for the public source".into(),
             retry_at: None,
         }),
     }
+}
+
+fn rate_limit_evidence(response: &ureq::Response) -> (bool, Option<String>) {
+    let remaining_zero = bounded_response_header(response, "X-RateLimit-Remaining")
+        .is_some_and(|value| value == "0");
+    let retry_after = bounded_response_header(response, "Retry-After");
+    let reset = bounded_response_header(response, "X-RateLimit-Reset")
+        .filter(|value| value.bytes().all(|byte| byte.is_ascii_digit()));
+    let rate_limited = remaining_zero || retry_after.is_some() || reset.is_some();
+    (rate_limited, retry_after.or(reset))
+}
+
+fn bounded_response_header(response: &ureq::Response, name: &str) -> Option<String> {
+    bounded_header_value(response.header(name)?)
+}
+
+fn bounded_header_value(value: &str) -> Option<String> {
+    let value = value.trim();
+    if value.is_empty() || value.len() > 512 || value.chars().any(char::is_control) {
+        return None;
+    }
+    Some(capped_message(value))
 }
 
 fn read_json<T: for<'de> Deserialize<'de>>(response: ureq::Response) -> Result<T, SkillError> {
@@ -582,11 +665,7 @@ fn download_archive(
         enforce_limit("download", declared, MAX_DOWNLOAD_BYTES)?;
     }
     let mut source = response.into_reader();
-    let mut output = OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(destination)
-        .map_err(|error| io_error(destination, error))?;
+    let mut output = create_private_file(destination, 0)?;
     let mut total = 0_u64;
     let mut buffer = [0_u8; 64 * 1024];
     loop {
@@ -620,58 +699,240 @@ fn download_archive(
     output.flush().map_err(|error| io_error(destination, error))
 }
 
-struct ExpansionReader<R> {
-    inner: R,
-    total: Arc<AtomicU64>,
-}
-
-impl<R: Read> Read for ExpansionReader<R> {
-    fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
-        let current = self.total.load(Ordering::Relaxed);
-        let remaining = MAX_ARCHIVE_BYTES.saturating_add(1).saturating_sub(current);
-        if remaining == 0 {
-            self.total
-                .store(MAX_ARCHIVE_BYTES.saturating_add(1), Ordering::Relaxed);
-            return Err(std::io::Error::other("archive expansion limit exceeded"));
-        }
-        let requested = buffer.len().min(remaining as usize);
-        let read = self.inner.read(&mut buffer[..requested])?;
-        let total = current.saturating_add(read as u64);
-        self.total.store(total, Ordering::Relaxed);
-        if total > MAX_ARCHIVE_BYTES {
-            return Err(std::io::Error::other("archive expansion limit exceeded"));
-        }
-        Ok(read)
-    }
-}
-
 struct PendingSymlink {
     relative: String,
     target: String,
     destination: PathBuf,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PlannedNodeKind {
+    Directory,
+    File,
+    Symlink,
+}
+
 fn extract_archive(download: &Path, destination: &Path) -> Result<PathBuf, SkillError> {
+    let raw_tar = destination
+        .parent()
+        .ok_or_else(|| invalid_source_error("the archive staging layout is invalid"))?
+        .join("source.tar");
+    decompress_archive(download, &raw_tar)?;
+    preflight_tar(&raw_tar)?;
+    materialize_archive(&raw_tar, destination)
+}
+
+fn decompress_archive(download: &Path, raw_tar: &Path) -> Result<(), SkillError> {
     let file = File::open(download).map_err(|error| io_error(download, error))?;
-    let total = Arc::new(AtomicU64::new(0));
-    let decoder = GzDecoder::new(file);
-    let reader = ExpansionReader {
-        inner: decoder,
-        total: Arc::clone(&total),
-    };
-    let mut archive = Archive::new(reader);
-    let entries = archive.entries().map_err(|_| archive_read_error(&total))?;
+    let mut decoder = GzDecoder::new(file);
+    let mut output = create_private_file(raw_tar, 0)?;
+    let mut total = 0_u64;
+    let mut buffer = [0_u8; 64 * 1024];
+    loop {
+        let remaining = MAX_ARCHIVE_BYTES.saturating_add(1).saturating_sub(total);
+        let requested = buffer.len().min(remaining as usize);
+        if requested == 0 {
+            return Err(limit_error(
+                "archive",
+                total.saturating_add(1),
+                MAX_ARCHIVE_BYTES,
+            ));
+        }
+        let read = decoder
+            .read(&mut buffer[..requested])
+            .map_err(|_| invalid_source_error("the public GitHub gzip archive is malformed"))?;
+        if read == 0 {
+            break;
+        }
+        total = total.saturating_add(read as u64);
+        enforce_limit("archive", total, MAX_ARCHIVE_BYTES)?;
+        output
+            .write_all(&buffer[..read])
+            .map_err(|error| io_error(raw_tar, error))?;
+    }
+    output.flush().map_err(|error| io_error(raw_tar, error))
+}
+
+fn preflight_tar(raw_tar: &Path) -> Result<(), SkillError> {
+    let mut file = File::open(raw_tar).map_err(|error| io_error(raw_tar, error))?;
+    let length = file
+        .metadata()
+        .map_err(|error| io_error(raw_tar, error))?
+        .len();
+    if length % TAR_BLOCK_BYTES != 0 {
+        return invalid_source("the tar archive has invalid 512-byte framing");
+    }
+
+    let mut offset = 0_u64;
+    let mut physical_headers = 0_u64;
+    let mut unsupported_extension = false;
+    let mut block = [0_u8; TAR_BLOCK_BYTES as usize];
+    while offset < length {
+        read_tar_block(&mut file, &mut block)?;
+        offset = offset.saturating_add(TAR_BLOCK_BYTES);
+        if is_zero_tar_block(&block) {
+            if offset >= length {
+                return invalid_source("the tar archive is missing its second end marker");
+            }
+            read_tar_block(&mut file, &mut block)?;
+            offset = offset.saturating_add(TAR_BLOCK_BYTES);
+            if !is_zero_tar_block(&block) {
+                return invalid_source("the tar archive has a torn end marker");
+            }
+            while offset < length {
+                read_tar_block(&mut file, &mut block)?;
+                offset = offset.saturating_add(TAR_BLOCK_BYTES);
+                if !is_zero_tar_block(&block) {
+                    return invalid_source("the tar archive contains non-zero trailing data");
+                }
+            }
+            return if unsupported_extension {
+                invalid_source(
+                    "unsupported archive extension: PAX, GNU long-name/link, and sparse records are not accepted",
+                )
+            } else {
+                Ok(())
+            };
+        }
+
+        physical_headers = physical_headers.saturating_add(1);
+        enforce_limit("entries", physical_headers, MAX_ARCHIVE_ENTRIES)?;
+        validate_tar_checksum(&block)?;
+        let size = parse_tar_octal(&block[124..136], "size", true)?;
+        let kind = block[156];
+        if matches!(kind, 0 | b'0' | b'7') {
+            enforce_limit("single_file", size, MAX_SINGLE_FILE_BYTES)?;
+        }
+        if matches!(kind, b'g' | b'x' | b'L' | b'K' | b'S') {
+            unsupported_extension = true;
+        }
+        if kind == b'2' {
+            validate_tar_string_padding(&block[157..257], "symlink target")?;
+        }
+
+        let padded = size
+            .checked_add(TAR_BLOCK_BYTES - 1)
+            .map(|value| value / TAR_BLOCK_BYTES * TAR_BLOCK_BYTES)
+            .ok_or_else(|| invalid_source_error("the tar entry size is invalid"))?;
+        let end = offset
+            .checked_add(padded)
+            .ok_or_else(|| invalid_source_error("the tar entry size is invalid"))?;
+        if end > length {
+            return invalid_source("the tar entry size exceeds the available framed data");
+        }
+        file.seek(SeekFrom::Start(end))
+            .map_err(|error| io_error(raw_tar, error))?;
+        offset = end;
+    }
+    invalid_source("the tar archive is missing its two end markers")
+}
+
+fn read_tar_block(file: &mut File, block: &mut [u8; 512]) -> Result<(), SkillError> {
+    file.read_exact(block)
+        .map_err(|_| invalid_source_error("the tar archive is truncated inside a 512-byte block"))
+}
+
+fn is_zero_tar_block(block: &[u8; 512]) -> bool {
+    block.iter().all(|byte| *byte == 0)
+}
+
+fn validate_tar_checksum(block: &[u8; 512]) -> Result<(), SkillError> {
+    let stored = parse_tar_octal(&block[148..156], "checksum", false)?;
+    let calculated = block
+        .iter()
+        .enumerate()
+        .map(|(index, byte)| {
+            if (148..156).contains(&index) {
+                b' ' as u64
+            } else {
+                *byte as u64
+            }
+        })
+        .sum::<u64>();
+    if stored != calculated {
+        return invalid_source("the tar header checksum is invalid");
+    }
+    Ok(())
+}
+
+fn parse_tar_octal(
+    field: &[u8],
+    label: &'static str,
+    empty_is_zero: bool,
+) -> Result<u64, SkillError> {
+    if field.first().is_some_and(|byte| byte & 0x80 != 0) {
+        return invalid_source(&format!("the tar header {label} is not strict octal"));
+    }
+    let start = field
+        .iter()
+        .position(|byte| *byte != b' ')
+        .unwrap_or(field.len());
+    if start == field.len() || field[start] == 0 {
+        if field[start..].iter().any(|byte| !matches!(byte, b' ' | 0)) {
+            return invalid_source(&format!("the tar header {label} is not strict octal"));
+        }
+        return if empty_is_zero {
+            Ok(0)
+        } else {
+            invalid_source(&format!("the tar header {label} is missing"))
+        };
+    }
+
+    let mut value = 0_u64;
+    let mut end = start;
+    while end < field.len() && !matches!(field[end], b' ' | 0) {
+        let byte = field[end];
+        if !(b'0'..=b'7').contains(&byte) {
+            return invalid_source(&format!("the tar header {label} is not strict octal"));
+        }
+        value = value
+            .checked_mul(8)
+            .and_then(|value| value.checked_add((byte - b'0') as u64))
+            .ok_or_else(|| invalid_source_error(&format!("the tar header {label} is invalid")))?;
+        end += 1;
+    }
+    if end == start || field[end..].iter().any(|byte| !matches!(byte, b' ' | 0)) {
+        return invalid_source(&format!("the tar header {label} is not strict octal"));
+    }
+    Ok(value)
+}
+
+fn validate_tar_string_padding(field: &[u8], label: &'static str) -> Result<(), SkillError> {
+    if let Some(end) = field.iter().position(|byte| *byte == 0) {
+        if field[end + 1..].iter().any(|byte| *byte != 0) {
+            return invalid_source(&format!("the tar {label} contains embedded NUL data"));
+        }
+    }
+    Ok(())
+}
+
+fn materialize_archive(raw_tar: &Path, destination: &Path) -> Result<PathBuf, SkillError> {
+    let file = File::open(raw_tar).map_err(|error| io_error(raw_tar, error))?;
+    let mut archive = Archive::new(file);
+    let entries = archive.entries().map_err(|_| archive_read_error())?;
     let mut seen = BTreeSet::new();
     let mut roots = BTreeSet::new();
     let mut pending_symlinks = Vec::new();
+    let mut planned_nodes = BTreeMap::new();
     let mut entry_count = 0_u64;
     let mut content_bytes = 0_u64;
 
     for entry in entries {
         entry_count = entry_count.saturating_add(1);
         enforce_limit("entries", entry_count, MAX_ARCHIVE_ENTRIES)?;
-        let mut entry = entry.map_err(|_| archive_read_error(&total))?;
+        let mut entry = entry.map_err(|_| archive_read_error())?;
         let kind = entry.header().entry_type();
+        let planned_kind = if kind.is_file() {
+            PlannedNodeKind::File
+        } else if kind.is_dir() {
+            PlannedNodeKind::Directory
+        } else if kind.is_symlink() {
+            PlannedNodeKind::Symlink
+        } else if kind.is_hard_link() {
+            return invalid_source("hard links are not allowed in Skill archives");
+        } else {
+            return invalid_source("special files are not allowed in Skill archives");
+        };
         let components = normalize_archive_path(entry.path_bytes().as_ref(), kind.is_dir())?;
         let relative = components.join("/");
         if !seen.insert(relative.clone()) {
@@ -681,6 +942,7 @@ fn extract_archive(download: &Path, destination: &Path) -> Result<PathBuf, Skill
         if roots.len() > 1 {
             return invalid_source("the archive contains multiple repository roots");
         }
+        record_planned_node(&mut planned_nodes, &components, planned_kind)?;
         let destination_path = components
             .iter()
             .fold(destination.to_path_buf(), |path, component| {
@@ -688,29 +950,26 @@ fn extract_archive(download: &Path, destination: &Path) -> Result<PathBuf, Skill
             });
         ensure_archive_parents(destination, &components[..components.len() - 1])?;
         let declared = entry.size();
-        if kind.is_file() {
+        if planned_kind == PlannedNodeKind::File {
             enforce_limit("single_file", declared, MAX_SINGLE_FILE_BYTES)?;
             content_bytes = content_bytes.saturating_add(declared);
             enforce_limit("archive", content_bytes, MAX_ARCHIVE_BYTES)?;
-            let mut output = OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .open(&destination_path)
+            let archive_mode = entry.header().mode().unwrap_or(0o644);
+            let mut output = create_private_file(&destination_path, archive_mode & 0o111)
                 .map_err(|_| invalid_source_error("archive entries collide after normalization"))?;
-            let actual = copy_archive_entry(&mut entry, &mut output, declared, &total)?;
+            let actual = copy_archive_entry(&mut entry, &mut output, declared)?;
             if actual != declared {
                 return invalid_source("an archive entry size did not match its header");
             }
             output
                 .flush()
                 .map_err(|error| io_error(&destination_path, error))?;
-            set_archive_file_mode(&destination_path, entry.header().mode().unwrap_or(0o644))?;
-        } else if kind.is_dir() {
+        } else if planned_kind == PlannedNodeKind::Directory {
             if declared != 0 {
                 return invalid_source("archive directory entries must have zero size");
             }
             ensure_archive_directory(&destination_path)?;
-        } else if kind.is_symlink() {
+        } else {
             if declared != 0 {
                 return invalid_source("archive symlink entries must have zero size");
             }
@@ -728,28 +987,138 @@ fn extract_archive(download: &Path, destination: &Path) -> Result<PathBuf, Skill
                 target,
                 destination: destination_path,
             });
-        } else if kind.is_hard_link() {
-            return invalid_source("hard links are not allowed in Skill archives");
-        } else {
-            return invalid_source("special files are not allowed in Skill archives");
         }
-    }
-    if total.load(Ordering::Relaxed) > MAX_ARCHIVE_BYTES {
-        return Err(limit_error(
-            "archive",
-            total.load(Ordering::Relaxed),
-            MAX_ARCHIVE_BYTES,
-        ));
     }
     let root = roots
         .into_iter()
         .next()
         .ok_or_else(|| invalid_source_error("the public GitHub archive is empty"))?;
+    validate_planned_symlink_graph(&planned_nodes, &pending_symlinks)?;
     for link in &pending_symlinks {
         create_archive_symlink(&link.target, &link.destination)?;
     }
     validate_archive_symlinks(destination, &pending_symlinks)?;
     Ok(destination.join(root))
+}
+
+fn record_planned_node(
+    nodes: &mut BTreeMap<String, PlannedNodeKind>,
+    components: &[String],
+    kind: PlannedNodeKind,
+) -> Result<(), SkillError> {
+    for index in 1..components.len() {
+        let parent = components[..index].join("/");
+        match nodes.get(&parent) {
+            Some(PlannedNodeKind::Directory) => {}
+            Some(_) => {
+                return invalid_source(
+                    "an archive entry traverses a planned file or symlink parent",
+                )
+            }
+            None => {
+                nodes.insert(parent, PlannedNodeKind::Directory);
+            }
+        }
+    }
+
+    let path = components.join("/");
+    match nodes.get(&path) {
+        Some(PlannedNodeKind::Directory) if kind == PlannedNodeKind::Directory => Ok(()),
+        Some(_) => invalid_source("archive entries collide in the planned extraction graph"),
+        None => {
+            nodes.insert(path, kind);
+            Ok(())
+        }
+    }
+}
+
+fn validate_planned_symlink_graph(
+    nodes: &BTreeMap<String, PlannedNodeKind>,
+    links: &[PendingSymlink],
+) -> Result<(), SkillError> {
+    let link_targets = links
+        .iter()
+        .map(|link| (link.relative.as_str(), link.target.as_str()))
+        .collect::<BTreeMap<_, _>>();
+    for link in links {
+        let target = normalize_planned_link_target(&link.relative, &link.target)?;
+        resolve_planned_link_target(nodes, &link_targets, target)?;
+    }
+    Ok(())
+}
+
+fn normalize_planned_link_target(link_path: &str, target: &str) -> Result<Vec<String>, SkillError> {
+    if target.is_empty()
+        || target.len() > MAX_SOURCE_BYTES
+        || target.starts_with('/')
+        || target.contains(['\0', '\\'])
+    {
+        return invalid_source("archive symlink targets must be safe relative UTF-8 paths");
+    }
+
+    let mut normalized = link_path.split('/').map(str::to_owned).collect::<Vec<_>>();
+    normalized.pop();
+    for component in target.split('/') {
+        match component {
+            "" => return invalid_source("archive symlink targets must use canonical separators"),
+            "." => {}
+            ".." => {
+                if normalized.pop().is_none() {
+                    return invalid_source("an archive symlink target escapes the extracted tree");
+                }
+            }
+            component => normalized.push(component.to_owned()),
+        }
+    }
+    if normalized.is_empty() {
+        return invalid_source("an archive symlink target escapes the extracted tree");
+    }
+    Ok(normalized)
+}
+
+fn resolve_planned_link_target(
+    nodes: &BTreeMap<String, PlannedNodeKind>,
+    links: &BTreeMap<&str, &str>,
+    mut target: Vec<String>,
+) -> Result<(), SkillError> {
+    let mut visited = BTreeSet::new();
+    let mut hops = 0_usize;
+    loop {
+        let state = target.join("/");
+        if !visited.insert(state) {
+            return invalid_source("the archive symlink graph contains a cycle");
+        }
+
+        let mut followed = false;
+        for index in 1..=target.len() {
+            let prefix = target[..index].join("/");
+            match nodes.get(&prefix) {
+                Some(PlannedNodeKind::Directory) => {}
+                Some(PlannedNodeKind::File) if index == target.len() => return Ok(()),
+                Some(PlannedNodeKind::File) => {
+                    return invalid_source("an archive symlink target traverses a regular file")
+                }
+                Some(PlannedNodeKind::Symlink) => {
+                    hops = hops.saturating_add(1);
+                    if hops > MAX_SYMLINK_HOPS {
+                        return invalid_source("the archive symlink graph exceeds the hop limit");
+                    }
+                    let nested_target = links.get(prefix.as_str()).ok_or_else(|| {
+                        invalid_source_error("the archive symlink graph is incomplete")
+                    })?;
+                    let mut resolved = normalize_planned_link_target(&prefix, nested_target)?;
+                    resolved.extend(target[index..].iter().cloned());
+                    target = resolved;
+                    followed = true;
+                    break;
+                }
+                None => return invalid_source("an archive symlink target is dangling"),
+            }
+        }
+        if !followed {
+            return Ok(());
+        }
+    }
 }
 
 fn normalize_archive_path(bytes: &[u8], directory: bool) -> Result<Vec<String>, SkillError> {
@@ -801,15 +1170,13 @@ fn ensure_archive_directory(path: &Path) -> Result<(), SkillError> {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
         Err(error) => return Err(io_error(path, error)),
     }
-    fs::create_dir(path).map_err(|error| io_error(path, error))?;
-    set_private_mode(path)
+    create_private_directory(path)
 }
 
 fn copy_archive_entry(
     entry: &mut impl Read,
     output: &mut File,
     declared: u64,
-    expansion: &Arc<AtomicU64>,
 ) -> Result<u64, SkillError> {
     let mut actual = 0_u64;
     let mut buffer = [0_u8; 64 * 1024];
@@ -827,7 +1194,7 @@ fn copy_archive_entry(
         }
         let read = entry
             .read(&mut buffer[..requested])
-            .map_err(|_| archive_read_error(expansion))?;
+            .map_err(|_| archive_read_error())?;
         if read == 0 {
             break;
         }
@@ -843,13 +1210,8 @@ fn copy_archive_entry(
     Ok(actual)
 }
 
-fn archive_read_error(total: &Arc<AtomicU64>) -> SkillError {
-    let actual = total.load(Ordering::Relaxed);
-    if actual > MAX_ARCHIVE_BYTES {
-        limit_error("archive", actual, MAX_ARCHIVE_BYTES)
-    } else {
-        invalid_source_error("the public GitHub archive is malformed or truncated")
-    }
+fn archive_read_error() -> SkillError {
+    invalid_source_error("the preflight-approved GitHub archive could not be materialized")
 }
 
 #[cfg(unix)]
@@ -943,7 +1305,7 @@ fn stage_candidates(
     let mut summaries = Vec::with_capacity(prepared.len());
     for (relative, source, before) in prepared {
         let destination = candidates_root.join(&before.manifest.name);
-        copy_tree_secure(&source, &destination)?;
+        copy_tree_secure_private(&source, &destination)?;
         let staged = validate_candidate(&destination)?;
         if staged.manifest.name != before.manifest.name
             || staged.content_hash != before.content_hash
@@ -1091,30 +1453,45 @@ fn lexical_absolute(path: &Path) -> Result<PathBuf, SkillError> {
     Ok(normalized)
 }
 
+#[cfg(unix)]
+fn private_directory_builder() -> fs::DirBuilder {
+    let mut builder = fs::DirBuilder::new();
+    builder.mode(0o700);
+    builder
+}
+
+#[cfg(unix)]
+fn private_file_options(executable_bits: u32) -> OpenOptions {
+    let mut options = OpenOptions::new();
+    options
+        .write(true)
+        .create_new(true)
+        .mode(0o600 | (executable_bits & 0o111));
+    options
+}
+
+#[cfg(unix)]
 fn create_private_directory(path: &Path) -> Result<(), SkillError> {
-    fs::create_dir(path).map_err(|error| io_error(path, error))?;
-    set_private_mode(path)
+    private_directory_builder()
+        .create(path)
+        .map_err(|error| io_error(path, error))
 }
 
-fn set_private_mode(path: &Path) -> Result<(), SkillError> {
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(path, fs::Permissions::from_mode(0o700))
-            .map_err(|error| io_error(path, error))?;
-    }
-    Ok(())
+#[cfg(not(unix))]
+fn create_private_directory(_path: &Path) -> Result<(), SkillError> {
+    invalid_source("private Skill source staging is unavailable on this platform")
 }
 
-fn set_archive_file_mode(path: &Path, archive_mode: u32) -> Result<(), SkillError> {
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let mode = 0o600 | (archive_mode & 0o111);
-        fs::set_permissions(path, fs::Permissions::from_mode(mode))
-            .map_err(|error| io_error(path, error))?;
-    }
-    Ok(())
+#[cfg(unix)]
+fn create_private_file(path: &Path, executable_bits: u32) -> Result<File, SkillError> {
+    private_file_options(executable_bits)
+        .open(path)
+        .map_err(|error| io_error(path, error))
+}
+
+#[cfg(not(unix))]
+fn create_private_file(_path: &Path, _executable_bits: u32) -> Result<File, SkillError> {
+    invalid_source("private Skill source staging is unavailable on this platform")
 }
 
 fn enforce_limit(limit: &'static str, actual: u64, allowed: u64) -> Result<(), SkillError> {
@@ -1190,5 +1567,182 @@ fn sanitize_resolution_error(error: SkillError) -> SkillError {
             message: capped_message(message),
         },
         error @ SkillError::LimitExceeded { .. } => error,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::testenv::TestHome;
+    use flate2::write::GzEncoder;
+    use flate2::Compression;
+    use std::io::Cursor;
+    use tar::{Builder, EntryType, Header};
+
+    #[cfg(unix)]
+    #[test]
+    fn a_later_invalid_link_is_rejected_before_any_symlink_is_created() {
+        let th = TestHome::new("skill-source-link-preflight");
+        let download = th.home.join("source.tar.gz");
+        let destination = th.home.join("archive");
+        create_private_directory(&destination).unwrap();
+
+        let encoder = GzEncoder::new(File::create(&download).unwrap(), Compression::default());
+        let mut archive = Builder::new(encoder);
+        append_test_file(&mut archive, "repo/guide.md", b"guide");
+        append_test_link(&mut archive, "repo/first", "guide.md");
+        append_test_link(&mut archive, "repo/later-invalid", "missing.md");
+        let encoder = archive.into_inner().unwrap();
+        encoder.finish().unwrap();
+
+        assert!(matches!(
+            extract_archive(&download, &destination),
+            Err(SkillError::InvalidSource { .. }) | Err(SkillError::UnsafePath { .. })
+        ));
+        let symlinks = walk_symlinks(&destination);
+        assert!(
+            symlinks.is_empty(),
+            "link validation materialized symlinks before the graph was approved: {symlinks:?}"
+        );
+    }
+
+    #[test]
+    fn production_requests_and_redirects_require_effective_https_port_443() {
+        let production = GithubEndpoints::production();
+        assert!(validate_request_url(
+            &Url::parse("https://api.github.com:443/repos/acme/skills").unwrap(),
+            &production,
+        )
+        .is_ok());
+        assert!(validate_request_url(
+            &Url::parse("https://api.github.com:444/repos/acme/skills").unwrap(),
+            &production,
+        )
+        .is_err());
+        assert!(validate_request_url(
+            &Url::parse("https://codeload.github.com:8443/acme/skills/tar.gz/sha").unwrap(),
+            &production,
+        )
+        .is_err());
+
+        let loopback = Url::parse("http://127.0.0.1:43123/").unwrap();
+        let tests = GithubEndpoints::for_test(loopback.clone(), loopback.clone());
+        assert!(validate_request_url(&loopback, &tests).is_ok());
+    }
+
+    #[test]
+    fn retry_headers_are_trimmed_and_reject_unbounded_or_control_values() {
+        assert_eq!(
+            bounded_header_value(" 1893456000 "),
+            Some("1893456000".into())
+        );
+        assert_eq!(bounded_header_value(&"9".repeat(513)), None);
+        assert_eq!(bounded_header_value("12\t34"), None);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn private_builders_apply_modes_at_the_create_syscall() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let th = TestHome::new("skill-source-private-builders");
+        let directory = th.home.join("directory");
+        private_directory_builder().create(&directory).unwrap();
+        assert_eq!(
+            fs::metadata(&directory).unwrap().permissions().mode() & 0o777,
+            0o700
+        );
+
+        let regular = th.home.join("regular");
+        private_file_options(0).open(&regular).unwrap();
+        assert_eq!(
+            fs::metadata(&regular).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+
+        let executable = th.home.join("executable");
+        private_file_options(0o111).open(&executable).unwrap();
+        assert_eq!(
+            fs::metadata(&executable).unwrap().permissions().mode() & 0o777,
+            0o711
+        );
+    }
+
+    #[test]
+    fn operation_cleanup_failure_takes_precedence_without_leaking_paths() {
+        let th = TestHome::new("skill-source-cleanup-precedence");
+        let operation = th.home.join("private-operation");
+        let original = SkillError::InvalidSource {
+            message: "original source error".into(),
+        };
+
+        assert_eq!(
+            finish_operation_with_cleanup(Err::<(), _>(original.clone()), &operation, |_| Ok(()))
+                .unwrap_err(),
+            original
+        );
+        let error = finish_operation_with_cleanup(Err::<(), _>(original), &operation, |_| {
+            Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "cleanup denied",
+            ))
+        })
+        .unwrap_err();
+        let SkillError::RecoveryRequired { message } = error else {
+            panic!("expected recovery-required cleanup error");
+        };
+        assert!(!message.contains(operation.to_string_lossy().as_ref()));
+        assert!(message.len() <= 512);
+    }
+
+    #[test]
+    fn operation_owner_is_armed_immediately_after_creation() {
+        let th = TestHome::new("skill-source-operation-owner");
+        let operation = th.home.join("operation");
+        let owner = OperationDirectory::create(operation.clone()).unwrap();
+        fs::write(operation.join("partial"), b"partial").unwrap();
+        drop(owner);
+        assert!(!operation.exists());
+    }
+
+    fn append_test_file<W: Write>(archive: &mut Builder<W>, path: &str, body: &[u8]) {
+        let mut header = Header::new_gnu();
+        header.set_entry_type(EntryType::file());
+        header.set_mode(0o644);
+        header.set_size(body.len() as u64);
+        header.set_cksum();
+        archive
+            .append_data(&mut header, path, Cursor::new(body))
+            .unwrap();
+    }
+
+    fn append_test_link<W: Write>(archive: &mut Builder<W>, path: &str, target: &str) {
+        let mut header = Header::new_gnu();
+        header.set_entry_type(EntryType::symlink());
+        header.set_mode(0o777);
+        header.set_size(0);
+        header.set_link_name(target).unwrap();
+        header.set_cksum();
+        archive
+            .append_data(&mut header, path, Cursor::new(Vec::<u8>::new()))
+            .unwrap();
+    }
+
+    #[cfg(unix)]
+    fn walk_symlinks(root: &Path) -> Vec<PathBuf> {
+        let mut pending = vec![root.to_path_buf()];
+        let mut links = Vec::new();
+        while let Some(directory) = pending.pop() {
+            for entry in fs::read_dir(directory).unwrap() {
+                let path = entry.unwrap().path();
+                let metadata = fs::symlink_metadata(&path).unwrap();
+                if metadata.file_type().is_symlink() {
+                    links.push(path);
+                } else if metadata.is_dir() {
+                    pending.push(path);
+                }
+            }
+        }
+        links
     }
 }

@@ -470,7 +470,15 @@ fn archive_paths_hardlinks_specials_and_duplicates_are_rejected() {
 
 #[test]
 fn archive_symlinks_must_resolve_inside_the_extracted_tree() {
-    for (index, target) in ["../../../../outside", "missing"].into_iter().enumerate() {
+    for (index, target) in [
+        "../../../../outside",
+        "missing",
+        "/absolute/target",
+        "bad\\target",
+    ]
+    .into_iter()
+    .enumerate()
+    {
         let _th = TestHome::new(&format!("skills-link-{index}"));
         let archive = archive_with(&[
             ArchiveEntry::File(
@@ -510,7 +518,12 @@ fn archive_symlinks_must_resolve_inside_the_extracted_tree() {
             b"guide".to_vec(),
         ),
         ArchiveEntry::Link {
-            path: format!("skills-{FIXTURE_SHA}/catalog/review/guide"),
+            path: format!("skills-{FIXTURE_SHA}/catalog/review/first"),
+            target: "second".into(),
+            kind: EntryType::symlink(),
+        },
+        ArchiveEntry::Link {
+            path: format!("skills-{FIXTURE_SHA}/catalog/review/second"),
             target: "guide.md".into(),
             kind: EntryType::symlink(),
         },
@@ -523,6 +536,117 @@ fn archive_symlinks_must_resolve_inside_the_extracted_tree() {
         server.endpoints(),
     )
     .is_ok());
+}
+
+#[test]
+fn archive_symlink_graph_rejects_cycles_and_parent_link_collisions() {
+    let root = format!("skills-{FIXTURE_SHA}/catalog/review");
+    let cases = [
+        archive_with(&[
+            ArchiveEntry::File(format!("{root}/SKILL.md"), valid_manifest("review")),
+            ArchiveEntry::Link {
+                path: format!("{root}/a"),
+                target: "b".into(),
+                kind: EntryType::symlink(),
+            },
+            ArchiveEntry::Link {
+                path: format!("{root}/b"),
+                target: "a".into(),
+                kind: EntryType::symlink(),
+            },
+        ]),
+        archive_with(&[
+            ArchiveEntry::File(format!("{root}/SKILL.md"), valid_manifest("review")),
+            ArchiveEntry::Link {
+                path: format!("{root}/parent"),
+                target: ".".into(),
+                kind: EntryType::symlink(),
+            },
+            ArchiveEntry::File(format!("{root}/parent/child"), b"child".to_vec()),
+        ]),
+    ];
+
+    for (index, archive) in cases.into_iter().enumerate() {
+        let home = TestHome::new(&format!("skills-link-graph-{index}"));
+        let server = ScriptedGithub::new(ArchiveBehavior::Bytes(archive));
+        let error = resolve_source(
+            SkillSourceInput::Github {
+                value: "acme/skills".into(),
+            },
+            server.endpoints(),
+        )
+        .unwrap_err();
+        assert!(
+            matches!(
+                error,
+                SkillError::InvalidSource { .. } | SkillError::UnsafePath { .. }
+            ),
+            "unexpected link graph error: {error:?}"
+        );
+        drop(server);
+        drop(home);
+    }
+
+    let _nul_home = TestHome::new("skills-link-target-nul");
+    let mut link = raw_header(
+        &format!("{root}/link"),
+        EntryType::symlink(),
+        0,
+        Some("good"),
+    );
+    link.as_mut_bytes()[157..257].fill(0);
+    link.as_mut_bytes()[157..166].copy_from_slice(b"good\0tail");
+    link.set_cksum();
+    let archive = gzip_tar_records(
+        vec![
+            regular_record(&format!("{root}/SKILL.md"), valid_manifest("review")),
+            regular_record(&format!("{root}/good"), b"good".to_vec()),
+            (link, Vec::new()),
+        ],
+        2,
+        &[],
+    );
+    let server = ScriptedGithub::new(ArchiveBehavior::Bytes(archive));
+    assert!(matches!(
+        resolve_source(
+            SkillSourceInput::Github {
+                value: "acme/skills".into(),
+            },
+            server.endpoints(),
+        ),
+        Err(SkillError::InvalidSource { .. })
+    ));
+}
+
+#[test]
+fn archive_symlink_graph_has_a_bounded_hop_limit() {
+    let _home = TestHome::new("skills-link-hop-limit");
+    let root = format!("skills-{FIXTURE_SHA}/catalog/review");
+    let mut entries = vec![
+        ArchiveEntry::File(format!("{root}/SKILL.md"), valid_manifest("review")),
+        ArchiveEntry::File(format!("{root}/guide.md"), b"guide".to_vec()),
+    ];
+    for index in 0..=64 {
+        entries.push(ArchiveEntry::Link {
+            path: format!("{root}/link-{index}"),
+            target: if index == 64 {
+                "guide.md".into()
+            } else {
+                format!("link-{}", index + 1)
+            },
+            kind: EntryType::symlink(),
+        });
+    }
+    let server = ScriptedGithub::new(ArchiveBehavior::Bytes(archive_with(&entries)));
+    assert!(matches!(
+        resolve_source(
+            SkillSourceInput::Github {
+                value: "acme/skills".into(),
+            },
+            server.endpoints(),
+        ),
+        Err(SkillError::InvalidSource { .. })
+    ));
 }
 
 #[test]
@@ -580,6 +704,395 @@ fn decompressed_archive_stream_is_bounded_even_for_hidden_extension_entries() {
         ),
         Err(SkillError::LimitExceeded { limit, .. }) if limit == "archive"
     ));
+}
+
+#[test]
+fn physical_tar_headers_are_counted_before_hidden_extensions() {
+    let exact_home = TestHome::new("skills-tar-physical-exact");
+    let exact = gzip_tar_records(physical_limit_records(), 2, &[]);
+    let exact_server = ScriptedGithub::new(ArchiveBehavior::Bytes(exact));
+    let exact_result = resolve_source(
+        SkillSourceInput::Github {
+            value: "https://github.com/acme/skills/tree/main/catalog".into(),
+        },
+        exact_server.endpoints(),
+    );
+    assert!(
+        exact_result.is_ok(),
+        "exact physical limit failed: {exact_result:?}"
+    );
+    drop(exact_server);
+    drop(exact_home);
+
+    let _overflow_home = TestHome::new("skills-tar-physical-overflow");
+    let mut overflow = physical_limit_records();
+    overflow.pop();
+    overflow.push(extension_record(b'x', pax_record("comment", "hidden")));
+    overflow.push(regular_record(
+        &format!("skills-{FIXTURE_SHA}/outside/ignored.txt"),
+        b"ignored".to_vec(),
+    ));
+    let overflow_server =
+        ScriptedGithub::new(ArchiveBehavior::Bytes(gzip_tar_records(overflow, 2, &[])));
+    let error = resolve_source(
+        SkillSourceInput::Github {
+            value: "https://github.com/acme/skills/tree/main/catalog".into(),
+        },
+        overflow_server.endpoints(),
+    )
+    .unwrap_err();
+    assert!(
+        matches!(error, SkillError::LimitExceeded { ref limit, actual, allowed }
+            if limit == "entries"
+                && actual == MAX_ARCHIVE_ENTRIES + 1
+                && allowed == MAX_ARCHIVE_ENTRIES),
+        "hidden physical header did not consume the entry budget: {error:?}"
+    );
+}
+
+#[test]
+fn ambiguous_tar_extensions_and_sparse_metadata_are_rejected() {
+    let candidate_path = format!("skills-{FIXTURE_SHA}/catalog/review/SKILL.md");
+    let guide_path = format!("skills-{FIXTURE_SHA}/catalog/review/guide");
+    let guide_file = format!("skills-{FIXTURE_SHA}/catalog/review/guide.md");
+
+    let mut sparse_pax = pax_record("path", &candidate_path);
+    sparse_pax.extend(pax_record("GNU.sparse.map", "0,4"));
+    let cases = vec![
+        (
+            "pax-local-sparse",
+            vec![
+                extension_record(b'x', sparse_pax),
+                regular_record("placeholder", valid_manifest("review")),
+            ],
+        ),
+        (
+            "pax-global",
+            vec![
+                extension_record(b'g', pax_record("comment", "global")),
+                regular_record(&candidate_path, valid_manifest("review")),
+            ],
+        ),
+        (
+            "gnu-long-name",
+            vec![
+                extension_record(b'L', format!("{candidate_path}\0").into_bytes()),
+                regular_record("placeholder", valid_manifest("review")),
+            ],
+        ),
+        (
+            "gnu-long-link",
+            vec![
+                regular_record(&candidate_path, valid_manifest("review")),
+                regular_record(&guide_file, b"guide".to_vec()),
+                extension_record(b'K', b"guide.md\0".to_vec()),
+                (
+                    raw_header(&guide_path, EntryType::symlink(), 0, Some("placeholder")),
+                    Vec::new(),
+                ),
+            ],
+        ),
+        (
+            "gnu-sparse",
+            vec![(
+                raw_header(
+                    &candidate_path,
+                    EntryType::new(b'S'),
+                    valid_manifest("review").len() as u64,
+                    None,
+                ),
+                valid_manifest("review"),
+            )],
+        ),
+    ];
+
+    for (index, (name, records)) in cases.into_iter().enumerate() {
+        let home = TestHome::new(&format!("skills-tar-extension-{index}"));
+        let server = ScriptedGithub::new(ArchiveBehavior::Bytes(gzip_tar_records(records, 2, &[])));
+        let error = resolve_source(
+            SkillSourceInput::Github {
+                value: "acme/skills".into(),
+            },
+            server.endpoints(),
+        )
+        .unwrap_err();
+        assert!(
+            matches!(error, SkillError::InvalidSource { ref message }
+                if message.contains("unsupported archive extension")),
+            "{name} was not rejected by the raw extension policy: {error:?}"
+        );
+        drop(server);
+        drop(home);
+    }
+}
+
+#[test]
+fn malformed_tar_checksum_size_and_end_framing_are_rejected() {
+    let path = format!("skills-{FIXTURE_SHA}/catalog/review/SKILL.md");
+    let body = valid_manifest("review");
+
+    let mut bad_checksum = raw_header(&path, EntryType::file(), body.len() as u64, None);
+    bad_checksum.as_mut_bytes()[0] ^= 1;
+
+    let mut bad_size = raw_header(&path, EntryType::file(), 0, None);
+    bad_size.as_mut_bytes()[124..136].copy_from_slice(b"00000000009\0");
+    bad_size.set_cksum();
+
+    let mut embedded_nul_size = raw_header(&path, EntryType::file(), 0, None);
+    embedded_nul_size.as_mut_bytes()[124..136].fill(0);
+    embedded_nul_size.as_mut_bytes()[125..135].copy_from_slice(b"0000000001");
+    embedded_nul_size.set_cksum();
+
+    let trailing_nonzero = {
+        let mut block = vec![0_u8; 512];
+        block[0] = 1;
+        block
+    };
+    let cases = vec![
+        (
+            "checksum",
+            gzip_tar_records(vec![(bad_checksum, body.clone())], 2, &[]),
+            "checksum",
+        ),
+        (
+            "size",
+            gzip_tar_records(vec![(bad_size, Vec::new())], 2, &[]),
+            "size",
+        ),
+        (
+            "embedded-nul-size",
+            gzip_tar_records(vec![(embedded_nul_size, vec![0])], 2, &[]),
+            "size",
+        ),
+        (
+            "missing-end",
+            gzip_tar_records(vec![regular_record(&path, body.clone())], 0, &[]),
+            "end marker",
+        ),
+        (
+            "torn-end",
+            gzip_tar_records(vec![regular_record(&path, body.clone())], 1, &[]),
+            "end marker",
+        ),
+        (
+            "data-after-end",
+            gzip_tar_records(vec![regular_record(&path, body)], 2, &trailing_nonzero),
+            "trailing",
+        ),
+    ];
+
+    for (index, (name, archive, reason)) in cases.into_iter().enumerate() {
+        let home = TestHome::new(&format!("skills-tar-framing-{index}"));
+        let server = ScriptedGithub::new(ArchiveBehavior::Bytes(archive));
+        let error = resolve_source(
+            SkillSourceInput::Github {
+                value: "acme/skills".into(),
+            },
+            server.endpoints(),
+        )
+        .unwrap_err();
+        assert!(
+            matches!(error, SkillError::InvalidSource { ref message } if message.contains(reason)),
+            "{name} did not report the raw framing failure: {error:?}"
+        );
+        drop(server);
+        drop(home);
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn github_staging_files_and_directories_remain_private() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let th = TestHome::new("skills-private-staging");
+    let server = MockGithub::start(&["review"]);
+    let result = resolve_source(
+        SkillSourceInput::Github {
+            value: "acme/skills".into(),
+        },
+        server.endpoints(),
+    )
+    .unwrap();
+    let operation = th
+        .home
+        .join(format!(".mux/staging/skills/{}", result.operation_id));
+    for directory in [
+        operation.clone(),
+        operation.join("archive"),
+        operation.join("candidates"),
+        operation.join("candidates/review"),
+    ] {
+        assert_eq!(
+            fs::metadata(&directory).unwrap().permissions().mode() & 0o777,
+            0o700,
+            "directory was not private: {}",
+            directory.display()
+        );
+    }
+    for file in [
+        operation.join("source.tar.gz"),
+        operation.join("source.tar"),
+        operation.join(format!(
+            "archive/skills-{FIXTURE_SHA}/catalog/review/SKILL.md"
+        )),
+        operation.join("candidates/review/SKILL.md"),
+    ] {
+        assert_eq!(
+            fs::metadata(&file).unwrap().permissions().mode() & 0o777,
+            0o600,
+            "file was not private: {}",
+            file.display()
+        );
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn local_candidate_snapshots_are_private_even_when_the_source_is_broad() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let th = TestHome::new("skills-private-local-candidate");
+    let source = th.home.join("source/review");
+    write_skill(&source, "review", "review fixture");
+    fs::create_dir(source.join("scripts")).unwrap();
+    fs::write(source.join("scripts/run.sh"), b"#!/bin/sh\n").unwrap();
+    fs::set_permissions(&source, fs::Permissions::from_mode(0o777)).unwrap();
+    fs::set_permissions(source.join("SKILL.md"), fs::Permissions::from_mode(0o666)).unwrap();
+    fs::set_permissions(
+        source.join("scripts/run.sh"),
+        fs::Permissions::from_mode(0o755),
+    )
+    .unwrap();
+
+    let result = resolve_source(
+        SkillSourceInput::Local {
+            path: source.display().to_string(),
+        },
+        GithubEndpoints::production(),
+    )
+    .unwrap();
+    let candidate = th.home.join(format!(
+        ".mux/staging/skills/{}/candidates/review",
+        result.operation_id
+    ));
+    assert_eq!(
+        fs::metadata(&candidate).unwrap().permissions().mode() & 0o777,
+        0o700
+    );
+    assert_eq!(
+        fs::metadata(candidate.join("scripts"))
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777,
+        0o700
+    );
+    assert_eq!(
+        fs::metadata(candidate.join("SKILL.md"))
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777,
+        0o600
+    );
+    assert_eq!(
+        fs::metadata(candidate.join("scripts/run.sh"))
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777,
+        0o711
+    );
+}
+
+#[test]
+fn github_rate_limited_403_is_retryable() {
+    assert_status_behavior(
+        "skills-http-rate-403",
+        ArchiveBehavior::CommitStatus {
+            status: "403 Forbidden",
+            headers: vec![
+                ("X-RateLimit-Remaining", "0"),
+                ("X-RateLimit-Reset", "1893456000"),
+            ],
+            body: b"/private/rate/body",
+        },
+        "network",
+        Some("1893456000"),
+    );
+}
+
+#[test]
+fn github_auth_403_remains_an_invalid_public_source() {
+    assert_status_behavior(
+        "skills-http-auth-403",
+        ArchiveBehavior::CommitStatus {
+            status: "403 Forbidden",
+            headers: vec![],
+            body: b"/private/auth/body",
+        },
+        "invalid_source",
+        None,
+    );
+}
+
+#[test]
+fn github_429_uses_the_bounded_reset_header_as_retry_time() {
+    assert_status_behavior(
+        "skills-http-rate-429",
+        ArchiveBehavior::CommitStatus {
+            status: "429 Too Many Requests",
+            headers: vec![("X-RateLimit-Reset", "1893456001")],
+            body: b"/private/rate/body",
+        },
+        "network",
+        Some("1893456001"),
+    );
+}
+
+#[test]
+fn github_5xx_is_a_retryable_network_error() {
+    assert_status_behavior(
+        "skills-http-server-500",
+        ArchiveBehavior::CommitStatus {
+            status: "500 Internal Server Error",
+            headers: vec![],
+            body: b"/private/server/body",
+        },
+        "network",
+        None,
+    );
+}
+
+fn assert_status_behavior(
+    home_name: &str,
+    behavior: ArchiveBehavior,
+    expected_code: &str,
+    expected_retry: Option<&str>,
+) {
+    let _home = TestHome::new(home_name);
+    let server = ScriptedGithub::new(behavior);
+    let error = resolve_source(
+        SkillSourceInput::Github {
+            value: "acme/skills".into(),
+        },
+        server.endpoints(),
+    )
+    .unwrap_err();
+    let (code, retry_at) = match &error {
+        SkillError::Network { retry_at, .. } => ("network", retry_at.as_deref()),
+        SkillError::InvalidSource { .. } => ("invalid_source", None),
+        other => panic!("unexpected status error: {other:?}"),
+    };
+    assert_eq!(
+        code, expected_code,
+        "wrong status classification: {error:?}"
+    );
+    assert_eq!(retry_at, expected_retry, "wrong retry time: {error:?}");
+    let rendered = serde_json::to_string(&error).unwrap();
+    assert!(!rendered.contains("/private/"));
+    assert!(rendered.len() <= 1024);
 }
 
 #[test]
@@ -723,7 +1236,7 @@ fn archive_with(entries: &[ArchiveEntry]) -> Vec<u8> {
 }
 
 fn file_header(size: u64) -> Header {
-    let mut header = Header::new_gnu();
+    let mut header = Header::new_ustar();
     header.set_mode(0o644);
     header.set_size(size);
     header.set_cksum();
@@ -757,6 +1270,76 @@ fn gzip_raw_tar(headers: &[Header]) -> Vec<u8> {
     encoder.finish().unwrap()
 }
 
+fn gzip_tar_records(
+    records: Vec<(Header, Vec<u8>)>,
+    end_blocks: usize,
+    trailing: &[u8],
+) -> Vec<u8> {
+    let mut tar = Vec::new();
+    for (header, body) in records {
+        tar.extend_from_slice(header.as_bytes());
+        tar.extend_from_slice(&body);
+        let padding = (512 - body.len() % 512) % 512;
+        tar.resize(tar.len() + padding, 0);
+    }
+    tar.resize(tar.len() + end_blocks * 512, 0);
+    tar.extend_from_slice(trailing);
+    let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+    encoder.write_all(&tar).unwrap();
+    encoder.finish().unwrap()
+}
+
+fn regular_record(path: &str, body: Vec<u8>) -> (Header, Vec<u8>) {
+    (
+        raw_header(path, EntryType::file(), body.len() as u64, None),
+        body,
+    )
+}
+
+fn extension_record(kind: u8, body: Vec<u8>) -> (Header, Vec<u8>) {
+    (
+        raw_header(
+            "././@MuxExtension",
+            EntryType::new(kind),
+            body.len() as u64,
+            None,
+        ),
+        body,
+    )
+}
+
+fn pax_record(key: &str, value: &str) -> Vec<u8> {
+    let payload = format!("{key}={value}\n");
+    let mut length = payload.len() + 2;
+    loop {
+        let next = length.to_string().len() + 1 + payload.len();
+        if next == length {
+            return format!("{length} {payload}").into_bytes();
+        }
+        length = next;
+    }
+}
+
+fn physical_limit_records() -> Vec<(Header, Vec<u8>)> {
+    let mut records = Vec::with_capacity(MAX_ARCHIVE_ENTRIES as usize);
+    records.push(regular_record(
+        &format!("skills-{FIXTURE_SHA}/catalog/review/SKILL.md"),
+        valid_manifest("review"),
+    ));
+    for index in 0..MAX_ARCHIVE_ENTRIES - 1 {
+        records.push((
+            raw_header(
+                &format!("skills-{FIXTURE_SHA}/empty/{index}"),
+                EntryType::dir(),
+                0,
+                None,
+            ),
+            Vec::new(),
+        ));
+    }
+    records
+}
+
 fn gzip_large_extension(size: u64) -> Vec<u8> {
     let header = raw_header("././@LongLink", EntryType::new(b'L'), size, None);
     let mut encoder = GzEncoder::new(Vec::new(), Compression::fast());
@@ -770,7 +1353,15 @@ fn gzip_large_extension(size: u64) -> Vec<u8> {
 enum ArchiveBehavior {
     Bytes(Vec<u8>),
     Chunked(u64),
-    Redirects { count: usize, archive: Vec<u8> },
+    Redirects {
+        count: usize,
+        archive: Vec<u8>,
+    },
+    CommitStatus {
+        status: &'static str,
+        headers: Vec<(&'static str, &'static str)>,
+        body: &'static [u8],
+    },
 }
 
 struct ScriptedGithub {
@@ -843,12 +1434,21 @@ fn scripted_connection(mut stream: TcpStream, behavior: &ArchiveBehavior) {
     } else if path == "/repos/acme/skills/commits/main"
         || path == format!("/repos/acme/skills/commits/{FIXTURE_SHA}")
     {
-        response(
-            &mut stream,
-            "200 OK",
-            &[],
-            format!(r#"{{"sha":"{FIXTURE_SHA}"}}"#).as_bytes(),
-        );
+        if let ArchiveBehavior::CommitStatus {
+            status,
+            headers,
+            body,
+        } = behavior
+        {
+            response(&mut stream, status, headers, body);
+        } else {
+            response(
+                &mut stream,
+                "200 OK",
+                &[],
+                format!(r#"{{"sha":"{FIXTURE_SHA}"}}"#).as_bytes(),
+            );
+        }
     } else if path.starts_with("/repos/acme/skills/commits/") {
         response(&mut stream, "404 Not Found", &[], b"");
     } else if path == format!("/acme/skills/tar.gz/{FIXTURE_SHA}") || path.starts_with("/hop/") {
@@ -866,6 +1466,9 @@ fn scripted_connection(mut stream: TcpStream, behavior: &ArchiveBehavior) {
                 } else {
                     response(&mut stream, "200 OK", &[], archive);
                 }
+            }
+            ArchiveBehavior::CommitStatus { .. } => {
+                response(&mut stream, "500 Internal Server Error", &[], b"");
             }
         }
     } else {

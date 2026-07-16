@@ -17,6 +17,9 @@ use std::fs::{self, File, OpenOptions};
 use std::io::Write;
 use std::path::{Component, Path, PathBuf};
 
+#[cfg(unix)]
+use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
+
 pub const MAX_DOWNLOAD_BYTES: u64 = 128 * 1024 * 1024;
 pub const MAX_ARCHIVE_BYTES: u64 = 512 * 1024 * 1024;
 pub const MAX_SKILL_BYTES: u64 = 256 * 1024 * 1024;
@@ -113,6 +116,27 @@ pub fn hash_tree(root: &Path) -> Result<String, SkillError> {
 }
 
 pub fn copy_tree_secure(source: &Path, destination: &Path) -> Result<(), SkillError> {
+    copy_tree_secure_with_permissions(source, destination, CopyPermissions::Preserve)
+}
+
+pub(super) fn copy_tree_secure_private(
+    source: &Path,
+    destination: &Path,
+) -> Result<(), SkillError> {
+    copy_tree_secure_with_permissions(source, destination, CopyPermissions::Private)
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum CopyPermissions {
+    Preserve,
+    Private,
+}
+
+fn copy_tree_secure_with_permissions(
+    source: &Path,
+    destination: &Path,
+    permissions: CopyPermissions,
+) -> Result<(), SkillError> {
     let snapshot = load_tree(source)?;
     match fs::symlink_metadata(destination) {
         Ok(_) => {
@@ -140,18 +164,16 @@ pub fn copy_tree_secure(source: &Path, destination: &Path) -> Result<(), SkillEr
     {
         fs::create_dir_all(parent).map_err(|error| io_error(parent, error))?;
     }
-    fs::create_dir(destination).map_err(|error| io_error(destination, error))?;
+    create_copy_directory(destination)?;
 
     let copy_result = (|| {
-        set_directory_private(destination)?;
         for node in &snapshot.nodes {
             let target = destination.join(path_from_normalized(&node.path));
             match node.kind {
                 NodeKind::Directory => {
-                    fs::create_dir(&target).map_err(|error| io_error(&target, error))?;
-                    set_directory_private(&target)?;
+                    create_copy_directory(&target)?;
                 }
-                NodeKind::File => copy_regular_file(&snapshot, node, &target)?,
+                NodeKind::File => copy_regular_file(&snapshot, node, &target, permissions)?,
                 NodeKind::Symlink => create_relative_symlink(node, &target)?,
             }
         }
@@ -601,16 +623,13 @@ fn copy_regular_file(
     snapshot: &TreeSnapshot,
     node: &TreeNode,
     destination: &Path,
+    permissions: CopyPermissions,
 ) -> Result<(), SkillError> {
     let source =
         snapshot
             .root
             .open_regular_relative(&node.path, &node.identity, &node.full_path)?;
-    let mut target = OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(destination)
-        .map_err(|error| io_error(destination, error))?;
+    let mut target = create_copy_file(destination, node.mode & 0o111)?;
     let consumed = consume_bounded_and_hash(
         source,
         &mut target,
@@ -628,7 +647,7 @@ fn copy_regular_file(
         &node.full_path,
     )?;
     #[cfg(unix)]
-    {
+    if permissions == CopyPermissions::Preserve {
         use std::os::unix::fs::PermissionsExt;
         fs::set_permissions(destination, fs::Permissions::from_mode(node.mode & 0o777))
             .map_err(|error| io_error(destination, error))?;
@@ -675,14 +694,35 @@ fn create_relative_symlink(_node: &TreeNode, _destination: &Path) -> Result<(), 
     Err(super::anchored::unsupported_platform())
 }
 
-fn set_directory_private(path: &Path) -> Result<(), SkillError> {
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(path, fs::Permissions::from_mode(0o700))
-            .map_err(|error| io_error(path, error))?;
-    }
-    Ok(())
+#[cfg(unix)]
+fn create_copy_directory(path: &Path) -> Result<(), SkillError> {
+    let mut builder = fs::DirBuilder::new();
+    builder.mode(0o700);
+    builder.create(path).map_err(|error| io_error(path, error))
+}
+
+#[cfg(not(unix))]
+fn create_copy_directory(path: &Path) -> Result<(), SkillError> {
+    fs::create_dir(path).map_err(|error| io_error(path, error))
+}
+
+#[cfg(unix)]
+fn create_copy_file(path: &Path, executable_bits: u32) -> Result<File, SkillError> {
+    let mut options = OpenOptions::new();
+    options
+        .write(true)
+        .create_new(true)
+        .mode(0o600 | (executable_bits & 0o111));
+    options.open(path).map_err(|error| io_error(path, error))
+}
+
+#[cfg(not(unix))]
+fn create_copy_file(path: &Path, _executable_bits: u32) -> Result<File, SkillError> {
+    OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path)
+        .map_err(|error| io_error(path, error))
 }
 
 fn file_node_map(snapshot: &TreeSnapshot) -> BTreeMap<&str, &TreeNode> {

@@ -115,6 +115,11 @@ pub fn hash_tree(root: &Path) -> Result<String, SkillError> {
     hash_snapshot(&snapshot)
 }
 
+pub(super) fn hash_tree_anchored(root: &AnchoredRoot) -> Result<String, SkillError> {
+    let snapshot = load_tree_anchored(root, None, None)?;
+    hash_snapshot(&snapshot)
+}
+
 pub fn copy_tree_secure(source: &Path, destination: &Path) -> Result<(), SkillError> {
     copy_tree_secure_with_permissions(source, destination, CopyPermissions::Preserve)
 }

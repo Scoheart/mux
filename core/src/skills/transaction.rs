@@ -1,5 +1,7 @@
 #[cfg(unix)]
-use super::anchored::{AnchoredFileKind, AnchoredRoot};
+use super::anchored::{AnchoredFileKind, AnchoredIdentity, AnchoredRoot};
+#[cfg(unix)]
+use super::files::hash_tree_anchored;
 use super::{
     copy_tree_secure, hash_tree, io_error, validate_candidate, DirectoryMutation, LinkMutation,
     LinkState, SkillError, SkillSettingsSnapshot, SkillSource, SkillsPaths, TransactionOrder,
@@ -12,7 +14,9 @@ use fs2::FileExt;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 use std::ffi::OsString;
-use std::fs::{self, File, OpenOptions};
+#[cfg(any(test, not(unix)))]
+use std::fs::OpenOptions;
+use std::fs::{self, File};
 use std::io::{ErrorKind, Read, Write};
 use std::path::{Path, PathBuf};
 use std::thread;
@@ -62,6 +66,112 @@ struct Journal {
     phase: JournalPhase,
 }
 
+#[allow(dead_code)]
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct StrictJournal {
+    #[serde(default = "journal_schema_version")]
+    version: u32,
+    spec: StrictTransactionSpec,
+    phase: JournalPhase,
+}
+
+#[allow(dead_code)]
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct StrictTransactionSpec {
+    operation_id: String,
+    order: TransactionOrder,
+    directory_mutations: Vec<DirectoryMutation>,
+    link_mutations: Vec<LinkMutation>,
+    settings_before: StrictSkillSettingsSnapshot,
+    settings_after: StrictSkillSettingsSnapshot,
+}
+
+#[allow(dead_code)]
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct StrictSkillSettingsSnapshot {
+    managed_skills: Option<std::collections::BTreeMap<String, StrictManagedSkillRecord>>,
+    skill_assignments: Option<std::collections::BTreeMap<String, BTreeSet<String>>>,
+    skill_update_checked_at: Option<String>,
+}
+
+#[allow(dead_code)]
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct StrictManagedSkillRecord {
+    name: String,
+    description: String,
+    content_kind: super::SkillContentKind,
+    source: StrictSkillSource,
+    resolved_revision: Option<String>,
+    content_hash: String,
+    installed_at: String,
+    updated_at: String,
+    risk: StrictSkillRiskSummary,
+    #[serde(default)]
+    update: StrictSkillUpdateState,
+}
+
+#[allow(dead_code)]
+#[derive(Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+enum StrictSkillSource {
+    Github {
+        owner: String,
+        repo: String,
+        subpath: String,
+        requested_ref: String,
+        pinned: bool,
+    },
+    Local {
+        path: String,
+        subpath: String,
+    },
+    Imported {
+        original_path: String,
+        backup_path: String,
+    },
+}
+
+#[allow(dead_code)]
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct StrictSkillRiskSummary {
+    level: super::RiskLevel,
+    #[serde(default)]
+    findings: Vec<StrictRiskFinding>,
+    #[serde(default)]
+    finding_count: u64,
+    #[serde(default)]
+    findings_truncated: bool,
+}
+
+#[allow(dead_code)]
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct StrictRiskFinding {
+    rule_id: String,
+    rule_version: u32,
+    level: super::RiskLevel,
+    path: String,
+    line: Option<u32>,
+    reason: String,
+}
+
+#[allow(dead_code)]
+#[derive(Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct StrictSkillUpdateState {
+    available: bool,
+    checked_at: Option<String>,
+    resolved_revision: Option<String>,
+    etag: Option<String>,
+    error: Option<String>,
+    retry_at: Option<String>,
+}
+
 fn journal_schema_version() -> u32 {
     JOURNAL_SCHEMA_VERSION
 }
@@ -70,6 +180,7 @@ fn journal_schema_version() -> u32 {
 struct LoadedJournals {
     journals: Vec<Journal>,
     temp_promotions: Vec<JournalTempPromotion>,
+    temp_cleanups: Vec<JournalTempCleanup>,
     retired_operation_ids: Vec<String>,
 }
 
@@ -78,6 +189,14 @@ struct JournalTempPromotion {
     temporary: PathBuf,
     destination: PathBuf,
     journal: Journal,
+}
+
+#[derive(Debug)]
+struct JournalTempCleanup {
+    temporary: PathBuf,
+    destination: PathBuf,
+    temporary_journal: Journal,
+    destination_journal: Journal,
 }
 
 #[derive(Debug, Default)]
@@ -250,10 +369,38 @@ fn write_journal_with_failpoint(
     phase: JournalPhase,
     failpoint: Option<JournalWriteFailpoint>,
 ) -> Result<(), SkillError> {
+    write_journal_with_install_hook(paths, spec, phase, failpoint, None)
+}
+
+fn write_journal_with_install_hook(
+    paths: &SkillsPaths,
+    spec: &TransactionSpec,
+    phase: JournalPhase,
+    failpoint: Option<JournalWriteFailpoint>,
+    mut before_install: Option<&mut dyn FnMut()>,
+) -> Result<(), SkillError> {
+    #[cfg(not(unix))]
+    return Err(SkillError::InvalidSource {
+        message: "secure Skills journals are unavailable on this platform".into(),
+    });
     validate_operation_id(&spec.operation_id)?;
-    create_private_journal_root(paths)?;
-    if journal_entry_exists(&journal_retiring_path(paths, &spec.operation_id)?)?
-        || journal_entry_exists(&journal_retired_path(paths, &spec.operation_id)?)?
+    #[cfg(unix)]
+    let root = create_private_journal_root(paths)?;
+    let retiring = journal_retiring_path(paths, &spec.operation_id)?;
+    let retired = journal_retired_path(paths, &spec.operation_id)?;
+    #[cfg(unix)]
+    if root
+        .stat_root_entry(
+            retiring.file_name().ok_or_else(recovery_evidence_error)?,
+            &retiring,
+        )?
+        .is_some()
+        || root
+            .stat_root_entry(
+                retired.file_name().ok_or_else(recovery_evidence_error)?,
+                &retired,
+            )?
+            .is_some()
     {
         return Err(SkillError::RecoveryRequired {
             message: "the Skills transaction journal requires recovery".into(),
@@ -261,7 +408,12 @@ fn write_journal_with_failpoint(
     }
     let destination = journal_path(paths, &spec.operation_id)?;
     let temporary = journal_temp_path(paths, &spec.operation_id)?;
-    remove_abandoned_journal_temp(&temporary)?;
+    #[cfg(unix)]
+    anchored_ensure_missing(
+        &root,
+        &temporary,
+        "a Skills journal temporary path requires recovery",
+    )?;
     let bytes = serde_json::to_vec(&Journal {
         version: JOURNAL_SCHEMA_VERSION,
         spec: spec.clone(),
@@ -277,24 +429,104 @@ fn write_journal_with_failpoint(
             allowed: MAX_JOURNAL_BYTES,
         });
     }
-    let mut file = create_private_new_file(&temporary)?;
-    let before_rename = (|| {
-        file.write_all(&bytes)
-            .map_err(|error| io_error(&temporary, error))?;
-        file.sync_all()
-            .map_err(|error| io_error(&temporary, error))?;
-        if failpoint == Some(JournalWriteFailpoint::BeforeRename) {
-            return Err(SkillError::Io {
-                message: "test journal failure before rename".into(),
-                path: None,
-            });
-        }
-        fs::rename(&temporary, &destination).map_err(|error| io_error(&destination, error))?;
-        Ok(())
-    })();
+    #[cfg(unix)]
+    let mut file = root.create_file_entry(
+        temporary.file_name().ok_or_else(unsafe_transaction_path)?,
+        0o600,
+        &temporary,
+    )?;
+    file.write_all(&bytes)
+        .map_err(|error| io_error(&temporary, error))?;
+    file.sync_all()
+        .map_err(|error| io_error(&temporary, error))?;
     drop(file);
-    if let Err(error) = before_rename {
-        remove_abandoned_journal_temp(&temporary)?;
+    #[cfg(unix)]
+    let temporary_identity = root
+        .stat_root_entry(
+            temporary.file_name().ok_or_else(recovery_evidence_error)?,
+            &temporary,
+        )?
+        .ok_or_else(recovery_evidence_error)?;
+    if failpoint == Some(JournalWriteFailpoint::BeforeRename) {
+        #[cfg(unix)]
+        remove_exact_anchored_entry(&root, &temporary, &temporary_identity)?;
+        return Err(SkillError::Io {
+            message: "test journal failure before rename".into(),
+            path: None,
+        });
+    }
+    #[cfg(unix)]
+    let destination_identity = root.stat_root_entry(
+        destination
+            .file_name()
+            .ok_or_else(recovery_evidence_error)?,
+        &destination,
+    )?;
+    #[cfg(unix)]
+    let destination_journal = match destination_identity {
+        None => None,
+        Some(_) => {
+            let journal = read_journal_anchored(&root, &destination)?;
+            if journal.spec != *spec {
+                remove_exact_anchored_entry(&root, &temporary, &temporary_identity)?;
+                return Err(recovery_evidence_error());
+            }
+            Some(journal)
+        }
+    };
+    if let Some(hook) = before_install.take() {
+        hook();
+    }
+    #[cfg(unix)]
+    if !root.path_refers_to_root(&paths.journals_skills_dir())? {
+        remove_exact_anchored_entry(&root, &temporary, &temporary_identity)?;
+        return Err(recovery_evidence_error());
+    }
+    #[cfg(unix)]
+    let install = match (destination_identity, destination_journal) {
+        (None, None) => root
+            .rename_entry_noreplace(
+                temporary.file_name().ok_or_else(recovery_evidence_error)?,
+                destination
+                    .file_name()
+                    .ok_or_else(recovery_evidence_error)?,
+                &temporary,
+            )
+            .map_err(|_| recovery_evidence_error()),
+        (Some(expected_destination), Some(expected_journal)) => {
+            let temporary_name = temporary.file_name().ok_or_else(recovery_evidence_error)?;
+            let destination_name = destination
+                .file_name()
+                .ok_or_else(recovery_evidence_error)?;
+            root.exchange_entries(temporary_name, destination_name, &temporary)
+                .map_err(|_| recovery_evidence_error())?;
+            let displaced_identity = root.stat_root_entry(temporary_name, &temporary)?;
+            let installed_identity = root.stat_root_entry(destination_name, &destination)?;
+            let displaced = read_journal_anchored(&root, &temporary);
+            let installed = read_journal_anchored(&root, &destination);
+            if displaced_identity != Some(expected_destination)
+                || installed_identity != Some(temporary_identity)
+                || !matches!(displaced, Ok(journal) if journal == expected_journal)
+                || !matches!(installed, Ok(ref journal) if journal.spec == *spec && journal.phase == phase)
+            {
+                root.exchange_entries(temporary_name, destination_name, &temporary)
+                    .map_err(|_| recovery_evidence_error())?;
+                remove_exact_anchored_entry(&root, &temporary, &temporary_identity)?;
+                return Err(recovery_evidence_error());
+            }
+            root.unlink_root_entry(temporary_name, false, &temporary)
+                .map_err(|_| recovery_evidence_error())
+        }
+        _ => Err(recovery_evidence_error()),
+    };
+    if let Err(error) = install {
+        if root.stat_root_entry(
+            temporary.file_name().ok_or_else(recovery_evidence_error)?,
+            &temporary,
+        )? == Some(temporary_identity)
+        {
+            remove_exact_anchored_entry(&root, &temporary, &temporary_identity)?;
+        }
         return Err(error);
     }
     if failpoint == Some(JournalWriteFailpoint::AfterRenameBeforeParentSync) {
@@ -303,16 +535,25 @@ fn write_journal_with_failpoint(
             path: None,
         });
     }
-    sync_directory(&paths.journals_skills_dir())
-}
-
-fn create_private_journal_root(paths: &SkillsPaths) -> Result<(), SkillError> {
-    let root = paths.journals_skills_dir();
-    AnchoredRoot::open_or_create_private_absolute(&root)?;
     Ok(())
 }
 
 #[cfg(unix)]
+fn remove_exact_anchored_entry(
+    parent: &AnchoredRoot,
+    path: &Path,
+    expected: &AnchoredIdentity,
+) -> Result<(), SkillError> {
+    let quarantined = quarantine_exact_entry(parent.try_clone()?, path, expected)?;
+    remove_quarantined_entry(quarantined)
+}
+
+fn create_private_journal_root(paths: &SkillsPaths) -> Result<AnchoredRoot, SkillError> {
+    let root = paths.journals_skills_dir();
+    AnchoredRoot::open_or_create_private_absolute(&root)
+}
+
+#[cfg(all(test, unix))]
 fn create_private_new_file(path: &Path) -> Result<File, SkillError> {
     use std::os::unix::fs::OpenOptionsExt;
 
@@ -324,26 +565,13 @@ fn create_private_new_file(path: &Path) -> Result<File, SkillError> {
         .map_err(|error| io_error(path, error))
 }
 
-#[cfg(not(unix))]
+#[cfg(all(test, not(unix)))]
 fn create_private_new_file(path: &Path) -> Result<File, SkillError> {
     OpenOptions::new()
         .write(true)
         .create_new(true)
         .open(path)
         .map_err(|error| io_error(path, error))
-}
-
-fn remove_abandoned_journal_temp(path: &Path) -> Result<(), SkillError> {
-    match fs::symlink_metadata(path) {
-        Err(error) if error.kind() == ErrorKind::NotFound => Ok(()),
-        Err(error) => Err(io_error(path, error)),
-        Ok(metadata) if metadata.file_type().is_file() => {
-            fs::remove_file(path).map_err(|error| io_error(path, error))
-        }
-        Ok(_) => Err(SkillError::RecoveryRequired {
-            message: "a Skills journal temporary path requires manual recovery".into(),
-        }),
-    }
 }
 
 fn read_journal(path: &Path) -> Result<Journal, SkillError> {
@@ -381,8 +609,15 @@ fn read_journal(path: &Path) -> Result<Journal, SkillError> {
             message: "a Skills journal exceeds its local size limit".into(),
         });
     }
+    decode_journal_bytes(&bytes)
+}
+
+fn decode_journal_bytes(bytes: &[u8]) -> Result<Journal, SkillError> {
+    serde_json::from_slice::<StrictJournal>(bytes).map_err(|_| SkillError::RecoveryRequired {
+        message: "a Skills journal is malformed".into(),
+    })?;
     let journal: Journal =
-        serde_json::from_slice(&bytes).map_err(|_| SkillError::RecoveryRequired {
+        serde_json::from_slice(bytes).map_err(|_| SkillError::RecoveryRequired {
             message: "a Skills journal is malformed".into(),
         })?;
     if journal.version != JOURNAL_SCHEMA_VERSION {
@@ -391,6 +626,37 @@ fn read_journal(path: &Path) -> Result<Journal, SkillError> {
         });
     }
     Ok(journal)
+}
+
+#[cfg(unix)]
+fn read_journal_anchored(root: &AnchoredRoot, path: &Path) -> Result<Journal, SkillError> {
+    let name = path.file_name().ok_or_else(recovery_evidence_error)?;
+    let identity = root
+        .stat_root_entry(name, path)
+        .map_err(|_| recovery_evidence_error())?
+        .ok_or_else(recovery_evidence_error)?;
+    if identity.kind != AnchoredFileKind::Regular
+        || identity.mode & 0o077 != 0
+        || identity.links != 1
+        || identity.size > MAX_JOURNAL_BYTES
+    {
+        return Err(recovery_evidence_error());
+    }
+    let directory = root.root_directory()?;
+    let name =
+        std::ffi::CString::new(name.as_encoded_bytes()).map_err(|_| recovery_evidence_error())?;
+    let mut file = root
+        .open_regular_entry(&directory, &name, &identity, path)
+        .map_err(|_| recovery_evidence_error())?;
+    let mut bytes = Vec::new();
+    Read::by_ref(&mut file)
+        .take(MAX_JOURNAL_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|_| recovery_evidence_error())?;
+    if bytes.len() as u64 > MAX_JOURNAL_BYTES {
+        return Err(recovery_evidence_error());
+    }
+    decode_journal_bytes(&bytes)
 }
 
 #[cfg(unix)]
@@ -442,7 +708,9 @@ fn has_pending_recovery_with_paths(paths: &SkillsPaths) -> Result<bool, SkillErr
         Ok(_) => {}
     }
     let loaded = load_and_validate_all_journals(paths)?;
-    Ok(!loaded.journals.is_empty() || !loaded.temp_promotions.is_empty())
+    Ok(!loaded.journals.is_empty()
+        || !loaded.temp_promotions.is_empty()
+        || !loaded.temp_cleanups.is_empty())
 }
 
 pub fn execute_transaction(spec: TransactionSpec) -> Result<(), SkillError> {
@@ -1363,12 +1631,15 @@ fn validate_directory_swap_precondition(
     )
 }
 
-fn create_private_parent(path: &Path, root: &Path) -> Result<(), SkillError> {
+fn create_private_parent(path: &Path, root: &Path) -> Result<AnchoredRoot, SkillError> {
     let parent = path.parent().ok_or_else(unsafe_transaction_path)?;
     validate_strict_descendant(path, root)?;
-    AnchoredRoot::open_or_create_private_absolute(parent)?;
+    let anchor = AnchoredRoot::open_or_create_private_absolute(parent)?;
     verify_physical_root_membership(parent, root)?;
-    Ok(())
+    if !anchor.path_refers_to_root(parent)? {
+        return Err(unsafe_transaction_path());
+    }
+    Ok(anchor)
 }
 
 fn rename_same_parent_noreplace(from: &Path, to: &Path) -> Result<(), SkillError> {
@@ -1396,20 +1667,6 @@ fn rename_noreplace(from: &Path, to: &Path) -> Result<(), SkillError> {
         &destination,
         to.file_name().ok_or_else(unsafe_transaction_path)?,
         from,
-    )
-}
-
-fn exchange_same_parent(left: &Path, right: &Path) -> Result<(), SkillError> {
-    let left_parent = left.parent().ok_or_else(unsafe_transaction_path)?;
-    let right_parent = right.parent().ok_or_else(unsafe_transaction_path)?;
-    if lexical_absolute(left_parent)? != lexical_absolute(right_parent)? {
-        return Err(unsafe_transaction_path());
-    }
-    let parent = AnchoredRoot::open(left_parent)?;
-    parent.exchange_entries(
-        left.file_name().ok_or_else(unsafe_transaction_path)?,
-        right.file_name().ok_or_else(unsafe_transaction_path)?,
-        left,
     )
 }
 
@@ -1444,19 +1701,168 @@ fn sync_tree_directory(path: &Path) -> Result<(), SkillError> {
 }
 
 fn remove_safe_entry(path: &Path) -> Result<(), SkillError> {
-    match fs::symlink_metadata(path) {
-        Err(error) if error.kind() == ErrorKind::NotFound => Ok(()),
-        Err(error) => Err(io_error(path, error)),
-        Ok(metadata) if metadata.file_type().is_dir() => {
-            fs::remove_dir_all(path).map_err(|error| io_error(path, error))
-        }
-        Ok(_) => fs::remove_file(path).map_err(|error| io_error(path, error)),
+    #[cfg(not(unix))]
+    return Err(SkillError::InvalidSource {
+        message: "secure Skill entry removal is unavailable on this platform".into(),
+    });
+    #[cfg(unix)]
+    {
+        let parent_path = path.parent().ok_or_else(unsafe_transaction_path)?;
+        let parent = AnchoredRoot::open(parent_path)?;
+        let name = path.file_name().ok_or_else(unsafe_transaction_path)?;
+        let Some(identity) = parent.stat_root_entry(name, path)? else {
+            return Ok(());
+        };
+        let quarantined = quarantine_exact_entry(parent, path, &identity)?;
+        remove_quarantined_entry(quarantined)
     }
 }
 
 fn remove_safe_entry_and_sync(path: &Path) -> Result<(), SkillError> {
-    remove_safe_entry(path)?;
-    sync_directory(path.parent().ok_or_else(unsafe_transaction_path)?)
+    remove_safe_entry(path)
+}
+
+#[cfg(unix)]
+struct QuarantinedEntry {
+    parent: AnchoredRoot,
+    original_path: PathBuf,
+    quarantine_path: PathBuf,
+    identity: AnchoredIdentity,
+}
+
+#[cfg(unix)]
+fn removal_quarantine_path(path: &Path) -> Result<PathBuf, SkillError> {
+    let parent = path.parent().ok_or_else(unsafe_transaction_path)?;
+    let file_name = path.file_name().ok_or_else(unsafe_transaction_path)?;
+    let mut quarantine_name = OsString::from(".");
+    quarantine_name.push(file_name);
+    quarantine_name.push(".mux-remove.tmp");
+    Ok(parent.join(quarantine_name))
+}
+
+#[cfg(unix)]
+fn quarantine_exact_entry(
+    parent: AnchoredRoot,
+    path: &Path,
+    expected: &AnchoredIdentity,
+) -> Result<QuarantinedEntry, SkillError> {
+    let quarantine_path = removal_quarantine_path(path)?;
+    let quarantine_name = quarantine_path
+        .file_name()
+        .ok_or_else(unsafe_transaction_path)?;
+    anchored_ensure_missing(
+        &parent,
+        &quarantine_path,
+        "a Skill removal quarantine requires recovery",
+    )?;
+    parent.rename_entry_noreplace(
+        path.file_name().ok_or_else(unsafe_transaction_path)?,
+        quarantine_name,
+        path,
+    )?;
+    let actual = parent
+        .stat_root_entry(quarantine_name, &quarantine_path)?
+        .ok_or_else(recovery_evidence_error)?;
+    if actual != *expected {
+        let _ = parent.rename_entry_noreplace(
+            quarantine_name,
+            path.file_name().ok_or_else(unsafe_transaction_path)?,
+            &quarantine_path,
+        );
+        return Err(recovery_evidence_error());
+    }
+    Ok(QuarantinedEntry {
+        parent,
+        original_path: path.to_path_buf(),
+        quarantine_path,
+        identity: actual,
+    })
+}
+
+#[cfg(unix)]
+fn restore_quarantined_entry(entry: &QuarantinedEntry) -> Result<(), SkillError> {
+    entry
+        .parent
+        .rename_entry_noreplace(
+            entry
+                .quarantine_path
+                .file_name()
+                .ok_or_else(unsafe_transaction_path)?,
+            entry
+                .original_path
+                .file_name()
+                .ok_or_else(unsafe_transaction_path)?,
+            &entry.quarantine_path,
+        )
+        .map_err(|_| recovery_evidence_error())
+}
+
+#[cfg(unix)]
+fn quarantined_directory_root(entry: &QuarantinedEntry) -> Result<AnchoredRoot, SkillError> {
+    if entry.identity.kind != AnchoredFileKind::Directory {
+        return Err(recovery_evidence_error());
+    }
+    let directory = entry.parent.root_directory()?;
+    let name = std::ffi::CString::new(
+        entry
+            .quarantine_path
+            .file_name()
+            .ok_or_else(unsafe_transaction_path)?
+            .as_encoded_bytes(),
+    )
+    .map_err(|_| unsafe_transaction_path())?;
+    let opened = entry.parent.open_directory_entry(
+        &directory,
+        &name,
+        &entry.identity,
+        &entry.quarantine_path,
+    )?;
+    AnchoredRoot::from_open_directory(opened, entry.quarantine_path.clone(), &entry.identity)
+}
+
+#[cfg(unix)]
+fn remove_anchored_tree_contents(
+    anchor: &AnchoredRoot,
+    directory: &File,
+    path: &Path,
+) -> Result<(), SkillError> {
+    use std::os::unix::ffi::OsStrExt;
+
+    for name in anchor.read_directory(directory, path)? {
+        let child = path.join(std::ffi::OsStr::from_bytes(name.to_bytes()));
+        let identity = anchor.stat_entry(directory, &name, &child)?;
+        match identity.kind {
+            AnchoredFileKind::Directory => {
+                let opened = anchor.open_directory_entry(directory, &name, &identity, &child)?;
+                remove_anchored_tree_contents(anchor, &opened, &child)?;
+                drop(opened);
+                anchor.unlink_entry(directory, &name, true, &child)?;
+            }
+            AnchoredFileKind::Regular | AnchoredFileKind::Symlink => {
+                anchor.unlink_entry(directory, &name, false, &child)?;
+            }
+            AnchoredFileKind::Other => return Err(recovery_evidence_error()),
+        }
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn remove_quarantined_entry(entry: QuarantinedEntry) -> Result<(), SkillError> {
+    let is_directory = entry.identity.kind == AnchoredFileKind::Directory;
+    if is_directory {
+        let root = quarantined_directory_root(&entry)?;
+        let directory = root.root_directory()?;
+        remove_anchored_tree_contents(&root, &directory, &entry.quarantine_path)?;
+    }
+    entry.parent.unlink_root_entry(
+        entry
+            .quarantine_path
+            .file_name()
+            .ok_or_else(unsafe_transaction_path)?,
+        is_directory,
+        &entry.quarantine_path,
+    )
 }
 
 fn apply_links(
@@ -1490,128 +1896,278 @@ fn apply_link_with_hook(
     paths: &SkillsPaths,
     mutation: &LinkMutation,
     index: usize,
+    before_mutation: Option<&mut dyn FnMut()>,
+) -> Result<(), SkillError> {
+    apply_link_with_hooks(spec, paths, mutation, index, None, before_mutation)
+}
+
+fn apply_link_with_hooks(
+    spec: &TransactionSpec,
+    paths: &SkillsPaths,
+    mutation: &LinkMutation,
+    index: usize,
+    mut after_authority_validation: Option<&mut dyn FnMut()>,
     mut before_mutation: Option<&mut dyn FnMut()>,
 ) -> Result<(), SkillError> {
     validate_transaction_roots(paths, false)?;
     validate_link_runtime_bounds(mutation, paths)?;
     validate_link_precondition(paths, mutation)?;
     let parent = mutation.path.parent().ok_or_else(unsafe_transaction_path)?;
-    create_verified_target_root(parent, paths)?;
-    validate_link_precondition(paths, mutation)?;
+    let target_root = create_verified_target_root(parent, paths)?;
+    if let Some(hook) = after_authority_validation.take() {
+        hook();
+    }
+    if !target_root.path_refers_to_root(parent)? {
+        return Err(stale("an Agent Skill target root changed after validation"));
+    }
+    validate_link_precondition_anchored(&target_root, paths, mutation)?;
     let temporary = link_temp_path(spec, mutation, index);
-    validate_link_path(&temporary, &verified_catalog_targets(paths)?)?;
-    ensure_missing(
+    anchored_ensure_missing(
+        &target_root,
         &temporary,
         "a Skill link temporary path already exists and requires recovery",
     )?;
 
-    if matches!(mutation.expected, LinkState::Directory { .. }) {
+    let backup_root = if matches!(mutation.expected, LinkState::Directory { .. }) {
         let backup = mutation
             .backup
             .as_ref()
             .ok_or_else(unsafe_transaction_path)?;
-        create_private_parent(backup, &paths.backups_skills_dir())?;
-        validate_link_runtime_bounds(mutation, paths)?;
-        validate_link_precondition(paths, mutation)?;
-        ensure_missing(backup, "a Skill link backup already exists")?;
+        let backup_root = create_private_parent(backup, &paths.backups_skills_dir())?;
+        validate_link_precondition_anchored(&target_root, paths, mutation)?;
+        anchored_ensure_missing(&backup_root, backup, "a Skill link backup already exists")?;
         if let Some(hook) = before_mutation.take() {
             hook();
         }
-        rename_noreplace(&mutation.path, backup)?;
+        if !target_root.path_refers_to_root(parent)? {
+            return Err(stale("an Agent Skill target root changed before backup"));
+        }
+        target_root.rename_entry_noreplace_to(
+            mutation
+                .path
+                .file_name()
+                .ok_or_else(unsafe_transaction_path)?,
+            &backup_root,
+            backup.file_name().ok_or_else(unsafe_transaction_path)?,
+            &mutation.path,
+        )?;
         let expected_hash = match &mutation.expected {
             LinkState::Directory { tree_hash } => tree_hash,
             _ => unreachable!(),
         };
-        let observed = optional_directory_hash(backup);
-        if !matches!(&observed, Ok(Some(hash)) if hash == expected_hash) {
-            if rename_noreplace(backup, &mutation.path).is_err() {
+        let observed = anchored_optional_directory_hash(&backup_root, backup);
+        let target_missing = target_root
+            .stat_root_entry(
+                mutation
+                    .path
+                    .file_name()
+                    .ok_or_else(unsafe_transaction_path)?,
+                &mutation.path,
+            )?
+            .is_none();
+        if !target_missing || !matches!(&observed, Ok(Some(hash)) if hash == expected_hash) {
+            if backup_root
+                .rename_entry_noreplace_to(
+                    backup.file_name().ok_or_else(unsafe_transaction_path)?,
+                    &target_root,
+                    mutation
+                        .path
+                        .file_name()
+                        .ok_or_else(unsafe_transaction_path)?,
+                    backup,
+                )
+                .is_err()
+            {
                 return Err(SkillError::RecoveryRequired {
                     message: "an unreviewed Agent Skill directory was quarantined and could not be restored".into(),
                 });
             }
             return Err(stale("an Agent Skill directory changed before backup"));
         }
-        validate_link_directory_backup(mutation)?;
-    }
+        Some(backup_root)
+    } else {
+        None
+    };
 
     match &mutation.desired_target {
         Some(target) => {
             validate_managed_target_exists(target, paths)?;
-            create_symlink(target, &temporary)?;
-            sync_directory(parent)?;
-            if fs::read_link(&temporary).map_err(|error| io_error(&temporary, error))? != *target {
+            target_root.create_symlink_entry(
+                target,
+                temporary.file_name().ok_or_else(unsafe_transaction_path)?,
+                &temporary,
+            )?;
+            let temporary_name = temporary.file_name().ok_or_else(unsafe_transaction_path)?;
+            let temporary_identity = target_root
+                .stat_root_entry(temporary_name, &temporary)?
+                .ok_or_else(|| stale("a Skill link temporary disappeared"))?;
+            if temporary_identity.kind != AnchoredFileKind::Symlink
+                || path_from_raw_link_bytes(target_root.read_link_root_entry(
+                    temporary_name,
+                    &temporary_identity,
+                    &temporary,
+                )?) != *target
+            {
                 return Err(stale("a Skill link temporary changed before replacement"));
             }
-            validate_link_runtime_bounds(mutation, paths)?;
+            if !target_root.path_refers_to_root(parent)? {
+                target_root.unlink_root_entry(temporary_name, false, &temporary)?;
+                return Err(stale(
+                    "an Agent Skill target root changed before replacement",
+                ));
+            }
             if matches!(mutation.expected, LinkState::Directory { .. }) {
-                validate_link_directory_backup(mutation)?;
+                let backup = mutation
+                    .backup
+                    .as_ref()
+                    .ok_or_else(recovery_evidence_error)?;
+                let expected_hash = match &mutation.expected {
+                    LinkState::Directory { tree_hash } => tree_hash,
+                    _ => unreachable!(),
+                };
+                if anchored_optional_directory_hash(
+                    backup_root.as_ref().ok_or_else(recovery_evidence_error)?,
+                    backup,
+                )?
+                .as_deref()
+                    != Some(expected_hash.as_str())
+                    || target_root
+                        .stat_root_entry(
+                            mutation
+                                .path
+                                .file_name()
+                                .ok_or_else(unsafe_transaction_path)?,
+                            &mutation.path,
+                        )?
+                        .is_some()
+                {
+                    return Err(recovery_evidence_error());
+                }
             } else {
-                validate_link_precondition(paths, mutation)?;
+                validate_link_precondition_anchored(&target_root, paths, mutation)?;
             }
             if let Some(hook) = before_mutation.take() {
                 hook();
+            }
+            if !target_root.path_refers_to_root(parent)? {
+                target_root.unlink_root_entry(temporary_name, false, &temporary)?;
+                return Err(stale(
+                    "an Agent Skill target root changed before replacement",
+                ));
             }
             if matches!(
                 mutation.expected,
                 LinkState::Missing | LinkState::Directory { .. }
             ) {
-                rename_same_parent_noreplace(&temporary, &mutation.path)?;
+                target_root.rename_entry_noreplace(
+                    temporary_name,
+                    mutation
+                        .path
+                        .file_name()
+                        .ok_or_else(unsafe_transaction_path)?,
+                    &temporary,
+                )?;
             } else {
-                exchange_same_parent(&temporary, &mutation.path)?;
-                let evidence =
-                    link_entry_matches_state(&temporary, &mutation.path, &mutation.expected, paths);
+                target_root.exchange_entries(
+                    temporary_name,
+                    mutation
+                        .path
+                        .file_name()
+                        .ok_or_else(unsafe_transaction_path)?,
+                    &temporary,
+                )?;
+                let evidence = anchored_link_entry_matches_state(
+                    &target_root,
+                    &temporary,
+                    &mutation.path,
+                    &mutation.expected,
+                    paths,
+                );
                 if !matches!(evidence, Ok(true)) {
-                    if exchange_same_parent(&temporary, &mutation.path).is_err() {
+                    if target_root
+                        .exchange_entries(
+                            temporary_name,
+                            mutation
+                                .path
+                                .file_name()
+                                .ok_or_else(unsafe_transaction_path)?,
+                            &temporary,
+                        )
+                        .is_err()
+                    {
                         return Err(SkillError::RecoveryRequired {
                             message: "a concurrently changed Skill link could not be restored after exchange".into(),
                         });
                     }
-                    remove_safe_entry_and_sync(&temporary)?;
+                    target_root.unlink_root_entry(temporary_name, false, &temporary)?;
                     return match evidence {
                         Ok(false) => Err(stale("a reviewed Skill link changed before exchange")),
                         Err(error) => Err(error),
                         Ok(true) => unreachable!(),
                     };
                 }
-                remove_safe_entry_and_sync(&temporary)?;
+                target_root.unlink_root_entry(temporary_name, false, &temporary)?;
             }
         }
         None if matches!(mutation.expected, LinkState::Directory { .. }) => {
-            validate_link_runtime_bounds(mutation, paths)?;
-            validate_link_directory_backup(mutation)?;
+            let backup = mutation
+                .backup
+                .as_ref()
+                .ok_or_else(recovery_evidence_error)?;
+            let expected_hash = match &mutation.expected {
+                LinkState::Directory { tree_hash } => tree_hash,
+                _ => unreachable!(),
+            };
+            if anchored_optional_directory_hash(
+                backup_root.as_ref().ok_or_else(recovery_evidence_error)?,
+                backup,
+            )?
+            .as_deref()
+                != Some(expected_hash.as_str())
+            {
+                return Err(recovery_evidence_error());
+            }
         }
         None => {
-            validate_link_runtime_bounds(mutation, paths)?;
-            validate_link_precondition(paths, mutation)?;
+            validate_link_precondition_anchored(&target_root, paths, mutation)?;
             if let Some(hook) = before_mutation.take() {
                 hook();
             }
-            match fs::symlink_metadata(&mutation.path) {
-                Err(error) if error.kind() == ErrorKind::NotFound => {
+            if !target_root.path_refers_to_root(parent)? {
+                return Err(stale("an Agent Skill target root changed before removal"));
+            }
+            let mutation_name = mutation
+                .path
+                .file_name()
+                .ok_or_else(unsafe_transaction_path)?;
+            match target_root.stat_root_entry(mutation_name, &mutation.path)? {
+                None => {
                     if !matches!(mutation.expected, LinkState::Missing) {
                         return Err(stale("a reviewed Skill link disappeared before removal"));
                     }
                 }
-                Err(error) => return Err(io_error(&mutation.path, error)),
-                Ok(_) => {
-                    if let Err(error) = rename_same_parent_noreplace(&mutation.path, &temporary) {
-                        return if matches!(
-                            fs::symlink_metadata(&mutation.path),
-                            Err(current) if current.kind() == ErrorKind::NotFound
-                        ) {
-                            Err(stale("a reviewed Skill link changed before removal"))
-                        } else {
-                            Err(error)
-                        };
-                    }
-                    let evidence = link_entry_matches_state(
+                Some(_) => {
+                    target_root.rename_entry_noreplace(
+                        mutation_name,
+                        temporary.file_name().ok_or_else(unsafe_transaction_path)?,
+                        &mutation.path,
+                    )?;
+                    let evidence = anchored_link_entry_matches_state(
+                        &target_root,
                         &temporary,
                         &mutation.path,
                         &mutation.expected,
                         paths,
                     );
                     if !matches!(evidence, Ok(true)) {
-                        if rename_same_parent_noreplace(&temporary, &mutation.path).is_err() {
+                        if target_root
+                            .rename_entry_noreplace(
+                                temporary.file_name().ok_or_else(unsafe_transaction_path)?,
+                                mutation_name,
+                                &temporary,
+                            )
+                            .is_err()
+                        {
                             return Err(SkillError::RecoveryRequired {
                                 message: "a concurrently changed Skill entry was quarantined and could not be restored".into(),
                             });
@@ -1622,8 +2178,11 @@ fn apply_link_with_hook(
                             Ok(true) => unreachable!(),
                         };
                     }
-                    fs::remove_file(&temporary).map_err(|error| io_error(&temporary, error))?;
-                    sync_directory(parent)?;
+                    target_root.unlink_root_entry(
+                        temporary.file_name().ok_or_else(unsafe_transaction_path)?,
+                        false,
+                        &temporary,
+                    )?;
                 }
             }
         }
@@ -1661,23 +2220,10 @@ fn validate_managed_target_exists(target: &Path, paths: &SkillsPaths) -> Result<
     }
 }
 
-fn validate_link_directory_backup(mutation: &LinkMutation) -> Result<(), SkillError> {
-    let (LinkState::Directory { tree_hash }, Some(backup)) = (&mutation.expected, &mutation.backup)
-    else {
-        return Err(recovery_evidence_error());
-    };
-    if optional_directory_hash_recovery(backup)?.as_deref() != Some(tree_hash.as_str())
-        || !matches!(
-            fs::symlink_metadata(&mutation.path),
-            Err(error) if error.kind() == ErrorKind::NotFound
-        )
-    {
-        return Err(recovery_evidence_error());
-    }
-    Ok(())
-}
-
-fn create_verified_target_root(parent: &Path, paths: &SkillsPaths) -> Result<(), SkillError> {
+fn create_verified_target_root(
+    parent: &Path,
+    paths: &SkillsPaths,
+) -> Result<AnchoredRoot, SkillError> {
     let targets = verified_catalog_targets(paths)?;
     let lexical = lexical_absolute(parent)?;
     let expected = canonicalize_deepest(parent)?;
@@ -1687,29 +2233,12 @@ fn create_verified_target_root(parent: &Path, paths: &SkillsPaths) -> Result<(),
     {
         return Err(unsafe_transaction_path());
     }
-    AnchoredRoot::open_or_create_absolute(parent)?;
+    let target_root = AnchoredRoot::open_or_create_absolute(parent)?;
     let actual = canonicalize_deepest(parent)?;
-    if actual != expected {
+    if actual != expected || !target_root.path_refers_to_root(parent)? {
         return Err(unsafe_transaction_path());
     }
-    Ok(())
-}
-
-#[cfg(unix)]
-fn create_symlink(target: &Path, link: &Path) -> Result<(), SkillError> {
-    std::os::unix::fs::symlink(target, link).map_err(|error| io_error(link, error))
-}
-
-#[cfg(windows)]
-fn create_symlink(target: &Path, link: &Path) -> Result<(), SkillError> {
-    std::os::windows::fs::symlink_dir(target, link).map_err(|error| io_error(link, error))
-}
-
-#[cfg(not(any(unix, windows)))]
-fn create_symlink(_target: &Path, _link: &Path) -> Result<(), SkillError> {
-    Err(SkillError::InvalidSource {
-        message: "Skill link transactions are unsupported on this platform".into(),
-    })
+    Ok(target_root)
 }
 
 fn validate_link_precondition(
@@ -1731,6 +2260,108 @@ fn link_matches_state(
     paths: &SkillsPaths,
 ) -> Result<bool, SkillError> {
     link_entry_matches_state(path, path, expected, paths)
+}
+
+#[cfg(unix)]
+fn anchored_link_entry_matches_state(
+    root: &AnchoredRoot,
+    entry_path: &Path,
+    logical_path: &Path,
+    expected: &LinkState,
+    paths: &SkillsPaths,
+) -> Result<bool, SkillError> {
+    let name = entry_path.file_name().ok_or_else(unsafe_transaction_path)?;
+    let Some(identity) = root.stat_root_entry(name, entry_path)? else {
+        return Ok(matches!(expected, LinkState::Missing));
+    };
+    match expected {
+        LinkState::Missing => Ok(false),
+        LinkState::Directory { tree_hash } => {
+            if identity.kind != AnchoredFileKind::Directory {
+                return Ok(false);
+            }
+            let directory = root.root_directory()?;
+            let name = std::ffi::CString::new(name.as_encoded_bytes())
+                .map_err(|_| unsafe_transaction_path())?;
+            let opened = root.open_directory_entry(&directory, &name, &identity, entry_path)?;
+            let tree =
+                AnchoredRoot::from_open_directory(opened, entry_path.to_path_buf(), &identity)?;
+            Ok(hash_tree_anchored(&tree)? == *tree_hash)
+        }
+        LinkState::ManagedSymlink { target }
+        | LinkState::BrokenSymlink { target }
+        | LinkState::UnknownSymlink { target } => {
+            if identity.kind != AnchoredFileKind::Symlink
+                || path_from_raw_link_bytes(root.read_link_root_entry(name, &identity, entry_path)?)
+                    != *target
+            {
+                return Ok(false);
+            }
+            symlink_target_semantics_match(logical_path, expected, paths)
+        }
+    }
+}
+
+#[cfg(unix)]
+fn path_from_raw_link_bytes(bytes: Vec<u8>) -> PathBuf {
+    use std::os::unix::ffi::OsStringExt;
+    PathBuf::from(OsString::from_vec(bytes))
+}
+
+#[cfg(unix)]
+fn validate_link_precondition_anchored(
+    root: &AnchoredRoot,
+    paths: &SkillsPaths,
+    mutation: &LinkMutation,
+) -> Result<(), SkillError> {
+    if !anchored_link_entry_matches_state(
+        root,
+        &mutation.path,
+        &mutation.path,
+        &mutation.expected,
+        paths,
+    )? {
+        return Err(stale("an Agent Skill target changed after review"));
+    }
+    if let Some(backup) = &mutation.backup {
+        ensure_missing(backup, "a Skill link backup already exists")?;
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn anchored_optional_directory_hash(
+    root: &AnchoredRoot,
+    path: &Path,
+) -> Result<Option<String>, SkillError> {
+    let name = path.file_name().ok_or_else(unsafe_transaction_path)?;
+    let Some(identity) = root.stat_root_entry(name, path)? else {
+        return Ok(None);
+    };
+    if identity.kind != AnchoredFileKind::Directory {
+        return Err(stale("a reviewed Skill directory changed type"));
+    }
+    let directory = root.root_directory()?;
+    let name =
+        std::ffi::CString::new(name.as_encoded_bytes()).map_err(|_| unsafe_transaction_path())?;
+    let opened = root.open_directory_entry(&directory, &name, &identity, path)?;
+    let tree = AnchoredRoot::from_open_directory(opened, path.to_path_buf(), &identity)?;
+    hash_tree_anchored(&tree).map(Some)
+}
+
+#[cfg(unix)]
+fn anchored_ensure_missing(
+    root: &AnchoredRoot,
+    path: &Path,
+    message: &str,
+) -> Result<(), SkillError> {
+    let name = path.file_name().ok_or_else(unsafe_transaction_path)?;
+    if root.stat_root_entry(name, path)?.is_some() {
+        return Err(SkillError::RecoveryRequired {
+            message: message.into(),
+        });
+    }
+    Ok(())
 }
 
 fn link_entry_matches_state(
@@ -1761,6 +2392,36 @@ fn link_entry_matches_state(
             {
                 return Ok(false);
             }
+            symlink_target_semantics_match(logical_path, expected, paths)
+        }
+        LinkState::BrokenSymlink { target } => {
+            if !metadata.file_type().is_symlink()
+                || fs::read_link(entry_path).map_err(|error| io_error(entry_path, error))?
+                    != *target
+            {
+                return Ok(false);
+            }
+            symlink_target_semantics_match(logical_path, expected, paths)
+        }
+        LinkState::UnknownSymlink { target } => {
+            if !metadata.file_type().is_symlink()
+                || fs::read_link(entry_path).map_err(|error| io_error(entry_path, error))?
+                    != *target
+            {
+                return Ok(false);
+            }
+            symlink_target_semantics_match(logical_path, expected, paths)
+        }
+    }
+}
+
+fn symlink_target_semantics_match(
+    logical_path: &Path,
+    expected: &LinkState,
+    paths: &SkillsPaths,
+) -> Result<bool, SkillError> {
+    match expected {
+        LinkState::ManagedSymlink { target } => {
             let central_target = managed_link_central_target(logical_path, target, paths)?;
             let target_canonical = match fs::canonicalize(&central_target) {
                 Ok(path) => path,
@@ -1776,12 +2437,6 @@ fn link_entry_matches_state(
             Ok(link_canonical == target_canonical)
         }
         LinkState::BrokenSymlink { target } => {
-            if !metadata.file_type().is_symlink()
-                || fs::read_link(entry_path).map_err(|error| io_error(entry_path, error))?
-                    != *target
-            {
-                return Ok(false);
-            }
             let resolved = resolve_link_target(logical_path, target)?;
             match fs::metadata(&resolved) {
                 Ok(_) => Ok(false),
@@ -1794,12 +2449,6 @@ fn link_entry_matches_state(
             }
         }
         LinkState::UnknownSymlink { target } => {
-            if !metadata.file_type().is_symlink()
-                || fs::read_link(entry_path).map_err(|error| io_error(entry_path, error))?
-                    != *target
-            {
-                return Ok(false);
-            }
             let raw_resolved = resolve_link_target(logical_path, target)?;
             let resolved = match fs::canonicalize(&raw_resolved) {
                 Ok(path) => path,
@@ -1814,6 +2463,7 @@ fn link_entry_matches_state(
                 .map_err(|error| io_error(&paths.skills_dir(), error))?;
             Ok(resolved != central && !resolved.starts_with(central))
         }
+        LinkState::Missing | LinkState::Directory { .. } => Ok(false),
     }
 }
 
@@ -2337,23 +2987,85 @@ fn cleanup_link_temporary(
     mutation: &LinkMutation,
     paths: &SkillsPaths,
 ) -> Result<(), SkillError> {
-    match classify_link_temporary(path, mutation)? {
+    cleanup_link_temporary_with_hook(path, mutation, paths, None)
+}
+
+fn cleanup_link_temporary_with_hook(
+    path: &Path,
+    mutation: &LinkMutation,
+    paths: &SkillsPaths,
+    after_classification: Option<&mut dyn FnMut()>,
+) -> Result<(), SkillError> {
+    #[cfg(not(unix))]
+    return Err(recovery_evidence_error());
+    #[cfg(unix)]
+    let parent = AnchoredRoot::open(path.parent().ok_or_else(recovery_evidence_error)?)
+        .map_err(|_| recovery_evidence_error())?;
+    #[cfg(unix)]
+    cleanup_link_temporary_anchored(parent, path, mutation, paths, after_classification)
+}
+
+#[cfg(unix)]
+fn cleanup_link_temporary_anchored(
+    parent: AnchoredRoot,
+    path: &Path,
+    mutation: &LinkMutation,
+    paths: &SkillsPaths,
+    mut after_classification: Option<&mut dyn FnMut()>,
+) -> Result<(), SkillError> {
+    let identity = parent
+        .stat_root_entry(path.file_name().ok_or_else(recovery_evidence_error)?, path)
+        .map_err(|_| recovery_evidence_error())?;
+    let evidence = match identity {
+        None => LinkTemporaryEvidence::Missing,
+        Some(identity) => classify_anchored_link_entry(&parent, path, &identity, mutation)?,
+    };
+    if let Some(hook) = after_classification.take() {
+        hook();
+    }
+    match evidence {
         LinkTemporaryEvidence::Missing => Ok(()),
         LinkTemporaryEvidence::ExpectedOrDesired => {
-            remove_safe_entry_and_sync(path).map_err(|_| recovery_evidence_error())
+            #[cfg(unix)]
+            {
+                let expected = identity.ok_or_else(recovery_evidence_error)?;
+                let quarantined = quarantine_exact_entry(parent, path, &expected)?;
+                let moved = classify_anchored_link_entry(
+                    &quarantined.parent,
+                    &quarantined.quarantine_path,
+                    &quarantined.identity,
+                    mutation,
+                );
+                if !matches!(moved, Ok(LinkTemporaryEvidence::ExpectedOrDesired)) {
+                    restore_quarantined_entry(&quarantined)?;
+                    return Err(recovery_evidence_error());
+                }
+                remove_quarantined_entry(quarantined).map_err(|_| recovery_evidence_error())
+            }
         }
         LinkTemporaryEvidence::Opaque => {
-            let original_missing = matches!(
-                fs::symlink_metadata(&mutation.path),
-                Err(error) if error.kind() == ErrorKind::NotFound
-            );
+            let original_name = mutation
+                .path
+                .file_name()
+                .ok_or_else(recovery_evidence_error)?;
+            let original_missing = parent
+                .stat_root_entry(original_name, &mutation.path)
+                .map_err(|_| recovery_evidence_error())?
+                .is_none();
             if original_missing {
-                rename_same_parent_noreplace(path, &mutation.path)
+                parent
+                    .rename_entry_noreplace(
+                        path.file_name().ok_or_else(recovery_evidence_error)?,
+                        original_name,
+                        path,
+                    )
                     .map_err(|_| recovery_evidence_error())?;
                 return Err(recovery_evidence_error());
             }
             let original_is_desired = match &mutation.desired_target {
-                Some(target) => link_matches_state(
+                Some(target) => anchored_link_entry_matches_state(
+                    &parent,
+                    &mutation.path,
                     &mutation.path,
                     &LinkState::ManagedSymlink {
                         target: target.clone(),
@@ -2364,9 +3076,35 @@ fn cleanup_link_temporary(
                 None => false,
             };
             if original_is_desired {
-                exchange_same_parent(path, &mutation.path)
+                let temporary_name = path.file_name().ok_or_else(recovery_evidence_error)?;
+                parent
+                    .exchange_entries(temporary_name, original_name, path)
                     .map_err(|_| recovery_evidence_error())?;
-                if remove_safe_entry_and_sync(path).is_err() {
+                let displaced = parent
+                    .stat_root_entry(temporary_name, path)
+                    .map_err(|_| recovery_evidence_error())?
+                    .ok_or_else(recovery_evidence_error)?;
+                let expected_desired = LinkState::ManagedSymlink {
+                    target: mutation
+                        .desired_target
+                        .clone()
+                        .ok_or_else(recovery_evidence_error)?,
+                };
+                if !anchored_link_entry_matches_state(
+                    &parent,
+                    path,
+                    &mutation.path,
+                    &expected_desired,
+                    paths,
+                )
+                .unwrap_or(false)
+                {
+                    parent
+                        .exchange_entries(temporary_name, original_name, path)
+                        .map_err(|_| recovery_evidence_error())?;
+                    return Err(recovery_evidence_error());
+                }
+                if remove_exact_anchored_entry(&parent, path, &displaced).is_err() {
                     return Err(recovery_evidence_error());
                 }
             }
@@ -2386,17 +3124,55 @@ fn classify_link_temporary(
     path: &Path,
     mutation: &LinkMutation,
 ) -> Result<LinkTemporaryEvidence, SkillError> {
-    let metadata = match fs::symlink_metadata(path) {
-        Err(error) if error.kind() == ErrorKind::NotFound => {
-            return Ok(LinkTemporaryEvidence::Missing);
-        }
-        Err(_) => return Err(recovery_evidence_error()),
-        Ok(metadata) => metadata,
+    #[cfg(not(unix))]
+    return Err(recovery_evidence_error());
+    #[cfg(unix)]
+    inspect_link_temporary(path, mutation).map(|(_, _, evidence)| evidence)
+}
+
+#[cfg(unix)]
+fn inspect_link_temporary(
+    path: &Path,
+    mutation: &LinkMutation,
+) -> Result<
+    (
+        AnchoredRoot,
+        Option<AnchoredIdentity>,
+        LinkTemporaryEvidence,
+    ),
+    SkillError,
+> {
+    let parent = AnchoredRoot::open(path.parent().ok_or_else(recovery_evidence_error)?)
+        .map_err(|_| recovery_evidence_error())?;
+    let identity = parent
+        .stat_root_entry(path.file_name().ok_or_else(recovery_evidence_error)?, path)
+        .map_err(|_| recovery_evidence_error())?;
+    let evidence = match identity {
+        None => LinkTemporaryEvidence::Missing,
+        Some(identity) => classify_anchored_link_entry(&parent, path, &identity, mutation)?,
     };
-    if !metadata.file_type().is_symlink() {
+    Ok((parent, identity, evidence))
+}
+
+#[cfg(unix)]
+fn classify_anchored_link_entry(
+    parent: &AnchoredRoot,
+    path: &Path,
+    identity: &AnchoredIdentity,
+    mutation: &LinkMutation,
+) -> Result<LinkTemporaryEvidence, SkillError> {
+    if identity.kind != AnchoredFileKind::Symlink {
         return Ok(LinkTemporaryEvidence::Opaque);
     }
-    let target = fs::read_link(path).map_err(|_| recovery_evidence_error())?;
+    let target = path_from_raw_link_bytes(
+        parent
+            .read_link_root_entry(
+                path.file_name().ok_or_else(recovery_evidence_error)?,
+                identity,
+                path,
+            )
+            .map_err(|_| recovery_evidence_error())?,
+    );
     let expected_target = match &mutation.expected {
         LinkState::ManagedSymlink { target }
         | LinkState::BrokenSymlink { target }
@@ -2415,22 +3191,27 @@ fn cleanup_redundant_link_backup(mutation: &LinkMutation) -> Result<(), SkillErr
     else {
         return Ok(());
     };
-    match optional_directory_hash_recovery(backup)? {
-        None => Ok(()),
-        Some(observed) if observed == *tree_hash => remove_safe_entry_and_sync(backup),
-        Some(_) => Err(recovery_evidence_error()),
-    }
+    verify_and_remove_backup(backup, Some(tree_hash))
 }
 
 fn remove_current_link_if_present(path: &Path) -> Result<(), SkillError> {
-    match fs::symlink_metadata(path) {
-        Err(error) if error.kind() == ErrorKind::NotFound => Ok(()),
-        Err(_) => Err(recovery_evidence_error()),
-        Ok(metadata) if metadata.file_type().is_symlink() => {
-            fs::remove_file(path).map_err(|_| recovery_evidence_error())?;
-            sync_directory(path.parent().ok_or_else(recovery_evidence_error)?)
+    #[cfg(not(unix))]
+    return Err(recovery_evidence_error());
+    #[cfg(unix)]
+    {
+        let parent_path = path.parent().ok_or_else(recovery_evidence_error)?;
+        let parent = AnchoredRoot::open(parent_path).map_err(|_| recovery_evidence_error())?;
+        let Some(identity) = parent
+            .stat_root_entry(path.file_name().ok_or_else(recovery_evidence_error)?, path)
+            .map_err(|_| recovery_evidence_error())?
+        else {
+            return Ok(());
+        };
+        if identity.kind != AnchoredFileKind::Symlink {
+            return Err(recovery_evidence_error());
         }
-        Ok(_) => Err(recovery_evidence_error()),
+        let quarantined = quarantine_exact_entry(parent, path, &identity)?;
+        remove_quarantined_entry(quarantined).map_err(|_| recovery_evidence_error())
     }
 }
 
@@ -2443,24 +3224,59 @@ fn create_symlink_atomic(
 ) -> Result<(), SkillError> {
     let temporary = link_temp_path(spec, mutation, index);
     validate_link_runtime_bounds(mutation, paths)?;
-    validate_link_path(&temporary, &verified_catalog_targets(paths)?)?;
-    cleanup_link_temporary(&temporary, mutation, paths)?;
     let parent = mutation.path.parent().ok_or_else(recovery_evidence_error)?;
-    create_symlink(target, &temporary)?;
-    sync_directory(parent)?;
-    validate_link_runtime_bounds(mutation, paths)?;
-    validate_link_path(&temporary, &verified_catalog_targets(paths)?)?;
-    if fs::read_link(&temporary).map_err(|_| recovery_evidence_error())? != target
-        || !matches!(
-            fs::symlink_metadata(&mutation.path),
-            Err(error) if error.kind() == ErrorKind::NotFound
+    #[cfg(not(unix))]
+    return Err(recovery_evidence_error());
+    #[cfg(unix)]
+    let target_root =
+        create_verified_target_root(parent, paths).map_err(|_| recovery_evidence_error())?;
+    #[cfg(unix)]
+    cleanup_link_temporary_anchored(target_root.try_clone()?, &temporary, mutation, paths, None)?;
+    #[cfg(unix)]
+    target_root
+        .create_symlink_entry(
+            target,
+            temporary.file_name().ok_or_else(recovery_evidence_error)?,
+            &temporary,
         )
+        .map_err(|_| recovery_evidence_error())?;
+    #[cfg(unix)]
+    let temporary_name = temporary.file_name().ok_or_else(recovery_evidence_error)?;
+    #[cfg(unix)]
+    let temporary_identity = target_root
+        .stat_root_entry(temporary_name, &temporary)?
+        .ok_or_else(recovery_evidence_error)?;
+    #[cfg(unix)]
+    if temporary_identity.kind != AnchoredFileKind::Symlink
+        || path_from_raw_link_bytes(target_root.read_link_root_entry(
+            temporary_name,
+            &temporary_identity,
+            &temporary,
+        )?) != target
+        || target_root
+            .stat_root_entry(
+                mutation
+                    .path
+                    .file_name()
+                    .ok_or_else(recovery_evidence_error)?,
+                &mutation.path,
+            )?
+            .is_some()
+        || !target_root.path_refers_to_root(parent)?
     {
         return Err(recovery_evidence_error());
     }
-    rename_same_parent_noreplace(&temporary, &mutation.path)
-        .map_err(|_| recovery_evidence_error())?;
-    sync_directory(parent)
+    #[cfg(unix)]
+    target_root
+        .rename_entry_noreplace(
+            temporary_name,
+            mutation
+                .path
+                .file_name()
+                .ok_or_else(recovery_evidence_error)?,
+            &temporary,
+        )
+        .map_err(|_| recovery_evidence_error())
 }
 
 fn finish_successful_transaction(
@@ -2579,11 +3395,60 @@ fn retained_import_backups(
 }
 
 fn verify_and_remove_backup(path: &Path, expected_hash: Option<&str>) -> Result<(), SkillError> {
-    let observed = optional_directory_hash_recovery(path)?;
+    verify_and_remove_backup_with_hook(path, expected_hash, None)
+}
+
+fn verify_and_remove_backup_with_hook(
+    path: &Path,
+    expected_hash: Option<&str>,
+    mut after_hash: Option<&mut dyn FnMut()>,
+) -> Result<(), SkillError> {
+    #[cfg(not(unix))]
+    return Err(recovery_evidence_error());
+    #[cfg(unix)]
+    let parent = AnchoredRoot::open(path.parent().ok_or_else(recovery_evidence_error)?)
+        .map_err(|_| recovery_evidence_error())?;
+    #[cfg(unix)]
+    let identity = parent
+        .stat_root_entry(path.file_name().ok_or_else(recovery_evidence_error)?, path)
+        .map_err(|_| recovery_evidence_error())?;
+    #[cfg(unix)]
+    let observed = match identity {
+        None => None,
+        Some(identity) if identity.kind == AnchoredFileKind::Directory => {
+            anchored_optional_directory_hash(&parent, path)
+                .map_err(|_| recovery_evidence_error())?
+        }
+        Some(_) => return Err(recovery_evidence_error()),
+    };
+    if let Some(hook) = after_hash.take() {
+        hook();
+    }
     match (observed, expected_hash) {
-        (None, _) => Ok(()),
+        (None, _) => {
+            if parent
+                .stat_root_entry(path.file_name().ok_or_else(recovery_evidence_error)?, path)
+                .map_err(|_| recovery_evidence_error())?
+                .is_some()
+            {
+                return Err(recovery_evidence_error());
+            }
+            Ok(())
+        }
         (Some(observed), Some(expected)) if observed == expected => {
-            remove_safe_entry_and_sync(path)
+            let quarantined = quarantine_exact_entry(
+                parent,
+                path,
+                &identity.ok_or_else(recovery_evidence_error)?,
+            )?;
+            let moved_hash = quarantined_directory_root(&quarantined)
+                .and_then(|root| hash_tree_anchored(&root))
+                .map_err(|_| recovery_evidence_error());
+            if !matches!(&moved_hash, Ok(hash) if hash == expected) {
+                restore_quarantined_entry(&quarantined)?;
+                return Err(recovery_evidence_error());
+            }
+            remove_quarantined_entry(quarantined).map_err(|_| recovery_evidence_error())
         }
         (Some(_), None) => Err(recovery_evidence_error()),
         (Some(_), Some(_)) => Err(recovery_evidence_error()),
@@ -2593,17 +3458,31 @@ fn verify_and_remove_backup(path: &Path, expected_hash: Option<&str>) -> Result<
 fn remove_staging_operation(paths: &SkillsPaths, operation_id: &str) -> Result<(), SkillError> {
     validate_operation_id(operation_id)?;
     let operation = paths.staging_skills_dir().join(operation_id);
-    match fs::symlink_metadata(&operation) {
-        Err(error) if error.kind() == ErrorKind::NotFound => Ok(()),
-        Err(error) => Err(io_error(&operation, error)),
-        Ok(metadata) if metadata.file_type().is_dir() => {
-            fs::remove_dir_all(&operation).map_err(|error| io_error(&operation, error))?;
-            sync_directory(&paths.staging_skills_dir())
-        }
-        Ok(_) => Err(SkillError::RecoveryRequired {
+    #[cfg(not(unix))]
+    return Err(recovery_evidence_error());
+    #[cfg(unix)]
+    let root =
+        AnchoredRoot::open(&paths.staging_skills_dir()).map_err(|_| recovery_evidence_error())?;
+    #[cfg(unix)]
+    let Some(identity) = root
+        .stat_root_entry(
+            operation.file_name().ok_or_else(recovery_evidence_error)?,
+            &operation,
+        )
+        .map_err(|_| recovery_evidence_error())?
+    else {
+        return Ok(());
+    };
+    #[cfg(unix)]
+    if identity.kind != AnchoredFileKind::Directory {
+        return Err(SkillError::RecoveryRequired {
             message: "a Skills staging operation requires manual recovery".into(),
-        }),
+        });
     }
+    #[cfg(unix)]
+    let quarantined = quarantine_exact_entry(root, &operation, &identity)?;
+    #[cfg(unix)]
+    remove_quarantined_entry(quarantined).map_err(|_| recovery_evidence_error())
 }
 
 fn remove_journal(paths: &SkillsPaths, operation_id: &str) -> Result<(), SkillError> {
@@ -2615,12 +3494,49 @@ fn remove_journal_with_failpoint(
     operation_id: &str,
     failpoint: Option<JournalRetireFailpoint>,
 ) -> Result<(), SkillError> {
+    remove_journal_with_rename_hooks(paths, operation_id, failpoint, None, None, None)
+}
+
+#[cfg(unix)]
+fn remove_journal_with_rename_hooks(
+    paths: &SkillsPaths,
+    operation_id: &str,
+    failpoint: Option<JournalRetireFailpoint>,
+    mut before_active_to_retiring: Option<&mut dyn FnMut()>,
+    mut before_retiring_to_retired: Option<&mut dyn FnMut()>,
+    mut before_root_removal: Option<&mut dyn FnMut()>,
+) -> Result<(), SkillError> {
     let active = journal_path(paths, operation_id)?;
     let retiring = journal_retiring_path(paths, operation_id)?;
     let retired = journal_retired_path(paths, operation_id)?;
-    let active_present = journal_entry_exists(&active)?;
-    let retiring_present = journal_entry_exists(&retiring)?;
-    let retired_present = journal_entry_exists(&retired)?;
+    let root_path = paths.journals_skills_dir();
+    #[cfg(unix)]
+    let root = match AnchoredRoot::open(&root_path) {
+        Ok(root) => root,
+        Err(_) if !root_path.exists() => return Ok(()),
+        Err(_) => return Err(recovery_evidence_error()),
+    };
+    #[cfg(unix)]
+    let active_present = root
+        .stat_root_entry(
+            active.file_name().ok_or_else(recovery_evidence_error)?,
+            &active,
+        )?
+        .is_some();
+    #[cfg(unix)]
+    let retiring_present = root
+        .stat_root_entry(
+            retiring.file_name().ok_or_else(recovery_evidence_error)?,
+            &retiring,
+        )?
+        .is_some();
+    #[cfg(unix)]
+    let retired_present = root
+        .stat_root_entry(
+            retired.file_name().ok_or_else(recovery_evidence_error)?,
+            &retired,
+        )?
+        .is_some();
     let present = [active_present, retiring_present, retired_present]
         .into_iter()
         .filter(|present| *present)
@@ -2629,54 +3545,132 @@ fn remove_journal_with_failpoint(
         return Err(recovery_evidence_error());
     }
 
-    let root = paths.journals_skills_dir();
     if active_present {
-        validate_retirement_journal(&active, operation_id)?;
-        fs::rename(&active, &retiring).map_err(|error| io_error(&active, error))?;
+        #[cfg(unix)]
+        validate_retirement_journal_anchored(&root, &active, operation_id)?;
+        if let Some(hook) = before_active_to_retiring.take() {
+            hook();
+        }
+        #[cfg(unix)]
+        root.rename_entry_noreplace(
+            active.file_name().ok_or_else(recovery_evidence_error)?,
+            retiring.file_name().ok_or_else(recovery_evidence_error)?,
+            &active,
+        )
+        .map_err(|_| recovery_evidence_error())?;
         if failpoint == Some(JournalRetireFailpoint::RenameToRetiringBeforeSync) {
             return Err(recovery_evidence_error());
         }
-        sync_directory(&root)?;
         if failpoint == Some(JournalRetireFailpoint::RetiringSynced) {
             return Err(recovery_evidence_error());
         }
     }
     if retiring_present || active_present {
-        validate_retirement_journal(&retiring, operation_id)?;
-        fs::rename(&retiring, &retired).map_err(|error| io_error(&retiring, error))?;
+        #[cfg(unix)]
+        validate_retirement_journal_anchored(&root, &retiring, operation_id)?;
+        if let Some(hook) = before_retiring_to_retired.take() {
+            hook();
+        }
+        #[cfg(unix)]
+        root.rename_entry_noreplace(
+            retiring.file_name().ok_or_else(recovery_evidence_error)?,
+            retired.file_name().ok_or_else(recovery_evidence_error)?,
+            &retiring,
+        )
+        .map_err(|_| recovery_evidence_error())?;
         if failpoint == Some(JournalRetireFailpoint::RenameToRetiredBeforeSync) {
             return Err(recovery_evidence_error());
         }
-        sync_directory(&root)?;
         if failpoint == Some(JournalRetireFailpoint::RetiredSynced) {
             return Err(recovery_evidence_error());
         }
     }
     if retired_present || retiring_present || active_present {
-        validate_retirement_journal(&retired, operation_id)?;
-        fs::remove_file(&retired).map_err(|error| io_error(&retired, error))?;
+        #[cfg(unix)]
+        validate_retirement_journal_anchored(&root, &retired, operation_id)?;
+        #[cfg(unix)]
+        root.unlink_root_entry(
+            retired.file_name().ok_or_else(recovery_evidence_error)?,
+            false,
+            &retired,
+        )
+        .map_err(|_| recovery_evidence_error())?;
         if failpoint != Some(JournalRetireFailpoint::RetiredUnlinkedBeforeSync) {
             // Failure here is benign: the directory already contains a
             // durably retired marker, so a crash can only resurrect that
             // inert marker and never an active transaction.
-            let _ = sync_directory(&root);
+            // `unlink_root_entry` already synced the held journal directory.
         }
     }
-    match fs::remove_dir(&root) {
-        Ok(()) => {
-            if let Some(parent) = root.parent() {
-                sync_directory(parent)?;
-            }
-        }
-        Err(error) if error.kind() == ErrorKind::DirectoryNotEmpty => {}
-        Err(error) if error.kind() == ErrorKind::NotFound => {}
-        Err(error) => return Err(io_error(&root, error)),
+    if let Some(hook) = before_root_removal.take() {
+        hook();
     }
-    Ok(())
+    remove_empty_anchored_root(root, &root_path)
+}
+
+#[cfg(unix)]
+fn remove_empty_anchored_root(root: AnchoredRoot, root_path: &Path) -> Result<(), SkillError> {
+    let directory = root.root_directory()?;
+    if !root.read_directory(&directory, root_path)?.is_empty() {
+        return Ok(());
+    }
+    let expected = root.identity()?;
+    let parent_path = root_path.parent().ok_or_else(recovery_evidence_error)?;
+    let parent = AnchoredRoot::open(parent_path).map_err(|_| recovery_evidence_error())?;
+    let quarantined = quarantine_exact_entry(parent, root_path, &expected)?;
+    let quarantined_root = quarantined_directory_root(&quarantined)?;
+    let quarantined_directory = quarantined_root.root_directory()?;
+    if !quarantined_root
+        .read_directory(&quarantined_directory, &quarantined.quarantine_path)?
+        .is_empty()
+    {
+        drop(quarantined_directory);
+        drop(quarantined_root);
+        restore_quarantined_entry(&quarantined)?;
+        return Ok(());
+    }
+    drop(quarantined_directory);
+    drop(quarantined_root);
+    quarantined
+        .parent
+        .unlink_root_entry(
+            quarantined
+                .quarantine_path
+                .file_name()
+                .ok_or_else(recovery_evidence_error)?,
+            true,
+            &quarantined.quarantine_path,
+        )
+        .map_err(|_| recovery_evidence_error())
+}
+
+#[cfg(not(unix))]
+fn remove_journal_with_rename_hooks(
+    _paths: &SkillsPaths,
+    _operation_id: &str,
+    _failpoint: Option<JournalRetireFailpoint>,
+    _before_active_to_retiring: Option<&mut dyn FnMut()>,
+    _before_retiring_to_retired: Option<&mut dyn FnMut()>,
+    _before_root_removal: Option<&mut dyn FnMut()>,
+) -> Result<(), SkillError> {
+    Err(recovery_evidence_error())
 }
 
 fn validate_retirement_journal(path: &Path, operation_id: &str) -> Result<(), SkillError> {
     let journal = read_journal(path)?;
+    if journal.spec.operation_id != operation_id {
+        return Err(recovery_evidence_error());
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn validate_retirement_journal_anchored(
+    root: &AnchoredRoot,
+    path: &Path,
+    operation_id: &str,
+) -> Result<(), SkillError> {
+    let journal = read_journal_anchored(root, path)?;
     if journal.spec.operation_id != operation_id {
         return Err(recovery_evidence_error());
     }
@@ -2724,6 +3718,9 @@ fn recover_pending_locked(paths: &SkillsPaths) -> Result<(), SkillError> {
     }
     for promotion in &loaded.temp_promotions {
         complete_journal_temp_promotion(paths, promotion)?;
+    }
+    for cleanup in &loaded.temp_cleanups {
+        complete_journal_temp_cleanup(paths, cleanup)?;
     }
     for (journal, disposition) in loaded.journals.into_iter().zip(pending) {
         validate_transaction_roots(paths, false)?;
@@ -2822,6 +3819,7 @@ fn load_and_validate_all_journals(paths: &SkillsPaths) -> Result<LoadedJournals,
             return Ok(LoadedJournals {
                 journals: Vec::new(),
                 temp_promotions: Vec::new(),
+                temp_cleanups: Vec::new(),
                 retired_operation_ids: Vec::new(),
             });
         }
@@ -2886,6 +3884,7 @@ fn load_and_validate_all_journals(paths: &SkillsPaths) -> Result<LoadedJournals,
 
     let mut journals = Vec::with_capacity(paths_by_id.len());
     let mut temp_promotions = Vec::new();
+    let mut temp_cleanups = Vec::new();
     let mut retired_operation_ids = Vec::new();
     for (operation_id, files) in paths_by_id {
         if files.retired.is_some()
@@ -2910,23 +3909,39 @@ fn load_and_validate_all_journals(paths: &SkillsPaths) -> Result<LoadedJournals,
             journals.push(journal);
             continue;
         }
-        let (journal, promotion) = match (files.active, files.temporary) {
+        let (journal, promotion, cleanup) = match (files.active, files.temporary) {
             (Some(destination), Some(temporary)) => {
                 let final_journal = read_journal(&destination)?;
                 let temp_journal = read_journal(&temporary)?;
                 if final_journal.spec != temp_journal.spec {
                     return Err(recovery_evidence_error());
                 }
-                (
-                    temp_journal.clone(),
-                    Some(JournalTempPromotion {
-                        temporary,
-                        destination,
-                        journal: temp_journal,
-                    }),
-                )
+                if journal_phase_rank(final_journal.spec.order, final_journal.phase)
+                    >= journal_phase_rank(temp_journal.spec.order, temp_journal.phase)
+                {
+                    (
+                        final_journal.clone(),
+                        None,
+                        Some(JournalTempCleanup {
+                            temporary,
+                            destination,
+                            temporary_journal: temp_journal,
+                            destination_journal: final_journal,
+                        }),
+                    )
+                } else {
+                    (
+                        temp_journal.clone(),
+                        Some(JournalTempPromotion {
+                            temporary,
+                            destination,
+                            journal: temp_journal,
+                        }),
+                        None,
+                    )
+                }
             }
-            (Some(destination), None) => (read_journal(&destination)?, None),
+            (Some(destination), None) => (read_journal(&destination)?, None, None),
             (None, Some(temporary)) => {
                 let temp_journal = read_journal(&temporary)?;
                 let destination = journal_path(paths, &operation_id)?;
@@ -2937,6 +3952,7 @@ fn load_and_validate_all_journals(paths: &SkillsPaths) -> Result<LoadedJournals,
                         destination,
                         journal: temp_journal,
                     }),
+                    None,
                 )
             }
             (None, None) => unreachable!(),
@@ -2949,35 +3965,184 @@ fn load_and_validate_all_journals(paths: &SkillsPaths) -> Result<LoadedJournals,
         if let Some(promotion) = promotion {
             temp_promotions.push(promotion);
         }
+        if let Some(cleanup) = cleanup {
+            temp_cleanups.push(cleanup);
+        }
     }
     Ok(LoadedJournals {
         journals,
         temp_promotions,
+        temp_cleanups,
         retired_operation_ids,
     })
+}
+
+fn journal_phase_rank(order: TransactionOrder, phase: JournalPhase) -> u8 {
+    match (order, phase) {
+        (_, JournalPhase::Prepared) => 0,
+        (TransactionOrder::ContentThenLinks, JournalPhase::ContentSwapped)
+        | (TransactionOrder::LinksThenContent, JournalPhase::LinksSwapped) => 1,
+        (TransactionOrder::ContentThenLinks, JournalPhase::LinksSwapped)
+        | (TransactionOrder::LinksThenContent, JournalPhase::ContentSwapped) => 2,
+        (_, JournalPhase::SettingsWritten) => 3,
+    }
 }
 
 fn complete_journal_temp_promotion(
     paths: &SkillsPaths,
     promotion: &JournalTempPromotion,
 ) -> Result<(), SkillError> {
+    complete_journal_temp_promotion_with_hook(paths, promotion, None)
+}
+
+fn complete_journal_temp_promotion_with_hook(
+    paths: &SkillsPaths,
+    promotion: &JournalTempPromotion,
+    mut before_rename: Option<&mut dyn FnMut()>,
+) -> Result<(), SkillError> {
     validate_transaction_roots(paths, false)?;
-    if read_journal(&promotion.temporary)? != promotion.journal {
+    #[cfg(not(unix))]
+    return Err(recovery_evidence_error());
+    #[cfg(unix)]
+    let root =
+        AnchoredRoot::open(&paths.journals_skills_dir()).map_err(|_| recovery_evidence_error())?;
+    #[cfg(unix)]
+    if read_journal_anchored(&root, &promotion.temporary)? != promotion.journal {
         return Err(recovery_evidence_error());
     }
-    match fs::symlink_metadata(&promotion.destination) {
-        Err(error) if error.kind() == ErrorKind::NotFound => {}
-        Err(error) => return Err(io_error(&promotion.destination, error)),
-        Ok(_) => {
-            let current = read_journal(&promotion.destination)?;
+    #[cfg(unix)]
+    let temporary_identity = root
+        .stat_root_entry(
+            promotion
+                .temporary
+                .file_name()
+                .ok_or_else(recovery_evidence_error)?,
+            &promotion.temporary,
+        )?
+        .ok_or_else(recovery_evidence_error)?;
+    #[cfg(unix)]
+    let destination_identity = root.stat_root_entry(
+        promotion
+            .destination
+            .file_name()
+            .ok_or_else(recovery_evidence_error)?,
+        &promotion.destination,
+    )?;
+    #[cfg(unix)]
+    let current = match destination_identity {
+        None => None,
+        Some(_) => {
+            let current = read_journal_anchored(&root, &promotion.destination)?;
             if current.spec != promotion.journal.spec {
                 return Err(recovery_evidence_error());
             }
+            Some(current)
         }
+    };
+    if let Some(hook) = before_rename.take() {
+        hook();
     }
-    fs::rename(&promotion.temporary, &promotion.destination)
-        .map_err(|_| recovery_evidence_error())?;
-    sync_directory(&paths.journals_skills_dir())
+    #[cfg(unix)]
+    match (destination_identity, current) {
+        (None, None) => root
+            .rename_entry_noreplace(
+                promotion
+                    .temporary
+                    .file_name()
+                    .ok_or_else(recovery_evidence_error)?,
+                promotion
+                    .destination
+                    .file_name()
+                    .ok_or_else(recovery_evidence_error)?,
+                &promotion.temporary,
+            )
+            .map_err(|_| recovery_evidence_error()),
+        (Some(expected_destination), Some(expected_journal)) => {
+            let temporary_name = promotion
+                .temporary
+                .file_name()
+                .ok_or_else(recovery_evidence_error)?;
+            let destination_name = promotion
+                .destination
+                .file_name()
+                .ok_or_else(recovery_evidence_error)?;
+            root.exchange_entries(temporary_name, destination_name, &promotion.temporary)
+                .map_err(|_| recovery_evidence_error())?;
+            let displaced_identity = root.stat_root_entry(temporary_name, &promotion.temporary)?;
+            let installed_identity =
+                root.stat_root_entry(destination_name, &promotion.destination)?;
+            let displaced = read_journal_anchored(&root, &promotion.temporary);
+            let installed = read_journal_anchored(&root, &promotion.destination);
+            if displaced_identity != Some(expected_destination)
+                || installed_identity != Some(temporary_identity)
+                || !matches!(displaced, Ok(journal) if journal == expected_journal)
+                || !matches!(installed, Ok(journal) if journal == promotion.journal)
+            {
+                root.exchange_entries(temporary_name, destination_name, &promotion.temporary)
+                    .map_err(|_| recovery_evidence_error())?;
+                return Err(recovery_evidence_error());
+            }
+            root.unlink_root_entry(temporary_name, false, &promotion.temporary)
+                .map_err(|_| recovery_evidence_error())
+        }
+        _ => Err(recovery_evidence_error()),
+    }
+}
+
+fn complete_journal_temp_cleanup(
+    paths: &SkillsPaths,
+    cleanup: &JournalTempCleanup,
+) -> Result<(), SkillError> {
+    validate_transaction_roots(paths, false)?;
+    #[cfg(not(unix))]
+    return Err(recovery_evidence_error());
+    #[cfg(unix)]
+    {
+        let root_path = paths.journals_skills_dir();
+        let root = AnchoredRoot::open(&root_path).map_err(|_| recovery_evidence_error())?;
+        if !root.path_refers_to_root(&root_path)?
+            || read_journal_anchored(&root, &cleanup.temporary)? != cleanup.temporary_journal
+            || read_journal_anchored(&root, &cleanup.destination)? != cleanup.destination_journal
+            || cleanup.temporary_journal.spec != cleanup.destination_journal.spec
+            || journal_phase_rank(
+                cleanup.destination_journal.spec.order,
+                cleanup.destination_journal.phase,
+            ) < journal_phase_rank(
+                cleanup.temporary_journal.spec.order,
+                cleanup.temporary_journal.phase,
+            )
+        {
+            return Err(recovery_evidence_error());
+        }
+        let temporary_name = cleanup
+            .temporary
+            .file_name()
+            .ok_or_else(recovery_evidence_error)?;
+        let destination_name = cleanup
+            .destination
+            .file_name()
+            .ok_or_else(recovery_evidence_error)?;
+        let temporary_identity = root
+            .stat_root_entry(temporary_name, &cleanup.temporary)?
+            .ok_or_else(recovery_evidence_error)?;
+        let destination_identity = root
+            .stat_root_entry(destination_name, &cleanup.destination)?
+            .ok_or_else(recovery_evidence_error)?;
+        let quarantined = quarantine_exact_entry(root, &cleanup.temporary, &temporary_identity)?;
+        let destination_matches = quarantined
+            .parent
+            .stat_root_entry(destination_name, &cleanup.destination)?
+            == Some(destination_identity)
+            && matches!(
+                read_journal_anchored(&quarantined.parent, &cleanup.destination),
+                Ok(journal) if journal == cleanup.destination_journal
+            );
+        if !destination_matches {
+            restore_quarantined_entry(&quarantined)?;
+            return Err(recovery_evidence_error());
+        }
+        remove_quarantined_entry(quarantined).map_err(|_| recovery_evidence_error())
+    }
 }
 
 #[doc(hidden)]
@@ -3087,23 +4252,37 @@ struct StagingMetadata {
 }
 
 fn cleanup_abandoned_staging(paths: &SkillsPaths, now: DateTime<Utc>) -> Result<(), SkillError> {
-    let root = paths.staging_skills_dir();
-    let entries = match fs::read_dir(&root) {
-        Ok(entries) => entries,
-        Err(error) if error.kind() == ErrorKind::NotFound => return Ok(()),
-        Err(error) => return Err(io_error(&root, error)),
-    };
-    for entry in entries {
-        let entry = entry.map_err(|error| io_error(&root, error))?;
-        let path = entry.path();
-        let metadata = match fs::symlink_metadata(&path) {
-            Ok(metadata) => metadata,
+    cleanup_abandoned_staging_with_hook(paths, now, None)
+}
+
+fn cleanup_abandoned_staging_with_hook(
+    paths: &SkillsPaths,
+    now: DateTime<Utc>,
+    mut after_stale_classification: Option<&mut dyn FnMut()>,
+) -> Result<(), SkillError> {
+    #[cfg(not(unix))]
+    return Err(SkillError::InvalidSource {
+        message: "secure stale Skills cleanup is unavailable on this platform".into(),
+    });
+    #[cfg(unix)]
+    let root_path = paths.staging_skills_dir();
+    #[cfg(unix)]
+    let root = AnchoredRoot::open(&root_path)?;
+    #[cfg(unix)]
+    let root_directory = root.root_directory()?;
+    #[cfg(unix)]
+    for name in root.read_directory(&root_directory, &root_path)? {
+        use std::os::unix::ffi::OsStrExt;
+
+        let path = root_path.join(std::ffi::OsStr::from_bytes(name.to_bytes()));
+        let identity = match root.stat_entry(&root_directory, &name, &path) {
+            Ok(identity) => identity,
             Err(_) => continue,
         };
-        if !metadata.file_type().is_dir() || !private_directory(&metadata) {
+        if identity.kind != AnchoredFileKind::Directory || identity.mode & 0o077 != 0 {
             continue;
         }
-        let Some(operation_id) = entry.file_name().to_str().map(str::to_owned) else {
+        let Ok(operation_id) = std::str::from_utf8(name.to_bytes()).map(str::to_owned) else {
             continue;
         };
         if validate_operation_id(&operation_id).is_err() {
@@ -3116,53 +4295,52 @@ fn cleanup_abandoned_staging(paths: &SkillsPaths, now: DateTime<Utc>) -> Result<
         ) {
             continue;
         }
-        let metadata_path = path.join(STAGING_METADATA_FILE);
-        let Some(staging) = read_staging_metadata(&metadata_path)? else {
+        let opened = match root.open_directory_entry(&root_directory, &name, &identity, &path) {
+            Ok(opened) => opened,
+            Err(_) => continue,
+        };
+        let staging_root = AnchoredRoot::from_open_directory(opened, path.clone(), &identity)?;
+        let Some(staging) = read_staging_metadata_anchored(&staging_root)? else {
             continue;
         };
-        if staging.operation_id != operation_id {
-            continue;
-        }
-        let Ok(created_at) = DateTime::parse_from_rfc3339(&staging.created_at) else {
-            continue;
-        };
-        let created_at = created_at.with_timezone(&Utc);
-        if now.signed_duration_since(created_at) <= chrono::Duration::hours(STALE_STAGING_AGE_HOURS)
+        if !staging_metadata_is_stale(&staging, &operation_id, now)
+            || !staging_tree_is_plain_anchored(&staging_root)?
         {
             continue;
         }
-        if !staging_tree_is_plain(&path) {
+        if let Some(hook) = after_stale_classification.take() {
+            hook();
+        }
+        let quarantined = match quarantine_exact_entry(root.try_clone()?, &path, &identity) {
+            Ok(quarantined) => quarantined,
+            Err(SkillError::RecoveryRequired { .. }) | Err(SkillError::Conflict { .. }) => {
+                continue;
+            }
+            Err(error) => return Err(error),
+        };
+        let moved_root = match quarantined_directory_root(&quarantined) {
+            Ok(root) => root,
+            Err(_) => {
+                restore_quarantined_entry(&quarantined)?;
+                continue;
+            }
+        };
+        let moved_staging = read_staging_metadata_anchored(&moved_root)?;
+        if !moved_staging
+            .as_ref()
+            .is_some_and(|metadata| staging_metadata_is_stale(metadata, &operation_id, now))
+            || !staging_tree_is_plain_anchored(&moved_root)?
+        {
+            restore_quarantined_entry(&quarantined)?;
             continue;
         }
-        #[cfg(unix)]
-        {
-            let expected = AnchoredRoot::inspect_directory(&path)?;
-            let quarantine = root.join(format!(".mux-stale-{operation_id}.tmp"));
-            ensure_missing(
-                &quarantine,
-                "a stale Skills staging quarantine requires recovery",
-            )?;
-            rename_same_parent_noreplace(&path, &quarantine)?;
-            let actual = AnchoredRoot::inspect_directory(&quarantine)?;
-            if actual.device != expected.device
-                || actual.inode != expected.inode
-                || actual.kind != expected.kind
-            {
-                let _ = rename_same_parent_noreplace(&quarantine, &path);
-                continue;
-            }
-            if !staging_tree_is_plain(&quarantine) {
-                let _ = rename_same_parent_noreplace(&quarantine, &path);
-                continue;
-            }
-            remove_plain_staging_tree(&quarantine)?;
-        }
+        remove_quarantined_entry(quarantined)?;
     }
     Ok(())
 }
 
 #[cfg(unix)]
-fn staging_tree_is_plain(path: &Path) -> bool {
+fn staging_tree_is_plain_anchored(anchor: &AnchoredRoot) -> Result<bool, SkillError> {
     fn inspect(anchor: &AnchoredRoot, directory: &File, path: &Path) -> Result<bool, SkillError> {
         use std::os::unix::ffi::OsStrExt;
 
@@ -3184,91 +4362,33 @@ fn staging_tree_is_plain(path: &Path) -> bool {
         Ok(true)
     }
 
-    let result = (|| {
-        let anchor = AnchoredRoot::open(path)?;
-        let directory = anchor.root_directory()?;
-        inspect(&anchor, &directory, path)
-    })();
-    matches!(result, Ok(true))
-}
-
-#[cfg(unix)]
-fn remove_plain_staging_tree(path: &Path) -> Result<(), SkillError> {
-    use std::os::unix::ffi::OsStrExt;
-
-    fn remove_children(
-        anchor: &AnchoredRoot,
-        directory: &File,
-        path: &Path,
-    ) -> Result<(), SkillError> {
-        use std::os::unix::ffi::OsStrExt;
-
-        for name in anchor.read_directory(directory, path)? {
-            let child = path.join(std::ffi::OsStr::from_bytes(name.to_bytes()));
-            let identity = anchor.stat_entry(directory, &name, &child)?;
-            match identity.kind {
-                AnchoredFileKind::Regular if identity.links == 1 => {
-                    anchor.unlink_entry(directory, &name, false, &child)?;
-                }
-                AnchoredFileKind::Directory => {
-                    let opened =
-                        anchor.open_directory_entry(directory, &name, &identity, &child)?;
-                    remove_children(anchor, &opened, &child)?;
-                    drop(opened);
-                    anchor.unlink_entry(directory, &name, true, &child)?;
-                }
-                _ => return Err(recovery_evidence_error()),
-            }
-        }
-        Ok(())
-    }
-
-    let anchor = AnchoredRoot::open(path)?;
     let directory = anchor.root_directory()?;
-    remove_children(&anchor, &directory, path)?;
-    drop(directory);
-    let parent_path = path.parent().ok_or_else(unsafe_transaction_path)?;
-    let parent = AnchoredRoot::open(parent_path)?;
-    let parent_directory = parent.root_directory()?;
-    let name = std::ffi::CString::new(
-        path.file_name()
-            .ok_or_else(unsafe_transaction_path)?
-            .as_bytes(),
-    )
-    .map_err(|_| unsafe_transaction_path())?;
-    parent.unlink_entry(&parent_directory, &name, true, path)
-}
-
-#[cfg(not(unix))]
-fn staging_tree_is_plain(_path: &Path) -> bool {
-    false
+    inspect(anchor, &directory, anchor.canonical_path())
 }
 
 #[cfg(unix)]
-fn private_directory(metadata: &fs::Metadata) -> bool {
-    metadata.permissions().mode() & 0o077 == 0
-}
-
-#[cfg(not(unix))]
-fn private_directory(_metadata: &fs::Metadata) -> bool {
-    true
-}
-
-fn read_staging_metadata(path: &Path) -> Result<Option<StagingMetadata>, SkillError> {
-    let mut file = match open_read_nofollow(path) {
-        Ok(file) => file,
-        Err(_) => return Ok(None),
+fn read_staging_metadata_anchored(
+    root: &AnchoredRoot,
+) -> Result<Option<StagingMetadata>, SkillError> {
+    let path = root.canonical_path().join(STAGING_METADATA_FILE);
+    let Some(identity) =
+        root.stat_root_entry(std::ffi::OsStr::new(STAGING_METADATA_FILE), &path)?
+    else {
+        return Ok(None);
     };
-    let metadata = match file.metadata() {
-        Ok(metadata) => metadata,
-        Err(_) => return Ok(None),
-    };
-    if !metadata.file_type().is_file()
-        || metadata.len() > STAGING_METADATA_BYTES
-        || !private_file(&metadata)
+    if identity.kind != AnchoredFileKind::Regular
+        || identity.size > STAGING_METADATA_BYTES
+        || identity.mode & 0o077 != 0
+        || identity.links != 1
     {
         return Ok(None);
     }
+    let directory = root.root_directory()?;
+    let name = std::ffi::CString::new(STAGING_METADATA_FILE).expect("static file name");
+    let mut file = match root.open_regular_entry(&directory, &name, &identity, &path) {
+        Ok(file) => file,
+        Err(_) => return Ok(None),
+    };
     let mut bytes = Vec::new();
     if Read::by_ref(&mut file)
         .take(STAGING_METADATA_BYTES + 1)
@@ -3281,13 +4401,28 @@ fn read_staging_metadata(path: &Path) -> Result<Option<StagingMetadata>, SkillEr
     Ok(serde_json::from_slice(&bytes).ok())
 }
 
+fn staging_metadata_is_stale(
+    metadata: &StagingMetadata,
+    operation_id: &str,
+    now: DateTime<Utc>,
+) -> bool {
+    if metadata.operation_id != operation_id {
+        return false;
+    }
+    let Ok(created_at) = DateTime::parse_from_rfc3339(&metadata.created_at) else {
+        return false;
+    };
+    now.signed_duration_since(created_at.with_timezone(&Utc))
+        > chrono::Duration::hours(STALE_STAGING_AGE_HOURS)
+}
+
 #[cfg(unix)]
-fn private_file(metadata: &fs::Metadata) -> bool {
-    metadata.permissions().mode() & 0o077 == 0 && metadata.nlink() == 1
+fn private_directory(metadata: &fs::Metadata) -> bool {
+    metadata.permissions().mode() & 0o077 == 0
 }
 
 #[cfg(not(unix))]
-fn private_file(_metadata: &fs::Metadata) -> bool {
+fn private_directory(_metadata: &fs::Metadata) -> bool {
     true
 }
 
@@ -3800,6 +4935,69 @@ mod tests {
         assert!(!link_temp_path(&spec, &mutation, 0).exists());
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn link_creation_never_uses_a_target_parent_replaced_after_authority_validation() {
+        use std::os::unix::fs::symlink;
+        use std::sync::{Arc, Barrier};
+
+        let home = TestHome::new("tx-link-parent-authority-race");
+        let paths = SkillsPaths::from_env().unwrap();
+        let parent = home.home.join(".agents/skills");
+        fs::create_dir_all(&parent).unwrap();
+        let displaced = home.home.join("reviewed-agent-root");
+        let outside = home.home.join("replacement-agent-root");
+        fs::create_dir(&outside).unwrap();
+        fs::write(outside.join("sentinel"), b"untouched").unwrap();
+        let central = paths.central_skill("parent-race");
+        fs::create_dir(&central).unwrap();
+        fs::write(central.join("SKILL.md"), b"reviewed").unwrap();
+        let mutation = LinkMutation {
+            path: parent.join("parent-race"),
+            expected: LinkState::Missing,
+            desired_target: Some(central),
+            backup: None,
+        };
+        let mut spec = empty_spec("12110000-0000-4000-8000-000000000006");
+        spec.link_mutations.push(mutation.clone());
+
+        let barrier = Arc::new(Barrier::new(2));
+        let worker_barrier = Arc::clone(&barrier);
+        let worker_parent = parent.clone();
+        let worker_displaced = displaced;
+        let worker_outside = outside.clone();
+        let worker = thread::spawn(move || {
+            worker_barrier.wait();
+            fs::rename(&worker_parent, &worker_displaced).unwrap();
+            symlink(&worker_outside, &worker_parent).unwrap();
+            worker_barrier.wait();
+        });
+        let mut after_authority_validation = || {
+            barrier.wait();
+            barrier.wait();
+        };
+
+        let result = apply_link_with_hooks(
+            &spec,
+            &paths,
+            &mutation,
+            0,
+            Some(&mut after_authority_validation),
+            None,
+        );
+        worker.join().unwrap();
+
+        assert!(result.is_err());
+        assert_eq!(fs::read(outside.join("sentinel")).unwrap(), b"untouched");
+        assert_eq!(
+            fs::read_dir(&outside)
+                .unwrap()
+                .map(|entry| entry.unwrap().file_name())
+                .collect::<Vec<_>>(),
+            vec![OsString::from("sentinel")]
+        );
+    }
+
     #[test]
     fn central_directory_swap_restores_an_unreviewed_tree_before_returning_stale() {
         use std::sync::{Arc, Barrier};
@@ -3958,6 +5156,96 @@ mod tests {
         assert_eq!(fs::read(&temporary).unwrap(), b"second-opaque-entry");
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn recognized_link_temporary_swap_is_restored_instead_of_recursively_deleted() {
+        use std::os::unix::fs::symlink;
+        use std::sync::{Arc, Barrier};
+
+        let home = TestHome::new("tx-recognized-link-temp-swap");
+        let paths = SkillsPaths::from_env().unwrap();
+        let target_root = home.home.join(".agents/skills");
+        fs::create_dir_all(&target_root).unwrap();
+        let mutation = LinkMutation {
+            path: target_root.join("swapped"),
+            expected: LinkState::BrokenSymlink {
+                target: PathBuf::from("reviewed-target"),
+            },
+            desired_target: None,
+            backup: None,
+        };
+        let spec = empty_spec("12510000-0000-4000-8000-000000000006");
+        let temporary = link_temp_path(&spec, &mutation, 0);
+        symlink("reviewed-target", &temporary).unwrap();
+
+        let barrier = Arc::new(Barrier::new(2));
+        let worker_barrier = Arc::clone(&barrier);
+        let worker_temporary = temporary.clone();
+        let worker = thread::spawn(move || {
+            worker_barrier.wait();
+            fs::remove_file(&worker_temporary).unwrap();
+            fs::create_dir(&worker_temporary).unwrap();
+            fs::write(worker_temporary.join("opaque"), b"preserve me").unwrap();
+            worker_barrier.wait();
+        });
+        let mut after_classification = || {
+            barrier.wait();
+            barrier.wait();
+        };
+
+        let result = cleanup_link_temporary_with_hook(
+            &temporary,
+            &mutation,
+            &paths,
+            Some(&mut after_classification),
+        );
+        worker.join().unwrap();
+
+        assert!(matches!(result, Err(SkillError::RecoveryRequired { .. })));
+        assert_eq!(fs::read(temporary.join("opaque")).unwrap(), b"preserve me");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn reviewed_backup_swap_is_restored_instead_of_recursively_deleted() {
+        use std::sync::{Arc, Barrier};
+
+        let _home = TestHome::new("tx-reviewed-backup-cleanup-swap");
+        let paths = SkillsPaths::from_env().unwrap();
+        let backup = paths.backups_skills_dir().join("cleanup-swap/skill");
+        fs::create_dir_all(&backup).unwrap();
+        fs::write(backup.join("reviewed"), b"reviewed").unwrap();
+        let expected_hash = hash_tree(&backup).unwrap();
+        let displaced = paths.backups_skills_dir().join("cleanup-swap/reviewed");
+
+        let barrier = Arc::new(Barrier::new(2));
+        let worker_barrier = Arc::clone(&barrier);
+        let worker_backup = backup.clone();
+        let worker_displaced = displaced.clone();
+        let worker = thread::spawn(move || {
+            worker_barrier.wait();
+            fs::rename(&worker_backup, &worker_displaced).unwrap();
+            fs::create_dir(&worker_backup).unwrap();
+            fs::write(worker_backup.join("opaque"), b"preserve me").unwrap();
+            worker_barrier.wait();
+        });
+        let mut after_hash = || {
+            barrier.wait();
+            barrier.wait();
+        };
+
+        let result = verify_and_remove_backup_with_hook(
+            &backup,
+            Some(&expected_hash),
+            Some(&mut after_hash),
+        );
+        worker.join().unwrap();
+
+        assert!(matches!(result, Err(SkillError::RecoveryRequired { .. })));
+        assert_eq!(fs::read(backup.join("opaque")).unwrap(), b"preserve me");
+        assert_eq!(fs::read(displaced.join("reviewed")).unwrap(), b"reviewed");
+    }
+
     #[test]
     fn recovery_restores_an_opaque_directory_backup_to_an_empty_original_slot() {
         let _home = TestHome::new("tx-opaque-directory-backup");
@@ -4069,6 +5357,37 @@ mod tests {
     }
 
     #[test]
+    fn journal_write_restores_a_destination_replaced_before_install() {
+        let _home = TestHome::new("tx-journal-write-collision");
+        let paths = SkillsPaths::from_env().unwrap();
+        let id = "20010000-0000-4000-8000-000000000006";
+        let spec = empty_spec(id);
+        write_journal(&paths, &spec, JournalPhase::Prepared).unwrap();
+        let destination = journal_path(&paths, id).unwrap();
+        let inserted = b"inserted-write-destination".to_vec();
+        let inserted_for_hook = inserted.clone();
+        let destination_for_hook = destination.clone();
+        let mut replace_destination = || {
+            fs::remove_file(&destination_for_hook).unwrap();
+            let mut file = create_private_new_file(&destination_for_hook).unwrap();
+            file.write_all(&inserted_for_hook).unwrap();
+            file.sync_all().unwrap();
+        };
+
+        let result = write_journal_with_install_hook(
+            &paths,
+            &spec,
+            JournalPhase::ContentSwapped,
+            None,
+            Some(&mut replace_destination),
+        );
+
+        assert!(matches!(result, Err(SkillError::RecoveryRequired { .. })));
+        assert_eq!(fs::read(destination).unwrap(), inserted);
+        assert!(!journal_temp_path(&paths, id).unwrap().exists());
+    }
+
+    #[test]
     fn recovery_completes_a_fsynced_journal_temp_left_before_rename() {
         let _home = TestHome::new("tx-journal-temp-crash");
         let paths = SkillsPaths::from_env().unwrap();
@@ -4166,6 +5485,41 @@ mod tests {
     }
 
     #[test]
+    fn recovery_never_regresses_to_an_old_temp_left_after_journal_exchange() {
+        let _home = TestHome::new("tx-obsolete-journal-temp");
+        let paths = SkillsPaths::from_env().unwrap();
+        let id = "21310000-0000-4000-8000-000000000006";
+        let spec = empty_spec(id);
+        write_journal(&paths, &spec, JournalPhase::SettingsWritten).unwrap();
+        let temporary = journal_temp_path(&paths, id).unwrap();
+        let bytes = serde_json::to_vec(&Journal {
+            version: JOURNAL_SCHEMA_VERSION,
+            spec,
+            phase: JournalPhase::Prepared,
+        })
+        .unwrap();
+        let mut file = create_private_new_file(&temporary).unwrap();
+        file.write_all(&bytes).unwrap();
+        file.sync_all().unwrap();
+        drop(file);
+
+        let loaded = load_and_validate_all_journals(&paths).unwrap();
+
+        assert_eq!(loaded.journals.len(), 1);
+        assert_eq!(loaded.journals[0].phase, JournalPhase::SettingsWritten);
+        assert!(loaded.temp_promotions.is_empty());
+        assert_eq!(loaded.temp_cleanups.len(), 1);
+        complete_journal_temp_cleanup(&paths, &loaded.temp_cleanups[0]).unwrap();
+        assert!(!temporary.exists());
+        assert_eq!(
+            read_journal(&journal_path(&paths, id).unwrap())
+                .unwrap()
+                .phase,
+            JournalPhase::SettingsWritten
+        );
+    }
+
+    #[test]
     fn recovery_rejects_unknown_fields_inside_the_journal_spec() {
         let _home = TestHome::new("tx-journal-nested-field");
         let paths = SkillsPaths::from_env().unwrap();
@@ -4189,6 +5543,91 @@ mod tests {
             Err(SkillError::RecoveryRequired { .. })
         ));
         assert!(path.exists());
+    }
+
+    #[test]
+    fn journal_schema_rejects_unknown_fields_in_embedded_managed_settings() {
+        let _home = TestHome::new("tx-journal-strict-managed-settings");
+        let paths = SkillsPaths::from_env().unwrap();
+        let mut spec = empty_spec("22010000-0000-4000-8000-000000000006");
+        spec.settings_before.managed_skills = Some(BTreeMap::from([(
+            "strict".into(),
+            ManagedSkillRecord {
+                name: "strict".into(),
+                description: "fixture".into(),
+                content_kind: SkillContentKind::Instructions,
+                source: SkillSource::Local {
+                    path: "~/strict".into(),
+                    subpath: String::new(),
+                },
+                resolved_revision: None,
+                content_hash: "reviewed".into(),
+                installed_at: "2026-07-17T00:00:00Z".into(),
+                updated_at: "2026-07-17T00:00:00Z".into(),
+                risk: SkillRiskSummary {
+                    level: RiskLevel::Low,
+                    findings: Vec::new(),
+                    finding_count: 0,
+                    findings_truncated: false,
+                },
+                update: SkillUpdateState::default(),
+            },
+        )]));
+        spec.settings_after = spec.settings_before.clone();
+        let base = serde_json::to_value(Journal {
+            version: JOURNAL_SCHEMA_VERSION,
+            spec,
+            phase: JournalPhase::Prepared,
+        })
+        .unwrap();
+
+        for (index, mutate) in ["record", "source", "risk", "risk_finding", "update"]
+            .into_iter()
+            .enumerate()
+        {
+            let mut value = base.clone();
+            let record = &mut value["spec"]["settings_before"]["managed_skills"]["strict"];
+            match mutate {
+                "record" => record["unknown"] = serde_json::Value::Bool(true),
+                "source" => record["source"]["unknown"] = serde_json::Value::Bool(true),
+                "risk" => record["risk"]["unknown"] = serde_json::Value::Bool(true),
+                "risk_finding" => {
+                    record["risk"]["findings"] = serde_json::json!([{
+                        "rule_id": "strict",
+                        "rule_version": 1,
+                        "level": "low",
+                        "path": "SKILL.md",
+                        "line": 1,
+                        "reason": "fixture",
+                        "unknown": true
+                    }]);
+                }
+                "update" => record["update"]["unknown"] = serde_json::Value::Bool(true),
+                _ => unreachable!(),
+            }
+            let path = paths
+                .journals_skills_dir()
+                .join(format!("strict-managed-{index}.json"));
+            let mut file = create_private_new_file(&path).unwrap();
+            file.write_all(&serde_json::to_vec(&value).unwrap())
+                .unwrap();
+            file.sync_all().unwrap();
+            drop(file);
+
+            assert!(
+                matches!(
+                    read_journal(&path),
+                    Err(SkillError::RecoveryRequired { .. })
+                ),
+                "journal accepted unknown embedded {mutate} field"
+            );
+            fs::remove_file(path).unwrap();
+        }
+
+        let mut forward_compatible_record =
+            base["spec"]["settings_before"]["managed_skills"]["strict"].clone();
+        forward_compatible_record["future_settings_field"] = serde_json::Value::Bool(true);
+        assert!(serde_json::from_value::<ManagedSkillRecord>(forward_compatible_record).is_ok());
     }
 
     #[test]
@@ -4381,6 +5820,141 @@ mod tests {
         assert!(journal_retired_path(&paths, id).unwrap().exists());
         assert!(!journal_path(&paths, id).unwrap().exists());
         assert!(!journal_temp_path(&paths, id).unwrap().exists());
+    }
+
+    #[test]
+    fn journal_retirement_never_overwrites_a_marker_inserted_before_either_rename() {
+        for (suffix, prepare_retiring) in [("first", false), ("second", true)] {
+            let _home = TestHome::new(&format!("tx-journal-retire-collision-{suffix}"));
+            let paths = SkillsPaths::from_env().unwrap();
+            let id = if prepare_retiring {
+                "25320000-0000-4000-8000-000000000007"
+            } else {
+                "25320000-0000-4000-8000-000000000006"
+            };
+            write_journal(&paths, &empty_spec(id), JournalPhase::Prepared).unwrap();
+            if prepare_retiring {
+                assert!(matches!(
+                    remove_journal_with_failpoint(
+                        &paths,
+                        id,
+                        Some(JournalRetireFailpoint::RetiringSynced),
+                    ),
+                    Err(SkillError::RecoveryRequired { .. })
+                ));
+            }
+            let collision = if prepare_retiring {
+                journal_retired_path(&paths, id).unwrap()
+            } else {
+                journal_retiring_path(&paths, id).unwrap()
+            };
+            let collision_for_hook = collision.clone();
+            let marker = format!("inserted-{suffix}").into_bytes();
+            let marker_for_hook = marker.clone();
+            let mut insert_collision = || {
+                let mut file = create_private_new_file(&collision_for_hook).unwrap();
+                file.write_all(&marker_for_hook).unwrap();
+                file.sync_all().unwrap();
+            };
+
+            let result = if prepare_retiring {
+                remove_journal_with_rename_hooks(
+                    &paths,
+                    id,
+                    None,
+                    None,
+                    Some(&mut insert_collision),
+                    None,
+                )
+            } else {
+                remove_journal_with_rename_hooks(
+                    &paths,
+                    id,
+                    None,
+                    Some(&mut insert_collision),
+                    None,
+                    None,
+                )
+            };
+
+            assert!(matches!(result, Err(SkillError::RecoveryRequired { .. })));
+            assert_eq!(fs::read(&collision).unwrap(), marker);
+            let source = if prepare_retiring {
+                journal_retiring_path(&paths, id).unwrap()
+            } else {
+                journal_path(&paths, id).unwrap()
+            };
+            assert!(source.exists());
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn journal_root_cleanup_never_unlinks_a_replacement_directory() {
+        let _home = TestHome::new("tx-journal-root-collision");
+        let paths = SkillsPaths::from_env().unwrap();
+        let id = "25325000-0000-4000-8000-000000000006";
+        write_journal(&paths, &empty_spec(id), JournalPhase::Prepared).unwrap();
+        let root = paths.journals_skills_dir();
+        let displaced = root.with_file_name("skills-displaced");
+        let root_for_hook = root.clone();
+        let displaced_for_hook = displaced.clone();
+        let mut replace_root = || {
+            fs::rename(&root_for_hook, &displaced_for_hook).unwrap();
+            fs::create_dir(&root_for_hook).unwrap();
+        };
+
+        let result =
+            remove_journal_with_rename_hooks(&paths, id, None, None, None, Some(&mut replace_root));
+
+        assert!(matches!(result, Err(SkillError::RecoveryRequired { .. })));
+        assert!(root.exists());
+        assert!(displaced.exists());
+    }
+
+    #[test]
+    fn journal_temp_promotion_restores_a_destination_replaced_after_validation() {
+        let _home = TestHome::new("tx-journal-promotion-collision");
+        let paths = SkillsPaths::from_env().unwrap();
+        let id = "25330000-0000-4000-8000-000000000006";
+        let spec = empty_spec(id);
+        write_journal(&paths, &spec, JournalPhase::Prepared).unwrap();
+        let destination = journal_path(&paths, id).unwrap();
+        let temporary = journal_temp_path(&paths, id).unwrap();
+        let bytes = serde_json::to_vec(&Journal {
+            version: JOURNAL_SCHEMA_VERSION,
+            spec,
+            phase: JournalPhase::SettingsWritten,
+        })
+        .unwrap();
+        let mut temp_file = create_private_new_file(&temporary).unwrap();
+        temp_file.write_all(&bytes).unwrap();
+        temp_file.sync_all().unwrap();
+        drop(temp_file);
+        let promotion = JournalTempPromotion {
+            temporary: temporary.clone(),
+            destination: destination.clone(),
+            journal: read_journal(&temporary).unwrap(),
+        };
+        let inserted = b"inserted-destination".to_vec();
+        let inserted_for_hook = inserted.clone();
+        let destination_for_hook = destination.clone();
+        let mut replace_destination = || {
+            fs::remove_file(&destination_for_hook).unwrap();
+            let mut file = create_private_new_file(&destination_for_hook).unwrap();
+            file.write_all(&inserted_for_hook).unwrap();
+            file.sync_all().unwrap();
+        };
+
+        let result = complete_journal_temp_promotion_with_hook(
+            &paths,
+            &promotion,
+            Some(&mut replace_destination),
+        );
+
+        assert!(matches!(result, Err(SkillError::RecoveryRequired { .. })));
+        assert_eq!(fs::read(destination).unwrap(), inserted);
+        assert_eq!(fs::read(temporary).unwrap(), bytes);
     }
 
     #[cfg(unix)]
@@ -4580,6 +6154,54 @@ mod tests {
             );
         }
         assert_eq!(fs::read(outside.join("sentinel")).unwrap(), b"untouched");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn stale_staging_swap_never_deletes_a_fresh_replacement() {
+        use std::sync::{Arc, Barrier};
+
+        let home = TestHome::new("tx-stale-staging-identity-race");
+        let paths = SkillsPaths::from_env().unwrap();
+        let now = DateTime::parse_from_rfc3339("2026-07-17T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let id = "40100000-0000-4000-8000-000000000006";
+        let stale = write_staging_case(
+            &paths,
+            id,
+            format!(r#"{{"operation_id":"{id}","created_at":"2026-07-15T00:00:00Z"}}"#),
+        );
+        fs::write(stale.join("stale"), b"old").unwrap();
+        let displaced = home.home.join("reviewed-stale-staging");
+
+        let barrier = Arc::new(Barrier::new(2));
+        let worker_barrier = Arc::clone(&barrier);
+        let worker_stale = stale.clone();
+        let worker_displaced = displaced.clone();
+        let worker_paths = paths.clone();
+        let worker = thread::spawn(move || {
+            worker_barrier.wait();
+            fs::rename(&worker_stale, &worker_displaced).unwrap();
+            let fresh = write_staging_case(
+                &worker_paths,
+                id,
+                format!(r#"{{"operation_id":"{id}","created_at":"2026-07-17T11:59:00Z"}}"#),
+            );
+            fs::write(fresh.join("fresh"), b"preserve me").unwrap();
+            worker_barrier.wait();
+        });
+        let mut after_stale_classification = || {
+            barrier.wait();
+            barrier.wait();
+        };
+
+        cleanup_abandoned_staging_with_hook(&paths, now, Some(&mut after_stale_classification))
+            .unwrap();
+        worker.join().unwrap();
+
+        assert_eq!(fs::read(stale.join("fresh")).unwrap(), b"preserve me");
+        assert_eq!(fs::read(displaced.join("stale")).unwrap(), b"old");
     }
 
     #[cfg(unix)]

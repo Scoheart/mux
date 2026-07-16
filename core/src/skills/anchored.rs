@@ -132,8 +132,8 @@ pub(super) fn consume_bounded_and_hash<R: Read, W: Write>(
 mod platform {
     use super::*;
     use rustix::fs::{
-        fchmod, fstat, mkdirat, openat, readlinkat, renameat_with, statat, unlinkat, AtFlags, Dir,
-        FileType, Mode, OFlags, RenameFlags, Stat, CWD,
+        fchmod, fstat, mkdirat, openat, readlinkat, renameat_with, statat, symlinkat, unlinkat,
+        AtFlags, Dir, FileType, Mode, OFlags, RenameFlags, Stat, CWD,
     };
     use rustix::io::Errno;
     use std::collections::VecDeque;
@@ -291,6 +291,88 @@ mod platform {
             self.directory
                 .try_clone()
                 .map_err(|error| io_error(&self.canonical_path, error))
+        }
+
+        pub(crate) fn identity(&self) -> Result<AnchoredIdentity, SkillError> {
+            fstat(&self.directory)
+                .map(|stat| identity_from_stat(&stat))
+                .map_err(|error| io_error(&self.canonical_path, error.into()))
+        }
+
+        pub(crate) fn path_refers_to_root(&self, path: &Path) -> Result<bool, SkillError> {
+            let expected = self.identity()?;
+            let actual = match statat(CWD, path, AtFlags::SYMLINK_NOFOLLOW) {
+                Ok(stat) => identity_from_stat(&stat),
+                Err(Errno::NOENT) => return Ok(false),
+                Err(error) => return Err(io_error(path, error.into())),
+            };
+            Ok(expected.kind == AnchoredFileKind::Directory
+                && actual.kind == AnchoredFileKind::Directory
+                && expected.device == actual.device
+                && expected.inode == actual.inode)
+        }
+
+        pub(crate) fn create_symlink_entry(
+            &self,
+            target: &Path,
+            name: &OsStr,
+            path: &Path,
+        ) -> Result<(), SkillError> {
+            symlinkat(target, &self.directory, name)
+                .map_err(|error| io_error(path, error.into()))?;
+            self.directory
+                .sync_all()
+                .map_err(|error| io_error(path, error))
+        }
+
+        pub(crate) fn create_file_entry(
+            &self,
+            name: &OsStr,
+            mode: u16,
+            path: &Path,
+        ) -> Result<File, SkillError> {
+            openat(
+                &self.directory,
+                name,
+                OFlags::WRONLY | OFlags::CREATE | OFlags::EXCL | OFlags::CLOEXEC | OFlags::NOFOLLOW,
+                Mode::from(mode),
+            )
+            .map(File::from)
+            .map_err(|error| io_error(path, error.into()))
+        }
+
+        pub(crate) fn stat_root_entry(
+            &self,
+            name: &OsStr,
+            path: &Path,
+        ) -> Result<Option<AnchoredIdentity>, SkillError> {
+            match statat(&self.directory, name, AtFlags::SYMLINK_NOFOLLOW) {
+                Ok(stat) => Ok(Some(identity_from_stat(&stat))),
+                Err(Errno::NOENT) => Ok(None),
+                Err(error) => Err(io_error(path, error.into())),
+            }
+        }
+
+        pub(crate) fn read_link_root_entry(
+            &self,
+            name: &OsStr,
+            expected: &AnchoredIdentity,
+            path: &Path,
+        ) -> Result<Vec<u8>, SkillError> {
+            let name = CString::new(name.as_encoded_bytes()).map_err(|_| unsafe_path(path))?;
+            let directory = self.root_directory()?;
+            self.read_link_entry(&directory, &name, expected, path)
+        }
+
+        pub(crate) fn unlink_root_entry(
+            &self,
+            name: &OsStr,
+            is_directory: bool,
+            path: &Path,
+        ) -> Result<(), SkillError> {
+            let name = CString::new(name.as_encoded_bytes()).map_err(|_| unsafe_path(path))?;
+            let directory = self.root_directory()?;
+            self.unlink_entry(&directory, &name, is_directory, path)
         }
 
         pub(crate) fn rename_entry_noreplace(
@@ -759,6 +841,58 @@ impl AnchoredRoot {
     }
 
     pub(super) fn root_directory(&self) -> Result<std::fs::File, SkillError> {
+        Err(unsupported_platform())
+    }
+
+    pub(super) fn identity(&self) -> Result<AnchoredIdentity, SkillError> {
+        Err(unsupported_platform())
+    }
+
+    pub(super) fn path_refers_to_root(&self, _path: &Path) -> Result<bool, SkillError> {
+        Err(unsupported_platform())
+    }
+
+    pub(super) fn create_symlink_entry(
+        &self,
+        _target: &Path,
+        _name: &std::ffi::OsStr,
+        _path: &Path,
+    ) -> Result<(), SkillError> {
+        Err(unsupported_platform())
+    }
+
+    pub(super) fn create_file_entry(
+        &self,
+        _name: &std::ffi::OsStr,
+        _mode: u16,
+        _path: &Path,
+    ) -> Result<std::fs::File, SkillError> {
+        Err(unsupported_platform())
+    }
+
+    pub(super) fn stat_root_entry(
+        &self,
+        _name: &std::ffi::OsStr,
+        _path: &Path,
+    ) -> Result<Option<AnchoredIdentity>, SkillError> {
+        Err(unsupported_platform())
+    }
+
+    pub(super) fn read_link_root_entry(
+        &self,
+        _name: &std::ffi::OsStr,
+        _expected: &AnchoredIdentity,
+        _path: &Path,
+    ) -> Result<Vec<u8>, SkillError> {
+        Err(unsupported_platform())
+    }
+
+    pub(super) fn unlink_root_entry(
+        &self,
+        _name: &std::ffi::OsStr,
+        _is_directory: bool,
+        _path: &Path,
+    ) -> Result<(), SkillError> {
         Err(unsupported_platform())
     }
 

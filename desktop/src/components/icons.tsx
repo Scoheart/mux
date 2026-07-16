@@ -208,4 +208,29 @@ export function TerminalIcon({ className, style }: IconProps) {
   );
 }
 
+export function PinIcon({ className, style }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} style={style} stroke="currentColor" fill="none"
+      strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 17v5" />
+      <path d="M5 17h14" />
+      <path d="M7 3h10l-1 6 3 3v2H5v-2l3-3Z" />
+    </svg>
+  );
+}
+
+export function GripVerticalIcon({ className, style }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} style={style} stroke="currentColor" fill="none"
+      strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="9" cy="6" r="1" fill="currentColor" stroke="none" />
+      <circle cx="15" cy="6" r="1" fill="currentColor" stroke="none" />
+      <circle cx="9" cy="12" r="1" fill="currentColor" stroke="none" />
+      <circle cx="15" cy="12" r="1" fill="currentColor" stroke="none" />
+      <circle cx="9" cy="18" r="1" fill="currentColor" stroke="none" />
+      <circle cx="15" cy="18" r="1" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
 /** Half-filled circle (◐) to indicate customized/overridden state */

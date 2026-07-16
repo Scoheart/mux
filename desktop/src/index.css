@@ -314,132 +314,59 @@ body {
 /* Hover-revealed row actions: shrink to fit inside the 30px row */
 .mux-src-row .mux-icon-btn { width: 24px; height: 24px; border-radius: 6px; }
 
-/* Searchable Agent navigation. The popup is anchored directly to the wider
-   trigger so it reads as one select control and only exposes writable targets. */
-.mux-agent-picker-anchor { position: relative; }
-.mux-agent-picker-trigger {
-  display: inline-flex; align-items: center; gap: 7px;
-  width: clamp(300px, 28vw, 360px); height: 40px; padding: 0 10px;
-  border: 1px solid var(--border-hairline); border-radius: 8px;
-  background: var(--surface-raised); color: var(--text-primary);
-  cursor: pointer; box-shadow: var(--shadow-card), var(--glass-highlight);
-  transition: background .14s ease, border-color .14s ease, box-shadow .14s ease;
-}
-.mux-agent-picker-trigger:hover,
-.mux-agent-picker-trigger[data-active="true"] {
-  background: var(--surface-raised);
-  border-color: color-mix(in srgb, var(--color-blue) 38%, var(--border-hairline));
-}
-.mux-agent-picker-trigger[data-open="true"] {
-  border-color: color-mix(in srgb, var(--color-blue) 62%, var(--border-hairline));
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-blue) 10%, transparent), var(--shadow-card);
-}
-.mux-agent-picker-trigger-copy {
-  display: flex; flex: 1; min-width: 0; flex-direction: column; align-items: flex-start; gap: 3px;
-  text-align: left;
-}
-.mux-agent-picker-trigger-name,
-.mux-agent-picker-trigger-meta {
-  display: block; width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-.mux-agent-picker-trigger-name { font: 650 12px/1 var(--font-sans); }
-.mux-agent-picker-trigger-meta { color: var(--text-secondary); font: 9px/1 var(--font-mono); }
-.mux-agent-picker-chevron {
-  width: 14px; height: 14px; flex: 0 0 auto; color: var(--text-secondary);
-  transition: transform .14s ease, color .14s ease;
-}
-.mux-agent-picker-trigger[data-open="true"] .mux-agent-picker-chevron {
-  color: var(--color-blue); transform: rotate(180deg);
-}
-.mux-agent-picker {
-  position: absolute; z-index: 520; top: calc(100% + 5px); right: 0;
-  width: 100%; max-height: min(590px, calc(100vh - 70px));
-  display: flex; flex-direction: column; overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--color-blue) 18%, var(--border-hairline)); border-radius: 9px;
-  background: var(--surface-popover);
-  box-shadow: 0 18px 44px rgba(24, 29, 43, .20), 0 4px 12px rgba(24, 29, 43, .10);
-  animation: mux-agent-picker-in .14s ease-out;
-}
-@keyframes mux-agent-picker-in {
-  from { opacity: 0; transform: translateY(-5px) scale(.992); }
-  to { opacity: 1; transform: translateY(0) scale(1); }
-}
-.mux-agent-picker-row:focus-visible,
-.mux-agent-picker-footer button:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--color-blue) 56%, transparent);
-  outline-offset: -2px;
-}
-.mux-agent-picker-search {
-  display: flex; align-items: center; gap: 9px; height: 38px; margin: 10px 10px 8px; padding: 0 6px 0 10px;
-  color: var(--text-secondary); background: var(--surface-app);
-  border: 1px solid transparent; border-radius: 8px;
-  box-shadow: inset 0 0 0 1px var(--border-hairline);
-  transition: background .14s ease, box-shadow .14s ease, color .14s ease;
-}
-.mux-agent-picker-search:focus-within {
-  color: var(--color-blue); background: var(--surface-raised);
-  box-shadow:
-    inset 0 0 0 1px color-mix(in srgb, var(--color-blue) 42%, var(--border-hairline)),
-    0 0 0 2px color-mix(in srgb, var(--color-blue) 8%, transparent);
-}
-.mux-agent-picker-search input {
-  flex: 1; min-width: 0; height: 100%; padding: 0; border: 0; outline: 0; background: transparent;
-  color: var(--text-primary); font: 13px/1 var(--font-sans);
-  appearance: none; -webkit-appearance: none;
-}
+/* Persistent Agent shortcuts and their searchable management popup. */
+.mux-agent-navigation { display: flex; min-width: 0; flex: 0 0 auto; align-items: center; gap: 8px; }
+.mux-pinned-agent-bar { display: flex; height: 40px; align-items: center; gap: 3px; padding: 3px 5px; border: 1px solid var(--border-hairline); border-radius: 8px; background: color-mix(in srgb, var(--surface-raised) 78%, transparent); box-shadow: var(--glass-highlight); }
+.mux-pinned-agent { position: relative; display: inline-flex; width: 34px; height: 34px; flex: 0 0 34px; align-items: center; justify-content: center; padding: 0; border: 1px solid transparent; border-radius: 7px; background: transparent; cursor: pointer; }
+.mux-pinned-agent:hover { background: color-mix(in srgb, var(--text-primary) 7%, transparent); }
+.mux-pinned-agent[data-active="true"] { border-color: color-mix(in srgb, var(--color-blue) 42%, var(--border-hairline)); background: color-mix(in srgb, var(--color-blue) 10%, transparent); }
+.mux-pinned-agent[data-active="true"]::after { position: absolute; right: 8px; bottom: 1px; left: 8px; height: 2px; border-radius: 2px; background: var(--color-blue); content: ""; }
+.mux-pinned-agent:focus-visible { outline: 2px solid color-mix(in srgb, var(--color-blue) 56%, transparent); outline-offset: 1px; }
+.mux-agent-picker-anchor { position: relative; flex: 0 0 auto; }
+.mux-agent-picker-trigger { display: inline-flex; width: 220px; height: 40px; align-items: center; gap: 7px; padding: 0 10px; border: 1px solid var(--border-hairline); border-radius: 8px; background: var(--surface-raised); color: var(--text-primary); box-shadow: var(--shadow-card), var(--glass-highlight); cursor: pointer; }
+.mux-agent-picker-trigger:hover, .mux-agent-picker-trigger[data-active="true"] { border-color: color-mix(in srgb, var(--color-blue) 38%, var(--border-hairline)); }
+.mux-agent-picker-trigger[data-open="true"] { border-color: color-mix(in srgb, var(--color-blue) 62%, var(--border-hairline)); box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-blue) 10%, transparent), var(--shadow-card); }
+.mux-agent-picker-trigger-name { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; font: 650 12px/1 var(--font-sans); }
+.mux-agent-picker-chevron { width: 14px; height: 14px; flex: 0 0 auto; color: var(--text-secondary); transition: transform .14s ease, color .14s ease; }
+.mux-agent-picker-trigger[data-open="true"] .mux-agent-picker-chevron { color: var(--color-blue); transform: rotate(180deg); }
+.mux-agent-picker { position: absolute; z-index: 520; top: calc(100% + 5px); right: 0; display: flex; width: 390px; max-height: min(590px, calc(100vh - 70px)); flex-direction: column; overflow: hidden; border: 1px solid color-mix(in srgb, var(--color-blue) 18%, var(--border-hairline)); border-radius: 9px; background: var(--surface-popover); box-shadow: 0 18px 44px rgba(24, 29, 43, .20), 0 4px 12px rgba(24, 29, 43, .10); animation: mux-agent-picker-in .14s ease-out; }
+@keyframes mux-agent-picker-in { from { opacity: 0; transform: translateY(-5px) scale(.992); } to { opacity: 1; transform: translateY(0) scale(1); } }
+.mux-agent-picker-search { display: flex; height: 38px; margin: 10px 10px 8px; align-items: center; gap: 9px; padding: 0 6px 0 10px; border: 1px solid transparent; border-radius: 8px; background: var(--surface-app); color: var(--text-secondary); box-shadow: inset 0 0 0 1px var(--border-hairline); }
+.mux-agent-picker-search:focus-within { background: var(--surface-raised); color: var(--color-blue); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-blue) 42%, var(--border-hairline)), 0 0 0 2px color-mix(in srgb, var(--color-blue) 8%, transparent); }
+.mux-agent-picker-search input { height: 100%; min-width: 0; flex: 1; padding: 0; border: 0; outline: 0; appearance: none; background: transparent; color: var(--text-primary); font: 13px/1 var(--font-sans); }
 .mux-agent-picker-search input::placeholder { color: var(--text-secondary); }
 .mux-agent-picker-search input::-webkit-search-cancel-button { display: none; }
-.mux-agent-picker-search-clear {
-  display: inline-flex; align-items: center; justify-content: center;
-  width: 26px; height: 26px; flex: 0 0 auto; padding: 0;
-  border: 0; border-radius: 6px; background: transparent;
-  color: var(--text-secondary); cursor: pointer;
-  opacity: 0; visibility: hidden; pointer-events: none;
-  transition: opacity .12s ease, background .12s ease, color .12s ease;
-}
-.mux-agent-picker-search-clear[data-visible="true"] {
-  opacity: 1; visibility: visible; pointer-events: auto;
-}
-.mux-agent-picker-search-clear:hover { background: var(--color-gray-150); color: var(--text-primary); }
-.mux-agent-picker-search-clear:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--color-blue) 48%, transparent);
-  outline-offset: -2px;
-}
-.mux-agent-picker-list {
-  min-height: 220px; overflow-y: auto; padding: 4px 6px 7px;
-  border-top: 1px solid var(--border-hairline);
-}
-.mux-agent-picker-row {
-  display: flex; align-items: center; gap: 9px; width: 100%; min-height: 48px;
-  padding: 6px 8px; border: 0; border-radius: 6px; background: transparent;
-  color: var(--text-primary); text-align: left; cursor: pointer;
-}
+.mux-agent-picker-search-clear, .mux-agent-order-handle, .mux-agent-pin-action { display: inline-flex; width: 26px; height: 26px; flex: 0 0 26px; align-items: center; justify-content: center; padding: 0; border: 0; border-radius: 6px; background: transparent; color: var(--text-secondary); cursor: pointer; }
+.mux-agent-picker-search-clear { opacity: 0; visibility: hidden; pointer-events: none; }
+.mux-agent-picker-search-clear[data-visible="true"] { opacity: 1; visibility: visible; pointer-events: auto; }
+.mux-agent-picker-list { min-height: 220px; overflow-y: auto; padding: 4px 6px 7px; border-top: 1px solid var(--border-hairline); }
+.mux-agent-picker-section-heading { display: flex; height: 28px; align-items: center; justify-content: space-between; padding: 0 8px; color: var(--text-secondary); font-size: 10px; font-weight: 650; }
+.mux-agent-picker-section-heading:not(:first-child) { margin-top: 4px; border-top: 1px solid var(--border-hairline); }
+.mux-agent-picker-hint { padding: 12px 8px; color: var(--text-secondary); font-size: 11px; }
+.mux-agent-picker-row { display: flex; width: 100%; min-height: 48px; align-items: center; gap: 3px; padding: 4px; border-radius: 6px; color: var(--text-primary); }
 .mux-agent-picker-row:hover { background: color-mix(in srgb, var(--text-primary) 6%, transparent); }
 .mux-agent-picker-row[data-active="true"] { background: color-mix(in srgb, var(--color-blue) 11%, transparent); }
-.mux-agent-picker-name,
-.mux-agent-picker-meta { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mux-agent-picker-row[data-dragging="true"] { opacity: .48; }
+.mux-agent-picker-select { display: flex; min-width: 0; flex: 1; align-items: center; gap: 9px; padding: 2px 4px; border: 0; background: transparent; color: inherit; text-align: left; cursor: pointer; }
+.mux-agent-picker-name, .mux-agent-picker-meta { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mux-agent-picker-name { font-size: 12px; font-weight: 600; }
 .mux-agent-picker-meta { margin-top: 3px; color: var(--text-secondary); font: 10px/1 var(--font-mono); }
 .mux-agent-picker-check { width: 15px; height: 15px; flex: 0 0 auto; color: var(--color-blue); }
+.mux-agent-order-handle { cursor: grab; }
+.mux-agent-order-handle:active { cursor: grabbing; }
+.mux-agent-pin-action { opacity: 0; }
+.mux-agent-picker-row:hover .mux-agent-pin-action, .mux-agent-pin-action:focus-visible, .mux-agent-pin-action[data-pinned="true"] { opacity: 1; }
+.mux-agent-pin-action[data-pinned="true"] { color: var(--color-blue); }
+.mux-agent-order-handle:hover, .mux-agent-pin-action:hover:not(:disabled), .mux-agent-picker-search-clear:hover { background: var(--color-gray-150); color: var(--text-primary); }
+.mux-agent-order-handle:disabled, .mux-agent-pin-action:disabled { opacity: .32; cursor: default; }
+.mux-agent-picker-select:focus-visible, .mux-agent-order-handle:focus-visible, .mux-agent-pin-action:focus-visible, .mux-agent-picker-footer button:focus-visible { outline: 2px solid color-mix(in srgb, var(--color-blue) 56%, transparent); outline-offset: -2px; }
 .mux-agent-picker-empty { padding: 28px 12px; color: var(--text-secondary); font-size: 12px; text-align: center; }
-.mux-agent-picker-footer {
-  display: flex; align-items: center; min-height: 48px; padding: 7px 10px;
-  border-top: 1px solid var(--border-hairline); background: var(--surface-app);
-}
-.mux-agent-picker-footer button {
-  display: inline-flex; align-items: center; gap: 7px; height: 32px; padding: 0 10px;
-  border: 0; border-radius: 7px; background: transparent;
-  color: var(--color-blue); font: 600 12px/1 var(--font-sans); cursor: pointer;
-}
+.mux-agent-picker-footer { display: flex; min-height: 48px; align-items: center; padding: 7px 10px; border-top: 1px solid var(--border-hairline); background: var(--surface-app); }
+.mux-agent-picker-footer button { display: inline-flex; height: 32px; align-items: center; gap: 7px; padding: 0 10px; border: 0; border-radius: 7px; background: transparent; color: var(--color-blue); font: 600 12px/1 var(--font-sans); cursor: pointer; }
 .mux-agent-picker-footer button:hover { background: color-mix(in srgb, var(--color-blue) 9%, transparent); }
-
-@media (max-height: 680px) {
-  .mux-agent-picker { max-height: calc(100vh - 66px); }
-  .mux-agent-picker-list { min-height: 160px; }
-}
-@media (prefers-reduced-motion: reduce) {
-  .mux-agent-picker { animation: none; }
-}
+@media (max-height: 680px) { .mux-agent-picker { max-height: calc(100vh - 66px); } .mux-agent-picker-list { min-height: 160px; } }
+@media (max-width: 1080px) { .mux-agent-picker-trigger { width: 170px; } .mux-pinned-agent-bar { gap: 2px; padding-right: 4px; padding-left: 4px; } .mux-pinned-agent { width: 31px; height: 31px; flex-basis: 31px; } .mux-pinned-agent > * { transform: scale(.933333); transform-origin: center; } }
+@media (prefers-reduced-motion: reduce) { .mux-agent-picker { animation: none; } }
 
 /* Button system: a solid primary action + a quiet ghost/secondary. */
 .btn-primary {
@@ -804,7 +731,6 @@ body {
 .mux-model-form-footer { display: flex; align-items: center; justify-content: flex-end; gap: 5px; min-height: 56px; padding: 10px 18px; border-top: 1px solid var(--border-hairline); background: var(--surface-app); }
 
 @media (max-width: 1080px) {
-  .mux-agent-picker-trigger { width: 270px; }
   .mux-agent-shell { padding-right: 20px; padding-left: 20px; }
   .mux-agent-model-control { grid-template-columns: minmax(225px, .72fr) minmax(360px, 1.28fr); }
 }

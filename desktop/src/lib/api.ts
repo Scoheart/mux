@@ -39,6 +39,10 @@ export const forgetEntry = (name: string, transport: string) =>
 export const listCustomRegistryKeys = () =>
   invoke<string[]>("list_custom_registry_keys");
 export const listAgents = () => invoke<AgentInfo[]>("list_agents");
+export const getPinnedAgents = () =>
+  invoke<string[]>("get_pinned_agents");
+export const setPinnedAgents = (agentIds: string[]) =>
+  invoke<string[]>("set_pinned_agents", { agentIds });
 export const addAgent = (id: string, def: AgentDefinitionInput) =>
   invoke<void>("add_agent", { id, def });
 export const updateAgent = (id: string, def: AgentDefinitionInput) =>

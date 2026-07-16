@@ -23,6 +23,12 @@ use std::io::{Error, ErrorKind};
 use std::path::Path;
 use std::sync::Mutex;
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+pub struct UiSettings {
+    #[serde(default)]
+    pub pinned_agents: Vec<String>,
+}
+
 /// The whole `~/.mux/settings.json` document.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Settings {
@@ -49,6 +55,8 @@ pub struct Settings {
     /// Managed model Agent id -> profile id.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model_assignments: Option<BTreeMap<String, String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ui: Option<UiSettings>,
     /// CLI-owned: last applied state. Opaque to the desktop — carried through.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub state: Option<Value>,
@@ -68,10 +76,7 @@ static LOCK: Mutex<()> = Mutex::new(());
 /// Read the whole settings document. Missing or corrupt file ⇒ defaults
 /// (empty user data), matching the per-file tolerance this replaced.
 pub fn load_settings() -> Settings {
-    fs::read_to_string(settings_file())
-        .ok()
-        .and_then(|c| serde_json::from_str(&c).ok())
-        .unwrap_or_default()
+    load_settings_strict().unwrap_or_default()
 }
 
 fn read_optional(path: &Path) -> std::io::Result<Option<String>> {
@@ -98,6 +103,10 @@ fn parse_for_update(path: &Path) -> std::io::Result<(Settings, Option<String>)> 
         None => Settings::default(),
     };
     Ok((settings, original))
+}
+
+pub(crate) fn load_settings_strict() -> std::io::Result<Settings> {
+    parse_for_update(&settings_file()).map(|(settings, _)| settings)
 }
 
 fn save_with_expected(settings: &Settings, original: Option<&str>) -> std::io::Result<()> {
@@ -291,6 +300,41 @@ mod tests {
 
         assert!(result.is_err());
         assert_eq!(std::fs::read_to_string(path).unwrap(), original);
+    }
+
+    #[test]
+    fn ui_section_and_unknown_fields_survive_settings_roundtrip() {
+        let json = r#"{
+      "ui": {"pinned_agents": ["claude-code", "codex"]},
+      "future_section": {"keep": true}
+    }"#;
+        let settings: Settings = serde_json::from_str(json).unwrap();
+        assert_eq!(
+            settings.ui.as_ref().unwrap().pinned_agents,
+            vec!["claude-code", "codex"]
+        );
+        let encoded = serde_json::to_value(settings).unwrap();
+        assert_eq!(encoded["ui"]["pinned_agents"][0], "claude-code");
+        assert_eq!(encoded["future_section"]["keep"], true);
+    }
+
+    #[test]
+    fn mutation_refuses_a_concurrent_settings_change() {
+        let home = crate::testenv::TestHome::new("settings-concurrent");
+        let path = home.home.join(".mux/settings.json");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, r#"{"imported":"original"}"#).unwrap();
+
+        let result = mutate_settings(|settings| {
+            settings.imported = Some("candidate".into());
+            std::fs::write(&path, r#"{"imported":"concurrent"}"#).unwrap();
+        });
+
+        assert!(result.is_err());
+        assert_eq!(
+            std::fs::read_to_string(path).unwrap(),
+            r#"{"imported":"concurrent"}"#,
+        );
     }
 
     #[cfg(unix)]

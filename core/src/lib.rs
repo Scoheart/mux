@@ -10,6 +10,7 @@ pub mod models;
 pub mod ops;
 pub mod r#override;
 pub mod paths;
+pub mod pinned_agents;
 pub mod registry;
 mod safe_write;
 pub mod scanner;

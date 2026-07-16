@@ -249,10 +249,13 @@ export function SkillsView({ state }: { state: SkillsState }) {
             disabled={checkDisabled}
             onClick={() => void checkUpdates()}
           >
-            <RefreshIcon
-              className="w-4 h-4"
-              style={checking ? { animation: "spin 0.8s linear infinite" } : undefined}
-            />
+            <span
+              className="mux-skill-check-icon"
+              data-busy={checking ? "true" : undefined}
+              aria-hidden="true"
+            >
+              <RefreshIcon className="w-4 h-4" />
+            </span>
             {checking ? "检查中…" : "检查更新"}
           </button>
         }

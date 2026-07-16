@@ -138,3 +138,272 @@ export interface ResyncOutcome {
    *  (only populated when force = false). */
   skipped_customized: string[];
 }
+
+export type RiskLevel = "low" | "medium" | "high";
+export type SkillContentKind =
+  | "automation"
+  | "assets"
+  | "reference"
+  | "instructions";
+export type InventoryState =
+  | "managed"
+  | "assigned"
+  | "external"
+  | "locally_modified"
+  | "broken_link"
+  | "conflicting_link"
+  | "missing"
+  | "update_available";
+export type SkillFileKind = "file" | "symlink";
+export type FileChangeKind =
+  | "added"
+  | "modified"
+  | "removed"
+  | "mode_changed"
+  | "link_changed";
+export type PlannedLinkState =
+  | "missing"
+  | "managed"
+  | "broken"
+  | "directory"
+  | "unknown_symlink";
+export type SkillOperationKind =
+  | "install"
+  | "import"
+  | "update"
+  | "remove"
+  | "assignment"
+  | "repair";
+
+export interface SkillRiskFinding {
+  rule_id: string;
+  rule_version: number;
+  level: RiskLevel;
+  path: string;
+  line: number | null;
+  reason: string;
+}
+
+export interface SkillRiskSummary {
+  level: RiskLevel;
+  findings: SkillRiskFinding[];
+  finding_count: number;
+  findings_truncated: boolean;
+}
+
+export type SkillSource =
+  | {
+      kind: "github";
+      owner: string;
+      repo: string;
+      subpath: string;
+      requested_ref: string;
+      pinned: boolean;
+    }
+  | { kind: "local"; path: string; subpath: string }
+  | { kind: "imported"; original_path: string; backup_path: string };
+
+export interface SkillUpdateState {
+  available: boolean;
+  checked_at: string | null;
+  resolved_revision: string | null;
+  etag: string | null;
+  error: string | null;
+  retry_at: string | null;
+}
+
+export interface ManagedSkillRecord {
+  name: string;
+  description: string;
+  content_kind: SkillContentKind;
+  source: SkillSource;
+  resolved_revision: string | null;
+  content_hash: string;
+  installed_at: string;
+  updated_at: string;
+  risk: SkillRiskSummary;
+  update: SkillUpdateState;
+}
+
+export interface SkillFile {
+  path: string;
+  kind: SkillFileKind;
+  size: number;
+  executable: boolean;
+  link_target: string | null;
+  sha256: string;
+}
+
+export interface SkillFileChange {
+  path: string;
+  kind: FileChangeKind;
+  before_hash: string | null;
+  after_hash: string | null;
+  unified_diff: string | null;
+  diff_truncated: boolean;
+}
+
+export interface SkillAgentView {
+  id: string;
+  name: string;
+  target_id: string;
+  global_dir: string;
+  affected_agent_ids: string[];
+  docs: string;
+  evidence: string;
+  verified_at: string;
+}
+
+export interface SkillTargetView {
+  target_id: string;
+  global_dir: string;
+  primary_agent_ids: string[];
+  affected_agent_ids: string[];
+  assignable: boolean;
+}
+
+export type SkillLocation =
+  | { kind: "central" }
+  | { kind: "agent_target"; target_id: string; global_dir: string };
+
+export interface SkillInventoryItem {
+  identity: string;
+  name: string;
+  description: string;
+  content_kind: SkillContentKind;
+  states: InventoryState[];
+  location: SkillLocation;
+  source: SkillSource | null;
+  resolved_revision: string | null;
+  content_hash: string | null;
+  risk: SkillRiskSummary | null;
+  update: SkillUpdateState;
+  assigned_target_ids: string[];
+  affected_agent_ids: string[];
+  installed_at: string | null;
+  updated_at: string | null;
+}
+
+export interface SkillsInventory {
+  items: SkillInventoryItem[];
+  agents: SkillAgentView[];
+  targets: SkillTargetView[];
+  recovery_error: string | null;
+}
+
+export interface SkillDetail {
+  item: SkillInventoryItem;
+  files: SkillFile[];
+  skill_md: string;
+  skill_md_truncated: boolean;
+}
+
+export interface SkillCandidateSummary {
+  name: string;
+  description: string;
+  relative_path: string;
+  content_kind: SkillContentKind;
+  content_hash: string;
+  file_count: number;
+  total_bytes: number;
+}
+
+export interface SkillSourceResolution {
+  operation_id: string;
+  source: SkillSource;
+  resolved_revision: string | null;
+  candidates: SkillCandidateSummary[];
+}
+
+export interface PlannedSkill {
+  manifest: {
+    name: string;
+    description: string;
+    license: string | null;
+    compatibility: string | null;
+    metadata: Record<string, string>;
+    allowed_tools: string | null;
+  };
+  source: SkillSource;
+  resolved_revision: string | null;
+  files: SkillFileChange[];
+  risk: SkillRiskSummary;
+  existing_states: InventoryState[];
+  replace_existing: boolean;
+  content_hash: string;
+}
+
+export interface PlannedTarget {
+  target_id: string;
+  global_dir: string;
+  expected: PlannedLinkState;
+  primary_agent_ids: string[];
+  affected_agent_ids: string[];
+}
+
+export interface OperationPlan {
+  operation_id: string;
+  kind: SkillOperationKind;
+  skills: PlannedSkill[];
+  targets: PlannedTarget[];
+  settings_hash: string;
+  candidate_hash: string;
+  findings_hash: string;
+  requires_risk_override: boolean;
+  warnings: string[];
+}
+
+export interface PlanInstallRequest {
+  resolution_id: string;
+  skill_names: string[];
+  agent_ids: string[];
+  replace_conflicts: boolean;
+}
+
+export interface PlanImportRequest {
+  identity: string;
+  agent_ids: string[];
+  replace_conflicts: boolean;
+}
+
+export interface PlanUpdateRequest {
+  skill_name: string;
+  replace_local_changes: boolean;
+}
+
+export interface PlanRemoveRequest {
+  skill_name: string;
+}
+
+export interface PlanAssignmentRequest {
+  skill_name: string;
+  agent_ids: string[];
+  enabled: boolean;
+}
+
+export interface PlanRepairRequest {
+  skill_name: string;
+  repair: { kind: "central" } | { kind: "target"; target_id: string };
+}
+
+export interface SkillCommitRequest {
+  operation_id: string;
+  candidate_hash: string;
+  findings_confirmation: string | null;
+}
+
+export interface UpdateCheckOutcome {
+  performed: boolean;
+  checked: number;
+  available: string[];
+  skipped_pinned: string[];
+  errors: Record<string, string>;
+  checked_at: string | null;
+}
+
+export interface SkillCommandError {
+  code: string;
+  message: string;
+  retry_at?: string;
+  findings_hash?: string;
+}

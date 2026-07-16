@@ -1,5 +1,4 @@
-import assert from "node:assert/strict";
-import test from "node:test";
+import { expect, it } from "vitest";
 import type { AgentInfo } from "./types.ts";
 import {
   MAX_PINNED_AGENTS,
@@ -38,91 +37,88 @@ const agents = [
   agent("catalog-only", "Catalog Only", false),
 ];
 
-test("sections preserve pinned order and exclude read-only or duplicate rows", () => {
+it("sections preserve pinned order and exclude read-only or duplicate rows", () => {
   const sections = buildAgentPickerSections(
     agents,
     ["qoder", "missing", "codex", "qoder"],
     "",
   );
-  assert.deepEqual(sections.pinned.map(({ id }) => id), ["qoder", "codex"]);
-  assert.deepEqual(sections.available.map(({ id }) => id), ["claude-code"]);
-  assert.equal(sections.searchResults, null);
+  expect(sections.pinned.map(({ id }) => id)).toEqual(["qoder", "codex"]);
+  expect(sections.available.map(({ id }) => id)).toEqual(["claude-code"]);
+  expect(sections.searchResults).toBeNull();
 });
 
-test("search merges pinned and available matches without duplicates", () => {
+it("search merges pinned and available matches without duplicates", () => {
   const sections = buildAgentPickerSections(agents, ["qoder"], "code");
-  assert.deepEqual(
-    sections.searchResults?.map(({ id }) => id),
-    ["claude-code", "codex"],
-  );
+  expect(sections.searchResults?.map(({ id }) => id)).toEqual(["claude-code", "codex"]);
 });
 
-test("toggle removes existing pins, appends new pins, and enforces the limit", () => {
+it("toggle removes existing pins, appends new pins, and enforces the limit", () => {
   const removed = ["codex", "qoder"];
   const appended = ["codex"];
-  assert.deepEqual(togglePinnedAgent(removed, "codex"), ["qoder"]);
-  assert.deepEqual(togglePinnedAgent(appended, "qoder"), ["codex", "qoder"]);
-  assert.deepEqual(removed, ["codex", "qoder"]);
-  assert.deepEqual(appended, ["codex"]);
+  expect(togglePinnedAgent(removed, "codex")).toEqual(["qoder"]);
+  expect(togglePinnedAgent(appended, "qoder")).toEqual(["codex", "qoder"]);
+  expect(removed).toEqual(["codex", "qoder"]);
+  expect(appended).toEqual(["codex"]);
   const full = Array.from({ length: MAX_PINNED_AGENTS }, (_, index) => `agent-${index}`);
-  assert.deepEqual(togglePinnedAgent(full, "overflow"), full);
+  expect(togglePinnedAgent(full, "overflow")).toEqual(full);
 });
 
-test("keyboard and drag ordering are stable at boundaries", () => {
+it("keyboard and drag ordering are stable at boundaries", () => {
   const ids = ["claude-code", "codex", "qoder"];
-  assert.deepEqual(movePinnedAgentBy(ids, "codex", -1), ["codex", "claude-code", "qoder"]);
-  assert.deepEqual(movePinnedAgentBy(ids, "claude-code", -1), ids);
-  assert.deepEqual(movePinnedAgentBefore(ids, "qoder", "claude-code"), ["qoder", "claude-code", "codex"]);
-  assert.deepEqual(movePinnedAgentBefore(ids, "codex", "codex"), ids);
+  expect(movePinnedAgentBy(ids, "codex", -1)).toEqual(["codex", "claude-code", "qoder"]);
+  expect(movePinnedAgentBy(ids, "claude-code", -1)).toEqual(ids);
+  expect(movePinnedAgentBefore(ids, "qoder", "claude-code")).toEqual(["qoder", "claude-code", "codex"]);
+  expect(movePinnedAgentBefore(ids, "codex", "codex")).toEqual(ids);
 });
 
-test("keyboard ordering moves down and preserves the lower boundary", () => {
-  const ids = ["claude-code", "codex", "qoder"];
-  const snapshot = [...ids];
-
-  assert.deepEqual(movePinnedAgentBy(ids, "codex", 1), ["claude-code", "qoder", "codex"]);
-  assert.deepEqual(movePinnedAgentBy(ids, "qoder", 1), ids);
-  assert.deepEqual(movePinnedAgentBy(ids, "missing", 1), ids);
-  assert.deepEqual(ids, snapshot);
-});
-
-test("drag ordering is stable for unknown source and target IDs", () => {
+it("keyboard ordering moves down and preserves the lower boundary", () => {
   const ids = ["claude-code", "codex", "qoder"];
   const snapshot = [...ids];
 
-  assert.deepEqual(movePinnedAgentBefore(ids, "missing", "codex"), ids);
-  assert.deepEqual(movePinnedAgentBefore(ids, "codex", "missing"), ids);
-  assert.deepEqual(ids, snapshot);
+  expect(movePinnedAgentBy(ids, "codex", 1)).toEqual(["claude-code", "qoder", "codex"]);
+  expect(movePinnedAgentBy(ids, "qoder", 1)).toEqual(ids);
+  expect(movePinnedAgentBy(ids, "missing", 1)).toEqual(ids);
+  expect(ids).toEqual(snapshot);
 });
 
-test("move-after places the first pinned Agent after the final row", () => {
+it("drag ordering is stable for unknown source and target IDs", () => {
+  const ids = ["claude-code", "codex", "qoder"];
+  const snapshot = [...ids];
+
+  expect(movePinnedAgentBefore(ids, "missing", "codex")).toEqual(ids);
+  expect(movePinnedAgentBefore(ids, "codex", "missing")).toEqual(ids);
+  expect(ids).toEqual(snapshot);
+});
+
+it("move-after places the first pinned Agent after the final row", () => {
   const ids = ["claude-code", "codex", "qoder"];
 
-  assert.deepEqual(movePinnedAgentAfter(ids, "claude-code", "qoder"), [
+  expect(movePinnedAgentAfter(ids, "claude-code", "qoder")).toEqual([
     "codex",
     "qoder",
     "claude-code",
   ]);
-  assert.deepEqual(ids, ["claude-code", "codex", "qoder"]);
+  expect(ids).toEqual(["claude-code", "codex", "qoder"]);
 });
 
-test("move-after preserves order for invalid source, target, and self moves", () => {
+it("move-after preserves order for invalid source, target, and self moves", () => {
   const ids = ["claude-code", "codex", "qoder"];
 
-  assert.deepEqual(movePinnedAgentAfter(ids, "missing", "codex"), ids);
-  assert.deepEqual(movePinnedAgentAfter(ids, "codex", "missing"), ids);
-  assert.deepEqual(movePinnedAgentAfter(ids, "codex", "codex"), ids);
-  assert.deepEqual(ids, ["claude-code", "codex", "qoder"]);
+  expect(movePinnedAgentAfter(ids, "missing", "codex")).toEqual(ids);
+  expect(movePinnedAgentAfter(ids, "codex", "missing")).toEqual(ids);
+  expect(movePinnedAgentAfter(ids, "codex", "codex")).toEqual(ids);
+  expect(ids).toEqual(["claude-code", "codex", "qoder"]);
 });
 
-test("reorder operations preserve original input arrays", () => {
+it("reorder operations preserve original input arrays", () => {
   const keyboardIds = ["claude-code", "codex", "qoder"];
   const dragIds = ["claude-code", "codex", "qoder"];
   const keyboardSnapshot = [...keyboardIds];
   const dragSnapshot = [...dragIds];
 
-  assert.deepEqual(movePinnedAgentBy(keyboardIds, "codex", 1), ["claude-code", "qoder", "codex"]);
-  assert.deepEqual(movePinnedAgentBefore(dragIds, "qoder", "claude-code"), ["qoder", "claude-code", "codex"]);
-  assert.deepEqual(keyboardIds, keyboardSnapshot);
-  assert.deepEqual(dragIds, dragSnapshot);
+  expect(movePinnedAgentBy(keyboardIds, "codex", 1)).toEqual(["claude-code", "qoder", "codex"]);
+  expect(movePinnedAgentBefore(dragIds, "qoder", "claude-code")).toEqual(["qoder", "claude-code", "codex"]);
+  expect(keyboardIds).toEqual(keyboardSnapshot);
+  expect(dragIds).toEqual(dragSnapshot);
 });

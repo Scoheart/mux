@@ -1,5 +1,31 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { RegistryEntry, CatalogItem, AgentInfo, AgentDefinitionInput, InstalledMcp, InstallRequest, SourceView, ResyncOutcome, ModelProfile, ModelProfileView, ModelAgentView, ModelApplyResult } from "./types";
+import type {
+  AgentDefinitionInput,
+  AgentInfo,
+  CatalogItem,
+  InstalledMcp,
+  InstallRequest,
+  ModelAgentView,
+  ModelApplyResult,
+  ModelProfile,
+  ModelProfileView,
+  OperationPlan,
+  PlanAssignmentRequest,
+  PlanImportRequest,
+  PlanInstallRequest,
+  PlanRemoveRequest,
+  PlanRepairRequest,
+  PlanUpdateRequest,
+  RegistryEntry,
+  ResyncOutcome,
+  SkillAgentView,
+  SkillCommitRequest,
+  SkillDetail,
+  SkillSourceResolution,
+  SkillsInventory,
+  SourceView,
+  UpdateCheckOutcome,
+} from "./types";
 
 export const listRegistry = () => invoke<RegistryEntry[]>("list_registry");
 export const listModelProfiles = () =>
@@ -97,3 +123,42 @@ export const removeSource = (id: string) =>
  *  same server get distinct cells. */
 export const cellKey = (serverKey: string, agentId: string) =>
   `${serverKey}|${agentId}`;
+
+export const listSkillsInventory = () =>
+  invoke<SkillsInventory>("list_skills_inventory");
+export const listSkillAgents = () =>
+  invoke<SkillAgentView[]>("list_skill_agents");
+export const getSkillDetail = (identity: string) =>
+  invoke<SkillDetail>("get_skill_detail", { identity });
+export const resolveGithubSkillSource = (value: string) =>
+  invoke<SkillSourceResolution>("resolve_skill_source", { value });
+export const resolveLocalSkillSourceDialog = () =>
+  invoke<SkillSourceResolution | null>("resolve_local_skill_source_dialog");
+export const planSkillInstall = (request: PlanInstallRequest) =>
+  invoke<OperationPlan>("plan_skill_install", { request });
+export const commitSkillInstall = (request: SkillCommitRequest) =>
+  invoke<SkillsInventory>("commit_skill_install", { request });
+export const planSkillImport = (request: PlanImportRequest) =>
+  invoke<OperationPlan>("plan_skill_import", { request });
+export const commitSkillImport = (request: SkillCommitRequest) =>
+  invoke<SkillsInventory>("commit_skill_import", { request });
+export const planSkillUpdate = (request: PlanUpdateRequest) =>
+  invoke<OperationPlan>("plan_skill_update", { request });
+export const commitSkillUpdate = (request: SkillCommitRequest) =>
+  invoke<SkillsInventory>("commit_skill_update", { request });
+export const planSkillRemove = (request: PlanRemoveRequest) =>
+  invoke<OperationPlan>("plan_skill_remove", { request });
+export const commitSkillRemove = (request: SkillCommitRequest) =>
+  invoke<SkillsInventory>("commit_skill_remove", { request });
+export const planSkillAssignment = (request: PlanAssignmentRequest) =>
+  invoke<OperationPlan>("plan_skill_assignment", { request });
+export const commitSkillAssignment = (request: SkillCommitRequest) =>
+  invoke<SkillsInventory>("commit_skill_assignment", { request });
+export const planSkillRepair = (request: PlanRepairRequest) =>
+  invoke<OperationPlan>("plan_skill_repair", { request });
+export const commitSkillRepair = (request: SkillCommitRequest) =>
+  invoke<SkillsInventory>("commit_skill_repair", { request });
+export const checkSkillUpdates = (manual: boolean) =>
+  invoke<UpdateCheckOutcome>("check_skill_updates", { manual });
+export const cancelSkillOperation = (operationId: string) =>
+  invoke<void>("cancel_skill_operation", { operationId });

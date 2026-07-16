@@ -8,7 +8,8 @@
     "prebuild": "npm run check:agent-icons",
     "build": "tsc && vite build",
     "check:agent-icons": "node ../scripts/check-agent-icons.mjs",
-    "test:unit": "node --test src/lib/*.test.ts",
+    "test": "vitest run",
+    "test:unit": "vitest run",
     "preview": "vite preview",
     "tauri": "tauri"
   },
@@ -22,14 +23,19 @@
     "react-dom": "^19.1.0"
   },
   "devDependencies": {
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
     "@tailwindcss/vite": "^4.3.1",
     "@tauri-apps/cli": "^2",
     "@types/node": "^22.20.1",
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
     "@vitejs/plugin-react": "^4.6.0",
+    "jsdom": "^29.1.1",
     "tailwindcss": "^4.3.1",
     "typescript": "~5.8.3",
-    "vite": "^7.0.4"
+    "vite": "^7.0.4",
+    "vitest": "^4.1.10"
   }
 }

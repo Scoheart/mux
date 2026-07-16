@@ -1,6 +1,5 @@
-import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import test from "node:test";
+import { expect, it } from "vitest";
 
 interface TauriConfig {
   app?: {
@@ -12,19 +11,20 @@ interface TauriConfig {
   };
 }
 
+const relativeFile = (path: string) => new URL(path, import.meta.url);
+
 const config = JSON.parse(
-  await readFile(new URL("../../src-tauri/tauri.conf.json", import.meta.url), "utf8"),
+  await readFile(relativeFile("../../src-tauri/tauri.conf.json"), "utf8"),
 ) as TauriConfig;
 
-test("desktop windows leave HTML5 drag and drop enabled", () => {
+it("desktop windows leave HTML5 drag and drop enabled", () => {
   const windows = config.app?.windows ?? [];
-  assert.ok(windows.length > 0, "expected at least one desktop window");
+  expect(windows.length, "expected at least one desktop window").toBeGreaterThan(0);
 
   for (const window of windows) {
-    assert.equal(
+    expect(
       window.dragDropEnabled,
-      false,
       `${window.label ?? window.title ?? "desktop window"} must disable Tauri's native drag-drop handler`,
-    );
+    ).toBe(false);
   }
 });

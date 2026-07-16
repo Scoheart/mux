@@ -1,5 +1,4 @@
-import assert from "node:assert/strict";
-import test from "node:test";
+import { expect, it } from "vitest";
 import {
   DEFAULT_SIDEBAR_WIDTH,
   clampSidebarWidth,
@@ -7,18 +6,18 @@ import {
   redactSensitiveConfig,
 } from "./resourceWorkspace.ts";
 
-test("sidebar width is clamped and invalid storage falls back", () => {
-  assert.equal(clampSidebarWidth(100), 184);
-  assert.equal(clampSidebarWidth(260), 260);
-  assert.equal(clampSidebarWidth(500), 340);
-  assert.equal(parseSidebarWidth(null), DEFAULT_SIDEBAR_WIDTH);
-  assert.equal(parseSidebarWidth("invalid"), DEFAULT_SIDEBAR_WIDTH);
-  assert.equal(parseSidebarWidth("183"), DEFAULT_SIDEBAR_WIDTH);
-  assert.equal(parseSidebarWidth("341"), DEFAULT_SIDEBAR_WIDTH);
-  assert.equal(parseSidebarWidth("312"), 312);
+it("sidebar width is clamped and invalid storage falls back", () => {
+  expect(clampSidebarWidth(100)).toBe(184);
+  expect(clampSidebarWidth(260)).toBe(260);
+  expect(clampSidebarWidth(500)).toBe(340);
+  expect(parseSidebarWidth(null)).toBe(DEFAULT_SIDEBAR_WIDTH);
+  expect(parseSidebarWidth("invalid")).toBe(DEFAULT_SIDEBAR_WIDTH);
+  expect(parseSidebarWidth("183")).toBe(DEFAULT_SIDEBAR_WIDTH);
+  expect(parseSidebarWidth("341")).toBe(DEFAULT_SIDEBAR_WIDTH);
+  expect(parseSidebarWidth("312")).toBe(312);
 });
 
-test("sensitive fields are recursively redacted without mutating input", () => {
+it("sensitive fields are recursively redacted without mutating input", () => {
   const source = {
     env: {
       API_TOKEN: "token-value",
@@ -34,7 +33,7 @@ test("sensitive fields are recursively redacted without mutating input", () => {
     nested: [{ password: "password-value", "Proxy-Authorization": "Basic credential-value", enabled: true }],
   };
   const result = redactSensitiveConfig(source);
-  assert.deepEqual(result, {
+  expect(result).toEqual({
     env: {
       API_TOKEN: "••••••••",
       ALIBABA_CLOUD_ACCESS_KEY_SECRET: "••••••••",
@@ -48,5 +47,5 @@ test("sensitive fields are recursively redacted without mutating input", () => {
     },
     nested: [{ password: "••••••••", "Proxy-Authorization": "••••••••", enabled: true }],
   });
-  assert.equal(source.env.API_TOKEN, "token-value");
+  expect(source.env.API_TOKEN).toBe("token-value");
 });

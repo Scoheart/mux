@@ -1,3 +1,11 @@
+#[cfg(unix)]
+use super::anchored::validate_supported_links;
+#[cfg(test)]
+use super::anchored::verify_anchored_identity;
+use super::anchored::{
+    consume_bounded_and_hash, verify_anchored_digest, AnchoredFileKind, AnchoredIdentity,
+    AnchoredRoot,
+};
 use super::{
     io_error, normalized_error_path, parse_manifest, FileChangeKind, SkillContentKind, SkillError,
     SkillFile, SkillFileChange, SkillFileKind, ValidatedSkill,
@@ -6,7 +14,7 @@ use sha2::{Digest, Sha256};
 use similar::TextDiff;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, File, OpenOptions};
-use std::io::{Read, Write};
+use std::io::Write;
 use std::path::{Component, Path, PathBuf};
 
 pub const MAX_DOWNLOAD_BYTES: u64 = 128 * 1024 * 1024;
@@ -35,6 +43,7 @@ struct TreeNode {
     link_target: Option<String>,
     sha256: Option<String>,
     mode: u32,
+    identity: AnchoredIdentity,
 }
 
 impl TreeNode {
@@ -56,6 +65,7 @@ impl TreeNode {
 }
 
 struct TreeSnapshot {
+    root: AnchoredRoot,
     nodes: Vec<TreeNode>,
     total_bytes: u64,
 }
@@ -103,9 +113,9 @@ pub fn copy_tree_secure(source: &Path, destination: &Path) -> Result<(), SkillEr
         Err(error) => return Err(io_error(destination, error)),
     }
 
-    let source_root = fs::canonicalize(source).map_err(|error| io_error(source, error))?;
+    let source_root = snapshot.root.canonical_path();
     let destination_absolute = resolve_destination(destination)?;
-    if destination_absolute.starts_with(&source_root) {
+    if destination_absolute.starts_with(source_root) {
         return Err(SkillError::UnsafePath {
             message: "copy destination must not be inside the source tree".into(),
             path: normalized_error_path(destination),
@@ -119,9 +129,9 @@ pub fn copy_tree_secure(source: &Path, destination: &Path) -> Result<(), SkillEr
         fs::create_dir_all(parent).map_err(|error| io_error(parent, error))?;
     }
     fs::create_dir(destination).map_err(|error| io_error(destination, error))?;
-    set_directory_private(destination)?;
 
     let copy_result = (|| {
+        set_directory_private(destination)?;
         for node in &snapshot.nodes {
             let target = destination.join(path_from_normalized(&node.path));
             match node.kind {
@@ -129,17 +139,30 @@ pub fn copy_tree_secure(source: &Path, destination: &Path) -> Result<(), SkillEr
                     fs::create_dir(&target).map_err(|error| io_error(&target, error))?;
                     set_directory_private(&target)?;
                 }
-                NodeKind::File => copy_regular_file(node, &target)?,
+                NodeKind::File => copy_regular_file(&snapshot, node, &target)?,
                 NodeKind::Symlink => create_relative_symlink(node, &target)?,
             }
         }
         Ok(())
     })();
+    finish_copy_with_cleanup(copy_result, destination, |path| fs::remove_dir_all(path))
+}
 
-    if copy_result.is_err() {
-        let _ = fs::remove_dir_all(destination);
-    }
-    copy_result
+fn finish_copy_with_cleanup<F>(
+    copy_result: Result<(), SkillError>,
+    destination: &Path,
+    cleanup: F,
+) -> Result<(), SkillError>
+where
+    F: FnOnce(&Path) -> std::io::Result<()>,
+{
+    let Err(original) = copy_result else {
+        return Ok(());
+    };
+    cleanup(destination).map_err(|_| SkillError::RecoveryRequired {
+        message: "partial skill copy could not be removed; manual recovery is required".into(),
+    })?;
+    Err(original)
 }
 
 pub fn diff_trees(before: Option<&Path>, after: &Path) -> Result<Vec<SkillFileChange>, SkillError> {
@@ -161,41 +184,80 @@ pub fn diff_trees(before: Option<&Path>, after: &Path) -> Result<Vec<SkillFileCh
     for path in paths {
         let before_node = before_nodes.get(path).copied();
         let after_node = after_nodes.get(path).copied();
-        let kind = match (before_node, after_node) {
-            (None, Some(_)) => FileChangeKind::Added,
-            (Some(_), None) => FileChangeKind::Removed,
-            (Some(old), Some(new)) if old.kind != new.kind => FileChangeKind::LinkChanged,
-            (Some(old), Some(new)) if old.kind == NodeKind::Symlink && old.sha256 != new.sha256 => {
-                FileChangeKind::LinkChanged
-            }
-            (Some(old), Some(new)) if old.sha256 != new.sha256 => FileChangeKind::Modified,
-            (Some(old), Some(new)) if old.executable != new.executable => {
-                FileChangeKind::ModeChanged
-            }
-            (Some(_), Some(_)) => continue,
-            (None, None) => continue,
-        };
-
-        let (unified_diff, diff_truncated) = if kind == FileChangeKind::Modified {
-            build_text_diff(
+        match (before_node, after_node) {
+            (None, Some(new)) => changes.push(change_without_diff(
                 path,
-                before_node.expect("modified paths have a before node"),
-                after_node.expect("modified paths have an after node"),
-                &mut remaining_diff_bytes,
-            )?
-        } else {
-            (None, false)
-        };
-        changes.push(SkillFileChange {
-            path: path.to_string(),
-            kind,
-            before_hash: before_node.and_then(|node| node.sha256.clone()),
-            after_hash: after_node.and_then(|node| node.sha256.clone()),
-            unified_diff,
-            diff_truncated,
-        });
+                FileChangeKind::Added,
+                None,
+                Some(new),
+            )),
+            (Some(old), None) => changes.push(change_without_diff(
+                path,
+                FileChangeKind::Removed,
+                Some(old),
+                None,
+            )),
+            (Some(old), Some(new))
+                if old.kind != new.kind
+                    || (old.kind == NodeKind::Symlink && old.sha256 != new.sha256) =>
+            {
+                changes.push(change_without_diff(
+                    path,
+                    FileChangeKind::LinkChanged,
+                    Some(old),
+                    Some(new),
+                ));
+            }
+            (Some(old), Some(new)) => {
+                if old.sha256 != new.sha256 {
+                    let (unified_diff, diff_truncated) = build_text_diff(
+                        path,
+                        before_snapshot
+                            .as_ref()
+                            .expect("modified paths have a before snapshot"),
+                        old,
+                        &after_snapshot,
+                        new,
+                        &mut remaining_diff_bytes,
+                    )?;
+                    changes.push(SkillFileChange {
+                        path: path.to_string(),
+                        kind: FileChangeKind::Modified,
+                        before_hash: old.sha256.clone(),
+                        after_hash: new.sha256.clone(),
+                        unified_diff,
+                        diff_truncated,
+                    });
+                }
+                if old.executable != new.executable {
+                    changes.push(change_without_diff(
+                        path,
+                        FileChangeKind::ModeChanged,
+                        Some(old),
+                        Some(new),
+                    ));
+                }
+            }
+            (None, None) => {}
+        }
     }
     Ok(changes)
+}
+
+fn change_without_diff(
+    path: &str,
+    kind: FileChangeKind,
+    before: Option<&TreeNode>,
+    after: Option<&TreeNode>,
+) -> SkillFileChange {
+    SkillFileChange {
+        path: path.to_string(),
+        kind,
+        before_hash: before.and_then(|node| node.sha256.clone()),
+        after_hash: after.and_then(|node| node.sha256.clone()),
+        unified_diff: None,
+        diff_truncated: false,
+    }
 }
 
 pub fn validate_candidate(root: &Path) -> Result<ValidatedSkill, SkillError> {
@@ -207,7 +269,12 @@ pub fn validate_candidate(root: &Path) -> Result<ValidatedSkill, SkillError> {
             message: "candidate must contain a regular SKILL.md file".into(),
             path: normalized_error_path(root),
         })?;
-    let manifest_bytes = read_file_bounded(&manifest_node.full_path, MAX_SINGLE_FILE_BYTES)?;
+    let manifest_bytes = read_node_bounded(
+        &snapshot,
+        manifest_node,
+        MAX_SINGLE_FILE_BYTES,
+        "single_file",
+    )?;
     let manifest_text =
         std::str::from_utf8(&manifest_bytes).map_err(|_| SkillError::InvalidManifest {
             message: "SKILL.md must be valid UTF-8".into(),
@@ -227,125 +294,106 @@ pub fn validate_candidate(root: &Path) -> Result<ValidatedSkill, SkillError> {
 }
 
 fn load_tree(root: &Path) -> Result<TreeSnapshot, SkillError> {
-    let metadata = fs::symlink_metadata(root).map_err(|error| io_error(root, error))?;
-    if !metadata.file_type().is_dir() {
-        return Err(SkillError::UnsafePath {
-            message: "Skill root must be a directory, not a symlink or file".into(),
-            path: normalized_error_path(root),
-        });
+    let anchored_root = AnchoredRoot::open(root)?;
+    #[cfg(not(unix))]
+    {
+        let _ = anchored_root;
+        return Err(super::anchored::unsupported_platform());
     }
-    let canonical_root = fs::canonicalize(root).map_err(|error| io_error(root, error))?;
+    #[cfg(unix)]
+    let root_directory = anchored_root.root_directory()?;
     let mut state = WalkState {
         nodes: Vec::new(),
         entries: 0,
         total_bytes: 0,
     };
-    walk_directory(root, root, &canonical_root, &mut state)?;
+    #[cfg(unix)]
+    walk_directory(root, &anchored_root, &root_directory, "", &mut state)?;
     state
         .nodes
         .sort_by(|left, right| left.path.cmp(&right.path));
     Ok(TreeSnapshot {
+        root: anchored_root,
         nodes: state.nodes,
         total_bytes: state.total_bytes,
     })
 }
 
+#[cfg(unix)]
 fn walk_directory(
     root: &Path,
-    directory: &Path,
-    canonical_root: &Path,
+    anchored_root: &AnchoredRoot,
+    directory: &File,
+    relative_directory: &str,
     state: &mut WalkState,
 ) -> Result<(), SkillError> {
-    let mut entries = fs::read_dir(directory)
-        .map_err(|error| io_error(directory, error))?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|error| io_error(directory, error))?;
-    entries.sort_by_key(|entry| entry.file_name());
-
-    for entry in entries {
-        let path = entry.path();
+    let directory_path = if relative_directory.is_empty() {
+        root.to_path_buf()
+    } else {
+        root.join(path_from_normalized(relative_directory))
+    };
+    for name in anchored_root.read_directory(directory, &directory_path)? {
+        let name_text =
+            std::str::from_utf8(name.as_bytes()).map_err(|_| SkillError::UnsafePath {
+                message: "Skill entry paths must be valid UTF-8".into(),
+                path: normalized_error_path(&directory_path),
+            })?;
+        let relative = if relative_directory.is_empty() {
+            name_text.to_string()
+        } else {
+            format!("{relative_directory}/{name_text}")
+        };
+        let path = root.join(path_from_normalized(&relative));
         state.entries = state.entries.saturating_add(1);
-        if state.entries > MAX_ARCHIVE_ENTRIES {
-            return Err(SkillError::LimitExceeded {
-                limit: "entries".into(),
-                actual: state.entries,
-                allowed: MAX_ARCHIVE_ENTRIES,
-            });
-        }
-        let relative = normalized_relative(root, &path)?;
-        let metadata = fs::symlink_metadata(&path).map_err(|error| io_error(&path, error))?;
-        let file_type = metadata.file_type();
-        if file_type.is_dir() {
+        enforce_entry_limit(state.entries)?;
+        let identity = anchored_root.stat_entry(directory, &name, &path)?;
+        if identity.kind == AnchoredFileKind::Directory {
+            let child = anchored_root.open_directory_entry(directory, &name, &identity, &path)?;
             state.nodes.push(TreeNode {
-                path: relative,
+                path: relative.clone(),
                 full_path: path.clone(),
                 kind: NodeKind::Directory,
                 size: 0,
                 executable: false,
                 link_target: None,
                 sha256: None,
-                mode: unix_mode(&metadata),
+                mode: identity.mode,
+                identity,
             });
-            walk_directory(root, &path, canonical_root, state)?;
-        } else if file_type.is_file() {
-            if has_multiple_hard_links(&metadata) {
-                return Err(SkillError::UnsafePath {
-                    message: "hard-linked files are not allowed in Skill trees".into(),
-                    path: normalized_error_path(&path),
-                });
-            }
-            if metadata.len() > MAX_SINGLE_FILE_BYTES {
-                return Err(SkillError::LimitExceeded {
-                    limit: "single_file".into(),
-                    actual: metadata.len(),
-                    allowed: MAX_SINGLE_FILE_BYTES,
-                });
-            }
-            enforce_total_limit(state.total_bytes, metadata.len())?;
-            let (actual_size, sha256) = hash_regular_file(&path)?;
-            if actual_size != metadata.len() {
-                return Err(SkillError::Conflict {
-                    message: "a Skill file changed during inspection".into(),
-                    path: normalized_error_path(&path),
-                });
-            }
-            state.total_bytes += actual_size;
-            let mode = unix_mode(&metadata);
+            walk_directory(root, anchored_root, &child, &relative, state)?;
+        } else if identity.kind == AnchoredFileKind::Regular {
+            validate_supported_links(&identity, &path)?;
+            enforce_single_file_limit(identity.size)?;
+            enforce_total_limit(state.total_bytes, identity.size)?;
+            let file = anchored_root.open_regular_entry(directory, &name, &identity, &path)?;
+            let consumed = consume_bounded_and_hash(
+                file,
+                &mut std::io::sink(),
+                identity.size,
+                MAX_SINGLE_FILE_BYTES,
+                &path,
+                "single_file",
+            )?;
+            state.total_bytes += consumed.size;
             state.nodes.push(TreeNode {
                 path: relative,
                 full_path: path,
                 kind: NodeKind::File,
-                size: actual_size,
-                executable: mode & 0o111 != 0,
+                size: consumed.size,
+                executable: identity.mode & 0o111 != 0,
                 link_target: None,
-                sha256: Some(sha256),
-                mode,
+                sha256: Some(consumed.sha256),
+                mode: identity.mode,
+                identity,
             });
-        } else if file_type.is_symlink() {
-            let target = fs::read_link(&path).map_err(|error| io_error(&path, error))?;
-            if target.is_absolute() {
-                return Err(SkillError::UnsafePath {
-                    message: "Skill symlinks must use relative targets".into(),
-                    path: normalized_error_path(&path),
-                });
-            }
-            let target_text = target.to_str().ok_or_else(|| SkillError::UnsafePath {
+        } else if identity.kind == AnchoredFileKind::Symlink {
+            validate_supported_links(&identity, &path)?;
+            let target = anchored_root.read_link_entry(directory, &name, &identity, &path)?;
+            let target_text = std::str::from_utf8(&target).map_err(|_| SkillError::UnsafePath {
                 message: "Skill symlink targets must be valid UTF-8".into(),
                 path: normalized_error_path(&path),
             })?;
-            let resolved =
-                fs::canonicalize(path.parent().unwrap_or(root).join(&target)).map_err(|_| {
-                    SkillError::UnsafePath {
-                        message: "Skill symlink target cannot be resolved".into(),
-                        path: normalized_error_path(&path),
-                    }
-                })?;
-            if !resolved.starts_with(canonical_root) {
-                return Err(SkillError::UnsafePath {
-                    message: "Skill symlink target escapes the Skill root".into(),
-                    path: normalized_error_path(&path),
-                });
-            }
+            anchored_root.validate_symlink_target(&relative, target_text, &path)?;
             let target_bytes = target_text.as_bytes();
             enforce_total_limit(state.total_bytes, target_bytes.len() as u64)?;
             state.total_bytes += target_bytes.len() as u64;
@@ -358,6 +406,7 @@ fn walk_directory(
                 link_target: Some(target_text.to_string()),
                 sha256: Some(hex::encode(Sha256::digest(target_bytes))),
                 mode: 0,
+                identity,
             });
         } else {
             return Err(SkillError::UnsafePath {
@@ -367,70 +416,6 @@ fn walk_directory(
         }
     }
     Ok(())
-}
-
-fn normalized_relative(root: &Path, path: &Path) -> Result<String, SkillError> {
-    let relative = path
-        .strip_prefix(root)
-        .map_err(|_| SkillError::UnsafePath {
-            message: "Skill entry is outside the Skill root".into(),
-            path: normalized_error_path(path),
-        })?;
-    if relative.is_absolute() {
-        return Err(SkillError::UnsafePath {
-            message: "Skill entry paths must be relative".into(),
-            path: normalized_error_path(path),
-        });
-    }
-    let mut parts = Vec::new();
-    for component in relative.components() {
-        match component {
-            Component::Normal(value) => {
-                parts.push(value.to_str().ok_or_else(|| SkillError::UnsafePath {
-                    message: "Skill entry paths must be valid UTF-8".into(),
-                    path: normalized_error_path(path),
-                })?);
-            }
-            _ => {
-                return Err(SkillError::UnsafePath {
-                    message: "Skill entry path contains an unsafe component".into(),
-                    path: normalized_error_path(path),
-                });
-            }
-        }
-    }
-    if parts.is_empty() {
-        return Err(SkillError::UnsafePath {
-            message: "Skill entry path is empty".into(),
-            path: normalized_error_path(path),
-        });
-    }
-    Ok(parts.join("/"))
-}
-
-fn hash_regular_file(path: &Path) -> Result<(u64, String), SkillError> {
-    let mut file = File::open(path).map_err(|error| io_error(path, error))?;
-    let mut hasher = Sha256::new();
-    let mut buffer = [0_u8; 64 * 1024];
-    let mut size = 0_u64;
-    loop {
-        let read = file
-            .read(&mut buffer)
-            .map_err(|error| io_error(path, error))?;
-        if read == 0 {
-            break;
-        }
-        size = size.saturating_add(read as u64);
-        if size > MAX_SINGLE_FILE_BYTES {
-            return Err(SkillError::LimitExceeded {
-                limit: "single_file".into(),
-                actual: size,
-                allowed: MAX_SINGLE_FILE_BYTES,
-            });
-        }
-        hasher.update(&buffer[..read]);
-    }
-    Ok((size, hex::encode(hasher.finalize())))
 }
 
 fn hash_snapshot(snapshot: &TreeSnapshot) -> Result<String, SkillError> {
@@ -447,16 +432,24 @@ fn hash_snapshot(snapshot: &TreeSnapshot) -> Result<String, SkillError> {
         tree_hash.update(node.size.to_be_bytes());
         match node.kind {
             NodeKind::File => {
-                let mut file = File::open(&node.full_path)
-                    .map_err(|error| io_error(&node.full_path, error))?;
-                let copied = std::io::copy(&mut file, &mut HashWriter(&mut tree_hash))
-                    .map_err(|error| io_error(&node.full_path, error))?;
-                if copied != node.size {
-                    return Err(SkillError::Conflict {
-                        message: "a Skill file changed during hashing".into(),
-                        path: normalized_error_path(&node.full_path),
-                    });
-                }
+                let file = snapshot.root.open_regular_relative(
+                    &node.path,
+                    &node.identity,
+                    &node.full_path,
+                )?;
+                let consumed = consume_bounded_and_hash(
+                    file,
+                    &mut HashWriter(&mut tree_hash),
+                    node.size,
+                    MAX_SINGLE_FILE_BYTES,
+                    &node.full_path,
+                    "single_file",
+                )?;
+                verify_anchored_digest(
+                    node.sha256.as_deref().unwrap_or_default(),
+                    &consumed.sha256,
+                    &node.full_path,
+                )?;
             }
             NodeKind::Symlink => {
                 tree_hash.update(node.link_target.as_deref().unwrap_or_default().as_bytes())
@@ -482,35 +475,74 @@ impl Write for HashWriter<'_> {
 
 fn enforce_total_limit(current: u64, added: u64) -> Result<(), SkillError> {
     let actual = current.saturating_add(added);
-    if actual > MAX_SKILL_BYTES {
+    enforce_skill_limit(actual)
+}
+
+fn enforce_named_limit(limit: &'static str, actual: u64, allowed: u64) -> Result<(), SkillError> {
+    if actual > allowed {
         return Err(SkillError::LimitExceeded {
-            limit: "skill".into(),
+            limit: limit.into(),
             actual,
-            allowed: MAX_SKILL_BYTES,
+            allowed,
         });
     }
     Ok(())
 }
 
-fn copy_regular_file(node: &TreeNode, destination: &Path) -> Result<(), SkillError> {
-    let source = File::open(&node.full_path).map_err(|error| io_error(&node.full_path, error))?;
-    let mut source = source.take(node.size.saturating_add(1));
+fn enforce_entry_limit(actual: u64) -> Result<(), SkillError> {
+    enforce_named_limit("entries", actual, MAX_ARCHIVE_ENTRIES)
+}
+
+fn enforce_skill_limit(actual: u64) -> Result<(), SkillError> {
+    enforce_named_limit("skill", actual, MAX_SKILL_BYTES)
+}
+
+fn enforce_single_file_limit(actual: u64) -> Result<(), SkillError> {
+    enforce_named_limit("single_file", actual, MAX_SINGLE_FILE_BYTES)
+}
+
+fn enforce_diff_input_limit(actual: u64) -> Result<(), SkillError> {
+    enforce_named_limit("diff_input", actual, MAX_DIFF_INPUT_BYTES)
+}
+
+fn enforce_diff_output_limit(actual: u64) -> Result<(), SkillError> {
+    enforce_named_limit("diff_output", actual, MAX_DIFF_OUTPUT_BYTES as u64)
+}
+
+fn enforce_plan_diff_limit(actual: u64) -> Result<(), SkillError> {
+    enforce_named_limit("plan_diff", actual, MAX_PLAN_DIFF_BYTES as u64)
+}
+
+fn copy_regular_file(
+    snapshot: &TreeSnapshot,
+    node: &TreeNode,
+    destination: &Path,
+) -> Result<(), SkillError> {
+    let source =
+        snapshot
+            .root
+            .open_regular_relative(&node.path, &node.identity, &node.full_path)?;
     let mut target = OpenOptions::new()
         .write(true)
         .create_new(true)
         .open(destination)
         .map_err(|error| io_error(destination, error))?;
-    let copied =
-        std::io::copy(&mut source, &mut target).map_err(|error| io_error(destination, error))?;
+    let consumed = consume_bounded_and_hash(
+        source,
+        &mut target,
+        node.size,
+        MAX_SINGLE_FILE_BYTES,
+        &node.full_path,
+        "single_file",
+    )?;
     target
         .flush()
         .map_err(|error| io_error(destination, error))?;
-    if copied != node.size {
-        return Err(SkillError::Conflict {
-            message: "a Skill file changed during copying".into(),
-            path: normalized_error_path(&node.full_path),
-        });
-    }
+    verify_anchored_digest(
+        node.sha256.as_deref().unwrap_or_default(),
+        &consumed.sha256,
+        &node.full_path,
+    )?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -554,6 +586,11 @@ fn create_relative_symlink(node: &TreeNode, destination: &Path) -> Result<(), Sk
     .map_err(|error| io_error(destination, error))
 }
 
+#[cfg(all(not(unix), not(windows)))]
+fn create_relative_symlink(_node: &TreeNode, _destination: &Path) -> Result<(), SkillError> {
+    Err(super::anchored::unsupported_platform())
+}
+
 fn set_directory_private(path: &Path) -> Result<(), SkillError> {
     #[cfg(unix)]
     {
@@ -573,18 +610,23 @@ fn file_node_map(snapshot: &TreeSnapshot) -> BTreeMap<&str, &TreeNode> {
 
 fn build_text_diff(
     path: &str,
+    before_snapshot: &TreeSnapshot,
     before: &TreeNode,
+    after_snapshot: &TreeSnapshot,
     after: &TreeNode,
     remaining_plan_bytes: &mut usize,
 ) -> Result<(Option<String>, bool), SkillError> {
     if before.kind != NodeKind::File || after.kind != NodeKind::File {
         return Ok((None, false));
     }
-    if before.size > MAX_DIFF_INPUT_BYTES || after.size > MAX_DIFF_INPUT_BYTES {
+    if enforce_diff_input_limit(before.size).is_err()
+        || enforce_diff_input_limit(after.size).is_err()
+    {
         return Ok((None, true));
     }
-    let before_bytes = read_file_bounded(&before.full_path, MAX_DIFF_INPUT_BYTES)?;
-    let after_bytes = read_file_bounded(&after.full_path, MAX_DIFF_INPUT_BYTES)?;
+    let before_bytes =
+        read_node_bounded(before_snapshot, before, MAX_DIFF_INPUT_BYTES, "diff_input")?;
+    let after_bytes = read_node_bounded(after_snapshot, after, MAX_DIFF_INPUT_BYTES, "diff_input")?;
     let Ok(before_text) = std::str::from_utf8(&before_bytes) else {
         return Ok((None, false));
     };
@@ -597,8 +639,13 @@ fn build_text_diff(
         .unified_diff()
         .header(&before_header, &after_header)
         .to_string();
-    let mut truncated = truncate_utf8(&mut output, MAX_DIFF_OUTPUT_BYTES);
-    if output.len() > *remaining_plan_bytes {
+    let mut truncated = if enforce_diff_output_limit(output.len() as u64).is_err() {
+        truncate_utf8(&mut output, MAX_DIFF_OUTPUT_BYTES)
+    } else {
+        false
+    };
+    let used = MAX_PLAN_DIFF_BYTES.saturating_sub(*remaining_plan_bytes);
+    if enforce_plan_diff_limit(used.saturating_add(output.len()) as u64).is_err() {
         truncated |= truncate_utf8(&mut output, *remaining_plan_bytes);
     }
     *remaining_plan_bytes = remaining_plan_bytes.saturating_sub(output.len());
@@ -617,19 +664,23 @@ fn truncate_utf8(value: &mut String, maximum: usize) -> bool {
     true
 }
 
-fn read_file_bounded(path: &Path, maximum: u64) -> Result<Vec<u8>, SkillError> {
-    let file = File::open(path).map_err(|error| io_error(path, error))?;
+fn read_node_bounded(
+    snapshot: &TreeSnapshot,
+    node: &TreeNode,
+    maximum: u64,
+    limit: &'static str,
+) -> Result<Vec<u8>, SkillError> {
+    let file = snapshot
+        .root
+        .open_regular_relative(&node.path, &node.identity, &node.full_path)?;
     let mut bytes = Vec::new();
-    file.take(maximum.saturating_add(1))
-        .read_to_end(&mut bytes)
-        .map_err(|error| io_error(path, error))?;
-    if bytes.len() as u64 > maximum {
-        return Err(SkillError::LimitExceeded {
-            limit: "single_file".into(),
-            actual: bytes.len() as u64,
-            allowed: maximum,
-        });
-    }
+    let consumed =
+        consume_bounded_and_hash(file, &mut bytes, node.size, maximum, &node.full_path, limit)?;
+    verify_anchored_digest(
+        node.sha256.as_deref().unwrap_or_default(),
+        &consumed.sha256,
+        &node.full_path,
+    )?;
     Ok(bytes)
 }
 
@@ -701,40 +752,21 @@ fn resolve_destination(path: &Path) -> Result<PathBuf, SkillError> {
     }
 }
 
-#[cfg(unix)]
-fn unix_mode(metadata: &fs::Metadata) -> u32 {
-    use std::os::unix::fs::PermissionsExt;
-    metadata.permissions().mode()
-}
-
-#[cfg(not(unix))]
-fn unix_mode(_metadata: &fs::Metadata) -> u32 {
-    0
-}
-
-#[cfg(unix)]
-fn has_multiple_hard_links(metadata: &fs::Metadata) -> bool {
-    use std::os::unix::fs::MetadataExt;
-    metadata.nlink() > 1
-}
-
-#[cfg(not(unix))]
-fn has_multiple_hard_links(_metadata: &fs::Metadata) -> bool {
-    false
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::skills::SkillsPaths;
     use crate::testenv::TestHome;
+    use std::io::Cursor;
 
+    #[cfg(unix)]
     fn fixture(name: &str) -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("tests/fixtures/skills")
             .join(name)
     }
 
+    #[cfg(unix)]
     fn copy_safe_fixture(destination: &Path) {
         fs::create_dir_all(destination.join("references")).unwrap();
         fs::copy(
@@ -749,6 +781,7 @@ mod tests {
         .unwrap();
     }
 
+    #[cfg(unix)]
     #[test]
     fn rejects_escape_symlinks_and_limit_overflow() {
         let th = TestHome::new("skill-file-safety");
@@ -775,6 +808,7 @@ mod tests {
         ));
     }
 
+    #[cfg(unix)]
     #[test]
     fn normalized_tree_hash_is_stable_and_content_sensitive() {
         let first = fixture("safe");
@@ -849,6 +883,37 @@ mod tests {
         }));
     }
 
+    #[test]
+    fn copy_cleanup_failures_require_recovery_without_leaking_paths() {
+        let th = TestHome::new("skill-copy-cleanup-failure");
+        let destination = th.home.join("private-destination");
+        let original = SkillError::Io {
+            message: "copy failed".into(),
+            path: None,
+        };
+
+        assert_eq!(
+            finish_copy_with_cleanup(Err(original.clone()), &destination, |_| Ok(())).unwrap_err(),
+            original
+        );
+
+        let error = finish_copy_with_cleanup(Err(original), &destination, |_| {
+            Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "cleanup denied",
+            ))
+        })
+        .unwrap_err();
+        let SkillError::RecoveryRequired { message } = error else {
+            panic!("expected recovery-required cleanup error");
+        };
+        assert_eq!(
+            message,
+            "partial skill copy could not be removed; manual recovery is required"
+        );
+        assert!(!message.contains(destination.to_string_lossy().as_ref()));
+    }
+
     #[cfg(unix)]
     #[test]
     fn secure_copy_rejects_a_destination_inside_source_through_a_symlinked_parent() {
@@ -895,6 +960,25 @@ mod tests {
 
         fs::write(root.join("target"), "target").unwrap();
         std::os::unix::fs::symlink(root.join("target"), root.join("absolute")).unwrap();
+        assert!(matches!(
+            inspect_tree(&root),
+            Err(SkillError::UnsafePath { .. })
+        ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rejects_hard_linked_symlinks() {
+        use std::os::unix::fs::MetadataExt;
+
+        let th = TestHome::new("skill-hard-linked-symlink");
+        let root = th.home.join("root");
+        fs::create_dir_all(&root).unwrap();
+        fs::write(root.join("target"), "target").unwrap();
+        std::os::unix::fs::symlink("target", root.join("link")).unwrap();
+        fs::hard_link(root.join("link"), root.join("link-alias")).unwrap();
+        assert_eq!(fs::symlink_metadata(root.join("link")).unwrap().nlink(), 2);
+
         assert!(matches!(
             inspect_tree(&root),
             Err(SkillError::UnsafePath { .. })
@@ -953,6 +1037,33 @@ mod tests {
         assert!(!modified.diff_truncated);
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn diff_reports_content_and_mode_changes_as_two_deterministic_rows() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let th = TestHome::new("skill-tree-content-and-mode-diff");
+        let before = th.home.join("before");
+        let after = th.home.join("after");
+        fs::create_dir_all(&before).unwrap();
+        fs::create_dir_all(&after).unwrap();
+        fs::write(before.join("both.txt"), "before\n").unwrap();
+        fs::write(after.join("both.txt"), "after\n").unwrap();
+        fs::set_permissions(after.join("both.txt"), fs::Permissions::from_mode(0o755)).unwrap();
+
+        let changes = diff_trees(Some(&before), &after).unwrap();
+        assert_eq!(changes.len(), 2);
+        assert_eq!(changes[0].path, "both.txt");
+        assert_eq!(changes[0].kind, FileChangeKind::Modified);
+        assert!(changes[0].unified_diff.is_some());
+        assert_eq!(changes[1].path, "both.txt");
+        assert_eq!(changes[1].kind, FileChangeKind::ModeChanged);
+        assert!(changes[1].unified_diff.is_none());
+        assert_eq!(changes[0].before_hash, changes[1].before_hash);
+        assert_eq!(changes[0].after_hash, changes[1].after_hash);
+    }
+
+    #[cfg(unix)]
     #[test]
     fn text_diffs_are_utf8_safely_bounded() {
         let th = TestHome::new("skill-diff-bound");
@@ -979,6 +1090,7 @@ mod tests {
         assert!(std::str::from_utf8(diff.as_bytes()).is_ok());
     }
 
+    #[cfg(unix)]
     #[test]
     fn validates_content_kind_priority() {
         let th = TestHome::new("skill-content-kind");
@@ -1013,5 +1125,118 @@ mod tests {
             SkillsPaths::from_env(),
             Err(SkillError::InvalidSource { .. })
         ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn anchored_reopen_rejects_type_identity_link_and_size_mismatches() {
+        let path = Path::new("/private/mux-test/skill/file.txt");
+        let expected = AnchoredIdentity {
+            kind: AnchoredFileKind::Regular,
+            device: 7,
+            inode: 11,
+            links: 1,
+            size: 4,
+            mode: 0o100644,
+        };
+        let mismatches = [
+            AnchoredIdentity {
+                kind: AnchoredFileKind::Symlink,
+                ..expected
+            },
+            AnchoredIdentity {
+                device: 8,
+                ..expected
+            },
+            AnchoredIdentity {
+                inode: 12,
+                ..expected
+            },
+            AnchoredIdentity {
+                links: 2,
+                ..expected
+            },
+            AnchoredIdentity {
+                size: 5,
+                ..expected
+            },
+        ];
+
+        for actual in mismatches {
+            assert!(verify_anchored_identity(&expected, &actual, path).is_err());
+        }
+        assert!(verify_anchored_identity(&expected, &expected, path).is_ok());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn anchored_reader_bounds_bytes_and_rejects_digest_changes() {
+        let path = Path::new("/private/mux-test/skill/file.txt");
+        let mut output = Vec::new();
+        let error = consume_bounded_and_hash(
+            Cursor::new(b"12345"),
+            &mut output,
+            4,
+            4,
+            path,
+            "single_file",
+        )
+        .unwrap_err();
+        assert_eq!(
+            error,
+            SkillError::LimitExceeded {
+                limit: "single_file".into(),
+                actual: 5,
+                allowed: 4,
+            }
+        );
+
+        let mut output = Vec::new();
+        let consumed =
+            consume_bounded_and_hash(Cursor::new(b"safe"), &mut output, 4, 4, path, "single_file")
+                .unwrap();
+        assert_eq!(output, b"safe");
+        assert!(verify_anchored_digest("wrong", &consumed.sha256, path).is_err());
+        assert!(verify_anchored_digest(&consumed.sha256, &consumed.sha256, path).is_ok());
+    }
+
+    #[test]
+    fn exact_limits_accept_boundary_and_report_plus_one_values() {
+        let cases = [
+            (
+                enforce_entry_limit as fn(u64) -> Result<(), SkillError>,
+                "entries",
+                MAX_ARCHIVE_ENTRIES,
+            ),
+            (enforce_skill_limit, "skill", MAX_SKILL_BYTES),
+            (
+                enforce_single_file_limit,
+                "single_file",
+                MAX_SINGLE_FILE_BYTES,
+            ),
+            (enforce_diff_input_limit, "diff_input", MAX_DIFF_INPUT_BYTES),
+            (
+                enforce_diff_output_limit,
+                "diff_output",
+                MAX_DIFF_OUTPUT_BYTES as u64,
+            ),
+            (
+                enforce_plan_diff_limit,
+                "plan_diff",
+                MAX_PLAN_DIFF_BYTES as u64,
+            ),
+        ];
+
+        for (enforce, name, allowed) in cases {
+            assert!(enforce(allowed).is_ok(), "{name} rejected its boundary");
+            assert_eq!(
+                enforce(allowed + 1),
+                Err(SkillError::LimitExceeded {
+                    limit: name.into(),
+                    actual: allowed + 1,
+                    allowed,
+                })
+            );
+        }
     }
 }

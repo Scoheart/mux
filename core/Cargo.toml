@@ -19,3 +19,6 @@ sha2 = "0.10"
 hex = "0.4"
 regex = "1"
 similar = "2"
+
+[target.'cfg(unix)'.dependencies]
+rustix = { version = "1", features = ["fs"] }

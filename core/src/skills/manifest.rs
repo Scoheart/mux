@@ -99,6 +99,7 @@ mod tests {
             .join(name)
     }
 
+    #[cfg(unix)]
     #[test]
     fn parses_a_valid_skill_and_requires_directory_name() {
         let root = fixture("safe");

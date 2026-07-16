@@ -1,3 +1,4 @@
+mod anchored;
 mod files;
 mod manifest;
 mod paths;

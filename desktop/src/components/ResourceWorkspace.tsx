@@ -136,6 +136,7 @@ export function ResourceWorkspace({
       if (event.button !== 0) return;
 
       event.preventDefault();
+      finishSidebarResize(true);
       const startWidth = sidebarWidthRef.current;
       const startX = event.clientX;
       const previousUserSelect = document.body.style.userSelect;

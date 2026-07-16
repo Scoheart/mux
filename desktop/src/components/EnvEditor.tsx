@@ -96,7 +96,7 @@ export function EnvEditor({ value, onChange }: EnvEditorProps) {
       <button
         onClick={addRow}
         className="flex items-center gap-1 text-xs mt-1 border-0 bg-transparent cursor-pointer px-0"
-        style={{ color: "var(--color-blue)" }}
+        style={{ color: "#007AFF" }}
       >
         <PlusIcon className="w-3.5 h-3.5" />
         <span>添加变量</span>

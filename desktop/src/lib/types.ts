@@ -103,8 +103,7 @@ export interface PatchInput {
 export type View =
   | { kind: "registry" }
   | { kind: "models" }
-  | { kind: "agent"; id: string }
-  | { kind: "mcp-edit"; name: string | null; transport?: "stdio" | "http" };
+  | { kind: "agent"; id: string };
 
 /** A catalog source (mirrors Rust SourceView): a subscribed remote URL or a
  *  local file. Its servers are parsed from a cached copy under ~/.mux/sources/. */

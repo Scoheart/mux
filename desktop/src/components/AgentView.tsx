@@ -27,17 +27,12 @@ import {
 import { Avatar, Badge, IconButton, SearchBar, Switch, TransportPill } from "./ui";
 import { AgentGlyph } from "./brandIcons";
 import { AddAgentDialog } from "./AddAgentDialog";
-import { AgentPicker } from "./AgentPicker";
-import { FeatureShell } from "./FeatureShell";
 import { useToast } from "./Toast";
 
 interface AgentViewProps {
   state: InstallState;
   agentId: string;
-  onSelectAgent: (id: string) => void;
-  onAddAgent?: () => void;
-  onSelectMcps: () => void;
-  onSelectModels: () => void;
+  onOpenModels: () => void;
 }
 
 function syntheticEntry(serverKey: string): RegistryEntry {
@@ -62,15 +57,7 @@ function samePath(left: string, right: string) {
   return left.trim().replace(/\/+$/, "") === right.trim().replace(/\/+$/, "");
 }
 
-export function AgentView({
-  state,
-  agentId,
-  onSelectAgent,
-  onAddAgent,
-  onSelectMcps,
-  onSelectModels,
-}: AgentViewProps) {
-  const onOpenModels = onSelectModels;
+export function AgentView({ state, agentId, onOpenModels }: AgentViewProps) {
   const { entries, agents, installed, pending, toggle, setEnabled, remove, refreshAgents, rescan } = state;
   const { show: showToast } = useToast();
 
@@ -224,22 +211,7 @@ export function AgentView({
   const sharedConfig = samePath(agentConfigPath, mcpConfigPath);
 
   return (
-    <FeatureShell
-      active="mcps"
-      onSelectMcps={onSelectMcps}
-      onSelectModels={onSelectModels}
-      toolbar={
-        <div className="mux-feature-chrome-toolbar">
-          <AgentPicker
-            agents={agents}
-            selectedId={agentId}
-            onSelect={onSelectAgent}
-            onAddAgent={onAddAgent}
-          />
-        </div>
-      }
-    >
-      <div className="mux-agent-page">
+    <div className="mux-agent-page">
       <div className="mux-agent-shell">
         <AgentHeader agent={agent} />
 
@@ -424,7 +396,6 @@ export function AgentView({
         />
       )}
     </div>
-    </FeatureShell>
   );
 }
 

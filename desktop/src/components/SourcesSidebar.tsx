@@ -2,10 +2,11 @@ import { useMemo, useState } from "react";
 import type { InstallState } from "../hooks/useInstallState";
 import type { SourceView } from "../lib/types";
 import { IconButton } from "./ui";
-import { CloudIcon, FolderIcon, RefreshIcon, TrashIcon, LayersIcon, EditIcon, SearchIcon, CheckIcon, XIcon } from "./icons";
+import { CheckIcon, CloudIcon, FolderIcon, RefreshIcon, TrashIcon, LayersIcon, EditIcon, SearchIcon, XIcon } from "./icons";
 import { SubscribeDialog } from "./SubscribeDialog";
 import { useToast } from "./Toast";
 import { formatError } from "../lib/format";
+import { SidebarItem, SidebarSection, WorkspaceSidebar } from "./ResourceWorkspace";
 
 export type McpStatusFilter = "all" | "used" | "unused" | "shadowed";
 export type McpStatusCounts = Record<McpStatusFilter, number>;
@@ -42,9 +43,9 @@ export function SourcesSidebar({
   /** null = 全部 (all sources). */
   selectedId: string | null;
   onSelect: (id: string | null) => void;
-  statusFilter?: McpStatusFilter;
-  statusCounts?: McpStatusCounts;
-  onStatusFilter?: (filter: McpStatusFilter) => void;
+  statusFilter: McpStatusFilter;
+  statusCounts: McpStatusCounts;
+  onStatusFilter: (filter: McpStatusFilter) => void;
 }) {
   const { sources, catalog } = state;
   const toast = useToast();
@@ -100,101 +101,84 @@ export function SourcesSidebar({
   };
 
   return (
-    <aside className="mux-feature-sidebar">
-      {/* Header: title + add actions */}
-      <div className="flex items-center gap-1.5 px-3 pt-3.5 pb-2">
-        <span className="text-xs font-semibold uppercase flex-1" style={{ color: "var(--text-secondary)", letterSpacing: "0.06em" }}>
-          MCPs
-        </span>
-        <span className="text-[10px] tabular-nums" style={{ color: "var(--text-secondary)" }}>
-          {catalog.length} 项
-        </span>
-      </div>
-
-      <div className="flex-1 min-h-0 overflow-y-auto px-2 pb-3 mux-noscroll">
-        {statusFilter && statusCounts && onStatusFilter && (
-          <>
-            <div className="mux-feature-sidebar-section">状态</div>
-            <Row
-              active={statusFilter === "all"}
-              icon={<LayersIcon className="w-3.5 h-3.5" />}
-              name="全部"
-              count={statusCounts.all}
-              onClick={() => onStatusFilter("all")}
-            />
-            <Row
-              active={statusFilter === "used"}
-              icon={<CheckIcon className="w-3.5 h-3.5" />}
-              name="使用中"
-              count={statusCounts.used}
-              onClick={() => onStatusFilter("used")}
-            />
-            <Row
-              active={statusFilter === "unused"}
-              icon={<XIcon className="w-3.5 h-3.5" />}
-              name="未使用"
-              count={statusCounts.unused}
-              onClick={() => onStatusFilter("unused")}
-            />
-            {statusCounts.shadowed > 0 && (
-              <Row
-                active={statusFilter === "shadowed"}
-                icon={<LayersIcon className="w-3.5 h-3.5" />}
-                name="被覆盖"
-                count={statusCounts.shadowed}
-                onClick={() => onStatusFilter("shadowed")}
-              />
-            )}
-            <div className="my-2 mx-2 h-px" style={{ background: "var(--border-hairline)" }} />
-          </>
+    <WorkspaceSidebar title="MCPs" count={catalog.length}>
+      <SidebarSection title="状态">
+        <SidebarItem
+          active={statusFilter === "all"}
+          icon={<LayersIcon className="w-3.5 h-3.5" />}
+          label="全部"
+          count={statusCounts.all}
+          onClick={() => onStatusFilter("all")}
+        />
+        <SidebarItem
+          active={statusFilter === "used"}
+          icon={<CheckIcon className="w-3.5 h-3.5" />}
+          label="使用中"
+          count={statusCounts.used}
+          onClick={() => onStatusFilter("used")}
+        />
+        <SidebarItem
+          active={statusFilter === "unused"}
+          icon={<XIcon className="w-3.5 h-3.5" />}
+          label="未使用"
+          count={statusCounts.unused}
+          onClick={() => onStatusFilter("unused")}
+        />
+        {statusCounts.shadowed > 0 && (
+          <SidebarItem
+            active={statusFilter === "shadowed"}
+            icon={<LayersIcon className="w-3.5 h-3.5" />}
+            label="被覆盖"
+            count={statusCounts.shadowed}
+            onClick={() => onStatusFilter("shadowed")}
+          />
         )}
+      </SidebarSection>
 
-        <div className="mux-feature-sidebar-section flex items-center gap-1.5">
-          <span className="flex-1">来源</span>
-          <IconButton title="添加订阅" onClick={() => setSubscribeOpen(true)}>
-            <CloudIcon className="w-3.5 h-3.5" />
-          </IconButton>
-          <IconButton title="导入配置" onClick={pickLocal}>
-            <FolderIcon className="w-3.5 h-3.5" />
-          </IconButton>
-        </div>
-
-        <Row
+      <SidebarSection
+        title="来源"
+        actions={
+          <>
+            <IconButton title="添加订阅" onClick={() => setSubscribeOpen(true)}>
+              <CloudIcon className="w-4 h-4" />
+            </IconButton>
+            <IconButton title="导入配置" onClick={pickLocal}>
+              <FolderIcon className="w-4 h-4" />
+            </IconButton>
+          </>
+        }
+      >
+        <SidebarItem
           active={selectedId === null}
           icon={<LayersIcon className="w-3.5 h-3.5" />}
-          name="全部来源"
+          label="全部来源"
           count={catalog.length}
           onClick={() => onSelect(null)}
         />
-        <div className="my-1.5 mx-2 h-px" style={{ background: "var(--border-hairline)" }} />
-
         {sorted.length === 0 ? (
-          <div className="text-[11px] px-3 py-4 leading-relaxed" style={{ color: "var(--text-secondary)" }}>
-            暂无来源。添加订阅或导入配置。
-          </div>
+          <div className="mux-sidebar-empty">暂无来源</div>
         ) : (
-          sorted.map((s) => (
-            <Row
-              key={s.id}
-              active={selectedId === s.id}
-              icon={kindIconOf(s)}
-              name={s.name}
-              count={s.server_count}
-              busy={busyId === s.id}
-              onClick={() => onSelect(s.id)}
+          sorted.map((source) => (
+            <SidebarItem
+              key={source.id}
+              active={selectedId === source.id}
+              icon={kindIconOf(source)}
+              label={source.name}
+              count={source.server_count}
+              onClick={() => onSelect(source.id)}
               actions={
                 <>
-                  {(s.kind === "remote" || !s.managed || s.id === "discovered") && (
+                  {(source.kind === "remote" || !source.managed || source.id === "discovered") && (
                     <IconButton
-                      title={s.id === "discovered" ? "重新探索" : "刷新来源"}
-                      onClick={() => doRefresh(s)}
-                      disabled={busyId === s.id}
+                      title={source.id === "discovered" ? "重新探索" : "刷新来源"}
+                      onClick={() => doRefresh(source)}
+                      disabled={busyId === source.id}
                     >
-                      <RefreshIcon className="w-3.5 h-3.5" style={busyId === s.id ? { animation: "spin 0.8s linear infinite" } : undefined} />
+                      <RefreshIcon className="w-3.5 h-3.5" style={busyId === source.id ? { animation: "spin 0.8s linear infinite" } : undefined} />
                     </IconButton>
                   )}
-                  {!s.managed && (
-                    <IconButton title="删除来源" onClick={() => doRemove(s)} disabled={busyId === s.id}>
+                  {!source.managed && (
+                    <IconButton title="删除来源" onClick={() => doRemove(source)} disabled={busyId === source.id}>
                       <TrashIcon className="w-3.5 h-3.5" />
                     </IconButton>
                   )}
@@ -203,7 +187,7 @@ export function SourcesSidebar({
             />
           ))
         )}
-      </div>
+      </SidebarSection>
 
       {subscribeOpen && (
         <SubscribeDialog
@@ -211,65 +195,6 @@ export function SourcesSidebar({
           onClose={() => setSubscribeOpen(false)}
         />
       )}
-    </aside>
-  );
-}
-
-/** One source row: clickable body (selects/filters) with a trailing toggle and
- *  hover-revealed refresh/remove actions. */
-function Row({
-  active,
-  icon,
-  name,
-  count,
-  dimmed,
-  busy,
-  onClick,
-  toggle,
-  actions,
-}: {
-  active: boolean;
-  icon: React.ReactNode;
-  name: string;
-  count: number;
-  dimmed?: boolean;
-  busy?: boolean;
-  onClick: () => void;
-  toggle?: React.ReactNode;
-  actions?: React.ReactNode;
-}) {
-  return (
-    <div
-      className="mux-src-row group flex items-center gap-2 px-2.5 rounded-mac cursor-pointer"
-      data-active={active ? "true" : undefined}
-      style={{ opacity: dimmed ? 0.5 : 1 }}
-      onClick={onClick}
-      title={name}
-    >
-      <span className="flex-shrink-0" style={{ color: active ? "var(--color-blue)" : "var(--text-secondary)" }}>
-        {icon}
-      </span>
-      <span className="text-[13px] truncate flex-1" style={{ color: "var(--text-primary)", fontWeight: active ? 600 : 400 }}>
-        {name}
-      </span>
-      {/* count — hidden while hovering to make room for actions */}
-      <span
-        className={`text-[11px] tabular-nums flex-shrink-0 ${actions ? "group-hover:hidden" : ""}`}
-        style={{ color: "var(--text-secondary)" }}
-      >
-        {count}
-      </span>
-      {actions && (
-        <span className="hidden group-hover:flex items-center gap-0.5 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
-          {actions}
-        </span>
-      )}
-      {toggle && (
-        <span className="flex-shrink-0" onClick={(e) => e.stopPropagation()}>
-          {toggle}
-        </span>
-      )}
-      {busy && !actions && <span />}
-    </div>
+    </WorkspaceSidebar>
   );
 }

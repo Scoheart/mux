@@ -81,6 +81,40 @@ fn metadata_check_rejects_inconsistent_pinned_provenance_without_network_access(
     assert!(outcome.errors.contains_key("review-changes"));
     assert!(outcome.skipped_pinned.is_empty());
     assert!(fixture.http_requests().is_empty());
+
+    mutate_settings(|settings| {
+        let record = settings
+            .managed_skills
+            .as_mut()
+            .unwrap()
+            .get_mut("review-changes")
+            .unwrap();
+        let SkillSource::Github { requested_ref, .. } = &mut record.source else {
+            unreachable!()
+        };
+        *requested_ref = OLD_SHA.into();
+        record.resolved_revision = None;
+    })
+    .unwrap();
+    let missing = fixture.check(true);
+    assert!(missing.errors.contains_key("review-changes"));
+    assert!(missing.skipped_pinned.is_empty());
+    assert!(fixture.http_requests().is_empty());
+
+    mutate_settings(|settings| {
+        settings
+            .managed_skills
+            .as_mut()
+            .unwrap()
+            .get_mut("review-changes")
+            .unwrap()
+            .resolved_revision = Some(NEW_SHA.into());
+    })
+    .unwrap();
+    let mismatched = fixture.check(true);
+    assert!(mismatched.errors.contains_key("review-changes"));
+    assert!(mismatched.skipped_pinned.is_empty());
+    assert!(fixture.http_requests().is_empty());
 }
 
 #[test]
@@ -148,6 +182,14 @@ fn automatic_check_is_not_due_within_twenty_four_hours_but_is_due_at_boundary() 
     let due = fixture.check_at(false, "2026-07-17T08:00:00Z");
     assert!(due.performed);
     assert_eq!(fixture.http_requests(), vec!["commit:main"]);
+
+    mutate_settings(|settings| {
+        settings.skill_update_checked_at = Some("2026-07-18T08:00:00Z".into())
+    })
+    .unwrap();
+    let future_clock = fixture.check_at(false, "2026-07-17T08:00:00Z");
+    assert!(future_clock.performed);
+    assert_eq!(fixture.http_requests(), vec!["commit:main", "commit:main"]);
 }
 
 #[test]

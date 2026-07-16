@@ -71,6 +71,7 @@ enum PersistedPlanInput {
         request: PlanRepairRequest,
         resolution: Option<SkillSourceResolution>,
         changed_source: bool,
+        backup_path: Option<String>,
     },
 }
 
@@ -131,6 +132,7 @@ enum LifecycleBinding<'a> {
     Repair {
         repair: &'a RepairKind,
         changed_source: bool,
+        backup_path: &'a Option<String>,
     },
 }
 
@@ -368,8 +370,21 @@ fn plan_repair_inner(request: PlanRepairRequest) -> Result<OperationPlan, SkillE
             )?;
             let paths = SkillsPaths::resolve_from_env()?;
             let operation_id = resolution.operation_id.clone();
+            let backup_path = paths
+                .backups_skills_dir()
+                .join(format!(
+                    "repair-{}-{}",
+                    crate::paths::backup_timestamp(),
+                    &operation_id[..8]
+                ))
+                .join(&request.skill_name);
             let result = (|| {
-                let persisted = build_central_repair_plan(request, resolution)?;
+                let persisted = build_central_repair_plan(
+                    request,
+                    resolution,
+                    collapse_home(&backup_path, paths.user_home()),
+                    false,
+                )?;
                 persist_plan(&paths, &persisted)?;
                 Ok(persisted.plan)
             })();
@@ -797,10 +812,15 @@ fn build_update_plan(
     if resolution.source != record.source || resolution.candidates.len() != 1 {
         return stale("the recorded Skill source changed while its update was staged");
     }
-    if matches!(record.source, SkillSource::Github { .. })
-        && resolution.resolved_revision == record.resolved_revision
-    {
-        return conflict_result("the staged GitHub revision is already installed");
+    if matches!(record.source, SkillSource::Github { .. }) {
+        if !record.update.available
+            || record.update.resolved_revision != resolution.resolved_revision
+        {
+            return stale("the reviewed GitHub update changed while it was staged");
+        }
+        if resolution.resolved_revision == record.resolved_revision {
+            return conflict_result("the staged GitHub revision is already installed");
+        }
     }
     let summary = &resolution.candidates[0];
     if summary.name != request.skill_name {
@@ -1038,6 +1058,7 @@ fn build_target_repair_plan(
             request: request.clone(),
             resolution: None,
             changed_source: false,
+            backup_path: None,
         },
         expected_central: vec![ExpectedCentral {
             skill_name: request.skill_name,
@@ -1051,6 +1072,8 @@ fn build_target_repair_plan(
 fn build_central_repair_plan(
     request: PlanRepairRequest,
     resolution: SkillSourceResolution,
+    backup_path: String,
+    allow_reappeared: bool,
 ) -> Result<PersistedPlan, SkillError> {
     if request.repair != RepairKind::Central {
         return invalid_source("a central repair cannot stage a target repair");
@@ -1084,7 +1107,8 @@ fn build_central_repair_plan(
     }
     let staged_name = summary.name.clone();
     let central = paths.central_skill(&request.skill_name);
-    if inspect_central(&central)?.is_some() {
+    let central_hash = inspect_central(&central)?;
+    if central_hash.is_some() && !allow_reappeared {
         return conflict_result("central repair requires missing managed content");
     }
     let changed_source = validated.content_hash != record.content_hash;
@@ -1122,10 +1146,11 @@ fn build_central_repair_plan(
             request,
             resolution: Some(resolution),
             changed_source,
+            backup_path: Some(backup_path),
         },
         expected_central: vec![ExpectedCentral {
             skill_name: staged_name,
-            content_hash: None,
+            content_hash: central_hash,
         }],
         expected_links: Vec::new(),
         expected_target_roots: Vec::new(),
@@ -1232,9 +1257,13 @@ fn commit_plan(
         ));
     }
     let rebuilt = rebuild_plan(&persisted).map_err(revalidation_error)?;
-    if rebuilt != persisted {
+    let effective = if rebuilt == persisted {
+        rebuilt
+    } else if central_repair_reappearance_matches(&persisted, &rebuilt)? {
+        rebuilt
+    } else {
         return Err(stale_error("the reviewed Skills plan is stale"));
-    }
+    };
     if persisted.plan.requires_risk_override
         && request.findings_confirmation.as_deref() != Some(persisted.plan.findings_hash.as_str())
     {
@@ -1243,9 +1272,86 @@ fn commit_plan(
             findings_hash: persisted.plan.findings_hash.clone(),
         });
     }
-    let spec = transaction_spec(&paths, &persisted)?;
+    let spec = transaction_spec(&paths, &effective)?;
     execute_transaction(spec)?;
     list_inventory()
+}
+
+fn central_repair_reappearance_matches(
+    reviewed: &PersistedPlan,
+    rebuilt: &PersistedPlan,
+) -> Result<bool, SkillError> {
+    let (
+        PersistedPlanInput::Repair {
+            request: reviewed_request,
+            resolution: Some(_),
+            backup_path: Some(_),
+            ..
+        },
+        PersistedPlanInput::Repair {
+            request: rebuilt_request,
+            resolution: Some(_),
+            backup_path: Some(_),
+            ..
+        },
+    ) = (&reviewed.input, &rebuilt.input)
+    else {
+        return Ok(false);
+    };
+    if reviewed_request.repair != RepairKind::Central
+        || rebuilt_request.repair != RepairKind::Central
+        || reviewed.expected_central.len() != 1
+        || rebuilt.expected_central.len() != 1
+        || reviewed.expected_central[0].skill_name != rebuilt.expected_central[0].skill_name
+        || reviewed.expected_central[0].content_hash.is_some()
+        || rebuilt.expected_central[0].content_hash.is_none()
+        || reviewed.plan.skills.len() != 1
+        || rebuilt.plan.skills.len() != 1
+        || reviewed.plan.skills[0].manifest.name != rebuilt.plan.skills[0].manifest.name
+        || !central_reappearance_states_match(
+            &reviewed.plan.skills[0].existing_states,
+            &rebuilt.plan.skills[0].existing_states,
+        )
+        || candidate_hash(rebuilt)? != rebuilt.plan.candidate_hash
+    {
+        return Ok(false);
+    }
+
+    let mut normalized = rebuilt.clone();
+    normalized.expected_central = reviewed.expected_central.clone();
+    normalized.plan.skills[0].existing_states = reviewed.plan.skills[0].existing_states.clone();
+    normalized.plan.candidate_hash = candidate_hash(&normalized)?;
+    Ok(&normalized == reviewed)
+}
+
+fn central_reappearance_states_match(
+    reviewed: &BTreeSet<InventoryState>,
+    rebuilt: &BTreeSet<InventoryState>,
+) -> bool {
+    if !reviewed.contains(&InventoryState::Missing)
+        || reviewed.contains(&InventoryState::Managed)
+        || reviewed.contains(&InventoryState::LocallyModified)
+        || rebuilt.contains(&InventoryState::Missing)
+        || (!rebuilt.contains(&InventoryState::Managed)
+            && !rebuilt.contains(&InventoryState::LocallyModified))
+    {
+        return false;
+    }
+    let normalize = |states: &BTreeSet<InventoryState>| {
+        states
+            .iter()
+            .filter(|state| {
+                !matches!(
+                    state,
+                    InventoryState::Missing
+                        | InventoryState::Managed
+                        | InventoryState::LocallyModified
+                )
+            })
+            .cloned()
+            .collect::<BTreeSet<_>>()
+    };
+    normalize(reviewed) == normalize(rebuilt)
 }
 
 fn revalidation_error(error: SkillError) -> SkillError {
@@ -1315,6 +1421,7 @@ fn rebuild_plan(persisted: &PersistedPlan) -> Result<PersistedPlan, SkillError> 
         PersistedPlanInput::Repair {
             request,
             resolution,
+            backup_path,
             ..
         } => match resolution {
             Some(expected) => {
@@ -1325,7 +1432,10 @@ fn rebuild_plan(persisted: &PersistedPlan) -> Result<PersistedPlan, SkillError> 
                         "the staged central repair changed after review",
                     ));
                 }
-                build_central_repair_plan(request.clone(), reloaded)
+                let backup_path = backup_path.clone().ok_or_else(|| {
+                    invalid_source_error("the reviewed central repair backup path is unavailable")
+                })?;
+                build_central_repair_plan(request.clone(), reloaded, backup_path, true)
             }
             None => build_target_repair_plan(request.clone(), persisted.plan.operation_id.clone()),
         },
@@ -1384,6 +1494,17 @@ fn transaction_spec(
                 PersistedPlanInput::Update { backup_path, .. } => (
                     paths.expand_user(backup_path).ok_or_else(|| {
                         invalid_source_error("the reviewed update backup path is invalid")
+                    })?,
+                    true,
+                ),
+                PersistedPlanInput::Repair {
+                    request,
+                    resolution: Some(_),
+                    backup_path: Some(backup_path),
+                    ..
+                } if request.repair == RepairKind::Central && expected.content_hash.is_some() => (
+                    paths.expand_user(backup_path).ok_or_else(|| {
+                        invalid_source_error("the reviewed central repair backup path is invalid")
                     })?,
                     true,
                 ),
@@ -1752,10 +1873,12 @@ fn candidate_hash(persisted: &PersistedPlan) -> Result<String, SkillError> {
         PersistedPlanInput::Repair {
             request,
             changed_source,
+            backup_path,
             ..
         } => Some(LifecycleBinding::Repair {
             repair: &request.repair,
             changed_source: *changed_source,
+            backup_path,
         }),
         PersistedPlanInput::Install { .. }
         | PersistedPlanInput::Import { .. }
@@ -2602,6 +2725,8 @@ mod tests {
                 repair: RepairKind::Central,
             },
             resolution,
+            "~/.mux/backups/skills/repair-test/repair-preserves-update".into(),
+            false,
         )
         .unwrap();
         let mut settings = current_settings_snapshot().unwrap();
@@ -2615,5 +2740,84 @@ mod tests {
             settings.managed_skills.unwrap()["repair-preserves-update"].update,
             expected
         );
+    }
+
+    #[test]
+    fn github_update_plan_rejects_a_checked_revision_that_advanced_while_staging() {
+        let home = TestHome::new("update-advanced-while-staging");
+        let installed_source = home.home.join("source/installed/review-changes");
+        fs::create_dir_all(&installed_source).unwrap();
+        fs::write(
+            installed_source.join("SKILL.md"),
+            "---\nname: review-changes\ndescription: Installed fixture\n---\n",
+        )
+        .unwrap();
+        let installed = resolve_source(
+            SkillSourceInput::Local {
+                path: installed_source.to_string_lossy().into_owned(),
+            },
+            GithubEndpoints::production(),
+        )
+        .unwrap();
+        let install = plan_install(PlanInstallRequest {
+            resolution_id: installed.operation_id,
+            skill_names: vec!["review-changes".into()],
+            agent_ids: Vec::new(),
+            replace_conflicts: false,
+        })
+        .unwrap();
+        commit_install(install.confirmation()).unwrap();
+
+        let staged_source = home.home.join("source/staged/review-changes");
+        fs::create_dir_all(&staged_source).unwrap();
+        fs::write(
+            staged_source.join("SKILL.md"),
+            "---\nname: review-changes\ndescription: Staged fixture\n---\n",
+        )
+        .unwrap();
+        let mut resolution = resolve_source(
+            SkillSourceInput::Local {
+                path: staged_source.to_string_lossy().into_owned(),
+            },
+            GithubEndpoints::production(),
+        )
+        .unwrap();
+        let old_sha = "1111111111111111111111111111111111111111";
+        let reviewed_sha = "2222222222222222222222222222222222222222";
+        let advanced_sha = "3333333333333333333333333333333333333333";
+        let github_source = SkillSource::Github {
+            owner: "acme".into(),
+            repo: "skills".into(),
+            subpath: "catalog/review-changes".into(),
+            requested_ref: "main".into(),
+            pinned: false,
+        };
+        resolution.source = github_source.clone();
+        resolution.resolved_revision = Some(reviewed_sha.into());
+        crate::settings::mutate_settings(|settings| {
+            let record = settings
+                .managed_skills
+                .as_mut()
+                .unwrap()
+                .get_mut("review-changes")
+                .unwrap();
+            record.source = github_source;
+            record.resolved_revision = Some(old_sha.into());
+            record.update.available = true;
+            record.update.resolved_revision = Some(advanced_sha.into());
+        })
+        .unwrap();
+
+        assert!(matches!(
+            build_update_plan(
+                PlanUpdateRequest {
+                    skill_name: "review-changes".into(),
+                    replace_local_changes: false,
+                },
+                resolution,
+                "~/.mux/backups/skills/update-test/review-changes".into(),
+            ),
+            Err(SkillError::PlanStale { .. }) | Err(SkillError::Conflict { .. })
+        ));
     }
 }

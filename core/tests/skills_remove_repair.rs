@@ -338,6 +338,7 @@ fn central_repair_restores_missing_local_copy_and_updates_changed_source() {
         restored_hash,
         load_settings().managed_skills.unwrap()["safe"].content_hash
     );
+    assert!(fixture.backups_with_prefix("repair-", "safe").is_empty());
 }
 
 #[test]
@@ -419,30 +420,93 @@ fn central_repair_rejects_imported_backup_outside_mux_backup_root() {
 }
 
 #[test]
-fn central_repair_rejects_reappeared_content_and_settings_changes() {
+fn central_repair_backs_up_reappeared_content_before_restoring_reviewed_candidate() {
     let fixture = SkillsFixture::missing_central("safe");
     let plan = plan_repair(PlanRepairRequest {
         skill_name: "safe".into(),
         repair: RepairKind::Central,
     })
     .unwrap();
-    write_skill(&fixture.central("safe"), "safe", "Reappeared fixture");
-    assert!(matches!(
-        commit_repair(plan.confirmation()),
-        Err(SkillError::PlanStale { .. })
-    ));
+    let plan_path = SkillsPaths::from_env()
+        .unwrap()
+        .staging_skills_dir()
+        .join(&plan.operation_id)
+        .join("plan.json");
+    let private_plan: serde_json::Value =
+        serde_json::from_slice(&fs::read(&plan_path).unwrap()).unwrap();
+    let backup_path = private_plan["input"]["backup_path"]
+        .as_str()
+        .expect("central repair must bind its private backup path");
+    assert!(backup_path.starts_with("~/.mux/backups/skills/repair-"));
+    assert!(backup_path.ends_with("/safe"));
 
-    fs::remove_dir_all(fixture.central("safe")).unwrap();
-    let second = plan_repair(PlanRepairRequest {
+    write_skill(&fixture.central("safe"), "safe", "Reappeared fixture");
+    fs::write(
+        fixture.central("safe").join("reappeared.txt"),
+        b"must be retained",
+    )
+    .unwrap();
+    let reappeared_hash = hash_tree(&fixture.central("safe")).unwrap();
+    commit_repair(plan.confirmation()).unwrap();
+
+    assert_ne!(
+        hash_tree(&fixture.central("safe")).unwrap(),
+        reappeared_hash
+    );
+    let backups = fixture.backups_with_prefix("repair-", "safe");
+    assert_eq!(backups.len(), 1);
+    assert_eq!(hash_tree(&backups[0]).unwrap(), reappeared_hash);
+    let expanded = SkillsPaths::from_env()
+        .unwrap()
+        .expand_user(backup_path)
+        .unwrap();
+    assert_eq!(backups[0], expanded);
+}
+
+#[test]
+fn central_repair_rejects_settings_changes_after_review() {
+    let _fixture = SkillsFixture::missing_central("safe");
+    let plan = plan_repair(PlanRepairRequest {
         skill_name: "safe".into(),
         repair: RepairKind::Central,
     })
     .unwrap();
     mutate_settings(|settings| settings.skill_update_checked_at = Some("changed".into())).unwrap();
     assert!(matches!(
-        commit_repair(second.confirmation()),
+        commit_repair(plan.confirmation()),
         Err(SkillError::PlanStale { .. })
     ));
+}
+
+#[test]
+fn central_repair_confirmation_binds_the_private_reappearance_backup_path() {
+    let fixture = SkillsFixture::missing_central("safe");
+    let plan = plan_repair(PlanRepairRequest {
+        skill_name: "safe".into(),
+        repair: RepairKind::Central,
+    })
+    .unwrap();
+    let plan_path = SkillsPaths::from_env()
+        .unwrap()
+        .staging_skills_dir()
+        .join(&plan.operation_id)
+        .join("plan.json");
+    let document = fs::read_to_string(&plan_path).unwrap();
+    let tampered = document.replacen("/repair-", "/repajr-", 1);
+    assert_ne!(tampered, document);
+    fs::write(plan_path, tampered).unwrap();
+    write_skill(&fixture.central("safe"), "safe", "Reappeared fixture");
+    let reappeared_hash = hash_tree(&fixture.central("safe")).unwrap();
+
+    assert!(matches!(
+        commit_repair(plan.confirmation()),
+        Err(SkillError::PlanStale { .. }) | Err(SkillError::InvalidSource { .. })
+    ));
+    assert!(fixture.backups_with_prefix("repair-", "safe").is_empty());
+    assert_eq!(
+        hash_tree(&fixture.central("safe")).unwrap(),
+        reappeared_hash
+    );
 }
 
 #[test]

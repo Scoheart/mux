@@ -1300,6 +1300,20 @@ fn github_429_uses_the_bounded_reset_header_as_retry_time() {
 }
 
 #[test]
+fn github_reset_time_precedes_retry_after_fallback() {
+    assert_status_behavior(
+        "skills-http-rate-reset-precedence",
+        ArchiveBehavior::CommitStatus {
+            status: "429 Too Many Requests",
+            headers: vec![("Retry-After", "120"), ("X-RateLimit-Reset", "1893456000")],
+            body: b"/private/rate/body",
+        },
+        "network",
+        Some("2030-01-01T00:00:00Z"),
+    );
+}
+
+#[test]
 fn github_rate_limited_403_rejects_invalid_or_out_of_range_reset_retry_times() {
     for (home_name, reset) in [
         ("skills-http-rate-invalid-reset", "12invalid"),

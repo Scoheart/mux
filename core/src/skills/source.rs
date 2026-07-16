@@ -1176,7 +1176,7 @@ fn rate_limit_evidence(response: &ureq::Response) -> (bool, Option<String>) {
     let reset = bounded_response_header(response, "X-RateLimit-Reset")
         .and_then(|value| github_reset_retry_at(&value));
     let rate_limited = remaining_zero || retry_after.is_some() || reset.is_some();
-    (rate_limited, retry_after.or(reset))
+    (rate_limited, reset.or(retry_after))
 }
 
 fn github_reset_retry_at(value: &str) -> Option<String> {

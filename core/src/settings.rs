@@ -27,6 +27,8 @@ use std::sync::Mutex;
 pub struct UiSettings {
     #[serde(default)]
     pub pinned_agents: Vec<String>,
+    #[serde(flatten)]
+    pub extra: BTreeMap<String, Value>,
 }
 
 /// The whole `~/.mux/settings.json` document.

@@ -81,13 +81,18 @@ mod tests {
         let home = TestHome::new("pinned-roundtrip");
         let path = settings_path(&home);
         fs::create_dir_all(path.parent().unwrap()).unwrap();
-        fs::write(&path, r#"{"future_section":{"keep":true}}"#).unwrap();
+        fs::write(
+            &path,
+            r#"{"ui":{"future_ui_key":{"keep":true}},"future_section":{"keep":true}}"#,
+        )
+        .unwrap();
 
         let saved = set_pinned_agents(vec!["codex".into(), "claude-code".into()]).unwrap();
         assert_eq!(saved, vec!["codex", "claude-code"]);
         assert_eq!(get_pinned_agents().unwrap(), saved);
 
         let value: Value = serde_json::from_str(&fs::read_to_string(path).unwrap()).unwrap();
+        assert_eq!(value["ui"]["future_ui_key"]["keep"], true);
         assert_eq!(value["future_section"]["keep"], true);
         assert_eq!(value["ui"]["pinned_agents"][0], "codex");
     }

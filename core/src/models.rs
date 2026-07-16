@@ -1,9 +1,9 @@
 //! Reusable model endpoint profiles and safe per-Agent configuration writers.
 //!
-//! The first managed set is deliberately small: Claude Code, Codex, and Pi are
-//! written through their documented user-level configuration surfaces. Qoder
-//! is detection/guidance-only because its encrypted custom-model store has no
-//! public non-interactive writer.
+//! The managed set is deliberately small: Claude Code, Codex, and Pi are
+//! written through documented user-level configuration surfaces. Other Agents
+//! remain guidance-only until they expose a per-profile writer that can consume
+//! credentials from Keychain without persisting plaintext secrets.
 
 use crate::applier::backup;
 use crate::paths::{backup_timestamp, backups_dir};
@@ -26,6 +26,7 @@ use toml_edit::{Array, Document, Item, Table};
 
 const KEYCHAIN_ACCOUNT: &str = "api-key";
 const QODER_DOCS: &str = "https://docs.qoder.com/user-guide/chat/custom-models";
+const GROK_BUILD_MODEL_DOCS: &str = "https://github.com/xai-org/grok-build/blob/main/crates/codegen/xai-grok-pager/docs/user-guide/11-custom-models.md";
 
 #[derive(Debug, Clone, Serialize)]
 pub struct ModelProfileView {
@@ -395,6 +396,21 @@ pub fn list_agents() -> Vec<ModelAgentView> {
             note: "Custom providers currently use the Responses API.".into(),
         },
         ModelAgentView {
+            id: "grok-build".into(),
+            name: "Grok Build".into(),
+            mode: "guided".into(),
+            installed: agent_installed(&["grok"], &[".grok"], &[]),
+            config_path: "~/.grok/config.toml".into(),
+            docs: GROK_BUILD_MODEL_DOCS.into(),
+            assigned_profile: None,
+            supported_protocols: vec![
+                ModelProtocol::AnthropicMessages,
+                ModelProtocol::OpenaiResponses,
+                ModelProtocol::OpenaiCompletions,
+            ],
+            note: "Grok Build supports custom model endpoints, but its per-model credential is a literal api_key or environment variable; use the official config flow to avoid persisting a MUX Keychain secret in plaintext.".into(),
+        },
+        ModelAgentView {
             id: "pi".into(),
             name: "Pi".into(),
             mode: "managed".into(),
@@ -442,6 +458,11 @@ fn ensure_supported(agent_id: &str, protocol: &ModelProtocol) -> Result<(), Stri
         "qoder" => {
             return Err(format!(
                 "Qoder custom models must currently be configured through /model; see {QODER_DOCS}"
+            ))
+        }
+        "grok-build" => {
+            return Err(format!(
+                "Grok Build custom models require api_key or env_key and do not expose a secure per-model credential command; see {GROK_BUILD_MODEL_DOCS}"
             ))
         }
         _ => return Err(format!("unsupported model Agent: {agent_id}")),
@@ -1092,6 +1113,21 @@ wire_api = "responses"
         assert!(ensure_supported("codex", &ModelProtocol::AnthropicMessages).is_err());
         assert!(ensure_supported("pi", &ModelProtocol::AnthropicMessages).is_ok());
         assert!(ensure_supported("qoder", &ModelProtocol::OpenaiResponses).is_err());
+        assert!(ensure_supported("grok-build", &ModelProtocol::OpenaiResponses).is_err());
+    }
+
+    #[test]
+    fn grok_build_is_a_guided_three_protocol_target() {
+        let _th = TestHome::new("model-grok-build");
+        let agents = list_agents();
+        let grok = agents
+            .iter()
+            .find(|agent| agent.id == "grok-build")
+            .expect("Grok Build model target");
+        assert_eq!(grok.mode, "guided");
+        assert_eq!(grok.config_path, "~/.grok/config.toml");
+        assert_eq!(grok.supported_protocols.len(), 3);
+        assert!(grok.docs.contains("11-custom-models.md"));
     }
 
     #[test]

@@ -2,14 +2,14 @@
 
 MUX 的 Agent 数据分为两层：
 
-- **可配置目标**：40 个逐项核验的产品定义，其中 39 个有稳定的用户级全局配置文件，可由 MUX 安全读写，并显示在 Agent 选择器中。
-- **发现目录**：来自公开 MCP 客户端目录与官方客户端矩阵，只作为后续核验的数据储备。与可配置目标去重后共保留 **192 个**客户端记录，但不再作为单独标签页展示。
+- **可配置目标**：41 个逐项核验的产品定义，其中 40 个有稳定的用户级全局配置文件，可由 MUX 安全读写，并显示在 Agent 选择器中。
+- **发现目录**：来自公开 MCP 客户端目录与官方客户端矩阵，只作为后续核验的数据储备。与可配置目标去重后共保留 **193 个**客户端记录，但不再作为单独标签页展示。
 
 没有确认全局文件路径、顶层键和条目结构的客户端只保留来源数据，不进入选择器，也不允许写入。这样可以持续扩大覆盖面，又不会把通用 JSON 猜测写进未知产品配置。
 
 ## 已核验列表
 
-以下结果于 **2026-07-15** 逐项对照官方文档或官方源码，并对全部文档链接做了在线可达性检查。
+以下结果基于截至 **2026-07-16** 的官方文档或官方源码；Grok Build 使用其开源仓库中的配置实现与用户指南核验。
 
 | Agent | 格式 | 配置键 | 用户级全局路径 | 原生传输 |
 |---|---|---|---|---|
@@ -32,6 +32,7 @@ MUX 的 Agent 数据分为两层：
 | [Firebender](https://docs.firebender.com/context/mcp/overview) | JSON | `mcpServers` | `~/.firebender/firebender.json` | stdio / http |
 | [Gemini CLI](https://geminicli.com/docs/tools/mcp-server/) | JSON | `mcpServers` | `~/.gemini/settings.json` | stdio / http |
 | [Goose](https://goose-docs.ai/docs/guides/config-files/) | YAML | `extensions` | `~/Library/Application Support/Block/goose/config/config.yaml` | stdio / http |
+| [Grok Build](https://github.com/xai-org/grok-build/blob/main/crates/codegen/xai-grok-pager/docs/user-guide/07-mcp-servers.md) | TOML | `mcp_servers` | `~/.grok/config.toml` | stdio / http |
 | [Hermes Agent](https://github.com/NousResearch/hermes-agent/blob/main/website/docs/user-guide/features/mcp.md) | YAML | `mcp_servers` | `~/.hermes/config.yaml` | stdio / http |
 | [JetBrains Junie](https://www.jetbrains.com/help/junie/model-context-protocol-mcp.html) | JSON | `mcpServers` | `~/.junie/mcp/mcp.json` | stdio / http |
 | [Kilo Code CLI](https://kilo.ai/docs/automate/mcp/using-in-kilo-code) | JSON | `mcp` | `~/.config/kilo/kilo.jsonc` | stdio / http |
@@ -62,13 +63,14 @@ MUX 的 Agent 数据分为两层：
 - **Qoder Desktop / Qoder CLI**：两者是独立 Agent。Qoder Desktop 的 MCP 页面编辑 `SharedClientCache/mcp.json`；Qoder CLI 的 user scope 使用 `~/.qoder/settings.json`，MUX 分别扫描和写入。
 - **Claude Desktop / BoltAI**：列出的本地文件只原生支持 stdio。远程 MCP 分别由 Claude Connectors 或 BoltAI 的 `mcp-remote` 方案管理。
 - **Goose**：通用文档示例使用 `~/.config/goose/config.yaml`，当前 macOS 源码实际采用 `~/Library/Application Support/Block/goose/config/config.yaml`；MUX 按运行时代码定位。
+- **Grok Build**：MCP 与自定义模型共用 `~/.grok/config.toml`。MUX 可局部管理 `mcp_servers`，并保留模型、认证、超时和工具策略；Models 页面只提供官方引导，因为 Grok Build 暂无可按模型安全调用 Keychain 的凭据命令。
 
 ## 不同 Agent 的格式差异
 
 MUX 不把所有客户端都当成同一种 `mcpServers` JSON：
 
 - OpenCode / Kilo 使用 `type: local|remote`，本地 `command` 是数组。
-- Codex 使用 TOML 表和 `http_headers`；Mistral Vibe 使用 `[[mcp_servers]]` TOML 列表。
+- Codex 使用 TOML 表和 `http_headers`；Grok Build 使用 `mcp_servers` TOML 表和 `headers`；Mistral Vibe 使用 `[[mcp_servers]]` TOML 列表。
 - Continue 使用 YAML 列表并要求根级 `name`、`version`、`schema`；Goose 和 Hermes 也使用各自的 YAML map。
 - Gemini / Qwen 使用 `httpUrl`；Windsurf 和 Antigravity 使用 `serverUrl`。
 - Cline 把连接字段放在 `transport` 子对象；Tabnine 把 HTTP 头放在 `requestInit.headers`。

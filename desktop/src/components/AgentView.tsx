@@ -498,8 +498,8 @@ function ModelAssignment({
     return (
       <div className="mux-agent-guided-model">
         <div>
-          <strong>通过 Agent 内置流程配置</strong>
-          <span>该 Agent 暂未公开安全的非交互模型写入接口，请通过官方设置流程完成配置。</span>
+          <strong>通过 Agent 官方流程配置</strong>
+          <span>{agent.note}</span>
         </div>
         <button type="button" className="btn-secondary" onClick={() => openUrl(agent.docs)}>
           <LinkIcon className="w-4 h-4" />

@@ -13,7 +13,7 @@ Opening the app lands you on the **Registry (catalog)** by default. In the curre
 | Area | Purpose |
 |---|---|
 | **Registry** | Return to the catalog from any agent page. |
-| **Agent selector** | Search 192 clients; "Configurable" lists verified writable targets, "Client directory" shows discovery-only entries. |
+| **Agent selector** | Search the verified writable targets; discovery-only records remain available for catalog validation without appearing as a separate tab. |
 | **`+`** | Add a custom agent, next to the agent selector. |
 | **Theme / Rescan / Check for updates** | Switch appearance, re-read each agent's config, manually check for stable updates. |
 | **Source bar** | Filter the catalog by source; the top offers "Add subscription" and "Import config." |
@@ -90,13 +90,13 @@ The source model itself supports enable/disable, which the TUI's "Sources" scree
 - Inside a built-in agent's page you may only override the global MCP path; the official format, config key, and codec are fixed, to avoid producing incompatible configs.
 - Paths inside the home directory are saved as `~/…`; absolute paths outside it keep their original value.
 
-For the full 40 verified targets and the 192-client directory scope, see [Supported agents](/en/guide/agents).
+For the full 41 verified targets, 40 writable targets, and 193 retained records, see [Supported agents](/en/guide/agents).
 
 ## Models (Beta)
 
 The top-level **Models** workspace creates reusable endpoints and manages assignments across agents. The same compatible profiles are also available inside each supported agent's configuration center for direct application. A profile contains its protocol, Base URL, model ID, and optional token limits; API keys remain in macOS Keychain and are never included in settings, previews, or backups.
 
-Claude Code currently accepts Anthropic Messages profiles, Codex supports the OpenAI protocols exposed by its provider configuration, and Pi supports all three initial protocols. Qoder shows its verified paths and official setup entry, but MUX does not write its unpublished encrypted model store.
+Claude Code currently accepts Anthropic Messages profiles, Codex uses the Responses API, and Pi supports all three initial protocols. Qoder and Grok Build expose their verified paths and official setup entry; MUX neither writes Qoder's unpublished encrypted model store nor persists a MUX Keychain secret as plaintext in a Grok Build model table.
 
 ## Auto-update and the CLI
 

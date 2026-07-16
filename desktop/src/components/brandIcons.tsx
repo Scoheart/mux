@@ -47,6 +47,7 @@ const AGENT_META: Record<string, { name: string; color: string }> = {
   windsurf: { name: "Windsurf", color: "#09B6A2" },
   "roo-code": { name: "Roo Code", color: "#6C47FF" },
   gemini: { name: "Gemini", color: "#4285F4" },
+  "grok-build": { name: "Grok Build", color: "#111111" },
   qoder: { name: "Qoder Desktop", color: "#6E56CF" },
   "qoder-cli": { name: "Qoder CLI", color: "#6E56CF" },
   qoderwork: { name: "QoderWork", color: "#25D959" },

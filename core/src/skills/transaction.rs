@@ -1,5 +1,8 @@
+#[cfg(not(unix))]
+use super::anchored::unsupported_platform;
+use super::anchored::AnchoredRoot;
 #[cfg(unix)]
-use super::anchored::{AnchoredFileKind, AnchoredIdentity, AnchoredRoot};
+use super::anchored::{AnchoredFileKind, AnchoredIdentity};
 #[cfg(unix)]
 use super::files::hash_tree_anchored;
 use super::{
@@ -722,6 +725,7 @@ pub fn execute_transaction_with_failpoint(
     spec: TransactionSpec,
     failpoint: Option<Failpoint>,
 ) -> Result<(), SkillError> {
+    require_secure_transaction_platform()?;
     let paths = SkillsPaths::resolve_from_env()?;
     paths.ensure_mux_root()?;
     let _lock = acquire_skills_lock(&paths)?;
@@ -754,6 +758,13 @@ pub fn execute_transaction_with_failpoint(
         return finish_failed_transaction(&spec, &paths, primary);
     }
     Ok(())
+}
+
+fn require_secure_transaction_platform() -> Result<(), SkillError> {
+    #[cfg(unix)]
+    return Ok(());
+    #[cfg(not(unix))]
+    Err(unsupported_platform())
 }
 
 fn validate_transaction_roots(
@@ -2809,12 +2820,34 @@ fn rollback_link(
     mutation: &LinkMutation,
     index: usize,
 ) -> Result<(), SkillError> {
+    rollback_link_with_hook(spec, paths, mutation, index, None)
+}
+
+#[cfg(unix)]
+fn rollback_link_with_hook(
+    spec: &TransactionSpec,
+    paths: &SkillsPaths,
+    mutation: &LinkMutation,
+    index: usize,
+    mut before_current_removal: Option<&mut dyn FnMut()>,
+) -> Result<(), SkillError> {
     validate_link_runtime_bounds(mutation, paths)?;
+    let parent_path = mutation.path.parent().ok_or_else(recovery_evidence_error)?;
+    let target_root =
+        create_verified_target_root(parent_path, paths).map_err(|_| recovery_evidence_error())?;
     let temporary = link_temp_path(spec, mutation, index);
     validate_link_path(&temporary, &verified_catalog_targets(paths)?)?;
-    cleanup_link_temporary(&temporary, mutation, paths)?;
-    if link_matches_state(&mutation.path, &mutation.expected, paths)? {
-        validate_link_runtime_bounds(mutation, paths)?;
+    cleanup_link_temporary_anchored(target_root.try_clone()?, &temporary, mutation, paths, None)?;
+    if anchored_link_entry_matches_state(
+        &target_root,
+        &mutation.path,
+        &mutation.path,
+        &mutation.expected,
+        paths,
+    )? {
+        if !target_root.path_refers_to_root(parent_path)? {
+            return Err(recovery_evidence_error());
+        }
         cleanup_redundant_link_backup(mutation)?;
         return Ok(());
     }
@@ -2824,55 +2857,142 @@ fn rollback_link(
             .backup
             .as_ref()
             .ok_or_else(recovery_evidence_error)?;
-        if optional_directory_hash_recovery(backup)?.as_deref() != Some(tree_hash.as_str()) {
-            return Err(recovery_evidence_error());
-        }
-        if !link_is_desired_or_missing(mutation, paths)? {
-            return Err(recovery_evidence_error());
-        }
-        validate_link_runtime_bounds(mutation, paths)?;
-        if !link_is_desired_or_missing(mutation, paths)? {
-            return Err(recovery_evidence_error());
-        }
-        remove_current_link_if_present(&mutation.path)?;
-        validate_link_runtime_bounds(mutation, paths)?;
-        if optional_directory_hash_recovery(backup)?.as_deref() != Some(tree_hash.as_str())
-            || !matches!(
-                fs::symlink_metadata(&mutation.path),
-                Err(error) if error.kind() == ErrorKind::NotFound
-            )
+        let backup_parent = backup.parent().ok_or_else(recovery_evidence_error)?;
+        let backup_root =
+            AnchoredRoot::open(backup_parent).map_err(|_| recovery_evidence_error())?;
+        if anchored_optional_directory_hash(&backup_root, backup)
+            .map_err(|_| recovery_evidence_error())?
+            .as_deref()
+            != Some(tree_hash.as_str())
         {
             return Err(recovery_evidence_error());
         }
-        rename_noreplace(backup, &mutation.path).map_err(|_| recovery_evidence_error())?;
-        if !link_matches_state(&mutation.path, &mutation.expected, paths)? {
+        if !anchored_link_is_desired_or_missing(&target_root, mutation, paths)? {
+            return Err(recovery_evidence_error());
+        }
+        if !target_root.path_refers_to_root(parent_path)?
+            || !backup_root.path_refers_to_root(backup_parent)?
+            || !anchored_link_is_desired_or_missing(&target_root, mutation, paths)?
+        {
+            return Err(recovery_evidence_error());
+        }
+        if let Some(hook) = before_current_removal.take() {
+            hook();
+        }
+        remove_current_link_if_present_anchored(&target_root, mutation, paths)?;
+        if !target_root.path_refers_to_root(parent_path)?
+            || !backup_root.path_refers_to_root(backup_parent)?
+            || anchored_optional_directory_hash(&backup_root, backup)
+                .map_err(|_| recovery_evidence_error())?
+                .as_deref()
+                != Some(tree_hash.as_str())
+            || target_root
+                .stat_root_entry(
+                    mutation
+                        .path
+                        .file_name()
+                        .ok_or_else(recovery_evidence_error)?,
+                    &mutation.path,
+                )?
+                .is_some()
+        {
+            return Err(recovery_evidence_error());
+        }
+        backup_root
+            .rename_entry_noreplace_to(
+                backup.file_name().ok_or_else(recovery_evidence_error)?,
+                &target_root,
+                mutation
+                    .path
+                    .file_name()
+                    .ok_or_else(recovery_evidence_error)?,
+                backup,
+            )
+            .map_err(|_| recovery_evidence_error())?;
+        if !anchored_link_entry_matches_state(
+            &target_root,
+            &mutation.path,
+            &mutation.path,
+            &mutation.expected,
+            paths,
+        )? {
             return Err(recovery_evidence_error());
         }
         return Ok(());
     }
 
-    if !link_is_desired_or_missing(mutation, paths)? {
+    if !anchored_link_is_desired_or_missing(&target_root, mutation, paths)? {
         return Err(recovery_evidence_error());
     }
     validate_expected_symlink_recreation(mutation, paths)?;
-    validate_link_runtime_bounds(mutation, paths)?;
-    if !link_is_desired_or_missing(mutation, paths)? {
+    if !target_root.path_refers_to_root(parent_path)?
+        || !anchored_link_is_desired_or_missing(&target_root, mutation, paths)?
+    {
         return Err(recovery_evidence_error());
     }
-    remove_current_link_if_present(&mutation.path)?;
+    if let Some(hook) = before_current_removal.take() {
+        hook();
+    }
+    remove_current_link_if_present_anchored(&target_root, mutation, paths)?;
     match &mutation.expected {
         LinkState::Missing => {}
         LinkState::ManagedSymlink { target }
         | LinkState::BrokenSymlink { target }
         | LinkState::UnknownSymlink { target } => {
-            create_symlink_atomic(spec, mutation, index, target, paths)?;
+            create_symlink_atomic(&target_root, spec, mutation, index, target, paths)?;
         }
         LinkState::Directory { .. } => unreachable!(),
     }
-    if !link_matches_state(&mutation.path, &mutation.expected, paths)? {
+    if !target_root.path_refers_to_root(parent_path)?
+        || !anchored_link_entry_matches_state(
+            &target_root,
+            &mutation.path,
+            &mutation.path,
+            &mutation.expected,
+            paths,
+        )?
+    {
         return Err(recovery_evidence_error());
     }
     Ok(())
+}
+
+#[cfg(not(unix))]
+fn rollback_link_with_hook(
+    _spec: &TransactionSpec,
+    _paths: &SkillsPaths,
+    _mutation: &LinkMutation,
+    _index: usize,
+    _before_current_removal: Option<&mut dyn FnMut()>,
+) -> Result<(), SkillError> {
+    Err(unsupported_platform())
+}
+
+#[cfg(unix)]
+fn anchored_link_is_desired_or_missing(
+    root: &AnchoredRoot,
+    mutation: &LinkMutation,
+    paths: &SkillsPaths,
+) -> Result<bool, SkillError> {
+    let name = mutation
+        .path
+        .file_name()
+        .ok_or_else(recovery_evidence_error)?;
+    if root.stat_root_entry(name, &mutation.path)?.is_none() {
+        return Ok(true);
+    }
+    let Some(target) = &mutation.desired_target else {
+        return Ok(false);
+    };
+    anchored_link_entry_matches_state(
+        root,
+        &mutation.path,
+        &mutation.path,
+        &LinkState::ManagedSymlink {
+            target: target.clone(),
+        },
+        paths,
+    )
 }
 
 fn link_is_desired_or_missing(
@@ -2982,6 +3102,7 @@ enum LinkTemporaryEvidence {
     Opaque,
 }
 
+#[cfg(test)]
 fn cleanup_link_temporary(
     path: &Path,
     mutation: &LinkMutation,
@@ -2990,6 +3111,7 @@ fn cleanup_link_temporary(
     cleanup_link_temporary_with_hook(path, mutation, paths, None)
 }
 
+#[cfg(test)]
 fn cleanup_link_temporary_with_hook(
     path: &Path,
     mutation: &LinkMutation,
@@ -3194,28 +3316,53 @@ fn cleanup_redundant_link_backup(mutation: &LinkMutation) -> Result<(), SkillErr
     verify_and_remove_backup(backup, Some(tree_hash))
 }
 
-fn remove_current_link_if_present(path: &Path) -> Result<(), SkillError> {
-    #[cfg(not(unix))]
-    return Err(recovery_evidence_error());
-    #[cfg(unix)]
-    {
-        let parent_path = path.parent().ok_or_else(recovery_evidence_error)?;
-        let parent = AnchoredRoot::open(parent_path).map_err(|_| recovery_evidence_error())?;
-        let Some(identity) = parent
-            .stat_root_entry(path.file_name().ok_or_else(recovery_evidence_error)?, path)
-            .map_err(|_| recovery_evidence_error())?
-        else {
-            return Ok(());
-        };
-        if identity.kind != AnchoredFileKind::Symlink {
-            return Err(recovery_evidence_error());
-        }
-        let quarantined = quarantine_exact_entry(parent, path, &identity)?;
-        remove_quarantined_entry(quarantined).map_err(|_| recovery_evidence_error())
+#[cfg(unix)]
+fn remove_current_link_if_present_anchored(
+    parent: &AnchoredRoot,
+    mutation: &LinkMutation,
+    paths: &SkillsPaths,
+) -> Result<(), SkillError> {
+    let path = &mutation.path;
+    let parent_path = path.parent().ok_or_else(recovery_evidence_error)?;
+    if !parent.path_refers_to_root(parent_path)? {
+        return Err(recovery_evidence_error());
     }
+    let name = path.file_name().ok_or_else(recovery_evidence_error)?;
+    let Some(identity) = parent
+        .stat_root_entry(name, path)
+        .map_err(|_| recovery_evidence_error())?
+    else {
+        return Ok(());
+    };
+    let Some(target) = &mutation.desired_target else {
+        return Err(recovery_evidence_error());
+    };
+    let desired = LinkState::ManagedSymlink {
+        target: target.clone(),
+    };
+    if !anchored_link_entry_matches_state(parent, path, path, &desired, paths)?
+        || !parent.path_refers_to_root(parent_path)?
+    {
+        return Err(recovery_evidence_error());
+    }
+    let quarantined = quarantine_exact_entry(parent.try_clone()?, path, &identity)?;
+    if !anchored_link_entry_matches_state(
+        &quarantined.parent,
+        &quarantined.quarantine_path,
+        path,
+        &desired,
+        paths,
+    )? || !quarantined.parent.path_refers_to_root(parent_path)?
+    {
+        restore_quarantined_entry(&quarantined)?;
+        return Err(recovery_evidence_error());
+    }
+    remove_quarantined_entry(quarantined).map_err(|_| recovery_evidence_error())
 }
 
+#[cfg(unix)]
 fn create_symlink_atomic(
+    target_root: &AnchoredRoot,
     spec: &TransactionSpec,
     mutation: &LinkMutation,
     index: usize,
@@ -3223,16 +3370,11 @@ fn create_symlink_atomic(
     paths: &SkillsPaths,
 ) -> Result<(), SkillError> {
     let temporary = link_temp_path(spec, mutation, index);
-    validate_link_runtime_bounds(mutation, paths)?;
     let parent = mutation.path.parent().ok_or_else(recovery_evidence_error)?;
-    #[cfg(not(unix))]
-    return Err(recovery_evidence_error());
-    #[cfg(unix)]
-    let target_root =
-        create_verified_target_root(parent, paths).map_err(|_| recovery_evidence_error())?;
-    #[cfg(unix)]
+    if !target_root.path_refers_to_root(parent)? {
+        return Err(recovery_evidence_error());
+    }
     cleanup_link_temporary_anchored(target_root.try_clone()?, &temporary, mutation, paths, None)?;
-    #[cfg(unix)]
     target_root
         .create_symlink_entry(
             target,
@@ -3240,13 +3382,10 @@ fn create_symlink_atomic(
             &temporary,
         )
         .map_err(|_| recovery_evidence_error())?;
-    #[cfg(unix)]
     let temporary_name = temporary.file_name().ok_or_else(recovery_evidence_error)?;
-    #[cfg(unix)]
     let temporary_identity = target_root
         .stat_root_entry(temporary_name, &temporary)?
         .ok_or_else(recovery_evidence_error)?;
-    #[cfg(unix)]
     if temporary_identity.kind != AnchoredFileKind::Symlink
         || path_from_raw_link_bytes(target_root.read_link_root_entry(
             temporary_name,
@@ -3266,7 +3405,6 @@ fn create_symlink_atomic(
     {
         return Err(recovery_evidence_error());
     }
-    #[cfg(unix)]
     target_root
         .rename_entry_noreplace(
             temporary_name,
@@ -3686,6 +3824,7 @@ fn journal_entry_exists(path: &Path) -> Result<bool, SkillError> {
 }
 
 pub fn recover_pending() -> Result<(), SkillError> {
+    require_secure_transaction_platform()?;
     let paths = SkillsPaths::resolve_from_env()?;
     paths.ensure_mux_root().map_err(recovery_error)?;
     let _lock = acquire_skills_lock(&paths).map_err(recovery_error)?;
@@ -3696,6 +3835,7 @@ pub fn recover_pending() -> Result<(), SkillError> {
 
 #[doc(hidden)]
 pub fn recover_pending_with_paths(paths: &SkillsPaths) -> Result<(), SkillError> {
+    require_secure_transaction_platform()?;
     validate_transaction_roots(paths, true).map_err(recovery_error)?;
     let _lock = acquire_skills_lock(paths).map_err(recovery_error)?;
     validate_transaction_roots(paths, true).map_err(recovery_error)?;
@@ -4473,6 +4613,24 @@ mod tests {
         }
     }
 
+    #[cfg(not(unix))]
+    #[test]
+    fn unsupported_platforms_reject_public_transactions_before_creating_mux_state() {
+        let home = TestHome::new("tx-unsupported-platform");
+        let mux = home.home.join(".mux");
+
+        assert!(matches!(
+            execute_transaction(empty_spec("10010000-0000-4000-8000-000000000006")),
+            Err(SkillError::InvalidSource { .. })
+        ));
+        assert!(!mux.exists());
+        assert!(matches!(
+            recover_pending(),
+            Err(SkillError::InvalidSource { .. })
+        ));
+        assert!(!mux.exists());
+    }
+
     #[test]
     fn directory_backup_retention_is_explicit_and_legacy_defaults_to_cleanup() {
         let legacy = serde_json::json!({
@@ -4995,6 +5153,66 @@ mod tests {
                 .map(|entry| entry.unwrap().file_name())
                 .collect::<Vec<_>>(),
             vec![OsString::from("sentinel")]
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rollback_never_reopens_a_replaced_target_parent_to_remove_a_link() {
+        use std::os::unix::fs::symlink;
+        use std::sync::{Arc, Barrier};
+
+        let home = TestHome::new("tx-rollback-parent-authority-race");
+        let paths = SkillsPaths::from_env().unwrap();
+        let parent = home.home.join(".agents/skills");
+        fs::create_dir_all(&parent).unwrap();
+        let displaced = home.home.join("reviewed-rollback-agent-root");
+        let central = paths.central_skill("rollback-parent-race");
+        fs::create_dir(&central).unwrap();
+        fs::write(central.join("SKILL.md"), b"reviewed").unwrap();
+        let link = parent.join("rollback-parent-race");
+        symlink(&central, &link).unwrap();
+        let mutation = LinkMutation {
+            path: link.clone(),
+            expected: LinkState::BrokenSymlink {
+                target: PathBuf::from("missing-before-transaction"),
+            },
+            desired_target: Some(central.clone()),
+            backup: None,
+        };
+        let spec = empty_spec("12120000-0000-4000-8000-000000000006");
+
+        let barrier = Arc::new(Barrier::new(2));
+        let worker_barrier = Arc::clone(&barrier);
+        let worker_parent = parent.clone();
+        let worker_displaced = displaced.clone();
+        let worker_link = link.clone();
+        let worker = thread::spawn(move || {
+            worker_barrier.wait();
+            fs::rename(&worker_parent, &worker_displaced).unwrap();
+            fs::create_dir(&worker_parent).unwrap();
+            symlink("unrelated", &worker_link).unwrap();
+            worker_barrier.wait();
+        });
+        let mut before_current_removal = || {
+            barrier.wait();
+            barrier.wait();
+        };
+
+        let result = rollback_link_with_hook(
+            &spec,
+            &paths,
+            &mutation,
+            0,
+            Some(&mut before_current_removal),
+        );
+        worker.join().unwrap();
+
+        assert!(matches!(result, Err(SkillError::RecoveryRequired { .. })));
+        assert_eq!(fs::read_link(&link).unwrap(), PathBuf::from("unrelated"));
+        assert_eq!(
+            fs::read_link(displaced.join("rollback-parent-race")).unwrap(),
+            central
         );
     }
 

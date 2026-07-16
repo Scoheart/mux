@@ -8,6 +8,10 @@ const component = await readFile(
   relativeFile("../components/AgentNavigation.tsx"),
   "utf8",
 );
+const app = await readFile(relativeFile("../App.tsx"), "utf8");
+const layout = await readFile(relativeFile("../components/Layout.tsx"), "utf8");
+const icons = await readFile(relativeFile("../components/icons.tsx"), "utf8");
+const types = await readFile(relativeFile("./types.ts"), "utf8");
 
 function declarations(source: string, selector: string): string {
   const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -16,6 +20,71 @@ function declarations(source: string, selector: string): string {
   if (!match) throw new Error(`expected ${selector} rule`);
   return match[1];
 }
+
+function pixelValue(source: string, property: string): number {
+  const match = source.match(new RegExp(`${property}:\\s*(\\d+)px`));
+  expect(match, `expected ${property} in ${source}`).toBeTruthy();
+  if (!match) throw new Error(`expected ${property}`);
+  return Number(match[1]);
+}
+
+it("keeps Skills as the third resource segment before Agent navigation", () => {
+  expect(types).toMatch(/\| \{ kind: "skills" \}/);
+  expect(icons).toMatch(/export function SparklesIcon\(/);
+  expect(layout).toMatch(/onSelectSkills: \(\) => void/);
+
+  const segmentStart = layout.indexOf('className="mux-seg mux-skill-seg');
+  const agentNavigationStart = layout.indexOf("<AgentNavigation");
+  expect(segmentStart, "expected the Skills-specific resource segment").not.toBe(-1);
+  expect(agentNavigationStart, "expected AgentNavigation to remain separate").toBeGreaterThan(
+    segmentStart,
+  );
+
+  const segment = layout.slice(segmentStart, agentNavigationStart);
+  const labels = ["MCPs", "Models", "Skills"].map((label) => segment.indexOf(label));
+  expect(labels.every((index) => index >= 0)).toBe(true);
+  expect(labels).toEqual([...labels].sort((left, right) => left - right));
+  expect(segment).toMatch(/data-active=\{view\.kind === "skills"/);
+  expect(segment).toMatch(/onClick=\{onSelectSkills\}/);
+  expect(segment).toMatch(/<SparklesIcon/);
+});
+
+it("routes the single app-owned Skills state before the MCP loading gate", () => {
+  expect(app.match(/\buseSkillsState\(\)/g) ?? []).toHaveLength(1);
+  expect(app).toMatch(/onSelectSkills=\{\(\) => setView\(\{ kind: "skills" \}\)\}/);
+  expect(app).toMatch(/<SkillsView state=\{skillsState\} \/>/);
+
+  const skillsRoute = app.indexOf('view.kind === "skills"');
+  const loadingGate = app.indexOf("state.loading");
+  const agentBranch = app.indexOf('view.kind === "agent"', loadingGate);
+  expect(skillsRoute, "expected an explicit Skills route").not.toBe(-1);
+  expect(skillsRoute).toBeLessThan(loadingGate);
+  expect(agentBranch, "expected an explicit Agent route").toBeGreaterThan(loadingGate);
+});
+
+it("reserves compact 900px lanes for Skills and six pinned Agents", () => {
+  const compactStart = css.indexOf("@media (max-width: 980px)");
+  const compactEnd = css.indexOf("@media", compactStart + 1);
+  expect(compactStart, "expected the 900px topbar media query").not.toBe(-1);
+  const compactCss = css.slice(
+    compactStart,
+    compactEnd === -1 ? css.length : compactEnd,
+  );
+
+  const segment = declarations(compactCss, ".mux-topbar .mux-skill-seg");
+  expect(pixelValue(segment, "width")).toBeLessThanOrEqual(240);
+  expect(segment).toMatch(/flex:\s*0\s+0\s+\d+px/);
+
+  const beta = declarations(compactCss, ".mux-topbar .mux-seg-beta");
+  expect(beta).toMatch(/display:\s*none/);
+
+  const picker = declarations(compactCss, ".mux-agent-picker-trigger");
+  expect(pixelValue(picker, "width")).toBeLessThanOrEqual(132);
+
+  const pinned = declarations(compactCss, ".mux-pinned-agent");
+  expect(pixelValue(pinned, "width")).toBeLessThanOrEqual(26);
+  expect(pixelValue(pinned, "flex-basis")).toBeLessThanOrEqual(26);
+});
 
 it("popup action focus rule includes the search clear button", () => {
   const focusRule = Array.from(css.matchAll(/([^{}]+)\{([^{}]*)\}/g)).find(

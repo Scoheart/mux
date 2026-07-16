@@ -1,7 +1,15 @@
 import { ReactNode, useEffect, useState } from "react";
 import { getVersion } from "@tauri-apps/api/app";
 import type { AgentInfo, View } from "../lib/types";
-import { DownloadIcon, RefreshIcon, PackageIcon, LayersIcon, SunIcon, MoonIcon } from "./icons";
+import {
+  DownloadIcon,
+  LayersIcon,
+  MoonIcon,
+  PackageIcon,
+  RefreshIcon,
+  SparklesIcon,
+  SunIcon,
+} from "./icons";
 import { applyTheme, getInitialTheme, type Theme } from "../lib/theme";
 import { useToast } from "./Toast";
 import type { UpdaterState } from "../hooks/useUpdater";
@@ -13,6 +21,7 @@ interface LayoutProps {
   view: View;
   onSelectRegistry: () => void;
   onSelectModels: () => void;
+  onSelectSkills: () => void;
   onSelectAgent: (id: string) => void;
   onAddAgent?: () => void;
   onRescan?: () => Promise<unknown> | void;
@@ -25,6 +34,7 @@ export function Layout({
   view,
   onSelectRegistry,
   onSelectModels,
+  onSelectSkills,
   onSelectAgent,
   onAddAgent,
   onRescan,
@@ -88,8 +98,8 @@ export function Layout({
           MUX
         </span>
 
-        {/* MCPs (also the way back from an agent view) */}
-        <div className="mux-seg flex-shrink-0">
+        {/* Top-level resources (also the way back from an Agent view) */}
+        <div className="mux-seg mux-skill-seg flex-shrink-0">
           <button
             className="mux-seg-item"
             data-active={view.kind === "registry" ? "true" : undefined}
@@ -109,6 +119,16 @@ export function Layout({
               <LayersIcon className="w-3.5 h-3.5" />
               Models
               <span className="mux-seg-beta">Beta</span>
+            </span>
+          </button>
+          <button
+            className="mux-seg-item"
+            data-active={view.kind === "skills" ? "true" : undefined}
+            onClick={onSelectSkills}
+          >
+            <span className="flex items-center gap-1.5">
+              <SparklesIcon className="w-3.5 h-3.5" />
+              Skills
             </span>
           </button>
         </div>

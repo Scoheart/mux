@@ -103,6 +103,7 @@ export interface PatchInput {
 export type View =
   | { kind: "registry" }
   | { kind: "models" }
+  | { kind: "skills" }
   | { kind: "agent"; id: string };
 
 /** A catalog source (mirrors Rust SourceView): a subscribed remote URL or a

@@ -74,6 +74,72 @@ impl GithubEndpoints {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum GithubRevisionStatus {
+    NotModified { etag: Option<String> },
+    Resolved { sha: String, etag: Option<String> },
+}
+
+pub(crate) fn check_github_revision(
+    source: &SkillSource,
+    previous_etag: Option<&str>,
+    endpoints: &GithubEndpoints,
+) -> Result<GithubRevisionStatus, SkillError> {
+    validate_github_revision_source(source)?;
+    let SkillSource::Github {
+        owner,
+        repo,
+        requested_ref,
+        ..
+    } = source
+    else {
+        return invalid_source("only a GitHub source has revision metadata");
+    };
+    validate_endpoint_base(&endpoints.api_base, endpoints)?;
+    let url = endpoint_url(
+        &endpoints.api_base,
+        &["repos", owner, repo, "commits", requested_ref],
+    )?;
+    let response = fetch_response_with_etag(&github_agent(), url, endpoints, previous_etag)?;
+    let etag = bounded_response_header(&response, "ETag");
+    if response.status() == 304 {
+        return Ok(GithubRevisionStatus::NotModified { etag });
+    }
+    ensure_public_status(&response, "revision")?;
+    #[derive(Deserialize)]
+    struct Commit {
+        sha: String,
+    }
+    let commit: Commit = read_json(response)?;
+    if !is_sha(&commit.sha) {
+        return invalid_source("GitHub returned a non-canonical commit SHA");
+    }
+    Ok(GithubRevisionStatus::Resolved {
+        sha: commit.sha.to_ascii_lowercase(),
+        etag,
+    })
+}
+
+pub(crate) fn validate_github_revision_source(source: &SkillSource) -> Result<(), SkillError> {
+    let SkillSource::Github {
+        owner,
+        repo,
+        subpath,
+        requested_ref,
+        pinned,
+    } = source
+    else {
+        return invalid_source("only a GitHub source has revision metadata");
+    };
+    validate_repository_components(owner, repo)?;
+    validate_relative_source_path(subpath)?;
+    decode_api_ref(requested_ref)?;
+    if *pinned != is_sha(requested_ref) {
+        return invalid_source("the recorded GitHub pinned state is inconsistent");
+    }
+    Ok(())
+}
+
 pub fn resolve_source(
     input: SkillSourceInput,
     endpoints: GithubEndpoints,
@@ -174,6 +240,172 @@ pub(crate) fn stage_private_candidate(
 ) -> Result<(), SkillError> {
     copy_tree_secure_private_to_staging(source, destination)?;
     validate_staging_candidate(destination).map(|_| ())
+}
+
+pub(crate) fn open_recorded_local_skill(
+    paths: &SkillsPaths,
+    source: &SkillSource,
+) -> Result<AnchoredRoot, SkillError> {
+    validate_persisted_source(paths, source, &None)?;
+    let SkillSource::Local { path, subpath } = source else {
+        return invalid_source("only a Local source has a recorded filesystem subpath");
+    };
+    let selected = paths
+        .expand_user(path)
+        .filter(|path| path.is_absolute())
+        .ok_or_else(|| invalid_source_error("the recorded local Skill path is invalid"))?;
+    let root = fs::canonicalize(&selected)
+        .map_err(|_| invalid_source_error("the recorded local Skill path is unavailable"))?;
+    open_anchored_directory(&AnchoredRoot::open(&root)?, subpath)
+        .map_err(|_| invalid_source_error("the recorded local Skill subpath is unavailable"))
+}
+
+pub(crate) fn stage_recorded_skill(
+    source: &SkillSource,
+    resolved_revision: Option<&str>,
+    expected_name: &str,
+    endpoints: GithubEndpoints,
+) -> Result<SkillSourceResolution, SkillError> {
+    if !valid_staged_skill_name(expected_name) {
+        return invalid_source("the recorded Skill name is invalid");
+    }
+    let paths = SkillsPaths::resolve_from_env().map_err(sanitize_resolution_error)?;
+    validate_persisted_source(&paths, source, &resolved_revision.map(str::to_owned))
+        .map_err(sanitize_resolution_error)?;
+    let operation_id = Uuid::new_v4().hyphenated().to_string();
+    let staging = StagingRoot::open_or_create(&paths).map_err(sanitize_resolution_error)?;
+    let operation = StagedOperationOwner::new(
+        staging
+            .create_operation(&operation_id)
+            .map_err(sanitize_resolution_error)?,
+    );
+    let result = stage_recorded_skill_inner(
+        source,
+        resolved_revision,
+        expected_name,
+        &endpoints,
+        &paths,
+        &operation_id,
+        operation.operation(),
+    )
+    .and_then(|resolution| {
+        persist_staged_resolution(operation.operation(), &resolution)?;
+        Ok(resolution)
+    });
+    operation.finish(result).map_err(sanitize_resolution_error)
+}
+
+fn stage_recorded_skill_inner(
+    source: &SkillSource,
+    resolved_revision: Option<&str>,
+    expected_name: &str,
+    endpoints: &GithubEndpoints,
+    paths: &SkillsPaths,
+    operation_id: &str,
+    operation: &StagingOperation,
+) -> Result<SkillSourceResolution, SkillError> {
+    let (summary, revision) = match source {
+        SkillSource::Github {
+            owner,
+            repo,
+            subpath,
+            ..
+        } => {
+            let revision = resolved_revision.ok_or_else(|| {
+                invalid_source_error("a recorded GitHub Skill requires an immutable revision")
+            })?;
+            validate_endpoint_base(&endpoints.archive_base, endpoints)?;
+            let operation_root = operation.root_directory()?;
+            download_archive(
+                &github_agent(),
+                owner,
+                repo,
+                revision,
+                endpoints,
+                &operation_root,
+            )?;
+            let archive_root = operation.create_private_directory("archive")?;
+            let repository_root = extract_staged_archive(&operation_root, &archive_root)?;
+            let requested_root = repository_root.open_directory(subpath)?;
+            let summary =
+                stage_single_candidate(&requested_root.anchored_root()?, operation, expected_name)?;
+            operation.remove_private_directory("archive")?;
+            (summary, Some(revision.to_owned()))
+        }
+        SkillSource::Local { .. } => {
+            let candidate = open_recorded_local_skill(paths, source)?;
+            (
+                stage_single_candidate(&candidate, operation, expected_name)?,
+                None,
+            )
+        }
+        SkillSource::Imported { backup_path, .. } => {
+            let backup = paths
+                .expand_user(backup_path)
+                .filter(|path| path.is_absolute())
+                .ok_or_else(|| invalid_source_error("the imported Skill backup path is invalid"))?;
+            let backup_root = paths.backups_skills_dir();
+            if backup == backup_root || !backup.starts_with(&backup_root) {
+                return invalid_source("the imported Skill backup is outside MUX backups");
+            }
+            let metadata = fs::symlink_metadata(&backup).map_err(|_| {
+                invalid_source_error("the imported Skill backup path is unavailable")
+            })?;
+            if !metadata.file_type().is_dir() {
+                return invalid_source("the imported Skill backup is not a real directory");
+            }
+            let canonical_root = fs::canonicalize(&backup_root)
+                .map_err(|_| invalid_source_error("the MUX Skill backup root is unavailable"))?;
+            let candidate = fs::canonicalize(&backup).map_err(|_| {
+                invalid_source_error("the imported Skill backup path is unavailable")
+            })?;
+            if candidate == canonical_root || !candidate.starts_with(&canonical_root) {
+                return invalid_source("the imported Skill backup escapes MUX backups");
+            }
+            (
+                stage_single_candidate(&AnchoredRoot::open(&candidate)?, operation, expected_name)?,
+                None,
+            )
+        }
+    };
+    Ok(SkillSourceResolution {
+        operation_id: operation_id.to_owned(),
+        source: source.clone(),
+        resolved_revision: revision,
+        candidates: vec![summary],
+    })
+}
+
+fn stage_single_candidate(
+    source: &AnchoredRoot,
+    operation: &StagingOperation,
+    expected_name: &str,
+) -> Result<SkillCandidateSummary, SkillError> {
+    let before = validate_candidate_anchored_private(source)?;
+    if before.manifest.name != expected_name {
+        return invalid_source("the recorded source no longer contains the named Skill");
+    }
+    let candidates_root = operation.create_private_directory("candidates")?;
+    let destination = candidates_root.create_directory(expected_name)?;
+    copy_tree_anchored_private_to_staging(source, &destination)?;
+    let staged = validate_staging_candidate(&destination)?;
+    if staged.manifest.name != before.manifest.name
+        || staged.content_hash != before.content_hash
+        || staged.total_bytes != before.total_bytes
+    {
+        return Err(SkillError::PlanStale {
+            message: "the recorded Skill changed while its snapshot was staged".into(),
+        });
+    }
+    Ok(SkillCandidateSummary {
+        name: staged.manifest.name,
+        description: staged.manifest.description,
+        relative_path: String::new(),
+        content_kind: staged.content_kind,
+        content_hash: staged.content_hash,
+        file_count: staged.files.len() as u64,
+        total_bytes: staged.total_bytes,
+    })
 }
 
 fn validate_canonical_operation_id(value: &str) -> Result<(), SkillError> {
@@ -298,6 +530,35 @@ fn validate_persisted_source(
                 return invalid_source("the staged local source path is not canonical");
             }
             validate_relative_source_path(subpath)
+        }
+        (
+            SkillSource::Imported {
+                original_path,
+                backup_path,
+            },
+            None,
+        ) => {
+            let mut normalized = Vec::with_capacity(2);
+            for value in [original_path, backup_path] {
+                validate_source_text(value)?;
+                if value.contains(['\0', '\\']) {
+                    return invalid_source("the staged imported source path is not canonical");
+                }
+                let expanded = paths.expand_user(value).ok_or_else(|| {
+                    invalid_source_error("the staged imported source path is invalid")
+                })?;
+                let absolute = lexical_absolute(&expanded)?;
+                if collapse_home(&absolute, paths.user_home()) != *value {
+                    return invalid_source("the staged imported source path is not canonical");
+                }
+                normalized.push(absolute);
+            }
+            let backup = &normalized[1];
+            let backup_root = paths.backups_skills_dir();
+            if backup == &backup_root || !backup.starts_with(&backup_root) {
+                return invalid_source("the imported Skill backup is outside MUX backups");
+            }
+            Ok(())
         }
         _ => invalid_source("the staged Skill source revision is inconsistent"),
     }
@@ -824,18 +1085,37 @@ fn validate_request_url(url: &Url, endpoints: &GithubEndpoints) -> Result<(), Sk
 
 fn fetch_response(
     agent: &ureq::Agent,
-    mut url: Url,
+    url: Url,
     endpoints: &GithubEndpoints,
 ) -> Result<ureq::Response, SkillError> {
+    fetch_response_with_etag(agent, url, endpoints, None)
+}
+
+fn fetch_response_with_etag(
+    agent: &ureq::Agent,
+    mut url: Url,
+    endpoints: &GithubEndpoints,
+    previous_etag: Option<&str>,
+) -> Result<ureq::Response, SkillError> {
+    let previous_etag = previous_etag
+        .map(|value| {
+            bounded_header_value(value)
+                .ok_or_else(|| invalid_source_error("the stored GitHub ETag is invalid"))
+        })
+        .transpose()?;
     let mut redirects = 0_usize;
     loop {
         validate_request_url(&url, endpoints)?;
-        let call = agent
+        let request = agent
             .get(url.as_str())
             .set("User-Agent", concat!("MUX/", env!("CARGO_PKG_VERSION")))
             .set("Accept", "application/vnd.github+json")
-            .set("X-GitHub-Api-Version", "2022-11-28")
-            .call();
+            .set("X-GitHub-Api-Version", "2022-11-28");
+        let request = match previous_etag.as_deref() {
+            Some(etag) => request.set("If-None-Match", etag),
+            None => request,
+        };
+        let call = request.call();
         let response = match call {
             Ok(response) => response,
             Err(ureq::Error::Status(_, response)) => response,
@@ -2115,6 +2395,8 @@ mod tests {
     use flate2::write::GzEncoder;
     use flate2::Compression;
     use std::io::Cursor;
+    use std::net::TcpListener;
+    use std::thread;
     use tar::{Builder, EntryType, Header};
 
     #[cfg(unix)]
@@ -2277,6 +2559,103 @@ mod tests {
         fs::write(operation.join("partial"), b"partial").unwrap();
         drop(owner);
         assert!(!operation.exists());
+    }
+
+    #[test]
+    fn recorded_github_skill_stages_only_named_subpath_at_immutable_sha() {
+        let th = TestHome::new("recorded-github-skill");
+        let sha = "2222222222222222222222222222222222222222";
+        let body = b"---\nname: review\ndescription: Review fixture\n---\n";
+        let encoder = GzEncoder::new(Vec::new(), Compression::default());
+        let mut archive = Builder::new(encoder);
+        append_test_file(
+            &mut archive,
+            &format!("skills-{sha}/catalog/review/SKILL.md"),
+            body,
+        );
+        append_test_file(
+            &mut archive,
+            &format!("skills-{sha}/catalog/unrelated/SKILL.md"),
+            b"---\nname: unrelated\ndescription: Unrelated fixture\n---\n",
+        );
+        let encoder = archive.into_inner().unwrap();
+        let archive = encoder.finish().unwrap();
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = Vec::new();
+            let mut buffer = [0_u8; 4096];
+            while !request.windows(4).any(|window| window == b"\r\n\r\n") {
+                let read = stream.read(&mut buffer).unwrap();
+                if read == 0 {
+                    break;
+                }
+                request.extend_from_slice(&buffer[..read]);
+            }
+            let first_line = String::from_utf8_lossy(&request)
+                .lines()
+                .next()
+                .unwrap_or_default()
+                .to_owned();
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                archive.len()
+            );
+            stream.write_all(response.as_bytes()).unwrap();
+            stream.write_all(&archive).unwrap();
+            first_line
+        });
+        let base = Url::parse(&format!("http://{address}/")).unwrap();
+        let resolution = stage_recorded_skill(
+            &SkillSource::Github {
+                owner: "acme".into(),
+                repo: "skills".into(),
+                subpath: "catalog/review".into(),
+                requested_ref: "main".into(),
+                pinned: false,
+            },
+            Some(sha),
+            "review",
+            GithubEndpoints::for_test(base.clone(), base),
+        )
+        .unwrap();
+
+        assert_eq!(
+            server.join().unwrap(),
+            format!("GET /acme/skills/tar.gz/{sha} HTTP/1.1")
+        );
+        assert_eq!(resolution.resolved_revision.as_deref(), Some(sha));
+        assert_eq!(resolution.candidates.len(), 1);
+        assert_eq!(resolution.candidates[0].name, "review");
+        let candidates = th.home.join(format!(
+            ".mux/staging/skills/{}/candidates",
+            resolution.operation_id
+        ));
+        assert!(candidates.join("review/SKILL.md").exists());
+        assert!(!candidates.join("unrelated").exists());
+    }
+
+    #[test]
+    fn recorded_github_skill_rejects_path_components_before_network_access() {
+        let _th = TestHome::new("recorded-github-path-components");
+        let base = Url::parse("http://127.0.0.1:9/").unwrap();
+        let error = stage_recorded_skill(
+            &SkillSource::Github {
+                owner: "..".into(),
+                repo: "skills".into(),
+                subpath: "catalog/review".into(),
+                requested_ref: "main".into(),
+                pinned: false,
+            },
+            Some("2222222222222222222222222222222222222222"),
+            "review",
+            GithubEndpoints::for_test(base.clone(), base),
+        )
+        .unwrap_err();
+
+        assert!(matches!(error, SkillError::InvalidSource { .. }));
     }
 
     fn append_test_file<W: Write>(archive: &mut Builder<W>, path: &str, body: &[u8]) {

@@ -4,12 +4,12 @@ use flate2::write::GzEncoder;
 use flate2::Compression;
 use mux_core::settings::{load_settings, mutate_settings};
 use mux_core::skills::{
-    crash_transaction_at_phase_for_test, hash_tree, list_inventory, plan_install, resolve_source,
-    DirectoryMutation, GithubEndpoints, InventoryState, JournalPhase, LinkMutation, LinkState,
-    ManagedSkillRecord, OperationPlan, PlanImportRequest, PlanInstallRequest, RiskLevel,
-    SkillContentKind, SkillRiskSummary, SkillSettingsSnapshot, SkillSource, SkillSourceInput,
-    SkillSourceResolution, SkillUpdateState, SkillsInventory, SkillsPaths, TransactionOrder,
-    TransactionSpec,
+    check_updates_with, crash_transaction_at_phase_for_test, hash_tree, list_inventory,
+    plan_install, resolve_source, DirectoryMutation, GithubEndpoints, InventoryState, JournalPhase,
+    LinkMutation, LinkState, ManagedSkillRecord, OperationPlan, PlanImportRequest,
+    PlanInstallRequest, RiskLevel, SkillContentKind, SkillRiskSummary, SkillSettingsSnapshot,
+    SkillSource, SkillSourceInput, SkillSourceResolution, SkillUpdateState, SkillsInventory,
+    SkillsPaths, TransactionOrder, TransactionSpec, UpdateCheckOutcome,
 };
 use mux_core::testenv::TestHome;
 use std::collections::{BTreeMap, BTreeSet};
@@ -29,6 +29,8 @@ use std::os::unix::fs::{symlink, PermissionsExt};
 use std::os::windows::fs::symlink_dir as symlink;
 
 pub const FIXTURE_SHA: &str = "0123456789abcdef0123456789abcdef01234567";
+pub const OLD_SHA: &str = "1111111111111111111111111111111111111111";
+pub const NEW_SHA: &str = "2222222222222222222222222222222222222222";
 pub const TRANSACTION_OPERATION_ID: &str = "00000000-0000-4000-8000-000000000006";
 const VERIFIED_SKILL_AGENT_IDS: &[&str] = &[
     "claude-code",
@@ -115,8 +117,20 @@ impl SkillsFixture {
         fixture
     }
 
+    pub fn missing_managed_link(name: &str, target_id: &str) -> Self {
+        let fixture = Self::managed_on_targets(name, &[target_id]);
+        let target = fixture.target(target_id, name);
+        fs::remove_file(&target).unwrap();
+        fixture
+    }
+
     pub fn missing_central(name: &str) -> Self {
         let fixture = Self::managed(name);
+        write_skill(
+            &fixture.home.home.join("fixtures").join(name),
+            name,
+            "Managed fixture",
+        );
         fs::remove_dir_all(fixture.central(name)).unwrap();
         fixture
     }
@@ -166,6 +180,12 @@ impl SkillsFixture {
         snapshot
     }
 
+    pub fn content_and_links_snapshot(&self) -> FixtureSnapshot {
+        let mut snapshot = self.snapshot();
+        snapshot.remove("settings:skills");
+        snapshot
+    }
+
     pub fn central(&self, name: &str) -> PathBuf {
         SkillsPaths::from_env().unwrap().central_skill(name)
     }
@@ -212,6 +232,24 @@ impl SkillsFixture {
         matches
             .pop()
             .unwrap_or_else(|| panic!("backup for {name} is not present"))
+    }
+
+    pub fn backups_with_prefix(&self, prefix: &str, name: &str) -> Vec<PathBuf> {
+        let root = SkillsPaths::from_env().unwrap().backups_skills_dir();
+        let mut matches = fs::read_dir(root)
+            .unwrap()
+            .filter_map(Result::ok)
+            .filter_map(|entry| {
+                entry
+                    .file_name()
+                    .to_str()
+                    .is_some_and(|value| value.starts_with(prefix))
+                    .then(|| entry.path().join(name))
+            })
+            .filter(|path| path.is_dir())
+            .collect::<Vec<_>>();
+        matches.sort();
+        matches
     }
 
     pub fn read_external(&self, name: &str) -> Vec<u8> {
@@ -296,6 +334,124 @@ impl SkillsFixture {
             agent_ids,
             replace_conflicts: false,
         }
+    }
+}
+
+pub struct UpdateFixture {
+    pub skills: SkillsFixture,
+    pub server: Option<MockGithub>,
+    pub now: String,
+}
+
+impl UpdateFixture {
+    pub fn github_branch(requested_ref: &str, old_sha: &str, new_sha: &str) -> Self {
+        let skills = SkillsFixture::managed("review-changes");
+        let server = MockGithub::updates_to(&["review-changes"], new_sha);
+        mutate_settings(|settings| {
+            let record = settings
+                .managed_skills
+                .as_mut()
+                .unwrap()
+                .get_mut("review-changes")
+                .unwrap();
+            record.source = SkillSource::Github {
+                owner: "acme".into(),
+                repo: "skills".into(),
+                subpath: "catalog/review-changes".into(),
+                requested_ref: requested_ref.into(),
+                pinned: false,
+            };
+            record.resolved_revision = Some(old_sha.into());
+        })
+        .unwrap();
+        Self {
+            skills,
+            server: Some(server),
+            now: "2026-07-17T08:00:00Z".into(),
+        }
+    }
+
+    pub fn github_commit(sha: &str) -> Self {
+        let fixture = Self::github_branch(sha, sha, sha);
+        mutate_settings(|settings| {
+            let record = settings
+                .managed_skills
+                .as_mut()
+                .unwrap()
+                .get_mut("review-changes")
+                .unwrap();
+            let SkillSource::Github { pinned, .. } = &mut record.source else {
+                unreachable!()
+            };
+            *pinned = true;
+        })
+        .unwrap();
+        fixture
+    }
+
+    pub fn last_checked(value: &str) -> Self {
+        let fixture = Self::github_branch("main", OLD_SHA, NEW_SHA);
+        mutate_settings(|settings| settings.skill_update_checked_at = Some(value.into())).unwrap();
+        fixture
+    }
+
+    pub fn available() -> Self {
+        let skills = SkillsFixture::managed("review-changes");
+        let source = skills.home.home.join("fixtures/review-changes");
+        write_skill(&source, "review-changes", "Updated fixture");
+        fs::write(source.join("notes.txt"), b"new content\n").unwrap();
+        mutate_settings(|settings| {
+            let record = settings
+                .managed_skills
+                .as_mut()
+                .unwrap()
+                .get_mut("review-changes")
+                .unwrap();
+            record.source = SkillSource::Local {
+                path: "~/fixtures".into(),
+                subpath: "review-changes".into(),
+            };
+            record.update.available = true;
+            record.update.checked_at = Some("2026-07-17T08:00:00Z".into());
+        })
+        .unwrap();
+        Self {
+            skills,
+            server: None,
+            now: "2026-07-17T08:00:00Z".into(),
+        }
+    }
+
+    pub fn check(&self, manual: bool) -> UpdateCheckOutcome {
+        self.check_at(manual, &self.now)
+    }
+
+    pub fn check_at(&self, manual: bool, now: &str) -> UpdateCheckOutcome {
+        let endpoints = self
+            .server
+            .as_ref()
+            .map(MockGithub::endpoints)
+            .unwrap_or_else(GithubEndpoints::production);
+        check_updates_with(manual, now, endpoints).unwrap()
+    }
+
+    pub fn content_and_links_snapshot(&self) -> FixtureSnapshot {
+        self.skills.content_and_links_snapshot()
+    }
+
+    pub fn http_requests(&self) -> Vec<String> {
+        self.server
+            .as_ref()
+            .map(MockGithub::requests)
+            .unwrap_or_default()
+    }
+
+    pub fn modify_central_after_plan(&self) {
+        fs::write(
+            self.skills.central("review-changes").join("SKILL.md"),
+            "---\nname: review-changes\ndescription: Locally changed\n---\n",
+        )
+        .unwrap();
     }
 }
 
@@ -549,7 +705,13 @@ enum MockMode {
 struct MockGithubState {
     mode: MockMode,
     archive: Vec<u8>,
+    sha: Mutex<String>,
+    etag: Mutex<Option<String>>,
+    not_modified_etag: Mutex<Option<String>>,
+    rate_limit_reset: Mutex<Option<String>>,
+    mutate_record_revision: Mutex<Option<String>>,
     requests: Mutex<Vec<String>>,
+    request_headers: Mutex<Vec<BTreeMap<String, String>>>,
     stop: AtomicBool,
 }
 
@@ -574,6 +736,33 @@ impl MockGithub {
         Self::spawn(MockMode::Oversized(byte_count))
     }
 
+    pub fn updates_to(skill_names: &[&str], sha: &str) -> Self {
+        let server = Self::spawn(MockMode::Skills(
+            skill_names.iter().map(|name| (*name).to_owned()).collect(),
+        ));
+        *server.state.sha.lock().unwrap() = sha.to_owned();
+        server
+    }
+
+    pub fn with_etag(skill_names: &[&str], sha: &str, etag: &str) -> Self {
+        let server = Self::updates_to(skill_names, sha);
+        *server.state.etag.lock().unwrap() = Some(etag.into());
+        *server.state.not_modified_etag.lock().unwrap() = Some(etag.into());
+        server
+    }
+
+    pub fn rate_limited(reset: &str) -> Self {
+        let server = Self::spawn(MockMode::Skills(vec!["review-changes".into()]));
+        *server.state.rate_limit_reset.lock().unwrap() = Some(reset.into());
+        server
+    }
+
+    pub fn updates_while_changing_record(skill_names: &[&str], sha: &str, revision: &str) -> Self {
+        let server = Self::updates_to(skill_names, sha);
+        *server.state.mutate_record_revision.lock().unwrap() = Some(revision.into());
+        server
+    }
+
     pub fn endpoints(&self) -> GithubEndpoints {
         let base: url::Url = self.base.parse().expect("mock GitHub base URL");
         GithubEndpoints::for_test(base.clone(), base)
@@ -581,6 +770,10 @@ impl MockGithub {
 
     pub fn requests(&self) -> Vec<String> {
         self.state.requests.lock().unwrap().clone()
+    }
+
+    pub fn request_headers(&self) -> Vec<BTreeMap<String, String>> {
+        self.state.request_headers.lock().unwrap().clone()
     }
 
     fn spawn(mode: MockMode) -> Self {
@@ -596,7 +789,13 @@ impl MockGithub {
         let state = Arc::new(MockGithubState {
             mode,
             archive: github_archive(&skill_names),
+            sha: Mutex::new(FIXTURE_SHA.into()),
+            etag: Mutex::new(None),
+            not_modified_etag: Mutex::new(None),
+            rate_limit_reset: Mutex::new(None),
+            mutate_record_revision: Mutex::new(None),
             requests: Mutex::new(Vec::new()),
+            request_headers: Mutex::new(Vec::new()),
             stop: AtomicBool::new(false),
         });
         let thread_state = Arc::clone(&state);
@@ -680,6 +879,7 @@ fn handle_connection(mut stream: TcpStream, state: &MockGithubState) {
         .filter_map(|line| line.split_once(':'))
         .map(|(name, value)| (name.trim().to_ascii_lowercase(), value.trim().to_owned()))
         .collect::<BTreeMap<_, _>>();
+    state.request_headers.lock().unwrap().push(headers.clone());
     if !headers
         .get("user-agent")
         .is_some_and(|value| value.starts_with("MUX/"))
@@ -710,12 +910,51 @@ fn handle_connection(mut stream: TcpStream, state: &MockGithubState) {
             .lock()
             .unwrap()
             .push(format!("commit:{requested_ref}"));
-        if requested_ref == "main" || requested_ref == FIXTURE_SHA {
+        if let Some(revision) = state.mutate_record_revision.lock().unwrap().take() {
+            mutate_settings(|settings| {
+                if let Some(record) = settings
+                    .managed_skills
+                    .as_mut()
+                    .and_then(|records| records.get_mut("review-changes"))
+                {
+                    record.resolved_revision = Some(revision);
+                }
+            })
+            .unwrap();
+        }
+        if let Some(reset) = state.rate_limit_reset.lock().unwrap().clone() {
+            write_response(
+                &mut stream,
+                "403 Forbidden",
+                &[
+                    ("X-RateLimit-Remaining", "0"),
+                    ("X-RateLimit-Reset", &reset),
+                ],
+                b"rate limited",
+            );
+            return;
+        }
+        let sha = state.sha.lock().unwrap().clone();
+        let etag = state.etag.lock().unwrap().clone();
+        let not_modified = state.not_modified_etag.lock().unwrap().clone();
+        if not_modified.as_deref().is_some_and(|expected| {
+            headers.get("if-none-match").map(String::as_str) == Some(expected)
+        }) {
+            let response_headers = etag
+                .as_deref()
+                .map(|value| vec![("ETag", value)])
+                .unwrap_or_default();
+            write_response(&mut stream, "304 Not Modified", &response_headers, b"");
+        } else if requested_ref == "main" || requested_ref == sha || requested_ref == FIXTURE_SHA {
+            let response_headers = etag
+                .as_deref()
+                .map(|value| vec![("ETag", value)])
+                .unwrap_or_else(|| vec![("Content-Type", "application/json")]);
             write_response(
                 &mut stream,
                 "200 OK",
-                &[("Content-Type", "application/json")],
-                format!(r#"{{"sha":"{FIXTURE_SHA}"}}"#).as_bytes(),
+                &response_headers,
+                format!(r#"{{"sha":"{sha}"}}"#).as_bytes(),
             );
         } else {
             write_response(&mut stream, "404 Not Found", &[], b"not found");
@@ -723,7 +962,9 @@ fn handle_connection(mut stream: TcpStream, state: &MockGithubState) {
         return;
     }
 
-    let is_archive = path == format!("/acme/skills/tar.gz/{FIXTURE_SHA}")
+    let sha = state.sha.lock().unwrap().clone();
+    let is_archive = path == format!("/acme/skills/tar.gz/{sha}")
+        || path == format!("/acme/skills/tar.gz/{FIXTURE_SHA}")
         || matches!(&state.mode, MockMode::Redirect(url) if url.starts_with('/') && path == url);
     if is_archive {
         state.requests.lock().unwrap().push("archive".into());

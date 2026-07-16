@@ -1,16 +1,17 @@
 use super::files::validate_staging_candidate;
 use super::inventory::{declared_targets_for_agents, normalize_assignment_enable};
-use super::source::{load_staged_resolution, stage_private_candidate};
+use super::source::{load_staged_resolution, stage_private_candidate, stage_recorded_skill};
 use super::staging::StagingRoot;
 use super::transaction::{acquire_skills_lock, validate_operation_id};
 use super::{
     audit_skill, diff_trees, execute_transaction, findings_digest, has_pending_recovery, hash_tree,
     io_error, list_inventory, normalize_agent_selection, validate_candidate, DirectoryMutation,
-    InventoryState, LinkMutation, LinkState, ManagedSkillRecord, OperationPlan,
-    PlanAssignmentRequest, PlanImportRequest, PlanInstallRequest, PlannedLinkState, PlannedSkill,
-    PlannedTarget, RiskLevel, SkillCommitRequest, SkillError, SkillOperationKind,
-    SkillSettingsSnapshot, SkillSource, SkillSourceResolution, SkillTargetView, SkillUpdateState,
-    SkillsInventory, SkillsPaths, TransactionOrder, TransactionSpec,
+    FileChangeKind, InventoryState, LinkMutation, LinkState, ManagedSkillRecord, OperationPlan,
+    PlanAssignmentRequest, PlanImportRequest, PlanInstallRequest, PlanRemoveRequest,
+    PlanRepairRequest, PlanUpdateRequest, PlannedLinkState, PlannedSkill, PlannedTarget,
+    RepairKind, RiskLevel, SkillCommitRequest, SkillError, SkillFileChange, SkillManifest,
+    SkillOperationKind, SkillSettingsSnapshot, SkillSource, SkillSourceResolution, SkillTargetView,
+    SkillUpdateState, SkillsInventory, SkillsPaths, TransactionOrder, TransactionSpec,
 };
 use crate::settings::{load_settings_strict, Settings};
 use chrono::{SecondsFormat, Utc};
@@ -57,6 +58,20 @@ enum PersistedPlanInput {
     Assignment {
         request: PlanAssignmentRequest,
     },
+    Update {
+        request: PlanUpdateRequest,
+        resolution: SkillSourceResolution,
+        backup_path: String,
+    },
+    Remove {
+        request: PlanRemoveRequest,
+        backup_path: String,
+    },
+    Repair {
+        request: PlanRepairRequest,
+        resolution: Option<SkillSourceResolution>,
+        changed_source: bool,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
@@ -96,9 +111,27 @@ struct CandidateBinding<'a> {
     target_ids: Vec<&'a str>,
     replace_conflicts: bool,
     assignment_enabled: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    lifecycle: Option<LifecycleBinding<'a>>,
     expected_central: &'a [ExpectedCentral],
     expected_links: &'a [ExpectedLink],
     expected_target_roots: &'a [ExpectedTargetRoot],
+}
+
+#[derive(Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+enum LifecycleBinding<'a> {
+    Update {
+        replace_local_changes: bool,
+        backup_path: &'a str,
+    },
+    Remove {
+        backup_path: &'a str,
+    },
+    Repair {
+        repair: &'a RepairKind,
+        changed_source: bool,
+    },
 }
 
 #[derive(Serialize)]
@@ -200,6 +233,152 @@ fn plan_assignment_inner(request: PlanAssignmentRequest) -> Result<OperationPlan
 
 pub fn commit_assignment(request: SkillCommitRequest) -> Result<SkillsInventory, SkillError> {
     sanitize_result(commit_plan(request, SkillOperationKind::Assignment))
+}
+
+pub fn plan_update(request: PlanUpdateRequest) -> Result<OperationPlan, SkillError> {
+    sanitize_result(plan_update_inner(request))
+}
+
+pub fn commit_update(request: SkillCommitRequest) -> Result<SkillsInventory, SkillError> {
+    sanitize_result(commit_plan(request, SkillOperationKind::Update))
+}
+
+pub fn plan_remove(request: PlanRemoveRequest) -> Result<OperationPlan, SkillError> {
+    sanitize_result(plan_remove_inner(request))
+}
+
+pub fn commit_remove(request: SkillCommitRequest) -> Result<SkillsInventory, SkillError> {
+    sanitize_result(commit_plan(request, SkillOperationKind::Remove))
+}
+
+pub fn plan_repair(request: PlanRepairRequest) -> Result<OperationPlan, SkillError> {
+    sanitize_result(plan_repair_inner(request))
+}
+
+pub fn commit_repair(request: SkillCommitRequest) -> Result<SkillsInventory, SkillError> {
+    sanitize_result(commit_plan(request, SkillOperationKind::Repair))
+}
+
+fn plan_update_inner(request: PlanUpdateRequest) -> Result<OperationPlan, SkillError> {
+    ensure_recovery_clear()?;
+    let settings = current_settings_snapshot()?;
+    let record = managed_record(&settings, &request.skill_name)?.clone();
+    let revision = match &record.source {
+        SkillSource::Github { pinned: true, .. } | SkillSource::Imported { .. } => {
+            return conflict_result("this pinned Skill source does not have ordinary updates")
+        }
+        SkillSource::Github { .. } => {
+            if !record.update.available {
+                return conflict_result("no reviewed GitHub update is available for this Skill");
+            }
+            record.update.resolved_revision.as_deref().ok_or_else(|| {
+                invalid_source_error("the reviewed GitHub update revision is unavailable")
+            })?
+        }
+        SkillSource::Local { .. } => "",
+    };
+    let resolution = stage_recorded_skill(
+        &record.source,
+        (!revision.is_empty()).then_some(revision),
+        &request.skill_name,
+        super::GithubEndpoints::production(),
+    )?;
+    let paths = SkillsPaths::resolve_from_env()?;
+    let operation_id = resolution.operation_id.clone();
+    let backup_path = paths
+        .backups_skills_dir()
+        .join(format!(
+            "update-{}-{}",
+            crate::paths::backup_timestamp(),
+            &operation_id[..8]
+        ))
+        .join(&request.skill_name);
+    let result = (|| {
+        let persisted = build_update_plan(
+            request,
+            resolution,
+            collapse_home(&backup_path, paths.user_home()),
+        )?;
+        persist_plan(&paths, &persisted)?;
+        Ok(persisted.plan)
+    })();
+    if result.is_err() {
+        remove_unjournaled_operation(&paths, &operation_id)?;
+    }
+    result
+}
+
+fn plan_remove_inner(request: PlanRemoveRequest) -> Result<OperationPlan, SkillError> {
+    ensure_recovery_clear()?;
+    let paths = SkillsPaths::resolve_from_env()?;
+    let operation_id = Uuid::new_v4().hyphenated().to_string();
+    create_operation_root(&paths, &operation_id)?;
+    let backup_path = paths
+        .backups_skills_dir()
+        .join(format!(
+            "remove-{}-{}",
+            crate::paths::backup_timestamp(),
+            &operation_id[..8]
+        ))
+        .join(&request.skill_name);
+    let result = (|| {
+        let persisted = build_remove_plan(
+            request,
+            operation_id.clone(),
+            collapse_home(&backup_path, paths.user_home()),
+        )?;
+        persist_plan(&paths, &persisted)?;
+        Ok(persisted.plan)
+    })();
+    if result.is_err() {
+        remove_unjournaled_operation(&paths, &operation_id)?;
+    }
+    result
+}
+
+fn plan_repair_inner(request: PlanRepairRequest) -> Result<OperationPlan, SkillError> {
+    ensure_recovery_clear()?;
+    match &request.repair {
+        RepairKind::Target { .. } => {
+            let paths = SkillsPaths::resolve_from_env()?;
+            let operation_id = Uuid::new_v4().hyphenated().to_string();
+            create_operation_root(&paths, &operation_id)?;
+            let result = (|| {
+                let persisted = build_target_repair_plan(request, operation_id.clone())?;
+                persist_plan(&paths, &persisted)?;
+                Ok(persisted.plan)
+            })();
+            if result.is_err() {
+                remove_unjournaled_operation(&paths, &operation_id)?;
+            }
+            result
+        }
+        RepairKind::Central => {
+            let settings = current_settings_snapshot()?;
+            let record = managed_record(&settings, &request.skill_name)?.clone();
+            let revision = match &record.source {
+                SkillSource::Github { .. } => record.resolved_revision.as_deref(),
+                SkillSource::Local { .. } | SkillSource::Imported { .. } => None,
+            };
+            let resolution = stage_recorded_skill(
+                &record.source,
+                revision,
+                &request.skill_name,
+                super::GithubEndpoints::production(),
+            )?;
+            let paths = SkillsPaths::resolve_from_env()?;
+            let operation_id = resolution.operation_id.clone();
+            let result = (|| {
+                let persisted = build_central_repair_plan(request, resolution)?;
+                persist_plan(&paths, &persisted)?;
+                Ok(persisted.plan)
+            })();
+            if result.is_err() {
+                remove_unjournaled_operation(&paths, &operation_id)?;
+            }
+            result
+        }
+    }
 }
 
 pub fn cancel_operation(operation_id: &str) -> Result<(), SkillError> {
@@ -606,6 +785,353 @@ fn build_assignment_plan(
     })
 }
 
+fn build_update_plan(
+    request: PlanUpdateRequest,
+    resolution: SkillSourceResolution,
+    backup_path: String,
+) -> Result<PersistedPlan, SkillError> {
+    let paths = SkillsPaths::resolve_from_env()?;
+    let settings = current_settings_snapshot()?;
+    let inventory = list_inventory()?;
+    let record = managed_record(&settings, &request.skill_name)?;
+    if resolution.source != record.source || resolution.candidates.len() != 1 {
+        return stale("the recorded Skill source changed while its update was staged");
+    }
+    if matches!(record.source, SkillSource::Github { .. })
+        && resolution.resolved_revision == record.resolved_revision
+    {
+        return conflict_result("the staged GitHub revision is already installed");
+    }
+    let summary = &resolution.candidates[0];
+    if summary.name != request.skill_name {
+        return stale("the staged update does not contain the reviewed named Skill");
+    }
+    let operation = StagingRoot::open(&paths)?.open_operation(&resolution.operation_id)?;
+    let candidate = operation
+        .root_directory()?
+        .open_directory("candidates")?
+        .open_directory(&request.skill_name)?;
+    let validated = validate_staging_candidate(&candidate)?;
+    if validated.manifest.name != request.skill_name
+        || validated.content_hash != summary.content_hash
+    {
+        return stale("the staged update changed before review");
+    }
+    let staged_name = summary.name.clone();
+    let central = paths.central_skill(&request.skill_name);
+    let central_hash = inspect_central(&central)?
+        .ok_or_else(|| conflict_error("the managed central Skill is missing"))?;
+    if central_hash != record.content_hash && !request.replace_local_changes {
+        return conflict_result(
+            "the managed Skill has local changes that require explicit replacement",
+        );
+    }
+    if validated.content_hash == central_hash {
+        return conflict_result("the staged Skill content is already installed");
+    }
+    let risk = audit_skill(candidate.path())?;
+    let files = diff_trees(Some(&central), candidate.path())?;
+    let skill = PlannedSkill {
+        manifest: validated.manifest,
+        source: record.source.clone(),
+        resolved_revision: resolution.resolved_revision.clone(),
+        files,
+        risk,
+        existing_states: existing_states(&inventory, &request.skill_name),
+        replace_existing: true,
+        content_hash: validated.content_hash,
+    };
+    let plan = new_plan(
+        resolution.operation_id.clone(),
+        SkillOperationKind::Update,
+        vec![skill],
+        Vec::new(),
+        settings_hash(&settings)?,
+        Vec::new(),
+    )?;
+    finalize_plan(PersistedPlan {
+        schema_version: PLAN_SCHEMA_VERSION,
+        plan,
+        input: PersistedPlanInput::Update {
+            request,
+            resolution,
+            backup_path,
+        },
+        expected_central: vec![ExpectedCentral {
+            skill_name: staged_name,
+            content_hash: Some(central_hash),
+        }],
+        expected_links: Vec::new(),
+        expected_target_roots: Vec::new(),
+    })
+}
+
+fn build_remove_plan(
+    request: PlanRemoveRequest,
+    operation_id: String,
+    backup_path: String,
+) -> Result<PersistedPlan, SkillError> {
+    let paths = SkillsPaths::resolve_from_env()?;
+    let settings = current_settings_snapshot()?;
+    let inventory = list_inventory()?;
+    let record = managed_record(&settings, &request.skill_name)?;
+    let central = paths.central_skill(&request.skill_name);
+    let central_hash = inspect_central(&central)?;
+    let (manifest, risk, content_hash, files) = if let Some(actual_hash) = &central_hash {
+        let (manifest, risk) = match validate_candidate(&central) {
+            Ok(validated) if validated.manifest.name == request.skill_name => {
+                (validated.manifest, audit_skill(&central)?)
+            }
+            Err(SkillError::InvalidManifest { .. }) | Ok(_) => {
+                (manifest_from_record(record), record.risk.clone())
+            }
+            Err(error) => return Err(error),
+        };
+        (
+            manifest,
+            risk,
+            actual_hash.clone(),
+            removed_file_changes(&central)?,
+        )
+    } else {
+        (
+            manifest_from_record(record),
+            record.risk.clone(),
+            record.content_hash.clone(),
+            Vec::new(),
+        )
+    };
+    let mut expected_links = Vec::new();
+    let mut target_views = Vec::new();
+    for target in &inventory.targets {
+        let path = target_path(&paths, target, &request.skill_name)?;
+        let state = match inspect_link(&path, &central, &paths) {
+            Ok(state) => state,
+            Err(SkillError::Conflict { .. }) => continue,
+            Err(error) => return Err(error),
+        };
+        let exact = matches!(
+            &state,
+            LinkState::ManagedSymlink { target } if target == &central
+        ) || matches!(
+            &state,
+            LinkState::BrokenSymlink { target } if target == &central
+        );
+        if exact {
+            target_views.push(target.clone());
+            expected_links.push(ExpectedLink {
+                skill_name: request.skill_name.clone(),
+                target_id: target.target_id.clone(),
+                state,
+                desired_managed: false,
+            });
+        }
+    }
+    let targets = planned_targets(&target_views, &expected_links);
+    let skill = PlannedSkill {
+        manifest,
+        source: record.source.clone(),
+        resolved_revision: record.resolved_revision.clone(),
+        files,
+        risk,
+        existing_states: existing_states(&inventory, &request.skill_name),
+        replace_existing: central_hash.is_some() || !expected_links.is_empty(),
+        content_hash,
+    };
+    let mut plan = new_plan(
+        operation_id,
+        SkillOperationKind::Remove,
+        vec![skill],
+        targets,
+        settings_hash(&settings)?,
+        Vec::new(),
+    )?;
+    plan.requires_risk_override = false;
+    finalize_plan(PersistedPlan {
+        schema_version: PLAN_SCHEMA_VERSION,
+        plan,
+        input: PersistedPlanInput::Remove {
+            request: request.clone(),
+            backup_path,
+        },
+        expected_central: vec![ExpectedCentral {
+            skill_name: request.skill_name,
+            content_hash: central_hash,
+        }],
+        expected_links,
+        expected_target_roots: Vec::new(),
+    })
+}
+
+fn build_target_repair_plan(
+    request: PlanRepairRequest,
+    operation_id: String,
+) -> Result<PersistedPlan, SkillError> {
+    let RepairKind::Target { target_id } = &request.repair else {
+        return invalid_source("a target repair requires a target id");
+    };
+    let paths = SkillsPaths::resolve_from_env()?;
+    let settings = current_settings_snapshot()?;
+    let inventory = list_inventory()?;
+    let record = managed_record(&settings, &request.skill_name)?;
+    let assigned = settings
+        .skill_assignments
+        .as_ref()
+        .and_then(|rows| rows.get(&request.skill_name))
+        .is_some_and(|targets| targets.contains(target_id));
+    if !assigned {
+        return conflict_result("only an assigned managed Skill target can be repaired");
+    }
+    let central = paths.central_skill(&request.skill_name);
+    let validated = validate_candidate(&central)
+        .map_err(|_| conflict_error("the managed central Skill cannot authorize target repair"))?;
+    if validated.manifest.name != request.skill_name
+        || validated.content_hash != record.content_hash
+    {
+        return conflict_result("the managed central Skill hash cannot authorize target repair");
+    }
+    let target = inventory
+        .targets
+        .iter()
+        .find(|target| &target.target_id == target_id)
+        .ok_or_else(|| invalid_source_error("the assigned Skill target is unavailable"))?
+        .clone();
+    let state = inspect_link(
+        &target_path(&paths, &target, &request.skill_name)?,
+        &central,
+        &paths,
+    )?;
+    let repairable = matches!(state, LinkState::Missing)
+        || matches!(&state, LinkState::BrokenSymlink { target } if target == &central);
+    if !repairable {
+        return conflict_result("the assigned Skill target is not an authorized broken link");
+    }
+    let expected_links = vec![ExpectedLink {
+        skill_name: request.skill_name.clone(),
+        target_id: target.target_id.clone(),
+        state,
+        desired_managed: true,
+    }];
+    let skill = PlannedSkill {
+        manifest: validated.manifest,
+        source: record.source.clone(),
+        resolved_revision: record.resolved_revision.clone(),
+        files: Vec::new(),
+        risk: audit_skill(&central)?,
+        existing_states: existing_states(&inventory, &request.skill_name),
+        replace_existing: false,
+        content_hash: validated.content_hash,
+    };
+    let mut plan = new_plan(
+        operation_id,
+        SkillOperationKind::Repair,
+        vec![skill],
+        planned_targets(&[target], &expected_links),
+        settings_hash(&settings)?,
+        Vec::new(),
+    )?;
+    plan.requires_risk_override = false;
+    finalize_plan(PersistedPlan {
+        schema_version: PLAN_SCHEMA_VERSION,
+        plan,
+        input: PersistedPlanInput::Repair {
+            request: request.clone(),
+            resolution: None,
+            changed_source: false,
+        },
+        expected_central: vec![ExpectedCentral {
+            skill_name: request.skill_name,
+            content_hash: Some(record.content_hash.clone()),
+        }],
+        expected_links,
+        expected_target_roots: Vec::new(),
+    })
+}
+
+fn build_central_repair_plan(
+    request: PlanRepairRequest,
+    resolution: SkillSourceResolution,
+) -> Result<PersistedPlan, SkillError> {
+    if request.repair != RepairKind::Central {
+        return invalid_source("a central repair cannot stage a target repair");
+    }
+    let paths = SkillsPaths::resolve_from_env()?;
+    let settings = current_settings_snapshot()?;
+    let inventory = list_inventory()?;
+    let record = managed_record(&settings, &request.skill_name)?;
+    if resolution.source != record.source || resolution.candidates.len() != 1 {
+        return stale("the recorded source changed while central repair was staged");
+    }
+    if matches!(record.source, SkillSource::Github { .. })
+        && resolution.resolved_revision != record.resolved_revision
+    {
+        return stale("central repair did not use the recorded immutable revision");
+    }
+    let summary = &resolution.candidates[0];
+    if summary.name != request.skill_name {
+        return stale("central repair staged a different named Skill");
+    }
+    let operation = StagingRoot::open(&paths)?.open_operation(&resolution.operation_id)?;
+    let candidate = operation
+        .root_directory()?
+        .open_directory("candidates")?
+        .open_directory(&request.skill_name)?;
+    let validated = validate_staging_candidate(&candidate)?;
+    if validated.manifest.name != request.skill_name
+        || validated.content_hash != summary.content_hash
+    {
+        return stale("the staged central repair candidate changed before review");
+    }
+    let staged_name = summary.name.clone();
+    let central = paths.central_skill(&request.skill_name);
+    if inspect_central(&central)?.is_some() {
+        return conflict_result("central repair requires missing managed content");
+    }
+    let changed_source = validated.content_hash != record.content_hash;
+    if changed_source && matches!(record.source, SkillSource::Imported { .. }) {
+        return conflict_result("the imported backup no longer matches its recorded hash");
+    }
+    let risk = audit_skill(candidate.path())?;
+    let files = diff_trees(None, candidate.path())?;
+    let mut warnings = Vec::new();
+    if changed_source {
+        warnings.push("changed-source recovery: the recorded source content changed".into());
+    }
+    let skill = PlannedSkill {
+        manifest: validated.manifest,
+        source: record.source.clone(),
+        resolved_revision: resolution.resolved_revision.clone(),
+        files,
+        risk,
+        existing_states: existing_states(&inventory, &request.skill_name),
+        replace_existing: changed_source,
+        content_hash: validated.content_hash,
+    };
+    let plan = new_plan(
+        resolution.operation_id.clone(),
+        SkillOperationKind::Repair,
+        vec![skill],
+        Vec::new(),
+        settings_hash(&settings)?,
+        warnings,
+    )?;
+    finalize_plan(PersistedPlan {
+        schema_version: PLAN_SCHEMA_VERSION,
+        plan,
+        input: PersistedPlanInput::Repair {
+            request,
+            resolution: Some(resolution),
+            changed_source,
+        },
+        expected_central: vec![ExpectedCentral {
+            skill_name: staged_name,
+            content_hash: None,
+        }],
+        expected_links: Vec::new(),
+        expected_target_roots: Vec::new(),
+    })
+}
+
 fn assigned_targets_for_agents(
     assigned_target_ids: &BTreeSet<String>,
     request: &PlanAssignmentRequest,
@@ -642,6 +1168,52 @@ fn assigned_target_ids(settings: &SkillSettingsSnapshot, skill_name: &str) -> BT
         .and_then(|assignments| assignments.get(skill_name))
         .cloned()
         .unwrap_or_default()
+}
+
+fn managed_record<'a>(
+    settings: &'a SkillSettingsSnapshot,
+    skill_name: &str,
+) -> Result<&'a ManagedSkillRecord, SkillError> {
+    settings
+        .managed_skills
+        .as_ref()
+        .and_then(|records| records.get(skill_name))
+        .ok_or_else(|| invalid_source_error("the managed Skill is unavailable"))
+}
+
+fn staged_candidate(paths: &SkillsPaths, operation_id: &str, skill_name: &str) -> PathBuf {
+    paths
+        .staging_skills_dir()
+        .join(operation_id)
+        .join("candidates")
+        .join(skill_name)
+}
+
+fn manifest_from_record(record: &ManagedSkillRecord) -> SkillManifest {
+    SkillManifest {
+        name: record.name.clone(),
+        description: record.description.clone(),
+        license: None,
+        compatibility: None,
+        metadata: BTreeMap::new(),
+        allowed_tools: None,
+    }
+}
+
+fn removed_file_changes(root: &Path) -> Result<Vec<SkillFileChange>, SkillError> {
+    super::inspect_tree(root).map(|files| {
+        files
+            .into_iter()
+            .map(|file| SkillFileChange {
+                path: file.path,
+                kind: FileChangeKind::Removed,
+                before_hash: Some(file.sha256),
+                after_hash: None,
+                unified_diff: None,
+                diff_truncated: false,
+            })
+            .collect()
+    })
 }
 
 fn commit_plan(
@@ -720,6 +1292,43 @@ fn rebuild_plan(persisted: &PersistedPlan) -> Result<PersistedPlan, SkillError> 
         PersistedPlanInput::Assignment { request } => {
             build_assignment_plan(request.clone(), persisted.plan.operation_id.clone())
         }
+        PersistedPlanInput::Update {
+            request,
+            resolution,
+            backup_path,
+        } => {
+            let paths = SkillsPaths::resolve_from_env()?;
+            let reloaded = load_staged_resolution(&paths, &persisted.plan.operation_id)?;
+            if &reloaded != resolution {
+                return Err(stale_error("the staged Skill update changed after review"));
+            }
+            build_update_plan(request.clone(), reloaded, backup_path.clone())
+        }
+        PersistedPlanInput::Remove {
+            request,
+            backup_path,
+        } => build_remove_plan(
+            request.clone(),
+            persisted.plan.operation_id.clone(),
+            backup_path.clone(),
+        ),
+        PersistedPlanInput::Repair {
+            request,
+            resolution,
+            ..
+        } => match resolution {
+            Some(expected) => {
+                let paths = SkillsPaths::resolve_from_env()?;
+                let reloaded = load_staged_resolution(&paths, &persisted.plan.operation_id)?;
+                if &reloaded != expected {
+                    return Err(stale_error(
+                        "the staged central repair changed after review",
+                    ));
+                }
+                build_central_repair_plan(request.clone(), reloaded)
+            }
+            None => build_target_repair_plan(request.clone(), persisted.plan.operation_id.clone()),
+        },
     }
 }
 
@@ -739,30 +1348,75 @@ fn transaction_spec(
         PersistedPlanInput::Assignment { request } => {
             assignment_settings_after(persisted, request, &mut settings_after);
         }
+        PersistedPlanInput::Update { .. } => {
+            replacement_settings_after(paths, persisted, &mut settings_after)?;
+        }
+        PersistedPlanInput::Remove { request, .. } => {
+            remove_settings_after(request, &mut settings_after);
+        }
+        PersistedPlanInput::Repair {
+            request,
+            resolution,
+            ..
+        } => {
+            if resolution.is_some() {
+                replacement_settings_after(paths, persisted, &mut settings_after)?;
+            } else {
+                repair_target_settings_after(request, &mut settings_after);
+            }
+        }
     }
 
     let mut directory_mutations = Vec::new();
-    if matches!(
-        persisted.plan.kind,
-        SkillOperationKind::Install | SkillOperationKind::Import
-    ) {
+    let replacement_operation = matches!(
+        &persisted.input,
+        PersistedPlanInput::Install { .. }
+            | PersistedPlanInput::Import { .. }
+            | PersistedPlanInput::Update { .. }
+            | PersistedPlanInput::Repair {
+                resolution: Some(_),
+                ..
+            }
+    );
+    if replacement_operation {
         for expected in &persisted.expected_central {
-            directory_mutations.push(DirectoryMutation {
-                replacement: Some(
-                    paths
-                        .staging_skills_dir()
-                        .join(&persisted.plan.operation_id)
-                        .join("candidates")
-                        .join(&expected.skill_name),
+            let (backup, retain_backup) = match &persisted.input {
+                PersistedPlanInput::Update { backup_path, .. } => (
+                    paths.expand_user(backup_path).ok_or_else(|| {
+                        invalid_source_error("the reviewed update backup path is invalid")
+                    })?,
+                    true,
                 ),
-                destination: paths.central_skill(&expected.skill_name),
-                backup: central_backup_path(
+                _ => (
+                    central_backup_path(paths, &persisted.plan.operation_id, &expected.skill_name)?,
+                    false,
+                ),
+            };
+            directory_mutations.push(DirectoryMutation {
+                replacement: Some(staged_candidate(
                     paths,
                     &persisted.plan.operation_id,
                     &expected.skill_name,
-                )?,
+                )),
+                destination: paths.central_skill(&expected.skill_name),
+                backup,
                 expected_before_hash: expected.content_hash.clone(),
-                retain_backup: false,
+                retain_backup,
+            });
+        }
+    } else if let PersistedPlanInput::Remove { backup_path, .. } = &persisted.input {
+        for expected in &persisted.expected_central {
+            if expected.content_hash.is_none() {
+                continue;
+            }
+            directory_mutations.push(DirectoryMutation {
+                replacement: None,
+                destination: paths.central_skill(&expected.skill_name),
+                backup: paths.expand_user(backup_path).ok_or_else(|| {
+                    invalid_source_error("the reviewed removal backup path is invalid")
+                })?,
+                expected_before_hash: expected.content_hash.clone(),
+                retain_backup: true,
             });
         }
     }
@@ -801,7 +1455,11 @@ fn transaction_spec(
     }
     Ok(TransactionSpec {
         operation_id: persisted.plan.operation_id.clone(),
-        order: TransactionOrder::ContentThenLinks,
+        order: if matches!(&persisted.input, PersistedPlanInput::Remove { .. }) {
+            TransactionOrder::LinksThenContent
+        } else {
+            TransactionOrder::ContentThenLinks
+        },
         directory_mutations,
         link_mutations,
         settings_before,
@@ -902,6 +1560,85 @@ fn assignment_settings_after(
     }
 }
 
+fn replacement_settings_after(
+    paths: &SkillsPaths,
+    persisted: &PersistedPlan,
+    settings: &mut SkillSettingsSnapshot,
+) -> Result<(), SkillError> {
+    let operation = StagingRoot::open(paths)?.open_operation(&persisted.plan.operation_id)?;
+    let staged_candidates = operation.root_directory()?.open_directory("candidates")?;
+    let now = Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true);
+    let records = settings.managed_skills.as_mut().ok_or_else(|| {
+        invalid_source_error("the reviewed managed Skill settings are unavailable")
+    })?;
+    for skill in &persisted.plan.skills {
+        let candidate = staged_candidates.open_directory(&skill.manifest.name)?;
+        let validated = validate_staging_candidate(&candidate)?;
+        if validated.manifest.name != skill.manifest.name
+            || validated.content_hash != skill.content_hash
+        {
+            return Err(stale_error(
+                "a staged Skill replacement changed before commit",
+            ));
+        }
+        let record = records.get_mut(&skill.manifest.name).ok_or_else(|| {
+            invalid_source_error("the reviewed managed Skill record is unavailable")
+        })?;
+        record.description = skill.manifest.description.clone();
+        record.content_kind = validated.content_kind;
+        record.source = skill.source.clone();
+        record.resolved_revision = skill.resolved_revision.clone();
+        record.content_hash = skill.content_hash.clone();
+        record.updated_at = now.clone();
+        record.risk = skill.risk.clone();
+        let preserves_known_update = matches!(
+            &persisted.input,
+            PersistedPlanInput::Repair {
+                resolution: Some(_),
+                ..
+            }
+        ) && matches!(&skill.source, SkillSource::Github { .. });
+        if !preserves_known_update {
+            record.update.available = false;
+            record.update.resolved_revision = match &skill.source {
+                SkillSource::Github { .. } => skill.resolved_revision.clone(),
+                SkillSource::Local { .. } => Some(skill.content_hash.clone()),
+                SkillSource::Imported { .. } => None,
+            };
+            record.update.error = None;
+            record.update.retry_at = None;
+        }
+    }
+    Ok(())
+}
+
+fn remove_settings_after(request: &PlanRemoveRequest, settings: &mut SkillSettingsSnapshot) {
+    if let Some(records) = settings.managed_skills.as_mut() {
+        records.remove(&request.skill_name);
+        if records.is_empty() {
+            settings.managed_skills = None;
+        }
+    }
+    if let Some(assignments) = settings.skill_assignments.as_mut() {
+        assignments.remove(&request.skill_name);
+        if assignments.is_empty() {
+            settings.skill_assignments = None;
+        }
+    }
+}
+
+fn repair_target_settings_after(request: &PlanRepairRequest, settings: &mut SkillSettingsSnapshot) {
+    let RepairKind::Target { target_id } = &request.repair else {
+        return;
+    };
+    settings
+        .skill_assignments
+        .get_or_insert_default()
+        .entry(request.skill_name.clone())
+        .or_default()
+        .insert(target_id.clone());
+}
+
 fn import_or_replacement_backup(
     paths: &SkillsPaths,
     persisted: &PersistedPlan,
@@ -972,17 +1709,57 @@ fn finalize_plan(mut persisted: PersistedPlan) -> Result<PersistedPlan, SkillErr
 
 fn candidate_hash(persisted: &PersistedPlan) -> Result<String, SkillError> {
     let mut requested_agent_ids = match &persisted.input {
-        PersistedPlanInput::Install { request, .. } => request.agent_ids.iter(),
-        PersistedPlanInput::Import { request, .. } => request.agent_ids.iter(),
-        PersistedPlanInput::Assignment { request } => request.agent_ids.iter(),
-    }
-    .map(String::as_str)
-    .collect::<Vec<_>>();
+        PersistedPlanInput::Install { request, .. } => request
+            .agent_ids
+            .iter()
+            .map(String::as_str)
+            .collect::<Vec<_>>(),
+        PersistedPlanInput::Import { request, .. } => request
+            .agent_ids
+            .iter()
+            .map(String::as_str)
+            .collect::<Vec<_>>(),
+        PersistedPlanInput::Assignment { request } => request
+            .agent_ids
+            .iter()
+            .map(String::as_str)
+            .collect::<Vec<_>>(),
+        PersistedPlanInput::Update { .. }
+        | PersistedPlanInput::Remove { .. }
+        | PersistedPlanInput::Repair { .. } => Vec::new(),
+    };
     requested_agent_ids.sort();
     let (replace_conflicts, assignment_enabled) = match &persisted.input {
         PersistedPlanInput::Install { request, .. } => (request.replace_conflicts, None),
         PersistedPlanInput::Import { request, .. } => (request.replace_conflicts, None),
         PersistedPlanInput::Assignment { request } => (false, Some(request.enabled)),
+        PersistedPlanInput::Update { .. }
+        | PersistedPlanInput::Remove { .. }
+        | PersistedPlanInput::Repair { .. } => (false, None),
+    };
+    let lifecycle = match &persisted.input {
+        PersistedPlanInput::Update {
+            request,
+            backup_path,
+            ..
+        } => Some(LifecycleBinding::Update {
+            replace_local_changes: request.replace_local_changes,
+            backup_path,
+        }),
+        PersistedPlanInput::Remove { backup_path, .. } => {
+            Some(LifecycleBinding::Remove { backup_path })
+        }
+        PersistedPlanInput::Repair {
+            request,
+            changed_source,
+            ..
+        } => Some(LifecycleBinding::Repair {
+            repair: &request.repair,
+            changed_source: *changed_source,
+        }),
+        PersistedPlanInput::Install { .. }
+        | PersistedPlanInput::Import { .. }
+        | PersistedPlanInput::Assignment { .. } => None,
     };
     let binding = CandidateBinding {
         operation_id: &persisted.plan.operation_id,
@@ -1008,6 +1785,7 @@ fn candidate_hash(persisted: &PersistedPlan) -> Result<String, SkillError> {
             .collect(),
         replace_conflicts,
         assignment_enabled,
+        lifecycle,
         expected_central: &persisted.expected_central,
         expected_links: &persisted.expected_links,
         expected_target_roots: &persisted.expected_target_roots,
@@ -1443,6 +2221,7 @@ fn load_plan(paths: &SkillsPaths, operation_id: &str) -> Result<PersistedPlan, S
         || persisted.plan.operation_id != operation_id
         || candidate_hash(&persisted)? != persisted.plan.candidate_hash
         || aggregate_findings_hash(&persisted.plan.skills)? != persisted.plan.findings_hash
+        || persisted.plan.requires_risk_override != expected_risk_override(&persisted)
     {
         return Err(stale_error(
             "the reviewed Skills plan failed integrity validation",
@@ -1455,6 +2234,25 @@ fn remove_unjournaled_operation(paths: &SkillsPaths, operation_id: &str) -> Resu
     StagingRoot::open(paths)?
         .remove_operation_if_exists(operation_id)
         .map(|_| ())
+}
+
+fn expected_risk_override(persisted: &PersistedPlan) -> bool {
+    let content_enters_central = matches!(
+        &persisted.input,
+        PersistedPlanInput::Install { .. }
+            | PersistedPlanInput::Import { .. }
+            | PersistedPlanInput::Update { .. }
+            | PersistedPlanInput::Repair {
+                resolution: Some(_),
+                ..
+            }
+    );
+    content_enters_central
+        && persisted
+            .plan
+            .skills
+            .iter()
+            .any(|skill| skill.risk.level == RiskLevel::High)
 }
 
 fn collapse_home(path: &Path, home: &Path) -> String {
@@ -1520,10 +2318,14 @@ fn conflict(message: &str) -> Result<PersistedPlan, SkillError> {
 }
 
 fn conflict_result<T>(message: &str) -> Result<T, SkillError> {
-    Err(SkillError::Conflict {
+    Err(conflict_error(message))
+}
+
+fn conflict_error(message: &str) -> SkillError {
+    SkillError::Conflict {
         message: super::capped_message(message),
         path: String::new(),
-    })
+    }
 }
 
 fn stale<T>(message: &str) -> Result<T, SkillError> {
@@ -1579,6 +2381,7 @@ mod tests {
             .join(format!("{}-central-{skill_name}", first_plan.operation_id));
 
         assert!(first_mutation.expected_before_hash.is_none());
+        assert!(!first_mutation.retain_backup);
         assert_eq!(first_mutation.backup, first_backup);
         assert!(first_backup.parent().unwrap().is_dir());
         execute_transaction(first_spec).unwrap();
@@ -1613,6 +2416,7 @@ mod tests {
             .join(format!("{}-central-{skill_name}", second_plan.operation_id));
 
         assert!(second_mutation.expected_before_hash.is_some());
+        assert!(!second_mutation.retain_backup);
         assert_eq!(second_mutation.backup, second_backup);
         assert!(second_backup.parent().unwrap().is_dir());
         execute_transaction(second_spec).unwrap();
@@ -1668,5 +2472,148 @@ mod tests {
         assert_eq!(current_settings_snapshot().unwrap(), before_settings);
         assert!(!paths.staging_skills_dir().join(&plan.operation_id).exists());
         assert!(!paths.journals_skills_dir().exists());
+    }
+
+    #[test]
+    fn remove_transaction_failure_rolls_back_links_content_and_settings_together() {
+        let home = TestHome::new("remove-rollback");
+        fs::create_dir_all(home.home.join(".claude")).unwrap();
+        fs::create_dir_all(home.home.join("Library/Application Support/Cursor")).unwrap();
+        let source = home.home.join("source/remove-rollback");
+        fs::create_dir_all(&source).unwrap();
+        fs::write(
+            source.join("SKILL.md"),
+            "---\nname: remove-rollback\ndescription: Remove rollback fixture\n---\n",
+        )
+        .unwrap();
+        let resolution = resolve_source(
+            SkillSourceInput::Local {
+                path: source.to_string_lossy().into_owned(),
+            },
+            GithubEndpoints::production(),
+        )
+        .unwrap();
+        let install = plan_install(PlanInstallRequest {
+            resolution_id: resolution.operation_id,
+            skill_names: vec!["remove-rollback".into()],
+            agent_ids: vec!["claude-code".into(), "cursor".into()],
+            replace_conflicts: false,
+        })
+        .unwrap();
+        commit_install(install.confirmation()).unwrap();
+
+        let plan = plan_remove(PlanRemoveRequest {
+            skill_name: "remove-rollback".into(),
+        })
+        .unwrap();
+        let paths = SkillsPaths::from_env().unwrap();
+        let persisted = load_plan(&paths, &plan.operation_id).unwrap();
+        let before_settings = current_settings_snapshot().unwrap();
+        let before_hash = hash_tree(&paths.central_skill("remove-rollback")).unwrap();
+        let spec = transaction_spec(&paths, &persisted).unwrap();
+
+        let error =
+            execute_transaction_with_failpoint(spec, Some(Failpoint::AfterFirstLink)).unwrap_err();
+
+        assert!(matches!(error, SkillError::Io { .. }));
+        assert_eq!(
+            hash_tree(&paths.central_skill("remove-rollback")).unwrap(),
+            before_hash
+        );
+        for target in [
+            home.home.join(".claude/skills/remove-rollback"),
+            home.home.join(".cursor/skills/remove-rollback"),
+        ] {
+            assert!(fs::symlink_metadata(target)
+                .unwrap()
+                .file_type()
+                .is_symlink());
+        }
+        assert_eq!(current_settings_snapshot().unwrap(), before_settings);
+        assert!(!paths.staging_skills_dir().join(&plan.operation_id).exists());
+        assert!(!paths.journals_skills_dir().exists());
+    }
+
+    #[test]
+    fn github_central_repair_preserves_a_known_newer_update() {
+        let home = TestHome::new("repair-preserves-update");
+        let source = home.home.join("source/repair-preserves-update");
+        fs::create_dir_all(&source).unwrap();
+        fs::write(
+            source.join("SKILL.md"),
+            "---\nname: repair-preserves-update\ndescription: Repair update fixture\n---\n",
+        )
+        .unwrap();
+        let installed = resolve_source(
+            SkillSourceInput::Local {
+                path: source.to_string_lossy().into_owned(),
+            },
+            GithubEndpoints::production(),
+        )
+        .unwrap();
+        let install = plan_install(PlanInstallRequest {
+            resolution_id: installed.operation_id,
+            skill_names: vec!["repair-preserves-update".into()],
+            agent_ids: Vec::new(),
+            replace_conflicts: false,
+        })
+        .unwrap();
+        commit_install(install.confirmation()).unwrap();
+
+        let old_sha = "1111111111111111111111111111111111111111";
+        let new_sha = "2222222222222222222222222222222222222222";
+        let github_source = SkillSource::Github {
+            owner: "acme".into(),
+            repo: "skills".into(),
+            subpath: "repair-preserves-update".into(),
+            requested_ref: "main".into(),
+            pinned: false,
+        };
+        crate::settings::mutate_settings(|settings| {
+            let record = settings
+                .managed_skills
+                .as_mut()
+                .unwrap()
+                .get_mut("repair-preserves-update")
+                .unwrap();
+            record.source = github_source.clone();
+            record.resolved_revision = Some(old_sha.into());
+            record.update.available = true;
+            record.update.resolved_revision = Some(new_sha.into());
+            record.update.checked_at = Some("2026-07-17T08:00:00Z".into());
+            record.update.etag = Some("\"newer\"".into());
+        })
+        .unwrap();
+        let paths = SkillsPaths::from_env().unwrap();
+        fs::remove_dir_all(paths.central_skill("repair-preserves-update")).unwrap();
+
+        let mut resolution = resolve_source(
+            SkillSourceInput::Local {
+                path: source.to_string_lossy().into_owned(),
+            },
+            GithubEndpoints::production(),
+        )
+        .unwrap();
+        resolution.source = github_source;
+        resolution.resolved_revision = Some(old_sha.into());
+        let persisted = build_central_repair_plan(
+            PlanRepairRequest {
+                skill_name: "repair-preserves-update".into(),
+                repair: RepairKind::Central,
+            },
+            resolution,
+        )
+        .unwrap();
+        let mut settings = current_settings_snapshot().unwrap();
+        let expected = settings.managed_skills.as_ref().unwrap()["repair-preserves-update"]
+            .update
+            .clone();
+
+        replacement_settings_after(&paths, &persisted, &mut settings).unwrap();
+
+        assert_eq!(
+            settings.managed_skills.unwrap()["repair-preserves-update"].update,
+            expected
+        );
     }
 }

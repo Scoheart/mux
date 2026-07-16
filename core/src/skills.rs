@@ -9,6 +9,7 @@ mod source;
 mod staging;
 mod transaction;
 mod types;
+mod update;
 
 pub use audit::*;
 pub use files::*;
@@ -25,3 +26,6 @@ pub use transaction::{
     recover_pending_with_paths, CrashPoint, Failpoint, JournalPhase,
 };
 pub use types::*;
+#[doc(hidden)]
+pub use update::check_updates_with;
+pub use update::{check_updates, check_updates_if_due};

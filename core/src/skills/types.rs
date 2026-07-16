@@ -269,6 +269,30 @@ pub struct PlanAssignmentRequest {
     pub enabled: bool,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PlanUpdateRequest {
+    pub skill_name: String,
+    pub replace_local_changes: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PlanRemoveRequest {
+    pub skill_name: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum RepairKind {
+    Central,
+    Target { target_id: String },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PlanRepairRequest {
+    pub skill_name: String,
+    pub repair: RepairKind,
+}
+
 impl OperationPlan {
     pub fn confirmation(&self) -> SkillCommitRequest {
         SkillCommitRequest {
@@ -294,6 +318,16 @@ pub struct SkillUpdateState {
     pub etag: Option<String>,
     pub error: Option<String>,
     pub retry_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct UpdateCheckOutcome {
+    pub performed: bool,
+    pub checked: usize,
+    pub available: Vec<String>,
+    pub skipped_pinned: Vec<String>,
+    pub errors: BTreeMap<String, String>,
+    pub checked_at: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

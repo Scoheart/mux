@@ -25,6 +25,13 @@ pub fn run() {
             // only here (no project dir at launch); best-effort.
             let _ = commands::import_discovered();
 
+            let recovery_ok = mux_core::skills::recover_pending().is_ok();
+            if recovery_ok {
+                std::thread::spawn(|| {
+                    let _ = mux_core::skills::check_updates_if_due();
+                });
+            }
+
             // macOS may keep the process alive after the last window closes.
             // Always restore the configured main window on a fresh launch.
             if let Some(window) = app.get_webview_window("main") {
@@ -34,6 +41,25 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            commands::list_skills_inventory,
+            commands::list_skill_agents,
+            commands::get_skill_detail,
+            commands::resolve_skill_source,
+            commands::resolve_local_skill_source_dialog,
+            commands::plan_skill_install,
+            commands::commit_skill_install,
+            commands::plan_skill_import,
+            commands::commit_skill_import,
+            commands::plan_skill_update,
+            commands::commit_skill_update,
+            commands::plan_skill_remove,
+            commands::commit_skill_remove,
+            commands::plan_skill_assignment,
+            commands::commit_skill_assignment,
+            commands::plan_skill_repair,
+            commands::commit_skill_repair,
+            commands::check_skill_updates,
+            commands::cancel_skill_operation,
             commands::list_registry,
             commands::list_model_profiles,
             commands::save_model_profile,

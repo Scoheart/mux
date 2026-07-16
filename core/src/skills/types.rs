@@ -110,6 +110,54 @@ pub enum SkillError {
     },
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SkillCommandParts {
+    pub code: &'static str,
+    pub message: String,
+    pub retry_at: Option<String>,
+    pub findings_hash: Option<String>,
+}
+
+impl SkillError {
+    pub fn into_command_parts(self) -> SkillCommandParts {
+        let parts = |code, message| SkillCommandParts {
+            code,
+            message,
+            retry_at: None,
+            findings_hash: None,
+        };
+
+        match self {
+            Self::InvalidManifest { message, .. } => parts("invalid_manifest", message),
+            Self::UnsafePath { message, .. } => parts("unsafe_path", message),
+            Self::LimitExceeded {
+                limit,
+                actual,
+                allowed,
+            } => parts(
+                "limit_exceeded",
+                format!("{limit} limit exceeded: {actual} > {allowed}"),
+            ),
+            Self::InvalidSource { message } => parts("invalid_source", message),
+            Self::Network { message, retry_at } => SkillCommandParts {
+                retry_at,
+                ..parts("network", message)
+            },
+            Self::Conflict { message, .. } => parts("conflict", message),
+            Self::PlanStale { message } => parts("plan_stale", message),
+            Self::ConfirmationRequired {
+                message,
+                findings_hash,
+            } => SkillCommandParts {
+                findings_hash: Some(findings_hash),
+                ..parts("confirmation_required", message)
+            },
+            Self::RecoveryRequired { message } => parts("recovery_required", message),
+            Self::Io { message, .. } => parts("io", message),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum SkillSource {

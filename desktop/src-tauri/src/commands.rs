@@ -1,5 +1,220 @@
 use mux_core::registry::{read_registry, read_registry_all, user_override_keys, CatalogItem};
+use mux_core::skills::{
+    GithubEndpoints, OperationPlan, PlanAssignmentRequest, PlanImportRequest, PlanInstallRequest,
+    PlanRemoveRequest, PlanRepairRequest, PlanUpdateRequest, SkillAgentView, SkillCommitRequest,
+    SkillDetail, SkillError, SkillSourceInput, SkillSourceResolution, SkillsInventory,
+    UpdateCheckOutcome,
+};
 use mux_core::types::RegistryEntry;
+
+// ── User-level Skills ────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct SkillCommandError {
+    pub code: String,
+    pub message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub retry_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub findings_hash: Option<String>,
+}
+
+impl From<SkillError> for SkillCommandError {
+    fn from(error: SkillError) -> Self {
+        let parts = error.into_command_parts();
+        Self {
+            code: parts.code.into(),
+            message: parts.message,
+            retry_at: parts.retry_at,
+            findings_hash: parts.findings_hash,
+        }
+    }
+}
+
+fn worker_error<T: std::fmt::Display>(_error: T) -> SkillCommandError {
+    SkillCommandError {
+        code: "worker_failed".into(),
+        message: "后台任务失败，请重试。".into(),
+        retry_at: None,
+        findings_hash: None,
+    }
+}
+
+fn dialog_path_error<T: std::fmt::Display>(_error: T) -> SkillCommandError {
+    SkillCommandError {
+        code: "invalid_local_folder".into(),
+        message: "无法读取所选本地文件夹。".into(),
+        retry_at: None,
+        findings_hash: None,
+    }
+}
+
+async fn skill_blocking<T, F>(operation: F) -> Result<T, SkillCommandError>
+where
+    T: Send + 'static,
+    F: FnOnce() -> Result<T, SkillError> + Send + 'static,
+{
+    tauri::async_runtime::spawn_blocking(operation)
+        .await
+        .map_err(worker_error)?
+        .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn list_skills_inventory() -> Result<SkillsInventory, SkillCommandError> {
+    skill_blocking(mux_core::skills::list_inventory).await
+}
+
+#[tauri::command]
+pub async fn list_skill_agents() -> Result<Vec<SkillAgentView>, SkillCommandError> {
+    skill_blocking(mux_core::skills::list_skill_agents).await
+}
+
+#[tauri::command]
+pub async fn get_skill_detail(identity: String) -> Result<SkillDetail, SkillCommandError> {
+    skill_blocking(move || mux_core::skills::get_skill_detail(&identity)).await
+}
+
+#[tauri::command]
+pub async fn resolve_skill_source(
+    value: String,
+) -> Result<SkillSourceResolution, SkillCommandError> {
+    skill_blocking(move || {
+        mux_core::skills::resolve_source(
+            SkillSourceInput::Github { value },
+            GithubEndpoints::production(),
+        )
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn resolve_local_skill_source_dialog(
+    app: tauri::AppHandle,
+) -> Result<Option<SkillSourceResolution>, SkillCommandError> {
+    use tauri_plugin_dialog::DialogExt;
+
+    let picked =
+        tauri::async_runtime::spawn_blocking(move || app.dialog().file().blocking_pick_folder())
+            .await
+            .map_err(worker_error)?;
+    let Some(path) = picked else {
+        return Ok(None);
+    };
+    let path = path.into_path().map_err(dialog_path_error)?;
+    let value = path
+        .to_str()
+        .ok_or_else(|| SkillCommandError {
+            code: "invalid_local_folder".into(),
+            message: "所选本地文件夹路径不是有效 UTF-8。".into(),
+            retry_at: None,
+            findings_hash: None,
+        })?
+        .to_owned();
+
+    skill_blocking(move || {
+        mux_core::skills::resolve_source(
+            SkillSourceInput::Local { path: value },
+            GithubEndpoints::production(),
+        )
+    })
+    .await
+    .map(Some)
+}
+
+#[tauri::command]
+pub async fn plan_skill_install(
+    request: PlanInstallRequest,
+) -> Result<OperationPlan, SkillCommandError> {
+    skill_blocking(move || mux_core::skills::plan_install(request)).await
+}
+
+#[tauri::command]
+pub async fn commit_skill_install(
+    request: SkillCommitRequest,
+) -> Result<SkillsInventory, SkillCommandError> {
+    skill_blocking(move || mux_core::skills::commit_install(request)).await
+}
+
+#[tauri::command]
+pub async fn plan_skill_import(
+    request: PlanImportRequest,
+) -> Result<OperationPlan, SkillCommandError> {
+    skill_blocking(move || mux_core::skills::plan_import(request)).await
+}
+
+#[tauri::command]
+pub async fn commit_skill_import(
+    request: SkillCommitRequest,
+) -> Result<SkillsInventory, SkillCommandError> {
+    skill_blocking(move || mux_core::skills::commit_import(request)).await
+}
+
+#[tauri::command]
+pub async fn plan_skill_update(
+    request: PlanUpdateRequest,
+) -> Result<OperationPlan, SkillCommandError> {
+    skill_blocking(move || mux_core::skills::plan_update(request)).await
+}
+
+#[tauri::command]
+pub async fn commit_skill_update(
+    request: SkillCommitRequest,
+) -> Result<SkillsInventory, SkillCommandError> {
+    skill_blocking(move || mux_core::skills::commit_update(request)).await
+}
+
+#[tauri::command]
+pub async fn plan_skill_remove(
+    request: PlanRemoveRequest,
+) -> Result<OperationPlan, SkillCommandError> {
+    skill_blocking(move || mux_core::skills::plan_remove(request)).await
+}
+
+#[tauri::command]
+pub async fn commit_skill_remove(
+    request: SkillCommitRequest,
+) -> Result<SkillsInventory, SkillCommandError> {
+    skill_blocking(move || mux_core::skills::commit_remove(request)).await
+}
+
+#[tauri::command]
+pub async fn plan_skill_assignment(
+    request: PlanAssignmentRequest,
+) -> Result<OperationPlan, SkillCommandError> {
+    skill_blocking(move || mux_core::skills::plan_assignment(request)).await
+}
+
+#[tauri::command]
+pub async fn commit_skill_assignment(
+    request: SkillCommitRequest,
+) -> Result<SkillsInventory, SkillCommandError> {
+    skill_blocking(move || mux_core::skills::commit_assignment(request)).await
+}
+
+#[tauri::command]
+pub async fn plan_skill_repair(
+    request: PlanRepairRequest,
+) -> Result<OperationPlan, SkillCommandError> {
+    skill_blocking(move || mux_core::skills::plan_repair(request)).await
+}
+
+#[tauri::command]
+pub async fn commit_skill_repair(
+    request: SkillCommitRequest,
+) -> Result<SkillsInventory, SkillCommandError> {
+    skill_blocking(move || mux_core::skills::commit_repair(request)).await
+}
+
+#[tauri::command]
+pub async fn check_skill_updates(manual: bool) -> Result<UpdateCheckOutcome, SkillCommandError> {
+    skill_blocking(move || mux_core::skills::check_updates(manual)).await
+}
+
+#[tauri::command]
+pub async fn cancel_skill_operation(operation_id: String) -> Result<(), SkillCommandError> {
+    skill_blocking(move || mux_core::skills::cancel_operation(&operation_id)).await
+}
 
 // ── Model endpoint profiles ─────────────────────────────────────────────
 

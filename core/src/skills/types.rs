@@ -211,6 +211,56 @@ pub struct ManagedSkillRecord {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SkillSettingsSnapshot {
+    pub managed_skills: Option<BTreeMap<String, ManagedSkillRecord>>,
+    pub skill_assignments: Option<BTreeMap<String, BTreeSet<String>>>,
+    pub skill_update_checked_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DirectoryMutation {
+    pub replacement: Option<PathBuf>,
+    pub destination: PathBuf,
+    pub backup: PathBuf,
+    pub expected_before_hash: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct LinkMutation {
+    pub path: PathBuf,
+    pub expected: LinkState,
+    pub desired_target: Option<PathBuf>,
+    pub backup: Option<PathBuf>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum LinkState {
+    Missing,
+    ManagedSymlink { target: PathBuf },
+    BrokenSymlink { target: PathBuf },
+    Directory { tree_hash: String },
+    UnknownSymlink { target: PathBuf },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TransactionSpec {
+    pub operation_id: String,
+    pub order: TransactionOrder,
+    pub directory_mutations: Vec<DirectoryMutation>,
+    pub link_mutations: Vec<LinkMutation>,
+    pub settings_before: SkillSettingsSnapshot,
+    pub settings_after: SkillSettingsSnapshot,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum TransactionOrder {
+    ContentThenLinks,
+    LinksThenContent,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SkillAgentView {
     pub id: String,
     pub name: String,

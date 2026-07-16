@@ -65,6 +65,12 @@ impl SkillsPaths {
         self.mux_dir.join("journals/skills")
     }
 
+    /// Compatibility alias retained for the transaction fixture contract.
+    /// Both names resolve to the single journal root.
+    pub fn journals_dir(&self) -> PathBuf {
+        self.journals_skills_dir()
+    }
+
     pub fn skills_lock(&self) -> PathBuf {
         self.mux_dir.join("skills.lock")
     }
@@ -108,6 +114,11 @@ fn create_private_root(path: &Path) -> Result<(), SkillError> {
         use std::os::unix::fs::PermissionsExt;
         fs::set_permissions(path, fs::Permissions::from_mode(0o700))
             .map_err(|error| io_error(path, error))?;
+        for directory in path.ancestors().take(3) {
+            fs::File::open(directory)
+                .and_then(|file| file.sync_all())
+                .map_err(|error| io_error(directory, error))?;
+        }
     }
     Ok(())
 }

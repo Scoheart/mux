@@ -5,6 +5,7 @@ mod inventory;
 mod manifest;
 mod paths;
 mod source;
+mod transaction;
 mod types;
 
 pub use audit::*;
@@ -15,4 +16,9 @@ pub use inventory::{
 pub use manifest::*;
 pub use paths::*;
 pub use source::{resolve_source, GithubEndpoints};
+pub use transaction::{
+    crash_transaction_at_phase_for_test, crash_transaction_before_phase_for_test,
+    execute_transaction, execute_transaction_with_failpoint, has_pending_recovery, recover_pending,
+    recover_pending_with_paths, CrashPoint, Failpoint, JournalPhase,
+};
 pub use types::*;

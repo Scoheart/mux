@@ -81,6 +81,11 @@ it("reserves compact 900px lanes for Skills and six pinned Agents", () => {
   const picker = declarations(compactCss, ".mux-agent-picker-trigger");
   expect(pixelValue(picker, "width")).toBeLessThanOrEqual(132);
 
+  const pickerName = declarations(compactCss, ".mux-agent-picker-trigger-name");
+  expect(pixelValue(pickerName, "width")).toBe(1);
+  expect(pickerName).toMatch(/clip-path:\s*inset\(50%\)/);
+  expect(pickerName).not.toMatch(/display:\s*none/);
+
   const pinned = declarations(compactCss, ".mux-pinned-agent");
   expect(pixelValue(pinned, "width")).toBeLessThanOrEqual(26);
   expect(pixelValue(pinned, "flex-basis")).toBeLessThanOrEqual(26);

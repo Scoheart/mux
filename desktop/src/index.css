@@ -392,7 +392,10 @@ body {
   .mux-topbar .mux-seg-beta { display: none; }
   .mux-agent-navigation { gap: 3px; }
   .mux-agent-picker-trigger { width: 40px; padding: 0; justify-content: center; }
-  .mux-agent-picker-trigger-name,
+  .mux-agent-picker-trigger-name {
+    position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden;
+    clip: rect(0 0 0 0); clip-path: inset(50%); border: 0; white-space: nowrap;
+  }
   .mux-agent-picker-chevron { display: none; }
   .mux-pinned-agent-bar { padding-right: 1px; padding-left: 1px; }
   .mux-pinned-agent { width: 26px; height: 26px; flex-basis: 26px; }

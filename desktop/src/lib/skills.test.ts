@@ -218,6 +218,28 @@ describe("filterSkills", () => {
       }),
     ).toHaveLength(attentionStates.length);
   });
+
+  it("matches ASCII I without depending on the process locale", () => {
+    vi.spyOn(String.prototype, "toLocaleLowerCase").mockImplementation(
+      function localeLower(this: string) {
+        return String(this).replace(/I/g, "ı").toLowerCase();
+      },
+    );
+    const item = {
+      ...skillsInventoryFixture().items[1],
+      name: "INSTALL-HELPER",
+      description: "Install a local Skill",
+    };
+
+    expect(
+      filterSkills([item], {
+        status: "all",
+        source: "all",
+        contentKind: "all",
+        query: "install",
+      }),
+    ).toEqual([item]);
+  });
 });
 
 describe("installWizardReducer", () => {
@@ -263,6 +285,18 @@ describe("resolveStagedResult", () => {
     await expect(
       resolveStagedResult(
         Promise.resolve(resolutionFixture()),
+        () => false,
+        cancel,
+      ),
+    ).resolves.toBeNull();
+    expect(cancel).toHaveBeenCalledWith("resolve-fixture");
+  });
+
+  it("best-effort cancels a discarded plan by its exact shared operation id", async () => {
+    const cancel = vi.fn().mockResolvedValue(undefined);
+    await expect(
+      resolveStagedResult(
+        Promise.resolve(sharedTargetPlanFixture()),
         () => false,
         cancel,
       ),

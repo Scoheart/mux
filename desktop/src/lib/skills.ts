@@ -31,7 +31,7 @@ export function filterSkills(
   items: SkillInventoryItem[],
   filters: SkillFilters,
 ): SkillInventoryItem[] {
-  const query = filters.query.trim().toLocaleLowerCase();
+  const query = filters.query.trim().toLowerCase();
   return items.filter((item) => {
     const statusMatches =
       filters.status === "all" ||
@@ -50,7 +50,7 @@ export function filterSkills(
       item.content_kind === filters.contentKind;
     const queryMatches =
       query.length === 0 ||
-      `${item.name} ${item.description}`.toLocaleLowerCase().includes(query);
+      `${item.name} ${item.description}`.toLowerCase().includes(query);
     return statusMatches && sourceMatches && contentMatches && queryMatches;
   });
 }
@@ -118,15 +118,15 @@ export function installWizardReducer(
 }
 
 /**
- * Keeps only a source resolution still owned by the current dialog request.
- * Install plans reuse this resolution's operation id, so selection changes and
- * install replans must invalidate client state without calling this cleanup.
+ * Keeps only a staged result still owned by the current dialog request.
+ * Install plans reuse their resolution's operation id, so ordinary selection
+ * toggles only invalidate client state; call this for late/discarded results.
  */
-export async function resolveStagedResult(
-  pending: Promise<SkillSourceResolution | null>,
+export async function resolveStagedResult<T extends { operation_id: string }>(
+  pending: Promise<T | null>,
   isCurrent: () => boolean,
   cancel: (operationId: string) => Promise<void>,
-): Promise<SkillSourceResolution | null> {
+): Promise<T | null> {
   const result = await pending;
   if (result === null || isCurrent()) return result;
   try {

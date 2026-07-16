@@ -7,6 +7,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useId,
   useRef,
   useState,
 } from "react";
@@ -36,6 +37,7 @@ interface WorkspaceResizeContextValue {
 }
 
 const WorkspaceResizeContext = createContext<WorkspaceResizeContextValue | null>(null);
+const RESOURCE_WORKSPACE_PANEL_ID = "mux-resource-workspace-panel";
 
 export interface ResourceTabOption<T extends string> {
   value: T;
@@ -54,22 +56,60 @@ export function ResourceTabs<T extends string>({
   options: ResourceTabOption<T>[];
   onChange: (value: T) => void;
 }) {
+  const tabListId = useId();
+  const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const selectedIndex = Math.max(0, options.findIndex((option) => option.value === value));
+
+  const moveFocus = (index: number) => {
+    const option = options[index];
+    if (!option) return;
+    onChange(option.value);
+    tabRefs.current[index]?.focus();
+  };
+
   return (
     <div className="mux-resource-tabs" role="tablist" aria-label={label}>
-      {options.map((option) => (
-        <button
-          key={option.value}
-          type="button"
-          className="mux-resource-tab"
-          role="tab"
-          aria-selected={option.value === value}
-          data-active={option.value === value ? "true" : undefined}
-          onClick={() => onChange(option.value)}
-        >
-          <span>{option.label}</span>
-          <span className="mux-resource-tab-count">{option.count}</span>
-        </button>
-      ))}
+      {options.map((option, index) => {
+        const tabId = `${tabListId}-${index}`;
+        return (
+          <button
+            key={option.value}
+            ref={(element) => {
+              tabRefs.current[index] = element;
+            }}
+            type="button"
+            className="mux-resource-tab"
+            role="tab"
+            id={tabId}
+            aria-controls={RESOURCE_WORKSPACE_PANEL_ID}
+            aria-selected={option.value === value}
+            tabIndex={option.value === value ? 0 : -1}
+            data-active={option.value === value ? "true" : undefined}
+            onClick={() => onChange(option.value)}
+            onKeyDown={(event) => {
+              if (options.length === 0) return;
+
+              let nextIndex: number | null = null;
+              if (event.key === "ArrowLeft") {
+                nextIndex = (selectedIndex - 1 + options.length) % options.length;
+              } else if (event.key === "ArrowRight") {
+                nextIndex = (selectedIndex + 1) % options.length;
+              } else if (event.key === "Home") {
+                nextIndex = 0;
+              } else if (event.key === "End") {
+                nextIndex = options.length - 1;
+              }
+
+              if (nextIndex === null) return;
+              event.preventDefault();
+              moveFocus(nextIndex);
+            }}
+          >
+            <span>{option.label}</span>
+            <span className="mux-resource-tab-count">{option.count}</span>
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -100,7 +140,10 @@ export function ResourceWorkspace({
   );
   const sidebarWidthRef = useRef(sidebarWidth);
   const resizeSessionRef = useRef<SidebarResizeSession | null>(null);
+  const previousFocusRef = useRef<HTMLElement | null>(null);
+  const inspectorSurfaceRef = useRef<HTMLDivElement>(null);
   const [isResizing, setIsResizing] = useState(false);
+  const isInspectorOpen = Boolean(inspector);
 
   const persistSidebarWidth = useCallback((width: number) => {
     localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(width));
@@ -179,6 +222,23 @@ export function ResourceWorkspace({
 
   useEffect(() => () => finishSidebarResize(true), [finishSidebarResize]);
 
+  useEffect(() => {
+    if (isInspectorOpen) {
+      const activeElement = document.activeElement;
+      previousFocusRef.current = activeElement instanceof HTMLElement && activeElement.isConnected
+        ? activeElement
+        : null;
+      const frame = requestAnimationFrame(() => {
+        inspectorSurfaceRef.current?.querySelector<HTMLElement>("[data-resource-inspector]")?.focus();
+      });
+      return () => cancelAnimationFrame(frame);
+    }
+
+    const previousFocus = previousFocusRef.current;
+    previousFocusRef.current = null;
+    if (previousFocus?.isConnected) previousFocus.focus();
+  }, [isInspectorOpen]);
+
   return (
     <WorkspaceResizeContext.Provider
       value={{
@@ -200,7 +260,16 @@ export function ResourceWorkspace({
           </div>
           {filters && <div className="mux-workspace-filters">{filters}</div>}
           <div className="mux-workspace-content">
-            <div className="mux-workspace-scroll">{children}</div>
+            <div
+              id={RESOURCE_WORKSPACE_PANEL_ID}
+              className="mux-workspace-scroll"
+              role="tabpanel"
+              aria-label={searchPlaceholder}
+              aria-hidden={isInspectorOpen || undefined}
+              inert={isInspectorOpen || undefined}
+            >
+              {children}
+            </div>
             {inspector && (
               <div className="mux-workspace-inspector-layer">
                 <button
@@ -210,6 +279,7 @@ export function ResourceWorkspace({
                   onClick={() => onInspectorClose?.()}
                 />
                 <div
+                  ref={inspectorSurfaceRef}
                   className="mux-workspace-inspector-surface"
                   onPointerDown={(event) => event.stopPropagation()}
                 >
@@ -381,7 +451,7 @@ export function ResourceInspector({
   }, [onClose]);
 
   return (
-    <aside className="mux-resource-inspector" aria-label={`${title} 详情`}>
+    <aside className="mux-resource-inspector" data-resource-inspector tabIndex={-1} aria-label={`${title} 详情`}>
       <header className="mux-resource-inspector-head">
         {avatar}
         <div className="min-w-0 flex-1">

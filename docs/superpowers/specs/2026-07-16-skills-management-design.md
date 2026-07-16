@@ -345,16 +345,21 @@ App 启动时必须先恢复未完成 journal，再向 UI 暴露 inventory。
 ### 13.1 顶层导航
 
 `View` 新增 `{ kind: "skills" }`，在 MCPs、Models 旁增加 Skills。Skills 使用现有
-`ResourceWorkspace`，保持搜索、左侧 facet、卡片网格和右侧 Inspector 的视觉与
+`ResourceWorkspace`，保持搜索、顶部状态 Tabs、左侧资源导航、卡片网格和右侧 Inspector 的视觉与
 交互层级一致。
 
 ### 13.2 Skills 工作区
 
-左侧 facet：
+顶部资源 Tabs 只承载状态筛选：
 
 - 状态：全部、有更新、需处理、外部。
+
+左侧 sidebar 只承载来源和分类导航：
+
 - 来源：GitHub、本地。
-- Agent：仅已安装且能力已核验的 Agent。
+- 分类：按产品定义的资源分类；不放状态或 Agent 筛选。
+
+Agent 分配只在卡片摘要和 Inspector 中展示与调整，避免 sidebar 混入资源状态筛选。
 
 Toolbar：搜索、检查更新、安装 Skill。
 

@@ -4,7 +4,7 @@ export const MIN_SIDEBAR_WIDTH = 184;
 export const MAX_SIDEBAR_WIDTH = 340;
 export const REDACTED_VALUE = "••••••••";
 
-const SENSITIVE_KEY = /(token|secret|password|api[_-]?key|access[_-]?key|private[_-]?key|credential)/i;
+const SENSITIVE_KEY = /(authorization|cookie|token|secret|password|api[_-]?key|access[_-]?key|private[_-]?key|credential)/i;
 
 export function clampSidebarWidth(value: number): number {
   return Math.min(MAX_SIDEBAR_WIDTH, Math.max(MIN_SIDEBAR_WIDTH, value));
@@ -13,7 +13,10 @@ export function clampSidebarWidth(value: number): number {
 export function parseSidebarWidth(value: string | null): number {
   if (value === null || value.trim() === "") return DEFAULT_SIDEBAR_WIDTH;
   const parsed = Number(value);
-  return Number.isFinite(parsed) ? clampSidebarWidth(parsed) : DEFAULT_SIDEBAR_WIDTH;
+  if (!Number.isFinite(parsed) || parsed < MIN_SIDEBAR_WIDTH || parsed > MAX_SIDEBAR_WIDTH) {
+    return DEFAULT_SIDEBAR_WIDTH;
+  }
+  return parsed;
 }
 
 export function redactSensitiveConfig(value: unknown): unknown {

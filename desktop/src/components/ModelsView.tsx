@@ -104,9 +104,12 @@ export function ModelsView() {
   }, [agents]);
 
   const statusCounts = useMemo(() => {
-    const assigned = profiles.filter((profile) => (agentsByProfile.get(profile.id)?.length ?? 0) > 0).length;
-    return { all: profiles.length, assigned, unassigned: profiles.length - assigned };
-  }, [agentsByProfile, profiles]);
+    const scopedProfiles = protocolFilter
+      ? profiles.filter((profile) => profile.protocol === protocolFilter)
+      : profiles;
+    const assigned = scopedProfiles.filter((profile) => (agentsByProfile.get(profile.id)?.length ?? 0) > 0).length;
+    return { all: scopedProfiles.length, assigned, unassigned: scopedProfiles.length - assigned };
+  }, [agentsByProfile, profiles, protocolFilter]);
 
   const protocolCounts = useMemo(
     () =>
@@ -186,97 +189,98 @@ export function ModelsView() {
   }
 
   return (
-    <ResourceWorkspace
-      sidebar={
-        <WorkspaceSidebar title="Models" count={profiles.length}>
-          <SidebarSection title="协议">
-            <SidebarItem
-              active={protocolFilter === null}
-              icon={<LayersIcon className="w-3.5 h-3.5" />}
-              label="全部协议"
-              count={profiles.length}
-              onClick={() => changeProtocol(null)}
-            />
-            {PROTOCOLS.map((protocol) => (
+    <>
+      <ResourceWorkspace
+        sidebar={
+          <WorkspaceSidebar title="Models" count={profiles.length}>
+            <SidebarSection title="协议">
               <SidebarItem
-                key={protocol.id}
-                active={protocolFilter === protocol.id}
-                icon={<span className="mux-model-protocol-dot" data-protocol={protocol.id} />}
-                label={protocol.label}
-                count={protocolCounts[protocol.id]}
-                onClick={() => changeProtocol(protocol.id)}
+                active={protocolFilter === null}
+                icon={<LayersIcon className="w-3.5 h-3.5" />}
+                label="全部协议"
+                count={profiles.length}
+                onClick={() => changeProtocol(null)}
+              />
+              {PROTOCOLS.map((protocol) => (
+                <SidebarItem
+                  key={protocol.id}
+                  active={protocolFilter === protocol.id}
+                  icon={<span className="mux-model-protocol-dot" data-protocol={protocol.id} />}
+                  label={protocol.label}
+                  count={protocolCounts[protocol.id]}
+                  onClick={() => changeProtocol(protocol.id)}
+                />
+              ))}
+            </SidebarSection>
+          </WorkspaceSidebar>
+        }
+        query={query}
+        onQueryChange={changeQuery}
+        searchPlaceholder="搜索模型"
+        filters={
+          <ResourceTabs
+            label="模型状态"
+            value={statusFilter}
+            options={[
+              { value: "all", label: "全部", count: statusCounts.all },
+              { value: "assigned", label: "已分配", count: statusCounts.assigned },
+              { value: "unassigned", label: "未分配", count: statusCounts.unassigned },
+            ]}
+            onChange={changeStatus}
+          />
+        }
+        toolbarActions={
+          <button className="btn-primary" type="button" onClick={() => setEditing(null)}>
+            <PlusIcon className="w-4 h-4" />
+            新建模型
+          </button>
+        }
+        inspector={
+          selectedProfile ? (
+            <ModelInspector
+              profile={selectedProfile}
+              profiles={profiles}
+              agents={agents}
+              busyAgent={busyAgent}
+              onApply={apply}
+              onClose={() => setSelectedProfileId(null)}
+              onEdit={() => setEditing(selectedProfile)}
+              onDelete={() => void removeProfile(selectedProfile)}
+            />
+          ) : undefined
+        }
+        onInspectorClose={() => setSelectedProfileId(null)}
+      >
+        {filteredProfiles.length === 0 ? (
+          <ResourceEmpty
+            icon={<LayersIcon className="w-6 h-6" />}
+            title={profiles.length === 0 ? "暂无模型" : "没有匹配项"}
+            detail={profiles.length === 0 ? "创建模型后即可分配给 Agent" : undefined}
+            action={
+              profiles.length === 0 ? (
+                <button className="btn-primary" type="button" onClick={() => setEditing(null)}>
+                  <PlusIcon className="w-4 h-4" />
+                  新建模型
+                </button>
+              ) : undefined
+            }
+          />
+        ) : (
+          <ResourceGrid>
+            {filteredProfiles.map((profile) => (
+              <ModelCard
+                key={profile.id}
+                profile={profile}
+                selected={profile.id === selectedProfileId}
+                agentIds={(agentsByProfile.get(profile.id) ?? []).map((agent) => agent.id)}
+                onOpen={() => setSelectedProfileId(profile.id)}
+                onEdit={() => setEditing(profile)}
+                onDelete={() => void removeProfile(profile)}
               />
             ))}
-          </SidebarSection>
-        </WorkspaceSidebar>
-      }
-      query={query}
-      onQueryChange={changeQuery}
-      searchPlaceholder="搜索模型"
-      filters={
-        <ResourceTabs
-          label="模型状态"
-          value={statusFilter}
-          options={[
-            { value: "all", label: "全部", count: statusCounts.all },
-            { value: "assigned", label: "已分配", count: statusCounts.assigned },
-            { value: "unassigned", label: "未分配", count: statusCounts.unassigned },
-          ]}
-          onChange={changeStatus}
-        />
-      }
-      toolbarActions={
-        <button className="btn-primary" type="button" onClick={() => setEditing(null)}>
-          <PlusIcon className="w-4 h-4" />
-          新建模型
-        </button>
-      }
-      inspector={
-        selectedProfile ? (
-          <ModelInspector
-            profile={selectedProfile}
-            profiles={profiles}
-            agents={agents}
-            busyAgent={busyAgent}
-            onApply={apply}
-            onClose={() => setSelectedProfileId(null)}
-            onEdit={() => setEditing(selectedProfile)}
-            onDelete={() => void removeProfile(selectedProfile)}
-          />
-        ) : undefined
-      }
-      onInspectorClose={() => setSelectedProfileId(null)}
-    >
-      {filteredProfiles.length === 0 ? (
-        <ResourceEmpty
-          icon={<LayersIcon className="w-6 h-6" />}
-          title={profiles.length === 0 ? "暂无模型" : "没有匹配项"}
-          detail={profiles.length === 0 ? "创建模型后即可分配给 Agent" : undefined}
-          action={
-            profiles.length === 0 ? (
-              <button className="btn-primary" type="button" onClick={() => setEditing(null)}>
-                <PlusIcon className="w-4 h-4" />
-                新建模型
-              </button>
-            ) : undefined
-          }
-        />
-      ) : (
-        <ResourceGrid>
-          {filteredProfiles.map((profile) => (
-            <ModelCard
-              key={profile.id}
-              profile={profile}
-              selected={profile.id === selectedProfileId}
-              agentIds={(agentsByProfile.get(profile.id) ?? []).map((agent) => agent.id)}
-              onOpen={() => setSelectedProfileId(profile.id)}
-              onEdit={() => setEditing(profile)}
-              onDelete={() => void removeProfile(profile)}
-            />
-          ))}
-        </ResourceGrid>
-      )}
-
+          </ResourceGrid>
+        )}
+      </ResourceWorkspace>
       {editing !== undefined && (
         <ModelProfileDialog
           initial={editing}
@@ -287,7 +291,7 @@ export function ModelsView() {
           }}
         />
       )}
-    </ResourceWorkspace>
+    </>
   );
 }
 

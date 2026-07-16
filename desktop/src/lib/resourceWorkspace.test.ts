@@ -13,6 +13,8 @@ test("sidebar width is clamped and invalid storage falls back", () => {
   assert.equal(clampSidebarWidth(500), 340);
   assert.equal(parseSidebarWidth(null), DEFAULT_SIDEBAR_WIDTH);
   assert.equal(parseSidebarWidth("invalid"), DEFAULT_SIDEBAR_WIDTH);
+  assert.equal(parseSidebarWidth("183"), DEFAULT_SIDEBAR_WIDTH);
+  assert.equal(parseSidebarWidth("341"), DEFAULT_SIDEBAR_WIDTH);
   assert.equal(parseSidebarWidth("312"), 312);
 });
 
@@ -23,7 +25,13 @@ test("sensitive fields are recursively redacted without mutating input", () => {
       ALIBABA_CLOUD_ACCESS_KEY_SECRET: "secret-value",
       REGION: "cn-shenzhen",
     },
-    nested: [{ password: "password-value", enabled: true }],
+    headers: {
+      Authorization: "Bearer credential-value",
+      Cookie: "session=credential-value",
+      "Set-Cookie": "refresh=credential-value",
+      "X-Request-Id": "request-id",
+    },
+    nested: [{ password: "password-value", "Proxy-Authorization": "Basic credential-value", enabled: true }],
   };
   const result = redactSensitiveConfig(source);
   assert.deepEqual(result, {
@@ -32,7 +40,13 @@ test("sensitive fields are recursively redacted without mutating input", () => {
       ALIBABA_CLOUD_ACCESS_KEY_SECRET: "••••••••",
       REGION: "cn-shenzhen",
     },
-    nested: [{ password: "••••••••", enabled: true }],
+    headers: {
+      Authorization: "••••••••",
+      Cookie: "••••••••",
+      "Set-Cookie": "••••••••",
+      "X-Request-Id": "request-id",
+    },
+    nested: [{ password: "••••••••", "Proxy-Authorization": "••••••••", enabled: true }],
   });
   assert.equal(source.env.API_TOKEN, "token-value");
 });

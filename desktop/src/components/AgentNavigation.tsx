@@ -4,6 +4,7 @@ import type { AgentInfo } from "../lib/types";
 import {
   buildAgentPickerSections,
   MAX_PINNED_AGENTS,
+  movePinnedAgentAfter,
   movePinnedAgentBefore,
   movePinnedAgentBy,
   togglePinnedAgent,
@@ -20,6 +21,8 @@ import {
   SearchIcon,
   XIcon,
 } from "./icons";
+
+const PIN_LIMIT_DESCRIPTION_ID = "mux-agent-pin-limit-description";
 
 interface AgentNavigationProps {
   agents: AgentInfo[];
@@ -39,7 +42,7 @@ export function AgentNavigation({
   const [draggedId, setDraggedId] = useState<string | null>(null);
   const [announcement, setAnnouncement] = useState("");
   const anchorRef = useRef<HTMLDivElement>(null);
-  const { agentIds, saving, commit } = usePinnedAgents();
+  const { agentIds, ready, saving, commit } = usePinnedAgents();
   const sections = useMemo(
     () => buildAgentPickerSections(agents, agentIds, query),
     [agentIds, agents, query],
@@ -73,7 +76,7 @@ export function AgentNavigation({
     left.join("\u0000") === right.join("\u0000");
 
   const saveOrder = (next: string[], movedId: string) => {
-    if (sameOrder(next, pinnedIds)) return;
+    if (!ready || saving || sameOrder(next, pinnedIds)) return;
     void commit(next).then((saved) => {
       if (!saved) return;
       const moved = agents.find(({ id }) => id === movedId);
@@ -82,9 +85,11 @@ export function AgentNavigation({
   };
 
   const togglePin = (id: string) => {
+    if (!ready || saving) return;
+    const wasPinned = pinnedIds.includes(id);
+    if (!wasPinned && pinLimitReached) return;
     const next = togglePinnedAgent(pinnedIds, id);
     if (sameOrder(next, pinnedIds)) return;
-    const wasPinned = pinnedIds.includes(id);
     void commit(next).then((saved) => {
       if (!saved) return;
       const changed = agents.find((agent) => agent.id === id);
@@ -93,16 +98,25 @@ export function AgentNavigation({
   };
 
   const moveByKeyboard = (event: KeyboardEvent<HTMLButtonElement>, id: string) => {
-    if (!event.altKey || (event.key !== "ArrowUp" && event.key !== "ArrowDown")) return;
+    if (
+      !ready ||
+      saving ||
+      !event.altKey ||
+      (event.key !== "ArrowUp" && event.key !== "ArrowDown")
+    ) return;
     event.preventDefault();
     const next = movePinnedAgentBy(pinnedIds, id, event.key === "ArrowUp" ? -1 : 1);
     saveOrder(next, id);
   };
 
-  const dropBefore = (event: DragEvent<HTMLDivElement>, targetId: string) => {
+  const dropAtRow = (event: DragEvent<HTMLDivElement>, targetId: string) => {
     event.preventDefault();
-    if (!draggedId) return;
-    const next = movePinnedAgentBefore(pinnedIds, draggedId, targetId);
+    if (!ready || saving || !draggedId) return;
+    const bounds = event.currentTarget.getBoundingClientRect();
+    const afterTarget = event.clientY >= bounds.top + bounds.height / 2;
+    const next = afterTarget
+      ? movePinnedAgentAfter(pinnedIds, draggedId, targetId)
+      : movePinnedAgentBefore(pinnedIds, draggedId, targetId);
     const movedId = draggedId;
     setDraggedId(null);
     saveOrder(next, movedId);
@@ -110,7 +124,8 @@ export function AgentNavigation({
 
   const agentRow = (agent: AgentInfo, isPinned: boolean, sortable: boolean) => {
     const active = selectedAgentId === agent.id;
-    const pinDisabled = saving || (!isPinned && pinLimitReached);
+    const mutationUnavailable = !ready || saving;
+    const pinLimitBlocked = !isPinned && pinLimitReached;
     return (
       <div
         key={agent.id}
@@ -118,14 +133,14 @@ export function AgentNavigation({
         data-active={active ? "true" : undefined}
         data-dragging={draggedId === agent.id ? "true" : undefined}
         onDragOver={sortable ? (event) => event.preventDefault() : undefined}
-        onDrop={sortable ? (event) => dropBefore(event, agent.id) : undefined}
+        onDrop={sortable ? (event) => dropAtRow(event, agent.id) : undefined}
       >
         {sortable && (
           <button
             type="button"
             className="mux-agent-order-handle"
-            draggable={!saving}
-            disabled={saving}
+            draggable={ready && !saving}
+            disabled={mutationUnavailable}
             title="拖拽排序；Option + 上下方向键调整"
             aria-label={`调整 ${agent.name} 的置顶顺序`}
             onDragStart={(event) => {
@@ -155,11 +170,19 @@ export function AgentNavigation({
           type="button"
           className="mux-agent-pin-action"
           data-pinned={isPinned ? "true" : undefined}
-          disabled={pinDisabled}
-          title={isPinned ? "取消置顶" : pinLimitReached ? "最多置顶 6 个 Agent" : "置顶"}
+          disabled={mutationUnavailable}
+          aria-disabled={pinLimitBlocked || undefined}
+          aria-describedby={pinLimitBlocked ? PIN_LIMIT_DESCRIPTION_ID : undefined}
+          title={isPinned ? "取消置顶" : "置顶"}
           aria-label={`${isPinned ? "取消置顶" : "置顶"} ${agent.name}`}
           aria-pressed={isPinned}
-          onClick={() => togglePin(agent.id)}
+          onClick={(event) => {
+            if (pinLimitBlocked) {
+              event.preventDefault();
+              return;
+            }
+            togglePin(agent.id);
+          }}
         >
           {isPinned ? <XIcon className="w-3.5 h-3.5" /> : <PinIcon className="w-3.5 h-3.5" />}
         </button>
@@ -170,6 +193,9 @@ export function AgentNavigation({
   return (
     <div className="mux-agent-navigation">
       <span className="sr-only" aria-live="polite">{announcement}</span>
+      <span id={PIN_LIMIT_DESCRIPTION_ID} className="sr-only">
+        最多可置顶六个 Agent，请先取消一个置顶后再添加。
+      </span>
       {sections.pinned.length > 0 && (
         <nav className="mux-pinned-agent-bar" aria-label="置顶 Agent">
           {sections.pinned.map((agent) => (
@@ -183,7 +209,7 @@ export function AgentNavigation({
               title={agent.name}
               onClick={() => onSelectAgent(agent.id)}
             >
-              <AgentGlyph id={agent.id} name={agent.name} size={30} />
+              <AgentGlyph id={agent.id} name={agent.name} size={28} />
             </button>
           ))}
         </nav>

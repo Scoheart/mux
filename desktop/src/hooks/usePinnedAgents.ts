@@ -5,14 +5,17 @@ import { getPinnedAgents, setPinnedAgents } from "../lib/api";
 
 export interface PinnedAgentsState {
   agentIds: string[];
+  ready: boolean;
   saving: boolean;
   commit(agentIds: string[]): Promise<boolean>;
 }
 
 export function usePinnedAgents(): PinnedAgentsState {
   const [agentIds, setAgentIds] = useState<string[]>([]);
+  const [ready, setReady] = useState(false);
   const [saving, setSaving] = useState(false);
   const savedRef = useRef<string[]>([]);
+  const readyRef = useRef(false);
   const savingRef = useRef(false);
   const { show } = useToast();
 
@@ -22,7 +25,9 @@ export function usePinnedAgents(): PinnedAgentsState {
       .then((loaded) => {
         if (!active) return;
         savedRef.current = loaded;
+        readyRef.current = true;
         setAgentIds(loaded);
+        setReady(true);
       })
       .catch((error) => {
         if (active) show({ kind: "error", msg: `读取置顶 Agent 失败: ${formatError(error)}` });
@@ -33,7 +38,7 @@ export function usePinnedAgents(): PinnedAgentsState {
   }, [show]);
 
   const commit = useCallback(async (nextIds: string[]) => {
-    if (savingRef.current) return false;
+    if (!readyRef.current || savingRef.current) return false;
     const previous = savedRef.current;
     savingRef.current = true;
     setSaving(true);
@@ -53,5 +58,5 @@ export function usePinnedAgents(): PinnedAgentsState {
     }
   }, [show]);
 
-  return { agentIds, saving, commit };
+  return { agentIds, ready, saving, commit };
 }

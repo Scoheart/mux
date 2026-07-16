@@ -70,3 +70,16 @@ export function movePinnedAgentBefore(
   next.splice(next.indexOf(targetId), 0, draggedId);
   return next;
 }
+
+export function movePinnedAgentAfter(
+  ids: string[],
+  draggedId: string,
+  targetId: string,
+): string[] {
+  if (draggedId === targetId || !ids.includes(draggedId) || !ids.includes(targetId)) {
+    return [...ids];
+  }
+  const next = ids.filter((id) => id !== draggedId);
+  next.splice(next.indexOf(targetId) + 1, 0, draggedId);
+  return next;
+}

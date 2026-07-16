@@ -357,15 +357,29 @@ body {
 .mux-agent-pin-action { opacity: 0; }
 .mux-agent-picker-row:hover .mux-agent-pin-action, .mux-agent-pin-action:focus-visible, .mux-agent-pin-action[data-pinned="true"] { opacity: 1; }
 .mux-agent-pin-action[data-pinned="true"] { color: var(--color-blue); }
-.mux-agent-order-handle:hover, .mux-agent-pin-action:hover:not(:disabled), .mux-agent-picker-search-clear:hover { background: var(--color-gray-150); color: var(--text-primary); }
-.mux-agent-order-handle:disabled, .mux-agent-pin-action:disabled { opacity: .32; cursor: default; }
+.mux-agent-order-handle:hover, .mux-agent-pin-action:hover:not(:disabled):not([aria-disabled="true"]), .mux-agent-picker-search-clear:hover { background: var(--color-gray-150); color: var(--text-primary); }
+.mux-agent-order-handle:disabled, .mux-agent-pin-action:disabled, .mux-agent-pin-action[aria-disabled="true"] { opacity: .32; cursor: default; }
 .mux-agent-picker-select:focus-visible, .mux-agent-order-handle:focus-visible, .mux-agent-pin-action:focus-visible, .mux-agent-picker-footer button:focus-visible { outline: 2px solid color-mix(in srgb, var(--color-blue) 56%, transparent); outline-offset: -2px; }
 .mux-agent-picker-empty { padding: 28px 12px; color: var(--text-secondary); font-size: 12px; text-align: center; }
 .mux-agent-picker-footer { display: flex; min-height: 48px; align-items: center; padding: 7px 10px; border-top: 1px solid var(--border-hairline); background: var(--surface-app); }
 .mux-agent-picker-footer button { display: inline-flex; height: 32px; align-items: center; gap: 7px; padding: 0 10px; border: 0; border-radius: 7px; background: transparent; color: var(--color-blue); font: 600 12px/1 var(--font-sans); cursor: pointer; }
 .mux-agent-picker-footer button:hover { background: color-mix(in srgb, var(--color-blue) 9%, transparent); }
 @media (max-height: 680px) { .mux-agent-picker { max-height: calc(100vh - 66px); } .mux-agent-picker-list { min-height: 160px; } }
-@media (max-width: 1080px) { .mux-agent-picker-trigger { width: 170px; } .mux-pinned-agent-bar { gap: 2px; padding-right: 4px; padding-left: 4px; } .mux-pinned-agent { width: 31px; height: 31px; flex-basis: 31px; } .mux-pinned-agent > * { transform: scale(.933333); transform-origin: center; } }
+@media (max-width: 1080px) {
+  .mux-topbar { gap: 4px; padding-right: 8px; padding-left: 8px; }
+  .mux-topbar .mux-wordmark { width: 48px; flex-basis: 48px; }
+  .mux-topbar .mux-seg { width: 186px; flex: 0 0 186px; gap: 0; padding: 2px; }
+  .mux-topbar .mux-seg-item { padding: 5px 7px; }
+  .mux-topbar .mux-seg-item > span { gap: 4px; }
+  .mux-topbar .mux-seg-beta { padding: 1px 2px; }
+  .mux-topbar .mux-icon-btn { width: 28px; height: 28px; }
+  .mux-topbar .mux-update-check { width: 132px; flex-basis: 132px; gap: 4px; padding-right: 6px; padding-left: 6px; }
+  .mux-topbar .mux-update-version { padding-left: 4px; }
+  .mux-agent-navigation { gap: 4px; }
+  .mux-agent-picker-trigger { width: 170px; }
+  .mux-pinned-agent-bar { gap: 0; padding-right: 2px; padding-left: 2px; }
+  .mux-pinned-agent { width: 28px; height: 28px; flex-basis: 28px; }
+}
 @media (prefers-reduced-motion: reduce) { .mux-agent-picker { animation: none; } }
 
 /* Button system: a solid primary action + a quiet ghost/secondary. */

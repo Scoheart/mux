@@ -4,6 +4,7 @@ import type { AgentInfo } from "./types.ts";
 import {
   MAX_PINNED_AGENTS,
   buildAgentPickerSections,
+  movePinnedAgentAfter,
   movePinnedAgentBefore,
   movePinnedAgentBy,
   togglePinnedAgent,
@@ -92,6 +93,26 @@ test("drag ordering is stable for unknown source and target IDs", () => {
   assert.deepEqual(movePinnedAgentBefore(ids, "missing", "codex"), ids);
   assert.deepEqual(movePinnedAgentBefore(ids, "codex", "missing"), ids);
   assert.deepEqual(ids, snapshot);
+});
+
+test("move-after places the first pinned Agent after the final row", () => {
+  const ids = ["claude-code", "codex", "qoder"];
+
+  assert.deepEqual(movePinnedAgentAfter(ids, "claude-code", "qoder"), [
+    "codex",
+    "qoder",
+    "claude-code",
+  ]);
+  assert.deepEqual(ids, ["claude-code", "codex", "qoder"]);
+});
+
+test("move-after preserves order for invalid source, target, and self moves", () => {
+  const ids = ["claude-code", "codex", "qoder"];
+
+  assert.deepEqual(movePinnedAgentAfter(ids, "missing", "codex"), ids);
+  assert.deepEqual(movePinnedAgentAfter(ids, "codex", "missing"), ids);
+  assert.deepEqual(movePinnedAgentAfter(ids, "codex", "codex"), ids);
+  assert.deepEqual(ids, ["claude-code", "codex", "qoder"]);
 });
 
 test("reorder operations preserve original input arrays", () => {

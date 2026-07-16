@@ -68,7 +68,7 @@ export function Layout({
     <div className="flex flex-col h-full">
       {/* Top bar */}
       <header
-        className="flex-shrink-0 flex items-center gap-3 px-5"
+        className="mux-topbar flex-shrink-0 flex items-center gap-3 px-5"
         style={{
           height: 56,
           background: "var(--glass-fill-strong)",
@@ -82,7 +82,7 @@ export function Layout({
       >
         {/* MUX wordmark */}
         <span
-          className="text-[22px] font-bold bg-gradient-to-r from-brand-gold via-brand-coral to-brand-magenta bg-clip-text select-none flex-shrink-0"
+          className="mux-wordmark text-[22px] font-bold bg-gradient-to-r from-brand-gold via-brand-coral to-brand-magenta bg-clip-text select-none flex-shrink-0"
           style={{ WebkitTextFillColor: "transparent", letterSpacing: 0 }}
         >
           MUX

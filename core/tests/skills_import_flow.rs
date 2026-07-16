@@ -4,7 +4,7 @@ mod support;
 
 use mux_core::settings::load_settings;
 use mux_core::skills::{
-    cancel_operation, commit_assignment, commit_import, plan_assignment, plan_import,
+    cancel_operation, commit_assignment, commit_import, hash_tree, plan_assignment, plan_import,
     recover_pending, PlanAssignmentRequest, PlanImportRequest, PlanInstallRequest, SkillError,
     SkillSource, SkillsPaths,
 };
@@ -19,9 +19,19 @@ fn import_does_not_move_external_copy_until_commit() {
     let fixture = SkillsFixture::external_skill("legacy", "claude-user");
     let original = fixture.read_external("legacy");
     let plan = plan_import(fixture.import_request("legacy")).unwrap();
+    let SkillSource::Imported { backup_path, .. } = &plan.skills[0].source else {
+        panic!("import plan did not use Imported provenance")
+    };
+    let backup = SkillsPaths::from_env()
+        .unwrap()
+        .expand_user(backup_path)
+        .unwrap();
+    let reviewed_hash = plan.skills[0].content_hash.clone();
     assert_eq!(fixture.read_external("legacy"), original);
     commit_import(plan.confirmation()).unwrap();
-    assert_eq!(fixture.read_backup("legacy"), original);
+    assert!(fs::symlink_metadata(&backup).unwrap().is_dir());
+    assert_eq!(hash_tree(&backup).unwrap(), reviewed_hash);
+    assert_eq!(fs::read(backup.join("SKILL.md")).unwrap(), original);
     assert_managed_link(fixture.external_path("legacy"), fixture.central("legacy"));
 }
 

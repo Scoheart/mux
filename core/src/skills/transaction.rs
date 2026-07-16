@@ -3249,7 +3249,17 @@ fn classify_link_temporary(
     #[cfg(not(unix))]
     return Err(recovery_evidence_error());
     #[cfg(unix)]
-    inspect_link_temporary(path, mutation).map(|(_, _, evidence)| evidence)
+    {
+        let parent = path.parent().ok_or_else(recovery_evidence_error)?;
+        match fs::symlink_metadata(parent) {
+            Err(error) if error.kind() == ErrorKind::NotFound => Ok(LinkTemporaryEvidence::Missing),
+            Err(_) => Err(recovery_evidence_error()),
+            Ok(metadata) if metadata.file_type().is_dir() => {
+                inspect_link_temporary(path, mutation).map(|(_, _, evidence)| evidence)
+            }
+            Ok(_) => Err(recovery_evidence_error()),
+        }
+    }
 }
 
 #[cfg(unix)]
@@ -5308,6 +5318,33 @@ mod tests {
         assert!(matches!(result, Err(SkillError::PlanStale { .. })));
         assert_eq!(fs::read_link(&link).unwrap(), PathBuf::from("missing-b"));
         assert!(!link_temp_path(&spec, &mutation, 0).exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn unapplied_link_with_missing_parent_has_missing_temporary_evidence() {
+        let home = TestHome::new("tx-unapplied-link-parent");
+        let mutation = LinkMutation {
+            path: home.home.join(".cursor/skills/unapplied"),
+            expected: LinkState::Missing,
+            desired_target: None,
+            backup: None,
+        };
+        let spec = empty_spec("12310000-0000-4000-8000-000000000006");
+        let temporary = link_temp_path(&spec, &mutation, 0);
+
+        assert!(!temporary.parent().unwrap().exists());
+        assert_eq!(
+            classify_link_temporary(&temporary, &mutation).unwrap(),
+            LinkTemporaryEvidence::Missing
+        );
+
+        fs::create_dir(home.home.join(".cursor")).unwrap();
+        fs::write(temporary.parent().unwrap(), b"not a directory").unwrap();
+        assert!(matches!(
+            classify_link_temporary(&temporary, &mutation),
+            Err(SkillError::RecoveryRequired { .. })
+        ));
     }
 
     #[test]

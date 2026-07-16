@@ -756,12 +756,13 @@ fn transaction_spec(
                         .join(&expected.skill_name),
                 ),
                 destination: paths.central_skill(&expected.skill_name),
-                backup: paths
-                    .backups_skills_dir()
-                    .join(&persisted.plan.operation_id)
-                    .join("central")
-                    .join(&expected.skill_name),
+                backup: central_backup_path(
+                    paths,
+                    &persisted.plan.operation_id,
+                    &expected.skill_name,
+                )?,
                 expected_before_hash: expected.content_hash.clone(),
+                retain_backup: false,
             });
         }
     }
@@ -806,6 +807,22 @@ fn transaction_spec(
         settings_before,
         settings_after,
     })
+}
+
+fn central_backup_path(
+    paths: &SkillsPaths,
+    operation_id: &str,
+    skill_name: &str,
+) -> Result<PathBuf, SkillError> {
+    validate_operation_id(operation_id)?;
+    if !valid_skill_name(skill_name) {
+        return Err(invalid_source_error(
+            "a planned central Skill backup name is invalid",
+        ));
+    }
+    Ok(paths
+        .backups_skills_dir()
+        .join(format!("{operation_id}-central-{skill_name}")))
 }
 
 fn install_settings_after(
@@ -1527,6 +1544,85 @@ mod tests {
         SkillSourceInput,
     };
     use crate::testenv::TestHome;
+
+    #[test]
+    fn central_backup_specs_use_existing_root_anchor_for_new_and_replacement_content() {
+        let home = TestHome::new("ops-central-backup");
+        let skill_name = "backup-anchor";
+        let first_source = home.home.join("source/first/backup-anchor");
+        fs::create_dir_all(&first_source).unwrap();
+        fs::write(
+            first_source.join("SKILL.md"),
+            "---\nname: backup-anchor\ndescription: First fixture\n---\n",
+        )
+        .unwrap();
+        let first_resolution = resolve_source(
+            SkillSourceInput::Local {
+                path: first_source.to_string_lossy().into_owned(),
+            },
+            GithubEndpoints::production(),
+        )
+        .unwrap();
+        let first_plan = plan_install(PlanInstallRequest {
+            resolution_id: first_resolution.operation_id,
+            skill_names: vec![skill_name.into()],
+            agent_ids: Vec::new(),
+            replace_conflicts: false,
+        })
+        .unwrap();
+        let paths = SkillsPaths::from_env().unwrap();
+        let first_persisted = load_plan(&paths, &first_plan.operation_id).unwrap();
+        let first_spec = transaction_spec(&paths, &first_persisted).unwrap();
+        let first_mutation = &first_spec.directory_mutations[0];
+        let first_backup = paths
+            .backups_skills_dir()
+            .join(format!("{}-central-{skill_name}", first_plan.operation_id));
+
+        assert!(first_mutation.expected_before_hash.is_none());
+        assert_eq!(first_mutation.backup, first_backup);
+        assert!(first_backup.parent().unwrap().is_dir());
+        execute_transaction(first_spec).unwrap();
+        assert!(!first_backup.exists());
+
+        let second_source = home.home.join("source/second/backup-anchor");
+        fs::create_dir_all(&second_source).unwrap();
+        fs::write(
+            second_source.join("SKILL.md"),
+            "---\nname: backup-anchor\ndescription: Second fixture\n---\n",
+        )
+        .unwrap();
+        let second_resolution = resolve_source(
+            SkillSourceInput::Local {
+                path: second_source.to_string_lossy().into_owned(),
+            },
+            GithubEndpoints::production(),
+        )
+        .unwrap();
+        let second_plan = plan_install(PlanInstallRequest {
+            resolution_id: second_resolution.operation_id,
+            skill_names: vec![skill_name.into()],
+            agent_ids: Vec::new(),
+            replace_conflicts: true,
+        })
+        .unwrap();
+        let second_persisted = load_plan(&paths, &second_plan.operation_id).unwrap();
+        let second_spec = transaction_spec(&paths, &second_persisted).unwrap();
+        let second_mutation = &second_spec.directory_mutations[0];
+        let second_backup = paths
+            .backups_skills_dir()
+            .join(format!("{}-central-{skill_name}", second_plan.operation_id));
+
+        assert!(second_mutation.expected_before_hash.is_some());
+        assert_eq!(second_mutation.backup, second_backup);
+        assert!(second_backup.parent().unwrap().is_dir());
+        execute_transaction(second_spec).unwrap();
+        assert!(!second_backup.exists());
+        assert!(
+            fs::read_to_string(paths.central_skill(skill_name).join("SKILL.md"))
+                .unwrap()
+                .contains("Second fixture")
+        );
+    }
 
     #[test]
     fn install_transaction_failure_rolls_back_central_links_and_settings_together() {

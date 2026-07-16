@@ -79,8 +79,15 @@ fn install_with_no_agents_is_central_only_and_duplicate_selections_are_rejected(
     })
     .unwrap();
     assert!(plan.targets.is_empty());
+    let transient_backup = SkillsPaths::from_env()
+        .unwrap()
+        .backups_skills_dir()
+        .join(format!("{}-central-central-only", plan.operation_id));
+    assert!(transient_backup.parent().unwrap().is_dir());
+    assert!(!transient_backup.exists());
     commit_install(plan.confirmation()).unwrap();
     assert!(fixture.central("central-only").join("SKILL.md").exists());
+    assert!(!transient_backup.exists());
     assert!(!load_settings()
         .skill_assignments
         .as_ref()
@@ -130,8 +137,15 @@ fn replacement_install_removes_prior_managed_links_not_in_the_desired_graph() {
             .collect::<Vec<_>>(),
         vec!["cursor-user"]
     );
+    let transient_backup = SkillsPaths::from_env()
+        .unwrap()
+        .backups_skills_dir()
+        .join(format!("{}-central-replace-safe", plan.operation_id));
+    assert!(transient_backup.parent().unwrap().is_dir());
+    assert!(!transient_backup.exists());
 
     commit_install(plan.confirmation()).unwrap();
+    assert!(!transient_backup.exists());
     assert!(fs::symlink_metadata(old_link).is_err());
     assert!(!load_settings()
         .skill_assignments

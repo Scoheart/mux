@@ -1267,7 +1267,7 @@ fn github_rate_limited_403_is_retryable() {
             body: b"/private/rate/body",
         },
         "network",
-        Some("1893456000"),
+        Some("2030-01-01T00:00:00Z"),
     );
 }
 
@@ -1295,8 +1295,27 @@ fn github_429_uses_the_bounded_reset_header_as_retry_time() {
             body: b"/private/rate/body",
         },
         "network",
-        Some("1893456001"),
+        Some("2030-01-01T00:00:01Z"),
     );
+}
+
+#[test]
+fn github_rate_limited_403_rejects_invalid_or_out_of_range_reset_retry_times() {
+    for (home_name, reset) in [
+        ("skills-http-rate-invalid-reset", "12invalid"),
+        ("skills-http-rate-out-of-range-reset", "253402300800"),
+    ] {
+        assert_status_behavior(
+            home_name,
+            ArchiveBehavior::CommitStatus {
+                status: "403 Forbidden",
+                headers: vec![("X-RateLimit-Remaining", "0"), ("X-RateLimit-Reset", reset)],
+                body: b"/private/rate/body",
+            },
+            "network",
+            None,
+        );
+    }
 }
 
 #[test]

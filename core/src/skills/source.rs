@@ -9,6 +9,7 @@ use super::{
     SkillSourceResolution, SkillsPaths, MAX_ARCHIVE_BYTES, MAX_ARCHIVE_ENTRIES, MAX_DOWNLOAD_BYTES,
     MAX_SINGLE_FILE_BYTES,
 };
+use chrono::{Datelike, SecondsFormat, TimeZone, Utc};
 use flate2::read::GzDecoder;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
@@ -1173,9 +1174,21 @@ fn rate_limit_evidence(response: &ureq::Response) -> (bool, Option<String>) {
         .is_some_and(|value| value == "0");
     let retry_after = bounded_response_header(response, "Retry-After");
     let reset = bounded_response_header(response, "X-RateLimit-Reset")
-        .filter(|value| value.bytes().all(|byte| byte.is_ascii_digit()));
+        .and_then(|value| github_reset_retry_at(&value));
     let rate_limited = remaining_zero || retry_after.is_some() || reset.is_some();
     (rate_limited, retry_after.or(reset))
+}
+
+fn github_reset_retry_at(value: &str) -> Option<String> {
+    if value.is_empty() || !value.bytes().all(|byte| byte.is_ascii_digit()) {
+        return None;
+    }
+    let seconds = value.parse::<i64>().ok()?;
+    let reset = Utc.timestamp_opt(seconds, 0).single()?;
+    if reset.year() > 9999 {
+        return None;
+    }
+    Some(reset.to_rfc3339_opts(SecondsFormat::Secs, true))
 }
 
 fn bounded_response_header(response: &ureq::Response, name: &str) -> Option<String> {

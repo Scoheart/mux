@@ -222,7 +222,10 @@ fn rate_limit_is_recorded_after_one_request_without_path_data() {
     assert_eq!(fixture.http_requests(), vec!["commit:main"]);
     assert!(outcome.errors["review-changes"].contains("rate-limited"));
     let record = &load_settings().managed_skills.unwrap()["review-changes"];
-    assert_eq!(record.update.retry_at.as_deref(), Some("1784282400"));
+    assert_eq!(
+        record.update.retry_at.as_deref(),
+        Some("2026-07-17T10:00:00Z")
+    );
     assert!(!record.update.error.as_deref().unwrap().contains('/'));
 }
 

@@ -262,8 +262,6 @@ export function RegistryView({
     [deletable, state, toast]
   );
 
-  const shadowedCount = statusCounts.shadowed;
-  const showShadowedFilter = shadowedCount > 0 || statusFilter === "shadowed";
 
   return (
     <FeatureShell
@@ -274,6 +272,9 @@ export function RegistryView({
         <SourcesSidebar
           state={state}
           selectedId={selectedSource}
+          statusFilter={statusFilter}
+          statusCounts={statusCounts}
+          onStatusFilter={setStatusFilter}
           onSelect={(id) => {
             setSelectedSource(id);
             setStatusFilter("all");
@@ -291,20 +292,6 @@ export function RegistryView({
           <div className="flex-1 min-w-[160px]">
             <SearchBar value={q} onChange={setQ} placeholder="搜索 MCP…" />
           </div>
-          {showShadowedFilter && (
-            <button
-              type="button"
-              className="mux-shadowed-filter flex-shrink-0"
-              data-active={statusFilter === "shadowed" ? "true" : undefined}
-              aria-pressed={statusFilter === "shadowed"}
-              title={statusFilter === "shadowed" ? "显示全部配置" : "只看被覆盖配置"}
-              onClick={() => setStatusFilter(statusFilter === "shadowed" ? "all" : "shadowed")}
-            >
-              <LayersIcon className="w-3.5 h-3.5" />
-              <span>被覆盖</span>
-              <span className="tabular-nums opacity-70">{shadowedCount}</span>
-            </button>
-          )}
           <button
             onClick={() => setPasteOpen(true)}
             className="btn-ghost flex-shrink-0"
@@ -322,66 +309,74 @@ export function RegistryView({
         </div>
       }
     >
-      {filtered.length === 0 ? (
-        <div className="py-16 text-sm text-center" style={{ color: "var(--text-secondary)" }}>
-          {catalog.length === 0
-            ? "暂无配置，请从左侧添加来源。"
-            : statusFilter === "shadowed"
-              ? "没有被覆盖项"
-              : "没有匹配项"}
-        </div>
-      ) : (
-        <div className="mux-grid">
-          {filtered.map((item) => (
-            <RegistryCard
-              key={`${keyOf(item.entry)}@${item.entry.origin?.source ?? item.entry.origin?.kind ?? ""}`}
-              item={item}
-              selected={detail === item}
-              installedAgents={agentsForServer(keyOf(item.entry))}
-              sourceName={sourceName}
-              overriddenBy={
-                item.in_effect
-                  ? undefined
-                  : originLabel(winningOriginByKey.get(keyOf(item.entry)), sourceName)
-              }
-              editable={editable(item.entry)}
-              deletable={deletable(item.entry)}
-              onOpen={() => setDetail(item)}
-              onCopy={() => copyConfig(item.entry)}
-              onEdit={() => onEdit(item.entry.name, transportOf(item.entry))}
-              onDelete={() => deleteEntry(item.entry)}
-            />
-          ))}
-        </div>
-      )}
+      <div className="mux-feature-stage">
+        <div className="mux-feature-stage-scroll">
+          {filtered.length === 0 ? (
+            <div className="py-16 text-sm text-center" style={{ color: "var(--text-secondary)" }}>
+              {catalog.length === 0
+                ? "暂无配置，请从左侧添加来源。"
+                : statusFilter === "shadowed"
+                  ? "没有被覆盖项"
+                  : statusFilter === "used"
+                    ? "没有使用中的 MCP"
+                    : statusFilter === "unused"
+                      ? "没有未使用的 MCP"
+                      : "没有匹配项"}
+            </div>
+          ) : (
+            <div className="mux-grid">
+              {filtered.map((item) => (
+                <RegistryCard
+                  key={`${keyOf(item.entry)}@${item.entry.origin?.source ?? item.entry.origin?.kind ?? ""}`}
+                  item={item}
+                  selected={detail === item}
+                  installedAgents={agentsForServer(keyOf(item.entry))}
+                  sourceName={sourceName}
+                  overriddenBy={
+                    item.in_effect
+                      ? undefined
+                      : originLabel(winningOriginByKey.get(keyOf(item.entry)), sourceName)
+                  }
+                  editable={editable(item.entry)}
+                  deletable={deletable(item.entry)}
+                  onOpen={() => setDetail(item)}
+                  onCopy={() => copyConfig(item.entry)}
+                  onEdit={() => onEdit(item.entry.name, transportOf(item.entry))}
+                  onDelete={() => deleteEntry(item.entry)}
+                />
+              ))}
+            </div>
+          )}
 
-      {pasteOpen && <PasteConfigDialog state={state} onClose={() => setPasteOpen(false)} />}
+          {pasteOpen && <PasteConfigDialog state={state} onClose={() => setPasteOpen(false)} />}
+        </div>
 
-      {detail && (
-        <RegistryDetail
-          entry={detail.entry}
-          overriddenBy={
-            detail.in_effect
-              ? undefined
-              : originLabel(winningOriginByKey.get(keyOf(detail.entry)), sourceName)
-          }
-          installedAgents={agentsForServer(keyOf(detail.entry))}
-          sourceName={sourceName}
-          onClose={() => setDetail(null)}
-          onCopy={() => copyConfig(detail.entry)}
-          onEdit={
-            editable(detail.entry)
-              ? () => {
-                  const { name } = detail.entry;
-                  const transport = transportOf(detail.entry);
-                  setDetail(null);
-                  onEdit(name, transport);
-                }
-              : undefined
-          }
-          onDelete={deletable(detail.entry) ? () => deleteEntry(detail.entry) : undefined}
-        />
-      )}
+        {detail && (
+          <RegistryDetail
+            entry={detail.entry}
+            overriddenBy={
+              detail.in_effect
+                ? undefined
+                : originLabel(winningOriginByKey.get(keyOf(detail.entry)), sourceName)
+            }
+            installedAgents={agentsForServer(keyOf(detail.entry))}
+            sourceName={sourceName}
+            onClose={() => setDetail(null)}
+            onCopy={() => copyConfig(detail.entry)}
+            onEdit={
+              editable(detail.entry)
+                ? () => {
+                    const { name } = detail.entry;
+                    const transport = transportOf(detail.entry);
+                    setDetail(null);
+                    onEdit(name, transport);
+                  }
+                : undefined
+            }
+            onDelete={deletable(detail.entry) ? () => deleteEntry(detail.entry) : undefined}
+          />
+        )}
+      </div>
     </FeatureShell>
   );
 }

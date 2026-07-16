@@ -166,7 +166,151 @@ body {
 .mux-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  align-items: stretch;
   gap: 10px;
+}
+.mux-grid .mux-tile { min-height: 158px; }
+
+/* Registry card internals — endpoint strip + footer pinned to card bottom. */
+.mux-resource-endpoint {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  height: 30px;
+  margin-top: 11px;
+  padding: 0 8px;
+  border: 1px solid var(--border-hairline);
+  border-radius: 6px;
+  background: var(--surface-app);
+  color: var(--text-secondary);
+}
+.mux-resource-endpoint span {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 10px/1 var(--font-mono);
+}
+.mux-resource-card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 35px;
+  margin-top: auto;
+  padding-top: 9px;
+  border-top: 1px solid var(--border-hairline);
+}
+.mux-resource-card-actions { display: flex; align-items: center; gap: 1px; }
+.mux-resource-card-actions .mux-icon-btn { width: 27px; height: 27px; border-radius: 6px; }
+.mux-resource-empty {
+  display: flex;
+  min-height: 300px;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 8px;
+  color: var(--text-secondary);
+  text-align: center;
+}
+.mux-resource-empty-icon { display: inline-flex; margin-bottom: 3px; opacity: .55; }
+.mux-resource-empty strong { color: var(--text-primary); font-size: 13px; }
+.mux-resource-empty > span:not(.mux-resource-empty-icon) { font-size: 11px; }
+.mux-resource-empty .btn-primary { margin-top: 6px; }
+.mux-agent-stack {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 7px;
+  color: var(--text-secondary);
+  font-size: 10px;
+  white-space: nowrap;
+}
+.mux-agent-stack-icons { display: inline-flex; align-items: center; padding-left: 1px; }
+.mux-agent-stack-icon {
+  display: inline-flex;
+  margin-left: -5px;
+  border: 2px solid var(--surface-raised);
+  border-radius: 7px;
+}
+.mux-agent-stack-icon:first-child { margin-left: 0; }
+.mux-resource-usage-empty { color: var(--text-secondary); font-size: 10px; }
+
+/* Detail inspector — right pane inside feature body (author ResourceWorkspace parity). */
+.mux-feature-stage {
+  display: flex;
+  align-items: stretch;
+  width: 100%;
+  min-height: 0;
+}
+.mux-feature-stage-scroll {
+  flex: 1;
+  min-width: 0;
+}
+.mux-resource-inspector {
+  display: flex;
+  width: 390px;
+  min-width: 390px;
+  min-height: 0;
+  flex-direction: column;
+  border-left: 1px solid var(--border-hairline);
+  background: var(--surface-raised);
+  box-shadow: -8px 0 24px rgba(20, 25, 32, .04);
+}
+.mux-resource-inspector-head {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  min-height: 68px;
+  padding: 13px 14px;
+  border-bottom: 1px solid var(--border-hairline);
+}
+.mux-resource-inspector-head h2 {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 680;
+}
+.mux-resource-inspector-subtitle { margin-top: 5px; }
+.mux-inspector-close {
+  display: inline-flex;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+.mux-inspector-close:hover { background: var(--color-gray-150); color: var(--text-primary); }
+.mux-resource-inspector-body { flex: 1; min-height: 0; overflow-y: auto; padding: 16px; }
+.mux-resource-inspector-footer {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 56px;
+  padding: 10px 14px;
+  border-top: 1px solid var(--border-hairline);
+  background: var(--surface-app);
+}
+
+/* Sidebar section labels inside feature sidebar. */
+.mux-feature-sidebar-section {
+  padding: 10px 12px 4px;
+  color: var(--text-secondary);
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 
 /* Conflict is the only exceptional catalog state exposed as a filter. */
@@ -337,12 +481,41 @@ body {
   padding: 12px 24px;
 }
 .mux-feature-chrome-toolbar {
+  --mux-toolbar-control-height: 36px;
   display: flex;
   align-items: center;
   gap: 12px;
   width: 100%;
 }
+.mux-feature-chrome-toolbar .mux-agent-picker-trigger {
+  height: var(--mux-toolbar-control-height);
+}
+.mux-feature-chrome-toolbar .mux-search,
+.mux-feature-chrome-toolbar .mux-search input {
+  height: var(--mux-toolbar-control-height);
+}
+.mux-feature-chrome-toolbar .btn-primary,
+.mux-feature-chrome-toolbar .btn-ghost {
+  box-sizing: border-box;
+  height: var(--mux-toolbar-control-height);
+  padding: 0 12px;
+}
+.mux-feature-chrome-toolbar .mux-icon-btn {
+  width: var(--mux-toolbar-control-height);
+  height: var(--mux-toolbar-control-height);
+}
 .mux-feature-body {
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  padding: 0;
+}
+.mux-feature-body > :not(.mux-feature-stage) {
+  width: min(100%, 1280px);
+  margin: 0 auto;
+  padding: 20px 24px 32px;
+}
+.mux-feature-body .mux-feature-stage-scroll {
   width: min(100%, 1280px);
   margin: 0 auto;
   padding: 20px 24px 32px;
@@ -452,7 +625,7 @@ body {
 /* Match SearchBar placeholder: text-sm + muted secondary */
 .mux-agent-picker-trigger-placeholder {
   display: block; width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  color: var(--text-secondary); font: 400 14px/1.25 var(--font-sans);
+  color: var(--text-secondary); font: 400 12px/1 var(--font-sans);
 }
 .mux-agent-picker-bot {
   width: 16px; height: 16px; flex: 0 0 auto; color: var(--text-secondary);
@@ -714,9 +887,10 @@ body {
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-blue) 9%, transparent);
 }
 .mux-search-clear {
-  position: absolute; right: 5px; top: 4px; display: inline-flex; align-items: center; justify-content: center;
+  position: absolute; right: 5px; top: 50%; display: inline-flex; align-items: center; justify-content: center;
   width: 26px; height: 26px; padding: 0; border: 0; border-radius: 5px;
   background: transparent; color: var(--text-secondary); cursor: pointer;
+  transform: translateY(-50%);
   opacity: 0; pointer-events: none;
 }
 .mux-search-clear[data-visible="true"] { opacity: 1; pointer-events: auto; }

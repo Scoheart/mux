@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import type { InstallState } from "../hooks/useInstallState";
 import type { SourceView } from "../lib/types";
 import { IconButton } from "./ui";
-import { CloudIcon, FolderIcon, RefreshIcon, TrashIcon, LayersIcon, EditIcon, SearchIcon } from "./icons";
+import { CloudIcon, FolderIcon, RefreshIcon, TrashIcon, LayersIcon, EditIcon, SearchIcon, CheckIcon, XIcon } from "./icons";
 import { SubscribeDialog } from "./SubscribeDialog";
 import { useToast } from "./Toast";
 import { formatError } from "../lib/format";
@@ -34,11 +34,17 @@ export function SourcesSidebar({
   state,
   selectedId,
   onSelect,
+  statusFilter,
+  statusCounts,
+  onStatusFilter,
 }: {
   state: InstallState;
   /** null = 全部 (all sources). */
   selectedId: string | null;
   onSelect: (id: string | null) => void;
+  statusFilter?: McpStatusFilter;
+  statusCounts?: McpStatusCounts;
+  onStatusFilter?: (filter: McpStatusFilter) => void;
 }) {
   const { sources, catalog } = state;
   const toast = useToast();
@@ -98,23 +104,65 @@ export function SourcesSidebar({
       {/* Header: title + add actions */}
       <div className="flex items-center gap-1.5 px-3 pt-3.5 pb-2">
         <span className="text-xs font-semibold uppercase flex-1" style={{ color: "var(--text-secondary)", letterSpacing: "0.06em" }}>
-          来源
+          MCPs
         </span>
-        <IconButton title="添加订阅" onClick={() => setSubscribeOpen(true)}>
-          <CloudIcon className="w-4 h-4" />
-        </IconButton>
-        <IconButton title="导入配置" onClick={pickLocal}>
-          <FolderIcon className="w-4 h-4" />
-        </IconButton>
+        <span className="text-[10px] tabular-nums" style={{ color: "var(--text-secondary)" }}>
+          {catalog.length} 项
+        </span>
       </div>
 
-      {/* List */}
       <div className="flex-1 min-h-0 overflow-y-auto px-2 pb-3 mux-noscroll">
-        {/* Status filtering lives in the content toolbar; this list is sources only. */}
+        {statusFilter && statusCounts && onStatusFilter && (
+          <>
+            <div className="mux-feature-sidebar-section">状态</div>
+            <Row
+              active={statusFilter === "all"}
+              icon={<LayersIcon className="w-3.5 h-3.5" />}
+              name="全部"
+              count={statusCounts.all}
+              onClick={() => onStatusFilter("all")}
+            />
+            <Row
+              active={statusFilter === "used"}
+              icon={<CheckIcon className="w-3.5 h-3.5" />}
+              name="使用中"
+              count={statusCounts.used}
+              onClick={() => onStatusFilter("used")}
+            />
+            <Row
+              active={statusFilter === "unused"}
+              icon={<XIcon className="w-3.5 h-3.5" />}
+              name="未使用"
+              count={statusCounts.unused}
+              onClick={() => onStatusFilter("unused")}
+            />
+            {statusCounts.shadowed > 0 && (
+              <Row
+                active={statusFilter === "shadowed"}
+                icon={<LayersIcon className="w-3.5 h-3.5" />}
+                name="被覆盖"
+                count={statusCounts.shadowed}
+                onClick={() => onStatusFilter("shadowed")}
+              />
+            )}
+            <div className="my-2 mx-2 h-px" style={{ background: "var(--border-hairline)" }} />
+          </>
+        )}
+
+        <div className="mux-feature-sidebar-section flex items-center gap-1.5">
+          <span className="flex-1">来源</span>
+          <IconButton title="添加订阅" onClick={() => setSubscribeOpen(true)}>
+            <CloudIcon className="w-3.5 h-3.5" />
+          </IconButton>
+          <IconButton title="导入配置" onClick={pickLocal}>
+            <FolderIcon className="w-3.5 h-3.5" />
+          </IconButton>
+        </div>
+
         <Row
           active={selectedId === null}
           icon={<LayersIcon className="w-3.5 h-3.5" />}
-          name="全部"
+          name="全部来源"
           count={catalog.length}
           onClick={() => onSelect(null)}
         />

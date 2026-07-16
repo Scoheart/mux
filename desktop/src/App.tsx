@@ -68,7 +68,12 @@ function App() {
           onSelectModels={goModels}
         />
       ) : view.kind === "models" ? (
-        <ModelsView onSelectMcps={goRegistry} />
+        <ModelsView
+          state={state}
+          onSelectMcps={goRegistry}
+          onSelectAgent={(id) => setView({ kind: "agent", id })}
+          onAddAgent={() => setAddAgentOpen(true)}
+        />
       ) : (
         <AgentView
           state={state}

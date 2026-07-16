@@ -2,14 +2,14 @@
 
 MUX 的 Agent 数据分为两层：
 
-- **可配置目标**：41 个逐项核验的产品定义，其中 40 个有稳定的用户级全局配置文件，可由 MUX 安全读写，并显示在 Agent 选择器中。
-- **发现目录**：来自公开 MCP 客户端目录与官方客户端矩阵，只作为后续核验的数据储备。与可配置目标去重后共保留 **193 个**客户端记录，但不再作为单独标签页展示。
+- **可配置目标**：42 个逐项核验的产品定义，其中 41 个有稳定的用户级全局配置文件，可由 MUX 安全读写，并显示在 Agent 选择器中。
+- **发现目录**：来自公开 MCP 客户端目录与官方客户端矩阵，只作为后续核验的数据储备。与可配置目标去重后共保留 **194 个**客户端记录，但不再作为单独标签页展示。
 
 没有确认全局文件路径、顶层键和条目结构的客户端只保留来源数据，不进入选择器，也不允许写入。这样可以持续扩大覆盖面，又不会把通用 JSON 猜测写进未知产品配置。
 
 ## 已核验列表
 
-以下结果基于截至 **2026-07-16** 的官方文档或官方源码；Grok Build 使用其开源仓库中的配置实现与用户指南核验。
+以下结果基于截至 **2026-07-16** 的官方文档、官方源码或签名应用包；Grok Build 使用其开源仓库核验，MiniMax Code 使用官方签名的 `3.0.51` macOS 应用包核验。
 
 | Agent | 格式 | 配置键 | 用户级全局路径 | 原生传输 |
 |---|---|---|---|---|
@@ -39,6 +39,7 @@ MUX 的 Agent 数据分为两层：
 | [Kimi Code CLI](https://moonshotai.github.io/kimi-code/en/customization/mcp) | JSON | `mcpServers` | `~/.kimi-code/mcp.json` | stdio / http |
 | [Kiro](https://kiro.dev/docs/mcp/configuration/) | JSON | `mcpServers` | `~/.kiro/settings/mcp.json` | stdio / http |
 | [LM Studio](https://lmstudio.ai/docs/app/plugins/mcp) | JSON | `mcpServers` | `~/.lmstudio/mcp.json` | stdio / http |
+| [MiniMax Code](https://agent.minimax.io/download) | JSON | `mcpServers` | `~/.mavis/mcp.json` | stdio / http |
 | [Mistral Vibe](https://docs.mistral.ai/vibe/code/cli/mcp-servers) | TOML | `mcp_servers` | `~/.vibe/config.toml` | stdio / http |
 | [OpenCode](https://opencode.ai/docs/mcp-servers/) | JSON | `mcp` | `~/.config/opencode/opencode.json` | stdio / http |
 | [OpenHands CLI](https://docs.openhands.dev/openhands/usage/cli/mcp-servers) | JSON | `mcpServers` | `~/.openhands/mcp.json` | stdio / http |
@@ -64,6 +65,7 @@ MUX 的 Agent 数据分为两层：
 - **Claude Desktop / BoltAI**：列出的本地文件只原生支持 stdio。远程 MCP 分别由 Claude Connectors 或 BoltAI 的 `mcp-remote` 方案管理。
 - **Goose**：通用文档示例使用 `~/.config/goose/config.yaml`，当前 macOS 源码实际采用 `~/Library/Application Support/Block/goose/config/config.yaml`；MUX 按运行时代码定位。
 - **Grok Build**：MCP 与自定义模型共用 `~/.grok/config.toml`。MUX 可局部管理 `mcp_servers`，并保留模型、认证、超时和工具策略；Models 页面只提供官方引导，因为 Grok Build 暂无可按模型安全调用 Keychain 的凭据命令。
+- **MiniMax Code**：主配置与 MCP 配置分离，分别是 `~/.mavis/config.yaml` 和 `~/.mavis/mcp.json`。MUX 可安全管理 `mcpServers`；Models 只提供引导，因为当前自定义 provider 会把 `options.apiKey` 明文写入 YAML。
 
 ## 不同 Agent 的格式差异
 

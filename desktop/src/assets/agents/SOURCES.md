@@ -18,6 +18,7 @@ New assets are copied from official product sites, official repositories, or the
 | `kilo-code.svg` | <https://github.com/Kilo-Org/kilocode/blob/main/packages/kilo-docs/public/favicon/favicon.svg> |
 | `kimi-code.png` | <https://github.com/MoonshotAI/kimi-cli/blob/main/web/public/logo.png> |
 | `lmstudio.png` | <https://lmstudio.ai/assets/marketing/logo-192x192.png> |
+| `minimax-code.png` | MiniMax Code `3.0.51` official signed macOS app icon from <https://agent.minimax.io/download> (retrieved 2026-07-16) |
 | `mistral-vibe.png` | <https://mistral.ai/brand/> (`Mistral-Icon-Gradient-RGB.png`) |
 | `openhands.svg` | <https://openhands.dev/favicon.svg> |
 | `qwen-code.png` | <https://qwenlm.github.io/qwen-code-docs/favicon.png> |

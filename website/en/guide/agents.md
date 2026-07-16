@@ -2,14 +2,14 @@
 
 MUX's agent data comes in two layers:
 
-- **Configurable targets**: 41 individually verified product definitions, 40 of which have a stable user-level global config file that MUX can safely read and write.
-- **Client directory**: sourced from public MCP client directories and the official client matrix, used for discovery only. After deduplication against the configurable targets, the UI can search **193** clients in total.
+- **Configurable targets**: 42 individually verified product definitions, 41 of which have a stable user-level global config file that MUX can safely read and write.
+- **Client directory**: sourced from public MCP client directories and the official client matrix, used for discovery only. After deduplication against the configurable targets, the UI can search **194** clients in total.
 
 Clients whose global file path, top-level key, and entry structure have not been confirmed are shown for discovery only and cannot be written to. This keeps expanding coverage without writing a generic JSON guess into an unknown product's config.
 
 ## Verified list
 
-The results below are based on official docs or official source through **2026-07-16**; Grok Build was verified from its newly published source and user guides.
+The results below are based on official docs, official source, or signed application bundles through **2026-07-16**. Grok Build was verified from its newly published source; MiniMax Code was verified from the official signed `3.0.51` macOS bundle.
 
 | Agent | Format | Config key | User-level global path | Native transports |
 |---|---|---|---|---|
@@ -39,6 +39,7 @@ The results below are based on official docs or official source through **2026-0
 | [Kimi Code CLI](https://moonshotai.github.io/kimi-code/en/customization/mcp) | JSON | `mcpServers` | `~/.kimi-code/mcp.json` | stdio / http |
 | [Kiro](https://kiro.dev/docs/mcp/configuration/) | JSON | `mcpServers` | `~/.kiro/settings/mcp.json` | stdio / http |
 | [LM Studio](https://lmstudio.ai/docs/app/plugins/mcp) | JSON | `mcpServers` | `~/.lmstudio/mcp.json` | stdio / http |
+| [MiniMax Code](https://agent.minimax.io/download) | JSON | `mcpServers` | `~/.mavis/mcp.json` | stdio / http |
 | [Mistral Vibe](https://docs.mistral.ai/vibe/code/cli/mcp-servers) | TOML | `mcp_servers` | `~/.vibe/config.toml` | stdio / http |
 | [OpenCode](https://opencode.ai/docs/mcp-servers/) | JSON | `mcp` | `~/.config/opencode/opencode.json` | stdio / http |
 | [OpenHands CLI](https://docs.openhands.dev/openhands/usage/cli/mcp-servers) | JSON | `mcpServers` | `~/.openhands/mcp.json` | stdio / http |
@@ -64,6 +65,7 @@ The results below are based on official docs or official source through **2026-0
 - **Claude Desktop / BoltAI**: the local files listed natively support stdio only. Remote MCP is managed by Claude Connectors or BoltAI's `mcp-remote` approach, respectively.
 - **Goose**: the generic docs example uses `~/.config/goose/config.yaml`, but the current macOS source actually uses `~/Library/Application Support/Block/goose/config/config.yaml`; MUX locates it by the runtime code.
 - **Grok Build**: MCP and custom models share `~/.grok/config.toml`. MUX safely edits only `mcp_servers`, preserving model, auth, timeout, and tool policy. Models remains guided because Grok Build has no per-model credential command that can safely consume a MUX Keychain secret.
+- **MiniMax Code**: the main and MCP configurations are separate at `~/.mavis/config.yaml` and `~/.mavis/mcp.json`. MUX safely manages `mcpServers`; Models remains guided because the current custom-provider flow persists `options.apiKey` as plaintext YAML.
 
 ## Format differences across agents
 

@@ -24,6 +24,7 @@ fn fixture(name: &str) -> &'static str {
         "codex" => include_str!("fixtures/codex.toml"),
         "gemini" => include_str!("fixtures/gemini.json"),
         "grok-build" => include_str!("fixtures/grok-build.toml"),
+        "minimax-code" => include_str!("fixtures/minimax-code.json"),
         "windsurf" => include_str!("fixtures/windsurf.json"),
         "cline" => include_str!("fixtures/cline.json"),
         _ => panic!("unknown fixture"),
@@ -183,6 +184,40 @@ fn grok_build_update_preserves_models_auth_and_mcp_policy() {
 }
 
 #[test]
+fn minimax_code_update_preserves_runtime_settings_and_server_policy() {
+    let path = write_fixture("minimax-code", "json");
+    let definition = &builtin_agents()["minimax-code"];
+    let adapter = get_agent_adapter_for(definition, "minimax-code");
+    let scanned = adapter.read(&path);
+    assert!(matches!(scanned["local-tools"], McpConfig::Stdio(_)));
+    assert!(matches!(scanned["docs"], McpConfig::Http(_)));
+    assert_eq!(
+        match &scanned["legacy"] {
+            McpConfig::Http(config) => config.kind.as_str(),
+            _ => panic!("expected SSE"),
+        },
+        "sse"
+    );
+
+    adapter
+        .upsert(&path, "docs", &http("https://new.example/mcp"))
+        .unwrap();
+
+    let root: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    let target = &root["mcpServers"]["docs"];
+    assert_eq!(root["profile"]["owner"], "user");
+    assert_eq!(root["profile"]["theme"], "dark");
+    assert_eq!(target["type"], "http");
+    assert_eq!(target["url"], "https://new.example/mcp");
+    assert_eq!(target["headers"]["X-New"], "value");
+    assert_eq!(target["enabled"], false);
+    assert_eq!(target["timeout"], 90);
+    assert_eq!(target["customPolicy"]["allow"][0], "search");
+    assert_eq!(root["mcpServers"]["legacy"]["type"], "sse");
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
 fn copilot_defaults_tools_only_for_new_entries() {
     let path = temp_file("copilot", "json");
     std::fs::write(
@@ -258,7 +293,7 @@ fn every_writable_builtin_roundtrips_through_its_wire_format() {
         .values()
         .filter(|agent| agent.global.is_some())
         .count();
-    assert_eq!(writable, 40);
+    assert_eq!(writable, 41);
 
     for (agent_id, definition) in agents {
         if definition.global.is_none() {
@@ -444,6 +479,7 @@ fn builtin_global_paths_match_current_product_docs() {
         ("kimi-code", "~/.kimi-code/mcp.json"),
         ("kiro", "~/.kiro/settings/mcp.json"),
         ("lmstudio", "~/.lmstudio/mcp.json"),
+        ("minimax-code", "~/.mavis/mcp.json"),
         ("mistral-vibe", "~/.vibe/config.toml"),
         ("opencode", "~/.config/opencode/opencode.json"),
         ("openhands", "~/.openhands/mcp.json"),
@@ -487,16 +523,16 @@ fn verified_and_catalog_definitions_have_auditable_boundaries() {
     let all_ids: std::collections::BTreeSet<_> =
         verified_ids.union(&catalog_ids).cloned().collect();
 
-    assert_eq!(verified.len(), 41);
+    assert_eq!(verified.len(), 42);
     assert_eq!(catalog.len(), 175);
     assert_eq!(verified_ids.intersection(&catalog_ids).count(), 23);
-    assert_eq!(all_ids.len(), 193);
+    assert_eq!(all_ids.len(), 194);
     assert_eq!(
         verified
             .values()
             .filter(|item| item.global.is_some())
             .count(),
-        40
+        41
     );
     assert!(catalog.len() >= 170);
     for (id, definition) in verified {

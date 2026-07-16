@@ -6,10 +6,10 @@ MUX deliberately separates client discovery from writable configuration support.
 
 | File | Purpose | Current size |
 |---|---|---:|
-| `data/agents.json` | Deep-audited definitions with product-specific paths, layouts, codecs, transports, and evidence | 41 |
+| `data/agents.json` | Deep-audited definitions with product-specific paths, layouts, codecs, transports, and evidence | 42 |
 | `data/agent-catalog.json` | Discovery-only client records; unknown paths and formats always fail closed | 175 |
 
-There are 23 overlapping IDs. Audited definitions override directory records, producing 193 distinct retained client records. The desktop picker intentionally shows only the 40 writable user-level targets among the 41 audited definitions; catalog-only records remain available to the core for future promotion. Devin remains read-only.
+There are 23 overlapping IDs. Audited definitions override directory records, producing 194 distinct retained client records. The desktop picker intentionally shows only the 41 writable user-level targets among the 42 audited definitions; catalog-only records remain available to the core for future promotion. Devin remains read-only.
 
 ## Discovery sources
 
@@ -41,11 +41,11 @@ Community extensions are not presented as native support. The current example is
 | Value | Meaning |
 |---|---|
 | `official` | Official product documentation describes the relevant path/schema. |
-| `official-source` | Current official source code resolves a platform path or field more precisely than the prose docs. |
+| `official-source` | Current official source code, including source shipped inside a signed official application bundle, resolves a platform path or field more precisely than the prose docs. |
 | `community-extension` | MCP support belongs to a named third-party extension, not the core product. |
 | `catalog` | Public discovery only; never writable. |
 
-Every audited definition records `verified_at`, documentation URL, supported transports, codec, and layout. The existing set was rechecked through 2026-07-15; Grok Build was verified against its newly published official source on 2026-07-16.
+Every audited definition records `verified_at`, documentation URL, supported transports, codec, and layout. The existing set was rechecked through 2026-07-15; Grok Build was verified against its newly published official source and MiniMax Code against its signed `3.0.51` application bundle on 2026-07-16.
 
 ## Fail-closed rules
 

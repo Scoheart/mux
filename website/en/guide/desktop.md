@@ -90,13 +90,13 @@ The source model itself supports enable/disable, which the TUI's "Sources" scree
 - Inside a built-in agent's page you may only override the global MCP path; the official format, config key, and codec are fixed, to avoid producing incompatible configs.
 - Paths inside the home directory are saved as `~/…`; absolute paths outside it keep their original value.
 
-For the full 41 verified targets, 40 writable targets, and 193 retained records, see [Supported agents](/en/guide/agents).
+For the full 42 verified targets, 41 writable targets, and 194 retained records, see [Supported agents](/en/guide/agents).
 
 ## Models (Beta)
 
 The top-level **Models** workspace creates reusable endpoints and manages assignments across agents. The same compatible profiles are also available inside each supported agent's configuration center for direct application. A profile contains its protocol, Base URL, model ID, and optional token limits; API keys remain in macOS Keychain and are never included in settings, previews, or backups.
 
-Claude Code currently accepts Anthropic Messages profiles, Codex uses the Responses API, and Pi supports all three initial protocols. Qoder and Grok Build expose their verified paths and official setup entry; MUX neither writes Qoder's unpublished encrypted model store nor persists a MUX Keychain secret as plaintext in a Grok Build model table.
+Claude Code currently accepts Anthropic Messages profiles, Codex uses the Responses API, and Pi supports all three initial protocols. Qoder, Grok Build, and MiniMax Code expose their verified paths and setup entry; MUX neither writes Qoder's unpublished encrypted model store nor persists a MUX Keychain secret as plaintext in Grok Build or MiniMax Code model configuration.
 
 ## Auto-update and the CLI
 

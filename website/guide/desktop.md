@@ -99,13 +99,13 @@ Agent 页面中的每个已安装 MCP 都有开关和删除操作：
 - 进入内置 Agent 页面后只允许覆盖 MCP 全局路径；官方格式、配置键和 codec 固定，避免产生不兼容配置。
 - 位于用户主目录内的路径保存为 `~/…`；主目录外的绝对路径保持原值。
 
-完整的 41 个核验目标、40 个可配置目标与 193 条保留记录口径见 [支持的 Agent](/guide/agents)。
+完整的 42 个核验目标、41 个可配置目标与 194 条保留记录口径见 [支持的 Agent](/guide/agents)。
 
 ## Models（Beta）
 
 顶部 **Models** 页面与 MCPs 使用同一套筛选栏、搜索、资源卡片和右侧详情面板。可以创建可复用端点，并在详情面板中跨 Agent 管理分配；进入单个 Agent 后，也可在其配置中心选择兼容端点并直接应用。每个配置包含协议、Base URL、模型 ID 和可选 token 参数；API Key 只写入 macOS Keychain，不进入 `~/.mux/settings.json`、Agent 配置预览或备份。
 
-Claude Code 目前只接收 Anthropic Messages 配置，Codex 使用 Responses API，Pi 支持三种首批协议。Qoder 和 Grok Build 会显示安装状态与官方设置入口；MUX 不写 Qoder 未公开的加密模型存储，也不会把 Keychain 密钥明文写入 Grok Build 的模型表。完整边界见 [模型接口](/guide/models)。
+Claude Code 目前只接收 Anthropic Messages 配置，Codex 使用 Responses API，Pi 支持三种首批协议。Qoder、Grok Build 和 MiniMax Code 会显示安装状态与设置入口；MUX 不写 Qoder 未公开的加密模型存储，也不会把 Keychain 密钥明文写入 Grok Build 或 MiniMax Code 的模型配置。完整边界见 [模型接口](/guide/models)。
 
 ## 自动更新与 CLI
 

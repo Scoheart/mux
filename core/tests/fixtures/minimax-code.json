@@ -1,0 +1,38 @@
+{
+  "profile": {
+    "owner": "user",
+    "theme": "dark"
+  },
+  "mcpServers": {
+    "local-tools": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "local-tools"],
+      "env": {
+        "PRIVATE_TOKEN": "fixture-token"
+      },
+      "enabled": false,
+      "timeout": 45,
+      "metadata": {
+        "owner": "user"
+      }
+    },
+    "docs": {
+      "type": "streamable-http",
+      "url": "https://old.example/mcp",
+      "headers": {
+        "Authorization": "Bearer fixture"
+      },
+      "enabled": false,
+      "timeout": 90,
+      "customPolicy": {
+        "allow": ["search"]
+      }
+    },
+    "legacy": {
+      "type": "sse",
+      "url": "https://legacy.example/sse",
+      "enabled": true
+    }
+  }
+}

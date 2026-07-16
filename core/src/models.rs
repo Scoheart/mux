@@ -27,6 +27,7 @@ use toml_edit::{Array, Document, Item, Table};
 const KEYCHAIN_ACCOUNT: &str = "api-key";
 const QODER_DOCS: &str = "https://docs.qoder.com/user-guide/chat/custom-models";
 const GROK_BUILD_MODEL_DOCS: &str = "https://github.com/xai-org/grok-build/blob/main/crates/codegen/xai-grok-pager/docs/user-guide/11-custom-models.md";
+const MINIMAX_CODE_DOCS: &str = "https://agent.minimax.io/download";
 
 #[derive(Debug, Clone, Serialize)]
 pub struct ModelProfileView {
@@ -426,6 +427,25 @@ pub fn list_agents() -> Vec<ModelAgentView> {
             note: "MUX updates the custom provider and default model as one transaction.".into(),
         },
         ModelAgentView {
+            id: "minimax-code".into(),
+            name: "MiniMax Code".into(),
+            mode: "guided".into(),
+            installed: agent_installed(
+                &["mavis"],
+                &[".mavis"],
+                &["/Applications/MiniMax Code.app"],
+            ),
+            config_path: "~/.mavis/config.yaml".into(),
+            docs: MINIMAX_CODE_DOCS.into(),
+            assigned_profile: None,
+            supported_protocols: vec![
+                ModelProtocol::AnthropicMessages,
+                ModelProtocol::OpenaiResponses,
+                ModelProtocol::OpenaiCompletions,
+            ],
+            note: "MiniMax Code supports custom providers, but its current config flow stores options.apiKey as plaintext YAML; use its own model configuration flow rather than exporting a MUX Keychain secret.".into(),
+        },
+        ModelAgentView {
             id: "qoder".into(),
             name: "Qoder".into(),
             mode: "guided".into(),
@@ -463,6 +483,11 @@ fn ensure_supported(agent_id: &str, protocol: &ModelProtocol) -> Result<(), Stri
         "grok-build" => {
             return Err(format!(
                 "Grok Build custom models require api_key or env_key and do not expose a secure per-model credential command; see {GROK_BUILD_MODEL_DOCS}"
+            ))
+        }
+        "minimax-code" => {
+            return Err(format!(
+                "MiniMax Code custom providers currently persist options.apiKey in plaintext YAML and do not expose a Keychain-compatible credential command; see {MINIMAX_CODE_DOCS}"
             ))
         }
         _ => return Err(format!("unsupported model Agent: {agent_id}")),
@@ -1128,6 +1153,21 @@ wire_api = "responses"
         assert_eq!(grok.config_path, "~/.grok/config.toml");
         assert_eq!(grok.supported_protocols.len(), 3);
         assert!(grok.docs.contains("11-custom-models.md"));
+    }
+
+    #[test]
+    fn minimax_code_is_a_guided_three_protocol_target() {
+        let _th = TestHome::new("model-minimax-code");
+        let agents = list_agents();
+        let minimax = agents
+            .iter()
+            .find(|agent| agent.id == "minimax-code")
+            .expect("MiniMax Code model target");
+        assert_eq!(minimax.mode, "guided");
+        assert_eq!(minimax.config_path, "~/.mavis/config.yaml");
+        assert_eq!(minimax.supported_protocols.len(), 3);
+        assert!(minimax.docs.contains("agent.minimax.io/download"));
+        assert!(ensure_supported("minimax-code", &ModelProtocol::OpenaiResponses).is_err());
     }
 
     #[test]

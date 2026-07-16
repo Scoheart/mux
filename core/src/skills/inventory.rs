@@ -1,18 +1,26 @@
+use super::anchored::{AnchoredFileKind, AnchoredIdentity, AnchoredRoot};
+#[cfg(test)]
+use super::files::MAX_SKILL_BYTES;
+use super::files::{inspect_tree_anchored, validate_candidate_anchored};
 use super::{
-    hash_tree, inspect_tree, parse_manifest, InventoryState, ManagedSkillRecord, SkillAgentView,
-    SkillContentKind, SkillDetail, SkillError, SkillFile, SkillInventoryItem, SkillLocation,
-    SkillRiskSummary, SkillSource, SkillTargetView, SkillUpdateState, SkillsInventory, SkillsPaths,
+    parse_manifest, InventoryState, ManagedSkillRecord, SkillAgentView, SkillContentKind,
+    SkillDetail, SkillError, SkillInventoryItem, SkillLocation, SkillRiskSummary, SkillSource,
+    SkillTargetView, SkillUpdateState, SkillsInventory, SkillsPaths,
 };
 use crate::agents::builtin_agents;
 use crate::settings::{load_settings_strict, Settings};
 use crate::types::{AgentInstallProbe, AgentSkillsCapability};
 use std::collections::{BTreeMap, BTreeSet};
-use std::ffi::{OsStr, OsString};
+use std::ffi::{CString, OsStr, OsString};
 use std::fs;
 use std::io::Read;
 use std::path::{Component, Path, PathBuf};
 
 const MAX_SKILL_MD_DETAIL_BYTES: usize = 1024 * 1024;
+const MAX_INVENTORY_SETTINGS_RECORDS: u64 = 10_000;
+const MAX_INVENTORY_SCANNED_ENTRIES: u64 = 10_000;
+const MAX_INVENTORY_RETURNED_ITEMS: u64 = 10_000;
+const MAX_INVENTORY_MANAGED_BYTES: u64 = 512 * 1024 * 1024;
 const TEST_PROBE_ROOT_ENV: &str = "MUX_TEST_PROBE_ROOT";
 
 #[derive(Debug, Clone)]
@@ -28,6 +36,7 @@ struct PhysicalTarget {
     target_id: String,
     global_dir: String,
     canonical_root: PathBuf,
+    observed_identity: Option<AnchoredIdentity>,
     primary_agent_ids: BTreeSet<String>,
     affected_agent_ids: BTreeSet<String>,
 }
@@ -60,6 +69,39 @@ struct ExternalSummary {
     content_kind: SkillContentKind,
 }
 
+#[derive(Debug, Default)]
+struct InventoryBudget {
+    scanned_entries: u64,
+    returned_items: u64,
+    managed_bytes: u64,
+}
+
+impl InventoryBudget {
+    fn add_scanned_entries(&mut self, added: u64) -> Result<(), SkillError> {
+        charge_inventory_limit(
+            &mut self.scanned_entries,
+            added,
+            "inventory_scanned_entries",
+            MAX_INVENTORY_SCANNED_ENTRIES,
+        )
+    }
+
+    fn push_item(
+        &mut self,
+        items: &mut Vec<SkillInventoryItem>,
+        item: SkillInventoryItem,
+    ) -> Result<(), SkillError> {
+        charge_inventory_limit(
+            &mut self.returned_items,
+            1,
+            "inventory_returned_items",
+            MAX_INVENTORY_RETURNED_ITEMS,
+        )?;
+        items.push(item);
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum ParsedIdentity {
     Central { name: String },
@@ -67,13 +109,13 @@ enum ParsedIdentity {
 }
 
 pub fn list_skill_agents() -> Result<Vec<SkillAgentView>, SkillError> {
-    let paths = SkillsPaths::from_env()?;
+    let paths = SkillsPaths::resolve_from_env()?;
     let settings = strict_settings()?;
     Ok(build_target_graph(&paths, &settings)?.agents)
 }
 
 pub fn normalize_agent_selection(agent_ids: &[String]) -> Result<Vec<String>, SkillError> {
-    let paths = SkillsPaths::from_env()?;
+    let paths = SkillsPaths::resolve_from_env()?;
     let settings = strict_settings()?;
     let graph = build_target_graph(&paths, &settings)?;
     let mut selected_ids = BTreeSet::new();
@@ -138,27 +180,54 @@ pub fn normalize_agent_selection(agent_ids: &[String]) -> Result<Vec<String>, Sk
 }
 
 pub fn list_inventory() -> Result<SkillsInventory, SkillError> {
-    let paths = SkillsPaths::from_env()?;
+    let paths = SkillsPaths::resolve_from_env()?;
     let settings = strict_settings()?;
     let graph = build_target_graph(&paths, &settings)?;
+    build_inventory(&paths, &settings, &graph)
+}
+
+fn build_inventory(
+    paths: &SkillsPaths,
+    settings: &Settings,
+    graph: &TargetGraph,
+) -> Result<SkillsInventory, SkillError> {
     let mut items = Vec::new();
     let mut metadata_by_name = BTreeMap::new();
+    let mut budget = InventoryBudget::default();
 
-    scan_central(&paths, &settings, &graph, &mut items, &mut metadata_by_name)?;
-    scan_targets(&paths, &settings, &graph, &metadata_by_name, &mut items)?;
+    let central = scan_central(
+        &paths,
+        &settings,
+        &graph,
+        &mut budget,
+        &mut items,
+        &mut metadata_by_name,
+    )?;
+    scan_targets(
+        &paths,
+        &settings,
+        &graph,
+        central.as_ref(),
+        &metadata_by_name,
+        &mut budget,
+        &mut items,
+    )?;
     items.sort_by(|left, right| left.identity.cmp(&right.identity));
 
     Ok(SkillsInventory {
         items,
-        agents: graph.agents,
-        targets: graph.target_views,
+        agents: graph.agents.clone(),
+        targets: graph.target_views.clone(),
         recovery_error: None,
     })
 }
 
 pub fn get_skill_detail(identity: &str) -> Result<SkillDetail, SkillError> {
     let parsed = parse_identity(identity)?;
-    let inventory = list_inventory()?;
+    let paths = SkillsPaths::resolve_from_env()?;
+    let settings = strict_settings()?;
+    let graph = build_target_graph(&paths, &settings)?;
+    let inventory = build_inventory(&paths, &settings, &graph)?;
     let item = inventory
         .items
         .into_iter()
@@ -177,11 +246,8 @@ pub fn get_skill_detail(identity: &str) -> Result<SkillDetail, SkillError> {
         });
     }
 
-    let paths = SkillsPaths::from_env()?;
-    let settings = strict_settings()?;
-    let graph = build_target_graph(&paths, &settings)?;
     let content_root = detail_content_root(&parsed, &paths, &graph)?;
-    let files = inspect_tree(&content_root).map_err(sanitize_detail_error)?;
+    let files = inspect_tree_anchored(&content_root).map_err(sanitize_detail_error)?;
     let (skill_md, skill_md_truncated) =
         read_skill_md_bounded(&content_root, MAX_SKILL_MD_DETAIL_BYTES)?;
 
@@ -197,61 +263,32 @@ fn scan_central(
     paths: &SkillsPaths,
     settings: &Settings,
     graph: &TargetGraph,
+    budget: &mut InventoryBudget,
     items: &mut Vec<SkillInventoryItem>,
     metadata_by_name: &mut BTreeMap<String, ItemMetadata>,
-) -> Result<(), SkillError> {
-    let records = settings
-        .managed_skills
-        .as_ref()
-        .cloned()
-        .unwrap_or_default();
-    let mut entries = BTreeMap::<String, PathBuf>::new();
-    let read_dir = fs::read_dir(paths.skills_dir()).map_err(|_| SkillError::Io {
-        message: "the central Skills inventory could not be read".into(),
-        path: None,
-    })?;
-    for entry in read_dir {
-        let entry = entry.map_err(|_| SkillError::Io {
-            message: "the central Skills inventory could not be read".into(),
-            path: None,
-        })?;
-        let Some(name) = entry.file_name().to_str().map(str::to_owned) else {
-            continue;
-        };
-        if valid_name(&name) {
-            entries.insert(name, entry.path());
-        }
-    }
+) -> Result<Option<AnchoredRoot>, SkillError> {
+    let records = settings.managed_skills.as_ref();
+    let central = open_optional_inventory_root(
+        &paths.skills_dir(),
+        "the central Skills inventory could not be opened safely",
+    )?;
+    let mut entries = if let Some(root) = central.as_ref() {
+        inventory_names(
+            root,
+            budget,
+            "the central Skills inventory could not be read safely",
+        )?
+    } else {
+        BTreeMap::new()
+    };
 
-    for (name, record) in &records {
-        let mut states = BTreeSet::from([InventoryState::Managed]);
-        let central = paths.central_skill(name);
-        match fs::symlink_metadata(&central) {
-            Ok(metadata) if metadata.file_type().is_dir() => {
-                let actual_hash = hash_tree(&central).map_err(sanitize_detail_error)?;
-                if actual_hash != record.content_hash {
-                    states.insert(InventoryState::LocallyModified);
-                }
+    for (name, record) in records.into_iter().flatten() {
+        let states = match (central.as_ref(), entries.remove(name)) {
+            (Some(root), Some(entry_name)) => {
+                classify_managed_central(root, &entry_name, name, record, budget)?
             }
-            Ok(metadata) if metadata.file_type().is_symlink() => {
-                states.insert(InventoryState::ConflictingLink);
-            }
-            Ok(_) => {
-                states.insert(InventoryState::Missing);
-            }
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                states.insert(InventoryState::Missing);
-            }
-            Err(_) => {
-                return Err(SkillError::Io {
-                    message: "a managed Skill could not be inspected".into(),
-                    path: None,
-                });
-            }
-        }
-        if record.update.available {
-            states.insert(InventoryState::UpdateAvailable);
-        }
+            _ => BTreeSet::from([InventoryState::Missing]),
+        };
         let metadata = metadata_from_record(record);
         let item = make_item(
             name,
@@ -262,24 +299,42 @@ fn scan_central(
             affected_for_assignments(settings, graph, name),
         );
         metadata_by_name.insert(name.clone(), metadata);
-        items.push(item);
-        entries.remove(name);
+        budget.push_item(items, item)?;
     }
 
-    for (name, path) in entries {
+    for (name, entry_name) in entries {
         let mut states = BTreeSet::from([InventoryState::External]);
-        let summary = match fs::symlink_metadata(&path) {
-            Ok(metadata) if metadata.file_type().is_dir() => try_external_summary(&path),
-            Ok(metadata) if metadata.file_type().is_symlink() => {
-                if fs::canonicalize(&path).is_err() {
-                    states.insert(InventoryState::BrokenLink);
-                } else {
-                    states.insert(InventoryState::ConflictingLink);
-                }
+        let root = central
+            .as_ref()
+            .expect("directory entries require an open central root");
+        let path = root.canonical_path().join(&name);
+        let identity = root
+            .stat_entry(
+                &root.root_directory().map_err(|error| {
+                    sanitize_inventory_error(
+                        error,
+                        "the central Skills inventory could not be read safely",
+                    )
+                })?,
+                &entry_name,
+                &path,
+            )
+            .map_err(|error| {
+                sanitize_inventory_error(
+                    error,
+                    "a central Skill entry could not be inspected safely",
+                )
+            })?;
+        let summary = match identity.kind {
+            AnchoredFileKind::Directory => {
+                let child = open_child_directory(root, &entry_name, &identity, &path)?;
+                try_external_summary(&child, &name)?
+            }
+            AnchoredFileKind::Symlink => {
+                states = classify_link(root, &entry_name, &identity, &path, None)?;
                 None
             }
-            Ok(_) => None,
-            Err(_) => None,
+            _ => None,
         };
         let metadata = metadata_from_external(summary);
         let item = make_item(
@@ -291,96 +346,78 @@ fn scan_central(
             affected_for_assignments(settings, graph, &name),
         );
         metadata_by_name.insert(name, metadata);
-        items.push(item);
+        budget.push_item(items, item)?;
     }
-    Ok(())
+    Ok(central)
 }
 
 fn scan_targets(
     paths: &SkillsPaths,
     settings: &Settings,
     graph: &TargetGraph,
+    central: Option<&AnchoredRoot>,
     metadata_by_name: &BTreeMap<String, ItemMetadata>,
+    budget: &mut InventoryBudget,
     items: &mut Vec<SkillInventoryItem>,
 ) -> Result<(), SkillError> {
-    let records = settings
-        .managed_skills
-        .as_ref()
-        .cloned()
-        .unwrap_or_default();
-    let assignments = settings
-        .skill_assignments
-        .as_ref()
-        .cloned()
-        .unwrap_or_default();
+    let records = settings.managed_skills.as_ref();
+    let assignments = settings.skill_assignments.as_ref();
 
     for target_id in &graph.included_target_ids {
         let target = &graph.targets[target_id];
         let current_root = paths
             .expand_user(&target.global_dir)
             .ok_or_else(|| invalid_source("a verified target path is no longer valid"))?;
-        if canonicalize_deepest(&current_root)? != target.canonical_root {
-            return Err(invalid_source(
-                "a verified target changed physical location during inventory",
-            ));
-        }
         let location = SkillLocation::AgentTarget {
             target_id: target_id.clone(),
             global_dir: target.global_dir.clone(),
         };
         let affected: Vec<String> = target.affected_agent_ids.iter().cloned().collect();
         let mut seen = BTreeSet::new();
+        let target_root = open_verified_target_root(&current_root, target)?;
 
-        if fs::metadata(&target.canonical_root).is_ok_and(|metadata| metadata.is_dir()) {
-            let read_dir = fs::read_dir(&target.canonical_root).map_err(|_| SkillError::Io {
-                message: "a verified Agent Skills target could not be read".into(),
-                path: None,
-            })?;
-            for entry in read_dir {
-                let entry = entry.map_err(|_| SkillError::Io {
-                    message: "a verified Agent Skills target could not be read".into(),
-                    path: None,
-                })?;
-                let Some(name) = entry.file_name().to_str().map(str::to_owned) else {
-                    continue;
-                };
-                if !valid_name(&name) {
-                    continue;
-                }
+        if let Some(root) = target_root.as_ref() {
+            for (name, entry_name) in inventory_names(
+                root,
+                budget,
+                "a verified Agent Skills target could not be read safely",
+            )? {
                 seen.insert(name.clone());
-                let entry_path = entry.path();
-                let (states, external_summary) = classify_target_entry(paths, &name, &entry_path)?;
+                let (states, external_summary) =
+                    classify_target_entry(paths, central, root, &name, &entry_name)?;
                 let metadata = records
-                    .get(&name)
+                    .and_then(|records| records.get(&name))
                     .map(metadata_from_record)
                     .or_else(|| metadata_by_name.get(&name).cloned())
                     .unwrap_or_else(|| metadata_from_external(external_summary));
-                items.push(make_item(
+                let item = make_item(
                     &name,
                     location.clone(),
                     states,
                     metadata,
                     assigned_target_ids(settings, &name),
                     affected.clone(),
-                ));
+                );
+                budget.push_item(items, item)?;
             }
         }
 
-        for (name, target_ids) in &assignments {
+        for (name, target_ids) in assignments.into_iter().flatten() {
             if target_ids.contains(target_id) && !seen.contains(name) {
                 let metadata = records
-                    .get(name)
+                    .and_then(|records| records.get(name))
                     .map(metadata_from_record)
                     .or_else(|| metadata_by_name.get(name).cloned())
                     .unwrap_or_else(|| metadata_from_external(None));
-                items.push(make_item(
+                let item = make_item(
                     name,
                     location.clone(),
                     BTreeSet::from([InventoryState::Missing]),
                     metadata,
                     assigned_target_ids(settings, name),
                     affected.clone(),
-                ));
+                );
+                budget.push_item(items, item)?;
             }
         }
     }
@@ -389,40 +426,382 @@ fn scan_targets(
 
 fn classify_target_entry(
     paths: &SkillsPaths,
+    central: Option<&AnchoredRoot>,
+    target: &AnchoredRoot,
     name: &str,
-    entry_path: &Path,
+    entry_name: &std::ffi::CStr,
 ) -> Result<(BTreeSet<InventoryState>, Option<ExternalSummary>), SkillError> {
-    let metadata = fs::symlink_metadata(entry_path).map_err(|_| SkillError::Io {
-        message: "an Agent Skills target entry could not be inspected".into(),
-        path: None,
+    let directory = target.root_directory().map_err(|error| {
+        sanitize_inventory_error(
+            error,
+            "a verified Agent Skills target could not be read safely",
+        )
     })?;
-    if metadata.file_type().is_symlink() {
-        let resolved = match fs::canonicalize(entry_path) {
-            Ok(resolved) => resolved,
+    let entry_path = target.canonical_path().join(name);
+    let identity = target
+        .stat_entry(&directory, entry_name, &entry_path)
+        .map_err(|error| {
+            sanitize_inventory_error(
+                error,
+                "an Agent Skills target entry could not be inspected safely",
+            )
+        })?;
+    match identity.kind {
+        AnchoredFileKind::Symlink => Ok((
+            classify_link(
+                target,
+                entry_name,
+                &identity,
+                &entry_path,
+                Some((paths, central, name)),
+            )?,
+            None,
+        )),
+        AnchoredFileKind::Directory => {
+            let child = open_child_directory(target, entry_name, &identity, &entry_path)?;
+            Ok((
+                BTreeSet::from([InventoryState::External]),
+                try_external_summary(&child, name)?,
+            ))
+        }
+        _ => Ok((BTreeSet::from([InventoryState::External]), None)),
+    }
+}
+
+fn classify_managed_central(
+    root: &AnchoredRoot,
+    entry_name: &std::ffi::CStr,
+    name: &str,
+    record: &ManagedSkillRecord,
+    budget: &mut InventoryBudget,
+) -> Result<BTreeSet<InventoryState>, SkillError> {
+    let directory = root.root_directory().map_err(|error| {
+        sanitize_inventory_error(
+            error,
+            "the central Skills inventory could not be read safely",
+        )
+    })?;
+    let entry_path = root.canonical_path().join(name);
+    let identity = root
+        .stat_entry(&directory, entry_name, &entry_path)
+        .map_err(|error| {
+            sanitize_inventory_error(error, "a managed Skill could not be inspected safely")
+        })?;
+    match identity.kind {
+        AnchoredFileKind::Directory => {
+            let child = open_child_directory(root, entry_name, &identity, &entry_path)?;
+            match validate_candidate_anchored(
+                &child,
+                &mut budget.managed_bytes,
+                MAX_INVENTORY_MANAGED_BYTES,
+                "inventory_managed_content",
+            ) {
+                Ok(validated) if validated.manifest.name == name => {
+                    let mut states = BTreeSet::from([InventoryState::Managed]);
+                    if validated.content_hash != record.content_hash {
+                        states.insert(InventoryState::LocallyModified);
+                    }
+                    Ok(states)
+                }
+                Ok(_)
+                | Err(SkillError::InvalidManifest { .. })
+                | Err(SkillError::UnsafePath { .. }) => {
+                    Ok(BTreeSet::from([InventoryState::LocallyModified]))
+                }
+                Err(error @ SkillError::LimitExceeded { .. }) => Err(error),
+                Err(error) => Err(sanitize_inventory_error(
+                    error,
+                    "a managed Skill changed while it was being validated",
+                )),
+            }
+        }
+        AnchoredFileKind::Symlink => classify_link(root, entry_name, &identity, &entry_path, None),
+        _ => Ok(BTreeSet::from([InventoryState::LocallyModified])),
+    }
+}
+
+fn open_optional_inventory_root(
+    path: &Path,
+    message: &'static str,
+) -> Result<Option<AnchoredRoot>, SkillError> {
+    match fs::symlink_metadata(path) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(_) => Err(SkillError::Io {
+            message: message.into(),
+            path: None,
+        }),
+        Ok(metadata) if !metadata.file_type().is_dir() => Err(SkillError::Conflict {
+            message: "an inventory root is no longer a directory".into(),
+            path: String::new(),
+        }),
+        Ok(_) => {
+            let expected = AnchoredRoot::inspect_directory(path)
+                .map_err(|error| sanitize_inventory_error(error, message))?;
+            AnchoredRoot::open_expected(path, &expected)
+                .map(Some)
+                .map_err(|error| sanitize_inventory_error(error, message))
+        }
+    }
+}
+
+fn open_verified_target_root(
+    path: &Path,
+    target: &PhysicalTarget,
+) -> Result<Option<AnchoredRoot>, SkillError> {
+    if target.observed_identity.is_some() {
+        match fs::symlink_metadata(path) {
+            Ok(metadata) if !metadata.file_type().is_dir() => {
+                return Err(SkillError::Conflict {
+                    message: "a verified Agent Skills target is no longer a directory".into(),
+                    path: String::new(),
+                });
+            }
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                return Ok((BTreeSet::from([InventoryState::BrokenLink]), None));
+                return Err(SkillError::Conflict {
+                    message: "a verified Agent Skills target disappeared during inventory".into(),
+                    path: String::new(),
+                });
             }
             Err(_) => {
                 return Err(SkillError::Io {
-                    message: "an Agent Skills link could not be resolved".into(),
+                    message: "a verified Agent Skills target could not be inspected safely".into(),
+                    path: None,
+                });
+            }
+            Ok(_) => {}
+        }
+    }
+    if canonicalize_deepest(path)? != target.canonical_root {
+        return Err(SkillError::Conflict {
+            message: "a verified Agent Skills target changed physical location".into(),
+            path: String::new(),
+        });
+    }
+    let opened = match target.observed_identity.as_ref() {
+        Some(expected) => Some(
+            AnchoredRoot::open_expected(path, expected).map_err(|error| match error {
+                SkillError::UnsafePath { .. } | SkillError::Conflict { .. } => {
+                    SkillError::Conflict {
+                        message: "a verified Agent Skills target changed physical identity".into(),
+                        path: String::new(),
+                    }
+                }
+                other => sanitize_inventory_error(
+                    other,
+                    "a verified Agent Skills target could not be opened safely",
+                ),
+            })?,
+        ),
+        None => match fs::symlink_metadata(path) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+            Err(_) => {
+                return Err(SkillError::Io {
+                    message: "a verified Agent Skills target could not be inspected safely".into(),
+                    path: None,
+                });
+            }
+            Ok(_) => {
+                return Err(SkillError::Conflict {
+                    message: "a verified Agent Skills target appeared during inventory".into(),
+                    path: String::new(),
+                });
+            }
+        },
+    };
+    if opened
+        .as_ref()
+        .is_some_and(|root| root.canonical_path() != target.canonical_root)
+    {
+        return Err(SkillError::Conflict {
+            message: "a verified Agent Skills target changed physical identity".into(),
+            path: String::new(),
+        });
+    }
+    Ok(opened)
+}
+
+fn inventory_names(
+    root: &AnchoredRoot,
+    budget: &mut InventoryBudget,
+    message: &'static str,
+) -> Result<BTreeMap<String, CString>, SkillError> {
+    let directory = root
+        .root_directory()
+        .map_err(|error| sanitize_inventory_error(error, message))?;
+    let names = root
+        .read_directory_budgeted(
+            &directory,
+            root.canonical_path(),
+            budget.scanned_entries,
+            MAX_INVENTORY_SCANNED_ENTRIES,
+            "inventory_scanned_entries",
+        )
+        .map_err(|error| sanitize_inventory_error(error, message))?;
+    budget.add_scanned_entries(names.len() as u64)?;
+    Ok(names
+        .into_iter()
+        .filter_map(|name| {
+            let text = std::str::from_utf8(name.as_bytes()).ok()?.to_string();
+            valid_name(&text).then_some((text, name))
+        })
+        .collect())
+}
+
+fn open_child_directory(
+    root: &AnchoredRoot,
+    name: &std::ffi::CStr,
+    identity: &AnchoredIdentity,
+    path: &Path,
+) -> Result<AnchoredRoot, SkillError> {
+    let directory = root.root_directory().map_err(|error| {
+        sanitize_inventory_error(error, "an inventory root could not be read safely")
+    })?;
+    let child = root
+        .open_directory_entry(&directory, name, identity, path)
+        .map_err(|error| {
+            sanitize_inventory_error(error, "a Skill directory changed during inventory")
+        })?;
+    AnchoredRoot::from_open_directory(child, path.to_path_buf(), identity).map_err(|error| {
+        sanitize_inventory_error(error, "a Skill directory changed during inventory")
+    })
+}
+
+fn classify_link(
+    root: &AnchoredRoot,
+    name: &std::ffi::CStr,
+    identity: &AnchoredIdentity,
+    entry_path: &Path,
+    expected_central: Option<(&SkillsPaths, Option<&AnchoredRoot>, &str)>,
+) -> Result<BTreeSet<InventoryState>, SkillError> {
+    let directory = root.root_directory().map_err(|error| {
+        sanitize_inventory_error(error, "a Skill link could not be read safely")
+    })?;
+    let raw_target = root
+        .read_link_entry(&directory, name, identity, entry_path)
+        .map_err(|error| {
+            sanitize_inventory_error(error, "a Skill link could not be read safely")
+        })?;
+    let Ok(raw_target) = std::str::from_utf8(&raw_target) else {
+        return Ok(BTreeSet::from([InventoryState::ConflictingLink]));
+    };
+    let Some(resolved) = resolve_link_path(entry_path, raw_target) else {
+        return Ok(BTreeSet::from([InventoryState::BrokenLink]));
+    };
+    if resolved == entry_path {
+        return Ok(BTreeSet::from([InventoryState::BrokenLink]));
+    }
+
+    if let Some((paths, central, skill_name)) = expected_central {
+        let central_root = match central {
+            Some(root) => root.canonical_path().to_path_buf(),
+            None => canonicalize_deepest(&paths.skills_dir())?,
+        };
+        let expected = central_root.join(skill_name);
+        if physical_entry_path(&resolved)? == expected {
+            let Some(central) = central else {
+                return Ok(BTreeSet::from([InventoryState::BrokenLink]));
+            };
+            return match open_existing_named_directory(central, skill_name)? {
+                Some(_) => Ok(BTreeSet::from([InventoryState::Assigned])),
+                None => Ok(BTreeSet::from([InventoryState::BrokenLink])),
+            };
+        }
+    }
+
+    Ok(BTreeSet::from([match inspect_link_chain(&resolved)? {
+        LinkDestination::Broken => InventoryState::BrokenLink,
+        LinkDestination::Existing => InventoryState::ConflictingLink,
+    }]))
+}
+
+fn physical_entry_path(path: &Path) -> Result<PathBuf, SkillError> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| invalid_source("a Skill link destination has no parent"))?;
+    let name = path
+        .file_name()
+        .ok_or_else(|| invalid_source("a Skill link destination has no name"))?;
+    Ok(canonicalize_deepest(parent)?.join(name))
+}
+
+enum LinkDestination {
+    Broken,
+    Existing,
+}
+
+fn inspect_link_chain(path: &Path) -> Result<LinkDestination, SkillError> {
+    let mut current = path.to_path_buf();
+    let mut seen = BTreeSet::new();
+    for _ in 0..=40 {
+        if !seen.insert(current.clone()) {
+            return Ok(LinkDestination::Broken);
+        }
+        let metadata = match fs::symlink_metadata(&current) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                return Ok(LinkDestination::Broken);
+            }
+            Err(error) if error.raw_os_error() == Some(rustix::io::Errno::LOOP.raw_os_error()) => {
+                return Ok(LinkDestination::Broken);
+            }
+            Err(_) => {
+                return Err(SkillError::Io {
+                    message: "a Skill link destination could not be inspected safely".into(),
                     path: None,
                 });
             }
         };
-        let central = paths.central_skill(name);
-        let central_resolved = fs::canonicalize(&central).ok();
-        if central_resolved.as_ref() == Some(&resolved) {
-            return Ok((BTreeSet::from([InventoryState::Assigned]), None));
+        if !metadata.file_type().is_symlink() {
+            return Ok(LinkDestination::Existing);
         }
-        return Ok((BTreeSet::from([InventoryState::ConflictingLink]), None));
+        let target = fs::read_link(&current).map_err(|_| SkillError::Io {
+            message: "a Skill link destination could not be inspected safely".into(),
+            path: None,
+        })?;
+        let Some(next) = resolve_link_path(&current, target.as_os_str()) else {
+            return Ok(LinkDestination::Broken);
+        };
+        current = next;
     }
-    if metadata.file_type().is_dir() {
-        return Ok((
-            BTreeSet::from([InventoryState::External]),
-            try_external_summary(entry_path),
-        ));
+    Ok(LinkDestination::Broken)
+}
+
+fn resolve_link_path(entry_path: &Path, target: impl AsRef<OsStr>) -> Option<PathBuf> {
+    let target = Path::new(target.as_ref());
+    let joined = if target.is_absolute() {
+        target.to_path_buf()
+    } else {
+        entry_path.parent()?.join(target)
+    };
+    lexical_absolute(&joined).ok()
+}
+
+fn open_existing_named_directory(
+    root: &AnchoredRoot,
+    name: &str,
+) -> Result<Option<AnchoredRoot>, SkillError> {
+    let path = root.canonical_path().join(name);
+    match fs::symlink_metadata(&path) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(_) => {
+            return Err(SkillError::Io {
+                message: "the central Skill could not be inspected safely".into(),
+                path: None,
+            });
+        }
+        Ok(metadata) if !metadata.file_type().is_dir() => return Ok(None),
+        Ok(_) => {}
     }
-    Ok((BTreeSet::from([InventoryState::External]), None))
+    let entry_name = CString::new(name).expect("validated Skill names contain no NUL");
+    let directory = root.root_directory().map_err(|error| {
+        sanitize_inventory_error(error, "the central Skill could not be read safely")
+    })?;
+    let identity = root
+        .stat_entry(&directory, &entry_name, &path)
+        .map_err(|error| {
+            sanitize_inventory_error(error, "the central Skill changed during inventory")
+        })?;
+    open_child_directory(root, &entry_name, &identity, &path).map(Some)
 }
 
 fn make_item(
@@ -513,32 +892,33 @@ fn affected_for_assignments(settings: &Settings, graph: &TargetGraph, name: &str
     affected.into_iter().collect()
 }
 
-fn try_external_summary(root: &Path) -> Option<ExternalSummary> {
-    let (skill_md, _) = read_skill_md_bounded(root, MAX_SKILL_MD_DETAIL_BYTES).ok()?;
-    let manifest = parse_manifest(root, &skill_md).ok()?;
-    let files = inspect_tree(root).ok()?;
-    Some(ExternalSummary {
-        description: manifest.description,
-        content_kind: classify_content(&files),
-    })
-}
-
-fn classify_content(files: &[SkillFile]) -> SkillContentKind {
-    if files
-        .iter()
-        .any(|file| file.executable || file.path.starts_with("scripts/"))
-    {
-        SkillContentKind::Automation
-    } else if files.iter().any(|file| file.path.starts_with("assets/")) {
-        SkillContentKind::Assets
-    } else if files
-        .iter()
-        .any(|file| file.path.starts_with("references/"))
-    {
-        SkillContentKind::Reference
-    } else {
-        SkillContentKind::Instructions
+fn try_external_summary(
+    root: &AnchoredRoot,
+    expected_name: &str,
+) -> Result<Option<ExternalSummary>, SkillError> {
+    let skill_md = match read_skill_md_bounded(root, MAX_SKILL_MD_DETAIL_BYTES) {
+        Ok((skill_md, _)) => skill_md,
+        Err(error @ SkillError::Conflict { .. })
+        | Err(error @ SkillError::LimitExceeded { .. }) => {
+            return Err(sanitize_inventory_error(
+                error,
+                "an external Skill changed while its summary was read",
+            ));
+        }
+        Err(_) => return Ok(None),
+    };
+    let Ok(manifest) = parse_manifest(root.canonical_path(), &skill_md) else {
+        return Ok(None);
+    };
+    if manifest.name != expected_name {
+        return Ok(None);
     }
+    Ok(Some(ExternalSummary {
+        description: manifest.description,
+        // List scans intentionally do not walk external trees. Detail loading
+        // performs the full bounded inspection when the user selects the row.
+        content_kind: SkillContentKind::Instructions,
+    }))
 }
 
 fn parse_identity(identity: &str) -> Result<ParsedIdentity, SkillError> {
@@ -566,11 +946,24 @@ fn detail_content_root(
     identity: &ParsedIdentity,
     paths: &SkillsPaths,
     graph: &TargetGraph,
-) -> Result<PathBuf, SkillError> {
+) -> Result<AnchoredRoot, SkillError> {
+    let central = open_optional_inventory_root(
+        &paths.skills_dir(),
+        "the central Skills detail root could not be opened safely",
+    )?;
     match identity {
-        ParsedIdentity::Central { name } => {
-            verified_child_directory(&paths.skills_dir(), &paths.central_skill(name))
-        }
+        ParsedIdentity::Central { name } => central
+            .as_ref()
+            .ok_or_else(|| SkillError::Io {
+                message: "the central Skill detail is unavailable".into(),
+                path: None,
+            })
+            .and_then(|root| {
+                open_existing_named_directory(root, name)?.ok_or_else(|| SkillError::Io {
+                    message: "the central Skill detail is unavailable".into(),
+                    path: None,
+                })
+            }),
         ParsedIdentity::Target { target_id, name } => {
             let target = graph
                 .targets
@@ -579,62 +972,55 @@ fn detail_content_root(
             let expanded = paths
                 .expand_user(&target.global_dir)
                 .ok_or_else(|| invalid_source("the Skill target identity is unavailable"))?;
-            if canonicalize_deepest(&expanded)? != target.canonical_root {
-                return Err(invalid_source(
-                    "the Skill target changed physical location during detail loading",
-                ));
-            }
-            let entry = target.canonical_root.join(name);
-            let metadata = fs::symlink_metadata(&entry).map_err(|_| SkillError::Io {
-                message: "the Skill target detail is unavailable".into(),
-                path: None,
-            })?;
-            if metadata.file_type().is_symlink() {
-                let resolved = fs::canonicalize(&entry).map_err(|_| SkillError::Io {
+            let target_root =
+                open_verified_target_root(&expanded, target)?.ok_or_else(|| SkillError::Io {
                     message: "the Skill target detail is unavailable".into(),
                     path: None,
                 })?;
-                let central = paths.central_skill(name);
-                let central_resolved = fs::canonicalize(&central).map_err(|_| SkillError::Io {
-                    message: "the central Skill detail is unavailable".into(),
-                    path: None,
+            let directory = target_root.root_directory().map_err(|error| {
+                sanitize_inventory_error(error, "the Skill target detail is unavailable")
+            })?;
+            let entry_name = CString::new(name.as_str())
+                .expect("validated Skill names do not contain NUL bytes");
+            let entry = target_root.canonical_path().join(name);
+            let identity = target_root
+                .stat_entry(&directory, &entry_name, &entry)
+                .map_err(|error| {
+                    sanitize_inventory_error(error, "the Skill target detail is unavailable")
                 })?;
-                if resolved != central_resolved {
+            if identity.kind == AnchoredFileKind::Symlink {
+                let states = classify_link(
+                    &target_root,
+                    &entry_name,
+                    &identity,
+                    &entry,
+                    Some((paths, central.as_ref(), name)),
+                )?;
+                if !states.contains(&InventoryState::Assigned) {
                     return Err(invalid_source(
                         "the Skill target link is not managed by MUX",
                     ));
                 }
-                return verified_child_directory(&paths.skills_dir(), &central);
+                return central
+                    .as_ref()
+                    .and_then(|root| open_existing_named_directory(root, name).transpose())
+                    .transpose()?
+                    .ok_or_else(|| SkillError::Io {
+                        message: "the central Skill detail is unavailable".into(),
+                        path: None,
+                    });
             }
-            verified_child_directory(&target.canonical_root, &entry)
+            if identity.kind != AnchoredFileKind::Directory {
+                return Err(SkillError::Conflict {
+                    message: "the Skill target detail is no longer a directory".into(),
+                    path: String::new(),
+                });
+            }
+            open_child_directory(&target_root, &entry_name, &identity, &entry).map_err(|error| {
+                sanitize_inventory_error(error, "the Skill target detail is unavailable")
+            })
         }
     }
-}
-
-fn verified_child_directory(parent: &Path, child: &Path) -> Result<PathBuf, SkillError> {
-    let metadata = fs::symlink_metadata(child).map_err(|_| SkillError::Io {
-        message: "the Skill detail directory is unavailable".into(),
-        path: None,
-    })?;
-    if !metadata.file_type().is_dir() {
-        return Err(invalid_source(
-            "the Skill detail location is not a regular directory",
-        ));
-    }
-    let parent = fs::canonicalize(parent).map_err(|_| SkillError::Io {
-        message: "the Skill detail root is unavailable".into(),
-        path: None,
-    })?;
-    let child = fs::canonicalize(child).map_err(|_| SkillError::Io {
-        message: "the Skill detail directory is unavailable".into(),
-        path: None,
-    })?;
-    if child.parent() != Some(parent.as_path()) {
-        return Err(invalid_source(
-            "the Skill detail directory escaped its verified root",
-        ));
-    }
-    Ok(child)
 }
 
 fn sanitize_detail_error(error: SkillError) -> SkillError {
@@ -645,6 +1031,10 @@ fn sanitize_detail_error(error: SkillError) -> SkillError {
         | SkillError::PlanStale { .. }
         | SkillError::ConfirmationRequired { .. }
         | SkillError::RecoveryRequired { .. } => error,
+        SkillError::Conflict { message, .. } => SkillError::Conflict {
+            message,
+            path: String::new(),
+        },
         _ => SkillError::Io {
             message: "the Skill tree could not be inspected safely".into(),
             path: None,
@@ -653,54 +1043,30 @@ fn sanitize_detail_error(error: SkillError) -> SkillError {
 }
 
 #[cfg(unix)]
-fn read_skill_md_bounded(root: &Path, maximum: usize) -> Result<(String, bool), SkillError> {
-    use rustix::fs::{fstat, openat, FileType, Mode, OFlags, CWD};
-    use std::fs::File;
-
-    let root_file = File::from(
-        openat(
-            CWD,
-            root,
-            OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
-            Mode::empty(),
-        )
-        .map_err(|_| SkillError::Io {
-            message: "the Skill detail root could not be opened safely".into(),
-            path: None,
-        })?,
-    );
-    let root_before = fstat(&root_file).map_err(|_| SkillError::Io {
-        message: "the Skill detail root could not be inspected safely".into(),
-        path: None,
+fn read_skill_md_bounded(
+    root: &AnchoredRoot,
+    maximum: usize,
+) -> Result<(String, bool), SkillError> {
+    let directory = root.root_directory().map_err(|error| {
+        sanitize_inventory_error(error, "the Skill detail root could not be read safely")
     })?;
-    if FileType::from_raw_mode(root_before.st_mode as _) != FileType::Directory {
-        return Err(invalid_source("the Skill detail root is not a directory"));
-    }
-
-    let mut file = File::from(
-        openat(
-            &root_file,
-            "SKILL.md",
-            OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::NONBLOCK | OFlags::CLOEXEC,
-            Mode::empty(),
-        )
+    let name = CString::new("SKILL.md").expect("static filename contains no NUL");
+    let path = root.canonical_path().join("SKILL.md");
+    let identity = root
+        .stat_entry(&directory, &name, &path)
         .map_err(|_| SkillError::Io {
-            message: "SKILL.md could not be opened safely".into(),
+            message: "SKILL.md could not be inspected safely".into(),
             path: None,
-        })?,
-    );
-    let before = fstat(&file).map_err(|_| SkillError::Io {
-        message: "SKILL.md could not be inspected safely".into(),
-        path: None,
-    })?;
-    if FileType::from_raw_mode(before.st_mode as _) != FileType::RegularFile || before.st_nlink != 1
-    {
+        })?;
+    if identity.kind != AnchoredFileKind::Regular || identity.links != 1 {
         return Err(invalid_source(
             "SKILL.md must be a regular private tree file",
         ));
     }
-    let size = u64::try_from(before.st_size).unwrap_or(u64::MAX);
-    let requested = size.min(maximum as u64);
+    let mut file = root
+        .open_regular_entry(&directory, &name, &identity, &path)
+        .map_err(|error| sanitize_inventory_error(error, "SKILL.md could not be opened safely"))?;
+    let requested = identity.size.min(maximum as u64);
     let mut bytes = Vec::with_capacity(requested as usize);
     (&mut file)
         .take(requested)
@@ -709,62 +1075,25 @@ fn read_skill_md_bounded(root: &Path, maximum: usize) -> Result<(String, bool), 
             message: "SKILL.md could not be read safely".into(),
             path: None,
         })?;
-    let after = fstat(&file).map_err(|_| SkillError::Io {
-        message: "SKILL.md could not be rechecked safely".into(),
-        path: None,
-    })?;
-    let root_after = fstat(&root_file).map_err(|_| SkillError::Io {
-        message: "the Skill detail root could not be rechecked safely".into(),
-        path: None,
-    })?;
-    if bytes.len() as u64 != requested
-        || before.st_dev != after.st_dev
-        || before.st_ino != after.st_ino
-        || before.st_nlink != after.st_nlink
-        || before.st_size != after.st_size
-        || before.st_mode != after.st_mode
-        || root_before.st_dev != root_after.st_dev
-        || root_before.st_ino != root_after.st_ino
-        || root_before.st_mode != root_after.st_mode
-    {
+    root.verify_regular_file(&file, &identity, &path)
+        .map_err(|error| {
+            sanitize_inventory_error(error, "SKILL.md changed while it was being read")
+        })?;
+    if bytes.len() as u64 != requested {
         return Err(SkillError::Conflict {
-            message: "the Skill detail changed while it was being read".into(),
+            message: "SKILL.md changed while it was being read".into(),
             path: String::new(),
         });
     }
-    decode_skill_md(bytes, size > maximum as u64)
+    decode_skill_md(bytes, identity.size > maximum as u64)
 }
 
 #[cfg(not(unix))]
-fn read_skill_md_bounded(root: &Path, maximum: usize) -> Result<(String, bool), SkillError> {
-    let skill_md = root.join("SKILL.md");
-    let metadata = fs::symlink_metadata(&skill_md).map_err(|_| SkillError::Io {
-        message: "SKILL.md could not be inspected safely".into(),
-        path: None,
-    })?;
-    if !metadata.file_type().is_file() {
-        return Err(invalid_source("SKILL.md must be a regular file"));
-    }
-    let mut file = fs::File::open(&skill_md).map_err(|_| SkillError::Io {
-        message: "SKILL.md could not be opened safely".into(),
-        path: None,
-    })?;
-    let requested = metadata.len().min(maximum as u64);
-    let mut bytes = Vec::with_capacity(requested as usize);
-    (&mut file)
-        .take(requested)
-        .read_to_end(&mut bytes)
-        .map_err(|_| SkillError::Io {
-            message: "SKILL.md could not be read safely".into(),
-            path: None,
-        })?;
-    if bytes.len() as u64 != requested {
-        return Err(SkillError::Io {
-            message: "SKILL.md changed while it was being read".into(),
-            path: None,
-        });
-    }
-    decode_skill_md(bytes, metadata.len() > maximum as u64)
+fn read_skill_md_bounded(
+    _root: &AnchoredRoot,
+    _maximum: usize,
+) -> Result<(String, bool), SkillError> {
+    Err(super::anchored::unsupported_platform())
 }
 
 fn decode_skill_md(bytes: Vec<u8>, truncated: bool) -> Result<(String, bool), SkillError> {
@@ -791,6 +1120,43 @@ fn strict_settings() -> Result<Settings, SkillError> {
         message: "MUX settings could not be read safely".into(),
         path: None,
     })
+}
+
+fn charge_inventory_limit(
+    current: &mut u64,
+    added: u64,
+    limit: &'static str,
+    allowed: u64,
+) -> Result<(), SkillError> {
+    let actual = current.saturating_add(added);
+    if actual > allowed {
+        return Err(SkillError::LimitExceeded {
+            limit: limit.into(),
+            actual,
+            allowed,
+        });
+    }
+    *current = actual;
+    Ok(())
+}
+
+fn sanitize_inventory_error(error: SkillError, message: &'static str) -> SkillError {
+    match error {
+        SkillError::LimitExceeded { .. }
+        | SkillError::InvalidSource { .. }
+        | SkillError::Network { .. }
+        | SkillError::PlanStale { .. }
+        | SkillError::ConfirmationRequired { .. }
+        | SkillError::RecoveryRequired { .. } => error,
+        SkillError::Conflict { .. } => SkillError::Conflict {
+            message: message.into(),
+            path: String::new(),
+        },
+        _ => SkillError::Io {
+            message: message.into(),
+            path: None,
+        },
+    }
 }
 
 fn build_target_graph(paths: &SkillsPaths, settings: &Settings) -> Result<TargetGraph, SkillError> {
@@ -937,6 +1303,23 @@ fn build_target_graph(paths: &SkillsPaths, settings: &Settings) -> Result<Target
 }
 
 fn validate_skill_settings(settings: &Settings) -> Result<(), SkillError> {
+    let managed_records = settings
+        .managed_skills
+        .as_ref()
+        .map_or(0, |records| records.len() as u64);
+    let assignment_records = settings
+        .skill_assignments
+        .as_ref()
+        .map_or(0, |assignments| {
+            assignments.values().fold(0_u64, |total, target_ids| {
+                total.saturating_add((target_ids.len() as u64).max(1))
+            })
+        });
+    enforce_inventory_limit(
+        "inventory_settings_records",
+        managed_records.saturating_add(assignment_records),
+        MAX_INVENTORY_SETTINGS_RECORDS,
+    )?;
     if let Some(records) = &settings.managed_skills {
         for (name, record) in records {
             if !valid_name(name) || record.name != *name {
@@ -954,6 +1337,21 @@ fn validate_skill_settings(settings: &Settings) -> Result<(), SkillError> {
                 ));
             }
         }
+    }
+    Ok(())
+}
+
+fn enforce_inventory_limit(
+    limit: &'static str,
+    actual: u64,
+    allowed: u64,
+) -> Result<(), SkillError> {
+    if actual > allowed {
+        return Err(SkillError::LimitExceeded {
+            limit: limit.into(),
+            actual,
+            allowed,
+        });
     }
     Ok(())
 }
@@ -980,23 +1378,29 @@ fn register_target(
         ));
     }
     let canonical_root = canonicalize_deepest(&expanded)?;
-    match fs::metadata(&canonical_root) {
-        Ok(metadata) if !metadata.is_dir() => {
+    let observed_identity = match fs::symlink_metadata(&canonical_root) {
+        Ok(metadata) if !metadata.file_type().is_dir() => {
             return Err(invalid_source(
                 "a verified Agent Skills target is not a directory",
             ));
         }
-        Ok(_) => {}
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Ok(_) => Some(
+            AnchoredRoot::inspect_directory(&canonical_root).map_err(|_| {
+                invalid_source("a verified Agent Skills target could not be inspected safely")
+            })?,
+        ),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
         Err(_) => {
             return Err(invalid_source(
                 "a verified Agent Skills target could not be inspected safely",
             ));
         }
-    }
+    };
 
     if let Some(existing) = targets.get(target_id) {
-        if existing.canonical_root != canonical_root {
+        if existing.canonical_root != canonical_root
+            || existing.observed_identity != observed_identity
+        {
             return Err(invalid_source(
                 "one verified target id resolves to multiple physical directories",
             ));
@@ -1016,6 +1420,7 @@ fn register_target(
             target_id: target_id.into(),
             global_dir: global_dir.into(),
             canonical_root: canonical_root.clone(),
+            observed_identity,
             primary_agent_ids: BTreeSet::new(),
             affected_agent_ids: BTreeSet::new(),
         });
@@ -1145,36 +1550,113 @@ fn mac_bundle_exists(bundle_id: &str, user_home: &Path) -> bool {
         remap_system_root(Path::new("/Applications"), user_home),
         user_home.join("Applications"),
     ];
-    roots.into_iter().any(|root| {
-        fs::read_dir(root)
+    let mut scanned = 0_u64;
+    roots
+        .into_iter()
+        .any(|root| mac_bundle_exists_in_root(&root, bundle_id, &mut scanned).unwrap_or(false))
+}
+
+#[cfg(target_os = "macos")]
+fn mac_bundle_exists_in_root(
+    root_path: &Path,
+    bundle_id: &str,
+    scanned: &mut u64,
+) -> Result<bool, SkillError> {
+    let Some(root) = open_optional_inventory_root(
+        root_path,
+        "an approved Applications root could not be opened safely",
+    )?
+    else {
+        return Ok(false);
+    };
+    let directory = root.root_directory()?;
+    let names = root.read_directory_budgeted(
+        &directory,
+        root.canonical_path(),
+        *scanned,
+        MAX_INVENTORY_SCANNED_ENTRIES,
+        "mac_bundle_entries",
+    )?;
+    *scanned = scanned.saturating_add(names.len() as u64);
+    for name in names {
+        let Some(name_text) = std::str::from_utf8(name.as_bytes()).ok() else {
+            continue;
+        };
+        if Path::new(name_text).extension() != Some(OsStr::new("app")) {
+            continue;
+        }
+        let app_path = root.canonical_path().join(name_text);
+        let app_identity = root.stat_entry(&directory, &name, &app_path)?;
+        if app_identity.kind != AnchoredFileKind::Directory {
+            continue;
+        }
+        let app = open_child_directory(&root, &name, &app_identity, &app_path)?;
+        let Some(contents) = open_probe_child_directory(&app, "Contents")? else {
+            continue;
+        };
+        let contents_directory = contents.root_directory()?;
+        let info_name = CString::new("Info.plist").expect("static filename contains no NUL");
+        let info_path = contents.canonical_path().join("Info.plist");
+        let info_identity = match contents.stat_entry(&contents_directory, &info_name, &info_path) {
+            Ok(identity) => identity,
+            Err(_) => continue,
+        };
+        if info_identity.kind != AnchoredFileKind::Regular
+            || info_identity.links != 1
+            || info_identity.size > MAX_SKILL_MD_DETAIL_BYTES as u64
+        {
+            continue;
+        }
+        let mut file = contents.open_regular_entry(
+            &contents_directory,
+            &info_name,
+            &info_identity,
+            &info_path,
+        )?;
+        let mut bytes = Vec::with_capacity(info_identity.size as usize);
+        (&mut file)
+            .take(info_identity.size)
+            .read_to_end(&mut bytes)
+            .map_err(|_| SkillError::Io {
+                message: "an Agent bundle plist could not be read safely".into(),
+                path: None,
+            })?;
+        contents.verify_regular_file(&file, &info_identity, &info_path)?;
+        if bytes.len() as u64 != info_identity.size {
+            continue;
+        }
+        let found = plist::Value::from_reader(std::io::Cursor::new(bytes))
             .ok()
-            .into_iter()
-            .flatten()
-            .flatten()
-            .any(|entry| {
-                let bundle = entry.path();
-                if bundle.extension() != Some(OsStr::new("app")) {
-                    return false;
-                }
-                let plist_path = bundle.join("Contents/Info.plist");
-                let Ok(metadata) = fs::metadata(&plist_path) else {
-                    return false;
-                };
-                if !metadata.is_file() || metadata.len() > MAX_SKILL_MD_DETAIL_BYTES as u64 {
-                    return false;
-                }
-                plist::Value::from_file(plist_path)
-                    .ok()
-                    .and_then(|value| {
-                        value
-                            .as_dictionary()
-                            .and_then(|dict| dict.get("CFBundleIdentifier"))
-                            .and_then(plist::Value::as_string)
-                            .map(str::to_owned)
-                    })
-                    .is_some_and(|found| found == bundle_id)
-            })
-    })
+            .and_then(|value| {
+                value
+                    .as_dictionary()
+                    .and_then(|dict| dict.get("CFBundleIdentifier"))
+                    .and_then(plist::Value::as_string)
+                    .map(str::to_owned)
+            });
+        if found.as_deref() == Some(bundle_id) {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+#[cfg(target_os = "macos")]
+fn open_probe_child_directory(
+    root: &AnchoredRoot,
+    name: &str,
+) -> Result<Option<AnchoredRoot>, SkillError> {
+    let directory = root.root_directory()?;
+    let entry_name = CString::new(name).expect("static directory name contains no NUL");
+    let path = root.canonical_path().join(name);
+    let identity = match root.stat_entry(&directory, &entry_name, &path) {
+        Ok(identity) => identity,
+        Err(_) => return Ok(None),
+    };
+    if identity.kind != AnchoredFileKind::Directory {
+        return Ok(None);
+    }
+    open_child_directory(root, &entry_name, &identity, &path).map(Some)
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -1203,7 +1685,33 @@ fn remap_system_root(production: &Path, user_home: &Path) -> PathBuf {
 fn guarded_test_probe_root(user_home: &Path) -> Option<PathBuf> {
     let root = PathBuf::from(std::env::var_os(TEST_PROBE_ROOT_ENV)?);
     let mux_home = std::env::var_os("MUX_HOME").map(PathBuf::from)?;
-    (root.is_absolute() && root == user_home && mux_home == root.join(".mux")).then_some(root)
+    if !root.is_absolute() || !user_home.is_absolute() || !mux_home.is_absolute() {
+        return None;
+    }
+    if root != user_home || mux_home != root.join(".mux") {
+        return None;
+    }
+    if [&root, user_home, &mux_home].into_iter().any(|path| {
+        fs::symlink_metadata(path).is_ok_and(|metadata| metadata.file_type().is_symlink())
+    }) {
+        return None;
+    }
+    if lexical_absolute(&root).ok().as_ref() != Some(&root)
+        || lexical_absolute(user_home).ok().as_deref() != Some(user_home)
+        || lexical_absolute(&mux_home).ok().as_ref() != Some(&mux_home)
+    {
+        return None;
+    }
+    let physical_root = canonicalize_deepest(&root).ok()?;
+    let physical_home = canonicalize_deepest(user_home).ok()?;
+    let physical_mux = canonicalize_deepest(&mux_home).ok()?;
+    let expected_mux = canonicalize_deepest(&root.join(".mux")).ok()?;
+    (physical_root == root
+        && physical_home == user_home
+        && physical_mux == mux_home
+        && physical_root == physical_home
+        && physical_mux == expected_mux)
+        .then_some(root)
 }
 
 fn invalid_source(message: &str) -> SkillError {
@@ -1230,20 +1738,62 @@ mod tests {
     #[test]
     fn guarded_probe_root_remaps_only_a_matching_test_home() {
         let th = TestHome::new("skill-probe-root-guard");
+        let production = PathBuf::from("/opt/homebrew/bin");
         assert_eq!(
-            remap_system_root(Path::new("/opt/homebrew/bin"), &th.home),
+            remap_system_root(&production, &th.home),
             th.home.join("opt/homebrew/bin")
         );
 
         std::env::set_var(TEST_PROBE_ROOT_ENV, th.home.join("mismatch"));
-        assert_eq!(
-            remap_system_root(Path::new("/opt/homebrew/bin"), &th.home),
-            PathBuf::from("/opt/homebrew/bin")
-        );
+        assert_eq!(remap_system_root(&production, &th.home), production);
         assert_eq!(
             remap_system_probe_path(PathBuf::from("/Applications/Cursor.app"), &th.home),
             PathBuf::from("/Applications/Cursor.app")
         );
+
+        std::env::set_var(TEST_PROBE_ROOT_ENV, &th.home);
+        std::env::set_var("MUX_HOME", th.home.join("other-mux"));
+        assert_eq!(remap_system_root(&production, &th.home), production);
+
+        std::env::set_var("MUX_HOME", th.home.join(".mux"));
+        let other_home = th.home.join("other-home");
+        fs::create_dir(&other_home).unwrap();
+        assert!(guarded_test_probe_root(&other_home).is_none());
+
+        std::env::set_var("MUX_HOME", "relative-mux");
+        assert_eq!(remap_system_root(&production, &th.home), production);
+
+        let real_mux = th.home.join("real-mux");
+        fs::create_dir(&real_mux).unwrap();
+        std::os::unix::fs::symlink(&real_mux, th.home.join(".mux")).unwrap();
+        std::env::set_var(TEST_PROBE_ROOT_ENV, &th.home);
+        std::env::set_var("MUX_HOME", th.home.join(".mux"));
+        assert!(guarded_test_probe_root(&th.home).is_none());
+
+        let lexical_alias = th.home.join("nested/..");
+        std::env::set_var(TEST_PROBE_ROOT_ENV, &lexical_alias);
+        std::env::set_var("MUX_HOME", lexical_alias.join(".mux"));
+        assert!(guarded_test_probe_root(&lexical_alias).is_none());
+
+        let symlink_alias = th.home.join("home-alias");
+        std::os::unix::fs::symlink(&th.home, &symlink_alias).unwrap();
+        std::env::set_var(TEST_PROBE_ROOT_ENV, &symlink_alias);
+        std::env::set_var("MUX_HOME", symlink_alias.join(".mux"));
+        assert!(guarded_test_probe_root(&symlink_alias).is_none());
+
+        let real_parent = th.home.join("real-parent");
+        let nested_home = real_parent.join("nested-home");
+        fs::create_dir_all(&nested_home).unwrap();
+        let parent_alias = th.home.join("parent-alias");
+        std::os::unix::fs::symlink(&real_parent, &parent_alias).unwrap();
+        let parent_aliased_home = parent_alias.join("nested-home");
+        std::env::set_var(TEST_PROBE_ROOT_ENV, &parent_aliased_home);
+        std::env::set_var("MUX_HOME", parent_aliased_home.join(".mux"));
+        assert!(guarded_test_probe_root(&parent_aliased_home).is_none());
+
+        std::env::set_var(TEST_PROBE_ROOT_ENV, "relative-home");
+        std::env::set_var("MUX_HOME", "relative-home/.mux");
+        assert!(guarded_test_probe_root(Path::new("relative-home")).is_none());
     }
 
     #[test]
@@ -1271,24 +1821,137 @@ mod tests {
         }
     }
 
+    #[test]
+    fn inventory_budget_boundaries_are_exact_without_large_allocations() {
+        assert!(enforce_inventory_limit(
+            "inventory_settings_records",
+            MAX_INVENTORY_SETTINGS_RECORDS,
+            MAX_INVENTORY_SETTINGS_RECORDS,
+        )
+        .is_ok());
+        assert_eq!(
+            enforce_inventory_limit(
+                "inventory_settings_records",
+                MAX_INVENTORY_SETTINGS_RECORDS + 1,
+                MAX_INVENTORY_SETTINGS_RECORDS,
+            ),
+            Err(SkillError::LimitExceeded {
+                limit: "inventory_settings_records".into(),
+                actual: MAX_INVENTORY_SETTINGS_RECORDS + 1,
+                allowed: MAX_INVENTORY_SETTINGS_RECORDS,
+            })
+        );
+
+        for (name, allowed) in [
+            ("inventory_scanned_entries", MAX_INVENTORY_SCANNED_ENTRIES),
+            ("inventory_returned_items", MAX_INVENTORY_RETURNED_ITEMS),
+            ("inventory_managed_content", MAX_INVENTORY_MANAGED_BYTES),
+            ("skill", MAX_SKILL_BYTES),
+        ] {
+            let mut current = allowed;
+            assert!(charge_inventory_limit(&mut current, 0, name, allowed).is_ok());
+            assert_eq!(current, allowed);
+            assert_eq!(
+                charge_inventory_limit(&mut current, 1, name, allowed),
+                Err(SkillError::LimitExceeded {
+                    limit: name.into(),
+                    actual: allowed + 1,
+                    allowed,
+                })
+            );
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn anchored_known_root_open_rejects_identity_and_type_replacements() {
+        let th = TestHome::new("inventory-known-root-race");
+        let root = th.home.join("target");
+        let original = th.home.join("target-original");
+        fs::create_dir(&root).unwrap();
+        let expected = AnchoredRoot::inspect_directory(&root).unwrap();
+        let target = PhysicalTarget {
+            target_id: "fixture-user".into(),
+            global_dir: root.to_string_lossy().into_owned(),
+            canonical_root: canonicalize_deepest(&root).unwrap(),
+            observed_identity: Some(expected),
+            primary_agent_ids: BTreeSet::new(),
+            affected_agent_ids: BTreeSet::new(),
+        };
+        fs::rename(&root, &original).unwrap();
+        fs::create_dir(&root).unwrap();
+        assert!(matches!(
+            open_verified_target_root(&root, &target),
+            Err(SkillError::Conflict { .. })
+        ));
+
+        fs::remove_dir(&root).unwrap();
+        fs::write(&root, "replacement file").unwrap();
+        assert!(matches!(
+            open_verified_target_root(&root, &target),
+            Err(SkillError::Conflict { .. })
+        ));
+    }
+
     #[cfg(target_os = "macos")]
     #[test]
     fn mac_bundle_probe_reads_only_disposable_top_level_info_plists() {
         let th = TestHome::new("skill-bundle-probe");
         let contents = th.home.join("Applications/Fixture.app/Contents");
         fs::create_dir_all(&contents).unwrap();
-        let mut dictionary = plist::Dictionary::new();
-        dictionary.insert(
-            "CFBundleIdentifier".into(),
-            plist::Value::String("com.example.fixture".into()),
-        );
-        plist::to_file_xml(
-            contents.join("Info.plist"),
-            &plist::Value::Dictionary(dictionary),
-        )
-        .unwrap();
+        write_test_plist(&contents.join("Info.plist"), "com.example.fixture");
 
         assert!(mac_bundle_exists("com.example.fixture", &th.home));
         assert!(!mac_bundle_exists("com.example.missing", &th.home));
+
+        let outside_app = th.home.join("outside/SymlinkApp.app");
+        fs::create_dir_all(outside_app.join("Contents")).unwrap();
+        write_test_plist(
+            &outside_app.join("Contents/Info.plist"),
+            "com.example.symlink-app",
+        );
+        std::os::unix::fs::symlink(&outside_app, th.home.join("Applications/SymlinkApp.app"))
+            .unwrap();
+
+        let outside_contents = th.home.join("outside/Contents");
+        fs::create_dir_all(&outside_contents).unwrap();
+        write_test_plist(
+            &outside_contents.join("Info.plist"),
+            "com.example.symlink-contents",
+        );
+        fs::create_dir_all(th.home.join("Applications/SymlinkContents.app")).unwrap();
+        std::os::unix::fs::symlink(
+            &outside_contents,
+            th.home.join("Applications/SymlinkContents.app/Contents"),
+        )
+        .unwrap();
+
+        let symlink_plist_contents = th.home.join("Applications/SymlinkPlist.app/Contents");
+        fs::create_dir_all(&symlink_plist_contents).unwrap();
+        let outside_plist = th.home.join("outside/Info.plist");
+        write_test_plist(&outside_plist, "com.example.symlink-plist");
+        std::os::unix::fs::symlink(&outside_plist, symlink_plist_contents.join("Info.plist"))
+            .unwrap();
+
+        for bundle_id in [
+            "com.example.symlink-app",
+            "com.example.symlink-contents",
+            "com.example.symlink-plist",
+        ] {
+            assert!(
+                !mac_bundle_exists(bundle_id, &th.home),
+                "accepted {bundle_id}"
+            );
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    fn write_test_plist(path: &Path, bundle_id: &str) {
+        let mut dictionary = plist::Dictionary::new();
+        dictionary.insert(
+            "CFBundleIdentifier".into(),
+            plist::Value::String(bundle_id.into()),
+        );
+        plist::to_file_xml(path, &plist::Value::Dictionary(dictionary)).unwrap();
     }
 }

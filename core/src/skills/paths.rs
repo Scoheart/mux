@@ -9,7 +9,11 @@ pub struct SkillsPaths {
 }
 
 impl SkillsPaths {
-    pub fn from_env() -> Result<Self, SkillError> {
+    /// Resolve the Skills roots without creating or chmod-ing anything.
+    ///
+    /// Read-only inventory callers must use this constructor. Lifecycle
+    /// mutation paths use [`Self::from_env`] so their private roots exist.
+    pub(crate) fn resolve_from_env() -> Result<Self, SkillError> {
         let mux_dir = crate::paths::mux_dir();
         if !mux_dir.is_absolute() {
             return Err(SkillError::InvalidSource {
@@ -21,7 +25,11 @@ impl SkillsPaths {
             .ok_or_else(|| SkillError::InvalidSource {
                 message: "the user home directory is unavailable".into(),
             })?;
-        let paths = Self { mux_dir, user_home };
+        Ok(Self { mux_dir, user_home })
+    }
+
+    pub fn from_env() -> Result<Self, SkillError> {
+        let paths = Self::resolve_from_env()?;
         for root in [
             paths.skills_dir(),
             paths.staging_skills_dir(),

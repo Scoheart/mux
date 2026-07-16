@@ -85,14 +85,25 @@ impl TreeSnapshot {
     }
 }
 
-struct WalkState {
+struct AggregateLimit<'a> {
+    current: &'a mut u64,
+    allowed: u64,
+    limit: &'static str,
+}
+
+struct WalkState<'a> {
     nodes: Vec<TreeNode>,
     entries: u64,
     total_bytes: u64,
+    aggregate: Option<AggregateLimit<'a>>,
 }
 
 pub fn inspect_tree(root: &Path) -> Result<Vec<SkillFile>, SkillError> {
     Ok(load_tree(root)?.files())
+}
+
+pub(super) fn inspect_tree_anchored(root: &AnchoredRoot) -> Result<Vec<SkillFile>, SkillError> {
+    Ok(load_tree_anchored(root, None)?.files())
 }
 
 pub fn hash_tree(root: &Path) -> Result<String, SkillError> {
@@ -262,6 +273,28 @@ fn change_without_diff(
 
 pub fn validate_candidate(root: &Path) -> Result<ValidatedSkill, SkillError> {
     let snapshot = load_tree(root)?;
+    validated_from_snapshot(snapshot)
+}
+
+pub(super) fn validate_candidate_anchored(
+    root: &AnchoredRoot,
+    aggregate: &mut u64,
+    aggregate_allowed: u64,
+    aggregate_limit: &'static str,
+) -> Result<ValidatedSkill, SkillError> {
+    let snapshot = load_tree_anchored(
+        root,
+        Some(AggregateLimit {
+            current: aggregate,
+            allowed: aggregate_allowed,
+            limit: aggregate_limit,
+        }),
+    )?;
+    validated_from_snapshot(snapshot)
+}
+
+fn validated_from_snapshot(snapshot: TreeSnapshot) -> Result<ValidatedSkill, SkillError> {
+    let root = snapshot.root.canonical_path();
     let manifest_node = snapshot
         .file_nodes()
         .find(|node| node.path == "SKILL.md" && node.kind == NodeKind::File)
@@ -295,6 +328,20 @@ pub fn validate_candidate(root: &Path) -> Result<ValidatedSkill, SkillError> {
 
 fn load_tree(root: &Path) -> Result<TreeSnapshot, SkillError> {
     let anchored_root = AnchoredRoot::open(root)?;
+    load_tree_owned(anchored_root, None)
+}
+
+fn load_tree_anchored(
+    root: &AnchoredRoot,
+    aggregate: Option<AggregateLimit<'_>>,
+) -> Result<TreeSnapshot, SkillError> {
+    load_tree_owned(root.try_clone()?, aggregate)
+}
+
+fn load_tree_owned(
+    anchored_root: AnchoredRoot,
+    aggregate: Option<AggregateLimit<'_>>,
+) -> Result<TreeSnapshot, SkillError> {
     #[cfg(not(unix))]
     {
         let _ = anchored_root;
@@ -306,9 +353,16 @@ fn load_tree(root: &Path) -> Result<TreeSnapshot, SkillError> {
         nodes: Vec::new(),
         entries: 0,
         total_bytes: 0,
+        aggregate,
     };
     #[cfg(unix)]
-    walk_directory(root, &anchored_root, &root_directory, "", &mut state)?;
+    walk_directory(
+        anchored_root.canonical_path(),
+        &anchored_root,
+        &root_directory,
+        "",
+        &mut state,
+    )?;
     state
         .nodes
         .sort_by(|left, right| left.path.cmp(&right.path));
@@ -325,7 +379,7 @@ fn walk_directory(
     anchored_root: &AnchoredRoot,
     directory: &File,
     relative_directory: &str,
-    state: &mut WalkState,
+    state: &mut WalkState<'_>,
 ) -> Result<(), SkillError> {
     let directory_path = if relative_directory.is_empty() {
         root.to_path_buf()
@@ -364,7 +418,7 @@ fn walk_directory(
         } else if identity.kind == AnchoredFileKind::Regular {
             validate_supported_links(&identity, &path)?;
             enforce_single_file_limit(identity.size)?;
-            enforce_total_limit(state.total_bytes, identity.size)?;
+            charge_tree_content(state, identity.size)?;
             let file = anchored_root.open_regular_entry(directory, &name, &identity, &path)?;
             let consumed = consume_bounded_and_hash(
                 file,
@@ -374,7 +428,6 @@ fn walk_directory(
                 &path,
                 "single_file",
             )?;
-            state.total_bytes += consumed.size;
             state.nodes.push(TreeNode {
                 path: relative,
                 full_path: path,
@@ -395,8 +448,7 @@ fn walk_directory(
             })?;
             anchored_root.validate_symlink_target(&relative, target_text, &path)?;
             let target_bytes = target_text.as_bytes();
-            enforce_total_limit(state.total_bytes, target_bytes.len() as u64)?;
-            state.total_bytes += target_bytes.len() as u64;
+            charge_tree_content(state, target_bytes.len() as u64)?;
             state.nodes.push(TreeNode {
                 path: relative,
                 full_path: path,
@@ -415,6 +467,17 @@ fn walk_directory(
             });
         }
     }
+    Ok(())
+}
+
+fn charge_tree_content(state: &mut WalkState<'_>, added: u64) -> Result<(), SkillError> {
+    enforce_total_limit(state.total_bytes, added)?;
+    if let Some(aggregate) = state.aggregate.as_mut() {
+        let actual = aggregate.current.saturating_add(added);
+        enforce_named_limit(aggregate.limit, actual, aggregate.allowed)?;
+        *aggregate.current = actual;
+    }
+    state.total_bytes = state.total_bytes.saturating_add(added);
     Ok(())
 }
 
@@ -1238,5 +1301,27 @@ mod tests {
                 })
             );
         }
+
+        let allowed = 512 * 1024 * 1024;
+        let mut aggregate = allowed;
+        let mut state = WalkState {
+            nodes: Vec::new(),
+            entries: 0,
+            total_bytes: 0,
+            aggregate: Some(AggregateLimit {
+                current: &mut aggregate,
+                allowed,
+                limit: "inventory_managed_content",
+            }),
+        };
+        assert!(charge_tree_content(&mut state, 0).is_ok());
+        assert_eq!(
+            charge_tree_content(&mut state, 1),
+            Err(SkillError::LimitExceeded {
+                limit: "inventory_managed_content".into(),
+                actual: allowed + 1,
+                allowed,
+            })
+        );
     }
 }

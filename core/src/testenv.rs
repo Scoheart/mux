@@ -46,9 +46,19 @@ impl TestHome {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         let seq = SEQ.fetch_add(1, Ordering::Relaxed);
-        let home =
-            std::env::temp_dir().join(format!("mux-test-{}-{}-{}", tag, std::process::id(), seq));
+        let short_tag: String = tag
+            .chars()
+            .filter(|character| character.is_ascii_alphanumeric())
+            .take(8)
+            .collect();
+        let home = std::env::temp_dir().join(format!(
+            "mx-{}-{:x}-{:x}",
+            short_tag,
+            std::process::id(),
+            seq
+        ));
         std::fs::create_dir_all(&home).expect("create test home dir");
+        let home = std::fs::canonicalize(&home).expect("canonicalize test home dir");
         let bin = home.join("bin");
         std::fs::create_dir_all(&bin).expect("create test bin dir");
         let saved_home = std::env::var_os("HOME");
@@ -98,6 +108,7 @@ impl Drop for TestHome {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
 
     #[test]
     fn redirects_and_restores_env() {
@@ -138,5 +149,38 @@ mod tests {
             before_probe_root,
             "probe root restored"
         );
+    }
+
+    #[test]
+    fn restores_every_redirected_variable_during_panic_unwind() {
+        type SavedEnv = (
+            Option<OsString>,
+            Option<OsString>,
+            Option<OsString>,
+            Option<OsString>,
+        );
+        let saved = Arc::new(Mutex::new(None::<SavedEnv>));
+        let captured = Arc::clone(&saved);
+        let result = std::panic::catch_unwind(move || {
+            let th = TestHome::new("panic-unwind");
+            *captured.lock().unwrap() = Some((
+                th.saved_home.clone(),
+                th.saved_mux_home.clone(),
+                th.saved_path.clone(),
+                th.saved_test_probe_root.clone(),
+            ));
+            panic!("exercise TestHome panic cleanup");
+        });
+        assert!(result.is_err());
+
+        let _guard = ENV_LOCK
+            .get_or_init(|| Mutex::new(()))
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let (home, mux_home, path, probe_root) = saved.lock().unwrap().clone().unwrap();
+        assert_eq!(std::env::var_os("HOME"), home);
+        assert_eq!(std::env::var_os("MUX_HOME"), mux_home);
+        assert_eq!(std::env::var_os("PATH"), path);
+        assert_eq!(std::env::var_os("MUX_TEST_PROBE_ROOT"), probe_root);
     }
 }

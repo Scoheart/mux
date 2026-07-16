@@ -275,3 +275,178 @@ fn strict_settings_errors_do_not_expose_private_paths() {
     assert!(!rendered.contains(th.home.to_string_lossy().as_ref()));
     assert!(!rendered.contains("settings.json"));
 }
+
+#[test]
+fn read_only_inventory_does_not_create_mux_skill_roots() {
+    let th = TestHome::new("inventory-read-only-roots");
+    let mux_home = th.home.join(".mux");
+
+    let inventory = list_inventory().unwrap();
+
+    assert!(inventory.items.is_empty());
+    assert!(!mux_home.exists(), "a list API created the MUX home");
+}
+
+#[test]
+fn missing_installed_target_roots_remain_absent_after_listing() {
+    let th = TestHome::new("inventory-missing-target-roots");
+    install_cursor(&th.home);
+    let target = th.home.join(".cursor/skills");
+
+    let inventory = list_inventory().unwrap();
+
+    assert!(inventory.items.is_empty());
+    assert!(
+        !target.exists(),
+        "a list API created a missing Agent target"
+    );
+    assert!(!th.home.join(".mux").exists());
+}
+
+#[test]
+fn invalid_managed_tree_is_visible_but_is_not_marked_managed() {
+    let th = TestHome::new("inventory-corrupt-managed-tree");
+    let central = th.home.join(".mux/skills/corrupt");
+    write_skill(&central, "wrong-name", "Mismatched manifest fixture");
+    let hash = hash_tree(&central).unwrap();
+    mutate_settings(|settings| {
+        settings
+            .managed_skills
+            .get_or_insert_default()
+            .insert("corrupt".into(), managed_record("corrupt", &hash));
+    })
+    .unwrap();
+
+    let inventory = list_inventory().unwrap();
+    let item = inventory
+        .items
+        .iter()
+        .find(|item| item.identity == "central:corrupt")
+        .unwrap();
+    assert!(item.states.contains(&InventoryState::LocallyModified));
+    assert!(!item.states.contains(&InventoryState::Managed));
+    assert_eq!(item.content_hash.as_deref(), Some(hash.as_str()));
+}
+
+#[test]
+fn managed_central_link_failures_are_broken_and_never_managed() {
+    let th = TestHome::new("inventory-managed-central-links");
+    let central_root = th.home.join(".mux/skills");
+    fs::create_dir_all(&central_root).unwrap();
+    symlink(
+        th.home.join("missing/dangling"),
+        central_root.join("dangling"),
+    )
+    .unwrap();
+    symlink("loop", central_root.join("loop")).unwrap();
+    let existing = th.home.join("existing-link-target");
+    fs::create_dir(&existing).unwrap();
+    symlink(&existing, central_root.join("resolving")).unwrap();
+    mutate_settings(|settings| {
+        let records = settings.managed_skills.get_or_insert_default();
+        records.insert("dangling".into(), managed_record("dangling", "recorded"));
+        records.insert("loop".into(), managed_record("loop", "recorded"));
+        records.insert("resolving".into(), managed_record("resolving", "recorded"));
+    })
+    .unwrap();
+
+    let inventory = list_inventory().unwrap();
+    for name in ["dangling", "loop"] {
+        let item = inventory
+            .items
+            .iter()
+            .find(|item| item.identity == format!("central:{name}"))
+            .unwrap();
+        assert!(item.states.contains(&InventoryState::BrokenLink));
+        assert!(!item.states.contains(&InventoryState::Managed));
+    }
+    let resolving = inventory
+        .items
+        .iter()
+        .find(|item| item.identity == "central:resolving")
+        .unwrap();
+    assert!(resolving.states.contains(&InventoryState::ConflictingLink));
+    assert!(!resolving.states.contains(&InventoryState::Managed));
+}
+
+#[test]
+fn target_self_loop_is_reported_as_broken_instead_of_aborting_inventory() {
+    let th = TestHome::new("inventory-target-loop");
+    install_cursor(&th.home);
+    let target_root = th.home.join(".cursor/skills");
+    fs::create_dir_all(&target_root).unwrap();
+    symlink("loop", target_root.join("loop")).unwrap();
+
+    let inventory = list_inventory().unwrap();
+    let item = inventory
+        .items
+        .iter()
+        .find(|item| item.identity == "target:cursor-user:loop")
+        .unwrap();
+    assert!(item.states.contains(&InventoryState::BrokenLink));
+}
+
+#[test]
+fn inventory_root_errors_do_not_expose_the_private_home() {
+    let th = TestHome::new("inventory-private-root-error");
+    fs::create_dir_all(th.home.join(".mux")).unwrap();
+    fs::write(th.home.join(".mux/skills"), "not a directory").unwrap();
+
+    let error = list_inventory().unwrap_err();
+    let rendered = serde_json::to_string(&error).unwrap();
+    assert!(!rendered.contains(th.home.to_string_lossy().as_ref()));
+    assert!(!rendered.contains("skills"));
+}
+
+#[test]
+fn read_api_path_resolution_errors_are_path_free() {
+    let th = TestHome::new("inventory-path-resolution-error");
+    std::env::set_var("MUX_HOME", "relative-mux-home");
+
+    let error = list_inventory().unwrap_err();
+    let rendered = serde_json::to_string(&error).unwrap();
+    assert!(matches!(error, SkillError::InvalidSource { .. }));
+    assert!(!rendered.contains(th.home.to_string_lossy().as_ref()));
+    assert!(!rendered.contains("settings.json"));
+}
+
+#[test]
+fn external_list_scan_reads_only_the_bounded_manifest_but_detail_walks_the_tree() {
+    let th = TestHome::new("inventory-minimal-external-scan");
+    fs::create_dir_all(th.home.join(".codex")).unwrap();
+    let root = th.home.join(".agents/skills/external");
+    write_skill(&root, "external", "Bounded external summary");
+    symlink("../../../../outside", root.join("escape")).unwrap();
+
+    let inventory = list_inventory().unwrap();
+    let item = inventory
+        .items
+        .iter()
+        .find(|item| item.identity == "target:agents-user:external")
+        .unwrap();
+    assert_eq!(item.description, "Bounded external summary");
+
+    let error = get_skill_detail(&item.identity).unwrap_err();
+    let rendered = serde_json::to_string(&error).unwrap();
+    assert!(!rendered.contains(th.home.to_string_lossy().as_ref()));
+}
+
+#[test]
+fn unreadable_target_is_a_hard_path_free_error_not_a_missing_inventory() {
+    let th = TestHome::new("inventory-unreadable-target");
+    install_cursor(&th.home);
+    let target = th.home.join(".cursor/skills");
+    fs::create_dir_all(&target).unwrap();
+    fs::set_permissions(&target, fs::Permissions::from_mode(0o000)).unwrap();
+
+    let result = list_inventory();
+
+    fs::set_permissions(&target, fs::Permissions::from_mode(0o700)).unwrap();
+    let error = result.expect_err("an unreadable target must not be treated as empty");
+    let rendered = serde_json::to_string(&error).unwrap();
+    assert!(matches!(
+        error,
+        SkillError::Io { .. } | SkillError::Conflict { .. }
+    ));
+    assert!(!rendered.contains(th.home.to_string_lossy().as_ref()));
+}

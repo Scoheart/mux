@@ -146,6 +146,11 @@ mod platform {
 
     impl AnchoredRoot {
         pub(crate) fn open(path: &Path) -> Result<Self, SkillError> {
+            let expected = Self::inspect_directory(path)?;
+            Self::open_expected(path, &expected)
+        }
+
+        pub(crate) fn inspect_directory(path: &Path) -> Result<AnchoredIdentity, SkillError> {
             let expected = identity_from_stat(
                 &statat(CWD, path, AtFlags::SYMLINK_NOFOLLOW)
                     .map_err(|error| io_error(path, error.into()))?,
@@ -155,6 +160,16 @@ mod platform {
                     message: "Skill root must be a directory, not a symlink or file".into(),
                     path: normalized_error_path(path),
                 });
+            }
+            Ok(expected)
+        }
+
+        pub(crate) fn open_expected(
+            path: &Path,
+            expected: &AnchoredIdentity,
+        ) -> Result<Self, SkillError> {
+            if expected.kind != AnchoredFileKind::Directory {
+                return Err(unsafe_type(path));
             }
             let directory = File::from(
                 openat(CWD, path, directory_flags(), Mode::empty())
@@ -177,6 +192,33 @@ mod platform {
             })
         }
 
+        pub(crate) fn from_open_directory(
+            directory: File,
+            canonical_path: PathBuf,
+            expected: &AnchoredIdentity,
+        ) -> Result<Self, SkillError> {
+            let actual = identity_from_stat(
+                &fstat(&directory).map_err(|error| io_error(&canonical_path, error.into()))?,
+            );
+            verify_directory_identity(expected, &actual, &canonical_path)?;
+            Ok(Self {
+                directory,
+                canonical_path,
+            })
+        }
+
+        pub(crate) fn try_clone(&self) -> Result<Self, SkillError> {
+            let directory = self
+                .directory
+                .try_clone()
+                .map_err(|error| io_error(&self.canonical_path, error))?;
+            let expected = identity_from_stat(
+                &fstat(&self.directory)
+                    .map_err(|error| io_error(&self.canonical_path, error.into()))?,
+            );
+            Self::from_open_directory(directory, self.canonical_path.clone(), &expected)
+        }
+
         pub(crate) fn canonical_path(&self) -> &Path {
             &self.canonical_path
         }
@@ -192,6 +234,17 @@ mod platform {
             directory: &File,
             path: &Path,
         ) -> Result<Vec<CString>, SkillError> {
+            self.read_directory_budgeted(directory, path, 0, u64::MAX, "entries")
+        }
+
+        pub(crate) fn read_directory_budgeted(
+            &self,
+            directory: &File,
+            path: &Path,
+            starting_count: u64,
+            allowed: u64,
+            limit: &'static str,
+        ) -> Result<Vec<CString>, SkillError> {
             let mut names = Vec::new();
             let entries =
                 Dir::read_from(directory).map_err(|error| io_error(path, error.into()))?;
@@ -199,6 +252,14 @@ mod platform {
                 let entry = entry.map_err(|error| io_error(path, error.into()))?;
                 let name = entry.file_name();
                 if name.to_bytes() != b"." && name.to_bytes() != b".." {
+                    let actual = starting_count.saturating_add(names.len() as u64 + 1);
+                    if actual > allowed {
+                        return Err(SkillError::LimitExceeded {
+                            limit: limit.into(),
+                            actual,
+                            allowed,
+                        });
+                    }
                     names.push(name.to_owned());
                 }
             }
@@ -255,6 +316,17 @@ mod platform {
                 identity_from_stat(&fstat(&opened).map_err(|error| io_error(path, error.into()))?);
             verify_anchored_identity(expected, &actual, path)?;
             Ok(opened)
+        }
+
+        pub(crate) fn verify_regular_file(
+            &self,
+            file: &File,
+            expected: &AnchoredIdentity,
+            path: &Path,
+        ) -> Result<(), SkillError> {
+            let actual =
+                identity_from_stat(&fstat(file).map_err(|error| io_error(path, error.into()))?);
+            verify_anchored_identity(expected, &actual, path)
         }
 
         pub(crate) fn open_regular_relative(
@@ -511,6 +583,92 @@ impl AnchoredRoot {
 
     pub(super) fn canonical_path(&self) -> &Path {
         &self.canonical_path
+    }
+
+    pub(super) fn inspect_directory(_path: &Path) -> Result<AnchoredIdentity, SkillError> {
+        Err(unsupported_platform())
+    }
+
+    pub(super) fn open_expected(
+        _path: &Path,
+        _expected: &AnchoredIdentity,
+    ) -> Result<Self, SkillError> {
+        Err(unsupported_platform())
+    }
+
+    pub(super) fn from_open_directory(
+        _directory: std::fs::File,
+        _canonical_path: std::path::PathBuf,
+        _expected: &AnchoredIdentity,
+    ) -> Result<Self, SkillError> {
+        Err(unsupported_platform())
+    }
+
+    pub(super) fn try_clone(&self) -> Result<Self, SkillError> {
+        Err(unsupported_platform())
+    }
+
+    pub(super) fn root_directory(&self) -> Result<std::fs::File, SkillError> {
+        Err(unsupported_platform())
+    }
+
+    pub(super) fn read_directory_budgeted(
+        &self,
+        _directory: &std::fs::File,
+        _path: &Path,
+        _starting_count: u64,
+        _allowed: u64,
+        _limit: &'static str,
+    ) -> Result<Vec<std::ffi::CString>, SkillError> {
+        Err(unsupported_platform())
+    }
+
+    pub(super) fn stat_entry(
+        &self,
+        _directory: &std::fs::File,
+        _name: &std::ffi::CStr,
+        _path: &Path,
+    ) -> Result<AnchoredIdentity, SkillError> {
+        Err(unsupported_platform())
+    }
+
+    pub(super) fn open_directory_entry(
+        &self,
+        _directory: &std::fs::File,
+        _name: &std::ffi::CStr,
+        _expected: &AnchoredIdentity,
+        _path: &Path,
+    ) -> Result<std::fs::File, SkillError> {
+        Err(unsupported_platform())
+    }
+
+    pub(super) fn open_regular_entry(
+        &self,
+        _directory: &std::fs::File,
+        _name: &std::ffi::CStr,
+        _expected: &AnchoredIdentity,
+        _path: &Path,
+    ) -> Result<std::fs::File, SkillError> {
+        Err(unsupported_platform())
+    }
+
+    pub(super) fn read_link_entry(
+        &self,
+        _directory: &std::fs::File,
+        _name: &std::ffi::CStr,
+        _expected: &AnchoredIdentity,
+        _path: &Path,
+    ) -> Result<Vec<u8>, SkillError> {
+        Err(unsupported_platform())
+    }
+
+    pub(super) fn verify_regular_file(
+        &self,
+        _file: &std::fs::File,
+        _expected: &AnchoredIdentity,
+        _path: &Path,
+    ) -> Result<(), SkillError> {
+        Err(unsupported_platform())
     }
 
     pub(super) fn open_regular_relative(

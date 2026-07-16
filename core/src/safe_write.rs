@@ -9,7 +9,7 @@ static NEXT_TEMP_FILE: AtomicU64 = AtomicU64::new(0);
 const SETTINGS_LOCK_TIMEOUT: Duration = Duration::from_secs(10);
 const SETTINGS_LOCK_POLL: Duration = Duration::from_millis(25);
 
-struct SettingsLock {
+pub(crate) struct SettingsLock {
     lock_dir: PathBuf,
     owner_file: PathBuf,
 }
@@ -29,10 +29,9 @@ fn append_suffix(path: &Path, suffix: &str) -> PathBuf {
     PathBuf::from(value)
 }
 
-/// Cline coordinates its IDE, CLI, and SDK writers with a populated settings
-/// lock directory. Honor the same protocol before touching its shared settings
-/// file, but never reclaim a lock we do not own.
-fn acquire_settings_lock(path: &Path) -> Result<SettingsLock, String> {
+/// Coordinate cooperating writers with a populated lock directory next to the
+/// shared settings file. Never reclaim a lock we do not own.
+pub(crate) fn acquire_settings_lock(path: &Path) -> Result<SettingsLock, String> {
     let lock_dir = append_suffix(path, ".lock");
     let parent = lock_dir
         .parent()
@@ -71,7 +70,7 @@ fn acquire_settings_lock(path: &Path) -> Result<SettingsLock, String> {
                 let _ = fs::remove_dir_all(&staging);
                 if started.elapsed() >= SETTINGS_LOCK_TIMEOUT {
                     return Err(format!(
-                        "refusing to modify {}: timed out waiting for the Agent's settings lock",
+                        "refusing to modify {}: timed out waiting for the settings lock",
                         path.display()
                     ));
                 }

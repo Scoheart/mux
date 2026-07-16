@@ -209,7 +209,9 @@ export function AgentNavigation({
               title={agent.name}
               onClick={() => onSelectAgent(agent.id)}
             >
-              <AgentGlyph id={agent.id} name={agent.name} size={28} />
+              <span className="mux-pinned-agent-glyph">
+                <AgentGlyph id={agent.id} name={agent.name} size={30} />
+              </span>
             </button>
           ))}
         </nav>

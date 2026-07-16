@@ -13,7 +13,7 @@
 
 use crate::disabled::DisabledEntry;
 use crate::paths::{backups_dir, mux_dir, registry_dir, settings_file, user_agents_file};
-use crate::safe_write::write_private_if_unchanged;
+use crate::safe_write::{acquire_settings_lock, write_private_if_unchanged};
 use crate::types::{AgentDefinition, ModelProfile, RegistryEntry, SourceDef};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -71,8 +71,8 @@ pub struct Settings {
     pub extra: BTreeMap<String, Value>,
 }
 
-/// Serializes read-modify-write within this process. Cross-process changes are
-/// detected by an optimistic content check before atomic replacement.
+/// Serializes read-modify-write within this process. Each transaction also
+/// holds the filesystem settings lock for cooperative cross-process writers.
 static LOCK: Mutex<()> = Mutex::new(());
 
 /// Read the whole settings document. Missing or corrupt file ⇒ defaults
@@ -111,44 +111,54 @@ pub(crate) fn load_settings_strict() -> std::io::Result<Settings> {
     parse_for_update(&settings_file()).map(|(settings, _)| settings)
 }
 
-fn save_with_expected(settings: &Settings, original: Option<&str>) -> std::io::Result<()> {
+fn save_with_expected(
+    path: &Path,
+    settings: &Settings,
+    original: Option<&str>,
+) -> std::io::Result<()> {
     let mut settings = settings.clone();
     settings.version.get_or_insert(1);
     let json = serde_json::to_string_pretty(&settings)
         .map_err(|error| Error::new(ErrorKind::InvalidData, error))?;
-    write_private_if_unchanged(&settings_file(), original, &json).map_err(Error::other)
+    write_private_if_unchanged(path, original, &json).map_err(Error::other)
 }
 
 /// Persist the whole settings document (pretty JSON, atomic). Stamps `version`.
 pub fn save_settings(settings: &Settings) -> std::io::Result<()> {
+    let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let path = settings_file();
+    let _filesystem_guard = acquire_settings_lock(&path).map_err(Error::other)?;
     let original = read_optional(&path)?;
-    save_with_expected(settings, original.as_deref())
+    save_with_expected(&path, settings, original.as_deref())
 }
 
-/// Load → apply `f` to one section → save, under the process lock. Returns
-/// whatever `f` returns once the save succeeds.
+/// Load → apply `f` to one section → save under the process and filesystem
+/// transaction locks. Returns whatever `f` returns once the save succeeds.
 pub fn mutate_settings<F, R>(f: F) -> std::io::Result<R>
 where
     F: FnOnce(&mut Settings) -> R,
 {
     let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    let (mut settings, original) = parse_for_update(&settings_file())?;
+    let path = settings_file();
+    let _filesystem_guard = acquire_settings_lock(&path).map_err(Error::other)?;
+    let (mut settings, original) = parse_for_update(&path)?;
     let out = f(&mut settings);
-    save_with_expected(&settings, original.as_deref())?;
+    save_with_expected(&path, &settings, original.as_deref())?;
     Ok(out)
 }
 
-/// Load → validate and apply `f` to one section → save, under the process
-/// lock. A closure error leaves the loaded settings snapshot unwritten.
+/// Load → validate and apply `f` to one section → save under the process and
+/// filesystem transaction locks. A closure error leaves the snapshot unwritten.
 pub fn mutate_settings_checked<F, R>(f: F) -> std::io::Result<R>
 where
     F: FnOnce(&mut Settings) -> std::io::Result<R>,
 {
     let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    let (mut settings, original) = parse_for_update(&settings_file())?;
+    let path = settings_file();
+    let _filesystem_guard = acquire_settings_lock(&path).map_err(Error::other)?;
+    let (mut settings, original) = parse_for_update(&path)?;
     let out = f(&mut settings)?;
-    save_with_expected(&settings, original.as_deref())?;
+    save_with_expected(&path, &settings, original.as_deref())?;
     Ok(out)
 }
 
@@ -251,7 +261,10 @@ pub fn migrate_if_needed() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::safe_write::acquire_settings_lock;
     use crate::types::{RegistryConfig, StdioConfig};
+    use std::sync::mpsc;
+    use std::time::Duration;
 
     #[test]
     fn unknown_and_cli_sections_survive_roundtrip() {
@@ -350,6 +363,40 @@ mod tests {
             std::fs::read_to_string(path).unwrap(),
             r#"{"imported":"concurrent"}"#,
         );
+    }
+
+    #[test]
+    fn mutation_waits_for_settings_lock_before_reading_document() {
+        let home = crate::testenv::TestHome::new("settings-filesystem-lock");
+        let path = home.home.join(".mux/settings.json");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, r#"{"imported":"original","future":{"value":1}}"#).unwrap();
+        let filesystem_lock = acquire_settings_lock(&path).unwrap();
+        let (entered_tx, entered_rx) = mpsc::channel();
+        let (continue_tx, continue_rx) = mpsc::channel();
+
+        let mutation = std::thread::spawn(move || {
+            mutate_settings(|settings| {
+                entered_tx.send(()).unwrap();
+                continue_rx.recv().unwrap();
+                settings.imported = Some("mutation".into());
+            })
+        });
+
+        let entered_while_locked = entered_rx.recv_timeout(Duration::from_millis(150)).is_ok();
+        std::fs::write(&path, r#"{"imported":"serialized","future":{"value":2}}"#).unwrap();
+        drop(filesystem_lock);
+        continue_tx.send(()).unwrap();
+        let result = mutation.join().unwrap();
+
+        assert!(
+            !entered_while_locked,
+            "settings mutation entered before the filesystem lock was released"
+        );
+        result.unwrap();
+        let saved: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        assert_eq!(saved["imported"], "mutation");
+        assert_eq!(saved["future"]["value"], 2);
     }
 
     #[test]

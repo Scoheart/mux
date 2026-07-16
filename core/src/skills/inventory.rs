@@ -1,11 +1,11 @@
 use super::anchored::{AnchoredFileKind, AnchoredIdentity, AnchoredRoot};
 #[cfg(test)]
 use super::files::MAX_SKILL_BYTES;
-use super::files::{inspect_tree_anchored, validate_candidate_anchored};
+use super::files::{classify_content, inspect_tree_anchored, validate_candidate_anchored};
 use super::{
     parse_manifest, InventoryState, ManagedSkillRecord, SkillAgentView, SkillContentKind,
     SkillDetail, SkillError, SkillInventoryItem, SkillLocation, SkillRiskSummary, SkillSource,
-    SkillTargetView, SkillUpdateState, SkillsInventory, SkillsPaths,
+    SkillTargetView, SkillUpdateState, SkillsInventory, SkillsPaths, ValidatedSkill,
 };
 use crate::agents::builtin_agents;
 use crate::settings::{load_settings_strict, Settings};
@@ -18,7 +18,7 @@ use std::path::{Component, Path, PathBuf};
 
 const MAX_SKILL_MD_DETAIL_BYTES: usize = 1024 * 1024;
 const MAX_INVENTORY_SETTINGS_RECORDS: u64 = 10_000;
-const MAX_INVENTORY_SCANNED_ENTRIES: u64 = 10_000;
+const MAX_INVENTORY_ENTRIES: u64 = 10_000;
 const MAX_INVENTORY_RETURNED_ITEMS: u64 = 10_000;
 const MAX_INVENTORY_MANAGED_BYTES: u64 = 512 * 1024 * 1024;
 const TEST_PROBE_ROOT_ENV: &str = "MUX_TEST_PROBE_ROOT";
@@ -69,20 +69,40 @@ struct ExternalSummary {
     content_kind: SkillContentKind,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 struct InventoryBudget {
-    scanned_entries: u64,
+    entries: u64,
+    entry_limit: u64,
     returned_items: u64,
     managed_bytes: u64,
 }
 
+impl Default for InventoryBudget {
+    fn default() -> Self {
+        Self {
+            entries: 0,
+            entry_limit: MAX_INVENTORY_ENTRIES,
+            returned_items: 0,
+            managed_bytes: 0,
+        }
+    }
+}
+
 impl InventoryBudget {
-    fn add_scanned_entries(&mut self, added: u64) -> Result<(), SkillError> {
+    #[cfg(test)]
+    fn with_entry_limit(entry_limit: u64) -> Self {
+        Self {
+            entry_limit,
+            ..Self::default()
+        }
+    }
+
+    fn add_entries(&mut self, added: u64) -> Result<(), SkillError> {
         charge_inventory_limit(
-            &mut self.scanned_entries,
+            &mut self.entries,
             added,
-            "inventory_scanned_entries",
-            MAX_INVENTORY_SCANNED_ENTRIES,
+            "inventory_entries",
+            self.entry_limit,
         )
     }
 
@@ -228,7 +248,7 @@ pub fn get_skill_detail(identity: &str) -> Result<SkillDetail, SkillError> {
     let settings = strict_settings()?;
     let graph = build_target_graph(&paths, &settings)?;
     let inventory = build_inventory(&paths, &settings, &graph)?;
-    let item = inventory
+    let mut item = inventory
         .items
         .into_iter()
         .find(|item| item.identity == identity)
@@ -248,6 +268,7 @@ pub fn get_skill_detail(identity: &str) -> Result<SkillDetail, SkillError> {
 
     let content_root = detail_content_root(&parsed, &paths, &graph)?;
     let files = inspect_tree_anchored(&content_root).map_err(sanitize_detail_error)?;
+    item.content_kind = classify_content(&files);
     let (skill_md, skill_md_truncated) =
         read_skill_md_bounded(&content_root, MAX_SKILL_MD_DETAIL_BYTES)?;
 
@@ -490,12 +511,7 @@ fn classify_managed_central(
     match identity.kind {
         AnchoredFileKind::Directory => {
             let child = open_child_directory(root, entry_name, &identity, &entry_path)?;
-            match validate_candidate_anchored(
-                &child,
-                &mut budget.managed_bytes,
-                MAX_INVENTORY_MANAGED_BYTES,
-                "inventory_managed_content",
-            ) {
+            match validate_managed_candidate(&child, budget) {
                 Ok(validated) if validated.manifest.name == name => {
                     let mut states = BTreeSet::from([InventoryState::Managed]);
                     if validated.content_hash != record.content_hash {
@@ -518,6 +534,21 @@ fn classify_managed_central(
         AnchoredFileKind::Symlink => classify_link(root, entry_name, &identity, &entry_path, None),
         _ => Ok(BTreeSet::from([InventoryState::LocallyModified])),
     }
+}
+
+fn validate_managed_candidate(
+    root: &AnchoredRoot,
+    budget: &mut InventoryBudget,
+) -> Result<ValidatedSkill, SkillError> {
+    validate_candidate_anchored(
+        root,
+        &mut budget.managed_bytes,
+        MAX_INVENTORY_MANAGED_BYTES,
+        "inventory_managed_content",
+        &mut budget.entries,
+        budget.entry_limit,
+        "inventory_entries",
+    )
 }
 
 fn open_optional_inventory_root(
@@ -548,76 +579,89 @@ fn open_verified_target_root(
     path: &Path,
     target: &PhysicalTarget,
 ) -> Result<Option<AnchoredRoot>, SkillError> {
-    if target.observed_identity.is_some() {
-        match fs::symlink_metadata(path) {
-            Ok(metadata) if !metadata.file_type().is_dir() => {
-                return Err(SkillError::Conflict {
-                    message: "a verified Agent Skills target is no longer a directory".into(),
-                    path: String::new(),
-                });
-            }
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                return Err(SkillError::Conflict {
-                    message: "a verified Agent Skills target disappeared during inventory".into(),
-                    path: String::new(),
-                });
-            }
+    open_verified_target_root_after(path, target, || {})
+}
+
+fn open_verified_target_root_after<F>(
+    declared_path: &Path,
+    target: &PhysicalTarget,
+    after_declared_check: F,
+) -> Result<Option<AnchoredRoot>, SkillError>
+where
+    F: FnOnce(),
+{
+    let Some(expected) = target.observed_identity.as_ref() else {
+        match fs::symlink_metadata(declared_path) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
             Err(_) => {
                 return Err(SkillError::Io {
                     message: "a verified Agent Skills target could not be inspected safely".into(),
                     path: None,
                 });
             }
-            Ok(_) => {}
+            Ok(_) => return Err(target_root_conflict("appeared during inventory")),
+        }
+        after_declared_check();
+        return match fs::symlink_metadata(declared_path) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(_) => Err(SkillError::Io {
+                message: "a verified Agent Skills target could not be inspected safely".into(),
+                path: None,
+            }),
+            Ok(_) => Err(target_root_conflict("appeared during inventory")),
+        };
+    };
+
+    verify_declared_target_destination(declared_path, &target.canonical_root)?;
+    after_declared_check();
+    match fs::symlink_metadata(&target.canonical_root) {
+        Ok(metadata) if !metadata.file_type().is_dir() => {
+            return Err(target_root_conflict("is no longer a physical directory"));
+        }
+        Ok(_) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Err(target_root_conflict("disappeared during inventory"));
+        }
+        Err(_) => {
+            return Err(SkillError::Io {
+                message: "a verified Agent Skills target could not be inspected safely".into(),
+                path: None,
+            });
         }
     }
-    if canonicalize_deepest(path)? != target.canonical_root {
-        return Err(SkillError::Conflict {
-            message: "a verified Agent Skills target changed physical location".into(),
-            path: String::new(),
-        });
-    }
-    let opened = match target.observed_identity.as_ref() {
-        Some(expected) => Some(
-            AnchoredRoot::open_expected(path, expected).map_err(|error| match error {
-                SkillError::UnsafePath { .. } | SkillError::Conflict { .. } => {
-                    SkillError::Conflict {
-                        message: "a verified Agent Skills target changed physical identity".into(),
-                        path: String::new(),
-                    }
-                }
-                other => sanitize_inventory_error(
-                    other,
-                    "a verified Agent Skills target could not be opened safely",
-                ),
-            })?,
-        ),
-        None => match fs::symlink_metadata(path) {
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
-            Err(_) => {
-                return Err(SkillError::Io {
-                    message: "a verified Agent Skills target could not be inspected safely".into(),
-                    path: None,
-                });
+    let opened = AnchoredRoot::open_expected(&target.canonical_root, expected).map_err(
+        |error| match error {
+            SkillError::UnsafePath { .. } | SkillError::Conflict { .. } => {
+                target_root_conflict("changed physical identity")
             }
-            Ok(_) => {
-                return Err(SkillError::Conflict {
-                    message: "a verified Agent Skills target appeared during inventory".into(),
-                    path: String::new(),
-                });
-            }
+            other => sanitize_inventory_error(
+                other,
+                "a verified Agent Skills target could not be opened safely",
+            ),
         },
-    };
-    if opened
-        .as_ref()
-        .is_some_and(|root| root.canonical_path() != target.canonical_root)
-    {
-        return Err(SkillError::Conflict {
-            message: "a verified Agent Skills target changed physical identity".into(),
-            path: String::new(),
-        });
+    )?;
+    verify_declared_target_destination(declared_path, &target.canonical_root)?;
+    if opened.canonical_path() != target.canonical_root {
+        return Err(target_root_conflict("changed physical identity"));
     }
-    Ok(opened)
+    Ok(Some(opened))
+}
+
+fn verify_declared_target_destination(
+    declared_path: &Path,
+    expected: &Path,
+) -> Result<(), SkillError> {
+    match canonicalize_deepest(declared_path) {
+        Ok(actual) if actual == expected => Ok(()),
+        _ => Err(target_root_conflict("changed physical location")),
+    }
+}
+
+fn target_root_conflict(reason: &str) -> SkillError {
+    SkillError::Conflict {
+        message: format!("a verified Agent Skills target {reason}"),
+        path: String::new(),
+    }
 }
 
 fn inventory_names(
@@ -632,12 +676,12 @@ fn inventory_names(
         .read_directory_budgeted(
             &directory,
             root.canonical_path(),
-            budget.scanned_entries,
-            MAX_INVENTORY_SCANNED_ENTRIES,
-            "inventory_scanned_entries",
+            budget.entries,
+            budget.entry_limit,
+            "inventory_entries",
         )
         .map_err(|error| sanitize_inventory_error(error, message))?;
-    budget.add_scanned_entries(names.len() as u64)?;
+    budget.add_entries(names.len() as u64)?;
     Ok(names
         .into_iter()
         .filter_map(|name| {
@@ -741,7 +785,7 @@ fn inspect_link_chain(path: &Path) -> Result<LinkDestination, SkillError> {
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
                 return Ok(LinkDestination::Broken);
             }
-            Err(error) if error.raw_os_error() == Some(rustix::io::Errno::LOOP.raw_os_error()) => {
+            Err(error) if is_symlink_loop_error(&error) => {
                 return Ok(LinkDestination::Broken);
             }
             Err(_) => {
@@ -764,6 +808,16 @@ fn inspect_link_chain(path: &Path) -> Result<LinkDestination, SkillError> {
         current = next;
     }
     Ok(LinkDestination::Broken)
+}
+
+#[cfg(unix)]
+fn is_symlink_loop_error(error: &std::io::Error) -> bool {
+    error.raw_os_error() == Some(rustix::io::Errno::LOOP.raw_os_error())
+}
+
+#[cfg(not(unix))]
+fn is_symlink_loop_error(_error: &std::io::Error) -> bool {
+    false
 }
 
 fn resolve_link_path(entry_path: &Path, target: impl AsRef<OsStr>) -> Option<PathBuf> {
@@ -1574,7 +1628,7 @@ fn mac_bundle_exists_in_root(
         &directory,
         root.canonical_path(),
         *scanned,
-        MAX_INVENTORY_SCANNED_ENTRIES,
+        MAX_INVENTORY_ENTRIES,
         "mac_bundle_entries",
     )?;
     *scanned = scanned.saturating_add(names.len() as u64);
@@ -1735,6 +1789,7 @@ mod tests {
     use super::*;
     use crate::testenv::TestHome;
 
+    #[cfg(unix)]
     #[test]
     fn guarded_probe_root_remaps_only_a_matching_test_home() {
         let th = TestHome::new("skill-probe-root-guard");
@@ -1843,7 +1898,7 @@ mod tests {
         );
 
         for (name, allowed) in [
-            ("inventory_scanned_entries", MAX_INVENTORY_SCANNED_ENTRIES),
+            ("inventory_entries", MAX_INVENTORY_ENTRIES),
             ("inventory_returned_items", MAX_INVENTORY_RETURNED_ITEMS),
             ("inventory_managed_content", MAX_INVENTORY_MANAGED_BYTES),
             ("skill", MAX_SKILL_BYTES),
@@ -1860,6 +1915,53 @@ mod tests {
                 })
             );
         }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn managed_tree_walks_share_the_global_inventory_entry_budget() {
+        fn run(extra_nested_directory: bool) -> Result<(), SkillError> {
+            let th = TestHome::new(if extra_nested_directory {
+                "inventory-entry-plus-one"
+            } else {
+                "inventory-entry-exact"
+            });
+            let central_path = th.home.join("central");
+            for name in ["first", "second"] {
+                let skill = central_path.join(name);
+                fs::create_dir_all(&skill).unwrap();
+                fs::write(
+                    skill.join("SKILL.md"),
+                    format!("---\nname: {name}\ndescription: {name}\n---\n"),
+                )
+                .unwrap();
+            }
+            if extra_nested_directory {
+                fs::create_dir(central_path.join("second/empty")).unwrap();
+            }
+
+            let central = AnchoredRoot::open(&central_path).unwrap();
+            let mut budget = InventoryBudget::with_entry_limit(4);
+            let names = inventory_names(&central, &mut budget, "fixture inventory read")?;
+            for (name, entry_name) in names {
+                let directory = central.root_directory()?;
+                let path = central.canonical_path().join(&name);
+                let identity = central.stat_entry(&directory, &entry_name, &path)?;
+                let child = open_child_directory(&central, &entry_name, &identity, &path)?;
+                validate_managed_candidate(&child, &mut budget)?;
+            }
+            Ok(())
+        }
+
+        assert!(run(false).is_ok(), "the exact shared boundary was rejected");
+        assert_eq!(
+            run(true),
+            Err(SkillError::LimitExceeded {
+                limit: "inventory_entries".into(),
+                actual: 5,
+                allowed: 4,
+            })
+        );
     }
 
     #[cfg(unix)]
@@ -1891,6 +1993,53 @@ mod tests {
             open_verified_target_root(&root, &target),
             Err(SkillError::Conflict { .. })
         ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn declared_target_symlink_retarget_and_break_are_conflicts() {
+        let th = TestHome::new("inventory-target-link-race");
+        let first = th.home.join("first-target");
+        let second = th.home.join("second-target");
+        fs::create_dir(&first).unwrap();
+        fs::create_dir(&second).unwrap();
+        let declared = th.home.join("declared-target");
+        std::os::unix::fs::symlink(&first, &declared).unwrap();
+        let canonical_root = canonicalize_deepest(&declared).unwrap();
+        let target = PhysicalTarget {
+            target_id: "fixture-user".into(),
+            global_dir: declared.to_string_lossy().into_owned(),
+            observed_identity: Some(AnchoredRoot::inspect_directory(&canonical_root).unwrap()),
+            canonical_root,
+            primary_agent_ids: BTreeSet::new(),
+            affected_agent_ids: BTreeSet::new(),
+        };
+
+        let retargeted = match open_verified_target_root_after(&declared, &target, || {
+            fs::remove_file(&declared).unwrap();
+            std::os::unix::fs::symlink(&second, &declared).unwrap();
+        }) {
+            Err(error) => error,
+            Ok(_) => panic!("retargeted declared target was accepted"),
+        };
+        assert!(matches!(retargeted, SkillError::Conflict { .. }));
+        assert!(!serde_json::to_string(&retargeted)
+            .unwrap()
+            .contains(th.home.to_string_lossy().as_ref()));
+
+        fs::remove_file(&declared).unwrap();
+        std::os::unix::fs::symlink(&first, &declared).unwrap();
+        let broken = match open_verified_target_root_after(&declared, &target, || {
+            fs::remove_file(&declared).unwrap();
+            std::os::unix::fs::symlink(th.home.join("missing"), &declared).unwrap();
+        }) {
+            Err(error) => error,
+            Ok(_) => panic!("broken declared target was accepted"),
+        };
+        assert!(matches!(broken, SkillError::Conflict { .. }));
+        assert!(!serde_json::to_string(&broken)
+            .unwrap()
+            .contains(th.home.to_string_lossy().as_ref()));
     }
 
     #[cfg(target_os = "macos")]

@@ -96,6 +96,7 @@ struct WalkState<'a> {
     entries: u64,
     total_bytes: u64,
     aggregate: Option<AggregateLimit<'a>>,
+    shared_entries: Option<AggregateLimit<'a>>,
 }
 
 pub fn inspect_tree(root: &Path) -> Result<Vec<SkillFile>, SkillError> {
@@ -103,7 +104,7 @@ pub fn inspect_tree(root: &Path) -> Result<Vec<SkillFile>, SkillError> {
 }
 
 pub(super) fn inspect_tree_anchored(root: &AnchoredRoot) -> Result<Vec<SkillFile>, SkillError> {
-    Ok(load_tree_anchored(root, None)?.files())
+    Ok(load_tree_anchored(root, None, None)?.files())
 }
 
 pub fn hash_tree(root: &Path) -> Result<String, SkillError> {
@@ -281,6 +282,9 @@ pub(super) fn validate_candidate_anchored(
     aggregate: &mut u64,
     aggregate_allowed: u64,
     aggregate_limit: &'static str,
+    shared_entries: &mut u64,
+    shared_entries_allowed: u64,
+    shared_entries_limit: &'static str,
 ) -> Result<ValidatedSkill, SkillError> {
     let snapshot = load_tree_anchored(
         root,
@@ -288,6 +292,11 @@ pub(super) fn validate_candidate_anchored(
             current: aggregate,
             allowed: aggregate_allowed,
             limit: aggregate_limit,
+        }),
+        Some(AggregateLimit {
+            current: shared_entries,
+            allowed: shared_entries_allowed,
+            limit: shared_entries_limit,
         }),
     )?;
     validated_from_snapshot(snapshot)
@@ -328,19 +337,21 @@ fn validated_from_snapshot(snapshot: TreeSnapshot) -> Result<ValidatedSkill, Ski
 
 fn load_tree(root: &Path) -> Result<TreeSnapshot, SkillError> {
     let anchored_root = AnchoredRoot::open(root)?;
-    load_tree_owned(anchored_root, None)
+    load_tree_owned(anchored_root, None, None)
 }
 
 fn load_tree_anchored(
     root: &AnchoredRoot,
     aggregate: Option<AggregateLimit<'_>>,
+    shared_entries: Option<AggregateLimit<'_>>,
 ) -> Result<TreeSnapshot, SkillError> {
-    load_tree_owned(root.try_clone()?, aggregate)
+    load_tree_owned(root.try_clone()?, aggregate, shared_entries)
 }
 
 fn load_tree_owned(
     anchored_root: AnchoredRoot,
     aggregate: Option<AggregateLimit<'_>>,
+    shared_entries: Option<AggregateLimit<'_>>,
 ) -> Result<TreeSnapshot, SkillError> {
     #[cfg(not(unix))]
     {
@@ -354,6 +365,7 @@ fn load_tree_owned(
         entries: 0,
         total_bytes: 0,
         aggregate,
+        shared_entries,
     };
     #[cfg(unix)]
     walk_directory(
@@ -398,8 +410,7 @@ fn walk_directory(
             format!("{relative_directory}/{name_text}")
         };
         let path = root.join(path_from_normalized(&relative));
-        state.entries = state.entries.saturating_add(1);
-        enforce_entry_limit(state.entries)?;
+        charge_tree_entry(state)?;
         let identity = anchored_root.stat_entry(directory, &name, &path)?;
         if identity.kind == AnchoredFileKind::Directory {
             let child = anchored_root.open_directory_entry(directory, &name, &identity, &path)?;
@@ -468,6 +479,16 @@ fn walk_directory(
         }
     }
     Ok(())
+}
+
+fn charge_tree_entry(state: &mut WalkState<'_>) -> Result<(), SkillError> {
+    if let Some(shared) = state.shared_entries.as_mut() {
+        let actual = shared.current.saturating_add(1);
+        enforce_named_limit(shared.limit, actual, shared.allowed)?;
+        *shared.current = actual;
+    }
+    state.entries = state.entries.saturating_add(1);
+    enforce_entry_limit(state.entries)
 }
 
 fn charge_tree_content(state: &mut WalkState<'_>, added: u64) -> Result<(), SkillError> {
@@ -747,7 +768,7 @@ fn read_node_bounded(
     Ok(bytes)
 }
 
-fn classify_content(files: &[SkillFile]) -> SkillContentKind {
+pub(super) fn classify_content(files: &[SkillFile]) -> SkillContentKind {
     if files
         .iter()
         .any(|file| file.executable || file.path.starts_with("scripts/"))
@@ -1313,6 +1334,7 @@ mod tests {
                 allowed,
                 limit: "inventory_managed_content",
             }),
+            shared_entries: None,
         };
         assert!(charge_tree_content(&mut state, 0).is_ok());
         assert_eq!(
@@ -1321,6 +1343,42 @@ mod tests {
                 limit: "inventory_managed_content".into(),
                 actual: allowed + 1,
                 allowed,
+            })
+        );
+
+        let entry_allowed = 10_000;
+        let mut shared_entries = entry_allowed - 1;
+        let mut state = WalkState {
+            nodes: Vec::new(),
+            entries: 0,
+            total_bytes: 0,
+            aggregate: None,
+            shared_entries: Some(AggregateLimit {
+                current: &mut shared_entries,
+                allowed: entry_allowed,
+                limit: "inventory_entries",
+            }),
+        };
+        assert!(charge_tree_entry(&mut state).is_ok());
+        drop(state);
+        assert_eq!(shared_entries, entry_allowed);
+        let mut state = WalkState {
+            nodes: Vec::new(),
+            entries: 1,
+            total_bytes: 0,
+            aggregate: None,
+            shared_entries: Some(AggregateLimit {
+                current: &mut shared_entries,
+                allowed: entry_allowed,
+                limit: "inventory_entries",
+            }),
+        };
+        assert_eq!(
+            charge_tree_entry(&mut state),
+            Err(SkillError::LimitExceeded {
+                limit: "inventory_entries".into(),
+                actual: entry_allowed + 1,
+                allowed: entry_allowed,
             })
         );
     }

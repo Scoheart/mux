@@ -450,3 +450,93 @@ fn unreadable_target_is_a_hard_path_free_error_not_a_missing_inventory() {
     ));
     assert!(!rendered.contains(th.home.to_string_lossy().as_ref()));
 }
+
+#[test]
+fn stable_declared_target_symlink_supports_scan_and_detail() {
+    let th = TestHome::new("inventory-symlinked-target");
+    fs::create_dir_all(th.home.join(".codex")).unwrap();
+    let physical_root = th.home.join("managed/agent-skills");
+    write_skill(
+        &physical_root.join("shared"),
+        "shared",
+        "Stable symlink target",
+    );
+    fs::create_dir_all(th.home.join(".agents")).unwrap();
+    symlink(&physical_root, th.home.join(".agents/skills")).unwrap();
+
+    let inventory = list_inventory().unwrap();
+    let item = inventory
+        .items
+        .iter()
+        .find(|item| item.identity == "target:agents-user:shared")
+        .unwrap();
+    assert!(item.states.contains(&InventoryState::External));
+
+    let detail = get_skill_detail(&item.identity).unwrap();
+    assert!(detail.skill_md.contains("Stable symlink target"));
+    assert!(detail.files.iter().any(|file| file.path == "SKILL.md"));
+}
+
+#[test]
+fn detail_recomputes_external_content_kind_from_the_full_safe_tree() {
+    let th = TestHome::new("inventory-detail-content-kind");
+    fs::create_dir_all(th.home.join(".codex")).unwrap();
+    let target = th.home.join(".agents/skills");
+
+    let automation = target.join("automation");
+    write_skill(&automation, "automation", "Automation fixture");
+    fs::write(automation.join("run-tool"), "#!/bin/sh\n").unwrap();
+    fs::set_permissions(
+        automation.join("run-tool"),
+        fs::Permissions::from_mode(0o755),
+    )
+    .unwrap();
+    fs::create_dir(automation.join("assets")).unwrap();
+    fs::write(automation.join("assets/icon.bin"), [0_u8]).unwrap();
+    fs::create_dir(automation.join("references")).unwrap();
+    fs::write(automation.join("references/guide.md"), "guide").unwrap();
+
+    let assets = target.join("assets-kind");
+    write_skill(&assets, "assets-kind", "Assets fixture");
+    fs::create_dir(assets.join("assets")).unwrap();
+    fs::write(assets.join("assets/icon.bin"), [0_u8, 1, 2]).unwrap();
+    fs::create_dir(assets.join("references")).unwrap();
+    fs::write(assets.join("references/guide.md"), "guide").unwrap();
+
+    let reference = target.join("reference-kind");
+    write_skill(&reference, "reference-kind", "Reference fixture");
+    fs::create_dir(reference.join("references")).unwrap();
+    fs::write(reference.join("references/guide.md"), "guide").unwrap();
+
+    let instructions = target.join("instructions");
+    write_skill(&instructions, "instructions", "Instructions fixture");
+
+    for (name, expected) in [
+        ("automation", mux_core::skills::SkillContentKind::Automation),
+        ("assets-kind", mux_core::skills::SkillContentKind::Assets),
+        (
+            "reference-kind",
+            mux_core::skills::SkillContentKind::Reference,
+        ),
+        (
+            "instructions",
+            mux_core::skills::SkillContentKind::Instructions,
+        ),
+    ] {
+        let identity = format!("target:agents-user:{name}");
+        let list_item = list_inventory()
+            .unwrap()
+            .items
+            .into_iter()
+            .find(|item| item.identity == identity)
+            .unwrap();
+        assert_eq!(
+            list_item.content_kind,
+            mux_core::skills::SkillContentKind::Instructions
+        );
+        assert_eq!(
+            get_skill_detail(&identity).unwrap().item.content_kind,
+            expected
+        );
+    }
+}

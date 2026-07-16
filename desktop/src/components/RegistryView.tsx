@@ -4,8 +4,9 @@ import type { RegistryEntry, RegistryOrigin, CatalogItem } from "../lib/types";
 import { keyOf, transportOf, type Transport } from "../lib/mcp";
 import { exportEffectiveDialog, forgetEntry } from "../lib/api";
 import { formatError } from "../lib/format";
+import { redactSensitiveConfig } from "../lib/resourceWorkspace";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { SourcesSidebar, type McpStatusCounts, type McpStatusFilter } from "./SourcesSidebar";
+import { SourcesSidebar } from "./SourcesSidebar";
 import { AgentGlyph, agentName } from "./brandIcons";
 import {
   CopyIcon,
@@ -30,6 +31,7 @@ import {
   ResourceEmpty,
   ResourceGrid,
   ResourceInspector,
+  ResourceTabs,
   ResourceWorkspace,
 } from "./ResourceWorkspace";
 
@@ -41,6 +43,8 @@ interface RegistryViewProps {
 
 /** Origin buckets — still used to decide which entries are user-deletable. */
 type OriginBucket = "remote" | "local" | "manual" | "discovered";
+type McpStatusFilter = "all" | "used" | "unused" | "shadowed";
+type McpStatusCounts = Record<McpStatusFilter, number>;
 /** Classify an entry's origin into a bucket. Entries with no origin, or a
  *  legacy/unknown kind, fall into "discovered" (scanned-from-machine). */
 function bucketOf(entry: RegistryEntry): OriginBucket {
@@ -139,7 +143,7 @@ export function RegistryView({ state, onEdit, onCreate }: RegistryViewProps) {
 
   const [q, setQ] = useState("");
   // Source and status are separate filters: the sidebar owns provenance, while
-  // the compact status control appears only when duplicate copies need review.
+  // status stays visible above the grid.
   const [selectedSource, setSelectedSource] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<McpStatusFilter>("all");
   const [detail, setDetail] = useState<CatalogItem | null>(null);
@@ -208,6 +212,21 @@ export function RegistryView({ state, onEdit, onCreate }: RegistryViewProps) {
     return scoped;
   }, [agentsForServer, scoped, statusFilter]);
 
+  const changeQuery = (value: string) => {
+    setDetail(null);
+    setQ(value);
+  };
+
+  const changeSource = (sourceId: string | null) => {
+    setDetail(null);
+    setSelectedSource(sourceId);
+  };
+
+  const changeStatus = (status: McpStatusFilter) => {
+    setDetail(null);
+    setStatusFilter(status);
+  };
+
   const copyConfig = useCallback(
     (entry: RegistryEntry) => {
       navigator.clipboard
@@ -260,15 +279,25 @@ export function RegistryView({ state, onEdit, onCreate }: RegistryViewProps) {
         <SourcesSidebar
           state={state}
           selectedId={selectedSource}
-          statusFilter={statusFilter}
-          statusCounts={statusCounts}
-          onStatusFilter={setStatusFilter}
-          onSelect={setSelectedSource}
+          onSelect={changeSource}
         />
       }
       query={q}
-      onQueryChange={setQ}
+      onQueryChange={changeQuery}
       searchPlaceholder="搜索 MCP"
+      filters={
+        <ResourceTabs
+          label="MCP 状态"
+          value={statusFilter}
+          options={[
+            { value: "all", label: "全部", count: statusCounts.all },
+            { value: "used", label: "使用中", count: statusCounts.used },
+            { value: "unused", label: "未使用", count: statusCounts.unused },
+            { value: "shadowed", label: "被覆盖", count: statusCounts.shadowed },
+          ]}
+          onChange={changeStatus}
+        />
+      }
       toolbarActions={
         <>
           <button onClick={() => setPasteOpen(true)} className="btn-ghost" title="粘贴 MCP 配置">
@@ -310,6 +339,7 @@ export function RegistryView({ state, onEdit, onCreate }: RegistryViewProps) {
           />
         ) : undefined
       }
+      onInspectorClose={() => setDetail(null)}
     >
       {filtered.length === 0 ? (
         <ResourceEmpty
@@ -568,7 +598,9 @@ function RegistryDetail({
       )}
 
       <InspectorSection title="配置">
-        <pre className="mux-config-preview">{JSON.stringify(entry.config, null, 2)}</pre>
+        <pre className="mux-config-preview">
+          {JSON.stringify(redactSensitiveConfig(entry.config), null, 2)}
+        </pre>
       </InspectorSection>
     </ResourceInspector>
   );

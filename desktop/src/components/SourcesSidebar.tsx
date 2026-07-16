@@ -2,14 +2,11 @@ import { useMemo, useState } from "react";
 import type { InstallState } from "../hooks/useInstallState";
 import type { SourceView } from "../lib/types";
 import { IconButton } from "./ui";
-import { CheckIcon, CloudIcon, FolderIcon, RefreshIcon, TrashIcon, LayersIcon, EditIcon, SearchIcon, XIcon } from "./icons";
+import { CloudIcon, FolderIcon, RefreshIcon, TrashIcon, LayersIcon, EditIcon, SearchIcon } from "./icons";
 import { SubscribeDialog } from "./SubscribeDialog";
 import { useToast } from "./Toast";
 import { formatError } from "../lib/format";
 import { SidebarItem, SidebarSection, WorkspaceSidebar } from "./ResourceWorkspace";
-
-export type McpStatusFilter = "all" | "used" | "unused" | "shadowed";
-export type McpStatusCounts = Record<McpStatusFilter, number>;
 
 /** Sort rank: remote (0) → user local (1) → managed manual/discovered (2). */
 function rank(s: SourceView): number {
@@ -35,17 +32,11 @@ export function SourcesSidebar({
   state,
   selectedId,
   onSelect,
-  statusFilter,
-  statusCounts,
-  onStatusFilter,
 }: {
   state: InstallState;
   /** null = 全部 (all sources). */
   selectedId: string | null;
   onSelect: (id: string | null) => void;
-  statusFilter: McpStatusFilter;
-  statusCounts: McpStatusCounts;
-  onStatusFilter: (filter: McpStatusFilter) => void;
 }) {
   const { sources, catalog } = state;
   const toast = useToast();
@@ -102,39 +93,6 @@ export function SourcesSidebar({
 
   return (
     <WorkspaceSidebar title="MCPs" count={catalog.length}>
-      <SidebarSection title="状态">
-        <SidebarItem
-          active={statusFilter === "all"}
-          icon={<LayersIcon className="w-3.5 h-3.5" />}
-          label="全部"
-          count={statusCounts.all}
-          onClick={() => onStatusFilter("all")}
-        />
-        <SidebarItem
-          active={statusFilter === "used"}
-          icon={<CheckIcon className="w-3.5 h-3.5" />}
-          label="使用中"
-          count={statusCounts.used}
-          onClick={() => onStatusFilter("used")}
-        />
-        <SidebarItem
-          active={statusFilter === "unused"}
-          icon={<XIcon className="w-3.5 h-3.5" />}
-          label="未使用"
-          count={statusCounts.unused}
-          onClick={() => onStatusFilter("unused")}
-        />
-        {statusCounts.shadowed > 0 && (
-          <SidebarItem
-            active={statusFilter === "shadowed"}
-            icon={<LayersIcon className="w-3.5 h-3.5" />}
-            label="被覆盖"
-            count={statusCounts.shadowed}
-            onClick={() => onStatusFilter("shadowed")}
-          />
-        )}
-      </SidebarSection>
-
       <SidebarSection
         title="来源"
         actions={

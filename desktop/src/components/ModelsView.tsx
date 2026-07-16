@@ -23,7 +23,6 @@ import {
   LinkIcon,
   PlusIcon,
   TrashIcon,
-  XIcon,
 } from "./icons";
 import { useToast } from "./Toast";
 import {
@@ -33,6 +32,7 @@ import {
   ResourceEmpty,
   ResourceGrid,
   ResourceInspector,
+  ResourceTabs,
   ResourceWorkspace,
   SidebarItem,
   SidebarSection,
@@ -136,6 +136,21 @@ export function ModelsView() {
 
   const selectedProfile = profiles.find((profile) => profile.id === selectedProfileId) ?? null;
 
+  const changeQuery = (value: string) => {
+    setSelectedProfileId(null);
+    setQuery(value);
+  };
+
+  const changeStatus = (status: ModelStatusFilter) => {
+    setSelectedProfileId(null);
+    setStatusFilter(status);
+  };
+
+  const changeProtocol = (protocol: ModelProtocol | null) => {
+    setSelectedProfileId(null);
+    setProtocolFilter(protocol);
+  };
+
   const removeProfile = async (profile: ModelProfileView) => {
     if (!window.confirm(`删除模型「${profile.name}」？Agent 配置文件不会被回滚。`)) return;
     try {
@@ -174,36 +189,13 @@ export function ModelsView() {
     <ResourceWorkspace
       sidebar={
         <WorkspaceSidebar title="Models" count={profiles.length}>
-          <SidebarSection title="状态">
-            <SidebarItem
-              active={statusFilter === "all"}
-              icon={<LayersIcon className="w-3.5 h-3.5" />}
-              label="全部"
-              count={statusCounts.all}
-              onClick={() => setStatusFilter("all")}
-            />
-            <SidebarItem
-              active={statusFilter === "assigned"}
-              icon={<CheckIcon className="w-3.5 h-3.5" />}
-              label="已分配"
-              count={statusCounts.assigned}
-              onClick={() => setStatusFilter("assigned")}
-            />
-            <SidebarItem
-              active={statusFilter === "unassigned"}
-              icon={<XIcon className="w-3.5 h-3.5" />}
-              label="未分配"
-              count={statusCounts.unassigned}
-              onClick={() => setStatusFilter("unassigned")}
-            />
-          </SidebarSection>
           <SidebarSection title="协议">
             <SidebarItem
               active={protocolFilter === null}
               icon={<LayersIcon className="w-3.5 h-3.5" />}
               label="全部协议"
               count={profiles.length}
-              onClick={() => setProtocolFilter(null)}
+              onClick={() => changeProtocol(null)}
             />
             {PROTOCOLS.map((protocol) => (
               <SidebarItem
@@ -212,15 +204,27 @@ export function ModelsView() {
                 icon={<span className="mux-model-protocol-dot" data-protocol={protocol.id} />}
                 label={protocol.label}
                 count={protocolCounts[protocol.id]}
-                onClick={() => setProtocolFilter(protocol.id)}
+                onClick={() => changeProtocol(protocol.id)}
               />
             ))}
           </SidebarSection>
         </WorkspaceSidebar>
       }
       query={query}
-      onQueryChange={setQuery}
+      onQueryChange={changeQuery}
       searchPlaceholder="搜索模型"
+      filters={
+        <ResourceTabs
+          label="模型状态"
+          value={statusFilter}
+          options={[
+            { value: "all", label: "全部", count: statusCounts.all },
+            { value: "assigned", label: "已分配", count: statusCounts.assigned },
+            { value: "unassigned", label: "未分配", count: statusCounts.unassigned },
+          ]}
+          onChange={changeStatus}
+        />
+      }
       toolbarActions={
         <button className="btn-primary" type="button" onClick={() => setEditing(null)}>
           <PlusIcon className="w-4 h-4" />
@@ -241,6 +245,7 @@ export function ModelsView() {
           />
         ) : undefined
       }
+      onInspectorClose={() => setSelectedProfileId(null)}
     >
       {filteredProfiles.length === 0 ? (
         <ResourceEmpty

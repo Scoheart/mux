@@ -50,7 +50,7 @@ jobs:
 
       - name: Install frontend deps
         working-directory: desktop
-        run: npm install --prefer-offline --no-audit --no-fund
+        run: npm install --no-audit --no-fund
 
       - name: Build .dmg
         working-directory: desktop

@@ -1,0 +1,196 @@
+import type {
+  InventoryState,
+  SkillAgentView,
+  SkillCommandError,
+  SkillDetail,
+  SkillInventoryItem,
+} from "../lib/types";
+import {
+  AgentStack,
+  InspectorField,
+  InspectorSection,
+  ResourceInspector,
+} from "./ResourceWorkspace";
+import { SkillRiskBadge, skillSourceText } from "./SkillCard";
+import { Avatar, Badge } from "./ui";
+
+const stateLabels: Record<InventoryState, string> = {
+  managed: "已托管",
+  assigned: "已分配",
+  external: "外部副本",
+  locally_modified: "本地已修改",
+  broken_link: "链接损坏",
+  conflicting_link: "链接冲突",
+  missing: "正文缺失",
+  update_available: "有更新",
+};
+
+function presentAgentNames(item: SkillInventoryItem, agents: SkillAgentView[]) {
+  const names = new Map(agents.map((agent) => [agent.id, agent.name]));
+  return [...new Set(item.affected_agent_ids.map((id) => names.get(id) ?? id))];
+}
+
+function sourceKindLabel(item: SkillInventoryItem) {
+  if (!item.source) return "外部副本";
+  if (item.source.kind === "github") return "GitHub";
+  if (item.source.kind === "local") return "本地";
+  return "Imported";
+}
+
+export function SkillInspector({
+  item,
+  detail,
+  agents,
+  loading,
+  error,
+  onClose,
+}: {
+  item: SkillInventoryItem;
+  detail: SkillDetail | null;
+  agents: SkillAgentView[];
+  loading: boolean;
+  error: SkillCommandError | null;
+  onClose: () => void;
+}) {
+  const affectedAgentNames = presentAgentNames(item, agents);
+
+  return (
+    <ResourceInspector
+      title={item.name}
+      avatar={<Avatar seed={item.name} label="S" size={40} />}
+      subtitle={
+        <div className="mux-skill-inspector-badges">
+          <Badge tone={item.source?.kind === "github" ? "info" : "neutral"}>
+            {sourceKindLabel(item)}
+          </Badge>
+        </div>
+      }
+      onClose={onClose}
+    >
+      <p className="mux-skill-inspector-description">{item.description}</p>
+
+      <InspectorSection title="来源与版本">
+        <InspectorField label="来源" mono>
+          {skillSourceText(item.source)}
+        </InspectorField>
+        <InspectorField label="Revision" mono>
+          {item.resolved_revision ?? "未记录"}
+        </InspectorField>
+        <InspectorField label="内容哈希" mono>
+          {item.content_hash ?? "未记录"}
+        </InspectorField>
+        <InspectorField label="安装时间" mono>
+          {item.installed_at ?? "未记录"}
+        </InspectorField>
+        <InspectorField label="更新时间" mono>
+          {item.updated_at ?? "未记录"}
+        </InspectorField>
+      </InspectorSection>
+
+      <InspectorSection title="状态与风险">
+        <div className="mux-skill-inspector-state-list">
+          <SkillRiskBadge level={item.risk?.level ?? null} />
+          {item.states.map((state) => (
+            <Badge
+              key={state}
+              tone={state === "managed" || state === "assigned" ? "success" : state === "external" ? "neutral" : "warning"}
+            >
+              {stateLabels[state]}
+            </Badge>
+          ))}
+        </div>
+
+        {item.update.error && (
+          <p className="mux-skill-inspector-update-error">
+            更新检查失败：{item.update.error}
+            {item.update.retry_at ? ` · 可重试：${item.update.retry_at}` : ""}
+          </p>
+        )}
+
+        {item.risk ? (
+          <div className="mux-skill-inspector-findings">
+            {item.risk.findings.length === 0 ? (
+              <p>未发现需要展示的风险证据。</p>
+            ) : (
+              <ul>
+                {item.risk.findings.map((finding, index) => (
+                  <li key={`${finding.rule_id}:${finding.path}:${finding.line ?? "file"}:${index}`}>
+                    <div className="mux-skill-inspector-finding-head">
+                      <code>
+                        {finding.path}
+                        {finding.line === null ? "" : `:${finding.line}`}
+                      </code>
+                      <SkillRiskBadge
+                        level={finding.level}
+                        label={finding.level === "low" ? "提示" : undefined}
+                      />
+                    </div>
+                    <p>{finding.reason}</p>
+                    <code>{finding.rule_id} · v{finding.rule_version}</code>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {item.risk.findings_truncated && (
+              <p className="mux-skill-inspector-truncation">
+                已显示 {item.risk.findings.length} / {item.risk.finding_count} 条证据
+              </p>
+            )}
+          </div>
+        ) : (
+          <p className="mux-skill-inspector-unreviewed">尚未执行风险审阅。</p>
+        )}
+      </InspectorSection>
+
+      <InspectorSection title="Agent 影响">
+        <div className="mux-skill-inspector-agents">
+          <AgentStack ids={item.affected_agent_ids} />
+          <p>{affectedAgentNames.length > 0 ? affectedAgentNames.join("、") : "未影响任何 Agent"}</p>
+        </div>
+      </InspectorSection>
+
+      {loading ? (
+        <InspectorSection title="内容">
+          <p className="mux-skill-inspector-loading" role="status">正在读取 Skill 详情…</p>
+        </InspectorSection>
+      ) : error ? (
+        <InspectorSection title="内容">
+          <p className="mux-skill-inspector-error" role="alert">
+            读取详情失败：{error.message}
+            {error.retry_at ? ` · 可重试：${error.retry_at}` : ""}
+          </p>
+        </InspectorSection>
+      ) : detail ? (
+        <>
+          <InspectorSection title="文件">
+            <ul className="mux-skill-file-tree" aria-label="Skill 文件树">
+              {detail.files.map((file) => (
+                <li key={file.path}>
+                  <code>{file.path}</code>
+                  <span>
+                    {file.kind === "symlink" ? `符号链接 → ${file.link_target ?? "未知目标"}` : `${file.size} bytes`}
+                    {file.executable ? " · 可执行" : ""}
+                  </span>
+                  <code title={file.sha256}>{file.sha256}</code>
+                </li>
+              ))}
+            </ul>
+          </InspectorSection>
+
+          <InspectorSection title="SKILL.md">
+            {detail.skill_md_truncated && (
+              <p className="mux-skill-inspector-truncation">SKILL.md 预览已截断</p>
+            )}
+            <pre className="mux-skill-preview" aria-label="SKILL.md 纯文本预览">
+              {detail.skill_md}
+            </pre>
+          </InspectorSection>
+        </>
+      ) : (
+        <InspectorSection title="内容">
+          <p className="mux-skill-inspector-empty">尚未加载 Skill 详情。</p>
+        </InspectorSection>
+      )}
+    </ResourceInspector>
+  );
+}

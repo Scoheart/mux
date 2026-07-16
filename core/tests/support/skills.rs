@@ -122,7 +122,7 @@ fn github_archive(skill_names: &[String]) -> Vec<u8> {
     for name in skill_names {
         let body =
             format!("---\nname: {name}\ndescription: {name} fixture\n---\n\nFixture body.\n");
-        let mut header = Header::new_gnu();
+        let mut header = Header::new_ustar();
         header.set_mode(0o644);
         header.set_size(body.len() as u64);
         header.set_cksum();

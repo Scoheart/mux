@@ -185,6 +185,7 @@ fn resolve_github(
     let repository_root = extract_archive(&download_path, &archive_root)?;
     let requested_root = join_normalized(&repository_root, &resolved.subpath);
     let candidates = stage_candidates(&requested_root, operation_root)?;
+    remove_transient_directory(&archive_root)?;
     Ok(SkillSourceResolution {
         operation_id: operation_id.to_owned(),
         source: SkillSource::Github {
@@ -718,8 +719,26 @@ fn extract_archive(download: &Path, destination: &Path) -> Result<PathBuf, Skill
         .ok_or_else(|| invalid_source_error("the archive staging layout is invalid"))?
         .join("source.tar");
     decompress_archive(download, &raw_tar)?;
-    preflight_tar(&raw_tar)?;
-    materialize_archive(&raw_tar, destination)
+    remove_transient_file(download)?;
+    let preflight = preflight_tar(&raw_tar)?;
+    let repository_root = materialize_archive(&raw_tar, destination, &preflight.normalized_paths)?;
+    remove_transient_file(&raw_tar)?;
+    Ok(repository_root)
+}
+
+fn remove_transient_file(path: &Path) -> Result<(), SkillError> {
+    remove_transient_with(path, |path| fs::remove_file(path))
+}
+
+fn remove_transient_directory(path: &Path) -> Result<(), SkillError> {
+    remove_transient_with(path, |path| fs::remove_dir_all(path))
+}
+
+fn remove_transient_with<F>(path: &Path, remove: F) -> Result<(), SkillError>
+where
+    F: FnOnce(&Path) -> std::io::Result<()>,
+{
+    remove(path).map_err(|error| io_error(path, error))
 }
 
 fn decompress_archive(download: &Path, raw_tar: &Path) -> Result<(), SkillError> {
@@ -753,7 +772,11 @@ fn decompress_archive(download: &Path, raw_tar: &Path) -> Result<(), SkillError>
     output.flush().map_err(|error| io_error(raw_tar, error))
 }
 
-fn preflight_tar(raw_tar: &Path) -> Result<(), SkillError> {
+struct TarPreflight {
+    normalized_paths: Vec<String>,
+}
+
+fn preflight_tar(raw_tar: &Path) -> Result<TarPreflight, SkillError> {
     let mut file = File::open(raw_tar).map_err(|error| io_error(raw_tar, error))?;
     let length = file
         .metadata()
@@ -766,6 +789,7 @@ fn preflight_tar(raw_tar: &Path) -> Result<(), SkillError> {
     let mut offset = 0_u64;
     let mut physical_headers = 0_u64;
     let mut unsupported_extension = false;
+    let mut normalized_paths = Vec::new();
     let mut block = [0_u8; TAR_BLOCK_BYTES as usize];
     while offset < length {
         read_tar_block(&mut file, &mut block)?;
@@ -791,13 +815,14 @@ fn preflight_tar(raw_tar: &Path) -> Result<(), SkillError> {
                     "unsupported archive extension: PAX, GNU long-name/link, and sparse records are not accepted",
                 )
             } else {
-                Ok(())
+                Ok(TarPreflight { normalized_paths })
             };
         }
 
         physical_headers = physical_headers.saturating_add(1);
         enforce_limit("entries", physical_headers, MAX_ARCHIVE_ENTRIES)?;
         validate_tar_checksum(&block)?;
+        validate_posix_ustar_header(&block)?;
         let size = parse_tar_octal(&block[124..136], "size", true)?;
         let kind = block[156];
         if matches!(kind, 0 | b'0' | b'7') {
@@ -805,6 +830,8 @@ fn preflight_tar(raw_tar: &Path) -> Result<(), SkillError> {
         }
         if matches!(kind, b'g' | b'x' | b'L' | b'K' | b'S') {
             unsupported_extension = true;
+        } else {
+            normalized_paths.push(normalize_raw_ustar_path(&block, kind)?);
         }
         if kind == b'2' {
             validate_tar_string_padding(&block[157..257], "symlink target")?;
@@ -855,6 +882,32 @@ fn validate_tar_checksum(block: &[u8; 512]) -> Result<(), SkillError> {
     Ok(())
 }
 
+fn validate_posix_ustar_header(block: &[u8; 512]) -> Result<(), SkillError> {
+    if &block[257..263] != b"ustar\0" || &block[263..265] != b"00" {
+        return invalid_source(
+            "unsupported tar header dialect: only canonical POSIX USTAR headers are accepted",
+        );
+    }
+    if block[500..512].iter().any(|byte| *byte != 0) {
+        return invalid_source("unsupported tar header layout: POSIX USTAR padding must be zero");
+    }
+    tar_string_bytes(&block[..100], "header name")?;
+    tar_string_bytes(&block[345..500], "header prefix")?;
+    Ok(())
+}
+
+fn normalize_raw_ustar_path(block: &[u8; 512], kind: u8) -> Result<String, SkillError> {
+    let name = tar_string_bytes(&block[..100], "header name")?;
+    let prefix = tar_string_bytes(&block[345..500], "header prefix")?;
+    let mut path = Vec::with_capacity(prefix.len() + usize::from(!prefix.is_empty()) + name.len());
+    if !prefix.is_empty() {
+        path.extend_from_slice(prefix);
+        path.push(b'/');
+    }
+    path.extend_from_slice(name);
+    Ok(normalize_archive_path(&path, kind == b'5')?.join("/"))
+}
+
 fn parse_tar_octal(
     field: &[u8],
     label: &'static str,
@@ -897,16 +950,25 @@ fn parse_tar_octal(
     Ok(value)
 }
 
-fn validate_tar_string_padding(field: &[u8], label: &'static str) -> Result<(), SkillError> {
+fn tar_string_bytes<'a>(field: &'a [u8], label: &'static str) -> Result<&'a [u8], SkillError> {
     if let Some(end) = field.iter().position(|byte| *byte == 0) {
         if field[end + 1..].iter().any(|byte| *byte != 0) {
             return invalid_source(&format!("the tar {label} contains embedded NUL data"));
         }
+        return Ok(&field[..end]);
     }
-    Ok(())
+    Ok(field)
 }
 
-fn materialize_archive(raw_tar: &Path, destination: &Path) -> Result<PathBuf, SkillError> {
+fn validate_tar_string_padding(field: &[u8], label: &'static str) -> Result<(), SkillError> {
+    tar_string_bytes(field, label).map(|_| ())
+}
+
+fn materialize_archive(
+    raw_tar: &Path,
+    destination: &Path,
+    normalized_paths: &[String],
+) -> Result<PathBuf, SkillError> {
     let file = File::open(raw_tar).map_err(|error| io_error(raw_tar, error))?;
     let mut archive = Archive::new(file);
     let entries = archive.entries().map_err(|_| archive_read_error())?;
@@ -935,6 +997,9 @@ fn materialize_archive(raw_tar: &Path, destination: &Path) -> Result<PathBuf, Sk
         };
         let components = normalize_archive_path(entry.path_bytes().as_ref(), kind.is_dir())?;
         let relative = components.join("/");
+        if normalized_paths.get((entry_count - 1) as usize) != Some(&relative) {
+            return invalid_source("the raw and high-level tar parsers disagreed on an entry path");
+        }
         if !seen.insert(relative.clone()) {
             return invalid_source("the archive contains duplicate entry paths");
         }
@@ -988,6 +1053,9 @@ fn materialize_archive(raw_tar: &Path, destination: &Path) -> Result<PathBuf, Sk
                 destination: destination_path,
             });
         }
+    }
+    if entry_count as usize != normalized_paths.len() {
+        return invalid_source("the raw and high-level tar parsers disagreed on the entry count");
     }
     let root = roots
         .into_iter()
@@ -1669,12 +1737,48 @@ mod tests {
     }
 
     #[test]
-    fn operation_cleanup_failure_takes_precedence_without_leaking_paths() {
+    fn transient_removal_failure_triggers_owned_full_root_cleanup_without_path_leakage() {
+        let th = TestHome::new("skill-source-transient-removal");
+        let operation = th.home.join("private-operation");
+        let owner = OperationDirectory::create(operation.clone()).unwrap();
+        let transient = operation.join("source.tar");
+        fs::write(&transient, b"transient").unwrap();
+
+        let removal = remove_transient_with(&transient, |_| {
+            Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "transient removal denied",
+            ))
+        });
+        assert!(
+            owner.armed,
+            "transient cleanup disarmed the operation owner"
+        );
+        let error = owner
+            .finish(removal)
+            .map_err(sanitize_resolution_error)
+            .unwrap_err();
+
+        assert!(
+            !operation.exists(),
+            "the owned operation root was not removed"
+        );
+        assert!(matches!(error, SkillError::Io { path: None, .. }));
+        assert!(!format!("{error:?}").contains(th.home.to_string_lossy().as_ref()));
+    }
+
+    #[test]
+    fn whole_root_cleanup_failure_takes_precedence_without_leaking_paths() {
         let th = TestHome::new("skill-source-cleanup-precedence");
         let operation = th.home.join("private-operation");
-        let original = SkillError::InvalidSource {
-            message: "original source error".into(),
-        };
+        let transient = operation.join("source.tar");
+        let original = remove_transient_with(&transient, |_| {
+            Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "transient removal denied",
+            ))
+        })
+        .unwrap_err();
 
         assert_eq!(
             finish_operation_with_cleanup(Err::<(), _>(original.clone()), &operation, |_| Ok(()))
@@ -1706,7 +1810,7 @@ mod tests {
     }
 
     fn append_test_file<W: Write>(archive: &mut Builder<W>, path: &str, body: &[u8]) {
-        let mut header = Header::new_gnu();
+        let mut header = Header::new_ustar();
         header.set_entry_type(EntryType::file());
         header.set_mode(0o644);
         header.set_size(body.len() as u64);
@@ -1717,7 +1821,7 @@ mod tests {
     }
 
     fn append_test_link<W: Write>(archive: &mut Builder<W>, path: &str, target: &str) {
-        let mut header = Header::new_gnu();
+        let mut header = Header::new_ustar();
         header.set_entry_type(EntryType::symlink());
         header.set_mode(0o777);
         header.set_size(0);

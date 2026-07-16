@@ -827,6 +827,112 @@ fn ambiguous_tar_extensions_and_sparse_metadata_are_rejected() {
 }
 
 #[test]
+fn raw_ustar_path_fields_reject_hidden_tails_and_unsupported_gnu_layouts() {
+    let candidate_path = format!("skills-{FIXTURE_SHA}/catalog/review/SKILL.md");
+    let outside_prefix = format!("skills-{FIXTURE_SHA}/outside");
+    let hidden_name = b"safe\0hidden";
+    let mut hidden_prefix = outside_prefix.as_bytes().to_vec();
+    hidden_prefix.extend_from_slice(b"\0hidden");
+    let cases = vec![
+        (
+            "name-hidden-tail",
+            raw_ustar_header(
+                hidden_name,
+                outside_prefix.as_bytes(),
+                EntryType::file(),
+                0,
+                None,
+            ),
+            "name",
+        ),
+        (
+            "prefix-hidden-tail",
+            raw_ustar_header(b"ignored.txt", &hidden_prefix, EntryType::file(), 0, None),
+            "prefix",
+        ),
+        (
+            "gnu-layout",
+            raw_gnu_header(&format!("{outside_prefix}/gnu.txt"), EntryType::file(), 0),
+            "header dialect",
+        ),
+    ];
+
+    for (index, (name, header, reason)) in cases.into_iter().enumerate() {
+        let home = TestHome::new(&format!("skills-tar-path-canonical-{index}"));
+        let archive = gzip_tar_records(
+            vec![
+                regular_record(&candidate_path, valid_manifest("review")),
+                (header, Vec::new()),
+            ],
+            2,
+            &[],
+        );
+        let server = ScriptedGithub::new(ArchiveBehavior::Bytes(archive));
+        let error = resolve_source(
+            SkillSourceInput::Github {
+                value: "https://github.com/acme/skills/tree/main/catalog".into(),
+            },
+            server.endpoints(),
+        )
+        .unwrap_err();
+        assert!(
+            matches!(error, SkillError::InvalidSource { ref message } if message.contains(reason)),
+            "{name} was not rejected by raw path preflight: {error:?}"
+        );
+        drop(server);
+        drop(home);
+    }
+}
+
+#[test]
+fn full_width_ustar_name_and_prefix_fields_match_the_high_level_parser() {
+    let _home = TestHome::new("skills-tar-full-width-paths");
+    let candidate = regular_record(
+        &format!("skills-{FIXTURE_SHA}/catalog/review/SKILL.md"),
+        valid_manifest("review"),
+    );
+    let full_name = vec![b'n'; 100];
+    let name_prefix = format!("skills-{FIXTURE_SHA}/outside");
+    let full_name_record = (
+        raw_ustar_header(
+            &full_name,
+            name_prefix.as_bytes(),
+            EntryType::file(),
+            0,
+            None,
+        ),
+        Vec::new(),
+    );
+    let mut full_prefix = format!("skills-{FIXTURE_SHA}/outside/").into_bytes();
+    full_prefix.resize(155, b'p');
+    let full_prefix_record = (
+        raw_ustar_header(b"boundary.txt", &full_prefix, EntryType::file(), 0, None),
+        Vec::new(),
+    );
+    let server = ScriptedGithub::new(ArchiveBehavior::Bytes(gzip_tar_records(
+        vec![candidate, full_name_record, full_prefix_record],
+        2,
+        &[],
+    )));
+
+    let result = resolve_source(
+        SkillSourceInput::Github {
+            value: "https://github.com/acme/skills/tree/main/catalog".into(),
+        },
+        server.endpoints(),
+    )
+    .unwrap();
+    assert_eq!(
+        result
+            .candidates
+            .iter()
+            .map(|candidate| candidate.name.as_str())
+            .collect::<Vec<_>>(),
+        vec!["review"]
+    );
+}
+
+#[test]
 fn malformed_tar_checksum_size_and_end_framing_are_rejected() {
     let path = format!("skills-{FIXTURE_SHA}/catalog/review/SKILL.md");
     let body = valid_manifest("review");
@@ -902,7 +1008,7 @@ fn malformed_tar_checksum_size_and_end_framing_are_rejected() {
 
 #[cfg(unix)]
 #[test]
-fn github_staging_files_and_directories_remain_private() {
+fn github_success_retains_only_private_candidate_snapshots() {
     use std::os::unix::fs::PermissionsExt;
 
     let th = TestHome::new("skills-private-staging");
@@ -919,7 +1025,6 @@ fn github_staging_files_and_directories_remain_private() {
         .join(format!(".mux/staging/skills/{}", result.operation_id));
     for directory in [
         operation.clone(),
-        operation.join("archive"),
         operation.join("candidates"),
         operation.join("candidates/review"),
     ] {
@@ -930,14 +1035,8 @@ fn github_staging_files_and_directories_remain_private() {
             directory.display()
         );
     }
-    for file in [
-        operation.join("source.tar.gz"),
-        operation.join("source.tar"),
-        operation.join(format!(
-            "archive/skills-{FIXTURE_SHA}/catalog/review/SKILL.md"
-        )),
-        operation.join("candidates/review/SKILL.md"),
-    ] {
+    let candidate = operation.join("candidates/review/SKILL.md");
+    for file in [candidate] {
         assert_eq!(
             fs::metadata(&file).unwrap().permissions().mode() & 0o777,
             0o600,
@@ -945,6 +1044,23 @@ fn github_staging_files_and_directories_remain_private() {
             file.display()
         );
     }
+    for transient in [
+        operation.join("source.tar.gz"),
+        operation.join("source.tar"),
+        operation.join("archive"),
+    ] {
+        assert!(
+            !transient.exists(),
+            "successful GitHub staging retained transient data: {}",
+            transient.display()
+        );
+    }
+    let mut retained = fs::read_dir(&operation)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name())
+        .collect::<Vec<_>>();
+    retained.sort();
+    assert_eq!(retained, vec!["candidates"]);
 }
 
 #[cfg(unix)]
@@ -1207,7 +1323,7 @@ fn archive_with(entries: &[ArchiveEntry]) -> Vec<u8> {
                 builder.append(&header, Cursor::new(body)).unwrap();
             }
             ArchiveEntry::Directory(path) => {
-                let mut header = Header::new_gnu();
+                let mut header = Header::new_ustar();
                 header.set_entry_type(EntryType::dir());
                 header.set_mode(0o755);
                 header.set_size(0);
@@ -1217,7 +1333,7 @@ fn archive_with(entries: &[ArchiveEntry]) -> Vec<u8> {
                     .unwrap();
             }
             ArchiveEntry::Link { path, target, kind } => {
-                let mut header = Header::new_gnu();
+                let mut header = Header::new_ustar();
                 header.set_entry_type(*kind);
                 header.set_mode(0o777);
                 header.set_size(0);
@@ -1245,7 +1361,19 @@ fn file_header(size: u64) -> Header {
 
 fn raw_header(path: &str, kind: EntryType, size: u64, link: Option<&str>) -> Header {
     assert!(path.len() < 100);
-    let mut header = Header::new_gnu();
+    raw_ustar_header(path.as_bytes(), &[], kind, size, link)
+}
+
+fn raw_ustar_header(
+    name: &[u8],
+    prefix: &[u8],
+    kind: EntryType,
+    size: u64,
+    link: Option<&str>,
+) -> Header {
+    assert!(name.len() <= 100);
+    assert!(prefix.len() <= 155);
+    let mut header = Header::new_ustar();
     header.set_entry_type(kind);
     header.set_mode(0o644);
     header.set_size(size);
@@ -1254,7 +1382,19 @@ fn raw_header(path: &str, kind: EntryType, size: u64, link: Option<&str>) -> Hea
     }
     let bytes = header.as_mut_bytes();
     bytes[..100].fill(0);
-    bytes[..path.len()].copy_from_slice(path.as_bytes());
+    bytes[..name.len()].copy_from_slice(name);
+    bytes[345..500].fill(0);
+    bytes[345..345 + prefix.len()].copy_from_slice(prefix);
+    header.set_cksum();
+    header
+}
+
+fn raw_gnu_header(path: &str, kind: EntryType, size: u64) -> Header {
+    let mut header = Header::new_gnu();
+    header.set_entry_type(kind);
+    header.set_mode(0o644);
+    header.set_size(size);
+    header.set_path(path).unwrap();
     header.set_cksum();
     header
 }

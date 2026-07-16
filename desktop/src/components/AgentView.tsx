@@ -8,7 +8,7 @@ import { Avatar, Badge, IconButton, SearchBar, Switch, TransportPill } from "./u
 import { AgentGlyph } from "./brandIcons";
 import { AddAgentDialog } from "./AddAgentDialog";
 import { AgentPicker } from "./AgentPicker";
-import { FeatureTabs } from "./FeatureTabs";
+import { FeatureShell } from "./FeatureShell";
 import { cellKey } from "../lib/api";
 
 interface AgentViewProps {
@@ -165,16 +165,12 @@ export function AgentView({
   }
 
   return (
-    <div className="h-full min-h-0 overflow-y-auto">
-      <div className="max-w-4xl mx-auto px-6 py-6">
-        <div className="mb-4">
-          <FeatureTabs
-            active="mcps"
-            onSelectMcps={onSelectMcps}
-            onSelectModels={onSelectModels}
-          />
-        </div>
-        <div className="mb-5">
+    <FeatureShell
+      active="mcps"
+      onSelectMcps={onSelectMcps}
+      onSelectModels={onSelectModels}
+      toolbar={
+        <div className="mux-feature-chrome-toolbar">
           <AgentPicker
             agents={agents}
             selectedId={agentId}
@@ -182,7 +178,9 @@ export function AgentView({
             onAddAgent={onAddAgent}
           />
         </div>
-
+      }
+    >
+      <div className="max-w-4xl">
         {/* Header */}
         <div className="flex items-center gap-3 mb-5">
           <AgentGlyph id={agent.id} name={agent.name} size={44} />
@@ -326,7 +324,7 @@ export function AgentView({
                               cursor: isPending ? "default" : "pointer",
                             }}
                             onMouseEnter={(e) => {
-                              if (!isPending) e.currentTarget.style.background = "color-mix(in srgb, #007AFF 6%, transparent)";
+                              if (!isPending) e.currentTarget.style.background = "color-mix(in srgb, var(--color-blue) 6%, transparent)";
                             }}
                             onMouseLeave={(e) => {
                               e.currentTarget.style.background = "transparent";
@@ -410,6 +408,6 @@ export function AgentView({
           </div>
         )}
       </div>
-    </div>
+    </FeatureShell>
   );
 }

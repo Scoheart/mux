@@ -91,10 +91,7 @@ export function SourcesSidebar({
   };
 
   return (
-    <aside
-      className="flex-shrink-0 flex flex-col h-full min-h-0"
-      style={{ width: 232, borderRight: "1px solid var(--border-hairline)", background: "var(--surface-sidebar)" }}
-    >
+    <aside className="mux-feature-sidebar">
       {/* Header: title + add actions */}
       <div className="flex items-center gap-1.5 px-3 pt-3.5 pb-2">
         <span className="text-xs font-semibold uppercase flex-1" style={{ color: "var(--text-secondary)", letterSpacing: "0.06em" }}>

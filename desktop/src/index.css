@@ -2,9 +2,10 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 @theme {
-  --color-blue: #007AFF;
-  --color-blue-hover: #0066D6;
-  --color-blue-press: #0051A3;
+  /* Brand accent — match website violet (`website/.vitepress/theme/custom.css`) */
+  --color-blue: #7c5cfc;
+  --color-blue-hover: #9178ff;
+  --color-blue-press: #6346e8;
   --color-green: #34C759;
   --color-red: #FF3B30;
   --color-gray-50: #F5F5F7;
@@ -37,11 +38,11 @@
   --text-secondary: var(--color-gray-400);
   --border-hairline: var(--color-gray-200);
   --header-bg: rgba(245,245,247,.55);
-  --status-shadowed: #5654B8;
-  --status-shadowed-bg: rgba(94,92,230,.10);
-  --status-shadowed-border: rgba(94,92,230,.28);
-  --status-shadowed-surface: rgba(246,246,255,.76);
-  --status-shadowed-surface-hover: rgba(241,241,255,.92);
+  --status-shadowed: #6346e8;
+  --status-shadowed-bg: rgba(124, 92, 252, 0.10);
+  --status-shadowed-border: rgba(124, 92, 252, 0.28);
+  --status-shadowed-surface: rgba(246, 244, 255, 0.76);
+  --status-shadowed-surface-hover: rgba(240, 237, 255, 0.92);
   color-scheme: light;
 
   /* Liquid-glass material tokens — a CSS approximation of Apple's Liquid Glass
@@ -58,39 +59,42 @@
   --glass-shadow: 0 8px 32px rgba(31,38,135,.10), 0 2px 8px rgba(0,0,0,.06);
 }
 
-/* Dark theme — toggled by adding `.dark` on <html>. Overrides the semantic +
-   gray tokens so everything built on var() flips; brand accents stay as-is. */
+/* Dark theme — aligned with website VitePress dark + mux-panel (#16181d) */
 .dark {
   color-scheme: dark;
-  --color-gray-50:  #161618;
-  --color-gray-100: #1C1C1E;
-  --color-gray-150: #2C2C2E;
-  --color-gray-200: #38383A;
-  --color-gray-400: #8E8E93;
-  --color-gray-600: #A1A1A6;
-  --color-gray-900: #F5F5F7;
+  --color-blue: #9b85ff;
+  --color-blue-hover: #b4a6ff;
+  --color-blue-press: #7c5cfc;
 
-  --surface-app: #161618;
-  --surface-raised: #1F1F22;
-  --surface-popover: #242427;
-  --surface-sidebar: rgba(30,30,32,.72);
-  --surface-overlay: rgba(38,38,42,.86);
-  --text-primary: #F5F5F7;
-  --text-secondary: #98989D;
-  --border-hairline: #3A3A3C;
-  --header-bg: rgba(22,22,24,.55);
+  --color-gray-50:  #1b1b1f;
+  --color-gray-100: #202127;
+  --color-gray-150: #2a2b32;
+  --color-gray-200: #3a3a42;
+  --color-gray-400: #9898a0;
+  --color-gray-600: #a8a8b0;
+  --color-gray-900: #f5f5f7;
 
-  --glass-fill: rgba(44,44,48,.50);
-  --glass-fill-strong: rgba(48,48,52,.68);
-  --glass-border: rgba(255,255,255,.10);
-  --glass-highlight: inset 0 1px 0 rgba(255,255,255,.08);
-  --glass-shadow: 0 8px 32px rgba(0,0,0,.45), 0 2px 8px rgba(0,0,0,.35);
+  --surface-app: #1b1b1f;
+  --surface-raised: #22232a;
+  --surface-popover: #272830;
+  --surface-sidebar: rgba(22, 24, 29, 0.86);
+  --surface-overlay: rgba(34, 35, 42, 0.90);
+  --text-primary: #f5f5f7;
+  --text-secondary: #9898a0;
+  --border-hairline: #2e2e36;
+  --header-bg: rgba(27, 27, 31, 0.72);
 
-  --status-shadowed: #A7A5FF;
-  --status-shadowed-bg: rgba(94,92,230,.18);
-  --status-shadowed-border: rgba(167,165,255,.34);
-  --status-shadowed-surface: rgba(42,41,68,.82);
-  --status-shadowed-surface-hover: rgba(50,48,82,.90);
+  --glass-fill: rgba(39, 40, 48, 0.52);
+  --glass-fill-strong: rgba(34, 35, 42, 0.72);
+  --glass-border: rgba(255, 255, 255, 0.08);
+  --glass-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.07);
+  --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.45), 0 2px 8px rgba(0, 0, 0, 0.35);
+
+  --status-shadowed: #b4a6ff;
+  --status-shadowed-bg: rgba(124, 92, 252, 0.18);
+  --status-shadowed-border: rgba(155, 133, 255, 0.34);
+  --status-shadowed-surface: rgba(42, 38, 68, 0.82);
+  --status-shadowed-surface-hover: rgba(52, 46, 82, 0.90);
 }
 
 /* Forced light: the chosen aesthetic is "macOS 原生浅色". We intentionally do
@@ -317,16 +321,60 @@ body {
   line-height: 1;
 }
 
-/** In-app feature tabs — sit in the main column (not above the sidebar) */
+/* Shared feature workspace: sidebar + main. MCPs / Models / future tabs all
+   mount here so switching only swaps pane content — chrome stays identical. */
+.mux-feature-shell {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+}
+.mux-feature-sidebar {
+  flex: 0 0 232px;
+  width: 232px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-right: 1px solid var(--border-hairline);
+  background: var(--surface-sidebar);
+}
+.mux-feature-main {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+}
+.mux-feature-chrome {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 24px;
+}
+.mux-feature-chrome-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+}
+.mux-feature-body {
+  width: min(100%, 1280px);
+  margin: 0 auto;
+  padding: 20px 24px 32px;
+}
+
+/* Compact segmented control — never stretch full-bleed across the main pane */
 .mux-feature-tabs {
   display: inline-grid;
   grid-auto-flow: column;
   grid-auto-columns: 1fr;
   align-items: stretch;
   gap: 2px;
+  width: max-content;
+  max-width: 100%;
   padding: 3px;
   border-radius: 10px;
   background: rgba(120, 120, 128, 0.16);
+  flex: 0 0 auto;
 }
 .mux-feature-tab {
   display: inline-flex;
@@ -404,7 +452,10 @@ body {
 }
 .mux-agent-picker-trigger-copy {
   display: flex; flex: 1; min-width: 0; flex-direction: column; align-items: flex-start; gap: 3px;
-  text-align: left;
+  text-align: left; justify-content: center;
+}
+.mux-agent-picker-trigger[data-placeholder="true"] .mux-agent-picker-trigger-copy {
+  gap: 0;
 }
 .mux-agent-picker-trigger-name,
 .mux-agent-picker-trigger-meta {
@@ -412,6 +463,14 @@ body {
 }
 .mux-agent-picker-trigger-name { font: 650 12px/1 var(--font-sans); }
 .mux-agent-picker-trigger-meta { color: var(--text-secondary); font: 9px/1 var(--font-mono); }
+/* Match SearchBar placeholder: text-sm + muted secondary */
+.mux-agent-picker-trigger-placeholder {
+  display: block; width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: var(--text-secondary); font: 400 14px/1.25 var(--font-sans);
+}
+.mux-agent-picker-bot {
+  width: 16px; height: 16px; flex: 0 0 auto; color: var(--text-secondary);
+}
 .mux-agent-picker-chevron {
   width: 14px; height: 14px; flex: 0 0 auto; color: var(--text-secondary);
   transition: transform .14s ease, color .14s ease;
@@ -426,12 +485,28 @@ body {
   border: 1px solid color-mix(in srgb, var(--color-blue) 18%, var(--border-hairline)); border-radius: 9px;
   background: var(--surface-popover);
   box-shadow: 0 18px 44px rgba(24, 29, 43, .20), 0 4px 12px rgba(24, 29, 43, .10);
-  animation: mux-agent-picker-in .14s ease-out;
 }
 .mux-agent-picker[data-align="right"] { left: auto; right: 0; }
-@keyframes mux-agent-picker-in {
-  from { opacity: 0; transform: translateY(-5px) scale(.992); }
-  to { opacity: 1; transform: translateY(0) scale(1); }
+
+/* Shared dropdown open/close — expand from the trigger edge */
+.mux-dropdown-panel {
+  transform-origin: top center;
+  will-change: transform, opacity;
+}
+.mux-dropdown-panel[data-phase="open"] {
+  animation: mux-dropdown-in .16s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.mux-dropdown-panel[data-phase="closing"] {
+  animation: mux-dropdown-out .16s cubic-bezier(0.4, 0, 1, 1) both;
+  pointer-events: none;
+}
+@keyframes mux-dropdown-in {
+  from { opacity: 0; transform: translateY(-8px) scaleY(0.92); }
+  to { opacity: 1; transform: translateY(0) scaleY(1); }
+}
+@keyframes mux-dropdown-out {
+  from { opacity: 1; transform: translateY(0) scaleY(1); }
+  to { opacity: 0; transform: translateY(-6px) scaleY(0.94); }
 }
 .mux-agent-picker-row:focus-visible,
 .mux-agent-picker-footer button:focus-visible {
@@ -475,20 +550,43 @@ body {
   outline-offset: -2px;
 }
 .mux-agent-picker-list {
-  min-height: 220px; overflow-y: auto; padding: 4px 6px 7px;
+  min-height: 220px; overflow-y: auto; padding: 6px 8px 8px;
   border-top: 1px solid var(--border-hairline);
+  display: flex; flex-direction: column; gap: 4px;
 }
 .mux-agent-picker-row {
   display: flex; align-items: center; gap: 9px; width: 100%; min-height: 48px;
-  padding: 6px 8px; border: 0; border-radius: 6px; background: transparent;
-  color: var(--text-primary); text-align: left; cursor: pointer;
+  padding: 7px 9px; border: 1px solid var(--border-hairline); border-radius: var(--radius-mac);
+  background: var(--surface-raised); color: var(--text-primary); text-align: left; cursor: pointer;
+  transition: background .12s ease, border-color .12s ease;
 }
-.mux-agent-picker-row:hover { background: color-mix(in srgb, var(--text-primary) 6%, transparent); }
-.mux-agent-picker-row[data-active="true"] { background: color-mix(in srgb, var(--color-blue) 11%, transparent); }
-.mux-agent-picker-name,
-.mux-agent-picker-meta { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.mux-agent-picker-name { font-size: 12px; font-weight: 600; }
-.mux-agent-picker-meta { margin-top: 3px; color: var(--text-secondary); font: 10px/1 var(--font-mono); }
+.mux-agent-picker-row:hover {
+  background: color-mix(in srgb, var(--text-primary) 5%, var(--surface-raised));
+  border-color: color-mix(in srgb, var(--color-blue) 28%, var(--border-hairline));
+}
+.mux-agent-picker-row[data-active="true"] {
+  background: color-mix(in srgb, var(--color-blue) 11%, var(--surface-raised));
+  border-color: color-mix(in srgb, var(--color-blue) 42%, var(--border-hairline));
+}
+.mux-agent-picker-title {
+  display: flex; align-items: center; gap: 7px; min-width: 0;
+}
+.mux-agent-picker-name {
+  flex: 1; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 12px; font-weight: 600;
+}
+.mux-agent-picker-format {
+  display: inline-flex; align-items: center; flex: 0 0 auto; height: 16px; padding: 0 5px;
+  border: 1px solid color-mix(in srgb, var(--border-hairline) 90%, transparent);
+  border-radius: 4px; font: 650 9px/1 var(--font-mono); letter-spacing: 0.02em;
+  color: var(--text-secondary);
+}
+.mux-agent-picker-id {
+  display: block; margin-top: 4px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: var(--text-secondary); font: 10px/1 var(--font-mono);
+}
 .mux-agent-picker-check { width: 15px; height: 15px; flex: 0 0 auto; color: var(--color-blue); }
 .mux-agent-picker-empty { padding: 28px 12px; color: var(--text-secondary); font-size: 12px; text-align: center; }
 .mux-agent-picker-footer {
@@ -502,12 +600,76 @@ body {
 }
 .mux-agent-picker-footer button:hover { background: color-mix(in srgb, var(--color-blue) 9%, transparent); }
 
+/* Shared app select — same chrome as AgentPicker, used by Models and forms */
+.mux-select-anchor { position: relative; min-width: 0; }
+.mux-select-anchor[data-stretch="true"] { width: 100%; }
+.mux-select-trigger {
+  display: inline-flex; align-items: center; gap: 8px;
+  width: 100%; min-height: 36px; padding: 0 10px;
+  border: 1px solid var(--border-hairline); border-radius: var(--radius-mac);
+  background: var(--surface-raised); color: var(--text-primary);
+  cursor: pointer; box-shadow: var(--shadow-card), var(--glass-highlight);
+  transition: background .14s ease, border-color .14s ease, box-shadow .14s ease;
+}
+.mux-select-trigger:hover {
+  border-color: color-mix(in srgb, var(--color-blue) 38%, var(--border-hairline));
+}
+.mux-select-trigger[data-open="true"] {
+  border-color: color-mix(in srgb, var(--color-blue) 62%, var(--border-hairline));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-blue) 10%, transparent), var(--shadow-card);
+}
+.mux-select-trigger:disabled { opacity: .55; cursor: not-allowed; }
+.mux-select-trigger-label {
+  display: flex; flex: 1; min-width: 0; flex-direction: column; align-items: flex-start; gap: 3px;
+  text-align: left;
+}
+.mux-select-trigger-name,
+.mux-select-trigger-meta {
+  display: block; width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.mux-select-trigger-name { font: 650 12px/1.2 var(--font-sans); }
+.mux-select-trigger[data-placeholder="true"] .mux-select-trigger-name { color: var(--text-secondary); font-weight: 500; }
+.mux-select-trigger-meta { color: var(--text-secondary); font: 10px/1 var(--font-mono); }
+.mux-select-chevron {
+  width: 14px; height: 14px; flex: 0 0 auto; color: var(--text-secondary);
+  transition: transform .14s ease, color .14s ease;
+}
+.mux-select-trigger[data-open="true"] .mux-select-chevron {
+  color: var(--color-blue); transform: rotate(180deg);
+}
+.mux-select-menu {
+  position: absolute; z-index: 520; top: calc(100% + 5px); left: 0; right: 0;
+  max-height: min(280px, calc(100vh - 80px));
+  display: flex; flex-direction: column; overflow: auto;
+  border: 1px solid color-mix(in srgb, var(--color-blue) 18%, var(--border-hairline));
+  border-radius: var(--radius-mac);
+  background: var(--surface-popover);
+  box-shadow: 0 18px 44px rgba(24, 29, 43, .20), 0 4px 12px rgba(24, 29, 43, .10);
+  padding: 4px;
+}
+.mux-select-menu[data-align="right"] { left: auto; right: 0; }
+.mux-select-option {
+  display: flex; align-items: center; gap: 8px; width: 100%; min-height: 36px;
+  padding: 6px 8px; border: 0; border-radius: 7px; background: transparent;
+  color: var(--text-primary); text-align: left; cursor: pointer;
+}
+.mux-select-option:hover { background: color-mix(in srgb, var(--text-primary) 6%, transparent); }
+.mux-select-option[data-active="true"] { background: color-mix(in srgb, var(--color-blue) 11%, transparent); }
+.mux-select-option-name,
+.mux-select-option-meta { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mux-select-option-name { font-size: 12px; font-weight: 600; }
+.mux-select-option-meta { margin-top: 3px; color: var(--text-secondary); font: 10px/1 var(--font-mono); }
+.mux-select-check { width: 14px; height: 14px; flex: 0 0 auto; color: var(--color-blue); }
+.mux-select-empty { padding: 16px 10px; color: var(--text-secondary); font-size: 12px; text-align: center; }
+
+@media (prefers-reduced-motion: reduce) {
+  .mux-dropdown-panel[data-phase="open"],
+  .mux-dropdown-panel[data-phase="closing"] { animation: none; }
+}
+
 @media (max-height: 680px) {
   .mux-agent-picker { max-height: calc(100vh - 66px); }
   .mux-agent-picker-list { min-height: 160px; }
-}
-@media (prefers-reduced-motion: reduce) {
-  .mux-agent-picker { animation: none; }
 }
 
 /* Button system: a solid primary action + a quiet ghost/secondary. */
@@ -535,42 +697,25 @@ body {
 .mux-noscroll { scrollbar-width: none; }
 .mux-noscroll::-webkit-scrollbar { display: none; }
 
-/* Model endpoint manager: a quiet two-pane workspace. The sidebar is a plain
-   navigation surface; only the repeated Agent targets are framed. */
-.mux-models-shell {
-  display: grid;
-  grid-template-columns: 250px minmax(0, 1fr);
-  grid-template-rows: auto minmax(0, 1fr);
-  height: 100%; min-height: 0;
-  background: color-mix(in srgb, var(--surface-app) 92%, transparent);
+/* Model feature content — lives inside FeatureShell; chrome comes from the shell. */
+.mux-models-title {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 15px;
+  font-weight: 680;
+  line-height: 1.2;
 }
-.mux-models-feature-bar {
-  grid-column: 2;
-  grid-row: 1;
-  display: flex;
-  align-items: center;
-  padding: 10px 24px 0;
+.mux-models-sub {
+  margin: 4px 0 0;
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.3;
 }
-.mux-models-sidebar {
-  grid-column: 1;
-  grid-row: 1 / -1;
-  display: flex; min-height: 0; flex-direction: column;
-  border-right: 1px solid var(--border-hairline);
-  background: var(--surface-sidebar);
-}
-.mux-models-sidebar-head {
-  display: flex; align-items: center; justify-content: space-between;
-  min-height: 66px; padding: 12px 14px 10px 18px;
-  border-bottom: 1px solid var(--border-hairline);
-}
-.mux-models-sidebar-head h2,
-.mux-models-main-head h1 { margin: 0; color: var(--text-primary); font-size: 15px; font-weight: 680; }
-.mux-models-sidebar-head span { display: block; margin-top: 4px; color: var(--text-secondary); font-size: 10px; }
-.mux-model-profile-list { flex: 1; min-height: 0; overflow-y: auto; padding: 8px; }
+.mux-models-toolbar { align-items: flex-start; }
 .mux-model-profile-row {
-  display: flex; align-items: center; gap: 9px; width: 100%; min-height: 52px;
-  padding: 7px 9px; border: 0; border-radius: 7px; background: transparent;
-  color: var(--text-primary); text-align: left; cursor: pointer;
+  display: flex; align-items: center; gap: 9px; width: 100%; min-height: 44px;
+  margin-bottom: 2px; padding: 7px 9px; border: 0; border-radius: var(--radius-mac);
+  background: transparent; color: var(--text-primary); text-align: left; cursor: pointer;
 }
 .mux-model-profile-row:hover { background: color-mix(in srgb, var(--text-primary) 6%, transparent); }
 .mux-model-profile-row[data-active="true"] { background: color-mix(in srgb, var(--color-blue) 12%, transparent); }
@@ -581,10 +726,10 @@ body {
 .mux-model-profile-dot { width: 9px; height: 9px; flex: 0 0 auto; border-radius: 50%; background: #8E8E93; }
 .mux-model-profile-dot[data-protocol="anthropic-messages"] { background: #D97757; }
 .mux-model-profile-dot[data-protocol="openai-responses"] { background: #10A37F; }
-.mux-model-profile-dot[data-protocol="openai-completions"] { background: #007AFF; }
+.mux-model-profile-dot[data-protocol="openai-completions"] { background: var(--color-blue); }
 .mux-model-empty {
   display: flex; align-items: center; justify-content: center; gap: 7px; width: 100%; height: 42px;
-  border: 1px dashed var(--border-hairline); border-radius: 7px; background: transparent;
+  border: 1px dashed var(--border-hairline); border-radius: var(--radius-mac); background: transparent;
   color: var(--color-blue); font-size: 12px; cursor: pointer;
 }
 .mux-model-profile-actions {
@@ -599,24 +744,13 @@ body {
 .mux-model-profile-actions button:hover { background: var(--color-gray-150); color: var(--text-primary); }
 .mux-model-profile-actions button[data-danger="true"]:hover { color: var(--color-red); }
 
-.mux-models-main { grid-column: 2; grid-row: 2; min-width: 0; min-height: 0; overflow-y: auto; }
-.mux-models-main-head {
-  position: sticky; top: 0; z-index: 4;
-  display: flex; align-items: center; justify-content: space-between; gap: 18px;
-  min-height: 66px; padding: 10px 24px;
-  background: var(--header-bg); border-bottom: 1px solid var(--border-hairline);
-  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
-  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
-}
-.mux-models-main-head p { margin: 5px 0 0; color: var(--text-secondary); font-size: 11px; }
-.mux-model-selected-summary { min-width: 0; text-align: right; }
+.mux-model-selected-summary { min-width: 0; text-align: right; flex-shrink: 0; }
 .mux-model-selected-summary span,
 .mux-model-selected-summary strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mux-model-selected-summary span { color: var(--text-secondary); font-size: 9px; }
 .mux-model-selected-summary strong { margin-top: 4px; max-width: 240px; font-size: 11px; }
 .mux-model-agent-list {
-  display: flex; flex-direction: column; gap: 10px; width: min(100%, 1060px);
-  margin: 0 auto; padding: 18px 24px 28px;
+  display: flex; flex-direction: column; gap: 10px;
 }
 .mux-model-agent-row {
   display: grid; grid-template-columns: 38px minmax(180px, 1fr) minmax(280px, 400px);
@@ -634,14 +768,12 @@ body {
 .mux-model-agent-copy code { margin-top: 7px; color: var(--text-secondary); font: 9px/1 var(--font-mono); }
 .mux-model-agent-copy small { margin-top: 6px; color: #1A9447; font-size: 10px; }
 .mux-model-agent-controls { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; }
-.mux-model-agent-controls select,
 .mux-model-field {
   width: 100%; height: 36px; min-width: 0; padding: 0 10px;
-  border: 1px solid var(--border-hairline); border-radius: 7px;
+  border: 1px solid var(--border-hairline); border-radius: var(--radius-mac);
   outline: 0; background: var(--surface-raised); color: var(--text-primary);
   font: 12px/1 var(--font-sans);
 }
-.mux-model-agent-controls select:focus,
 .mux-model-field:focus {
   border-color: color-mix(in srgb, var(--color-blue) 62%, var(--border-hairline));
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-blue) 10%, transparent);
@@ -659,7 +791,6 @@ body {
 }
 
 @media (max-width: 800px) {
-  .mux-models-shell { grid-template-columns: 210px minmax(0, 1fr); }
   .mux-model-agent-row { grid-template-columns: 34px minmax(0, 1fr); }
   .mux-model-agent-controls,
   .mux-model-agent-row > .btn-ghost { grid-column: 2; }

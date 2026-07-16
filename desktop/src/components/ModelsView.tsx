@@ -18,7 +18,8 @@ import { AgentGlyph } from "./brandIcons";
 import { Badge, IconButton, Modal, ModalHeader } from "./ui";
 import { CheckIcon, EditIcon, LinkIcon, PlusIcon, TrashIcon } from "./icons";
 import { useToast } from "./Toast";
-import { FeatureTabs } from "./FeatureTabs";
+import { FeatureShell } from "./FeatureShell";
+import { SelectMenu } from "./SelectMenu";
 
 const PROTOCOLS: Array<{ id: ModelProtocol; label: string }> = [
   { id: "anthropic-messages", label: "Anthropic Messages" },
@@ -112,77 +113,94 @@ export function ModelsView({ onSelectMcps }: { onSelectMcps: () => void }) {
 
   if (loading) {
     return (
-      <div className="h-full flex items-center justify-center text-sm" style={{ color: "var(--text-secondary)" }}>
-        加载中…
-      </div>
+      <FeatureShell
+        active="models"
+        onSelectMcps={onSelectMcps}
+        onSelectModels={() => {}}
+        sidebar={
+          <aside className="mux-feature-sidebar">
+            <div className="flex items-center gap-1.5 px-3 pt-3.5 pb-2">
+              <span
+                className="text-xs font-semibold uppercase flex-1"
+                style={{ color: "var(--text-secondary)", letterSpacing: "0.06em" }}
+              >
+                模型
+              </span>
+            </div>
+          </aside>
+        }
+      >
+        <div className="py-16 text-sm text-center" style={{ color: "var(--text-secondary)" }}>
+          加载中…
+        </div>
+      </FeatureShell>
     );
   }
 
   return (
-    <div className="mux-models-shell">
-      <div className="mux-models-feature-bar">
-        <FeatureTabs
-          active="models"
-          onSelectMcps={onSelectMcps}
-          onSelectModels={() => {}}
-        />
-      </div>
-      <aside className="mux-models-sidebar">
-        <div className="mux-models-sidebar-head">
-          <div>
-            <h2>Models</h2>
-            <span>{profiles.length} 个配置</span>
-          </div>
-          <IconButton title="新建模型接口" onClick={() => setEditing(null)}>
-            <PlusIcon className="w-4 h-4" />
-          </IconButton>
-        </div>
-
-        <div className="mux-model-profile-list">
-          {profiles.length === 0 ? (
-            <button className="mux-model-empty" type="button" onClick={() => setEditing(null)}>
+    <FeatureShell
+      active="models"
+      onSelectMcps={onSelectMcps}
+      onSelectModels={() => {}}
+      sidebar={
+        <aside className="mux-feature-sidebar">
+          <div className="flex items-center gap-1.5 px-3 pt-3.5 pb-2">
+            <span
+              className="text-xs font-semibold uppercase flex-1"
+              style={{ color: "var(--text-secondary)", letterSpacing: "0.06em" }}
+            >
+              模型
+            </span>
+            <IconButton title="新建模型接口" onClick={() => setEditing(null)}>
               <PlusIcon className="w-4 h-4" />
-              新建模型接口
-            </button>
-          ) : (
-            profiles.map((profile) => (
-              <button
-                type="button"
-                key={profile.id}
-                className="mux-model-profile-row"
-                data-active={profile.id === selectedProfileId ? "true" : undefined}
-                onClick={() => setSelectedProfileId(profile.id)}
-              >
-                <span className="mux-model-profile-dot" data-protocol={profile.protocol} />
-                <span className="min-w-0 flex-1">
-                  <strong>{profile.name}</strong>
-                  <small>{profile.model}</small>
-                </span>
-                {profile.credential_saved && (
-                  <CheckIcon className="w-3.5 h-3.5 flex-shrink-0" style={{ color: "#34C759" }} />
-                )}
-              </button>
-            ))
-          )}
-        </div>
-
-        {selectedProfile && (
-          <div className="mux-model-profile-actions">
-            <button type="button" onClick={() => setEditing(selectedProfile)}>
-              <EditIcon className="w-3.5 h-3.5" /> 编辑
-            </button>
-            <button type="button" data-danger="true" onClick={() => void removeProfile(selectedProfile)}>
-              <TrashIcon className="w-3.5 h-3.5" /> 删除
-            </button>
+            </IconButton>
           </div>
-        )}
-      </aside>
 
-      <section className="mux-models-main">
-        <header className="mux-models-main-head">
-          <div>
-            <h1>Agent Models</h1>
-            <p>首批支持 Claude Code、Codex、Pi 与 Qoder。</p>
+          <div className="flex-1 min-h-0 overflow-y-auto px-2 pb-3 mux-noscroll">
+            {profiles.length === 0 ? (
+              <button className="mux-model-empty" type="button" onClick={() => setEditing(null)}>
+                <PlusIcon className="w-4 h-4" />
+                新建模型接口
+              </button>
+            ) : (
+              profiles.map((profile) => (
+                <button
+                  type="button"
+                  key={profile.id}
+                  className="mux-model-profile-row"
+                  data-active={profile.id === selectedProfileId ? "true" : undefined}
+                  onClick={() => setSelectedProfileId(profile.id)}
+                >
+                  <span className="mux-model-profile-dot" data-protocol={profile.protocol} />
+                  <span className="min-w-0 flex-1">
+                    <strong>{profile.name}</strong>
+                    <small>{profile.model}</small>
+                  </span>
+                  {profile.credential_saved && (
+                    <CheckIcon className="w-3.5 h-3.5 flex-shrink-0" style={{ color: "#34C759" }} />
+                  )}
+                </button>
+              ))
+            )}
+          </div>
+
+          {selectedProfile && (
+            <div className="mux-model-profile-actions">
+              <button type="button" onClick={() => setEditing(selectedProfile)}>
+                <EditIcon className="w-3.5 h-3.5" /> 编辑
+              </button>
+              <button type="button" data-danger="true" onClick={() => void removeProfile(selectedProfile)}>
+                <TrashIcon className="w-3.5 h-3.5" /> 删除
+              </button>
+            </div>
+          )}
+        </aside>
+      }
+      toolbar={
+        <div className="mux-feature-chrome-toolbar mux-models-toolbar">
+          <div className="min-w-0 flex-1">
+            <h1 className="mux-models-title">Agent Models</h1>
+            <p className="mux-models-sub">首批支持 Claude Code、Codex、Pi 与 Qoder。</p>
           </div>
           {selectedProfile && (
             <div className="mux-model-selected-summary">
@@ -190,71 +208,71 @@ export function ModelsView({ onSelectMcps }: { onSelectMcps: () => void }) {
               <strong>{selectedProfile.name}</strong>
             </div>
           )}
-        </header>
-
-        <div className="mux-model-agent-list">
-          {agents.map((agent) => {
-            const compatible = profiles.filter((profile) =>
-              agent.supported_protocols.includes(profile.protocol)
-            );
-            const assigned = agent.assigned_profile
-              ? profiles.find((profile) => profile.id === agent.assigned_profile)
-              : null;
-            const selected = selectedByAgent[agent.id] ?? "";
-            return (
-              <article className="mux-model-agent-row" key={agent.id}>
-                <AgentGlyph id={agent.id} name={agent.name} size={38} />
-                <div className="mux-model-agent-copy">
-                  <div className="mux-model-agent-title">
-                    <strong>{agent.name}</strong>
-                    <Badge tone={agent.installed ? "success" : "neutral"}>
-                      {agent.installed ? "已安装" : "未检测到"}
-                    </Badge>
-                    {agent.mode === "guided" && <Badge tone="warning">手动配置</Badge>}
-                  </div>
-                  <code>{agent.config_path}</code>
-                  {assigned && <small>当前：{assigned.name}</small>}
-                </div>
-
-                {agent.mode === "guided" ? (
-                  <button type="button" className="btn-ghost" onClick={() => openUrl(agent.docs)}>
-                    <LinkIcon className="w-4 h-4" />
-                    打开设置说明
-                  </button>
-                ) : (
-                  <div className="mux-model-agent-controls">
-                    <select
-                      aria-label={`${agent.name} 模型接口`}
-                      value={selected}
-                      onChange={(event) =>
-                        setSelectedByAgent((current) => ({
-                          ...current,
-                          [agent.id]: event.target.value,
-                        }))
-                      }
-                    >
-                      <option value="">选择模型接口</option>
-                      {compatible.map((profile) => (
-                        <option key={profile.id} value={profile.id}>
-                          {profile.name} · {profile.model}
-                        </option>
-                      ))}
-                    </select>
-                    <button
-                      type="button"
-                      className="btn-primary"
-                      disabled={!selected || busyAgent !== null}
-                      onClick={() => void apply(agent)}
-                    >
-                      {busyAgent === agent.id ? "应用中…" : "应用"}
-                    </button>
-                  </div>
-                )}
-              </article>
-            );
-          })}
         </div>
-      </section>
+      }
+    >
+      <div className="mux-model-agent-list">
+        {agents.map((agent) => {
+          const compatible = profiles.filter((profile) =>
+            agent.supported_protocols.includes(profile.protocol)
+          );
+          const assigned = agent.assigned_profile
+            ? profiles.find((profile) => profile.id === agent.assigned_profile)
+            : null;
+          const selected = selectedByAgent[agent.id] ?? "";
+          return (
+            <article className="mux-model-agent-row" key={agent.id}>
+              <AgentGlyph id={agent.id} name={agent.name} size={38} />
+              <div className="mux-model-agent-copy">
+                <div className="mux-model-agent-title">
+                  <strong>{agent.name}</strong>
+                  <Badge tone={agent.installed ? "success" : "neutral"}>
+                    {agent.installed ? "已安装" : "未检测到"}
+                  </Badge>
+                  {agent.mode === "guided" && <Badge tone="warning">手动配置</Badge>}
+                </div>
+                <code>{agent.config_path}</code>
+                {assigned && <small>当前：{assigned.name}</small>}
+              </div>
+
+              {agent.mode === "guided" ? (
+                <button type="button" className="btn-ghost" onClick={() => openUrl(agent.docs)}>
+                  <LinkIcon className="w-4 h-4" />
+                  打开设置说明
+                </button>
+              ) : (
+                <div className="mux-model-agent-controls">
+                  <SelectMenu
+                    stretch
+                    aria-label={`${agent.name} 模型接口`}
+                    value={selected}
+                    placeholder="选择模型接口"
+                    options={compatible.map((profile) => ({
+                      value: profile.id,
+                      label: profile.name,
+                      meta: profile.model,
+                    }))}
+                    onChange={(next) =>
+                      setSelectedByAgent((current) => ({
+                        ...current,
+                        [agent.id]: next,
+                      }))
+                    }
+                  />
+                  <button
+                    type="button"
+                    className="btn-primary"
+                    disabled={!selected || busyAgent !== null}
+                    onClick={() => void apply(agent)}
+                  >
+                    {busyAgent === agent.id ? "应用中…" : "应用"}
+                  </button>
+                </div>
+              )}
+            </article>
+          );
+        })}
+      </div>
 
       {editing !== undefined && (
         <ModelProfileDialog
@@ -266,7 +284,7 @@ export function ModelsView({ onSelectMcps }: { onSelectMcps: () => void }) {
           }}
         />
       )}
-    </div>
+    </FeatureShell>
   );
 }
 
@@ -356,17 +374,18 @@ function ModelProfileDialog({
 
         <label>
           <span>协议</span>
-          <select
-            className={fieldClass}
+          <SelectMenu
+            stretch
+            aria-label="协议"
             value={draft.protocol}
-            onChange={(event) =>
-              setDraft({ ...draft, protocol: event.target.value as ModelProtocol })
+            options={PROTOCOLS.map((protocol) => ({
+              value: protocol.id,
+              label: protocol.label,
+            }))}
+            onChange={(next) =>
+              setDraft({ ...draft, protocol: next as ModelProtocol })
             }
-          >
-            {PROTOCOLS.map((protocol) => (
-              <option key={protocol.id} value={protocol.id}>{protocol.label}</option>
-            ))}
-          </select>
+          />
         </label>
 
         <label>

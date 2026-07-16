@@ -3,12 +3,13 @@ import type { AgentInfo } from "../lib/types";
 import {
   ChevronDownIcon,
   CheckIcon,
-  PackageIcon,
+  BotIcon,
   PlusIcon,
   SearchIcon,
   XIcon,
 } from "./icons";
 import { AgentGlyph } from "./brandIcons";
+import { useDropdownPresence } from "../hooks/useDropdownPresence";
 
 interface AgentPickerProps {
   agents: AgentInfo[];
@@ -27,7 +28,7 @@ export function AgentPicker({
   onAddAgent,
   menuAlign = "left",
 }: AgentPickerProps) {
-  const [open, setOpen] = useState(false);
+  const { open, mounted, phase, toggle, hide, setOpen } = useDropdownPresence();
   const [query, setQuery] = useState("");
   const anchorRef = useRef<HTMLDivElement>(null);
 
@@ -52,10 +53,10 @@ export function AgentPicker({
   useEffect(() => {
     if (!open) return;
     const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setOpen(false);
+      if (event.key === "Escape") hide();
     };
     const closeOnPointerDown = (event: PointerEvent) => {
-      if (!anchorRef.current?.contains(event.target as Node)) setOpen(false);
+      if (!anchorRef.current?.contains(event.target as Node)) hide();
     };
     document.addEventListener("keydown", closeOnEscape);
     document.addEventListener("pointerdown", closeOnPointerDown);
@@ -63,7 +64,7 @@ export function AgentPicker({
       document.removeEventListener("keydown", closeOnEscape);
       document.removeEventListener("pointerdown", closeOnPointerDown);
     };
-  }, [open]);
+  }, [hide, open]);
 
   return (
     <div className="mux-agent-picker-anchor flex-shrink-0" ref={anchorRef}>
@@ -72,39 +73,46 @@ export function AgentPicker({
         className="mux-agent-picker-trigger"
         data-active={selected ? "true" : undefined}
         data-open={open ? "true" : undefined}
+        data-placeholder={!selected ? "true" : undefined}
         aria-haspopup="listbox"
         aria-expanded={open}
+        aria-label={selected ? selected.name : `${writableCount} 个可配置 Agent`}
         onClick={() => {
-          setOpen((v) => !v);
+          toggle();
           setQuery("");
         }}
       >
         {selected ? (
           <AgentGlyph id={selected.id} name={selected.name} size={24} />
         ) : (
-          <PackageIcon className="w-5 h-5 flex-shrink-0" />
+          <BotIcon className="mux-agent-picker-bot" />
         )}
         <span className="mux-agent-picker-trigger-copy">
-          <span className="mux-agent-picker-trigger-name">
-            {selected?.name ?? "选择 Agent"}
-          </span>
-          <span className="mux-agent-picker-trigger-meta">
-            {selected?.id ?? `${writableCount} 个可配置 Agent`}
-          </span>
+          {selected ? (
+            <>
+              <span className="mux-agent-picker-trigger-name">{selected.name}</span>
+              <span className="mux-agent-picker-trigger-meta">{selected.id}</span>
+            </>
+          ) : (
+            <span className="mux-agent-picker-trigger-placeholder">
+              {writableCount} 个可配置 Agent
+            </span>
+          )}
         </span>
         <ChevronDownIcon className="mux-agent-picker-chevron" />
       </button>
-      {open && (
+      {mounted && (
         <section
-          className="mux-agent-picker"
+          className="mux-dropdown-panel mux-agent-picker"
           data-align={menuAlign}
+          data-phase={phase}
           aria-label="选择 Agent"
         >
           <div className="mux-agent-picker-search">
             <SearchIcon className="w-4 h-4 flex-shrink-0" />
             <input
               type="search"
-              autoFocus
+              autoFocus={phase === "open"}
               spellCheck={false}
               value={query}
               onChange={(event) => setQuery(event.target.value)}
@@ -147,10 +155,11 @@ export function AgentPicker({
                   >
                     <AgentGlyph id={agent.id} name={agent.name} size={32} />
                     <span className="min-w-0 flex-1">
-                      <span className="mux-agent-picker-name">{agent.name}</span>
-                      <span className="mux-agent-picker-meta">
-                        {agent.format.toUpperCase()} · {agent.id}
+                      <span className="mux-agent-picker-title">
+                        <span className="mux-agent-picker-name">{agent.name}</span>
+                        <span className="mux-agent-picker-format">{agent.format.toUpperCase()}</span>
                       </span>
+                      <span className="mux-agent-picker-id">{agent.id}</span>
                     </span>
                     {active && <CheckIcon className="mux-agent-picker-check" />}
                   </button>

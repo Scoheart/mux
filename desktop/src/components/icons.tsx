@@ -93,6 +93,21 @@ export function PackageIcon({ className, style }: IconProps) {
   );
 }
 
+/** Bot / agent mark — rounded head, antenna, ear stubs */
+export function BotIcon({ className, style }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} style={style} stroke="currentColor" fill="none"
+      strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 8V4h4" />
+      <rect width="16" height="12" x="4" y="8" rx="3" />
+      <path d="M2 14h2" />
+      <path d="M20 14h2" />
+      <path d="M9 13v2" />
+      <path d="M15 13v2" />
+    </svg>
+  );
+}
+
 /** Wrench — MCP / tools tab */
 export function WrenchIcon({ className, style }: IconProps) {
   return (

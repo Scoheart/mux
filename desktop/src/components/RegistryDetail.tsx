@@ -190,7 +190,7 @@ export function RegistryDetail({
           <button
             onClick={onEdit}
             className="flex items-center gap-1.5 px-4 py-2 text-sm rounded-mac border-0 cursor-pointer font-medium"
-            style={{ background: "#007AFF", color: "#fff" }}
+            style={{ background: "var(--color-blue)", color: "#fff" }}
           >
             <EditIcon className="w-4 h-4" />
             编辑

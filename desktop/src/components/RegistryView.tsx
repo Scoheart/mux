@@ -20,11 +20,11 @@ import {
   LayersIcon,
   TrashIcon,
 } from "./icons";
-import { Avatar, Badge, IconButton, SearchBar, Modal, TransportPill, stickyHeaderStyle } from "./ui";
+import { Avatar, Badge, IconButton, SearchBar, Modal, TransportPill } from "./ui";
 import { useToast } from "./Toast";
 import { PasteConfigDialog } from "./PasteConfigDialog";
 import { AgentPicker } from "./AgentPicker";
-import { FeatureTabs } from "./FeatureTabs";
+import { FeatureShell } from "./FeatureShell";
 
 interface RegistryViewProps {
   state: InstallState;
@@ -241,101 +241,93 @@ export function RegistryView({
   );
 
   return (
-    <div className="flex h-full min-h-0">
-      <SourcesSidebar
-        state={state}
-        selectedId={selectedSource}
-        onSelect={(id) => {
-          setSelectedSource(id);
-          setStatusFilter("all");
-        }}
-      />
-
-      <div className="flex-1 min-w-0 min-h-0 overflow-y-auto">
-      {/* Sticky header: feature tabs + agent/search — aligned to main column */}
-      <div className="sticky top-0 z-10 px-6 pt-3 pb-3" style={stickyHeaderStyle}>
-        <div className="max-w-[1280px] mx-auto flex flex-col gap-2.5">
-          <FeatureTabs
-            active="mcps"
-            onSelectMcps={() => {}}
-            onSelectModels={onSelectModels}
+    <FeatureShell
+      active="mcps"
+      onSelectMcps={() => {}}
+      onSelectModels={onSelectModels}
+      sidebar={
+        <SourcesSidebar
+          state={state}
+          selectedId={selectedSource}
+          onSelect={(id) => {
+            setSelectedSource(id);
+            setStatusFilter("all");
+          }}
+        />
+      }
+      toolbar={
+        <div className="mux-feature-chrome-toolbar">
+          <AgentPicker
+            agents={agents}
+            selectedId={null}
+            onSelect={onSelectAgent}
+            onAddAgent={onAddAgent}
           />
-          <div className="flex items-center gap-3">
-            <AgentPicker
-              agents={agents}
-              selectedId={null}
-              onSelect={onSelectAgent}
-              onAddAgent={onAddAgent}
-            />
-            <div className="flex-1 min-w-[160px]">
-              <SearchBar value={q} onChange={setQ} placeholder="搜索 MCP…" />
-            </div>
-            {showShadowedFilter && (
-              <button
-                type="button"
-                className="mux-shadowed-filter flex-shrink-0"
-                data-active={statusFilter === "shadowed" ? "true" : undefined}
-                aria-pressed={statusFilter === "shadowed"}
-                title={statusFilter === "shadowed" ? "显示全部配置" : "只看被覆盖配置"}
-                onClick={() => setStatusFilter(statusFilter === "shadowed" ? "all" : "shadowed")}
-              >
-                <LayersIcon className="w-3.5 h-3.5" />
-                <span>被覆盖</span>
-                <span className="tabular-nums opacity-70">{shadowedCount}</span>
-              </button>
-            )}
+          <div className="flex-1 min-w-[160px]">
+            <SearchBar value={q} onChange={setQ} placeholder="搜索 MCP…" />
+          </div>
+          {showShadowedFilter && (
             <button
-              onClick={() => setPasteOpen(true)}
-              className="btn-ghost flex-shrink-0"
-              title="粘贴 MCP 配置"
+              type="button"
+              className="mux-shadowed-filter flex-shrink-0"
+              data-active={statusFilter === "shadowed" ? "true" : undefined}
+              aria-pressed={statusFilter === "shadowed"}
+              title={statusFilter === "shadowed" ? "显示全部配置" : "只看被覆盖配置"}
+              onClick={() => setStatusFilter(statusFilter === "shadowed" ? "all" : "shadowed")}
             >
-              粘贴配置
+              <LayersIcon className="w-3.5 h-3.5" />
+              <span>被覆盖</span>
+              <span className="tabular-nums opacity-70">{shadowedCount}</span>
             </button>
-            <IconButton title="导出生效配置" onClick={doExport} disabled={entries.length === 0}>
-              <DownloadIcon className="w-4 h-4" />
-            </IconButton>
-            <button onClick={onCreate} className="btn-primary flex-shrink-0">
-              <PlusIcon className="w-4 h-4" />
-              新建 MCP
-            </button>
-          </div>
-
+          )}
+          <button
+            onClick={() => setPasteOpen(true)}
+            className="btn-ghost flex-shrink-0"
+            title="粘贴 MCP 配置"
+          >
+            粘贴配置
+          </button>
+          <IconButton title="导出生效配置" onClick={doExport} disabled={entries.length === 0}>
+            <DownloadIcon className="w-4 h-4" />
+          </IconButton>
+          <button onClick={onCreate} className="btn-primary flex-shrink-0">
+            <PlusIcon className="w-4 h-4" />
+            新建 MCP
+          </button>
         </div>
-      </div>
-
-      <div className="max-w-[1280px] mx-auto px-6 pt-5 pb-8">
-        {filtered.length === 0 ? (
-          <div className="py-16 text-sm text-center" style={{ color: "var(--text-secondary)" }}>
-            {catalog.length === 0
-              ? "暂无配置，请从左侧添加来源。"
-              : statusFilter === "shadowed"
-                ? "没有被覆盖项"
-                : "没有匹配项"}
-          </div>
-        ) : (
-          <div className="mux-grid">
-            {filtered.map((item) => (
-              <RegistryCard
-                key={`${keyOf(item.entry)}@${item.entry.origin?.source ?? item.entry.origin?.kind ?? ""}`}
-                item={item}
-                installedAgents={agentsForServer(keyOf(item.entry))}
-                sourceName={sourceName}
-                overriddenBy={
-                  item.in_effect
-                    ? undefined
-                    : originLabel(winningOriginByKey.get(keyOf(item.entry)), sourceName)
-                }
-                editable={editable(item.entry)}
-                deletable={deletable(item.entry)}
-                onOpen={() => setDetail(item)}
-                onCopy={() => copyConfig(item.entry)}
-                onEdit={() => onEdit(item.entry.name, transportOf(item.entry))}
-                onDelete={() => deleteEntry(item.entry)}
-              />
-            ))}
-          </div>
-        )}
-      </div>
+      }
+    >
+      {filtered.length === 0 ? (
+        <div className="py-16 text-sm text-center" style={{ color: "var(--text-secondary)" }}>
+          {catalog.length === 0
+            ? "暂无配置，请从左侧添加来源。"
+            : statusFilter === "shadowed"
+              ? "没有被覆盖项"
+              : "没有匹配项"}
+        </div>
+      ) : (
+        <div className="mux-grid">
+          {filtered.map((item) => (
+            <RegistryCard
+              key={`${keyOf(item.entry)}@${item.entry.origin?.source ?? item.entry.origin?.kind ?? ""}`}
+              item={item}
+              installedAgents={agentsForServer(keyOf(item.entry))}
+              sourceName={sourceName}
+              overriddenBy={
+                item.in_effect
+                  ? undefined
+                  : originLabel(winningOriginByKey.get(keyOf(item.entry)), sourceName)
+              }
+              editable={editable(item.entry)}
+              deletable={deletable(item.entry)}
+              onOpen={() => setDetail(item)}
+              onCopy={() => copyConfig(item.entry)}
+              onEdit={() => onEdit(item.entry.name, transportOf(item.entry))}
+              onDelete={() => deleteEntry(item.entry)}
+            />
+          ))}
+        </div>
+      )}
 
       {pasteOpen && <PasteConfigDialog state={state} onClose={() => setPasteOpen(false)} />}
 
@@ -364,8 +356,7 @@ export function RegistryView({
           onDelete={deletable(detail.entry) ? () => deleteEntry(detail.entry) : undefined}
         />
       )}
-      </div>
-    </div>
+    </FeatureShell>
   );
 }
 
@@ -638,7 +629,7 @@ function RegistryDetail({
             <button
               onClick={onEdit}
               className="flex items-center gap-1.5 px-4 py-2 text-sm rounded-mac border-0 cursor-pointer font-medium"
-              style={{ background: "#007AFF", color: "#fff" }}
+              style={{ background: "var(--color-blue)", color: "#fff" }}
             >
               <EditIcon className="w-4 h-4" />
               编辑

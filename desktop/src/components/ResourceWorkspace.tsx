@@ -8,6 +8,7 @@ import {
   useContext,
   useEffect,
   useId,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -36,8 +37,13 @@ interface WorkspaceResizeContextValue {
   onKeyDown: (event: ReactKeyboardEvent<HTMLDivElement>) => void;
 }
 
+interface ResourcePanelContextValue {
+  panelId: string;
+  setActiveTabId: (tabId: string | undefined) => void;
+}
+
 const WorkspaceResizeContext = createContext<WorkspaceResizeContextValue | null>(null);
-const RESOURCE_WORKSPACE_PANEL_ID = "mux-resource-workspace-panel";
+const ResourcePanelContext = createContext<ResourcePanelContextValue | null>(null);
 
 export interface ResourceTabOption<T extends string> {
   value: T;
@@ -58,7 +64,15 @@ export function ResourceTabs<T extends string>({
 }) {
   const tabListId = useId();
   const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const panel = useContext(ResourcePanelContext);
   const selectedIndex = Math.max(0, options.findIndex((option) => option.value === value));
+  const selectedTabId = `${tabListId}-${selectedIndex}`;
+
+  useEffect(() => {
+    panel?.setActiveTabId(selectedTabId);
+  }, [panel, selectedTabId]);
+
+  useEffect(() => () => panel?.setActiveTabId(undefined), [panel]);
 
   const moveFocus = (index: number) => {
     const option = options[index];
@@ -81,7 +95,7 @@ export function ResourceTabs<T extends string>({
             className="mux-resource-tab"
             role="tab"
             id={tabId}
-            aria-controls={RESOURCE_WORKSPACE_PANEL_ID}
+            aria-controls={panel?.panelId}
             aria-selected={option.value === value}
             tabIndex={option.value === value ? 0 : -1}
             data-active={option.value === value ? "true" : undefined}
@@ -143,6 +157,13 @@ export function ResourceWorkspace({
   const previousFocusRef = useRef<HTMLElement | null>(null);
   const inspectorSurfaceRef = useRef<HTMLDivElement>(null);
   const [isResizing, setIsResizing] = useState(false);
+  const workspaceId = useId();
+  const panelId = `mux-resource-workspace-panel-${workspaceId}`;
+  const [activeTabId, setActiveTabId] = useState<string>();
+  const resourcePanelContext = useMemo(
+    () => ({ panelId, setActiveTabId }),
+    [panelId, setActiveTabId]
+  );
   const isInspectorOpen = Boolean(inspector);
 
   const persistSidebarWidth = useCallback((width: number) => {
@@ -240,57 +261,60 @@ export function ResourceWorkspace({
   }, [isInspectorOpen]);
 
   return (
-    <WorkspaceResizeContext.Provider
-      value={{
-        isResizing,
-        sidebarWidth,
-        onPointerDown: onResizePointerDown,
-        onKeyDown: onResizeKeyDown,
-      }}
-    >
-      <div
-        className="mux-workspace"
-        style={{ "--mux-workspace-sidebar-width": `${sidebarWidth}px` } as CSSProperties}
+    <ResourcePanelContext.Provider value={resourcePanelContext}>
+      <WorkspaceResizeContext.Provider
+        value={{
+          isResizing,
+          sidebarWidth,
+          onPointerDown: onResizePointerDown,
+          onKeyDown: onResizeKeyDown,
+        }}
       >
-        {sidebar}
-        <section className="mux-workspace-stage">
-          <div className="mux-workspace-toolbar">
-            <SearchBar value={query} onChange={onQueryChange} placeholder={searchPlaceholder} />
-            <div className="mux-workspace-actions">{toolbarActions}</div>
-          </div>
-          {filters && <div className="mux-workspace-filters">{filters}</div>}
-          <div className="mux-workspace-content">
-            <div
-              id={RESOURCE_WORKSPACE_PANEL_ID}
-              className="mux-workspace-scroll"
-              role="tabpanel"
-              aria-label={searchPlaceholder}
-              aria-hidden={isInspectorOpen || undefined}
-              inert={isInspectorOpen || undefined}
-            >
-              {children}
+        <div
+          className="mux-workspace"
+          style={{ "--mux-workspace-sidebar-width": `${sidebarWidth}px` } as CSSProperties}
+        >
+          {sidebar}
+          <section className="mux-workspace-stage">
+            <div className="mux-workspace-toolbar">
+              <SearchBar value={query} onChange={onQueryChange} placeholder={searchPlaceholder} />
+              <div className="mux-workspace-actions">{toolbarActions}</div>
             </div>
-            {inspector && (
-              <div className="mux-workspace-inspector-layer">
-                <button
-                  type="button"
-                  className="mux-workspace-inspector-mask"
-                  aria-label="关闭详情"
-                  onClick={() => onInspectorClose?.()}
-                />
-                <div
-                  ref={inspectorSurfaceRef}
-                  className="mux-workspace-inspector-surface"
-                  onPointerDown={(event) => event.stopPropagation()}
-                >
-                  {inspector}
-                </div>
+            {filters && <div className="mux-workspace-filters">{filters}</div>}
+            <div className="mux-workspace-content">
+              <div
+                id={panelId}
+                className="mux-workspace-scroll"
+                role="tabpanel"
+                aria-label={searchPlaceholder}
+                aria-labelledby={activeTabId}
+                aria-hidden={isInspectorOpen || undefined}
+                inert={isInspectorOpen || undefined}
+              >
+                {children}
               </div>
-            )}
-          </div>
-        </section>
-      </div>
-    </WorkspaceResizeContext.Provider>
+              {inspector && (
+                <div className="mux-workspace-inspector-layer">
+                  <button
+                    type="button"
+                    className="mux-workspace-inspector-mask"
+                    aria-label="关闭详情"
+                    onClick={() => onInspectorClose?.()}
+                  />
+                  <div
+                    ref={inspectorSurfaceRef}
+                    className="mux-workspace-inspector-surface"
+                    onPointerDown={(event) => event.stopPropagation()}
+                  >
+                    {inspector}
+                  </div>
+                </div>
+              )}
+            </div>
+          </section>
+        </div>
+      </WorkspaceResizeContext.Provider>
+    </ResourcePanelContext.Provider>
   );
 }
 

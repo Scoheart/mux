@@ -300,13 +300,26 @@ export function RegistryView({ state, onEdit, onCreate }: RegistryViewProps) {
       }
       toolbarActions={
         <>
-          <button onClick={() => setPasteOpen(true)} className="btn-ghost" title="粘贴 MCP 配置">
+          <button
+            onClick={() => {
+              setDetail(null);
+              setPasteOpen(true);
+            }}
+            className="btn-ghost"
+            title="粘贴 MCP 配置"
+          >
             粘贴配置
           </button>
           <IconButton title="导出生效配置" onClick={doExport} disabled={entries.length === 0}>
             <DownloadIcon className="w-4 h-4" />
           </IconButton>
-          <button onClick={onCreate} className="btn-primary">
+          <button
+            onClick={() => {
+              setDetail(null);
+              onCreate();
+            }}
+            className="btn-primary"
+          >
             <PlusIcon className="w-4 h-4" />
             新建 MCP
           </button>

@@ -166,6 +166,7 @@ function ruleByType(ruleset, type) {
 
 test("main Ruleset requires current verified squash PRs", async () => {
   const ruleset = JSON.parse(await read(".github/rulesets/main.json"));
+  const runbook = await read(".github/rulesets/README.md");
 
   assert.equal(ruleset.target, "branch");
   assert.equal(ruleset.enforcement, "evaluate");
@@ -186,6 +187,8 @@ test("main Ruleset requires current verified squash PRs", async () => {
   assert.deepEqual(checks.required_status_checks, [
     { context: "verify", integration_id: 15368 },
   ]);
+  assert.match(runbook, /squash_merge_commit_title=PR_TITLE/);
+  assert.match(runbook, /squash_merge_commit_message=PR_BODY/);
 });
 
 test("stable tag Ruleset allows creation but blocks mutation", async () => {

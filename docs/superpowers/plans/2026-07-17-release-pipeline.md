@@ -554,7 +554,7 @@ The runbook must contain exact commands to:
 
 1. GET current repository merge settings and Rulesets into timestamped local evidence.
 2. POST the Evaluate Rulesets from committed JSON.
-3. PATCH merge settings to squash-only and delete merged branches.
+3. PATCH merge settings to squash-only, use the PR title deterministically for the squash commit, and delete merged branches.
 4. Confirm the effective rules from the API.
 5. Promote a named Ruleset from Evaluate or Disabled to Active with the current REST `PUT` endpoint.
 6. Disable—not delete—the Ruleset for emergency rollback.
@@ -582,7 +582,7 @@ git commit -m "docs(release): codify repository governance" \
 Before mutation, re-read live state. Apply the committed payloads with `gh api`, then verify:
 
 ```bash
-gh api repos/Scoheart/mux --jq '{allow_squash_merge,allow_merge_commit,allow_rebase_merge,delete_branch_on_merge}'
+gh api repos/Scoheart/mux --jq '{allow_squash_merge,allow_merge_commit,allow_rebase_merge,delete_branch_on_merge,squash_merge_commit_title,squash_merge_commit_message}'
 gh api repos/Scoheart/mux/rulesets
 ```
 

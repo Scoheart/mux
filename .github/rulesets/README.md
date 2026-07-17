@@ -27,7 +27,7 @@ gh api "repos/$REPO/rulesets" >"$EVIDENCE_DIR/rulesets.json"
 gh api "repos/$REPO/commits/main/check-runs?check_name=verify&filter=latest&per_page=100" \
   >"$EVIDENCE_DIR/verify-checks.json"
 
-jq '{allow_squash_merge,allow_merge_commit,allow_rebase_merge,delete_branch_on_merge}' \
+jq '{allow_squash_merge,allow_merge_commit,allow_rebase_merge,delete_branch_on_merge,squash_merge_commit_title,squash_merge_commit_message}' \
   "$EVIDENCE_DIR/repository.json"
 jq '[.check_runs[] | {name,app:{id:.app.id,slug:.app.slug},status,conclusion}]' \
   "$EVIDENCE_DIR/verify-checks.json"
@@ -73,7 +73,9 @@ gh api --method PATCH "repos/$REPO" \
   -F allow_squash_merge=true \
   -F allow_merge_commit=false \
   -F allow_rebase_merge=false \
-  -F delete_branch_on_merge=true
+  -F delete_branch_on_merge=true \
+  -f squash_merge_commit_title=PR_TITLE \
+  -f squash_merge_commit_message=PR_BODY
 ```
 
 Verify the effective settings and full Ruleset payloads:
@@ -81,7 +83,7 @@ Verify the effective settings and full Ruleset payloads:
 ```bash
 REPO=Scoheart/mux
 gh api "repos/$REPO" \
-  --jq '{allow_squash_merge,allow_merge_commit,allow_rebase_merge,delete_branch_on_merge}'
+  --jq '{allow_squash_merge,allow_merge_commit,allow_rebase_merge,delete_branch_on_merge,squash_merge_commit_title,squash_merge_commit_message}'
 gh api "repos/$REPO/rulesets" --jq '.[] | [.id,.name,.target,.enforcement] | @tsv'
 for id in $(gh api "repos/$REPO/rulesets" --jq '.[].id'); do
   gh api "repos/$REPO/rulesets/$id" \

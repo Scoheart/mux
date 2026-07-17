@@ -159,7 +159,7 @@ Release Please 不能使用默认 `GITHUB_TOKEN` 创建 PR 和 tag，因为该 t
 - 稳定 `vX.Y.Z` tag：构建并完成 Draft Stable Release。
 - `workflow_dispatch`：重跑指定 tag 或恢复失败的 Draft Release。
 
-普通 `main` push 先判断是否为 Release PR 合并。判断以 Release Please manifest 版本变化和固定 Release PR 提交格式为双重信号；命中时跳过 Pre-release，等待稳定 tag 路径。
+普通 `main` push 先判断是否为 Release PR 合并。判断以 Release Please manifest 版本变化和固定 Release PR 提交格式为双重信号；命中时跳过 Pre-release，等待稳定 tag 路径。仓库 squash 标题必须固定使用 PR title，不能依赖 GitHub 的 `COMMIT_OR_PR_TITLE` 默认值，否则单提交 Release PR 可能因首个 commit 标题漂移而误走 Pre-release。
 
 Stable tag 路径必须：
 

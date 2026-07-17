@@ -7,7 +7,9 @@ import {
   movePinnedAgentAfter,
   movePinnedAgentBefore,
   movePinnedAgentBy,
+  previewPinnedAgentOrder,
   togglePinnedAgent,
+  type PinnedDropPlacement,
 } from "./pinnedAgents.ts";
 
 function agent(id: string, name: string, hasGlobal = true): AgentInfo {
@@ -125,4 +127,25 @@ test("reorder operations preserve original input arrays", () => {
   assert.deepEqual(movePinnedAgentBefore(dragIds, "qoder", "claude-code"), ["qoder", "claude-code", "codex"]);
   assert.deepEqual(keyboardIds, keyboardSnapshot);
   assert.deepEqual(dragIds, dragSnapshot);
+});
+
+test("drag preview follows before and after targets across multiple rows", () => {
+  const ids = ["claude-code", "codex", "qoder", "pi"];
+  const first = previewPinnedAgentOrder(ids, "qoder", "claude-code", "before");
+  const second = previewPinnedAgentOrder(first, "qoder", "codex", "after");
+
+  assert.deepEqual(first, ["qoder", "claude-code", "codex", "pi"]);
+  assert.deepEqual(second, ["claude-code", "codex", "qoder", "pi"]);
+  assert.deepEqual(ids, ["claude-code", "codex", "qoder", "pi"]);
+});
+
+test("drag preview preserves order for invalid and self targets", () => {
+  const ids = ["claude-code", "codex", "qoder"];
+  const placements: PinnedDropPlacement[] = ["before", "after"];
+
+  for (const placement of placements) {
+    assert.deepEqual(previewPinnedAgentOrder(ids, "codex", "codex", placement), ids);
+    assert.deepEqual(previewPinnedAgentOrder(ids, "missing", "codex", placement), ids);
+    assert.deepEqual(previewPinnedAgentOrder(ids, "codex", "missing", placement), ids);
+  }
 });

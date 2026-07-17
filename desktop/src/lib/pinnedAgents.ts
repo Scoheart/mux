@@ -83,3 +83,16 @@ export function movePinnedAgentAfter(
   next.splice(next.indexOf(targetId) + 1, 0, draggedId);
   return next;
 }
+
+export type PinnedDropPlacement = "before" | "after";
+
+export function previewPinnedAgentOrder(
+  ids: string[],
+  draggedId: string,
+  targetId: string,
+  placement: PinnedDropPlacement,
+): string[] {
+  return placement === "after"
+    ? movePinnedAgentAfter(ids, draggedId, targetId)
+    : movePinnedAgentBefore(ids, draggedId, targetId);
+}

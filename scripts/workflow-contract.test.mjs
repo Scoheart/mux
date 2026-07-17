@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
@@ -130,4 +130,30 @@ test("desktop workflow classifies and gates both publication channels", async ()
   assert.ok(stable, "missing bounded Stable section");
   assert.match(stable[1], /publish-release-assets\.sh/);
   assert.doesNotMatch(stable[1], /gh release create/);
+});
+
+test("every repository Action uses an immutable commit", async () => {
+  const workflowDirectory = join(root, ".github", "workflows");
+  const workflowNames = (await readdir(workflowDirectory)).filter((name) =>
+    name.endsWith(".yml"),
+  );
+
+  for (const workflowName of workflowNames) {
+    const workflow = await read(`.github/workflows/${workflowName}`);
+    for (const match of workflow.matchAll(/^\s*uses:\s*([^\s#]+).*$/gm)) {
+      const action = match[1];
+      if (action.startsWith("./")) continue;
+      if (action.startsWith("docker://")) {
+        assert.match(action, /@sha256:[0-9a-f]{64}$/);
+        continue;
+      }
+      const separator = action.lastIndexOf("@");
+      assert.notEqual(separator, -1, `${workflowName}: ${action}`);
+      assert.match(
+        action.slice(separator + 1),
+        /^[0-9a-f]{40}$/,
+        `${workflowName}: ${action}`,
+      );
+    }
+  }
 });

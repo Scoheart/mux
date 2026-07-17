@@ -134,6 +134,12 @@ test("desktop workflow classifies and gates both publication channels", async ()
   assert.match(workflow, /wait-for-verify\.sh/);
   assert.match(workflow, /publish-release-assets\.sh/);
   assert.match(workflow, /gh release create/);
+  assert.match(workflow, /source_ref:\s*\$\{\{ steps\.classify\.outputs\.source_ref \}\}/);
+  assert.match(workflow, /ref:\s*\$\{\{ needs\.classify\.outputs\.source_ref \}\}/);
+  assert.match(workflow, /dispatch stable-retry from main/);
+  assert.match(workflow, /path:\s*\.delivery/);
+  assert.match(workflow, /\.delivery\/\.github\/scripts\/publish-release-assets\.sh/);
+  assert.match(workflow, /steps\.source\.outputs\.sha/);
   assert.doesNotMatch(workflow, /cancel-in-progress:\s*true/);
 
   const prerelease = workflow.match(/# PRE-RELEASE START([\s\S]*?)# PRE-RELEASE END/);

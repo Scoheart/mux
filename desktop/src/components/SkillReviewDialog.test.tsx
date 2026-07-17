@@ -110,6 +110,42 @@ function BackgroundEscapeHarness() {
 }
 
 describe("SkillReviewDialog", () => {
+  it("describes assignment loss only for caller-identified changed targets", () => {
+    const plan = sharedTargetPlanFixture();
+    plan.kind = "assignment";
+    plan.targets.push({
+      target_id: "claude-user",
+      global_dir: "~/.claude/skills",
+      expected: "managed",
+      primary_agent_ids: ["claude-code"],
+      affected_agent_ids: ["claude-code"],
+    });
+
+    render(
+      <SkillReviewDialog
+        plan={plan}
+        assignmentContext={{
+          enabled: false,
+          agentIds: ["cursor"],
+          targetIds: ["agents-user"],
+        }}
+        onCommit={vi.fn()}
+        onClose={vi.fn()}
+        onCommitted={vi.fn()}
+        onRecoveryRequired={vi.fn()}
+      />,
+    );
+
+    const impact = screen.getByRole("region", { name: "分配影响" });
+    expect(within(impact).getByText("将停止为 Cursor 分配")).toBeVisible();
+    expect(within(impact).getByText("~/.agents/skills")).toBeVisible();
+    expect(
+      within(impact).getByText("Codex、Cursor、Gemini CLI 将失去访问"),
+    ).toBeVisible();
+    expect(within(impact).queryByText("~/.claude/skills")).not.toBeInTheDocument();
+    expect(within(impact).queryByText(/Claude Code.*将失去访问/)).not.toBeInTheDocument();
+  });
+
   it("commits normally after the Strict Mode effect replay", async () => {
     const inventory = skillsInventoryFixture();
     const onCommitted = vi.fn();

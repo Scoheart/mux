@@ -22,6 +22,7 @@ import type {
   SkillCommandError,
   SkillContentKind,
   SkillDetail,
+  SkillNavigationIntent,
   SkillsInventory,
 } from "../lib/types";
 import {
@@ -38,7 +39,10 @@ import {
   SkillInspector,
   type SkillLifecycleIntent,
 } from "./SkillInspector";
-import { SkillReviewDialog } from "./SkillReviewDialog";
+import {
+  SkillReviewDialog,
+  type SkillReviewDialogProps,
+} from "./SkillReviewDialog";
 import { useToast } from "./Toast";
 import {
   ResourceEmpty,
@@ -79,7 +83,55 @@ const contentOptions: Array<{
   { value: "instructions", label: "说明型", icon: <PackageIcon className="w-3.5 h-3.5" /> },
 ];
 
-export function SkillsView({ state }: { state: SkillsState }) {
+interface SkillsViewProps {
+  state: SkillsState;
+  intent?: SkillNavigationIntent;
+  onIntentConsumed?(id: number): void;
+}
+
+type LifecycleAssignmentContext = NonNullable<
+  SkillReviewDialogProps["assignmentContext"]
+> & { operationId: string };
+
+interface LifecycleReview {
+  plan: OperationPlan;
+  assignmentContext: LifecycleAssignmentContext | null;
+}
+
+function assignmentContextForPlan(
+  intent: Extract<SkillLifecycleIntent, { kind: "assignment" }>,
+  inventory: SkillsInventory | null,
+  plan: OperationPlan,
+): LifecycleAssignmentContext {
+  const selectedAgentIds = new Set(intent.agentIds);
+  const priorTargetIds = new Set(
+    inventory?.items.find(
+      (item) =>
+        item.name === intent.skillName && item.location.kind === "central",
+    )?.assigned_target_ids ?? [],
+  );
+  const targetIds = plan.targets
+    .filter(
+      (target) =>
+        target.affected_agent_ids.some((agentId) =>
+          selectedAgentIds.has(agentId),
+        ) &&
+        (!intent.enabled || !priorTargetIds.has(target.target_id)),
+    )
+    .map((target) => target.target_id);
+  return {
+    operationId: plan.operation_id,
+    enabled: intent.enabled,
+    agentIds: intent.agentIds,
+    targetIds,
+  };
+}
+
+export function SkillsView({
+  state,
+  intent,
+  onIntentConsumed,
+}: SkillsViewProps) {
   const toast = useToast();
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState<SkillStatusFilter>("all");
@@ -91,7 +143,12 @@ export function SkillsView({ state }: { state: SkillsState }) {
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<SkillCommandError | null>(null);
   const [installOpen, setInstallOpen] = useState(false);
-  const [lifecyclePlan, setLifecyclePlan] = useState<OperationPlan | null>(null);
+  const [installInitialAgentId, setInstallInitialAgentId] = useState<
+    string | null
+  >(null);
+  const [navigationNotice, setNavigationNotice] = useState<string | null>(null);
+  const [lifecycleReview, setLifecycleReview] =
+    useState<LifecycleReview | null>(null);
   const [lifecyclePlanning, setLifecyclePlanning] = useState(false);
   const [recoveryRequired, setRecoveryRequired] = useState<string | null>(null);
   const detailGeneration = useRef(0);
@@ -108,6 +165,7 @@ export function SkillsView({ state }: { state: SkillsState }) {
   const cancelRef = useRef(state.cancel);
   const toastRef = useRef(toast);
   const mounted = useRef(true);
+  const lastConsumedIntentId = useRef<number | null>(null);
   cancelRef.current = state.cancel;
   toastRef.current = toast;
   const items = state.inventory?.items ?? [];
@@ -126,7 +184,10 @@ export function SkillsView({ state }: { state: SkillsState }) {
       contentKind: SkillContentKind | "all";
     }>,
   ) => filterSkills(items, { ...filters, ...override }).length;
-  const recoveryError = recoveryRequired ?? state.inventory?.recovery_error ?? null;
+  const recoveryError =
+    recoveryRequired ??
+    state.inventory?.recovery_error ??
+    (state.error?.code === "recovery_required" ? state.error.message : null);
   const checkDisabled =
     checking ||
     lifecyclePlanning ||
@@ -203,6 +264,7 @@ export function SkillsView({ state }: { state: SkillsState }) {
     }
 
     const generation = ++lifecycleGeneration.current;
+    const inventorySnapshot = state.inventory;
     lifecyclePendingRef.current = true;
     setLifecyclePlanning(true);
     try {
@@ -240,7 +302,13 @@ export function SkillsView({ state }: { state: SkillsState }) {
         return;
       }
       lifecyclePlanRef.current = plan;
-      setLifecyclePlan(plan);
+      setLifecycleReview({
+        plan,
+        assignmentContext:
+          intent.kind === "assignment"
+            ? assignmentContextForPlan(intent, inventorySnapshot, plan)
+            : null,
+      });
     } catch (reason) {
       if (mounted.current && lifecycleGeneration.current === generation) {
         const error = normalizeSkillCommandError(reason);
@@ -259,7 +327,7 @@ export function SkillsView({ state }: { state: SkillsState }) {
   const closeLifecycleReview = () => {
     const plan = lifecyclePlanRef.current;
     lifecyclePlanRef.current = null;
-    setLifecyclePlan(null);
+    setLifecycleReview(null);
     if (plan) return cleanupLifecyclePlan(plan, true);
   };
 
@@ -294,7 +362,7 @@ export function SkillsView({ state }: { state: SkillsState }) {
     const plan = lifecyclePlanRef.current;
     if (plan) lifecycleCommittedRef.current.add(plan.operation_id);
     lifecyclePlanRef.current = null;
-    setLifecyclePlan(null);
+    setLifecycleReview(null);
     toast.show({ kind: "success", msg: "Skill 操作已完成。" });
     const selectedName = selected?.name;
     if (selectedName && !inventory.items.some((item) => item.name === selectedName)) {
@@ -306,7 +374,7 @@ export function SkillsView({ state }: { state: SkillsState }) {
     const plan = lifecyclePlanRef.current;
     if (plan) lifecycleRecoveryRef.current.add(plan.operation_id);
     lifecyclePlanRef.current = null;
-    setLifecyclePlan(null);
+    setLifecycleReview(null);
     setInstallOpen(false);
     setRecoveryRequired(message);
   };
@@ -330,6 +398,63 @@ export function SkillsView({ state }: { state: SkillsState }) {
     closeInspector();
     setContentKind(value);
   };
+
+  const openSkill = (identity: string) => {
+    setNavigationNotice(null);
+    setSelectedIdentity(identity);
+  };
+
+  useEffect(() => {
+    if (!recoveryError) return;
+    setInstallOpen(false);
+    setInstallInitialAgentId(null);
+  }, [recoveryError]);
+
+  useEffect(() => {
+    const inventory = state.inventory;
+    if (
+      !intent ||
+      lastConsumedIntentId.current === intent.id ||
+      (!inventory && !recoveryError)
+    ) {
+      return;
+    }
+
+    lastConsumedIntentId.current = intent.id;
+    setNavigationNotice(null);
+    if (!inventory) {
+      closeInspector();
+      setInstallInitialAgentId(null);
+      setInstallOpen(false);
+    } else if (intent.kind === "detail") {
+      const item = inventory.items.find(
+        (candidate) =>
+          candidate.name === intent.skillName &&
+          candidate.location.kind === "central" &&
+          (candidate.source !== null ||
+            candidate.assigned_target_ids.length > 0),
+      );
+      if (item) {
+        setQuery("");
+        setStatus("all");
+        setSource("all");
+        setContentKind("all");
+        setSelectedIdentity(item.identity);
+      } else {
+        closeInspector();
+        setNavigationNotice(
+          `未找到可管理的 Skill“${intent.skillName}”。`,
+        );
+      }
+    } else if (!recoveryError) {
+      setInstallInitialAgentId(intent.agentId);
+      setInstallOpen(true);
+    } else {
+      setInstallInitialAgentId(null);
+      setInstallOpen(false);
+    }
+    onIntentConsumed?.(intent.id);
+  }, [closeInspector, intent, onIntentConsumed, recoveryError, state.inventory]);
 
   useEffect(() => {
     if (
@@ -387,7 +512,7 @@ export function SkillsView({ state }: { state: SkillsState }) {
     void state.refresh().catch(() => undefined);
   };
 
-  const inventoryNotice = recoveryError ? (
+  const stateNotice = recoveryError ? (
     <div className="mux-skill-notice" data-tone="recovery" role="status">
       <strong>Skills 已进入只读恢复状态</strong>
       <span>{recoveryError}</span>
@@ -398,6 +523,16 @@ export function SkillsView({ state }: { state: SkillsState }) {
       <span>{state.error.message}</span>
       {state.error.retry_at && <code>可重试时间：{state.error.retry_at}</code>}
     </div>
+  ) : null;
+  const inventoryNotice = navigationNotice || stateNotice ? (
+    <>
+      {navigationNotice && (
+        <div className="mux-skill-notice" data-tone="error" role="status">
+          <strong>{navigationNotice}</strong>
+        </div>
+      )}
+      {stateNotice}
+    </>
   ) : null;
 
   return (
@@ -455,7 +590,10 @@ export function SkillsView({ state }: { state: SkillsState }) {
               className="btn-primary"
               type="button"
               disabled={checkDisabled}
-              onClick={() => setInstallOpen(true)}
+              onClick={() => {
+                setInstallInitialAgentId(null);
+                setInstallOpen(true);
+              }}
             >
               安装 Skill
             </button>
@@ -478,6 +616,7 @@ export function SkillsView({ state }: { state: SkillsState }) {
               item={selected}
               detail={detail}
               agents={state.inventory?.agents ?? []}
+              targets={state.inventory?.targets ?? []}
               loading={detailLoading}
               error={detailError}
               onClose={closeInspector}
@@ -494,6 +633,12 @@ export function SkillsView({ state }: { state: SkillsState }) {
             icon={<RefreshIcon className="w-6 h-6" />}
             title="正在读取 Skills…"
             detail="正在核对托管副本与 Agent 目录。"
+          />
+        ) : !state.inventory && recoveryError ? (
+          <ResourceEmpty
+            icon={<PackageIcon className="w-6 h-6" />}
+            title="Skills 已进入只读恢复状态"
+            detail={recoveryError}
           />
         ) : !state.inventory && state.error ? (
           <ResourceEmpty
@@ -524,29 +669,40 @@ export function SkillsView({ state }: { state: SkillsState }) {
                   key={item.identity}
                   item={item}
                   selected={item.identity === selectedIdentity}
-                  onOpen={() => setSelectedIdentity(item.identity)}
+                  onOpen={() => openSkill(item.identity)}
                 />
               ))}
             </ResourceGrid>
           </>
         )}
       </ResourceWorkspace>
-      {installOpen && state.inventory && (
+      {installOpen && state.inventory && !recoveryError && (
         <SkillInstallDialog
           agents={state.inventory.agents}
+          initialAgentId={installInitialAgentId ?? undefined}
           commit={state.commit}
           cancel={state.cancel}
-          onClose={() => setInstallOpen(false)}
+          onClose={() => {
+            setInstallOpen(false);
+            setInstallInitialAgentId(null);
+          }}
           onCommitted={() => {
             setInstallOpen(false);
+            setInstallInitialAgentId(null);
             toast.show({ kind: "success", msg: "Skill 已安装。" });
           }}
           onRecoveryRequired={enterRecovery}
         />
       )}
-      {lifecyclePlan && (
+      {lifecycleReview && (
         <SkillReviewDialog
-          plan={lifecyclePlan}
+          plan={lifecycleReview.plan}
+          assignmentContext={
+            lifecycleReview.assignmentContext?.operationId ===
+            lifecycleReview.plan.operation_id
+              ? lifecycleReview.assignmentContext
+              : undefined
+          }
           onCommit={commitLifecycle}
           onClose={closeLifecycleReview}
           onCommitted={lifecycleCommitted}

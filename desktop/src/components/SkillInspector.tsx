@@ -5,6 +5,7 @@ import type {
   SkillCommandError,
   SkillDetail,
   SkillInventoryItem,
+  SkillTargetView,
 } from "../lib/types";
 import {
   AgentStack,
@@ -58,6 +59,7 @@ export function SkillInspector({
   item,
   detail,
   agents,
+  targets,
   loading,
   error,
   onClose,
@@ -68,6 +70,7 @@ export function SkillInspector({
   item: SkillInventoryItem;
   detail: SkillDetail | null;
   agents: SkillAgentView[];
+  targets: SkillTargetView[];
   loading: boolean;
   error: SkillCommandError | null;
   onClose: () => void;
@@ -75,6 +78,7 @@ export function SkillInspector({
   planning?: boolean;
   readOnly?: boolean;
 }) {
+  const targetsById = new Map(targets.map((target) => [target.target_id, target]));
   const affectedAgentNames = presentAgentNames(item, agents);
   const managedRecord = item.source !== null;
   const centralManaged = managedRecord && item.location.kind === "central";
@@ -241,12 +245,24 @@ export function SkillInspector({
         {centralManaged && onPlan && (
           <div className="mux-skill-assignment-list">
             {agents.map((agent) => {
-              const assigned = item.assigned_target_ids.includes(agent.target_id);
+              const assignedTargets = item.assigned_target_ids
+                .map((targetId) => targetsById.get(targetId))
+                .filter(
+                  (target): target is SkillTargetView =>
+                    Boolean(target?.affected_agent_ids.includes(agent.id)),
+                );
+              const assigned = assignedTargets.length > 0;
               return (
                 <label key={agent.id}>
                   <span>
                     <strong>{agent.name}</strong>
-                    <code>{agent.global_dir}</code>
+                    {assignedTargets.length > 0 ? (
+                      assignedTargets.map((target) => (
+                        <code key={target.target_id}>{target.global_dir}</code>
+                      ))
+                    ) : (
+                      <code>{agent.global_dir}</code>
+                    )}
                   </span>
                   <input
                     type="checkbox"

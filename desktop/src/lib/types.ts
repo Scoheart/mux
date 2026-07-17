@@ -98,12 +98,21 @@ export interface InstalledMcp {
 export interface PatchInput {
   args?: string[]; env?: Record<string, string>; url?: string; headers?: Record<string, string>;
 }
+
+export type SkillNavigationRequest =
+  | { kind: "detail"; skillName: string }
+  | { kind: "install"; agentId: string };
+
+export type SkillNavigationIntent =
+  | { id: number; kind: "detail"; skillName: string }
+  | { id: number; kind: "install"; agentId: string };
+
 /** Top-level GUI view. Resource editors are overlays and intentionally remain
  *  outside navigation state so the app chrome never disappears. */
 export type View =
   | { kind: "registry" }
   | { kind: "models" }
-  | { kind: "skills" }
+  | { kind: "skills"; intent?: SkillNavigationIntent }
   | { kind: "agent"; id: string };
 
 /** A catalog source (mirrors Rust SourceView): a subscribed remote URL or a

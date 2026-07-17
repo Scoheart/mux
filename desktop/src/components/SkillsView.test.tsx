@@ -18,6 +18,8 @@ import type {
   UpdateCheckOutcome,
 } from "../lib/types";
 import {
+  resolutionFixture,
+  sharedTargetPlanFixture,
   skillDetailFixture,
   skillsInventoryFixture,
   skillsStateFixture,
@@ -32,11 +34,17 @@ const appMocks = vi.hoisted(() => ({
   useCliTool: vi.fn(),
   usePinnedAgents: vi.fn(),
   getVersion: vi.fn(),
+  agentViewProps: vi.fn(),
 }));
 
 vi.mock("../lib/api", async () => {
   const actual = await vi.importActual<typeof import("../lib/api")>("../lib/api");
-  return { ...actual, getSkillDetail: vi.fn() };
+  return {
+    ...actual,
+    getSkillDetail: vi.fn(),
+    planSkillAssignment: vi.fn(),
+    resolveGithubSkillSource: vi.fn(),
+  };
 });
 vi.mock("../hooks/useInstallState", () => ({
   useInstallState: appMocks.useInstallState,
@@ -58,7 +66,40 @@ vi.mock("./RegistryView", () => ({
 }));
 vi.mock("./ModelsView", () => ({ ModelsView: () => <div>models-view</div> }));
 vi.mock("./AgentView", () => ({
-  AgentView: ({ agentId }: { agentId: string }) => <div>agent-view:{agentId}</div>,
+  AgentView: (props: {
+    agentId: string;
+    skillsState?: SkillsState;
+    onOpenSkills?: (request: {
+      kind: "detail";
+      skillName: string;
+    } | {
+      kind: "install";
+      agentId: string;
+    }) => void;
+  }) => {
+    appMocks.agentViewProps(props);
+    return (
+      <div>
+        agent-view:{props.agentId}
+        <button
+          type="button"
+          onClick={() =>
+            props.onOpenSkills?.({ kind: "detail", skillName: "review-changes" })
+          }
+        >
+          查看 Agent Skill
+        </button>
+        <button
+          type="button"
+          onClick={() =>
+            props.onOpenSkills?.({ kind: "install", agentId: props.agentId })
+          }
+        >
+          为 Agent 添加 Skill
+        </button>
+      </div>
+    );
+  },
 }));
 vi.mock("./AddAgentDialog", () => ({ AddAgentDialog: () => null }));
 vi.mock("./RegistryEditPage", () => ({ RegistryEditPage: () => null }));
@@ -130,6 +171,9 @@ beforeEach(() => {
   vi.mocked(api.getSkillDetail).mockImplementation(async (identity) =>
     skillDetailFixture(identity.split(":").at(-1)),
   );
+  vi.mocked(api.resolveGithubSkillSource).mockReset();
+  vi.mocked(api.resolveGithubSkillSource).mockResolvedValue(resolutionFixture());
+  vi.mocked(api.planSkillAssignment).mockReset();
   appMocks.useInstallState.mockReset();
   appMocks.useInstallState.mockReturnValue(installStateForApp(true));
   appMocks.useSkillsState.mockReset();
@@ -153,6 +197,7 @@ beforeEach(() => {
   });
   appMocks.getVersion.mockReset();
   appMocks.getVersion.mockResolvedValue("1.2.14");
+  appMocks.agentViewProps.mockReset();
 });
 
 afterEach(cleanup);
@@ -200,6 +245,59 @@ describe("SkillsView", () => {
       expect(api.getSkillDetail).toHaveBeenCalledWith("central:review-changes"),
     );
     expect(await screen.findByLabelText("SKILL.md 纯文本预览")).toBeVisible();
+  });
+
+  it("carries the exact shared assignment loss from the Inspector into review", async () => {
+    const user = userEvent.setup();
+    const plan = sharedTargetPlanFixture();
+    plan.kind = "assignment";
+    plan.operation_id = "assignment-shared-disable";
+    plan.targets[0].expected = "managed";
+    plan.targets.push({
+      target_id: "claude-user",
+      global_dir: "~/.claude/skills",
+      expected: "managed",
+      primary_agent_ids: ["claude-code"],
+      affected_agent_ids: ["claude-code"],
+    });
+    vi.mocked(api.planSkillAssignment).mockResolvedValue(plan);
+
+    const { rerender } = render(<SkillsView state={skillsStateFixture()} />);
+    await user.click(screen.getByRole("button", { name: /review-changes/ }));
+    const inspector = await screen.findByLabelText("review-changes 详情");
+    await user.click(
+      within(inspector).getByRole("switch", { name: "停用 Cursor" }),
+    );
+
+    expect(api.planSkillAssignment).toHaveBeenCalledWith({
+      skill_name: "review-changes",
+      agent_ids: ["cursor"],
+      enabled: false,
+    });
+    const impact = await screen.findByRole("region", { name: "分配影响" });
+    expect(within(impact).getByText("将停止为 Cursor 分配")).toBeVisible();
+    expect(within(impact).getByText("~/.agents/skills")).toBeVisible();
+    expect(
+      within(impact).getByText("Codex、Cursor、Gemini CLI 将失去访问"),
+    ).toBeVisible();
+    expect(within(impact).queryByText("~/.claude/skills")).not.toBeInTheDocument();
+
+    const refreshed = skillsInventoryFixture();
+    refreshed.items = refreshed.items.filter(
+      (item) => item.name !== "review-changes",
+    );
+    rerender(<SkillsView state={stateWith(refreshed)} />);
+    await waitFor(() =>
+      expect(
+        screen.queryByLabelText("review-changes 详情"),
+      ).not.toBeInTheDocument(),
+    );
+    const retainedImpact = screen.getByRole("region", { name: "分配影响" });
+    expect(
+      within(retainedImpact).getByText(
+        "Codex、Cursor、Gemini CLI 将失去访问",
+      ),
+    ).toBeVisible();
   });
 
   it("moves focus into the inspector and returns it to the selected card", async () => {
@@ -329,6 +427,76 @@ describe("SkillsView", () => {
     expect(screen.getByRole("button", { name: "检查更新" })).toBeDisabled();
   });
 
+  it("treats an app-owned recovery error as read-only and consumes a blocked install intent", async () => {
+    const refresh = vi.fn().mockResolvedValue(skillsInventoryFixture());
+    const onIntentConsumed = vi.fn();
+    render(
+      <SkillsView
+        state={stateWith(null, {
+          loading: false,
+          error: {
+            code: "recovery_required",
+            message: "journal recovery required",
+          },
+          refresh,
+        })}
+        intent={{ id: 41, kind: "install", agentId: "codex" }}
+        onIntentConsumed={onIntentConsumed}
+      />,
+    );
+
+    expect(screen.getByText("Skills 已进入只读恢复状态")).toBeVisible();
+    expect(screen.getByText("journal recovery required")).toBeVisible();
+    expect(screen.queryByRole("button", { name: "重试" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "检查更新" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "安装 Skill" })).toBeDisabled();
+    expect(screen.queryByRole("dialog", { name: "安装 Skill" })).not.toBeInTheDocument();
+    expect(onIntentConsumed).toHaveBeenCalledOnce();
+    expect(onIntentConsumed).toHaveBeenCalledWith(41);
+    expect(refresh).not.toHaveBeenCalled();
+  });
+
+  it("closes and cancels a resolved install when the workspace enters recovery", async () => {
+    const user = userEvent.setup();
+    const inventory = skillsInventoryFixture();
+    const cancel = vi.fn().mockResolvedValue(undefined);
+    const initialState = stateWith(inventory, { cancel });
+    const { rerender } = render(
+      <SkillsView
+        state={initialState}
+        intent={{ id: 42, kind: "install", agentId: "codex" }}
+        onIntentConsumed={vi.fn()}
+      />,
+    );
+
+    await user.type(screen.getByLabelText("GitHub 来源"), "acme/skills");
+    await user.click(screen.getByRole("button", { name: "解析来源" }));
+    expect(
+      await screen.findByRole("heading", { name: "选择 Skills 与 Agent" }),
+    ).toBeVisible();
+
+    rerender(
+      <SkillsView
+        state={stateWith(inventory, {
+          cancel,
+          error: {
+            code: "recovery_required",
+            message: "journal recovery required",
+          },
+        })}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("dialog", { name: "安装 Skill" }),
+      ).not.toBeInTheDocument(),
+    );
+    await waitFor(() => expect(cancel).toHaveBeenCalledWith("resolve-fixture"));
+    expect(cancel).toHaveBeenCalledOnce();
+    expect(screen.getByText("Skills 已进入只读恢复状态")).toBeVisible();
+  });
+
   it("keeps cached inventory under hook errors and runs only a manual metadata check", async () => {
     const pending = deferred<UpdateCheckOutcome>();
     const checkUpdates = vi.fn(() => pending.promise);
@@ -401,6 +569,175 @@ describe("SkillsView", () => {
     await userEvent.type(screen.getByPlaceholderText("搜索 Skills"), "no-such-skill");
     expect(screen.getByText("没有匹配项")).toBeVisible();
   });
+
+  it("waits for inventory, consumes a detail intent once, and opens only a managed central Skill", async () => {
+    const onIntentConsumed = vi.fn();
+    const intent = { id: 17, kind: "detail" as const, skillName: "review-changes" };
+    const { rerender } = render(
+      <SkillsView
+        state={stateWith(null, { loading: true })}
+        intent={intent}
+        onIntentConsumed={onIntentConsumed}
+      />,
+    );
+
+    expect(onIntentConsumed).not.toHaveBeenCalled();
+    expect(screen.queryByLabelText("review-changes 详情")).not.toBeInTheDocument();
+
+    rerender(
+      <SkillsView
+        state={skillsStateFixture()}
+        intent={intent}
+        onIntentConsumed={onIntentConsumed}
+      />,
+    );
+    expect(await screen.findByLabelText("review-changes 详情")).toBeVisible();
+    expect(onIntentConsumed).toHaveBeenCalledOnce();
+    expect(onIntentConsumed).toHaveBeenCalledWith(17);
+
+    rerender(
+      <SkillsView
+        state={stateWith(skillsInventoryFixture())}
+        intent={intent}
+        onIntentConsumed={onIntentConsumed}
+      />,
+    );
+    expect(onIntentConsumed).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    ["missing-skill", "missing-skill"],
+    ["external-copy", "external-copy"],
+  ])("consumes an unavailable detail intent for %s with a visible notice", async (skillName) => {
+    const inventory = skillsInventoryFixture();
+    inventory.items.push({
+      ...inventory.items[1],
+      identity: "central:external-copy",
+      name: "external-copy",
+      states: ["external"],
+      source: null,
+    });
+    const onIntentConsumed = vi.fn();
+
+    render(
+      <SkillsView
+        state={stateWith(inventory)}
+        intent={{ id: 23, kind: "detail", skillName }}
+        onIntentConsumed={onIntentConsumed}
+      />,
+    );
+
+    expect(
+      await screen.findByText(`未找到可管理的 Skill“${skillName}”。`),
+    ).toBeVisible();
+    expect(onIntentConsumed).toHaveBeenCalledOnce();
+    expect(screen.queryByLabelText(`${skillName} 详情`)).not.toBeInTheDocument();
+  });
+
+  it.each(["missing", "broken_link"] as const)(
+    "opens a central managed source whose current target state is %s",
+    async (targetState) => {
+      const inventory = skillsInventoryFixture();
+      const skillName = `${targetState}-central-skill`;
+      inventory.items.push({
+        ...inventory.items[1],
+        identity: `central:${skillName}`,
+        name: skillName,
+        states: [targetState],
+      });
+      const onIntentConsumed = vi.fn();
+
+      render(
+        <SkillsView
+          state={stateWith(inventory)}
+          intent={{ id: 29, kind: "detail", skillName }}
+          onIntentConsumed={onIntentConsumed}
+        />,
+      );
+
+      expect(await screen.findByLabelText(`${skillName} 详情`)).toBeVisible();
+      expect(onIntentConsumed).toHaveBeenCalledWith(29);
+      expect(
+        screen.queryByText(`未找到可管理的 Skill“${skillName}”。`),
+      ).not.toBeInTheDocument();
+    },
+  );
+
+  it("opens a source-less central anomaly referenced by assignment settings", async () => {
+    const inventory = skillsInventoryFixture();
+    inventory.items.push({
+      ...inventory.items[1],
+      identity: "central:assigned-external-anomaly",
+      name: "assigned-external-anomaly",
+      states: ["external"],
+      source: null,
+      assigned_target_ids: ["agents-user"],
+      affected_agent_ids: ["codex", "cursor", "gemini"],
+    });
+    const onIntentConsumed = vi.fn();
+
+    render(
+      <SkillsView
+        state={stateWith(inventory)}
+        intent={{
+          id: 30,
+          kind: "detail",
+          skillName: "assigned-external-anomaly",
+        }}
+        onIntentConsumed={onIntentConsumed}
+      />,
+    );
+
+    expect(
+      await screen.findByLabelText("assigned-external-anomaly 详情"),
+    ).toBeVisible();
+    expect(onIntentConsumed).toHaveBeenCalledWith(30);
+  });
+
+  it("clears an unavailable navigation notice after a manual Skill selection", async () => {
+    render(
+      <SkillsView
+        state={skillsStateFixture()}
+        intent={{ id: 30, kind: "detail", skillName: "missing-skill" }}
+        onIntentConsumed={vi.fn()}
+      />,
+    );
+    expect(
+      await screen.findByText("未找到可管理的 Skill“missing-skill”。"),
+    ).toBeVisible();
+
+    await userEvent.click(screen.getByRole("button", { name: /review-changes/ }));
+    expect(await screen.findByLabelText("review-changes 详情")).toBeVisible();
+    expect(
+      screen.queryByText("未找到可管理的 Skill“missing-skill”。"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("consumes each new install intent once and opens the shared install dialog", async () => {
+    const onIntentConsumed = vi.fn();
+    const { rerender } = render(
+      <SkillsView
+        state={skillsStateFixture()}
+        intent={{ id: 31, kind: "install", agentId: "codex" }}
+        onIntentConsumed={onIntentConsumed}
+      />,
+    );
+
+    expect(await screen.findByRole("dialog", { name: "安装 Skill" })).toBeVisible();
+    expect(onIntentConsumed).toHaveBeenCalledWith(31);
+    await userEvent.click(screen.getByRole("button", { name: "关闭安装" }));
+
+    rerender(
+      <SkillsView
+        state={skillsStateFixture()}
+        intent={{ id: 32, kind: "install", agentId: "cursor" }}
+        onIntentConsumed={onIntentConsumed}
+      />,
+    );
+    expect(await screen.findByRole("dialog", { name: "安装 Skill" })).toBeVisible();
+    expect(onIntentConsumed).toHaveBeenCalledTimes(2);
+    expect(onIntentConsumed).toHaveBeenLastCalledWith(32);
+  });
 });
 
 describe("App Skills routing", () => {
@@ -451,5 +788,43 @@ describe("App Skills routing", () => {
 
     await user.keyboard("{Escape}");
     expect(screen.queryByLabelText("review-changes 详情")).not.toBeInTheDocument();
+  });
+
+  it("routes typed Agent requests through the sole app-owned Skills state", async () => {
+    const user = userEvent.setup();
+    const skillsState = skillsStateFixture();
+    appMocks.useInstallState.mockReturnValue(installStateForApp(false));
+    appMocks.useSkillsState.mockReturnValue(skillsState);
+    render(<App />);
+
+    await user.click(screen.getByRole("button", { name: "Agent 1" }));
+    expect(appMocks.agentViewProps).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        agentId: "agent-1",
+        skillsState,
+        onOpenSkills: expect.any(Function),
+      }),
+    );
+    const openSkills = appMocks.agentViewProps.mock.calls.at(-1)?.[0]
+      .onOpenSkills as (request: {
+        kind: "detail";
+        skillName: string;
+      }) => void;
+
+    await user.click(screen.getByRole("button", { name: "查看 Agent Skill" }));
+    const inspector = await screen.findByLabelText("review-changes 详情");
+    expect(inspector).toBeVisible();
+    await user.click(
+      within(inspector).getByRole("button", { name: "关闭详情" }),
+    );
+    expect(screen.queryByLabelText("review-changes 详情")).not.toBeInTheDocument();
+
+    act(() => openSkills({ kind: "detail", skillName: "review-changes" }));
+    expect(await screen.findByLabelText("review-changes 详情")).toBeVisible();
+    expect(
+      appMocks.useSkillsState.mock.results
+        .filter((result) => result.type === "return")
+        .every((result) => result.value === skillsState),
+    ).toBe(true);
   });
 });

@@ -50,6 +50,14 @@ function selectedSnapshot(skillNames: string[], agentIds: string[]) {
   return `${skillNames.join("\u0000")}\u0001${agentIds.join("\u0000")}`;
 }
 
+function verifiedAgentSelection(
+  selectedAgentIds: string[],
+  agents: SkillAgentView[],
+) {
+  const verifiedAgentIds = new Set(agents.map((agent) => agent.id));
+  return selectedAgentIds.filter((agentId) => verifiedAgentIds.has(agentId));
+}
+
 export function SkillInstallDialog({
   agents,
   commit,
@@ -82,14 +90,28 @@ export function SkillInstallDialog({
   const commitPromiseRef = useRef<Promise<SkillsInventory> | null>(null);
   const closePromiseRef = useRef<Promise<void> | null>(null);
   const cancellationRefs = useRef(new Map<string, Promise<void>>());
+  const cancelRef = useRef(cancel);
+  const toastRef = useRef(toast);
+  const agentsRef = useRef(agents);
+  const initialAgentIdRef = useRef(initialAgentId);
+  const wizardRef = useRef(wizard);
+  cancelRef.current = cancel;
+  toastRef.current = toast;
+  agentsRef.current = agents;
+  initialAgentIdRef.current = initialAgentId;
+  wizardRef.current = wizard;
+  const verifiedSelectedAgentIds = verifiedAgentSelection(
+    wizard.selectedAgentIds,
+    agents,
+  );
 
   const cancelOnce = useCallback(
     (operationId: string, reportError: boolean) => {
       const existing = cancellationRefs.current.get(operationId);
       if (existing) return existing;
-      const pending = cancel(operationId).catch((reason: unknown) => {
+      const pending = cancelRef.current(operationId).catch((reason: unknown) => {
         if (reportError) {
-          toast.show({
+          toastRef.current.show({
             kind: "error",
             msg: normalizeSkillCommandError(reason).message,
           });
@@ -98,7 +120,7 @@ export function SkillInstallDialog({
       cancellationRefs.current.set(operationId, pending);
       return pending;
     },
-    [cancel, toast],
+    [],
   );
 
   const closeDialog = useCallback(() => {
@@ -161,6 +183,15 @@ export function SkillInstallDialog({
     };
   }, [cancelOnce]);
 
+  useEffect(() => {
+    const verifiedAgentIds = new Set(agents.map((agent) => agent.id));
+    for (const agentId of wizard.selectedAgentIds) {
+      if (!verifiedAgentIds.has(agentId)) {
+        dispatch({ type: "toggle_agent", agentId });
+      }
+    }
+  }, [agents, wizard.selectedAgentIds]);
+
   const loadResolution = async (
     pendingResolution: Promise<SkillSourceResolution | null>,
   ) => {
@@ -181,11 +212,12 @@ export function SkillInstallDialog({
 
       resolutionRef.current = resolution;
       dispatch({ type: "resolution_loaded", resolution });
+      const currentInitialAgentId = initialAgentIdRef.current;
       if (
-        initialAgentId &&
-        agents.some((agent) => agent.id === initialAgentId)
+        currentInitialAgentId &&
+        agentsRef.current.some((agent) => agent.id === currentInitialAgentId)
       ) {
-        dispatch({ type: "toggle_agent", agentId: initialAgentId });
+        dispatch({ type: "toggle_agent", agentId: currentInitialAgentId });
       }
       setStep("selection");
     } catch (reason) {
@@ -240,9 +272,13 @@ export function SkillInstallDialog({
       return;
     }
     const generation = ++planGenerationRef.current;
+    const selectedAgentIds = verifiedAgentSelection(
+      wizard.selectedAgentIds,
+      agentsRef.current,
+    );
     const snapshot = selectedSnapshot(
       wizard.selectedSkillNames,
-      wizard.selectedAgentIds,
+      selectedAgentIds,
     );
     setPlanning(true);
     setPlanError(null);
@@ -250,20 +286,23 @@ export function SkillInstallDialog({
       const plan = await api.planSkillInstall({
         resolution_id: resolution.operation_id,
         skill_names: wizard.selectedSkillNames,
-        agent_ids: wizard.selectedAgentIds,
+        agent_ids: selectedAgentIds,
         replace_conflicts: false,
       });
+      const currentWizard = wizardRef.current;
       const stillCurrent =
         mountedRef.current &&
         !closedRef.current &&
         planGenerationRef.current === generation &&
         snapshot ===
           selectedSnapshot(
-            wizard.selectedSkillNames,
-            wizard.selectedAgentIds,
+            currentWizard.selectedSkillNames,
+            verifiedAgentSelection(
+              currentWizard.selectedAgentIds,
+              agentsRef.current,
+            ),
           );
       if (!stillCurrent) {
-        await cancelOnce(plan.operation_id, false);
         return;
       }
       if (plan.operation_id !== resolution.operation_id) {
@@ -336,7 +375,7 @@ export function SkillInstallDialog({
   };
 
   const agentNames = new Map(agents.map((agent) => [agent.id, agent.name]));
-  const selectedAgents = new Set(wizard.selectedAgentIds);
+  const selectedAgents = new Set(verifiedSelectedAgentIds);
   const impactRows = wizard.plan?.targets.map((target) => {
     const alsoAffected = target.affected_agent_ids
       .filter((id) => !selectedAgents.has(id))
@@ -507,7 +546,7 @@ export function SkillInstallDialog({
                     <h3>目标 Agent</h3>
                     <p>默认不启用任何 Agent；共享目录会在计划中归一化。</p>
                   </div>
-                  <span>{wizard.selectedAgentIds.length} 个</span>
+                  <span>{verifiedSelectedAgentIds.length} 个</span>
                 </div>
                 <div className="mux-skill-agent-choice-grid">
                   {agents.map((agent) => (
@@ -515,7 +554,7 @@ export function SkillInstallDialog({
                       <input
                         type="checkbox"
                         aria-label={agent.name}
-                        checked={wizard.selectedAgentIds.includes(agent.id)}
+                        checked={verifiedSelectedAgentIds.includes(agent.id)}
                         disabled={planning || closing}
                         onChange={() =>
                           dispatch({ type: "toggle_agent", agentId: agent.id })

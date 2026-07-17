@@ -13,8 +13,15 @@ import { XIcon } from "./icons";
 import { SkillRiskBadge, skillSourceText } from "./SkillCard";
 import { Modal } from "./ui";
 
+export interface SkillAssignmentContext {
+  enabled: boolean;
+  agentIds: string[];
+  targetIds: string[];
+}
+
 export interface SkillReviewDialogProps {
   plan: OperationPlan;
+  assignmentContext?: SkillAssignmentContext;
   onCommit(
     plan: OperationPlan,
     findingsConfirmation: string | null,
@@ -203,6 +210,7 @@ function PlannedSkillReview({ skill }: { skill: PlannedSkill }) {
 
 export function SkillReviewDialog({
   plan,
+  assignmentContext,
   onCommit,
   onClose,
   onCommitted,
@@ -295,6 +303,10 @@ export function SkillReviewDialog({
   };
 
   const highRiskFindings = plan.skills.filter((skill) => skill.risk.level === "high");
+  const assignmentTargetIds = new Set(assignmentContext?.targetIds ?? []);
+  const assignmentTargets = plan.targets.filter((target) =>
+    assignmentTargetIds.has(target.target_id),
+  );
 
   return (
     <Modal
@@ -335,6 +347,29 @@ export function SkillReviewDialog({
               />
             ))}
           </section>
+
+          {plan.kind === "assignment" && assignmentContext && (
+            <section
+              className="mux-skill-review-section mux-skill-review-assignment"
+              aria-label="分配影响"
+            >
+              <h3>
+                {assignmentContext.enabled ? "将为" : "将停止为"}{" "}
+                {agentNames(assignmentContext.agentIds)} 分配
+              </h3>
+              <ul>
+                {assignmentTargets.map((target) => (
+                  <li key={target.target_id}>
+                    <code>{target.global_dir}</code>
+                    <span>
+                      {agentNames(target.affected_agent_ids)}{" "}
+                      {assignmentContext.enabled ? "将共享此目标" : "将失去访问"}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
 
           <section className="mux-skill-review-section mux-skill-review-targets">
             <div className="mux-skill-review-section-title">

@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type { InstallState } from "../hooks/useInstallState";
+import type { SkillsState } from "../hooks/useSkillsState";
 import type {
   ModelAgentView,
   ModelProfileView,
   ModelProtocol,
   RegistryEntry,
+  SkillNavigationRequest,
 } from "../lib/types";
 import { formatError } from "../lib/format";
 import { keyOf, transportLabel, installedKey, transportOf } from "../lib/mcp";
@@ -27,12 +29,15 @@ import {
 import { Avatar, Badge, IconButton, SearchBar, Switch, TransportPill } from "./ui";
 import { AgentGlyph } from "./brandIcons";
 import { AddAgentDialog } from "./AddAgentDialog";
+import { AgentSkillsSection } from "./AgentSkillsSection";
 import { useToast } from "./Toast";
 
 interface AgentViewProps {
   state: InstallState;
+  skillsState: SkillsState;
   agentId: string;
   onOpenModels: () => void;
+  onOpenSkills(request: SkillNavigationRequest): void;
 }
 
 function syntheticEntry(serverKey: string): RegistryEntry {
@@ -57,7 +62,13 @@ function samePath(left: string, right: string) {
   return left.trim().replace(/\/+$/, "") === right.trim().replace(/\/+$/, "");
 }
 
-export function AgentView({ state, agentId, onOpenModels }: AgentViewProps) {
+export function AgentView({
+  state,
+  skillsState,
+  agentId,
+  onOpenModels,
+  onOpenSkills,
+}: AgentViewProps) {
   const { entries, agents, installed, pending, toggle, setEnabled, remove, refreshAgents, rescan } = state;
   const { show: showToast } = useToast();
 
@@ -267,6 +278,13 @@ export function AgentView({ state, agentId, onOpenModels }: AgentViewProps) {
             onOpenModels={onOpenModels}
           />
         </section>
+
+        <AgentSkillsSection
+          key={agentId}
+          agentId={agentId}
+          state={skillsState}
+          onOpenSkills={onOpenSkills}
+        />
 
         <section className="mux-agent-section" aria-labelledby="agent-mcp-title">
           <div className="mux-agent-section-head mux-agent-mcp-head">

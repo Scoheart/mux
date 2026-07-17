@@ -29,7 +29,9 @@ function pixelValue(source: string, property: string): number {
 }
 
 it("keeps Skills as the third resource segment before Agent navigation", () => {
-  expect(types).toMatch(/\| \{ kind: "skills" \}/);
+  expect(types).toMatch(
+    /\| \{ kind: "skills"; intent\?: SkillNavigationIntent \}/,
+  );
   expect(icons).toMatch(/export function SparklesIcon\(/);
   expect(layout).toMatch(/onSelectSkills: \(\) => void/);
 
@@ -52,7 +54,9 @@ it("keeps Skills as the third resource segment before Agent navigation", () => {
 it("routes the single app-owned Skills state before the MCP loading gate", () => {
   expect(app.match(/\buseSkillsState\(\)/g) ?? []).toHaveLength(1);
   expect(app).toMatch(/onSelectSkills=\{\(\) => setView\(\{ kind: "skills" \}\)\}/);
-  expect(app).toMatch(/<SkillsView state=\{skillsState\} \/>/);
+  expect(app).toMatch(/<SkillsView\s+state=\{skillsState\}/);
+  expect(app).toMatch(/intent=\{view\.intent\}/);
+  expect(app).toMatch(/onIntentConsumed=\{consumeSkillIntent\}/);
 
   const skillsRoute = app.indexOf('view.kind === "skills"');
   const loadingGate = app.indexOf("state.loading");

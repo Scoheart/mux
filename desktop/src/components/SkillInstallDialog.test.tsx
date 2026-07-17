@@ -111,6 +111,8 @@ const planAs = (kind: OperationPlan["kind"], operationId = `${kind}-operation`) 
 });
 
 function renderInstall(overrides: {
+  agents?: ReturnType<typeof agentFixture>;
+  initialAgentId?: string;
   commit?: SkillsState["commit"];
   cancel?: SkillsState["cancel"];
   onClose?: () => void;
@@ -119,7 +121,8 @@ function renderInstall(overrides: {
 } = {}) {
   const state = skillsStateFixture();
   const props = {
-    agents: agentFixture(),
+    agents: overrides.agents ?? agentFixture(),
+    initialAgentId: overrides.initialAgentId,
     commit: overrides.commit ?? state.commit,
     cancel: overrides.cancel ?? state.cancel,
     onClose: overrides.onClose ?? vi.fn(),
@@ -202,6 +205,157 @@ describe("SkillInstallDialog", () => {
     await user.click(screen.getByRole("button", { name: "解析来源" }));
     expect(await screen.findByText("GitHub 暂时限流。")).toBeVisible();
     expect(screen.getByText(/2026-07-17T08:00:00Z/)).toBeVisible();
+  });
+
+  it("preselects only the exact verified Agent once per source resolution", async () => {
+    const user = userEvent.setup();
+    renderInstall({ initialAgentId: "codex" });
+    await resolveGithub(user);
+
+    const codex = screen.getByRole("checkbox", { name: "Codex" });
+    expect(codex).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "Cursor" })).not.toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "Gemini CLI" })).not.toBeChecked();
+
+    await user.click(codex);
+    await user.click(screen.getByRole("checkbox", { name: "review-changes" }));
+    await user.click(screen.getByRole("checkbox", { name: "review-changes" }));
+    expect(codex).not.toBeChecked();
+
+    await user.click(screen.getByRole("button", { name: "返回来源" }));
+    await screen.findByRole("heading", { name: "安装 Skill" });
+    await user.click(screen.getByRole("button", { name: "解析来源" }));
+    await screen.findByRole("heading", { name: "选择 Skills 与 Agent" });
+    expect(screen.getByRole("checkbox", { name: "Codex" })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "Cursor" })).not.toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "Gemini CLI" })).not.toBeChecked();
+  });
+
+  it("ignores an initial Agent that is absent from verified inventory", async () => {
+    const user = userEvent.setup();
+    renderInstall({ initialAgentId: "unknown-agent" });
+    await resolveGithub(user);
+
+    for (const agent of agentFixture()) {
+      expect(screen.getByRole("checkbox", { name: agent.name })).not.toBeChecked();
+    }
+  });
+
+  it("drops a preselected Agent removed while source resolution is pending", async () => {
+    const user = userEvent.setup();
+    const pending = deferred<SkillSourceResolution>();
+    vi.mocked(api.resolveGithubSkillSource).mockReturnValueOnce(pending.promise);
+    const rendered = renderInstall({ initialAgentId: "codex" });
+
+    await user.type(screen.getByLabelText("GitHub 来源"), "acme/skills");
+    await user.click(screen.getByRole("button", { name: "解析来源" }));
+    const remainingAgents = agentFixture().filter((agent) => agent.id !== "codex");
+    rendered.rerender(
+      <ToastProvider>
+        <SkillInstallDialog
+          {...rendered.props}
+          agents={remainingAgents}
+          initialAgentId="codex"
+        />
+      </ToastProvider>,
+    );
+
+    pending.resolve(resolutionFixture());
+    await screen.findByRole("heading", { name: "选择 Skills 与 Agent" });
+    expect(screen.queryByRole("checkbox", { name: "Codex" })).not.toBeInTheDocument();
+    for (const agent of remainingAgents) {
+      expect(screen.getByRole("checkbox", { name: agent.name })).not.toBeChecked();
+    }
+
+    await user.click(screen.getByRole("button", { name: "审阅安装" }));
+    expect(api.planSkillInstall).toHaveBeenCalledWith(
+      expect.objectContaining({ agent_ids: [] }),
+    );
+  });
+
+  it("uses the latest verified initial Agent when intent changes during resolution", async () => {
+    const user = userEvent.setup();
+    const pending = deferred<SkillSourceResolution>();
+    vi.mocked(api.resolveGithubSkillSource).mockReturnValueOnce(pending.promise);
+    const rendered = renderInstall({ initialAgentId: "codex" });
+
+    await user.type(screen.getByLabelText("GitHub 来源"), "acme/skills");
+    await user.click(screen.getByRole("button", { name: "解析来源" }));
+    rendered.rerender(
+      <ToastProvider>
+        <SkillInstallDialog
+          {...rendered.props}
+          initialAgentId="cursor"
+        />
+      </ToastProvider>,
+    );
+
+    pending.resolve(resolutionFixture());
+    await screen.findByRole("heading", { name: "选择 Skills 与 Agent" });
+    expect(screen.getByRole("checkbox", { name: "Cursor" })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "Codex" })).not.toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "Gemini CLI" })).not.toBeChecked();
+  });
+
+  it("uses one verified selection for count, plan, and shared impact after an Agent disappears", async () => {
+    const user = userEvent.setup();
+    const rendered = renderInstall();
+    await resolveGithub(user);
+    await user.click(screen.getByRole("checkbox", { name: "Codex" }));
+
+    const remainingAgents = agentFixture().filter((agent) => agent.id !== "codex");
+    rendered.rerender(
+      <ToastProvider>
+        <SkillInstallDialog
+          {...rendered.props}
+          agents={remainingAgents}
+        />
+      </ToastProvider>,
+    );
+    expect(screen.queryByRole("checkbox", { name: "Codex" })).not.toBeInTheDocument();
+    const targetSection = screen
+      .getByRole("heading", { name: "目标 Agent" })
+      .closest("section");
+    expect(targetSection).not.toBeNull();
+    expect(within(targetSection!).getByText("0 个")).toBeVisible();
+
+    await user.click(screen.getByRole("button", { name: "审阅安装" }));
+    expect(api.planSkillInstall).toHaveBeenCalledWith(
+      expect.objectContaining({ agent_ids: [] }),
+    );
+    const impact = await screen.findByRole("region", { name: "共享目标影响" });
+    expect(within(impact).getByText(/codex、Cursor、Gemini CLI/)).toBeVisible();
+  });
+
+  it("does not resurrect a removed Agent selection when that Agent reappears", async () => {
+    const user = userEvent.setup();
+    const rendered = renderInstall();
+    const allAgents = agentFixture();
+    await resolveGithub(user);
+    await user.click(screen.getByRole("checkbox", { name: "Codex" }));
+
+    rendered.rerender(
+      <ToastProvider>
+        <SkillInstallDialog
+          {...rendered.props}
+          agents={allAgents.filter((agent) => agent.id !== "codex")}
+        />
+      </ToastProvider>,
+    );
+    const targetSection = screen
+      .getByRole("heading", { name: "目标 Agent" })
+      .closest("section");
+    expect(targetSection).not.toBeNull();
+    await waitFor(() =>
+      expect(within(targetSection!).getByText("0 个")).toBeVisible(),
+    );
+
+    rendered.rerender(
+      <ToastProvider>
+        <SkillInstallDialog {...rendered.props} agents={allAgents} />
+      </ToastProvider>,
+    );
+    expect(screen.getByRole("checkbox", { name: "Codex" })).not.toBeChecked();
   });
 
   it("uses only the native local picker and leaves state untouched on picker cancel", async () => {
@@ -601,8 +755,11 @@ describe("Skills lifecycle orchestration", () => {
       enabled: false,
     });
     const review = await screen.findByRole("dialog", { name: "审阅 Skill 操作" });
-    expect(within(review).getByText("~/.agents/skills")).toBeVisible();
-    expect(within(review).getByText("Codex、Cursor、Gemini CLI")).toBeVisible();
+    const impact = within(review).getByRole("region", { name: "分配影响" });
+    expect(within(impact).getByText("~/.agents/skills")).toBeVisible();
+    expect(
+      within(impact).getByText("Codex、Cursor、Gemini CLI 将失去访问"),
+    ).toBeVisible();
     expect(commit).not.toHaveBeenCalled();
   });
 

@@ -1,5 +1,6 @@
-import { cleanup, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { cleanup, render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   agentFixture,
   skillDetailFixture,
@@ -31,6 +32,7 @@ describe("SkillInspector", () => {
         item={item}
         detail={detail}
         agents={agentFixture()}
+        targets={skillsInventoryFixture().targets}
         loading={false}
         error={null}
         onClose={() => undefined}
@@ -59,6 +61,7 @@ describe("SkillInspector", () => {
         item={item}
         detail={null}
         agents={agentFixture()}
+        targets={skillsInventoryFixture().targets}
         loading
         error={null}
         onClose={() => undefined}
@@ -73,6 +76,7 @@ describe("SkillInspector", () => {
         item={item}
         detail={null}
         agents={agentFixture()}
+        targets={skillsInventoryFixture().targets}
         loading={false}
         error={{
           code: "detail_unavailable",
@@ -87,5 +91,43 @@ describe("SkillInspector", () => {
       "读取详情失败：detail unavailable · 可重试：2026-07-17T01:02:03Z",
     );
     expect(screen.queryByLabelText("SKILL.md 纯文本预览")).not.toBeInTheDocument();
+  });
+
+  it("derives shared alias assignments from the target graph and shows the actual target path", async () => {
+    const user = userEvent.setup();
+    const inventory = skillsInventoryFixture();
+    const onPlan = vi.fn();
+
+    render(
+      <SkillInspector
+        item={inventory.items[0]}
+        detail={null}
+        agents={inventory.agents}
+        targets={inventory.targets}
+        loading={false}
+        error={null}
+        onClose={() => undefined}
+        onPlan={onPlan}
+      />,
+    );
+
+    for (const name of ["Codex", "Cursor", "Gemini CLI"]) {
+      const assignment = screen.getByRole("switch", { name: `停用 ${name}` });
+      expect(assignment).toBeChecked();
+      const row = assignment.closest("label");
+      expect(row).not.toBeNull();
+      expect(within(row!).getByText("~/.agents/skills")).toBeVisible();
+    }
+    expect(screen.getByRole("switch", { name: "启用 Claude Code" })).not.toBeChecked();
+    expect(screen.queryByText("~/.cursor/skills")).not.toBeInTheDocument();
+    expect(screen.queryByText("~/.gemini/skills")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("switch", { name: "停用 Cursor" }));
+    expect(onPlan).toHaveBeenCalledWith({
+      kind: "assignment",
+      skillName: "review-changes",
+      agentIds: ["cursor"],
+      enabled: false,
+    });
   });
 });

@@ -25,6 +25,7 @@ pub struct AgentInfo {
     pub evidence: String,
     pub verified_at: Option<String>,
     pub builtin: bool,
+    pub skills_global_dir: Option<String>,
 }
 
 pub fn supports_transport(agent_id: &str, transport: &str) -> bool {
@@ -353,23 +354,30 @@ pub fn put(id: String, mut def: AgentDefinition, allow_overwrite: bool) -> Resul
 pub fn list_infos() -> Vec<AgentInfo> {
     load_agents()
         .into_iter()
-        .map(|(id, d)| AgentInfo {
-            supported_transports: supported_transports(&d),
-            name: d.name.clone().unwrap_or_else(|| id.clone()),
-            id,
-            format: d.format,
-            key: d.key,
-            has_global: d.global.is_some(),
-            has_project: d.project.is_some(),
-            enabled: d.enabled,
-            global: d.global,
-            project: d.project,
-            docs: d.docs,
-            note: d.note,
-            category: d.category.unwrap_or_else(|| "custom".into()),
-            evidence: d.evidence.unwrap_or_else(|| "custom".into()),
-            verified_at: d.verified_at,
-            builtin: d.builtin == Some(true),
+        .map(|(id, d)| {
+            let skills_global_dir = d
+                .skills
+                .as_ref()
+                .map(|capability| capability.global_dir.clone());
+            AgentInfo {
+                supported_transports: supported_transports(&d),
+                name: d.name.clone().unwrap_or_else(|| id.clone()),
+                id,
+                format: d.format,
+                key: d.key,
+                has_global: d.global.is_some(),
+                has_project: d.project.is_some(),
+                enabled: d.enabled,
+                global: d.global,
+                project: d.project,
+                docs: d.docs,
+                note: d.note,
+                category: d.category.unwrap_or_else(|| "custom".into()),
+                evidence: d.evidence.unwrap_or_else(|| "custom".into()),
+                verified_at: d.verified_at,
+                builtin: d.builtin == Some(true),
+                skills_global_dir,
+            }
         })
         .collect()
 }
@@ -462,6 +470,20 @@ mod tests {
             assert_eq!(capability.evidence, "official");
             assert!(!capability.probes.is_empty());
         }
+    }
+
+    #[test]
+    fn agent_info_projects_only_trusted_primary_skills_directories() {
+        let _home = crate::testenv::TestHome::new("agent-info-skills-path");
+        let infos = list_infos();
+        let codex = infos.iter().find(|agent| agent.id == "codex").unwrap();
+        let claude_desktop = infos
+            .iter()
+            .find(|agent| agent.id == "claude-desktop")
+            .unwrap();
+
+        assert_eq!(codex.skills_global_dir.as_deref(), Some("~/.agents/skills"));
+        assert_eq!(claude_desktop.skills_global_dir, None);
     }
 
     #[test]

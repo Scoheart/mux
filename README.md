@@ -9,9 +9,6 @@ OpenCode, and many other AI agents. Install, enable, synchronize, and export MCP
 servers from one catalog while MUX adapts each agent's native config format. It
 patches only the MCP section and preserves the rest of your settings.
 
-> **Unreleased:** the Skills management described below is implemented on this
-> feature branch and is not part of the current stable download yet.
-
 The desktop app also manages reusable model endpoint profiles and user-level
 Agent Skills. Model credentials stay in macOS Keychain. Skills are resolved,
 reviewed, and audited locally before MUX writes one managed copy and optionally

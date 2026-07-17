@@ -4,8 +4,6 @@ MUX Desktop 可以统一查看、安装和分配符合 Agent Skills 格式的用
 
 > Skills 当前只有 Desktop 入口；CLI/TUI 暂不提供 Skills 命令。
 
-> **尚未发布：** 本页描述的是当前功能分支中的实现，尚未包含在最新稳定版下载中。
-
 ## 安装来源
 
 在顶部打开 **Skills**，点击 **安装 Skill**。安装分为三步：选择来源、选择发现的 Skills 与目标 Agent、审阅计划后确认。普通安装默认不勾选任何 Agent；从某个 Agent 页点击“添加 Skill”时，只预选仍被 MUX 核验为已安装的当前 Agent。

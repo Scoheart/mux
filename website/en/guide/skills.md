@@ -4,8 +4,6 @@ MUX Desktop can inventory, install, and assign user-level Skills that follow the
 
 > Skills currently have a Desktop entry only. The CLI/TUI does not expose Skills commands yet.
 
-> **Unreleased:** this page describes the implementation on the current feature branch; it is not included in the latest stable download yet.
-
 ## Installation sources
 
 Open **Skills** in the top bar and choose **Install Skill**. Installation has three steps: choose a source, select discovered Skills and target Agents, then review and confirm the plan. A normal install selects zero Agents by default. When installation starts from an Agent page, only that Agent is preselected, and only if MUX still verifies it as installed.

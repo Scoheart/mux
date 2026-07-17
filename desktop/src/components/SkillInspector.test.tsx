@@ -130,4 +130,40 @@ describe("SkillInspector", () => {
       enabled: false,
     });
   });
+
+  it("offers an unchecked replacement choice and Update for locally modified content", async () => {
+    const user = userEvent.setup();
+    const inventory = skillsInventoryFixture();
+    const item = {
+      ...inventory.items[0],
+      states: ["locally_modified" as const],
+    };
+    const onPlan = vi.fn();
+
+    render(
+      <SkillInspector
+        item={item}
+        detail={null}
+        agents={inventory.agents}
+        targets={inventory.targets}
+        loading={false}
+        error={null}
+        onClose={() => undefined}
+        onPlan={onPlan}
+      />,
+    );
+
+    const replacement = screen.getByRole("checkbox", {
+      name: "保留备份并替换本地更改",
+    });
+    expect(replacement).not.toBeChecked();
+    expect(screen.getByRole("button", { name: "更新" })).toBeVisible();
+    await user.click(replacement);
+    await user.click(screen.getByRole("button", { name: "更新" }));
+    expect(onPlan).toHaveBeenCalledWith({
+      kind: "update",
+      skillName: "review-changes",
+      replaceLocalChanges: true,
+    });
+  });
 });

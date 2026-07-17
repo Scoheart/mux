@@ -335,7 +335,7 @@ describe("SkillReviewDialog", () => {
         findings_hash: "findings-override-error",
       })
       .mockRejectedValueOnce({
-        code: "filesystem_conflict",
+        code: "conflict",
         message: "目标在确认期间发生变化。",
       });
 
@@ -489,7 +489,7 @@ describe("SkillReviewDialog", () => {
       <SkillReviewDialog
         plan={sharedTargetPlanFixture()}
         onCommit={vi.fn().mockRejectedValue({
-          code: "filesystem_conflict",
+          code: "conflict",
           message: "目标目录已被其他内容占用。",
         })}
         onClose={vi.fn()}
@@ -515,6 +515,11 @@ describe("SkillReviewDialog", () => {
     plan.skills[0].risk.findings_truncated = true;
     plan.skills[0].existing_states = ["conflicting_link"];
     plan.skills[0].replace_existing = true;
+    plan.skills[0].existing_source = {
+      kind: "local",
+      path: "~/existing-skills",
+      subpath: "review-changes",
+    };
 
     render(
       <SkillReviewDialog
@@ -531,12 +536,17 @@ describe("SkillReviewDialog", () => {
     ).toBeVisible();
     expect(screen.getByRole("heading", { name: "审阅 Skill 操作" })).toBeVisible();
     expect(screen.getByText("review-changes")).toBeVisible();
+    expect(screen.getByText("现有来源")).toBeVisible();
+    expect(screen.getByText("本地 · ~/existing-skills / review-changes")).toBeVisible();
+    expect(screen.getByText("候选来源")).toBeVisible();
     expect(screen.getByText(/GitHub · acme\/skills/)).toBeVisible();
     expect(
       screen.getByText("0123456789abcdef0123456789abcdef01234567"),
     ).toBeVisible();
     expect(screen.getByText("链接冲突")).toBeVisible();
-    expect(screen.getByText("将替换现有内容")).toBeVisible();
+    expect(
+      screen.getByText("先在 ~/.mux/backups/skills/ 保留备份，再替换现有中央副本"),
+    ).toBeVisible();
     expect(screen.getByText("SKILL.md")).toBeVisible();
     expect(screen.getByText("文本差异已截断")).toBeVisible();
     expect(screen.getByText("before-file-hash")).toBeVisible();

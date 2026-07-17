@@ -132,7 +132,19 @@ function RiskEvidence({ risk }: { risk: SkillRiskSummary }) {
   );
 }
 
-function PlannedSkillReview({ skill }: { skill: PlannedSkill }) {
+function PlannedSkillReview({
+  skill,
+  kind,
+}: {
+  skill: PlannedSkill;
+  kind: OperationPlan["kind"];
+}) {
+  const replacesCentral =
+    skill.replace_existing &&
+    (kind === "install" ||
+      kind === "import" ||
+      kind === "update" ||
+      kind === "repair");
   return (
     <article className="mux-skill-review-skill">
       <header>
@@ -144,10 +156,27 @@ function PlannedSkillReview({ skill }: { skill: PlannedSkill }) {
       </header>
 
       <dl className="mux-skill-review-metadata">
-        <div>
-          <dt>来源</dt>
-          <dd>{skillSourceText(skill.source)}</dd>
-        </div>
+        {replacesCentral ? (
+          <>
+            <div>
+              <dt>现有来源</dt>
+              <dd>
+                {skill.existing_source
+                  ? skillSourceText(skill.existing_source)
+                  : "未记录的中央副本"}
+              </dd>
+            </div>
+            <div>
+              <dt>候选来源</dt>
+              <dd>{skillSourceText(skill.source)}</dd>
+            </div>
+          </>
+        ) : (
+          <div>
+            <dt>来源</dt>
+            <dd>{skillSourceText(skill.source)}</dd>
+          </div>
+        )}
         <div>
           <dt>Revision</dt>
           <dd title={skill.resolved_revision ?? undefined}>
@@ -166,10 +195,10 @@ function PlannedSkillReview({ skill }: { skill: PlannedSkill }) {
             <dd>{skill.existing_states.map((state) => stateLabels[state]).join("、")}</dd>
           </div>
         )}
-        {skill.replace_existing && (
+        {replacesCentral && (
           <div>
             <dt>冲突处理</dt>
-            <dd>将替换现有内容</dd>
+            <dd>先在 ~/.mux/backups/skills/ 保留备份，再替换现有中央副本</dd>
           </div>
         )}
       </dl>
@@ -344,6 +373,7 @@ export function SkillReviewDialog({
               <PlannedSkillReview
                 key={`${skill.manifest.name}:${skill.content_hash}`}
                 skill={skill}
+                kind={plan.kind}
               />
             ))}
           </section>

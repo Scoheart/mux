@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import type {
   InventoryState,
   PlanRepairRequest,
@@ -28,8 +29,13 @@ const stateLabels: Record<InventoryState, string> = {
 };
 
 export type SkillLifecycleIntent =
-  | { kind: "import"; identity: string; agentIds: string[] }
-  | { kind: "update"; skillName: string }
+  | {
+      kind: "import";
+      identity: string;
+      agentIds: string[];
+      replaceConflicts: boolean;
+    }
+  | { kind: "update"; skillName: string; replaceLocalChanges: boolean }
   | { kind: "remove"; skillName: string }
   | {
       kind: "assignment";
@@ -78,11 +84,21 @@ export function SkillInspector({
   planning?: boolean;
   readOnly?: boolean;
 }) {
+  const [replaceConflicts, setReplaceConflicts] = useState(false);
+  const [replaceLocalChanges, setReplaceLocalChanges] = useState(false);
+  useEffect(() => {
+    setReplaceConflicts(false);
+    setReplaceLocalChanges(false);
+  }, [item.identity]);
   const targetsById = new Map(targets.map((target) => [target.target_id, target]));
   const affectedAgentNames = presentAgentNames(item, agents);
   const managedRecord = item.source !== null;
   const centralManaged = managedRecord && item.location.kind === "central";
   const healthyManaged = centralManaged && item.states.includes("managed");
+  const updateEligible =
+    centralManaged &&
+    item.update.available &&
+    (healthyManaged || item.states.includes("locally_modified"));
   const external = item.states.includes("external");
   const repair = !managedRecord
     ? null
@@ -97,6 +113,28 @@ export function SkillInspector({
   const footer = onPlan ? (
     <div className="mux-skill-inspector-actions">
       {external && (
+        <label className="mux-skill-replacement-choice">
+          <input
+            type="checkbox"
+            checked={replaceConflicts}
+            disabled={disabled}
+            onChange={(event) => setReplaceConflicts(event.target.checked)}
+          />
+          <span>备份并替换同名中央副本</span>
+        </label>
+      )}
+      {centralManaged && item.states.includes("locally_modified") && item.update.available && (
+        <label className="mux-skill-replacement-choice">
+          <input
+            type="checkbox"
+            checked={replaceLocalChanges}
+            disabled={disabled}
+            onChange={(event) => setReplaceLocalChanges(event.target.checked)}
+          />
+          <span>保留备份并替换本地更改</span>
+        </label>
+      )}
+      {external && (
         <button
           type="button"
           className="btn-primary"
@@ -106,18 +144,25 @@ export function SkillInspector({
               kind: "import",
               identity: item.identity,
               agentIds: item.affected_agent_ids,
+              replaceConflicts,
             })
           }
         >
           导入
         </button>
       )}
-      {healthyManaged && item.update.available && (
+      {updateEligible && (
         <button
           type="button"
           className="btn-primary"
           disabled={disabled}
-          onClick={() => onPlan({ kind: "update", skillName: item.name })}
+          onClick={() =>
+            onPlan({
+              kind: "update",
+              skillName: item.name,
+              replaceLocalChanges,
+            })
+          }
         >
           更新
         </button>

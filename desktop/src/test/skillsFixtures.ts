@@ -172,6 +172,7 @@ export const sharedTargetPlanFixture = (): OperationPlan => ({
         metadata: {},
         allowed_tools: null,
       },
+      existing_source: null,
       source: githubSource,
       resolved_revision: "0123456789abcdef0123456789abcdef01234567",
       files: [

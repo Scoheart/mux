@@ -46,8 +46,12 @@ function sourceSummary(resolution: SkillSourceResolution) {
   return resolution.source.original_path;
 }
 
-function selectedSnapshot(skillNames: string[], agentIds: string[]) {
-  return `${skillNames.join("\u0000")}\u0001${agentIds.join("\u0000")}`;
+function selectedSnapshot(
+  skillNames: string[],
+  agentIds: string[],
+  replaceConflicts: boolean,
+) {
+  return `${skillNames.join("\u0000")}\u0001${agentIds.join("\u0000")}\u0001${replaceConflicts}`;
 }
 
 function verifiedAgentSelection(
@@ -279,6 +283,7 @@ export function SkillInstallDialog({
     const snapshot = selectedSnapshot(
       wizard.selectedSkillNames,
       selectedAgentIds,
+      wizard.replaceConflicts,
     );
     setPlanning(true);
     setPlanError(null);
@@ -287,7 +292,7 @@ export function SkillInstallDialog({
         resolution_id: resolution.operation_id,
         skill_names: wizard.selectedSkillNames,
         agent_ids: selectedAgentIds,
-        replace_conflicts: false,
+        replace_conflicts: wizard.replaceConflicts,
       });
       const currentWizard = wizardRef.current;
       const stillCurrent =
@@ -301,6 +306,7 @@ export function SkillInstallDialog({
               currentWizard.selectedAgentIds,
               agentsRef.current,
             ),
+            currentWizard.replaceConflicts,
           );
       if (!stillCurrent) {
         return;
@@ -566,6 +572,35 @@ export function SkillInstallDialog({
                       </span>
                     </label>
                   ))}
+                </div>
+              </section>
+
+              <section>
+                <div className="mux-skill-selection-heading">
+                  <div>
+                    <h3>冲突处理</h3>
+                    <p>只允许替换同名中央副本；Agent 目录冲突仍会停止操作。</p>
+                  </div>
+                </div>
+                <div className="mux-skill-choice-list">
+                  <label>
+                    <input
+                      type="checkbox"
+                      aria-label="备份并替换同名中央副本"
+                      checked={wizard.replaceConflicts}
+                      disabled={planning || closing}
+                      onChange={(event) =>
+                        dispatch({
+                          type: "set_replace_conflicts",
+                          enabled: event.target.checked,
+                        })
+                      }
+                    />
+                    <span>
+                      <strong>备份并替换同名中央副本</strong>
+                      <small>替换前会在 ~/.mux/backups/skills/ 保留原副本。</small>
+                    </span>
+                  </label>
                 </div>
               </section>
 

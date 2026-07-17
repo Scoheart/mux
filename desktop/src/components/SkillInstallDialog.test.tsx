@@ -393,6 +393,33 @@ describe("SkillInstallDialog", () => {
     expect(within(impact).getByText(/也会被 Gemini CLI 读取/)).toBeVisible();
   });
 
+  it("keeps central replacement unchecked and replans after explicit opt-in", async () => {
+    const user = userEvent.setup();
+    renderInstall();
+    await resolveGithub(user);
+
+    const replacement = screen.getByRole("checkbox", {
+      name: "备份并替换同名中央副本",
+    });
+    expect(replacement).not.toBeChecked();
+    await user.click(screen.getByRole("button", { name: "审阅安装" }));
+    expect(api.planSkillInstall).toHaveBeenLastCalledWith(
+      expect.objectContaining({ replace_conflicts: false }),
+    );
+    await user.keyboard("{Escape}");
+
+    await user.click(replacement);
+    expect(replacement).toBeChecked();
+    expect(
+      screen.queryByRole("dialog", { name: "审阅 Skill 操作" }),
+    ).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "审阅安装" }));
+    expect(api.planSkillInstall).toHaveBeenLastCalledWith(
+      expect.objectContaining({ replace_conflicts: true }),
+    );
+    expect(api.planSkillInstall).toHaveBeenCalledTimes(2);
+  });
+
   it("replans selection in the same operation without cancelling staged resolution", async () => {
     const user = userEvent.setup();
     const cancel = vi.fn().mockResolvedValue(undefined);
@@ -609,7 +636,7 @@ describe("Skills lifecycle orchestration", () => {
         inventory.items = [
           {
             ...inventory.items[1],
-            identity: "agent:agents-user:external-copy",
+            identity: "target:agents-user:external-copy",
             name: "external-copy",
             states: ["external"],
             location: {
@@ -626,7 +653,7 @@ describe("Skills lifecycle orchestration", () => {
           item: inventory.items[0],
           planner: api.planSkillImport,
           expected: {
-            identity: "agent:agents-user:external-copy",
+            identity: "target:agents-user:external-copy",
             agent_ids: ["codex", "cursor", "gemini"],
             replace_conflicts: false,
           },
@@ -685,6 +712,58 @@ describe("Skills lifecycle orchestration", () => {
       expect.objectContaining({ kind: label === "导入" ? "import" : label === "更新" ? "update" : label === "修复" ? "repair" : "remove" }),
       null,
     );
+  });
+
+  it("sends explicit replacement choices for import and locally modified update", async () => {
+    const user = userEvent.setup();
+    const inventory = skillsInventoryFixture();
+    const external: SkillInventoryItem = {
+      ...inventory.items[1],
+      identity: "target:agents-user:external-copy",
+      name: "external-copy",
+      states: ["external"],
+      location: {
+        kind: "agent_target",
+        target_id: "agents-user",
+        global_dir: "~/.agents/skills",
+      },
+      source: null,
+      affected_agent_ids: ["codex", "cursor", "gemini"],
+    };
+    const modified: SkillInventoryItem = {
+      ...managedItem(),
+      states: ["locally_modified"],
+    };
+    inventory.items = [external, modified];
+    renderWorkspace(inventory);
+
+    let inspector = await openInspector(external);
+    const importReplacement = within(inspector).getByRole("checkbox", {
+      name: "备份并替换同名中央副本",
+    });
+    expect(importReplacement).not.toBeChecked();
+    await user.click(importReplacement);
+    await user.click(within(inspector).getByRole("button", { name: "导入" }));
+    expect(api.planSkillImport).toHaveBeenCalledWith({
+      identity: "target:agents-user:external-copy",
+      agent_ids: ["codex", "cursor", "gemini"],
+      replace_conflicts: true,
+    });
+    await user.keyboard("{Escape}");
+    await user.click(within(inspector).getByRole("button", { name: "关闭详情" }));
+
+    inspector = await openInspector(modified);
+    expect(within(inspector).getByRole("button", { name: "更新" })).toBeVisible();
+    const updateReplacement = within(inspector).getByRole("checkbox", {
+      name: "保留备份并替换本地更改",
+    });
+    expect(updateReplacement).not.toBeChecked();
+    await user.click(updateReplacement);
+    await user.click(within(inspector).getByRole("button", { name: "更新" }));
+    expect(api.planSkillUpdate).toHaveBeenCalledWith({
+      skill_name: "review-changes",
+      replace_local_changes: true,
+    });
   });
 
   it.each(["broken_link", "missing"] as const)(

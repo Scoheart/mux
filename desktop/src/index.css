@@ -994,6 +994,11 @@ body {
 
 .mux-skill-inspector-actions { display: flex; min-width: 0; flex: 1; flex-wrap: wrap; align-items: center; gap: 5px; }
 .mux-skill-inspector-actions [role="status"] { margin-left: auto; color: var(--text-secondary); font-size: 9px; }
+.mux-skill-replacement-choice {
+  display: flex; min-width: 0; flex: 1 0 100%; align-items: flex-start; gap: 6px; color: var(--text-secondary);
+  font-size: 9px; line-height: 1.35;
+}
+.mux-skill-replacement-choice input { flex: 0 0 auto; margin: 1px 0 0; accent-color: var(--color-blue); }
 .mux-skill-assignment-list { display: grid; min-width: 0; gap: 6px; margin-top: 10px; }
 .mux-skill-assignment-list > label { align-items: center; }
 .mux-skill-assignment-list label > span { min-width: 0; flex: 1; }

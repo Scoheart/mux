@@ -334,6 +334,7 @@ export interface PlannedSkill {
     metadata: Record<string, string>;
     allowed_tools: string | null;
   };
+  existing_source: SkillSource | null;
   source: SkillSource;
   resolved_revision: string | null;
   files: SkillFileChange[];

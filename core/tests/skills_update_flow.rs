@@ -399,6 +399,44 @@ fn update_requires_explicit_replacement_of_local_central_changes() {
 }
 
 #[test]
+fn update_replacement_retains_the_exact_locally_modified_tree() {
+    let fixture = UpdateFixture::available();
+    fixture.modify_central_after_plan();
+    let central = fixture.skills.central("review-changes");
+    fs::write(
+        central.join("local-only.txt"),
+        b"keep this exact local edit\n",
+    )
+    .unwrap();
+    let modified_hash = hash_tree(&central).unwrap();
+    let existing_source = load_settings().managed_skills.unwrap()["review-changes"]
+        .source
+        .clone();
+
+    let plan = plan_update(PlanUpdateRequest {
+        skill_name: "review-changes".into(),
+        replace_local_changes: true,
+    })
+    .unwrap();
+    assert_eq!(
+        plan.skills[0].existing_source.as_ref(),
+        Some(&existing_source)
+    );
+
+    commit_update(plan.confirmation()).unwrap();
+
+    let backups = fixture
+        .skills
+        .backups_with_prefix("update-", "review-changes");
+    assert_eq!(backups.len(), 1);
+    assert_eq!(hash_tree(&backups[0]).unwrap(), modified_hash);
+    assert_eq!(
+        fs::read(backups[0].join("local-only.txt")).unwrap(),
+        b"keep this exact local edit\n"
+    );
+}
+
+#[test]
 fn update_rejects_forged_confirmation_and_changed_candidate_or_settings() {
     let _fixture = UpdateFixture::available();
     let plan = plan_update(PlanUpdateRequest {

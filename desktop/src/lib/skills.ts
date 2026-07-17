@@ -59,6 +59,7 @@ export interface InstallWizardState {
   resolution: SkillSourceResolution | null;
   selectedSkillNames: string[];
   selectedAgentIds: string[];
+  replaceConflicts: boolean;
   plan: OperationPlan | null;
 }
 
@@ -66,6 +67,7 @@ export type InstallWizardAction =
   | { type: "resolution_loaded"; resolution: SkillSourceResolution }
   | { type: "toggle_skill"; skillName: string }
   | { type: "toggle_agent"; agentId: string }
+  | { type: "set_replace_conflicts"; enabled: boolean }
   | { type: "plan_loaded"; plan: OperationPlan }
   | { type: "reset" };
 
@@ -73,6 +75,7 @@ const initialWizardState: InstallWizardState = {
   resolution: null,
   selectedSkillNames: [],
   selectedAgentIds: [],
+  replaceConflicts: false,
   plan: null,
 };
 
@@ -93,6 +96,7 @@ export function installWizardReducer(
           (candidate) => candidate.name,
         ),
         selectedAgentIds: [],
+        replaceConflicts: false,
         plan: null,
       };
     case "toggle_skill":
@@ -108,6 +112,12 @@ export function installWizardReducer(
       return {
         ...state,
         selectedAgentIds: toggled(state.selectedAgentIds, action.agentId),
+        plan: null,
+      };
+    case "set_replace_conflicts":
+      return {
+        ...state,
+        replaceConflicts: action.enabled,
         plan: null,
       };
     case "plan_loaded":

@@ -4,9 +4,9 @@ mod support;
 
 use mux_core::settings::load_settings;
 use mux_core::skills::{
-    cancel_operation, commit_assignment, commit_import, hash_tree, plan_assignment, plan_import,
-    recover_pending, PlanAssignmentRequest, PlanImportRequest, PlanInstallRequest, SkillError,
-    SkillSource, SkillsPaths,
+    cancel_operation, commit_assignment, commit_import, hash_tree, list_inventory, plan_assignment,
+    plan_import, recover_pending, PlanAssignmentRequest, PlanImportRequest, PlanInstallRequest,
+    SkillError, SkillSource, SkillsPaths,
 };
 use serde_json::json;
 use std::fs;
@@ -104,6 +104,81 @@ fn import_revalidates_the_external_directory_before_commit() {
     assert!(fs::symlink_metadata(fixture.external_path("legacy-stale"))
         .unwrap()
         .is_dir());
+}
+
+#[test]
+fn import_central_collision_requires_opt_in_and_retains_the_displaced_tree() {
+    let fixture = SkillsFixture::managed("central-collision");
+    let central = fixture.central("central-collision");
+    let old_hash = hash_tree(&central).unwrap();
+    fixture.create_real_target("claude-user", "central-collision");
+    let request = fixture.import_request("central-collision");
+
+    assert!(matches!(
+        plan_import(request.clone()),
+        Err(SkillError::Conflict { .. })
+    ));
+    let plan = plan_import(PlanImportRequest {
+        replace_conflicts: true,
+        ..request
+    })
+    .unwrap();
+    let retained = SkillsPaths::from_env()
+        .unwrap()
+        .backups_skills_dir()
+        .join(format!("{}-central-central-collision", plan.operation_id));
+
+    commit_import(plan.confirmation()).unwrap();
+
+    assert!(retained.is_dir());
+    assert_eq!(hash_tree(&retained).unwrap(), old_hash);
+    assert_ne!(hash_tree(&central).unwrap(), old_hash);
+}
+
+#[test]
+fn import_replacement_flag_never_overwrites_other_agent_targets() {
+    for kind in ["directory", "unknown", "broken"] {
+        let name = format!("import-{kind}-conflict");
+        let fixture = SkillsFixture::external_skill(&name, "claude-user");
+        fs::create_dir_all(fixture.home.home.join("Library/Application Support/Cursor")).unwrap();
+        let inventory = list_inventory().unwrap();
+        let source = inventory
+            .items
+            .iter()
+            .find(|item| {
+                item.name == name
+                    && matches!(
+                        &item.location,
+                        mux_core::skills::SkillLocation::AgentTarget { target_id, .. }
+                            if target_id == "claude-user"
+                    )
+            })
+            .unwrap();
+        let conflict = fixture.target("cursor-user", &name);
+        fs::create_dir_all(conflict.parent().unwrap()).unwrap();
+        match kind {
+            "directory" => fixture.create_real_target("cursor-user", &name),
+            "unknown" => {
+                let outside = fixture.home.home.join(format!("outside-{name}"));
+                fs::create_dir_all(&outside).unwrap();
+                symlink(outside, &conflict).unwrap();
+            }
+            "broken" => {
+                symlink(fixture.home.home.join(format!("missing-{name}")), &conflict).unwrap();
+            }
+            _ => unreachable!(),
+        }
+
+        assert!(matches!(
+            plan_import(PlanImportRequest {
+                identity: source.identity.clone(),
+                agent_ids: vec!["cursor".into()],
+                replace_conflicts: true,
+            }),
+            Err(SkillError::Conflict { .. })
+        ));
+        assert!(fs::symlink_metadata(conflict).is_ok());
+    }
 }
 
 #[test]

@@ -4,8 +4,8 @@ mod support;
 
 use mux_core::settings::{load_settings, mutate_settings};
 use mux_core::skills::{
-    commit_install, plan_install, resolve_source, PlanInstallRequest, SkillError, SkillSource,
-    SkillSourceInput, SkillsPaths,
+    commit_install, hash_tree, plan_install, resolve_source, PlanInstallRequest, SkillError,
+    SkillSource, SkillSourceInput, SkillsPaths,
 };
 use serde_json::json;
 use std::fs;
@@ -120,8 +120,22 @@ fn install_with_no_agents_is_central_only_and_duplicate_selections_are_rejected(
 #[test]
 fn replacement_install_removes_prior_managed_links_not_in_the_desired_graph() {
     let fixture = SkillsFixture::managed_on_targets("replace-safe", &["cursor-user"]);
+    let old_hash = hash_tree(&fixture.central("replace-safe")).unwrap();
+    let old_source = load_settings().managed_skills.unwrap()["replace-safe"]
+        .source
+        .clone();
     let resolution = fixture.resolve_local(&["replace-safe"]);
     let old_link = fixture.target("cursor-user", "replace-safe");
+
+    assert!(matches!(
+        plan_install(PlanInstallRequest {
+            resolution_id: resolution.operation_id.clone(),
+            skill_names: vec!["replace-safe".into()],
+            agent_ids: Vec::new(),
+            replace_conflicts: false,
+        }),
+        Err(SkillError::Conflict { .. })
+    ));
 
     let plan = plan_install(PlanInstallRequest {
         resolution_id: resolution.operation_id,
@@ -130,6 +144,13 @@ fn replacement_install_removes_prior_managed_links_not_in_the_desired_graph() {
         replace_conflicts: true,
     })
     .unwrap();
+    assert_eq!(plan.skills[0].existing_source.as_ref(), Some(&old_source));
+    assert_ne!(plan.skills[0].source, old_source);
+    let wire = serde_json::to_value(&plan).unwrap();
+    assert_eq!(
+        wire["skills"][0]["existing_source"],
+        serde_json::to_value(&plan.skills[0].existing_source).unwrap()
+    );
     assert_eq!(
         plan.targets
             .iter()
@@ -145,7 +166,8 @@ fn replacement_install_removes_prior_managed_links_not_in_the_desired_graph() {
     assert!(!transient_backup.exists());
 
     commit_install(plan.confirmation()).unwrap();
-    assert!(!transient_backup.exists());
+    assert!(transient_backup.exists());
+    assert_eq!(hash_tree(&transient_backup).unwrap(), old_hash);
     assert!(fs::symlink_metadata(old_link).is_err());
     assert!(!load_settings()
         .skill_assignments
@@ -341,7 +363,7 @@ fn high_risk_confirmation_must_equal_the_canonical_findings_hash() {
 }
 
 #[test]
-fn real_directory_unknown_and_broken_targets_require_reviewed_replacement() {
+fn real_directory_unknown_and_broken_targets_remain_hard_conflicts() {
     let fixture = SkillsFixture::installed_agents(&["cursor"]);
 
     let directory = fixture.resolve_local(&["directory-conflict"]);
@@ -355,18 +377,16 @@ fn real_directory_unknown_and_broken_targets_require_reviewed_replacement() {
         }),
         Err(SkillError::Conflict { .. })
     ));
-    let plan = plan_install(PlanInstallRequest {
-        resolution_id: directory.operation_id,
-        skill_names: vec!["directory-conflict".into()],
-        agent_ids: vec!["cursor".into()],
-        replace_conflicts: true,
-    })
-    .unwrap();
-    commit_install(plan.confirmation()).unwrap();
-    assert_managed_link(
-        fixture.target("cursor-user", "directory-conflict"),
-        fixture.central("directory-conflict"),
-    );
+    assert!(matches!(
+        plan_install(PlanInstallRequest {
+            resolution_id: directory.operation_id,
+            skill_names: vec!["directory-conflict".into()],
+            agent_ids: vec!["cursor".into()],
+            replace_conflicts: true,
+        }),
+        Err(SkillError::Conflict { .. })
+    ));
+    assert!(fixture.target("cursor-user", "directory-conflict").is_dir());
 
     let unknown = fixture.resolve_local(&["unknown-conflict"]);
     let outside = fixture.home.home.join("outside-unknown");
@@ -383,33 +403,40 @@ fn real_directory_unknown_and_broken_targets_require_reviewed_replacement() {
         }),
         Err(SkillError::Conflict { .. })
     ));
-    let plan = plan_install(PlanInstallRequest {
-        resolution_id: unknown.operation_id,
-        skill_names: vec!["unknown-conflict".into()],
-        agent_ids: vec!["cursor".into()],
-        replace_conflicts: true,
-    })
-    .unwrap();
-    commit_install(plan.confirmation()).unwrap();
-    assert!(outside.exists());
-    assert_managed_link(unknown_target, fixture.central("unknown-conflict"));
-
-    let broken = fixture.resolve_local(&["broken-conflict"]);
-    let broken_target = fixture.target("cursor-user", "broken-conflict");
-    symlink(
-        fixture.home.home.join("missing-link-target"),
-        &broken_target,
-    )
-    .unwrap();
     assert!(matches!(
         plan_install(PlanInstallRequest {
-            resolution_id: broken.operation_id,
+            resolution_id: unknown.operation_id,
+            skill_names: vec!["unknown-conflict".into()],
+            agent_ids: vec!["cursor".into()],
+            replace_conflicts: true,
+        }),
+        Err(SkillError::Conflict { .. })
+    ));
+    assert_eq!(fs::read_link(&unknown_target).unwrap(), outside);
+
+    let broken = fixture.resolve_local(&["broken-conflict"]);
+    let broken_destination = fixture.home.home.join("missing-link-target");
+    let broken_target = fixture.target("cursor-user", "broken-conflict");
+    symlink(&broken_destination, &broken_target).unwrap();
+    assert!(matches!(
+        plan_install(PlanInstallRequest {
+            resolution_id: broken.operation_id.clone(),
             skill_names: vec!["broken-conflict".into()],
             agent_ids: vec!["cursor".into()],
             replace_conflicts: false,
         }),
         Err(SkillError::Conflict { .. })
     ));
+    assert!(matches!(
+        plan_install(PlanInstallRequest {
+            resolution_id: broken.operation_id,
+            skill_names: vec!["broken-conflict".into()],
+            agent_ids: vec!["cursor".into()],
+            replace_conflicts: true,
+        }),
+        Err(SkillError::Conflict { .. })
+    ));
+    assert_eq!(fs::read_link(broken_target).unwrap(), broken_destination);
 }
 
 #[test]

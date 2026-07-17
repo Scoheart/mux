@@ -260,6 +260,7 @@ pub struct OperationPlan {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct PlannedSkill {
     pub manifest: SkillManifest,
+    pub existing_source: Option<SkillSource>,
     pub source: SkillSource,
     pub resolved_revision: Option<String>,
     pub files: Vec<SkillFileChange>,

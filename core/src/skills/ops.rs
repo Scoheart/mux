@@ -139,6 +139,7 @@ enum LifecycleBinding<'a> {
 #[derive(Serialize)]
 struct BoundSkill<'a> {
     name: &'a str,
+    existing_source: &'a Option<SkillSource>,
     source: &'a SkillSource,
     resolved_revision: &'a Option<String>,
     content_hash: &'a str,
@@ -476,15 +477,11 @@ fn build_install_plan(
             skill_name: name.clone(),
             content_hash: central_hash.clone(),
         });
-        let mut replaces_target = false;
         for target in &target_views {
             let state = inspect_link(&target_path(&paths, target, &name)?, &central, &paths)?;
             let desired_managed = desired_target_ids.contains(&target.target_id);
             if desired_managed && is_link_conflict(&state) {
-                if !request.replace_conflicts {
-                    return conflict("an Agent Skill target conflicts with this install");
-                }
-                replaces_target = true;
+                return conflict("an Agent Skill target conflicts with this install");
             } else if !desired_managed && !is_safe_absent_transition(&state) {
                 return conflict(
                     "a prior Agent Skill assignment is no longer an exact managed link",
@@ -505,12 +502,15 @@ fn build_install_plan(
         )?;
         skills.push(PlannedSkill {
             manifest: validated.manifest,
+            existing_source: central_hash
+                .as_ref()
+                .and_then(|_| managed_source(&settings, &name)),
             source,
             resolved_revision: resolution.resolved_revision.clone(),
             files,
             risk,
             existing_states: existing_states(&inventory, &name),
-            replace_existing: central_hash.is_some() || replaces_target,
+            replace_existing: central_hash.is_some(),
             content_hash: validated.content_hash,
         });
     }
@@ -629,7 +629,6 @@ fn build_import_plan(
         return conflict_result("central Skill content already exists");
     }
     let mut expected_links = Vec::new();
-    let mut replaces_target = false;
     for target in &target_views {
         let state = inspect_link(
             &target_path(&paths, target, &source_name)?,
@@ -642,10 +641,7 @@ fn build_import_plan(
             return stale("the selected external Skill changed type after review");
         }
         if desired_managed && !is_source && is_link_conflict(&state) {
-            if !request.replace_conflicts {
-                return conflict_result("an Agent Skill target conflicts with this import");
-            }
-            replaces_target = true;
+            return conflict_result("an Agent Skill target conflicts with this import");
         } else if !desired_managed && !is_safe_absent_transition(&state) {
             return conflict_result(
                 "a prior Agent Skill assignment is no longer an exact managed link",
@@ -669,12 +665,15 @@ fn build_import_plan(
     )?;
     let skill = PlannedSkill {
         manifest: validated.manifest,
+        existing_source: central_hash
+            .as_ref()
+            .and_then(|_| managed_source(&settings, &source_name)),
         source,
         resolved_revision: None,
         files,
         risk,
         existing_states: existing_states(&inventory, &source_name),
-        replace_existing: central_hash.is_some() || replaces_target,
+        replace_existing: central_hash.is_some(),
         content_hash: validated.content_hash,
     };
     let targets = planned_targets(&target_views, &expected_links);
@@ -769,6 +768,7 @@ fn build_assignment_plan(
     let risk = audit_skill(&central)?;
     let skill = PlannedSkill {
         manifest: validated.manifest,
+        existing_source: None,
         source: record.source.clone(),
         resolved_revision: record.resolved_revision.clone(),
         files: Vec::new(),
@@ -853,6 +853,7 @@ fn build_update_plan(
     let files = diff_trees(Some(&central), candidate.path())?;
     let skill = PlannedSkill {
         manifest: validated.manifest,
+        existing_source: Some(record.source.clone()),
         source: record.source.clone(),
         resolved_revision: resolution.resolved_revision.clone(),
         files,
@@ -950,6 +951,7 @@ fn build_remove_plan(
     let targets = planned_targets(&target_views, &expected_links);
     let skill = PlannedSkill {
         manifest,
+        existing_source: None,
         source: record.source.clone(),
         resolved_revision: record.resolved_revision.clone(),
         files,
@@ -1034,6 +1036,7 @@ fn build_target_repair_plan(
     }];
     let skill = PlannedSkill {
         manifest: validated.manifest,
+        existing_source: None,
         source: record.source.clone(),
         resolved_revision: record.resolved_revision.clone(),
         files: Vec::new(),
@@ -1123,6 +1126,7 @@ fn build_central_repair_plan(
     }
     let skill = PlannedSkill {
         manifest: validated.manifest,
+        existing_source: central_hash.as_ref().map(|_| record.source.clone()),
         source: record.source.clone(),
         resolved_revision: resolution.resolved_revision.clone(),
         files,
@@ -1204,6 +1208,14 @@ fn managed_record<'a>(
         .as_ref()
         .and_then(|records| records.get(skill_name))
         .ok_or_else(|| invalid_source_error("the managed Skill is unavailable"))
+}
+
+fn managed_source(settings: &SkillSettingsSnapshot, skill_name: &str) -> Option<SkillSource> {
+    settings
+        .managed_skills
+        .as_ref()
+        .and_then(|records| records.get(skill_name))
+        .map(|record| record.source.clone())
 }
 
 fn staged_candidate(paths: &SkillsPaths, operation_id: &str, skill_name: &str) -> PathBuf {
@@ -1320,6 +1332,7 @@ fn central_repair_reappearance_matches(
     let mut normalized = rebuilt.clone();
     normalized.expected_central = reviewed.expected_central.clone();
     normalized.plan.skills[0].existing_states = reviewed.plan.skills[0].existing_states.clone();
+    normalized.plan.skills[0].existing_source = reviewed.plan.skills[0].existing_source.clone();
     normalized.plan.candidate_hash = candidate_hash(&normalized)?;
     Ok(&normalized == reviewed)
 }
@@ -1508,6 +1521,18 @@ fn transaction_spec(
                     })?,
                     true,
                 ),
+                PersistedPlanInput::Install { .. } | PersistedPlanInput::Import { .. }
+                    if expected.content_hash.is_some() =>
+                {
+                    (
+                        central_backup_path(
+                            paths,
+                            &persisted.plan.operation_id,
+                            &expected.skill_name,
+                        )?,
+                        true,
+                    )
+                }
                 _ => (
                     central_backup_path(paths, &persisted.plan.operation_id, &expected.skill_name)?,
                     false,
@@ -1893,6 +1918,7 @@ fn candidate_hash(persisted: &PersistedPlan) -> Result<String, SkillError> {
             .iter()
             .map(|skill| BoundSkill {
                 name: &skill.manifest.name,
+                existing_source: &skill.existing_source,
                 source: &skill.source,
                 resolved_revision: &skill.resolved_revision,
                 content_hash: &skill.content_hash,
@@ -2471,7 +2497,7 @@ mod tests {
     use crate::testenv::TestHome;
 
     #[test]
-    fn central_backup_specs_use_existing_root_anchor_for_new_and_replacement_content() {
+    fn central_backup_specs_retain_replaced_content_but_not_empty_rollback_paths() {
         let home = TestHome::new("ops-central-backup");
         let skill_name = "backup-anchor";
         let first_source = home.home.join("source/first/backup-anchor");
@@ -2532,6 +2558,18 @@ mod tests {
         })
         .unwrap();
         let second_persisted = load_plan(&paths, &second_plan.operation_id).unwrap();
+        let mut different_existing_source = second_persisted.clone();
+        different_existing_source.plan.skills[0].existing_source = Some(SkillSource::Github {
+            owner: "different".into(),
+            repo: "source".into(),
+            subpath: skill_name.into(),
+            requested_ref: "main".into(),
+            pinned: false,
+        });
+        assert_ne!(
+            candidate_hash(&second_persisted).unwrap(),
+            candidate_hash(&different_existing_source).unwrap()
+        );
         let second_spec = transaction_spec(&paths, &second_persisted).unwrap();
         let second_mutation = &second_spec.directory_mutations[0];
         let second_backup = paths
@@ -2539,11 +2577,11 @@ mod tests {
             .join(format!("{}-central-{skill_name}", second_plan.operation_id));
 
         assert!(second_mutation.expected_before_hash.is_some());
-        assert!(!second_mutation.retain_backup);
+        assert!(second_mutation.retain_backup);
         assert_eq!(second_mutation.backup, second_backup);
         assert!(second_backup.parent().unwrap().is_dir());
         execute_transaction(second_spec).unwrap();
-        assert!(!second_backup.exists());
+        assert!(second_backup.exists());
         assert!(
             fs::read_to_string(paths.central_skill(skill_name).join("SKILL.md"))
                 .unwrap()

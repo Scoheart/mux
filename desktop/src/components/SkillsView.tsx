@@ -274,12 +274,12 @@ export function SkillsView({
             return api.planSkillImport({
               identity: intent.identity,
               agent_ids: intent.agentIds,
-              replace_conflicts: false,
+              replace_conflicts: intent.replaceConflicts,
             });
           case "update":
             return api.planSkillUpdate({
               skill_name: intent.skillName,
-              replace_local_changes: false,
+              replace_local_changes: intent.replaceLocalChanges,
             });
           case "remove":
             return api.planSkillRemove({ skill_name: intent.skillName });

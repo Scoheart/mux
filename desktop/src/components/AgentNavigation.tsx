@@ -1,13 +1,13 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { DragEvent, KeyboardEvent } from "react";
 import type { AgentInfo } from "../lib/types";
 import {
   buildAgentPickerSections,
   MAX_PINNED_AGENTS,
-  movePinnedAgentAfter,
-  movePinnedAgentBefore,
   movePinnedAgentBy,
+  previewPinnedAgentOrder,
   togglePinnedAgent,
+  type PinnedDropPlacement,
 } from "../lib/pinnedAgents";
 import { usePinnedAgents } from "../hooks/usePinnedAgents";
 import { AgentGlyph } from "./brandIcons";
@@ -31,6 +31,11 @@ interface AgentNavigationProps {
   onAddAgent?: () => void;
 }
 
+interface AgentDropTarget {
+  id: string;
+  placement: PinnedDropPlacement;
+}
+
 export function AgentNavigation({
   agents,
   selectedAgentId,
@@ -40,6 +45,8 @@ export function AgentNavigation({
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [draggedId, setDraggedId] = useState<string | null>(null);
+  const [previewIds, setPreviewIds] = useState<string[] | null>(null);
+  const [dropTarget, setDropTarget] = useState<AgentDropTarget | null>(null);
   const [announcement, setAnnouncement] = useState("");
   const anchorRef = useRef<HTMLDivElement>(null);
   const { agentIds, ready, saving, commit } = usePinnedAgents();
@@ -48,11 +55,26 @@ export function AgentNavigation({
     [agentIds, agents, query],
   );
   const pinnedIds = sections.pinned.map(({ id }) => id);
+  const pinnedById = new Map(sections.pinned.map((agent) => [agent.id, agent]));
+  const previewOrder = draggedId && previewIds ? previewIds : pinnedIds;
+  const orderedPinnedAgents = previewOrder.flatMap((id) => {
+    const agent = pinnedById.get(id);
+    return agent ? [agent] : [];
+  });
   const selectedAgent = agents.find(({ id }) => id === selectedAgentId) ?? null;
   const pinLimitReached = pinnedIds.length >= MAX_PINNED_AGENTS;
 
+  const clearDragPreview = useCallback(() => {
+    setDraggedId(null);
+    setPreviewIds(null);
+    setDropTarget(null);
+  }, []);
+
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      clearDragPreview();
+      return;
+    }
     const closeOnEscape = (event: globalThis.KeyboardEvent) => {
       if (event.key === "Escape") setOpen(false);
     };
@@ -65,7 +87,7 @@ export function AgentNavigation({
       document.removeEventListener("keydown", closeOnEscape);
       document.removeEventListener("pointerdown", closeOnPointerDown);
     };
-  }, [open]);
+  }, [clearDragPreview, open]);
 
   const selectAgent = (id: string) => {
     onSelectAgent(id);
@@ -109,16 +131,31 @@ export function AgentNavigation({
     saveOrder(next, id);
   };
 
-  const dropAtRow = (event: DragEvent<HTMLDivElement>, targetId: string) => {
+  const previewAtRow = (event: DragEvent<HTMLDivElement>, targetId: string) => {
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+    if (!ready || saving || !draggedId || targetId === draggedId) return;
+    const bounds = event.currentTarget.getBoundingClientRect();
+    const placement: PinnedDropPlacement =
+      event.clientY >= bounds.top + bounds.height / 2 ? "after" : "before";
+    setDropTarget((current) =>
+      current?.id === targetId && current.placement === placement
+        ? current
+        : { id: targetId, placement },
+    );
+    setPreviewIds((current) => {
+      const base = current ?? pinnedIds;
+      const next = previewPinnedAgentOrder(base, draggedId, targetId, placement);
+      return sameOrder(base, next) ? base : next;
+    });
+  };
+
+  const finishDrop = (event: DragEvent<HTMLDivElement>) => {
     event.preventDefault();
     if (!ready || saving || !draggedId) return;
-    const bounds = event.currentTarget.getBoundingClientRect();
-    const afterTarget = event.clientY >= bounds.top + bounds.height / 2;
-    const next = afterTarget
-      ? movePinnedAgentAfter(pinnedIds, draggedId, targetId)
-      : movePinnedAgentBefore(pinnedIds, draggedId, targetId);
+    const next = previewIds ?? pinnedIds;
     const movedId = draggedId;
-    setDraggedId(null);
+    clearDragPreview();
     saveOrder(next, movedId);
   };
 
@@ -132,8 +169,9 @@ export function AgentNavigation({
         className="mux-agent-picker-row"
         data-active={active ? "true" : undefined}
         data-dragging={draggedId === agent.id ? "true" : undefined}
-        onDragOver={sortable ? (event) => event.preventDefault() : undefined}
-        onDrop={sortable ? (event) => dropAtRow(event, agent.id) : undefined}
+        data-drop-position={dropTarget?.id === agent.id ? dropTarget.placement : undefined}
+        onDragOver={sortable ? (event) => previewAtRow(event, agent.id) : undefined}
+        onDrop={sortable ? finishDrop : undefined}
       >
         {sortable && (
           <button
@@ -145,9 +183,17 @@ export function AgentNavigation({
             aria-label={`调整 ${agent.name} 的置顶顺序`}
             onDragStart={(event) => {
               event.dataTransfer.effectAllowed = "move";
+              event.dataTransfer.setData("text/plain", agent.id);
+              const row = event.currentTarget.closest(".mux-agent-picker-row");
+              if (row instanceof HTMLElement) {
+                const bounds = row.getBoundingClientRect();
+                event.dataTransfer.setDragImage(row, 18, Math.min(bounds.height / 2, 24));
+              }
               setDraggedId(agent.id);
+              setPreviewIds(pinnedIds);
+              setDropTarget(null);
             }}
-            onDragEnd={() => setDraggedId(null)}
+            onDragEnd={clearDragPreview}
             onKeyDown={(event) => moveByKeyboard(event, agent.id)}
           >
             <GripVerticalIcon className="w-4 h-4" />
@@ -198,7 +244,7 @@ export function AgentNavigation({
       </span>
       {sections.pinned.length > 0 && (
         <nav className="mux-pinned-agent-bar" aria-label="置顶 Agent">
-          {sections.pinned.map((agent) => (
+          {orderedPinnedAgents.map((agent) => (
             <button
               type="button"
               key={agent.id}
@@ -287,7 +333,7 @@ export function AgentNavigation({
                     <span>已置顶</span><span>{sections.pinned.length}/{MAX_PINNED_AGENTS}</span>
                   </div>
                   {sections.pinned.length > 0 ? (
-                    sections.pinned.map((agent) => agentRow(agent, true, true))
+                    orderedPinnedAgents.map((agent) => agentRow(agent, true, true))
                   ) : (
                     <div className="mux-agent-picker-hint">在常用 Agent 右侧点击 Pin</div>
                   )}

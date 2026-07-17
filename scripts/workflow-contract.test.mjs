@@ -59,3 +59,51 @@ test("monitor owns the non-PR failure lifecycle", async () => {
   assert.match(monitor, /secrets\.COPILOT_PAT/);
   assert.match(workflow, /cancel-in-progress:\s*true/);
 });
+
+test("Release Please is one root component with generated locks", async () => {
+  const config = JSON.parse(await read("release-please-config.json"));
+  const manifest = JSON.parse(await read(".release-please-manifest.json"));
+
+  assert.deepEqual(Object.keys(config.packages), ["."]);
+  assert.equal(config["release-type"], "simple");
+  assert.equal(config["include-component-in-tag"], false);
+  assert.equal(config["include-v-in-tag"], true);
+  assert.equal(config["separate-pull-requests"], false);
+  assert.equal(config.draft, true);
+  assert.equal(config["force-tag-creation"], true);
+  assert.equal(config["always-update"], true);
+  assert.deepEqual(manifest, { ".": "1.2.18" });
+
+  const extraFiles = config.packages["."]["extra-files"];
+  const paths = extraFiles.map((entry) => entry.path);
+  for (const path of [
+    "core/Cargo.toml",
+    "cli/Cargo.toml",
+    "desktop/package.json",
+    "desktop/src-tauri/Cargo.toml",
+    "desktop/src-tauri/tauri.conf.json",
+  ]) {
+    assert.ok(paths.includes(path), `missing release extra-file ${path}`);
+  }
+  assert.ok(paths.every((path) => !path.endsWith("lock.json")));
+  assert.ok(paths.every((path) => !path.endsWith("Cargo.lock")));
+});
+
+test("Release Please uses the dedicated token and refreshes its PR", async () => {
+  const workflow = await read(".github/workflows/release-please.yml");
+
+  assert.match(workflow, /branches:\s*\[main\]/);
+  assert.match(workflow, /workflow_dispatch:/);
+  assert.match(workflow, /RELEASE_PLEASE_TOKEN:\s*\$\{\{ secrets\.RELEASE_PLEASE_TOKEN \}\}/);
+  assert.doesNotMatch(workflow, /token:\s*\$\{\{ github\.token \}\}/);
+  assert.match(workflow, /outputs\.prs_created == 'true'/);
+  assert.match(workflow, /fromJSON\(steps\.release\.outputs\.pr\)\.headBranchName/);
+  assert.match(workflow, /node scripts\/release-version\.mjs refresh-locks/);
+  assert.match(workflow, /desktop\/package-lock\.json Cargo\.lock desktop\/src-tauri\/Cargo\.lock/);
+
+  const actionReferences = [...workflow.matchAll(/uses:\s*[^@\s]+@([^\s#]+)/g)];
+  assert.ok(actionReferences.length > 0);
+  for (const [, reference] of actionReferences) {
+    assert.match(reference, /^[0-9a-f]{40}$/);
+  }
+});

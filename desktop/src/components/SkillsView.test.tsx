@@ -213,6 +213,16 @@ describe("SkillsView", () => {
     expect(screen.getByPlaceholderText("搜索 Skills")).toBeVisible();
   });
 
+  it("omits inferred content-type navigation", () => {
+    render(<SkillsView state={skillsStateFixture()} />);
+
+    expect(screen.queryByText("内容类型")).not.toBeInTheDocument();
+    expect(screen.getByText("来源")).toBeVisible();
+    expect(
+      screen.queryByRole("button", { name: /说明型/ }),
+    ).not.toBeInTheDocument();
+  });
+
   it("combines filters and recomputes each axis count in the active context", async () => {
     const user = userEvent.setup();
     const inventory = skillsInventoryFixture();

@@ -166,11 +166,10 @@ describe("Skills wire contracts", () => {
 });
 
 describe("filterSkills", () => {
-  it("combines status, source, content kind, and search", () => {
+  it("combines status, source, and search", () => {
     const result = filterSkills(skillsInventoryFixture().items, {
       status: "needs_attention",
       source: "github",
-      contentKind: "automation",
       query: "REVIEW",
     });
     expect(result.map((item) => item.name)).toEqual(["review-changes"]);
@@ -189,7 +188,6 @@ describe("filterSkills", () => {
       filterSkills([imported], {
         status: "all",
         source: "local",
-        contentKind: "all",
         query: "",
       }),
     ).toHaveLength(1);
@@ -213,7 +211,6 @@ describe("filterSkills", () => {
       filterSkills(items, {
         status: "needs_attention",
         source: "all",
-        contentKind: "all",
         query: "attention",
       }),
     ).toHaveLength(attentionStates.length);
@@ -235,7 +232,6 @@ describe("filterSkills", () => {
       filterSkills([item], {
         status: "all",
         source: "all",
-        contentKind: "all",
         query: "install",
       }),
     ).toEqual([item]);

@@ -13,14 +13,12 @@ import {
 import * as api from "../lib/api";
 import {
   filterSkills,
-  type SkillContentFilter,
   type SkillSourceFilter,
   type SkillStatusFilter,
 } from "../lib/skills";
 import type {
   OperationPlan,
   SkillCommandError,
-  SkillContentKind,
   SkillDetail,
   SkillNavigationIntent,
   SkillsInventory,
@@ -31,7 +29,6 @@ import {
   LinkIcon,
   PackageIcon,
   RefreshIcon,
-  TerminalIcon,
 } from "./icons";
 import { SkillCard } from "./SkillCard";
 import { SkillInstallDialog } from "./SkillInstallDialog";
@@ -69,18 +66,6 @@ const sourceOptions: Array<{
   { value: "all", label: "全部来源", icon: <LayersIcon className="w-3.5 h-3.5" /> },
   { value: "github", label: "GitHub", icon: <LinkIcon className="w-3.5 h-3.5" /> },
   { value: "local", label: "本地", icon: <FolderIcon className="w-3.5 h-3.5" /> },
-];
-
-const contentOptions: Array<{
-  value: SkillContentFilter;
-  label: string;
-  icon: ReactNode;
-}> = [
-  { value: "all", label: "全部类型", icon: <PackageIcon className="w-3.5 h-3.5" /> },
-  { value: "automation", label: "自动化", icon: <TerminalIcon className="w-3.5 h-3.5" /> },
-  { value: "assets", label: "模板与素材", icon: <PackageIcon className="w-3.5 h-3.5" /> },
-  { value: "reference", label: "参考资料", icon: <LayersIcon className="w-3.5 h-3.5" /> },
-  { value: "instructions", label: "说明型", icon: <PackageIcon className="w-3.5 h-3.5" /> },
 ];
 
 interface SkillsViewProps {
@@ -136,7 +121,6 @@ export function SkillsView({
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState<SkillStatusFilter>("all");
   const [source, setSource] = useState<SkillSourceFilter>("all");
-  const [contentKind, setContentKind] = useState<SkillContentFilter>("all");
   const [checking, setChecking] = useState(false);
   const [selectedIdentity, setSelectedIdentity] = useState<string | null>(null);
   const [detail, setDetail] = useState<SkillDetail | null>(null);
@@ -169,10 +153,10 @@ export function SkillsView({
   cancelRef.current = state.cancel;
   toastRef.current = toast;
   const items = state.inventory?.items ?? [];
-  const filters = { status, source, contentKind, query };
+  const filters = { status, source, query };
   const filtered = useMemo(
     () => filterSkills(items, filters),
-    [contentKind, items, query, source, status],
+    [items, query, source, status],
   );
   const selected = selectedIdentity
     ? items.find((item) => item.identity === selectedIdentity) ?? null
@@ -181,7 +165,6 @@ export function SkillsView({
     override: Partial<{
       status: SkillStatusFilter;
       source: SkillSourceFilter;
-      contentKind: SkillContentKind | "all";
     }>,
   ) => filterSkills(items, { ...filters, ...override }).length;
   const recoveryError =
@@ -394,11 +377,6 @@ export function SkillsView({
     setSource(value);
   };
 
-  const changeContentKind = (value: SkillContentFilter) => {
-    closeInspector();
-    setContentKind(value);
-  };
-
   const openSkill = (identity: string) => {
     setNavigationNotice(null);
     setSelectedIdentity(identity);
@@ -438,7 +416,6 @@ export function SkillsView({
         setQuery("");
         setStatus("all");
         setSource("all");
-        setContentKind("all");
         setSelectedIdentity(item.identity);
       } else {
         closeInspector();
@@ -549,18 +526,6 @@ export function SkillsView({
                   label={option.label}
                   count={countWith({ source: option.value })}
                   onClick={() => changeSource(option.value)}
-                />
-              ))}
-            </SidebarSection>
-            <SidebarSection title="内容类型">
-              {contentOptions.map((option) => (
-                <SidebarItem
-                  key={option.value}
-                  active={contentKind === option.value}
-                  icon={option.icon}
-                  label={option.label}
-                  count={countWith({ contentKind: option.value })}
-                  onClick={() => changeContentKind(option.value)}
                 />
               ))}
             </SidebarSection>

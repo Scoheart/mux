@@ -1,6 +1,5 @@
 import type {
   OperationPlan,
-  SkillContentKind,
   SkillInventoryItem,
   SkillSourceResolution,
 } from "./types";
@@ -11,12 +10,10 @@ export type SkillStatusFilter =
   | "needs_attention"
   | "external";
 export type SkillSourceFilter = "all" | "github" | "local";
-export type SkillContentFilter = "all" | SkillContentKind;
 
 export interface SkillFilters {
   status: SkillStatusFilter;
   source: SkillSourceFilter;
-  contentKind: SkillContentFilter;
   query: string;
 }
 
@@ -45,13 +42,10 @@ export function filterSkills(
       filters.source === "all" ||
       item.source?.kind === filters.source ||
       (filters.source === "local" && item.source?.kind === "imported");
-    const contentMatches =
-      filters.contentKind === "all" ||
-      item.content_kind === filters.contentKind;
     const queryMatches =
       query.length === 0 ||
       `${item.name} ${item.description}`.toLowerCase().includes(query);
-    return statusMatches && sourceMatches && contentMatches && queryMatches;
+    return statusMatches && sourceMatches && queryMatches;
   });
 }
 

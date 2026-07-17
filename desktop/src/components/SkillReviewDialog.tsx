@@ -144,7 +144,7 @@ function PlannedSkillReview({
     (kind === "install" ||
       kind === "import" ||
       kind === "update" ||
-      kind === "repair");
+      (kind === "repair" && skill.existing_source !== null));
   return (
     <article className="mux-skill-review-skill">
       <header>

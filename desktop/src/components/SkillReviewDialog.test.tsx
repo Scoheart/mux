@@ -502,6 +502,29 @@ describe("SkillReviewDialog", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("目标目录已被其他内容占用。");
   });
 
+  it("does not promise a retained backup when central repair restores a missing copy", () => {
+    const plan = sharedTargetPlanFixture();
+    plan.kind = "repair";
+    plan.skills[0].replace_existing = true;
+    plan.skills[0].existing_source = null;
+
+    render(
+      <SkillReviewDialog
+        plan={plan}
+        onCommit={vi.fn()}
+        onClose={vi.fn()}
+        onCommitted={vi.fn()}
+        onRecoveryRequired={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("来源")).toBeVisible();
+    expect(screen.queryByText("现有来源")).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("先在 ~/.mux/backups/skills/ 保留备份，再替换现有中央副本"),
+    ).not.toBeInTheDocument();
+  });
+
   it("renders immutable files, bounded risk evidence, targets, and warnings", () => {
     const plan = highRiskPlan("findings-review");
     plan.skills[0].files[0] = {

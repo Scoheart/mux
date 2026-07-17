@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.20](https://github.com/Scoheart/mux/compare/v1.2.19...v1.2.20) (2026-07-17)
+
+
+### Bug Fixes
+
+* **release:** harden stable publication ([#38](https://github.com/Scoheart/mux/issues/38)) ([cb5df0e](https://github.com/Scoheart/mux/commit/cb5df0eb856a82d5be2883fbd3d79e1b669d36f2))
+
 ## [1.2.19](https://github.com/Scoheart/mux/compare/v1.2.18...v1.2.19) (2026-07-17)
 
 

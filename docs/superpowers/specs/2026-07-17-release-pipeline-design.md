@@ -112,7 +112,7 @@ Release PR 必须与最新 `main` 同步。若功能 PR 在 Release PR 打开期
 - 根 `Cargo.lock` 中的 MUX workspace packages
 - `desktop/src-tauri/Cargo.lock` 中的 Desktop 与 MUX packages
 
-新增版本一致性检查，比较所有权威 manifest 与 lockfile。任何不一致都使 `verify` 失败。同步步骤的生成结果提交到同一 Release PR 分支，而不是运行时临时修改或忽略漂移；`npm ci` 和 `cargo test --locked` 不承担修复版本漂移的职责。
+新增版本一致性检查，比较所有权威 manifest 与 lockfile，并验证 npm regular/optional dependency 在 lockfile 的 Node 解析层级中完整闭包。任何不一致都使 `verify` 失败。npm lock 同步必须在不含开发机 `node_modules` 的临时目录运行：完整 lock 只通过 `npm version --allow-same-version --no-git-tag-version` 更新根版本元数据，发现平台依赖被裁剪时才从 `package.json` 全量重建，避免普通 Release PR 意外升级依赖。同步结果提交到同一 Release PR 分支，而不是运行时临时修改或忽略漂移；`npm ci` 和 `cargo test --locked` 不承担修复版本漂移的职责。
 
 普通功能 PR 不应直接修改版本文件。版本提升只进入 Release PR，避免功能提交、版本提交和 tag 三者失去对应关系。
 

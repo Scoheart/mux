@@ -107,18 +107,17 @@ cargo metadata --locked --no-deps --format-version 1 \
 
 - [x] **Step 3: Implement generated-lock refresh mode**
 
-`refresh-locks` must not invent a version. It reads source manifests already changed by Release Please, verifies they equal `version.txt`, then runs:
+`refresh-locks` must not invent a version. It reads source manifests already changed by Release Please, verifies they equal `version.txt`, then updates npm metadata in a temporary directory that never contains the developer machine's `node_modules`. A complete portable lockfile uses `npm version --allow-same-version --no-git-tag-version` so a release-only version bump cannot re-resolve dependencies. An incomplete lockfile is discarded and rebuilt once from `package.json` so platform-specific packages cannot remain pruned. The recovery path runs the equivalent of:
 
 ```bash
-npm install --package-lock-only --ignore-scripts --no-audit --no-fund \
-  --prefix desktop
+npm install --package-lock-only --ignore-scripts --no-audit --no-fund
 cargo metadata --no-deps --format-version 1 >/dev/null
 cargo metadata --no-deps --format-version 1 \
   --manifest-path desktop/src-tauri/Cargo.toml >/dev/null
 node scripts/release-version.mjs check
 ```
 
-Generated files are updated only through these package managers; do not regex-edit lockfiles.
+The generated npm lock is copied back only after the temporary operation succeeds. `check` verifies that every declared regular or optional dependency resolves through the lockfile's Node package hierarchy. Generated files are updated only through these package managers; do not regex-edit lockfiles.
 
 The repository previously ignored both npm lockfiles. Remove that broad ignore, keep the irrelevant root `/package-lock.json` ignored, and commit the Desktop and Website lockfiles before switching CI to `npm ci`.
 

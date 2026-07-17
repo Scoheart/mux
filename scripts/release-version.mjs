@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 
 import { execFileSync } from "node:child_process";
-import { readFile } from "node:fs/promises";
+import { copyFile, mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -125,6 +126,56 @@ async function inspectField(root, definition, expected, mismatches) {
   }
 }
 
+function resolveLockPackage(packages, parentPath, dependency) {
+  let base = parentPath;
+  while (true) {
+    const candidate = base
+      ? `${base}/node_modules/${dependency}`
+      : `node_modules/${dependency}`;
+    if (Object.hasOwn(packages, candidate)) return candidate;
+    if (!base) return null;
+
+    const parentMarker = base.lastIndexOf("/node_modules/");
+    base = parentMarker === -1 ? "" : base.slice(0, parentMarker);
+  }
+}
+
+function npmLockClosureMismatches(lock, relativePath) {
+  const mismatches = [];
+  const packages = lock.packages;
+  if (packages === null || typeof packages !== "object") {
+    return [`${relativePath}: packages must be an object`];
+  }
+
+  for (const [packagePath, metadata] of Object.entries(packages)) {
+    for (const group of ["dependencies", "optionalDependencies"]) {
+      const dependencies = metadata?.[group];
+      if (dependencies === null || typeof dependencies !== "object") continue;
+
+      for (const dependency of Object.keys(dependencies)) {
+        if (!resolveLockPackage(packages, packagePath, dependency)) {
+          mismatches.push(
+            `${relativePath}: ${packagePath || "<root>"} ${group} entry ${dependency} is missing from the portable lockfile`,
+          );
+        }
+      }
+    }
+  }
+  return mismatches;
+}
+
+async function inspectNpmLockClosure(root, mismatches) {
+  const relativePath = "desktop/package-lock.json";
+  const path = join(root, relativePath);
+
+  try {
+    const lock = JSON.parse(await readFile(path, "utf8"));
+    mismatches.push(...npmLockClosureMismatches(lock, relativePath));
+  } catch (error) {
+    mismatches.push(`${relativePath}: ${error.message}`);
+  }
+}
+
 export async function collectVersionMismatches(
   root = REPOSITORY_ROOT,
   { includeGenerated = true, stableTag } = {},
@@ -141,6 +192,7 @@ export async function collectVersionMismatches(
       inspectField(root, definition, expected, mismatches),
     ),
   );
+  if (includeGenerated) await inspectNpmLockClosure(root, mismatches);
 
   if (stableTag !== undefined) {
     const match = stableTag.match(STABLE_TAG_PATTERN);
@@ -204,6 +256,69 @@ async function failOnMismatches(mismatches) {
   throw new Error(`release version check failed with ${mismatches.length} error(s)`);
 }
 
+async function refreshNpmLock(root) {
+  const desktop = join(root, "desktop");
+  const packageJson = join(desktop, "package.json");
+  const packageLock = join(desktop, "package-lock.json");
+  const temporary = await mkdtemp(join(tmpdir(), "mux-desktop-lock-"));
+
+  try {
+    await copyFile(packageJson, join(temporary, "package.json"));
+    const manifest = JSON.parse(await readFile(packageJson, "utf8"));
+    if (!SEMVER_PATTERN.test(manifest.version)) {
+      throw new Error("desktop/package.json must contain a semantic version");
+    }
+    let rebuild = true;
+    try {
+      const current = JSON.parse(await readFile(packageLock, "utf8"));
+      const closureErrors = npmLockClosureMismatches(
+        current,
+        "desktop/package-lock.json",
+      );
+      if (closureErrors.length === 0) {
+        await copyFile(packageLock, join(temporary, "package-lock.json"));
+        rebuild = false;
+      } else {
+        console.warn(
+          `Rebuilding a portable desktop lockfile because ${closureErrors.length} dependency entry or entries are missing.`,
+        );
+      }
+    } catch (error) {
+      console.warn(`Rebuilding unreadable desktop lockfile: ${error.message}`);
+    }
+
+    if (rebuild) {
+      run(
+        "npm",
+        [
+          "install",
+          "--package-lock-only",
+          "--ignore-scripts",
+          "--no-audit",
+          "--no-fund",
+        ],
+        temporary,
+      );
+    } else {
+      run(
+        "npm",
+        [
+          "version",
+          manifest.version,
+          "--allow-same-version",
+          "--no-git-tag-version",
+          "--ignore-scripts",
+        ],
+        temporary,
+        "ignore",
+      );
+    }
+    await copyFile(join(temporary, "package-lock.json"), packageLock);
+  } finally {
+    await rm(temporary, { recursive: true, force: true });
+  }
+}
+
 async function check(root, stableTag) {
   const mismatches = await collectVersionMismatches(root, { stableTag });
   mismatches.push(...cargoLockErrors(root));
@@ -215,19 +330,7 @@ async function refreshLocks(root) {
   await failOnMismatches(
     await collectVersionMismatches(root, { includeGenerated: false }),
   );
-  run(
-    "npm",
-    [
-      "install",
-      "--package-lock-only",
-      "--ignore-scripts",
-      "--no-audit",
-      "--no-fund",
-      "--prefix",
-      "desktop",
-    ],
-    root,
-  );
+  await refreshNpmLock(root);
   run("cargo", ["metadata", "--no-deps", "--format-version", "1"], root, "ignore");
   run(
     "cargo",

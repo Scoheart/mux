@@ -42,6 +42,7 @@ async function createFixture(overrides = {}) {
         name: "desktop",
         version: overrides.lockPackage ?? version,
       },
+      ...overrides.lockPackages,
     },
   });
   await writeFile(
@@ -76,6 +77,35 @@ test("reports both npm lockfile fields independently", async () => {
   assert.ok(
     mismatches.some((message) =>
       message.includes('desktop/package-lock.json.packages[""].version'),
+    ),
+  );
+});
+
+test("reports transitive npm packages missing from a portable lockfile", async () => {
+  const root = await createFixture({
+    lockPackages: {
+      "node_modules/bundler": {
+        version: "1.0.0",
+        optionalDependencies: {
+          "bundler-linux-x64": "1.0.0",
+        },
+      },
+      "node_modules/bundler-linux-x64": {
+        version: "1.0.0",
+        optional: true,
+        dependencies: {
+          "bundler-runtime": "1.0.0",
+        },
+      },
+    },
+  });
+  const mismatches = await collectVersionMismatches(root);
+
+  assert.ok(
+    mismatches.some(
+      (message) =>
+        message.includes("bundler-runtime") &&
+        message.includes("node_modules/bundler-linux-x64"),
     ),
   );
 });

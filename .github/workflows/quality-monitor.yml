@@ -46,6 +46,10 @@ jobs:
         working-directory: desktop
         run: npm install --no-audit --no-fund
 
+      - name: Test desktop frontend
+        working-directory: desktop
+        run: npm test
+
       - name: Build desktop frontend
         working-directory: desktop
         run: npm run build

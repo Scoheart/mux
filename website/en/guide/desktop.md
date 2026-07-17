@@ -1,18 +1,18 @@
 # Desktop app
 
-The desktop app is MUX's visual front-end (macOS, Tauri + React), used to browse the catalog, manage sources, install MCP servers, and edit agents. It shares `~/.mux/` with the command line.
+The desktop app is MUX's visual front-end (macOS, Tauri + React) for managing MCP servers, model endpoints, user-level Skills, and Agents. MCP and model data live under shared `~/.mux/`; Skills currently have a Desktop entry only.
 
 > Not installed yet? Start with [Installation](/en/guide/install#desktop-app-macos).
 
 ## Interface overview
 
-Opening the app lands you on the **Registry (catalog)** by default. In the current `v1.2.0`, the main interface is made up of these areas:
+Opening the app lands you on **MCPs** by default. The main interface is made up of these areas:
 
 ![The MUX Registry interface](/img/registry-overview-current.jpg)
 
 | Area | Purpose |
 |---|---|
-| **Registry** | Return to the catalog from any agent page. |
+| **MCPs / Models (Beta) / Skills** | Switch among the MCP catalog, model endpoints, and user-level Skills management. |
 | **Agent selector** | Search the verified writable targets; discovery-only records remain available for catalog validation without appearing as a separate tab. |
 | **`+`** | Add a custom agent, next to the agent selector. |
 | **Theme / Rescan / Check for updates** | Switch appearance, re-read each agent's config, manually check for stable updates. |
@@ -85,7 +85,7 @@ The source model itself supports enable/disable, which the TUI's "Sources" scree
 ## Agent management
 
 - The `+` to the right of the top agent selector adds a custom JSON, TOML, or YAML agent.
-- An agent page is that agent's configuration center: it shows the agent/model path, MCP path, model assignment, and installed MCPs together, so routine work no longer requires switching between Models and MCPs.
+- An agent page is that agent's configuration center: it shows the agent/model path, MCP path, model assignment, assigned Skills, and installed MCPs together, so routine work no longer requires switching among workspaces.
 - When the paths match the page shows “Same file”; when model settings and MCP use different files it shows “Separate MCP file.” Paths identify configuration targets only; MUX never returns the complete config to the UI.
 - Inside a built-in agent's page you may only override the global MCP path; the official format, config key, and codec are fixed, to avoid producing incompatible configs.
 - Paths inside the home directory are saved as `~/…`; absolute paths outside it keep their original value.
@@ -97,6 +97,12 @@ For the full 42 verified targets, 41 writable targets, and 194 retained records,
 The top-level **Models** workspace creates reusable endpoints and manages assignments across agents. The same compatible profiles are also available inside each supported agent's configuration center for direct application. A profile contains its protocol, Base URL, model ID, and optional token limits; API keys remain in macOS Keychain and are never included in settings, previews, or backups.
 
 Claude Code currently accepts Anthropic Messages profiles, Codex uses the Responses API, and Pi supports all three initial protocols. Qoder, Grok Build, and MiniMax Code expose their verified paths and setup entry; MUX neither writes Qoder's unpublished encrypted model store nor persists a MUX Keychain secret as plaintext in Grok Build or MiniMax Code model configuration.
+
+## Skills
+
+The top-level **Skills** workspace manages user-level Agent Skills. It resolves candidates from public GitHub or the native local-folder picker, reviews files, local risk, conflicts, and shared-Agent impact, then optionally links one central copy into verified Agent directories selected by the user. Agent pages keep only the assigned list, assignment toggle, detail link, and **Add Skill** action; update, import, repair, and removal stay in the Skills workspace.
+
+Skills do not require system Git, Node.js, or `npx`. This version does not support project-level content, private repositories, or CLI/TUI Skills commands. See [User-level Skills](/en/guide/skills) for installation, shared aliases, high-risk second confirmation, backups, and recovery.
 
 ## Auto-update and the CLI
 
@@ -114,4 +120,4 @@ Claude Code currently accepts Anthropic Messages profiles, Codex uses the Respon
 - Other top-level keys, other servers, comments, indentation, and key order are preserved; writes are refused when the JSON, TOML, or YAML structure is invalid or ambiguous.
 - `~/.mux/settings.json` uses atomic writes via temp file plus rename.
 
-The command line offers the same core capabilities → [CLI / TUI](/en/guide/cli).
+The command line manages MCPs, sources, and Agents; Skills currently have a Desktop entry only → [CLI / TUI](/en/guide/cli).

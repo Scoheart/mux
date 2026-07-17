@@ -50,6 +50,7 @@ export default defineConfig({
               text: "使用",
               items: [
                 { text: "桌面 App 指南", link: "/guide/desktop" },
+                { text: "Skills", link: "/guide/skills" },
                 { text: "命令行 / TUI", link: "/guide/cli" },
                 { text: "支持的 Agent", link: "/guide/agents" },
               ],
@@ -106,6 +107,7 @@ export default defineConfig({
               text: "Usage",
               items: [
                 { text: "Desktop app", link: "/en/guide/desktop" },
+                { text: "Skills", link: "/en/guide/skills" },
                 { text: "CLI / TUI", link: "/en/guide/cli" },
                 { text: "Supported agents", link: "/en/guide/agents" },
               ],

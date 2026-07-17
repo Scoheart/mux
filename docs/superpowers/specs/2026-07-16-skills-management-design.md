@@ -560,3 +560,35 @@ Escape 层级、横向 overflow、控制台错误和实际截图。
 实施顺序应为：Agent 能力数据与 core 类型 → resolver/manifest/audit →
 inventory/store/transaction ops → Tauri commands → Desktop 工作区与 Agent section →
 组件测试和真实验收。具体任务拆分由后续 `writing-plans` 阶段完成。
+
+## 19. 实施核验快照
+
+截至 2026-07-16 的功能分支实现遵守本设计的首版边界：只管理用户级 Skills，
+Rust core 负责来源解析、静态风险、inventory、plan/commit、事务与恢复；Desktop
+提供安装、导入、更新、分配、停用、修复和删除入口，CLI/TUI 没有新增 Skills
+命令。中央同名冲突与本地修改只能在显式选择后备份替换，真实目录、断链和未知
+链接仍拒绝覆盖；审阅计划绑定候选哈希，并区分现有来源与候选来源。
+
+在集成上游 `v1.2.15` 后，以下门禁已在功能分支通过：
+
+```bash
+cargo fmt --check
+cargo test --workspace
+(cd desktop && npm test)
+(cd desktop && npm run check:agent-icons)
+(cd desktop && npm run build)
+bash desktop/scripts/prepare-sidecar.sh
+(cd desktop/src-tauri && cargo test)
+(cd website && npm run build)
+git diff --check
+```
+
+Desktop 完整组件集为 174/174 通过。生产 `.app` 与 DMG 均报告版本 `1.2.15`、
+Bundle ID `com.scoheart.mux`，主程序与 sidecar 为 arm64，签名校验通过；DMG 内
+可执行文件哈希与构建产物一致，并通过同盘 stage/rollback 流程安装到
+`/Applications/MUX.app`。
+
+真实 UI 截图与两种 viewport 的最终人工反向验收尚未标记完成：验收主机当时处于
+macOS 锁屏状态，WindowServer 只返回白色 WebView 或桌面背景。必须在解锁后使用
+真实 `/Applications/MUX.app` 补验，不能用浏览器 mock、Preview bundle 或源码截图
+代替。

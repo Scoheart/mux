@@ -67,6 +67,12 @@ The results below are based on official docs, official source, or signed applica
 - **Grok Build**: MCP and custom models share `~/.grok/config.toml`. MUX safely edits only `mcp_servers`, preserving model, auth, timeout, and tool policy. Models remains guided because Grok Build has no per-model credential command that can safely consume a MUX Keychain secret.
 - **MiniMax Code**: the main and MCP configurations are separate at `~/.mavis/config.yaml` and `~/.mavis/mcp.json`. MUX safely manages `mcpServers`; Models remains guided because the current custom-provider flow persists `options.apiKey` as plaintext YAML.
 
+## Skills capabilities
+
+Skills paths are verified separately from the MCP config paths in the table above; MUX never infers one from the other. The initial release declares user-level Skills capabilities for Claude Code, Codex, Cursor, Gemini CLI, OpenCode, and GitHub Copilot CLI, and shows only Agents whose local installation probes succeed.
+
+Skills assignments operate on physical directories, not Agent names. Cursor, Gemini CLI, OpenCode, and GitHub Copilot CLI may all read the `~/.agents/skills` compatibility directory, so an operation on Codex's preferred directory can affect several installed Agents. MUX shows the real impact during review and normalizes duplicate links. See [User-level Skills](/en/guide/skills#verified-agent-paths) for the path matrix, installation sources, risk review, and current boundaries.
+
 ## Format differences across agents
 
 MUX does not treat every client as the same `mcpServers` JSON:

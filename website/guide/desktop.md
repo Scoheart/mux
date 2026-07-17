@@ -1,6 +1,6 @@
 # 桌面 App 指南
 
-桌面 App 是 MUX 的可视化前端（macOS，Tauri + React），用于浏览目录、管理来源、安装 MCP 和编辑 Agent。它与命令行共享 `~/.mux/`。
+桌面 App 是 MUX 的可视化前端（macOS，Tauri + React），用于管理 MCP、模型端点、用户级 Skills 和 Agent。MCP 与模型数据位于共享的 `~/.mux/`；Skills 当前只提供 Desktop 入口。
 
 > 还没安装？请先看 [安装](/guide/install#桌面-app-macos)。
 
@@ -12,7 +12,7 @@
 
 | 区域 | 作用 |
 |---|---|
-| **MCPs / Models（Beta）** | 在 MCP 目录和模型接口管理之间切换。 |
+| **MCPs / Models（Beta）/ Skills** | 在 MCP 目录、模型接口和用户级 Skills 管理之间切换。 |
 | **Agent 选择器** | 搜索已核验、可安全写入全局配置的 Agent。发现目录数据继续保留，但不占用界面标签页。 |
 | **`+`** | 新增自定义 Agent，位置紧邻 Agent 选择器。 |
 | **主题 / 重新扫描 / 检查更新** | 切换外观、重读各 Agent 配置、手动检查正式版更新。 |
@@ -94,7 +94,7 @@ Agent 页面中的每个已安装 MCP 都有开关和删除操作：
 ## Agent 管理
 
 - 顶部 Agent 选择器右侧的 `+` 用于新增 JSON、TOML 或 YAML 自定义 Agent。
-- Agent 页面是当前 Agent 的配置中心：同时展示 Agent/模型配置路径、MCP 配置路径、模型分配和已添加 MCP，日常操作不需要在 Models 与 MCPs 之间往返。
+- Agent 页面是当前 Agent 的配置中心：同时展示 Agent/模型配置路径、MCP 配置路径、模型分配、已分配 Skills 和已添加 MCP，日常操作不需要在多个工作区之间往返。
 - 两条路径相同时显示“同一文件”；模型设置与 MCP 位于不同文件时显示“独立 MCP 文件”。路径只用于说明配置目标，MUX 不会把完整配置内容提供给界面。
 - 进入内置 Agent 页面后只允许覆盖 MCP 全局路径；官方格式、配置键和 codec 固定，避免产生不兼容配置。
 - 位于用户主目录内的路径保存为 `~/…`；主目录外的绝对路径保持原值。
@@ -106,6 +106,12 @@ Agent 页面中的每个已安装 MCP 都有开关和删除操作：
 顶部 **Models** 页面与 MCPs 使用同一套筛选栏、搜索、资源卡片和右侧详情面板。可以创建可复用端点，并在详情面板中跨 Agent 管理分配；进入单个 Agent 后，也可在其配置中心选择兼容端点并直接应用。每个配置包含协议、Base URL、模型 ID 和可选 token 参数；API Key 只写入 macOS Keychain，不进入 `~/.mux/settings.json`、Agent 配置预览或备份。
 
 Claude Code 目前只接收 Anthropic Messages 配置，Codex 使用 Responses API，Pi 支持三种首批协议。Qoder、Grok Build 和 MiniMax Code 会显示安装状态与设置入口；MUX 不写 Qoder 未公开的加密模型存储，也不会把 Keychain 密钥明文写入 Grok Build 或 MiniMax Code 的模型配置。完整边界见 [模型接口](/guide/models)。
+
+## Skills
+
+顶部 **Skills** 工作区管理用户级 Agent Skills：从公开 GitHub 或原生本地文件夹选择器解析候选，在本机查看文件、风险、冲突和共享 Agent 影响，再按用户选择把一份中央副本链接到已核验的 Agent 目录。Agent 页面只保留已分配列表、启停开关、详情跳转和“添加 Skill”；更新、导入、修复与删除集中在 Skills 工作区。
+
+Skills 当前不依赖系统 Git、Node.js 或 `npx`，也不支持项目级内容、私有仓库或 CLI/TUI 命令。安装、共享 alias、高风险二次确认和备份恢复说明见 [用户级 Skills](/guide/skills)。
 
 ## 自动更新与 CLI
 
@@ -124,4 +130,4 @@ Claude Code 目前只接收 Anthropic Messages 配置，Codex 使用 Responses A
 - `~/.mux/settings.json` 使用临时文件加重命名的原子写入。
 - 模型接口同样只修改各 Agent 的受管模型字段；Pi 的两个文件作为事务写入，第二步失败会回滚第一步。
 
-命令行提供同一套核心能力 → [命令行 / TUI](/guide/cli)。
+命令行提供 MCP、来源和 Agent 管理能力；Skills 当前仅在 Desktop 提供入口 → [命令行 / TUI](/guide/cli)。

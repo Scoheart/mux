@@ -67,6 +67,12 @@ MUX 的 Agent 数据分为两层：
 - **Grok Build**：MCP 与自定义模型共用 `~/.grok/config.toml`。MUX 可局部管理 `mcp_servers`，并保留模型、认证、超时和工具策略；Models 页面只提供官方引导，因为 Grok Build 暂无可按模型安全调用 Keychain 的凭据命令。
 - **MiniMax Code**：主配置与 MCP 配置分离，分别是 `~/.mavis/config.yaml` 和 `~/.mavis/mcp.json`。MUX 可安全管理 `mcpServers`；Models 只提供引导，因为当前自定义 provider 会把 `options.apiKey` 明文写入 YAML。
 
+## Skills 能力
+
+Skills 路径与上表的 MCP 配置路径分别核验，不能互相推断。首版为 Claude Code、Codex、Cursor、Gemini CLI、OpenCode 和 GitHub Copilot CLI 声明用户级 Skills 能力；运行时只显示本机安装探针命中的 Agent。
+
+Skills 分配按物理目录而不是 Agent 名称执行。Cursor、Gemini CLI、OpenCode 和 GitHub Copilot CLI 都可能兼容读取 `~/.agents/skills`，因此对 Codex 首选目录的操作可能同时影响多个已安装 Agent。MUX 会在审阅页展示真实影响并归一化重复链接。路径矩阵、安装来源、风险审阅和当前边界见 [用户级 Skills](/guide/skills#已核验的-agent-路径)。
+
 ## 不同 Agent 的格式差异
 
 MUX 不把所有客户端都当成同一种 `mcpServers` JSON：

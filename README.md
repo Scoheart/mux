@@ -2,17 +2,20 @@
 
 # MUX — MCP Multiplexer
 
-**Manage MCP servers and reusable model endpoints for your AI agents in one place.**
+**Manage MCP servers, reusable model endpoints, and user-level Agent Skills in one place.**
 
 MUX is an MCP configuration manager for Claude Code, Codex, Cursor, QoderWork,
 OpenCode, and many other AI agents. Install, enable, synchronize, and export MCP
 servers from one catalog while MUX adapts each agent's native config format. It
 patches only the MCP section and preserves the rest of your settings.
 
-The desktop preview also manages reusable model endpoint profiles for Claude
-Code, Codex, and Pi. Credentials stay in macOS Keychain; Qoder is detected and
-linked to its official interactive `/model` setup until it exposes a secure
-non-interactive writer.
+> **Unreleased:** the Skills management described below is implemented on this
+> feature branch and is not part of the current stable download yet.
+
+The desktop app also manages reusable model endpoint profiles and user-level
+Agent Skills. Model credentials stay in macOS Keychain. Skills are resolved,
+reviewed, and audited locally before MUX writes one managed copy and optionally
+assigns it to verified Agent directories.
 
 MUX ships as **two front-ends that share the same data** (`~/.mux/`):
 
@@ -48,8 +51,9 @@ A one-click **Mux 精选 (curated collection)** subscribes you to a curated set.
 - **Safe, local writes** — MUX reads and edits only the configured MCP entry on this machine. It never uploads the complete agent config. Existing files are backed up first, then atomically replaced only if they have not changed concurrently; unrelated keys, comments, formatting, servers, policy fields, permissions, and symlinks are preserved.
 - **Unified agent configuration center** — see the verified agent/model path and MCP path together, then assign a compatible model and manage MCPs without switching workflows.
 - **Reusable model endpoints (preview)** — define a protocol, Base URL, model ID, and optional token limits once, then apply compatible profiles from Models or a supported Agent page. API keys are stored only in macOS Keychain.
-- **CLI ⇄ Desktop in sync** — both are built on one shared Rust core (`mux-core`) and read/write `~/.mux/`, so a change in one shows up in the other.
-- **Dark mode** and a compact, consistent resource workspace for MCPs and Models.
+- **User-level Skills in Desktop** — install from a public GitHub repository or a native local-folder picker without Git, Node.js, or `npx`; review local risk findings and file changes before assigning one central copy to verified Agents.
+- **CLI ⇄ Desktop in sync for MCP management** — both are built on one shared Rust core (`mux-core`) and read/write `~/.mux/`. Skills use the same core but intentionally have no CLI/TUI entry in this version.
+- **Dark mode** and a compact, consistent resource workspace for MCPs, Models, and Skills.
 
 ## Screenshots
 
@@ -69,6 +73,8 @@ MUX retains **194 distinct MCP client records** for discovery and verification. 
 Audited targets include Claude Code/Desktop, Codex, Cursor, VS Code, Zed, Windsurf, Gemini CLI, Google Antigravity, Amazon Q, OpenCode, Grok Build, MiniMax Code, Copilot CLI, Cline, Continue, Goose, Hermes, Kimi Code, Qwen Code, Qoder Desktop, Qoder CLI, QoderWork, Mistral Vibe, Rovo Dev, Tabnine, LM Studio, and others. Claude Desktop and BoltAI local files accept stdio only. Pi is explicitly labeled as a community `pi-mcp-adapter` target because Pi core does not ship MCP support. Devin remains discovery-only because no stable user-level global config file is documented.
 
 See the [complete audited matrix](website/guide/agents.md) and [catalog methodology](docs/agent-catalog.md). Every writable target's global path remains editable; paths inside the home directory are normalized to the portable `~/…` form.
+
+Skills assignment initially supports six separately verified user-level capabilities: Claude Code, Codex, Cursor, Gemini CLI, OpenCode, and GitHub Copilot CLI. Only capabilities detected on the current machine appear, and shared compatibility directories are shown before a change. See the [Skills guide](website/guide/skills.md).
 
 ---
 
@@ -125,11 +131,24 @@ Everything lives under `~/.mux/`:
 
 ```
 ~/.mux/
-├── settings.json           # agents · sources · model profile metadata · state
+├── settings.json           # agents · sources · model/Skill metadata · assignments · state
 ├── sources/
 │   ├── remote/<id>.json    # cached copies of subscribed URLs
 │   └── local/<id>.(json|toml)   # imported local files + the managed manual/discovered sources
-└── backups/                # per-agent timestamped backups made before existing-file writes
+├── skills/                 # one managed central copy per Skill
+├── staging/skills/         # resolved candidates and reviewed operation plans
+├── backups/                # timestamped backups made before managed writes
+│   └── skills/             # reversible Skill replacements, imports, and removals
+└── journals/skills/        # crash-recovery progress for committed Skill operations
+```
+
+Skills-specific runtime paths:
+
+```text
+~/.mux/skills/                  managed Skill contents
+~/.mux/staging/skills/          reviewed candidates
+~/.mux/backups/skills/          reversible replacements/removals
+~/.mux/journals/skills/         crash recovery journals
 ```
 
 Model API keys are not stored under `~/.mux/`; they remain in macOS Keychain.
@@ -140,6 +159,10 @@ Model API keys are not stored under `~/.mux/`; they remain in macOS Keychain.
 2. **Browse the catalog** — the Registry aggregates every enabled source (precedence: external sources < discovered < your manual edits).
 3. **Install to an agent** — pick an agent, toggle servers on/off; MUX writes only that MCP entry using the Agent's native schema (backing up existing files first).
 4. **Stay in sync** — enable/disable/edit/remove flow through `~/.mux/`, visible to both the CLI and the desktop app.
+5. **Manage user-level Skills in Desktop** — resolve a public GitHub source or choose a local folder, select Skills and optionally verified Agents, then review files, local risk findings, conflicts, shared-directory impact, and backups before commit.
+6. **Keep one central Skill copy** — MUX links selected Agent directories to `~/.mux/skills/`; disabling removes the managed link, while update, import, repair, and removal remain reviewed, reversible operations.
+
+Skills in this version are user-level only. Project-level Skills, private repositories, Skill editing, and CLI/TUI Skills commands are not supported.
 
 ## Development
 

@@ -1048,6 +1048,7 @@ mod tests {
             evidence: "custom".into(),
             verified_at: None,
             builtin: false,
+            skills_global_dir: None,
         }
     }
 

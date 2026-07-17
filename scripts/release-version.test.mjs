@@ -5,9 +5,9 @@ import { join } from "node:path";
 import test from "node:test";
 
 import {
-  cargoUpdateArgs,
   collectVersionMismatches,
   isReleaseMerge,
+  updateCargoLockPackageVersions,
 } from "./release-version.mjs";
 
 async function writeJson(path, value) {
@@ -63,31 +63,36 @@ test("all release-owned version fields agree", async () => {
   assert.deepEqual(await collectVersionMismatches(root), []);
 });
 
-test("refreshes Cargo workspace packages without dependency upgrades", () => {
-  assert.deepEqual(cargoUpdateArgs("mux-core", "1.2.19"), [
-    "update",
-    "--offline",
-    "-p",
-    "mux-core",
-    "--precise",
-    "1.2.19",
-  ]);
-  assert.deepEqual(
-    cargoUpdateArgs(
-      "desktop",
+test("refreshes only local Cargo lock packages", () => {
+  const lock = `version = 4
+
+[[package]]
+name = "mux-core"
+version = "1.2.18"
+
+[[package]]
+name = "desktop"
+version = "1.2.18"
+
+[[package]]
+name = "desktop"
+version = "9.9.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+`;
+
+  assert.equal(
+    updateCargoLockPackageVersions(
+      lock,
+      ["mux-core", "desktop"],
       "1.2.19",
-      "desktop/src-tauri/Cargo.toml",
     ),
-    [
-      "update",
-      "--offline",
-      "--manifest-path",
-      "desktop/src-tauri/Cargo.toml",
-      "-p",
-      "desktop",
-      "--precise",
-      "1.2.19",
-    ],
+    lock
+      .replace('name = "mux-core"\nversion = "1.2.18"', 'name = "mux-core"\nversion = "1.2.19"')
+      .replace('name = "desktop"\nversion = "1.2.18"', 'name = "desktop"\nversion = "1.2.19"'),
+  );
+  assert.throws(
+    () => updateCargoLockPackageVersions(lock, ["mux-cli"], "1.2.19"),
+    /exactly one local mux-cli package; found 0/,
   );
 });
 

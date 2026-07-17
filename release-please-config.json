@@ -9,6 +9,7 @@
   "draft": true,
   "force-tag-creation": true,
   "pull-request-title-pattern": "chore${scope}: release ${version}",
+  "group-pull-request-title-pattern": "chore${scope}: release ${version}",
   "changelog-sections": [
     {
       "type": "feat",

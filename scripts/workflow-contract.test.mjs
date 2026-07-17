@@ -72,6 +72,14 @@ test("Release Please is one root component with generated locks", async () => {
   assert.equal(config.draft, true);
   assert.equal(config["force-tag-creation"], true);
   assert.equal(config["always-update"], true);
+  assert.equal(
+    config["pull-request-title-pattern"],
+    "chore${scope}: release ${version}",
+  );
+  assert.equal(
+    config["group-pull-request-title-pattern"],
+    "chore${scope}: release ${version}",
+  );
   assert.deepEqual(manifest, { ".": "1.2.18" });
 
   const extraFiles = config.packages["."]["extra-files"];

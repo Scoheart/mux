@@ -1,67 +1,159 @@
 name: Build desktop (macOS dmg)
 
-# Builds the Tauri desktop app as a macOS .dmg:
-#   - push to main / manual run  -> build + publish a unique, versioned pre-release
-#                                   per push (tag v<version>-build.<run_number>)
-#   - push a tag like v0.1.1     -> build + publish the stable, versioned Release
-#
-# Build time is dominated by Rust compilation, cached across runs by
-# Swatinem/rust-cache (deps + target).
 on:
   push:
     branches: [main]
     tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      mode:
+        description: Publication channel
+        required: true
+        default: prerelease
+        type: choice
+        options:
+          - prerelease
+          - stable-retry
+      stable_tag:
+        description: Existing vX.Y.Z tag (required for stable-retry)
+        required: false
+        type: string
 
 permissions:
-  contents: write # required to create Releases and their tags
+  contents: write
+  checks: read
 
+# Ordinary main builds intentionally have no cancelling concurrency group: every
+# accepted main commit gets its own package attempt.
 jobs:
-  build-dmg:
-    runs-on: macos-latest
+  classify:
+    name: Classify publication
+    runs-on: ubuntu-latest
+    outputs:
+      mode: ${{ steps.classify.outputs.mode }}
+      tag: ${{ steps.classify.outputs.tag }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        # actions/checkout v5.0.0
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          fetch-depth: 2
+
+      - name: Classify trigger
+        id: classify
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          REF_NAME: ${{ github.ref_name }}
+          BEFORE_SHA: ${{ github.event.before }}
+          INPUT_MODE: ${{ inputs.mode }}
+          INPUT_STABLE_TAG: ${{ inputs.stable_tag }}
+          RUN_NUMBER: ${{ github.run_number }}
+        run: |
+          set -euo pipefail
+          STABLE_TAG_REGEX='^v[0-9]+\.[0-9]+\.[0-9]+$'
+          version=$(tr -d '[:space:]' <version.txt)
+          mode=
+          tag=
+
+          if [[ "$EVENT_NAME" == push && "$REF" == refs/heads/main ]]; then
+            before_version=$version
+            if git cat-file -e "$BEFORE_SHA:version.txt" 2>/dev/null; then
+              before_version=$(git show "$BEFORE_SHA:version.txt" | tr -d '[:space:]')
+            fi
+            title=$(git log -1 --format=%s)
+            if [[ "$before_version" != "$version" && "$title" == "chore(main): release $version" ]]; then
+              mode=skip
+            else
+              mode=prerelease
+              tag="v${version}-build.$(printf '%05d' "$RUN_NUMBER")"
+            fi
+          elif [[ "$EVENT_NAME" == push && "$REF" == refs/tags/* ]]; then
+            [[ "$REF_NAME" =~ $STABLE_TAG_REGEX ]] || {
+              echo "refusing non-stable tag: $REF_NAME" >&2
+              exit 1
+            }
+            mode=stable
+            tag=$REF_NAME
+          elif [[ "$EVENT_NAME" == workflow_dispatch && "$INPUT_MODE" == stable-retry ]]; then
+            [[ "$INPUT_STABLE_TAG" =~ $STABLE_TAG_REGEX ]] || {
+              echo "stable-retry requires a vX.Y.Z tag" >&2
+              exit 1
+            }
+            [[ "$REF" == "refs/tags/$INPUT_STABLE_TAG" ]] || {
+              echo "dispatch stable-retry from the selected stable tag ref" >&2
+              exit 1
+            }
+            mode=stable
+            tag=$INPUT_STABLE_TAG
+          elif [[ "$EVENT_NAME" == workflow_dispatch && "$INPUT_MODE" == prerelease ]]; then
+            [[ "$REF" == refs/heads/main ]] || {
+              echo "manual Pre-release must run from main" >&2
+              exit 1
+            }
+            mode=prerelease
+            tag="v${version}-build.$(printf '%05d' "$RUN_NUMBER")"
+          else
+            echo "unsupported publication trigger" >&2
+            exit 1
+          fi
+
+          echo "mode=$mode" >>"$GITHUB_OUTPUT"
+          echo "tag=$tag" >>"$GITHUB_OUTPUT"
+
+  build-dmg:
+    name: Build and publish
+    if: ${{ needs.classify.outputs.mode != 'skip' }}
+    needs: [classify]
+    runs-on: macos-latest
+    env:
+      PUBLICATION_MODE: ${{ needs.classify.outputs.mode }}
+      RELEASE_TAG: ${{ needs.classify.outputs.tag }}
+    steps:
+      - name: Checkout
+        # actions/checkout v5.0.0
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        # actions/setup-node v5.0.0
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
         with:
-          node-version: 20
+          node-version: 24
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
 
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+        # dtolnay/rust-toolchain stable at implementation time
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
 
       - name: Cache Rust build
-        uses: Swatinem/rust-cache@v2
+        # Swatinem/rust-cache v2
+        uses: Swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae
         with:
-          # Two independent target dirs: the desktop Tauri app, and the root
-          # Cargo workspace (core + cli) that produces the `mux` binary.
           workspaces: |
             desktop/src-tauri -> target
             . -> target
           cache-on-failure: true
 
-      - name: Cache npm downloads
-        uses: actions/cache@v4
-        with:
-          path: ~/.npm
-          key: npm-${{ runner.os }}-${{ hashFiles('desktop/package.json') }}
-          restore-keys: npm-${{ runner.os }}-
+      - name: Check release version metadata
+        shell: bash
+        run: |
+          if [[ "$PUBLICATION_MODE" == stable ]]; then
+            node scripts/release-version.mjs check --tag "$RELEASE_TAG"
+          else
+            node scripts/release-version.mjs check
+          fi
 
-      - name: Install frontend deps
+      - name: Install frontend dependencies
         working-directory: desktop
-        run: npm install --no-audit --no-fund
+        run: npm ci --no-audit --no-fund
 
       - name: Build .dmg
         working-directory: desktop
         env:
-          # Signs the updater artifacts (bundle.createUpdaterArtifacts) so the
-          # installed app can verify them against the pubkey in tauri.conf.json.
-          # Both secrets are REQUIRED once createUpdaterArtifacts is on.
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        # "app" is bundled explicitly so the updater's .app.tar.gz (+ .sig) is
-        # always produced next to the dmg.
         run: |
           rm -rf src-tauri/target/release/bundle
           npm run tauri build -- --bundles app,dmg
@@ -76,12 +168,12 @@ jobs:
           test -n "$DMG"
 
           EXPECTED=$(node -p "require('./desktop/src-tauri/tauri.conf.json').version")
-          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
-            test "${{ github.ref_name }}" = "v$EXPECTED"
+          if [[ "$PUBLICATION_MODE" == stable ]]; then
+            test "$RELEASE_TAG" = "v$EXPECTED"
           fi
 
           verify_app() {
-            local app="$1"
+            local app=$1
             local actual
             test -d "$app"
             actual=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Contents/Info.plist")
@@ -106,183 +198,120 @@ jobs:
           cleanup
           trap - EXIT
 
-      # Build the `mux` CLI (root workspace) and tar it up so the same Release
-      # carries a ready-to-run binary next to the .dmg — no cargo needed. Keep
-      # its compatibility filename for self-updates; GitHub's Asset Label gives
-      # it a human-readable purpose in the compact mobile UI.
-      - name: Build & package CLI (mux)
+      - name: Build and package CLI
         id: cli
+        shell: bash
         run: |
+          set -euo pipefail
           cargo build --release -p mux-cli
           case "$(uname -m)" in
             arm64|aarch64) TRIPLE=aarch64-apple-darwin ;;
             x86_64) TRIPLE=x86_64-apple-darwin ;;
-            *) TRIPLE="$(uname -m)-apple-darwin" ;;
+            *) echo "unsupported macOS architecture" >&2; exit 1 ;;
           esac
-          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
-            NAME="${{ github.ref_name }}"
-          else
-            VER=$(node -p "require('./desktop/src-tauri/tauri.conf.json').version")
-            NAME="v${VER}-build.$(printf '%05d' "${{ github.run_number }}")"
-          fi
-          # Keep this compatibility filename: released CLI binaries resolve it
-          # directly when running `mux upgrade`. A friendly
-          # GitHub asset label below makes its purpose clear to humans.
-          OUT="mux_${NAME}_${TRIPLE}.tar.gz"
+          OUT="mux_${RELEASE_TAG}_${TRIPLE}.tar.gz"
           tar -C target/release -czf "$OUT" mux
-          echo "path=$OUT" >> "$GITHUB_OUTPUT"
+          echo "path=$OUT" >>"$GITHUB_OUTPUT"
 
-      # --- Versioned stable release: only when a vX.Y.Z tag is pushed ---
-      # Stable releases carry the auto-update channel: the signed .app.tar.gz
-      # plus a latest.json manifest. Installed apps poll
-      # releases/latest/download/latest.json (see tauri.conf.json), which GitHub
-      # resolves to the *newest non-prerelease* — so only these hand-cut vX.Y.Z
-      # releases ever push updates to users.
-      - name: Package updater artifact + latest.json (on tag)
-        if: startsWith(github.ref, 'refs/tags/')
-        id: updater
+      - name: Name desktop installer
+        id: installer
+        shell: bash
         run: |
+          set -euo pipefail
+          SRC=$(find desktop/src-tauri/target/release/bundle/dmg -maxdepth 1 -type f -name '*.dmg' -print -quit)
+          case "$(uname -m)" in
+            arm64|aarch64) ARCH_LABEL=Apple-Silicon ;;
+            x86_64) ARCH_LABEL=Intel ;;
+            *) echo "unsupported macOS architecture" >&2; exit 1 ;;
+          esac
+          DEST="desktop/src-tauri/target/release/bundle/dmg/MUX-Desktop-Installer-${RELEASE_TAG}-macOS-${ARCH_LABEL}.dmg"
+          mv "$SRC" "$DEST"
+          echo "path=$DEST" >>"$GITHUB_OUTPUT"
+          echo "arch_label=$ARCH_LABEL" >>"$GITHUB_OUTPUT"
+
+      - name: Wait for exact commit verification
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash .github/scripts/wait-for-verify.sh "$GITHUB_REPOSITORY" "$GITHUB_SHA"
+
+      # PRE-RELEASE START
+      - name: Publish per-commit Pre-release
+        if: ${{ needs.classify.outputs.mode == 'prerelease' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INSTALLER: ${{ steps.installer.outputs.path }}
+          CLI_ARCHIVE: ${{ steps.cli.outputs.path }}
+          ARCH_LABEL: ${{ steps.installer.outputs.arch_label }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Pre-release already exists: $RELEASE_TAG" >&2
+            exit 1
+          fi
+          gh release create "$RELEASE_TAG" "$INSTALLER" "$CLI_ARCHIVE" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "$RELEASE_TAG" \
+            --prerelease \
+            --notes "Automatic package from main build #${GITHUB_RUN_NUMBER}. Commit: ${GITHUB_SHA}"
+
+          release="repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}"
+          label_asset() {
+            local name=$1 label=$2 id
+            id=$(gh api "$release" --jq ".assets[] | select(.name == \"$name\") | .id")
+            test -n "$id"
+            gh api --method PATCH "repos/${GITHUB_REPOSITORY}/releases/assets/$id" \
+              -f "label=$label" --silent
+          }
+          label_asset "$(basename "$INSTALLER")" "Desktop installer · ${ARCH_LABEL//-/ }"
+          label_asset "$(basename "$CLI_ARCHIVE")" "Command-line tool · ${ARCH_LABEL//-/ }"
+      # PRE-RELEASE END
+
+      # STABLE START
+      - name: Package stable updater payload and manifest
+        if: ${{ needs.classify.outputs.mode == 'stable' }}
+        id: updater
+        shell: bash
+        run: |
+          set -euo pipefail
           case "$(uname -m)" in
             arm64|aarch64) ARCH=aarch64; ARCH_LABEL=Apple-Silicon ;;
-            *) ARCH=x86_64; ARCH_LABEL=Intel ;;
+            x86_64) ARCH=x86_64; ARCH_LABEL=Intel ;;
+            *) echo "unsupported macOS architecture" >&2; exit 1 ;;
           esac
-          TAR=$(ls desktop/src-tauri/target/release/bundle/macos/*.app.tar.gz | head -1)
+          TAR=$(find desktop/src-tauri/target/release/bundle/macos -maxdepth 1 -type f -name '*.app.tar.gz' -print -quit)
+          test -n "$TAR"
+          test -s "${TAR}.sig"
           SIG=$(cat "${TAR}.sig")
           VER=$(node -p "require('./desktop/src-tauri/tauri.conf.json').version")
-          ASSET="MUX-Desktop-AutoUpdate-${{ github.ref_name }}-macOS-${ARCH_LABEL}.app.tar.gz"
+          ASSET="MUX-Desktop-AutoUpdate-${RELEASE_TAG}-macOS-${ARCH_LABEL}.app.tar.gz"
           cp "$TAR" "$ASSET"
-          cat > latest.json <<EOF
+          PUB_DATE=$(git show -s --format=%cI "$GITHUB_SHA")
+          cat >latest.json <<EOF
           {
             "version": "${VER}",
-            "notes": "MUX ${{ github.ref_name }} — https://github.com/${{ github.repository }}/releases/tag/${{ github.ref_name }}",
-            "pub_date": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "notes": "MUX ${RELEASE_TAG} — https://github.com/${GITHUB_REPOSITORY}/releases/tag/${RELEASE_TAG}",
+            "pub_date": "${PUB_DATE}",
             "platforms": {
               "darwin-${ARCH}": {
                 "signature": "${SIG}",
-                "url": "https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/${ASSET}"
+                "url": "https://github.com/${GITHUB_REPOSITORY}/releases/download/${RELEASE_TAG}/${ASSET}"
               }
             }
           }
           EOF
-          echo "asset=$ASSET" >> "$GITHUB_OUTPUT"
+          jq -e . latest.json >/dev/null
+          echo "asset=$ASSET" >>"$GITHUB_OUTPUT"
 
-      - name: Name stable desktop installer
-        if: startsWith(github.ref, 'refs/tags/')
-        id: installer
-        run: |
-          SRC=$(ls desktop/src-tauri/target/release/bundle/dmg/*.dmg | head -1)
-          case "$(uname -m)" in
-            arm64|aarch64) ARCH_LABEL=Apple-Silicon ;;
-            *) ARCH_LABEL=Intel ;;
-          esac
-          DEST="desktop/src-tauri/target/release/bundle/dmg/MUX-Desktop-Installer-${{ github.ref_name }}-macOS-${ARCH_LABEL}.dmg"
-          mv "$SRC" "$DEST"
-          echo "path=$DEST" >> "$GITHUB_OUTPUT"
-
-      - name: Publish versioned Release (on tag)
-        if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            ${{ steps.installer.outputs.path }}
-            ${{ steps.cli.outputs.path }}
-            ${{ steps.updater.outputs.asset }}
-            latest.json
-          fail_on_unmatched_files: true
-          generate_release_notes: true
-          body: |
-            ## Download guide
-
-            - **Desktop app:** download `MUX-Desktop-Installer-${{ github.ref_name }}-macOS-Apple-Silicon.dmg`.
-            - **Command line:** choose the asset labelled **Command-line tool · Apple Silicon**.
-            - `latest.json` and `Desktop-AutoUpdate` are used by the app automatically; do not download them manually.
-
-      - name: Label stable release assets
-        if: startsWith(github.ref, 'refs/tags/')
+      - name: Complete and publish stable Draft
+        if: ${{ needs.classify.outputs.mode == 'stable' }}
         env:
           GH_TOKEN: ${{ github.token }}
+          INSTALLER: ${{ steps.installer.outputs.path }}
+          CLI_ARCHIVE: ${{ steps.cli.outputs.path }}
+          UPDATER: ${{ steps.updater.outputs.asset }}
         run: |
-          RELEASE="repos/${{ github.repository }}/releases/tags/${{ github.ref_name }}"
-          label_asset() {
-            NAME="$1"
-            LABEL="$2"
-            ID=$(gh api "$RELEASE" --jq ".assets[] | select(.name == \"$NAME\") | .id")
-            test -n "$ID"
-            gh api --method PATCH "repos/${{ github.repository }}/releases/assets/$ID" -f label="$LABEL" --silent
-          }
-          label_asset "$(basename '${{ steps.installer.outputs.path }}')" "Desktop installer · Apple Silicon"
-          label_asset "$(basename '${{ steps.cli.outputs.path }}')" "Command-line tool · Apple Silicon"
-          label_asset "${{ steps.updater.outputs.asset }}" "Desktop auto-update payload · no manual download"
-          label_asset "latest.json" "Auto-update manifest · no manual download"
-
-      # --- Per-push pre-release: every push to main (and manual runs) ---
-      # Each push publishes its own uniquely-tagged pre-release so every build is
-      # downloadable and kept in history. The tag is derived automatically from the
-      # app version + the monotonic run number (e.g. v0.1.1-build.42) — no manual
-      # tagging needed. The tag/release are created with the default GITHUB_TOKEN,
-      # which does NOT re-trigger this workflow, so there is no build->tag->build loop.
-      - name: Derive build tag
-        if: github.ref == 'refs/heads/main'
-        id: meta
-        run: |
-          VER=$(node -p "require('./desktop/src-tauri/tauri.conf.json').version")
-          # Zero-pad the run number so the release tags sort correctly on GitHub
-          # (which compares the build suffix lexicographically, not numerically —
-          # unpadded, build.10/11 would sort below build.9).
-          BUILD=$(printf '%05d' "${{ github.run_number }}")
-          echo "tag=v${VER}-build.${BUILD}" >> "$GITHUB_OUTPUT"
-
-      # Give pre-release installers the same descriptive naming scheme as stable
-      # releases while retaining the unique build tag.
-      - name: Name pre-release desktop installer
-        if: github.ref == 'refs/heads/main'
-        id: dmg
-        run: |
-          SRC=$(ls desktop/src-tauri/target/release/bundle/dmg/*.dmg | head -1)
-          case "$(uname -m)" in
-            arm64|aarch64) ARCH_LABEL=Apple-Silicon ;;
-            *) ARCH_LABEL=Intel ;;
-          esac
-          DEST="desktop/src-tauri/target/release/bundle/dmg/MUX-Desktop-Installer-${{ steps.meta.outputs.tag }}-macOS-${ARCH_LABEL}.dmg"
-          mv "$SRC" "$DEST"
-          echo "path=$DEST" >> "$GITHUB_OUTPUT"
-
-      - name: Publish per-push pre-release
-        if: github.ref == 'refs/heads/main'
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ steps.meta.outputs.tag }}
-          target_commitish: ${{ github.sha }}
-          name: ${{ steps.meta.outputs.tag }}
-          prerelease: true
-          files: |
-            ${{ steps.dmg.outputs.path }}
-            ${{ steps.cli.outputs.path }}
-          fail_on_unmatched_files: true
-          generate_release_notes: true
-          body: |
-            🤖 Automatic build from `main` (build #${{ github.run_number }}).
-            Pre-release — for stable, hand-cut versions see the `vX.Y.Z` releases.
-
-            **Desktop app:** download `MUX-Desktop-Installer-<tag>-macOS-Apple-Silicon.dmg`.
-
-            **CLI:** choose the asset labelled **Command-line tool · Apple Silicon**, then
-            `tar xzf mux_*.tar.gz && ./mux` (or move it onto your PATH).
-
-            Commit: ${{ github.sha }}
-
-      - name: Label pre-release assets
-        if: github.ref == 'refs/heads/main'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          RELEASE="repos/${{ github.repository }}/releases/tags/${{ steps.meta.outputs.tag }}"
-          label_asset() {
-            NAME="$1"
-            LABEL="$2"
-            ID=$(gh api "$RELEASE" --jq ".assets[] | select(.name == \"$NAME\") | .id")
-            test -n "$ID"
-            gh api --method PATCH "repos/${{ github.repository }}/releases/assets/$ID" -f label="$LABEL" --silent
-          }
-          label_asset "$(basename '${{ steps.dmg.outputs.path }}')" "Desktop installer · Apple Silicon"
-          label_asset "$(basename '${{ steps.cli.outputs.path }}')" "Command-line tool · Apple Silicon"
+          bash .github/scripts/publish-release-assets.sh \
+            "$RELEASE_TAG" "$INSTALLER" "$CLI_ARCHIVE" "$UPDATER" latest.json
+      # STABLE END

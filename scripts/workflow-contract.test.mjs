@@ -107,3 +107,27 @@ test("Release Please uses the dedicated token and refreshes its PR", async () =>
     assert.match(reference, /^[0-9a-f]{40}$/);
   }
 });
+
+test("desktop workflow classifies and gates both publication channels", async () => {
+  const workflow = await read(".github/workflows/build-desktop.yml");
+
+  assert.match(workflow, /node-version:\s*24/);
+  assert.match(workflow, /cache-dependency-path:\s*desktop\/package-lock\.json/);
+  assert.match(workflow, /npm ci --no-audit --no-fund/);
+  assert.match(workflow, /\^v\[0-9\]\+\\\.\[0-9\]\+\\\.\[0-9\]\+\$/);
+  assert.match(workflow, /chore\(main\): release/);
+  assert.match(workflow, /wait-for-verify\.sh/);
+  assert.match(workflow, /publish-release-assets\.sh/);
+  assert.match(workflow, /gh release create/);
+  assert.doesNotMatch(workflow, /cancel-in-progress:\s*true/);
+
+  const prerelease = workflow.match(/# PRE-RELEASE START([\s\S]*?)# PRE-RELEASE END/);
+  assert.ok(prerelease, "missing bounded Pre-release section");
+  assert.doesNotMatch(prerelease[1], /latest\.json/);
+  assert.doesNotMatch(prerelease[1], /publish-release-assets\.sh/);
+
+  const stable = workflow.match(/# STABLE START([\s\S]*?)# STABLE END/);
+  assert.ok(stable, "missing bounded Stable section");
+  assert.match(stable[1], /publish-release-assets\.sh/);
+  assert.doesNotMatch(stable[1], /gh release create/);
+});

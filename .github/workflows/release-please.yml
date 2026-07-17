@@ -1,0 +1,77 @@
+name: Release Please
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: release-please-main
+  cancel-in-progress: false
+
+jobs:
+  release-please:
+    name: Release Please
+    runs-on: ubuntu-latest
+    env:
+      RELEASE_PLEASE_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+    steps:
+      - name: Require the dedicated release token
+        run: test -n "$RELEASE_PLEASE_TOKEN"
+
+      - name: Create or update the release proposal
+        id: release
+        # release-please-action v5.0.0
+        uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7
+        with:
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+          target-branch: main
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+      - name: Checkout the Release PR
+        if: ${{ steps.release.outputs.prs_created == 'true' }}
+        # actions/checkout v5.0.0
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          ref: ${{ fromJSON(steps.release.outputs.pr).headBranchName }}
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+          fetch-depth: 0
+
+      - name: Setup Node
+        if: ${{ steps.release.outputs.prs_created == 'true' }}
+        # actions/setup-node v5.0.0
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+
+      - name: Setup Rust
+        if: ${{ steps.release.outputs.prs_created == 'true' }}
+        # dtolnay/rust-toolchain stable at implementation time
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
+
+      - name: Refresh generated lockfiles
+        if: ${{ steps.release.outputs.prs_created == 'true' }}
+        run: node scripts/release-version.mjs refresh-locks
+
+      - name: Commit generated lockfiles to the Release PR
+        if: ${{ steps.release.outputs.prs_created == 'true' }}
+        env:
+          HEAD_BRANCH: ${{ fromJSON(steps.release.outputs.pr).headBranchName }}
+        run: |
+          git add desktop/package-lock.json Cargo.lock desktop/src-tauri/Cargo.lock
+          if git diff --cached --quiet; then
+            echo "Generated lockfiles are already current."
+            exit 0
+          fi
+          git -c user.name="release-please[bot]" \
+            -c user.email="55107282+release-please[bot]@users.noreply.github.com" \
+            commit -m "chore(release): refresh generated lockfiles"
+          git push origin "HEAD:$HEAD_BRANCH"

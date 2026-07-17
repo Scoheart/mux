@@ -11,8 +11,9 @@ dist
 # local-only config (kept out of the repo)
 /.mcp.json
 
-# lockfiles regenerate against whatever registry npm is configured with — keep out
-package-lock.json
+# npm lockfiles are committed so CI and release builds can use deterministic
+# `npm ci` installs and lockfile-keyed caches.
+/package-lock.json
 
 # Rust build artifacts (workspace)
 /target

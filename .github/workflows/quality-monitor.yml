@@ -19,52 +19,101 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  verify:
+  rust:
+    name: Rust
     runs-on: ubuntu-latest
-    env:
-      FAILURE_ISSUE_TITLE: "[CI] Automated verification is failing"
-      AUTOFIX_CONFIGURED: ${{ secrets.COPILOT_PAT != '' }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
-
-      - name: Setup Node
-        uses: actions/setup-node@v5
-        with:
-          node-version: 22
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
 
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
 
       - name: Cache Rust build
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2
 
       - name: Test core and CLI
         run: cargo test --locked -p mux-core -p mux-cli
 
-      - name: Install desktop dependencies
-        working-directory: desktop
-        run: npm install --no-audit --no-fund
+  desktop:
+    name: Desktop
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
 
-      - name: Test desktop frontend
+      - name: Setup Node
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+
+      - name: Check release version metadata
+        run: node scripts/release-version.mjs check
+
+      - name: Install dependencies
+        working-directory: desktop
+        run: npm ci --no-audit --no-fund
+
+      - name: Test frontend
         working-directory: desktop
         run: npm test
 
-      - name: Build desktop frontend
+      - name: Build frontend
         working-directory: desktop
         run: npm run build
 
-      - name: Install documentation dependencies
+  website:
+    name: Website
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+
+      - name: Setup Node
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: website/package-lock.json
+
+      - name: Install dependencies
         working-directory: website
-        run: npm install --no-audit --no-fund
+        run: npm ci --no-audit --no-fund
 
       - name: Build documentation
         working-directory: website
         run: npm run build
 
+  verify:
+    name: verify
+    if: ${{ always() }}
+    needs: [rust, desktop, website]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every producer
+        env:
+          RUST_RESULT: ${{ needs.rust.result }}
+          DESKTOP_RESULT: ${{ needs.desktop.result }}
+          WEBSITE_RESULT: ${{ needs.website.result }}
+        run: |
+          test "$RUST_RESULT" = success
+          test "$DESKTOP_RESULT" = success
+          test "$WEBSITE_RESULT" = success
+
+  monitor:
+    name: Failure monitor
+    if: ${{ always() }}
+    needs: [verify]
+    runs-on: ubuntu-latest
+    env:
+      FAILURE_ISSUE_TITLE: "[CI] Automated verification is failing"
+      AUTOFIX_CONFIGURED: ${{ secrets.COPILOT_PAT != '' }}
+    steps:
       - name: Open or update failure issue
         id: report
-        if: ${{ failure() && github.event_name != 'pull_request' }}
+        if: ${{ needs.verify.result == 'failure' && github.event_name != 'pull_request' }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -110,14 +159,14 @@ jobs:
           echo "created=$created" >> "$GITHUB_OUTPUT"
 
       - name: Mark automatic repair as queued
-        if: ${{ failure() && steps.report.outputs.issue_number != '' && env.AUTOFIX_CONFIGURED == 'true' }}
+        if: ${{ needs.verify.result == 'failure' && steps.report.outputs.issue_number != '' && env.AUTOFIX_CONFIGURED == 'true' }}
         env:
           GH_TOKEN: ${{ github.token }}
           ISSUE_NUMBER: ${{ steps.report.outputs.issue_number }}
         run: gh issue edit "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" --add-label autofix
 
       - name: Dispatch Copilot repair
-        if: ${{ failure() && steps.report.outputs.issue_number != '' && env.AUTOFIX_CONFIGURED == 'true' }}
+        if: ${{ needs.verify.result == 'failure' && steps.report.outputs.issue_number != '' && env.AUTOFIX_CONFIGURED == 'true' }}
         id: dispatch
         continue-on-error: true
         env:
@@ -128,7 +177,7 @@ jobs:
         run: .github/scripts/assign-copilot.sh
 
       - name: Report repair dispatch failure
-        if: ${{ failure() && steps.dispatch.outcome == 'failure' }}
+        if: ${{ needs.verify.result == 'failure' && steps.dispatch.outcome == 'failure' }}
         env:
           GH_TOKEN: ${{ github.token }}
           ISSUE_NUMBER: ${{ steps.report.outputs.issue_number }}
@@ -142,7 +191,7 @@ jobs:
             --body "@${GITHUB_REPOSITORY_OWNER} 自动修复派发失败，请检查 Copilot cloud agent 权限、\`COPILOT_PAT\` 和本次工作流日志。"
 
       - name: Explain inactive automatic repair
-        if: ${{ failure() && steps.report.outputs.created == 'true' && env.AUTOFIX_CONFIGURED != 'true' }}
+        if: ${{ needs.verify.result == 'failure' && steps.report.outputs.created == 'true' && env.AUTOFIX_CONFIGURED != 'true' }}
         env:
           GH_TOKEN: ${{ github.token }}
           ISSUE_NUMBER: ${{ steps.report.outputs.issue_number }}
@@ -152,7 +201,7 @@ jobs:
             --body "@${GITHUB_REPOSITORY_OWNER} 已检测到问题并创建 Issue。自动修复尚未启用：请启用 Copilot cloud agent，并添加仓库 Secret \`COPILOT_PAT\`。"
 
       - name: Close recovered failure issue
-        if: ${{ success() && github.event_name != 'pull_request' }}
+        if: ${{ needs.verify.result == 'success' && github.event_name != 'pull_request' }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |

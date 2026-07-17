@@ -1,0 +1,81 @@
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "03:17"
+      timezone: Asia/Shanghai
+    open-pull-requests-limit: 3
+    groups:
+      actions-minor-patch:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
+
+  - package-ecosystem: npm
+    directory: /desktop
+    schedule:
+      interval: weekly
+      day: monday
+      time: "03:27"
+      timezone: Asia/Shanghai
+    open-pull-requests-limit: 3
+    groups:
+      desktop-minor-patch:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
+
+  - package-ecosystem: npm
+    directory: /website
+    schedule:
+      interval: weekly
+      day: monday
+      time: "03:37"
+      timezone: Asia/Shanghai
+    open-pull-requests-limit: 2
+    groups:
+      website-minor-patch:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
+
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "03:47"
+      timezone: Asia/Shanghai
+    open-pull-requests-limit: 3
+    groups:
+      workspace-minor-patch:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
+
+  - package-ecosystem: cargo
+    directory: /desktop/src-tauri
+    schedule:
+      interval: weekly
+      day: monday
+      time: "03:57"
+      timezone: Asia/Shanghai
+    open-pull-requests-limit: 3
+    groups:
+      tauri-minor-patch:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch

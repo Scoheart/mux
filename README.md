@@ -79,11 +79,13 @@ Skills assignment initially supports six separately verified user-level capabili
 
 Grab the **Desktop installer · Apple Silicon** asset from the latest stable [**Release**](../../releases/latest). The app checks that stable channel automatically and also exposes a manual **Check for updates** action. Installing the app makes its bundled `mux` CLI available through `~/.local/bin/mux` when that directory is on `PATH`.
 
+Every ordinary change merged into `main` also produces a versioned **Pre-release** with a Desktop installer and CLI archive for testing. Pre-releases never publish `latest.json` and are not offered by the in-app updater. Stable releases are proposed in one rolling Release PR; only merging that reviewed PR creates the stable tag and starts the signed Stable build.
+
 Build from source:
 
 ```bash
 cd desktop
-npm install
+npm ci
 npm run tauri build      # or: npm run tauri dev
 ```
 

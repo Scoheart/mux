@@ -5,6 +5,7 @@ import { join } from "node:path";
 import test from "node:test";
 
 import {
+  cargoUpdateArgs,
   collectVersionMismatches,
   isReleaseMerge,
 } from "./release-version.mjs";
@@ -60,6 +61,34 @@ async function createFixture(overrides = {}) {
 test("all release-owned version fields agree", async () => {
   const root = await createFixture();
   assert.deepEqual(await collectVersionMismatches(root), []);
+});
+
+test("refreshes Cargo workspace packages without dependency upgrades", () => {
+  assert.deepEqual(cargoUpdateArgs("mux-core", "1.2.19"), [
+    "update",
+    "--offline",
+    "-p",
+    "mux-core",
+    "--precise",
+    "1.2.19",
+  ]);
+  assert.deepEqual(
+    cargoUpdateArgs(
+      "desktop",
+      "1.2.19",
+      "desktop/src-tauri/Cargo.toml",
+    ),
+    [
+      "update",
+      "--offline",
+      "--manifest-path",
+      "desktop/src-tauri/Cargo.toml",
+      "-p",
+      "desktop",
+      "--precise",
+      "1.2.19",
+    ],
+  );
 });
 
 test("reports both npm lockfile fields independently", async () => {

@@ -221,6 +221,17 @@ function run(command, args, cwd, stdio = "inherit") {
   execFileSync(command, args, { cwd, stdio });
 }
 
+export function cargoUpdateArgs(packageName, version, manifestPath) {
+  if (!SEMVER_PATTERN.test(version)) {
+    throw new Error(`invalid Cargo package version: ${JSON.stringify(version)}`);
+  }
+
+  const args = ["update", "--offline"];
+  if (manifestPath) args.push("--manifest-path", manifestPath);
+  args.push("-p", packageName, "--precise", version);
+  return args;
+}
+
 function cargoLockErrors(root) {
   const commands = [
     ["cargo", ["metadata", "--locked", "--no-deps", "--format-version", "1"]],
@@ -330,18 +341,22 @@ async function refreshLocks(root) {
   await failOnMismatches(
     await collectVersionMismatches(root, { includeGenerated: false }),
   );
+  const expected = (await readFile(join(root, "version.txt"), "utf8")).trim();
   await refreshNpmLock(root);
-  run("cargo", ["metadata", "--no-deps", "--format-version", "1"], root, "ignore");
   run(
     "cargo",
-    [
-      "metadata",
-      "--no-deps",
-      "--format-version",
-      "1",
-      "--manifest-path",
+    cargoUpdateArgs("mux-core", expected),
+    root,
+    "ignore",
+  );
+  run("cargo", cargoUpdateArgs("mux-cli", expected), root, "ignore");
+  run(
+    "cargo",
+    cargoUpdateArgs(
+      "desktop",
+      expected,
       "desktop/src-tauri/Cargo.toml",
-    ],
+    ),
     root,
     "ignore",
   );

@@ -133,7 +133,7 @@ mod platform {
     use super::*;
     use rustix::fs::{
         fchmod, fstat, mkdirat, openat, readlinkat, renameat_with, statat, symlinkat, unlinkat,
-        AtFlags, Dir, FileType, Mode, OFlags, RenameFlags, Stat, CWD,
+        AtFlags, Dir, FileType, Mode, OFlags, RawMode, RenameFlags, Stat, CWD,
     };
     use rustix::io::Errno;
     use std::collections::VecDeque;
@@ -335,7 +335,7 @@ mod platform {
                 &self.directory,
                 name,
                 OFlags::WRONLY | OFlags::CREATE | OFlags::EXCL | OFlags::CLOEXEC | OFlags::NOFOLLOW,
-                Mode::from(mode),
+                Mode::from(RawMode::from(mode)),
             )
             .map(File::from)
             .map_err(|error| io_error(path, error.into()))

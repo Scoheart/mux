@@ -54,9 +54,7 @@ release_json() {
     '{id:99,tag_name:$tag,draft:$draft,prerelease:false,assets:$assets}'
 }
 
-if [[ "$1" == api && "$2" == repos/*/commits/*/check-runs* ]]; then
-  checks
-elif [[ "$1" == api && "$2" == repos/*/releases/tags/* ]]; then
+current_release() {
   case "$FAKE_SCENARIO" in
     publish-no-draft) release_json false '[]' ;;
     publish-missing)
@@ -74,6 +72,16 @@ elif [[ "$1" == api && "$2" == repos/*/releases/tags/* ]]; then
       ;;
     *) release_json true "$(asset_json)" ;;
   esac
+}
+
+if [[ "$1" == api && "$2" == repos/*/commits/*/check-runs* ]]; then
+  checks
+elif [[ "$1" == api && "$2" == --paginate && "$3" == --slurp && "$4" == repos/*/releases\?per_page=100 ]]; then
+  printf '[['
+  current_release
+  printf ']]\n'
+elif [[ "$1" == api && "$2" == repos/*/releases/99 ]]; then
+  current_release
 elif [[ "$1" == api && "$2" == repos/*/releases/assets/* ]]; then
   id=${2##*/}
   if [[ "$FAKE_SCENARIO" == publish-different && "$id" == 1 ]]; then

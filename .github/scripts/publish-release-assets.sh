@@ -83,8 +83,14 @@ sha256() {
   fi
 }
 
-release_endpoint="repos/$repository/releases/tags/$tag"
-release=$(gh api "$release_endpoint")
+releases=$(gh api --paginate --slurp "repos/$repository/releases?per_page=100")
+release=$(jq -cer --arg tag "$tag" '
+  [.[][] | select(.tag_name == $tag)]
+  | if length == 1 then .[0]
+    elif length == 0 then error("stable Draft not found")
+    else error("multiple releases use the stable tag")
+    end
+' <<<"$releases")
 [[ $(jq -r '.tag_name' <<<"$release") == "$tag" ]]
 [[ $(jq -r '.draft' <<<"$release") == true ]] || {
   echo "stable release $tag is not a Draft" >&2
@@ -95,6 +101,7 @@ release=$(gh api "$release_endpoint")
   exit 1
 }
 release_id=$(jq -r '.id' <<<"$release")
+release_endpoint="repos/$repository/releases/$release_id"
 
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT

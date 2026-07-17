@@ -32,6 +32,7 @@ jobs:
     outputs:
       mode: ${{ steps.classify.outputs.mode }}
       tag: ${{ steps.classify.outputs.tag }}
+      source_ref: ${{ steps.classify.outputs.source_ref }}
     steps:
       - name: Checkout
         # actions/checkout v5.0.0
@@ -50,12 +51,14 @@ jobs:
           INPUT_MODE: ${{ inputs.mode }}
           INPUT_STABLE_TAG: ${{ inputs.stable_tag }}
           RUN_NUMBER: ${{ github.run_number }}
+          COMMIT_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
           STABLE_TAG_REGEX='^v[0-9]+\.[0-9]+\.[0-9]+$'
           version=$(tr -d '[:space:]' <version.txt)
           mode=
           tag=
+          source_ref=$COMMIT_SHA
 
           if [[ "$EVENT_NAME" == push && "$REF" == refs/heads/main ]]; then
             before_version=$version
@@ -76,17 +79,19 @@ jobs:
             }
             mode=stable
             tag=$REF_NAME
+            source_ref=$REF_NAME
           elif [[ "$EVENT_NAME" == workflow_dispatch && "$INPUT_MODE" == stable-retry ]]; then
             [[ "$INPUT_STABLE_TAG" =~ $STABLE_TAG_REGEX ]] || {
               echo "stable-retry requires a vX.Y.Z tag" >&2
               exit 1
             }
-            [[ "$REF" == "refs/tags/$INPUT_STABLE_TAG" ]] || {
-              echo "dispatch stable-retry from the selected stable tag ref" >&2
+            [[ "$REF" == refs/heads/main ]] || {
+              echo "dispatch stable-retry from main" >&2
               exit 1
             }
             mode=stable
             tag=$INPUT_STABLE_TAG
+            source_ref=$INPUT_STABLE_TAG
           elif [[ "$EVENT_NAME" == workflow_dispatch && "$INPUT_MODE" == prerelease ]]; then
             [[ "$REF" == refs/heads/main ]] || {
               echo "manual Pre-release must run from main" >&2
@@ -101,6 +106,7 @@ jobs:
 
           echo "mode=$mode" >>"$GITHUB_OUTPUT"
           echo "tag=$tag" >>"$GITHUB_OUTPUT"
+          echo "source_ref=$source_ref" >>"$GITHUB_OUTPUT"
 
   build-dmg:
     name: Build and publish
@@ -112,8 +118,24 @@ jobs:
       RELEASE_TAG: ${{ needs.classify.outputs.tag }}
     steps:
       - name: Checkout
+        id: checkout
         # actions/checkout v5.0.0
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          ref: ${{ needs.classify.outputs.source_ref }}
+
+      - name: Resolve source commit
+        id: source
+        run: echo "sha=$(git rev-parse HEAD)" >>"$GITHUB_OUTPUT"
+
+      - name: Checkout retry delivery helpers
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.mode == 'stable-retry' }}
+        # actions/checkout v5.0.0
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          ref: ${{ github.sha }}
+          path: .delivery
+          sparse-checkout: .github/scripts
 
       - name: Setup Node
         # actions/setup-node v5.0.0
@@ -232,7 +254,7 @@ jobs:
       - name: Wait for exact commit verification
         env:
           GH_TOKEN: ${{ github.token }}
-        run: bash .github/scripts/wait-for-verify.sh "$GITHUB_REPOSITORY" "$GITHUB_SHA"
+        run: bash .github/scripts/wait-for-verify.sh "$GITHUB_REPOSITORY" "${{ steps.source.outputs.sha }}"
 
       # PRE-RELEASE START
       - name: Publish per-commit Pre-release
@@ -251,7 +273,7 @@ jobs:
           fi
           gh release create "$RELEASE_TAG" "$INSTALLER" "$CLI_ARCHIVE" \
             --repo "$GITHUB_REPOSITORY" \
-            --target "$GITHUB_SHA" \
+            --target "${{ steps.source.outputs.sha }}" \
             --title "$RELEASE_TAG" \
             --prerelease \
             --notes "Automatic package from main build #${GITHUB_RUN_NUMBER}. Commit: ${GITHUB_SHA}"
@@ -287,7 +309,7 @@ jobs:
           VER=$(node -p "require('./desktop/src-tauri/tauri.conf.json').version")
           ASSET="MUX-Desktop-AutoUpdate-${RELEASE_TAG}-macOS-${ARCH_LABEL}.app.tar.gz"
           cp "$TAR" "$ASSET"
-          PUB_DATE=$(git show -s --format=%cI "$GITHUB_SHA")
+          PUB_DATE=$(git show -s --format=%cI "${{ steps.source.outputs.sha }}")
           cat >latest.json <<EOF
           {
             "version": "${VER}",
@@ -312,6 +334,10 @@ jobs:
           CLI_ARCHIVE: ${{ steps.cli.outputs.path }}
           UPDATER: ${{ steps.updater.outputs.asset }}
         run: |
-          bash .github/scripts/publish-release-assets.sh \
+          PUBLISHER=.github/scripts/publish-release-assets.sh
+          if [[ -f .delivery/.github/scripts/publish-release-assets.sh ]]; then
+            PUBLISHER=.delivery/.github/scripts/publish-release-assets.sh
+          fi
+          bash "$PUBLISHER" \
             "$RELEASE_TAG" "$INSTALLER" "$CLI_ARCHIVE" "$UPDATER" latest.json
       # STABLE END

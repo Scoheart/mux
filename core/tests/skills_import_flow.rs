@@ -11,7 +11,7 @@ use mux_core::skills::{
 use serde_json::json;
 use std::fs;
 use std::os::unix::fs::{symlink, PermissionsExt};
-use support::skills::{assert_managed_link, SkillsFixture};
+use support::skills::{assert_managed_link, write_skill, SkillsFixture};
 use uuid::Uuid;
 
 #[test]
@@ -33,6 +33,62 @@ fn import_does_not_move_external_copy_until_commit() {
     assert_eq!(hash_tree(&backup).unwrap(), reviewed_hash);
     assert_eq!(fs::read(backup.join("SKILL.md")).unwrap(), original);
     assert_managed_link(fixture.external_path("legacy"), fixture.central("legacy"));
+}
+
+#[test]
+fn import_from_alias_only_target_keeps_one_discovery_link() {
+    let fixture = SkillsFixture::installed_agents(&["cursor"]);
+    let name = "alias-import";
+    let source = fixture.target("agents-user", name);
+    write_skill(&source, name, "Alias-only external fixture");
+    let original = fs::read(source.join("SKILL.md")).unwrap();
+
+    let inventory = list_inventory().unwrap();
+    let item = inventory
+        .items
+        .iter()
+        .find(|item| {
+            item.name == name
+                && item
+                    .states
+                    .contains(&mux_core::skills::InventoryState::External)
+                && matches!(
+                    &item.location,
+                    mux_core::skills::SkillLocation::AgentTarget { target_id, .. }
+                        if target_id == "agents-user"
+                )
+        })
+        .unwrap();
+    assert_eq!(item.affected_agent_ids, vec!["cursor"]);
+
+    let plan = plan_import(PlanImportRequest {
+        identity: item.identity.clone(),
+        agent_ids: item.affected_agent_ids.clone(),
+        replace_conflicts: false,
+    })
+    .unwrap();
+    assert_eq!(
+        plan.targets
+            .iter()
+            .map(|target| target.target_id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["agents-user"]
+    );
+    assert_eq!(plan.targets[0].affected_agent_ids, vec!["cursor"]);
+    let SkillSource::Imported { original_path, .. } = &plan.skills[0].source else {
+        panic!("import plan did not preserve Imported provenance")
+    };
+    assert_eq!(original_path, "~/.agents/skills/alias-import");
+
+    commit_import(plan.confirmation()).unwrap();
+
+    assert_managed_link(source, fixture.central(name));
+    assert!(fs::symlink_metadata(fixture.target("cursor-user", name)).is_err());
+    assert_eq!(fixture.read_backup(name), original);
+    assert_eq!(
+        load_settings().skill_assignments.unwrap()[name],
+        ["agents-user".to_owned()].into_iter().collect()
+    );
 }
 
 #[test]

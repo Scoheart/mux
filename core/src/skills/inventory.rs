@@ -142,6 +142,26 @@ pub fn normalize_agent_selection(agent_ids: &[String]) -> Result<Vec<String>, Sk
     Ok(normalize_selected_targets(&graph, &selected_ids))
 }
 
+pub(crate) fn normalize_agent_selection_with_required_target(
+    agent_ids: &[String],
+    required_target_id: &str,
+) -> Result<Vec<String>, SkillError> {
+    let paths = SkillsPaths::resolve_from_env()?;
+    let settings = strict_settings()?;
+    let graph = build_target_graph(&paths, &settings)?;
+    let selected_ids = validate_agent_selection(&graph, agent_ids, true)?;
+    if !valid_name(required_target_id) || !graph.included_target_ids.contains(required_target_id) {
+        return Err(invalid_source(
+            "the required physical target is unavailable",
+        ));
+    }
+    Ok(normalize_selected_targets_with_required(
+        &graph,
+        &selected_ids,
+        &[required_target_id.to_owned()].into_iter().collect(),
+    ))
+}
+
 pub(crate) fn normalize_assignment_enable(
     agent_ids: &[String],
     existing_target_ids: &BTreeSet<String>,
@@ -228,10 +248,19 @@ fn validate_agent_selection(
 }
 
 fn normalize_selected_targets(graph: &TargetGraph, selected_ids: &BTreeSet<String>) -> Vec<String> {
+    normalize_selected_targets_with_required(graph, selected_ids, &BTreeSet::new())
+}
+
+fn normalize_selected_targets_with_required(
+    graph: &TargetGraph,
+    selected_ids: &BTreeSet<String>,
+    required_target_ids: &BTreeSet<String>,
+) -> Vec<String> {
     let mut retained = selected_ids
         .iter()
         .map(|agent_id| graph.catalog_agents[agent_id].capability.target_id.clone())
         .collect::<BTreeSet<_>>();
+    retained.extend(required_target_ids.iter().cloned());
 
     loop {
         let mut candidates: Vec<(usize, String)> = retained
@@ -245,6 +274,9 @@ fn normalize_selected_targets(graph: &TargetGraph, selected_ids: &BTreeSet<Strin
         candidates.sort_by(|left, right| left.0.cmp(&right.0).then(left.1.cmp(&right.1)));
 
         let removable = candidates.into_iter().find_map(|(_, target_id)| {
+            if required_target_ids.contains(&target_id) {
+                return None;
+            }
             let selected_primary: Vec<&String> = graph.targets[&target_id]
                 .primary_agent_ids
                 .intersection(selected_ids)

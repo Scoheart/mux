@@ -1,5 +1,8 @@
 use super::files::validate_staging_candidate;
-use super::inventory::{declared_targets_for_agents, normalize_assignment_enable};
+use super::inventory::{
+    declared_targets_for_agents, normalize_agent_selection_with_required_target,
+    normalize_assignment_enable,
+};
 use super::source::{load_staged_resolution, stage_private_candidate, stage_recorded_skill};
 use super::staging::StagingRoot;
 use super::transaction::{acquire_skills_lock, validate_operation_id};
@@ -609,10 +612,10 @@ fn build_import_plan(
     if hash_tree(&external.path)? != validated.content_hash {
         return stale("the external Skill changed after review");
     }
-    let mut desired_target_ids = normalize_agent_selection(&request.agent_ids)?
-        .into_iter()
-        .collect::<BTreeSet<_>>();
-    desired_target_ids.insert(source_target_id.clone());
+    let desired_target_ids =
+        normalize_agent_selection_with_required_target(&request.agent_ids, &source_target_id)?
+            .into_iter()
+            .collect::<BTreeSet<_>>();
     let mut touched_target_ids = desired_target_ids.clone();
     touched_target_ids.extend(known_assigned_target_ids(
         &settings,

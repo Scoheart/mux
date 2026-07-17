@@ -329,8 +329,14 @@ describe("SkillsView", () => {
     render(<SkillsView state={skillsStateFixture()} />);
 
     await user.click(screen.getByRole("button", { name: /review-changes/ }));
+    const firstInspector = await screen.findByLabelText("review-changes 详情");
+    await waitFor(() => expect(firstInspector).toHaveFocus());
     await user.type(screen.getByPlaceholderText("搜索 Skills"), "unassigned");
-    expect(screen.queryByLabelText("review-changes 详情")).not.toBeInTheDocument();
+    await waitFor(() =>
+      expect(
+        screen.queryByLabelText("review-changes 详情"),
+      ).not.toBeInTheDocument(),
+    );
     await user.click(screen.getByRole("button", { name: /unassigned-skill/ }));
     expect(await screen.findByText("second-selection")).toBeVisible();
 

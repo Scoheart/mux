@@ -678,6 +678,126 @@ describe("AgentSkillsSection assignment review", () => {
 });
 
 describe("AgentView Skills placement", () => {
+  it("shows Model loading before capability absence", async () => {
+    const agents = deferred<Awaited<ReturnType<typeof api.listModelAgents>>>();
+    vi.mocked(api.listModelAgents).mockReturnValueOnce(agents.promise);
+
+    render(
+      <ToastProvider>
+        <AgentView
+          state={installState()}
+          skillsState={stateWith(graphInventory())}
+          agentId="codex"
+          onOpenModels={vi.fn()}
+          onOpenSkills={vi.fn()}
+        />
+      </ToastProvider>,
+    );
+
+    const region = screen.getByRole("region", { name: "配置位置" });
+    expect(within(region).getByText("正在读取模型配置…")).toBeVisible();
+    expect(within(region).queryByText("尚未接入 Models")).not.toBeInTheDocument();
+
+    await act(async () => agents.resolve([]));
+  });
+
+  it("keeps the Model loading error before capability absence", async () => {
+    vi.mocked(api.listModelAgents).mockRejectedValueOnce(new Error("model source offline"));
+
+    render(
+      <ToastProvider>
+        <AgentView
+          state={installState()}
+          skillsState={stateWith(graphInventory())}
+          agentId="codex"
+          onOpenModels={vi.fn()}
+          onOpenSkills={vi.fn()}
+        />
+      </ToastProvider>,
+    );
+
+    const region = screen.getByRole("region", { name: "配置位置" });
+    expect(
+      await within(region).findByText("读取模型配置失败：Error: model source offline"),
+    ).toBeVisible();
+    expect(within(region).queryByText("尚未接入 Models")).not.toBeInTheDocument();
+  });
+
+  it("shows Skills loading while keeping the catalog path", async () => {
+    render(
+      <ToastProvider>
+        <AgentView
+          state={installState()}
+          skillsState={stateWith(graphInventory(), { loading: true })}
+          agentId="codex"
+          onOpenModels={vi.fn()}
+          onOpenSkills={vi.fn()}
+        />
+      </ToastProvider>,
+    );
+
+    const region = screen.getByRole("region", { name: "配置位置" });
+    expect(within(region).getByText("正在读取 Skills 状态…")).toBeVisible();
+    expect(within(region).getByText("~/.agents/skills")).toBeVisible();
+    expect(within(region).queryByText(/共享影响/)).not.toBeInTheDocument();
+  });
+
+  it("shows Skills loading errors while keeping the catalog path", async () => {
+    render(
+      <ToastProvider>
+        <AgentView
+          state={installState()}
+          skillsState={stateWith(graphInventory(), {
+            error: { code: "inventory", message: "Skills inventory unavailable" },
+          })}
+          agentId="codex"
+          onOpenModels={vi.fn()}
+          onOpenSkills={vi.fn()}
+        />
+      </ToastProvider>,
+    );
+
+    const region = screen.getByRole("region", { name: "配置位置" });
+    expect(
+      within(region).getByText("读取 Skills 状态失败：Skills inventory unavailable"),
+    ).toBeVisible();
+    expect(within(region).getByText("~/.agents/skills")).toBeVisible();
+    expect(within(region).queryByText(/共享影响/)).not.toBeInTheDocument();
+  });
+
+  it.each([
+    {
+      label: "runtime loading",
+      overrides: { loading: true },
+    },
+    {
+      label: "runtime error",
+      overrides: {
+        error: { code: "inventory", message: "Skills inventory unavailable" },
+      },
+    },
+  ] as const)("keeps authoritative Skills absence before $label", async ({ overrides }) => {
+    const state = installState();
+    state.agents[0] = { ...state.agents[0], skills_global_dir: null };
+
+    render(
+      <ToastProvider>
+        <AgentView
+          state={state}
+          skillsState={stateWith(graphInventory(), overrides)}
+          agentId="codex"
+          onOpenModels={vi.fn()}
+          onOpenSkills={vi.fn()}
+        />
+      </ToastProvider>,
+    );
+
+    const region = screen.getByRole("region", { name: "配置位置" });
+    expect(within(region).getByText("尚未核验 Skills 目录")).toBeVisible();
+    expect(within(region).queryByText(/正在读取 Skills 状态/)).not.toBeInTheDocument();
+    expect(within(region).queryByText(/读取 Skills 状态失败/)).not.toBeInTheDocument();
+  });
+
   it("shows independent Model, MCP, and Skills configuration locations", async () => {
     vi.mocked(api.listModelAgents).mockResolvedValueOnce([{
       id: "codex",
@@ -803,6 +923,22 @@ describe("AgentView Skills placement", () => {
     );
     expect(narrow).toContain(".mux-agent-skill-row");
     expect(narrow).toMatch(/grid-template-columns:\s*minmax\(0,\s*1fr\)/);
+
+    const configNarrowHeading = "@media (max-width: 820px)";
+    const configNarrow = mediaBlock(
+      agentCss.slice(agentCss.lastIndexOf(configNarrowHeading)),
+      configNarrowHeading,
+    );
+    expect(groupedDeclarations(configNarrow, ".mux-agent-file-map")).toMatch(
+      /grid-template-columns:\s*minmax\(0,\s*1fr\)/,
+    );
+    expect(
+      groupedDeclarations(configNarrow, ".mux-agent-file-row + .mux-agent-file-row"),
+    ).toMatch(/border-top:\s*1px solid var\(--border-hairline\)/);
+    expect(
+      groupedDeclarations(configNarrow, ".mux-agent-file-row + .mux-agent-file-row"),
+    ).toMatch(/border-left:\s*0/);
+
     const reducedHeading = "@media (prefers-reduced-motion: reduce)";
     const reduced = mediaBlock(
       agentCss.slice(agentCss.lastIndexOf(reducedHeading)),

@@ -80,18 +80,26 @@ export function AgentView({
   const [modelAgents, setModelAgents] = useState<ModelAgentView[]>([]);
   const [selectedProfileId, setSelectedProfileId] = useState("");
   const [modelsLoading, setModelsLoading] = useState(true);
+  const [modelsError, setModelsError] = useState<string | null>(null);
   const [applyingModel, setApplyingModel] = useState(false);
 
   const agent = useMemo(() => agents.find((item) => item.id === agentId) ?? null, [agents, agentId]);
 
   const refreshModels = useCallback(async () => {
-    const [profiles, nextAgents] = await Promise.all([listModelProfiles(), listModelAgents()]);
-    setModelProfiles(profiles);
-    setModelAgents(nextAgents);
+    try {
+      const [profiles, nextAgents] = await Promise.all([listModelProfiles(), listModelAgents()]);
+      setModelProfiles(profiles);
+      setModelAgents(nextAgents);
+      setModelsError(null);
+    } catch (error) {
+      setModelsError(formatError(error));
+      throw error;
+    }
   }, []);
 
   useEffect(() => {
     setModelsLoading(true);
+    setModelsError(null);
     refreshModels()
       .catch((error) =>
         showToast({ kind: "error", msg: "读取模型配置失败：" + formatError(error) })
@@ -230,20 +238,26 @@ export function AgentView({
     : null;
   const modelDescription = modelsLoading
     ? "正在读取模型配置…"
-    : modelAgent?.mode === "guided"
-      ? "官方引导"
-      : modelAgent
-        ? "模型配置文件"
-        : "尚未接入 Models";
+    : modelsError
+      ? `读取模型配置失败：${modelsError}`
+      : modelAgent?.mode === "guided"
+        ? "官方引导"
+        : modelAgent
+          ? "模型配置文件"
+          : "尚未接入 Models";
   const skillsDescription = !skillsConfigPath
     ? "尚未核验 Skills 目录"
-    : !skillsState.inventory
-      ? "已核验用户级目录"
-      : !runtimeSkillAgent
-        ? "已核验目录 · 未检测到 Agent"
-        : runtimeSkillAgent.affected_agent_ids.length > 1
-          ? `用户级目录 · 共享影响 ${runtimeSkillAgent.affected_agent_ids.length} 个 Agent`
-          : "用户级目录 · 已检测";
+    : skillsState.loading
+      ? "正在读取 Skills 状态…"
+      : skillsState.error
+        ? `读取 Skills 状态失败：${skillsState.error.message}`
+        : !skillsState.inventory
+          ? "已核验用户级目录"
+          : !runtimeSkillAgent
+            ? "已核验目录 · 未检测到 Agent"
+            : runtimeSkillAgent.affected_agent_ids.length > 1
+              ? `用户级目录 · 共享影响 ${runtimeSkillAgent.affected_agent_ids.length} 个 Agent`
+              : "用户级目录 · 已检测";
 
   return (
     <div className="mux-agent-page">

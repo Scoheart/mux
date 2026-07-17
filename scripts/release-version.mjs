@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { execFileSync } from "node:child_process";
-import { copyFile, mkdtemp, readFile, rm } from "node:fs/promises";
+import { copyFile, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -221,15 +221,68 @@ function run(command, args, cwd, stdio = "inherit") {
   execFileSync(command, args, { cwd, stdio });
 }
 
-export function cargoUpdateArgs(packageName, version, manifestPath) {
+export function updateCargoLockPackageVersions(
+  contents,
+  packageNames,
+  version,
+  path = "Cargo.lock",
+) {
   if (!SEMVER_PATTERN.test(version)) {
     throw new Error(`invalid Cargo package version: ${JSON.stringify(version)}`);
   }
 
-  const args = ["update", "--offline"];
-  if (manifestPath) args.push("--manifest-path", manifestPath);
-  args.push("-p", packageName, "--precise", version);
-  return args;
+  const expected = new Set(packageNames);
+  const updates = new Map(packageNames.map((name) => [name, 0]));
+  const blocks = contents.split(/(?=^\[\[package\]\]\r?$)/m);
+
+  const refreshed = blocks.map((block) => {
+    const name = block.match(/^name[ \t]*=[ \t]*"([^"]+)"[ \t]*$/m)?.[1];
+    if (!expected.has(name) || /^source[ \t]*=/m.test(block)) return block;
+
+    const versions = [
+      ...block.matchAll(/^version[ \t]*=[ \t]*"([^"]+)"[ \t]*$/gm),
+    ];
+    if (versions.length !== 1) {
+      throw new Error(
+        `${path} local package ${name} must contain exactly one version`,
+      );
+    }
+    updates.set(name, updates.get(name) + 1);
+    return block.replace(
+      /^version[ \t]*=[ \t]*"[^"]+"[ \t]*$/m,
+      `version = "${version}"`,
+    );
+  });
+
+  for (const [name, count] of updates) {
+    if (count !== 1) {
+      throw new Error(
+        `${path} must contain exactly one local ${name} package; found ${count}`,
+      );
+    }
+  }
+  return refreshed.join("");
+}
+
+async function refreshCargoLocks(root, version) {
+  const locks = [
+    ["Cargo.lock", ["mux-core", "mux-cli"]],
+    ["desktop/src-tauri/Cargo.lock", ["desktop", "mux-core"]],
+  ];
+
+  await Promise.all(
+    locks.map(async ([relativePath, packages]) => {
+      const path = join(root, relativePath);
+      const contents = await readFile(path, "utf8");
+      const refreshed = updateCargoLockPackageVersions(
+        contents,
+        packages,
+        version,
+        relativePath,
+      );
+      if (refreshed !== contents) await writeFile(path, refreshed);
+    }),
+  );
 }
 
 function cargoLockErrors(root) {
@@ -343,23 +396,7 @@ async function refreshLocks(root) {
   );
   const expected = (await readFile(join(root, "version.txt"), "utf8")).trim();
   await refreshNpmLock(root);
-  run(
-    "cargo",
-    cargoUpdateArgs("mux-core", expected),
-    root,
-    "ignore",
-  );
-  run("cargo", cargoUpdateArgs("mux-cli", expected), root, "ignore");
-  run(
-    "cargo",
-    cargoUpdateArgs(
-      "desktop",
-      expected,
-      "desktop/src-tauri/Cargo.toml",
-    ),
-    root,
-    "ignore",
-  );
+  await refreshCargoLocks(root, expected);
   await check(root);
 }
 

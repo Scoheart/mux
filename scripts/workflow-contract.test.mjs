@@ -157,3 +157,51 @@ test("every repository Action uses an immutable commit", async () => {
     }
   }
 });
+
+function ruleByType(ruleset, type) {
+  const rule = ruleset.rules.find((candidate) => candidate.type === type);
+  assert.ok(rule, `${ruleset.name}: missing ${type} rule`);
+  return rule;
+}
+
+test("main Ruleset requires current verified squash PRs", async () => {
+  const ruleset = JSON.parse(await read(".github/rulesets/main.json"));
+
+  assert.equal(ruleset.target, "branch");
+  assert.equal(ruleset.enforcement, "evaluate");
+  assert.deepEqual(ruleset.bypass_actors, []);
+  assert.deepEqual(ruleset.conditions.ref_name.include, ["~DEFAULT_BRANCH"]);
+  for (const type of ["deletion", "non_fast_forward", "required_linear_history"]) {
+    ruleByType(ruleset, type);
+  }
+
+  const pullRequest = ruleByType(ruleset, "pull_request").parameters;
+  assert.equal(pullRequest.required_approving_review_count, 0);
+  assert.equal(pullRequest.required_review_thread_resolution, true);
+  assert.deepEqual(pullRequest.allowed_merge_methods, ["squash"]);
+
+  const checks = ruleByType(ruleset, "required_status_checks").parameters;
+  assert.equal(checks.strict_required_status_checks_policy, true);
+  assert.equal(checks.do_not_enforce_on_create, false);
+  assert.deepEqual(checks.required_status_checks, [
+    { context: "verify", integration_id: 15368 },
+  ]);
+});
+
+test("stable tag Ruleset allows creation but blocks mutation", async () => {
+  const ruleset = JSON.parse(await read(".github/rulesets/tags.json"));
+
+  assert.equal(ruleset.target, "tag");
+  assert.equal(ruleset.enforcement, "evaluate");
+  assert.deepEqual(ruleset.bypass_actors, []);
+  assert.deepEqual(ruleset.conditions.ref_name.include, ["refs/tags/v*"]);
+  const types = ruleset.rules.map((rule) => rule.type);
+  assert.ok(!types.includes("creation"));
+  for (const type of ["update", "deletion", "non_fast_forward"]) {
+    assert.ok(types.includes(type));
+  }
+  assert.equal(
+    ruleByType(ruleset, "update").parameters.update_allows_fetch_and_merge,
+    false,
+  );
+});

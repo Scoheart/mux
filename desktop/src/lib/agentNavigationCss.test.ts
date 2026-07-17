@@ -131,3 +131,27 @@ it("pinned Agent glyph is 30px normally and 28px in compact topbar", () => {
   expect(compactGlyph).toMatch(/width:\s*28px/);
   expect(compactGlyph).toMatch(/height:\s*28px/);
 });
+
+it("drag preview drives both pinned surfaces and exposes target styling", () => {
+  expect(component).toMatch(/const \[previewIds, setPreviewIds\]/);
+  expect(component).toMatch(/const orderedPinnedAgents/);
+  expect(
+    component.match(/orderedPinnedAgents\.map/g) ?? [],
+    "top shortcuts and pinned rows must share the preview order",
+  ).toHaveLength(2);
+  expect(component).toMatch(/previewPinnedAgentOrder/);
+  expect(component).toMatch(/data-drop-position=/);
+
+  const row = declarations(css, ".mux-agent-picker-row");
+  expect(row).toMatch(/position:\s*relative/);
+  expect(css).toMatch(/\.mux-agent-picker-row\[data-drop-position="before"\]::before/);
+  expect(css).toMatch(/\.mux-agent-picker-row\[data-drop-position="after"\]::after/);
+});
+
+it("reduced motion disables drag-preview transitions", () => {
+  const reducedStart = css.indexOf("@media (prefers-reduced-motion: reduce)");
+  expect(reducedStart).not.toBe(-1);
+  expect(css.slice(reducedStart)).toMatch(
+    /\.mux-agent-picker-row\s*\{[^}]*transition:\s*none/,
+  );
+});

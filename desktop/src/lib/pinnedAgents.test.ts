@@ -6,7 +6,9 @@ import {
   movePinnedAgentAfter,
   movePinnedAgentBefore,
   movePinnedAgentBy,
+  previewPinnedAgentOrder,
   togglePinnedAgent,
+  type PinnedDropPlacement,
 } from "./pinnedAgents.ts";
 
 function agent(id: string, name: string, hasGlobal = true): AgentInfo {
@@ -121,4 +123,25 @@ it("reorder operations preserve original input arrays", () => {
   expect(movePinnedAgentBefore(dragIds, "qoder", "claude-code")).toEqual(["qoder", "claude-code", "codex"]);
   expect(keyboardIds).toEqual(keyboardSnapshot);
   expect(dragIds).toEqual(dragSnapshot);
+});
+
+it("drag preview follows before and after targets across multiple rows", () => {
+  const ids = ["claude-code", "codex", "qoder", "pi"];
+  const first = previewPinnedAgentOrder(ids, "qoder", "claude-code", "before");
+  const second = previewPinnedAgentOrder(first, "qoder", "codex", "after");
+
+  expect(first).toEqual(["qoder", "claude-code", "codex", "pi"]);
+  expect(second).toEqual(["claude-code", "codex", "qoder", "pi"]);
+  expect(ids).toEqual(["claude-code", "codex", "qoder", "pi"]);
+});
+
+it("drag preview preserves order for invalid and self targets", () => {
+  const ids = ["claude-code", "codex", "qoder"];
+  const placements: PinnedDropPlacement[] = ["before", "after"];
+
+  for (const placement of placements) {
+    expect(previewPinnedAgentOrder(ids, "codex", "codex", placement)).toEqual(ids);
+    expect(previewPinnedAgentOrder(ids, "missing", "codex", placement)).toEqual(ids);
+    expect(previewPinnedAgentOrder(ids, "codex", "missing", placement)).toEqual(ids);
+  }
 });

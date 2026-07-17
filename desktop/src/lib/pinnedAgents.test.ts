@@ -23,6 +23,7 @@ function agent(id: string, name: string, hasGlobal = true): AgentInfo {
     supported_transports: ["stdio", "http"],
     global: hasGlobal ? `~/.${id}/settings.json` : null,
     project: null,
+    skills_global_dir: null,
     docs: null,
     note: null,
     category: "coding",

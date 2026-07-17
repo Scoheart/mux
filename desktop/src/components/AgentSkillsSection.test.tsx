@@ -192,6 +192,7 @@ function installState(hasGlobal = true): InstallState {
     supported_transports: ["stdio", "http"] as Array<"stdio" | "http">,
     global: hasGlobal ? "~/.codex/config.toml" : null,
     project: null,
+    skills_global_dir: hasGlobal ? "~/.agents/skills" : null,
     docs: "https://example.invalid/codex",
     note: hasGlobal ? null : "仅作参考，不提供可写配置。",
     category: "coding",
@@ -677,6 +678,64 @@ describe("AgentSkillsSection assignment review", () => {
 });
 
 describe("AgentView Skills placement", () => {
+  it("shows independent Model, MCP, and Skills configuration locations", async () => {
+    vi.mocked(api.listModelAgents).mockResolvedValueOnce([{
+      id: "codex",
+      name: "Codex",
+      mode: "managed",
+      installed: true,
+      config_path: "~/.codex/config.toml",
+      docs: "https://example.invalid/models",
+      assigned_profile: null,
+      supported_protocols: ["openai-responses"],
+      note: "",
+    }]);
+    const inventory = graphInventory();
+    inventory.agents = [];
+
+    render(
+      <ToastProvider>
+        <AgentView
+          state={installState()}
+          skillsState={stateWith(inventory)}
+          agentId="codex"
+          onOpenModels={vi.fn()}
+          onOpenSkills={vi.fn()}
+        />
+      </ToastProvider>,
+    );
+
+    expect(await screen.findByText("Model / MCP 共用")).toBeVisible();
+    const region = screen.getByRole("region", { name: "配置位置" });
+    expect(within(region).getByText("Model")).toBeVisible();
+    expect(within(region).getByText("MCP")).toBeVisible();
+    expect(within(region).getByText("Skills")).toBeVisible();
+    expect(within(region).getAllByText("~/.codex/config.toml")).toHaveLength(2);
+    expect(within(region).getByText("~/.agents/skills")).toBeVisible();
+    expect(within(region).getByText("已核验目录 · 未检测到 Agent")).toBeVisible();
+  });
+
+  it("does not copy the MCP path into unavailable capabilities", async () => {
+    const state = installState();
+    state.agents[0] = { ...state.agents[0], skills_global_dir: null };
+    render(
+      <ToastProvider>
+        <AgentView
+          state={state}
+          skillsState={stateWith(graphInventory())}
+          agentId="codex"
+          onOpenModels={vi.fn()}
+          onOpenSkills={vi.fn()}
+        />
+      </ToastProvider>,
+    );
+
+    const region = screen.getByRole("region", { name: "配置位置" });
+    expect(await within(region).findByText("尚未接入 Models")).toBeVisible();
+    expect(within(region).getByText("尚未核验 Skills 目录")).toBeVisible();
+    expect(within(region).getAllByText("~/.codex/config.toml")).toHaveLength(1);
+  });
+
   it("places Skills between Model and MCP on writable Agent pages", async () => {
     const rendered = render(
       <ToastProvider>
@@ -717,6 +776,12 @@ describe("AgentView Skills placement", () => {
   });
 
   it("keeps Skill evidence readable and actions reachable at 900×600", () => {
+    expect(groupedDeclarations(agentCss, ".mux-agent-file-map")).toMatch(
+      /grid-template-columns:\s*repeat\(3,\s*minmax\(0,\s*1fr\)\)/,
+    );
+    expect(groupedDeclarations(agentCss, ".mux-agent-file-copy code")).toMatch(
+      /overflow-wrap:\s*anywhere/,
+    );
     expect(groupedDeclarations(agentCss, ".mux-agent-page")).toMatch(/overflow-y:\s*auto/);
     expect(groupedDeclarations(agentCss, ".mux-agent-skill-row")).toMatch(
       /grid-template-columns:\s*minmax\(0,\s*1fr\)\s+auto/,

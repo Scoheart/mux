@@ -31,6 +31,7 @@ export interface AgentInfo {
   supported_transports: Array<"stdio" | "http">;
   /** Raw stored config paths (e.g. `~/Library/Application Support/…/mcp.json`). */
   global: string | null; project: string | null;
+  skills_global_dir: string | null;
   docs: string | null;
   note: string | null;
   category: string;

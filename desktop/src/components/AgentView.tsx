@@ -24,6 +24,7 @@ import {
   LinkIcon,
   PackageIcon,
   PlusIcon,
+  SparklesIcon,
   TrashIcon,
 } from "./icons";
 import { Avatar, Badge, IconButton, SearchBar, Switch, TransportPill } from "./ui";
@@ -218,34 +219,59 @@ export function AgentView({
   }
 
   const mcpConfigPath = agent.global ?? "";
-  const agentConfigPath = modelAgent?.config_path || mcpConfigPath;
-  const sharedConfig = samePath(agentConfigPath, mcpConfigPath);
+  const skillsConfigPath = agent.skills_global_dir;
+  const runtimeSkillAgent = skillsState.inventory?.agents.find(
+    (item) => item.id === agentId,
+  ) ?? null;
+  const modelRelationship = modelAgent
+    ? samePath(modelAgent.config_path, mcpConfigPath)
+      ? "Model / MCP 共用"
+      : "Model / MCP 分离"
+    : null;
+  const modelDescription = modelsLoading
+    ? "正在读取模型配置…"
+    : modelAgent?.mode === "guided"
+      ? "官方引导"
+      : modelAgent
+        ? "模型配置文件"
+        : "尚未接入 Models";
+  const skillsDescription = !skillsConfigPath
+    ? "尚未核验 Skills 目录"
+    : !skillsState.inventory
+      ? "已核验用户级目录"
+      : !runtimeSkillAgent
+        ? "已核验目录 · 未检测到 Agent"
+        : runtimeSkillAgent.affected_agent_ids.length > 1
+          ? `用户级目录 · 共享影响 ${runtimeSkillAgent.affected_agent_ids.length} 个 Agent`
+          : "用户级目录 · 已检测";
 
   return (
     <div className="mux-agent-page">
       <div className="mux-agent-shell">
         <AgentHeader agent={agent} />
 
-        <section className="mux-agent-section" aria-labelledby="agent-files-title">
+        <section
+          className="mux-agent-section"
+          aria-labelledby="agent-files-title"
+          aria-label="配置位置"
+        >
           <div className="mux-agent-section-head">
             <div>
-              <h3 id="agent-files-title">配置文件</h3>
-              <p>明确模型设置与 MCP 管理使用的全局文件。</p>
+              <h3 id="agent-files-title">配置位置</h3>
+              <p>Model、MCP 与 Skills 使用的用户级配置入口。</p>
             </div>
-            <Badge tone={sharedConfig ? "info" : "neutral"}>
-              {sharedConfig ? "同一文件" : "独立 MCP 文件"}
-            </Badge>
+            {modelRelationship && <Badge tone="info">{modelRelationship}</Badge>}
           </div>
           <div className="mux-agent-file-map">
             <ConfigPath
               icon={<LayersIcon className="w-4 h-4" />}
-              label="Agent 配置文件"
-              description={modelAgent ? "模型与运行设置" : "当前已核验的全局配置"}
-              path={agentConfigPath}
+              label="Model"
+              description={modelDescription}
+              path={modelAgent?.config_path ?? null}
             />
             <ConfigPath
               icon={<PackageIcon className="w-4 h-4" />}
-              label="MCP 配置文件"
+              label="MCP"
               description={`${agent.key} · ${agent.format.toUpperCase()}`}
               path={mcpConfigPath}
               action={
@@ -253,6 +279,12 @@ export function AgentView({
                   <EditIcon className="w-4 h-4" />
                 </IconButton>
               }
+            />
+            <ConfigPath
+              icon={<SparklesIcon className="w-4 h-4" />}
+              label="Skills"
+              description={skillsDescription}
+              path={skillsConfigPath}
             />
           </div>
         </section>
@@ -461,7 +493,7 @@ function ConfigPath({
   icon: ReactNode;
   label: string;
   description: string;
-  path: string;
+  path: string | null;
   action?: ReactNode;
 }) {
   return (
@@ -472,7 +504,11 @@ function ConfigPath({
           <strong>{label}</strong>
           <span>{description}</span>
         </div>
-        <code title={path}>{path}</code>
+        {path ? (
+          <code title={path}>{path}</code>
+        ) : (
+          <span className="mux-agent-file-unavailable">不可用</span>
+        )}
       </div>
       {action}
     </div>

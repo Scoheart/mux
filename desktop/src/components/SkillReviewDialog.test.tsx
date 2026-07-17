@@ -25,6 +25,7 @@ const appAgent = (index: number) => ({
   supported_transports: ["stdio" as const, "http" as const],
   global: `~/.agent-${index}/settings.json`,
   project: null,
+  skills_global_dir: null,
   docs: null,
   note: null,
   category: "coding",

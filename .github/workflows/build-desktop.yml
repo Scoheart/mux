@@ -36,7 +36,7 @@ jobs:
     steps:
       - name: Checkout
         # actions/checkout v5.0.0
-        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with:
           fetch-depth: 2
 
@@ -120,7 +120,7 @@ jobs:
       - name: Checkout
         id: checkout
         # actions/checkout v5.0.0
-        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with:
           ref: ${{ needs.classify.outputs.source_ref }}
 
@@ -131,7 +131,7 @@ jobs:
       - name: Checkout retry delivery helpers
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.mode == 'stable-retry' }}
         # actions/checkout v5.0.0
-        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with:
           ref: ${{ github.sha }}
           path: .delivery

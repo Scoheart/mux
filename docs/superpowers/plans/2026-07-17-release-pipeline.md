@@ -49,6 +49,7 @@
 ### Task 1: Establish one release version invariant
 
 **Files:**
+- Modify: `.gitignore`
 - Create: `version.txt`
 - Create: `scripts/release-version.mjs`
 - Create: `scripts/release-version.test.mjs`
@@ -56,6 +57,7 @@
 - Modify: `cli/Cargo.toml:1-4`
 - Modify: `desktop/package.json:1-5`
 - Modify: `desktop/package-lock.json`
+- Create: `website/package-lock.json`
 - Modify: `desktop/src-tauri/Cargo.toml:1-6`
 - Modify: `desktop/src-tauri/tauri.conf.json:1-5`
 - Regenerate: `Cargo.lock`
@@ -66,7 +68,7 @@
 - `node scripts/release-version.mjs refresh-locks` regenerates npm/Cargo lock metadata from already-updated source manifests, then runs `check`.
 - `isReleaseMerge(beforeState, afterState, commitTitle)` is a pure helper used by tests and later workflow classification.
 
-- [ ] **Step 1: Write failing Node tests for version agreement**
+- [x] **Step 1: Write failing Node tests for version agreement**
 
 Cover these cases with `node:test` and temporary fixtures:
 
@@ -86,7 +88,7 @@ node --test scripts/release-version.test.mjs
 
 Expected: FAIL because `scripts/release-version.mjs` does not exist.
 
-- [ ] **Step 2: Implement strict check mode**
+- [x] **Step 2: Implement strict check mode**
 
 Requirements:
 
@@ -103,7 +105,7 @@ cargo metadata --locked --no-deps --format-version 1 \
 
 - Report every mismatch in one run; do not silently repair in `check` mode.
 
-- [ ] **Step 3: Implement generated-lock refresh mode**
+- [x] **Step 3: Implement generated-lock refresh mode**
 
 `refresh-locks` must not invent a version. It reads source manifests already changed by Release Please, verifies they equal `version.txt`, then runs:
 
@@ -118,11 +120,13 @@ node scripts/release-version.mjs check
 
 Generated files are updated only through these package managers; do not regex-edit lockfiles.
 
-- [ ] **Step 4: Seed the current stable version**
+The repository previously ignored both npm lockfiles. Remove that broad ignore, keep the irrelevant root `/package-lock.json` ignored, and commit the Desktop and Website lockfiles before switching CI to `npm ci`.
+
+- [x] **Step 4: Seed the current stable version**
 
 Set `version.txt` to `1.2.18`, align the existing sources, run `refresh-locks`, and confirm the already-observed stale npm lockfile metadata is corrected.
 
-- [ ] **Step 5: Run focused and project verification**
+- [x] **Step 5: Run focused and project verification**
 
 ```bash
 node --test scripts/release-version.test.mjs
@@ -133,7 +137,7 @@ cd desktop && npm ci --no-audit --no-fund && npm test && npm run build
 
 Expected: all commands exit 0 and the working tree does not change after the final `check`.
 
-- [ ] **Step 6: Commit Task 1**
+- [x] **Step 6: Commit Task 1**
 
 ```bash
 git add version.txt scripts/release-version.mjs scripts/release-version.test.mjs \
@@ -158,7 +162,7 @@ git commit -m "build(release): centralize version metadata" \
 - Producer jobs are `rust`, `desktop`, and `website`.
 - Failure monitoring consumes the aggregate `verify` result and retains the current Issue/autofix lifecycle.
 
-- [ ] **Step 1: Write failing workflow contract tests**
+- [x] **Step 1: Write failing workflow contract tests**
 
 Assert the quality workflow contains:
 
@@ -178,7 +182,7 @@ node --test scripts/workflow-contract.test.mjs
 
 Expected: FAIL against the current sequential workflow.
 
-- [ ] **Step 2: Split the verification jobs**
+- [x] **Step 2: Split the verification jobs**
 
 Implement:
 
@@ -189,7 +193,7 @@ Implement:
 
 Keep `verify` as the exact job ID and displayed check name used by the future Ruleset.
 
-- [ ] **Step 3: Move monitoring behind the aggregate result**
+- [x] **Step 3: Move monitoring behind the aggregate result**
 
 Use a separate `monitor` job with `if: always()` and `needs: [verify]`. Preserve:
 
@@ -199,7 +203,7 @@ Use a separate `monitor` job with `if: always()` and `needs: [verify]`. Preserve
 - Copilot dispatch only when `COPILOT_PAT` is configured;
 - closing the failure Issue after successful non-PR recovery.
 
-- [ ] **Step 4: Run local equivalence checks**
+- [x] **Step 4: Run local equivalence checks**
 
 ```bash
 node --test scripts/workflow-contract.test.mjs
@@ -209,7 +213,7 @@ cd desktop && npm ci --no-audit --no-fund && npm test && npm run build
 cd ../website && npm ci --no-audit --no-fund && npm run build
 ```
 
-- [ ] **Step 5: Commit Task 2**
+- [x] **Step 5: Commit Task 2**
 
 ```bash
 git add scripts/workflow-contract.test.mjs .github/workflows/quality-monitor.yml
@@ -234,7 +238,7 @@ git commit -m "ci(quality): parallelize required verification" \
 - Release PR branch is updated in place; `separate-pull-requests` is false.
 - Stable GitHub Release is created as Draft and its tag is created immediately.
 
-- [ ] **Step 1: Extend workflow/config tests and verify RED**
+- [x] **Step 1: Extend workflow/config tests and verify RED**
 
 Assert:
 
@@ -256,7 +260,7 @@ node --test scripts/workflow-contract.test.mjs
 
 Expected: FAIL because the files do not exist.
 
-- [ ] **Step 2: Add the manifest configuration**
+- [x] **Step 2: Add the manifest configuration**
 
 Configure `extra-files` for:
 
@@ -270,7 +274,7 @@ Do not list npm or Cargo lockfiles in `extra-files`. After Release Please update
 
 Use Changelog sections for breaking changes, features, fixes, and dependencies; hide internal docs/test/chore/ci entries by default.
 
-- [ ] **Step 3: Add the Release Please workflow**
+- [x] **Step 3: Add the Release Please workflow**
 
 Workflow permissions are limited to:
 
@@ -292,7 +296,7 @@ Behavior:
 
 The Release Please action should create/update the Release PR and, after it merges, create the stable tag plus Draft Release. It must not publish desktop assets.
 
-- [ ] **Step 4: Validate configuration without external mutation**
+- [x] **Step 4: Validate configuration without external mutation**
 
 ```bash
 node --test scripts/workflow-contract.test.mjs
@@ -303,7 +307,7 @@ python3 -m json.tool .release-please-manifest.json >/dev/null
 
 Do not add the Secret or run the workflow in this task.
 
-- [ ] **Step 5: Commit Task 3**
+- [x] **Step 5: Commit Task 3**
 
 ```bash
 git add release-please-config.json .release-please-manifest.json CHANGELOG.md \
@@ -328,7 +332,7 @@ git commit -m "ci(release): add single Release PR automation" \
 - `publish-release-assets.sh <tag> <asset...>` only targets an existing Draft Release. Existing same-name assets must have identical SHA-256 content or the script fails.
 - Stable publication changes `draft` to false only after assets and labels are complete.
 
-- [ ] **Step 1: Write failing shell and workflow contract tests**
+- [x] **Step 1: Write failing shell and workflow contract tests**
 
 Use a fake `gh` executable earlier on `PATH` to cover:
 
@@ -358,7 +362,7 @@ node --test scripts/workflow-contract.test.mjs
 
 Expected: FAIL because the helpers and new state machine do not exist.
 
-- [ ] **Step 2: Implement exact-SHA verification gating**
+- [x] **Step 2: Implement exact-SHA verification gating**
 
 `wait-for-verify.sh` polls the Checks API with bounded retries shorter than ten minutes. Select check runs where:
 
@@ -368,7 +372,7 @@ Expected: FAIL because the helpers and new state machine do not exist.
 
 Success requires exactly one current successful result. A timeout or any terminal non-success result exits non-zero.
 
-- [ ] **Step 3: Implement idempotent Draft asset publication**
+- [x] **Step 3: Implement idempotent Draft asset publication**
 
 The helper must:
 
@@ -382,7 +386,7 @@ The helper must:
 
 Never use `--clobber` for stable assets.
 
-- [ ] **Step 4: Refactor build classification and setup**
+- [x] **Step 4: Refactor build classification and setup**
 
 Keep triggers for `main`, stable tags, and `workflow_dispatch`. Add manual inputs for `prerelease` and `stable-retry`; a stable retry must run with a selected existing `vX.Y.Z` ref.
 
@@ -395,7 +399,7 @@ Classification:
 
 Upgrade setup to Node 24, `actions/setup-node` npm caching with `desktop/package-lock.json`, `npm ci`, stable Rust, and the two existing Rust target caches.
 
-- [ ] **Step 5: Preserve and tighten artifact verification**
+- [x] **Step 5: Preserve and tighten artifact verification**
 
 Keep all existing checks:
 
@@ -407,7 +411,7 @@ Keep all existing checks:
 
 For stable tags, also require `v$EXPECTED == github.ref_name` before any upload.
 
-- [ ] **Step 6: Implement the two publication branches**
+- [x] **Step 6: Implement the two publication branches**
 
 Pre-release:
 
@@ -426,7 +430,7 @@ Stable:
 - upload/label/verify assets idempotently;
 - publish the Draft last.
 
-- [ ] **Step 7: Run local verification**
+- [x] **Step 7: Run local verification**
 
 ```bash
 bash -n .github/scripts/wait-for-verify.sh
@@ -439,7 +443,7 @@ cd desktop && npm ci --no-audit --no-fund && npm test && npm run build
 
 Do not create a tag or Release during local verification.
 
-- [ ] **Step 8: Commit Task 4**
+- [x] **Step 8: Commit Task 4**
 
 ```bash
 git add .github/workflows/build-desktop.yml \
@@ -464,7 +468,7 @@ git commit -m "ci(release): make desktop publishing atomic" \
 - Modify: `.github/workflows/release-please.yml`
 - Modify: `scripts/workflow-contract.test.mjs`
 
-- [ ] **Step 1: Add a failing full-SHA policy test**
+- [x] **Step 1: Add a failing full-SHA policy test**
 
 Scan all `.github/workflows/*.yml` `uses:` entries. Allow only:
 
@@ -474,7 +478,7 @@ Scan all `.github/workflows/*.yml` `uses:` entries. Allow only:
 
 Reject `@main`, `@stable`, `@v4`, `@v5`, and other mutable refs.
 
-- [ ] **Step 2: Resolve and verify immutable action SHAs**
+- [x] **Step 2: Resolve and verify immutable action SHAs**
 
 For every current action, resolve the intended upstream release tag with `gh api`, follow annotated tags to the commit object, and verify the commit belongs to the expected upstream repository. Pin that commit and keep the human version in a comment:
 
@@ -484,7 +488,7 @@ uses: actions/checkout@<40-char-sha> # v5
 
 Apply this to checkout, setup-node, cache, Rust toolchain, Rust cache, Release Please, and every remaining third-party action.
 
-- [ ] **Step 3: Add Dependabot update groups**
+- [x] **Step 3: Add Dependabot update groups**
 
 Configure weekly updates for:
 
@@ -494,14 +498,14 @@ Configure weekly updates for:
 
 Group compatible minor/patch updates by ecosystem. Limit concurrent PRs to avoid flooding the single-maintainer queue.
 
-- [ ] **Step 4: Run supply-chain checks**
+- [x] **Step 4: Run supply-chain checks**
 
 ```bash
 node --test scripts/workflow-contract.test.mjs
 python3 -m json.tool release-please-config.json >/dev/null
 ```
 
-- [ ] **Step 5: Commit Task 5**
+- [x] **Step 5: Commit Task 5**
 
 ```bash
 git add .github/dependabot.yml .github/workflows scripts/workflow-contract.test.mjs
@@ -521,7 +525,7 @@ git commit -m "ci(security): pin Actions and schedule updates" \
 
 **External state:** GitHub merge settings and Repository Rulesets. Do not apply or activate without explicit authorization.
 
-- [ ] **Step 1: Add failing Ruleset payload tests**
+- [x] **Step 1: Add failing Ruleset payload tests**
 
 Validate the committed JSON requires:
 
@@ -542,9 +546,9 @@ Tags:
 - block update, force push, and deletion after creation;
 - allow the release automation to create a new tag.
 
-Initial enforcement must be `evaluate`, not `active`.
+Initial enforcement should be `evaluate`, not `active`. GitHub currently limits Evaluate mode to Enterprise plans; if the API rejects it for the repository plan, the only safe fallback is `disabled`, never an automatic fallback to `active`.
 
-- [ ] **Step 2: Add auditable payloads and runbook**
+- [x] **Step 2: Add auditable payloads and runbook**
 
 The runbook must contain exact commands to:
 
@@ -552,12 +556,12 @@ The runbook must contain exact commands to:
 2. POST the Evaluate Rulesets from committed JSON.
 3. PATCH merge settings to squash-only and delete merged branches.
 4. Confirm the effective rules from the API.
-5. Promote a named Ruleset from Evaluate to Active.
+5. Promote a named Ruleset from Evaluate or Disabled to Active with the current REST `PUT` endpoint.
 6. Disable—not delete—the Ruleset for emergency rollback.
 
 Do not embed IDs, tokens, or current API responses in committed files.
 
-- [ ] **Step 3: Validate locally**
+- [x] **Step 3: Validate locally**
 
 ```bash
 python3 -m json.tool .github/rulesets/main.json >/dev/null
@@ -565,7 +569,7 @@ python3 -m json.tool .github/rulesets/tags.json >/dev/null
 node --test scripts/workflow-contract.test.mjs
 ```
 
-- [ ] **Step 4: Commit Task 6 code before applying it**
+- [x] **Step 4: Commit Task 6 code before applying it**
 
 ```bash
 git add .github/rulesets scripts/workflow-contract.test.mjs
@@ -597,7 +601,7 @@ Expected: Rulesets are visible but not yet blocking; squash-only and branch dele
 
 **External state:** Secret creation, branch push, PR creation/merge, workflow dispatch, Ruleset activation, first stable Release, Immutable Releases, and installed App replacement. Each needs current authorization.
 
-- [ ] **Step 1: Update durable repository guidance**
+- [x] **Step 1: Update durable repository guidance**
 
 Document:
 
@@ -611,7 +615,7 @@ Document:
 
 README should explain stable versus Pre-release downloads without exposing maintainer credentials or internal recovery details.
 
-- [ ] **Step 2: Run the complete local suite**
+- [x] **Step 2: Run the complete local suite**
 
 ```bash
 node --test scripts/release-version.test.mjs scripts/workflow-contract.test.mjs
@@ -628,7 +632,7 @@ git diff --check
 
 Expected: all commands exit 0 and generated lockfiles remain clean.
 
-- [ ] **Step 3: Commit documentation and final plan state**
+- [x] **Step 3: Commit documentation and final plan state**
 
 ```bash
 git add AGENTS.md README.md .github/copilot-instructions.md \
@@ -704,8 +708,8 @@ Acceptance targets:
 
 ## Completion Checklist
 
-- [ ] All seven code/document tasks are committed independently.
-- [ ] MUX working tree is clean.
+- [x] All seven code/document tasks are committed independently.
+- [x] MUX working tree is clean.
 - [ ] Parent workspace state is captured and checked.
 - [ ] Implementation branch is pushed and reviewed through a PR.
 - [ ] `RELEASE_PLEASE_TOKEN` exists with the documented minimum permissions.

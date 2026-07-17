@@ -126,7 +126,7 @@ Release PR 必须与最新 `main` 同步。若功能 PR 在 Release PR 打开期
 2. Desktop：`npm ci`、单元测试、前端生产构建和版本一致性检查
 3. Website：`npm ci`、文档生产构建
 
-三个任务完成后由稳定命名的 `verify` 汇总任务给 Ruleset 报告唯一门禁结果。失败 Issue、自动修复派发和恢复后关闭 Issue 的现有行为挂在汇总结果之后，不复制到每个子任务。
+三个任务完成后由稳定命名的 `verify` 汇总任务给 Ruleset 报告唯一门禁结果。失败 Issue、自动修复派发和恢复后关闭 Issue 的现有行为挂在汇总结果之后，不复制到每个子任务。Desktop 与 Website 的 `package-lock.json` 必须入库，CI 使用 `npm ci` 和 lockfile-keyed cache；不能依赖开发机 `node_modules` 或安装时重新解析版本范围。
 
 Node 版本统一到 Node 24 LTS，`actions/setup-node` 使用 lockfile 驱动的 npm cache；Rust 继续使用 `Swatinem/rust-cache`。依赖安装统一改为 `npm ci`，确保 CI 不修改 lockfile。
 
@@ -205,7 +205,7 @@ v<当前稳定基线>-build.<零填充 run_number>
 
 创建 `v*` tag 规则，禁止更新、强推和删除已创建的发布 tag。正式 Release 流程稳定后启用 GitHub Immutable Releases；所有资产名称和 label 必须在 Draft 阶段完成，发布后不再修改。
 
-Ruleset 先以 Evaluate 模式观察，确认功能 PR、Release PR 和 Actions tag 流程都能正常工作，再切换 Active。切换是独立的外部状态变更，实施时需要明确授权。
+Ruleset 优先以 Evaluate 模式观察，确认功能 PR、Release PR 和 Actions tag 流程都能正常工作，再切换 Active。GitHub 当前只向 Enterprise 提供 Evaluate；若仓库套餐拒绝该状态，则保持 Disabled，完成本地与一次性 PR 演练并准备回滚后，才可经单独授权切换 Active。任何兼容性降级都不能直接创建 Active Ruleset。
 
 ## 9. Action 与供应链安全
 

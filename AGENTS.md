@@ -30,4 +30,9 @@
 
 ## Git
 
-在本独立仓执行 status、commit、tag 和 push；父仓不得跟踪其内部文件。提交使用 `<type>(<scope>): <summary>` 并在 body 解释原因。不要提交 `target/`、`dist/`、临时 App、截图或本机配置。`main` 生成预发布，正式版只由 annotated `vX.Y.Z` tag 触发。
+在本独立仓执行 status、commit、tag 和 push；父仓不得跟踪其内部文件。提交使用 `<type>(<scope>): <summary>` 并在 body 解释原因。不要提交 `target/`、`dist/`、临时 App、截图或本机配置。
+
+- 普通功能改动通过 PR 进入 `main`；`main` 的普通合并生成 Pre-release，并更新唯一一个 Release Please PR。功能 PR 不直接修改 `version.txt`、release-owned manifest 或 lockfile 版本。
+- 只有用户明确批准并合并 `chore(main): release X.Y.Z` Release PR 才进入 Stable 路径。Release Please 创建不可移动的 `vX.Y.Z` tag 和 Draft Release；Desktop workflow 只在相同 SHA 的 `verify` 成功且签名资产完整后发布 Draft。
+- 不手工创建、移动或覆盖 Stable tag，不直接发布 Draft，不以 `--clobber` 修复正式资产。发布缺陷使用新的 patch Release PR。
+- `RELEASE_PLEASE_TOKEN`、`COPILOT_PAT` 与 Tauri 签名材料只存在于 GitHub Secrets，不进入日志、fixture、文档或仓库。Ruleset 激活、Release PR 合并、正式发布和安装版替换均需当次明确授权。

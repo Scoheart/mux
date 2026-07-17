@@ -52,12 +52,17 @@ pub fn user_agents_file() -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::testenv::TestHome;
+
     #[test]
     fn mux_dir_ends_with_dot_mux() {
+        let _home = TestHome::new("paths-mux-dir");
         assert!(mux_dir().ends_with(".mux"));
     }
+
     #[test]
     fn backups_under_mux_dir() {
+        let _home = TestHome::new("paths-backups");
         assert!(backups_dir().starts_with(mux_dir()));
     }
 }

@@ -389,7 +389,7 @@ body {
 }
 @media (max-width: 980px) {
   .mux-topbar { gap: 3px; padding-right: 6px; padding-left: 6px; }
-  .mux-topbar .mux-wordmark { width: 40px; flex-basis: 40px; }
+  .mux-topbar .mux-wordmark { width: 48px; flex-basis: 48px; }
   .mux-topbar .mux-skill-seg { width: 220px; flex: 0 0 220px; }
   .mux-topbar .mux-seg-item { padding: 5px 6px; }
   .mux-topbar .mux-seg-beta { display: none; }

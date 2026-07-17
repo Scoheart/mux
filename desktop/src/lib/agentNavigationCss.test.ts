@@ -75,6 +75,10 @@ it("reserves compact 900px lanes for Skills and six pinned Agents", () => {
     compactEnd === -1 ? css.length : compactEnd,
   );
 
+  const wordmark = declarations(compactCss, ".mux-topbar .mux-wordmark");
+  expect(pixelValue(wordmark, "width")).toBeGreaterThanOrEqual(48);
+  expect(pixelValue(wordmark, "flex-basis")).toBeGreaterThanOrEqual(48);
+
   const segment = declarations(compactCss, ".mux-topbar .mux-skill-seg");
   expect(pixelValue(segment, "width")).toBeLessThanOrEqual(240);
   expect(segment).toMatch(/flex:\s*0\s+0\s+\d+px/);

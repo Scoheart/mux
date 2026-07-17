@@ -63,6 +63,7 @@ test("monitor owns the non-PR failure lifecycle", async () => {
 test("Release Please is one root component with generated locks", async () => {
   const config = JSON.parse(await read("release-please-config.json"));
   const manifest = JSON.parse(await read(".release-please-manifest.json"));
+  const version = (await read("version.txt")).trim();
 
   assert.deepEqual(Object.keys(config.packages), ["."]);
   assert.equal(config["release-type"], "simple");
@@ -80,7 +81,7 @@ test("Release Please is one root component with generated locks", async () => {
     config["group-pull-request-title-pattern"],
     "chore${scope}: release ${version}",
   );
-  assert.deepEqual(manifest, { ".": "1.2.18" });
+  assert.deepEqual(manifest, { ".": version });
 
   const extraFiles = config.packages["."]["extra-files"];
   const paths = extraFiles.map((entry) => entry.path);
@@ -106,6 +107,12 @@ test("Release Please uses the dedicated token and refreshes its PR", async () =>
   assert.doesNotMatch(workflow, /token:\s*\$\{\{ github\.token \}\}/);
   assert.match(workflow, /outputs\.prs_created == 'true'/);
   assert.match(workflow, /fromJSON\(steps\.release\.outputs\.pr\)\.headBranchName/);
+  assert.doesNotMatch(
+    workflow,
+    /HEAD_BRANCH:\s*\$\{\{ fromJSON\(steps\.release\.outputs\.pr\)/,
+  );
+  assert.match(workflow, /RELEASE_PR:\s*\$\{\{ steps\.release\.outputs\.pr \}\}/);
+  assert.match(workflow, /jq -er '\.headBranchName'/);
   assert.match(workflow, /node scripts\/release-version\.mjs refresh-locks/);
   assert.match(workflow, /desktop\/package-lock\.json Cargo\.lock desktop\/src-tauri\/Cargo\.lock/);
 

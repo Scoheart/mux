@@ -32,7 +32,7 @@
 - Consumes: `AgentDefinition.skills: Option<AgentSkillsCapability>` and `AgentSkillsCapability.global_dir: String`.
 - Produces: `AgentInfo.skills_global_dir: Option<String>` serialized as `skills_global_dir` for Desktop.
 
-- [ ] **Step 1: Write the failing projection test**
+- [x] **Step 1: Write the failing projection test**
 
 Add this test to `core/src/agents.rs`:
 
@@ -55,7 +55,7 @@ fn agent_info_projects_only_trusted_primary_skills_directories() {
 }
 ```
 
-- [ ] **Step 2: Run the test and verify RED**
+- [x] **Step 2: Run the test and verify RED**
 
 Run:
 
@@ -65,7 +65,7 @@ cargo test -p mux-core agents::tests::agent_info_projects_only_trusted_primary_s
 
 Expected: compilation fails because `AgentInfo` has no `skills_global_dir` field.
 
-- [ ] **Step 3: Add the read-only projection**
+- [x] **Step 3: Add the read-only projection**
 
 Add the field to `AgentInfo`:
 
@@ -105,7 +105,7 @@ In `list_infos`, capture the trusted primary path before moving the remaining de
 
 Do not project aliases and do not read the filesystem.
 
-- [ ] **Step 4: Run the focused and module tests**
+- [x] **Step 4: Run the focused and module tests**
 
 Run:
 
@@ -116,7 +116,7 @@ cargo test -p mux-core agents::tests
 
 Expected: the focused test and all `agents::tests` pass.
 
-- [ ] **Step 5: Commit Task 1**
+- [x] **Step 5: Commit Task 1**
 
 ```bash
 git add core/src/agents.rs
@@ -140,7 +140,7 @@ git commit -m "feat(agents): expose verified skills path"
 - Consumes: existing `SkillInventoryItem`, `SkillStatusFilter`, and `SkillSourceFilter`.
 - Produces: `SkillFilters = { status, source, query }` and a Skills sidebar containing only the source section.
 
-- [ ] **Step 1: Write the failing workspace test**
+- [x] **Step 1: Write the failing workspace test**
 
 Add this test to the `SkillsView` describe block:
 
@@ -154,7 +154,7 @@ it("omits inferred content-type navigation", () => {
 });
 ```
 
-- [ ] **Step 2: Run the component test and verify RED**
+- [x] **Step 2: Run the component test and verify RED**
 
 Run:
 
@@ -165,7 +165,7 @@ npm test -- src/components/SkillsView.test.tsx -t "omits inferred content-type n
 
 Expected: FAIL because the current sidebar renders `内容类型` and `说明型`.
 
-- [ ] **Step 3: Simplify the filter contract**
+- [x] **Step 3: Simplify the filter contract**
 
 Change `desktop/src/lib/skills.ts` to remove `SkillContentKind`, `SkillContentFilter`, `SkillFilters.contentKind`, and `contentMatches`:
 
@@ -204,7 +204,7 @@ export function filterSkills(
 
 Update every `filterSkills` test input to omit `contentKind`. Rename the first filter test to `combines status, source, and search`; keep its expected `review-changes` result.
 
-- [ ] **Step 4: Remove the SkillsView content axis**
+- [x] **Step 4: Remove the SkillsView content axis**
 
 In `SkillsView.tsx`:
 
@@ -234,7 +234,7 @@ The remaining sidebar must be:
 </WorkspaceSidebar>
 ```
 
-- [ ] **Step 5: Run focused Desktop tests and build**
+- [x] **Step 5: Run focused Desktop tests and build**
 
 Run:
 
@@ -246,7 +246,7 @@ npm run build
 
 Expected: both test files pass and TypeScript/Vite build exits 0.
 
-- [ ] **Step 6: Commit Task 2**
+- [x] **Step 6: Commit Task 2**
 
 ```bash
 git add desktop/src/lib/skills.ts desktop/src/lib/skills.test.ts desktop/src/components/SkillsView.tsx desktop/src/components/SkillsView.test.tsx
@@ -274,7 +274,7 @@ git commit -m "fix(skills): remove misleading type filter"
 - Consumes: Task 1 `AgentInfo.skills_global_dir: Option<String>` over Tauri and the existing `SkillsInventory.agents` runtime view.
 - Produces: a nullable-path `ConfigPath` presentation and the three-column configuration summary.
 
-- [ ] **Step 1: Extend the TypeScript wire type and fixtures**
+- [x] **Step 1: Extend the TypeScript wire type and fixtures**
 
 Add the required nullable field to `AgentInfo`:
 
@@ -288,7 +288,7 @@ Add `skills_global_dir: null` to generic Agent fixtures. In `AgentSkillsSection.
 skills_global_dir: hasGlobal ? "~/.agents/skills" : null,
 ```
 
-- [ ] **Step 2: Write failing configuration-summary tests**
+- [x] **Step 2: Write failing configuration-summary tests**
 
 Add tests under `AgentView Skills placement`:
 
@@ -363,7 +363,7 @@ expect(groupedDeclarations(agentCss, ".mux-agent-file-copy code")).toMatch(
 );
 ```
 
-- [ ] **Step 3: Run the AgentView tests and verify RED**
+- [x] **Step 3: Run the AgentView tests and verify RED**
 
 Run:
 
@@ -374,7 +374,7 @@ npm test -- src/components/AgentSkillsSection.test.tsx -t "configuration locatio
 
 Expected: FAIL because the current UI renders Agent/MCP only, has a two-column grid, and falls back to MCP.
 
-- [ ] **Step 4: Derive the three independent presentation states**
+- [x] **Step 4: Derive the three independent presentation states**
 
 In `AgentView.tsx`, import `SparklesIcon` and replace the old aliases with:
 
@@ -409,7 +409,7 @@ const skillsDescription = !skillsConfigPath
 
 Do not inspect aliases or filesystem paths in React.
 
-- [ ] **Step 5: Replace the summary markup**
+- [x] **Step 5: Replace the summary markup**
 
 Render the section as an accessible region:
 
@@ -463,7 +463,7 @@ Change `ConfigPath.path` to `string | null`. Render a real path with the existin
 <span className="mux-agent-file-unavailable">不可用</span>
 ```
 
-- [ ] **Step 6: Implement the responsive three-column styles**
+- [x] **Step 6: Implement the responsive three-column styles**
 
 Change the grid and dividers:
 
@@ -486,7 +486,7 @@ Change the grid and dividers:
 
 Keep the existing `≤820px` single-column rule and top-border conversion. Ensure `.mux-agent-file-copy code` retains `overflow-wrap: anywhere`.
 
-- [ ] **Step 7: Run focused tests and production build**
+- [x] **Step 7: Run focused tests and production build**
 
 Run:
 
@@ -498,7 +498,7 @@ npm run build
 
 Expected: all named test files pass and the production build exits 0.
 
-- [ ] **Step 8: Commit Task 3**
+- [x] **Step 8: Commit Task 3**
 
 ```bash
 git add desktop/src/lib/types.ts desktop/src/lib/pinnedAgents.test.ts desktop/src/components/SkillReviewDialog.test.tsx desktop/src/components/SkillsView.test.tsx desktop/src/components/AgentSkillsSection.test.tsx desktop/src/components/AgentView.tsx desktop/src/index.css
@@ -517,7 +517,7 @@ git commit -m "feat(desktop): show three config locations"
 - Consumes: completed Tasks 1-3.
 - Produces: current design documentation matching the shipped UI contract and a verified, release-ready source commit.
 
-- [ ] **Step 1: Update the superseded sidebar contract**
+- [x] **Step 1: Update the superseded sidebar contract**
 
 Replace the old content-type navigation paragraph with:
 
@@ -531,7 +531,7 @@ Desktop 不展示、不计数、不筛选。Agent 配置位置的三类独立路
 `2026-07-17-agent-config-paths-and-skill-filters-design.md`。
 ```
 
-- [ ] **Step 2: Run formatting and focused Rust verification**
+- [x] **Step 2: Run formatting and focused Rust verification**
 
 Run:
 
@@ -542,7 +542,7 @@ cargo test -p mux-core agents::tests
 
 Expected: formatting check and all Agent module tests pass.
 
-- [ ] **Step 3: Run the complete Desktop suite and build**
+- [x] **Step 3: Run the complete Desktop suite and build**
 
 Run:
 
@@ -554,19 +554,23 @@ npm run build
 
 Expected: zero failed tests; TypeScript, agent-icon check, and Vite production build exit 0.
 
-- [ ] **Step 4: Run repository diff and compatibility checks**
+- [x] **Step 4: Run repository diff and compatibility checks**
 
 Run from the repository root:
 
 ```bash
 git diff --check
+rg -n "内容类型|SkillContentFilter|contentKind" desktop/src --glob '!*.test.ts' --glob '!*.test.tsx'
 rg -n "内容类型|SkillContentFilter|contentKind" desktop/src
 rg -n "content_kind" core/src/skills
 ```
 
-Expected: `git diff --check` exits 0; the Desktop search returns no removed filter UI identifiers; the Core search still finds the compatibility field and classifier.
+Expected: `git diff --check` exits 0; the production Desktop search returns no removed
+filter UI identifiers and exits 1; the full Desktop search returns only the negative
+`SkillsView.test.tsx` assertion that `queryByText("内容类型")` is absent; the Core search
+still finds the compatibility field and classifier.
 
-- [ ] **Step 5: Record verification evidence and commit docs**
+- [x] **Step 5: Record verification evidence and commit docs**
 
 Mark completed checkboxes in this plan only after each command has run with the expected result, then commit the current documentation:
 
@@ -575,6 +579,6 @@ git add docs/superpowers/specs/2026-07-16-skills-management-design.md docs/super
 git commit -m "docs(skills): align configuration navigation"
 ```
 
-- [ ] **Step 6: Stop at the release boundary**
+- [x] **Step 6: Stop at the release boundary**
 
 Report the tested source commit as ready for release. Do not install a source build, create a Preview bundle, publish a release, replace `/Applications/MUX.app`, or claim visual acceptance. A screenshot of the new UI requires a separately authorized official stable release followed by the `mux-ui-review` installed-app workflow.

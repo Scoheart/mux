@@ -12,10 +12,14 @@ import { useUpdater } from "./hooks/useUpdater";
 import { useCliTool } from "./hooks/useCliTool";
 import { UpdateBanner } from "./components/UpdateBanner";
 import type {
-  SkillNavigationIntent,
-  SkillNavigationRequest,
+  ResourceNavigationRequest,
   View,
 } from "./lib/types";
+import {
+  clearResourceIntent,
+  createResourceNavigationIntent,
+  viewForResourceIntent,
+} from "./lib/resourceNavigation";
 import type { Transport } from "./lib/mcp";
 
 function App() {
@@ -25,28 +29,20 @@ function App() {
     name: string | null;
     transport?: Transport;
   } | null>(null);
-  const nextSkillNavigationId = useRef(0);
+  const nextResourceNavigationId = useRef(0);
   const state = useInstallState();
   const skillsState = useSkillsState();
   const updater = useUpdater();
   // 启动后静默安装/修复 ~/.local/bin/mux 软链（装 App 即带 CLI）。
   useCliTool();
 
-  const openSkills = useCallback((request: SkillNavigationRequest) => {
-    const id = ++nextSkillNavigationId.current;
-    const intent: SkillNavigationIntent =
-      request.kind === "detail"
-        ? { id, kind: "detail", skillName: request.skillName }
-        : { id, kind: "install", agentId: request.agentId };
-    setView({ kind: "skills", intent });
+  const openResource = useCallback((request: ResourceNavigationRequest) => {
+    const id = ++nextResourceNavigationId.current;
+    setView(viewForResourceIntent(createResourceNavigationIntent(id, request)));
   }, []);
 
-  const consumeSkillIntent = useCallback((id: number) => {
-    setView((current) =>
-      current.kind === "skills" && current.intent?.id === id
-        ? { kind: "skills" }
-        : current,
-    );
+  const consumeResourceIntent = useCallback((id: number) => {
+    setView((current) => clearResourceIntent(current, id));
   }, []);
 
   return (
@@ -65,7 +61,7 @@ function App() {
         <SkillsView
           state={skillsState}
           intent={view.intent}
-          onIntentConsumed={consumeSkillIntent}
+          onIntentConsumed={consumeResourceIntent}
         />
       ) : state.loading ? (
         <div
@@ -75,18 +71,19 @@ function App() {
           加载中…
         </div>
       ) : view.kind === "models" ? (
-        <ModelsView />
+        <ModelsView intent={view.intent} onIntentConsumed={consumeResourceIntent} />
       ) : view.kind === "agent" ? (
         <AgentView
           state={state}
           skillsState={skillsState}
           agentId={view.id}
-          onOpenModels={() => setView({ kind: "models" })}
-          onOpenSkills={openSkills}
+          onOpenResource={openResource}
         />
       ) : (
         <RegistryView
           state={state}
+          intent={view.intent}
+          onIntentConsumed={consumeResourceIntent}
           onEdit={(name, transport) => setMcpEditor({ name, transport })}
           onCreate={() => setMcpEditor({ name: null })}
         />

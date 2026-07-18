@@ -56,7 +56,7 @@ it("routes the single app-owned Skills state before the MCP loading gate", () =>
   expect(app).toMatch(/onSelectSkills=\{\(\) => setView\(\{ kind: "skills" \}\)\}/);
   expect(app).toMatch(/<SkillsView\s+state=\{skillsState\}/);
   expect(app).toMatch(/intent=\{view\.intent\}/);
-  expect(app).toMatch(/onIntentConsumed=\{consumeSkillIntent\}/);
+  expect(app).toMatch(/onIntentConsumed=\{consumeResourceIntent\}/);
 
   const skillsRoute = app.indexOf('view.kind === "skills"');
   const loadingGate = app.indexOf("state.loading");

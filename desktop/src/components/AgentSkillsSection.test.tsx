@@ -342,6 +342,7 @@ describe("AgentSkillsSection target graph", () => {
     await user.click(within(row).getByRole("button", { name: "查看 review-changes 详情" }));
 
     expect(onOpenSkills).toHaveBeenCalledWith({
+      domain: "skill",
       kind: "detail",
       skillName: "review-changes",
     });
@@ -367,6 +368,7 @@ describe("AgentSkillsSection target graph", () => {
     expect(within(row).queryByRole("switch")).not.toBeInTheDocument();
     await user.click(within(row).getByRole("button", { name: "查看 review-changes 详情" }));
     expect(onOpenSkills).toHaveBeenCalledWith({
+      domain: "skill",
       kind: "detail",
       skillName: "review-changes",
     });
@@ -432,6 +434,7 @@ describe("AgentSkillsSection inventory states", () => {
     expect(screen.getByRole("switch", { name: "停用 review-changes" })).toBeDisabled();
     await user.click(screen.getByRole("button", { name: "查看 review-changes 详情" }));
     expect(onOpenSkills).toHaveBeenCalledWith({
+      domain: "skill",
       kind: "detail",
       skillName: "review-changes",
     });
@@ -445,7 +448,7 @@ describe("AgentSkillsSection inventory states", () => {
 
     expect(screen.getByText("还没有分配 Skill")).toBeVisible();
     await user.click(screen.getByRole("button", { name: "添加 Skill" }));
-    expect(onOpenSkills).toHaveBeenCalledWith({ kind: "install", agentId: "codex" });
+    expect(onOpenSkills).toHaveBeenCalledWith({ domain: "skill", kind: "install", agentId: "codex" });
   });
 
   it("shows capability unavailable when the Agent is not in verified Skills inventory", () => {
@@ -827,8 +830,8 @@ describe("AgentView Skills placement", () => {
 
     expect(await screen.findByText("Model / MCP 共用")).toBeVisible();
     const region = screen.getByRole("region", { name: "配置位置" });
-    expect(within(region).getByText("Model")).toBeVisible();
-    expect(within(region).getByText("MCP")).toBeVisible();
+    expect(within(region).getByText("MCPs")).toBeVisible();
+    expect(within(region).getByText("Models")).toBeVisible();
     expect(within(region).getByText("Skills")).toBeVisible();
     expect(within(region).getAllByText("~/.codex/config.toml")).toHaveLength(2);
     expect(within(region).getByText("~/.agents/skills")).toBeVisible();
@@ -856,7 +859,7 @@ describe("AgentView Skills placement", () => {
     expect(within(region).getAllByText("~/.codex/config.toml")).toHaveLength(1);
   });
 
-  it("places Skills between Model and MCP on writable Agent pages", async () => {
+  it("places MCPs, Models, Skills tabs in the global order", async () => {
     const rendered = render(
       <ToastProvider>
         <AgentView
@@ -870,11 +873,11 @@ describe("AgentView Skills placement", () => {
     );
 
     await waitFor(() => expect(api.listModelAgents).toHaveBeenCalled());
-    const headings = within(rendered.container)
-      .getAllByRole("heading")
-      .map((heading) => heading.textContent);
-    expect(headings.indexOf("Model")).toBeLessThan(headings.indexOf("Skills"));
-    expect(headings.indexOf("Skills")).toBeLessThan(headings.indexOf("MCP"));
+    expect(within(rendered.container).getAllByRole("tab").map((tab) => tab.textContent?.replace(/\d+$/, ""))).toEqual([
+      "MCPs",
+      "Models",
+      "Skills",
+    ]);
   });
 
   it("leaves reference-only Agent pages unchanged", async () => {

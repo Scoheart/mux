@@ -31,6 +31,7 @@ import {
   RefreshIcon,
 } from "./icons";
 import { SkillCard } from "./SkillCard";
+import { ResourceState } from "./ResourceState";
 import { SkillInstallDialog } from "./SkillInstallDialog";
 import {
   SkillInspector,
@@ -42,7 +43,6 @@ import {
 } from "./SkillReviewDialog";
 import { useToast } from "./Toast";
 import {
-  ResourceEmpty,
   ResourceGrid,
   ResourceTabs,
   ResourceWorkspace,
@@ -594,19 +594,20 @@ export function SkillsView({
         onInspectorClose={closeInspector}
       >
         {!state.inventory && state.loading ? (
-          <ResourceEmpty
-            icon={<RefreshIcon className="w-6 h-6" />}
+          <ResourceState
+            kind="loading"
             title="正在读取 Skills…"
-            detail="正在核对托管副本与 Agent 目录。"
           />
         ) : !state.inventory && recoveryError ? (
-          <ResourceEmpty
+          <ResourceState
+            kind="recovery"
             icon={<PackageIcon className="w-6 h-6" />}
             title="Skills 已进入只读恢复状态"
             detail={recoveryError}
           />
         ) : !state.inventory && state.error ? (
-          <ResourceEmpty
+          <ResourceState
+            kind="read-error"
             icon={<PackageIcon className="w-6 h-6" />}
             title="读取 Skills 失败"
             detail={state.error.message}
@@ -619,10 +620,18 @@ export function SkillsView({
         ) : filtered.length === 0 ? (
           <>
             {inventoryNotice}
-            <ResourceEmpty
+            <ResourceState
+              kind={items.length === 0 ? "empty" : "no-match"}
               icon={<PackageIcon className="w-6 h-6" />}
               title={items.length === 0 ? "暂无 Skills" : "没有匹配项"}
               detail={items.length === 0 ? "安装或导入后，Skills 会显示在这里。" : "调整搜索或筛选条件后重试。"}
+              action={items.length === 0 ? undefined : (
+                <button className="btn-secondary" type="button" onClick={() => {
+                  setQuery("");
+                  setSource("all");
+                  setStatus("all");
+                }}>清除筛选</button>
+              )}
             />
           </>
         ) : (

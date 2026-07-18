@@ -1,5 +1,7 @@
 # MUX 中央资产与 Agent 消费模型实施计划
 
+> 状态（2026-07-18）：核心、Desktop、文档与自动门禁均已完成；正式安装版 UI 验收仍需用户当次明确授权，commit/push/PR/release 均未执行。下方任务清单保留为实施追踪记录，最终交付证据以测试结果和实际 diff 为准。
+
 **目标：** 将 MCP、Model、Skill 统一为“中央资产入库与维护 → Agent 建立消费关系 → MUX 对账实际状态”的产品模型，消除 Agent 页面重新安装 Skill、MCP 只靠扫描反推关系以及 Model 编辑清空 assignment 的错误逻辑。
 
 **设计权威：**

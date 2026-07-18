@@ -2,6 +2,7 @@ pub mod adapter;
 pub mod agents;
 pub mod applier;
 pub mod codec;
+pub mod consumption;
 pub mod differ;
 pub mod disabled;
 pub mod effective;

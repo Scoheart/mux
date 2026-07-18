@@ -2,99 +2,111 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type { InstallState } from "../hooks/useInstallState";
 import type { SkillsState } from "../hooks/useSkillsState";
+import type { ConsumptionState } from "../hooks/useConsumptionState";
 import type {
+  AgentConsumptionSelection,
+  AssetRef,
+  ConsumptionInventory,
   ModelAgentView,
   ModelProfileView,
-  ModelProtocol,
-  RegistryEntry,
   ResourceNavigationRequest,
 } from "../lib/types";
 import { formatError } from "../lib/format";
-import { keyOf, transportLabel, installedKey, transportOf } from "../lib/mcp";
-import {
-  applyModelProfile,
-  cellKey,
-  listModelAgents,
-  listModelProfiles,
-} from "../lib/api";
-import {
-  CheckIcon,
-  EditIcon,
-  LayersIcon,
-  LinkIcon,
-  PackageIcon,
-  PlusIcon,
-  SparklesIcon,
-  TrashIcon,
-} from "./icons";
-import { Avatar, Badge, IconButton, Switch, TransportPill } from "./ui";
+import { keyOf, transportOf } from "../lib/mcp";
+import { consumptionsForAgent, externalForAgent } from "../lib/consumption";
+import { listModelAgents, listModelProfiles } from "../lib/api";
+import { EditIcon, LayersIcon, LinkIcon, PackageIcon, SparklesIcon } from "./icons";
+import { Avatar, Badge, IconButton, TransportPill } from "./ui";
 import { AgentGlyph } from "./brandIcons";
 import { AddAgentDialog } from "./AddAgentDialog";
-import { AgentSkillsSection } from "./AgentSkillsSection";
 import { useToast } from "./Toast";
 import { AgentResourcePanel, type AgentResourceTab } from "./AgentResourcePanel";
-import { ResourcePickerDialog } from "./ResourcePickerDialog";
+import { AgentConsumptionPanel } from "./AgentConsumptionPanel";
+import {
+  ConsumptionPickerDialog,
+  type ConsumptionPickerOption,
+} from "./ConsumptionPickerDialog";
+import { AssetOperationReviewDialog } from "./AssetOperationReviewDialog";
 
 interface AgentViewProps {
   state: InstallState;
   skillsState: SkillsState;
+  consumptionState?: ConsumptionState;
   agentId: string;
   onOpenResource?(request: ResourceNavigationRequest): void;
-  /** Transitional test adapter; production uses onOpenResource. */
+  /** Transitional test adapters. */
   onOpenModels?: () => void;
-  /** Transitional test adapter; production uses onOpenResource. */
   onOpenSkills?: (request: Extract<ResourceNavigationRequest, { domain: "skill" }>) => void;
-}
-
-function syntheticEntry(serverKey: string): RegistryEntry {
-  const idx = serverKey.lastIndexOf("::");
-  const name = idx >= 0 ? serverKey.slice(0, idx) : serverKey;
-  const transport = idx >= 0 ? serverKey.slice(idx + 2) : "stdio";
-  return {
-    name,
-    description: "",
-    tags: [],
-    config: transport === "http" ? { http: { type: "http", url: "" } } : { stdio: { command: "" } },
-  };
-}
-
-function protocolLabel(protocol: ModelProtocol) {
-  if (protocol === "anthropic-messages") return "Anthropic Messages";
-  if (protocol === "openai-responses") return "OpenAI Responses";
-  return "OpenAI Completions";
 }
 
 function samePath(left: string, right: string) {
   return left.trim().replace(/\/+$/, "") === right.trim().replace(/\/+$/, "");
 }
 
+function fallbackInventory(
+  state: InstallState,
+  modelAgents: ModelAgentView[],
+): ConsumptionInventory {
+  return {
+    consumptions: [
+      ...state.installed
+        .filter((item) => item.scope === "global")
+        .map((item) => ({
+          agent_id: item.agent,
+          asset: { domain: "mcp" as const, key: `${item.name}::${item.transport}` },
+          desired: true,
+          observed: true,
+          status: item.customized ? "drifted" as const : "synced" as const,
+          reason: item.customized ? "mcp_config_drift" : null,
+          affected_agent_ids: [item.agent],
+        })),
+      ...modelAgents.flatMap((item) =>
+        item.assigned_profile
+          ? [{
+              agent_id: item.id,
+              asset: { domain: "model" as const, profile_id: item.assigned_profile },
+              desired: true,
+              observed: true,
+              status: "synced" as const,
+              reason: null,
+              affected_agent_ids: [item.id],
+            }]
+          : [],
+      ),
+    ],
+    external: [],
+  };
+}
+
 export function AgentView({
   state,
   skillsState,
+  consumptionState,
   agentId,
   onOpenResource,
   onOpenModels,
   onOpenSkills,
 }: AgentViewProps) {
-  const { entries, agents, installed, pending, toggle, setEnabled, remove, refreshAgents, rescan } = state;
+  const { entries, agents, refreshAgents, rescan } = state;
   const { show: showToast } = useToast();
-
-  const [mcpPickerOpen, setMcpPickerOpen] = useState(false);
   const [editingAgent, setEditingAgent] = useState(false);
+  const [pickerDomain, setPickerDomain] = useState<AssetRef["domain"] | null>(null);
   const [modelProfiles, setModelProfiles] = useState<ModelProfileView[]>([]);
   const [modelAgents, setModelAgents] = useState<ModelAgentView[]>([]);
-  const [selectedProfileId, setSelectedProfileId] = useState("");
   const [modelsLoading, setModelsLoading] = useState(true);
   const [modelsError, setModelsError] = useState<string | null>(null);
-  const [applyingModel, setApplyingModel] = useState(false);
   const [resourceTab, setResourceTab] = useState<AgentResourceTab>("mcps");
+
   const navigateResource = useCallback((request: ResourceNavigationRequest) => {
     if (onOpenResource) return onOpenResource(request);
     if (request.domain === "skill") return onOpenSkills?.(request);
     if (request.domain === "model") return onOpenModels?.();
   }, [onOpenModels, onOpenResource, onOpenSkills]);
 
-  const agent = useMemo(() => agents.find((item) => item.id === agentId) ?? null, [agents, agentId]);
+  const agent = useMemo(
+    () => agents.find((item) => item.id === agentId) ?? null,
+    [agents, agentId],
+  );
 
   const refreshModels = useCallback(async () => {
     try {
@@ -112,112 +124,29 @@ export function AgentView({
     setModelsLoading(true);
     setModelsError(null);
     refreshModels()
-      .catch((error) =>
-        showToast({ kind: "error", msg: "读取模型配置失败：" + formatError(error) })
-      )
+      .catch((error) => showToast({ kind: "error", msg: "读取模型配置失败：" + formatError(error) }))
       .finally(() => setModelsLoading(false));
   }, [refreshModels, showToast]);
 
   const modelAgent = useMemo(
     () => modelAgents.find((item) => item.id === agentId) ?? null,
-    [modelAgents, agentId]
+    [modelAgents, agentId],
   );
-
   const compatibleProfiles = useMemo(
-    () =>
-      modelAgent
-        ? modelProfiles.filter((profile) => modelAgent.supported_protocols.includes(profile.protocol))
-        : [],
-    [modelAgent, modelProfiles]
+    () => modelAgent
+      ? modelProfiles.filter((profile) => modelAgent.supported_protocols.includes(profile.protocol))
+      : [],
+    [modelAgent, modelProfiles],
   );
+  const inventory = consumptionState?.inventory ?? fallbackInventory(state, modelAgents);
+  const mcpRows = consumptionsForAgent(inventory, agentId, "mcp");
+  const modelRows = consumptionsForAgent(inventory, agentId, "model");
+  const skillRows = consumptionsForAgent(inventory, agentId, "skill");
+  const mcpExternal = externalForAgent(inventory, agentId, "mcp");
+  const modelExternal = externalForAgent(inventory, agentId, "model");
+  const skillExternal = externalForAgent(inventory, agentId, "skill");
 
-  useEffect(() => {
-    setSelectedProfileId((current) => {
-      if (compatibleProfiles.some((profile) => profile.id === current)) return current;
-      if (
-        modelAgent?.assigned_profile &&
-        compatibleProfiles.some((profile) => profile.id === modelAgent.assigned_profile)
-      ) {
-        return modelAgent.assigned_profile;
-      }
-      return compatibleProfiles[0]?.id ?? "";
-    });
-  }, [compatibleProfiles, modelAgent]);
-
-  const currentProfile = useMemo(
-    () => modelProfiles.find((profile) => profile.id === modelAgent?.assigned_profile) ?? null,
-    [modelAgent, modelProfiles]
-  );
-  const selectedProfile = useMemo(
-    () => modelProfiles.find((profile) => profile.id === selectedProfileId) ?? null,
-    [modelProfiles, selectedProfileId]
-  );
-
-  const agentRows = useMemo(
-    () => installed.filter((item) => item.agent === agentId && item.scope === "global"),
-    [installed, agentId]
-  );
-
-  const installedKeySet = useMemo(
-    () => new Set(agentRows.map((row) => installedKey(row))),
-    [agentRows]
-  );
-
-  const installedEntries = useMemo(
-    () =>
-      agentRows
-        .map((row) => {
-          const key = installedKey(row);
-          const entry = entries.find((item) => keyOf(item) === key) ?? syntheticEntry(key);
-          return { entry, enabled: row.enabled };
-        })
-        .sort(
-          (left, right) =>
-            left.entry.name.localeCompare(right.entry.name, undefined, { sensitivity: "base" }) ||
-            transportLabel(left.entry).localeCompare(transportLabel(right.entry))
-        ),
-    [agentRows, entries]
-  );
-
-  const notInstalledEntries = useMemo(() => {
-    return entries
-      .filter((entry) => {
-        if (!agent?.supported_transports.includes(transportOf(entry))) return false;
-        if (installedKeySet.has(keyOf(entry))) return false;
-        return true;
-      })
-      .sort(
-        (left, right) =>
-          left.name.localeCompare(right.name, undefined, { sensitivity: "base" }) ||
-          transportLabel(left).localeCompare(transportLabel(right))
-      );
-  }, [entries, installedKeySet, agent]);
-
-  const handleToggle = useCallback(
-    (entry: RegistryEntry) => {
-      const key = cellKey(keyOf(entry), agentId);
-      if (!pending.has(key)) toggle(entry, agentId);
-    },
-    [agentId, pending, toggle]
-  );
-
-  const handleApplyModel = async () => {
-    if (!modelAgent || modelAgent.mode !== "managed" || !selectedProfile) return;
-    setApplyingModel(true);
-    try {
-      const result = await applyModelProfile(modelAgent.id, selectedProfile.id);
-      await refreshModels();
-      showToast({ kind: "success", msg: result.message || `已将 ${selectedProfile.name} 应用到 ${agent?.name ?? modelAgent.name}` });
-    } catch (error) {
-      showToast({ kind: "error", msg: "应用模型失败：" + formatError(error) });
-    } finally {
-      setApplyingModel(false);
-    }
-  };
-
-  if (!agent) {
-    return <div className="mux-agent-state">未找到该 Agent</div>;
-  }
+  if (!agent) return <div className="mux-agent-state">未找到该 Agent</div>;
 
   if (!agent.has_global) {
     return (
@@ -238,13 +167,9 @@ export function AgentView({
 
   const mcpConfigPath = agent.global ?? "";
   const skillsConfigPath = agent.skills_global_dir;
-  const runtimeSkillAgent = skillsState.inventory?.agents.find(
-    (item) => item.id === agentId,
-  ) ?? null;
+  const runtimeSkillAgent = skillsState.inventory?.agents.find((item) => item.id === agentId) ?? null;
   const modelRelationship = modelAgent
-    ? samePath(modelAgent.config_path, mcpConfigPath)
-      ? "Model / MCP 共用"
-      : "Model / MCP 分离"
+    ? samePath(modelAgent.config_path, mcpConfigPath) ? "Model / MCP 共用" : "Model / MCP 分离"
     : null;
   const modelDescription = modelsLoading
     ? "正在读取模型配置…"
@@ -252,9 +177,7 @@ export function AgentView({
       ? `读取模型配置失败：${modelsError}`
       : modelAgent?.mode === "guided"
         ? "官方引导"
-        : modelAgent
-          ? "模型配置文件"
-          : "尚未接入 Models";
+        : modelAgent ? "模型配置文件" : "尚未接入 Models";
   const skillsDescription = !skillsConfigPath
     ? "尚未核验 Skills 目录"
     : skillsState.loading
@@ -268,31 +191,115 @@ export function AgentView({
             : runtimeSkillAgent.affected_agent_ids.length > 1
               ? `用户级目录 · 共享影响 ${runtimeSkillAgent.affected_agent_ids.length} 个 Agent`
               : "用户级目录 · 已检测";
-  const skillTargetIds = new Set(
-    skillsState.inventory?.targets
-      .filter((target) => target.affected_agent_ids.includes(agentId))
-      .map((target) => target.target_id) ?? [],
+
+  const centralSkills = (skillsState.inventory?.items ?? []).filter(
+    (item) => item.location.kind === "central" && item.states.includes("managed"),
   );
-  const assignedSkillCount = skillsState.inventory?.items.filter(
-    (item) =>
-      item.location.kind === "central" &&
-      item.assigned_target_ids.some((targetId) => skillTargetIds.has(targetId)),
-  ).length ?? 0;
+  const picker = pickerDomain ? pickerData(pickerDomain) : null;
+
+  function pickerData(domain: AssetRef["domain"]): {
+    title: string;
+    mode: "single" | "multiple";
+    selectedIds: string[];
+    options: ConsumptionPickerOption[];
+  } {
+    if (domain === "mcp") {
+      return {
+        title: "管理正在使用的 MCPs",
+        mode: "multiple",
+        selectedIds: mcpRows.flatMap((item) => item.asset.domain === "mcp" ? [item.asset.key] : []),
+        options: entries
+          .filter((entry) => agent?.supported_transports.includes(transportOf(entry)))
+          .map((entry) => ({
+            id: keyOf(entry),
+            name: entry.name,
+            description: entry.description,
+            meta: <TransportPill entry={entry} compact />,
+          })),
+      };
+    }
+    if (domain === "model") {
+      return {
+        title: "切换正在使用的 Model",
+        mode: "single",
+        selectedIds: modelRows.flatMap((item) => item.asset.domain === "model" ? [item.asset.profile_id] : []),
+        options: compatibleProfiles.map((profile) => ({
+          id: profile.id,
+          name: profile.name,
+          description: `${profile.model} · ${profile.protocol}`,
+          reason: profile.credential_saved ? undefined : "未保存 Keychain 凭据；仅适用于无鉴权端点。",
+        })),
+      };
+    }
+    return {
+      title: "管理正在使用的 Skills",
+      mode: "multiple",
+      selectedIds: skillRows.flatMap((item) => item.asset.domain === "skill" ? [item.asset.name] : []),
+      options: centralSkills.map((item) => ({
+        id: item.name,
+        name: item.name,
+        description: item.description,
+      })),
+    };
+  }
+
+  const createSelection = (domain: AssetRef["domain"], ids: string[]): AgentConsumptionSelection => {
+    if (domain === "mcp") return { domain, asset_keys: ids };
+    if (domain === "model") return { domain, profile_ids: ids };
+    return { domain, names: ids };
+  };
+
+  const planSelection = async (domain: AssetRef["domain"], ids: string[]) => {
+    if (!consumptionState) return;
+    try {
+      await consumptionState.planForAgent(agentId, createSelection(domain, ids));
+      setPickerDomain(null);
+    } catch (error) {
+      showToast({ kind: "error", msg: "无法生成消费计划：" + formatError(error) });
+    }
+  };
+
+  const commitPlan = async (conflictConfirmation?: string) => {
+    if (!consumptionState) return;
+    try {
+      await consumptionState.commit(conflictConfirmation);
+      await Promise.all([
+        rescan().catch(() => undefined),
+        skillsState.refresh().catch(() => undefined),
+        refreshModels().catch(() => undefined),
+      ]);
+      showToast({ kind: "success", msg: "中央资产消费关系已同步。" });
+    } catch (error) {
+      showToast({ kind: "error", msg: "同步失败：" + formatError(error) });
+    }
+  };
+
+  const openAsset = (asset: AssetRef) => {
+    if (asset.domain === "mcp") {
+      const split = asset.key.lastIndexOf("::");
+      navigateResource({
+        domain: "mcp",
+        kind: "detail",
+        name: split < 0 ? asset.key : asset.key.slice(0, split),
+        transport: (split < 0 ? "stdio" : asset.key.slice(split + 2)) as "stdio" | "http",
+      });
+    } else if (asset.domain === "model") {
+      navigateResource({ domain: "model", kind: "detail", profileId: asset.profile_id });
+    } else {
+      navigateResource({ domain: "skill", kind: "detail", skillName: asset.name });
+    }
+  };
 
   return (
     <div className="mux-agent-page">
       <div className="mux-agent-shell">
         <AgentHeader agent={agent} />
 
-        <section
-          className="mux-agent-section"
-          aria-labelledby="agent-files-title"
-          aria-label="配置位置"
-        >
+        <section className="mux-agent-section" aria-labelledby="agent-files-title" aria-label="配置位置">
           <div className="mux-agent-section-head">
             <div>
               <h3 id="agent-files-title">配置位置</h3>
-              <p>MCP、Model 与 Skills 使用的用户级配置入口。</p>
+              <p>这些路径是消费中央资产后的落盘目标，不是资产安装入口。</p>
             </div>
             {modelRelationship && <Badge tone="info">{modelRelationship}</Badge>}
           </div>
@@ -308,157 +315,125 @@ export function AgentView({
                 </IconButton>
               }
             />
-            <ConfigPath
-              icon={<LayersIcon className="w-4 h-4" />}
-              label="Models"
-              description={modelDescription}
-              path={modelAgent?.config_path ?? null}
-            />
-            <ConfigPath
-              icon={<SparklesIcon className="w-4 h-4" />}
-              label="Skills"
-              description={skillsDescription}
-              path={skillsConfigPath}
-            />
+            <ConfigPath icon={<LayersIcon className="w-4 h-4" />} label="Models" description={modelDescription} path={modelAgent?.config_path ?? null} />
+            <ConfigPath icon={<SparklesIcon className="w-4 h-4" />} label="Skills" description={skillsDescription} path={skillsConfigPath} />
           </div>
         </section>
 
         <AgentResourcePanel
           value={resourceTab}
           onChange={setResourceTab}
-          counts={{ mcps: installedEntries.length, models: compatibleProfiles.length, skills: assignedSkillCount }}
+          counts={{ mcps: mcpRows.length, models: modelRows.length, skills: skillRows.length }}
         >
-        {resourceTab === "models" ? (
-        <section className="mux-agent-section mux-agent-resource-content" aria-labelledby="agent-model-title">
-          <div className="mux-agent-section-head">
-            <div>
-              <h3 id="agent-model-title">Model</h3>
-              <p>选择兼容配置并直接应用到当前 Agent。</p>
-            </div>
-            <Badge tone="info">Beta</Badge>
-          </div>
-          <ModelAssignment
-            loading={modelsLoading}
-            agent={modelAgent}
-            currentProfile={currentProfile}
-            selectedProfile={selectedProfile}
-            compatibleProfiles={compatibleProfiles}
-            selectedProfileId={selectedProfileId}
-            applying={applyingModel}
-            onSelect={setSelectedProfileId}
-            onApply={() => void handleApplyModel()}
-            onOpenModels={() => navigateResource({ domain: "model", kind: "create" })}
-            onOpenModelDetail={(profileId) => navigateResource({ domain: "model", kind: "detail", profileId })}
-          />
-        </section>
-        ) : resourceTab === "skills" ? (
-        <AgentSkillsSection
-          key={agentId}
-          agentId={agentId}
-          state={skillsState}
-          onOpenSkills={navigateResource}
-        />
-        ) : (
-        <section className="mux-agent-section mux-agent-resource-content" aria-labelledby="agent-mcp-title">
-          <div className="mux-agent-section-head mux-agent-mcp-head">
-            <div>
-              <h3 id="agent-mcp-title">MCP</h3>
-              <p>{installedEntries.length} 个已添加，开关会同步更新 MCP 配置区。</p>
-            </div>
-            <div className="mux-agent-add-wrap">
-              <button
-                type="button"
-                className="btn-primary"
-                onClick={() => setMcpPickerOpen(true)}
-              >
-                <PlusIcon className="w-3.5 h-3.5" />
-                添加 MCP
-              </button>
-            </div>
-          </div>
-
-          {installedEntries.length === 0 ? (
-            <div className="mux-agent-mcp-empty">
-              <PackageIcon className="w-7 h-7" />
-              <strong>还没有添加 MCP</strong>
-              <span>从 MUX 资源库选择后会写入上方标明的 MCP 文件。</span>
-            </div>
+          {resourceTab === "mcps" ? (
+            <AgentConsumptionPanel
+              title="正在使用"
+              description="中央 MCP 资产与当前 Agent 的 desired relationship。"
+              manageLabel="管理 MCPs"
+              rows={mcpRows}
+              external={mcpExternal}
+              onManage={() => setPickerDomain("mcp")}
+              manageDisabled={!consumptionState}
+              onOpenAsset={openAsset}
+              present={(asset) => {
+                const key = asset.domain === "mcp" ? asset.key : "";
+                const entry = entries.find((candidate) => keyOf(candidate) === key);
+                return {
+                  name: entry?.name ?? key.replace(/::(?:stdio|http)$/, ""),
+                  description: entry?.description || key,
+                  icon: <Avatar seed={entry?.name ?? key} size={30} />,
+                  meta: entry ? <TransportPill entry={entry} compact /> : null,
+                };
+              }}
+            />
+          ) : resourceTab === "models" ? (
+            modelAgent?.mode === "guided" ? (
+              <section className="mux-agent-section mux-agent-resource-content">
+                <div className="mux-agent-guided-model">
+                  <div><strong>通过 Agent 官方流程配置</strong><span>{modelAgent.note}</span></div>
+                  <button type="button" className="btn-secondary" onClick={() => openUrl(modelAgent.docs)}>
+                    <LinkIcon className="w-4 h-4" />打开设置文档
+                  </button>
+                </div>
+              </section>
+            ) : (
+              <AgentConsumptionPanel
+                title="正在使用"
+                description="每个 Agent 最多消费一个中央 Model Profile。"
+                manageLabel="切换 Model"
+                rows={modelRows}
+                external={modelExternal}
+                onManage={() => setPickerDomain("model")}
+                onOpenAsset={openAsset}
+                manageDisabled={!consumptionState || !modelAgent || modelsLoading}
+                present={(asset) => {
+                  const id = asset.domain === "model" ? asset.profile_id : "";
+                  if (id.startsWith("external-")) {
+                    return {
+                      name: "外部 Model 配置",
+                      description: "已在 Agent 配置中检测到，但尚未纳入中央 Model Profiles。",
+                      icon: <LayersIcon className="w-4 h-4" />,
+                      meta: <Badge tone="warning">只读</Badge>,
+                    };
+                  }
+                  const profile = modelProfiles.find((candidate) => candidate.id === id);
+                  return {
+                    name: profile?.name ?? id,
+                    description: profile ? `${profile.model} · ${profile.protocol}` : "中央 Profile 已缺失",
+                    icon: <LayersIcon className="w-4 h-4" />,
+                    meta: profile?.credential_saved ? <Badge tone="success">Keychain</Badge> : null,
+                  };
+                }}
+              />
+            )
           ) : (
-            <div className="mux-agent-mcp-grid">
-              {installedEntries.map(({ entry, enabled }) => {
-                const isPending = pending.has(cellKey(keyOf(entry), agentId));
-                return (
-                  <div
-                    key={keyOf(entry)}
-                    className="mux-agent-mcp-row"
-                    data-enabled={enabled ? "true" : "false"}
-                    data-pending={isPending ? "true" : undefined}
-                  >
-                    <Avatar seed={entry.name} size={30} />
-                    <span className="mux-agent-mcp-name">
-                      <strong title={entry.name}>{entry.name}</strong>
-                      <TransportPill entry={entry} compact />
-                    </span>
-                    <Switch
-                      checked={enabled}
-                      disabled={isPending}
-                      title={enabled ? "禁用 MCP" : "启用 MCP"}
-                      onChange={(nextEnabled) => {
-                        if (!isPending) setEnabled(entry, agentId, nextEnabled);
-                      }}
-                    />
-                    <IconButton
-                      title={`查看 ${entry.name} 详情`}
-                      disabled={isPending}
-                      onClick={() => navigateResource({
-                        domain: "mcp",
-                        kind: "detail",
-                        name: entry.name,
-                        transport: transportOf(entry),
-                      })}
-                    >
-                      <LinkIcon className="w-4 h-4" />
-                    </IconButton>
-                    <IconButton
-                      title="删除 MCP"
-                      disabled={isPending}
-                      onClick={() => {
-                        if (!isPending) remove(entry, agentId);
-                      }}
-                    >
-                      <TrashIcon className="w-4 h-4" />
-                    </IconButton>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-          {mcpPickerOpen && (
-            <ResourcePickerDialog
-              title="添加 MCP"
-              subtitle={`选择要添加到 ${agent.name} 的 MCP。`}
-              options={notInstalledEntries.map((entry) => ({
-                id: keyOf(entry),
-                name: entry.name,
-                description: entry.description,
-                avatar: <Avatar seed={entry.name} size={30} />,
-                meta: <TransportPill entry={entry} compact />,
-                disabled: pending.has(cellKey(keyOf(entry), agentId)),
-              }))}
-              addLabel="添加 MCP"
-              onClose={() => setMcpPickerOpen(false)}
-              onAdd={(option) => {
-                const entry = notInstalledEntries.find((candidate) => keyOf(candidate) === option.id);
-                if (!entry) return;
-                handleToggle(entry);
-                setMcpPickerOpen(false);
+            <AgentConsumptionPanel
+              title="正在使用"
+              description="只从中央 Skills 资产库建立关系；这里不再安装 Skill。"
+              manageLabel="管理 Skills"
+              rows={skillRows}
+              external={skillExternal}
+              onManage={() => setPickerDomain("skill")}
+              onOpenAsset={openAsset}
+              manageDisabled={!runtimeSkillAgent || !consumptionState}
+              present={(asset) => {
+                const name = asset.domain === "skill" ? asset.name : "";
+                const skill = centralSkills.find((candidate) => candidate.name === name);
+                return {
+                  name,
+                  description: skill?.description ?? "中央 Skill 已缺失",
+                  icon: <SparklesIcon className="w-4 h-4" />,
+                  meta: skillRows.find((row) => row.asset.domain === "skill" && row.asset.name === name)?.affected_agent_ids.length! > 1
+                    ? <Badge tone="warning">共享目标</Badge>
+                    : null,
+                };
               }}
             />
           )}
-        </section>
-        )}
         </AgentResourcePanel>
       </div>
+
+      {pickerDomain && picker && (
+        <ConsumptionPickerDialog
+          title={picker.title}
+          subtitle={`仅选择中央资产；确认后会先展示对 ${agent.name} 的完整影响。`}
+          mode={picker.mode}
+          options={picker.options}
+          selectedIds={picker.selectedIds}
+          onClose={() => setPickerDomain(null)}
+          onReview={(ids) => planSelection(pickerDomain, ids)}
+        />
+      )}
+
+      {consumptionState?.plan && (
+        <AssetOperationReviewDialog
+          plan={consumptionState.plan}
+          busy={consumptionState.committing}
+          error={consumptionState.error?.message}
+          onCommit={commitPlan}
+          onCancel={consumptionState.cancel}
+        />
+      )}
 
       {editingAgent && (
         <AddAgentDialog
@@ -467,6 +442,7 @@ export function AgentView({
           onAdded={async () => {
             await refreshAgents();
             await rescan();
+            await consumptionState?.refresh();
           }}
         />
       )}
@@ -474,28 +450,16 @@ export function AgentView({
   );
 }
 
-function AgentHeader({
-  agent,
-  tone,
-}: {
-  agent: InstallState["agents"][number];
-  tone?: "reference";
-}) {
+function AgentHeader({ agent, tone }: { agent: InstallState["agents"][number]; tone?: "reference" }) {
   return (
     <header className="mux-agent-header">
       <AgentGlyph id={agent.id} name={agent.name} size={44} />
       <div className="mux-agent-header-copy">
         <div>
           <h2>{agent.name}</h2>
-          {tone === "reference" ? (
-            <Badge>仅供参考</Badge>
-          ) : agent.evidence === "community-extension" ? (
+          {tone === "reference" ? <Badge>仅供参考</Badge> : agent.evidence === "community-extension" ? (
             <Badge tone="warning">社区扩展</Badge>
-          ) : agent.builtin ? (
-            <Badge tone="success">已核验</Badge>
-          ) : (
-            <Badge>自定义</Badge>
-          )}
+          ) : agent.builtin ? <Badge tone="success">已核验</Badge> : <Badge>自定义</Badge>}
         </div>
         <span>{agent.id} · {agent.category}</span>
       </div>
@@ -525,131 +489,10 @@ function ConfigPath({
     <div className="mux-agent-file-row">
       <span className="mux-agent-file-icon">{icon}</span>
       <div className="mux-agent-file-copy">
-        <div>
-          <strong>{label}</strong>
-          <span>{description}</span>
-        </div>
-        {path ? (
-          <code title={path}>{path}</code>
-        ) : (
-          <span className="mux-agent-file-unavailable">不可用</span>
-        )}
+        <div><strong>{label}</strong><span>{description}</span></div>
+        {path ? <code title={path}>{path}</code> : <span className="mux-agent-file-unavailable">不可用</span>}
       </div>
       {action}
-    </div>
-  );
-}
-
-function ModelAssignment({
-  loading,
-  agent,
-  currentProfile,
-  selectedProfile,
-  compatibleProfiles,
-  selectedProfileId,
-  applying,
-  onSelect,
-  onApply,
-  onOpenModels,
-  onOpenModelDetail,
-}: {
-  loading: boolean;
-  agent: ModelAgentView | null;
-  currentProfile: ModelProfileView | null;
-  selectedProfile: ModelProfileView | null;
-  compatibleProfiles: ModelProfileView[];
-  selectedProfileId: string;
-  applying: boolean;
-  onSelect: (profileId: string) => void;
-  onApply: () => void;
-  onOpenModels: () => void;
-  onOpenModelDetail: (profileId: string) => void;
-}) {
-  if (loading) return <div className="mux-agent-inline-state">读取模型配置…</div>;
-
-  if (!agent) {
-    return (
-      <div className="mux-agent-inline-state">
-        <span>Models Beta 尚未接入此 Agent，MCP 管理不受影响。</span>
-      </div>
-    );
-  }
-
-  if (agent.mode === "guided") {
-    return (
-      <div className="mux-agent-guided-model">
-        <div>
-          <strong>通过 Agent 官方流程配置</strong>
-          <span>{agent.note}</span>
-        </div>
-        <button type="button" className="btn-secondary" onClick={() => openUrl(agent.docs)}>
-          <LinkIcon className="w-4 h-4" />
-          打开设置文档
-        </button>
-      </div>
-    );
-  }
-
-  if (compatibleProfiles.length === 0) {
-    return (
-      <div className="mux-agent-inline-state mux-agent-inline-state-action">
-        <span>没有兼容的模型配置，先在 Models 中创建。</span>
-        <button type="button" className="btn-secondary" onClick={onOpenModels}>
-          <PlusIcon className="w-4 h-4" />
-          新建模型
-        </button>
-      </div>
-    );
-  }
-
-  const alreadyApplied = currentProfile?.id === selectedProfile?.id;
-  return (
-    <div className="mux-agent-model-control">
-      <div className="mux-agent-model-current">
-        <AgentGlyph id={agent.id} name={agent.name} size={34} />
-        <div>
-          <span>当前模型</span>
-          <strong>{currentProfile?.name ?? "未配置"}</strong>
-          <code>{currentProfile?.model ?? "尚未应用模型配置"}</code>
-        </div>
-        {!agent.installed && <Badge tone="warning">未检测到应用</Badge>}
-        {currentProfile && (
-          <IconButton title={`查看 ${currentProfile.name} 详情`} onClick={() => onOpenModelDetail(currentProfile.id)}>
-            <LinkIcon className="w-4 h-4" />
-          </IconButton>
-        )}
-      </div>
-      <div className="mux-agent-model-apply">
-        <label htmlFor={`model-profile-${agent.id}`}>应用模型</label>
-        <select
-          id={`model-profile-${agent.id}`}
-          className="mux-model-field"
-          value={selectedProfileId}
-          onChange={(event) => onSelect(event.target.value)}
-        >
-          {compatibleProfiles.map((profile) => (
-            <option key={profile.id} value={profile.id}>
-              {profile.name} · {profile.model}
-            </option>
-          ))}
-        </select>
-        <div className="mux-agent-model-preview">
-          <span className="mux-model-protocol-dot" data-protocol={selectedProfile?.protocol} />
-          <span>{selectedProfile ? protocolLabel(selectedProfile.protocol) : ""}</span>
-          {selectedProfile?.credential_saved && (
-            <span className="mux-agent-model-key"><CheckIcon className="w-3 h-3" /> Keychain</span>
-          )}
-        </div>
-        <button
-          type="button"
-          className={alreadyApplied ? "btn-secondary" : "btn-primary"}
-          disabled={!selectedProfile || applying || alreadyApplied}
-          onClick={onApply}
-        >
-          {alreadyApplied ? <CheckIcon className="w-4 h-4" /> : <LayersIcon className="w-4 h-4" />}
-          {applying ? "应用中…" : alreadyApplied ? "已应用" : "应用模型"}
-        </button>
-      </div>
     </div>
   );
 }

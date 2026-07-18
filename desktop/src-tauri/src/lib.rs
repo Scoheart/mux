@@ -20,12 +20,16 @@ pub fn run() {
             // Move any legacy settings.registry entries into the managed
             // "manual"/"discovered" local-source files (one-time).
             mux_core::registry::migrate_registry_to_sources();
-            // Pre-detect each agent's existing MCP servers into the Registry so they
-            // show up (and become manageable) the moment the app opens. Global scope
-            // only here (no project dir at launch); best-effort.
-            let _ = commands::import_discovered();
+            // Agent MCP files are observed state only. Startup must never turn
+            // external configuration into a central asset or desired relation.
 
-            let recovery_ok = mux_core::skills::recover_pending().is_ok();
+            // Skills owns its nested journal; recover it first, then let the
+            // cross-domain asset coordinator either finalize a verified commit
+            // or restore its private rollback snapshots.
+            let skills_recovery_ok = mux_core::skills::recover_pending().is_ok();
+            let asset_recovery_ok =
+                mux_core::consumption::recover_pending_asset_operations().is_ok();
+            let recovery_ok = skills_recovery_ok && asset_recovery_ok;
             if recovery_ok {
                 std::thread::spawn(|| {
                     let _ = mux_core::skills::check_updates_if_due();
@@ -41,20 +45,26 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            commands::list_consumption_inventory,
+            commands::plan_set_agent_consumption,
+            commands::plan_set_asset_consumers,
+            commands::plan_update_central_asset,
+            commands::plan_delete_central_asset,
+            commands::commit_asset_operation,
+            commands::cancel_asset_operation,
             commands::list_skills_inventory,
             commands::list_skill_agents,
             commands::get_skill_detail,
             commands::resolve_skill_source,
             commands::resolve_local_skill_source_dialog,
-            commands::plan_skill_install,
+            commands::plan_skill_asset_install,
             commands::commit_skill_install,
-            commands::plan_skill_import,
+            commands::plan_skill_asset_import,
             commands::commit_skill_import,
             commands::plan_skill_update,
             commands::commit_skill_update,
             commands::plan_skill_remove,
             commands::commit_skill_remove,
-            commands::plan_skill_assignment,
             commands::commit_skill_assignment,
             commands::plan_skill_repair,
             commands::commit_skill_repair,
@@ -62,13 +72,8 @@ pub fn run() {
             commands::cancel_skill_operation,
             commands::list_registry,
             commands::list_model_profiles,
-            commands::save_model_profile,
-            commands::delete_model_profile,
             commands::list_model_agents,
-            commands::apply_model_profile,
             commands::list_registry_all,
-            commands::upsert_registry_entry,
-            commands::delete_registry_entry,
             commands::list_custom_registry_keys,
             commands::import_pasted_config,
             commands::list_sources,
@@ -86,15 +91,7 @@ pub fn run() {
             commands::add_agent,
             commands::update_agent,
             commands::scan_installed,
-            commands::import_discovered,
             commands::preview_install,
-            commands::apply_install,
-            commands::uninstall,
-            commands::disable_mcp,
-            commands::enable_mcp,
-            commands::delete_mcp,
-            commands::resync_entry,
-            commands::forget_entry,
             cli_tool::cli_status,
             cli_tool::install_cli,
             updater_guard::update_environment

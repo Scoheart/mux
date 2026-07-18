@@ -2,17 +2,18 @@
 
 # MUX — MCP Multiplexer
 
-**Manage MCP servers, reusable model endpoints, and user-level Agent Skills in one place.**
+**Configure MCP servers, reusable model endpoints, and user-level Agent Skills once, then let each Agent consume those central assets.**
 
-MUX is an MCP configuration manager for Claude Code, Codex, Cursor, QoderWork,
-OpenCode, and many other AI agents. Install, enable, synchronize, and export MCP
-servers from one catalog while MUX adapts each agent's native config format. It
-patches only the MCP section and preserves the rest of your settings.
+MUX is a central asset and Agent configuration manager for Claude Code, Codex,
+Cursor, QoderWork, OpenCode, and many other AI agents. MCPs, Model Profiles, and
+Skills are created and maintained in their top-level libraries; each Agent then
+selects which compatible assets it should consume. MUX adapts that desired state
+to the Agent's native format while preserving unrelated settings.
 
-The desktop app also manages reusable model endpoint profiles and user-level
-Agent Skills. Model credentials stay in macOS Keychain. Skills are resolved,
-reviewed, and audited locally before MUX writes one managed copy and optionally
-assigns it to verified Agent directories.
+Model credentials stay in macOS Keychain. Skills are resolved, reviewed, and
+audited locally before MUX writes one managed copy. Assigning that copy to
+verified Agent directories is a separate reviewed operation, so an Agent page
+never asks you to reinstall the same Skill.
 
 MUX ships as **two front-ends that share the same data** (`~/.mux/`):
 
@@ -20,35 +21,37 @@ MUX ships as **two front-ends that share the same data** (`~/.mux/`):
 - ⌨️ a **CLI + TUI** (`mux`, a native Rust binary) — an interactive terminal UI
   plus scriptable subcommands.
 
-Use either interface to install, toggle, or remove MCP servers across supported
-agents from the same catalog.
+The Desktop app uses the central-asset consumption workflow. The existing CLI
+and TUI continue to manage MCP targets through the same Rust core and `~/.mux/`
+data while their UI migration remains out of scope for this release.
 
 ---
 
-## Sources, not a hardcoded list
+## Central sources and external observations
 
-MUX doesn't bundle a fixed server list. Your catalog is **assembled from sources** you control:
+MUX doesn't bundle a fixed server list. Its central MCP catalog is assembled from sources you control, while Agent files remain an independent observed-state input:
 
 | Source | What it is |
 |--------|------------|
 | **订阅 (Subscribe)** | A **URL** to an MCP config file. MUX fetches + caches it; refresh re-pulls upstream. |
 | **本地 (Local)** | A config file **imported from disk** — copied into MUX; refresh re-reads the original. |
 | **手动添加 (Manual)** | Servers you create by hand or **paste** in — stored as a managed local source. |
-| **自动探索 (Discovered)** | Servers already configured in your agents, **auto-detected** on launch. |
+| **外部发现 (External)** | Servers already present in Agent files, scanned as read-only observed state. They are not automatically imported or owned by MUX. |
 
-A one-click **Mux 精选 (curated collection)** subscribes you to a curated set. Every source can be toggled on/off; the Registry shows the union of all enabled sources.
+A one-click **Mux 精选 (curated collection)** subscribes you to a curated set. Managed sources can be toggled on/off; the Registry shows their effective union, while external observations remain read-only until an explicit import.
 
 ## Features
 
 - **Aggregated catalog** with search, source filtering, and an explicit view of copies shadowed by precedence.
-- **Per-agent** install / enable / disable / delete. *Disable* first saves the server's complete semantic entry, including Agent-owned policy fields, then removes it from the Agent file so it can be restored safely.
+- **Central assets, explicit consumers** — create or import assets once, then manage the desired MCP/Skill set or single current Model from either the Agent page or the asset Inspector.
 - **Transport-aware** — `stdio` / `http` / `sse`, plus a **custom `type`** (e.g. `streamable-http`). Same-named stdio and http variants are tracked separately.
 - **Paste a config** — drop a `{"mcpServers": {…}}` block and MUX recognizes the servers and adds them.
-- **Edits propagate** — changing a catalog entry's connection config re-stamps it into every active global install, including drifted copies; failed targets are reported instead of silently counted as synced.
-- **Safe, local writes** — MUX reads and edits only the configured MCP entry on this machine. It never uploads the complete agent config. Existing files are backed up first, then atomically replaced only if they have not changed concurrently; unrelated keys, comments, formatting, servers, policy fields, permissions, and symlinks are preserved.
-- **Unified agent configuration center** — manage MCPs, Models, and Skills in the same order as the top-level workspaces, with one focused resource tab visible at a time.
-- **Reusable model endpoints (preview)** — define a protocol, Base URL, model ID, and optional token limits once, then apply compatible profiles from Models or a supported Agent page. API keys are stored only in macOS Keychain.
-- **User-level Skills in Desktop** — install from a public GitHub repository or a native local-folder picker without Git, Node.js, or `npx`; review local risk findings and file changes before assigning one central copy to verified Agents.
+- **Desired vs. observed state** — Agent files and Skill links are scanned for `synced`, `pending`, `drifted`, `conflicted`, `unsupported`, and read-only `external` states; scans never silently create ownership.
+- **Reviewed propagation** — editing or deleting a central MCP or Model plans the central change together with every consumer. Drift replacement requires explicit confirmation, and unresolved conflicts prevent partial commits.
+- **Safe, local writes** — MUX reads and edits only fields it owns. Existing files are backed up, prepared, and verified as one recoverable transaction; unrelated keys, comments, formatting, policy fields, permissions, and symlinks are preserved.
+- **Unified Agent consumption center** — each Agent page shows only desired central assets under MCPs, Model, and Skills, with a central picker for relationship changes and a separate read-only external section.
+- **Reusable model endpoints (preview)** — define a protocol, Base URL, model ID, and optional token limits once, then let any number of compatible Agents consume the Profile, with at most one current Profile per Agent.
+- **User-level Skills in Desktop** — add a public GitHub repository or native local-folder snapshot to the central library without Git, Node.js, or `npx`; assign the reviewed central copy to Agents in a separate step.
 - **CLI ⇄ Desktop in sync for MCP management** — both are built on one shared Rust core (`mux-core`) and read/write `~/.mux/`. Skills use the same core but intentionally have no CLI/TUI entry in this version.
 - **Dark mode** and a compact, consistent resource workspace for MCPs, Models, and Skills, with shared cards, right-side Inspectors, and review dialogs for consequential actions.
 
@@ -71,7 +74,7 @@ Audited targets include Claude Code/Desktop, Codex, Cursor, VS Code, Zed, Windsu
 
 See the [complete audited matrix](website/guide/agents.md) and [catalog methodology](docs/agent-catalog.md). Every writable target's global path remains editable; paths inside the home directory are normalized to the portable `~/…` form.
 
-Skills assignment initially supports six separately verified user-level capabilities: Claude Code, Codex, Cursor, Gemini CLI, OpenCode, and GitHub Copilot CLI. Only capabilities detected on the current machine appear, and shared compatibility directories are shown before a change. See the [Skills guide](website/guide/skills.md).
+Skill consumption initially supports six separately verified user-level capabilities: Claude Code, Codex, Cursor, Gemini CLI, OpenCode, and GitHub Copilot CLI. Only capabilities detected on the current machine appear, and Agents sharing one physical compatibility directory are selected and reviewed as an inseparable impact group. See the [Skills guide](website/guide/skills.md).
 
 ---
 
@@ -130,12 +133,13 @@ Everything lives under `~/.mux/`:
 
 ```
 ~/.mux/
-├── settings.json           # agents · sources · model/Skill metadata · assignments · state
+├── settings.json           # agents · sources · central metadata · desired consumption state
 ├── sources/
 │   ├── remote/<id>.json    # cached copies of subscribed URLs
 │   └── local/<id>.(json|toml)   # imported local files + the managed manual/discovered sources
 ├── skills/                 # one managed central copy per Skill
-├── staging/skills/         # resolved candidates and reviewed operation plans
+├── staging/skills/         # resolved Skill candidates and reviewed Skill operations
+├── staging/consumption/    # reviewed cross-domain plans and durable rollback snapshots
 ├── backups/                # timestamped backups made before managed writes
 │   └── skills/             # reversible Skill replacements, imports, and removals
 └── journals/skills/        # crash-recovery progress for committed Skill operations
@@ -154,12 +158,12 @@ Model API keys are not stored under `~/.mux/`; they remain in macOS Keychain.
 
 ## How it works
 
-1. **Add sources** — subscribe to a URL, import a file, add the official collection, create/paste a server by hand, or let MUX auto-discover what's already in your agents.
-2. **Browse the catalog** — the Registry aggregates every enabled source (precedence: external sources < discovered < your manual edits).
-3. **Install to an agent** — pick an agent, toggle servers on/off; MUX writes only that MCP entry using the Agent's native schema (backing up existing files first).
-4. **Stay in sync** — enable/disable/edit/remove flow through `~/.mux/`, visible to both the CLI and the desktop app.
-5. **Manage user-level Skills in Desktop** — resolve a public GitHub source or choose a local folder, select Skills and optionally verified Agents, then review files, local risk findings, conflicts, shared-directory impact, and backups before commit.
-6. **Keep one central Skill copy** — MUX links selected Agent directories to `~/.mux/skills/`; disabling removes the managed link, while update, import, repair, and removal remain reviewed, reversible operations.
+1. **Build the central libraries** — subscribe or import MCP sources, create Model Profiles, and add reviewed Skills. No Agent target is changed during central intake.
+2. **Choose consumers** — from an Agent page or an asset Inspector, select the desired compatible assets. MCPs and Skills are sets; Model is a single current Profile.
+3. **Review one impact plan** — MUX shows central changes, relationship changes, target files, shared Skill-directory impact, drift, and conflicts before commit.
+4. **Commit and verify** — settings, Agent targets, and central lifecycle changes are applied as a recoverable transaction and rescanned before reporting success.
+5. **Keep external state explicit** — assets discovered only in Agent files remain read-only until explicitly imported; importing an asset still does not automatically establish a consumption relationship.
+6. **Propagate central lifecycle changes** — updates reach every desired consumer; deletion clears all managed targets and relationships instead of leaving implicit orphan copies.
 
 Skills in this version are user-level only. Project-level Skills, private repositories, Skill editing, and CLI/TUI Skills commands are not supported.
 

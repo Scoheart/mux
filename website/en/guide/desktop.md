@@ -1,6 +1,6 @@
 # Desktop app
 
-The desktop app is MUX's visual front-end (macOS, Tauri + React) for managing MCP servers, model endpoints, user-level Skills, and Agents. MCP and model data live under shared `~/.mux/`; Skills currently have a Desktop entry only.
+The desktop app is MUX's visual front-end (macOS, Tauri + React) for maintaining central MCP, Model, and Skill assets and letting Agents consume them. Data lives under shared `~/.mux/`; Skills currently have a Desktop entry only.
 
 > Not installed yet? Start with [Installation](/en/guide/install#desktop-app-macos).
 
@@ -29,7 +29,7 @@ The Registry shows **every copy** from all enabled sources by default. When the 
 - A **Shadowed N** item appears to the right of the search box only when there's a conflict in the current scope; click it to see just the shadowed copies, click again to restore all.
 - Clicking a source on the left shows all copies from that source; the "shadowed" filter still applies only to the current source.
 
-What's actually used for install and export is the highest-precedence copy per composite key. For the full rules, see [Precedence](/en/guide/concepts#precedence-dedup-rules).
+What's available for Agent consumption and export is the highest-precedence copy per composite key. For the full rules, see [Precedence](/en/guide/concepts#precedence-dedup-rules).
 
 ## How to read a card
 
@@ -43,31 +43,27 @@ Each card contains:
 | Endpoint | The stdio launch command or HTTP URL, truncated when too long. |
 | Usage status | A green dot means it's used by some agents; a gray dot means unused. |
 
-Hovering a card reveals **Copy config / Edit / Delete** actions. Only "manual" and "discovered" entries can be edited or deleted entirely; entries from subscriptions and imported files are managed by their source. Click the card body to open its detail view.
+Cards select assets and show their consumers; lifecycle actions and **Manage Agents** live in the Inspector. Only user-owned MCP source copies can be edited or deleted directly; subscriptions and imported files are managed by their source. External configurations observed only in Agent files are not Registry entries.
 
-## Install to an agent
+## Let an Agent consume central assets
 
 1. Choose an agent from the selector in the top bar.
 2. Confirm the **Agent config file** and **MCP config file** in the agent configuration center. They may be the same file or two separate files; MUX labels the relationship explicitly.
-3. Click **Add MCP**, then search and select an entry that isn't installed yet.
-4. MUX backs up the target file first, then writes it into the global config in that agent's format and config key.
+3. In MCPs, Model, or Skills, click **Manage** and set the Agent's complete desired selection from the central picker. MCPs and Skills allow multiple selections; Model allows at most one.
+4. Review relationship changes, target files, shared Skill targets, drift, and conflicts. MUX then backs up, writes in the Agent's native format, and rescans to verify the result.
 
-MUX currently manages only agents' global installs.
+The same relationship can be edited from a central asset's **Manage Agents** action; both directions use the same planner. MUX currently manages only user-level global configuration.
 
-## Toggle and delete
+## Relationship state and removal
 
-Every installed MCP on an agent page has toggle and delete actions:
+An Agent page shows desired central assets even if an observed target is missing or conflicted. Core reconciles each relationship as synced, pending, drifted, or conflicted; it never silently overwrites drift in the background. Removing use changes that Agent's relationship and managed target but does not delete the central asset.
 
-- **Disable**: first save the target entry's complete semantic config in MUX, then remove it from the agent file; it can be restored later without overwriting a same-named entry rebuilt in the meantime.
-- **Enable**: write the saved config back into the agent file.
-- **Delete**: uninstall it from that agent.
-
-Deleting a "manual / discovered" entry in the Registry removes it from both the catalog and all global agents at once, keeping backups.
+Configurations found only in Agent files appear as read-only external state; scanning does not import them or create a relationship. Deleting a central asset first reviews all consumers, then atomically removes every managed target and relationship together with the central record.
 
 ## Edit, paste, and export
 
-- **Edit**: modify a user-owned entry. Connection-config changes auto-sync to every global agent using the entry; description and tag changes do not trigger a sync.
-- **Resync**: the bottom of the edit page lets you explicitly re-stamp global installs; by default it skips manually customized configs, and you can force overwrite after confirmation.
+- **Edit**: modify a user-owned central entry. The plan retains relationships and includes every consumer, then commits the central asset and all targets together.
+- **Drift override**: manually customized targets are shown during review and require an explicit confirmation bound to the current candidate hash. Conflicts or concurrent changes block the entire commit.
 - **Paste config**: supports recognizable JSON, TOML, or YAML; once parsed it's added to "manual."
 - **Export the effective config**: the download icon in the toolbar exports the full, deduplicated catalog — not just manual entries; the CLI equivalent is `mux export`.
 
@@ -78,14 +74,14 @@ The top of the source bar has just two add actions:
 - **Add subscription**: enter a remote config URL; the **Mux curated** button in the dialog fills in the official curated subscription.
 - **Import config**: select a local JSON / TOML config file.
 
-Hovering a source row lets you refresh remote subscriptions, local files, and discovery; unmanaged sources can be deleted. Deleting a source removes its cache and catalog entries, but does not uninstall configs already written to agents.
+Remote subscriptions and local files can be refreshed; unmanaged sources can be deleted. Rescanning Agents only refreshes observed inventory and never creates managed `discovered` entries in the background. Source removal deletes its cache and catalog copies, while existing desired relationships must be handled through an impact plan.
 
 The source model itself supports enable/disable, which the TUI's "Sources" screen does with `Space` / `Enter`. The desktop `v1.2.0` source bar does not yet offer an on/off toggle.
 
 ## Agent management
 
 - The `+` to the right of the top agent selector adds a custom JSON, TOML, or YAML agent.
-- An agent page is that agent's configuration center: it shows the agent/model path, MCP path, model assignment, assigned Skills, and installed MCPs together, so routine work no longer requires switching among workspaces.
+- An Agent page is that Agent's consumption center. MCPs, Model, and Skills tabs show only desired central assets, their reconciled status, configuration paths, and a central picker; they do not embed asset creation, source resolution, or Skill installation.
 - When the paths match the page shows “Same file”; when model settings and MCP use different files it shows “Separate MCP file.” Paths identify configuration targets only; MUX never returns the complete config to the UI.
 - Inside a built-in agent's page you may only override the global MCP path; the official format, config key, and codec are fixed, to avoid producing incompatible configs.
 - Paths inside the home directory are saved as `~/…`; absolute paths outside it keep their original value.
@@ -94,13 +90,13 @@ For the full 42 verified targets, 41 writable targets, and 194 retained records,
 
 ## Models (Beta)
 
-The top-level **Models** workspace creates reusable endpoints and manages assignments across agents. The same compatible profiles are also available inside each supported agent's configuration center for direct application. A profile contains its protocol, Base URL, model ID, and optional token limits; API keys remain in macOS Keychain and are never included in settings, previews, or backups.
+The top-level **Models** workspace creates central reusable Profiles without touching an Agent. Consumers are then selected from the Inspector or Agent page, with at most one compatible Profile per Agent. Editing propagates through every consumer and deletion cascades through relationships and managed targets. API keys remain in macOS Keychain and never enter settings, persisted plans, previews, or backups.
 
 Claude Code currently accepts Anthropic Messages profiles, Codex uses the Responses API, and Pi supports all three initial protocols. Qoder, Grok Build, and MiniMax Code expose their verified paths and setup entry; MUX neither writes Qoder's unpublished encrypted model store nor persists a MUX Keychain secret as plaintext in Grok Build or MiniMax Code model configuration.
 
 ## Skills
 
-The top-level **Skills** workspace manages user-level Agent Skills. It resolves candidates from public GitHub or the native local-folder picker, reviews files, local risk, conflicts, and shared-Agent impact, then optionally links one central copy into verified Agent directories selected by the user. Agent pages keep only the assigned list, assignment toggle, detail link, and **Add Skill** action; update, import, repair, and removal stay in the Skills workspace.
+The top-level **Skills** workspace resolves candidates from public GitHub or the native local-folder picker, reviews files, local risk, and conflicts, then writes only one central copy. A separate consumer operation links that copy into verified Agent directories from the Inspector or Agent page. Agents sharing one physical target are selected and reviewed as an inseparable group; Agent pages never resolve or install a Skill source.
 
 Skills do not require system Git, Node.js, or `npx`. This version does not support project-level content, private repositories, or CLI/TUI Skills commands. See [User-level Skills](/en/guide/skills) for installation, shared aliases, high-risk second confirmation, backups, and recovery.
 

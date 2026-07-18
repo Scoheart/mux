@@ -1,4 +1,4 @@
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
@@ -11,6 +11,16 @@ import { SkillInspector } from "./SkillInspector";
 afterEach(cleanup);
 
 describe("SkillInspector", () => {
+  const consumers = ["codex", "cursor", "gemini"].map((agentId) => ({
+    agent_id: agentId,
+    asset: { domain: "skill" as const, name: "review-changes" },
+    desired: true,
+    observed: true,
+    status: "synced" as const,
+    reason: null,
+    affected_agent_ids: ["codex", "cursor", "gemini"],
+  }));
+
   it("renders provenance, retained risk evidence, Agent names, and hostile preview text inertly", () => {
     const item = {
       ...skillsInventoryFixture().items[0],
@@ -32,6 +42,7 @@ describe("SkillInspector", () => {
         item={item}
         detail={detail}
         agents={agentFixture()}
+        consumers={consumers}
         targets={skillsInventoryFixture().targets}
         loading={false}
         error={null}
@@ -93,42 +104,29 @@ describe("SkillInspector", () => {
     expect(screen.queryByLabelText("SKILL.md 纯文本预览")).not.toBeInTheDocument();
   });
 
-  it("derives shared alias assignments from the target graph and shows the actual target path", async () => {
+  it("uses the consumption projection and delegates relationship changes", async () => {
     const user = userEvent.setup();
     const inventory = skillsInventoryFixture();
-    const onPlan = vi.fn();
+    const onManageConsumers = vi.fn();
 
     render(
       <SkillInspector
         item={inventory.items[0]}
         detail={null}
         agents={inventory.agents}
-        targets={inventory.targets}
+        consumers={consumers}
         loading={false}
         error={null}
         onClose={() => undefined}
-        onPlan={onPlan}
+        onPlan={vi.fn()}
+        onManageConsumers={onManageConsumers}
       />,
     );
 
-    for (const name of ["Codex", "Cursor", "Gemini CLI"]) {
-      const assignment = screen.getByRole("switch", { name: `停用 ${name}` });
-      expect(assignment).toBeChecked();
-      const row = assignment.closest("label");
-      expect(row).not.toBeNull();
-      expect(within(row!).getByText("~/.agents/skills")).toBeVisible();
-    }
-    expect(screen.getByRole("switch", { name: "启用 Claude Code" })).not.toBeChecked();
-    expect(screen.queryByText("~/.cursor/skills")).not.toBeInTheDocument();
-    expect(screen.queryByText("~/.gemini/skills")).not.toBeInTheDocument();
-
-    await user.click(screen.getByRole("switch", { name: "停用 Cursor" }));
-    expect(onPlan).toHaveBeenCalledWith({
-      kind: "assignment",
-      skillName: "review-changes",
-      agentIds: ["cursor"],
-      enabled: false,
-    });
+    expect(screen.getByText("Codex、Cursor、Gemini CLI")).toBeVisible();
+    expect(screen.queryByRole("switch")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "管理 Agent" }));
+    expect(onManageConsumers).toHaveBeenCalledOnce();
   });
 
   it("offers an unchecked replacement choice and Update for locally modified content", async () => {

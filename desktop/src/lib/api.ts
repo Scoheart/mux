@@ -1,23 +1,24 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
   AgentDefinitionInput,
+  AgentConsumptionSelection,
   AgentInfo,
+  AssetCommandError,
+  AssetOperationPlan,
+  AssetRef,
+  CentralAssetDraft,
   CatalogItem,
+  ConsumptionInventory,
   InstalledMcp,
-  InstallRequest,
   ModelAgentView,
-  ModelApplyResult,
-  ModelProfile,
   ModelProfileView,
   OperationPlan,
-  PlanAssignmentRequest,
-  PlanImportRequest,
-  PlanInstallRequest,
   PlanRemoveRequest,
   PlanRepairRequest,
+  PlanSkillAssetImportRequest,
+  PlanSkillAssetInstallRequest,
   PlanUpdateRequest,
   RegistryEntry,
-  ResyncOutcome,
   SkillAgentView,
   SkillCommitRequest,
   SkillDetail,
@@ -27,17 +28,48 @@ import type {
   UpdateCheckOutcome,
 } from "./types";
 
+export const listConsumptionInventory = () =>
+  invoke<ConsumptionInventory>("list_consumption_inventory");
+export const planSetAgentConsumption = (
+  agentId: string,
+  selection: AgentConsumptionSelection,
+) =>
+  invoke<AssetOperationPlan>("plan_set_agent_consumption", {
+    request: { agent_id: agentId, selection },
+  });
+export const planSetAssetConsumers = (asset: AssetRef, agentIds: string[]) =>
+  invoke<AssetOperationPlan>("plan_set_asset_consumers", {
+    request: { asset, agent_ids: agentIds },
+  });
+export const planUpdateCentralAsset = (draft: CentralAssetDraft) =>
+  invoke<AssetOperationPlan>("plan_update_central_asset", {
+    request: { draft },
+  });
+export const planDeleteCentralAsset = (asset: AssetRef, sourceId?: string) =>
+  invoke<AssetOperationPlan>("plan_delete_central_asset", {
+    request: { asset, source_id: sourceId ?? null },
+  });
+export const commitAssetOperation = (
+  plan: Pick<AssetOperationPlan, "operation_id" | "candidate_hash">,
+  conflictConfirmation?: string,
+) =>
+  invoke<ConsumptionInventory>("commit_asset_operation", {
+    request: {
+      operation_id: plan.operation_id,
+      candidate_hash: plan.candidate_hash,
+      conflict_confirmation: conflictConfirmation ?? null,
+    },
+  });
+export const cancelAssetOperation = (operationId: string) =>
+  invoke<void>("cancel_asset_operation", { operationId });
+
+export type { AssetCommandError };
+
 export const listRegistry = () => invoke<RegistryEntry[]>("list_registry");
 export const listModelProfiles = () =>
   invoke<ModelProfileView[]>("list_model_profiles");
-export const saveModelProfile = (profile: ModelProfile, credential?: string) =>
-  invoke<void>("save_model_profile", { profile, credential: credential ?? null });
-export const deleteModelProfile = (id: string) =>
-  invoke<void>("delete_model_profile", { id });
 export const listModelAgents = () =>
   invoke<ModelAgentView[]>("list_model_agents");
-export const applyModelProfile = (agentId: string, profileId: string) =>
-  invoke<ModelApplyResult>("apply_model_profile", { agentId, profileId });
 /** All entry copies across sources (not deduped), each flagged in_effect. */
 export const listRegistryAll = () => invoke<CatalogItem[]>("list_registry_all");
 /** 桌面包内 mux CLI 的安装状态（sidecar → ~/.local/bin 软链）。 */
@@ -50,18 +82,6 @@ export type UpdateEnvironment = {
 };
 export const updateEnvironment = () =>
   invoke<UpdateEnvironment>("update_environment");
-/** Save auto-syncs the new config to installed agents; returns their names. */
-export const upsertRegistry = (entry: RegistryEntry) =>
-  invoke<string[]>("upsert_registry_entry", { entry });
-export const deleteRegistry = (name: string, transport: string) =>
-  invoke<string[]>("delete_registry_entry", { name, transport });
-/** Re-stamp an entry's current config into agents that have it installed (global).
- *  force=false skips hand-customized installs (reported in skipped_customized). */
-export const resyncEntry = (name: string, transport: string, force: boolean) =>
-  invoke<ResyncOutcome>("resync_entry", { name, transport, force });
-/** Delete a manual/discovered catalog entry and uninstall it from all agents. */
-export const forgetEntry = (name: string, transport: string) =>
-  invoke<void>("forget_entry", { name, transport });
 export const listCustomRegistryKeys = () =>
   invoke<string[]>("list_custom_registry_keys");
 export const listAgents = () => invoke<AgentInfo[]>("list_agents");
@@ -74,24 +94,6 @@ export const addAgent = (id: string, def: AgentDefinitionInput) =>
 export const updateAgent = (id: string, def: AgentDefinitionInput) =>
   invoke<void>("update_agent", { id, def });
 export const scanInstalled = () => invoke<InstalledMcp[]>("scan_installed");
-/** Register any discovered-but-unregistered agent MCPs into the registry. Returns
- *  the number newly imported. */
-export const importDiscovered = () => invoke<number>("import_discovered");
-export const applyInstall = (req: InstallRequest) =>
-  invoke<void>("apply_install", { req });
-export const uninstall = (req: InstallRequest) =>
-  invoke<void>("uninstall", { req });
-/** Remove a server from the agent file but remember its config so it can be
- *  re-enabled later (the row stays in the UI as an "off" toggle). */
-export const disableMcp = (req: InstallRequest) =>
-  invoke<void>("disable_mcp", { req });
-/** Restore a previously disabled server from its remembered config snapshot. */
-export const enableMcp = (req: InstallRequest) =>
-  invoke<void>("enable_mcp", { req });
-/** Hard-delete: remove from the agent file AND forget any disabled snapshot. */
-export const deleteMcp = (req: InstallRequest) =>
-  invoke<void>("delete_mcp", { req });
-
 /** Parse a pasted config blob (JSON/TOML) and add its servers to the manual
  *  source. Returns the added server names. */
 export const importPastedConfig = (text: string) =>
@@ -134,12 +136,12 @@ export const resolveGithubSkillSource = (value: string) =>
   invoke<SkillSourceResolution>("resolve_skill_source", { value });
 export const resolveLocalSkillSourceDialog = () =>
   invoke<SkillSourceResolution | null>("resolve_local_skill_source_dialog");
-export const planSkillInstall = (request: PlanInstallRequest) =>
-  invoke<OperationPlan>("plan_skill_install", { request });
+export const planSkillAssetInstall = (request: PlanSkillAssetInstallRequest) =>
+  invoke<OperationPlan>("plan_skill_asset_install", { request });
 export const commitSkillInstall = (request: SkillCommitRequest) =>
   invoke<SkillsInventory>("commit_skill_install", { request });
-export const planSkillImport = (request: PlanImportRequest) =>
-  invoke<OperationPlan>("plan_skill_import", { request });
+export const planSkillAssetImport = (request: PlanSkillAssetImportRequest) =>
+  invoke<OperationPlan>("plan_skill_asset_import", { request });
 export const commitSkillImport = (request: SkillCommitRequest) =>
   invoke<SkillsInventory>("commit_skill_import", { request });
 export const planSkillUpdate = (request: PlanUpdateRequest) =>
@@ -150,8 +152,6 @@ export const planSkillRemove = (request: PlanRemoveRequest) =>
   invoke<OperationPlan>("plan_skill_remove", { request });
 export const commitSkillRemove = (request: SkillCommitRequest) =>
   invoke<SkillsInventory>("commit_skill_remove", { request });
-export const planSkillAssignment = (request: PlanAssignmentRequest) =>
-  invoke<OperationPlan>("plan_skill_assignment", { request });
 export const commitSkillAssignment = (request: SkillCommitRequest) =>
   invoke<SkillsInventory>("commit_skill_assignment", { request });
 export const planSkillRepair = (request: PlanRepairRequest) =>

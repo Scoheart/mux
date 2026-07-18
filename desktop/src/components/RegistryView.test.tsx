@@ -22,3 +22,8 @@ it("keeps mutations and redacted configuration in the Inspector", () => {
   expect(inspector).toMatch(/onEdit/);
   expect(inspector).toMatch(/onDelete/);
 });
+
+it("routes deletion through the central lifecycle planner", () => {
+  expect(source).toMatch(/consumptionState\.planDelete/);
+  expect(source).not.toMatch(/forgetEntry|deleteMcp|uninstall/);
+});

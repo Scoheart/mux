@@ -8,6 +8,7 @@ import { ModelsView } from "./components/ModelsView";
 import { SkillsView } from "./components/SkillsView";
 import { useInstallState } from "./hooks/useInstallState";
 import { useSkillsState } from "./hooks/useSkillsState";
+import { useConsumptionState } from "./hooks/useConsumptionState";
 import { useUpdater } from "./hooks/useUpdater";
 import { useCliTool } from "./hooks/useCliTool";
 import { UpdateBanner } from "./components/UpdateBanner";
@@ -32,6 +33,7 @@ function App() {
   const nextResourceNavigationId = useRef(0);
   const state = useInstallState();
   const skillsState = useSkillsState();
+  const consumptionState = useConsumptionState();
   const updater = useUpdater();
   // 启动后静默安装/修复 ~/.local/bin/mux 软链（装 App 即带 CLI）。
   useCliTool();
@@ -60,6 +62,7 @@ function App() {
       {view.kind === "skills" ? (
         <SkillsView
           state={skillsState}
+          consumptionState={consumptionState}
           intent={view.intent}
           onIntentConsumed={consumeResourceIntent}
         />
@@ -71,17 +74,23 @@ function App() {
           加载中…
         </div>
       ) : view.kind === "models" ? (
-        <ModelsView intent={view.intent} onIntentConsumed={consumeResourceIntent} />
+        <ModelsView
+          consumptionState={consumptionState}
+          intent={view.intent}
+          onIntentConsumed={consumeResourceIntent}
+        />
       ) : view.kind === "agent" ? (
         <AgentView
           state={state}
           skillsState={skillsState}
+          consumptionState={consumptionState}
           agentId={view.id}
           onOpenResource={openResource}
         />
       ) : (
         <RegistryView
           state={state}
+          consumptionState={consumptionState}
           intent={view.intent}
           onIntentConsumed={consumeResourceIntent}
           onEdit={(name, transport) => setMcpEditor({ name, transport })}
@@ -99,10 +108,18 @@ function App() {
       {mcpEditor && (
         <RegistryEditPage
           state={state}
+          consumptionState={consumptionState}
           name={mcpEditor.name}
           transport={mcpEditor.transport}
           onBack={() => setMcpEditor(null)}
         />
+      )}
+
+      {consumptionState.error?.code === "recovery_required" && (
+        <div className="mux-asset-recovery-banner" role="alert">
+          <strong>中央资产事务需要恢复</strong>
+          <span>{consumptionState.error.message}</span>
+        </div>
       )}
 
       <UpdateBanner updater={updater} />

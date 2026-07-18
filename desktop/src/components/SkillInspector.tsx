@@ -4,6 +4,7 @@ import type {
   PlanRepairRequest,
   SkillAgentView,
   SkillCommandError,
+  ConsumptionView,
   SkillDetail,
   SkillInventoryItem,
   SkillTargetView,
@@ -32,17 +33,10 @@ export type SkillLifecycleIntent =
   | {
       kind: "import";
       identity: string;
-      agentIds: string[];
       replaceConflicts: boolean;
     }
   | { kind: "update"; skillName: string; replaceLocalChanges: boolean }
   | { kind: "remove"; skillName: string }
-  | {
-      kind: "assignment";
-      skillName: string;
-      agentIds: string[];
-      enabled: boolean;
-    }
   | {
       kind: "repair";
       skillName: string;
@@ -65,22 +59,26 @@ export function SkillInspector({
   item,
   detail,
   agents,
-  targets,
+  consumers = [],
   loading,
   error,
   onClose,
   onPlan,
+  onManageConsumers,
   planning = false,
   readOnly = false,
 }: {
   item: SkillInventoryItem;
   detail: SkillDetail | null;
   agents: SkillAgentView[];
-  targets: SkillTargetView[];
+  /** Deprecated: assignment targets are projected through consumption inventory. */
+  targets?: SkillTargetView[];
+  consumers?: ConsumptionView[];
   loading: boolean;
   error: SkillCommandError | null;
   onClose: () => void;
   onPlan?: (intent: SkillLifecycleIntent) => void;
+  onManageConsumers?: () => void;
   planning?: boolean;
   readOnly?: boolean;
 }) {
@@ -90,8 +88,11 @@ export function SkillInspector({
     setReplaceConflicts(false);
     setReplaceLocalChanges(false);
   }, [item.identity]);
-  const targetsById = new Map(targets.map((target) => [target.target_id, target]));
-  const affectedAgentNames = presentAgentNames(item, agents);
+  const consumerIds = [...new Set(consumers.map((consumer) => consumer.agent_id))];
+  const affectedAgentNames = presentAgentNames(
+    { ...item, affected_agent_ids: consumerIds },
+    agents,
+  );
   const managedRecord = item.source !== null;
   const centralManaged = managedRecord && item.location.kind === "central";
   const healthyManaged = centralManaged && item.states.includes("managed");
@@ -143,7 +144,6 @@ export function SkillInspector({
             onPlan({
               kind: "import",
               identity: item.identity,
-              agentIds: item.affected_agent_ids,
               replaceConflicts,
             })
           }
@@ -284,51 +284,14 @@ export function SkillInspector({
 
       <InspectorSection title="Agent 影响">
         <div className="mux-skill-inspector-agents">
-          <AgentStack ids={item.affected_agent_ids} />
-          <p>{affectedAgentNames.length > 0 ? affectedAgentNames.join("、") : "未影响任何 Agent"}</p>
+          <AgentStack ids={consumerIds} />
+          <p>{affectedAgentNames.length > 0 ? affectedAgentNames.join("、") : "尚无 Agent 使用此资产"}</p>
+          {centralManaged && onManageConsumers && (
+            <button type="button" className="btn-secondary" disabled={disabled} onClick={onManageConsumers}>
+              管理 Agent
+            </button>
+          )}
         </div>
-        {centralManaged && onPlan && (
-          <div className="mux-skill-assignment-list">
-            {agents.map((agent) => {
-              const assignedTargets = item.assigned_target_ids
-                .map((targetId) => targetsById.get(targetId))
-                .filter(
-                  (target): target is SkillTargetView =>
-                    Boolean(target?.affected_agent_ids.includes(agent.id)),
-                );
-              const assigned = assignedTargets.length > 0;
-              return (
-                <label key={agent.id}>
-                  <span>
-                    <strong>{agent.name}</strong>
-                    {assignedTargets.length > 0 ? (
-                      assignedTargets.map((target) => (
-                        <code key={target.target_id}>{target.global_dir}</code>
-                      ))
-                    ) : (
-                      <code>{agent.global_dir}</code>
-                    )}
-                  </span>
-                  <input
-                    type="checkbox"
-                    role="switch"
-                    aria-label={`${assigned ? "停用" : "启用"} ${agent.name}`}
-                    checked={assigned}
-                    disabled={disabled}
-                    onChange={() =>
-                      onPlan({
-                        kind: "assignment",
-                        skillName: item.name,
-                        agentIds: [agent.id],
-                        enabled: !assigned,
-                      })
-                    }
-                  />
-                </label>
-              );
-            })}
-          </div>
-        )}
       </InspectorSection>
 
       {loading ? (

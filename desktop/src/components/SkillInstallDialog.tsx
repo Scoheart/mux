@@ -12,7 +12,6 @@ import {
 import * as api from "../lib/api";
 import { installWizardReducer } from "../lib/skills";
 import type {
-  SkillAgentView,
   SkillCommandError,
   SkillSourceResolution,
   SkillsInventory,
@@ -25,13 +24,11 @@ import { DialogShell } from "./DialogShell";
 type InstallStep = "source" | "selection" | "review";
 
 export interface SkillInstallDialogProps {
-  agents: SkillAgentView[];
   commit: SkillsState["commit"];
   cancel: SkillsState["cancel"];
   onClose(): void;
   onCommitted(inventory: SkillsInventory): void;
   onRecoveryRequired(message: string): void;
-  initialAgentId?: string;
 }
 
 function sourceSummary(resolution: SkillSourceResolution) {
@@ -48,28 +45,17 @@ function sourceSummary(resolution: SkillSourceResolution) {
 
 function selectedSnapshot(
   skillNames: string[],
-  agentIds: string[],
   replaceConflicts: boolean,
 ) {
-  return `${skillNames.join("\u0000")}\u0001${agentIds.join("\u0000")}\u0001${replaceConflicts}`;
-}
-
-function verifiedAgentSelection(
-  selectedAgentIds: string[],
-  agents: SkillAgentView[],
-) {
-  const verifiedAgentIds = new Set(agents.map((agent) => agent.id));
-  return selectedAgentIds.filter((agentId) => verifiedAgentIds.has(agentId));
+  return `${skillNames.join("\u0000")}\u0001${replaceConflicts}`;
 }
 
 export function SkillInstallDialog({
-  agents,
   commit,
   cancel,
   onClose,
   onCommitted,
   onRecoveryRequired,
-  initialAgentId,
 }: SkillInstallDialogProps) {
   const toast = useToast();
   const [step, setStep] = useState<InstallStep>("source");
@@ -96,18 +82,10 @@ export function SkillInstallDialog({
   const cancellationRefs = useRef(new Map<string, Promise<void>>());
   const cancelRef = useRef(cancel);
   const toastRef = useRef(toast);
-  const agentsRef = useRef(agents);
-  const initialAgentIdRef = useRef(initialAgentId);
   const wizardRef = useRef(wizard);
   cancelRef.current = cancel;
   toastRef.current = toast;
-  agentsRef.current = agents;
-  initialAgentIdRef.current = initialAgentId;
   wizardRef.current = wizard;
-  const verifiedSelectedAgentIds = verifiedAgentSelection(
-    wizard.selectedAgentIds,
-    agents,
-  );
 
   const cancelOnce = useCallback(
     (operationId: string, reportError: boolean) => {
@@ -187,15 +165,6 @@ export function SkillInstallDialog({
     };
   }, [cancelOnce]);
 
-  useEffect(() => {
-    const verifiedAgentIds = new Set(agents.map((agent) => agent.id));
-    for (const agentId of wizard.selectedAgentIds) {
-      if (!verifiedAgentIds.has(agentId)) {
-        dispatch({ type: "toggle_agent", agentId });
-      }
-    }
-  }, [agents, wizard.selectedAgentIds]);
-
   const loadResolution = async (
     pendingResolution: Promise<SkillSourceResolution | null>,
   ) => {
@@ -216,13 +185,6 @@ export function SkillInstallDialog({
 
       resolutionRef.current = resolution;
       dispatch({ type: "resolution_loaded", resolution });
-      const currentInitialAgentId = initialAgentIdRef.current;
-      if (
-        currentInitialAgentId &&
-        agentsRef.current.some((agent) => agent.id === currentInitialAgentId)
-      ) {
-        dispatch({ type: "toggle_agent", agentId: currentInitialAgentId });
-      }
       setStep("selection");
     } catch (reason) {
       if (
@@ -276,22 +238,16 @@ export function SkillInstallDialog({
       return;
     }
     const generation = ++planGenerationRef.current;
-    const selectedAgentIds = verifiedAgentSelection(
-      wizard.selectedAgentIds,
-      agentsRef.current,
-    );
     const snapshot = selectedSnapshot(
       wizard.selectedSkillNames,
-      selectedAgentIds,
       wizard.replaceConflicts,
     );
     setPlanning(true);
     setPlanError(null);
     try {
-      const plan = await api.planSkillInstall({
+      const plan = await api.planSkillAssetInstall({
         resolution_id: resolution.operation_id,
         skill_names: wizard.selectedSkillNames,
-        agent_ids: selectedAgentIds,
         replace_conflicts: wizard.replaceConflicts,
       });
       const currentWizard = wizardRef.current;
@@ -302,10 +258,6 @@ export function SkillInstallDialog({
         snapshot ===
           selectedSnapshot(
             currentWizard.selectedSkillNames,
-            verifiedAgentSelection(
-              currentWizard.selectedAgentIds,
-              agentsRef.current,
-            ),
             currentWizard.replaceConflicts,
           );
       if (!stillCurrent) {
@@ -380,21 +332,12 @@ export function SkillInstallDialog({
     onClose();
   };
 
-  const agentNames = new Map(agents.map((agent) => [agent.id, agent.name]));
-  const selectedAgents = new Set(verifiedSelectedAgentIds);
-  const impactRows = wizard.plan?.targets.map((target) => {
-    const alsoAffected = target.affected_agent_ids
-      .filter((id) => !selectedAgents.has(id))
-      .map((id) => agentNames.get(id) ?? id);
-    return { target, alsoAffected };
-  });
-
   return (
     <DialogShell
       kind="editor"
       size="lg"
-      title={step === "source" ? "安装 Skill" : step === "selection" ? "选择 Skills 与 Agent" : "审阅安装"}
-      subtitle="来源只用于生成本地候选；写盘前仍需审阅完整计划。"
+      title={step === "source" ? "添加 Skill 到资产库" : step === "selection" ? "选择中央 Skills" : "审阅中央入库"}
+      subtitle="这里只维护中央资产；Agent 消费关系在各 Agent 或资产详情中单独管理。"
       busy={closing}
       closeLabel="关闭安装"
       onClose={() => void closeDialog()}
@@ -541,35 +484,6 @@ export function SkillInstallDialog({
               <section>
                 <div className="mux-skill-selection-heading">
                   <div>
-                    <h3>目标 Agent</h3>
-                    <p>默认不启用任何 Agent；共享目录会在计划中归一化。</p>
-                  </div>
-                  <span>{verifiedSelectedAgentIds.length} 个</span>
-                </div>
-                <div className="mux-skill-agent-choice-grid">
-                  {agents.map((agent) => (
-                    <label key={agent.id}>
-                      <input
-                        type="checkbox"
-                        aria-label={agent.name}
-                        checked={verifiedSelectedAgentIds.includes(agent.id)}
-                        disabled={planning || closing}
-                        onChange={() =>
-                          dispatch({ type: "toggle_agent", agentId: agent.id })
-                        }
-                      />
-                      <span>
-                        <strong>{agent.name}</strong>
-                        <code>{agent.global_dir}</code>
-                      </span>
-                    </label>
-                  ))}
-                </div>
-              </section>
-
-              <section>
-                <div className="mux-skill-selection-heading">
-                  <div>
                     <h3>冲突处理</h3>
                     <p>只允许替换同名中央副本；Agent 目录冲突仍会停止操作。</p>
                   </div>
@@ -595,19 +509,6 @@ export function SkillInstallDialog({
                   </label>
                 </div>
               </section>
-
-              {step === "review" && impactRows && (
-                <section className="mux-skill-install-impact" aria-label="共享目标影响">
-                  {impactRows.map(({ target, alsoAffected }) => (
-                    <div key={target.target_id}>
-                      <code>{target.global_dir}</code>
-                      {alsoAffected.length > 0 && (
-                        <p>该共享目录也会被 {alsoAffected.join("、")} 读取。</p>
-                      )}
-                    </div>
-                  ))}
-                </section>
-              )}
 
               {planError && (
                 <div className="mux-skill-dialog-error" role="alert">

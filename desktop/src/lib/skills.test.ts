@@ -8,9 +8,8 @@ import {
 } from "./skills";
 import type {
   InventoryState,
-  PlanAssignmentRequest,
-  PlanImportRequest,
-  PlanInstallRequest,
+  PlanSkillAssetImportRequest,
+  PlanSkillAssetInstallRequest,
   PlanRemoveRequest,
   PlanRepairRequest,
   PlanUpdateRequest,
@@ -29,15 +28,13 @@ vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 
 const invokeMock = vi.mocked(invoke);
 
-const installRequest: PlanInstallRequest = {
+const installRequest: PlanSkillAssetInstallRequest = {
   resolution_id: "resolve-fixture",
   skill_names: ["review-changes"],
-  agent_ids: ["codex"],
   replace_conflicts: false,
 };
-const importRequest: PlanImportRequest = {
+const importRequest: PlanSkillAssetImportRequest = {
   identity: "target:cursor-user:legacy",
-  agent_ids: ["cursor"],
   replace_conflicts: true,
 };
 const updateRequest: PlanUpdateRequest = {
@@ -45,11 +42,6 @@ const updateRequest: PlanUpdateRequest = {
   replace_local_changes: false,
 };
 const removeRequest: PlanRemoveRequest = { skill_name: "review-changes" };
-const assignmentRequest: PlanAssignmentRequest = {
-  skill_name: "review-changes",
-  agent_ids: ["codex"],
-  enabled: true,
-};
 const repairRequest: PlanRepairRequest = {
   skill_name: "review-changes",
   repair: { kind: "target", target_id: "agents-user" },
@@ -119,7 +111,7 @@ describe("Skills wire contracts", () => {
     });
   });
 
-  it("invokes all 19 commands with exact top-level payload shapes", async () => {
+  it("invokes the central Skills commands with exact top-level payload shapes", async () => {
     invokeMock.mockResolvedValue(undefined);
     const calls: Array<[
       () => Promise<unknown>,
@@ -131,15 +123,14 @@ describe("Skills wire contracts", () => {
       [() => api.getSkillDetail("central:review-changes"), "get_skill_detail", { identity: "central:review-changes" }],
       [() => api.resolveGithubSkillSource("acme/skills"), "resolve_skill_source", { value: "acme/skills" }],
       [api.resolveLocalSkillSourceDialog, "resolve_local_skill_source_dialog", undefined],
-      [() => api.planSkillInstall(installRequest), "plan_skill_install", { request: installRequest }],
+      [() => api.planSkillAssetInstall(installRequest), "plan_skill_asset_install", { request: installRequest }],
       [() => api.commitSkillInstall(commitRequest), "commit_skill_install", { request: commitRequest }],
-      [() => api.planSkillImport(importRequest), "plan_skill_import", { request: importRequest }],
+      [() => api.planSkillAssetImport(importRequest), "plan_skill_asset_import", { request: importRequest }],
       [() => api.commitSkillImport(commitRequest), "commit_skill_import", { request: commitRequest }],
       [() => api.planSkillUpdate(updateRequest), "plan_skill_update", { request: updateRequest }],
       [() => api.commitSkillUpdate(commitRequest), "commit_skill_update", { request: commitRequest }],
       [() => api.planSkillRemove(removeRequest), "plan_skill_remove", { request: removeRequest }],
       [() => api.commitSkillRemove(commitRequest), "commit_skill_remove", { request: commitRequest }],
-      [() => api.planSkillAssignment(assignmentRequest), "plan_skill_assignment", { request: assignmentRequest }],
       [() => api.commitSkillAssignment(commitRequest), "commit_skill_assignment", { request: commitRequest }],
       [() => api.planSkillRepair(repairRequest), "plan_skill_repair", { request: repairRequest }],
       [() => api.commitSkillRepair(commitRequest), "commit_skill_repair", { request: commitRequest }],
@@ -239,30 +230,20 @@ describe("filterSkills", () => {
 });
 
 describe("installWizardReducer", () => {
-  it("selects all candidates but no Agents when a resolution loads", () => {
+  it("selects all candidates when a resolution loads", () => {
     const state = installWizardReducer(undefined, {
       type: "resolution_loaded",
       resolution: resolutionFixture(),
     });
     expect(state.selectedSkillNames).toEqual(["review-changes"]);
-    expect(state.selectedAgentIds).toEqual([]);
     expect(state.plan).toBeNull();
   });
 
-  it("invalidates a loaded plan whenever Skill or Agent selection changes", () => {
+  it("invalidates a loaded plan whenever Skill selection changes", () => {
     let state = installWizardReducer(undefined, {
       type: "resolution_loaded",
       resolution: resolutionFixture(),
     });
-    state = installWizardReducer(state, {
-      type: "plan_loaded",
-      plan: sharedTargetPlanFixture(),
-    });
-    state = installWizardReducer(state, {
-      type: "toggle_agent",
-      agentId: "codex",
-    });
-    expect(state.plan).toBeNull();
     state = installWizardReducer(state, {
       type: "plan_loaded",
       plan: sharedTargetPlanFixture(),

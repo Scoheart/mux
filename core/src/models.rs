@@ -22,12 +22,24 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 #[cfg(target_os = "macos")]
 use std::process::{Command, Stdio};
+use std::sync::{LazyLock, Mutex};
 use toml_edit::{Array, Document, Item, Table};
 
 const KEYCHAIN_ACCOUNT: &str = "api-key";
+const CREDENTIAL_ROLLBACK_PREFIX: &str = "__asset-operation-rollback__";
 const QODER_DOCS: &str = "https://docs.qoder.com/user-guide/chat/custom-models";
 const GROK_BUILD_MODEL_DOCS: &str = "https://github.com/xai-org/grok-build/blob/main/crates/codegen/xai-grok-pager/docs/user-guide/11-custom-models.md";
 const MINIMAX_CODE_DOCS: &str = "https://agent.minimax.io/download";
+
+static TEST_CREDENTIALS: LazyLock<Mutex<BTreeMap<String, Vec<u8>>>> =
+    LazyLock::new(|| Mutex::new(BTreeMap::new()));
+
+fn test_credential_key(profile_id: &str) -> String {
+    format!(
+        "{}::{profile_id}",
+        std::env::var("MUX_TEST_PROBE_ROOT").unwrap_or_default()
+    )
+}
 
 #[derive(Debug, Clone, Serialize)]
 pub struct ModelProfileView {
@@ -57,6 +69,21 @@ pub struct ModelApplyResult {
     pub files: Vec<String>,
     pub restart_required: bool,
     pub message: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ModelObservedState {
+    Synced,
+    Missing,
+    Drifted,
+    Conflicted,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExternalModelObservedState {
+    Absent,
+    Present,
+    Conflicted,
 }
 
 fn home() -> PathBuf {
@@ -89,6 +116,13 @@ fn security_shell_command(profile_id: &str) -> String {
 
 #[cfg(target_os = "macos")]
 fn read_credential(profile_id: &str) -> Option<Vec<u8>> {
+    if std::env::var_os("MUX_TEST_PROBE_ROOT").is_some() {
+        return TEST_CREDENTIALS
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .get(&test_credential_key(profile_id))
+            .cloned();
+    }
     let output = Command::new("/usr/bin/security")
         .args([
             "find-generic-password",
@@ -116,10 +150,28 @@ fn read_credential(profile_id: &str) -> Option<Vec<u8>> {
 
 #[cfg(not(target_os = "macos"))]
 fn read_credential(_profile_id: &str) -> Option<Vec<u8>> {
+    if std::env::var_os("MUX_TEST_PROBE_ROOT").is_some() {
+        return TEST_CREDENTIALS
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .get(&test_credential_key(_profile_id))
+            .cloned();
+    }
     None
 }
 
 fn credential_exists(profile_id: &str) -> bool {
+    // TestHome sets this marker specifically to isolate probes from the real
+    // machine. Never consult the user's Keychain from a test process.
+    if std::env::var_os("MUX_TEST_PROBE_ROOT").is_some() {
+        return TEST_CREDENTIALS
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .contains_key(&test_credential_key(profile_id))
+            || std::env::var("MUX_TEST_MODEL_CREDENTIAL_PROFILES")
+                .ok()
+                .is_some_and(|profiles| profiles.split(',').any(|item| item == profile_id));
+    }
     #[cfg(target_os = "macos")]
     {
         Command::new("/usr/bin/security")
@@ -141,6 +193,13 @@ fn credential_exists(profile_id: &str) -> bool {
 
 #[cfg(target_os = "macos")]
 fn set_credential(profile_id: &str, credential: &[u8]) -> Result<(), String> {
+    if std::env::var_os("MUX_TEST_PROBE_ROOT").is_some() {
+        TEST_CREDENTIALS
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .insert(test_credential_key(profile_id), credential.to_vec());
+        return Ok(());
+    }
     if credential.contains(&b'\n') || credential.contains(&b'\r') {
         return Err("API key cannot contain a newline".into());
     }
@@ -188,11 +247,25 @@ fn set_credential(profile_id: &str, credential: &[u8]) -> Result<(), String> {
 
 #[cfg(not(target_os = "macos"))]
 fn set_credential(_profile_id: &str, _credential: &[u8]) -> Result<(), String> {
+    if std::env::var_os("MUX_TEST_PROBE_ROOT").is_some() {
+        TEST_CREDENTIALS
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .insert(test_credential_key(_profile_id), _credential.to_vec());
+        return Ok(());
+    }
     Err("secure model credentials are currently supported on macOS only".into())
 }
 
 #[cfg(target_os = "macos")]
 fn delete_credential(profile_id: &str) -> Result<(), String> {
+    if std::env::var_os("MUX_TEST_PROBE_ROOT").is_some() {
+        TEST_CREDENTIALS
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .remove(&test_credential_key(profile_id));
+        return Ok(());
+    }
     if !credential_exists(profile_id) {
         return Ok(());
     }
@@ -220,6 +293,12 @@ fn delete_credential(profile_id: &str) -> Result<(), String> {
 
 #[cfg(not(target_os = "macos"))]
 fn delete_credential(_profile_id: &str) -> Result<(), String> {
+    if std::env::var_os("MUX_TEST_PROBE_ROOT").is_some() {
+        TEST_CREDENTIALS
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .remove(&test_credential_key(_profile_id));
+    }
     Ok(())
 }
 
@@ -252,6 +331,78 @@ fn validate_profile(profile: &ModelProfile) -> Result<(), String> {
     Ok(())
 }
 
+pub(crate) fn validate_profile_draft(profile: &ModelProfile) -> Result<(), String> {
+    validate_profile(profile)
+}
+
+pub(crate) fn credential_snapshot(profile_id: &str) -> Option<Vec<u8>> {
+    read_credential(profile_id)
+}
+
+fn credential_rollback_profile_id(operation_id: &str, profile_id: &str) -> String {
+    format!("{CREDENTIAL_ROLLBACK_PREFIX}.{operation_id}.{profile_id}")
+}
+
+/// Persist the pre-transaction credential in Keychain, never in the operation
+/// journal. The first byte distinguishes a missing credential from an empty
+/// lookup result; user credentials themselves cannot contain newlines because
+/// the normal Keychain writer rejects them.
+pub(crate) fn persist_credential_rollback(
+    operation_id: &str,
+    profile_id: &str,
+    credential: Option<&[u8]>,
+) -> Result<(), String> {
+    let mut payload = Vec::with_capacity(1 + credential.map_or(0, |value| value.len()));
+    match credential {
+        Some(value) => {
+            payload.push(1);
+            payload.extend_from_slice(value);
+        }
+        None => payload.push(0),
+    }
+    set_credential(
+        &credential_rollback_profile_id(operation_id, profile_id),
+        &payload,
+    )
+}
+
+/// Returns `None` when no durable rollback item exists, `Some(None)` when the
+/// original Profile had no credential, and `Some(Some(bytes))` otherwise.
+pub(crate) fn credential_rollback_snapshot(
+    operation_id: &str,
+    profile_id: &str,
+) -> Result<Option<Option<Vec<u8>>>, String> {
+    let Some(payload) = read_credential(&credential_rollback_profile_id(operation_id, profile_id))
+    else {
+        return Ok(None);
+    };
+    let Some((&tag, value)) = payload.split_first() else {
+        return Err("credential rollback item is invalid".into());
+    };
+    match tag {
+        0 if value.is_empty() => Ok(Some(None)),
+        1 => Ok(Some(Some(value.to_vec()))),
+        _ => Err("credential rollback item is invalid".into()),
+    }
+}
+
+pub(crate) fn clear_credential_rollback(
+    operation_id: &str,
+    profile_id: &str,
+) -> Result<(), String> {
+    delete_credential(&credential_rollback_profile_id(operation_id, profile_id))
+}
+
+pub(crate) fn restore_credential_snapshot(
+    profile_id: &str,
+    credential: Option<&[u8]>,
+) -> Result<(), String> {
+    match credential {
+        Some(value) => set_credential(profile_id, value),
+        None => delete_credential(profile_id),
+    }
+}
+
 pub fn list_profiles() -> Vec<ModelProfileView> {
     load_settings()
         .model_profiles
@@ -279,20 +430,10 @@ pub fn save_profile(profile: ModelProfile, credential: Option<String>) -> Result
 
     let profile_id = profile.id.clone();
     if let Err(error) = mutate_settings(|settings| {
-        let metadata_changed = settings
-            .model_profiles
-            .as_ref()
-            .and_then(|profiles| profiles.get(&profile_id))
-            .is_some_and(|existing| existing != &profile);
         settings
             .model_profiles
             .get_or_insert_with(BTreeMap::new)
             .insert(profile_id.clone(), profile);
-        if metadata_changed {
-            if let Some(assignments) = settings.model_assignments.as_mut() {
-                assignments.retain(|_, assigned| assigned != &profile_id);
-            }
-        }
     }) {
         if let Some(previous) = previous_credential {
             match previous {
@@ -315,20 +456,41 @@ pub fn delete_profile(profile_id: &str) -> Result<(), String> {
     if credential_exists(profile_id) {
         delete_credential(profile_id)?;
     }
-    if let Err(error) = mutate_settings(|settings| {
+    if let Err(error) = delete_profile_metadata(profile_id) {
+        if let Some(credential) = previous_credential {
+            let _ = set_credential(profile_id, &credential);
+        }
+        return Err(error);
+    }
+    Ok(())
+}
+
+pub(crate) fn delete_profile_metadata(profile_id: &str) -> Result<(), String> {
+    validate_profile_id(profile_id)?;
+    mutate_settings(|settings| {
         if let Some(profiles) = settings.model_profiles.as_mut() {
             profiles.remove(profile_id);
         }
         if let Some(assignments) = settings.model_assignments.as_mut() {
             assignments.retain(|_, assigned| assigned != profile_id);
         }
-    }) {
-        if let Some(credential) = previous_credential {
-            let _ = set_credential(profile_id, &credential);
-        }
-        return Err(error.to_string());
+    })
+    .map_err(|error| error.to_string())
+}
+
+pub(crate) fn credential_present(profile_id: &str) -> bool {
+    credential_exists(profile_id)
+}
+
+pub(crate) fn apply_credential_update(
+    profile_id: &str,
+    credential: Option<&str>,
+) -> Result<(), String> {
+    match credential {
+        None => Ok(()),
+        Some("") => delete_credential(profile_id),
+        Some(value) => set_credential(profile_id, value.as_bytes()),
     }
-    Ok(())
 }
 
 fn validate_profile_id(profile_id: &str) -> Result<(), String> {
@@ -463,6 +625,206 @@ pub fn list_agents() -> Vec<ModelAgentView> {
     ]
 }
 
+/// Canonical read-only capability lookup used by the shared consumption
+/// service. Keeping this projection here prevents another copy of the managed
+/// and guided Agent matrix from drifting out of sync with the Model writer.
+pub fn model_agent_capability(agent_id: &str) -> Option<ModelAgentView> {
+    list_agents().into_iter().find(|agent| agent.id == agent_id)
+}
+
+/// Inspect only the fields owned by the Model adapter. Candidate generation
+/// preserves all unrelated bytes, so comparing it with the source identifies
+/// owned-field drift without treating comments or unknown settings as drift.
+pub fn observe_profile(
+    agent_id: &str,
+    profile: &ModelProfile,
+) -> Result<ModelObservedState, String> {
+    let has_credential = credential_exists(&profile.id);
+    let observed = match agent_id {
+        "claude-code" => observe_prepared(prepare_claude(
+            &config_path(".claude/settings.json"),
+            profile,
+            has_credential,
+        )),
+        "codex" => observe_prepared(prepare_codex(
+            &config_path(".codex/config.toml"),
+            profile,
+            has_credential,
+        )),
+        "pi" => {
+            let models = observe_prepared(prepare_pi_models(
+                &config_path(".pi/agent/models.json"),
+                profile,
+                has_credential,
+            ));
+            let settings = observe_prepared(prepare_pi_settings(
+                &config_path(".pi/agent/settings.json"),
+                profile,
+            ));
+            combine_observed(models, settings)
+        }
+        _ => Ok(ModelObservedState::Conflicted),
+    }?;
+    // Credentials are optional because local and gateway endpoints may not
+    // require authentication. Presence is surfaced on the central Profile; it
+    // is not drift unless a future Profile schema explicitly marks it required.
+    Ok(observed)
+}
+
+/// Detect model-owned fields when no desired Profile exists. This is a
+/// deliberately identity-free external projection: it prevents a central
+/// selection from silently taking over an Agent configuration without treating
+/// the Agent file as a source of central Profile metadata.
+pub fn observe_external_model(agent_id: &str) -> Result<ExternalModelObservedState, String> {
+    match agent_id {
+        "claude-code" => observe_external_claude(&config_path(".claude/settings.json")),
+        "codex" => observe_external_codex(&config_path(".codex/config.toml")),
+        "pi" => observe_external_pi(
+            &config_path(".pi/agent/models.json"),
+            &config_path(".pi/agent/settings.json"),
+        ),
+        _ => Ok(ExternalModelObservedState::Absent),
+    }
+}
+
+fn observe_external_claude(path: &Path) -> Result<ExternalModelObservedState, String> {
+    let (root, original) = match read_jsonc(path) {
+        Ok(value) => value,
+        Err(_) if path.exists() => return Ok(ExternalModelObservedState::Conflicted),
+        Err(error) => return Err(error),
+    };
+    if original.is_none() {
+        return Ok(ExternalModelObservedState::Absent);
+    }
+    let object = match json_root_object(&root, path) {
+        Ok(object) => object,
+        Err(_) => return Ok(ExternalModelObservedState::Conflicted),
+    };
+    if ensure_unique_keys(&object, path, "$root").is_err() {
+        return Ok(ExternalModelObservedState::Conflicted);
+    }
+    let mut present = object.get("model").is_some() || object.get("apiKeyHelper").is_some();
+    if object.get("env").is_some() {
+        let Some(env) = object.object_value("env") else {
+            return Ok(ExternalModelObservedState::Conflicted);
+        };
+        if ensure_unique_keys(&env, path, "env").is_err() {
+            return Ok(ExternalModelObservedState::Conflicted);
+        }
+        present |= [
+            "ANTHROPIC_BASE_URL",
+            "ANTHROPIC_AUTH_TOKEN",
+            "ANTHROPIC_API_KEY",
+        ]
+        .iter()
+        .any(|field| env.get(field).is_some());
+    }
+    Ok(if present {
+        ExternalModelObservedState::Present
+    } else {
+        ExternalModelObservedState::Absent
+    })
+}
+
+fn observe_external_codex(path: &Path) -> Result<ExternalModelObservedState, String> {
+    let (document, original) = match read_toml(path) {
+        Ok(value) => value,
+        Err(_) if path.exists() => return Ok(ExternalModelObservedState::Conflicted),
+        Err(error) => return Err(error),
+    };
+    if original.is_none() {
+        return Ok(ExternalModelObservedState::Absent);
+    }
+    Ok(
+        if document.as_table().contains_key("model")
+            || document.as_table().contains_key("model_provider")
+        {
+            ExternalModelObservedState::Present
+        } else {
+            ExternalModelObservedState::Absent
+        },
+    )
+}
+
+fn observe_external_pi(
+    models_path: &Path,
+    settings_path: &Path,
+) -> Result<ExternalModelObservedState, String> {
+    let models_present = match read_jsonc(models_path) {
+        Ok((_, None)) => false,
+        Ok((root, Some(_))) => {
+            let object = match json_root_object(&root, models_path) {
+                Ok(object) => object,
+                Err(_) => return Ok(ExternalModelObservedState::Conflicted),
+            };
+            if ensure_unique_keys(&object, models_path, "$root").is_err() {
+                return Ok(ExternalModelObservedState::Conflicted);
+            }
+            if object.get("providers").is_some() {
+                let Some(providers) = object.object_value("providers") else {
+                    return Ok(ExternalModelObservedState::Conflicted);
+                };
+                if ensure_unique_keys(&providers, models_path, "providers").is_err() {
+                    return Ok(ExternalModelObservedState::Conflicted);
+                }
+                !providers.properties().is_empty()
+            } else {
+                false
+            }
+        }
+        Err(_) if models_path.exists() => return Ok(ExternalModelObservedState::Conflicted),
+        Err(error) => return Err(error),
+    };
+    let settings_present = match read_jsonc(settings_path) {
+        Ok((_, None)) => false,
+        Ok((root, Some(_))) => {
+            let object = match json_root_object(&root, settings_path) {
+                Ok(object) => object,
+                Err(_) => return Ok(ExternalModelObservedState::Conflicted),
+            };
+            if ensure_unique_keys(&object, settings_path, "$root").is_err() {
+                return Ok(ExternalModelObservedState::Conflicted);
+            }
+            object.get("defaultProvider").is_some() || object.get("defaultModel").is_some()
+        }
+        Err(_) if settings_path.exists() => return Ok(ExternalModelObservedState::Conflicted),
+        Err(error) => return Err(error),
+    };
+    Ok(if models_present || settings_present {
+        ExternalModelObservedState::Present
+    } else {
+        ExternalModelObservedState::Absent
+    })
+}
+
+fn observe_prepared(
+    prepared: Result<(Option<String>, String), String>,
+) -> Result<ModelObservedState, String> {
+    match prepared {
+        Ok((None, _)) => Ok(ModelObservedState::Missing),
+        Ok((Some(original), candidate)) if original == candidate => Ok(ModelObservedState::Synced),
+        Ok((Some(_), _)) => Ok(ModelObservedState::Drifted),
+        Err(_) => Ok(ModelObservedState::Conflicted),
+    }
+}
+
+fn combine_observed(
+    left: Result<ModelObservedState, String>,
+    right: Result<ModelObservedState, String>,
+) -> Result<ModelObservedState, String> {
+    use ModelObservedState::*;
+    let (left, right) = (left?, right?);
+    Ok(if left == Conflicted || right == Conflicted {
+        Conflicted
+    } else if left == Missing || right == Missing {
+        Missing
+    } else if left == Drifted || right == Drifted {
+        Drifted
+    } else {
+        Synced
+    })
+}
+
 fn profile_for_apply(profile_id: &str) -> Result<ModelProfile, String> {
     load_settings()
         .model_profiles
@@ -512,9 +874,16 @@ fn protocol_name(protocol: &ModelProtocol) -> &'static str {
 }
 
 pub fn apply_profile(agent_id: &str, profile_id: &str) -> Result<ModelApplyResult, String> {
+    apply_profile_with_credential_presence(agent_id, profile_id, credential_exists(profile_id))
+}
+
+pub(crate) fn apply_profile_with_credential_presence(
+    agent_id: &str,
+    profile_id: &str,
+    has_credential: bool,
+) -> Result<ModelApplyResult, String> {
     let profile = profile_for_apply(profile_id)?;
     ensure_supported(agent_id, &profile.protocol)?;
-    let has_credential = credential_exists(profile_id);
     let result = match agent_id {
         "claude-code" => apply_claude(&profile, has_credential),
         "codex" => apply_codex(&profile, has_credential),
@@ -532,6 +901,47 @@ pub fn apply_profile(agent_id: &str, profile_id: &str) -> Result<ModelApplyResul
         format!("model config was applied, but MUX could not record the assignment: {error}")
     })?;
     Ok(result)
+}
+
+/// Remove only the fields owned by a previously assigned MUX Profile, then
+/// clear the desired assignment. The caller must identify the exact Profile so
+/// unrelated providers and Agent policy remain untouched.
+pub fn clear_profile(agent_id: &str, profile_id: &str) -> Result<(), String> {
+    let profile = profile_for_apply(profile_id)?;
+    ensure_supported(agent_id, &profile.protocol)?;
+    match observe_profile(agent_id, &profile)? {
+        ModelObservedState::Synced => {}
+        ModelObservedState::Missing => {}
+        ModelObservedState::Drifted => {
+            return Err("model_owned_fields_drift: review the Agent config before clearing".into())
+        }
+        ModelObservedState::Conflicted => {
+            return Err("model_target_conflicted: the Agent config is ambiguous".into())
+        }
+    }
+    match agent_id {
+        "claude-code" => clear_one_model_file(
+            &config_path(".claude/settings.json"),
+            "claude-code",
+            prepare_clear_claude,
+        )?,
+        "codex" => clear_one_model_file_with_profile(
+            &config_path(".codex/config.toml"),
+            "codex",
+            &profile,
+            prepare_clear_codex,
+        )?,
+        "pi" => clear_pi(&profile)?,
+        _ => unreachable!("ensure_supported filtered unsupported model Agent"),
+    }
+    mutate_settings(|settings| {
+        if let Some(assignments) = settings.model_assignments.as_mut() {
+            if assignments.get(agent_id).is_some_and(|id| id == profile_id) {
+                assignments.remove(agent_id);
+            }
+        }
+    })
+    .map_err(|error| error.to_string())
 }
 
 fn read_optional(path: &Path) -> Result<Option<String>, String> {
@@ -717,6 +1127,22 @@ fn prepare_claude(
     Ok((original, root.to_string()))
 }
 
+fn prepare_clear_claude(path: &Path) -> Result<(Option<String>, String), String> {
+    let (root, original) = read_jsonc(path)?;
+    if original.is_none() {
+        return Ok((None, String::new()));
+    }
+    let object = json_root_object(&root, path)?;
+    ensure_unique_keys(&object, path, "$root")?;
+    set_json_property(&object, "model", None, path, "$root")?;
+    set_json_property(&object, "apiKeyHelper", None, path, "$root")?;
+    if let Some(env) = object.object_value("env") {
+        ensure_unique_keys(&env, path, "env")?;
+        set_json_property(&env, "ANTHROPIC_BASE_URL", None, path, "env")?;
+    }
+    Ok((original, root.to_string()))
+}
+
 fn read_toml(path: &Path) -> Result<(Document, Option<String>), String> {
     let original = read_optional(path)?;
     let document = original
@@ -783,6 +1209,25 @@ fn prepare_codex(
         provider.insert("auth", Item::Table(auth));
     } else {
         provider.remove("auth");
+    }
+    Ok((original, document.to_string()))
+}
+
+fn prepare_clear_codex(
+    path: &Path,
+    profile: &ModelProfile,
+) -> Result<(Option<String>, String), String> {
+    let (mut document, original) = read_toml(path)?;
+    if original.is_none() {
+        return Ok((None, String::new()));
+    }
+    document.remove("model");
+    document.remove("model_provider");
+    if let Some(providers) = document
+        .get_mut("model_providers")
+        .and_then(Item::as_table_mut)
+    {
+        providers.remove(&codex_provider_id(&profile.id));
     }
     Ok((original, document.to_string()))
 }
@@ -879,6 +1324,41 @@ fn prepare_pi_settings(
     Ok((original, root.to_string()))
 }
 
+fn prepare_clear_pi_models(
+    path: &Path,
+    profile: &ModelProfile,
+) -> Result<(Option<String>, String), String> {
+    let (root, original) = read_jsonc(path)?;
+    if original.is_none() {
+        return Ok((None, String::new()));
+    }
+    let object = json_root_object(&root, path)?;
+    ensure_unique_keys(&object, path, "$root")?;
+    if let Some(providers) = object.object_value("providers") {
+        ensure_unique_keys(&providers, path, "providers")?;
+        set_json_property(
+            &providers,
+            &format!("mux-{}", profile.id),
+            None,
+            path,
+            "providers",
+        )?;
+    }
+    Ok((original, root.to_string()))
+}
+
+fn prepare_clear_pi_settings(path: &Path) -> Result<(Option<String>, String), String> {
+    let (root, original) = read_jsonc(path)?;
+    if original.is_none() {
+        return Ok((None, String::new()));
+    }
+    let object = json_root_object(&root, path)?;
+    ensure_unique_keys(&object, path, "$root")?;
+    set_json_property(&object, "defaultProvider", None, path, "$root")?;
+    set_json_property(&object, "defaultModel", None, path, "$root")?;
+    Ok((original, root.to_string()))
+}
+
 fn backup_config(path: &Path, agent: &str, stamp: &str) -> Result<(), String> {
     backup(path, &backups_dir(), stamp, agent, "model")
 }
@@ -909,6 +1389,37 @@ fn apply_codex(profile: &ModelProfile, has_credential: bool) -> Result<ModelAppl
         restart_required: true,
         message: "Codex model provider updated; start a new session to use it.".into(),
     })
+}
+
+type ClearModelPrepare = fn(&Path) -> Result<(Option<String>, String), String>;
+type ClearModelWithProfilePrepare =
+    fn(&Path, &ModelProfile) -> Result<(Option<String>, String), String>;
+
+fn clear_one_model_file(
+    path: &Path,
+    backup_name: &str,
+    prepare: ClearModelPrepare,
+) -> Result<(), String> {
+    let (original, content) = prepare(path)?;
+    let Some(original) = original else {
+        return Ok(());
+    };
+    backup_config(path, backup_name, &backup_timestamp())?;
+    write_if_unchanged(path, Some(&original), &content)
+}
+
+fn clear_one_model_file_with_profile(
+    path: &Path,
+    backup_name: &str,
+    profile: &ModelProfile,
+    prepare: ClearModelWithProfilePrepare,
+) -> Result<(), String> {
+    let (original, content) = prepare(path, profile)?;
+    let Some(original) = original else {
+        return Ok(());
+    };
+    backup_config(path, backup_name, &backup_timestamp())?;
+    write_if_unchanged(path, Some(&original), &content)
 }
 
 fn rollback(path: &Path, original: Option<&str>, written: &str) -> Result<(), String> {
@@ -971,6 +1482,36 @@ fn apply_pi(profile: &ModelProfile, has_credential: bool) -> Result<ModelApplyRe
     })
 }
 
+fn clear_pi(profile: &ModelProfile) -> Result<(), String> {
+    let models_path = config_path(".pi/agent/models.json");
+    let settings_path = config_path(".pi/agent/settings.json");
+    let (models_original, models_content) = prepare_clear_pi_models(&models_path, profile)?;
+    let (settings_original, settings_content) = prepare_clear_pi_settings(&settings_path)?;
+    if models_original.is_none() && settings_original.is_none() {
+        return Ok(());
+    }
+    let stamp = backup_timestamp();
+    backup_config(&models_path, "pi-models", &stamp)?;
+    backup_config(&settings_path, "pi-settings", &stamp)?;
+    match (models_original.as_deref(), settings_original.as_deref()) {
+        (Some(models_before), Some(settings_before)) => write_pi_transaction(
+            &models_path,
+            Some(models_before),
+            &models_content,
+            &settings_path,
+            Some(settings_before),
+            &settings_content,
+        ),
+        (Some(models_before), None) => {
+            write_if_unchanged(&models_path, Some(models_before), &models_content)
+        }
+        (None, Some(settings_before)) => {
+            write_if_unchanged(&settings_path, Some(settings_before), &settings_content)
+        }
+        (None, None) => Ok(()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1018,7 +1559,7 @@ mod tests {
     }
 
     #[test]
-    fn editing_profile_metadata_clears_stale_assignments() {
+    fn editing_profile_metadata_preserves_desired_assignments() {
         let _th = TestHome::new("model-profile-edit");
         let profile = responses_profile();
         save_profile(profile.clone(), None).unwrap();
@@ -1034,11 +1575,32 @@ mod tests {
         changed.model = "gpt-custom-new".into();
         save_profile(changed, None).unwrap();
 
-        assert!(load_settings()
-            .model_assignments
-            .unwrap_or_default()
-            .get("codex")
-            .is_none());
+        assert_eq!(
+            load_settings()
+                .model_assignments
+                .unwrap_or_default()
+                .get("codex")
+                .map(String::as_str),
+            Some("team-openai")
+        );
+    }
+
+    #[test]
+    fn clearing_pi_does_not_create_a_missing_counterpart_file() {
+        let th = TestHome::new("model-pi-clear-one-file");
+        let models_path = th.home.join(".pi/agent/models.json");
+        let settings_path = th.home.join(".pi/agent/settings.json");
+        fs::create_dir_all(models_path.parent().unwrap()).unwrap();
+        fs::write(
+            &models_path,
+            r#"{"providers":{"mux-team-openai":{"baseUrl":"https://gateway.example.test/v1","api":"openai-responses","models":[{"id":"gpt-custom","name":"Team OpenAI"}]}}}"#,
+        )
+        .unwrap();
+
+        clear_pi(&responses_profile()).unwrap();
+
+        assert!(models_path.exists());
+        assert!(!settings_path.exists());
     }
 
     #[test]

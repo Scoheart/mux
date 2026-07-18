@@ -15,7 +15,7 @@ describe("SkillCard", () => {
     const card = screen.getByRole("button", { name: /review-changes/ });
     expect(card).toHaveAttribute("aria-pressed", "false");
     expect(card.querySelector("button")).toBeNull();
-    expect(screen.getByText("已分配")).toBeVisible();
+    expect(screen.getByText("使用中")).toBeVisible();
     expect(screen.getByText("高风险")).toMatchObject({
       className: "mux-skill-risk-badge",
     });

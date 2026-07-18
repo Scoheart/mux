@@ -1,12 +1,17 @@
 use crate::types::{HttpConfig, McpConfig, StdioConfig};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 /// Partial override: contains only fields differing from canonical
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct OverridePatch {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub args: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub env: Option<HashMap<String, String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub headers: Option<HashMap<String, String>>,
 }
 

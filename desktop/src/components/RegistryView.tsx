@@ -22,13 +22,14 @@ import {
   TrashIcon,
 } from "./icons";
 import { Avatar, Badge, IconButton, TransportPill } from "./ui";
+import { ResourceCard } from "./ResourceCard";
+import { ResourceState } from "./ResourceState";
 import { useToast } from "./Toast";
 import { PasteConfigDialog } from "./PasteConfigDialog";
 import {
   AgentStack,
   InspectorField,
   InspectorSection,
-  ResourceEmpty,
   ResourceGrid,
   ResourceInspector,
   ResourceTabs,
@@ -355,10 +356,18 @@ export function RegistryView({ state, onEdit, onCreate }: RegistryViewProps) {
       onInspectorClose={() => setDetail(null)}
     >
       {filtered.length === 0 ? (
-        <ResourceEmpty
+        <ResourceState
+          kind={catalog.length === 0 ? "empty" : "no-match"}
           icon={<PackageIcon className="w-6 h-6" />}
           title={catalog.length === 0 ? "暂无 MCP" : "没有匹配项"}
-          detail={catalog.length === 0 ? "添加订阅、导入配置或新建 MCP" : undefined}
+          detail={catalog.length === 0 ? "添加订阅、导入配置或新建 MCP" : "调整搜索、来源或状态筛选后重试。"}
+          action={catalog.length === 0 ? undefined : (
+            <button type="button" className="btn-secondary" onClick={() => {
+              setQ("");
+              setSelectedSource(null);
+              setStatusFilter("all");
+            }}>清除筛选</button>
+          )}
         />
       ) : (
         <ResourceGrid>
@@ -374,12 +383,7 @@ export function RegistryView({ state, onEdit, onCreate }: RegistryViewProps) {
                   ? undefined
                   : originLabel(winningOriginByKey.get(keyOf(item.entry)), sourceName)
               }
-              editable={editable(item.entry)}
-              deletable={deletable(item.entry)}
               onOpen={() => setDetail(item)}
-              onCopy={() => copyConfig(item.entry)}
-              onEdit={() => onEdit(item.entry.name, transportOf(item.entry))}
-              onDelete={() => deleteEntry(item.entry)}
             />
           ))}
         </ResourceGrid>
@@ -397,12 +401,7 @@ function RegistryCard({
   installedAgents,
   sourceName,
   overriddenBy,
-  editable,
-  deletable,
   onOpen,
-  onCopy,
-  onEdit,
-  onDelete,
 }: {
   item: CatalogItem;
   selected: boolean;
@@ -410,35 +409,20 @@ function RegistryCard({
   sourceName: (id: string) => string;
   /** Label of the source that takes effect instead — presence marks this copy as shadowed. */
   overriddenBy?: string;
-  editable: boolean;
-  deletable: boolean;
   onOpen: () => void;
-  onCopy: () => void;
-  onEdit: () => void;
-  onDelete: () => void;
 }) {
   const { entry } = item;
   const ep = endpointOf(entry);
   const overridden = !!overriddenBy;
 
   return (
-    <div
-      className="mux-tile p-3"
-      data-state={overridden ? "shadowed" : undefined}
-      data-selected={selected ? "true" : undefined}
-      role="button"
-      tabIndex={0}
-      onClick={onOpen}
-      onKeyDown={(event) => {
-        if (event.target !== event.currentTarget) return;
-        if (event.key === "Enter" || event.key === " ") {
-          event.preventDefault();
-          onOpen();
-        }
-      }}
-    >
-      {/* Header: identity, provenance, and an explicit catalog state. */}
-      <div className="flex items-start gap-2.5">
+    <ResourceCard
+      selected={selected}
+      attention={overridden ? "shadowed" : undefined}
+      ariaLabel={`打开 MCP ${entry.name} 详情`}
+      onOpen={onOpen}
+      identity={
+        <>
         <span className="mux-card-avatar flex-shrink-0">
           <Avatar seed={entry.name} size={34} />
         </span>
@@ -451,26 +435,16 @@ function RegistryCard({
             >
               {entry.name}
             </span>
-            {overridden && (
-              <span
-                className="mux-state-badge"
-                data-state="shadowed"
-                title={`已被覆盖：当前以「${overriddenBy}」为准`}
-              >
-                <LayersIcon className="w-3 h-3" />
-                被覆盖
-              </span>
-            )}
           </div>
           <div className="flex items-center gap-1.5 mt-1 min-w-0">
             <TransportPill entry={entry} />
             <OriginTag entry={entry} installedAgents={installedAgents} sourceName={sourceName} />
           </div>
         </div>
-      </div>
-
-      {/* Endpoint as an inset code strip */}
-      <div className="mux-resource-endpoint">
+        </>
+      }
+      configuration={
+        <div className="mux-resource-endpoint">
         {ep.link ? (
           <LinkIcon className="w-3 h-3 flex-shrink-0" style={{ color: "var(--color-blue)" }} />
         ) : (
@@ -479,46 +453,36 @@ function RegistryCard({
         <span style={{ color: ep.link ? "var(--color-blue)" : undefined }} title={ep.text}>
           {ep.text}
         </span>
-      </div>
-
-      {/* Footer: usage dot + hover actions — pinned to the card bottom so every
-          card in a row lines up (grid stretches them to equal height). */}
-      <div className="mux-resource-card-footer">
-        {overridden ? (
+        </div>
+      }
+      state={
+        <>
+          {overridden ? (
+            <Badge tone="warning"><LayersIcon className="w-3 h-3" />被覆盖</Badge>
+          ) : (
+            <Badge tone="success">生效中</Badge>
+          )}
+          {installedAgents.length > 0 ? (
+            <Badge tone="info">使用中</Badge>
+          ) : (
+            <Badge tone="neutral">未使用</Badge>
+          )}
+        </>
+      }
+      impact={
+        <>
+          <AgentStack ids={installedAgents} />
+          {overridden && (
           <span
-            className="mux-shadowed-source min-w-0 truncate text-[11px]"
+            className="mux-shadowed-source ml-auto min-w-0 truncate text-[10px]"
             title={`当前使用「${overriddenBy}」的配置`}
           >
             以 {overriddenBy} 为准
           </span>
-        ) : <AgentStack ids={installedAgents} />}
-
-        <div
-          className="mux-toolbar flex items-center gap-0.5 rounded-mac px-0.5"
-          style={{ background: "var(--surface-raised)" }}
-          onClick={(e) => e.stopPropagation()}
-        >
-          {entry.repo && (
-            <IconButton title={`打开仓库：${entry.repo}`} onClick={() => openUrl(entry.repo!)}>
-              <LinkIcon className="w-4 h-4" />
-            </IconButton>
           )}
-          <IconButton title="复制配置 JSON" onClick={onCopy}>
-            <CopyIcon className="w-4 h-4" />
-          </IconButton>
-          {editable && (
-            <IconButton title="编辑配置" onClick={onEdit}>
-              <EditIcon className="w-4 h-4" />
-            </IconButton>
-          )}
-          {deletable && (
-            <IconButton title="删除条目（并从所有 agent 卸载）" onClick={onDelete}>
-              <TrashIcon className="w-4 h-4" />
-            </IconButton>
-          )}
-        </div>
-      </div>
-    </div>
+        </>
+      }
+    />
   );
 }
 

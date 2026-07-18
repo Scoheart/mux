@@ -3,6 +3,7 @@ import type { KeyboardEvent, MouseEvent, ReactNode } from "react";
 export type ResourceCardAttention = "warning" | "danger" | "shadowed";
 
 export function ResourceCard({
+  className,
   identity,
   configuration,
   state,
@@ -12,6 +13,7 @@ export function ResourceCard({
   ariaLabel,
   onOpen,
 }: {
+  className?: string;
   identity: ReactNode;
   configuration?: ReactNode;
   state?: ReactNode;
@@ -37,7 +39,7 @@ export function ResourceCard({
 
   return (
     <article
-      className="mux-resource-card"
+      className={`mux-resource-card${className ? ` ${className}` : ""}`}
       role="button"
       tabIndex={0}
       aria-label={ariaLabel}

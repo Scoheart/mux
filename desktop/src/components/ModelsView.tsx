@@ -15,7 +15,9 @@ import type {
 } from "../lib/types";
 import { formatError } from "../lib/format";
 import { AgentGlyph } from "./brandIcons";
-import { Avatar, Badge, IconButton, Modal, ModalHeader } from "./ui";
+import { Avatar, Badge, Modal, ModalHeader } from "./ui";
+import { ResourceCard } from "./ResourceCard";
+import { ResourceState } from "./ResourceState";
 import {
   CheckIcon,
   EditIcon,
@@ -29,7 +31,6 @@ import {
   AgentStack,
   InspectorField,
   InspectorSection,
-  ResourceEmpty,
   ResourceGrid,
   ResourceInspector,
   ResourceTabs,
@@ -67,6 +68,7 @@ export function ModelsView() {
   const [editing, setEditing] = useState<ModelProfileView | null | undefined>(undefined);
   const [busyAgent, setBusyAgent] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [readError, setReadError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<ModelStatusFilter>("all");
   const [protocolFilter, setProtocolFilter] = useState<ModelProtocol | null>(null);
@@ -86,9 +88,12 @@ export function ModelsView() {
 
   useEffect(() => {
     refresh()
-      .catch((error) =>
-        toast.show({ kind: "error", msg: "读取模型配置失败：" + formatError(error) })
-      )
+      .then(() => setReadError(null))
+      .catch((error) => {
+        const message = formatError(error);
+        setReadError(message);
+        toast.show({ kind: "error", msg: "读取模型配置失败：" + message });
+      })
       .finally(() => setLoading(false));
   }, [refresh]);
 
@@ -184,10 +189,6 @@ export function ModelsView() {
     }
   };
 
-  if (loading) {
-    return <div className="mux-loading">加载中…</div>;
-  }
-
   return (
     <>
       <ResourceWorkspace
@@ -205,7 +206,7 @@ export function ModelsView() {
                 <SidebarItem
                   key={protocol.id}
                   active={protocolFilter === protocol.id}
-                  icon={<span className="mux-model-protocol-dot" data-protocol={protocol.id} />}
+                  icon={<LayersIcon className="w-3.5 h-3.5" />}
                   label={protocol.label}
                   count={protocolCounts[protocol.id]}
                   onClick={() => changeProtocol(protocol.id)}
@@ -251,18 +252,37 @@ export function ModelsView() {
         }
         onInspectorClose={() => setSelectedProfileId(null)}
       >
-        {filteredProfiles.length === 0 ? (
-          <ResourceEmpty
+        {loading ? (
+          <ResourceState kind="loading" title="正在读取模型配置" />
+        ) : readError ? (
+          <ResourceState
+            kind="read-error"
+            icon={<LayersIcon className="w-6 h-6" />}
+            title="读取模型配置失败"
+            detail={readError}
+            action={<button className="btn-primary" type="button" onClick={() => {
+              setLoading(true);
+              setReadError(null);
+              void refresh()
+                .then(() => setReadError(null))
+                .catch((error) => setReadError(formatError(error)))
+                .finally(() => setLoading(false));
+            }}>重试</button>}
+          />
+        ) : filteredProfiles.length === 0 ? (
+          <ResourceState
+            kind={profiles.length === 0 ? "empty" : "no-match"}
             icon={<LayersIcon className="w-6 h-6" />}
             title={profiles.length === 0 ? "暂无模型" : "没有匹配项"}
-            detail={profiles.length === 0 ? "创建模型后即可分配给 Agent" : undefined}
+            detail={profiles.length === 0 ? "创建模型后即可分配给 Agent" : "调整搜索、协议或状态筛选后重试。"}
             action={
-              profiles.length === 0 ? (
-                <button className="btn-primary" type="button" onClick={() => setEditing(null)}>
-                  <PlusIcon className="w-4 h-4" />
-                  新建模型
-                </button>
-              ) : undefined
+              profiles.length === 0 ? undefined : (
+                <button className="btn-secondary" type="button" onClick={() => {
+                  setQuery("");
+                  setProtocolFilter(null);
+                  setStatusFilter("all");
+                }}>清除筛选</button>
+              )
             }
           />
         ) : (
@@ -274,8 +294,6 @@ export function ModelsView() {
                 selected={profile.id === selectedProfileId}
                 agentIds={(agentsByProfile.get(profile.id) ?? []).map((agent) => agent.id)}
                 onOpen={() => setSelectedProfileId(profile.id)}
-                onEdit={() => setEditing(profile)}
-                onDelete={() => void removeProfile(profile)}
               />
             ))}
           </ResourceGrid>
@@ -300,33 +318,20 @@ function ModelCard({
   selected,
   agentIds,
   onOpen,
-  onEdit,
-  onDelete,
 }: {
   profile: ModelProfileView;
   selected: boolean;
   agentIds: string[];
   onOpen: () => void;
-  onEdit: () => void;
-  onDelete: () => void;
 }) {
   return (
-    <article
-      className="mux-tile mux-model-card p-3"
-      data-protocol={profile.protocol}
-      data-selected={selected ? "true" : undefined}
-      role="button"
-      tabIndex={0}
-      onClick={onOpen}
-      onKeyDown={(event) => {
-        if (event.target !== event.currentTarget) return;
-        if (event.key === "Enter" || event.key === " ") {
-          event.preventDefault();
-          onOpen();
-        }
-      }}
-    >
-      <div className="mux-model-card-head">
+    <ResourceCard
+      className="mux-model-card"
+      selected={selected}
+      ariaLabel={`打开模型 ${profile.name} 详情`}
+      onOpen={onOpen}
+      identity={
+        <>
         <Avatar seed={profile.name} label="M" size={36} />
         <div className="mux-model-card-identity">
           <div className="mux-model-card-name">
@@ -338,32 +343,29 @@ function ModelCard({
             )}
           </div>
           <code title={profile.model}>{profile.model}</code>
-          <div className="mux-model-card-tags">
-            <span className="mux-model-protocol-dot" data-protocol={profile.protocol} />
-            <span>{protocolLabel(profile.protocol)}</span>
-            {profile.reasoning && <Badge tone="info">Reasoning</Badge>}
-          </div>
         </div>
-      </div>
-
-      <div className="mux-model-card-endpoint" title={profile.base_url}>
+        </>
+      }
+      configuration={
+        <div className="mux-model-card-endpoint" title={profile.base_url}>
         <LinkIcon className="w-3 h-3 flex-shrink-0" />
         <span className="mux-model-card-endpoint-label">Base URL</span>
         <code>{profile.base_url}</code>
-      </div>
-
-      <div className="mux-resource-card-footer">
-        <AgentStack ids={agentIds} />
-        <div className="mux-resource-card-actions" onClick={(event) => event.stopPropagation()}>
-          <IconButton title="编辑模型" onClick={onEdit}>
-            <EditIcon className="w-4 h-4" />
-          </IconButton>
-          <IconButton title="删除模型" onClick={onDelete}>
-            <TrashIcon className="w-4 h-4" />
-          </IconButton>
         </div>
-      </div>
-    </article>
+      }
+      state={
+        <>
+          <Badge tone="neutral">{protocolLabel(profile.protocol)}</Badge>
+          {profile.reasoning && <Badge tone="info">Reasoning</Badge>}
+          <Badge tone={profile.credential_saved ? "success" : "neutral"}>
+            {profile.credential_saved ? "凭据已保存" : "无已存凭据"}
+          </Badge>
+        </>
+      }
+      impact={
+        <AgentStack ids={agentIds} />
+      }
+    />
   );
 }
 

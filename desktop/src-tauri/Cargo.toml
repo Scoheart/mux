@@ -28,7 +28,7 @@ dirs = "5"
 tauri-plugin-dialog = "2"
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
-ureq = "2"
+ureq = "3"
 libc = "0.2"
 mux-core = { path = "../../core" }
 

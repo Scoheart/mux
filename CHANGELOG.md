@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.0](https://github.com/Scoheart/mux/compare/v1.2.20...v1.3.0) (2026-07-18)
+
+
+### Features
+
+* **ui:** unify MCP, Model, and Skill resource views ([#40](https://github.com/Scoheart/mux/issues/40)) ([8b38a76](https://github.com/Scoheart/mux/commit/8b38a76595f1a3bfb6c439c1c4b78880cd854f00))
+
 ## [1.2.20](https://github.com/Scoheart/mux/compare/v1.2.19...v1.2.20) (2026-07-17)
 
 

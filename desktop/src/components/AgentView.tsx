@@ -27,12 +27,13 @@ import {
   SparklesIcon,
   TrashIcon,
 } from "./icons";
-import { Avatar, Badge, IconButton, SearchBar, Switch, TransportPill } from "./ui";
+import { Avatar, Badge, IconButton, Switch, TransportPill } from "./ui";
 import { AgentGlyph } from "./brandIcons";
 import { AddAgentDialog } from "./AddAgentDialog";
 import { AgentSkillsSection } from "./AgentSkillsSection";
 import { useToast } from "./Toast";
 import { AgentResourcePanel, type AgentResourceTab } from "./AgentResourcePanel";
+import { ResourcePickerDialog } from "./ResourcePickerDialog";
 
 interface AgentViewProps {
   state: InstallState;
@@ -78,8 +79,7 @@ export function AgentView({
   const { entries, agents, installed, pending, toggle, setEnabled, remove, refreshAgents, rescan } = state;
   const { show: showToast } = useToast();
 
-  const [showAddPopover, setShowAddPopover] = useState(false);
-  const [addSearch, setAddSearch] = useState("");
+  const [mcpPickerOpen, setMcpPickerOpen] = useState(false);
   const [editingAgent, setEditingAgent] = useState(false);
   const [modelProfiles, setModelProfiles] = useState<ModelProfileView[]>([]);
   const [modelAgents, setModelAgents] = useState<ModelAgentView[]>([]);
@@ -180,19 +180,18 @@ export function AgentView({
   );
 
   const notInstalledEntries = useMemo(() => {
-    const search = addSearch.trim().toLowerCase();
     return entries
       .filter((entry) => {
         if (!agent?.supported_transports.includes(transportOf(entry))) return false;
         if (installedKeySet.has(keyOf(entry))) return false;
-        return !search || entry.name.toLowerCase().includes(search) || entry.description.toLowerCase().includes(search);
+        return true;
       })
       .sort(
         (left, right) =>
           left.name.localeCompare(right.name, undefined, { sensitivity: "base" }) ||
           transportLabel(left).localeCompare(transportLabel(right))
       );
-  }, [entries, installedKeySet, addSearch, agent]);
+  }, [entries, installedKeySet, agent]);
 
   const handleToggle = useCallback(
     (entry: RegistryEntry) => {
@@ -370,63 +369,11 @@ export function AgentView({
               <button
                 type="button"
                 className="btn-primary"
-                onClick={() => {
-                  setShowAddPopover((value) => !value);
-                  setAddSearch("");
-                }}
+                onClick={() => setMcpPickerOpen(true)}
               >
                 <PlusIcon className="w-3.5 h-3.5" />
                 添加 MCP
               </button>
-              {showAddPopover && (
-                <>
-                  <div
-                    className="mux-agent-popover-scrim"
-                    onClick={() => {
-                      setShowAddPopover(false);
-                      setAddSearch("");
-                    }}
-                  />
-                  <div className="mux-agent-add-popover" onClick={(event) => event.stopPropagation()}>
-                    <div className="mux-agent-add-search">
-                      <SearchBar value={addSearch} onChange={setAddSearch} placeholder="搜索 MCP…" autoFocus />
-                    </div>
-                    <div className="mux-agent-add-list">
-                      {notInstalledEntries.length === 0 ? (
-                        <div className="mux-agent-add-empty">
-                          {entries.length === installedEntries.length ? "所有 MCP 均已添加" : "未找到匹配的 MCP"}
-                        </div>
-                      ) : (
-                        notInstalledEntries.map((entry) => {
-                          const isPending = pending.has(cellKey(keyOf(entry), agentId));
-                          return (
-                            <button
-                              key={keyOf(entry)}
-                              type="button"
-                              className="mux-agent-add-item"
-                              disabled={isPending}
-                              onClick={() => {
-                                handleToggle(entry);
-                                setShowAddPopover(false);
-                                setAddSearch("");
-                              }}
-                            >
-                              <Avatar seed={entry.name} size={30} />
-                              <span className="mux-agent-add-copy">
-                                <span>
-                                  <strong>{entry.name}</strong>
-                                  <TransportPill entry={entry} compact />
-                                </span>
-                                {entry.description && <small>{entry.description}</small>}
-                              </span>
-                            </button>
-                          );
-                        })
-                      )}
-                    </div>
-                  </div>
-                </>
-              )}
             </div>
           </div>
 
@@ -485,6 +432,28 @@ export function AgentView({
                 );
               })}
             </div>
+          )}
+          {mcpPickerOpen && (
+            <ResourcePickerDialog
+              title="添加 MCP"
+              subtitle={`选择要添加到 ${agent.name} 的 MCP。`}
+              options={notInstalledEntries.map((entry) => ({
+                id: keyOf(entry),
+                name: entry.name,
+                description: entry.description,
+                avatar: <Avatar seed={entry.name} size={30} />,
+                meta: <TransportPill entry={entry} compact />,
+                disabled: pending.has(cellKey(keyOf(entry), agentId)),
+              }))}
+              addLabel="添加 MCP"
+              onClose={() => setMcpPickerOpen(false)}
+              onAdd={(option) => {
+                const entry = notInstalledEntries.find((candidate) => keyOf(candidate) === option.id);
+                if (!entry) return;
+                handleToggle(entry);
+                setMcpPickerOpen(false);
+              }}
+            />
           )}
         </section>
         )}

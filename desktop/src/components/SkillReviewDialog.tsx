@@ -9,9 +9,8 @@ import type {
   SkillsInventory,
 } from "../lib/types";
 import { agentName } from "./brandIcons";
-import { XIcon } from "./icons";
 import { SkillRiskBadge, skillSourceText } from "./SkillCard";
-import { Modal } from "./ui";
+import { DialogShell } from "./DialogShell";
 
 export interface SkillAssignmentContext {
   enabled: boolean;
@@ -338,33 +337,28 @@ export function SkillReviewDialog({
   );
 
   return (
-    <Modal
-      width={760}
-      maxHeight="min(88vh, 720px)"
-      ariaLabel="审阅 Skill 操作"
-      layer="skill-review"
+    <DialogShell
+      kind="review"
+      size="lg"
+      title="审阅 Skill 操作"
+      subtitle={`${operationLabels[plan.kind]}计划 · ${plan.skills.length} 个 Skill · 以下内容由 MUX Core 固化`}
+      busy={busy}
       onClose={closeReview}
-    >
-      <div className="mux-skill-review-dialog">
-        <header className="mux-skill-review-header">
-          <div>
-            <span className="mux-skill-review-eyebrow">
-              {operationLabels[plan.kind]}计划 · {plan.skills.length} 个 Skill
-            </span>
-            <h2 data-modal-title tabIndex={-1}>审阅 Skill 操作</h2>
-            <p>以下内容由 MUX Core 固化；确认后才会写入磁盘。</p>
-          </div>
+      footerEnd={
+        <>
+          <button type="button" className="btn-ghost" disabled={busy} onClick={closeReview}>取消</button>
           <button
             type="button"
-            aria-label="关闭"
-            title="关闭"
-            disabled={busy}
-            onClick={closeReview}
+            className="btn-primary"
+            disabled={busy || reviewExpired}
+            onClick={() => void submit(null)}
           >
-            <XIcon className="w-3.5 h-3.5" />
+            {busy ? "正在提交…" : confirmLabels[plan.kind]}
           </button>
-        </header>
-
+        </>
+      }
+    >
+      <div className="mux-skill-review-dialog">
         <div className="mux-skill-review-body">
           {error && !riskHash && <p className="mux-skill-review-error" role="alert">{error.message}</p>}
 
@@ -442,44 +436,31 @@ export function SkillReviewDialog({
           )}
         </div>
 
-        <footer className="mux-skill-review-footer">
-          <button type="button" disabled={busy} onClick={closeReview}>取消</button>
-          <button
-            type="button"
-            disabled={busy || reviewExpired}
-            onClick={() => void submit(null)}
-          >
-            {busy ? "正在提交…" : confirmLabels[plan.kind]}
-          </button>
-        </footer>
       </div>
 
       {riskHash && (
-        <Modal
-          width={580}
-          maxHeight="min(82vh, 640px)"
-          ariaLabel="确认高风险覆盖"
-          layer="skill-risk-review"
+        <DialogShell
+          kind="review"
+          size="md"
+          title="确认高风险覆盖"
+          subtitle="这些证据来自刚才审阅的同一份不可变计划。"
+          busy={busy}
           onClose={closeRiskReview}
-        >
-          <div className="mux-skill-risk-dialog">
-            <header className="mux-skill-review-header">
-              <div>
-                <span className="mux-skill-review-eyebrow">需要二次确认</span>
-                <h2 data-modal-title tabIndex={-1}>确认高风险覆盖</h2>
-                <p>这些证据来自刚才审阅的同一份不可变计划。</p>
-              </div>
+          footerEnd={
+            <>
+              <button type="button" className="btn-ghost" disabled={busy} onClick={closeRiskReview}>返回审阅</button>
               <button
                 type="button"
-                aria-label="关闭高风险确认"
-                title="关闭"
-                disabled={busy}
-                onClick={closeRiskReview}
+                className="btn-danger"
+                disabled={busy || !riskAcknowledged}
+                onClick={() => void submit(riskHash)}
               >
-                <XIcon className="w-3.5 h-3.5" />
+                {busy ? "正在提交…" : overrideLabels[plan.kind]}
               </button>
-            </header>
-
+            </>
+          }
+        >
+          <div className="mux-skill-risk-dialog">
             <div className="mux-skill-review-body">
               {error && <p className="mux-skill-review-error" role="alert">{error.message}</p>}
               {highRiskFindings.map((skill) => (
@@ -499,19 +480,9 @@ export function SkillReviewDialog({
               </label>
             </div>
 
-            <footer className="mux-skill-review-footer">
-              <button type="button" disabled={busy} onClick={closeRiskReview}>返回审阅</button>
-              <button
-                type="button"
-                disabled={busy || !riskAcknowledged}
-                onClick={() => void submit(riskHash)}
-              >
-                {busy ? "正在提交…" : overrideLabels[plan.kind]}
-              </button>
-            </footer>
           </div>
-        </Modal>
+        </DialogShell>
       )}
-    </Modal>
+    </DialogShell>
   );
 }

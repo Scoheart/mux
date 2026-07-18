@@ -24,6 +24,7 @@ import {
 import { Avatar, Badge, IconButton, TransportPill } from "./ui";
 import { ResourceCard } from "./ResourceCard";
 import { ResourceState } from "./ResourceState";
+import { ReviewDialog } from "./ReviewDialog";
 import { useToast } from "./Toast";
 import { PasteConfigDialog } from "./PasteConfigDialog";
 import {
@@ -151,6 +152,7 @@ export function RegistryView({ state, intent, onIntentConsumed, onEdit, onCreate
   const [statusFilter, setStatusFilter] = useState<McpStatusFilter>("all");
   const [detail, setDetail] = useState<CatalogItem | null>(null);
   const [pasteOpen, setPasteOpen] = useState(false);
+  const [deleteReview, setDeleteReview] = useState<RegistryEntry | null>(null);
   const lastConsumedIntentId = useRef<number | null>(null);
 
   const sourceName = useCallback(
@@ -284,19 +286,15 @@ export function RegistryView({ state, intent, onIntentConsumed, onEdit, onCreate
     async (entry: RegistryEntry) => {
       if (!deletable(entry)) return;
       const t = transportOf(entry);
-      if (
-        !window.confirm(
-          `删除「${entry.name}」（${t}）？将从目录移除并从所有 agent 卸载（有备份）。`
-        )
-      )
-        return;
       try {
         await forgetEntry(entry.name, t);
         await Promise.all([state.refreshRegistry(), state.rescan()]);
         setDetail(null);
+        setDeleteReview(null);
         toast.show({ kind: "success", msg: `已删除 ${entry.name}` });
       } catch (e) {
         toast.show({ kind: "error", msg: `删除失败：${String(e)}` });
+        throw e;
       }
     },
     [deletable, state, toast]
@@ -377,7 +375,7 @@ export function RegistryView({ state, intent, onIntentConsumed, onEdit, onCreate
                   }
                 : undefined
             }
-            onDelete={deletable(detail.entry) ? () => deleteEntry(detail.entry) : undefined}
+            onDelete={deletable(detail.entry) ? () => setDeleteReview(detail.entry) : undefined}
           />
         ) : undefined
       }
@@ -418,6 +416,17 @@ export function RegistryView({ state, intent, onIntentConsumed, onEdit, onCreate
       )}
 
       {pasteOpen && <PasteConfigDialog state={state} onClose={() => setPasteOpen(false)} />}
+      {deleteReview && (
+        <ReviewDialog
+          title="删除 MCP"
+          subtitle={`${deleteReview.name} · ${transportOf(deleteReview)}`}
+          confirmLabel="删除 MCP"
+          onClose={() => setDeleteReview(null)}
+          onConfirm={() => deleteEntry(deleteReview)}
+        >
+          <p>将从目录移除并从所有关联 Agent 卸载。写入前会创建备份，Agent 的其他配置保持不变。</p>
+        </ReviewDialog>
+      )}
     </ResourceWorkspace>
   );
 }

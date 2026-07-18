@@ -18,6 +18,7 @@ export function DialogShell({
   subtitle,
   status,
   busy = false,
+  closeLabel = "关闭",
   onClose,
   children,
   footerStart,
@@ -29,6 +30,7 @@ export function DialogShell({
   subtitle?: ReactNode;
   status?: ReactNode;
   busy?: boolean;
+  closeLabel?: string;
   onClose: () => void;
   children: ReactNode;
   footerStart?: ReactNode;
@@ -62,8 +64,8 @@ export function DialogShell({
             className="mux-dialog-shell-close"
             onClick={requestClose}
             disabled={busy}
-            aria-label="关闭"
-            title="关闭"
+            aria-label={closeLabel}
+            title={closeLabel}
           >
             <XIcon className="w-4 h-4" />
           </button>

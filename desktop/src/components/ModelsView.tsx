@@ -16,9 +16,11 @@ import type {
 } from "../lib/types";
 import { formatError } from "../lib/format";
 import { AgentGlyph } from "./brandIcons";
-import { Avatar, Badge, Modal, ModalHeader } from "./ui";
+import { Avatar, Badge } from "./ui";
 import { ResourceCard } from "./ResourceCard";
 import { ResourceState } from "./ResourceState";
+import { DialogShell } from "./DialogShell";
+import { ReviewDialog } from "./ReviewDialog";
 import {
   CheckIcon,
   EditIcon,
@@ -48,6 +50,9 @@ const PROTOCOLS: Array<{ id: ModelProtocol; label: string }> = [
 ];
 
 type ModelStatusFilter = "all" | "assigned" | "unassigned";
+type ModelReview =
+  | { kind: "delete"; profile: ModelProfileView }
+  | { kind: "apply"; profile: ModelProfileView; agent: ModelAgentView };
 
 const emptyProfile = (): ModelProfile => ({
   id: "",
@@ -79,6 +84,7 @@ export function ModelsView({
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<ModelStatusFilter>("all");
   const [protocolFilter, setProtocolFilter] = useState<ModelProtocol | null>(null);
+  const [review, setReview] = useState<ModelReview | null>(null);
   const toast = useToast();
   const lastConsumedIntentId = useRef<number | null>(null);
 
@@ -185,30 +191,28 @@ export function ModelsView({
   };
 
   const removeProfile = async (profile: ModelProfileView) => {
-    if (!window.confirm(`删除模型「${profile.name}」？Agent 配置文件不会被回滚。`)) return;
     try {
       await deleteModelProfile(profile.id);
       setSelectedProfileId((current) => current === profile.id ? null : current);
       await refresh();
+      setReview(null);
       toast.show({ kind: "success", msg: `已删除：${profile.name}` });
     } catch (error) {
       toast.show({ kind: "error", msg: "删除失败：" + formatError(error) });
+      throw error;
     }
   };
 
   const apply = async (agent: ModelAgentView, profile: ModelProfileView) => {
-    if (
-      !window.confirm(
-        `将「${profile.name}」应用到 ${agent.name}？\n\n目标：${agent.config_path}\nMUX 会先创建备份。`
-      )
-    ) return;
     setBusyAgent(agent.id);
     try {
       const result = await applyModelProfile(agent.id, profile.id);
       await refresh();
+      setReview(null);
       toast.show({ kind: "success", msg: result.message });
     } catch (error) {
       toast.show({ kind: "error", msg: "应用失败：" + formatError(error) });
+      throw error;
     } finally {
       setBusyAgent(null);
     }
@@ -268,10 +272,10 @@ export function ModelsView({
               profiles={profiles}
               agents={agents}
               busyAgent={busyAgent}
-              onApply={apply}
+              onApply={(agent, profile) => setReview({ kind: "apply", agent, profile })}
               onClose={() => setSelectedProfileId(null)}
               onEdit={() => setEditing(selectedProfile)}
-              onDelete={() => void removeProfile(selectedProfile)}
+              onDelete={() => setReview({ kind: "delete", profile: selectedProfile })}
             />
           ) : undefined
         }
@@ -333,6 +337,30 @@ export function ModelsView({
             await refresh();
           }}
         />
+      )}
+      {review?.kind === "delete" && (
+        <ReviewDialog
+          title="删除模型"
+          subtitle={review.profile.name}
+          confirmLabel="删除模型"
+          onClose={() => setReview(null)}
+          onConfirm={() => removeProfile(review.profile)}
+        >
+          <p>将删除此 MUX 模型配置与 Keychain 凭据引用；已经写入 Agent 的配置不会自动回滚。</p>
+        </ReviewDialog>
+      )}
+      {review?.kind === "apply" && (
+        <ReviewDialog
+          title="应用模型"
+          subtitle={`${review.profile.name} → ${review.agent.name}`}
+          confirmLabel="应用模型"
+          tone="primary"
+          onClose={() => setReview(null)}
+          onConfirm={() => apply(review.agent, review.profile)}
+        >
+          <p>目标：<code>{review.agent.config_path}</code></p>
+          <p>只更新该 Agent 的 Model 所有字段，写入前创建备份。</p>
+        </ReviewDialog>
       )}
     </>
   );
@@ -408,7 +436,7 @@ function ModelInspector({
   profiles: ModelProfileView[];
   agents: ModelAgentView[];
   busyAgent: string | null;
-  onApply: (agent: ModelAgentView, profile: ModelProfileView) => Promise<void>;
+  onApply: (agent: ModelAgentView, profile: ModelProfileView) => void;
   onClose: () => void;
   onEdit: () => void;
   onDelete: () => void;
@@ -535,13 +563,22 @@ function ModelProfileDialog({
   };
 
   return (
-    <Modal width={620} maxHeight="88vh" onClose={onClose}>
-      <ModalHeader
-        glyph="M"
+    <DialogShell
+        kind="editor"
+        size="md"
         title={initial ? "编辑模型" : "新建模型"}
         subtitle="API Key 保存在 macOS Keychain。"
+        busy={busy}
         onClose={onClose}
-      />
+        footerEnd={
+          <>
+            <button type="button" className="btn-ghost" disabled={busy} onClick={onClose}>取消</button>
+            <button type="button" className="btn-primary" disabled={!valid} onClick={() => void save()}>
+              {busy ? "保存中…" : "保存"}
+            </button>
+          </>
+        }
+      >
       <div className="mux-model-form">
         <div className="mux-model-form-grid">
           <label>
@@ -662,12 +699,6 @@ function ModelProfileDialog({
           </label>
         </details>
       </div>
-      <footer className="mux-model-form-footer">
-        <button type="button" className="btn-ghost" onClick={onClose}>取消</button>
-        <button type="button" className="btn-primary" disabled={!valid} onClick={() => void save()}>
-          {busy ? "保存中…" : "保存"}
-        </button>
-      </footer>
-    </Modal>
+    </DialogShell>
   );
 }

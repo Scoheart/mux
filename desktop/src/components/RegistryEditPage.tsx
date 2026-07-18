@@ -4,7 +4,8 @@ import type { RegistryEntry } from "../lib/types";
 import { upsertRegistry, deleteRegistry, resyncEntry } from "../lib/api";
 import { keyOf, transportOf, type Transport } from "../lib/mcp";
 import { EnvEditor } from "./EnvEditor";
-import { Modal, ModalHeader } from "./ui";
+import { DialogShell } from "./DialogShell";
+import { ReviewDialog } from "./ReviewDialog";
 import { SaveIcon, RefreshIcon } from "./icons";
 import { useToast } from "./Toast";
 
@@ -61,6 +62,7 @@ export function RegistryEditPage({ state, name, transport: editTransport, onBack
   const [repo, setRepo] = useState(existing?.repo ?? "");
 
   const [saving, setSaving] = useState(false);
+  const [forceResyncAgents, setForceResyncAgents] = useState<string[] | null>(null);
 
   const compact = (o: Record<string, string>) => (Object.keys(o).length > 0 ? o : undefined);
 
@@ -142,10 +144,8 @@ export function RegistryEditPage({ state, name, transport: editTransport, onBack
     try {
       let out = await resyncEntry(existing.name, t, false);
       if (out.skipped_customized.length > 0) {
-        const ok = window.confirm(
-          `${out.skipped_customized.length} 个 agent 的配置被手改过（${out.skipped_customized.join(", ")}），是否强制覆盖为当前配置？`
-        );
-        if (ok) out = await resyncEntry(existing.name, t, true);
+        setForceResyncAgents(out.skipped_customized);
+        return;
       }
       await rescan();
       toast.show({
@@ -157,6 +157,22 @@ export function RegistryEditPage({ state, name, transport: editTransport, onBack
       });
     } catch (err) {
       toast.show({ kind: "error", msg: `同步失败: ${String(err)}` });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleForceResync = async () => {
+    if (!existing || saving) return;
+    setSaving(true);
+    try {
+      const out = await resyncEntry(existing.name, transportOf(existing), true);
+      await rescan();
+      setForceResyncAgents(null);
+      toast.show({ kind: "success", msg: `已强制同步到 ${out.synced.length} 个 agent（${out.synced.join(", ")}）` });
+    } catch (err) {
+      toast.show({ kind: "error", msg: `同步失败: ${String(err)}` });
+      throw err;
     } finally {
       setSaving(false);
     }
@@ -178,13 +194,39 @@ export function RegistryEditPage({ state, name, transport: editTransport, onBack
   };
 
   return (
-    <Modal width={720} maxHeight="90vh" onClose={onBack}>
-      <ModalHeader
-        glyph={(serverName || "M")[0]?.toUpperCase()}
+    <>
+    <DialogShell
+        kind="editor"
+        size="lg"
         title={isNew ? "新建 MCP" : "编辑 MCP"}
         subtitle={transport === "stdio" ? "stdio · 全局配置" : "HTTP · 全局配置"}
+        busy={saving}
         onClose={onBack}
-      />
+        footerStart={
+          <>
+            {!isNew && isCustom && (
+              <button onClick={handleRevert} disabled={saving} className="btn-danger" title="删除自定义，恢复内置默认">
+                恢复默认
+              </button>
+            )}
+            {!isNew && existing && (
+              <button onClick={handleResync} disabled={saving} className="btn-secondary" title="把当前保存的配置重新同步到已安装此 MCP 的 agent（全局）">
+                <RefreshIcon className="w-4 h-4" />
+                重新同步
+              </button>
+            )}
+          </>
+        }
+        footerEnd={
+          <>
+            <button onClick={onBack} disabled={saving} className="btn-ghost">取消</button>
+            <button onClick={handleSave} disabled={!valid || saving} className="btn-primary">
+              <SaveIcon className="w-4 h-4" />
+              {saving ? "保存中…" : "保存"}
+            </button>
+          </>
+        }
+      >
       <div className="mux-mcp-form">
             {/* Name + description */}
             <div className="flex gap-4 mb-4">
@@ -317,41 +359,20 @@ export function RegistryEditPage({ state, name, transport: editTransport, onBack
             )}
       </div>
 
-      <footer className="mux-model-form-footer">
-        {!isNew && isCustom && (
-          <button
-            onClick={handleRevert}
-            disabled={saving}
-            className="btn-danger"
-            title="删除自定义，恢复内置默认"
-          >
-            恢复默认
-          </button>
-        )}
-        {!isNew && existing && (
-          <button
-            onClick={handleResync}
-            disabled={saving}
-            className="btn-secondary"
-            title="把当前保存的配置重新同步到已安装此 MCP 的 agent（全局）"
-          >
-            <RefreshIcon className="w-4 h-4" />
-            重新同步
-          </button>
-        )}
-        <div className="flex-1" />
-        <button onClick={onBack} className="btn-ghost">
-          取消
-        </button>
-        <button
-          onClick={handleSave}
-          disabled={!valid || saving}
-          className="btn-primary"
-        >
-          <SaveIcon className="w-4 h-4" />
-          {saving ? "保存中…" : "保存"}
-        </button>
-      </footer>
-    </Modal>
+    </DialogShell>
+    {forceResyncAgents && existing && (
+      <ReviewDialog
+        title="覆盖手动修改"
+        subtitle={`${existing.name} · ${transportOf(existing)}`}
+        confirmLabel="强制覆盖"
+        onClose={() => setForceResyncAgents(null)}
+        onConfirm={handleForceResync}
+      >
+        <p><strong>{forceResyncAgents.length} 个 Agent</strong> 的 MCP 配置已被手动修改：</p>
+        <p>{forceResyncAgents.join("、")}</p>
+        <p>继续会用当前保存配置覆盖这些字段；写入前仍会创建备份。</p>
+      </ReviewDialog>
+    )}
+    </>
   );
 }

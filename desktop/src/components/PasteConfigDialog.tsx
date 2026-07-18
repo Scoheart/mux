@@ -1,7 +1,7 @@
 import { useState } from "react";
 import type { InstallState } from "../hooks/useInstallState";
 import { useToast } from "./Toast";
-import { Modal, ModalHeader } from "./ui";
+import { DialogShell } from "./DialogShell";
 import { formatError } from "../lib/format";
 
 const EXAMPLE = `{
@@ -42,17 +42,26 @@ export function PasteConfigDialog({
   };
 
   return (
-    <Modal width={560} maxHeight="86vh" onClose={onClose}>
-        <ModalHeader
-          glyph="⧉"
+    <DialogShell
+          kind="editor"
+          size="md"
           title="粘贴配置"
           subtitle={
             <>
               粘贴一段 <code style={{ fontFamily: "var(--font-mono)" }}>mcpServers</code> 配置，server 加入「手动添加」。
             </>
           }
+          busy={busy}
           onClose={onClose}
-        />
+          footerEnd={
+            <>
+              <button onClick={onClose} disabled={busy} className="btn-ghost">取消</button>
+              <button disabled={!text.trim() || busy} onClick={submit} className="btn-primary">
+                {busy ? "识别中…" : "识别并添加"}
+              </button>
+            </>
+          }
+        >
 
         <div className="flex-1 overflow-y-auto px-6 py-5">
           <textarea
@@ -75,12 +84,6 @@ export function PasteConfigDialog({
           />
         </div>
 
-        <div className="flex items-center justify-end gap-2 px-6 py-4" style={{ borderTop: "1px solid var(--border-hairline)" }}>
-          <button onClick={onClose} className="btn-ghost">取消</button>
-          <button disabled={!text.trim() || busy} onClick={submit} className="btn-primary">
-            {busy ? "识别中…" : "识别并添加"}
-          </button>
-        </div>
-    </Modal>
+    </DialogShell>
   );
 }

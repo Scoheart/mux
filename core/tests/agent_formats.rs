@@ -129,7 +129,7 @@ fn codex_update_preserves_tool_policy_and_uses_http_headers() {
         .unwrap();
 
     let written = std::fs::read_to_string(&path).unwrap();
-    let root: toml::Value = written.parse().unwrap();
+    let root: toml::Value = toml::from_str(&written).unwrap();
     let target = &root["mcp_servers"]["figma"];
     assert_eq!(root["model"].as_str(), Some("gpt-private"));
     assert_eq!(root["history"]["persistence"].as_str(), Some("save-all"));
@@ -161,7 +161,7 @@ fn grok_build_update_preserves_models_auth_and_mcp_policy() {
         .unwrap();
 
     let written = std::fs::read_to_string(&path).unwrap();
-    let root: toml::Value = written.parse().unwrap();
+    let root: toml::Value = toml::from_str(&written).unwrap();
     let target = &root["mcp_servers"]["docs"];
     assert_eq!(root["models"]["default"].as_str(), Some("private"));
     assert_eq!(
@@ -769,7 +769,7 @@ timeout = 42 # keep policy
         .unwrap();
 
     let written = std::fs::read_to_string(&path).unwrap();
-    let root: toml::Value = written.parse().unwrap();
+    let root: toml::Value = toml::from_str(&written).unwrap();
     let target = &root["mcp_servers"][0];
     assert!(written.contains("# keep root"));
     assert!(written.contains("# keep policy"));

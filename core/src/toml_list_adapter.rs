@@ -198,10 +198,8 @@ impl TomlListAdapter {
     }
 
     fn semantic_entries(&self, document: &Document) -> Result<Vec<Value>, String> {
-        let semantic = document
-            .to_string()
-            .parse::<Toml>()
-            .map_err(|error| error.to_string())?;
+        let semantic =
+            toml::from_str::<Toml>(&document.to_string()).map_err(|error| error.to_string())?;
         let Some(entries) = semantic.get(&self.key).and_then(Toml::as_array) else {
             return Ok(Vec::new());
         };

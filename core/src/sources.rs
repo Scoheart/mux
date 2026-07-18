@@ -131,7 +131,7 @@ pub fn detect_format(hint: &str, content: &str) -> &'static str {
 /// Reject content that isn't well-formed JSON/TOML before we store it.
 pub fn validate_parseable(content: &str, format: &str) -> Result<(), String> {
     let ok = if format == "toml" {
-        content.parse::<toml::Value>().is_ok()
+        toml::from_str::<toml::Value>(content).is_ok()
     } else {
         serde_json::from_str::<serde_json::Value>(content).is_ok()
     };

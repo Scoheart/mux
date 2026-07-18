@@ -42,7 +42,7 @@ impl TomlAdapter {
     fn read_root(&self, path: &Path) -> Toml {
         fs::read_to_string(path)
             .ok()
-            .and_then(|c| c.parse::<Toml>().ok())
+            .and_then(|content| toml::from_str::<Toml>(&content).ok())
             .filter(Toml::is_table)
             .unwrap_or_else(|| Toml::Table(toml::map::Map::new()))
     }
@@ -255,10 +255,8 @@ impl Adapter for TomlAdapter {
                 name
             ));
         }
-        let semantic = document
-            .to_string()
-            .parse::<Toml>()
-            .map_err(|error| error.to_string())?;
+        let semantic =
+            toml::from_str::<Toml>(&document.to_string()).map_err(|error| error.to_string())?;
         let value = semantic
             .get(&self.key)
             .and_then(Toml::as_table)
@@ -276,10 +274,8 @@ impl Adapter for TomlAdapter {
         snapshot: &serde_json::Value,
     ) -> Result<(), String> {
         let (mut document, original) = self.read_document(path)?;
-        let semantic = document
-            .to_string()
-            .parse::<Toml>()
-            .map_err(|error| error.to_string())?;
+        let semantic =
+            toml::from_str::<Toml>(&document.to_string()).map_err(|error| error.to_string())?;
         let current = semantic
             .get(&self.key)
             .and_then(Toml::as_table)
@@ -416,7 +412,7 @@ mod tests {
         TomlAdapter::new("mcp_servers")
             .upsert(&p, "github", &stdio("npx"))
             .unwrap();
-        let root: Toml = std::fs::read_to_string(&p).unwrap().parse().unwrap();
+        let root: Toml = toml::from_str(&std::fs::read_to_string(&p).unwrap()).unwrap();
         let servers = root.get("mcp_servers").unwrap().as_table().unwrap();
         assert!(servers.contains_key("github"));
         assert_eq!(servers["mine"]["cwd"].as_str(), Some("/tmp")); // preserved
@@ -513,7 +509,7 @@ command = "keep"
         adapter.remove(&p, &["git".to_string()]).unwrap();
         adapter.restore(&p, "git", &snapshot).unwrap();
 
-        let written: Toml = std::fs::read_to_string(&p).unwrap().parse().unwrap();
+        let written: Toml = toml::from_str(&std::fs::read_to_string(&p).unwrap()).unwrap();
         assert_eq!(written["model"].as_str(), Some("gpt-private"));
         assert_eq!(
             written["mcp_servers"]["sibling"]["command"].as_str(),

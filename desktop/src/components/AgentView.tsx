@@ -7,7 +7,7 @@ import type {
   ModelProfileView,
   ModelProtocol,
   RegistryEntry,
-  SkillNavigationRequest,
+  ResourceNavigationRequest,
 } from "../lib/types";
 import { formatError } from "../lib/format";
 import { keyOf, transportLabel, installedKey, transportOf } from "../lib/mcp";
@@ -32,13 +32,17 @@ import { AgentGlyph } from "./brandIcons";
 import { AddAgentDialog } from "./AddAgentDialog";
 import { AgentSkillsSection } from "./AgentSkillsSection";
 import { useToast } from "./Toast";
+import { AgentResourcePanel, type AgentResourceTab } from "./AgentResourcePanel";
 
 interface AgentViewProps {
   state: InstallState;
   skillsState: SkillsState;
   agentId: string;
-  onOpenModels: () => void;
-  onOpenSkills(request: SkillNavigationRequest): void;
+  onOpenResource?(request: ResourceNavigationRequest): void;
+  /** Transitional test adapter; production uses onOpenResource. */
+  onOpenModels?: () => void;
+  /** Transitional test adapter; production uses onOpenResource. */
+  onOpenSkills?: (request: Extract<ResourceNavigationRequest, { domain: "skill" }>) => void;
 }
 
 function syntheticEntry(serverKey: string): RegistryEntry {
@@ -67,6 +71,7 @@ export function AgentView({
   state,
   skillsState,
   agentId,
+  onOpenResource,
   onOpenModels,
   onOpenSkills,
 }: AgentViewProps) {
@@ -82,6 +87,12 @@ export function AgentView({
   const [modelsLoading, setModelsLoading] = useState(true);
   const [modelsError, setModelsError] = useState<string | null>(null);
   const [applyingModel, setApplyingModel] = useState(false);
+  const [resourceTab, setResourceTab] = useState<AgentResourceTab>("mcps");
+  const navigateResource = useCallback((request: ResourceNavigationRequest) => {
+    if (onOpenResource) return onOpenResource(request);
+    if (request.domain === "skill") return onOpenSkills?.(request);
+    if (request.domain === "model") return onOpenModels?.();
+  }, [onOpenModels, onOpenResource, onOpenSkills]);
 
   const agent = useMemo(() => agents.find((item) => item.id === agentId) ?? null, [agents, agentId]);
 
@@ -258,6 +269,16 @@ export function AgentView({
             : runtimeSkillAgent.affected_agent_ids.length > 1
               ? `用户级目录 · 共享影响 ${runtimeSkillAgent.affected_agent_ids.length} 个 Agent`
               : "用户级目录 · 已检测";
+  const skillTargetIds = new Set(
+    skillsState.inventory?.targets
+      .filter((target) => target.affected_agent_ids.includes(agentId))
+      .map((target) => target.target_id) ?? [],
+  );
+  const assignedSkillCount = skillsState.inventory?.items.filter(
+    (item) =>
+      item.location.kind === "central" &&
+      item.assigned_target_ids.some((targetId) => skillTargetIds.has(targetId)),
+  ).length ?? 0;
 
   return (
     <div className="mux-agent-page">
@@ -272,20 +293,14 @@ export function AgentView({
           <div className="mux-agent-section-head">
             <div>
               <h3 id="agent-files-title">配置位置</h3>
-              <p>Model、MCP 与 Skills 使用的用户级配置入口。</p>
+              <p>MCP、Model 与 Skills 使用的用户级配置入口。</p>
             </div>
             {modelRelationship && <Badge tone="info">{modelRelationship}</Badge>}
           </div>
           <div className="mux-agent-file-map">
             <ConfigPath
-              icon={<LayersIcon className="w-4 h-4" />}
-              label="Model"
-              description={modelDescription}
-              path={modelAgent?.config_path ?? null}
-            />
-            <ConfigPath
               icon={<PackageIcon className="w-4 h-4" />}
-              label="MCP"
+              label="MCPs"
               description={`${agent.key} · ${agent.format.toUpperCase()}`}
               path={mcpConfigPath}
               action={
@@ -293,6 +308,12 @@ export function AgentView({
                   <EditIcon className="w-4 h-4" />
                 </IconButton>
               }
+            />
+            <ConfigPath
+              icon={<LayersIcon className="w-4 h-4" />}
+              label="Models"
+              description={modelDescription}
+              path={modelAgent?.config_path ?? null}
             />
             <ConfigPath
               icon={<SparklesIcon className="w-4 h-4" />}
@@ -303,7 +324,13 @@ export function AgentView({
           </div>
         </section>
 
-        <section className="mux-agent-section" aria-labelledby="agent-model-title">
+        <AgentResourcePanel
+          value={resourceTab}
+          onChange={setResourceTab}
+          counts={{ mcps: installedEntries.length, models: compatibleProfiles.length, skills: assignedSkillCount }}
+        >
+        {resourceTab === "models" ? (
+        <section className="mux-agent-section mux-agent-resource-content" aria-labelledby="agent-model-title">
           <div className="mux-agent-section-head">
             <div>
               <h3 id="agent-model-title">Model</h3>
@@ -321,18 +348,19 @@ export function AgentView({
             applying={applyingModel}
             onSelect={setSelectedProfileId}
             onApply={() => void handleApplyModel()}
-            onOpenModels={onOpenModels}
+            onOpenModels={() => navigateResource({ domain: "model", kind: "create" })}
+            onOpenModelDetail={(profileId) => navigateResource({ domain: "model", kind: "detail", profileId })}
           />
         </section>
-
+        ) : resourceTab === "skills" ? (
         <AgentSkillsSection
           key={agentId}
           agentId={agentId}
           state={skillsState}
-          onOpenSkills={onOpenSkills}
+          onOpenSkills={navigateResource}
         />
-
-        <section className="mux-agent-section" aria-labelledby="agent-mcp-title">
+        ) : (
+        <section className="mux-agent-section mux-agent-resource-content" aria-labelledby="agent-mcp-title">
           <div className="mux-agent-section-head mux-agent-mcp-head">
             <div>
               <h3 id="agent-mcp-title">MCP</h3>
@@ -433,6 +461,18 @@ export function AgentView({
                       }}
                     />
                     <IconButton
+                      title={`查看 ${entry.name} 详情`}
+                      disabled={isPending}
+                      onClick={() => navigateResource({
+                        domain: "mcp",
+                        kind: "detail",
+                        name: entry.name,
+                        transport: transportOf(entry),
+                      })}
+                    >
+                      <LinkIcon className="w-4 h-4" />
+                    </IconButton>
+                    <IconButton
                       title="删除 MCP"
                       disabled={isPending}
                       onClick={() => {
@@ -447,6 +487,8 @@ export function AgentView({
             </div>
           )}
         </section>
+        )}
+        </AgentResourcePanel>
       </div>
 
       {editingAgent && (
@@ -540,6 +582,7 @@ function ModelAssignment({
   onSelect,
   onApply,
   onOpenModels,
+  onOpenModelDetail,
 }: {
   loading: boolean;
   agent: ModelAgentView | null;
@@ -551,6 +594,7 @@ function ModelAssignment({
   onSelect: (profileId: string) => void;
   onApply: () => void;
   onOpenModels: () => void;
+  onOpenModelDetail: (profileId: string) => void;
 }) {
   if (loading) return <div className="mux-agent-inline-state">读取模型配置…</div>;
 
@@ -600,6 +644,11 @@ function ModelAssignment({
           <code>{currentProfile?.model ?? "尚未应用模型配置"}</code>
         </div>
         {!agent.installed && <Badge tone="warning">未检测到应用</Badge>}
+        {currentProfile && (
+          <IconButton title={`查看 ${currentProfile.name} 详情`} onClick={() => onOpenModelDetail(currentProfile.id)}>
+            <LinkIcon className="w-4 h-4" />
+          </IconButton>
+        )}
       </div>
       <div className="mux-agent-model-apply">
         <label htmlFor={`model-profile-${agent.id}`}>应用模型</label>

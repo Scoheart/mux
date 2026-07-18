@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import {
   applyModelProfile,
@@ -12,6 +12,7 @@ import type {
   ModelProfile,
   ModelProfileView,
   ModelProtocol,
+  ResourceNavigationIntent,
 } from "../lib/types";
 import { formatError } from "../lib/format";
 import { AgentGlyph } from "./brandIcons";
@@ -61,7 +62,13 @@ function protocolLabel(protocol: ModelProtocol) {
   return PROTOCOLS.find((item) => item.id === protocol)?.label ?? protocol;
 }
 
-export function ModelsView() {
+export function ModelsView({
+  intent,
+  onIntentConsumed,
+}: {
+  intent?: Extract<ResourceNavigationIntent, { domain: "model" }>;
+  onIntentConsumed?(id: number): void;
+} = {}) {
   const [profiles, setProfiles] = useState<ModelProfileView[]>([]);
   const [agents, setAgents] = useState<ModelAgentView[]>([]);
   const [selectedProfileId, setSelectedProfileId] = useState<string | null>(null);
@@ -73,6 +80,7 @@ export function ModelsView() {
   const [statusFilter, setStatusFilter] = useState<ModelStatusFilter>("all");
   const [protocolFilter, setProtocolFilter] = useState<ModelProtocol | null>(null);
   const toast = useToast();
+  const lastConsumedIntentId = useRef<number | null>(null);
 
   const refresh = useCallback(async () => {
     const [nextProfiles, nextAgents] = await Promise.all([
@@ -143,6 +151,23 @@ export function ModelsView() {
   }, [agentsByProfile, profiles, protocolFilter, query, statusFilter]);
 
   const selectedProfile = profiles.find((profile) => profile.id === selectedProfileId) ?? null;
+
+  useEffect(() => {
+    if (!intent || loading || lastConsumedIntentId.current === intent.id) return;
+    lastConsumedIntentId.current = intent.id;
+    if (intent.kind === "create") {
+      setEditing(null);
+      onIntentConsumed?.(intent.id);
+      return;
+    }
+    const profile = profiles.find((candidate) => candidate.id === intent.profileId);
+    setQuery("");
+    setProtocolFilter(null);
+    setStatusFilter("all");
+    setSelectedProfileId(profile?.id ?? null);
+    if (!profile) toast.show({ kind: "error", msg: `未找到模型“${intent.profileId}”。` });
+    onIntentConsumed?.(intent.id);
+  }, [intent, loading, onIntentConsumed, profiles, toast]);
 
   const changeQuery = (value: string) => {
     setSelectedProfileId(null);

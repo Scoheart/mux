@@ -1145,6 +1145,24 @@ body {
 .mux-agent-file-copy > div span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-secondary); font-size: 9px; }
 .mux-agent-file-copy code { display: block; margin-top: 10px; overflow-wrap: anywhere; color: var(--text-primary); font: 10px/1.45 var(--font-mono); }
 .mux-agent-file-unavailable { display: block; margin-top: 10px; color: var(--text-secondary); font-size: 10px; }
+.mux-agent-resource-panel { margin-top: 18px; overflow: hidden; border: 1px solid var(--border-hairline); border-radius: 9px; background: var(--surface-raised); }
+.mux-agent-resource-panel-head {
+  display: flex; min-height: 68px; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 14px;
+  border-bottom: 1px solid var(--border-hairline); background: var(--surface-app);
+}
+.mux-agent-resource-panel-head h3 { margin: 0; color: var(--text-primary); font-size: 13px; font-weight: 690; }
+.mux-agent-resource-panel-head p { margin: 4px 0 0; color: var(--text-secondary); font-size: 10px; }
+.mux-agent-resource-tabs { display: flex; align-items: center; gap: 3px; padding: 3px; border: 1px solid var(--border-hairline); border-radius: 8px; background: var(--surface-raised); }
+.mux-agent-resource-tabs button {
+  display: inline-flex; height: 30px; align-items: center; gap: 6px; padding: 0 9px; border: 0; border-radius: 6px;
+  background: transparent; color: var(--text-secondary); font: 620 10px/1 var(--font-sans); cursor: pointer;
+}
+.mux-agent-resource-tabs button > span:last-child { min-width: 15px; color: inherit; font-variant-numeric: tabular-nums; text-align: right; }
+.mux-agent-resource-tabs button[data-active="true"] { background: color-mix(in srgb, var(--color-blue) 11%, var(--surface-raised)); color: var(--color-blue); }
+.mux-agent-resource-tabs button:focus-visible { outline: 2px solid color-mix(in srgb, var(--color-blue) 52%, transparent); outline-offset: 1px; }
+.mux-agent-resource-panel-body { min-height: 220px; padding: 0 14px 14px; }
+.mux-agent-resource-content,
+.mux-agent-resource-panel-body > .mux-agent-skills { padding-top: 16px; padding-bottom: 0; border-top: 0; }
 .mux-agent-model-control { display: grid; grid-template-columns: minmax(250px, .8fr) minmax(390px, 1.2fr); overflow: hidden; border: 1px solid var(--border-hairline); border-radius: 8px; background: var(--surface-raised); }
 .mux-agent-model-current { display: flex; min-width: 0; align-items: center; gap: 10px; padding: 14px; border-right: 1px solid var(--border-hairline); }
 .mux-agent-model-current > div { min-width: 0; flex: 1; }
@@ -1318,6 +1336,9 @@ body {
   .mux-agent-file-row + .mux-agent-file-row { border-top: 1px solid var(--border-hairline); border-left: 0; }
   .mux-agent-model-current { border-right: 0; border-bottom: 1px solid var(--border-hairline); }
   .mux-agent-mcp-grid { grid-template-columns: minmax(0, 1fr); }
+  .mux-agent-resource-panel-head { align-items: stretch; flex-direction: column; }
+  .mux-agent-resource-tabs { align-self: stretch; overflow-x: auto; }
+  .mux-agent-resource-tabs button { flex: 1 0 auto; justify-content: center; }
 }
 
 @media (prefers-reduced-motion: reduce) {

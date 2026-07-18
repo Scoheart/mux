@@ -1,6 +1,6 @@
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import type { InstallState } from "../hooks/useInstallState";
-import type { RegistryEntry, RegistryOrigin, CatalogItem } from "../lib/types";
+import type { RegistryEntry, RegistryOrigin, CatalogItem, ResourceNavigationIntent } from "../lib/types";
 import { keyOf, transportOf, type Transport } from "../lib/mcp";
 import { exportEffectiveDialog, forgetEntry } from "../lib/api";
 import { formatError } from "../lib/format";
@@ -38,6 +38,8 @@ import {
 
 interface RegistryViewProps {
   state: InstallState;
+  intent?: Extract<ResourceNavigationIntent, { domain: "mcp" }>;
+  onIntentConsumed?(id: number): void;
   onEdit: (name: string, transport: Transport) => void;
   onCreate: () => void;
 }
@@ -138,7 +140,7 @@ function originLabel(origin: RegistryOrigin | undefined, sourceName: (id: string
   return label || (origin.kind === "remote" ? "订阅" : "本地");
 }
 
-export function RegistryView({ state, onEdit, onCreate }: RegistryViewProps) {
+export function RegistryView({ state, intent, onIntentConsumed, onEdit, onCreate }: RegistryViewProps) {
   const { catalog, entries, agentsForServer, sources } = state;
   const toast = useToast();
 
@@ -149,6 +151,7 @@ export function RegistryView({ state, onEdit, onCreate }: RegistryViewProps) {
   const [statusFilter, setStatusFilter] = useState<McpStatusFilter>("all");
   const [detail, setDetail] = useState<CatalogItem | null>(null);
   const [pasteOpen, setPasteOpen] = useState(false);
+  const lastConsumedIntentId = useRef<number | null>(null);
 
   const sourceName = useCallback(
     (id: string) => sources.find((s) => s.id === id)?.name ?? id,
@@ -212,6 +215,31 @@ export function RegistryView({ state, onEdit, onCreate }: RegistryViewProps) {
     }
     return scoped;
   }, [agentsForServer, scoped, statusFilter]);
+
+  useEffect(() => {
+    if (!intent || state.loading || lastConsumedIntentId.current === intent.id) return;
+    lastConsumedIntentId.current = intent.id;
+    if (intent.kind === "create") {
+      setDetail(null);
+      onCreate();
+      onIntentConsumed?.(intent.id);
+      return;
+    }
+    const item = catalog.find(
+      (candidate) =>
+        candidate.entry.name === intent.name &&
+        transportOf(candidate.entry) === intent.transport &&
+        candidate.in_effect,
+    ) ?? catalog.find(
+      (candidate) => candidate.entry.name === intent.name && transportOf(candidate.entry) === intent.transport,
+    );
+    setQ("");
+    setSelectedSource(null);
+    setStatusFilter("all");
+    setDetail(item ?? null);
+    if (!item) toast.show({ kind: "error", msg: `未找到 MCP“${intent.name}”。` });
+    onIntentConsumed?.(intent.id);
+  }, [catalog, intent, onCreate, onIntentConsumed, state.loading, toast]);
 
   const changeQuery = (value: string) => {
     setDetail(null);

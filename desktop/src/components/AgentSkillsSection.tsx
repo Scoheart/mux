@@ -128,7 +128,7 @@ export function AgentSkillsSection({
     planningName !== null ||
     assignmentReview !== null ||
     state.pendingOperation !== null;
-  const addSkill = () => onOpenSkills({ kind: "install", agentId });
+  const addSkill = () => onOpenSkills({ domain: "skill", kind: "install", agentId });
   const retry = () => {
     void state.refresh().catch(() => undefined);
   };
@@ -375,7 +375,7 @@ export function AgentSkillsSection({
                 <button
                   type="button"
                   className="btn-ghost"
-                  onClick={() => onOpenSkills({ kind: "detail", skillName: item.name })}
+                  onClick={() => onOpenSkills({ domain: "skill", kind: "detail", skillName: item.name })}
                 >
                   查看 {item.name} 详情
                 </button>

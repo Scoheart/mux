@@ -14,6 +14,7 @@ import type { SkillsState } from "../hooks/useSkillsState";
 import type {
   SkillDetail,
   SkillInventoryItem,
+  ResourceNavigationRequest,
   SkillsInventory,
   UpdateCheckOutcome,
 } from "../lib/types";
@@ -69,13 +70,7 @@ vi.mock("./AgentView", () => ({
   AgentView: (props: {
     agentId: string;
     skillsState?: SkillsState;
-    onOpenSkills?: (request: {
-      kind: "detail";
-      skillName: string;
-    } | {
-      kind: "install";
-      agentId: string;
-    }) => void;
+    onOpenResource?: (request: ResourceNavigationRequest) => void;
   }) => {
     appMocks.agentViewProps(props);
     return (
@@ -84,7 +79,7 @@ vi.mock("./AgentView", () => ({
         <button
           type="button"
           onClick={() =>
-            props.onOpenSkills?.({ kind: "detail", skillName: "review-changes" })
+            props.onOpenResource?.({ domain: "skill", kind: "detail", skillName: "review-changes" })
           }
         >
           查看 Agent Skill
@@ -92,7 +87,7 @@ vi.mock("./AgentView", () => ({
         <button
           type="button"
           onClick={() =>
-            props.onOpenSkills?.({ kind: "install", agentId: props.agentId })
+            props.onOpenResource?.({ domain: "skill", kind: "install", agentId: props.agentId })
           }
         >
           为 Agent 添加 Skill
@@ -457,7 +452,7 @@ describe("SkillsView", () => {
           },
           refresh,
         })}
-        intent={{ id: 41, kind: "install", agentId: "codex" }}
+        intent={{ id: 41, domain: "skill", kind: "install", agentId: "codex" }}
         onIntentConsumed={onIntentConsumed}
       />,
     );
@@ -481,7 +476,7 @@ describe("SkillsView", () => {
     const { rerender } = render(
       <SkillsView
         state={initialState}
-        intent={{ id: 42, kind: "install", agentId: "codex" }}
+        intent={{ id: 42, domain: "skill", kind: "install", agentId: "codex" }}
         onIntentConsumed={vi.fn()}
       />,
     );
@@ -589,7 +584,7 @@ describe("SkillsView", () => {
 
   it("waits for inventory, consumes a detail intent once, and opens only a managed central Skill", async () => {
     const onIntentConsumed = vi.fn();
-    const intent = { id: 17, kind: "detail" as const, skillName: "review-changes" };
+    const intent = { id: 17, domain: "skill" as const, kind: "detail" as const, skillName: "review-changes" };
     const { rerender } = render(
       <SkillsView
         state={stateWith(null, { loading: true })}
@@ -639,7 +634,7 @@ describe("SkillsView", () => {
     render(
       <SkillsView
         state={stateWith(inventory)}
-        intent={{ id: 23, kind: "detail", skillName }}
+        intent={{ id: 23, domain: "skill", kind: "detail", skillName }}
         onIntentConsumed={onIntentConsumed}
       />,
     );
@@ -667,7 +662,7 @@ describe("SkillsView", () => {
       render(
         <SkillsView
           state={stateWith(inventory)}
-          intent={{ id: 29, kind: "detail", skillName }}
+          intent={{ id: 29, domain: "skill", kind: "detail", skillName }}
           onIntentConsumed={onIntentConsumed}
         />,
       );
@@ -698,6 +693,7 @@ describe("SkillsView", () => {
         state={stateWith(inventory)}
         intent={{
           id: 30,
+          domain: "skill",
           kind: "detail",
           skillName: "assigned-external-anomaly",
         }}
@@ -715,7 +711,7 @@ describe("SkillsView", () => {
     render(
       <SkillsView
         state={skillsStateFixture()}
-        intent={{ id: 30, kind: "detail", skillName: "missing-skill" }}
+        intent={{ id: 30, domain: "skill", kind: "detail", skillName: "missing-skill" }}
         onIntentConsumed={vi.fn()}
       />,
     );
@@ -735,7 +731,7 @@ describe("SkillsView", () => {
     const { rerender } = render(
       <SkillsView
         state={skillsStateFixture()}
-        intent={{ id: 31, kind: "install", agentId: "codex" }}
+        intent={{ id: 31, domain: "skill", kind: "install", agentId: "codex" }}
         onIntentConsumed={onIntentConsumed}
       />,
     );
@@ -747,7 +743,7 @@ describe("SkillsView", () => {
     rerender(
       <SkillsView
         state={skillsStateFixture()}
-        intent={{ id: 32, kind: "install", agentId: "cursor" }}
+        intent={{ id: 32, domain: "skill", kind: "install", agentId: "cursor" }}
         onIntentConsumed={onIntentConsumed}
       />,
     );
@@ -819,14 +815,11 @@ describe("App Skills routing", () => {
       expect.objectContaining({
         agentId: "agent-1",
         skillsState,
-        onOpenSkills: expect.any(Function),
+        onOpenResource: expect.any(Function),
       }),
     );
-    const openSkills = appMocks.agentViewProps.mock.calls.at(-1)?.[0]
-      .onOpenSkills as (request: {
-        kind: "detail";
-        skillName: string;
-      }) => void;
+    const openResource = appMocks.agentViewProps.mock.calls.at(-1)?.[0]
+      .onOpenResource as (request: ResourceNavigationRequest) => void;
 
     await user.click(screen.getByRole("button", { name: "查看 Agent Skill" }));
     const inspector = await screen.findByLabelText("review-changes 详情");
@@ -836,7 +829,7 @@ describe("App Skills routing", () => {
     );
     expect(screen.queryByLabelText("review-changes 详情")).not.toBeInTheDocument();
 
-    act(() => openSkills({ kind: "detail", skillName: "review-changes" }));
+    act(() => openResource({ domain: "skill", kind: "detail", skillName: "review-changes" }));
     expect(await screen.findByLabelText("review-changes 详情")).toBeVisible();
     expect(
       appMocks.useSkillsState.mock.results

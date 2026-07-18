@@ -2,7 +2,7 @@ import { useState } from "react";
 import { addAgent, updateAgent } from "../lib/api";
 import type { AgentDefinitionInput, AgentInfo } from "../lib/types";
 import { useToast } from "./Toast";
-import { Modal, ModalHeader } from "./ui";
+import { DialogShell } from "./DialogShell";
 import { formatError } from "../lib/format";
 
 const FORMATS = [
@@ -78,13 +78,22 @@ export function AddAgentDialog({
   } as const;
 
   return (
-    <Modal width={520} onClose={onClose}>
-      <ModalHeader
-        glyph={isEdit ? "✎" : "+"}
+    <DialogShell
+        kind="editor"
+        size="md"
         title={schemaLocked ? "编辑全局路径" : isEdit ? "编辑 Agent" : "添加 Agent"}
         subtitle={existing?.name ?? "自定义 Agent"}
+        busy={busy}
         onClose={onClose}
-      />
+        footerEnd={
+          <>
+            <button onClick={onClose} disabled={busy} className="btn-ghost">取消</button>
+            <button disabled={!canSubmit} onClick={submit} className="btn-primary">
+              {busy ? (isEdit ? "保存中…" : "添加中…") : isEdit ? "保存" : "添加"}
+            </button>
+          </>
+        }
+      >
 
       {/* Body */}
       <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
@@ -166,18 +175,6 @@ export function AddAgentDialog({
 
       </div>
 
-      {/* Footer */}
-      <div
-        className="flex items-center justify-end gap-2 px-6 py-4"
-        style={{ borderTop: "1px solid var(--border-hairline)" }}
-      >
-        <button onClick={onClose} className="btn-ghost">
-          取消
-        </button>
-        <button disabled={!canSubmit} onClick={submit} className="btn-primary">
-          {busy ? (isEdit ? "保存中…" : "添加中…") : isEdit ? "保存" : "添加"}
-        </button>
-      </div>
-    </Modal>
+    </DialogShell>
   );
 }

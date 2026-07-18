@@ -1,7 +1,7 @@
 import { useState } from "react";
 import type { InstallState } from "../hooks/useInstallState";
 import { useToast } from "./Toast";
-import { Modal, ModalHeader } from "./ui";
+import { DialogShell } from "./DialogShell";
 import { formatError } from "../lib/format";
 
 /** Official curated collection preset for the shared subscription flow. */
@@ -46,13 +46,22 @@ export function SubscribeDialog({
   } as const;
 
   return (
-    <Modal width={520} onClose={onClose}>
-        <ModalHeader
-          glyph="☁"
-          title="添加订阅"
-          subtitle="输入 MCP 配置 URL，或使用 Mux 精选。"
-          onClose={onClose}
-        />
+    <DialogShell
+      kind="editor"
+      size="md"
+      title="添加订阅"
+      subtitle="输入 MCP 配置 URL，或使用 Mux 精选。"
+      busy={busy}
+      onClose={onClose}
+      footerEnd={
+        <>
+          <button onClick={onClose} disabled={busy} className="btn-ghost">取消</button>
+          <button disabled={!canSubmit} onClick={submit} className="btn-primary">
+            {busy ? "订阅中…" : "订阅"}
+          </button>
+        </>
+      }
+    >
 
         {/* Body */}
         <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
@@ -96,13 +105,6 @@ export function SubscribeDialog({
           </div>
         </div>
 
-        {/* Footer */}
-        <div className="flex items-center justify-end gap-2 px-6 py-4" style={{ borderTop: "1px solid var(--border-hairline)" }}>
-          <button onClick={onClose} className="btn-ghost">取消</button>
-          <button disabled={!canSubmit} onClick={submit} className="btn-primary">
-            {busy ? "订阅中…" : "订阅"}
-          </button>
-        </div>
-    </Modal>
+    </DialogShell>
   );
 }

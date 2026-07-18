@@ -1097,7 +1097,7 @@ dependencies = [
 
 [[package]]
 name = "mux-cli"
-version = "1.3.0"
+version = "1.4.0"
 dependencies = [
  "clap",
  "crossterm",
@@ -1109,7 +1109,7 @@ dependencies = [
 
 [[package]]
 name = "mux-core"
-version = "1.3.0"
+version = "1.4.0"
 dependencies = [
  "chrono",
  "dirs",

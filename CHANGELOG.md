@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.4.0](https://github.com/Scoheart/mux/compare/v1.3.0...v1.4.0) (2026-07-18)
+
+
+### Features
+
+* **consumption:** centralize agent asset consumption ([d7723e8](https://github.com/Scoheart/mux/commit/d7723e89ea3a841fb79eef4b6232a07ea8066a09))
+
+
+### Bug Fixes
+
+* **core:** migrate TOML document parsing ([c81a6da](https://github.com/Scoheart/mux/commit/c81a6da636fb96e133f5d8bae2bf6d960f7ad089))
+
 ## [1.3.0](https://github.com/Scoheart/mux/compare/v1.2.20...v1.3.0) (2026-07-18)
 
 

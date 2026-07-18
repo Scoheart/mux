@@ -100,19 +100,23 @@ export interface PatchInput {
   args?: string[]; env?: Record<string, string>; url?: string; headers?: Record<string, string>;
 }
 
-export type SkillNavigationRequest =
-  | { kind: "detail"; skillName: string }
-  | { kind: "install"; agentId: string };
+export type ResourceNavigationRequest =
+  | { domain: "mcp"; kind: "detail"; name: string; transport: string }
+  | { domain: "mcp"; kind: "create" }
+  | { domain: "model"; kind: "detail"; profileId: string }
+  | { domain: "model"; kind: "create" }
+  | { domain: "skill"; kind: "detail"; skillName: string }
+  | { domain: "skill"; kind: "install"; agentId: string };
 
-export type SkillNavigationIntent =
-  | { id: number; kind: "detail"; skillName: string }
-  | { id: number; kind: "install"; agentId: string };
+export type ResourceNavigationIntent = ResourceNavigationRequest & { id: number };
+export type SkillNavigationRequest = Extract<ResourceNavigationRequest, { domain: "skill" }>;
+export type SkillNavigationIntent = Extract<ResourceNavigationIntent, { domain: "skill" }>;
 
 /** Top-level GUI view. Resource editors are overlays and intentionally remain
  *  outside navigation state so the app chrome never disappears. */
 export type View =
-  | { kind: "registry" }
-  | { kind: "models" }
+  | { kind: "registry"; intent?: Extract<ResourceNavigationIntent, { domain: "mcp" }> }
+  | { kind: "models"; intent?: Extract<ResourceNavigationIntent, { domain: "model" }> }
   | { kind: "skills"; intent?: SkillNavigationIntent }
   | { kind: "agent"; id: string };
 

@@ -1,6 +1,6 @@
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import type { InstallState } from "../hooks/useInstallState";
-import type { RegistryEntry, RegistryOrigin, CatalogItem } from "../lib/types";
+import type { RegistryEntry, RegistryOrigin, CatalogItem, ResourceNavigationIntent } from "../lib/types";
 import { keyOf, transportOf, type Transport } from "../lib/mcp";
 import { exportEffectiveDialog, forgetEntry } from "../lib/api";
 import { formatError } from "../lib/format";
@@ -22,13 +22,15 @@ import {
   TrashIcon,
 } from "./icons";
 import { Avatar, Badge, IconButton, TransportPill } from "./ui";
+import { ResourceCard } from "./ResourceCard";
+import { ResourceState } from "./ResourceState";
+import { ReviewDialog } from "./ReviewDialog";
 import { useToast } from "./Toast";
 import { PasteConfigDialog } from "./PasteConfigDialog";
 import {
   AgentStack,
   InspectorField,
   InspectorSection,
-  ResourceEmpty,
   ResourceGrid,
   ResourceInspector,
   ResourceTabs,
@@ -37,6 +39,8 @@ import {
 
 interface RegistryViewProps {
   state: InstallState;
+  intent?: Extract<ResourceNavigationIntent, { domain: "mcp" }>;
+  onIntentConsumed?(id: number): void;
   onEdit: (name: string, transport: Transport) => void;
   onCreate: () => void;
 }
@@ -137,7 +141,7 @@ function originLabel(origin: RegistryOrigin | undefined, sourceName: (id: string
   return label || (origin.kind === "remote" ? "订阅" : "本地");
 }
 
-export function RegistryView({ state, onEdit, onCreate }: RegistryViewProps) {
+export function RegistryView({ state, intent, onIntentConsumed, onEdit, onCreate }: RegistryViewProps) {
   const { catalog, entries, agentsForServer, sources } = state;
   const toast = useToast();
 
@@ -148,6 +152,8 @@ export function RegistryView({ state, onEdit, onCreate }: RegistryViewProps) {
   const [statusFilter, setStatusFilter] = useState<McpStatusFilter>("all");
   const [detail, setDetail] = useState<CatalogItem | null>(null);
   const [pasteOpen, setPasteOpen] = useState(false);
+  const [deleteReview, setDeleteReview] = useState<RegistryEntry | null>(null);
+  const lastConsumedIntentId = useRef<number | null>(null);
 
   const sourceName = useCallback(
     (id: string) => sources.find((s) => s.id === id)?.name ?? id,
@@ -212,6 +218,31 @@ export function RegistryView({ state, onEdit, onCreate }: RegistryViewProps) {
     return scoped;
   }, [agentsForServer, scoped, statusFilter]);
 
+  useEffect(() => {
+    if (!intent || state.loading || lastConsumedIntentId.current === intent.id) return;
+    lastConsumedIntentId.current = intent.id;
+    if (intent.kind === "create") {
+      setDetail(null);
+      onCreate();
+      onIntentConsumed?.(intent.id);
+      return;
+    }
+    const item = catalog.find(
+      (candidate) =>
+        candidate.entry.name === intent.name &&
+        transportOf(candidate.entry) === intent.transport &&
+        candidate.in_effect,
+    ) ?? catalog.find(
+      (candidate) => candidate.entry.name === intent.name && transportOf(candidate.entry) === intent.transport,
+    );
+    setQ("");
+    setSelectedSource(null);
+    setStatusFilter("all");
+    setDetail(item ?? null);
+    if (!item) toast.show({ kind: "error", msg: `未找到 MCP“${intent.name}”。` });
+    onIntentConsumed?.(intent.id);
+  }, [catalog, intent, onCreate, onIntentConsumed, state.loading, toast]);
+
   const changeQuery = (value: string) => {
     setDetail(null);
     setQ(value);
@@ -255,19 +286,15 @@ export function RegistryView({ state, onEdit, onCreate }: RegistryViewProps) {
     async (entry: RegistryEntry) => {
       if (!deletable(entry)) return;
       const t = transportOf(entry);
-      if (
-        !window.confirm(
-          `删除「${entry.name}」（${t}）？将从目录移除并从所有 agent 卸载（有备份）。`
-        )
-      )
-        return;
       try {
         await forgetEntry(entry.name, t);
         await Promise.all([state.refreshRegistry(), state.rescan()]);
         setDetail(null);
+        setDeleteReview(null);
         toast.show({ kind: "success", msg: `已删除 ${entry.name}` });
       } catch (e) {
         toast.show({ kind: "error", msg: `删除失败：${String(e)}` });
+        throw e;
       }
     },
     [deletable, state, toast]
@@ -348,17 +375,25 @@ export function RegistryView({ state, onEdit, onCreate }: RegistryViewProps) {
                   }
                 : undefined
             }
-            onDelete={deletable(detail.entry) ? () => deleteEntry(detail.entry) : undefined}
+            onDelete={deletable(detail.entry) ? () => setDeleteReview(detail.entry) : undefined}
           />
         ) : undefined
       }
       onInspectorClose={() => setDetail(null)}
     >
       {filtered.length === 0 ? (
-        <ResourceEmpty
+        <ResourceState
+          kind={catalog.length === 0 ? "empty" : "no-match"}
           icon={<PackageIcon className="w-6 h-6" />}
           title={catalog.length === 0 ? "暂无 MCP" : "没有匹配项"}
-          detail={catalog.length === 0 ? "添加订阅、导入配置或新建 MCP" : undefined}
+          detail={catalog.length === 0 ? "添加订阅、导入配置或新建 MCP" : "调整搜索、来源或状态筛选后重试。"}
+          action={catalog.length === 0 ? undefined : (
+            <button type="button" className="btn-secondary" onClick={() => {
+              setQ("");
+              setSelectedSource(null);
+              setStatusFilter("all");
+            }}>清除筛选</button>
+          )}
         />
       ) : (
         <ResourceGrid>
@@ -374,18 +409,24 @@ export function RegistryView({ state, onEdit, onCreate }: RegistryViewProps) {
                   ? undefined
                   : originLabel(winningOriginByKey.get(keyOf(item.entry)), sourceName)
               }
-              editable={editable(item.entry)}
-              deletable={deletable(item.entry)}
               onOpen={() => setDetail(item)}
-              onCopy={() => copyConfig(item.entry)}
-              onEdit={() => onEdit(item.entry.name, transportOf(item.entry))}
-              onDelete={() => deleteEntry(item.entry)}
             />
           ))}
         </ResourceGrid>
       )}
 
       {pasteOpen && <PasteConfigDialog state={state} onClose={() => setPasteOpen(false)} />}
+      {deleteReview && (
+        <ReviewDialog
+          title="删除 MCP"
+          subtitle={`${deleteReview.name} · ${transportOf(deleteReview)}`}
+          confirmLabel="删除 MCP"
+          onClose={() => setDeleteReview(null)}
+          onConfirm={() => deleteEntry(deleteReview)}
+        >
+          <p>将从目录移除并从所有关联 Agent 卸载。写入前会创建备份，Agent 的其他配置保持不变。</p>
+        </ReviewDialog>
+      )}
     </ResourceWorkspace>
   );
 }
@@ -397,12 +438,7 @@ function RegistryCard({
   installedAgents,
   sourceName,
   overriddenBy,
-  editable,
-  deletable,
   onOpen,
-  onCopy,
-  onEdit,
-  onDelete,
 }: {
   item: CatalogItem;
   selected: boolean;
@@ -410,35 +446,20 @@ function RegistryCard({
   sourceName: (id: string) => string;
   /** Label of the source that takes effect instead — presence marks this copy as shadowed. */
   overriddenBy?: string;
-  editable: boolean;
-  deletable: boolean;
   onOpen: () => void;
-  onCopy: () => void;
-  onEdit: () => void;
-  onDelete: () => void;
 }) {
   const { entry } = item;
   const ep = endpointOf(entry);
   const overridden = !!overriddenBy;
 
   return (
-    <div
-      className="mux-tile p-3"
-      data-state={overridden ? "shadowed" : undefined}
-      data-selected={selected ? "true" : undefined}
-      role="button"
-      tabIndex={0}
-      onClick={onOpen}
-      onKeyDown={(event) => {
-        if (event.target !== event.currentTarget) return;
-        if (event.key === "Enter" || event.key === " ") {
-          event.preventDefault();
-          onOpen();
-        }
-      }}
-    >
-      {/* Header: identity, provenance, and an explicit catalog state. */}
-      <div className="flex items-start gap-2.5">
+    <ResourceCard
+      selected={selected}
+      attention={overridden ? "shadowed" : undefined}
+      ariaLabel={`打开 MCP ${entry.name} 详情`}
+      onOpen={onOpen}
+      identity={
+        <>
         <span className="mux-card-avatar flex-shrink-0">
           <Avatar seed={entry.name} size={34} />
         </span>
@@ -451,26 +472,16 @@ function RegistryCard({
             >
               {entry.name}
             </span>
-            {overridden && (
-              <span
-                className="mux-state-badge"
-                data-state="shadowed"
-                title={`已被覆盖：当前以「${overriddenBy}」为准`}
-              >
-                <LayersIcon className="w-3 h-3" />
-                被覆盖
-              </span>
-            )}
           </div>
           <div className="flex items-center gap-1.5 mt-1 min-w-0">
             <TransportPill entry={entry} />
             <OriginTag entry={entry} installedAgents={installedAgents} sourceName={sourceName} />
           </div>
         </div>
-      </div>
-
-      {/* Endpoint as an inset code strip */}
-      <div className="mux-resource-endpoint">
+        </>
+      }
+      configuration={
+        <div className="mux-resource-endpoint">
         {ep.link ? (
           <LinkIcon className="w-3 h-3 flex-shrink-0" style={{ color: "var(--color-blue)" }} />
         ) : (
@@ -479,46 +490,36 @@ function RegistryCard({
         <span style={{ color: ep.link ? "var(--color-blue)" : undefined }} title={ep.text}>
           {ep.text}
         </span>
-      </div>
-
-      {/* Footer: usage dot + hover actions — pinned to the card bottom so every
-          card in a row lines up (grid stretches them to equal height). */}
-      <div className="mux-resource-card-footer">
-        {overridden ? (
+        </div>
+      }
+      state={
+        <>
+          {overridden ? (
+            <Badge tone="warning"><LayersIcon className="w-3 h-3" />被覆盖</Badge>
+          ) : (
+            <Badge tone="success">生效中</Badge>
+          )}
+          {installedAgents.length > 0 ? (
+            <Badge tone="info">使用中</Badge>
+          ) : (
+            <Badge tone="neutral">未使用</Badge>
+          )}
+        </>
+      }
+      impact={
+        <>
+          <AgentStack ids={installedAgents} />
+          {overridden && (
           <span
-            className="mux-shadowed-source min-w-0 truncate text-[11px]"
+            className="mux-shadowed-source ml-auto min-w-0 truncate text-[10px]"
             title={`当前使用「${overriddenBy}」的配置`}
           >
             以 {overriddenBy} 为准
           </span>
-        ) : <AgentStack ids={installedAgents} />}
-
-        <div
-          className="mux-toolbar flex items-center gap-0.5 rounded-mac px-0.5"
-          style={{ background: "var(--surface-raised)" }}
-          onClick={(e) => e.stopPropagation()}
-        >
-          {entry.repo && (
-            <IconButton title={`打开仓库：${entry.repo}`} onClick={() => openUrl(entry.repo!)}>
-              <LinkIcon className="w-4 h-4" />
-            </IconButton>
           )}
-          <IconButton title="复制配置 JSON" onClick={onCopy}>
-            <CopyIcon className="w-4 h-4" />
-          </IconButton>
-          {editable && (
-            <IconButton title="编辑配置" onClick={onEdit}>
-              <EditIcon className="w-4 h-4" />
-            </IconButton>
-          )}
-          {deletable && (
-            <IconButton title="删除条目（并从所有 agent 卸载）" onClick={onDelete}>
-              <TrashIcon className="w-4 h-4" />
-            </IconButton>
-          )}
-        </div>
-      </div>
-    </div>
+        </>
+      }
+    />
   );
 }
 

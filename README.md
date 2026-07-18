@@ -46,11 +46,11 @@ A one-click **Mux 精选 (curated collection)** subscribes you to a curated set.
 - **Paste a config** — drop a `{"mcpServers": {…}}` block and MUX recognizes the servers and adds them.
 - **Edits propagate** — changing a catalog entry's connection config re-stamps it into every active global install, including drifted copies; failed targets are reported instead of silently counted as synced.
 - **Safe, local writes** — MUX reads and edits only the configured MCP entry on this machine. It never uploads the complete agent config. Existing files are backed up first, then atomically replaced only if they have not changed concurrently; unrelated keys, comments, formatting, servers, policy fields, permissions, and symlinks are preserved.
-- **Unified agent configuration center** — see the verified agent/model path and MCP path together, then assign a compatible model and manage MCPs without switching workflows.
+- **Unified agent configuration center** — manage MCPs, Models, and Skills in the same order as the top-level workspaces, with one focused resource tab visible at a time.
 - **Reusable model endpoints (preview)** — define a protocol, Base URL, model ID, and optional token limits once, then apply compatible profiles from Models or a supported Agent page. API keys are stored only in macOS Keychain.
 - **User-level Skills in Desktop** — install from a public GitHub repository or a native local-folder picker without Git, Node.js, or `npx`; review local risk findings and file changes before assigning one central copy to verified Agents.
 - **CLI ⇄ Desktop in sync for MCP management** — both are built on one shared Rust core (`mux-core`) and read/write `~/.mux/`. Skills use the same core but intentionally have no CLI/TUI entry in this version.
-- **Dark mode** and a compact, consistent resource workspace for MCPs, Models, and Skills.
+- **Dark mode** and a compact, consistent resource workspace for MCPs, Models, and Skills, with shared cards, right-side Inspectors, and review dialogs for consequential actions.
 
 ## Screenshots
 

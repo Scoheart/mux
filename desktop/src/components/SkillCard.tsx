@@ -5,6 +5,7 @@ import type {
   SkillSource,
 } from "../lib/types";
 import { AgentStack } from "./ResourceWorkspace";
+import { ResourceCard } from "./ResourceCard";
 import { Avatar, Badge } from "./ui";
 
 const stateLabels: Record<InventoryState, string> = {
@@ -67,32 +68,23 @@ export function SkillCard({
   onOpen: () => void;
 }) {
   return (
-    <article
-      className="mux-tile mux-skill-card"
-      data-selected={selected ? "true" : undefined}
-      data-risk={item.risk?.level ?? "unreviewed"}
-      role="button"
-      tabIndex={0}
-      aria-label={`打开 Skill ${item.name} 详情`}
-      aria-pressed={selected}
-      onClick={onOpen}
-      onKeyDown={(event) => {
-        if (event.target !== event.currentTarget) return;
-        if (event.key === "Enter" || event.key === " ") {
-          event.preventDefault();
-          onOpen();
-        }
-      }}
-    >
-      <header className="mux-skill-card-head">
+    <ResourceCard
+      className="mux-skill-card"
+      selected={selected}
+      attention={item.risk?.level === "high" ? "danger" : item.update.error ? "warning" : undefined}
+      ariaLabel={`打开 Skill ${item.name} 详情`}
+      onOpen={onOpen}
+      identity={
+        <>
         <Avatar seed={item.name} label="S" size={36} />
         <div className="mux-skill-card-identity">
           <h2 title={item.name}>{item.name}</h2>
           <p>{item.description}</p>
         </div>
-      </header>
-
-      <div className="mux-skill-card-provenance">
+        </>
+      }
+      configuration={
+        <div className="mux-skill-card-provenance">
         <span title={skillSourceText(item.source)}>{skillSourceText(item.source)}</span>
         {item.source?.kind === "imported" && <Badge tone="info">Imported</Badge>}
         {item.resolved_revision ? (
@@ -100,9 +92,10 @@ export function SkillCard({
         ) : (
           <span>未记录 revision</span>
         )}
-      </div>
-
-      <div className="mux-skill-card-status">
+        </div>
+      }
+      state={
+        <div className="mux-skill-card-status">
         <SkillRiskBadge level={item.risk?.level ?? null} />
         {item.states.map((state) => (
           <Badge
@@ -112,18 +105,17 @@ export function SkillCard({
             {stateLabels[state]}
           </Badge>
         ))}
-      </div>
-
-      {item.update.error && (
-        <p className="mux-skill-card-update-error">
-          更新检查失败：{item.update.error}
-          {item.update.retry_at ? ` · 可重试：${item.update.retry_at}` : ""}
-        </p>
-      )}
-
-      <footer className="mux-skill-card-agents">
+        {item.update.error && (
+          <p className="mux-skill-card-update-error">
+            更新检查失败：{item.update.error}
+            {item.update.retry_at ? ` · 可重试：${item.update.retry_at}` : ""}
+          </p>
+        )}
+        </div>
+      }
+      impact={
         <AgentStack ids={item.affected_agent_ids} />
-      </footer>
-    </article>
+      }
+    />
   );
 }

@@ -36,7 +36,7 @@ jobs:
     steps:
       - name: Checkout
         # actions/checkout v5.0.0
-        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with:
           fetch-depth: 2
 
@@ -120,7 +120,7 @@ jobs:
       - name: Checkout
         id: checkout
         # actions/checkout v5.0.0
-        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with:
           ref: ${{ needs.classify.outputs.source_ref }}
 
@@ -131,7 +131,7 @@ jobs:
       - name: Checkout retry delivery helpers
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.mode == 'stable-retry' }}
         # actions/checkout v5.0.0
-        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with:
           ref: ${{ github.sha }}
           path: .delivery
@@ -139,7 +139,7 @@ jobs:
 
       - name: Setup Node
         # actions/setup-node v5.0.0
-        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
           node-version: 24
           cache: npm
@@ -151,7 +151,7 @@ jobs:
 
       - name: Cache Rust build
         # Swatinem/rust-cache v2
-        uses: Swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
         with:
           workspaces: |
             desktop/src-tauri -> target

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import {
   applyModelProfile,
@@ -12,10 +12,15 @@ import type {
   ModelProfile,
   ModelProfileView,
   ModelProtocol,
+  ResourceNavigationIntent,
 } from "../lib/types";
 import { formatError } from "../lib/format";
 import { AgentGlyph } from "./brandIcons";
-import { Avatar, Badge, IconButton, Modal, ModalHeader } from "./ui";
+import { Avatar, Badge } from "./ui";
+import { ResourceCard } from "./ResourceCard";
+import { ResourceState } from "./ResourceState";
+import { DialogShell } from "./DialogShell";
+import { ReviewDialog } from "./ReviewDialog";
 import {
   CheckIcon,
   EditIcon,
@@ -29,7 +34,6 @@ import {
   AgentStack,
   InspectorField,
   InspectorSection,
-  ResourceEmpty,
   ResourceGrid,
   ResourceInspector,
   ResourceTabs,
@@ -46,6 +50,9 @@ const PROTOCOLS: Array<{ id: ModelProtocol; label: string }> = [
 ];
 
 type ModelStatusFilter = "all" | "assigned" | "unassigned";
+type ModelReview =
+  | { kind: "delete"; profile: ModelProfileView }
+  | { kind: "apply"; profile: ModelProfileView; agent: ModelAgentView };
 
 const emptyProfile = (): ModelProfile => ({
   id: "",
@@ -60,17 +67,26 @@ function protocolLabel(protocol: ModelProtocol) {
   return PROTOCOLS.find((item) => item.id === protocol)?.label ?? protocol;
 }
 
-export function ModelsView() {
+export function ModelsView({
+  intent,
+  onIntentConsumed,
+}: {
+  intent?: Extract<ResourceNavigationIntent, { domain: "model" }>;
+  onIntentConsumed?(id: number): void;
+} = {}) {
   const [profiles, setProfiles] = useState<ModelProfileView[]>([]);
   const [agents, setAgents] = useState<ModelAgentView[]>([]);
   const [selectedProfileId, setSelectedProfileId] = useState<string | null>(null);
   const [editing, setEditing] = useState<ModelProfileView | null | undefined>(undefined);
   const [busyAgent, setBusyAgent] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [readError, setReadError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<ModelStatusFilter>("all");
   const [protocolFilter, setProtocolFilter] = useState<ModelProtocol | null>(null);
+  const [review, setReview] = useState<ModelReview | null>(null);
   const toast = useToast();
+  const lastConsumedIntentId = useRef<number | null>(null);
 
   const refresh = useCallback(async () => {
     const [nextProfiles, nextAgents] = await Promise.all([
@@ -86,9 +102,12 @@ export function ModelsView() {
 
   useEffect(() => {
     refresh()
-      .catch((error) =>
-        toast.show({ kind: "error", msg: "读取模型配置失败：" + formatError(error) })
-      )
+      .then(() => setReadError(null))
+      .catch((error) => {
+        const message = formatError(error);
+        setReadError(message);
+        toast.show({ kind: "error", msg: "读取模型配置失败：" + message });
+      })
       .finally(() => setLoading(false));
   }, [refresh]);
 
@@ -139,6 +158,23 @@ export function ModelsView() {
 
   const selectedProfile = profiles.find((profile) => profile.id === selectedProfileId) ?? null;
 
+  useEffect(() => {
+    if (!intent || loading || lastConsumedIntentId.current === intent.id) return;
+    lastConsumedIntentId.current = intent.id;
+    if (intent.kind === "create") {
+      setEditing(null);
+      onIntentConsumed?.(intent.id);
+      return;
+    }
+    const profile = profiles.find((candidate) => candidate.id === intent.profileId);
+    setQuery("");
+    setProtocolFilter(null);
+    setStatusFilter("all");
+    setSelectedProfileId(profile?.id ?? null);
+    if (!profile) toast.show({ kind: "error", msg: `未找到模型“${intent.profileId}”。` });
+    onIntentConsumed?.(intent.id);
+  }, [intent, loading, onIntentConsumed, profiles, toast]);
+
   const changeQuery = (value: string) => {
     setSelectedProfileId(null);
     setQuery(value);
@@ -155,38 +191,32 @@ export function ModelsView() {
   };
 
   const removeProfile = async (profile: ModelProfileView) => {
-    if (!window.confirm(`删除模型「${profile.name}」？Agent 配置文件不会被回滚。`)) return;
     try {
       await deleteModelProfile(profile.id);
       setSelectedProfileId((current) => current === profile.id ? null : current);
       await refresh();
+      setReview(null);
       toast.show({ kind: "success", msg: `已删除：${profile.name}` });
     } catch (error) {
       toast.show({ kind: "error", msg: "删除失败：" + formatError(error) });
+      throw error;
     }
   };
 
   const apply = async (agent: ModelAgentView, profile: ModelProfileView) => {
-    if (
-      !window.confirm(
-        `将「${profile.name}」应用到 ${agent.name}？\n\n目标：${agent.config_path}\nMUX 会先创建备份。`
-      )
-    ) return;
     setBusyAgent(agent.id);
     try {
       const result = await applyModelProfile(agent.id, profile.id);
       await refresh();
+      setReview(null);
       toast.show({ kind: "success", msg: result.message });
     } catch (error) {
       toast.show({ kind: "error", msg: "应用失败：" + formatError(error) });
+      throw error;
     } finally {
       setBusyAgent(null);
     }
   };
-
-  if (loading) {
-    return <div className="mux-loading">加载中…</div>;
-  }
 
   return (
     <>
@@ -205,7 +235,7 @@ export function ModelsView() {
                 <SidebarItem
                   key={protocol.id}
                   active={protocolFilter === protocol.id}
-                  icon={<span className="mux-model-protocol-dot" data-protocol={protocol.id} />}
+                  icon={<LayersIcon className="w-3.5 h-3.5" />}
                   label={protocol.label}
                   count={protocolCounts[protocol.id]}
                   onClick={() => changeProtocol(protocol.id)}
@@ -242,27 +272,46 @@ export function ModelsView() {
               profiles={profiles}
               agents={agents}
               busyAgent={busyAgent}
-              onApply={apply}
+              onApply={(agent, profile) => setReview({ kind: "apply", agent, profile })}
               onClose={() => setSelectedProfileId(null)}
               onEdit={() => setEditing(selectedProfile)}
-              onDelete={() => void removeProfile(selectedProfile)}
+              onDelete={() => setReview({ kind: "delete", profile: selectedProfile })}
             />
           ) : undefined
         }
         onInspectorClose={() => setSelectedProfileId(null)}
       >
-        {filteredProfiles.length === 0 ? (
-          <ResourceEmpty
+        {loading ? (
+          <ResourceState kind="loading" title="正在读取模型配置" />
+        ) : readError ? (
+          <ResourceState
+            kind="read-error"
+            icon={<LayersIcon className="w-6 h-6" />}
+            title="读取模型配置失败"
+            detail={readError}
+            action={<button className="btn-primary" type="button" onClick={() => {
+              setLoading(true);
+              setReadError(null);
+              void refresh()
+                .then(() => setReadError(null))
+                .catch((error) => setReadError(formatError(error)))
+                .finally(() => setLoading(false));
+            }}>重试</button>}
+          />
+        ) : filteredProfiles.length === 0 ? (
+          <ResourceState
+            kind={profiles.length === 0 ? "empty" : "no-match"}
             icon={<LayersIcon className="w-6 h-6" />}
             title={profiles.length === 0 ? "暂无模型" : "没有匹配项"}
-            detail={profiles.length === 0 ? "创建模型后即可分配给 Agent" : undefined}
+            detail={profiles.length === 0 ? "创建模型后即可分配给 Agent" : "调整搜索、协议或状态筛选后重试。"}
             action={
-              profiles.length === 0 ? (
-                <button className="btn-primary" type="button" onClick={() => setEditing(null)}>
-                  <PlusIcon className="w-4 h-4" />
-                  新建模型
-                </button>
-              ) : undefined
+              profiles.length === 0 ? undefined : (
+                <button className="btn-secondary" type="button" onClick={() => {
+                  setQuery("");
+                  setProtocolFilter(null);
+                  setStatusFilter("all");
+                }}>清除筛选</button>
+              )
             }
           />
         ) : (
@@ -274,8 +323,6 @@ export function ModelsView() {
                 selected={profile.id === selectedProfileId}
                 agentIds={(agentsByProfile.get(profile.id) ?? []).map((agent) => agent.id)}
                 onOpen={() => setSelectedProfileId(profile.id)}
-                onEdit={() => setEditing(profile)}
-                onDelete={() => void removeProfile(profile)}
               />
             ))}
           </ResourceGrid>
@@ -291,6 +338,30 @@ export function ModelsView() {
           }}
         />
       )}
+      {review?.kind === "delete" && (
+        <ReviewDialog
+          title="删除模型"
+          subtitle={review.profile.name}
+          confirmLabel="删除模型"
+          onClose={() => setReview(null)}
+          onConfirm={() => removeProfile(review.profile)}
+        >
+          <p>将删除此 MUX 模型配置与 Keychain 凭据引用；已经写入 Agent 的配置不会自动回滚。</p>
+        </ReviewDialog>
+      )}
+      {review?.kind === "apply" && (
+        <ReviewDialog
+          title="应用模型"
+          subtitle={`${review.profile.name} → ${review.agent.name}`}
+          confirmLabel="应用模型"
+          tone="primary"
+          onClose={() => setReview(null)}
+          onConfirm={() => apply(review.agent, review.profile)}
+        >
+          <p>目标：<code>{review.agent.config_path}</code></p>
+          <p>只更新该 Agent 的 Model 所有字段，写入前创建备份。</p>
+        </ReviewDialog>
+      )}
     </>
   );
 }
@@ -300,33 +371,20 @@ function ModelCard({
   selected,
   agentIds,
   onOpen,
-  onEdit,
-  onDelete,
 }: {
   profile: ModelProfileView;
   selected: boolean;
   agentIds: string[];
   onOpen: () => void;
-  onEdit: () => void;
-  onDelete: () => void;
 }) {
   return (
-    <article
-      className="mux-tile mux-model-card p-3"
-      data-protocol={profile.protocol}
-      data-selected={selected ? "true" : undefined}
-      role="button"
-      tabIndex={0}
-      onClick={onOpen}
-      onKeyDown={(event) => {
-        if (event.target !== event.currentTarget) return;
-        if (event.key === "Enter" || event.key === " ") {
-          event.preventDefault();
-          onOpen();
-        }
-      }}
-    >
-      <div className="mux-model-card-head">
+    <ResourceCard
+      className="mux-model-card"
+      selected={selected}
+      ariaLabel={`打开模型 ${profile.name} 详情`}
+      onOpen={onOpen}
+      identity={
+        <>
         <Avatar seed={profile.name} label="M" size={36} />
         <div className="mux-model-card-identity">
           <div className="mux-model-card-name">
@@ -338,32 +396,29 @@ function ModelCard({
             )}
           </div>
           <code title={profile.model}>{profile.model}</code>
-          <div className="mux-model-card-tags">
-            <span className="mux-model-protocol-dot" data-protocol={profile.protocol} />
-            <span>{protocolLabel(profile.protocol)}</span>
-            {profile.reasoning && <Badge tone="info">Reasoning</Badge>}
-          </div>
         </div>
-      </div>
-
-      <div className="mux-model-card-endpoint" title={profile.base_url}>
+        </>
+      }
+      configuration={
+        <div className="mux-model-card-endpoint" title={profile.base_url}>
         <LinkIcon className="w-3 h-3 flex-shrink-0" />
         <span className="mux-model-card-endpoint-label">Base URL</span>
         <code>{profile.base_url}</code>
-      </div>
-
-      <div className="mux-resource-card-footer">
-        <AgentStack ids={agentIds} />
-        <div className="mux-resource-card-actions" onClick={(event) => event.stopPropagation()}>
-          <IconButton title="编辑模型" onClick={onEdit}>
-            <EditIcon className="w-4 h-4" />
-          </IconButton>
-          <IconButton title="删除模型" onClick={onDelete}>
-            <TrashIcon className="w-4 h-4" />
-          </IconButton>
         </div>
-      </div>
-    </article>
+      }
+      state={
+        <>
+          <Badge tone="neutral">{protocolLabel(profile.protocol)}</Badge>
+          {profile.reasoning && <Badge tone="info">Reasoning</Badge>}
+          <Badge tone={profile.credential_saved ? "success" : "neutral"}>
+            {profile.credential_saved ? "凭据已保存" : "无已存凭据"}
+          </Badge>
+        </>
+      }
+      impact={
+        <AgentStack ids={agentIds} />
+      }
+    />
   );
 }
 
@@ -381,7 +436,7 @@ function ModelInspector({
   profiles: ModelProfileView[];
   agents: ModelAgentView[];
   busyAgent: string | null;
-  onApply: (agent: ModelAgentView, profile: ModelProfileView) => Promise<void>;
+  onApply: (agent: ModelAgentView, profile: ModelProfileView) => void;
   onClose: () => void;
   onEdit: () => void;
   onDelete: () => void;
@@ -508,13 +563,22 @@ function ModelProfileDialog({
   };
 
   return (
-    <Modal width={620} maxHeight="88vh" onClose={onClose}>
-      <ModalHeader
-        glyph="M"
+    <DialogShell
+        kind="editor"
+        size="md"
         title={initial ? "编辑模型" : "新建模型"}
         subtitle="API Key 保存在 macOS Keychain。"
+        busy={busy}
         onClose={onClose}
-      />
+        footerEnd={
+          <>
+            <button type="button" className="btn-ghost" disabled={busy} onClick={onClose}>取消</button>
+            <button type="button" className="btn-primary" disabled={!valid} onClick={() => void save()}>
+              {busy ? "保存中…" : "保存"}
+            </button>
+          </>
+        }
+      >
       <div className="mux-model-form">
         <div className="mux-model-form-grid">
           <label>
@@ -635,12 +699,6 @@ function ModelProfileDialog({
           </label>
         </details>
       </div>
-      <footer className="mux-model-form-footer">
-        <button type="button" className="btn-ghost" onClick={onClose}>取消</button>
-        <button type="button" className="btn-primary" disabled={!valid} onClick={() => void save()}>
-          {busy ? "保存中…" : "保存"}
-        </button>
-      </footer>
-    </Modal>
+    </DialogShell>
   );
 }

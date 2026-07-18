@@ -17,10 +17,10 @@ import type {
   SkillSourceResolution,
   SkillsInventory,
 } from "../lib/types";
-import { FolderIcon, LinkIcon, PackageIcon, XIcon } from "./icons";
+import { FolderIcon, LinkIcon } from "./icons";
 import { SkillReviewDialog } from "./SkillReviewDialog";
 import { useToast } from "./Toast";
-import { Modal } from "./ui";
+import { DialogShell } from "./DialogShell";
 
 type InstallStep = "source" | "selection" | "review";
 
@@ -390,39 +390,31 @@ export function SkillInstallDialog({
   });
 
   return (
-    <Modal
-      ariaLabel="安装 Skill"
-      width={760}
-      maxHeight="min(88vh, 720px)"
+    <DialogShell
+      kind="editor"
+      size="lg"
+      title={step === "source" ? "安装 Skill" : step === "selection" ? "选择 Skills 与 Agent" : "审阅安装"}
+      subtitle="来源只用于生成本地候选；写盘前仍需审阅完整计划。"
+      busy={closing}
+      closeLabel="关闭安装"
       onClose={() => void closeDialog()}
-    >
-      <div className="mux-skill-install-dialog">
-        <header className="mux-skill-dialog-header">
-          <span className="mux-skill-dialog-glyph" aria-hidden="true">
-            <PackageIcon className="w-5 h-5" />
-          </span>
-          <div>
-            <h2 data-modal-title tabIndex={-1}>
-              {step === "source"
-                ? "安装 Skill"
-                : step === "selection"
-                  ? "选择 Skills 与 Agent"
-                  : "审阅安装"}
-            </h2>
-            <p>来源只用于生成本地候选；写盘前仍需审阅完整计划。</p>
-          </div>
+      footerEnd={step !== "source" ? (
+        <>
+          <button type="button" className="btn-secondary" disabled={planning || closing} onClick={() => void returnToSource()}>
+            返回来源
+          </button>
           <button
             type="button"
-            className="mux-skill-dialog-close"
-            aria-label="关闭安装"
-            title="关闭安装"
-            disabled={closing}
-            onClick={() => void closeDialog()}
+            className="btn-primary"
+            disabled={wizard.selectedSkillNames.length === 0 || planning || closing}
+            onClick={() => void reviewInstall()}
           >
-            <XIcon className="w-4 h-4" />
+            {planning ? "生成计划中…" : "审阅安装"}
           </button>
-        </header>
-
+        </>
+      ) : undefined}
+    >
+      <div className="mux-skill-install-dialog">
         <div className="mux-skill-dialog-steps" aria-label="安装步骤">
           {["来源", "选择", "审阅"].map((label, index) => (
             <span
@@ -627,28 +619,6 @@ export function SkillInstallDialog({
           )}
         </div>
 
-        {step !== "source" && (
-          <footer className="mux-skill-dialog-footer">
-            <button
-              type="button"
-              className="btn-secondary"
-              disabled={planning || closing}
-              onClick={() => void returnToSource()}
-            >
-              返回来源
-            </button>
-            <button
-              type="button"
-              className="btn-primary"
-              disabled={
-                wizard.selectedSkillNames.length === 0 || planning || closing
-              }
-              onClick={() => void reviewInstall()}
-            >
-              {planning ? "生成计划中…" : "审阅安装"}
-            </button>
-          </footer>
-        )}
       </div>
 
       {step === "review" && wizard.plan && (
@@ -660,6 +630,6 @@ export function SkillInstallDialog({
           onRecoveryRequired={enterRecovery}
         />
       )}
-    </Modal>
+    </DialogShell>
   );
 }

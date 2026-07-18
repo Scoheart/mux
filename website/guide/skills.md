@@ -8,6 +8,8 @@ MUX Desktop 可以统一查看、安装和分配符合 Agent Skills 格式的用
 
 在顶部打开 **Skills**，点击 **安装 Skill**。安装分为三步：选择来源、选择发现的 Skills 与目标 Agent、审阅计划后确认。普通安装默认不勾选任何 Agent；从某个 Agent 页点击“添加 Skill”时，只预选仍被 MUX 核验为已安装的当前 Agent。
 
+安装、审阅和高风险二次确认使用与 MCP、Models 一致的对话框结构，但不会简化下面的安全流程：候选仍由 core 生成不可变计划，提交仍校验 operation id、内容哈希和风险确认。提交期间不能通过遮罩或 `Escape` 关闭，失败后保留当前计划与错误信息。
+
 | 来源 | 行为 |
 |---|---|
 | 公开 GitHub | 支持 `owner/repo`、仓库 URL 和 GitHub tree 子目录 URL。MUX 通过 HTTPS 解析到不可变 commit 并下载归档，不调用本机 Git。 |

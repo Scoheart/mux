@@ -300,8 +300,8 @@ export function Modal({
   onClose,
   children,
 }: {
-  width?: number;
-  maxHeight?: string;
+  width?: CSSProperties["width"];
+  maxHeight?: CSSProperties["maxHeight"];
   ariaLabel?: string;
   layer?: string;
   onClose: () => void;

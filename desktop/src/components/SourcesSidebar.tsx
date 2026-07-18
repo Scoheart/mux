@@ -7,6 +7,7 @@ import { SubscribeDialog } from "./SubscribeDialog";
 import { useToast } from "./Toast";
 import { formatError } from "../lib/format";
 import { SidebarItem, SidebarSection, WorkspaceSidebar } from "./ResourceWorkspace";
+import { ReviewDialog } from "./ReviewDialog";
 
 /** Sort rank: remote (0) → user local (1) → managed manual/discovered (2). */
 function rank(s: SourceView): number {
@@ -42,6 +43,7 @@ export function SourcesSidebar({
   const toast = useToast();
   const [subscribeOpen, setSubscribeOpen] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [deleteReview, setDeleteReview] = useState<SourceView | null>(null);
 
   const sorted = useMemo(
     () =>
@@ -78,20 +80,22 @@ export function SourcesSidebar({
   };
 
   const doRemove = async (s: SourceView) => {
-    if (!window.confirm(`删除来源「${s.name}」？缓存一并删除，不影响已装配置。`)) return;
     setBusyId(s.id);
     try {
       await state.deleteSource(s.id);
       if (selectedId === s.id) onSelect(null);
+      setDeleteReview(null);
       toast.show({ kind: "success", msg: `已删除来源：${s.name}` });
     } catch (e) {
       toast.show({ kind: "error", msg: "删除失败：" + formatError(e) });
+      throw e;
     } finally {
       setBusyId(null);
     }
   };
 
   return (
+    <>
     <WorkspaceSidebar title="MCPs" count={catalog.length}>
       <SidebarSection
         title="来源"
@@ -136,7 +140,7 @@ export function SourcesSidebar({
                     </IconButton>
                   )}
                   {!source.managed && (
-                    <IconButton title="删除来源" onClick={() => doRemove(source)} disabled={busyId === source.id}>
+                    <IconButton title="删除来源" onClick={() => setDeleteReview(source)} disabled={busyId === source.id}>
                       <TrashIcon className="w-3.5 h-3.5" />
                     </IconButton>
                   )}
@@ -154,5 +158,17 @@ export function SourcesSidebar({
         />
       )}
     </WorkspaceSidebar>
+    {deleteReview && (
+      <ReviewDialog
+        title="删除来源"
+        subtitle={deleteReview.name}
+        confirmLabel="删除来源"
+        onClose={() => setDeleteReview(null)}
+        onConfirm={() => doRemove(deleteReview)}
+      >
+        <p>将删除来源记录与本地缓存；已安装到 Agent 的 MCP 配置保持不变。</p>
+      </ReviewDialog>
+    )}
+    </>
   );
 }

@@ -305,9 +305,24 @@ pub struct PlanInstallRequest {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct PlanSkillAssetInstallRequest {
+    pub resolution_id: String,
+    pub skill_names: Vec<String>,
+    pub replace_conflicts: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct PlanImportRequest {
     pub identity: String,
     pub agent_ids: Vec<String>,
+    pub replace_conflicts: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct PlanSkillAssetImportRequest {
+    pub identity: String,
     pub replace_conflicts: bool,
 }
 
@@ -460,6 +475,17 @@ pub struct SkillAgentView {
     pub docs: String,
     pub evidence: String,
     pub verified_at: String,
+}
+
+/// Read-only capability including installation evidence. This is intentionally
+/// separate from `SkillAgentView`, whose list only contains installed Agents.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SkillAgentCapabilityView {
+    pub id: String,
+    pub installed: bool,
+    pub target_id: String,
+    pub global_dir: String,
+    pub affected_agent_ids: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

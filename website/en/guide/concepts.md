@@ -17,9 +17,11 @@ Every entry in the catalog comes from a source. MUX has four kinds:
 | **Subscribe (remote)** | A **URL** pointing at an MCP config file; MUX fetches and caches it, and re-pulls upstream on refresh. | `~/.mux/sources/remote/<id>.json` |
 | **Local** | A config file **imported** from disk and copied into MUX; refresh re-reads the original file. | `~/.mux/sources/local/<id>.(json\|toml)` |
 | **Manual** | A server you write by hand or **paste** in, stored as a managed local source (`manual.json`). | `~/.mux/sources/local/manual.json` |
-| **Discovered** | Servers **auto-detected** at startup from the config your agents already have (`discovered.json`). | `~/.mux/sources/local/discovered.json` |
+| **Legacy discovered** | Managed entries already written to `discovered.json` by older versions; they remain central assets after upgrade, but new scans no longer write here automatically. | `~/.mux/sources/local/discovered.json` |
 
 There is also a one-click **Mux curated collection** — which is really just a subscription to a built-in, curated remote source. It's an **optional** subscription, not a default base.
+
+A new item found in an Agent file is not a fifth source. It is independent, read-only **external observed state**. Only an explicit import makes it a central asset, and importing still does not establish a consumption relationship.
 
 Only **enabled** sources take part in assembling the catalog. The source model supports enable/disable, and the TUI's Sources screen can toggle them directly; the desktop `v1.2.0` currently offers filtering, refresh, and delete, but does not yet expose the on/off toggle.
 
@@ -48,27 +50,22 @@ The desktop Registry shows every copy from each source by default:
 - **Transport is auto-detected**: MUX recognizes standard fields and agent-specific ones — e.g. OpenCode's command array, Gemini's `httpUrl`, Windsurf's `serverUrl`. The catalog normalizes everything to a stdio / http model, then converts to the target agent's fields and transport name on write.
 - **Source tags**: each entry carries a source kind (`discovered` / `manual` / `remote` / `local`) plus a source id, which drives the source badges in the UI.
 
-## Install, toggle, delete
+## Central assets and consumption relationships
 
-Operated independently **per agent**:
+Central assets define what an item is; a consumption relationship defines which Agent should use it. The Desktop Agent page and asset Inspector edit the same desired state:
 
-- **Install**: write a catalog entry into that agent's real config file (backing it up first).
-- **Disable**: first persist the server's complete semantic config (including agent-specific policy), then remove it from the agent config; it can be safely restored anytime.
-- **Enable**: write a disabled server back in.
-- **Delete**: uninstall from an agent (or delete it from the catalog entirely, see below).
+- **MCP / Skills**: an Agent can consume `0..N` central assets.
+- **Model**: an Agent can consume at most `0..1` Profile at a time.
+- **Remove use**: delete the relationship and that Agent's managed target without deleting the central asset.
+- **Observed state**: Agent files and Skill links are reconciliation evidence only; external content, drift, and conflicts never write themselves back into desired state.
 
 ## Edit propagation
 
-When you change a catalog entry's connection config, MUX re-stamps the new config into every global agent still using that entry, including copies that were manually customized on disk. Each target file is backed up before writing; changes to description or tags do not trigger a sync.
-
-The explicit remedy is **Resync**: re-stamp the current config into every global agent that has the entry actively installed.
-
-- Not forced: skips customized installs and reports them.
-- Forced: overwrites even the customized ones.
+When a central asset changes, MUX first enumerates all desired consumers and puts the central change, relationships, and target files into one impact plan. Clean targets propagate after one confirmation. Drift requires explicit overwrite confirmation; conflicts or concurrent changes block the whole commit, so there is no partial update.
 
 ## Forget a catalog entry
 
-To **delete a user-owned entry entirely**: remove it from both the manual and discovered managed sources, **and** uninstall it from every agent that has it (global, whether active or disabled).
+To **delete a user-owned central entry entirely**, first review every consumer, then remove the owned source copy together with every desired relationship and managed Agent target in one transaction.
 
 Only **manual / discovered** entries can be deleted this way — entries from remote / local sources have no "user-owned" part to remove, so manage them through the source that provides them.
 
@@ -78,11 +75,12 @@ All user data lives under `~/.mux/`:
 
 ```
 ~/.mux/
-├── settings.json           # one document: agents · sources · disabled · state
+├── settings.json           # one document: agents · sources · central metadata · desired state
 ├── update-check.json       # daily update-check cache for the standalone CLI (created on demand)
 ├── sources/
 │   ├── remote/<id>.json    # cache of subscribed URLs
 │   └── local/<id>.(json|toml)  # imported files + manual.json / discovered.json
+├── staging/consumption/    # reviewed plans and durable transaction snapshots
 └── backups/                # timestamped backups made before writing to an existing agent file
 ```
 

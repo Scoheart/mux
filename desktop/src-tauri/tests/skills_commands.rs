@@ -219,8 +219,11 @@ fn main_window_starts_hidden_without_changing_existing_window_contracts() {
 fn startup_recovers_before_showing_and_checks_updates_only_after_success() {
     let source = include_str!("../src/lib.rs");
     let recovery = source
-        .find("let recovery_ok = mux_core::skills::recover_pending().is_ok();")
+        .find("let skills_recovery_ok = mux_core::skills::recover_pending().is_ok();")
         .expect("startup must attempt Skills recovery");
+    let asset_recovery = source
+        .find("mux_core::consumption::recover_pending_asset_operations()")
+        .expect("startup must recover cross-domain asset transactions");
     let conditional_check = source
         .find("if recovery_ok {")
         .expect("due checking must be conditional on successful recovery");
@@ -231,7 +234,8 @@ fn startup_recovers_before_showing_and_checks_updates_only_after_success() {
         .find("window.show()?")
         .expect("startup must still show the initialized main window");
 
-    assert!(recovery < conditional_check);
+    assert!(recovery < asset_recovery);
+    assert!(asset_recovery < conditional_check);
     assert!(conditional_check < due_check);
     assert!(due_check < show);
 }

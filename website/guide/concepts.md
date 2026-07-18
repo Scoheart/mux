@@ -17,9 +17,11 @@
 | **订阅（remote）** | 一个指向 MCP 配置文件的 **URL**，MUX 抓取并缓存；刷新时重新拉取上游。 | `~/.mux/sources/remote/<id>.json` |
 | **本地（local）** | 从磁盘**导入**的配置文件，复制进 MUX；刷新时重新读取原文件。 | `~/.mux/sources/local/<id>.(json\|toml)` |
 | **手动添加（manual）** | 你手写或**粘贴**创建的 server，存为一个受管的本地来源（`manual.json`）。 | `~/.mux/sources/local/manual.json` |
-| **自动探索（discovered）** | 启动时从你各个 agent 已有配置里**自动探测**出来的 server（`discovered.json`）。 | `~/.mux/sources/local/discovered.json` |
+| **历史探索（discovered）** | 旧版本已写入 `discovered.json` 的受管条目，升级后继续作为中央资产保留；新扫描不再自动写入。 | `~/.mux/sources/local/discovered.json` |
 
 另外还有一个一键的 **Mux 精选**——它其实就是订阅一个内置的、经过整理的远程来源，属于**可选**订阅，而不是默认基座。
+
+Agent 文件中的新发现不属于第五种来源，而是独立的只读 **external observed state**。用户显式导入后，它才成为中央资产；导入也不会顺手创建消费关系。
 
 只有**已启用**来源参与目录拼装。来源模型支持启停，TUI 的来源屏幕可直接切换；桌面 `v1.2.0` 目前提供过滤、刷新和删除，暂未暴露启停开关。
 
@@ -49,27 +51,22 @@
 - **传输方式自动识别**：MUX 会识别标准字段和 Agent 专属字段，例如 OpenCode 命令数组、Gemini `httpUrl`、Windsurf `serverUrl`。目录统一为 stdio / http 模型，写入时再转换为目标 Agent 的字段和传输名称。
 - **来源标签**：每个条目带一个来源类型（`discovered` / `manual` / `remote` / `local`）+ 来源 id，驱动界面上的来源徽章。
 
-## 安装、开关、删除
+## 中央资产与消费关系
 
-对**每个 agent** 独立操作：
+中央资产定义“它是什么”，消费关系定义“哪个 Agent 应该使用它”。Desktop 的 Agent 页面和资产详情修改同一份 desired state：
 
-- **安装**：把某个目录条目写进这个 agent 的真实配置文件（写入前先备份）。
-- **停用（Disable）**：先持久化该 server 的完整语义配置（含 Agent 专属策略），再从 Agent 配置移除；随时可以安全恢复。
-- **启用（Enable）**：把停用的 server 重新写回去。
-- **删除**：从 agent 卸载（或从目录彻底删除，见下）。
+- **MCP / Skills**：一个 Agent 可消费 `0..N` 个中央资产。
+- **Model**：一个 Agent 同时最多消费 `0..1` 个 Profile。
+- **解除使用**：删除关系和该 Agent 的受管目标，不删除中央资产。
+- **observed state**：Agent 文件与 Skill link 只用于对账；外部内容、漂移和冲突不会自动反写 desired state。
 
 ## 编辑传播（Edit propagation）
 
-改一个目录条目的连接配置时，MUX 会把新配置重刷进所有仍在使用该条目的全局 Agent，包括已在磁盘上手动定制过的副本。每个目标文件写入前都会备份；描述和标签变化不会触发同步。
-
-显式的补救手段是**重新同步（Resync）**：把当前配置重刷到所有已激活安装该条目的全局 Agent。
-
-- 不强制时：跳过被定制过的安装，并把它们报告出来。
-- 强制时：连定制过的也一起覆盖。
+编辑中央资产时，MUX 先枚举所有 desired consumers，并把中央变化、关系和目标文件放进同一影响计划。干净目标可一次确认后全部传播；漂移目标必须显式确认覆盖，冲突或并发变化阻止整个提交，不做部分更新。
 
 ## 删除目录条目（Forget）
 
-**彻底删除**一个用户拥有的条目：从 manual 和 discovered 两个受管来源里删掉它，**并**把它从所有装了它的 agent 上卸载（全局，无论激活还是已停用）。
+**彻底删除**一个用户拥有的中央条目，会先展示全部消费者，再从相应受管 source copy 删除它，并原子清理所有 desired relationship 与 Agent 受管目标。
 
 只有 **manual / discovered** 条目能这样删——remote / local 来源的条目没有"用户拥有"的部分可删，请通过管理它们的来源来处理。
 
@@ -79,11 +76,12 @@
 
 ```
 ~/.mux/
-├── settings.json           # 单一文档：agents · sources · disabled · state
+├── settings.json           # 单一文档：agents · sources · 中央 metadata · desired state
 ├── update-check.json       # 独立 CLI 的每日更新检查缓存（按需生成）
 ├── sources/
 │   ├── remote/<id>.json    # 订阅 URL 的缓存
 │   └── local/<id>.(json|toml)  # 导入文件 + manual.json / discovered.json
+├── staging/consumption/    # 审阅计划与事务回滚快照
 └── backups/                # 修改已有 Agent 配置前的独立时间戳备份
 ```
 

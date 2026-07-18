@@ -15,6 +15,7 @@ pub use audit::*;
 pub use files::*;
 pub use inventory::{
     get_skill_detail, list_inventory, list_skill_agents, normalize_agent_selection,
+    skill_agent_capability,
 };
 pub use manifest::*;
 pub use ops::*;

@@ -11,6 +11,7 @@
 //! so a desktop write never clobbers data the CLI wrote, and vice versa. Every
 //! mutation is read-whole → modify one section → write-whole (atomically).
 
+use crate::consumption::types::McpConsumptionRecord;
 use crate::disabled::DisabledEntry;
 use crate::paths::{backups_dir, mux_dir, registry_dir, settings_file, user_agents_file};
 use crate::safe_write::{acquire_settings_lock, write_private_if_unchanged};
@@ -58,6 +59,10 @@ pub struct Settings {
     /// Managed model Agent id -> profile id.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model_assignments: Option<BTreeMap<String, String>>,
+    /// Desired MCP consumption, keyed by canonical Agent id and then by the
+    /// stable central Registry asset key (`name::transport`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mcp_consumptions: Option<BTreeMap<String, BTreeMap<String, McpConsumptionRecord>>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub managed_skills: Option<BTreeMap<String, ManagedSkillRecord>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -317,6 +322,44 @@ mod tests {
             "claude-user"
         );
         assert_eq!(encoded["future_section"]["keep"], true);
+    }
+
+    #[test]
+    fn consumption_and_existing_assignments_survive_settings_roundtrip() {
+        let json = r#"{
+          "mcp_consumptions": {
+            "claude-code": {
+              "github::stdio": {
+                "asset_key": "github::stdio",
+                "enabled": true,
+                "overrides": {"args":["--read-only"]}
+              }
+            }
+          },
+          "model_assignments": {"claude-code":"work"},
+          "skill_assignments": {"review-changes":["claude-user"]},
+          "state": {"active":[]},
+          "imported": "2026-07-18T00:00:00Z",
+          "future_consumption_field": {"keep":true}
+        }"#;
+
+        let settings: Settings = serde_json::from_str(json).unwrap();
+        let record = &settings.mcp_consumptions.as_ref().unwrap()["claude-code"]["github::stdio"];
+        assert_eq!(record.asset_key, "github::stdio");
+        assert_eq!(
+            record.overrides.args.as_deref(),
+            Some(["--read-only".to_string()].as_slice())
+        );
+
+        let encoded = serde_json::to_value(settings).unwrap();
+        assert_eq!(encoded["model_assignments"]["claude-code"], "work");
+        assert_eq!(
+            encoded["skill_assignments"]["review-changes"][0],
+            "claude-user"
+        );
+        assert_eq!(encoded["state"]["active"], serde_json::json!([]));
+        assert_eq!(encoded["imported"], "2026-07-18T00:00:00Z");
+        assert_eq!(encoded["future_consumption_field"]["keep"], true);
     }
 
     #[test]

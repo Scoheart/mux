@@ -26,3 +26,9 @@ it("preserves Keychain presence-only rendering", () => {
   expect(source).toMatch(/profile\.credential_saved \? "凭据已保存" : "无已存凭据"/);
   expect(source).not.toMatch(/credential_saved\s*\}\s*<code/);
 });
+
+it("routes profile lifecycle through central asset plans", () => {
+  expect(source).toMatch(/consumptionState\.planUpdate/);
+  expect(source).toMatch(/consumptionState\.planDelete/);
+  expect(source).not.toMatch(/saveModelProfile|deleteModelProfile|applyModelProfile/);
+});

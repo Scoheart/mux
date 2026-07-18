@@ -4,20 +4,22 @@
 
 ## 架构边界
 
-- Rust `core/` 是 Agent 发现、codec、MCP/model/Skills 数据与写入行为的唯一权威；CLI、TUI、Tauri command 和 React 只做薄适配。
+- Rust `core/` 是 Agent 发现、codec、MCP/Model/Skills 中央资产、消费关系与写入行为的唯一权威；CLI、TUI、Tauri command 和 React 只做薄适配。
 - `data/` 是 Agent 与精选资源的 source of truth。新增可写 Agent 时同步 codec、发现、fixture、round-trip、图标 alias 与完整性检查。
 - 当前只管理全局 Agent 配置和用户级 Skills；不得重新暴露项目级写入或在多个前端复制 core 编排。
+- 顶层 `MCPs`、`Models`、`Skills` 是中央资产生命周期入口；Agent 页面只能选择和解除消费关系，不能创建、导入、编辑或安装资产。外部扫描结果保持只读，只有显式导入才进入中央资产库。
 
 ## 安全不变量
 
 - 配置修改必须保留未知字段、注释、格式和非目标策略；损坏、歧义或并发变化时 fail closed，并经过备份、权限收紧、同目录临时文件和原子替换。
 - MCP 与 model writer 只能修改各自拥有的字段。API key/token 只存系统 Keychain，不进入配置、日志、fixture、截图或仓库。
 - Skills 只保留 `~/.mux/skills/` 中央副本并通过已核验用户级目录链接分配；生命周期写操作必须由 core 先 plan，再以原 operation id、候选哈希和风险确认 commit。
+- 中央资产更新和删除必须通过统一计划覆盖全部 desired consumers；未解决的漂移、冲突或并发变化不得部分提交。MCP/Skills 每个 Agent 为 `0..N`，Model 为 `0..1`。
 - 测试必须隔离 `HOME`/`MUX_HOME`，不得访问真实用户配置、Skills 或 Keychain。
 
 ## 产品与验证
 
-- 顶层为 `MCPs`、`Models`、`Skills`；Agent 页面是三类配置的简化入口。UI 保持不透明、克制，并覆盖 `1200x820` 与 `900x600`。
+- 顶层为 `MCPs`、`Models`、`Skills` 中央资产库；Agent 页面统一显示“正在使用”与中央选择器，三类状态由 core 的 desired/observed inventory 提供。UI 保持不透明、克制，并覆盖 `1200x820` 与 `900x600`。
 - 按改动范围运行 `cargo fmt --check`、`cargo test --workspace`、Desktop test/build/icon check、Tauri test 或 Website build；共享契约变更扩大验证。
 - UI 只验收 `/Applications/MUX.app`，不得用 target/Preview/dev/mock 冒充正式安装版。
 

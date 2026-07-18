@@ -105,8 +105,7 @@ export type ResourceNavigationRequest =
   | { domain: "mcp"; kind: "create" }
   | { domain: "model"; kind: "detail"; profileId: string }
   | { domain: "model"; kind: "create" }
-  | { domain: "skill"; kind: "detail"; skillName: string }
-  | { domain: "skill"; kind: "install"; agentId: string };
+  | { domain: "skill"; kind: "detail"; skillName: string };
 
 export type ResourceNavigationIntent = ResourceNavigationRequest & { id: number };
 export type SkillNavigationRequest = Extract<ResourceNavigationRequest, { domain: "skill" }>;
@@ -306,6 +305,106 @@ export interface SkillsInventory {
   recovery_error: string | null;
 }
 
+export type AssetRef =
+  | { domain: "mcp"; key: string }
+  | { domain: "model"; profile_id: string }
+  | { domain: "skill"; name: string };
+
+export type ConsumptionStatus =
+  | "synced"
+  | "pending"
+  | "drifted"
+  | "conflicted"
+  | "unsupported"
+  | "external";
+
+export interface ConsumptionView {
+  agent_id: string;
+  asset: AssetRef;
+  desired: boolean;
+  observed: boolean;
+  status: ConsumptionStatus;
+  reason: string | null;
+  affected_agent_ids: string[];
+}
+
+export interface ConsumptionInventory {
+  consumptions: ConsumptionView[];
+  external: ConsumptionView[];
+  recovery_error?: string | null;
+}
+
+export type AgentConsumptionSelection =
+  | { domain: "mcp"; asset_keys: string[] }
+  | { domain: "model"; profile_ids: string[] }
+  | { domain: "skill"; names: string[] };
+
+export type RelationshipAction = "add" | "remove";
+
+export type CentralAssetAction = "create" | "update" | "delete";
+
+export interface CentralAssetChange {
+  asset: AssetRef;
+  action: CentralAssetAction;
+  summary: string[];
+}
+
+export type CentralAssetDraft =
+  | {
+      domain: "mcp";
+      existing_key?: string;
+      entry: RegistryEntry;
+    }
+  | {
+      domain: "model";
+      existing_id?: string;
+      profile: ModelProfile;
+      /** undefined keeps, empty string clears, non-empty replaces. */
+      credential?: string;
+    };
+
+export interface RelationshipChange {
+  agent_id: string;
+  asset: AssetRef;
+  action: RelationshipAction;
+}
+
+export type DomainPlan =
+  | {
+      domain: "mcp";
+      before: Record<string, string[]>;
+      after: Record<string, string[]>;
+    }
+  | {
+      domain: "model";
+      before: Record<string, string | null>;
+      after: Record<string, string | null>;
+    }
+  | {
+      domain: "skill";
+      before: Record<string, string[]>;
+      after: Record<string, string[]>;
+    };
+
+export interface AssetOperationPlan {
+  operation_id: string;
+  kind: "set-consumption" | "update-asset" | "delete-asset" | "adopt";
+  domain_plan: DomainPlan;
+  central_changes: CentralAssetChange[];
+  relationship_changes: RelationshipChange[];
+  target_files: string[];
+  affected_agent_ids: string[];
+  warnings: string[];
+  can_commit: boolean;
+  requires_conflict_confirmation: boolean;
+  candidate_hash: string;
+}
+
+export interface AssetCommandError {
+  code: string;
+  message: string;
+}
+
 export interface SkillDetail {
   item: SkillInventoryItem;
   files: SkillFile[];
@@ -376,9 +475,20 @@ export interface PlanInstallRequest {
   replace_conflicts: boolean;
 }
 
+export interface PlanSkillAssetInstallRequest {
+  resolution_id: string;
+  skill_names: string[];
+  replace_conflicts: boolean;
+}
+
 export interface PlanImportRequest {
   identity: string;
   agent_ids: string[];
+  replace_conflicts: boolean;
+}
+
+export interface PlanSkillAssetImportRequest {
+  identity: string;
   replace_conflicts: boolean;
 }
 

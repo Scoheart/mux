@@ -4,10 +4,12 @@ import { expect, it } from "vitest";
 
 const source = await readFile(resolve(process.cwd(), "src/components/RegistryEditPage.tsx"), "utf8");
 
-it("uses the shared editor and review shells", () => {
+it("routes central MCP changes through the shared asset plan", () => {
   expect(source).toMatch(/<DialogShell/);
   expect(source).toMatch(/kind="editor"/);
-  expect(source).toMatch(/<ReviewDialog/);
+  expect(source).toMatch(/consumptionState\.planUpdate/);
+  expect(source).toMatch(/consumptionState\.planDelete/);
+  expect(source).not.toMatch(/upsertRegistry|deleteRegistry|resyncEntry/);
   expect(source).not.toMatch(/window\.confirm/);
   expect(source).not.toMatch(/<ModalHeader/);
 });

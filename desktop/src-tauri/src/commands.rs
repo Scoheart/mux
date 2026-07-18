@@ -1,11 +1,98 @@
 use mux_core::registry::{read_registry, read_registry_all, user_override_keys, CatalogItem};
 use mux_core::skills::{
     GithubEndpoints, OperationPlan, PlanAssignmentRequest, PlanImportRequest, PlanInstallRequest,
-    PlanRemoveRequest, PlanRepairRequest, PlanUpdateRequest, SkillAgentView, SkillCommitRequest,
-    SkillDetail, SkillError, SkillSourceInput, SkillSourceResolution, SkillsInventory,
-    UpdateCheckOutcome,
+    PlanRemoveRequest, PlanRepairRequest, PlanSkillAssetImportRequest,
+    PlanSkillAssetInstallRequest, PlanUpdateRequest, SkillAgentView, SkillCommitRequest, SkillDetail,
+    SkillError, SkillSourceInput, SkillSourceResolution, SkillsInventory, UpdateCheckOutcome,
 };
 use mux_core::types::RegistryEntry;
+use mux_core::consumption::{
+    AssetCommitRequest, AssetOperationPlan, ConsumptionInventory,
+    PlanDeleteCentralAssetRequest, PlanSetAgentConsumptionRequest, PlanSetAssetConsumersRequest,
+    PlanUpdateCentralAssetRequest,
+};
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct AssetCommandError {
+    pub code: String,
+    pub message: String,
+}
+
+impl From<String> for AssetCommandError {
+    fn from(error: String) -> Self {
+        let (code, message) = error
+            .split_once(':')
+            .filter(|(code, _)| {
+                code.chars()
+                    .all(|character| character.is_ascii_lowercase() || character == '_')
+            })
+            .map(|(code, message)| (code.trim(), message.trim()))
+            .unwrap_or(("asset_operation_failed", error.as_str()));
+        Self {
+            code: code.into(),
+            message: message.into(),
+        }
+    }
+}
+
+async fn asset_blocking<T, F>(operation: F) -> Result<T, AssetCommandError>
+where
+    T: Send + 'static,
+    F: FnOnce() -> Result<T, String> + Send + 'static,
+{
+    tauri::async_runtime::spawn_blocking(operation)
+        .await
+        .map_err(|_| AssetCommandError {
+            code: "worker_failed".into(),
+            message: "后台任务失败，请重试。".into(),
+        })?
+        .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn list_consumption_inventory() -> Result<ConsumptionInventory, AssetCommandError> {
+    asset_blocking(mux_core::consumption::list_consumption_inventory).await
+}
+
+#[tauri::command]
+pub async fn plan_set_agent_consumption(
+    request: PlanSetAgentConsumptionRequest,
+) -> Result<AssetOperationPlan, AssetCommandError> {
+    asset_blocking(move || mux_core::consumption::plan_set_agent_consumption(request)).await
+}
+
+#[tauri::command]
+pub async fn plan_set_asset_consumers(
+    request: PlanSetAssetConsumersRequest,
+) -> Result<AssetOperationPlan, AssetCommandError> {
+    asset_blocking(move || mux_core::consumption::plan_set_asset_consumers(request)).await
+}
+
+#[tauri::command]
+pub async fn plan_update_central_asset(
+    request: PlanUpdateCentralAssetRequest,
+) -> Result<AssetOperationPlan, AssetCommandError> {
+    asset_blocking(move || mux_core::consumption::plan_update_central_asset(request)).await
+}
+
+#[tauri::command]
+pub async fn plan_delete_central_asset(
+    request: PlanDeleteCentralAssetRequest,
+) -> Result<AssetOperationPlan, AssetCommandError> {
+    asset_blocking(move || mux_core::consumption::plan_delete_central_asset(request)).await
+}
+
+#[tauri::command]
+pub async fn commit_asset_operation(
+    request: AssetCommitRequest,
+) -> Result<ConsumptionInventory, AssetCommandError> {
+    asset_blocking(move || mux_core::consumption::commit_asset_operation(request)).await
+}
+
+#[tauri::command]
+pub async fn cancel_asset_operation(operation_id: String) -> Result<(), AssetCommandError> {
+    asset_blocking(move || mux_core::consumption::cancel_asset_operation(&operation_id)).await
+}
 
 // ── User-level Skills ────────────────────────────────────────────────────
 
@@ -130,6 +217,13 @@ pub async fn plan_skill_install(
 }
 
 #[tauri::command]
+pub async fn plan_skill_asset_install(
+    request: PlanSkillAssetInstallRequest,
+) -> Result<OperationPlan, SkillCommandError> {
+    skill_blocking(move || mux_core::skills::plan_asset_install(request)).await
+}
+
+#[tauri::command]
 pub async fn commit_skill_install(
     request: SkillCommitRequest,
 ) -> Result<SkillsInventory, SkillCommandError> {
@@ -141,6 +235,13 @@ pub async fn plan_skill_import(
     request: PlanImportRequest,
 ) -> Result<OperationPlan, SkillCommandError> {
     skill_blocking(move || mux_core::skills::plan_import(request)).await
+}
+
+#[tauri::command]
+pub async fn plan_skill_asset_import(
+    request: PlanSkillAssetImportRequest,
+) -> Result<OperationPlan, SkillCommandError> {
+    skill_blocking(move || mux_core::skills::plan_asset_import(request)).await
 }
 
 #[tauri::command]

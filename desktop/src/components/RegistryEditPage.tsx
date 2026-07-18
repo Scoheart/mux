@@ -1,16 +1,16 @@
 import { useMemo, useState } from "react";
 import type { InstallState } from "../hooks/useInstallState";
+import type { ConsumptionState } from "../hooks/useConsumptionState";
 import type { RegistryEntry } from "../lib/types";
-import { upsertRegistry, deleteRegistry, resyncEntry } from "../lib/api";
-import { keyOf, transportOf, type Transport } from "../lib/mcp";
+import { keyOf, type Transport } from "../lib/mcp";
 import { EnvEditor } from "./EnvEditor";
 import { DialogShell } from "./DialogShell";
-import { ReviewDialog } from "./ReviewDialog";
-import { SaveIcon, RefreshIcon } from "./icons";
+import { SaveIcon } from "./icons";
 import { useToast } from "./Toast";
 
 interface RegistryEditPageProps {
   state: InstallState;
+  consumptionState: ConsumptionState;
   /** Entry name to edit; null = create a new entry. */
   name: string | null;
   /** Which transport variant to edit (a name can have both stdio + http). */
@@ -31,8 +31,8 @@ const inputStyle = {
   width: "100%",
 } as const;
 
-export function RegistryEditPage({ state, name, transport: editTransport, onBack }: RegistryEditPageProps) {
-  const { entries, customKeys, refreshRegistry, rescan } = state;
+export function RegistryEditPage({ state, consumptionState, name, transport: editTransport, onBack }: RegistryEditPageProps) {
+  const { entries, customKeys } = state;
   const toast = useToast();
 
   const isNew = name === null;
@@ -62,7 +62,6 @@ export function RegistryEditPage({ state, name, transport: editTransport, onBack
   const [repo, setRepo] = useState(existing?.repo ?? "");
 
   const [saving, setSaving] = useState(false);
-  const [forceResyncAgents, setForceResyncAgents] = useState<string[] | null>(null);
 
   const compact = (o: Record<string, string>) => (Object.keys(o).length > 0 ? o : undefined);
 
@@ -101,78 +100,15 @@ export function RegistryEditPage({ state, name, transport: editTransport, onBack
     }
     setSaving(true);
     try {
-      const synced = await upsertRegistry(draft);
-      // Renamed (or changed transport) a custom entry → the new name is written
-      // above; remove the old entry so it doesn't linger as a duplicate.
-      if (existing && isCustom && keyOf(existing) !== draftKey) {
-        await deleteRegistry(existing.name, transportOf(existing));
-      }
-      // Saving auto-synced the new config into installed agents — refresh both
-      // the catalog and the install scan so usage/customized flags stay accurate.
-      await Promise.all([refreshRegistry(), rescan()]);
-      toast.show({
-        kind: "success",
-        msg:
-          synced.length > 0
-            ? `已保存 ${serverName.trim()}，并自动同步到 ${synced.length} 个 agent（${synced.join(", ")}）`
-            : `已保存 ${serverName.trim()}`,
+      await consumptionState.planUpdate({
+        domain: "mcp",
+        existing_key: existing ? keyOf(existing) : undefined,
+        entry: draft,
       });
+      toast.show({ kind: "success", msg: "已生成中央资产变更计划，请审阅后同步。" });
       onBack();
     } catch (err) {
-      // The catalog write happens before Agent propagation. Refresh from disk
-      // even on failure so a partial sync is never hidden behind stale UI.
-      await Promise.all([refreshRegistry().catch(console.error), rescan().catch(console.error)]);
-      const message = String(err);
-      toast.show({
-        kind: "error",
-        msg: message.includes("catalog saved, but Agent sync failed")
-          ? `已保存 ${serverName.trim()}，但部分 Agent 同步失败: ${message}`
-          : `保存失败: ${message}`,
-      });
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  // Explicit re-sync: push this entry's *current saved* config into the agents
-  // that have it installed. Safe by default (skips hand-customized installs);
-  // if any were skipped, offer to force-overwrite.
-  const handleResync = async () => {
-    if (!existing || saving) return;
-    const t = transportOf(existing);
-    setSaving(true);
-    try {
-      let out = await resyncEntry(existing.name, t, false);
-      if (out.skipped_customized.length > 0) {
-        setForceResyncAgents(out.skipped_customized);
-        return;
-      }
-      await rescan();
-      toast.show({
-        kind: "success",
-        msg:
-          out.synced.length > 0
-            ? `已同步到 ${out.synced.length} 个 agent（${out.synced.join(", ")}）`
-            : "没有需要同步的已安装 agent",
-      });
-    } catch (err) {
-      toast.show({ kind: "error", msg: `同步失败: ${String(err)}` });
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleForceResync = async () => {
-    if (!existing || saving) return;
-    setSaving(true);
-    try {
-      const out = await resyncEntry(existing.name, transportOf(existing), true);
-      await rescan();
-      setForceResyncAgents(null);
-      toast.show({ kind: "success", msg: `已强制同步到 ${out.synced.length} 个 agent（${out.synced.join(", ")}）` });
-    } catch (err) {
-      toast.show({ kind: "error", msg: `同步失败: ${String(err)}` });
-      throw err;
+      toast.show({ kind: "error", msg: `无法生成变更计划: ${String(err)}` });
     } finally {
       setSaving(false);
     }
@@ -182,9 +118,12 @@ export function RegistryEditPage({ state, name, transport: editTransport, onBack
     if (!name || saving || !existing) return;
     setSaving(true);
     try {
-      await deleteRegistry(name, transportOf(existing));
-      await Promise.all([refreshRegistry(), rescan()]);
-      toast.show({ kind: "success", msg: `已恢复默认: ${name}` });
+      const sourceId = existing.origin?.source ?? existing.origin?.kind;
+      await consumptionState.planDelete(
+        { domain: "mcp", key: keyOf(existing) },
+        sourceId,
+      );
+      toast.show({ kind: "success", msg: `已生成“恢复默认”计划: ${name}` });
       onBack();
     } catch (err) {
       toast.show({ kind: "error", msg: `恢复失败: ${String(err)}` });
@@ -209,12 +148,6 @@ export function RegistryEditPage({ state, name, transport: editTransport, onBack
                 恢复默认
               </button>
             )}
-            {!isNew && existing && (
-              <button onClick={handleResync} disabled={saving} className="btn-secondary" title="把当前保存的配置重新同步到已安装此 MCP 的 agent（全局）">
-                <RefreshIcon className="w-4 h-4" />
-                重新同步
-              </button>
-            )}
           </>
         }
         footerEnd={
@@ -235,15 +168,10 @@ export function RegistryEditPage({ state, name, transport: editTransport, onBack
                 <input
                   style={{ ...inputStyle, fontFamily: "var(--font-mono)" }}
                   value={serverName}
-                  disabled={!isNew && !isCustom}
+                  disabled={!isNew}
                   onChange={(e) => setServerName(e.target.value)}
                   placeholder="server-name"
                 />
-                {!isNew && isCustom && existing && serverName.trim() !== existing.name && (
-                  <p className="text-[11px] mt-1" style={{ color: "var(--text-secondary)" }}>
-                    改名会移除旧条目；已装到 agent 的旧名不会自动改。
-                  </p>
-                )}
               </div>
               <div className="flex-[1.6] min-w-0">
                 <label className={labelCls} style={labelStyle}>描述</label>
@@ -282,10 +210,10 @@ export function RegistryEditPage({ state, name, transport: editTransport, onBack
             <div className="mb-4">
               <label className={labelCls} style={labelStyle}>传输方式</label>
               <div className="mux-seg">
-                <button className="mux-seg-item" data-active={transport === "stdio" ? "true" : undefined} onClick={() => setTransport("stdio")}>
+                <button disabled={!isNew} className="mux-seg-item" data-active={transport === "stdio" ? "true" : undefined} onClick={() => setTransport("stdio")}>
                   stdio
                 </button>
-                <button className="mux-seg-item" data-active={transport === "http" ? "true" : undefined} onClick={() => setTransport("http")}>
+                <button disabled={!isNew} className="mux-seg-item" data-active={transport === "http" ? "true" : undefined} onClick={() => setTransport("http")}>
                   http / sse
                 </button>
               </div>
@@ -360,19 +288,6 @@ export function RegistryEditPage({ state, name, transport: editTransport, onBack
       </div>
 
     </DialogShell>
-    {forceResyncAgents && existing && (
-      <ReviewDialog
-        title="覆盖手动修改"
-        subtitle={`${existing.name} · ${transportOf(existing)}`}
-        confirmLabel="强制覆盖"
-        onClose={() => setForceResyncAgents(null)}
-        onConfirm={handleForceResync}
-      >
-        <p><strong>{forceResyncAgents.length} 个 Agent</strong> 的 MCP 配置已被手动修改：</p>
-        <p>{forceResyncAgents.join("、")}</p>
-        <p>继续会用当前保存配置覆盖这些字段；写入前仍会创建备份。</p>
-      </ReviewDialog>
-    )}
     </>
   );
 }

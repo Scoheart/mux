@@ -10,6 +10,7 @@ import {
   normalizeSkillCommandError,
   type SkillsState,
 } from "../hooks/useSkillsState";
+import type { ConsumptionState } from "../hooks/useConsumptionState";
 import * as api from "../lib/api";
 import {
   filterSkills,
@@ -17,12 +18,14 @@ import {
   type SkillStatusFilter,
 } from "../lib/skills";
 import type {
+  AssetRef,
   OperationPlan,
   SkillCommandError,
   SkillDetail,
   SkillNavigationIntent,
   SkillsInventory,
 } from "../lib/types";
+import { consumersForAsset } from "../lib/consumption";
 import {
   FolderIcon,
   LayersIcon,
@@ -37,10 +40,9 @@ import {
   SkillInspector,
   type SkillLifecycleIntent,
 } from "./SkillInspector";
-import {
-  SkillReviewDialog,
-  type SkillReviewDialogProps,
-} from "./SkillReviewDialog";
+import { SkillReviewDialog } from "./SkillReviewDialog";
+import { AssetConsumerDialog } from "./AssetConsumerDialog";
+import { AssetOperationReviewDialog } from "./AssetOperationReviewDialog";
 import { useToast } from "./Toast";
 import {
   ResourceGrid,
@@ -70,50 +72,18 @@ const sourceOptions: Array<{
 
 interface SkillsViewProps {
   state: SkillsState;
+  consumptionState?: ConsumptionState;
   intent?: SkillNavigationIntent;
   onIntentConsumed?(id: number): void;
 }
 
-type LifecycleAssignmentContext = NonNullable<
-  SkillReviewDialogProps["assignmentContext"]
-> & { operationId: string };
-
 interface LifecycleReview {
   plan: OperationPlan;
-  assignmentContext: LifecycleAssignmentContext | null;
-}
-
-function assignmentContextForPlan(
-  intent: Extract<SkillLifecycleIntent, { kind: "assignment" }>,
-  inventory: SkillsInventory | null,
-  plan: OperationPlan,
-): LifecycleAssignmentContext {
-  const selectedAgentIds = new Set(intent.agentIds);
-  const priorTargetIds = new Set(
-    inventory?.items.find(
-      (item) =>
-        item.name === intent.skillName && item.location.kind === "central",
-    )?.assigned_target_ids ?? [],
-  );
-  const targetIds = plan.targets
-    .filter(
-      (target) =>
-        target.affected_agent_ids.some((agentId) =>
-          selectedAgentIds.has(agentId),
-        ) &&
-        (!intent.enabled || !priorTargetIds.has(target.target_id)),
-    )
-    .map((target) => target.target_id);
-  return {
-    operationId: plan.operation_id,
-    enabled: intent.enabled,
-    agentIds: intent.agentIds,
-    targetIds,
-  };
 }
 
 export function SkillsView({
   state,
+  consumptionState,
   intent,
   onIntentConsumed,
 }: SkillsViewProps) {
@@ -127,9 +97,7 @@ export function SkillsView({
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<SkillCommandError | null>(null);
   const [installOpen, setInstallOpen] = useState(false);
-  const [installInitialAgentId, setInstallInitialAgentId] = useState<
-    string | null
-  >(null);
+  const [consumerSkillName, setConsumerSkillName] = useState<string | null>(null);
   const [navigationNotice, setNavigationNotice] = useState<string | null>(null);
   const [lifecycleReview, setLifecycleReview] =
     useState<LifecycleReview | null>(null);
@@ -160,6 +128,11 @@ export function SkillsView({
   );
   const selected = selectedIdentity
     ? items.find((item) => item.identity === selectedIdentity) ?? null
+    : null;
+  const consumerSkill = consumerSkillName
+    ? items.find((item) =>
+        item.name === consumerSkillName && item.location.kind === "central"
+      ) ?? null
     : null;
   const countWith = (
     override: Partial<{
@@ -247,16 +220,14 @@ export function SkillsView({
     }
 
     const generation = ++lifecycleGeneration.current;
-    const inventorySnapshot = state.inventory;
     lifecyclePendingRef.current = true;
     setLifecyclePlanning(true);
     try {
       const plan = await (() => {
         switch (intent.kind) {
           case "import":
-            return api.planSkillImport({
+            return api.planSkillAssetImport({
               identity: intent.identity,
-              agent_ids: intent.agentIds,
               replace_conflicts: intent.replaceConflicts,
             });
           case "update":
@@ -266,12 +237,6 @@ export function SkillsView({
             });
           case "remove":
             return api.planSkillRemove({ skill_name: intent.skillName });
-          case "assignment":
-            return api.planSkillAssignment({
-              skill_name: intent.skillName,
-              agent_ids: intent.agentIds,
-              enabled: intent.enabled,
-            });
           case "repair":
             return api.planSkillRepair({
               skill_name: intent.skillName,
@@ -285,13 +250,7 @@ export function SkillsView({
         return;
       }
       lifecyclePlanRef.current = plan;
-      setLifecycleReview({
-        plan,
-        assignmentContext:
-          intent.kind === "assignment"
-            ? assignmentContextForPlan(intent, inventorySnapshot, plan)
-            : null,
-      });
+      setLifecycleReview({ plan });
     } catch (reason) {
       if (mounted.current && lifecycleGeneration.current === generation) {
         const error = normalizeSkillCommandError(reason);
@@ -385,7 +344,6 @@ export function SkillsView({
   useEffect(() => {
     if (!recoveryError) return;
     setInstallOpen(false);
-    setInstallInitialAgentId(null);
   }, [recoveryError]);
 
   useEffect(() => {
@@ -402,7 +360,6 @@ export function SkillsView({
     setNavigationNotice(null);
     if (!inventory) {
       closeInspector();
-      setInstallInitialAgentId(null);
       setInstallOpen(false);
     } else if (intent.kind === "detail") {
       const item = inventory.items.find(
@@ -423,12 +380,9 @@ export function SkillsView({
           `未找到可管理的 Skill“${intent.skillName}”。`,
         );
       }
-    } else if (!recoveryError) {
-      setInstallInitialAgentId(intent.agentId);
-      setInstallOpen(true);
     } else {
-      setInstallInitialAgentId(null);
       setInstallOpen(false);
+      setNavigationNotice("请回到 Agent 页面，通过中央 Skills 选择器管理消费关系。");
     }
     onIntentConsumed?.(intent.id);
   }, [closeInspector, intent, onIntentConsumed, recoveryError, state.inventory]);
@@ -556,11 +510,10 @@ export function SkillsView({
               type="button"
               disabled={checkDisabled}
               onClick={() => {
-                setInstallInitialAgentId(null);
                 setInstallOpen(true);
               }}
             >
-              安装 Skill
+              添加到资产库
             </button>
           </>
         }
@@ -581,11 +534,18 @@ export function SkillsView({
               item={selected}
               detail={detail}
               agents={state.inventory?.agents ?? []}
-              targets={state.inventory?.targets ?? []}
+              consumers={consumptionState && selected.location.kind === "central"
+                ? consumersForAsset(consumptionState.inventory, { domain: "skill", name: selected.name })
+                : []}
               loading={detailLoading}
               error={detailError}
               onClose={closeInspector}
               onPlan={(intent) => void planLifecycle(intent)}
+              onManageConsumers={
+                consumptionState && selected.location.kind === "central"
+                  ? () => setConsumerSkillName(selected.name)
+                  : undefined
+              }
               planning={lifecyclePlanning}
               readOnly={recoveryError !== null || state.pendingOperation !== null}
             />
@@ -643,6 +603,12 @@ export function SkillsView({
                   key={item.identity}
                   item={item}
                   selected={item.identity === selectedIdentity}
+                  consumerAgentIds={
+                    consumptionState && item.location.kind === "central"
+                      ? consumersForAsset(consumptionState.inventory, { domain: "skill", name: item.name })
+                          .map((consumer) => consumer.agent_id)
+                      : item.affected_agent_ids
+                  }
                   onOpen={() => openSkill(item.identity)}
                 />
               ))}
@@ -652,18 +618,14 @@ export function SkillsView({
       </ResourceWorkspace>
       {installOpen && state.inventory && !recoveryError && (
         <SkillInstallDialog
-          agents={state.inventory.agents}
-          initialAgentId={installInitialAgentId ?? undefined}
           commit={state.commit}
           cancel={state.cancel}
           onClose={() => {
             setInstallOpen(false);
-            setInstallInitialAgentId(null);
           }}
           onCommitted={() => {
             setInstallOpen(false);
-            setInstallInitialAgentId(null);
-            toast.show({ kind: "success", msg: "Skill 已安装。" });
+            toast.show({ kind: "success", msg: "Skill 已添加到中央资产库。" });
           }}
           onRecoveryRequired={enterRecovery}
         />
@@ -671,16 +633,45 @@ export function SkillsView({
       {lifecycleReview && (
         <SkillReviewDialog
           plan={lifecycleReview.plan}
-          assignmentContext={
-            lifecycleReview.assignmentContext?.operationId ===
-            lifecycleReview.plan.operation_id
-              ? lifecycleReview.assignmentContext
-              : undefined
-          }
           onCommit={commitLifecycle}
           onClose={closeLifecycleReview}
           onCommitted={lifecycleCommitted}
           onRecoveryRequired={enterRecovery}
+        />
+      )}
+      {consumerSkill && consumptionState && state.inventory && (
+        <AssetConsumerDialog
+          asset={{ domain: "skill", name: consumerSkill.name }}
+          assetName={consumerSkill.name}
+          consumers={consumersForAsset(consumptionState.inventory, {
+            domain: "skill",
+            name: consumerSkill.name,
+          })}
+          options={state.inventory.agents.map((agent) => ({
+            id: agent.id,
+            name: agent.name,
+            description: agent.global_dir,
+            affectedAgentIds: agent.affected_agent_ids,
+          }))}
+          onClose={() => setConsumerSkillName(null)}
+          onReview={async (agentIds) => {
+            const asset: AssetRef = { domain: "skill", name: consumerSkill.name };
+            await consumptionState.planForAsset(asset, agentIds);
+            setConsumerSkillName(null);
+          }}
+        />
+      )}
+      {consumptionState?.plan && (
+        <AssetOperationReviewDialog
+          plan={consumptionState.plan}
+          busy={consumptionState.committing}
+          error={consumptionState.error?.message}
+          onCancel={consumptionState.cancel}
+          onCommit={async (conflictConfirmation) => {
+            await consumptionState.commit(conflictConfirmation);
+            await state.refresh();
+            toast.show({ kind: "success", msg: "Skill 消费关系已同步。" });
+          }}
         />
       )}
     </div>

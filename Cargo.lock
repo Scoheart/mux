@@ -1132,6 +1132,7 @@ dependencies = [
  "url",
  "uuid",
  "yaml-edit",
+ "zeroize",
 ]
 
 [[package]]

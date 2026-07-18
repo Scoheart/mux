@@ -11,10 +11,11 @@ use super::{
     io_error, list_inventory, normalize_agent_selection, validate_candidate, DirectoryMutation,
     FileChangeKind, InventoryState, LinkMutation, LinkState, ManagedSkillRecord, OperationPlan,
     PlanAssignmentRequest, PlanImportRequest, PlanInstallRequest, PlanRemoveRequest,
-    PlanRepairRequest, PlanUpdateRequest, PlannedLinkState, PlannedSkill, PlannedTarget,
-    RepairKind, RiskLevel, SkillCommitRequest, SkillError, SkillFileChange, SkillManifest,
-    SkillOperationKind, SkillSettingsSnapshot, SkillSource, SkillSourceResolution, SkillTargetView,
-    SkillUpdateState, SkillsInventory, SkillsPaths, TransactionOrder, TransactionSpec,
+    PlanRepairRequest, PlanSkillAssetImportRequest, PlanSkillAssetInstallRequest,
+    PlanUpdateRequest, PlannedLinkState, PlannedSkill, PlannedTarget, RepairKind, RiskLevel,
+    SkillCommitRequest, SkillError, SkillFileChange, SkillManifest, SkillOperationKind,
+    SkillSettingsSnapshot, SkillSource, SkillSourceResolution, SkillTargetView, SkillUpdateState,
+    SkillsInventory, SkillsPaths, TransactionOrder, TransactionSpec,
 };
 use crate::settings::{load_settings_strict, Settings};
 use chrono::{SecondsFormat, Utc};
@@ -153,6 +154,19 @@ pub fn plan_install(request: PlanInstallRequest) -> Result<OperationPlan, SkillE
     sanitize_result(plan_install_inner(request))
 }
 
+/// Central asset intake never accepts Agent ids. Assignment is a separate
+/// consumption operation after the asset exists in `managed_skills`.
+pub fn plan_asset_install(
+    request: PlanSkillAssetInstallRequest,
+) -> Result<OperationPlan, SkillError> {
+    plan_install(PlanInstallRequest {
+        resolution_id: request.resolution_id,
+        skill_names: request.skill_names,
+        agent_ids: Vec::new(),
+        replace_conflicts: request.replace_conflicts,
+    })
+}
+
 fn plan_install_inner(request: PlanInstallRequest) -> Result<OperationPlan, SkillError> {
     ensure_recovery_clear()?;
     validate_operation_id(&request.resolution_id)?;
@@ -169,6 +183,16 @@ pub fn commit_install(request: SkillCommitRequest) -> Result<SkillsInventory, Sk
 
 pub fn plan_import(request: PlanImportRequest) -> Result<OperationPlan, SkillError> {
     sanitize_result(plan_import_inner(request))
+}
+
+pub fn plan_asset_import(
+    request: PlanSkillAssetImportRequest,
+) -> Result<OperationPlan, SkillError> {
+    plan_import(PlanImportRequest {
+        identity: request.identity,
+        agent_ids: Vec::new(),
+        replace_conflicts: request.replace_conflicts,
+    })
 }
 
 fn plan_import_inner(request: PlanImportRequest) -> Result<OperationPlan, SkillError> {

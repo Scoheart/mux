@@ -10,7 +10,7 @@ describe("resource navigation", () => {
   it("routes every domain to its top-level view", () => {
     const mcp = createResourceNavigationIntent(1, { domain: "mcp", kind: "detail", name: "fs", transport: "stdio" });
     const model = createResourceNavigationIntent(2, { domain: "model", kind: "detail", profileId: "gateway" });
-    const skill = createResourceNavigationIntent(3, { domain: "skill", kind: "install", agentId: "codex" });
+    const skill = createResourceNavigationIntent(3, { domain: "skill", kind: "detail", skillName: "review-changes" });
     expect(viewForResourceIntent(mcp)).toEqual({ kind: "registry", intent: mcp });
     expect(viewForResourceIntent(model)).toEqual({ kind: "models", intent: model });
     expect(viewForResourceIntent(skill)).toEqual({ kind: "skills", intent: skill });

@@ -1,26 +1,27 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import {
-  applyModelProfile,
-  deleteModelProfile,
   listModelAgents,
   listModelProfiles,
-  saveModelProfile,
 } from "../lib/api";
+import type { ConsumptionState } from "../hooks/useConsumptionState";
 import type {
+  AssetRef,
   ModelAgentView,
   ModelProfile,
   ModelProfileView,
   ModelProtocol,
   ResourceNavigationIntent,
 } from "../lib/types";
+import { consumersForAsset } from "../lib/consumption";
 import { formatError } from "../lib/format";
 import { AgentGlyph } from "./brandIcons";
 import { Avatar, Badge } from "./ui";
 import { ResourceCard } from "./ResourceCard";
 import { ResourceState } from "./ResourceState";
 import { DialogShell } from "./DialogShell";
-import { ReviewDialog } from "./ReviewDialog";
+import { AssetConsumerDialog } from "./AssetConsumerDialog";
+import { AssetOperationReviewDialog } from "./AssetOperationReviewDialog";
 import {
   CheckIcon,
   EditIcon,
@@ -50,10 +51,6 @@ const PROTOCOLS: Array<{ id: ModelProtocol; label: string }> = [
 ];
 
 type ModelStatusFilter = "all" | "assigned" | "unassigned";
-type ModelReview =
-  | { kind: "delete"; profile: ModelProfileView }
-  | { kind: "apply"; profile: ModelProfileView; agent: ModelAgentView };
-
 const emptyProfile = (): ModelProfile => ({
   id: "",
   name: "",
@@ -68,9 +65,11 @@ function protocolLabel(protocol: ModelProtocol) {
 }
 
 export function ModelsView({
+  consumptionState,
   intent,
   onIntentConsumed,
 }: {
+  consumptionState?: ConsumptionState;
   intent?: Extract<ResourceNavigationIntent, { domain: "model" }>;
   onIntentConsumed?(id: number): void;
 } = {}) {
@@ -78,13 +77,12 @@ export function ModelsView({
   const [agents, setAgents] = useState<ModelAgentView[]>([]);
   const [selectedProfileId, setSelectedProfileId] = useState<string | null>(null);
   const [editing, setEditing] = useState<ModelProfileView | null | undefined>(undefined);
-  const [busyAgent, setBusyAgent] = useState<string | null>(null);
+  const [consumerProfile, setConsumerProfile] = useState<ModelProfileView | null>(null);
   const [loading, setLoading] = useState(true);
   const [readError, setReadError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<ModelStatusFilter>("all");
   const [protocolFilter, setProtocolFilter] = useState<ModelProtocol | null>(null);
-  const [review, setReview] = useState<ModelReview | null>(null);
   const toast = useToast();
   const lastConsumedIntentId = useRef<number | null>(null);
 
@@ -112,15 +110,24 @@ export function ModelsView({
   }, [refresh]);
 
   const agentsByProfile = useMemo(() => {
-    const map = new Map<string, ModelAgentView[]>();
+    const map = new Map<string, string[]>();
+    if (consumptionState) {
+      for (const item of consumptionState.inventory?.consumptions ?? []) {
+        if (!item.desired || item.asset.domain !== "model") continue;
+        const rows = map.get(item.asset.profile_id) ?? [];
+        rows.push(item.agent_id);
+        map.set(item.asset.profile_id, rows);
+      }
+      return map;
+    }
     for (const agent of agents) {
       if (!agent.assigned_profile) continue;
       const rows = map.get(agent.assigned_profile) ?? [];
-      rows.push(agent);
+      rows.push(agent.id);
       map.set(agent.assigned_profile, rows);
     }
     return map;
-  }, [agents]);
+  }, [agents, consumptionState]);
 
   const statusCounts = useMemo(() => {
     const scopedProfiles = protocolFilter
@@ -190,31 +197,12 @@ export function ModelsView({
     setProtocolFilter(protocol);
   };
 
-  const removeProfile = async (profile: ModelProfileView) => {
+  const planProfileDelete = async (profile: ModelProfileView) => {
+    if (!consumptionState) return;
     try {
-      await deleteModelProfile(profile.id);
-      setSelectedProfileId((current) => current === profile.id ? null : current);
-      await refresh();
-      setReview(null);
-      toast.show({ kind: "success", msg: `已删除：${profile.name}` });
+      await consumptionState.planDelete({ domain: "model", profile_id: profile.id });
     } catch (error) {
-      toast.show({ kind: "error", msg: "删除失败：" + formatError(error) });
-      throw error;
-    }
-  };
-
-  const apply = async (agent: ModelAgentView, profile: ModelProfileView) => {
-    setBusyAgent(agent.id);
-    try {
-      const result = await applyModelProfile(agent.id, profile.id);
-      await refresh();
-      setReview(null);
-      toast.show({ kind: "success", msg: result.message });
-    } catch (error) {
-      toast.show({ kind: "error", msg: "应用失败：" + formatError(error) });
-      throw error;
-    } finally {
-      setBusyAgent(null);
+      toast.show({ kind: "error", msg: "无法生成删除计划：" + formatError(error) });
     }
   };
 
@@ -253,14 +241,14 @@ export function ModelsView({
             value={statusFilter}
             options={[
               { value: "all", label: "全部", count: statusCounts.all },
-              { value: "assigned", label: "已分配", count: statusCounts.assigned },
-              { value: "unassigned", label: "未分配", count: statusCounts.unassigned },
+              { value: "assigned", label: "使用中", count: statusCounts.assigned },
+              { value: "unassigned", label: "未使用", count: statusCounts.unassigned },
             ]}
             onChange={changeStatus}
           />
         }
         toolbarActions={
-          <button className="btn-primary" type="button" onClick={() => setEditing(null)}>
+          <button className="btn-primary" type="button" disabled={!consumptionState} onClick={() => setEditing(null)}>
             <PlusIcon className="w-4 h-4" />
             新建模型
           </button>
@@ -271,11 +259,11 @@ export function ModelsView({
               profile={selectedProfile}
               profiles={profiles}
               agents={agents}
-              busyAgent={busyAgent}
-              onApply={(agent, profile) => setReview({ kind: "apply", agent, profile })}
+              assignedIds={agentsByProfile.get(selectedProfile.id) ?? []}
+              onManage={consumptionState ? () => setConsumerProfile(selectedProfile) : undefined}
               onClose={() => setSelectedProfileId(null)}
-              onEdit={() => setEditing(selectedProfile)}
-              onDelete={() => setReview({ kind: "delete", profile: selectedProfile })}
+              onEdit={consumptionState ? () => setEditing(selectedProfile) : undefined}
+              onDelete={consumptionState ? () => void planProfileDelete(selectedProfile) : undefined}
             />
           ) : undefined
         }
@@ -303,7 +291,7 @@ export function ModelsView({
             kind={profiles.length === 0 ? "empty" : "no-match"}
             icon={<LayersIcon className="w-6 h-6" />}
             title={profiles.length === 0 ? "暂无模型" : "没有匹配项"}
-            detail={profiles.length === 0 ? "创建模型后即可分配给 Agent" : "调整搜索、协议或状态筛选后重试。"}
+            detail={profiles.length === 0 ? "创建模型后即可由 Agent 消费" : "调整搜索、协议或状态筛选后重试。"}
             action={
               profiles.length === 0 ? undefined : (
                 <button className="btn-secondary" type="button" onClick={() => {
@@ -321,7 +309,7 @@ export function ModelsView({
                 key={profile.id}
                 profile={profile}
                 selected={profile.id === selectedProfileId}
-                agentIds={(agentsByProfile.get(profile.id) ?? []).map((agent) => agent.id)}
+                agentIds={agentsByProfile.get(profile.id) ?? []}
                 onOpen={() => setSelectedProfileId(profile.id)}
               />
             ))}
@@ -332,35 +320,64 @@ export function ModelsView({
         <ModelProfileDialog
           initial={editing}
           onClose={() => setEditing(undefined)}
-          onSaved={async () => {
+          onReview={async (profile, credential) => {
+            if (!consumptionState) throw new Error("中央资产事务不可用");
+            await consumptionState.planUpdate({
+              domain: "model",
+              existing_id: editing?.id,
+              profile,
+              credential,
+            });
             setEditing(undefined);
-            await refresh();
           }}
         />
       )}
-      {review?.kind === "delete" && (
-        <ReviewDialog
-          title="删除模型"
-          subtitle={review.profile.name}
-          confirmLabel="删除模型"
-          onClose={() => setReview(null)}
-          onConfirm={() => removeProfile(review.profile)}
-        >
-          <p>将删除此 MUX 模型配置与 Keychain 凭据引用；已经写入 Agent 的配置不会自动回滚。</p>
-        </ReviewDialog>
+      {consumerProfile && consumptionState && (
+        <AssetConsumerDialog
+          asset={{ domain: "model", profile_id: consumerProfile.id }}
+          assetName={consumerProfile.name}
+          consumers={consumersForAsset(consumptionState.inventory, {
+            domain: "model",
+            profile_id: consumerProfile.id,
+          })}
+          options={agents.map((agent) => {
+            const compatible = agent.mode === "managed" && agent.supported_protocols.includes(consumerProfile.protocol);
+            const selected = (agentsByProfile.get(consumerProfile.id) ?? []).includes(agent.id);
+            return {
+              id: agent.id,
+              name: agent.name,
+              description: agent.installed ? agent.config_path : "未检测到安装",
+              disabled: !compatible && !selected,
+              reason: agent.mode === "guided"
+                ? "此 Agent 仅支持官方引导配置"
+                : compatible ? undefined : "协议不兼容",
+            };
+          })}
+          onClose={() => setConsumerProfile(null)}
+          onReview={async (agentIds) => {
+            const asset: AssetRef = { domain: "model", profile_id: consumerProfile.id };
+            await consumptionState.planForAsset(asset, agentIds);
+            setConsumerProfile(null);
+          }}
+        />
       )}
-      {review?.kind === "apply" && (
-        <ReviewDialog
-          title="应用模型"
-          subtitle={`${review.profile.name} → ${review.agent.name}`}
-          confirmLabel="应用模型"
-          tone="primary"
-          onClose={() => setReview(null)}
-          onConfirm={() => apply(review.agent, review.profile)}
-        >
-          <p>目标：<code>{review.agent.config_path}</code></p>
-          <p>只更新该 Agent 的 Model 所有字段，写入前创建备份。</p>
-        </ReviewDialog>
+      {consumptionState?.plan && (
+        <AssetOperationReviewDialog
+          plan={consumptionState.plan}
+          busy={consumptionState.committing}
+          error={consumptionState.error?.message}
+          onCancel={consumptionState.cancel}
+          onCommit={async (conflictConfirmation) => {
+            const kind = consumptionState.plan?.kind;
+            await consumptionState.commit(conflictConfirmation);
+            await refresh();
+            if (kind === "delete-asset") setSelectedProfileId(null);
+            toast.show({
+              kind: "success",
+              msg: kind === "set-consumption" ? "Model 消费关系已同步。" : "中央 Model 资产与所有消费者已同步。",
+            });
+          }}
+        />
       )}
     </>
   );
@@ -426,8 +443,8 @@ function ModelInspector({
   profile,
   profiles,
   agents,
-  busyAgent,
-  onApply,
+  assignedIds,
+  onManage,
   onClose,
   onEdit,
   onDelete,
@@ -435,16 +452,12 @@ function ModelInspector({
   profile: ModelProfileView;
   profiles: ModelProfileView[];
   agents: ModelAgentView[];
-  busyAgent: string | null;
-  onApply: (agent: ModelAgentView, profile: ModelProfileView) => void;
+  assignedIds: string[];
+  onManage?: () => void;
   onClose: () => void;
-  onEdit: () => void;
-  onDelete: () => void;
+  onEdit?: () => void;
+  onDelete?: () => void;
 }) {
-  const assignedIds = agents
-    .filter((agent) => agent.assigned_profile === profile.id)
-    .map((agent) => agent.id);
-
   return (
     <ResourceInspector
       title={profile.name}
@@ -453,12 +466,12 @@ function ModelInspector({
       onClose={onClose}
       footer={
         <>
-          <button className="btn-danger" type="button" onClick={onDelete}>
+          <button className="btn-danger" type="button" disabled={!onDelete} onClick={onDelete}>
             <TrashIcon className="w-4 h-4" />
             删除
           </button>
           <div className="flex-1" />
-          <button className="btn-primary" type="button" onClick={onEdit}>
+          <button className="btn-primary" type="button" disabled={!onEdit} onClick={onEdit}>
             <EditIcon className="w-4 h-4" />
             编辑
           </button>
@@ -476,11 +489,15 @@ function ModelInspector({
       </InspectorSection>
 
       <InspectorSection title="Agent">
-        <AgentStack ids={assignedIds} />
+        <div className="mux-consumer-summary">
+          <AgentStack ids={assignedIds} />
+          <span>{assignedIds.length > 0 ? `${assignedIds.length} 个 Agent 正在使用` : "尚无 Agent 使用"}</span>
+          {onManage && <button type="button" className="btn-secondary" onClick={onManage}>管理 Agent</button>}
+        </div>
         <div className="mux-model-connection-list">
           {agents.map((agent) => {
             const compatible = agent.supported_protocols.includes(profile.protocol);
-            const assigned = agent.assigned_profile === profile.id;
+            const assigned = assignedIds.includes(agent.id);
             const current = agent.assigned_profile
               ? profiles.find((item) => item.id === agent.assigned_profile)?.name
               : null;
@@ -501,15 +518,7 @@ function ModelInspector({
                 ) : assigned ? (
                   <span className="mux-applied-label"><CheckIcon className="w-3.5 h-3.5" />已应用</span>
                 ) : (
-                  <button
-                    type="button"
-                    className="btn-secondary"
-                    disabled={!compatible || busyAgent !== null}
-                    title={compatible ? `应用到 ${agent.name}` : "协议不兼容"}
-                    onClick={() => void onApply(agent, profile)}
-                  >
-                    {busyAgent === agent.id ? "应用中…" : compatible ? "应用" : "不兼容"}
-                  </button>
+                  <span className="mux-status-muted">{compatible ? "未使用" : "不兼容"}</span>
                 )}
               </div>
             );
@@ -523,11 +532,11 @@ function ModelInspector({
 function ModelProfileDialog({
   initial,
   onClose,
-  onSaved,
+  onReview,
 }: {
   initial: ModelProfileView | null;
   onClose: () => void;
-  onSaved: () => Promise<void>;
+  onReview: (profile: ModelProfile, credential?: string) => Promise<void>;
 }) {
   const [draft, setDraft] = useState<ModelProfile>(initial ?? emptyProfile());
   const [credential, setCredential] = useState("");
@@ -543,18 +552,14 @@ function ModelProfileDialog({
     setBusy(true);
     try {
       const credentialUpdate = clearCredential ? "" : credential || undefined;
-      await saveModelProfile(
-        {
-          ...draft,
-          id: draft.id.trim(),
-          name: draft.name.trim(),
-          base_url: draft.base_url.trim().replace(/\/$/, ""),
-          model: draft.model.trim(),
-        },
-        credentialUpdate
-      );
-      await onSaved();
-      toast.show({ kind: "success", msg: initial ? "模型已更新" : "模型已创建" });
+      await onReview({
+        ...draft,
+        id: draft.id.trim(),
+        name: draft.name.trim(),
+        base_url: draft.base_url.trim().replace(/\/$/, ""),
+        model: draft.model.trim(),
+      }, credentialUpdate);
+      setCredential("");
     } catch (error) {
       toast.show({ kind: "error", msg: "保存失败：" + formatError(error) });
     } finally {

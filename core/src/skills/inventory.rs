@@ -3,9 +3,9 @@ use super::anchored::{AnchoredFileKind, AnchoredIdentity, AnchoredRoot};
 use super::files::MAX_SKILL_BYTES;
 use super::files::{classify_content, inspect_tree_anchored, validate_candidate_anchored};
 use super::{
-    parse_manifest, InventoryState, ManagedSkillRecord, SkillAgentView, SkillContentKind,
-    SkillDetail, SkillError, SkillInventoryItem, SkillLocation, SkillRiskSummary, SkillSource,
-    SkillTargetView, SkillUpdateState, SkillsInventory, SkillsPaths, ValidatedSkill,
+    parse_manifest, InventoryState, ManagedSkillRecord, SkillAgentCapabilityView, SkillAgentView,
+    SkillContentKind, SkillDetail, SkillError, SkillInventoryItem, SkillLocation, SkillRiskSummary,
+    SkillSource, SkillTargetView, SkillUpdateState, SkillsInventory, SkillsPaths, ValidatedSkill,
 };
 use crate::agents::builtin_agents;
 use crate::settings::{load_settings_strict, Settings};
@@ -132,6 +132,26 @@ pub fn list_skill_agents() -> Result<Vec<SkillAgentView>, SkillError> {
     let paths = SkillsPaths::resolve_from_env()?;
     let settings = strict_settings()?;
     Ok(build_target_graph(&paths, &settings)?.agents)
+}
+
+/// Return the verified physical target and current install-probe result for a
+/// canonical Agent id. `None` means the Agent has no audited Skills writer.
+pub fn skill_agent_capability(
+    agent_id: &str,
+) -> Result<Option<SkillAgentCapabilityView>, SkillError> {
+    let paths = SkillsPaths::resolve_from_env()?;
+    let settings = strict_settings()?;
+    let graph = build_target_graph(&paths, &settings)?;
+    Ok(graph.catalog_agents.get(agent_id).map(|agent| {
+        let target = &graph.targets[&agent.capability.target_id];
+        SkillAgentCapabilityView {
+            id: agent.id.clone(),
+            installed: agent.installed,
+            target_id: target.target_id.clone(),
+            global_dir: target.global_dir.clone(),
+            affected_agent_ids: target.affected_agent_ids.iter().cloned().collect(),
+        }
+    }))
 }
 
 pub fn normalize_agent_selection(agent_ids: &[String]) -> Result<Vec<String>, SkillError> {

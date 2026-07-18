@@ -7,7 +7,9 @@ MUX 的 Agent 数据分为两层：
 
 没有确认全局文件路径、顶层键和条目结构的客户端只保留来源数据，不进入选择器，也不允许写入。这样可以持续扩大覆盖面，又不会把通用 JSON 猜测写进未知产品配置。
 
-桌面端的单个 Agent 页面把可用资源统一为 **MCPs → Models → Skills** 三个标签，一次只展开当前类别。点击已有资源会跳转到对应顶层工作区并打开详情面板，避免在 Agent 页面复制一套完整的编辑与生命周期界面。
+桌面端把 MCP、Model 与 Skill 都视为中央资产：先在顶部 `MCPs`、`Models`、`Skills` 工作区统一创建、导入和维护，再由 Agent 建立消费关系。单个 Agent 页面使用 **MCPs → Model → Skills** 三个标签，只展示该 Agent 期望使用的中央资产；这里不会创建 MCP、填写 Model、解析 Skill 来源或重新安装 Skill。
+
+Agent 页的“管理”按钮和中央资产详情的“管理 Agent”修改的是同一份 desired relationship。MCP 与 Skills 每个 Agent 可选择多个，Model 同时最多一个。MUX 再把 Agent 文件或 Skill link 作为 observed state 对账，显示已同步、待同步、漂移或冲突；仅在 Agent 中发现的外部配置保持只读，扫描和刷新不会自动把它变成中央资产或消费关系。
 
 ## 已核验列表
 

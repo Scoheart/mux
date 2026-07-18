@@ -1,12 +1,12 @@
 # User-level Skills
 
-MUX Desktop can inventory, install, and assign user-level Skills that follow the Agent Skills format. This version manages only global Skills under the user's home directory; it neither reads nor writes project directories such as `.agents/skills` or `.claude/skills`.
+MUX Desktop manages user-level Skills that follow the Agent Skills format as central assets. Add a Skill to the central library first, then separately choose which Agents consume it; an Agent page never resolves a source or reinstalls the same Skill. This version manages only global Skills under the user's home directory and neither reads nor writes project directories such as `.agents/skills` or `.claude/skills`.
 
 > Skills currently have a Desktop entry only. The CLI/TUI does not expose Skills commands yet.
 
-## Installation sources
+## Add to the central library
 
-Open **Skills** in the top bar and choose **Install Skill**. Installation has three steps: choose a source, select discovered Skills and target Agents, then review and confirm the plan. A normal install selects zero Agents by default. When installation starts from an Agent page, only that Agent is preselected, and only if MUX still verifies it as installed.
+Open **Skills** in the top bar and choose **Add Skill**. Central intake has three steps: choose a source, select discovered Skills, then review and confirm the plan. It only writes the central copy under `~/.mux/skills/`; it selects no Agent, creates no link, and establishes no consumption relationship. After intake, use **Manage Agents** in the Skill Inspector or **Manage Skills** on an Agent page to choose consumers.
 
 | Source | Behavior |
 |---|---|
@@ -19,15 +19,15 @@ Private GitHub repositories, GitLab, SSH Git, and arbitrary archive URLs are not
 
 ## One central copy, multiple links
 
-After confirmation, MUX stores the single managed copy of each Skill at:
+After central intake is confirmed, MUX stores the single managed copy of each Skill at:
 
 ```text
 ~/.mux/skills/<skill-name>/
 ```
 
-Selected Agent directories contain only managed links to that central copy. Every assigned Agent therefore sees one update, while disabling one assignment removes only its link and does not delete the central content.
+When a consumption relationship is established, selected Agent directories contain only managed links to that central copy. Every consumer therefore sees one update, while removing one relationship only removes its link and does not delete the central content.
 
-MUX normalizes assignments by physical directory. Some Agents also read a compatibility directory: Cursor, Gemini CLI, OpenCode, and GitHub Copilot CLI can all read `~/.agents/skills`. A link written to Codex's preferred directory may therefore grant access to those other installed Agents too. The review lists every Agent actually affected and removes redundant links that would make one Skill appear twice.
+MUX normalizes consumption by physical directory. Some Agents also read a compatibility directory: Cursor, Gemini CLI, OpenCode, and GitHub Copilot CLI can all read `~/.agents/skills`. A link written to Codex's preferred directory may therefore grant access to those other installed Agents too. Agents sharing one physical target are selected as an inseparable group; the review lists every Agent actually affected and removes redundant links that would make one Skill appear twice.
 
 ## Verified Agent paths
 
@@ -59,6 +59,7 @@ Every write starts with a plan and commits only after confirmation. When applica
 
 | Operation | Result |
 |---|---|
+| Manage Agents | Choose consumers from a Skill Inspector or an Agent page and review a separate relationship plan. The central copy itself does not change; all Agents sharing one target are shown and changed together. |
 | Check / update | Background and manual checks read only a GitHub revision or local hash and never change content. Choosing Update then downloads the candidate, shows the diff, reruns the audit, and confirms replacement. Local modifications to the central copy require “back up and replace.” |
 | Import | An external copy in an Agent directory remains read-only first. After confirmation, MUX copies and validates it, backs up the original directory, and replaces it with a central link; the original is not moved before success. |
 | Disable | Removes the managed target link while retaining the central copy and other assignments. Review lists every Agent that loses access through a shared directory. |

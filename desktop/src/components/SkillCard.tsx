@@ -10,7 +10,7 @@ import { Avatar, Badge } from "./ui";
 
 const stateLabels: Record<InventoryState, string> = {
   managed: "已托管",
-  assigned: "已分配",
+  assigned: "使用中",
   external: "外部副本",
   locally_modified: "本地已修改",
   broken_link: "链接损坏",
@@ -61,10 +61,12 @@ export function SkillRiskBadge({
 export function SkillCard({
   item,
   selected,
+  consumerAgentIds,
   onOpen,
 }: {
   item: SkillInventoryItem;
   selected: boolean;
+  consumerAgentIds?: string[];
   onOpen: () => void;
 }) {
   return (
@@ -114,7 +116,7 @@ export function SkillCard({
         </div>
       }
       impact={
-        <AgentStack ids={item.affected_agent_ids} />
+        <AgentStack ids={consumerAgentIds ?? item.affected_agent_ids} />
       }
     />
   );

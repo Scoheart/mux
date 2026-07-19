@@ -1,5 +1,7 @@
 # 为什么给 Claude Code 添加 Skill 会显示影响 OpenCode
 
+> 状态：2026-07-19 已在工作树中修正确认框语义与真实写入路径；OpenCode 运行时禁用变量的探测尚未实现。
+
 ## 结论
 
 MUX 没有从 Claude Code 页面推断出额外目录，也不需要用户在 OpenCode 配置里手动声明 `~/.claude/skills`。
@@ -60,7 +62,7 @@ OPENCODE_DISABLE_CLAUDE_CODE_SKILLS=1
 
 但 MUX 当前只根据静态能力目录和安装探针计算影响，没有检测这个运行时环境变量。因此即便用户禁用了 OpenCode 的 Claude Skills 兼容，MUX 仍可能显示 OpenCode 受影响。
 
-## 当前确认框的两个表达问题
+## 原确认框的两个表达问题
 
 ### “添加 opencode”语义过重
 
@@ -75,7 +77,7 @@ OPENCODE_DISABLE_CLAUDE_CODE_SKILLS=1
 
 ### “将更新的位置”列出了三个目录
 
-[`core/src/consumption/planner.rs`](../core/src/consumption/planner.rs) 第 1021–1040 行会遍历所有受影响 Agent 声明过的全部 Skills 目标，因此当前计划预览会列出：
+原实现中，[`core/src/consumption/planner.rs`](../core/src/consumption/planner.rs) 会遍历所有受影响 Agent 声明过的全部 Skills 目标，因此计划预览会列出：
 
 - `~/.claude/skills/frontend-design`
 - `~/.agents/skills/frontend-design`
@@ -83,14 +85,16 @@ OPENCODE_DISABLE_CLAUDE_CODE_SKILLS=1
 
 这比实际最小物理分配目标更宽。底层 assignment normalization 会保留覆盖所选消费者的最小目标；此场景中 `~/.claude/skills/frontend-design` 已同时覆盖 Claude Code 和 OpenCode，不需要再向 OpenCode 首选目录复制一份。
 
-因此确认框的路径列表不是对实际最小写入集的准确表达，应由最终归一化后的 `target_id` 生成，而不是按所有受影响 Agent 的全部声明目录展开。
+因此原确认框的路径列表不是对实际最小写入集的准确表达。现已改为根据最终归一化后的 `target_id` 生成，只展示真正可能发生变更的物理路径。
 
-## 建议修正方向
+## 已实施的修正
 
 1. 将关系变化拆成“直接添加”和“兼容可见”，避免把被动消费者写成主动安装。
-2. “将更新的位置”只展示最终归一化后的真实物理目标。
-3. 在 OpenCode 行补充原因：`兼容读取 ~/.claude/skills`。
-4. 若要精确支持 OpenCode 禁用兼容的环境变量，应把运行时禁用状态纳入能力探测；否则至少在提示里说明影响判断基于 OpenCode 默认行为。
+2. 将“将更新的位置”改为“实际写入位置”，只展示最终归一化后的真实物理目标。
+3. 增加共享目录说明：兼容 Agent 读取同一份 Skill，不会重复安装。
+4. 增加 Core 与 Desktop 回归测试，固定 Claude Code → OpenCode 的共享目录语义。
+
+后续若要精确支持 OpenCode 禁用兼容的环境变量，应把运行时禁用状态纳入能力探测；当前提示仍基于 OpenCode 默认行为。
 
 ## 参考
 

@@ -1217,7 +1217,7 @@ body {
 .mux-agent-model-control { display: grid; grid-template-columns: minmax(250px, .8fr) minmax(390px, 1.2fr); overflow: hidden; border: 1px solid var(--border-hairline); border-radius: 8px; background: var(--surface-raised); }
 .mux-agent-model-current { display: flex; min-width: 0; align-items: center; gap: 10px; padding: 14px; border-right: 1px solid var(--border-hairline); }
 .mux-agent-model-current > div { min-width: 0; flex: 1; }
-.mux-agent-model-current span { display: block; color: var(--text-secondary); font-size: 9px; }
+.mux-agent-model-current > div > span { display: block; color: var(--text-secondary); font-size: 9px; }
 .mux-agent-model-current strong { display: block; margin-top: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-primary); font-size: 12px; }
 .mux-agent-model-current code { display: block; margin-top: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-secondary); font: 9px/1.2 var(--font-mono); }
 .mux-agent-model-apply { display: grid; grid-template-columns: minmax(190px, 1fr) auto; align-items: center; gap: 7px 10px; padding: 12px 14px; }

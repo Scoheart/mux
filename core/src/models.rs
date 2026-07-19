@@ -131,11 +131,13 @@ pub fn normalize_config_paths(paths: &[String], expected: usize) -> Result<Vec<S
         .collect()
 }
 
-fn configured_path_strings(
+pub(crate) fn configured_path_strings_checked(
     settings: &crate::settings::Settings,
     agent_id: &str,
-) -> Option<Vec<String>> {
-    let defaults = default_config_paths(agent_id)?;
+) -> Result<Option<Vec<String>>, String> {
+    let Some(defaults) = default_config_paths(agent_id) else {
+        return Ok(None);
+    };
     let expected = defaults.len();
     let paths = settings
         .agent_config_paths
@@ -143,7 +145,16 @@ fn configured_path_strings(
         .and_then(|overrides| overrides.get(agent_id))
         .and_then(|path_override| path_override.model_paths.clone())
         .unwrap_or(defaults);
-    normalize_config_paths(&paths, expected).ok()
+    normalize_config_paths(&paths, expected).map(Some)
+}
+
+fn configured_path_strings(
+    settings: &crate::settings::Settings,
+    agent_id: &str,
+) -> Option<Vec<String>> {
+    configured_path_strings_checked(settings, agent_id)
+        .ok()
+        .flatten()
 }
 
 fn configured_paths(agent_id: &str) -> Option<Vec<PathBuf>> {

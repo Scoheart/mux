@@ -41,7 +41,7 @@ The catalog is the union of all enabled managed sources. A separate desired rela
 ## What it can do (feature overview)
 
 - **Browse the catalog**: search, filter by source, and see each MCP's transport, source, which agents use it, and its GitHub repo.
-- **Manage consumers**: edit the same desired relationship from an Agent page or asset Inspector, then review and write it with backups.
+- **Manage consumers**: edit desired relationships only from the relevant Agent page, then review and write with backups; asset Inspectors show impact read-only.
 - **Reconcile state**: distinguish synced, pending, drifted, conflicted, and read-only external configurations without silent background overwrite.
 - **Cascade lifecycle changes**: central updates propagate to every consumer; central deletion also clears relationships and managed Agent targets.
 - **Edit / paste**: edit an MCP config visually, or paste an `mcpServers` JSON/TOML block for automatic recognition.

@@ -595,12 +595,34 @@ mod tests {
     #[test]
     fn builtin_catalog_and_transport_metadata_load() {
         let a = builtin_agents();
-        assert!(a.len() >= 170);
+        assert_eq!(audited_agents().len(), 42);
+        let catalog: BTreeMap<String, AgentDefinition> =
+            serde_json::from_str(CATALOG_AGENTS_JSON).unwrap();
+        assert_eq!(catalog.len(), 175);
+        assert_eq!(a.len(), 194);
         assert_eq!(a["claude-code"].key, "mcpServers");
         assert_eq!(a["codex"].format, "toml");
         assert!(!definition_supports_transport(&a["claude-desktop"], "http"));
         assert!(definition_supports_transport(&a["claude-desktop"], "stdio"));
         assert!(definition_supports_transport(&a["claude-code"], "http"));
+    }
+
+    #[test]
+    fn amazon_q_ide_and_cli_remain_distinct_catalog_surfaces() {
+        let agents = builtin_agents();
+        let ide = &agents["amazon-q"];
+        assert_eq!(ide.name.as_deref(), Some("Amazon Q Developer IDE"));
+        assert_eq!(ide.category.as_deref(), Some("ide"));
+        assert_eq!(ide.global.as_deref(), Some("~/.aws/amazonq/default.json"));
+        assert_eq!(
+            ide.docs.as_deref(),
+            Some("https://docs.aws.amazon.com/amazonq/latest/qdeveloper-ug/mcp-ide.html")
+        );
+
+        let cli = &agents["amazon-q-cli"];
+        assert_eq!(cli.name.as_deref(), Some("Amazon Q CLI"));
+        assert!(cli.global.is_none());
+        assert!(cli.transports.as_ref().is_some_and(Vec::is_empty));
     }
 
     #[test]

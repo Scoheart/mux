@@ -43,7 +43,7 @@ A one-click **Mux 精选 (curated collection)** subscribes you to a curated set.
 ## Features
 
 - **Aggregated catalog** with search, source filtering, and an explicit view of copies shadowed by precedence.
-- **Central assets, explicit consumers** — create or import assets once, then manage the desired MCP/Skill set or single current Model from either the Agent page or the asset Inspector.
+- **Central assets, explicit consumers** — create or import assets once, then manage each Agent's desired MCP/Skill set or single current Model from that Agent's page. Asset Inspectors keep lifecycle and impact read-only.
 - **Transport-aware** — `stdio` / `http` / `sse`, plus a **custom `type`** (e.g. `streamable-http`). Same-named stdio and http variants are tracked separately.
 - **Paste a config** — drop a `{"mcpServers": {…}}` block and MUX recognizes the servers and adds them.
 - **Desired vs. observed state** — Agent files and Skill links are scanned for `synced`, `pending`, `drifted`, `conflicted`, `unsupported`, and read-only `external` states; scans never silently create ownership.
@@ -160,7 +160,7 @@ Model API keys are not stored under `~/.mux/`; they remain in macOS Keychain.
 ## How it works
 
 1. **Build the central libraries** — subscribe or import MCP sources, create Model Profiles, and add reviewed Skills. No Agent target is changed during central intake.
-2. **Choose consumers** — from an Agent page or an asset Inspector, select the desired compatible assets. MCPs and Skills are sets; Model is a single current Profile.
+2. **Choose consumers** — from an Agent page, select the desired compatible assets. MCPs and Skills are sets; Model is a single current Profile.
 3. **Review one impact plan** — MUX shows central changes, relationship changes, target files, shared Skill-directory impact, drift, and conflicts before commit.
 4. **Commit and verify** — settings, Agent targets, and central lifecycle changes are applied as a recoverable transaction and rescanned before reporting success.
 5. **Keep external state explicit** — assets discovered only in Agent files remain read-only until explicitly imported; importing an asset still does not automatically establish a consumption relationship.

@@ -124,27 +124,35 @@ export function Switch({
   onChange,
   disabled,
   title,
+  ariaLabel,
+  compact = false,
 }: {
   checked: boolean;
   onChange: (value: boolean) => void;
   disabled?: boolean;
   title?: string;
+  ariaLabel?: string;
+  compact?: boolean;
 }) {
+  const width = compact ? 30 : 36;
+  const height = compact ? 18 : 22;
+  const knob = compact ? 14 : 18;
   return (
     <button
       type="button"
       role="switch"
       aria-checked={checked}
+      aria-label={ariaLabel}
       title={title}
       disabled={disabled}
       onClick={(e) => {
         e.stopPropagation();
         if (!disabled) onChange(!checked);
       }}
-      className="relative flex-shrink-0 rounded-full border-0 transition-colors"
+      className="mux-switch relative flex-shrink-0 rounded-full border-0 transition-colors"
       style={{
-        width: 36,
-        height: 22,
+        width,
+        height,
         padding: 0,
         background: checked ? "#34C759" : "var(--color-gray-200)",
         cursor: disabled ? "default" : "pointer",
@@ -155,9 +163,9 @@ export function Switch({
         className="absolute rounded-full"
         style={{
           top: 2,
-          left: checked ? 16 : 2,
-          width: 18,
-          height: 18,
+          left: checked ? width - knob - 2 : 2,
+          width: knob,
+          height: knob,
           background: "#fff",
           boxShadow: "0 1px 2px rgba(0,0,0,0.25)",
           transition: "left 0.15s ease",

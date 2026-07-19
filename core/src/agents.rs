@@ -1,8 +1,11 @@
 use crate::scanner::collapse_home;
-use crate::settings::{load_settings, mutate_settings};
+use crate::settings::{
+    load_settings, mutate_settings, mutate_settings_checked, AgentConfigPathOverride,
+};
 use crate::types::AgentDefinition;
-use serde::Serialize;
-use std::collections::BTreeMap;
+use serde::{Deserialize, Serialize};
+use std::collections::{BTreeMap, BTreeSet};
+use std::io::{Error, ErrorKind};
 
 /// An agent definition as surfaced to a UI: its stored config plus derived
 /// has-path flags. `global`/`project` keep the raw stored `~/…` paths so the UI
@@ -25,6 +28,14 @@ pub struct AgentInfo {
     pub evidence: String,
     pub verified_at: Option<String>,
     pub builtin: bool,
+    pub skills_global_dir: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AgentConfigurationInput {
+    pub mcp_path: String,
+    #[serde(default)]
+    pub model_paths: Vec<String>,
     pub skills_global_dir: Option<String>,
 }
 
@@ -193,10 +204,29 @@ pub fn load_agents() -> BTreeMap<String, AgentDefinition> {
 pub(crate) fn load_agents_from_settings(
     settings: &crate::settings::Settings,
 ) -> BTreeMap<String, AgentDefinition> {
-    match settings.agents.clone() {
+    let mut agents = match settings.agents.clone() {
         Some(map) if !map.is_empty() => merge_builtin_updates(map),
         _ => builtin_agents(),
+    };
+    for (agent_id, path_override) in settings.agent_config_paths.iter().flatten() {
+        let Some(global_dir) = path_override.skills_global_dir.as_ref() else {
+            continue;
+        };
+        if let Some(capability) = agents
+            .get_mut(agent_id)
+            .and_then(|definition| definition.skills.as_mut())
+        {
+            if capability.global_dir != *global_dir {
+                capability.global_dir = global_dir.clone();
+                // A configured primary directory is a runtime declaration of
+                // its own. Reusing the audited target id would make one id
+                // point to both the catalog path and the override path when
+                // another Agent still declares the catalog target.
+                capability.target_id = format!("{agent_id}-configured");
+            }
+        }
     }
+    agents
 }
 
 fn merge_builtin_updates(
@@ -350,6 +380,151 @@ pub fn put(id: String, mut def: AgentDefinition, allow_overwrite: bool) -> Resul
     save_agents(&agents).map_err(|e| e.to_string())
 }
 
+/// Update every configurable write location from one user action. Model and
+/// Skills locations are validated before the settings transaction starts, so
+/// the command cannot persist only a subset of the requested paths.
+pub fn update_configuration(id: String, input: AgentConfigurationInput) -> Result<(), String> {
+    let normalized = normalize_configuration(&id, input)?;
+    apply_configuration(&id, &normalized, None)
+}
+
+pub(crate) fn current_configuration(id: &str) -> Result<AgentConfigurationInput, String> {
+    let agents = load_agents();
+    let agent = agents
+        .get(id)
+        .ok_or_else(|| format!("agent 不存在: {id}"))?;
+    let model_paths = crate::models::list_agents()
+        .into_iter()
+        .find(|agent| agent.id == id)
+        .map(|agent| agent.config_paths)
+        .unwrap_or_default();
+    Ok(AgentConfigurationInput {
+        mcp_path: agent
+            .global
+            .clone()
+            .ok_or_else(|| "该 Agent 尚无可写的 MCP 配置".to_string())?,
+        model_paths,
+        skills_global_dir: agent
+            .skills
+            .as_ref()
+            .map(|capability| capability.global_dir.clone()),
+    })
+}
+
+pub(crate) fn normalize_configuration(
+    id: &str,
+    input: AgentConfigurationInput,
+) -> Result<AgentConfigurationInput, String> {
+    let id = id.trim().to_string();
+    if id.is_empty() {
+        return Err("agent id 不能为空".into());
+    }
+
+    let current_agents = load_agents();
+    let current = current_agents
+        .get(&id)
+        .ok_or_else(|| format!("agent 不存在: {id}"))?;
+    if current.global.is_none() {
+        return Err("该 Agent 尚无可写的 MCP 配置".into());
+    }
+
+    let mcp_path = input.mcp_path.trim();
+    if mcp_path.is_empty() {
+        return Err("MCP 配置路径不能为空".into());
+    }
+    let mcp_path = collapse_home(mcp_path);
+
+    let model_defaults = crate::models::default_config_paths(&id);
+    let model_paths = match model_defaults.as_ref() {
+        Some(defaults) => {
+            crate::models::normalize_config_paths(&input.model_paths, defaults.len())?
+        }
+        None if input.model_paths.iter().all(|path| path.trim().is_empty()) => Vec::new(),
+        None => return Err("该 Agent 尚未接入 Model writer".into()),
+    };
+
+    let skills_default = builtin_agents()
+        .get(&id)
+        .and_then(|definition| definition.skills.as_ref())
+        .map(|capability| capability.global_dir.clone());
+    let skills_global_dir = match (skills_default.as_ref(), input.skills_global_dir) {
+        (Some(_), Some(path)) => {
+            let path = collapse_home(path.trim());
+            validate_skill_directory(&path)
+                .map_err(|reason| format!("Skills 配置路径无效: {reason}"))?;
+            Some(path)
+        }
+        (Some(_), None) => return Err("Skills 配置路径不能为空".into()),
+        (None, Some(path)) if !path.trim().is_empty() => {
+            return Err("该 Agent 尚未接入 Skills writer".into())
+        }
+        (None, _) => None,
+    };
+
+    Ok(AgentConfigurationInput {
+        mcp_path,
+        model_paths,
+        skills_global_dir,
+    })
+}
+
+pub(crate) fn apply_configuration(
+    id: &str,
+    input: &AgentConfigurationInput,
+    skill_assignments: Option<BTreeMap<String, BTreeSet<String>>>,
+) -> Result<(), String> {
+    let id = id.to_string();
+    let mcp_path = input.mcp_path.clone();
+    let model_paths = input.model_paths.clone();
+    let skills_global_dir = input.skills_global_dir.clone();
+    let model_defaults = crate::models::default_config_paths(&id);
+    let skills_default = builtin_agents()
+        .get(&id)
+        .and_then(|definition| definition.skills.as_ref())
+        .map(|capability| capability.global_dir.clone());
+
+    mutate_settings_checked(|settings| {
+        let mut agents = load_agents_from_settings(settings);
+        let definition = agents
+            .get_mut(&id)
+            .ok_or_else(|| Error::new(ErrorKind::NotFound, format!("agent 不存在: {id}")))?;
+        definition.global = Some(mcp_path.clone());
+
+        // Skills runtime paths are overlaid from `agent_config_paths`; keep the
+        // persisted Agent definition equal to its audited catalog metadata.
+        let builtins = builtin_agents();
+        for (agent_id, definition) in &mut agents {
+            if let Some(builtin) = builtins.get(agent_id) {
+                definition.skills = builtin.skills.clone();
+            }
+        }
+        let overrides = agent_overrides(&agents);
+        settings.agents = (!overrides.is_empty()).then_some(overrides);
+
+        let path_overrides = settings.agent_config_paths.get_or_insert_default();
+        let path_override = path_overrides.entry(id.clone()).or_default();
+        path_override.model_paths = model_defaults
+            .as_ref()
+            .is_some_and(|defaults| defaults != &model_paths)
+            .then_some(model_paths.clone());
+        path_override.skills_global_dir = skills_default
+            .as_ref()
+            .zip(skills_global_dir.as_ref())
+            .and_then(|(default, current)| (default != current).then_some(current.clone()));
+        if path_override == &AgentConfigPathOverride::default() {
+            path_overrides.remove(&id);
+        }
+        if path_overrides.is_empty() {
+            settings.agent_config_paths = None;
+        }
+        if let Some(assignments) = &skill_assignments {
+            settings.skill_assignments = (!assignments.is_empty()).then_some(assignments.clone());
+        }
+        Ok(())
+    })
+    .map_err(|error| error.to_string())
+}
+
 /// List all agent definitions as `AgentInfo` view rows.
 pub fn list_infos() -> Vec<AgentInfo> {
     load_agents()
@@ -484,6 +659,39 @@ mod tests {
 
         assert_eq!(codex.skills_global_dir.as_deref(), Some("~/.agents/skills"));
         assert_eq!(claude_desktop.skills_global_dir, None);
+    }
+
+    #[test]
+    fn unified_configuration_updates_all_supported_paths() {
+        let _home = crate::testenv::TestHome::new("agent-unified-configuration");
+
+        update_configuration(
+            "codex".into(),
+            AgentConfigurationInput {
+                mcp_path: "~/.custom/codex-mcp.toml".into(),
+                model_paths: vec!["~/.custom/codex-model.toml".into()],
+                skills_global_dir: Some("~/.custom/codex/skills".into()),
+            },
+        )
+        .unwrap();
+
+        let agents = load_agents();
+        assert_eq!(
+            agents["codex"].global.as_deref(),
+            Some("~/.custom/codex-mcp.toml")
+        );
+        assert_eq!(
+            agents["codex"]
+                .skills
+                .as_ref()
+                .map(|capability| capability.global_dir.as_str()),
+            Some("~/.custom/codex/skills")
+        );
+        let model = crate::models::list_agents()
+            .into_iter()
+            .find(|agent| agent.id == "codex")
+            .unwrap();
+        assert_eq!(model.config_paths, ["~/.custom/codex-model.toml"]);
     }
 
     #[test]

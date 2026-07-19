@@ -1,8 +1,9 @@
 import type { ReactNode } from "react";
 import type { AssetRef, ConsumptionView } from "../lib/types";
 import { assetIdentity } from "../lib/consumption";
-import { LinkIcon, PackageIcon, PlusIcon } from "./icons";
+import { LinkIcon, PackageIcon, PlusIcon, XIcon } from "./icons";
 import { ConsumptionStatus } from "./ConsumptionStatus";
+import { Switch } from "./ui";
 
 export interface ConsumptionAssetPresentation {
   name: string;
@@ -19,19 +20,35 @@ export function AgentConsumptionPanel({
   external,
   present,
   onManage,
+  manageIcon = <PlusIcon className="w-3.5 h-3.5" />,
   onOpenAsset,
+  onEnabledChange,
+  enabledChangeDisabled,
+  onRemove,
+  removeLabel,
   manageDisabled = false,
+  removeDisabled = false,
+  emptyTitle = "还没有添加资产",
+  emptyDescription,
   emptyAction,
 }: {
   title: string;
-  description: string;
+  description?: string;
   manageLabel: string;
   rows: ConsumptionView[];
   external: ConsumptionView[];
   present(asset: AssetRef): ConsumptionAssetPresentation;
   onManage(): void;
+  manageIcon?: ReactNode;
   onOpenAsset?(asset: AssetRef): void;
+  onEnabledChange?(item: ConsumptionView, enabled: boolean): void;
+  enabledChangeDisabled?: boolean | ((item: ConsumptionView) => boolean);
+  onRemove?(asset: AssetRef): void;
+  removeLabel?(name: string): string;
   manageDisabled?: boolean;
+  removeDisabled?: boolean;
+  emptyTitle?: string;
+  emptyDescription?: string;
   emptyAction?: ReactNode;
 }) {
   return (
@@ -39,7 +56,7 @@ export function AgentConsumptionPanel({
       <div className="mux-agent-section-head">
         <div>
           <h3>{title}</h3>
-          <p>{description}</p>
+          {description && <p>{description}</p>}
         </div>
         <button
           type="button"
@@ -47,7 +64,7 @@ export function AgentConsumptionPanel({
           disabled={manageDisabled}
           onClick={onManage}
         >
-          <PlusIcon className="w-3.5 h-3.5" />
+          {manageIcon}
           {manageLabel}
         </button>
       </div>
@@ -55,15 +72,19 @@ export function AgentConsumptionPanel({
       {external.length > 0 && (
         <div className="mux-consumption-external" role="status">
           <div>
-            <strong>检测到 {external.length} 个外部配置</strong>
-            <span>它们是只读 observed state；导入中央资产后才能建立消费关系。</span>
+            <strong>外部配置 {external.length}</strong>
+            <span>尚未由 MUX 管理</span>
           </div>
           <ul>
-            {external.slice(0, 3).map((item) => (
-              <li key={`${item.agent_id}:${item.asset.domain}:${assetIdentity(item.asset)}`}>
-                {present(item.asset).name}
-              </li>
-            ))}
+            {external.slice(0, 3).map((item) => {
+              const shared = item.asset.domain === "skill" && item.affected_agent_ids.length > 1;
+              return (
+                <li key={`${item.agent_id}:${item.asset.domain}:${assetIdentity(item.asset)}`}>
+                  {present(item.asset).name}
+                  {shared && <small>外部 · 共用 {item.affected_agent_ids.length}</small>}
+                </li>
+              );
+            })}
           </ul>
         </div>
       )}
@@ -71,38 +92,71 @@ export function AgentConsumptionPanel({
       {rows.length === 0 ? (
         <div className="mux-consumption-empty">
           <PackageIcon className="w-7 h-7" />
-          <strong>尚未使用中央资产</strong>
-          <span>从中央资产库选择后，MUX 会生成影响计划再同步 Agent。</span>
+          <strong>{emptyTitle}</strong>
+          {emptyDescription && <span>{emptyDescription}</span>}
           {emptyAction}
         </div>
       ) : (
         <ul className="mux-consumption-list">
           {rows.map((item) => {
             const presentation = present(item.asset);
+            const enabled = typeof item.enabled === "boolean" ? item.enabled : null;
+            const toggleDisabled = typeof enabledChangeDisabled === "function"
+              ? enabledChangeDisabled(item)
+              : enabledChangeDisabled;
             return (
               <li
                 key={`${item.agent_id}:${item.asset.domain}:${assetIdentity(item.asset)}`}
                 data-status={item.status}
+                data-enabled={enabled === false ? "false" : undefined}
               >
                 <span className="mux-consumption-icon">{presentation.icon}</span>
                 <span className="mux-consumption-copy">
-                  <strong>{presentation.name}</strong>
+                  <span className="mux-consumption-title">
+                    <strong>{presentation.name}</strong>
+                    {presentation.meta && (
+                      <span className="mux-consumption-meta">{presentation.meta}</span>
+                    )}
+                  </span>
                   <small>{presentation.description ?? assetIdentity(item.asset)}</small>
-                  {item.reason && item.status !== "synced" && <code>{item.reason}</code>}
                 </span>
-                {presentation.meta && (
-                  <span className="mux-consumption-meta">{presentation.meta}</span>
+                {item.status !== "synced" && (
+                  <ConsumptionStatus status={item.status} reason={item.reason} />
                 )}
-                <ConsumptionStatus status={item.status} reason={item.reason} />
-                {onOpenAsset && (
-                  <button
-                    type="button"
-                    className="mux-consumption-open"
-                    aria-label={`查看 ${presentation.name}`}
-                    onClick={() => onOpenAsset(item.asset)}
-                  >
-                    <LinkIcon className="w-4 h-4" />
-                  </button>
+                {(onEnabledChange && enabled !== null || onOpenAsset || onRemove) && (
+                  <span className="mux-consumption-actions">
+                    {onEnabledChange && enabled !== null && (
+                      <Switch
+                        checked={enabled}
+                        compact
+                        disabled={toggleDisabled}
+                        ariaLabel={enabled ? `停用 ${presentation.name}` : `启用 ${presentation.name}`}
+                        title={enabled ? `停用 ${presentation.name}` : `启用 ${presentation.name}`}
+                        onChange={(next) => onEnabledChange(item, next)}
+                      />
+                    )}
+                    {onOpenAsset && (
+                      <button
+                        type="button"
+                        className="mux-consumption-open"
+                        aria-label={`查看 ${presentation.name}`}
+                        onClick={() => onOpenAsset(item.asset)}
+                      >
+                        <LinkIcon className="w-4 h-4" />
+                      </button>
+                    )}
+                    {onRemove && (
+                      <button
+                        type="button"
+                        className="mux-consumption-open mux-consumption-remove"
+                        aria-label={removeLabel?.(presentation.name) ?? `从 Agent 移除 ${presentation.name}`}
+                        disabled={removeDisabled}
+                        onClick={() => onRemove(item.asset)}
+                      >
+                        <XIcon className="w-4 h-4" />
+                      </button>
+                    )}
+                  </span>
                 )}
               </li>
             );

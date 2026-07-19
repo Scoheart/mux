@@ -66,6 +66,7 @@ export interface ModelAgentView {
   mode: "managed" | "guided";
   installed: boolean;
   config_path: string;
+  config_paths: string[];
   docs: string;
   assigned_profile: string | null;
   supported_protocols: ModelProtocol[];
@@ -88,6 +89,11 @@ export interface AgentDefinitionInput {
   key: string;
   enabled: boolean;
   builtin?: boolean;
+}
+export interface AgentConfigurationInput {
+  mcp_path: string;
+  model_paths: string[];
+  skills_global_dir: string | null;
 }
 export interface InstalledMcp {
   name: string; agent: string; scope: string; file_path: string; transport: string;
@@ -323,9 +329,11 @@ export interface ConsumptionView {
   asset: AssetRef;
   desired: boolean;
   observed: boolean;
+  enabled?: boolean | null;
   status: ConsumptionStatus;
   reason: string | null;
   affected_agent_ids: string[];
+  target?: { target_id: string; global_dir: string } | null;
 }
 
 export interface ConsumptionInventory {
@@ -384,11 +392,21 @@ export type DomainPlan =
       domain: "skill";
       before: Record<string, string[]>;
       after: Record<string, string[]>;
+    }
+  | {
+      domain: "agent-configuration";
+      agent_id: string;
+      before: AgentConfigurationInput;
+      after: AgentConfigurationInput;
+      skills_before: Record<string, string[]>;
+      skills_after: Record<string, string[]>;
+      affected_agent_ids: string[];
+      migrated_skill_names: string[];
     };
 
 export interface AssetOperationPlan {
   operation_id: string;
-  kind: "set-consumption" | "update-asset" | "delete-asset" | "adopt";
+  kind: "set-consumption" | "update-asset" | "delete-asset" | "adopt" | "update-configuration";
   domain_plan: DomainPlan;
   central_changes: CentralAssetChange[];
   relationship_changes: RelationshipChange[];

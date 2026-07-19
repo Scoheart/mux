@@ -13,6 +13,7 @@ export interface AssetConsumerOption {
   reason?: string;
   /** Agents sharing one physical target are selected as an indivisible group. */
   affectedAgentIds?: string[];
+  targetId?: string;
 }
 
 export function AssetConsumerDialog({
@@ -39,14 +40,34 @@ export function AssetConsumerDialog({
     () => new Map(consumers.map((consumer) => [consumer.agent_id, consumer])),
     [consumers],
   );
+  const physicalOptions = useMemo(() => {
+    const names = new Map(options.map((option) => [option.id, option.name]));
+    const grouped = new Map<string, AssetConsumerOption>();
+    for (const option of options) {
+      const agents = option.affectedAgentIds?.length
+        ? [...option.affectedAgentIds].sort()
+        : [option.id];
+      const key = option.targetId ?? agents.join("\u0000");
+      if (grouped.has(key)) continue;
+      grouped.set(key, {
+        ...option,
+        id: agents[0] ?? option.id,
+        name: agents.length > 1
+          ? agents.map((agentId) => names.get(agentId) ?? agentId).join("、")
+          : option.name,
+        affectedAgentIds: agents,
+      });
+    }
+    return [...grouped.values()];
+  }, [options]);
   const filtered = useMemo(() => {
     const needle = query.trim().toLocaleLowerCase();
-    return options.filter((option) =>
+    return physicalOptions.filter((option) =>
       !needle || `${option.name} ${option.id} ${option.description ?? ""}`
         .toLocaleLowerCase()
         .includes(needle),
     );
-  }, [options, query]);
+  }, [physicalOptions, query]);
 
   const toggle = (option: AssetConsumerOption) => {
     setSelected((current) => {
@@ -75,7 +96,7 @@ export function AssetConsumerDialog({
     <DialogShell
       kind="picker"
       title="管理使用此资产的 Agent"
-      subtitle={`${domainLabel} · ${assetName}。选择只表达 desired relationship，确认后先展示完整写入影响。`}
+      subtitle={`${domainLabel} · ${assetName}${asset.domain === "skill" ? " · 共用目录一起变更" : ""}`}
       busy={busy}
       onClose={onClose}
       footerStart={<span className="mux-picker-count">已选择 {selected.size} 个 Agent</span>}
@@ -112,7 +133,7 @@ export function AssetConsumerDialog({
               <span className="mux-picker-option-copy">
                 <strong>{option.name}</strong>
                 <small>{option.description ?? option.id}</small>
-                {group.length > 1 && <em>共享目标 · 同时影响 {group.length} 个 Agent</em>}
+                {group.length > 1 && <em>共用 · {group.length}</em>}
                 {option.reason && <em>{option.reason}</em>}
               </span>
               {current && <ConsumptionStatus status={current.status} reason={current.reason} />}

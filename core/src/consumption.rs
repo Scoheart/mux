@@ -16,14 +16,18 @@ pub use compatibility::{compatibility_for, CompatibilityReason, CompatibilityVie
 pub use inventory::list_consumption_inventory;
 pub use lifecycle::{plan_delete_central_asset, plan_update_central_asset};
 pub use migration::{list_mcp_adoption_candidates, McpAdoptionCandidate, McpAdoptionStatus};
-pub use planner::{plan_set_agent_consumption, plan_set_asset_consumers};
+pub use planner::{
+    plan_set_agent_consumption, plan_set_asset_consumers, plan_set_mcp_enabled,
+    plan_update_agent_configuration,
+};
 pub use transaction::{
     cancel_asset_operation, commit_asset_operation, recover_pending_asset_operations,
 };
 pub use types::{
     AgentConsumptionSelection, AssetCommitRequest, AssetOperationKind, AssetOperationPlan,
     AssetRef, CentralAssetAction, CentralAssetChange, CentralAssetDraft, ConsumptionInventory,
-    ConsumptionStatus, ConsumptionView, DomainPlan, McpConsumptionRecord,
+    ConsumptionStatus, ConsumptionTarget, ConsumptionView, DomainPlan, McpConsumptionRecord,
     PlanDeleteCentralAssetRequest, PlanSetAgentConsumptionRequest, PlanSetAssetConsumersRequest,
-    PlanUpdateCentralAssetRequest, RelationshipAction, RelationshipChange, SelectionError,
+    PlanSetMcpEnabledRequest, PlanUpdateAgentConfigurationRequest, PlanUpdateCentralAssetRequest,
+    RelationshipAction, RelationshipChange, SelectionError,
 };

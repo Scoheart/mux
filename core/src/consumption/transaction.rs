@@ -2,7 +2,7 @@ use super::inventory::list_consumption_inventory;
 use super::lifecycle::{clear_pending_payload, pending_payload, PendingAssetPayload};
 use super::planner::{
     hash_file, hash_targets, load_operation, operation_root, CredentialAction, LifecycleBinding,
-    PersistedAssetOperation,
+    PersistedAssetOperation, SkillMigrationEntry,
 };
 use super::types::{
     AssetCommitRequest, AssetOperationPlan, AssetRef, ConsumptionInventory, ConsumptionStatus,
@@ -309,6 +309,12 @@ fn apply_operation(persisted: &PersistedAssetOperation) -> Result<(), String> {
                 apply_domain_plan(&persisted.plan.domain_plan)
             }
         }
+        LifecycleBinding::McpEnabled {
+            agent_id,
+            asset_key,
+            after,
+            ..
+        } => apply_mcp_enabled(agent_id, asset_key, *after),
         LifecycleBinding::ModelUpsert {
             profile_id,
             draft_hash,
@@ -349,6 +355,19 @@ fn apply_operation(persisted: &PersistedAssetOperation) -> Result<(), String> {
             delete_profile_metadata(profile_id)?;
             apply_credential_update(profile_id, Some(""))
         }
+        LifecycleBinding::AgentConfiguration {
+            agent_id,
+            after,
+            skill_assignments_after,
+            skill_migration,
+        } => {
+            for entry in skill_migration {
+                if let Some(source) = &entry.source {
+                    create_skill_migration_link(source, &entry.destination)?;
+                }
+            }
+            crate::agents::apply_configuration(agent_id, after, skill_assignments_after.clone())
+        }
     }
 }
 
@@ -382,6 +401,31 @@ fn verify_operation(persisted: &PersistedAssetOperation) -> Result<(), String> {
             let expected_effective = !*effective_before || *fallback_exists;
             if effective_exists != expected_effective {
                 return Err("MCP fallback state did not match the reviewed deletion".into());
+            }
+            Ok(())
+        }
+        LifecycleBinding::McpEnabled {
+            agent_id,
+            asset_key,
+            after,
+            ..
+        } => {
+            let settings = load_settings_strict().map_err(|error| error.to_string())?;
+            let desired = settings
+                .mcp_consumptions
+                .as_ref()
+                .and_then(|records| records.get(agent_id))
+                .and_then(|records| records.get(asset_key))
+                .map(|record| record.enabled);
+            let (name, transport) = split_mcp_key(asset_key)?;
+            let observed = ops::scan_installed(None).into_iter().find(|item| {
+                item.agent == *agent_id
+                    && item.scope == "global"
+                    && item.name == name
+                    && item.transport == transport
+            });
+            if desired != Some(*after) || !observed.is_some_and(|item| item.enabled == *after) {
+                return Err("MCP enabled state did not match the reviewed change".into());
             }
             Ok(())
         }
@@ -423,6 +467,23 @@ fn verify_operation(persisted: &PersistedAssetOperation) -> Result<(), String> {
             }
             if credential_present(profile_id) {
                 return Err("Model credential still exists after deletion".into());
+            }
+            Ok(())
+        }
+        LifecycleBinding::AgentConfiguration {
+            agent_id,
+            after,
+            skill_migration,
+            ..
+        } => {
+            if crate::agents::current_configuration(agent_id)? != *after {
+                return Err("Agent configuration postcondition failed".into());
+            }
+            for entry in skill_migration {
+                let actual = skill_content_hash(&entry.destination)?;
+                if actual.as_deref() != Some(entry.content_hash.as_str()) {
+                    return Err("Skills path migration postcondition failed".into());
+                }
             }
             Ok(())
         }
@@ -538,6 +599,12 @@ fn verify_preconditions(persisted: &PersistedAssetOperation) -> Result<(), Strin
     if hash_targets(&persisted.plan.target_files) != persisted.target_hashes {
         return Err("asset_operation_stale: an Agent target changed after review".into());
     }
+    if let Some(LifecycleBinding::AgentConfiguration {
+        skill_migration, ..
+    }) = &persisted.lifecycle
+    {
+        verify_skill_migration_preconditions(skill_migration)?;
+    }
     let current = load_settings_strict().map_err(|error| error.to_string())?;
     match &persisted.plan.domain_plan {
         DomainPlan::Mcp { before, .. } => {
@@ -569,8 +636,86 @@ fn verify_preconditions(persisted: &PersistedAssetOperation) -> Result<(), Strin
             // Physical link and assignment preconditions are rechecked by the
             // existing Skills planner for every step.
         }
+        DomainPlan::AgentConfiguration {
+            agent_id, before, ..
+        } => {
+            let actual = crate::agents::current_configuration(agent_id)?;
+            if &actual != before {
+                return Err("asset_operation_stale: Agent configuration changed".into());
+            }
+        }
     }
     Ok(())
+}
+
+fn verify_skill_migration_preconditions(entries: &[SkillMigrationEntry]) -> Result<(), String> {
+    for entry in entries {
+        match &entry.source {
+            Some(source) => {
+                if skill_content_hash(source)?.as_deref() != Some(entry.content_hash.as_str()) {
+                    return Err("asset_operation_stale: a source Skill changed after review".into());
+                }
+                if fs::symlink_metadata(expand_tilde_path(&entry.destination)).is_ok() {
+                    return Err(
+                        "asset_operation_stale: a Skills migration destination appeared after review"
+                            .into(),
+                    );
+                }
+            }
+            None => {
+                if skill_content_hash(&entry.destination)?.as_deref()
+                    != Some(entry.content_hash.as_str())
+                {
+                    return Err(
+                        "asset_operation_stale: a destination Skill changed after review".into(),
+                    );
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn create_skill_migration_link(source: &str, destination: &str) -> Result<(), String> {
+    let source = expand_tilde_path(source);
+    let destination = expand_tilde_path(destination);
+    if fs::symlink_metadata(&destination).is_ok() {
+        return Err("Skills migration destination already exists".into());
+    }
+    let source = fs::canonicalize(source)
+        .map_err(|_| "Skills migration source is unavailable".to_string())?;
+    if !source.is_dir() {
+        return Err("Skills migration source is not a directory".into());
+    }
+    if let Some(parent) = destination.parent() {
+        fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    }
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(source, destination).map_err(|error| error.to_string())?;
+    #[cfg(windows)]
+    std::os::windows::fs::symlink_dir(source, destination).map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+fn skill_content_hash(path: &str) -> Result<Option<String>, String> {
+    let path = expand_tilde_path(path);
+    match fs::symlink_metadata(&path) {
+        Err(error) if error.kind() == ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error.to_string()),
+        Ok(_) => {}
+    }
+    let canonical = fs::canonicalize(path)
+        .map_err(|_| "Skills migration path could not be resolved".to_string())?;
+    if !canonical.is_dir() {
+        return Err("Skills migration path is not a directory".into());
+    }
+    crate::skills::hash_tree(&canonical)
+        .map(Some)
+        .map_err(|error| format!("{error:?}"))
+}
+
+fn expand_tilde_path(path: &str) -> PathBuf {
+    crate::scanner::expand_tilde(path)
 }
 
 fn apply_domain_plan(plan: &DomainPlan) -> Result<(), String> {
@@ -578,6 +723,9 @@ fn apply_domain_plan(plan: &DomainPlan) -> Result<(), String> {
         DomainPlan::Mcp { before, after } => apply_mcp(before, after),
         DomainPlan::Model { before, after } => apply_model(before, after),
         DomainPlan::Skill { before, after } => apply_skill(before, after),
+        DomainPlan::AgentConfiguration { .. } => {
+            Err("asset operation requires a configuration lifecycle".into())
+        }
     }
 }
 
@@ -657,6 +805,36 @@ fn apply_mcp(
         }
     })
     .map_err(|error| error.to_string())
+}
+
+fn apply_mcp_enabled(agent_id: &str, asset_key: &str, enabled: bool) -> Result<(), String> {
+    let (name, transport) = split_mcp_key(asset_key)?;
+    let agents = [agent_id.to_string()];
+    if enabled {
+        ops::enable(name, transport, "global", &agents, None)
+    } else {
+        ops::disable(name, transport, "global", &agents, None)
+    }
+    .map_err(|errors| errors.join("; "))?;
+
+    let updated = mutate_settings(|settings| {
+        let Some(record) = settings
+            .mcp_consumptions
+            .as_mut()
+            .and_then(|records| records.get_mut(agent_id))
+            .and_then(|records| records.get_mut(asset_key))
+        else {
+            return false;
+        };
+        record.enabled = enabled;
+        true
+    })
+    .map_err(|error| error.to_string())?;
+    if updated {
+        Ok(())
+    } else {
+        Err("MCP consumption disappeared during enabled-state update".into())
+    }
 }
 
 fn apply_model(
@@ -766,6 +944,22 @@ fn verify_postcondition(plan: &AssetOperationPlan) -> Result<(), String> {
                 })?;
             }
         }
+        DomainPlan::AgentConfiguration {
+            agent_id,
+            after,
+            skills_after,
+            ..
+        } => {
+            if crate::agents::current_configuration(agent_id)? != *after {
+                return Err("Agent configuration post-commit verification failed".into());
+            }
+            for (affected_agent, expected) in skills_after {
+                verify_desired_many(&inventory, affected_agent, expected, |asset| match asset {
+                    AssetRef::Skill { name } => Some(name.as_str()),
+                    _ => None,
+                })?;
+            }
+        }
     }
 
     for ((agent_id, asset), desired) in expected_effects(plan) {
@@ -837,6 +1031,19 @@ fn union_plan_agents(plan: &DomainPlan) -> BTreeSet<String> {
             before.keys().chain(after.keys()).cloned().collect()
         }
         DomainPlan::Model { before, after } => before.keys().chain(after.keys()).cloned().collect(),
+        DomainPlan::AgentConfiguration {
+            agent_id,
+            skills_before,
+            skills_after,
+            affected_agent_ids,
+            ..
+        } => skills_before
+            .keys()
+            .chain(skills_after.keys())
+            .cloned()
+            .chain(affected_agent_ids.iter().cloned())
+            .chain(std::iter::once(agent_id.clone()))
+            .collect(),
     }
 }
 
@@ -852,6 +1059,11 @@ fn asset_desired_after(plan: &DomainPlan, agent_id: &str, asset: &AssetRef) -> b
         (DomainPlan::Skill { after, .. }, AssetRef::Skill { name }) => after
             .get(agent_id)
             .is_some_and(|names| names.contains(name)),
+        (DomainPlan::AgentConfiguration { skills_after, .. }, AssetRef::Skill { name }) => {
+            skills_after
+                .get(agent_id)
+                .is_some_and(|names| names.contains(name))
+        }
         _ => false,
     }
 }
@@ -1108,8 +1320,9 @@ fn remove_current(path: &Path) -> Result<(), String> {
 mod tests {
     use super::*;
     use crate::consumption::{
-        plan_set_agent_consumption, plan_update_central_asset, AgentConsumptionSelection,
-        CentralAssetDraft, PlanSetAgentConsumptionRequest, PlanUpdateCentralAssetRequest,
+        plan_set_agent_consumption, plan_set_mcp_enabled, plan_update_central_asset,
+        AgentConsumptionSelection, CentralAssetDraft, PlanSetAgentConsumptionRequest,
+        PlanSetMcpEnabledRequest, PlanUpdateCentralAssetRequest,
     };
     use crate::models::save_profile;
     use crate::registry::write_manual_entry;
@@ -1170,6 +1383,66 @@ mod tests {
                     })
                 && item.status == ConsumptionStatus::Synced
         }));
+    }
+
+    #[test]
+    fn mcp_enabled_toggle_preserves_relationship_and_restores_snapshot() {
+        let _home = TestHome::new("consume-enabled-toggle");
+        write_manual_entry(&RegistryEntry {
+            name: "local".into(),
+            description: String::new(),
+            tags: Vec::new(),
+            config: RegistryConfig {
+                stdio: Some(StdioConfig {
+                    command: "local-server".into(),
+                    args: Some(vec!["--keep-me".into()]),
+                    env: None,
+                    cwd: None,
+                }),
+                http: None,
+            },
+            origin: None,
+            repo: None,
+        })
+        .unwrap();
+        let added = plan_set_agent_consumption(PlanSetAgentConsumptionRequest {
+            agent_id: "claude-code".into(),
+            selection: AgentConsumptionSelection::Mcp {
+                asset_keys: vec!["local::stdio".into()],
+            },
+        })
+        .unwrap();
+        commit_asset_operation(AssetCommitRequest {
+            operation_id: added.operation_id,
+            candidate_hash: added.candidate_hash,
+            conflict_confirmation: None,
+        })
+        .unwrap();
+
+        for enabled in [false, true] {
+            let plan = plan_set_mcp_enabled(PlanSetMcpEnabledRequest {
+                agent_id: "claude-code".into(),
+                asset_key: "local::stdio".into(),
+                enabled,
+            })
+            .unwrap();
+            let inventory = commit_asset_operation(AssetCommitRequest {
+                operation_id: plan.operation_id,
+                candidate_hash: plan.candidate_hash,
+                conflict_confirmation: None,
+            })
+            .unwrap();
+            assert!(inventory.consumptions.iter().any(|item| {
+                item.agent_id == "claude-code"
+                    && item.asset
+                        == (AssetRef::Mcp {
+                            key: "local::stdio".into(),
+                        })
+                    && item.desired
+                    && item.enabled == Some(enabled)
+                    && item.status == ConsumptionStatus::Synced
+            }));
+        }
     }
 
     #[test]

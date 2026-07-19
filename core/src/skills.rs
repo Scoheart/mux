@@ -13,6 +13,10 @@ mod update;
 
 pub use audit::*;
 pub use files::*;
+pub(crate) use inventory::{
+    canonical_skill_assignments, canonical_skill_target_path, list_inventory_for_settings,
+    skill_agent_capability_for_settings,
+};
 pub use inventory::{
     get_skill_detail, list_inventory, list_skill_agents, normalize_agent_selection,
     skill_agent_capability,

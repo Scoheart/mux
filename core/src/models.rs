@@ -8,6 +8,7 @@
 use crate::applier::backup;
 use crate::paths::{backup_timestamp, backups_dir};
 use crate::safe_write::{remove_if_unchanged, write_if_unchanged};
+use crate::scanner::{collapse_home, expand_tilde};
 use crate::settings::{load_settings, mutate_settings};
 use crate::types::{ModelProfile, ModelProtocol};
 use jsonc_parser::cst::{CstInputValue, CstNode, CstObject, CstRootNode};
@@ -56,6 +57,7 @@ pub struct ModelAgentView {
     pub mode: String,
     pub installed: bool,
     pub config_path: String,
+    pub config_paths: Vec<String>,
     pub docs: String,
     pub assigned_profile: Option<String>,
     pub supported_protocols: Vec<ModelProtocol>,
@@ -92,6 +94,70 @@ fn home() -> PathBuf {
 
 fn config_path(relative: &str) -> PathBuf {
     home().join(relative)
+}
+
+pub fn default_config_paths(agent_id: &str) -> Option<Vec<String>> {
+    let paths: &[&str] = match agent_id {
+        "claude-code" => &["~/.claude/settings.json"],
+        "codex" => &["~/.codex/config.toml"],
+        "grok-build" => &["~/.grok/config.toml"],
+        "pi" => &["~/.pi/agent/models.json", "~/.pi/agent/settings.json"],
+        "minimax-code" => &["~/.mavis/config.yaml"],
+        "qoder" => &["~/.qoder/settings.json"],
+        _ => return None,
+    };
+    Some(paths.iter().map(|path| (*path).to_string()).collect())
+}
+
+pub fn normalize_config_paths(paths: &[String], expected: usize) -> Result<Vec<String>, String> {
+    if paths.len() != expected {
+        return Err(format!("Model 配置需要 {expected} 个路径"));
+    }
+    paths
+        .iter()
+        .map(|path| {
+            let path = collapse_home(path.trim());
+            if !path.starts_with("~/") {
+                return Err("Model 配置路径必须位于用户目录".into());
+            }
+            if path[2..]
+                .split('/')
+                .any(|component| component.is_empty() || matches!(component, "." | ".."))
+            {
+                return Err(format!("Model 配置路径不安全: {path}"));
+            }
+            Ok(path)
+        })
+        .collect()
+}
+
+fn configured_path_strings(
+    settings: &crate::settings::Settings,
+    agent_id: &str,
+) -> Option<Vec<String>> {
+    let defaults = default_config_paths(agent_id)?;
+    let expected = defaults.len();
+    let paths = settings
+        .agent_config_paths
+        .as_ref()
+        .and_then(|overrides| overrides.get(agent_id))
+        .and_then(|path_override| path_override.model_paths.clone())
+        .unwrap_or(defaults);
+    normalize_config_paths(&paths, expected).ok()
+}
+
+fn configured_paths(agent_id: &str) -> Option<Vec<PathBuf>> {
+    configured_path_strings(&load_settings(), agent_id).map(|paths| {
+        paths
+            .iter()
+            .map(|path| expand_tilde(path))
+            .collect::<Vec<_>>()
+    })
+}
+
+fn path_view(settings: &crate::settings::Settings, agent_id: &str) -> (String, Vec<String>) {
+    let paths = configured_path_strings(settings, agent_id).unwrap_or_default();
+    (paths.join(" + "), paths)
 }
 
 fn keychain_service(profile_id: &str) -> String {
@@ -534,14 +600,22 @@ fn agent_installed(names: &[&str], config_locations: &[&str], app_locations: &[&
 }
 
 pub fn list_agents() -> Vec<ModelAgentView> {
-    let assignments = load_settings().model_assignments.unwrap_or_default();
+    let settings = load_settings();
+    let assignments = settings.model_assignments.clone().unwrap_or_default();
+    let (claude_config_path, claude_config_paths) = path_view(&settings, "claude-code");
+    let (codex_config_path, codex_config_paths) = path_view(&settings, "codex");
+    let (grok_config_path, grok_config_paths) = path_view(&settings, "grok-build");
+    let (pi_config_path, pi_config_paths) = path_view(&settings, "pi");
+    let (minimax_config_path, minimax_config_paths) = path_view(&settings, "minimax-code");
+    let (qoder_config_path, qoder_config_paths) = path_view(&settings, "qoder");
     vec![
         ModelAgentView {
             id: "claude-code".into(),
             name: "Claude Code".into(),
             mode: "managed".into(),
             installed: agent_installed(&["claude"], &[".claude"], &[]),
-            config_path: "~/.claude/settings.json".into(),
+            config_path: claude_config_path,
+            config_paths: claude_config_paths,
             docs: "https://code.claude.com/docs/en/settings".into(),
             assigned_profile: assignments.get("claude-code").cloned(),
             supported_protocols: vec![ModelProtocol::AnthropicMessages],
@@ -552,7 +626,8 @@ pub fn list_agents() -> Vec<ModelAgentView> {
             name: "Codex".into(),
             mode: "managed".into(),
             installed: agent_installed(&["codex"], &[".codex"], &["/Applications/Codex.app"]),
-            config_path: "~/.codex/config.toml".into(),
+            config_path: codex_config_path,
+            config_paths: codex_config_paths,
             docs: "https://developers.openai.com/codex/config-advanced".into(),
             assigned_profile: assignments.get("codex").cloned(),
             supported_protocols: vec![ModelProtocol::OpenaiResponses],
@@ -563,7 +638,8 @@ pub fn list_agents() -> Vec<ModelAgentView> {
             name: "Grok Build".into(),
             mode: "guided".into(),
             installed: agent_installed(&["grok"], &[".grok"], &[]),
-            config_path: "~/.grok/config.toml".into(),
+            config_path: grok_config_path,
+            config_paths: grok_config_paths,
             docs: GROK_BUILD_MODEL_DOCS.into(),
             assigned_profile: None,
             supported_protocols: vec![
@@ -578,7 +654,8 @@ pub fn list_agents() -> Vec<ModelAgentView> {
             name: "Pi".into(),
             mode: "managed".into(),
             installed: agent_installed(&["pi"], &[".pi/agent"], &[]),
-            config_path: "~/.pi/agent/models.json + settings.json".into(),
+            config_path: pi_config_path,
+            config_paths: pi_config_paths,
             docs: "https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/models.md".into(),
             assigned_profile: assignments.get("pi").cloned(),
             supported_protocols: vec![
@@ -597,7 +674,8 @@ pub fn list_agents() -> Vec<ModelAgentView> {
                 &[".mavis"],
                 &["/Applications/MiniMax Code.app"],
             ),
-            config_path: "~/.mavis/config.yaml".into(),
+            config_path: minimax_config_path,
+            config_paths: minimax_config_paths,
             docs: MINIMAX_CODE_DOCS.into(),
             assigned_profile: None,
             supported_protocols: vec![
@@ -616,7 +694,8 @@ pub fn list_agents() -> Vec<ModelAgentView> {
                 &[".qoder"],
                 &["/Applications/Qoder.app"],
             ),
-            config_path: "~/.qoder/settings.json".into(),
+            config_path: qoder_config_path,
+            config_paths: qoder_config_paths,
             docs: QODER_DOCS.into(),
             assigned_profile: None,
             supported_protocols: Vec::new(),
@@ -640,27 +719,14 @@ pub fn observe_profile(
     profile: &ModelProfile,
 ) -> Result<ModelObservedState, String> {
     let has_credential = credential_exists(&profile.id);
+    let paths =
+        configured_paths(agent_id).ok_or_else(|| format!("unsupported model Agent: {agent_id}"))?;
     let observed = match agent_id {
-        "claude-code" => observe_prepared(prepare_claude(
-            &config_path(".claude/settings.json"),
-            profile,
-            has_credential,
-        )),
-        "codex" => observe_prepared(prepare_codex(
-            &config_path(".codex/config.toml"),
-            profile,
-            has_credential,
-        )),
+        "claude-code" => observe_prepared(prepare_claude(&paths[0], profile, has_credential)),
+        "codex" => observe_prepared(prepare_codex(&paths[0], profile, has_credential)),
         "pi" => {
-            let models = observe_prepared(prepare_pi_models(
-                &config_path(".pi/agent/models.json"),
-                profile,
-                has_credential,
-            ));
-            let settings = observe_prepared(prepare_pi_settings(
-                &config_path(".pi/agent/settings.json"),
-                profile,
-            ));
+            let models = observe_prepared(prepare_pi_models(&paths[0], profile, has_credential));
+            let settings = observe_prepared(prepare_pi_settings(&paths[1], profile));
             combine_observed(models, settings)
         }
         _ => Ok(ModelObservedState::Conflicted),
@@ -676,13 +742,12 @@ pub fn observe_profile(
 /// selection from silently taking over an Agent configuration without treating
 /// the Agent file as a source of central Profile metadata.
 pub fn observe_external_model(agent_id: &str) -> Result<ExternalModelObservedState, String> {
+    let paths =
+        configured_paths(agent_id).ok_or_else(|| format!("unsupported model Agent: {agent_id}"))?;
     match agent_id {
-        "claude-code" => observe_external_claude(&config_path(".claude/settings.json")),
-        "codex" => observe_external_codex(&config_path(".codex/config.toml")),
-        "pi" => observe_external_pi(
-            &config_path(".pi/agent/models.json"),
-            &config_path(".pi/agent/settings.json"),
-        ),
+        "claude-code" => observe_external_claude(&paths[0]),
+        "codex" => observe_external_codex(&paths[0]),
+        "pi" => observe_external_pi(&paths[0], &paths[1]),
         _ => Ok(ExternalModelObservedState::Absent),
     }
 }
@@ -884,10 +949,12 @@ pub(crate) fn apply_profile_with_credential_presence(
 ) -> Result<ModelApplyResult, String> {
     let profile = profile_for_apply(profile_id)?;
     ensure_supported(agent_id, &profile.protocol)?;
+    let paths =
+        configured_paths(agent_id).ok_or_else(|| format!("unsupported model Agent: {agent_id}"))?;
     let result = match agent_id {
-        "claude-code" => apply_claude(&profile, has_credential),
-        "codex" => apply_codex(&profile, has_credential),
-        "pi" => apply_pi(&profile, has_credential),
+        "claude-code" => apply_claude(&paths[0], &profile, has_credential),
+        "codex" => apply_codex(&paths[0], &profile, has_credential),
+        "pi" => apply_pi(&paths[0], &paths[1], &profile, has_credential),
         _ => unreachable!("ensure_supported filtered unknown agents"),
     }?;
 
@@ -919,19 +986,14 @@ pub fn clear_profile(agent_id: &str, profile_id: &str) -> Result<(), String> {
             return Err("model_target_conflicted: the Agent config is ambiguous".into())
         }
     }
+    let paths =
+        configured_paths(agent_id).ok_or_else(|| format!("unsupported model Agent: {agent_id}"))?;
     match agent_id {
-        "claude-code" => clear_one_model_file(
-            &config_path(".claude/settings.json"),
-            "claude-code",
-            prepare_clear_claude,
-        )?,
-        "codex" => clear_one_model_file_with_profile(
-            &config_path(".codex/config.toml"),
-            "codex",
-            &profile,
-            prepare_clear_codex,
-        )?,
-        "pi" => clear_pi(&profile)?,
+        "claude-code" => clear_one_model_file(&paths[0], "claude-code", prepare_clear_claude)?,
+        "codex" => {
+            clear_one_model_file_with_profile(&paths[0], "codex", &profile, prepare_clear_codex)?
+        }
+        "pi" => clear_pi(&paths[0], &paths[1], &profile)?,
         _ => unreachable!("ensure_supported filtered unsupported model Agent"),
     }
     mutate_settings(|settings| {
@@ -1363,11 +1425,14 @@ fn backup_config(path: &Path, agent: &str, stamp: &str) -> Result<(), String> {
     backup(path, &backups_dir(), stamp, agent, "model")
 }
 
-fn apply_claude(profile: &ModelProfile, has_credential: bool) -> Result<ModelApplyResult, String> {
-    let path = config_path(".claude/settings.json");
-    let (original, content) = prepare_claude(&path, profile, has_credential)?;
-    backup_config(&path, "claude-code", &backup_timestamp())?;
-    write_if_unchanged(&path, original.as_deref(), &content)?;
+fn apply_claude(
+    path: &Path,
+    profile: &ModelProfile,
+    has_credential: bool,
+) -> Result<ModelApplyResult, String> {
+    let (original, content) = prepare_claude(path, profile, has_credential)?;
+    backup_config(path, "claude-code", &backup_timestamp())?;
+    write_if_unchanged(path, original.as_deref(), &content)?;
     Ok(ModelApplyResult {
         agent: "claude-code".into(),
         profile: profile.id.clone(),
@@ -1377,11 +1442,14 @@ fn apply_claude(profile: &ModelProfile, has_credential: bool) -> Result<ModelApp
     })
 }
 
-fn apply_codex(profile: &ModelProfile, has_credential: bool) -> Result<ModelApplyResult, String> {
-    let path = config_path(".codex/config.toml");
-    let (original, content) = prepare_codex(&path, profile, has_credential)?;
-    backup_config(&path, "codex", &backup_timestamp())?;
-    write_if_unchanged(&path, original.as_deref(), &content)?;
+fn apply_codex(
+    path: &Path,
+    profile: &ModelProfile,
+    has_credential: bool,
+) -> Result<ModelApplyResult, String> {
+    let (original, content) = prepare_codex(path, profile, has_credential)?;
+    backup_config(path, "codex", &backup_timestamp())?;
+    write_if_unchanged(path, original.as_deref(), &content)?;
     Ok(ModelApplyResult {
         agent: "codex".into(),
         profile: profile.id.clone(),
@@ -1451,21 +1519,24 @@ fn write_pi_transaction(
     Ok(())
 }
 
-fn apply_pi(profile: &ModelProfile, has_credential: bool) -> Result<ModelApplyResult, String> {
-    let models_path = config_path(".pi/agent/models.json");
-    let settings_path = config_path(".pi/agent/settings.json");
+fn apply_pi(
+    models_path: &Path,
+    settings_path: &Path,
+    profile: &ModelProfile,
+    has_credential: bool,
+) -> Result<ModelApplyResult, String> {
     let (models_original, models_content) =
-        prepare_pi_models(&models_path, profile, has_credential)?;
-    let (settings_original, settings_content) = prepare_pi_settings(&settings_path, profile)?;
+        prepare_pi_models(models_path, profile, has_credential)?;
+    let (settings_original, settings_content) = prepare_pi_settings(settings_path, profile)?;
     let stamp = backup_timestamp();
-    backup_config(&models_path, "pi-models", &stamp)?;
-    backup_config(&settings_path, "pi-settings", &stamp)?;
+    backup_config(models_path, "pi-models", &stamp)?;
+    backup_config(settings_path, "pi-settings", &stamp)?;
 
     write_pi_transaction(
-        &models_path,
+        models_path,
         models_original.as_deref(),
         &models_content,
-        &settings_path,
+        settings_path,
         settings_original.as_deref(),
         &settings_content,
     )?;
@@ -1482,31 +1553,33 @@ fn apply_pi(profile: &ModelProfile, has_credential: bool) -> Result<ModelApplyRe
     })
 }
 
-fn clear_pi(profile: &ModelProfile) -> Result<(), String> {
-    let models_path = config_path(".pi/agent/models.json");
-    let settings_path = config_path(".pi/agent/settings.json");
-    let (models_original, models_content) = prepare_clear_pi_models(&models_path, profile)?;
-    let (settings_original, settings_content) = prepare_clear_pi_settings(&settings_path)?;
+fn clear_pi(
+    models_path: &Path,
+    settings_path: &Path,
+    profile: &ModelProfile,
+) -> Result<(), String> {
+    let (models_original, models_content) = prepare_clear_pi_models(models_path, profile)?;
+    let (settings_original, settings_content) = prepare_clear_pi_settings(settings_path)?;
     if models_original.is_none() && settings_original.is_none() {
         return Ok(());
     }
     let stamp = backup_timestamp();
-    backup_config(&models_path, "pi-models", &stamp)?;
-    backup_config(&settings_path, "pi-settings", &stamp)?;
+    backup_config(models_path, "pi-models", &stamp)?;
+    backup_config(settings_path, "pi-settings", &stamp)?;
     match (models_original.as_deref(), settings_original.as_deref()) {
         (Some(models_before), Some(settings_before)) => write_pi_transaction(
-            &models_path,
+            models_path,
             Some(models_before),
             &models_content,
-            &settings_path,
+            settings_path,
             Some(settings_before),
             &settings_content,
         ),
         (Some(models_before), None) => {
-            write_if_unchanged(&models_path, Some(models_before), &models_content)
+            write_if_unchanged(models_path, Some(models_before), &models_content)
         }
         (None, Some(settings_before)) => {
-            write_if_unchanged(&settings_path, Some(settings_before), &settings_content)
+            write_if_unchanged(settings_path, Some(settings_before), &settings_content)
         }
         (None, None) => Ok(()),
     }
@@ -1597,7 +1670,7 @@ mod tests {
         )
         .unwrap();
 
-        clear_pi(&responses_profile()).unwrap();
+        clear_pi(&models_path, &settings_path, &responses_profile()).unwrap();
 
         assert!(models_path.exists());
         assert!(!settings_path.exists());

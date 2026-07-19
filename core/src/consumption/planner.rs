@@ -3,13 +3,21 @@ use super::inventory::list_consumption_inventory;
 use super::types::{
     AgentConsumptionSelection, AssetOperationKind, AssetOperationPlan, AssetRef,
     CentralAssetChange, ConsumptionStatus, DomainPlan, PlanSetAgentConsumptionRequest,
-    PlanSetAssetConsumersRequest, RelationshipAction, RelationshipChange,
+    PlanSetAssetConsumersRequest, PlanSetMcpEnabledRequest, PlanUpdateAgentConfigurationRequest,
+    RelationshipAction, RelationshipChange,
 };
-use crate::agents::load_agents;
+use crate::agents::{
+    builtin_agents, current_configuration, load_agents, normalize_configuration,
+    AgentConfigurationInput,
+};
 use crate::paths::{mux_dir, settings_file};
-use crate::scanner::expand_tilde;
-use crate::settings::{load_settings_strict, Settings};
-use crate::skills::list_inventory as list_skills_inventory;
+use crate::scanner::{collapse_home, expand_tilde};
+use crate::settings::{load_settings_strict, AgentConfigPathOverride, Settings};
+use crate::skills::{
+    canonical_skill_assignments, canonical_skill_target_path, hash_tree,
+    list_inventory as list_skills_inventory, list_inventory_for_settings,
+    skill_agent_capability_for_settings, InventoryState, SkillLocation, SkillsInventory,
+};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
@@ -43,6 +51,12 @@ pub(crate) enum LifecycleBinding {
         fallback_exists: bool,
         effective_before: bool,
     },
+    McpEnabled {
+        agent_id: String,
+        asset_key: String,
+        before: bool,
+        after: bool,
+    },
     ModelUpsert {
         profile_id: String,
         draft_hash: String,
@@ -51,6 +65,22 @@ pub(crate) enum LifecycleBinding {
     ModelDelete {
         profile_id: String,
     },
+    AgentConfiguration {
+        agent_id: String,
+        after: AgentConfigurationInput,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        skill_assignments_after: Option<BTreeMap<String, BTreeSet<String>>>,
+        #[serde(default)]
+        skill_migration: Vec<SkillMigrationEntry>,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub(crate) struct SkillMigrationEntry {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
+    pub destination: String,
+    pub content_hash: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -111,6 +141,332 @@ pub fn plan_set_agent_consumption(
         }
     };
     finalize_plan(domain_plan)
+}
+
+/// Plan an MCP on/off transition without removing its desired relationship.
+/// The unchanged DomainPlan keeps the asset assigned to the Agent; the bound
+/// lifecycle mutation snapshots/restores the actual config during commit.
+pub fn plan_set_mcp_enabled(
+    request: PlanSetMcpEnabledRequest,
+) -> Result<AssetOperationPlan, String> {
+    validate_agent_id(&request.agent_id)?;
+    super::types::validate_mcp_asset_key(&request.asset_key).map_err(|error| error.to_string())?;
+    let settings = load_settings_strict().map_err(|error| error.to_string())?;
+    let records = settings
+        .mcp_consumptions
+        .as_ref()
+        .and_then(|consumptions| consumptions.get(&request.agent_id))
+        .ok_or_else(|| "mcp_consumption_missing: MCP is not assigned to this Agent".to_string())?;
+    let record = records
+        .get(&request.asset_key)
+        .ok_or_else(|| "mcp_consumption_missing: MCP is not assigned to this Agent".to_string())?;
+    if record.enabled == request.enabled {
+        return Err("mcp_enabled_unchanged: MCP already has the requested state".into());
+    }
+    let selection: Vec<String> = records.keys().cloned().collect();
+    let domain_plan = DomainPlan::Mcp {
+        before: BTreeMap::from([(request.agent_id.clone(), selection.clone())]),
+        after: BTreeMap::from([(request.agent_id.clone(), selection)]),
+    };
+    finalize_plan_with(
+        AssetOperationKind::SetConsumption,
+        domain_plan,
+        Vec::new(),
+        Vec::new(),
+        Some(LifecycleBinding::McpEnabled {
+            agent_id: request.agent_id,
+            asset_key: request.asset_key,
+            before: record.enabled,
+            after: request.enabled,
+        }),
+    )
+}
+
+pub fn plan_update_agent_configuration(
+    request: PlanUpdateAgentConfigurationRequest,
+) -> Result<AssetOperationPlan, String> {
+    validate_agent_id(&request.agent_id)?;
+    let before = current_configuration(&request.agent_id)?;
+    let after = normalize_configuration(&request.agent_id, request.configuration)?;
+    if before == after {
+        return Err("agent_configuration_unchanged: 配置没有变化".into());
+    }
+
+    let settings = load_settings_strict().map_err(|error| error.to_string())?;
+    let mut skills_before = BTreeMap::new();
+    let mut skills_after = BTreeMap::new();
+    let mut skill_assignments_after = None;
+    let mut skill_migration = Vec::new();
+    let mut target_files = Vec::new();
+    let mut configuration_affected_agents = BTreeSet::from([request.agent_id.clone()]);
+
+    if before.skills_global_dir != after.skills_global_dir {
+        let old_capability = skill_agent_capability_for_settings(&settings, &request.agent_id)
+            .map_err(|error| format!("{error:?}"))?
+            .ok_or_else(|| "skill_target_unavailable: 当前 Agent 没有 Skills 目标".to_string())?;
+        let old_inventory =
+            list_inventory_for_settings(&settings).map_err(|error| format!("{error:?}"))?;
+        let mut prospective = settings.clone();
+        set_prospective_skill_path(
+            &mut prospective,
+            &request.agent_id,
+            after.skills_global_dir.as_deref(),
+        )?;
+        prospective.skill_assignments = None;
+        let new_capability = skill_agent_capability_for_settings(&prospective, &request.agent_id)
+            .map_err(|error| format!("{error:?}"))?
+            .ok_or_else(|| "skill_target_unavailable: 新 Skills 目标不可用".to_string())?;
+        configuration_affected_agents.extend(old_capability.affected_agent_ids.iter().cloned());
+        configuration_affected_agents.extend(new_capability.affected_agent_ids.iter().cloned());
+        let prospective_targets =
+            list_inventory_for_settings(&prospective).map_err(|error| format!("{error:?}"))?;
+
+        let old_path = canonical_skill_target_path(&old_capability.global_dir)
+            .map_err(|error| format!("{error:?}"))?;
+        let new_path = canonical_skill_target_path(&new_capability.global_dir)
+            .map_err(|error| format!("{error:?}"))?;
+        if old_path != new_path {
+            skill_migration = plan_skill_target_merge(
+                &old_inventory,
+                &old_capability.target_id,
+                &new_capability.target_id,
+                &new_capability.global_dir,
+                &prospective_targets,
+            )?;
+            target_files.extend(
+                skill_migration
+                    .iter()
+                    .filter(|entry| entry.source.is_some())
+                    .map(|entry| entry.destination.clone()),
+            );
+
+            let mut assignments =
+                canonical_skill_assignments(&settings).map_err(|error| format!("{error:?}"))?;
+            let retained_old_target = prospective_targets.targets.iter().find_map(|target| {
+                if target.affected_agent_ids.is_empty() {
+                    return None;
+                }
+                canonical_skill_target_path(&target.global_dir)
+                    .ok()
+                    .filter(|path| path == &old_path)
+                    .map(|_| target.target_id.clone())
+            });
+            for target_ids in assignments.values_mut() {
+                if !target_ids.remove(&old_capability.target_id) {
+                    continue;
+                }
+                if let Some(target_id) = &retained_old_target {
+                    target_ids.insert(target_id.clone());
+                }
+                target_ids.insert(new_capability.target_id.clone());
+            }
+            assignments.retain(|_, target_ids| !target_ids.is_empty());
+            prospective.skill_assignments =
+                (!assignments.is_empty()).then_some(assignments.clone());
+            let after_inventory =
+                list_inventory_for_settings(&prospective).map_err(|error| format!("{error:?}"))?;
+            skills_before = projected_skill_relationships(
+                &canonical_skill_assignments(&settings).map_err(|error| format!("{error:?}"))?,
+                &old_inventory,
+            );
+            skills_after = projected_skill_relationships(&assignments, &after_inventory);
+            skill_assignments_after = Some(assignments);
+        }
+    }
+
+    let domain_plan = DomainPlan::AgentConfiguration {
+        agent_id: request.agent_id.clone(),
+        before,
+        after: after.clone(),
+        skills_before,
+        skills_after,
+        affected_agent_ids: configuration_affected_agents.into_iter().collect(),
+        migrated_skill_names: skill_migration
+            .iter()
+            .filter_map(|entry| {
+                Path::new(&entry.destination)
+                    .file_name()
+                    .map(|name| name.to_string_lossy().into_owned())
+            })
+            .collect(),
+    };
+    finalize_plan_with(
+        AssetOperationKind::UpdateConfiguration,
+        domain_plan,
+        Vec::new(),
+        target_files,
+        Some(LifecycleBinding::AgentConfiguration {
+            agent_id: request.agent_id,
+            after,
+            skill_assignments_after,
+            skill_migration,
+        }),
+    )
+}
+
+fn set_prospective_skill_path(
+    settings: &mut Settings,
+    agent_id: &str,
+    global_dir: Option<&str>,
+) -> Result<(), String> {
+    let default = builtin_agents()
+        .get(agent_id)
+        .and_then(|definition| definition.skills.as_ref())
+        .map(|capability| capability.global_dir.clone());
+    let Some(global_dir) = global_dir else {
+        if default.is_some() {
+            return Err("skill_target_unavailable: Skills 配置路径不能为空".into());
+        }
+        return Ok(());
+    };
+    let overrides = settings.agent_config_paths.get_or_insert_default();
+    let entry = overrides.entry(agent_id.to_string()).or_default();
+    entry.skills_global_dir =
+        (default.as_deref() != Some(global_dir)).then(|| global_dir.to_string());
+    if entry == &AgentConfigPathOverride::default() {
+        overrides.remove(agent_id);
+    }
+    if overrides.is_empty() {
+        settings.agent_config_paths = None;
+    }
+    Ok(())
+}
+
+fn plan_skill_target_merge(
+    old_inventory: &SkillsInventory,
+    old_target_id: &str,
+    new_target_id: &str,
+    new_global_dir: &str,
+    new_inventory: &SkillsInventory,
+) -> Result<Vec<SkillMigrationEntry>, String> {
+    let old_items: Vec<_> = old_inventory
+        .items
+        .iter()
+        .filter(|item| {
+            matches!(
+                &item.location,
+                SkillLocation::AgentTarget { target_id, .. } if target_id == old_target_id
+            )
+        })
+        .collect();
+    let new_items: BTreeMap<_, _> = new_inventory
+        .items
+        .iter()
+        .filter_map(|item| match &item.location {
+            SkillLocation::AgentTarget { target_id, .. } if target_id == new_target_id => {
+                Some((item.name.as_str(), item))
+            }
+            _ => None,
+        })
+        .collect();
+    let mut migration = Vec::new();
+    for old_item in old_items {
+        validate_migration_name(old_inventory, &old_item.name)?;
+        validate_migration_item(old_item)?;
+        let old_source = item_physical_path(old_item)?;
+        let old_hash = hash_tree(&old_source).map_err(|error| format!("{error:?}"))?;
+        let destination = format!("{new_global_dir}/{}", old_item.name);
+        if let Some(new_item) = new_items.get(old_item.name.as_str()) {
+            validate_migration_name(new_inventory, &old_item.name)?;
+            validate_migration_item(new_item)?;
+            let new_source = item_physical_path(new_item)?;
+            let new_hash = hash_tree(&new_source).map_err(|error| format!("{error:?}"))?;
+            if new_hash != old_hash {
+                return Err(format!(
+                    "skill_path_migration_conflict: {} 在新旧目录内容不同",
+                    old_item.name
+                ));
+            }
+            migration.push(SkillMigrationEntry {
+                source: None,
+                destination,
+                content_hash: old_hash,
+            });
+        } else {
+            migration.push(SkillMigrationEntry {
+                source: Some(collapse_home(&old_source.to_string_lossy())),
+                destination,
+                content_hash: old_hash,
+            });
+        }
+    }
+    migration.sort_by(|left, right| left.destination.cmp(&right.destination));
+    Ok(migration)
+}
+
+fn validate_migration_name(inventory: &SkillsInventory, name: &str) -> Result<(), String> {
+    for item in inventory.items.iter().filter(|item| item.name == name) {
+        validate_migration_item(item)?;
+    }
+    Ok(())
+}
+
+fn validate_migration_item(item: &crate::skills::SkillInventoryItem) -> Result<(), String> {
+    let blocked = [
+        InventoryState::BrokenLink,
+        InventoryState::ConflictingLink,
+        InventoryState::Missing,
+        InventoryState::LocallyModified,
+    ]
+    .iter()
+    .find(|state| item.states.contains(state));
+    if let Some(state) = blocked {
+        return Err(format!(
+            "skill_path_migration_conflict: {} 当前状态为 {:?}",
+            item.name, state
+        ));
+    }
+    Ok(())
+}
+
+fn item_physical_path(item: &crate::skills::SkillInventoryItem) -> Result<PathBuf, String> {
+    let SkillLocation::AgentTarget { global_dir, .. } = &item.location else {
+        return Err("skill_path_migration_conflict: Skill 不在 Agent 目标中".into());
+    };
+    let path = expand_tilde(&format!("{global_dir}/{}", item.name));
+    let canonical = fs::canonicalize(path)
+        .map_err(|_| format!("skill_path_migration_conflict: {} 无法安全读取", item.name))?;
+    if !canonical.is_dir() {
+        return Err(format!(
+            "skill_path_migration_conflict: {} 不是目录",
+            item.name
+        ));
+    }
+    Ok(canonical)
+}
+
+fn projected_skill_relationships(
+    assignments: &BTreeMap<String, BTreeSet<String>>,
+    inventory: &SkillsInventory,
+) -> BTreeMap<String, Vec<String>> {
+    let targets: BTreeMap<_, _> = inventory
+        .targets
+        .iter()
+        .map(|target| (target.target_id.as_str(), target))
+        .collect();
+    let mut projected = BTreeMap::<String, BTreeSet<String>>::new();
+    for (name, target_ids) in assignments {
+        for target_id in target_ids {
+            let Some(target) = targets.get(target_id.as_str()) else {
+                continue;
+            };
+            let agents = if target.affected_agent_ids.is_empty() {
+                &target.primary_agent_ids
+            } else {
+                &target.affected_agent_ids
+            };
+            for agent_id in agents {
+                projected
+                    .entry(agent_id.clone())
+                    .or_default()
+                    .insert(name.clone());
+            }
+        }
+    }
+    projected
+        .into_iter()
+        .map(|(agent_id, names)| (agent_id, names.into_iter().collect()))
+        .collect()
 }
 
 pub fn plan_set_asset_consumers(
@@ -356,6 +712,14 @@ pub(crate) fn finalize_plan_with(
         if !asset_desired_after(&domain_plan, agent_id, asset) {
             continue;
         }
+        if kind == AssetOperationKind::UpdateConfiguration
+            && matches!(asset, AssetRef::Skill { .. })
+        {
+            // The configuration migration already compared the old and new
+            // physical Skill content by hash. A matching external observation
+            // at the destination is the merge target, not an unmanaged clash.
+            continue;
+        }
         for item in current_inventory
             .external
             .iter()
@@ -464,6 +828,21 @@ fn relationship_changes(plan: &DomainPlan) -> Vec<RelationshipChange> {
                 }
             }
         }
+        DomainPlan::AgentConfiguration {
+            skills_before,
+            skills_after,
+            ..
+        } => {
+            for agent_id in union_keys(skills_before, skills_after) {
+                diff_many(
+                    agent_id,
+                    skills_before.get(agent_id).cloned().unwrap_or_default(),
+                    skills_after.get(agent_id).cloned().unwrap_or_default(),
+                    |name| AssetRef::Skill { name },
+                    &mut changes,
+                );
+            }
+        }
     }
     changes.sort_by(|left, right| {
         left.agent_id
@@ -514,6 +893,19 @@ fn agents_for_plan(plan: &DomainPlan) -> BTreeSet<String> {
             before.keys().chain(after.keys()).cloned().collect()
         }
         DomainPlan::Model { before, after } => before.keys().chain(after.keys()).cloned().collect(),
+        DomainPlan::AgentConfiguration {
+            agent_id,
+            skills_before,
+            skills_after,
+            affected_agent_ids,
+            ..
+        } => skills_before
+            .keys()
+            .chain(skills_after.keys())
+            .cloned()
+            .chain(affected_agent_ids.iter().cloned())
+            .chain(std::iter::once(agent_id.clone()))
+            .collect(),
     }
 }
 
@@ -523,6 +915,10 @@ fn domain_matches(plan: &DomainPlan, asset: &AssetRef) -> bool {
         (DomainPlan::Mcp { .. }, AssetRef::Mcp { .. })
             | (DomainPlan::Model { .. }, AssetRef::Model { .. })
             | (DomainPlan::Skill { .. }, AssetRef::Skill { .. })
+            | (
+                DomainPlan::AgentConfiguration { .. },
+                AssetRef::Skill { .. }
+            )
     )
 }
 
@@ -562,6 +958,11 @@ fn asset_desired_after(plan: &DomainPlan, agent_id: &str, asset: &AssetRef) -> b
         (DomainPlan::Skill { after, .. }, AssetRef::Skill { name }) => after
             .get(agent_id)
             .is_some_and(|names| names.contains(name)),
+        (DomainPlan::AgentConfiguration { skills_after, .. }, AssetRef::Skill { name }) => {
+            skills_after
+                .get(agent_id)
+                .is_some_and(|names| names.contains(name))
+        }
         _ => false,
     }
 }
@@ -638,6 +1039,7 @@ fn target_files(plan: &DomainPlan) -> Result<Vec<String>, String> {
                 }
             }
         }
+        DomainPlan::AgentConfiguration { .. } => {}
     }
     Ok(files.into_iter().collect())
 }
@@ -712,10 +1114,21 @@ pub(crate) fn load_operation(operation_id: &str) -> Result<PersistedAssetOperati
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::consumption::{commit_asset_operation, AssetCommitRequest};
     use crate::registry::write_manual_entry;
     use crate::settings::mutate_settings;
     use crate::testenv::TestHome;
     use crate::types::{HttpConfig, RegistryConfig, RegistryEntry, StdioConfig};
+
+    fn write_external_skill(root: &Path, name: &str, description: &str) {
+        let skill = root.join(name);
+        fs::create_dir_all(&skill).unwrap();
+        fs::write(
+            skill.join("SKILL.md"),
+            format!("---\nname: {name}\ndescription: {description}\n---\n"),
+        )
+        .unwrap();
+    }
 
     #[test]
     fn mcp_plan_has_stable_typed_diff_and_private_persistence() {
@@ -844,5 +1257,97 @@ mod tests {
         })
         .unwrap_err();
         assert!(error.starts_with("mcp_identity_conflict:"));
+    }
+
+    #[test]
+    fn configuration_plan_migrates_external_skills_before_switching_the_path() {
+        let home = TestHome::new("configuration-skill-migration");
+        fs::create_dir_all(home.home.join(".codex")).unwrap();
+        write_external_skill(
+            &home.home.join(".agents/skills"),
+            "shared-notes",
+            "Shared notes",
+        );
+        mutate_settings(|settings| {
+            settings.skill_assignments = Some(
+                [(
+                    "shared-notes".into(),
+                    ["agents-user".into()].into_iter().collect(),
+                )]
+                .into_iter()
+                .collect(),
+            );
+        })
+        .unwrap();
+        let mut configuration = current_configuration("codex").unwrap();
+        configuration.skills_global_dir = Some("~/.codex-private/skills".into());
+
+        let plan = plan_update_agent_configuration(PlanUpdateAgentConfigurationRequest {
+            agent_id: "codex".into(),
+            configuration,
+        })
+        .unwrap();
+        assert_eq!(plan.kind, AssetOperationKind::UpdateConfiguration);
+        assert_eq!(plan.affected_agent_ids, vec!["codex"]);
+        assert_eq!(
+            plan.target_files,
+            vec!["~/.codex-private/skills/shared-notes"]
+        );
+
+        commit_asset_operation(AssetCommitRequest {
+            operation_id: plan.operation_id,
+            candidate_hash: plan.candidate_hash,
+            conflict_confirmation: None,
+        })
+        .unwrap();
+
+        let migrated = home.home.join(".codex-private/skills/shared-notes");
+        assert!(fs::symlink_metadata(&migrated)
+            .unwrap()
+            .file_type()
+            .is_symlink());
+        assert_eq!(
+            crate::agents::load_agents()["codex"]
+                .skills
+                .as_ref()
+                .unwrap()
+                .target_id,
+            "codex-configured"
+        );
+        assert_eq!(
+            load_settings_strict().unwrap().skill_assignments.unwrap()["shared-notes"],
+            ["codex-configured".into()].into_iter().collect()
+        );
+    }
+
+    #[test]
+    fn configuration_plan_blocks_same_name_different_skill_content() {
+        let home = TestHome::new("configuration-skill-conflict");
+        fs::create_dir_all(home.home.join(".codex")).unwrap();
+        fs::create_dir_all(home.home.join("Library/Application Support/Cursor")).unwrap();
+        write_external_skill(
+            &home.home.join(".cursor/skills"),
+            "clash",
+            "Private version",
+        );
+        write_external_skill(&home.home.join(".agents/skills"), "clash", "Shared version");
+        let mut configuration = current_configuration("cursor").unwrap();
+        configuration.skills_global_dir = Some("~/.agents/skills".into());
+
+        let error = plan_update_agent_configuration(PlanUpdateAgentConfigurationRequest {
+            agent_id: "cursor".into(),
+            configuration,
+        })
+        .unwrap_err();
+
+        assert!(error.starts_with("skill_path_migration_conflict:"));
+        assert_eq!(
+            crate::agents::load_agents()["cursor"]
+                .skills
+                .as_ref()
+                .unwrap()
+                .global_dir,
+            "~/.cursor/skills"
+        );
     }
 }

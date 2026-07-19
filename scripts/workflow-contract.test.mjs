@@ -130,7 +130,8 @@ test("desktop workflow classifies and gates both publication channels", async ()
   assert.match(workflow, /cache-dependency-path:\s*desktop\/package-lock\.json/);
   assert.match(workflow, /npm ci --no-audit --no-fund/);
   assert.match(workflow, /\^v\[0-9\]\+\\\.\[0-9\]\+\\\.\[0-9\]\+\$/);
-  assert.match(workflow, /chore\(main\): release/);
+  assert.match(workflow, /release-version\.mjs is-release-merge/);
+  assert.match(workflow, /--before "\$before_version" --after "\$version" --title "\$title"/);
   assert.match(workflow, /wait-for-verify\.sh/);
   assert.match(workflow, /publish-release-assets\.sh/);
   assert.match(workflow, /gh release create/);

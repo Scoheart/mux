@@ -171,6 +171,14 @@ test("classifies a Release Please merge only when both signals agree", () => {
     true,
   );
   assert.equal(
+    isReleaseMerge("1.2.18", "1.3.0", "chore(main): release 1.3.0 (#55)"),
+    true,
+  );
+  assert.equal(
+    isReleaseMerge("1.2.18", "1.3.0", "chore(main): release 1.3.0 (#0)"),
+    false,
+  );
+  assert.equal(
     isReleaseMerge("1.2.18", "1.3.0", "feat: ship a feature"),
     false,
   );

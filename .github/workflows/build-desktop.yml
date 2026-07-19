@@ -40,6 +40,12 @@ jobs:
         with:
           fetch-depth: 2
 
+      - name: Setup Node
+        # actions/setup-node v5.0.0
+        uses: actions/setup-node@395ad3262231945c25e8478e257fae8610b0d285
+        with:
+          node-version: 24
+
       - name: Classify trigger
         id: classify
         shell: bash
@@ -66,7 +72,9 @@ jobs:
               before_version=$(git show "$BEFORE_SHA:version.txt" | tr -d '[:space:]')
             fi
             title=$(git log -1 --format=%s)
-            if [[ "$before_version" != "$version" && "$title" == "chore(main): release $version" ]]; then
+            release_merge=$(node scripts/release-version.mjs is-release-merge \
+              --before "$before_version" --after "$version" --title "$title")
+            if [[ "$release_merge" == true ]]; then
               mode=skip
             else
               mode=prerelease

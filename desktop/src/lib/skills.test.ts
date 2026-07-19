@@ -123,6 +123,7 @@ describe("Skills wire contracts", () => {
       [() => api.getSkillDetail("central:review-changes"), "get_skill_detail", { identity: "central:review-changes" }],
       [() => api.resolveGithubSkillSource("acme/skills"), "resolve_skill_source", { value: "acme/skills" }],
       [api.resolveLocalSkillSourceDialog, "resolve_local_skill_source_dialog", undefined],
+      [api.resolveArchiveSkillSourceDialog, "resolve_archive_skill_source_dialog", undefined],
       [() => api.planSkillAssetInstall(installRequest), "plan_skill_asset_install", { request: installRequest }],
       [() => api.commitSkillInstall(commitRequest), "commit_skill_install", { request: commitRequest }],
       [() => api.planSkillAssetImport(importRequest), "plan_skill_asset_import", { request: importRequest }],
@@ -153,6 +154,8 @@ describe("Skills wire contracts", () => {
   it("passes native picker cancellation through as null", async () => {
     invokeMock.mockResolvedValueOnce(null);
     await expect(api.resolveLocalSkillSourceDialog()).resolves.toBeNull();
+    invokeMock.mockResolvedValueOnce(null);
+    await expect(api.resolveArchiveSkillSourceDialog()).resolves.toBeNull();
   });
 });
 

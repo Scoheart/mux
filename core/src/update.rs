@@ -11,12 +11,13 @@ const REPO: &str = "scoheart/mux";
 /// 被动检查的间隔：每天最多打一次 GitHub API。
 const PASSIVE_CHECK_INTERVAL_SECS: i64 = 24 * 60 * 60;
 
-fn api_agent() -> ureq::Agent {
-    ureq::AgentBuilder::new()
-        .timeout(Duration::from_secs(15))
-        // GitHub API 要求带 User-Agent
-        .user_agent("mux-cli-updater")
-        .build()
+fn api_agent() -> Result<ureq::Agent, String> {
+    crate::network::build_ureq_agent(
+        ureq::AgentBuilder::new()
+            .timeout(Duration::from_secs(15))
+            // GitHub API 要求带 User-Agent
+            .user_agent("mux-cli-updater"),
+    )
 }
 
 /// 当前运行的 `mux` 由桌面 App 提供时(真身在某个 `.app` 包内——直接运行包内
@@ -33,7 +34,7 @@ pub fn managed_by_desktop_app() -> Option<PathBuf> {
 /// `releases/latest`，所以这里天然只追正式版通道。
 pub fn fetch_latest_version() -> Result<String, String> {
     let url = format!("https://api.github.com/repos/{}/releases/latest", REPO);
-    let body = api_agent()
+    let body = api_agent()?
         .get(&url)
         .call()
         .map_err(|e| format!("查询最新版本失败: {}", e))?
@@ -116,7 +117,7 @@ pub fn upgrade_cli(current_version: &str) -> Result<Option<UpgradeOutcome>, Stri
     fs::create_dir_all(&tmp_dir).map_err(|e| format!("创建临时目录失败: {}", e))?;
     let tarball = tmp_dir.join(&asset);
 
-    let resp = api_agent()
+    let resp = api_agent()?
         .get(&url)
         .call()
         .map_err(|e| format!("下载 {} 失败: {}", asset, e))?;

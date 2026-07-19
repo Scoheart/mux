@@ -51,6 +51,7 @@ export function AssetOperationReviewDialog({
   plan,
   busy,
   error,
+  agentId,
   agentName,
   onCommit,
   onCancel,
@@ -58,12 +59,19 @@ export function AssetOperationReviewDialog({
   plan: AssetOperationPlan;
   busy: boolean;
   error?: string | null;
+  agentId?: string;
   agentName?: string;
   onCommit(conflictConfirmation?: string): Promise<unknown> | unknown;
   onCancel(): Promise<unknown> | unknown;
 }) {
   const [replaceDrift, setReplaceDrift] = useState(false);
   const isConfiguration = plan.kind === "update-configuration";
+  const isAgentSkillPlan = Boolean(
+    agentId && agentName && plan.kind === "set-consumption" && plan.domain_plan.domain === "skill",
+  );
+  const compatibleAgentCount = isAgentSkillPlan
+    ? plan.affected_agent_ids.filter((id) => id !== agentId).length
+    : 0;
   const configChanges = configurationChanges(plan);
   const agentCopy = agentName && plan.kind === "set-consumption" ? agentActionCopy(plan) : null;
   const title = isConfiguration ? "确认修改配置" : agentCopy?.title ?? (plan.kind === "update-asset"
@@ -73,7 +81,9 @@ export function AssetOperationReviewDialog({
       : "审阅资产消费变更");
   const commitLabel = isConfiguration ? "保存配置" : agentCopy?.commit ?? (plan.kind === "delete-asset" ? "确认删除并同步" : "确认并同步");
   const subtitle = agentName
-    ? plan.affected_agent_ids.length > 1
+    ? compatibleAgentCount > 0
+      ? `${agentName} · 同一目录也被 ${compatibleAgentCount} 个 Agent 读取`
+      : plan.affected_agent_ids.length > 1
       ? `${agentName} · 另影响 ${plan.affected_agent_ids.length - 1} 个 Agent`
       : agentName
     : `${plan.affected_agent_ids.length} 个 Agent · ${plan.target_files.length} 个目标`;
@@ -138,16 +148,29 @@ export function AssetOperationReviewDialog({
           </section>
         )}
         {(!isConfiguration || plan.relationship_changes.length > 0) && <section>
-          <h3>{isConfiguration ? "Skills 影响" : agentName ? "Agent 变更" : "关系变化"}</h3>
+          <h3>{isConfiguration ? "Skills 影响" : isAgentSkillPlan ? "生效范围" : agentName ? "Agent 变更" : "关系变化"}</h3>
+          {isAgentSkillPlan && compatibleAgentCount > 0 && (
+            <p className="mux-asset-review-note">
+              只写入一个目录；兼容 Agent 会读取同一份 Skill，不会重复安装。
+            </p>
+          )}
           {plan.relationship_changes.length === 0 ? <p>无变化</p> : (
-            <ul>
-              {plan.relationship_changes.map((change, index) => (
+            <ul className={isAgentSkillPlan ? "mux-skill-impact-list" : undefined}>
+              {plan.relationship_changes.map((change, index) => {
+                const isDirect = !isAgentSkillPlan || change.agent_id === agentId;
+                const action = change.action === "add"
+                  ? isDirect ? "直接添加" : "兼容可见"
+                  : isDirect ? "直接移除" : "同步不可见";
+                return (
                 <li key={`${change.agent_id}:${assetIdentity(change.asset)}:${index}`}>
-                  <span data-action={change.action}>{change.action === "add" ? "添加" : "移除"}</span>
+                  <span data-action={change.action} data-impact={isDirect ? "direct" : "compatible"}>
+                    {isAgentSkillPlan ? action : change.action === "add" ? "添加" : "移除"}
+                  </span>
                   <strong>{change.agent_id}</strong>
                   <code>{assetLabel(change.asset)}</code>
                 </li>
-              ))}
+                );
+              })}
             </ul>
           )}
         </section>}
@@ -160,7 +183,7 @@ export function AssetOperationReviewDialog({
           )}
         {plan.target_files.length > 0 && (
           <section>
-            <h3>{agentName ? "将更新的位置" : "写入目标"}</h3>
+            <h3>{isAgentSkillPlan ? "实际写入位置" : agentName ? "将更新的位置" : "写入目标"}</h3>
             <ul>{plan.target_files.map((path) => <li key={path}><code>{path}</code></li>)}</ul>
           </section>
         )}

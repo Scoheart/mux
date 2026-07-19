@@ -404,8 +404,8 @@ describe("SkillsView", () => {
     expect(screen.getByText("journal recovery required")).toBeVisible();
     expect(screen.queryByRole("button", { name: "重试" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "检查更新" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "添加到资产库" })).toBeDisabled();
-    expect(screen.queryByRole("dialog", { name: "添加 Skill 到资产库" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "添加 Skill" })).toBeDisabled();
+    expect(screen.queryByRole("dialog", { name: "添加 Skill" })).not.toBeInTheDocument();
     expect(onIntentConsumed).not.toHaveBeenCalled();
     expect(refresh).not.toHaveBeenCalled();
   });
@@ -422,13 +422,11 @@ describe("SkillsView", () => {
       />,
     );
 
-    await user.click(screen.getByRole("button", { name: "添加到资产库" }));
+    await user.click(screen.getByRole("button", { name: "添加 Skill" }));
 
-    await user.type(screen.getByLabelText("GitHub 来源"), "acme/skills");
-    await user.click(screen.getByRole("button", { name: "解析来源" }));
-    expect(
-      await screen.findByRole("heading", { name: "选择中央 Skills" }),
-    ).toBeVisible();
+    await user.type(screen.getByLabelText("仓库地址"), "acme/skills");
+    await user.click(screen.getByRole("button", { name: "读取" }));
+    expect(await screen.findByRole("checkbox", { name: "review-changes" })).toBeVisible();
 
     rerender(
       <SkillsView
@@ -444,7 +442,7 @@ describe("SkillsView", () => {
 
     await waitFor(() =>
       expect(
-        screen.queryByRole("dialog", { name: "添加 Skill 到资产库" }),
+        screen.queryByRole("dialog", { name: "添加 Skill" }),
       ).not.toBeInTheDocument(),
     );
     await waitFor(() => expect(cancel).toHaveBeenCalledWith("resolve-fixture"));
@@ -518,7 +516,7 @@ describe("SkillsView", () => {
     empty.items = [];
     const { rerender } = render(<SkillsView state={stateWith(empty)} />);
     expect(screen.getByText("暂无 Skills")).toBeVisible();
-    expect(screen.getAllByRole("button", { name: "添加到资产库" })).toHaveLength(1);
+    expect(screen.getAllByRole("button", { name: "添加 Skill" })).toHaveLength(1);
 
     rerender(<SkillsView state={skillsStateFixture()} />);
     await userEvent.type(screen.getByPlaceholderText("搜索 Skills"), "no-such-skill");
@@ -672,7 +670,7 @@ describe("SkillsView", () => {
   it("has no Agent-scoped install navigation", () => {
     render(<SkillsView state={skillsStateFixture()} />);
     expect(screen.queryByText("为 Agent 添加 Skill")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "添加到资产库" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "添加 Skill" })).toBeVisible();
   });
 });
 

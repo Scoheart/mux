@@ -55,6 +55,7 @@ it("presents Agent assignment as a direct add action", () => {
     <AssetOperationReviewDialog
       plan={plan}
       busy={false}
+      agentId="claude-code"
       agentName="Claude Code"
       onCommit={vi.fn()}
       onCancel={vi.fn()}
@@ -66,6 +67,49 @@ it("presents Agent assignment as a direct add action", () => {
   expect(screen.getByRole("button", { name: "添加 MCP" })).toBeEnabled();
   expect(screen.getByText("Agent 变更")).toBeVisible();
   expect(screen.queryByText(/desired relationship/)).not.toBeInTheDocument();
+});
+
+it("separates direct Skill assignment from compatible visibility", () => {
+  const plan = assetOperationPlanFixture();
+  plan.domain_plan = {
+    domain: "skill",
+    before: { "claude-code": [], opencode: [] },
+    after: { "claude-code": ["frontend-design"], opencode: ["frontend-design"] },
+  };
+  plan.relationship_changes = [
+    {
+      agent_id: "claude-code",
+      asset: { domain: "skill", name: "frontend-design" },
+      action: "add",
+    },
+    {
+      agent_id: "opencode",
+      asset: { domain: "skill", name: "frontend-design" },
+      action: "add",
+    },
+  ];
+  plan.target_files = ["~/.claude/skills/frontend-design"];
+  plan.affected_agent_ids = ["claude-code", "opencode"];
+
+  render(
+    <AssetOperationReviewDialog
+      plan={plan}
+      busy={false}
+      agentId="claude-code"
+      agentName="Claude Code"
+      onCommit={vi.fn()}
+      onCancel={vi.fn()}
+    />,
+  );
+
+  expect(screen.getByText("Claude Code · 同一目录也被 1 个 Agent 读取")).toBeVisible();
+  expect(screen.getByText("只写入一个目录；兼容 Agent 会读取同一份 Skill，不会重复安装。")).toBeVisible();
+  expect(screen.getByRole("heading", { name: "生效范围" })).toBeVisible();
+  expect(screen.getByText("直接添加")).toBeVisible();
+  expect(screen.getByText("兼容可见")).toBeVisible();
+  expect(screen.getByRole("heading", { name: "实际写入位置" })).toBeVisible();
+  expect(screen.getByText("~/.claude/skills/frontend-design")).toBeVisible();
+  expect(screen.queryByText("~/.config/opencode/skills/frontend-design")).not.toBeInTheDocument();
 });
 
 it("shows configuration paths and shared Skill migration compactly", () => {

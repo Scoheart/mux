@@ -1,10 +1,11 @@
 import { ReactNode, useEffect, useState } from "react";
 import { getVersion } from "@tauri-apps/api/app";
-import type { AgentInfo, View } from "../lib/types";
+import type { AgentInfo, ProxySettings, View } from "../lib/types";
 import {
   DownloadIcon,
   LayersIcon,
   MoonIcon,
+  NetworkIcon,
   PackageIcon,
   RefreshIcon,
   SparklesIcon,
@@ -14,6 +15,7 @@ import { applyTheme, getInitialTheme, type Theme } from "../lib/theme";
 import { useToast } from "./Toast";
 import type { UpdaterState } from "../hooks/useUpdater";
 import { AgentNavigation } from "./AgentNavigation";
+import { ProxySettingsDialog } from "./ProxySettingsDialog";
 
 interface LayoutProps {
   children: ReactNode;
@@ -26,6 +28,9 @@ interface LayoutProps {
   onAddAgent?: () => void;
   onRescan?: () => Promise<unknown> | void;
   updater?: UpdaterState;
+  proxyUrl: string | null;
+  proxySettingsLoading: boolean;
+  onSaveProxy: (proxyUrl: string | null) => Promise<ProxySettings>;
 }
 
 export function Layout({
@@ -39,10 +44,14 @@ export function Layout({
   onAddAgent,
   onRescan,
   updater,
+  proxyUrl,
+  proxySettingsLoading,
+  onSaveProxy,
 }: LayoutProps) {
   const [rescanning, setRescanning] = useState(false);
   const [theme, setTheme] = useState<Theme>(getInitialTheme);
   const [version, setVersion] = useState("");
+  const [proxySettingsOpen, setProxySettingsOpen] = useState(false);
   const toast = useToast();
 
   useEffect(() => {
@@ -149,6 +158,19 @@ export function Layout({
         {/* Right action group */}
         <button
           type="button"
+          className="mux-icon-btn mux-network-button flex-shrink-0"
+          data-active={proxyUrl ? "true" : undefined}
+          title={proxyUrl ? `网络代理 · ${proxyUrl}` : "网络代理"}
+          aria-label={proxyUrl ? "配置网络代理，当前已启用" : "配置网络代理"}
+          disabled={proxySettingsLoading}
+          onClick={() => setProxySettingsOpen(true)}
+        >
+          <NetworkIcon className="w-4 h-4" />
+          {proxyUrl && <span className="mux-network-status-dot" aria-hidden="true" />}
+        </button>
+
+        <button
+          type="button"
           className="mux-icon-btn flex-shrink-0"
           title={theme === "dark" ? "切换到浅色" : "切换到深色"}
           aria-label="切换主题"
@@ -197,6 +219,14 @@ export function Layout({
       <main className="flex-1 min-h-0 overflow-hidden" style={{ background: "transparent" }}>
         {children}
       </main>
+
+      {proxySettingsOpen && (
+        <ProxySettingsDialog
+          proxyUrl={proxyUrl}
+          onClose={() => setProxySettingsOpen(false)}
+          onSave={onSaveProxy}
+        />
+      )}
     </div>
   );
 }

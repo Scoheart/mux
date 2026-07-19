@@ -15,7 +15,7 @@ Opening the app lands you on **MCPs** by default. The main interface is made up 
 | **MCPs / Models (Beta) / Skills** | Switch among the MCP catalog, model endpoints, and user-level Skills management. |
 | **Agent selector** | Search the verified writable targets; discovery-only records remain available for catalog validation without appearing as a separate tab. |
 | **`+`** | Add a custom agent, next to the agent selector. |
-| **Theme / Rescan / Check for updates** | Switch appearance, re-read each agent's config, manually check for stable updates. |
+| **Proxy / Theme / Rescan / Check for updates** | Configure MUX networking, switch appearance, re-read each agent's config, and manually check for stable updates. |
 | **Source bar** | Filter the catalog by source; the top offers "Add subscription" and "Import config." |
 | **Catalog toolbar** | Search, view shadowed entries, paste config, export the effective config, create a new MCP. |
 | **MCP card grid** | Shows name, transport, source, endpoint, usage, and conflict status. |
@@ -96,11 +96,13 @@ Claude Code currently accepts Anthropic Messages profiles, Codex uses the Respon
 
 ## Skills
 
-The top-level **Skills** workspace resolves candidates from public GitHub or the native local-folder picker, reviews files, local risk, and conflicts, then writes only one central copy. A separate consumer operation links that copy into verified Agent directories from the Inspector or Agent page. Agents sharing one physical target are selected and reviewed as an inseparable group; Agent pages never resolve or install a Skill source.
+The top-level **Skills** workspace resolves candidates from public GitHub, a local folder, or a Skill archive, reviews files, local risk, and conflicts, then writes only one central copy. A separate consumer operation links that copy into verified Agent directories from the Inspector or Agent page. Agents sharing one physical target are selected and reviewed as an inseparable group; Agent pages never resolve or install a Skill source.
 
 Skills do not require system Git, Node.js, or `npx`. This version does not support project-level content, private repositories, or CLI/TUI Skills commands. See [User-level Skills](/en/guide/skills) for installation, shared aliases, high-risk second confirmation, backups, and recovery.
 
 ## Auto-update and the CLI
+
+The network icon in the top bar configures one global proxy for MUX. It accepts `http://`, `socks4://`, `socks4a://`, and `socks5://` addresses. Later GitHub Skill, remote-source, CLI update, and Desktop update requests use the saved proxy; save an empty value to turn it off. HTTPS proxy endpoints, `socks5h://`, and proxy credentials are not supported, keeping usernames and passwords out of `~/.mux/settings.json`.
 
 - About 2.5 seconds after launch, the app silently checks for the latest **stable** release; a failure won't interrupt you.
 - **Check for updates vX.Y.Z** at the top lets you check manually anytime, and shows the error on failure.

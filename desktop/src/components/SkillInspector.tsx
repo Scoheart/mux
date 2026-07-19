@@ -52,6 +52,7 @@ function sourceKindLabel(item: SkillInventoryItem) {
   if (!item.source) return "外部副本";
   if (item.source.kind === "github") return "GitHub";
   if (item.source.kind === "local") return "本地";
+  if (item.source.kind === "archive") return "压缩包";
   return "Imported";
 }
 

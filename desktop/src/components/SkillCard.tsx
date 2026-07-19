@@ -31,6 +31,9 @@ export function skillSourceText(source: SkillSource | null) {
   if (source.kind === "local") {
     return appendSubpath(`本地 · ${source.path}`, source.subpath);
   }
+  if (source.kind === "archive") {
+    return appendSubpath(`压缩包 · ${source.path}`, source.subpath);
+  }
   return `导入副本 · ${source.original_path}`;
 }
 

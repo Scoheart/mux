@@ -305,7 +305,7 @@ fn plan_update_inner(request: PlanUpdateRequest) -> Result<OperationPlan, SkillE
                 invalid_source_error("the reviewed GitHub update revision is unavailable")
             })?
         }
-        SkillSource::Local { .. } => "",
+        SkillSource::Local { .. } | SkillSource::Archive { .. } => "",
     };
     let resolution = stage_recorded_skill(
         &record.source,
@@ -388,7 +388,9 @@ fn plan_repair_inner(request: PlanRepairRequest) -> Result<OperationPlan, SkillE
             let record = managed_record(&settings, &request.skill_name)?.clone();
             let revision = match &record.source {
                 SkillSource::Github { .. } => record.resolved_revision.as_deref(),
-                SkillSource::Local { .. } | SkillSource::Imported { .. } => None,
+                SkillSource::Local { .. }
+                | SkillSource::Archive { .. }
+                | SkillSource::Imported { .. } => None,
             };
             let resolution = stage_recorded_skill(
                 &record.source,
@@ -1783,7 +1785,9 @@ fn replacement_settings_after(
             record.update.available = false;
             record.update.resolved_revision = match &skill.source {
                 SkillSource::Github { .. } => skill.resolved_revision.clone(),
-                SkillSource::Local { .. } => Some(skill.content_hash.clone()),
+                SkillSource::Local { .. } | SkillSource::Archive { .. } => {
+                    Some(skill.content_hash.clone())
+                }
                 SkillSource::Imported { .. } => None,
             };
             record.update.error = None;
@@ -2062,6 +2066,10 @@ fn candidate_source(source: &SkillSource, relative_path: &str) -> SkillSource {
             pinned: *pinned,
         },
         SkillSource::Local { path, subpath } => SkillSource::Local {
+            path: path.clone(),
+            subpath: join(subpath),
+        },
+        SkillSource::Archive { path, subpath } => SkillSource::Archive {
             path: path.clone(),
             subpath: join(subpath),
         },

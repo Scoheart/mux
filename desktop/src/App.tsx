@@ -11,6 +11,7 @@ import { useSkillsState } from "./hooks/useSkillsState";
 import { useConsumptionState } from "./hooks/useConsumptionState";
 import { useUpdater } from "./hooks/useUpdater";
 import { useCliTool } from "./hooks/useCliTool";
+import { useNetworkSettings } from "./hooks/useNetworkSettings";
 import { UpdateBanner } from "./components/UpdateBanner";
 import type {
   ResourceNavigationRequest,
@@ -34,7 +35,8 @@ function App() {
   const state = useInstallState();
   const skillsState = useSkillsState();
   const consumptionState = useConsumptionState();
-  const updater = useUpdater();
+  const networkSettings = useNetworkSettings();
+  const updater = useUpdater(networkSettings.settings.proxy_url);
   // 启动后静默安装/修复 ~/.local/bin/mux 软链（装 App 即带 CLI）。
   useCliTool();
 
@@ -50,6 +52,9 @@ function App() {
   return (
     <Layout
       updater={updater}
+      proxyUrl={networkSettings.settings.proxy_url}
+      proxySettingsLoading={networkSettings.loading}
+      onSaveProxy={networkSettings.save}
       agents={state.agents}
       view={view}
       onSelectRegistry={() => setView({ kind: "registry" })}

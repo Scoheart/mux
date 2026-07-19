@@ -42,6 +42,19 @@ export function CloudIcon({ className, style }: IconProps) {
   );
 }
 
+export function NetworkIcon({ className, style }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} style={style} stroke="currentColor" fill="none"
+      strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="2.5" />
+      <circle cx="5" cy="6" r="2" />
+      <circle cx="19" cy="6" r="2" />
+      <circle cx="12" cy="20" r="2" />
+      <path d="m6.6 7.2 3.5 3M17.4 7.2l-3.5 3M12 14.5V18" />
+    </svg>
+  );
+}
+
 export function TrashIcon({ className, style }: IconProps) {
   return (
     <svg viewBox="0 0 24 24" className={className} style={style} stroke="currentColor" fill="none"

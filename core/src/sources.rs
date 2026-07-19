@@ -100,9 +100,9 @@ pub fn source_count(def: &SourceDef) -> u32 {
 /// Fetch a remote URL's body as text (20s connect/read timeout; ureq caps the
 /// body size internally).
 pub fn fetch(url: &str) -> Result<String, String> {
-    let agent = ureq::AgentBuilder::new()
-        .timeout(Duration::from_secs(20))
-        .build();
+    let agent = crate::network::build_ureq_agent(
+        ureq::AgentBuilder::new().timeout(Duration::from_secs(20)),
+    )?;
     agent
         .get(url)
         .call()

@@ -114,7 +114,10 @@ export function AgentView({
   const [modelsError, setModelsError] = useState<string | null>(null);
   const [resourceTab, setResourceTab] = useState<AgentResourceTab>("mcps");
   const [preparingChange, setPreparingChange] = useState(false);
-  const [togglingMcp, setTogglingMcp] = useState<string | null>(null);
+  const [togglingMcp, setTogglingMcp] = useState<{
+    key: string;
+    enabled: boolean;
+  } | null>(null);
 
   const navigateResource = useCallback((request: ResourceNavigationRequest) => {
     if (onOpenResource) return onOpenResource(request);
@@ -161,6 +164,14 @@ export function AgentView({
   const mcpRows = consumptionsForAgent(inventory, agentId, "mcp");
   const modelRows = consumptionsForAgent(inventory, agentId, "model");
   const skillRows = consumptionsForAgent(inventory, agentId, "skill");
+  const displayedMcpRows = useMemo(
+    () => mcpRows.map((item) => (
+      togglingMcp && item.asset.domain === "mcp" && item.asset.key === togglingMcp.key
+        ? { ...item, enabled: togglingMcp.enabled }
+        : item
+    )),
+    [mcpRows, togglingMcp],
+  );
   const mcpExternal = externalForAgent(inventory, agentId, "mcp");
   const modelExternal = externalForAgent(inventory, agentId, "model");
   const skillExternal = externalForAgent(inventory, agentId, "skill");
@@ -349,7 +360,7 @@ export function AgentView({
     const key = item.asset.key;
     const name = entries.find((entry) => keyOf(entry) === key)?.name
       ?? key.replace(/::(?:stdio|http)$/, "");
-    setTogglingMcp(key);
+    setTogglingMcp({ key, enabled });
     try {
       const plan = await consumptionState.planMcpEnabled(agentId, key, enabled);
       if (!requiresAgentReview(plan)) {
@@ -358,7 +369,7 @@ export function AgentView({
     } catch (error) {
       showToast({ kind: "error", msg: `${enabled ? "启用" : "停用"}失败：${formatError(error)}` });
     } finally {
-      setTogglingMcp(null);
+      setTogglingMcp((current) => current?.key === key ? null : current);
     }
   };
 
@@ -412,15 +423,13 @@ export function AgentView({
               title="MCP"
               description={`${mcpRows.length} 项`}
               manageLabel="添加 MCP"
-              rows={mcpRows}
+              rows={displayedMcpRows}
               external={mcpExternal}
               onManage={() => setPickerDomain("mcp")}
               manageDisabled={!consumptionState || preparingChange}
               onEnabledChange={(item, enabled) => void toggleMcpEnabled(item, enabled)}
               enabledChangeDisabled={(item) => !consumptionState
-                || preparingChange
-                || consumptionState.committing
-                || togglingMcp === (item.asset.domain === "mcp" ? item.asset.key : "")
+                || togglingMcp?.key === (item.asset.domain === "mcp" ? item.asset.key : "")
                 || item.status !== "synced"}
               onRemove={(asset) => void planRemoval(asset)}
               removeLabel={(name) => `从 ${agent.name} 移除 ${name}`}
@@ -536,6 +545,7 @@ export function AgentView({
           plan={consumptionState.plan}
           busy={consumptionState.committing}
           error={consumptionState.error?.message}
+          agentId={agent.id}
           agentName={agent.name}
           onCommit={(conflictConfirmation) => commitPlan(conflictConfirmation)}
           onCancel={consumptionState.cancel}

@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.6.0](https://github.com/Scoheart/mux/compare/v1.5.0...v1.6.0) (2026-07-19)
+
+
+### Features
+
+* **assets:** streamline Agent and Skill workflows ([#50](https://github.com/Scoheart/mux/issues/50)) ([a0f2566](https://github.com/Scoheart/mux/commit/a0f25662d86e9e17481cbf0e3f14ab135aafa868))
+
 ## [1.5.0](https://github.com/Scoheart/mux/compare/v1.4.0...v1.5.0) (2026-07-19)
 
 

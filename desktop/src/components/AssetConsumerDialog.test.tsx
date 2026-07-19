@@ -73,8 +73,36 @@ describe("AssetConsumerDialog", () => {
       />,
     );
     await userEvent.click(screen.getByRole("button", { name: /Codex/ }));
-    expect(screen.getByText(/同时影响 3 个 Agent/)).toBeVisible();
+    expect(screen.getByText("共用 · 3")).toBeVisible();
     await userEvent.click(screen.getByRole("button", { name: "审阅变更" }));
     expect(onReview).toHaveBeenCalledWith(["codex", "cursor", "gemini"]);
+  });
+
+  it("renders one option for Agents using the same physical target", () => {
+    render(
+      <AssetConsumerDialog
+        asset={{ domain: "skill", name: "review-changes" }}
+        assetName="review-changes"
+        options={[
+          {
+            id: "codex",
+            name: "Codex",
+            targetId: "agents-user",
+            affectedAgentIds: ["codex", "cursor"],
+          },
+          {
+            id: "cursor",
+            name: "Cursor",
+            targetId: "agents-user",
+            affectedAgentIds: ["codex", "cursor"],
+          },
+        ]}
+        consumers={[]}
+        onReview={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+
+    expect(screen.getAllByRole("button", { name: /Codex、Cursor/ })).toHaveLength(1);
   });
 });

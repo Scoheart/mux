@@ -39,10 +39,7 @@ export function AgentResourcePanel({
   return (
     <section className="mux-agent-resource-panel" aria-labelledby={`${id}-title`}>
       <div className="mux-agent-resource-panel-head">
-        <div>
-          <h3 id={`${id}-title`}>资源</h3>
-          <p>管理当前 Agent 的 MCP、Model 与 Skill。</p>
-        </div>
+        <h3 id={`${id}-title`}>Agent 配置</h3>
         <div className="mux-agent-resource-tabs" role="tablist" aria-label="Agent 资源">
           {TABS.map((tab, index) => (
             <button

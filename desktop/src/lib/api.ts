@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
   AgentDefinitionInput,
+  AgentConfigurationInput,
   AgentConsumptionSelection,
   AgentInfo,
   AssetCommandError,
@@ -37,6 +38,13 @@ export const planSetAgentConsumption = (
   invoke<AssetOperationPlan>("plan_set_agent_consumption", {
     request: { agent_id: agentId, selection },
   });
+export const planSetMcpEnabled = (
+  agentId: string,
+  assetKey: string,
+  enabled: boolean,
+) => invoke<AssetOperationPlan>("plan_set_mcp_enabled", {
+  request: { agent_id: agentId, asset_key: assetKey, enabled },
+});
 export const planSetAssetConsumers = (asset: AssetRef, agentIds: string[]) =>
   invoke<AssetOperationPlan>("plan_set_asset_consumers", {
     request: { asset, agent_ids: agentIds },
@@ -93,6 +101,12 @@ export const addAgent = (id: string, def: AgentDefinitionInput) =>
   invoke<void>("add_agent", { id, def });
 export const updateAgent = (id: string, def: AgentDefinitionInput) =>
   invoke<void>("update_agent", { id, def });
+export const planUpdateAgentConfiguration = (
+  id: string,
+  configuration: AgentConfigurationInput,
+) => invoke<AssetOperationPlan>("plan_update_agent_configuration", {
+  request: { agent_id: id, configuration },
+});
 export const scanInstalled = () => invoke<InstalledMcp[]>("scan_installed");
 /** Parse a pasted config blob (JSON/TOML) and add its servers to the manual
  *  source. Returns the added server names. */

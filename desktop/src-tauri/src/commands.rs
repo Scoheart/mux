@@ -9,7 +9,7 @@ use mux_core::types::RegistryEntry;
 use mux_core::consumption::{
     AssetCommitRequest, AssetOperationPlan, ConsumptionInventory,
     PlanDeleteCentralAssetRequest, PlanSetAgentConsumptionRequest, PlanSetAssetConsumersRequest,
-    PlanUpdateCentralAssetRequest,
+    PlanUpdateAgentConfigurationRequest, PlanUpdateCentralAssetRequest,
 };
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -62,10 +62,24 @@ pub async fn plan_set_agent_consumption(
 }
 
 #[tauri::command]
+pub async fn plan_set_mcp_enabled(
+    request: mux_core::consumption::PlanSetMcpEnabledRequest,
+) -> Result<AssetOperationPlan, AssetCommandError> {
+    asset_blocking(move || mux_core::consumption::plan_set_mcp_enabled(request)).await
+}
+
+#[tauri::command]
 pub async fn plan_set_asset_consumers(
     request: PlanSetAssetConsumersRequest,
 ) -> Result<AssetOperationPlan, AssetCommandError> {
     asset_blocking(move || mux_core::consumption::plan_set_asset_consumers(request)).await
+}
+
+#[tauri::command]
+pub async fn plan_update_agent_configuration(
+    request: PlanUpdateAgentConfigurationRequest,
+) -> Result<AssetOperationPlan, AssetCommandError> {
+    asset_blocking(move || mux_core::consumption::plan_update_agent_configuration(request)).await
 }
 
 #[tauri::command]

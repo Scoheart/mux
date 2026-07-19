@@ -435,6 +435,20 @@ fn domain_agent_count(plan: &DomainPlan) -> usize {
             .chain(after.keys())
             .collect::<BTreeSet<_>>()
             .len(),
+        DomainPlan::AgentConfiguration {
+            agent_id,
+            skills_before,
+            skills_after,
+            affected_agent_ids,
+            ..
+        } => skills_before
+            .keys()
+            .chain(skills_after.keys())
+            .map(String::as_str)
+            .chain(affected_agent_ids.iter().map(String::as_str))
+            .chain(std::iter::once(agent_id.as_str()))
+            .collect::<BTreeSet<_>>()
+            .len(),
     }
 }
 

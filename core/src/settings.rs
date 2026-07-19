@@ -33,6 +33,18 @@ pub struct UiSettings {
     pub extra: BTreeMap<String, Value>,
 }
 
+/// User-selected write locations that are independent from an Agent's MCP
+/// wire schema. MCP keeps using `AgentDefinition::global`; Model and Skills
+/// overrides live here so audited codecs and capability metadata remain owned
+/// by the built-in catalog.
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+pub struct AgentConfigPathOverride {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_paths: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub skills_global_dir: Option<String>,
+}
+
 /// The whole `~/.mux/settings.json` document.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Settings {
@@ -41,6 +53,11 @@ pub struct Settings {
     /// User agent map. Absent ⇒ fall back to the builtin agents.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agents: Option<BTreeMap<String, AgentDefinition>>,
+    /// Per-Agent Model/Skills path overrides. These are kept separate from
+    /// audited Agent definitions so changing a location never changes a codec,
+    /// target identity, evidence, or install probe.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_config_paths: Option<BTreeMap<String, AgentConfigPathOverride>>,
     /// User/custom/override registry entries (manual + discovered + overrides),
     /// layered over the entries contributed by `sources` on read.
     #[serde(default, skip_serializing_if = "Option::is_none")]

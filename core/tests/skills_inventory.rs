@@ -2,7 +2,7 @@
 
 mod support;
 
-use mux_core::settings::mutate_settings;
+use mux_core::settings::{mutate_settings, AgentConfigPathOverride};
 use mux_core::skills::{
     get_skill_detail, hash_tree, list_inventory, list_skill_agents, normalize_agent_selection,
     recover_pending_with_paths, InventoryState, JournalPhase, SkillError, SkillsPaths,
@@ -243,17 +243,54 @@ fn installed_alias_only_target_is_scanned_but_not_assignable() {
 }
 
 #[test]
-fn canonical_target_graph_rejects_two_ids_resolving_to_one_path() {
+fn canonical_target_graph_merges_two_ids_resolving_to_one_path() {
     let th = TestHome::new("inventory-target-collision");
     fs::create_dir_all(th.home.join(".agents/skills")).unwrap();
     fs::create_dir_all(th.home.join(".codex")).unwrap();
     install_cursor(&th.home);
     symlink(th.home.join(".agents"), th.home.join(".cursor")).unwrap();
 
-    assert!(matches!(
-        list_skill_agents(),
-        Err(SkillError::InvalidSource { .. })
-    ));
+    let agents = list_skill_agents().unwrap();
+    let cursor = agents.iter().find(|agent| agent.id == "cursor").unwrap();
+    assert_eq!(cursor.target_id, "agents-user");
+    assert_eq!(cursor.global_dir, "~/.agents/skills");
+    assert_eq!(cursor.affected_agent_ids, vec!["codex", "cursor"]);
+
+    let inventory = list_inventory().unwrap();
+    assert_eq!(inventory.targets.len(), 1);
+    assert_eq!(inventory.targets[0].target_id, "agents-user");
+    assert_eq!(
+        inventory.targets[0].primary_agent_ids,
+        vec!["codex", "cursor"]
+    );
+}
+
+#[test]
+fn skills_path_override_joins_an_existing_physical_target() {
+    let th = TestHome::new("inventory-target-override-join");
+    fs::create_dir_all(th.home.join(".agents/skills")).unwrap();
+    fs::create_dir_all(th.home.join(".codex")).unwrap();
+    install_cursor(&th.home);
+    mutate_settings(|settings| {
+        settings.agent_config_paths = Some(
+            [(
+                "cursor".into(),
+                AgentConfigPathOverride {
+                    skills_global_dir: Some("~/.agents/skills".into()),
+                    ..Default::default()
+                },
+            )]
+            .into_iter()
+            .collect(),
+        );
+    })
+    .unwrap();
+
+    let agents = list_skill_agents().unwrap();
+    let cursor = agents.iter().find(|agent| agent.id == "cursor").unwrap();
+    assert_eq!(cursor.target_id, "agents-user");
+    assert_eq!(cursor.global_dir, "~/.agents/skills");
+    assert_eq!(cursor.affected_agent_ids, vec!["codex", "cursor"]);
 }
 
 #[test]

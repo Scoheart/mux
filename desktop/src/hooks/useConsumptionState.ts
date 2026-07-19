@@ -6,6 +6,7 @@ import {
   planDeleteCentralAsset,
   planSetAgentConsumption,
   planSetAssetConsumers,
+  planSetMcpEnabled,
   planUpdateCentralAsset,
 } from "../lib/api";
 import type {
@@ -27,6 +28,11 @@ export interface ConsumptionState {
   planForAgent(
     agentId: string,
     selection: AgentConsumptionSelection,
+  ): Promise<AssetOperationPlan>;
+  planMcpEnabled(
+    agentId: string,
+    assetKey: string,
+    enabled: boolean,
   ): Promise<AssetOperationPlan>;
   planForAsset(asset: AssetRef, agentIds: string[]): Promise<AssetOperationPlan>;
   planUpdate(draft: CentralAssetDraft): Promise<AssetOperationPlan>;
@@ -133,6 +139,22 @@ export function useConsumptionState(): ConsumptionState {
     [ownPlan],
   );
 
+  const planMcpEnabled = useCallback(
+    async (agentId: string, assetKey: string, enabled: boolean) => {
+      if (planRef.current || planningRef.current) throw new Error("已有待确认的资产操作");
+      planningRef.current = true;
+      try {
+        return ownPlan(await planSetMcpEnabled(agentId, assetKey, enabled));
+      } catch (cause) {
+        if (mounted.current) setError(commandError(cause));
+        throw cause;
+      } finally {
+        planningRef.current = false;
+      }
+    },
+    [ownPlan],
+  );
+
   const planUpdate = useCallback(
     async (draft: CentralAssetDraft) => {
       if (planRef.current || planningRef.current) throw new Error("已有待确认的资产操作");
@@ -209,6 +231,7 @@ export function useConsumptionState(): ConsumptionState {
     committing,
     refresh,
     planForAgent,
+    planMcpEnabled,
     planForAsset,
     planUpdate,
     planDelete,

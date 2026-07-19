@@ -47,7 +47,9 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::list_consumption_inventory,
             commands::plan_set_agent_consumption,
+            commands::plan_set_mcp_enabled,
             commands::plan_set_asset_consumers,
+            commands::plan_update_agent_configuration,
             commands::plan_update_central_asset,
             commands::plan_delete_central_asset,
             commands::commit_asset_operation,

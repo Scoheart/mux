@@ -652,6 +652,7 @@ export function SkillsView({
             name: agent.name,
             description: agent.global_dir,
             affectedAgentIds: agent.affected_agent_ids,
+            targetId: agent.target_id,
           }))}
           onClose={() => setConsumerSkillName(null)}
           onReview={async (agentIds) => {

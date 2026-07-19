@@ -10,7 +10,7 @@ use super::{
     LinkState, SkillError, SkillSettingsSnapshot, SkillSource, SkillsPaths, TransactionOrder,
     TransactionSpec,
 };
-use crate::agents::builtin_agents;
+use crate::agents::load_agents;
 use crate::settings::{load_settings_strict, mutate_settings, Settings};
 use chrono::{DateTime, Utc};
 use fs2::FileExt;
@@ -1042,7 +1042,7 @@ fn valid_skill_name(value: &str) -> bool {
 
 fn catalog_target_ids() -> Result<BTreeSet<String>, SkillError> {
     let mut ids = BTreeSet::new();
-    for (agent_id, definition) in builtin_agents() {
+    for (agent_id, definition) in load_agents() {
         let Some(capability) = definition.skills else {
             continue;
         };
@@ -1100,7 +1100,7 @@ fn physical_parent_key(_path: &Path) -> Result<PhysicalParentKey, SkillError> {
 
 fn verified_catalog_targets(paths: &SkillsPaths) -> Result<Vec<VerifiedCatalogTarget>, SkillError> {
     let mut targets = std::collections::BTreeMap::new();
-    for (agent_id, definition) in builtin_agents() {
+    for (agent_id, definition) in load_agents() {
         let Some(capability) = definition.skills else {
             continue;
         };

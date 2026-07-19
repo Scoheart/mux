@@ -7,7 +7,7 @@ use super::{
     SkillContentKind, SkillDetail, SkillError, SkillInventoryItem, SkillLocation, SkillRiskSummary,
     SkillSource, SkillTargetView, SkillUpdateState, SkillsInventory, SkillsPaths, ValidatedSkill,
 };
-use crate::agents::builtin_agents;
+use crate::agents::load_agents_from_settings;
 use crate::settings::{load_settings_strict, Settings};
 use crate::types::{AgentInstallProbe, AgentSkillsCapability};
 use std::collections::{BTreeMap, BTreeSet};
@@ -28,6 +28,8 @@ struct CatalogSkillAgent {
     id: String,
     name: String,
     capability: AgentSkillsCapability,
+    primary_target_id: String,
+    declared_target_ids: BTreeSet<String>,
     installed: bool,
 }
 
@@ -45,6 +47,7 @@ struct PhysicalTarget {
 struct TargetGraph {
     catalog_agents: BTreeMap<String, CatalogSkillAgent>,
     targets: BTreeMap<String, PhysicalTarget>,
+    target_aliases: BTreeMap<String, String>,
     included_target_ids: BTreeSet<String>,
     agents: Vec<SkillAgentView>,
     target_views: Vec<SkillTargetView>,
@@ -143,7 +146,7 @@ pub fn skill_agent_capability(
     let settings = strict_settings()?;
     let graph = build_target_graph(&paths, &settings)?;
     Ok(graph.catalog_agents.get(agent_id).map(|agent| {
-        let target = &graph.targets[&agent.capability.target_id];
+        let target = &graph.targets[&agent.primary_target_id];
         SkillAgentCapabilityView {
             id: agent.id.clone(),
             installed: agent.installed,
@@ -170,7 +173,12 @@ pub(crate) fn normalize_agent_selection_with_required_target(
     let settings = strict_settings()?;
     let graph = build_target_graph(&paths, &settings)?;
     let selected_ids = validate_agent_selection(&graph, agent_ids, true)?;
-    if !valid_name(required_target_id) || !graph.included_target_ids.contains(required_target_id) {
+    let Some(required_target_id) = graph.target_aliases.get(required_target_id) else {
+        return Err(invalid_source(
+            "the required physical target is unavailable",
+        ));
+    };
+    if !graph.included_target_ids.contains(required_target_id) {
         return Err(invalid_source(
             "the required physical target is unavailable",
         ));
@@ -192,12 +200,12 @@ pub(crate) fn normalize_assignment_enable(
     let mut selected_ids = validate_agent_selection(&graph, agent_ids, true)?;
     let mut retained_without_live_owner = BTreeSet::new();
 
-    for target_id in existing_target_ids {
-        if !graph.targets.contains_key(target_id) {
+    for declared_target_id in existing_target_ids {
+        let Some(target_id) = graph.target_aliases.get(declared_target_id) else {
             return Err(invalid_source(
                 "Skills settings reference an unknown physical target",
             ));
-        }
+        };
         let mut represented = false;
         for agent in graph
             .catalog_agents
@@ -229,14 +237,7 @@ pub(crate) fn declared_targets_for_agents(
     let mut targets = BTreeSet::new();
     for agent_id in selected {
         let agent = &graph.catalog_agents[&agent_id];
-        targets.insert(agent.capability.target_id.clone());
-        targets.extend(
-            agent
-                .capability
-                .aliases
-                .iter()
-                .map(|alias| alias.target_id.clone()),
-        );
+        targets.extend(agent.declared_target_ids.iter().cloned());
     }
     Ok(targets)
 }
@@ -278,7 +279,7 @@ fn normalize_selected_targets_with_required(
 ) -> Vec<String> {
     let mut retained = selected_ids
         .iter()
-        .map(|agent_id| graph.catalog_agents[agent_id].capability.target_id.clone())
+        .map(|agent_id| graph.catalog_agents[agent_id].primary_target_id.clone())
         .collect::<BTreeSet<_>>();
     retained.extend(required_target_ids.iter().cloned());
 
@@ -323,12 +324,7 @@ fn normalize_selected_targets_with_required(
 }
 
 fn agent_declares_target(agent: &CatalogSkillAgent, target_id: &str) -> bool {
-    agent.capability.target_id == target_id
-        || agent
-            .capability
-            .aliases
-            .iter()
-            .any(|alias| alias.target_id == target_id)
+    agent.declared_target_ids.contains(target_id)
 }
 
 pub fn list_inventory() -> Result<SkillsInventory, SkillError> {
@@ -338,6 +334,59 @@ pub fn list_inventory() -> Result<SkillsInventory, SkillError> {
     let mut inventory = build_inventory(&paths, &settings, &graph)?;
     inventory.recovery_error = inventory_recovery_error()?;
     Ok(inventory)
+}
+
+pub(crate) fn list_inventory_for_settings(
+    settings: &Settings,
+) -> Result<SkillsInventory, SkillError> {
+    let paths = SkillsPaths::resolve_from_env()?;
+    let graph = build_target_graph(&paths, settings)?;
+    build_inventory(&paths, settings, &graph)
+}
+
+pub(crate) fn skill_agent_capability_for_settings(
+    settings: &Settings,
+    agent_id: &str,
+) -> Result<Option<SkillAgentCapabilityView>, SkillError> {
+    let paths = SkillsPaths::resolve_from_env()?;
+    let graph = build_target_graph(&paths, settings)?;
+    Ok(graph.catalog_agents.get(agent_id).map(|agent| {
+        let target = &graph.targets[&agent.primary_target_id];
+        SkillAgentCapabilityView {
+            id: agent.id.clone(),
+            installed: agent.installed,
+            target_id: target.target_id.clone(),
+            global_dir: target.global_dir.clone(),
+            affected_agent_ids: target.affected_agent_ids.iter().cloned().collect(),
+        }
+    }))
+}
+
+pub(crate) fn canonical_skill_assignments(
+    settings: &Settings,
+) -> Result<BTreeMap<String, BTreeSet<String>>, SkillError> {
+    let paths = SkillsPaths::resolve_from_env()?;
+    let graph = build_target_graph(&paths, settings)?;
+    Ok(settings
+        .skill_assignments
+        .iter()
+        .flatten()
+        .map(|(name, target_ids)| {
+            let canonical = target_ids
+                .iter()
+                .filter_map(|target_id| graph.target_aliases.get(target_id).cloned())
+                .collect();
+            (name.clone(), canonical)
+        })
+        .collect())
+}
+
+pub(crate) fn canonical_skill_target_path(global_dir: &str) -> Result<PathBuf, SkillError> {
+    let paths = SkillsPaths::resolve_from_env()?;
+    let expanded = paths
+        .expand_user(global_dir)
+        .ok_or_else(|| invalid_source("the Skills target path is unavailable"))?;
+    canonicalize_deepest(&expanded)
 }
 
 fn inventory_recovery_error() -> Result<Option<String>, SkillError> {
@@ -457,7 +506,7 @@ fn scan_central(
             SkillLocation::Central,
             states,
             metadata.clone(),
-            assigned_target_ids(settings, name),
+            assigned_target_ids(settings, graph, name),
             affected_for_assignments(settings, graph, name),
         );
         metadata_by_name.insert(name.clone(), metadata);
@@ -504,7 +553,7 @@ fn scan_central(
             SkillLocation::Central,
             states,
             metadata.clone(),
-            assigned_target_ids(settings, &name),
+            assigned_target_ids(settings, graph, &name),
             affected_for_assignments(settings, graph, &name),
         );
         metadata_by_name.insert(name, metadata);
@@ -557,15 +606,17 @@ fn scan_targets(
                     location.clone(),
                     states,
                     metadata,
-                    assigned_target_ids(settings, &name),
+                    assigned_target_ids(settings, graph, &name),
                     affected.clone(),
                 );
                 budget.push_item(items, item)?;
             }
         }
 
-        for (name, target_ids) in assignments.into_iter().flatten() {
-            if target_ids.contains(target_id) && !seen.contains(name) {
+        for (name, _) in assignments.into_iter().flatten() {
+            if assigned_target_ids(settings, graph, name).contains(target_id)
+                && !seen.contains(name)
+            {
                 let metadata = records
                     .and_then(|records| records.get(name))
                     .map(metadata_from_record)
@@ -576,7 +627,7 @@ fn scan_targets(
                     location.clone(),
                     BTreeSet::from([InventoryState::Missing]),
                     metadata,
-                    assigned_target_ids(settings, name),
+                    assigned_target_ids(settings, graph, name),
                     affected.clone(),
                 );
                 budget.push_item(items, item)?;
@@ -1068,18 +1119,25 @@ fn metadata_from_external(summary: Option<ExternalSummary>) -> ItemMetadata {
     }
 }
 
-fn assigned_target_ids(settings: &Settings, name: &str) -> Vec<String> {
+fn assigned_target_ids(settings: &Settings, graph: &TargetGraph, name: &str) -> Vec<String> {
     settings
         .skill_assignments
         .as_ref()
         .and_then(|assignments| assignments.get(name))
-        .map(|target_ids| target_ids.iter().cloned().collect())
+        .map(|target_ids| {
+            target_ids
+                .iter()
+                .filter_map(|target_id| graph.target_aliases.get(target_id).cloned())
+                .collect::<BTreeSet<_>>()
+                .into_iter()
+                .collect()
+        })
         .unwrap_or_default()
 }
 
 fn affected_for_assignments(settings: &Settings, graph: &TargetGraph, name: &str) -> Vec<String> {
     let mut affected = BTreeSet::new();
-    for target_id in assigned_target_ids(settings, name) {
+    for target_id in assigned_target_ids(settings, graph, name) {
         if let Some(target) = graph.targets.get(&target_id) {
             affected.extend(target.affected_agent_ids.iter().cloned());
         }
@@ -1359,8 +1417,9 @@ fn build_target_graph(paths: &SkillsPaths, settings: &Settings) -> Result<Target
     let mut catalog_agents = BTreeMap::new();
     let mut targets = BTreeMap::<String, PhysicalTarget>::new();
     let mut targets_by_path = BTreeMap::<PathBuf, String>::new();
+    let mut target_aliases = BTreeMap::<String, String>::new();
 
-    for (id, definition) in builtin_agents() {
+    for (id, definition) in load_agents_from_settings(settings) {
         let Some(capability) = definition.skills else {
             continue;
         };
@@ -1379,43 +1438,40 @@ fn build_target_graph(paths: &SkillsPaths, settings: &Settings) -> Result<Target
             .probes
             .iter()
             .any(|probe| probe_installed(probe, paths));
-        let agent = CatalogSkillAgent {
-            id: id.clone(),
-            name: definition.name.unwrap_or_else(|| id.clone()),
-            capability: capability.clone(),
-            installed,
-        };
-
-        register_target(
+        let primary_target_id = register_target(
             paths,
             &mut targets,
             &mut targets_by_path,
+            &mut target_aliases,
             &capability.target_id,
             &capability.global_dir,
             Some(&id),
         )?;
+        let mut declared_target_ids = BTreeSet::from([primary_target_id.clone()]);
         for alias in &capability.aliases {
-            register_target(
+            declared_target_ids.insert(register_target(
                 paths,
                 &mut targets,
                 &mut targets_by_path,
+                &mut target_aliases,
                 &alias.target_id,
                 &alias.global_dir,
                 None,
-            )?;
+            )?);
         }
+        let agent = CatalogSkillAgent {
+            id: id.clone(),
+            name: definition.name.unwrap_or_else(|| id.clone()),
+            capability: capability.clone(),
+            primary_target_id,
+            declared_target_ids,
+            installed,
+        };
         catalog_agents.insert(id, agent);
     }
 
     for agent in catalog_agents.values().filter(|agent| agent.installed) {
-        let declarations = std::iter::once(agent.capability.target_id.as_str()).chain(
-            agent
-                .capability
-                .aliases
-                .iter()
-                .map(|alias| alias.target_id.as_str()),
-        );
-        for target_id in declarations {
+        for target_id in &agent.declared_target_ids {
             targets
                 .get_mut(target_id)
                 .expect("verified target was registered")
@@ -1426,14 +1482,7 @@ fn build_target_graph(paths: &SkillsPaths, settings: &Settings) -> Result<Target
 
     let mut included_target_ids = BTreeSet::new();
     for agent in catalog_agents.values().filter(|agent| agent.installed) {
-        included_target_ids.insert(agent.capability.target_id.clone());
-        included_target_ids.extend(
-            agent
-                .capability
-                .aliases
-                .iter()
-                .map(|alias| alias.target_id.clone()),
-        );
+        included_target_ids.extend(agent.declared_target_ids.iter().cloned());
     }
     for target_id in settings
         .skill_assignments
@@ -1441,12 +1490,12 @@ fn build_target_graph(paths: &SkillsPaths, settings: &Settings) -> Result<Target
         .flat_map(|assignments| assignments.values())
         .flatten()
     {
-        if !targets.contains_key(target_id) {
+        let Some(canonical_target_id) = target_aliases.get(target_id) else {
             return Err(invalid_source(
                 "Skills settings reference an unknown physical target",
             ));
-        }
-        included_target_ids.insert(target_id.clone());
+        };
+        included_target_ids.insert(canonical_target_id.clone());
     }
 
     let agents = catalog_agents
@@ -1454,16 +1503,13 @@ fn build_target_graph(paths: &SkillsPaths, settings: &Settings) -> Result<Target
         .filter(|agent| agent.installed)
         .map(|agent| {
             let capability = &agent.capability;
+            let target = &targets[&agent.primary_target_id];
             SkillAgentView {
                 id: agent.id.clone(),
                 name: agent.name.clone(),
-                target_id: capability.target_id.clone(),
-                global_dir: capability.global_dir.clone(),
-                affected_agent_ids: targets[&capability.target_id]
-                    .affected_agent_ids
-                    .iter()
-                    .cloned()
-                    .collect(),
+                target_id: target.target_id.clone(),
+                global_dir: target.global_dir.clone(),
+                affected_agent_ids: target.affected_agent_ids.iter().cloned().collect(),
                 docs: capability.docs.clone(),
                 evidence: capability.evidence.clone(),
                 verified_at: capability.verified_at.clone(),
@@ -1491,6 +1537,7 @@ fn build_target_graph(paths: &SkillsPaths, settings: &Settings) -> Result<Target
     Ok(TargetGraph {
         catalog_agents,
         targets,
+        target_aliases,
         included_target_ids,
         agents,
         target_views,
@@ -1555,10 +1602,11 @@ fn register_target(
     paths: &SkillsPaths,
     targets: &mut BTreeMap<String, PhysicalTarget>,
     targets_by_path: &mut BTreeMap<PathBuf, String>,
+    target_aliases: &mut BTreeMap<String, String>,
     target_id: &str,
     global_dir: &str,
     primary_agent_id: Option<&str>,
-) -> Result<(), SkillError> {
+) -> Result<String, SkillError> {
     if !valid_name(target_id) {
         return Err(invalid_source(
             "the verified Agent Skills catalog contains an invalid target id",
@@ -1592,7 +1640,8 @@ fn register_target(
         }
     };
 
-    if let Some(existing) = targets.get(target_id) {
+    if let Some(canonical_target_id) = target_aliases.get(target_id) {
+        let existing = &targets[canonical_target_id];
         if existing.canonical_root != canonical_root
             || existing.observed_identity != observed_identity
         {
@@ -1600,13 +1649,31 @@ fn register_target(
                 "one verified target id resolves to multiple physical directories",
             ));
         }
+        if let Some(agent_id) = primary_agent_id {
+            targets
+                .get_mut(canonical_target_id)
+                .expect("canonical target alias must resolve")
+                .primary_agent_ids
+                .insert(agent_id.into());
+        }
+        return Ok(canonical_target_id.clone());
     }
-    if let Some(existing_id) = targets_by_path.get(&canonical_root) {
-        if existing_id != target_id {
+    if let Some(canonical_target_id) = targets_by_path.get(&canonical_root).cloned() {
+        let existing = &targets[&canonical_target_id];
+        if existing.observed_identity != observed_identity {
             return Err(invalid_source(
-                "multiple verified target ids resolve to one physical directory",
+                "a verified physical target changed while it was inspected",
             ));
         }
+        target_aliases.insert(target_id.into(), canonical_target_id.clone());
+        if let Some(agent_id) = primary_agent_id {
+            targets
+                .get_mut(&canonical_target_id)
+                .expect("canonical physical target must exist")
+                .primary_agent_ids
+                .insert(agent_id.into());
+        }
+        return Ok(canonical_target_id);
     }
 
     let target = targets
@@ -1623,7 +1690,8 @@ fn register_target(
         target.primary_agent_ids.insert(agent_id.into());
     }
     targets_by_path.insert(canonical_root, target_id.into());
-    Ok(())
+    target_aliases.insert(target_id.into(), target_id.into());
+    Ok(target_id.into())
 }
 
 fn canonicalize_deepest(path: &Path) -> Result<PathBuf, SkillError> {

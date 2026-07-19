@@ -1,3 +1,4 @@
+use crate::agents::AgentConfigurationInput;
 use crate::r#override::OverridePatch;
 use crate::types::{ModelProfile, RegistryEntry};
 use serde::{Deserialize, Deserializer, Serialize};
@@ -80,6 +81,15 @@ pub enum ConsumptionStatus {
     External,
 }
 
+/// Physical destination behind a Skill relationship. Several Agents may read
+/// the same target, so the target identity is carried separately from the
+/// projected per-Agent rows.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ConsumptionTarget {
+    pub target_id: String,
+    pub global_dir: String,
+}
+
 /// Read projection. `desired` and `observed` remain explicit so missing and
 /// external states cannot disappear from the inventory.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -88,11 +98,17 @@ pub struct ConsumptionView {
     pub asset: AssetRef,
     pub desired: bool,
     pub observed: bool,
+    /// Domain-specific enabled state. Present for MCP consumptions and external
+    /// MCP observations; Model and Skill relationships do not have an off state.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub enabled: Option<bool>,
     pub status: ConsumptionStatus,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
     #[serde(default)]
     pub affected_agent_ids: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target: Option<ConsumptionTarget>,
 }
 
 /// Desired relationships and read-only external observations are separated so
@@ -122,6 +138,7 @@ pub enum AssetOperationKind {
     UpdateAsset,
     DeleteAsset,
     Adopt,
+    UpdateConfiguration,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -172,6 +189,17 @@ pub enum DomainPlan {
     Skill {
         before: BTreeMap<String, Vec<String>>,
         after: BTreeMap<String, Vec<String>>,
+    },
+    AgentConfiguration {
+        agent_id: String,
+        before: AgentConfigurationInput,
+        after: AgentConfigurationInput,
+        skills_before: BTreeMap<String, Vec<String>>,
+        skills_after: BTreeMap<String, Vec<String>>,
+        #[serde(default)]
+        affected_agent_ids: Vec<String>,
+        #[serde(default)]
+        migrated_skill_names: Vec<String>,
     },
 }
 
@@ -239,6 +267,21 @@ pub struct PlanDeleteCentralAssetRequest {
 pub struct PlanSetAgentConsumptionRequest {
     pub agent_id: String,
     pub selection: AgentConsumptionSelection,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct PlanSetMcpEnabledRequest {
+    pub agent_id: String,
+    pub asset_key: String,
+    pub enabled: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct PlanUpdateAgentConfigurationRequest {
+    pub agent_id: String,
+    pub configuration: AgentConfigurationInput,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

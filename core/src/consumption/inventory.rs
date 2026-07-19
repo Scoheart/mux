@@ -1,5 +1,7 @@
 use super::compatibility::compatibility_for;
-use super::types::{AssetRef, ConsumptionInventory, ConsumptionStatus, ConsumptionView};
+use super::types::{
+    AssetRef, ConsumptionInventory, ConsumptionStatus, ConsumptionTarget, ConsumptionView,
+};
 use crate::models::{
     list_agents as list_model_agents, observe_external_model, observe_profile,
     ExternalModelObservedState, ModelObservedState,
@@ -93,6 +95,7 @@ fn project_mcps(
                 asset,
                 desired: true,
                 observed: is_observed,
+                enabled: Some(record.enabled),
                 status,
                 reason,
                 affected_agent_ids: if compatibility.affected_agent_ids.is_empty() {
@@ -100,6 +103,7 @@ fn project_mcps(
                 } else {
                     compatibility.affected_agent_ids
                 },
+                target: None,
             });
         }
     }
@@ -114,6 +118,7 @@ fn project_mcps(
             asset: AssetRef::Mcp { key: key.clone() },
             desired: false,
             observed: true,
+            enabled: Some(item.enabled),
             status: ConsumptionStatus::External,
             reason: Some(
                 if central.contains(&key) && !item.customized {
@@ -126,6 +131,7 @@ fn project_mcps(
                 .into(),
             ),
             affected_agent_ids: vec![item.agent],
+            target: None,
         });
     }
     Ok(())
@@ -156,9 +162,11 @@ fn project_models(
                 asset,
                 desired: true,
                 observed: false,
+                enabled: None,
                 status: ConsumptionStatus::Conflicted,
                 reason: Some("model_profile_missing".into()),
                 affected_agent_ids: vec![agent_id.clone()],
+                target: None,
             });
             continue;
         };
@@ -193,9 +201,11 @@ fn project_models(
             asset,
             desired: true,
             observed,
+            enabled: None,
             status,
             reason,
             affected_agent_ids: vec![agent_id.clone()],
+            target: None,
         });
     }
     for agent in list_model_agents()
@@ -220,9 +230,11 @@ fn project_models(
             },
             desired: false,
             observed: true,
+            enabled: None,
             status,
             reason,
             affected_agent_ids: vec![agent.id],
+            target: None,
         });
     }
     Ok(())
@@ -248,9 +260,17 @@ fn project_skills(
             SkillLocation::Central => None,
         })
         .collect();
+    let mut canonical_assignments = BTreeMap::<String, BTreeSet<String>>::new();
+    for item in &skills.items {
+        canonical_assignments
+            .entry(item.name.clone())
+            .or_default()
+            .extend(item.assigned_target_ids.iter().cloned());
+    }
     let mut desired_physical = BTreeSet::new();
 
-    for (name, target_ids) in settings.skill_assignments.iter().flatten() {
+    for (name, _) in settings.skill_assignments.iter().flatten() {
+        let target_ids = canonical_assignments.get(name).cloned().unwrap_or_default();
         for target_id in target_ids {
             desired_physical.insert((target_id.clone(), name.clone()));
             let Some(target) = targets.get(target_id.as_str()) else {
@@ -259,9 +279,11 @@ fn project_skills(
                     asset: AssetRef::Skill { name: name.clone() },
                     desired: true,
                     observed: false,
+                    enabled: None,
                     status: ConsumptionStatus::Conflicted,
                     reason: Some("skill_target_unknown".into()),
                     affected_agent_ids: Vec::new(),
+                    target: None,
                 });
                 continue;
             };
@@ -305,16 +327,25 @@ fn project_skills(
                     asset: AssetRef::Skill { name: name.clone() },
                     desired: true,
                     observed,
+                    enabled: None,
                     status: status.clone(),
                     reason: reason.clone(),
                     affected_agent_ids: agents.clone(),
+                    target: Some(ConsumptionTarget {
+                        target_id: target.target_id.clone(),
+                        global_dir: target.global_dir.clone(),
+                    }),
                 });
             }
         }
     }
 
     for item in &skills.items {
-        let SkillLocation::AgentTarget { target_id, .. } = &item.location else {
+        let SkillLocation::AgentTarget {
+            target_id,
+            global_dir,
+        } = &item.location
+        else {
             continue;
         };
         if desired_physical.contains(&(target_id.clone(), item.name.clone())) {
@@ -336,9 +367,14 @@ fn project_skills(
                 },
                 desired: false,
                 observed: true,
+                enabled: None,
                 status: ConsumptionStatus::External,
                 reason: Some("skill_external".into()),
                 affected_agent_ids: agents.clone(),
+                target: Some(ConsumptionTarget {
+                    target_id: target_id.clone(),
+                    global_dir: global_dir.clone(),
+                }),
             });
         }
     }

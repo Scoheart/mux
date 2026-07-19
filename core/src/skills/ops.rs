@@ -1204,7 +1204,15 @@ fn known_assigned_target_ids(
     inventory: &SkillsInventory,
     skill_name: &str,
 ) -> BTreeSet<String> {
-    let mut target_ids = assigned_target_ids(settings, skill_name);
+    let mut target_ids: BTreeSet<String> = inventory
+        .items
+        .iter()
+        .filter(|item| item.name == skill_name)
+        .flat_map(|item| item.assigned_target_ids.iter().cloned())
+        .collect();
+    if target_ids.is_empty() {
+        target_ids = assigned_target_ids(settings, skill_name);
+    }
     target_ids.extend(inventory.items.iter().filter_map(|item| {
         if item.name != skill_name || !item.states.contains(&InventoryState::Assigned) {
             return None;

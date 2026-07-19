@@ -10,6 +10,7 @@ import { useConsumptionState } from "./useConsumptionState";
 vi.mock("../lib/api", () => ({
   listConsumptionInventory: vi.fn(),
   planSetAgentConsumption: vi.fn(),
+  planSetMcpEnabled: vi.fn(),
   planSetAssetConsumers: vi.fn(),
   planUpdateCentralAsset: vi.fn(),
   planDeleteCentralAsset: vi.fn(),
@@ -23,6 +24,9 @@ beforeEach(() => {
     consumptionInventoryFixture(),
   );
   vi.mocked(api.planSetAgentConsumption).mockResolvedValue(
+    assetOperationPlanFixture(),
+  );
+  vi.mocked(api.planSetMcpEnabled).mockResolvedValue(
     assetOperationPlanFixture(),
   );
   vi.mocked(api.planUpdateCentralAsset).mockResolvedValue(
@@ -87,6 +91,18 @@ it("loads inventory and owns one reviewed operation", async () => {
     undefined,
   );
   expect(result.current.plan).toBeNull();
+});
+
+it("owns MCP enabled-state plans through the central operation slot", async () => {
+  const { result } = renderHook(() => useConsumptionState());
+  await waitFor(() => expect(result.current.loading).toBe(false));
+
+  await act(async () => {
+    await result.current.planMcpEnabled("codex", "github::stdio", false);
+  });
+
+  expect(api.planSetMcpEnabled).toHaveBeenCalledWith("codex", "github::stdio", false);
+  expect(result.current.plan?.candidate_hash).toBe("candidate");
 });
 
 it("cancels the exact active operation", async () => {

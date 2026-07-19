@@ -1022,8 +1022,8 @@ fn target_files(plan: &DomainPlan) -> Result<Vec<String>, String> {
         DomainPlan::Skill { before, after } => {
             let skills = list_skills_inventory().map_err(|error| format!("{error:?}"))?;
             let settings = load_settings_strict().map_err(|error| error.to_string())?;
-            let assignments = canonical_skill_assignments(&settings)
-                .map_err(|error| format!("{error:?}"))?;
+            let assignments =
+                canonical_skill_assignments(&settings).map_err(|error| format!("{error:?}"))?;
             let changed_names = changed_skill_names(before, after);
 
             for name in changed_names {
@@ -1032,10 +1032,7 @@ fn target_files(plan: &DomainPlan) -> Result<Vec<String>, String> {
                     .filter(|(_, names)| names.contains(&name))
                     .map(|(agent_id, _)| agent_id.clone())
                     .collect::<Vec<_>>();
-                let mut touched_target_ids = assignments
-                    .get(&name)
-                    .cloned()
-                    .unwrap_or_default();
+                let mut touched_target_ids = assignments.get(&name).cloned().unwrap_or_default();
                 touched_target_ids.extend(
                     normalize_agent_selection(&desired_agents)
                         .map_err(|error| format!("{error:?}"))?,
@@ -1064,29 +1061,25 @@ fn changed_skill_names(
     before: &BTreeMap<String, Vec<String>>,
     after: &BTreeMap<String, Vec<String>>,
 ) -> BTreeSet<String> {
-    agents_for_plan(&DomainPlan::Skill {
-        before: before.clone(),
-        after: after.clone(),
-    })
-    .into_iter()
-    .flat_map(|agent_id| {
-        let left: BTreeSet<String> = before
-            .get(&agent_id)
-            .into_iter()
-            .flatten()
-            .cloned()
-            .collect();
-        let right: BTreeSet<String> = after
-            .get(&agent_id)
-            .into_iter()
-            .flatten()
-            .cloned()
-            .collect();
-        left.symmetric_difference(&right)
-            .cloned()
-            .collect::<Vec<_>>()
-    })
-    .collect()
+    before
+        .keys()
+        .chain(after.keys())
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .flat_map(|agent_id| {
+            let left: BTreeSet<String> = before
+                .get(agent_id)
+                .into_iter()
+                .flatten()
+                .cloned()
+                .collect();
+            let right: BTreeSet<String> =
+                after.get(agent_id).into_iter().flatten().cloned().collect();
+            left.symmetric_difference(&right)
+                .cloned()
+                .collect::<Vec<_>>()
+        })
+        .collect()
 }
 
 pub(crate) fn hash_targets(targets: &[String]) -> BTreeMap<String, String> {

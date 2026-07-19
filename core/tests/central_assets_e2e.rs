@@ -286,10 +286,7 @@ fn shared_skill_target_expands_agent_intent_and_rejects_partial_asset_selection(
         plan.affected_agent_ids,
         vec!["codex", "copilot-cli", "cursor", "gemini", "opencode"]
     );
-    assert_eq!(
-        plan.target_files,
-        vec!["~/.agents/skills/review-changes"]
-    );
+    assert_eq!(plan.target_files, vec!["~/.agents/skills/review-changes"]);
     commit(plan);
     assert_eq!(
         load_settings().skill_assignments.unwrap()["review-changes"],
@@ -320,10 +317,7 @@ fn claude_skill_plan_reports_one_write_target_and_opencode_as_affected() {
     .unwrap();
 
     assert_eq!(plan.affected_agent_ids, vec!["claude-code", "opencode"]);
-    assert_eq!(
-        plan.target_files,
-        vec!["~/.claude/skills/frontend-design"]
-    );
+    assert_eq!(plan.target_files, vec!["~/.claude/skills/frontend-design"]);
 
     commit(plan);
     assert_eq!(

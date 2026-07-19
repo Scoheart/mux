@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.5.0](https://github.com/Scoheart/mux/compare/v1.4.0...v1.5.0) (2026-07-19)
+
+
+### Features
+
+* **agent:** simplify asset configuration ([713a2ab](https://github.com/Scoheart/mux/commit/713a2ab5ccf67f884b432175a0fb28297fe3695b))
+
 ## [1.4.0](https://github.com/Scoheart/mux/compare/v1.3.0...v1.4.0) (2026-07-18)
 
 

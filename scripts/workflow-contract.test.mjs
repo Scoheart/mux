@@ -132,6 +132,11 @@ test("desktop workflow classifies and gates both publication channels", async ()
   assert.match(workflow, /\^v\[0-9\]\+\\\.\[0-9\]\+\\\.\[0-9\]\+\$/);
   assert.match(workflow, /release-version\.mjs is-release-merge/);
   assert.match(workflow, /--before "\$before_version" --after "\$version" --title "\$title"/);
+  const setupNodeReferences = [
+    ...workflow.matchAll(/actions\/setup-node@([0-9a-f]{40})/g),
+  ].map((match) => match[1]);
+  assert.ok(setupNodeReferences.length >= 2);
+  assert.equal(new Set(setupNodeReferences).size, 1);
   assert.match(workflow, /wait-for-verify\.sh/);
   assert.match(workflow, /publish-release-assets\.sh/);
   assert.match(workflow, /gh release create/);

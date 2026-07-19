@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.6.3](https://github.com/Scoheart/mux/compare/v1.6.2...v1.6.3) (2026-07-19)
+
+
+### Bug Fixes
+
+* **release:** recognize squashed release commits ([#56](https://github.com/Scoheart/mux/issues/56)) ([56547c5](https://github.com/Scoheart/mux/commit/56547c53dd274ca8e8b9526ab0d2d50e47c03265))
+* **release:** use verified setup-node action pin ([#58](https://github.com/Scoheart/mux/issues/58)) ([0d59ba5](https://github.com/Scoheart/mux/commit/0d59ba5fa1762cf70efb5621074aef1ed60a6727))
+
 ## [1.6.2](https://github.com/Scoheart/mux/compare/v1.6.1...v1.6.2) (2026-07-19)
 
 

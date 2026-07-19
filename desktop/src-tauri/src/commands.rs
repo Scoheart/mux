@@ -1,16 +1,17 @@
+use mux_core::consumption::{
+    AssetCommitRequest, AssetOperationPlan, ConsumptionInventory, PlanDeleteCentralAssetRequest,
+    PlanSetAgentConsumptionRequest, PlanSetAssetConsumersRequest,
+    PlanUpdateAgentConfigurationRequest, PlanUpdateCentralAssetRequest,
+};
 use mux_core::registry::{read_registry, read_registry_all, user_override_keys, CatalogItem};
 use mux_core::skills::{
     GithubEndpoints, OperationPlan, PlanAssignmentRequest, PlanImportRequest, PlanInstallRequest,
     PlanRemoveRequest, PlanRepairRequest, PlanSkillAssetImportRequest,
-    PlanSkillAssetInstallRequest, PlanUpdateRequest, SkillAgentView, SkillCommitRequest, SkillDetail,
-    SkillError, SkillSourceInput, SkillSourceResolution, SkillsInventory, UpdateCheckOutcome,
+    PlanSkillAssetInstallRequest, PlanUpdateRequest, SkillAgentView, SkillCommitRequest,
+    SkillDetail, SkillError, SkillSourceInput, SkillSourceResolution, SkillsInventory,
+    UpdateCheckOutcome,
 };
 use mux_core::types::RegistryEntry;
-use mux_core::consumption::{
-    AssetCommitRequest, AssetOperationPlan, ConsumptionInventory,
-    PlanDeleteCentralAssetRequest, PlanSetAgentConsumptionRequest, PlanSetAssetConsumersRequest,
-    PlanUpdateAgentConfigurationRequest, PlanUpdateCentralAssetRequest,
-};
 
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct AssetCommandError {
@@ -216,6 +217,44 @@ pub async fn resolve_local_skill_source_dialog(
     skill_blocking(move || {
         mux_core::skills::resolve_source(
             SkillSourceInput::Local { path: value },
+            GithubEndpoints::production(),
+        )
+    })
+    .await
+    .map(Some)
+}
+
+#[tauri::command]
+pub async fn resolve_archive_skill_source_dialog(
+    app: tauri::AppHandle,
+) -> Result<Option<SkillSourceResolution>, SkillCommandError> {
+    use tauri_plugin_dialog::DialogExt;
+
+    let picked = tauri::async_runtime::spawn_blocking(move || {
+        app.dialog()
+            .file()
+            .add_filter("Skill 压缩包", &["zip", "tar", "tgz", "gz"])
+            .blocking_pick_file()
+    })
+    .await
+    .map_err(worker_error)?;
+    let Some(path) = picked else {
+        return Ok(None);
+    };
+    let path = path.into_path().map_err(dialog_path_error)?;
+    let value = path
+        .to_str()
+        .ok_or_else(|| SkillCommandError {
+            code: "invalid_archive_file".into(),
+            message: "所选压缩包路径不是有效 UTF-8。".into(),
+            retry_at: None,
+            findings_hash: None,
+        })?
+        .to_owned();
+
+    skill_blocking(move || {
+        mux_core::skills::resolve_source(
+            SkillSourceInput::Archive { path: value },
             GithubEndpoints::production(),
         )
     })
@@ -532,6 +571,25 @@ pub fn get_pinned_agents() -> Result<Vec<String>, String> {
 #[tauri::command]
 pub fn set_pinned_agents(agent_ids: Vec<String>) -> Result<Vec<String>, String> {
     mux_core::pinned_agents::set_pinned_agents(agent_ids)
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ProxySettingsView {
+    pub proxy_url: Option<String>,
+}
+
+#[tauri::command]
+pub fn get_proxy_settings() -> Result<ProxySettingsView, String> {
+    mux_core::network::get_proxy_settings().map(|settings| ProxySettingsView {
+        proxy_url: settings.proxy_url,
+    })
+}
+
+#[tauri::command]
+pub fn set_proxy_settings(proxy_url: Option<String>) -> Result<ProxySettingsView, String> {
+    mux_core::network::set_proxy_url(proxy_url).map(|settings| ProxySettingsView {
+        proxy_url: settings.proxy_url,
+    })
 }
 
 pub use mux_core::ops::InstalledMcp;

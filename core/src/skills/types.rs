@@ -172,6 +172,10 @@ pub enum SkillSource {
         path: String,
         subpath: String,
     },
+    Archive {
+        path: String,
+        subpath: String,
+    },
     Imported {
         original_path: String,
         backup_path: String,
@@ -183,6 +187,7 @@ pub enum SkillSource {
 pub enum SkillSourceInput {
     Github { value: String },
     Local { path: String },
+    Archive { path: String },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

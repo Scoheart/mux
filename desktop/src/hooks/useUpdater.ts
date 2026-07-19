@@ -34,15 +34,20 @@ export interface UpdaterState {
   later: () => void;
 }
 
-export function useUpdater(): UpdaterState {
+export function useUpdater(proxyUrl: string | null = null): UpdaterState {
   const [phase, setPhase] = useState<UpdatePhase>({ kind: "idle" });
   const updateRef = useRef<Update | null>(null);
+  const proxyUrlRef = useRef(proxyUrl);
+
+  useEffect(() => {
+    proxyUrlRef.current = proxyUrl;
+  }, [proxyUrl]);
 
   const checkNow = useCallback(
     async ({ manual = false }: { manual?: boolean } = {}) => {
       setPhase({ kind: "checking" });
       try {
-        const update = await check();
+        const update = await check({ proxy: proxyUrlRef.current ?? undefined });
         if (update) {
           if (!manual && localStorage.getItem(DISMISS_KEY) === update.version) {
             // User already said "稍后" to this exact version — stay quiet.

@@ -28,6 +28,9 @@ dirs = "6"
 tauri-plugin-dialog = "2"
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
+# Tauri updater owns the reqwest client; feature unification enables SOCKS
+# proxy URLs for its check and download resource without a parallel client.
+reqwest = { version = "0.13", default-features = false, features = ["socks"] }
 ureq = "3"
 libc = "0.2"
 mux-core = { path = "../../core" }

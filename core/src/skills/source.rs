@@ -23,6 +23,7 @@ use std::time::Duration;
 use tar::Archive;
 use url::Url;
 use uuid::Uuid;
+use zip::{CompressionMethod, ZipArchive};
 
 #[cfg(all(test, unix))]
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
@@ -101,7 +102,8 @@ pub(crate) fn check_github_revision(
         &endpoints.api_base,
         &["repos", owner, repo, "commits", requested_ref],
     )?;
-    let response = fetch_response_with_etag(&github_agent(), url, endpoints, previous_etag)?;
+    let agent = github_agent()?;
+    let response = fetch_response_with_etag(&agent, url, endpoints, previous_etag)?;
     let etag = bounded_response_header(&response, "ETag");
     if response.status() == 304 {
         return Ok(GithubRevisionStatus::NotModified { etag });
@@ -159,6 +161,9 @@ pub fn resolve_source(
         }
         SkillSourceInput::Local { path } => {
             resolve_local(&path, &paths, &operation_id, operation.operation())
+        }
+        SkillSourceInput::Archive { path } => {
+            resolve_archive(&path, &paths, &operation_id, operation.operation())
         }
     };
     let result = result.and_then(|resolution| {
@@ -317,14 +322,8 @@ fn stage_recorded_skill_inner(
             })?;
             validate_endpoint_base(&endpoints.archive_base, endpoints)?;
             let operation_root = operation.root_directory()?;
-            download_archive(
-                &github_agent(),
-                owner,
-                repo,
-                revision,
-                endpoints,
-                &operation_root,
-            )?;
+            let agent = github_agent()?;
+            download_archive(&agent, owner, repo, revision, endpoints, &operation_root)?;
             let archive_root = operation.create_private_directory("archive")?;
             let repository_root = extract_staged_archive(&operation_root, &archive_root)?;
             let requested_root = repository_root.open_directory(subpath)?;
@@ -339,6 +338,16 @@ fn stage_recorded_skill_inner(
                 stage_single_candidate(&candidate, operation, expected_name)?,
                 None,
             )
+        }
+        SkillSource::Archive { path, subpath } => {
+            let archive_root = stage_local_archive(path, paths, operation)?;
+            let candidate = open_anchored_directory(&archive_root.anchored_root()?, subpath)
+                .map_err(|_| {
+                    invalid_source_error("the recorded archive Skill subpath is unavailable")
+                })?;
+            let summary = stage_single_candidate(&candidate, operation, expected_name)?;
+            operation.remove_private_directory("archive")?;
+            (summary, None)
         }
         SkillSource::Imported { backup_path, .. } => {
             let backup = paths
@@ -529,6 +538,21 @@ fn validate_persisted_source(
             let normalized = lexical_absolute(&expanded)?;
             if collapse_home(&normalized, paths.user_home()) != *path {
                 return invalid_source("the staged local source path is not canonical");
+            }
+            validate_relative_source_path(subpath)
+        }
+        (SkillSource::Archive { path, subpath }, None) => {
+            validate_source_text(path)?;
+            if path.contains(['\0', '\\']) {
+                return invalid_source("the staged archive source path is not canonical");
+            }
+            archive_format(Path::new(path))?;
+            let expanded = paths
+                .expand_user(path)
+                .ok_or_else(|| invalid_source_error("the staged archive source path is invalid"))?;
+            let normalized = lexical_absolute(&expanded)?;
+            if collapse_home(&normalized, paths.user_home()) != *path {
+                return invalid_source("the staged archive source path is not canonical");
             }
             validate_relative_source_path(subpath)
         }
@@ -732,7 +756,7 @@ fn resolve_github(
     let parsed = parse_github_source(value)?;
     validate_endpoint_base(&endpoints.api_base, endpoints)?;
     validate_endpoint_base(&endpoints.archive_base, endpoints)?;
-    let agent = github_agent();
+    let agent = github_agent()?;
     let resolved = resolve_github_metadata(&agent, &parsed, endpoints)?;
     let operation_root = operation.root_directory()?;
     download_archive(
@@ -788,6 +812,156 @@ fn resolve_local(
     Ok(SkillSourceResolution {
         operation_id: operation_id.to_owned(),
         source: SkillSource::Local {
+            path: display_path,
+            subpath: String::new(),
+        },
+        resolved_revision: None,
+        candidates,
+    })
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LocalArchiveFormat {
+    Zip,
+    TarGz,
+    Tar,
+}
+
+fn archive_format(path: &Path) -> Result<LocalArchiveFormat, SkillError> {
+    let name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| invalid_source_error("the archive filename is not valid UTF-8"))?
+        .to_ascii_lowercase();
+    if name.ends_with(".zip") {
+        Ok(LocalArchiveFormat::Zip)
+    } else if name.ends_with(".tar.gz") || name.ends_with(".tgz") {
+        Ok(LocalArchiveFormat::TarGz)
+    } else if name.ends_with(".tar") {
+        Ok(LocalArchiveFormat::Tar)
+    } else {
+        invalid_source("Skill archives must use .zip, .tar.gz, .tgz, or .tar")
+    }
+}
+
+fn open_local_archive(
+    value: &str,
+    paths: &SkillsPaths,
+) -> Result<(File, LocalArchiveFormat, String), SkillError> {
+    validate_source_text(value)?;
+    if value.contains('\0') {
+        return invalid_source("archive source paths cannot contain NUL bytes");
+    }
+    let selected = paths
+        .expand_user(value)
+        .ok_or_else(|| invalid_source_error("the archive source path is not valid"))?;
+    let selected = lexical_absolute(&selected)?;
+    let format = archive_format(&selected)?;
+    let canonical = fs::canonicalize(&selected).map_err(|error| io_error(&selected, error))?;
+    let file = File::open(&canonical).map_err(|error| io_error(&canonical, error))?;
+    let metadata = file
+        .metadata()
+        .map_err(|error| io_error(&canonical, error))?;
+    if !metadata.is_file() {
+        return invalid_source("the selected Skill archive must be a regular file");
+    }
+    enforce_limit("download", metadata.len(), MAX_DOWNLOAD_BYTES)?;
+    Ok((file, format, collapse_home(&selected, paths.user_home())))
+}
+
+fn copy_local_archive(
+    mut source: File,
+    destination: &StagingDirectory,
+    name: &str,
+) -> Result<(), SkillError> {
+    let declared = source
+        .metadata()
+        .map_err(|error| io_error(destination.path(), error))?
+        .len();
+    enforce_limit("download", declared, MAX_DOWNLOAD_BYTES)?;
+    let mut output = destination.create_file(name, 0)?;
+    let mut total = 0_u64;
+    let mut buffer = [0_u8; 64 * 1024];
+    loop {
+        let remaining = MAX_DOWNLOAD_BYTES.saturating_add(1).saturating_sub(total);
+        let requested = buffer.len().min(remaining as usize);
+        if requested == 0 {
+            return Err(limit_error(
+                "download",
+                total.saturating_add(1),
+                MAX_DOWNLOAD_BYTES,
+            ));
+        }
+        let read = source
+            .read(&mut buffer[..requested])
+            .map_err(|error| io_error(destination.path(), error))?;
+        if read == 0 {
+            break;
+        }
+        total = total.saturating_add(read as u64);
+        enforce_limit("download", total, MAX_DOWNLOAD_BYTES)?;
+        output
+            .write_all(&buffer[..read])
+            .map_err(|error| io_error(destination.path(), error))?;
+    }
+    if total != declared {
+        return invalid_source("the selected Skill archive changed while it was staged");
+    }
+    output
+        .flush()
+        .map_err(|error| io_error(destination.path(), error))
+}
+
+fn stage_local_archive(
+    value: &str,
+    paths: &SkillsPaths,
+    operation: &StagingOperation,
+) -> Result<StagingDirectory, SkillError> {
+    let (file, format, _) = open_local_archive(value, paths)?;
+    let operation_root = operation.root_directory()?;
+    let archive_root = operation.create_private_directory("archive")?;
+    match format {
+        LocalArchiveFormat::Zip => {
+            copy_local_archive(file, &operation_root, "source.zip")?;
+            let staged = operation_root.open_file("source.zip")?;
+            materialize_zip_file(staged, &archive_root)?;
+            operation_root.remove_file("source.zip")?;
+        }
+        LocalArchiveFormat::TarGz => {
+            copy_local_archive(file, &operation_root, "source.tar.gz")?;
+            decompress_staged_archive(&operation_root)?;
+            operation_root.remove_file("source.tar.gz")?;
+            let raw_tar = operation_root.open_file("source.tar")?;
+            let preflight = preflight_tar_file(raw_tar, &operation_root.path().join("source.tar"))?;
+            let raw_tar = operation_root.open_file("source.tar")?;
+            materialize_archive_file(raw_tar, &archive_root, &preflight.normalized_paths, false)?;
+            operation_root.remove_file("source.tar")?;
+        }
+        LocalArchiveFormat::Tar => {
+            copy_local_archive(file, &operation_root, "source.tar")?;
+            let raw_tar = operation_root.open_file("source.tar")?;
+            let preflight = preflight_tar_file(raw_tar, &operation_root.path().join("source.tar"))?;
+            let raw_tar = operation_root.open_file("source.tar")?;
+            materialize_archive_file(raw_tar, &archive_root, &preflight.normalized_paths, false)?;
+            operation_root.remove_file("source.tar")?;
+        }
+    }
+    Ok(archive_root)
+}
+
+fn resolve_archive(
+    value: &str,
+    paths: &SkillsPaths,
+    operation_id: &str,
+    operation: &StagingOperation,
+) -> Result<SkillSourceResolution, SkillError> {
+    let (_, _, display_path) = open_local_archive(value, paths)?;
+    let archive_root = stage_local_archive(&display_path, paths, operation)?;
+    let candidates = stage_candidates_anchored(&archive_root.anchored_root()?, operation)?;
+    operation.remove_private_directory("archive")?;
+    Ok(SkillSourceResolution {
+        operation_id: operation_id.to_owned(),
+        source: SkillSource::Archive {
             path: display_path,
             subpath: String::new(),
         },
@@ -1033,12 +1207,17 @@ fn is_sha(value: &str) -> bool {
     value.len() == 40 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 
-fn github_agent() -> ureq::Agent {
-    ureq::AgentBuilder::new()
-        .redirects(0)
-        .timeout_connect(Duration::from_secs(10))
-        .timeout_read(Duration::from_secs(30))
-        .build()
+fn github_agent() -> Result<ureq::Agent, SkillError> {
+    crate::network::build_ureq_agent(
+        ureq::AgentBuilder::new()
+            .redirects(0)
+            .timeout_connect(Duration::from_secs(10))
+            .timeout_read(Duration::from_secs(30)),
+    )
+    .map_err(|message| SkillError::Network {
+        message,
+        retry_at: None,
+    })
 }
 
 fn endpoint_url(base: &Url, segments: &[&str]) -> Result<Url, SkillError> {
@@ -1379,7 +1558,7 @@ fn decompress_archive(download: &Path, raw_tar: &Path) -> Result<(), SkillError>
         }
         let read = decoder
             .read(&mut buffer[..requested])
-            .map_err(|_| invalid_source_error("the public GitHub gzip archive is malformed"))?;
+            .map_err(|_| invalid_source_error("the gzip archive is malformed"))?;
         if read == 0 {
             break;
         }
@@ -1410,7 +1589,7 @@ fn decompress_staged_archive(operation: &StagingDirectory) -> Result<(), SkillEr
         }
         let read = decoder
             .read(&mut buffer[..requested])
-            .map_err(|_| invalid_source_error("the public GitHub gzip archive is malformed"))?;
+            .map_err(|_| invalid_source_error("the gzip archive is malformed"))?;
         if read == 0 {
             break;
         }
@@ -1447,6 +1626,7 @@ fn preflight_tar_file(mut file: File, raw_tar: &Path) -> Result<TarPreflight, Sk
     let mut offset = 0_u64;
     let mut physical_headers = 0_u64;
     let mut unsupported_extension = false;
+    let mut github_global_pax_seen = false;
     let mut normalized_paths = Vec::new();
     let mut block = [0_u8; TAR_BLOCK_BYTES as usize];
     while offset < length {
@@ -1486,7 +1666,15 @@ fn preflight_tar_file(mut file: File, raw_tar: &Path) -> Result<TarPreflight, Sk
         if matches!(kind, 0 | b'0' | b'7') {
             enforce_limit("single_file", size, MAX_SINGLE_FILE_BYTES)?;
         }
-        if matches!(kind, b'g' | b'x' | b'L' | b'K' | b'S') {
+        if kind == b'g' {
+            if github_global_pax_seen || !normalized_paths.is_empty() {
+                return invalid_source(
+                    "the GitHub global PAX header must appear exactly once first",
+                );
+            }
+            validate_github_global_pax_header(&mut file, &block, size)?;
+            github_global_pax_seen = true;
+        } else if matches!(kind, b'x' | b'L' | b'K' | b'S') {
             unsupported_extension = true;
         } else {
             normalized_paths.push(normalize_raw_ustar_path(&block, kind)?);
@@ -1510,6 +1698,40 @@ fn preflight_tar_file(mut file: File, raw_tar: &Path) -> Result<TarPreflight, Sk
         offset = end;
     }
     invalid_source("the tar archive is missing its two end markers")
+}
+
+fn validate_github_global_pax_header(
+    file: &mut File,
+    block: &[u8; 512],
+    size: u64,
+) -> Result<(), SkillError> {
+    let name = tar_string_bytes(&block[..100], "header name")?;
+    let prefix = tar_string_bytes(&block[345..500], "header prefix")?;
+    if name != b"pax_global_header" || !prefix.is_empty() {
+        return invalid_source("unsupported archive extension: unrecognized global PAX header");
+    }
+    enforce_limit("global_pax", size, MAX_SOURCE_BYTES as u64)?;
+    let mut payload = vec![0_u8; size as usize];
+    file.read_exact(&mut payload)
+        .map_err(|_| invalid_source_error("the global PAX header is truncated"))?;
+
+    let mut records = tar::PaxExtensions::new(&payload);
+    let Some(record) = records.next() else {
+        return invalid_source("unsupported archive extension: empty global PAX header");
+    };
+    let record = record.map_err(|_| {
+        invalid_source_error("unsupported archive extension: malformed global PAX header")
+    })?;
+    if record.key_bytes() != b"comment"
+        || record.value_bytes().len() != 40
+        || !record.value_bytes().iter().all(u8::is_ascii_hexdigit)
+        || records.next().is_some()
+    {
+        return invalid_source(
+            "unsupported archive extension: global PAX metadata is not a commit comment",
+        );
+    }
+    Ok(())
 }
 
 fn read_tar_block(file: &mut File, block: &mut [u8; 512]) -> Result<(), SkillError> {
@@ -1688,7 +1910,7 @@ fn materialize_archive(
 ) -> Result<PathBuf, SkillError> {
     let file = File::open(raw_tar).map_err(|error| io_error(raw_tar, error))?;
     let destination = PathArchiveDestination { root: destination };
-    let root = materialize_archive_file(file, &destination, normalized_paths)?;
+    let root = materialize_archive_file(file, &destination, normalized_paths, true)?;
     Ok(destination.diagnostic_path(&root))
 }
 
@@ -1697,7 +1919,7 @@ fn materialize_staged_archive(
     destination: &StagingDirectory,
     normalized_paths: &[String],
 ) -> Result<StagingDirectory, SkillError> {
-    let root = materialize_archive_file(raw_tar, destination, normalized_paths)?;
+    let root = materialize_archive_file(raw_tar, destination, normalized_paths, true)?;
     destination.open_directory(&root)
 }
 
@@ -1705,6 +1927,7 @@ fn materialize_archive_file(
     file: File,
     destination: &impl ArchiveDestination,
     normalized_paths: &[String],
+    require_single_root: bool,
 ) -> Result<String, SkillError> {
     let mut archive = Archive::new(file);
     let entries = archive.entries().map_err(|_| archive_read_error())?;
@@ -1716,10 +1939,13 @@ fn materialize_archive_file(
     let mut content_bytes = 0_u64;
 
     for entry in entries {
-        entry_count = entry_count.saturating_add(1);
-        enforce_limit("entries", entry_count, MAX_ARCHIVE_ENTRIES)?;
         let mut entry = entry.map_err(|_| archive_read_error())?;
         let kind = entry.header().entry_type();
+        if kind.is_pax_global_extensions() {
+            continue;
+        }
+        entry_count = entry_count.saturating_add(1);
+        enforce_limit("entries", entry_count, MAX_ARCHIVE_ENTRIES)?;
         let planned_kind = if kind.is_file() {
             PlannedNodeKind::File
         } else if kind.is_dir() {
@@ -1740,7 +1966,7 @@ fn materialize_archive_file(
             return invalid_source("the archive contains duplicate entry paths");
         }
         roots.insert(components[0].clone());
-        if roots.len() > 1 {
+        if require_single_root && roots.len() > 1 {
             return invalid_source("the archive contains multiple repository roots");
         }
         record_planned_node(&mut planned_nodes, &components, planned_kind)?;
@@ -1790,16 +2016,99 @@ fn materialize_archive_file(
     if entry_count as usize != normalized_paths.len() {
         return invalid_source("the raw and high-level tar parsers disagreed on the entry count");
     }
-    let root = roots
-        .into_iter()
-        .next()
-        .ok_or_else(|| invalid_source_error("the public GitHub archive is empty"))?;
+    let root = if require_single_root {
+        roots
+            .into_iter()
+            .next()
+            .ok_or_else(|| invalid_source_error("the archive is empty"))?
+    } else {
+        if roots.is_empty() {
+            return invalid_source("the archive is empty");
+        }
+        String::new()
+    };
     validate_planned_symlink_graph(&planned_nodes, &pending_symlinks)?;
     for link in &pending_symlinks {
         destination.create_symlink(&link.relative, &link.target)?;
     }
     validate_archive_symlinks_anchored(&destination.anchored_root()?, &pending_symlinks)?;
     Ok(root)
+}
+
+fn materialize_zip_file(file: File, destination: &StagingDirectory) -> Result<(), SkillError> {
+    let mut archive = ZipArchive::new(file)
+        .map_err(|_| invalid_source_error("the selected ZIP archive is malformed"))?;
+    enforce_limit("entries", archive.len() as u64, MAX_ARCHIVE_ENTRIES)?;
+    let mut seen = BTreeSet::new();
+    let mut planned_nodes = BTreeMap::new();
+    let mut content_bytes = 0_u64;
+
+    for index in 0..archive.len() {
+        let mut entry = archive
+            .by_index(index)
+            .map_err(|_| invalid_source_error("the selected ZIP archive could not be read"))?;
+        if entry.encrypted() {
+            return invalid_source("encrypted ZIP entries are not supported");
+        }
+        if !matches!(
+            entry.compression(),
+            CompressionMethod::Stored | CompressionMethod::Deflated
+        ) {
+            return invalid_source("the ZIP archive uses an unsupported compression method");
+        }
+        if entry.is_symlink() {
+            return invalid_source("ZIP symlinks are not allowed in Skill archives");
+        }
+
+        let directory = entry.is_dir();
+        let mode = entry
+            .unix_mode()
+            .unwrap_or(if directory { 0o040755 } else { 0o100644 });
+        let file_type = mode & 0o170000;
+        let allowed_type = if directory { 0o040000 } else { 0o100000 };
+        if file_type != 0 && file_type != allowed_type {
+            return invalid_source("special files are not allowed in Skill archives");
+        }
+
+        let components = normalize_archive_path(entry.name_raw(), directory)?;
+        let relative = components.join("/");
+        if !seen.insert(relative.clone()) {
+            return invalid_source("the archive contains duplicate entry paths");
+        }
+        let planned_kind = if directory {
+            PlannedNodeKind::Directory
+        } else {
+            PlannedNodeKind::File
+        };
+        record_planned_node(&mut planned_nodes, &components, planned_kind)?;
+        ensure_archive_destination_parents(destination, &components[..components.len() - 1])?;
+
+        if directory {
+            if entry.size() != 0 {
+                return invalid_source("archive directory entries must have zero size");
+            }
+            destination.ensure_directory(&relative)?;
+            continue;
+        }
+
+        let declared = entry.size();
+        enforce_limit("single_file", declared, MAX_SINGLE_FILE_BYTES)?;
+        content_bytes = content_bytes.saturating_add(declared);
+        enforce_limit("archive", content_bytes, MAX_ARCHIVE_BYTES)?;
+        let mut output = destination.create_file(&relative, mode & 0o111)?;
+        let actual = copy_archive_entry(&mut entry, &mut output, declared)?;
+        if actual != declared {
+            return invalid_source("an archive entry size did not match its header");
+        }
+        output
+            .flush()
+            .map_err(|error| io_error(&destination.diagnostic_path(&relative), error))?;
+    }
+
+    if seen.is_empty() {
+        return invalid_source("the archive is empty");
+    }
+    Ok(())
 }
 
 fn record_planned_node(
@@ -2014,7 +2323,7 @@ fn copy_archive_entry(
 }
 
 fn archive_read_error() -> SkillError {
-    invalid_source_error("the preflight-approved GitHub archive could not be materialized")
+    invalid_source_error("the preflight-approved archive could not be materialized")
 }
 
 #[cfg(all(test, unix))]
@@ -2084,9 +2393,17 @@ fn stage_candidates_anchored(
     let mut prepared = Vec::with_capacity(discovered.len());
     let mut names = BTreeMap::new();
     let mut aggregate = 0_u64;
+    let mut first_invalid_manifest = None;
     for relative in discovered {
         let candidate = open_anchored_directory(source_root, &relative)?;
-        let validated = validate_candidate_anchored_private(&candidate)?;
+        let validated = match validate_candidate_anchored_private(&candidate) {
+            Ok(validated) => validated,
+            Err(error @ SkillError::InvalidManifest { .. }) => {
+                first_invalid_manifest.get_or_insert(error);
+                continue;
+            }
+            Err(error) => return Err(error),
+        };
         if let Some(previous) = names.insert(validated.manifest.name.clone(), relative.clone()) {
             return Err(SkillError::Conflict {
                 message: format!(
@@ -2099,6 +2416,11 @@ fn stage_candidates_anchored(
         aggregate = aggregate.saturating_add(validated.total_bytes);
         enforce_limit("archive", aggregate, MAX_ARCHIVE_BYTES)?;
         prepared.push((relative, candidate, validated));
+    }
+    if prepared.is_empty() {
+        return Err(first_invalid_manifest.unwrap_or_else(|| {
+            invalid_source_error("the selected source contains no valid Skill candidates")
+        }));
     }
     prepared.sort_by(|left, right| {
         left.2
@@ -2411,6 +2733,8 @@ mod tests {
     use std::net::TcpListener;
     use std::thread;
     use tar::{Builder, EntryType, Header};
+    use zip::write::SimpleFileOptions;
+    use zip::ZipWriter;
 
     #[cfg(unix)]
     #[test]
@@ -2437,6 +2761,201 @@ mod tests {
             symlinks.is_empty(),
             "link validation materialized symlinks before the graph was approved: {symlinks:?}"
         );
+    }
+
+    #[test]
+    fn github_global_pax_comment_is_accepted_without_weakening_entry_paths() {
+        let th = TestHome::new("skill-source-github-global-pax");
+        let download = th.home.join("source.tar.gz");
+        let destination = th.home.join("archive");
+        create_private_directory(&destination).unwrap();
+
+        let encoder = GzEncoder::new(File::create(&download).unwrap(), Compression::default());
+        let mut archive = Builder::new(encoder);
+        append_github_global_pax_comment(&mut archive, "fa0fa64bdc967915dc8399e803be67759e1e62b8");
+        append_test_file(&mut archive, "skills-main/SKILL.md", b"skill");
+        let encoder = archive.into_inner().unwrap();
+        encoder.finish().unwrap();
+
+        let root = extract_archive(&download, &destination).unwrap();
+        assert_eq!(root, destination.join("skills-main"));
+        assert_eq!(fs::read(root.join("SKILL.md")).unwrap(), b"skill");
+    }
+
+    #[test]
+    fn global_pax_metadata_other_than_a_commit_comment_is_rejected() {
+        let th = TestHome::new("skill-source-unsafe-global-pax");
+        let download = th.home.join("source.tar.gz");
+        let destination = th.home.join("archive");
+        create_private_directory(&destination).unwrap();
+
+        let encoder = GzEncoder::new(File::create(&download).unwrap(), Compression::default());
+        let mut archive = Builder::new(encoder);
+        append_github_global_pax_comment(&mut archive, "not-a-commit");
+        append_test_file(&mut archive, "skills-main/SKILL.md", b"skill");
+        let encoder = archive.into_inner().unwrap();
+        encoder.finish().unwrap();
+
+        assert!(matches!(
+            extract_archive(&download, &destination),
+            Err(SkillError::InvalidSource { .. })
+        ));
+    }
+
+    #[test]
+    fn a_repository_keeps_valid_skills_when_another_manifest_is_invalid() {
+        let th = TestHome::new("skill-source-skip-invalid-manifest");
+        let source = th.home.join("source");
+        fs::create_dir_all(source.join("valid-skill")).unwrap();
+        fs::create_dir_all(source.join("too-verbose")).unwrap();
+        fs::write(
+            source.join("valid-skill/SKILL.md"),
+            "---\nname: valid-skill\ndescription: Valid fixture\n---\n",
+        )
+        .unwrap();
+        fs::write(
+            source.join("too-verbose/SKILL.md"),
+            format!(
+                "---\nname: too-verbose\ndescription: {}\n---\n",
+                "x".repeat(1025)
+            ),
+        )
+        .unwrap();
+
+        let resolution = resolve_source(
+            SkillSourceInput::Local {
+                path: source.to_string_lossy().into_owned(),
+            },
+            GithubEndpoints::production(),
+        )
+        .unwrap();
+        assert_eq!(resolution.candidates.len(), 1);
+        assert_eq!(resolution.candidates[0].name, "valid-skill");
+        crate::skills::cancel_operation(&resolution.operation_id).unwrap();
+    }
+
+    #[test]
+    fn zip_archive_resolves_and_replays_a_recorded_candidate() {
+        let th = TestHome::new("skill-source-zip-archive");
+        let archive_path = th.home.join("skills.zip");
+        let mut archive = ZipWriter::new(File::create(&archive_path).unwrap());
+        archive
+            .start_file(
+                "collection/review-changes/SKILL.md",
+                SimpleFileOptions::default().compression_method(CompressionMethod::Deflated),
+            )
+            .unwrap();
+        archive
+            .write_all(b"---\nname: review-changes\ndescription: Review a change set\n---\n")
+            .unwrap();
+        archive.finish().unwrap();
+
+        let resolution = resolve_source(
+            SkillSourceInput::Archive {
+                path: archive_path.to_string_lossy().into_owned(),
+            },
+            GithubEndpoints::production(),
+        )
+        .unwrap();
+        assert_eq!(resolution.candidates.len(), 1);
+        assert_eq!(resolution.candidates[0].name, "review-changes");
+        assert_eq!(
+            resolution.candidates[0].relative_path,
+            "collection/review-changes"
+        );
+        crate::skills::cancel_operation(&resolution.operation_id).unwrap();
+
+        let recorded = SkillSource::Archive {
+            path: collapse_home(&archive_path, &th.home),
+            subpath: "collection/review-changes".into(),
+        };
+        let replayed = stage_recorded_skill(
+            &recorded,
+            None,
+            "review-changes",
+            GithubEndpoints::production(),
+        )
+        .unwrap();
+        assert_eq!(replayed.candidates[0].name, "review-changes");
+        crate::skills::cancel_operation(&replayed.operation_id).unwrap();
+    }
+
+    #[test]
+    fn tar_archives_resolve_skill_directories() {
+        let th = TestHome::new("skill-source-tar-archive");
+        let archive_path = th.home.join("single-skill.tar");
+        let mut archive = Builder::new(File::create(&archive_path).unwrap());
+        append_test_file(
+            &mut archive,
+            "single-skill/SKILL.md",
+            b"---\nname: single-skill\ndescription: Single archive Skill\n---\n",
+        );
+        archive.finish().unwrap();
+
+        let resolution = resolve_source(
+            SkillSourceInput::Archive {
+                path: archive_path.to_string_lossy().into_owned(),
+            },
+            GithubEndpoints::production(),
+        )
+        .unwrap();
+        assert_eq!(resolution.candidates[0].name, "single-skill");
+        assert_eq!(resolution.candidates[0].relative_path, "single-skill");
+        crate::skills::cancel_operation(&resolution.operation_id).unwrap();
+    }
+
+    #[test]
+    fn compressed_tar_archives_resolve_skill_directories() {
+        let th = TestHome::new("skill-source-tar-gz-archive");
+        let archive_path = th.home.join("compressed-skills.tgz");
+        let encoder = GzEncoder::new(File::create(&archive_path).unwrap(), Compression::default());
+        let mut archive = Builder::new(encoder);
+        append_test_file(
+            &mut archive,
+            "compressed-skill/SKILL.md",
+            b"---\nname: compressed-skill\ndescription: Compressed archive Skill\n---\n",
+        );
+        let encoder = archive.into_inner().unwrap();
+        encoder.finish().unwrap();
+
+        let resolution = resolve_source(
+            SkillSourceInput::Archive {
+                path: archive_path.to_string_lossy().into_owned(),
+            },
+            GithubEndpoints::production(),
+        )
+        .unwrap();
+        assert_eq!(resolution.candidates[0].name, "compressed-skill");
+        crate::skills::cancel_operation(&resolution.operation_id).unwrap();
+
+        assert_eq!(
+            archive_format(Path::new("skill.tar.gz")).unwrap(),
+            LocalArchiveFormat::TarGz
+        );
+    }
+
+    #[test]
+    fn zip_archive_path_traversal_is_rejected() {
+        let th = TestHome::new("skill-source-zip-traversal");
+        let archive_path = th.home.join("unsafe.zip");
+        let mut archive = ZipWriter::new(File::create(&archive_path).unwrap());
+        archive
+            .start_file("../escape/SKILL.md", SimpleFileOptions::default())
+            .unwrap();
+        archive
+            .write_all(b"---\nname: escape\ndescription: Unsafe\n---\n")
+            .unwrap();
+        archive.finish().unwrap();
+
+        assert!(matches!(
+            resolve_source(
+                SkillSourceInput::Archive {
+                    path: archive_path.to_string_lossy().into_owned(),
+                },
+                GithubEndpoints::production(),
+            ),
+            Err(SkillError::InvalidSource { .. })
+        ));
     }
 
     #[test]
@@ -2680,6 +3199,30 @@ mod tests {
         archive
             .append_data(&mut header, path, Cursor::new(body))
             .unwrap();
+    }
+
+    fn append_github_global_pax_comment<W: Write>(archive: &mut Builder<W>, comment: &str) {
+        let body_without_length = format!(" comment={comment}\n");
+        let mut length = body_without_length.len() + 2;
+        loop {
+            let record = format!("{length}{body_without_length}");
+            if record.len() == length {
+                let mut header = Header::new_ustar();
+                header.set_entry_type(EntryType::new(b'g'));
+                header.set_mode(0o666);
+                header.set_size(record.len() as u64);
+                header.set_cksum();
+                archive
+                    .append_data(
+                        &mut header,
+                        "pax_global_header",
+                        Cursor::new(record.into_bytes()),
+                    )
+                    .unwrap();
+                return;
+            }
+            length = record.len();
+        }
     }
 
     fn append_test_link<W: Write>(archive: &mut Builder<W>, path: &str, target: &str) {

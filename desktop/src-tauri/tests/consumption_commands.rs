@@ -1,7 +1,5 @@
 use desktop_lib::commands;
-use mux_core::consumption::{
-    CentralAssetDraft, PlanUpdateCentralAssetRequest,
-};
+use mux_core::consumption::{CentralAssetDraft, PlanUpdateCentralAssetRequest};
 use mux_core::types::{RegistryConfig, RegistryEntry, StdioConfig};
 use serde_json::json;
 
@@ -40,7 +38,10 @@ fn lifecycle_requests_keep_the_tagged_core_wire_shape() {
             "agent_ids": ["codex"]
         }
     }));
-    assert!(unknown.is_err(), "central drafts must reject hidden Agent selection");
+    assert!(
+        unknown.is_err(),
+        "central drafts must reject hidden Agent selection"
+    );
 }
 
 #[test]
@@ -112,6 +113,9 @@ fn desktop_registers_only_the_planned_asset_mutation_surface() {
         "commands::delete_mcp",
         "commands::plan_skill_assignment",
     ] {
-        assert!(!source.contains(legacy), "legacy Desktop mutation is registered: {legacy}");
+        assert!(
+            !source.contains(legacy),
+            "legacy Desktop mutation is registered: {legacy}"
+        );
     }
 }

@@ -145,6 +145,10 @@ export interface SourceView {
   managed: boolean;
 }
 
+export interface ProxySettings {
+  proxy_url: string | null;
+}
+
 export interface InstallRequest {
   server_name: string; transport: "stdio" | "http"; agents: string[];
   overrides: Record<string, PatchInput>;
@@ -221,6 +225,7 @@ export type SkillSource =
       pinned: boolean;
     }
   | { kind: "local"; path: string; subpath: string }
+  | { kind: "archive"; path: string; subpath: string }
   | { kind: "imported"; original_path: string; backup_path: string };
 
 export interface SkillUpdateState {

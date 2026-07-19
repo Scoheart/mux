@@ -41,7 +41,8 @@ export function filterSkills(
     const sourceMatches =
       filters.source === "all" ||
       item.source?.kind === filters.source ||
-      (filters.source === "local" && item.source?.kind === "imported");
+      (filters.source === "local" &&
+        (item.source?.kind === "archive" || item.source?.kind === "imported"));
     const queryMatches =
       query.length === 0 ||
       `${item.name} ${item.description}`.toLowerCase().includes(query);

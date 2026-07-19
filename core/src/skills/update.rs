@@ -1,7 +1,7 @@
 use super::files::validate_candidate_anchored_private;
 use super::source::{
-    check_github_revision, open_recorded_local_skill, validate_github_revision_source,
-    GithubRevisionStatus,
+    check_github_revision, open_recorded_local_skill, stage_recorded_skill,
+    validate_github_revision_source, GithubRevisionStatus,
 };
 use super::transaction::acquire_skills_lock;
 use super::{
@@ -102,6 +102,11 @@ where
                 SkillSource::Local { .. } => {
                     ProbeResult::Local(local_source_hash(&read_paths, &record.source, &name))
                 }
+                SkillSource::Archive { .. } => ProbeResult::Local(archive_source_hash(
+                    &record.source,
+                    &name,
+                    endpoints.clone(),
+                )),
             };
             Probe {
                 name,
@@ -251,6 +256,32 @@ fn local_source_hash(
         });
     }
     Ok(validated.content_hash)
+}
+
+fn archive_source_hash(
+    source: &SkillSource,
+    expected_name: &str,
+    endpoints: GithubEndpoints,
+) -> Result<String, SkillError> {
+    if !matches!(source, SkillSource::Archive { .. }) {
+        return Err(SkillError::InvalidSource {
+            message: "the recorded archive Skill source is invalid".into(),
+        });
+    }
+    let resolution = stage_recorded_skill(source, None, expected_name, endpoints)?;
+    let hash = resolution
+        .candidates
+        .first()
+        .map(|candidate| candidate.content_hash.clone())
+        .ok_or_else(|| SkillError::InvalidSource {
+            message: "the recorded archive no longer contains the Skill".into(),
+        });
+    let cleanup = super::ops::cancel_operation(&resolution.operation_id);
+    match (hash, cleanup) {
+        (Ok(hash), Ok(())) => Ok(hash),
+        (Err(error), Ok(())) => Err(error),
+        (_, Err(error)) => Err(error),
+    }
 }
 
 fn record_probe_error(

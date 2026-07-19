@@ -33,6 +33,16 @@ pub struct UiSettings {
     pub extra: BTreeMap<String, Value>,
 }
 
+/// MUX-owned network preferences. Proxy credentials are intentionally not
+/// supported here so settings.json never becomes a credential store.
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+pub struct NetworkSettings {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub proxy_url: Option<String>,
+    #[serde(flatten)]
+    pub extra: BTreeMap<String, Value>,
+}
+
 /// User-selected write locations that are independent from an Agent's MCP
 /// wire schema. MCP keeps using `AgentDefinition::global`; Model and Skills
 /// overrides live here so audited codecs and capability metadata remain owned
@@ -88,6 +98,9 @@ pub struct Settings {
     pub skill_update_checked_at: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ui: Option<UiSettings>,
+    /// Optional proxy used by MUX-owned outbound requests.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub network: Option<NetworkSettings>,
     /// CLI-owned: last applied state. Opaque to the desktop — carried through.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub state: Option<Value>,
@@ -449,6 +462,25 @@ mod tests {
         );
         let encoded = serde_json::to_value(settings).unwrap();
         assert_eq!(encoded["ui"]["pinned_agents"][0], "claude-code");
+        assert_eq!(encoded["future_section"]["keep"], true);
+    }
+
+    #[test]
+    fn network_section_and_unknown_fields_survive_settings_roundtrip() {
+        let json = r#"{
+      "network": {
+        "proxy_url": "http://127.0.0.1:7890",
+        "future_network_key": {"keep": true}
+      },
+      "future_section": {"keep": true}
+    }"#;
+        let settings: Settings = serde_json::from_str(json).unwrap();
+        assert_eq!(
+            settings.network.as_ref().unwrap().proxy_url.as_deref(),
+            Some("http://127.0.0.1:7890")
+        );
+        let encoded = serde_json::to_value(settings).unwrap();
+        assert_eq!(encoded["network"]["future_network_key"]["keep"], true);
         assert_eq!(encoded["future_section"]["keep"], true);
     }
 

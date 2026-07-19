@@ -513,7 +513,7 @@ export function SkillsView({
                 setInstallOpen(true);
               }}
             >
-              添加到资产库
+              添加 Skill
             </button>
           </>
         }
@@ -584,7 +584,7 @@ export function SkillsView({
               kind={items.length === 0 ? "empty" : "no-match"}
               icon={<PackageIcon className="w-6 h-6" />}
               title={items.length === 0 ? "暂无 Skills" : "没有匹配项"}
-              detail={items.length === 0 ? "安装或导入后，Skills 会显示在这里。" : "调整搜索或筛选条件后重试。"}
+              detail={items.length === 0 ? "从 GitHub、本地文件夹或压缩包添加。" : "调整搜索或筛选条件后重试。"}
               action={items.length === 0 ? undefined : (
                 <button className="btn-secondary" type="button" onClick={() => {
                   setQuery("");
@@ -625,7 +625,7 @@ export function SkillsView({
           }}
           onCommitted={() => {
             setInstallOpen(false);
-            toast.show({ kind: "success", msg: "Skill 已添加到中央资产库。" });
+            toast.show({ kind: "success", msg: "Skill 已添加。" });
           }}
           onRecoveryRequired={enterRecovery}
         />

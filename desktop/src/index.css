@@ -240,6 +240,11 @@ body {
 }
 .mux-icon-btn:disabled { opacity: .35; cursor: default; }
 .mux-icon-btn:disabled:hover { background: transparent; color: var(--color-gray-600); }
+.mux-network-button { position: relative; }
+.mux-network-status-dot {
+  position: absolute; top: 4px; right: 4px; width: 6px; height: 6px; border: 1.5px solid var(--surface-overlay); border-radius: 50%;
+  background: var(--color-green); box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-green) 14%, transparent);
+}
 
 /* A visible command replaces the old bare version label. The fixed height and
    compact version lane keep the top bar stable while update state changes. */
@@ -691,6 +696,18 @@ body {
 .mux-dialog-shell-footer-start,
 .mux-dialog-shell-footer-end { display: flex; align-items: center; gap: 7px; }
 .mux-dialog-shell-footer-end { margin-left: auto; }
+.mux-proxy-form { display: grid; gap: 8px; }
+.mux-proxy-form label { color: var(--text-primary); font-size: 10px; font-weight: 680; }
+.mux-proxy-form input {
+  box-sizing: border-box; width: 100%; height: 36px; padding: 0 10px; border: 1px solid var(--border-hairline); border-radius: 7px;
+  outline: 0; background: var(--surface-raised); color: var(--text-primary); font: 10px/1 var(--font-mono);
+}
+.mux-proxy-form input:focus { border-color: color-mix(in srgb, var(--color-blue) 58%, var(--border-hairline)); box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-blue) 10%, transparent); }
+.mux-proxy-form input[aria-invalid="true"] { border-color: color-mix(in srgb, var(--color-red) 58%, var(--border-hairline)); }
+.mux-proxy-form input:disabled { opacity: .58; }
+.mux-proxy-help { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--text-secondary); font-size: 9px; }
+.mux-proxy-help span:first-child { color: var(--color-blue); font: 650 8px/1 var(--font-mono); letter-spacing: .05em; }
+.mux-proxy-error { color: var(--color-red); font-size: 10px; line-height: 1.45; }
 .mux-review-content { color: var(--text-primary); font-size: 12px; line-height: 1.55; }
 .mux-review-content p { margin: 0; }
 .mux-review-content strong { font-weight: 690; }
@@ -846,7 +863,7 @@ body {
   font: 10px/1.55 var(--font-mono);
 }
 
-/* Skills mutations: every write is staged, reviewed, and committed from a modal. */
+/* Skills mutations stay staged in Core; ordinary intake is compact and risky changes expand for review. */
 .mux-skill-install-dialog,
 .mux-skill-review-dialog,
 .mux-skill-risk-dialog {
@@ -892,15 +909,6 @@ body {
 .mux-skill-review-header > button:hover:not(:disabled) { background: var(--color-gray-150); color: var(--text-primary); }
 .mux-skill-dialog-close:disabled,
 .mux-skill-review-header > button:disabled { opacity: .45; cursor: default; }
-.mux-skill-dialog-steps {
-  display: grid; min-width: 0; flex: 0 0 auto; grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 1px; padding: 0 18px; border-bottom: 1px solid var(--border-hairline); background: var(--surface-app);
-}
-.mux-skill-dialog-steps span {
-  min-width: 0; padding: 8px 4px; color: var(--text-secondary); font-size: 9px;
-  font-weight: 650; text-align: center;
-}
-.mux-skill-dialog-steps span[data-active="true"] { color: var(--color-blue); box-shadow: inset 0 -2px var(--color-blue); }
 .mux-skill-dialog-body,
 .mux-skill-review-body {
   min-width: 0; min-height: 0; flex: 1 1 auto; padding: 16px 18px; overflow-x: hidden;
@@ -931,6 +939,8 @@ body {
   min-width: 0; border: 1px solid var(--border-hairline); border-radius: 8px; background: var(--surface-raised);
 }
 .mux-skill-source-step > section { padding: 13px; }
+.mux-skill-source-step-compact { gap: 10px; }
+.mux-skill-source-step-compact > section { padding: 12px; }
 .mux-skill-source-heading { display: flex; min-width: 0; align-items: flex-start; gap: 9px; color: var(--color-blue); }
 .mux-skill-source-heading > div { min-width: 0; }
 .mux-skill-source-heading h3,
@@ -952,6 +962,21 @@ body {
 .mux-skill-source-divider { display: flex; align-items: center; gap: 9px; color: var(--text-secondary); font-size: 9px; }
 .mux-skill-source-divider::before,
 .mux-skill-source-divider::after { height: 1px; flex: 1; background: var(--border-hairline); content: ""; }
+.mux-skill-local-sources { display: grid; min-width: 0; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.mux-skill-local-source {
+  display: flex; width: 100%; min-width: 0; align-items: center; gap: 10px; padding: 11px 12px;
+  border: 1px solid var(--border-hairline); border-radius: 8px; background: var(--surface-raised);
+  color: var(--text-primary); text-align: left; cursor: pointer;
+}
+.mux-skill-local-source:hover:not(:disabled) { border-color: color-mix(in srgb, var(--color-blue) 46%, var(--border-hairline)); background: var(--surface-app); }
+.mux-skill-local-source:disabled { opacity: .5; cursor: default; }
+.mux-skill-local-source-icon {
+  display: inline-flex; width: 28px; height: 28px; flex: 0 0 28px; align-items: center; justify-content: center;
+  border-radius: 7px; background: color-mix(in srgb, var(--color-blue) 11%, var(--surface-raised)); color: var(--color-blue);
+}
+.mux-skill-local-source > span:last-child { display: grid; min-width: 0; gap: 3px; }
+.mux-skill-local-source strong { font-size: 11px; }
+.mux-skill-local-source small { color: var(--text-secondary); font-size: 9px; }
 .mux-skill-dialog-error,
 .mux-skill-review-error {
   display: grid; min-width: 0; gap: 4px; margin: 0 0 12px; padding: 9px 10px;
@@ -963,10 +988,11 @@ body {
 .mux-skill-dialog-error code { font: 9px/1.45 var(--font-mono); }
 
 .mux-skill-selection-step { display: grid; min-width: 0; gap: 15px; }
-.mux-skill-resolution-summary { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 10px; padding: 10px 11px; }
-.mux-skill-resolution-summary span { color: var(--text-secondary); font-size: 9px; }
-.mux-skill-resolution-summary strong { overflow-wrap: anywhere; color: var(--text-primary); font-size: 10px; }
-.mux-skill-resolution-summary code { grid-column: 2; color: var(--text-secondary); font: 9px/1.4 var(--font-mono); }
+.mux-skill-resolution-summary { display: flex; min-width: 0; align-items: center; gap: 9px; padding: 9px 10px; color: var(--color-blue); }
+.mux-skill-resolution-summary > span { display: grid; min-width: 0; flex: 1; gap: 3px; }
+.mux-skill-resolution-summary strong { min-width: 0; overflow: hidden; color: var(--text-primary); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.mux-skill-resolution-summary code { min-width: 0; overflow: hidden; color: var(--text-secondary); font: 8px/1.4 var(--font-mono); text-overflow: ellipsis; white-space: nowrap; }
+.mux-skill-selection-count { color: var(--text-secondary); font-size: 10px; font-weight: 620; }
 .mux-skill-selection-heading,
 .mux-skill-review-section-title,
 .mux-skill-review-file-head {
@@ -1004,6 +1030,16 @@ body {
 .mux-skill-install-impact > div + div { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border-hairline); }
 .mux-skill-install-impact code { color: var(--text-primary); font: 9px/1.4 var(--font-mono); }
 .mux-skill-install-impact p { margin: 4px 0 0; color: var(--text-secondary); font-size: 9px; line-height: 1.45; }
+.mux-skill-conflict-prompt {
+  display: grid; min-width: 0; gap: 3px; padding: 9px 10px;
+  border: 1px solid color-mix(in srgb, var(--color-brand-gold) 55%, var(--border-hairline));
+  border-radius: 7px; background: color-mix(in srgb, var(--color-brand-gold) 9%, var(--surface-raised));
+  color: var(--text-secondary); font-size: 9px; line-height: 1.45;
+}
+.mux-skill-conflict-prompt strong { color: var(--text-primary); font-size: 10px; }
+.mux-skill-conflict-prompt span,
+.mux-skill-conflict-prompt code { min-width: 0; overflow-wrap: anywhere; }
+.mux-skill-conflict-prompt code { font: 8px/1.4 var(--font-mono); }
 
 .mux-skill-review-eyebrow { display: block; margin-bottom: 4px; color: var(--color-blue); font-size: 9px; font-weight: 700; }
 .mux-skill-review-section { min-width: 0; }
@@ -1091,7 +1127,6 @@ body {
   .mux-workspace-actions { flex: 0 0 auto; }
   .mux-skill-dialog-header,
   .mux-skill-review-header { padding: 12px 14px 11px; }
-  .mux-skill-dialog-steps { padding: 0 14px; }
   .mux-skill-dialog-body,
   .mux-skill-review-body { padding: 12px 14px; }
   .mux-skill-dialog-footer,
@@ -1408,6 +1443,9 @@ body {
 .mux-asset-review li > span[data-action="remove"] { color: var(--color-red); }
 .mux-asset-review li > strong { font-size: 10px; }
 .mux-asset-review li > code { min-width: 0; }
+.mux-asset-review-note { margin: -2px 0 8px !important; color: var(--text-secondary); font-size: 10px; }
+.mux-skill-impact-list li > span { min-width: 52px; }
+.mux-skill-impact-list li > span[data-impact="compatible"] { color: var(--text-secondary); }
 .mux-config-review li { grid-template-columns: auto minmax(0, 1fr) auto minmax(0, 1fr); }
 .mux-config-review li > code { overflow-wrap: anywhere; }
 .mux-asset-review-warnings { padding: 10px; border: 1px solid color-mix(in srgb, var(--color-brand-gold) 45%, var(--border-hairline)); border-radius: 7px; background: color-mix(in srgb, var(--color-brand-gold) 7%, var(--surface-raised)); }

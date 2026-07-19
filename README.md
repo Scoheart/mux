@@ -51,7 +51,8 @@ A one-click **Mux 精选 (curated collection)** subscribes you to a curated set.
 - **Safe, local writes** — MUX reads and edits only fields it owns. Existing files are backed up, prepared, and verified as one recoverable transaction; unrelated keys, comments, formatting, policy fields, permissions, and symlinks are preserved.
 - **Unified Agent consumption center** — each Agent page shows only desired central assets under MCPs, Model, and Skills, with a central picker for relationship changes and a separate read-only external section.
 - **Reusable model endpoints (preview)** — define a protocol, Base URL, model ID, and optional token limits once, then let any number of compatible Agents consume the Profile, with at most one current Profile per Agent.
-- **User-level Skills in Desktop** — add a public GitHub repository or native local-folder snapshot to the central library without Git, Node.js, or `npx`; assign the reviewed central copy to Agents in a separate step.
+- **User-level Skills in Desktop** — add a public GitHub repository, local folder, or `.zip` / `.tar.gz` / `.tgz` / `.tar` archive to the central library without Git, Node.js, or `npx`; assign the reviewed central copy to Agents in a separate step.
+- **One proxy for MUX networking** — configure HTTP, SOCKS4/SOCKS4A, or SOCKS5 once for GitHub Skills, remote sources, CLI updates, and signed Desktop update checks; credentials are never stored in `settings.json`.
 - **CLI ⇄ Desktop in sync for MCP management** — both are built on one shared Rust core (`mux-core`) and read/write `~/.mux/`. Skills use the same core but intentionally have no CLI/TUI entry in this version.
 - **Dark mode** and a compact, consistent resource workspace for MCPs, Models, and Skills, with shared cards, right-side Inspectors, and review dialogs for consequential actions.
 

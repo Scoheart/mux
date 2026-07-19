@@ -9,6 +9,7 @@ import type { OperationPlan, SkillInventoryItem, SkillSourceResolution, SkillsIn
 import {
   resolutionFixture,
   sharedTargetPlanFixture,
+  highRiskPlan,
   skillsInventoryFixture,
   skillsStateFixture,
 } from "../test/skillsFixtures";
@@ -25,6 +26,7 @@ vi.mock("../lib/api", async () => {
     getSkillDetail: vi.fn(),
     resolveGithubSkillSource: vi.fn(),
     resolveLocalSkillSourceDialog: vi.fn(),
+    resolveArchiveSkillSourceDialog: vi.fn(),
     planSkillAssetInstall: vi.fn(),
     planSkillAssetImport: vi.fn(),
     planSkillUpdate: vi.fn(),
@@ -72,6 +74,12 @@ const planAs = (kind: OperationPlan["kind"], operationId = `${kind}-operation`) 
   kind,
 });
 
+const safeInstallPlan = (): OperationPlan => ({
+  ...sharedTargetPlanFixture(),
+  targets: [],
+  warnings: [],
+});
+
 function renderInstall(overrides: {
   commit?: SkillsState["commit"];
   cancel?: SkillsState["cancel"];
@@ -94,15 +102,16 @@ function renderInstall(overrides: {
 }
 
 async function resolveGithub(user: ReturnType<typeof userEvent.setup>) {
-  await user.type(screen.getByLabelText("GitHub 来源"), "  acme/skills  ");
-  await user.click(screen.getByRole("button", { name: "解析来源" }));
-  await screen.findByRole("heading", { name: "选择中央 Skills" });
+  await user.type(screen.getByLabelText("仓库地址"), "  acme/skills  ");
+  await user.click(screen.getByRole("button", { name: "读取" }));
+  await screen.findByRole("checkbox", { name: "review-changes" });
 }
 
 beforeEach(() => {
   vi.mocked(api.resolveGithubSkillSource).mockResolvedValue(resolutionFixture());
   vi.mocked(api.resolveLocalSkillSourceDialog).mockResolvedValue(null);
-  vi.mocked(api.planSkillAssetInstall).mockResolvedValue(sharedTargetPlanFixture());
+  vi.mocked(api.resolveArchiveSkillSourceDialog).mockResolvedValue(null);
+  vi.mocked(api.planSkillAssetInstall).mockResolvedValue(safeInstallPlan());
   vi.mocked(api.planSkillAssetImport).mockResolvedValue(planAs("import"));
   vi.mocked(api.planSkillUpdate).mockResolvedValue(planAs("update"));
   vi.mocked(api.planSkillRemove).mockResolvedValue(planAs("remove"));
@@ -130,7 +139,7 @@ describe("SkillInstallDialog central asset intake", () => {
     expect(screen.queryByText("目标 Agent")).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("checkbox", { name: "release-notes" }));
-    await user.click(screen.getByRole("button", { name: "审阅安装" }));
+    await user.click(screen.getByRole("button", { name: "添加 Skill" }));
     expect(api.planSkillAssetInstall).toHaveBeenCalledWith({
       resolution_id: "resolve-fixture",
       skill_names: ["review-changes"],
@@ -143,21 +152,33 @@ describe("SkillInstallDialog central asset intake", () => {
     renderInstall();
     await userEvent.click(screen.getByRole("button", { name: "选择本地文件夹" }));
     expect(api.resolveLocalSkillSourceDialog).toHaveBeenCalledOnce();
-    expect(screen.getByRole("heading", { name: "添加 Skill 到资产库" })).toBeVisible();
+    expect(screen.getByRole("heading", { name: "添加 Skill" })).toBeVisible();
   });
 
-  it("replans central conflict policy inside the same staged resolution", async () => {
+  it("uses the native archive picker and keeps the source step on cancel", async () => {
+    renderInstall();
+    await userEvent.click(screen.getByRole("button", { name: "选择 Skill 压缩包" }));
+    expect(api.resolveArchiveSkillSourceDialog).toHaveBeenCalledOnce();
+    expect(screen.getByRole("heading", { name: "添加 Skill" })).toBeVisible();
+  });
+
+  it("asks to back up only after a same-name conflict", async () => {
     const user = userEvent.setup();
     const cancel = vi.fn().mockResolvedValue(undefined);
+    vi.mocked(api.planSkillAssetInstall)
+      .mockRejectedValueOnce({ code: "conflict", message: "central Skill content already exists" })
+      .mockResolvedValueOnce(safeInstallPlan());
     renderInstall({ cancel });
     await resolveGithub(user);
-    await user.click(screen.getByRole("button", { name: "审阅安装" }));
-    await screen.findByRole("dialog", { name: "审阅 Skill 操作" });
-    await user.keyboard("{Escape}");
-
-    await user.click(screen.getByRole("checkbox", { name: "备份并替换同名中央副本" }));
-    await user.click(screen.getByRole("button", { name: "审阅安装" }));
+    await user.click(screen.getByRole("button", { name: "添加 Skill" }));
+    expect(await screen.findByText("发现冲突")).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "备份并重试" }));
     expect(api.planSkillAssetInstall).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(api.planSkillAssetInstall).mock.calls[0][0]).toEqual({
+      resolution_id: "resolve-fixture",
+      skill_names: ["review-changes"],
+      replace_conflicts: false,
+    });
     expect(vi.mocked(api.planSkillAssetInstall).mock.calls[1][0]).toEqual({
       resolution_id: "resolve-fixture",
       skill_names: ["review-changes"],
@@ -173,7 +194,7 @@ describe("SkillInstallDialog central asset intake", () => {
     const onClose = vi.fn();
     renderInstall({ cancel, onClose });
     await resolveGithub(user);
-    const close = screen.getByRole("button", { name: "关闭安装" });
+    const close = screen.getByRole("button", { name: "关闭" });
     fireEvent.click(close);
     fireEvent.keyDown(document, { key: "Escape" });
     expect(cancel).toHaveBeenCalledOnce();
@@ -189,8 +210,8 @@ describe("SkillInstallDialog central asset intake", () => {
     const onCommitted = vi.fn();
     renderInstall({ commit, cancel, onCommitted });
     await resolveGithub(user);
-    await user.click(screen.getByRole("button", { name: "审阅安装" }));
-    await user.click(await screen.findByRole("button", { name: "确认安装" }));
+    await user.click(screen.getByRole("button", { name: "添加 Skill" }));
+    expect(commit).toHaveBeenCalledOnce();
     expect(cancel).not.toHaveBeenCalled();
     const inventory = skillsInventoryFixture();
     committing.resolve(inventory);
@@ -204,12 +225,24 @@ describe("SkillInstallDialog central asset intake", () => {
     const cancel = vi.fn().mockResolvedValue(undefined);
     const { unmount } = renderInstall({ commit: vi.fn(() => committing.promise), cancel });
     await resolveGithub(user);
-    await user.click(screen.getByRole("button", { name: "审阅安装" }));
-    await user.click(await screen.findByRole("button", { name: "确认安装" }));
+    await user.click(screen.getByRole("button", { name: "添加 Skill" }));
     unmount();
     committing.reject({ code: "recovery_required", message: "recovery required" });
     await act(async () => { await committing.promise.catch(() => undefined); });
     expect(cancel).not.toHaveBeenCalled();
+  });
+
+  it("expands to review only when Core reports high risk", async () => {
+    const user = userEvent.setup();
+    const commit = vi.fn();
+    vi.mocked(api.planSkillAssetInstall).mockResolvedValueOnce(highRiskPlan("high-risk"));
+    renderInstall({ commit });
+    await resolveGithub(user);
+
+    await user.click(screen.getByRole("button", { name: "添加 Skill" }));
+
+    expect(await screen.findByRole("dialog", { name: "审阅 Skill 操作" })).toBeVisible();
+    expect(commit).not.toHaveBeenCalled();
   });
 });
 
@@ -226,8 +259,8 @@ describe("Skills central lifecycle orchestration", () => {
 
   it("opens central intake only from the top-level toolbar", async () => {
     renderWorkspace(skillsInventoryFixture());
-    await userEvent.click(screen.getByRole("button", { name: "添加到资产库" }));
-    expect(screen.getByRole("dialog", { name: "添加 Skill 到资产库" })).toBeVisible();
+    await userEvent.click(screen.getByRole("button", { name: "添加 Skill" }));
+    expect(screen.getByRole("dialog", { name: "添加 Skill" })).toBeVisible();
     expect(screen.queryByText("目标 Agent")).not.toBeInTheDocument();
   });
 

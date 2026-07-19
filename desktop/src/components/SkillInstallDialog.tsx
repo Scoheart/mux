@@ -12,16 +12,15 @@ import {
 import * as api from "../lib/api";
 import { installWizardReducer } from "../lib/skills";
 import type {
+  OperationPlan,
   SkillCommandError,
   SkillSourceResolution,
   SkillsInventory,
 } from "../lib/types";
-import { FolderIcon, LinkIcon } from "./icons";
+import { FolderIcon, LinkIcon, PackageIcon } from "./icons";
 import { SkillReviewDialog } from "./SkillReviewDialog";
 import { useToast } from "./Toast";
 import { DialogShell } from "./DialogShell";
-
-type InstallStep = "source" | "selection" | "review";
 
 export interface SkillInstallDialogProps {
   commit: SkillsState["commit"];
@@ -40,6 +39,9 @@ function sourceSummary(resolution: SkillSourceResolution) {
   if (resolution.source.kind === "local") {
     return `${resolution.source.path}${resolution.source.subpath ? ` / ${resolution.source.subpath}` : ""}`;
   }
+  if (resolution.source.kind === "archive") {
+    return `${resolution.source.path}${resolution.source.subpath ? ` / ${resolution.source.subpath}` : ""}`;
+  }
   return resolution.source.original_path;
 }
 
@@ -50,6 +52,14 @@ function selectedSnapshot(
   return `${skillNames.join("\u0000")}\u0001${replaceConflicts}`;
 }
 
+function requiresReview(plan: OperationPlan) {
+  return (
+    plan.requires_risk_override ||
+    plan.warnings.length > 0 ||
+    plan.skills.some((skill) => skill.risk.level === "high")
+  );
+}
+
 export function SkillInstallDialog({
   commit,
   cancel,
@@ -58,7 +68,6 @@ export function SkillInstallDialog({
   onRecoveryRequired,
 }: SkillInstallDialogProps) {
   const toast = useToast();
-  const [step, setStep] = useState<InstallStep>("source");
   const [githubValue, setGithubValue] = useState("");
   const [wizard, dispatch] = useReducer(
     installWizardReducer,
@@ -67,7 +76,9 @@ export function SkillInstallDialog({
   );
   const [resolving, setResolving] = useState(false);
   const [planning, setPlanning] = useState(false);
+  const [committing, setCommitting] = useState(false);
   const [closing, setClosing] = useState(false);
+  const [reviewOpen, setReviewOpen] = useState(false);
   const [sourceError, setSourceError] = useState<SkillCommandError | null>(null);
   const [planError, setPlanError] = useState<SkillCommandError | null>(null);
   const mountedRef = useRef(true);
@@ -185,7 +196,6 @@ export function SkillInstallDialog({
 
       resolutionRef.current = resolution;
       dispatch({ type: "resolution_loaded", resolution });
-      setStep("selection");
     } catch (reason) {
       if (
         !closedRef.current &&
@@ -216,18 +226,53 @@ export function SkillInstallDialog({
     void loadResolution(api.resolveLocalSkillSourceDialog());
   };
 
+  const resolveArchive = () => {
+    if (resolving) return;
+    void loadResolution(api.resolveArchiveSkillSourceDialog());
+  };
+
   const returnToSource = async () => {
-    if (planning || closing) return;
+    if (planning || committing || closing) return;
     const resolution = resolutionRef.current;
     planGenerationRef.current += 1;
     if (resolution) await cancelOnce(resolution.operation_id, true);
     resolutionRef.current = null;
+    setReviewOpen(false);
     dispatch({ type: "reset" });
     setPlanError(null);
-    setStep("source");
   };
 
-  const reviewInstall = async () => {
+  const commitInstall: SkillsState["commit"] = (plan, confirmation) => {
+    setCommitting(true);
+    const pending = commit(plan, confirmation);
+    commitPromiseRef.current = pending;
+    void pending
+      .then(
+        () => {
+          committedRef.current = true;
+        },
+        (reason: unknown) => {
+          if (normalizeSkillCommandError(reason).code === "recovery_required") {
+            recoveryRequiredRef.current = true;
+          }
+          throw reason;
+        },
+      )
+      .finally(() => {
+        if (commitPromiseRef.current === pending) commitPromiseRef.current = null;
+        if (mountedRef.current) setCommitting(false);
+      })
+      .catch(() => undefined);
+    return pending;
+  };
+
+  const finishInstall = (inventory: SkillsInventory) => {
+    committedRef.current = true;
+    onCommitted(inventory);
+    onClose();
+  };
+
+  const addSelected = async () => {
     const resolution = resolutionRef.current;
     if (
       !resolution ||
@@ -267,19 +312,41 @@ export function SkillInstallDialog({
         await cancelOnce(plan.operation_id, false);
         setPlanError({
           code: "protocol_error",
-          message: "安装计划未绑定当前来源，请重新解析来源。",
+          message: "安装计划未绑定当前来源，请重新读取来源。",
         });
         return;
       }
       dispatch({ type: "plan_loaded", plan });
-      setStep("review");
+      if (requiresReview(plan)) {
+        setReviewOpen(true);
+        return;
+      }
+
+      try {
+        const inventory = await commitInstall(plan, null);
+        if (mountedRef.current && !closedRef.current) finishInstall(inventory);
+      } catch (reason) {
+        if (!mountedRef.current || closedRef.current) return;
+        const error = normalizeSkillCommandError(reason);
+        if (error.code === "confirmation_required") {
+          setReviewOpen(true);
+        } else if (error.code === "recovery_required") {
+          enterRecovery(error.message);
+        } else {
+          setPlanError(error);
+        }
+      }
     } catch (reason) {
       if (
         mountedRef.current &&
         !closedRef.current &&
         planGenerationRef.current === generation
       ) {
-        setPlanError(normalizeSkillCommandError(reason));
+        const error = normalizeSkillCommandError(reason);
+        setPlanError(error);
+        if (error.code === "conflict") {
+          dispatch({ type: "set_replace_conflicts", enabled: true });
+        }
       }
     } finally {
       if (
@@ -292,99 +359,70 @@ export function SkillInstallDialog({
     }
   };
 
-  const commitInstall: SkillsState["commit"] = (plan, confirmation) => {
-    const pending = commit(plan, confirmation);
-    commitPromiseRef.current = pending;
-    void pending
-      .then(
-        () => {
-          committedRef.current = true;
-        },
-        (reason: unknown) => {
-          if (normalizeSkillCommandError(reason).code === "recovery_required") {
-            recoveryRequiredRef.current = true;
-          }
-          throw reason;
-        },
-      )
-      .finally(() => {
-        if (commitPromiseRef.current === pending) commitPromiseRef.current = null;
-      })
-      .catch(() => undefined);
-    return pending;
-  };
-
-  const finishInstall = (inventory: SkillsInventory) => {
-    committedRef.current = true;
-    onCommitted(inventory);
-    onClose();
-  };
-
   const backFromReview = () => {
     if (commitPromiseRef.current) return;
     planGenerationRef.current += 1;
-    setStep("selection");
+    setReviewOpen(false);
   };
 
-  const enterRecovery = (message: string) => {
+  function enterRecovery(message: string) {
     recoveryRequiredRef.current = true;
     onRecoveryRequired(message);
     onClose();
-  };
+  }
+
+  const resolution = wizard.resolution;
+  const selectedCount = wizard.selectedSkillNames.length;
+  const candidateCount = resolution?.candidates.length ?? 0;
+  const busy = resolving || planning || committing || closing;
+  const addLabel = wizard.replaceConflicts
+    ? "备份并重试"
+    : selectedCount > 1
+      ? `添加 ${selectedCount} 个 Skill`
+      : "添加 Skill";
 
   return (
     <DialogShell
       kind="editor"
-      size="lg"
-      title={step === "source" ? "添加 Skill 到资产库" : step === "selection" ? "选择中央 Skills" : "审阅中央入库"}
-      subtitle="这里只维护中央资产；Agent 消费关系在各 Agent 或资产详情中单独管理。"
-      busy={closing}
-      closeLabel="关闭安装"
+      size="md"
+      title="添加 Skill"
+      subtitle="从 GitHub、本地文件夹或压缩包添加。"
+      busy={busy}
+      closeLabel="关闭"
       onClose={() => void closeDialog()}
-      footerEnd={step !== "source" ? (
+      footerStart={resolution ? <span className="mux-skill-selection-count">已选 {selectedCount} / {candidateCount}</span> : undefined}
+      footerEnd={resolution ? (
         <>
-          <button type="button" className="btn-secondary" disabled={planning || closing} onClick={() => void returnToSource()}>
-            返回来源
+          <button type="button" className="btn-ghost" disabled={busy} onClick={() => void returnToSource()}>
+            更换来源
           </button>
           <button
             type="button"
             className="btn-primary"
-            disabled={wizard.selectedSkillNames.length === 0 || planning || closing}
-            onClick={() => void reviewInstall()}
+            disabled={selectedCount === 0 || busy}
+            onClick={() => void addSelected()}
           >
-            {planning ? "生成计划中…" : "审阅安装"}
+            {planning ? "检查中…" : committing ? "添加中…" : addLabel}
           </button>
         </>
-      ) : undefined}
+      ) : (
+        <button type="button" className="btn-ghost" disabled={busy} onClick={() => void closeDialog()}>
+          取消
+        </button>
+      )}
     >
       <div className="mux-skill-install-dialog">
-        <div className="mux-skill-dialog-steps" aria-label="安装步骤">
-          {["来源", "选择", "审阅"].map((label, index) => (
-            <span
-              key={label}
-              data-active={
-                index === (step === "source" ? 0 : step === "selection" ? 1 : 2)
-                  ? "true"
-                  : undefined
-              }
-            >
-              {index + 1}. {label}
-            </span>
-          ))}
-        </div>
-
         <div className="mux-skill-dialog-body">
-          {step === "source" ? (
-            <div className="mux-skill-source-step">
+          {!resolution ? (
+            <div className="mux-skill-source-step mux-skill-source-step-compact">
               <section>
                 <div className="mux-skill-source-heading">
                   <LinkIcon className="w-4 h-4" />
                   <div>
-                    <h3>公开 GitHub 仓库</h3>
-                    <p>支持 owner/repo 或 GitHub tree URL。</p>
+                    <h3>GitHub</h3>
                   </div>
                 </div>
-                <label htmlFor="mux-skill-github-source">GitHub 来源</label>
+                <label htmlFor="mux-skill-github-source">仓库地址</label>
                 <div className="mux-skill-source-input-row">
                   <input
                     id="mux-skill-github-source"
@@ -392,7 +430,7 @@ export function SkillInstallDialog({
                     type="text"
                     value={githubValue}
                     disabled={resolving || closing}
-                    placeholder="owner/repo"
+                    placeholder="owner/repo 或 GitHub URL"
                     onChange={(event) => setGithubValue(event.target.value)}
                     onKeyDown={(event) => {
                       if (event.key === "Enter") {
@@ -407,30 +445,41 @@ export function SkillInstallDialog({
                     disabled={!githubValue.trim() || resolving || closing}
                     onClick={resolveGithub}
                   >
-                    {resolving ? "解析中…" : "解析来源"}
+                    {resolving ? "读取中…" : "读取"}
                   </button>
                 </div>
               </section>
 
               <div className="mux-skill-source-divider"><span>或</span></div>
 
-              <section>
-                <div className="mux-skill-source-heading">
-                  <FolderIcon className="w-4 h-4" />
-                  <div>
-                    <h3>本地快照</h3>
-                    <p>仅通过系统文件夹选择器读取，不接受手输路径。</p>
-                  </div>
-                </div>
+              <div className="mux-skill-local-sources">
                 <button
                   type="button"
-                  className="btn-secondary"
+                  className="mux-skill-local-source"
+                  aria-label="选择本地文件夹"
                   disabled={resolving || closing}
                   onClick={resolveLocal}
                 >
-                  选择本地文件夹
+                  <span className="mux-skill-local-source-icon"><FolderIcon className="w-4 h-4" /></span>
+                  <span>
+                    <strong>文件夹</strong>
+                    <small>本机目录</small>
+                  </span>
                 </button>
-              </section>
+                <button
+                  type="button"
+                  className="mux-skill-local-source"
+                  aria-label="选择 Skill 压缩包"
+                  disabled={resolving || closing}
+                  onClick={resolveArchive}
+                >
+                  <span className="mux-skill-local-source-icon"><PackageIcon className="w-4 h-4" /></span>
+                  <span>
+                    <strong>压缩包</strong>
+                    <small>.zip · .tar.gz</small>
+                  </span>
+                </button>
+              </div>
 
               {sourceError && (
                 <div className="mux-skill-dialog-error" role="alert">
@@ -441,78 +490,59 @@ export function SkillInstallDialog({
             </div>
           ) : (
             <div className="mux-skill-selection-step">
-              {wizard.resolution && (
-                <div className="mux-skill-resolution-summary">
-                  <span>已解析来源</span>
-                  <strong>{sourceSummary(wizard.resolution)}</strong>
-                  <code>{wizard.resolution.resolved_revision ?? "本地快照"}</code>
-                </div>
-              )}
+              <div className="mux-skill-resolution-summary">
+                {resolution.source.kind === "github" ? (
+                  <LinkIcon className="w-4 h-4" />
+                ) : resolution.source.kind === "archive" ? (
+                  <PackageIcon className="w-4 h-4" />
+                ) : (
+                  <FolderIcon className="w-4 h-4" />
+                )}
+                <span>
+                  <strong>{sourceSummary(resolution)}</strong>
+                  <code>
+                    {resolution.resolved_revision ??
+                      (resolution.source.kind === "archive" ? "本地压缩包" : "本地文件夹")}
+                  </code>
+                </span>
+              </div>
 
               <section>
                 <div className="mux-skill-selection-heading">
-                  <div>
-                    <h3>Skills</h3>
-                    <p>已默认选择本次发现的全部候选。</p>
-                  </div>
-                  <span>{wizard.selectedSkillNames.length} 项</span>
+                  <h3>选择 Skill</h3>
+                  <span>{candidateCount} 项</span>
                 </div>
                 <div className="mux-skill-choice-list">
-                  {wizard.resolution?.candidates.map((candidate) => (
+                  {resolution.candidates.map((candidate) => (
                     <label key={candidate.name}>
                       <input
                         type="checkbox"
                         aria-label={candidate.name}
                         checked={wizard.selectedSkillNames.includes(candidate.name)}
                         disabled={planning || closing}
-                        onChange={() =>
-                          dispatch({ type: "toggle_skill", skillName: candidate.name })
-                        }
+                        onChange={() => {
+                          setPlanError(null);
+                          dispatch({ type: "set_replace_conflicts", enabled: false });
+                          dispatch({ type: "toggle_skill", skillName: candidate.name });
+                        }}
                       />
                       <span>
                         <strong>{candidate.name}</strong>
                         <small>{candidate.description}</small>
-                        <code>
-                          {candidate.relative_path} · {candidate.file_count} 个文件 · {candidate.total_bytes} bytes
-                        </code>
                       </span>
                     </label>
                   ))}
                 </div>
               </section>
 
-              <section>
-                <div className="mux-skill-selection-heading">
-                  <div>
-                    <h3>冲突处理</h3>
-                    <p>只允许替换同名中央副本；Agent 目录冲突仍会停止操作。</p>
-                  </div>
-                </div>
-                <div className="mux-skill-choice-list">
-                  <label>
-                    <input
-                      type="checkbox"
-                      aria-label="备份并替换同名中央副本"
-                      checked={wizard.replaceConflicts}
-                      disabled={planning || closing}
-                      onChange={(event) =>
-                        dispatch({
-                          type: "set_replace_conflicts",
-                          enabled: event.target.checked,
-                        })
-                      }
-                    />
-                    <span>
-                      <strong>备份并替换同名中央副本</strong>
-                      <small>替换前会在 ~/.mux/backups/skills/ 保留原副本。</small>
-                    </span>
-                  </label>
-                </div>
-              </section>
-
               {planError && (
-                <div className="mux-skill-dialog-error" role="alert">
-                  <strong>{planError.message}</strong>
+                <div
+                  className={wizard.replaceConflicts ? "mux-skill-conflict-prompt" : "mux-skill-dialog-error"}
+                  role="alert"
+                >
+                  <strong>{wizard.replaceConflicts ? "发现冲突" : planError.message}</strong>
+                  {wizard.replaceConflicts && <span>{planError.message}</span>}
+                  {wizard.replaceConflicts && <small>再次操作会先备份原内容。</small>}
                   {planError.retry_at && <code>可重试时间：{planError.retry_at}</code>}
                 </div>
               )}
@@ -522,7 +552,7 @@ export function SkillInstallDialog({
 
       </div>
 
-      {step === "review" && wizard.plan && (
+      {reviewOpen && wizard.plan && (
         <SkillReviewDialog
           plan={wizard.plan}
           onCommit={commitInstall}

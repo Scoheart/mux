@@ -16,7 +16,8 @@ use crate::settings::{load_settings_strict, AgentConfigPathOverride, Settings};
 use crate::skills::{
     canonical_skill_assignments, canonical_skill_target_path, hash_tree,
     list_inventory as list_skills_inventory, list_inventory_for_settings,
-    skill_agent_capability_for_settings, InventoryState, SkillLocation, SkillsInventory,
+    normalize_agent_selection, skill_agent_capability_for_settings, InventoryState, SkillLocation,
+    SkillsInventory,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -1020,21 +1021,36 @@ fn target_files(plan: &DomainPlan) -> Result<Vec<String>, String> {
         }
         DomainPlan::Skill { before, after } => {
             let skills = list_skills_inventory().map_err(|error| format!("{error:?}"))?;
-            for agent_id in agents_for_plan(plan) {
-                let names: BTreeSet<String> = before
-                    .get(&agent_id)
-                    .into_iter()
-                    .flatten()
-                    .chain(after.get(&agent_id).into_iter().flatten())
+            let settings = load_settings_strict().map_err(|error| error.to_string())?;
+            let assignments = canonical_skill_assignments(&settings)
+                .map_err(|error| format!("{error:?}"))?;
+            let changed_names = changed_skill_names(before, after);
+
+            for name in changed_names {
+                let desired_agents = after
+                    .iter()
+                    .filter(|(_, names)| names.contains(&name))
+                    .map(|(agent_id, _)| agent_id.clone())
+                    .collect::<Vec<_>>();
+                let mut touched_target_ids = assignments
+                    .get(&name)
                     .cloned()
-                    .collect();
+                    .unwrap_or_default();
+                touched_target_ids.extend(
+                    normalize_agent_selection(&desired_agents)
+                        .map_err(|error| format!("{error:?}"))?,
+                );
+                touched_target_ids.extend(
+                    skills
+                        .items
+                        .iter()
+                        .filter(|item| item.name == name)
+                        .flat_map(|item| item.assigned_target_ids.iter().cloned()),
+                );
+
                 for target in &skills.targets {
-                    if target.affected_agent_ids.contains(&agent_id)
-                        || target.primary_agent_ids.contains(&agent_id)
-                    {
-                        for name in &names {
-                            files.insert(format!("{}/{}", target.global_dir, name));
-                        }
+                    if touched_target_ids.contains(&target.target_id) {
+                        files.insert(format!("{}/{}", target.global_dir, name));
                     }
                 }
             }
@@ -1042,6 +1058,35 @@ fn target_files(plan: &DomainPlan) -> Result<Vec<String>, String> {
         DomainPlan::AgentConfiguration { .. } => {}
     }
     Ok(files.into_iter().collect())
+}
+
+fn changed_skill_names(
+    before: &BTreeMap<String, Vec<String>>,
+    after: &BTreeMap<String, Vec<String>>,
+) -> BTreeSet<String> {
+    agents_for_plan(&DomainPlan::Skill {
+        before: before.clone(),
+        after: after.clone(),
+    })
+    .into_iter()
+    .flat_map(|agent_id| {
+        let left: BTreeSet<String> = before
+            .get(&agent_id)
+            .into_iter()
+            .flatten()
+            .cloned()
+            .collect();
+        let right: BTreeSet<String> = after
+            .get(&agent_id)
+            .into_iter()
+            .flatten()
+            .cloned()
+            .collect();
+        left.symmetric_difference(&right)
+            .cloned()
+            .collect::<Vec<_>>()
+    })
+    .collect()
 }
 
 pub(crate) fn hash_targets(targets: &[String]) -> BTreeMap<String, String> {

@@ -19,6 +19,7 @@ import type {
   PlanSkillAssetImportRequest,
   PlanSkillAssetInstallRequest,
   PlanUpdateRequest,
+  ProxySettings,
   RegistryEntry,
   SkillAgentView,
   SkillCommitRequest,
@@ -97,6 +98,10 @@ export const getPinnedAgents = () =>
   invoke<string[]>("get_pinned_agents");
 export const setPinnedAgents = (agentIds: string[]) =>
   invoke<string[]>("set_pinned_agents", { agentIds });
+export const getProxySettings = () =>
+  invoke<ProxySettings>("get_proxy_settings");
+export const setProxySettings = (proxyUrl: string | null) =>
+  invoke<ProxySettings>("set_proxy_settings", { proxyUrl });
 export const addAgent = (id: string, def: AgentDefinitionInput) =>
   invoke<void>("add_agent", { id, def });
 export const updateAgent = (id: string, def: AgentDefinitionInput) =>
@@ -150,6 +155,8 @@ export const resolveGithubSkillSource = (value: string) =>
   invoke<SkillSourceResolution>("resolve_skill_source", { value });
 export const resolveLocalSkillSourceDialog = () =>
   invoke<SkillSourceResolution | null>("resolve_local_skill_source_dialog");
+export const resolveArchiveSkillSourceDialog = () =>
+  invoke<SkillSourceResolution | null>("resolve_archive_skill_source_dialog");
 export const planSkillAssetInstall = (request: PlanSkillAssetInstallRequest) =>
   invoke<OperationPlan>("plan_skill_asset_install", { request });
 export const commitSkillInstall = (request: SkillCommitRequest) =>

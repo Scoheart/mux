@@ -12,10 +12,11 @@ Open **Skills** in the top bar and choose **Add Skill**. Central intake has thre
 |---|---|
 | Public GitHub | Accepts `owner/repo`, repository URLs, and GitHub tree URLs for subdirectories. MUX resolves the source to an immutable commit over HTTPS and downloads an archive without invoking local Git. |
 | Local folder | Must be selected with the native macOS folder picker. MUX copies a snapshot, never creates a live link to the original folder, and does not accept a typed path. |
+| Local archive | Imports `.zip`, `.tar.gz`, `.tgz`, or `.tar` through the native picker. MUX extracts it safely and records each Skill's path inside the archive for later checks, updates, and repair. |
 
 A source may contain one or more Skills with a valid `SKILL.md`. Resolution, validation, diffs, and risk analysis run in MUX's bundled Rust core, so using this feature does not require Git, Node.js, or `npx`.
 
-Private GitHub repositories, GitLab, SSH Git, and arbitrary archive URLs are not supported yet.
+Private GitHub repositories, GitLab, SSH Git, and remote archive URLs are not supported yet.
 
 ## One central copy, multiple links
 
@@ -60,7 +61,7 @@ Every write starts with a plan and commits only after confirmation. When applica
 | Operation | Result |
 |---|---|
 | Manage Agents | Choose consumers from a Skill Inspector or an Agent page and review a separate relationship plan. The central copy itself does not change; all Agents sharing one target are shown and changed together. |
-| Check / update | Background and manual checks read only a GitHub revision or local hash and never change content. Choosing Update then downloads the candidate, shows the diff, reruns the audit, and confirms replacement. Local modifications to the central copy require “back up and replace.” |
+| Check / update | Background and manual checks read only a GitHub revision, local-folder hash, or archive hash and never change content. Choosing Update then stages the candidate, shows the diff, reruns the audit, and confirms replacement. Local modifications to the central copy require “back up and replace.” |
 | Import | An external copy in an Agent directory remains read-only first. After confirmation, MUX copies and validates it, backs up the original directory, and replaces it with a central link; the original is not moved before success. |
 | Disable | Removes the managed target link while retaining the central copy and other assignments. Review lists every Agent that loses access through a shared directory. |
 | Repair | Rebuilds a broken link that still matches the managed record. If central content is missing, MUX resolves the recorded source or read-only import backup again and presents the full diff and risk review. |

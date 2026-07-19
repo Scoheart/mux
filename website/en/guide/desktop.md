@@ -43,7 +43,7 @@ Each card contains:
 | Endpoint | The stdio launch command or HTTP URL, truncated when too long. |
 | Usage status | A green dot means it's used by some agents; a gray dot means unused. |
 
-Cards select assets and show their consumers; lifecycle actions and **Manage Agents** live in the Inspector. Only user-owned MCP source copies can be edited or deleted directly; subscriptions and imported files are managed by their source. External configurations observed only in Agent files are not Registry entries.
+Cards select assets and show read-only consumer impact; lifecycle actions live in the Inspector. Agent relationships are edited only from the relevant Agent page. Only user-owned MCP source copies can be edited or deleted directly; subscriptions and imported files are managed by their source. External configurations observed only in Agent files are not Registry entries.
 
 ## Let an Agent consume central assets
 
@@ -52,7 +52,7 @@ Cards select assets and show their consumers; lifecycle actions and **Manage Age
 3. In MCPs, Model, or Skills, click **Manage** and set the Agent's complete desired selection from the central picker. MCPs and Skills allow multiple selections; Model allows at most one.
 4. Review relationship changes, target files, shared Skill targets, drift, and conflicts. MUX then backs up, writes in the Agent's native format, and rescans to verify the result.
 
-The same relationship can be edited from a central asset's **Manage Agents** action; both directions use the same planner. MUX currently manages only user-level global configuration.
+Consumption relationships are edited only from Agent pages; central asset Inspectors do not configure Agents. MUX currently manages only user-level global configuration.
 
 ## Relationship state and removal
 
@@ -90,13 +90,13 @@ For the full 42 verified targets, 41 writable targets, and 194 retained records,
 
 ## Models (Beta)
 
-The top-level **Models** workspace creates central reusable Profiles without touching an Agent. Consumers are then selected from the Inspector or Agent page, with at most one compatible Profile per Agent. Editing propagates through every consumer and deletion cascades through relationships and managed targets. API keys remain in macOS Keychain and never enter settings, persisted plans, previews, or backups.
+The top-level **Models** workspace creates central reusable Profiles without touching an Agent. Each Agent page then shows its observed current state and compatible switch targets, with at most one Profile per Agent. Editing propagates through every consumer and deletion cascades through relationships and managed targets. API keys remain in macOS Keychain and never enter settings, persisted plans, previews, or backups.
 
 Claude Code currently accepts Anthropic Messages profiles, Codex uses the Responses API, and Pi supports all three initial protocols. Qoder, Grok Build, and MiniMax Code expose their verified paths and setup entry; MUX neither writes Qoder's unpublished encrypted model store nor persists a MUX Keychain secret as plaintext in Grok Build or MiniMax Code model configuration.
 
 ## Skills
 
-The top-level **Skills** workspace resolves candidates from public GitHub, a local folder, or a Skill archive, reviews files, local risk, and conflicts, then writes only one central copy. A separate consumer operation links that copy into verified Agent directories from the Inspector or Agent page. Agents sharing one physical target are selected and reviewed as an inseparable group; Agent pages never resolve or install a Skill source.
+The top-level **Skills** workspace resolves candidates from public GitHub, a local folder, or a Skill archive, reviews files, local risk, and conflicts, then writes only one central copy. A separate consumer operation from an Agent page links that copy into verified Agent directories. Agents sharing one physical target are selected and reviewed as an inseparable group; Agent pages never resolve or install a Skill source.
 
 Skills do not require system Git, Node.js, or `npx`. This version does not support project-level content, private repositories, or CLI/TUI Skills commands. See [User-level Skills](/en/guide/skills) for installation, shared aliases, high-risk second confirmation, backups, and recovery.
 

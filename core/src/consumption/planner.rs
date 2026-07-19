@@ -736,8 +736,25 @@ pub(crate) fn finalize_plan_with(
     blocked.sort();
     blocked.dedup();
     let warnings = blocked.clone();
+    let replaceable_model_conflict = blocked.iter().all(|warning| {
+        [
+            "model_external_unmanaged",
+            "model_owned_fields_drift",
+            "model_target_missing",
+        ]
+        .iter()
+        .any(|reason| warning.ends_with(reason))
+    });
+    let model_replacement = !blocked.is_empty()
+        && replaceable_model_conflict
+        && kind == AssetOperationKind::SetConsumption
+        && matches!(
+            &domain_plan,
+            DomainPlan::Model { after, .. }
+                if after.values().all(Option::is_some)
+        );
     let requires_conflict_confirmation =
-        !blocked.is_empty() && kind == AssetOperationKind::UpdateAsset;
+        !blocked.is_empty() && (kind == AssetOperationKind::UpdateAsset || model_replacement);
     let can_commit = blocked.is_empty() || requires_conflict_confirmation;
     let settings_hash = hash_file(&settings_file());
     let target_hashes = hash_targets(&target_files);
@@ -932,6 +949,21 @@ fn effect_assets(
         .iter()
         .map(|change| (change.agent_id.clone(), change.asset.clone()))
         .collect();
+    // Re-selecting an assigned Model is the Agent-scoped repair path. Include
+    // unchanged desired profiles so drift/conflicts are reviewed and bound to
+    // an explicit confirmation instead of producing an invisible no-op.
+    if let DomainPlan::Model { after, .. } = plan {
+        effects.extend(after.iter().filter_map(|(agent_id, profile_id)| {
+            profile_id.as_ref().map(|profile_id| {
+                (
+                    agent_id.clone(),
+                    AssetRef::Model {
+                        profile_id: profile_id.clone(),
+                    },
+                )
+            })
+        }));
+    }
     let agents = agents_for_plan(plan);
     for change in central_changes {
         if !domain_matches(plan, &change.asset) {
@@ -1003,19 +1035,12 @@ fn target_files(plan: &DomainPlan) -> Result<Vec<String>, String> {
             }
         }
         DomainPlan::Model { .. } => {
+            let settings = load_settings_strict().map_err(|error| error.to_string())?;
             for agent_id in agents_for_plan(plan) {
-                match agent_id.as_str() {
-                    "claude-code" => {
-                        files.insert("~/.claude/settings.json".into());
-                    }
-                    "codex" => {
-                        files.insert("~/.codex/config.toml".into());
-                    }
-                    "pi" => {
-                        files.insert("~/.pi/agent/models.json".into());
-                        files.insert("~/.pi/agent/settings.json".into());
-                    }
-                    _ => {}
+                let paths = crate::models::configured_path_strings_checked(&settings, &agent_id)?
+                    .ok_or_else(|| format!("unsupported model Agent: {agent_id}"))?;
+                for path in paths {
+                    files.insert(path);
                 }
             }
         }

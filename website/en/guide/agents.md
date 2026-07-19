@@ -7,18 +7,18 @@ MUX's agent data comes in two layers:
 
 Clients whose global file path, top-level key, and entry structure have not been confirmed are shown for discovery only and cannot be written to. This keeps expanding coverage without writing a generic JSON guess into an unknown product's config.
 
-MUX Desktop treats MCPs, Models, and Skills as central assets. Create, import, and maintain them in the top-level libraries first; an Agent page only chooses which compatible assets that Agent should consume. MCPs and Skills are `0..N` per Agent, while Model is `0..1`. The Agent-side picker and an asset Inspector's consumer manager update the same desired relationship.
+MUX Desktop treats MCPs, Models, and Skills as central assets. Create, import, and maintain them in the top-level libraries first; an Agent page is the only place that chooses which compatible assets that Agent should consume. MCPs and Skills are `0..N` per Agent, while Model is `0..1`. Asset Inspectors own lifecycle actions and show impact without editing Agent relationships.
 
 Agent files and Skill links are observed state, not an alternate asset database. MUX reconciles them as synced, pending, drifted, or conflicted. A configuration found only in an Agent remains read-only external state: scanning or refreshing never silently imports it or creates a desired relationship.
 
 ## Verified list
 
-The results below are based on official docs, official source, or signed application bundles through **2026-07-16**. Grok Build was verified from its newly published source; MiniMax Code was verified from the official signed `3.0.51` macOS bundle.
+The results below are based on official docs, official source, or signed application bundles through **2026-07-20**. Grok Build was verified from its newly published source; MiniMax Code was verified from the official signed `3.0.51` macOS bundle.
 
 | Agent | Format | Config key | User-level global path | Native transports |
 |---|---|---|---|---|
 | [Amp](https://ampcode.com/manual#model-context-protocol-mcp) | JSON | `amp.mcpServers` | `~/.config/amp/settings.json` | stdio / http |
-| [Amazon Q Developer](https://docs.aws.amazon.com/amazonq/latest/qdeveloper-ug/command-line-mcp-configuration.html) | JSON | `mcpServers` | `~/.aws/amazonq/default.json` | stdio / http |
+| [Amazon Q Developer IDE](https://docs.aws.amazon.com/amazonq/latest/qdeveloper-ug/mcp-ide.html) | JSON | `mcpServers` | `~/.aws/amazonq/default.json` | stdio / http |
 | [Google Antigravity](https://antigravity.google/docs/mcp) | JSON | `mcpServers` | `~/.gemini/config/mcp_config.json` | stdio / http |
 | [Augment Code](https://docs.augmentcode.com/cli/integrations) | JSON | `mcpServers` | `~/.augment/settings.json` | stdio / http |
 | [BoltAI](https://docs.boltai.com/docs/plugins/mcp-servers) | JSON | `mcpServers` | `~/.boltai/mcp.json` | stdio |

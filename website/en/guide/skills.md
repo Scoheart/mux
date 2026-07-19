@@ -6,7 +6,7 @@ MUX Desktop manages user-level Skills that follow the Agent Skills format as cen
 
 ## Add to the central library
 
-Open **Skills** in the top bar and choose **Add Skill**. Central intake has three steps: choose a source, select discovered Skills, then review and confirm the plan. It only writes the central copy under `~/.mux/skills/`; it selects no Agent, creates no link, and establishes no consumption relationship. After intake, use **Manage Agents** in the Skill Inspector or **Manage Skills** on an Agent page to choose consumers.
+Open **Skills** in the top bar and choose **Add Skill**. Central intake has three steps: choose a source, select discovered Skills, then review and confirm the plan. It only writes the central copy under `~/.mux/skills/`; it selects no Agent, creates no link, and establishes no consumption relationship. After intake, choose the Skill from the relevant Agent page's Skills tab.
 
 | Source | Behavior |
 |---|---|
@@ -60,7 +60,7 @@ Every write starts with a plan and commits only after confirmation. When applica
 
 | Operation | Result |
 |---|---|
-| Manage Agents | Choose consumers from a Skill Inspector or an Agent page and review a separate relationship plan. The central copy itself does not change; all Agents sharing one target are shown and changed together. |
+| Assign to an Agent | Choose the Skill from the relevant Agent page and review a separate relationship plan. The central copy itself does not change; all Agents sharing one target are shown and changed together. |
 | Check / update | Background and manual checks read only a GitHub revision, local-folder hash, or archive hash and never change content. Choosing Update then stages the candidate, shows the diff, reruns the audit, and confirms replacement. Local modifications to the central copy require “back up and replace.” |
 | Import | An external copy in an Agent directory remains read-only first. After confirmation, MUX copies and validates it, backs up the original directory, and replaces it with a central link; the original is not moved before success. |
 | Disable | Removes the managed target link while retaining the central copy and other assignments. Review lists every Agent that loses access through a shared directory. |

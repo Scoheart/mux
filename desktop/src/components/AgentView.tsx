@@ -15,6 +15,7 @@ import type {
 import { formatError } from "../lib/format";
 import { keyOf, transportOf } from "../lib/mcp";
 import { consumptionsForAgent, externalForAgent } from "../lib/consumption";
+import { describeAgentModel } from "../lib/agentModels";
 import { listModelAgents, listModelProfiles } from "../lib/api";
 import { CheckIcon, EditIcon, LayersIcon, LinkIcon, PackageIcon, PlusIcon, RefreshIcon, SparklesIcon } from "./icons";
 import { Avatar, Badge, IconButton } from "./ui";
@@ -28,6 +29,7 @@ import {
   type ConsumptionPickerOption,
 } from "./ConsumptionPickerDialog";
 import { AssetOperationReviewDialog } from "./AssetOperationReviewDialog";
+import { ConsumptionStatus } from "./ConsumptionStatus";
 
 type PickerDomain = "mcp" | "skill";
 
@@ -184,6 +186,7 @@ export function AgentView({
   const mcpExternal = externalForAgent(inventory, agentId, "mcp");
   const modelExternal = externalForAgent(inventory, agentId, "model");
   const skillExternal = externalForAgent(inventory, agentId, "skill");
+  const modelRow = modelRows[0] ?? null;
   const currentModelProfileId = modelRows.flatMap((item) =>
     item.asset.domain === "model" ? [item.asset.profile_id] : []
   )[0] ?? modelAgent?.assigned_profile ?? null;
@@ -469,6 +472,7 @@ export function AgentView({
                 error={modelsError}
                 agent={modelAgent}
                 currentProfile={currentModelProfile}
+                consumption={modelRow}
                 hasExternalConfig={modelExternal.length > 0}
                 selectedProfile={selectedModelProfile}
                 compatibleProfiles={compatibleProfiles}
@@ -573,6 +577,7 @@ function AgentModelAssignment({
   error,
   agent,
   currentProfile,
+  consumption,
   hasExternalConfig,
   selectedProfile,
   compatibleProfiles,
@@ -588,6 +593,7 @@ function AgentModelAssignment({
   error: string | null;
   agent: ModelAgentView | null;
   currentProfile: ModelProfileView | null;
+  consumption: ConsumptionInventory["consumptions"][number] | null;
   hasExternalConfig: boolean;
   selectedProfile: ModelProfileView | null;
   compatibleProfiles: ModelProfileView[];
@@ -620,7 +626,9 @@ function AgentModelAssignment({
     );
   }
 
-  const alreadyApplied = currentProfile?.id === selectedProfile?.id && !hasExternalConfig;
+  const display = describeAgentModel(currentProfile, consumption, hasExternalConfig);
+  const alreadyApplied = display.synced && currentProfile?.id === selectedProfile?.id;
+  const reapplying = !display.synced && currentProfile?.id === selectedProfile?.id;
   return (
     <section className="mux-agent-section mux-agent-resource-content" aria-label="Model 配置">
       <div className="mux-agent-section-head">
@@ -634,12 +642,12 @@ function AgentModelAssignment({
           <Avatar seed={currentProfile?.name ?? agent.name} label="M" size={34} />
           <div>
             <span>当前模型</span>
-            <strong>{currentProfile?.name ?? (hasExternalConfig ? "外部配置" : "未配置")}</strong>
-            <code>
-              {currentProfile?.model
-                ?? (hasExternalConfig ? "未纳入中央模型库" : "尚未选择模型")}
-            </code>
+            <strong>{display.label}</strong>
+            <code>{display.detail}</code>
           </div>
+          {consumption && consumption.status !== "synced" && (
+            <ConsumptionStatus status={consumption.status} reason={consumption.reason} />
+          )}
           {currentProfile && (
             <IconButton
               title={`查看 ${currentProfile.name} 资产`}
@@ -676,7 +684,9 @@ function AgentModelAssignment({
             {alreadyApplied
               ? <CheckIcon className="w-4 h-4" />
               : <RefreshIcon className="w-4 h-4" />}
-            {applying ? "切换中…" : alreadyApplied ? "当前模型" : "切换"}
+            {applying
+              ? reapplying ? "同步中…" : "切换中…"
+              : alreadyApplied ? "当前模型" : reapplying ? "重新同步" : "切换"}
           </button>
           <div className="mux-agent-model-preview">
             <span className="mux-model-protocol-dot" data-protocol={selectedProfile?.protocol} />

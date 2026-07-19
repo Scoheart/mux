@@ -9,16 +9,16 @@ MUX 的 Agent 数据分为两层：
 
 桌面端把 MCP、Model 与 Skill 都视为中央资产：先在顶部 `MCPs`、`Models`、`Skills` 工作区统一创建、导入和维护，再由 Agent 建立消费关系。单个 Agent 页面使用 **MCPs → Model → Skills** 三个标签，只展示该 Agent 期望使用的中央资产；这里不会创建 MCP、填写 Model、解析 Skill 来源或重新安装 Skill。
 
-Agent 页的“管理”按钮和中央资产详情的“管理 Agent”修改的是同一份 desired relationship。MCP 与 Skills 每个 Agent 可选择多个，Model 同时最多一个。MUX 再把 Agent 文件或 Skill link 作为 observed state 对账，显示已同步、待同步、漂移或冲突；仅在 Agent 中发现的外部配置保持只读，扫描和刷新不会自动把它变成中央资产或消费关系。
+消费关系只在 Agent 页面管理：MCP 与 Skills 每个 Agent 可选择多个，Model 同时最多一个。中央资产详情只负责资产生命周期和只读影响范围，不反向修改 Agent。MUX 再把 Agent 文件或 Skill link 作为 observed state 对账，显示已同步、待同步、漂移或冲突；仅在 Agent 中发现的外部配置保持只读，扫描和刷新不会自动把它变成中央资产或消费关系。
 
 ## 已核验列表
 
-以下结果基于截至 **2026-07-16** 的官方文档、官方源码或签名应用包；Grok Build 使用其开源仓库核验，MiniMax Code 使用官方签名的 `3.0.51` macOS 应用包核验。
+以下结果基于截至 **2026-07-20** 的官方文档、官方源码或签名应用包；Grok Build 使用其开源仓库核验，MiniMax Code 使用官方签名的 `3.0.51` macOS 应用包核验。
 
 | Agent | 格式 | 配置键 | 用户级全局路径 | 原生传输 |
 |---|---|---|---|---|
 | [Amp](https://ampcode.com/manual#model-context-protocol-mcp) | JSON | `amp.mcpServers` | `~/.config/amp/settings.json` | stdio / http |
-| [Amazon Q Developer](https://docs.aws.amazon.com/amazonq/latest/qdeveloper-ug/command-line-mcp-configuration.html) | JSON | `mcpServers` | `~/.aws/amazonq/default.json` | stdio / http |
+| [Amazon Q Developer IDE](https://docs.aws.amazon.com/amazonq/latest/qdeveloper-ug/mcp-ide.html) | JSON | `mcpServers` | `~/.aws/amazonq/default.json` | stdio / http |
 | [Google Antigravity](https://antigravity.google/docs/mcp) | JSON | `mcpServers` | `~/.gemini/config/mcp_config.json` | stdio / http |
 | [Augment Code](https://docs.augmentcode.com/cli/integrations) | JSON | `mcpServers` | `~/.augment/settings.json` | stdio / http |
 | [BoltAI](https://docs.boltai.com/docs/plugins/mcp-servers) | JSON | `mcpServers` | `~/.boltai/mcp.json` | stdio |

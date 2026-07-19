@@ -18,7 +18,7 @@ const ALIASES = {
   "chat-gpt": "chatgpt",
   "vs-code-github-copilot": "vscode",
   "lm-studio": "lmstudio",
-  "amazon-q-cli": "amazon-q",
+  "amazon-q-ide": "amazon-q",
   "augment-code": "augment",
   "gemini-cli": "gemini",
   "jetbrains-junie": "junie",

@@ -3,13 +3,15 @@
 mod support;
 
 use mux_core::consumption::{
-    list_consumption_inventory, plan_set_agent_consumption, AgentConsumptionSelection, AssetRef,
-    ConsumptionStatus, McpConsumptionRecord, PlanSetAgentConsumptionRequest,
+    commit_asset_operation, list_consumption_inventory, plan_set_agent_consumption,
+    AgentConsumptionSelection, AssetCommitRequest, AssetRef, ConsumptionStatus,
+    McpConsumptionRecord, PlanSetAgentConsumptionRequest,
 };
+use mux_core::models::{apply_profile, save_profile};
 use mux_core::ops::install;
 use mux_core::r#override::OverridePatch;
 use mux_core::registry::write_manual_entry;
-use mux_core::settings::mutate_settings;
+use mux_core::settings::{mutate_settings, AgentConfigPathOverride};
 use mux_core::testenv::TestHome;
 use mux_core::types::{ModelProfile, ModelProtocol, RegistryConfig, RegistryEntry, StdioConfig};
 use std::collections::{BTreeMap, HashMap};
@@ -134,8 +136,21 @@ fn model_assignment_remains_visible_when_target_is_missing() {
     assert_eq!(model.reason.as_deref(), Some("model_target_missing"));
 }
 
+fn model_profile() -> ModelProfile {
+    ModelProfile {
+        id: "inventory-profile".into(),
+        name: "Inventory".into(),
+        protocol: ModelProtocol::OpenaiResponses,
+        base_url: "https://example.invalid".into(),
+        model: "example".into(),
+        context_window: None,
+        max_output_tokens: None,
+        reasoning: false,
+    }
+}
+
 #[test]
-fn unassigned_model_configuration_is_external_and_blocks_takeover() {
+fn unassigned_model_configuration_requires_confirmation_before_takeover() {
     let home = TestHome::new("consume-model-external");
     let target = home.home.join(".codex/config.toml");
     fs::create_dir_all(target.parent().unwrap()).unwrap();
@@ -147,16 +162,7 @@ fn unassigned_model_configuration_is_external_and_blocks_takeover() {
     mutate_settings(|settings| {
         settings.model_profiles = Some(BTreeMap::from([(
             "inventory-profile".into(),
-            ModelProfile {
-                id: "inventory-profile".into(),
-                name: "Inventory".into(),
-                protocol: ModelProtocol::OpenaiResponses,
-                base_url: "https://example.invalid".into(),
-                model: "example".into(),
-                context_window: None,
-                max_output_tokens: None,
-                reasoning: false,
-            },
+            model_profile(),
         )]));
     })
     .unwrap();
@@ -174,15 +180,159 @@ fn unassigned_model_configuration_is_external_and_blocks_takeover() {
         },
     })
     .unwrap();
-    assert!(!plan.can_commit);
+    assert!(plan.can_commit);
+    assert!(plan.requires_conflict_confirmation);
     assert!(plan
         .warnings
         .iter()
         .any(|warning| warning.contains("model_external_unmanaged")));
+    let rejected = commit_asset_operation(AssetCommitRequest {
+        operation_id: plan.operation_id.clone(),
+        candidate_hash: plan.candidate_hash.clone(),
+        conflict_confirmation: None,
+    })
+    .unwrap_err();
+    assert!(rejected.starts_with("confirmation_required:"));
     assert_eq!(
-        fs::read_to_string(target).unwrap(),
+        fs::read_to_string(&target).unwrap(),
         "model = \"external-model\"\nmodel_provider = \"external-provider\"\n"
     );
+
+    let inventory = commit_asset_operation(AssetCommitRequest {
+        operation_id: plan.operation_id,
+        candidate_hash: plan.candidate_hash.clone(),
+        conflict_confirmation: Some(plan.candidate_hash),
+    })
+    .unwrap();
+    assert!(inventory.consumptions.iter().any(|item| {
+        item.agent_id == "codex"
+            && item.asset
+                == (AssetRef::Model {
+                    profile_id: "inventory-profile".into(),
+                })
+            && item.status == ConsumptionStatus::Synced
+    }));
+    let updated = fs::read_to_string(target).unwrap();
+    assert!(updated.contains("model = \"example\""));
+    assert!(!updated.contains("external-model"));
+}
+
+#[test]
+fn ambiguous_model_configuration_cannot_be_taken_over() {
+    let home = TestHome::new("consume-model-ambiguous");
+    let target = home.home.join(".codex/config.toml");
+    fs::create_dir_all(target.parent().unwrap()).unwrap();
+    fs::write(
+        &target,
+        "model = \"first\"\nmodel = \"second\"\nmodel_provider = \"external\"\n",
+    )
+    .unwrap();
+    mutate_settings(|settings| {
+        settings.model_profiles = Some(BTreeMap::from([(
+            "inventory-profile".into(),
+            model_profile(),
+        )]));
+    })
+    .unwrap();
+
+    let plan = plan_set_agent_consumption(PlanSetAgentConsumptionRequest {
+        agent_id: "codex".into(),
+        selection: AgentConsumptionSelection::Model {
+            profile_ids: vec!["inventory-profile".into()],
+        },
+    })
+    .unwrap();
+    assert!(!plan.can_commit);
+    assert!(!plan.requires_conflict_confirmation);
+    assert!(plan
+        .warnings
+        .iter()
+        .any(|warning| warning.contains("model_external_conflicted")));
+    assert_eq!(
+        fs::read_to_string(target).unwrap(),
+        "model = \"first\"\nmodel = \"second\"\nmodel_provider = \"external\"\n"
+    );
+}
+
+#[test]
+fn drifted_model_can_be_explicitly_reapplied_from_the_agent_plan() {
+    let home = TestHome::new("consume-model-repair");
+    save_profile(model_profile(), None).unwrap();
+    apply_profile("codex", "inventory-profile").unwrap();
+    let target = home.home.join(".codex/config.toml");
+    let drifted = fs::read_to_string(&target)
+        .unwrap()
+        .replace("model = \"example\"", "model = \"tampered\"");
+    fs::write(&target, drifted).unwrap();
+
+    let plan = plan_set_agent_consumption(PlanSetAgentConsumptionRequest {
+        agent_id: "codex".into(),
+        selection: AgentConsumptionSelection::Model {
+            profile_ids: vec!["inventory-profile".into()],
+        },
+    })
+    .unwrap();
+    assert!(plan.can_commit);
+    assert!(plan.requires_conflict_confirmation);
+    assert!(plan
+        .warnings
+        .iter()
+        .any(|warning| warning.contains("model_owned_fields_drift")));
+
+    let inventory = commit_asset_operation(AssetCommitRequest {
+        operation_id: plan.operation_id,
+        candidate_hash: plan.candidate_hash.clone(),
+        conflict_confirmation: Some(plan.candidate_hash),
+    })
+    .unwrap();
+    assert!(inventory.consumptions.iter().any(|item| {
+        item.agent_id == "codex"
+            && item.status == ConsumptionStatus::Synced
+            && item.asset
+                == (AssetRef::Model {
+                    profile_id: "inventory-profile".into(),
+                })
+    }));
+    let repaired = fs::read_to_string(target).unwrap();
+    assert!(repaired.contains("model = \"example\""));
+    assert!(!repaired.contains("tampered"));
+}
+
+#[test]
+fn model_plan_snapshots_and_writes_the_configured_override_path() {
+    let home = TestHome::new("consume-model-custom-path");
+    save_profile(model_profile(), None).unwrap();
+    mutate_settings(|settings| {
+        settings.agent_config_paths = Some(BTreeMap::from([(
+            "codex".into(),
+            AgentConfigPathOverride {
+                model_paths: Some(vec!["~/.custom/codex-model.toml".into()]),
+                skills_global_dir: None,
+            },
+        )]));
+    })
+    .unwrap();
+
+    let plan = plan_set_agent_consumption(PlanSetAgentConsumptionRequest {
+        agent_id: "codex".into(),
+        selection: AgentConsumptionSelection::Model {
+            profile_ids: vec!["inventory-profile".into()],
+        },
+    })
+    .unwrap();
+    assert_eq!(plan.target_files, ["~/.custom/codex-model.toml"]);
+    let inventory = commit_asset_operation(AssetCommitRequest {
+        operation_id: plan.operation_id,
+        candidate_hash: plan.candidate_hash,
+        conflict_confirmation: None,
+    })
+    .unwrap();
+    assert!(inventory
+        .consumptions
+        .iter()
+        .any(|item| { item.agent_id == "codex" && item.status == ConsumptionStatus::Synced }));
+    assert!(home.home.join(".custom/codex-model.toml").is_file());
+    assert!(!home.home.join(".codex/config.toml").exists());
 }
 
 #[test]

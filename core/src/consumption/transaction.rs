@@ -274,7 +274,10 @@ fn mark_operation_committed(operation_id: &str) -> Result<(), String> {
 
 fn apply_operation(persisted: &PersistedAssetOperation) -> Result<(), String> {
     let Some(lifecycle) = &persisted.lifecycle else {
-        return apply_domain_plan(&persisted.plan.domain_plan);
+        return apply_domain_plan(
+            &persisted.plan.domain_plan,
+            persisted.plan.requires_conflict_confirmation,
+        );
     };
     match lifecycle {
         LifecycleBinding::McpUpsert { key, draft_hash } => {
@@ -306,7 +309,10 @@ fn apply_operation(persisted: &PersistedAssetOperation) -> Result<(), String> {
             if *fallback_exists {
                 reapply_mcp_consumers(&persisted.plan.domain_plan, key)
             } else {
-                apply_domain_plan(&persisted.plan.domain_plan)
+                apply_domain_plan(
+                    &persisted.plan.domain_plan,
+                    persisted.plan.requires_conflict_confirmation,
+                )
             }
         }
         LifecycleBinding::McpEnabled {
@@ -351,7 +357,10 @@ fn apply_operation(persisted: &PersistedAssetOperation) -> Result<(), String> {
             apply_credential_update(profile_id, credential.as_deref().map(String::as_str))
         }
         LifecycleBinding::ModelDelete { profile_id } => {
-            apply_domain_plan(&persisted.plan.domain_plan)?;
+            apply_domain_plan(
+                &persisted.plan.domain_plan,
+                persisted.plan.requires_conflict_confirmation,
+            )?;
             delete_profile_metadata(profile_id)?;
             apply_credential_update(profile_id, Some(""))
         }
@@ -718,10 +727,10 @@ fn expand_tilde_path(path: &str) -> PathBuf {
     crate::scanner::expand_tilde(path)
 }
 
-fn apply_domain_plan(plan: &DomainPlan) -> Result<(), String> {
+fn apply_domain_plan(plan: &DomainPlan, replace_model_conflict: bool) -> Result<(), String> {
     match plan {
         DomainPlan::Mcp { before, after } => apply_mcp(before, after),
-        DomainPlan::Model { before, after } => apply_model(before, after),
+        DomainPlan::Model { before, after } => apply_model(before, after, replace_model_conflict),
         DomainPlan::Skill { before, after } => apply_skill(before, after),
         DomainPlan::AgentConfiguration { .. } => {
             Err("asset operation requires a configuration lifecycle".into())
@@ -840,15 +849,29 @@ fn apply_mcp_enabled(agent_id: &str, asset_key: &str, enabled: bool) -> Result<(
 fn apply_model(
     before: &BTreeMap<String, Option<String>>,
     after: &BTreeMap<String, Option<String>>,
+    replace_conflict: bool,
 ) -> Result<(), String> {
     for agent_id in union_keys(before, after) {
         let left = before.get(agent_id).cloned().flatten();
         let right = after.get(agent_id).cloned().flatten();
         if left == right {
+            if replace_conflict {
+                if let Some(profile_id) = right {
+                    apply_profile(agent_id, &profile_id)?;
+                }
+            }
             continue;
         }
         if let Some(profile_id) = left {
-            clear_profile(agent_id, &profile_id)?;
+            if let Err(error) = clear_profile(agent_id, &profile_id) {
+                let replaceable = replace_conflict
+                    && right.is_some()
+                    && (error.starts_with("model_owned_fields_drift:")
+                        || error.starts_with("model_target_conflicted:"));
+                if !replaceable {
+                    return Err(error);
+                }
+            }
         }
         if let Some(profile_id) = right {
             apply_profile(agent_id, &profile_id)?;
@@ -931,7 +954,8 @@ fn verify_postcondition(plan: &AssetOperationPlan) -> Result<(), String> {
                 });
                 match (expected.as_deref(), actual) {
                     (None, None) => {}
-                    (Some(expected), Some((actual, _))) if expected == actual => {}
+                    (Some(expected), Some((actual, ConsumptionStatus::Synced)))
+                        if expected == actual => {}
                     _ => return Err("model post-commit verification failed".into()),
                 }
             }

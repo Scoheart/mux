@@ -4,7 +4,6 @@ import type {
   SkillInventoryItem,
   SkillSource,
 } from "../lib/types";
-import { AgentStack } from "./ResourceWorkspace";
 import { ResourceCard } from "./ResourceCard";
 import { Avatar, Badge } from "./ui";
 
@@ -64,12 +63,10 @@ export function SkillRiskBadge({
 export function SkillCard({
   item,
   selected,
-  consumerAgentIds,
   onOpen,
 }: {
   item: SkillInventoryItem;
   selected: boolean;
-  consumerAgentIds?: string[];
   onOpen: () => void;
 }) {
   return (
@@ -102,10 +99,10 @@ export function SkillCard({
       state={
         <div className="mux-skill-card-status">
         <SkillRiskBadge level={item.risk?.level ?? null} />
-        {item.states.map((state) => (
+        {item.states.filter((state) => state !== "assigned").map((state) => (
           <Badge
             key={state}
-            tone={state === "managed" || state === "assigned" ? "success" : state === "external" ? "neutral" : "warning"}
+            tone={state === "managed" ? "success" : state === "external" ? "neutral" : "warning"}
           >
             {stateLabels[state]}
           </Badge>
@@ -117,9 +114,6 @@ export function SkillCard({
           </p>
         )}
         </div>
-      }
-      impact={
-        <AgentStack ids={consumerAgentIds ?? item.affected_agent_ids} />
       }
     />
   );

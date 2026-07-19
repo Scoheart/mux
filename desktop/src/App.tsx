@@ -67,7 +67,6 @@ function App() {
       {view.kind === "skills" ? (
         <SkillsView
           state={skillsState}
-          consumptionState={consumptionState}
           intent={view.intent}
           onIntentConsumed={consumeResourceIntent}
         />

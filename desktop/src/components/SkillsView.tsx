@@ -10,7 +10,6 @@ import {
   normalizeSkillCommandError,
   type SkillsState,
 } from "../hooks/useSkillsState";
-import type { ConsumptionState } from "../hooks/useConsumptionState";
 import * as api from "../lib/api";
 import {
   filterSkills,
@@ -18,14 +17,12 @@ import {
   type SkillStatusFilter,
 } from "../lib/skills";
 import type {
-  AssetRef,
   OperationPlan,
   SkillCommandError,
   SkillDetail,
   SkillNavigationIntent,
   SkillsInventory,
 } from "../lib/types";
-import { consumersForAsset } from "../lib/consumption";
 import {
   FolderIcon,
   LayersIcon,
@@ -41,8 +38,6 @@ import {
   type SkillLifecycleIntent,
 } from "./SkillInspector";
 import { SkillReviewDialog } from "./SkillReviewDialog";
-import { AssetConsumerDialog } from "./AssetConsumerDialog";
-import { AssetOperationReviewDialog } from "./AssetOperationReviewDialog";
 import { useToast } from "./Toast";
 import {
   ResourceGrid,
@@ -72,7 +67,6 @@ const sourceOptions: Array<{
 
 interface SkillsViewProps {
   state: SkillsState;
-  consumptionState?: ConsumptionState;
   intent?: SkillNavigationIntent;
   onIntentConsumed?(id: number): void;
 }
@@ -83,7 +77,6 @@ interface LifecycleReview {
 
 export function SkillsView({
   state,
-  consumptionState,
   intent,
   onIntentConsumed,
 }: SkillsViewProps) {
@@ -97,7 +90,6 @@ export function SkillsView({
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<SkillCommandError | null>(null);
   const [installOpen, setInstallOpen] = useState(false);
-  const [consumerSkillName, setConsumerSkillName] = useState<string | null>(null);
   const [navigationNotice, setNavigationNotice] = useState<string | null>(null);
   const [lifecycleReview, setLifecycleReview] =
     useState<LifecycleReview | null>(null);
@@ -128,11 +120,6 @@ export function SkillsView({
   );
   const selected = selectedIdentity
     ? items.find((item) => item.identity === selectedIdentity) ?? null
-    : null;
-  const consumerSkill = consumerSkillName
-    ? items.find((item) =>
-        item.name === consumerSkillName && item.location.kind === "central"
-      ) ?? null
     : null;
   const countWith = (
     override: Partial<{
@@ -361,13 +348,11 @@ export function SkillsView({
     if (!inventory) {
       closeInspector();
       setInstallOpen(false);
-    } else if (intent.kind === "detail") {
+    } else {
       const item = inventory.items.find(
         (candidate) =>
           candidate.name === intent.skillName &&
-          candidate.location.kind === "central" &&
-          (candidate.source !== null ||
-            candidate.assigned_target_ids.length > 0),
+          candidate.location.kind === "central",
       );
       if (item) {
         setQuery("");
@@ -377,12 +362,9 @@ export function SkillsView({
       } else {
         closeInspector();
         setNavigationNotice(
-          `未找到可管理的 Skill“${intent.skillName}”。`,
+          `未找到 Skill 资产“${intent.skillName}”。`,
         );
       }
-    } else {
-      setInstallOpen(false);
-      setNavigationNotice("请回到 Agent 页面，通过中央 Skills 选择器管理消费关系。");
     }
     onIntentConsumed?.(intent.id);
   }, [closeInspector, intent, onIntentConsumed, recoveryError, state.inventory]);
@@ -533,19 +515,10 @@ export function SkillsView({
             <SkillInspector
               item={selected}
               detail={detail}
-              agents={state.inventory?.agents ?? []}
-              consumers={consumptionState && selected.location.kind === "central"
-                ? consumersForAsset(consumptionState.inventory, { domain: "skill", name: selected.name })
-                : []}
               loading={detailLoading}
               error={detailError}
               onClose={closeInspector}
               onPlan={(intent) => void planLifecycle(intent)}
-              onManageConsumers={
-                consumptionState && selected.location.kind === "central"
-                  ? () => setConsumerSkillName(selected.name)
-                  : undefined
-              }
               planning={lifecyclePlanning}
               readOnly={recoveryError !== null || state.pendingOperation !== null}
             />
@@ -603,12 +576,6 @@ export function SkillsView({
                   key={item.identity}
                   item={item}
                   selected={item.identity === selectedIdentity}
-                  consumerAgentIds={
-                    consumptionState && item.location.kind === "central"
-                      ? consumersForAsset(consumptionState.inventory, { domain: "skill", name: item.name })
-                          .map((consumer) => consumer.agent_id)
-                      : item.affected_agent_ids
-                  }
                   onOpen={() => openSkill(item.identity)}
                 />
               ))}
@@ -637,42 +604,6 @@ export function SkillsView({
           onClose={closeLifecycleReview}
           onCommitted={lifecycleCommitted}
           onRecoveryRequired={enterRecovery}
-        />
-      )}
-      {consumerSkill && consumptionState && state.inventory && (
-        <AssetConsumerDialog
-          asset={{ domain: "skill", name: consumerSkill.name }}
-          assetName={consumerSkill.name}
-          consumers={consumersForAsset(consumptionState.inventory, {
-            domain: "skill",
-            name: consumerSkill.name,
-          })}
-          options={state.inventory.agents.map((agent) => ({
-            id: agent.id,
-            name: agent.name,
-            description: agent.global_dir,
-            affectedAgentIds: agent.affected_agent_ids,
-            targetId: agent.target_id,
-          }))}
-          onClose={() => setConsumerSkillName(null)}
-          onReview={async (agentIds) => {
-            const asset: AssetRef = { domain: "skill", name: consumerSkill.name };
-            await consumptionState.planForAsset(asset, agentIds);
-            setConsumerSkillName(null);
-          }}
-        />
-      )}
-      {consumptionState?.plan && (
-        <AssetOperationReviewDialog
-          plan={consumptionState.plan}
-          busy={consumptionState.committing}
-          error={consumptionState.error?.message}
-          onCancel={consumptionState.cancel}
-          onCommit={async (conflictConfirmation) => {
-            await consumptionState.commit(conflictConfirmation);
-            await state.refresh();
-            toast.show({ kind: "success", msg: "Skill 消费关系已同步。" });
-          }}
         />
       )}
     </div>

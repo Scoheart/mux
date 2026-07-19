@@ -1,9 +1,8 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import type { InstallState } from "../hooks/useInstallState";
 import type { ConsumptionState } from "../hooks/useConsumptionState";
-import type { AssetRef, RegistryEntry, RegistryOrigin, CatalogItem, ResourceNavigationIntent } from "../lib/types";
+import type { RegistryEntry, RegistryOrigin, CatalogItem, ResourceNavigationIntent } from "../lib/types";
 import { keyOf, transportOf, type Transport } from "../lib/mcp";
-import { consumersForAsset } from "../lib/consumption";
 import { exportEffectiveDialog } from "../lib/api";
 import { formatError } from "../lib/format";
 import { redactSensitiveConfig } from "../lib/resourceWorkspace";
@@ -28,10 +27,8 @@ import { ResourceCard } from "./ResourceCard";
 import { ResourceState } from "./ResourceState";
 import { useToast } from "./Toast";
 import { PasteConfigDialog } from "./PasteConfigDialog";
-import { AssetConsumerDialog } from "./AssetConsumerDialog";
 import { AssetOperationReviewDialog } from "./AssetOperationReviewDialog";
 import {
-  AgentStack,
   InspectorField,
   InspectorSection,
   ResourceGrid,
@@ -51,7 +48,7 @@ interface RegistryViewProps {
 
 /** Origin buckets — still used to decide which entries are user-deletable. */
 type OriginBucket = "remote" | "local" | "manual" | "discovered";
-type McpStatusFilter = "all" | "used" | "unused" | "shadowed";
+type McpStatusFilter = "all" | "effective" | "shadowed";
 type McpStatusCounts = Record<McpStatusFilter, number>;
 /** Classify an entry's origin into a bucket. Entries with no origin, or a
  *  legacy/unknown kind, fall into "discovered" (scanned-from-machine). */
@@ -156,21 +153,12 @@ export function RegistryView({ state, consumptionState, intent, onIntentConsumed
   const [statusFilter, setStatusFilter] = useState<McpStatusFilter>("all");
   const [detail, setDetail] = useState<CatalogItem | null>(null);
   const [pasteOpen, setPasteOpen] = useState(false);
-  const [consumerEntry, setConsumerEntry] = useState<RegistryEntry | null>(null);
   const lastConsumedIntentId = useRef<number | null>(null);
 
   const sourceName = useCallback(
     (id: string) => sources.find((s) => s.id === id)?.name ?? id,
     [sources]
   );
-
-  const consumerIds = useCallback((entry: RegistryEntry) => {
-    if (!consumptionState) return agentsForServer(keyOf(entry));
-    return consumersForAsset(consumptionState.inventory, {
-      domain: "mcp",
-      key: keyOf(entry),
-    }).map((item) => item.agent_id);
-  }, [agentsForServer, consumptionState]);
 
   // For each composite key, the origin of the in-effect (winning) copy — used to
   // tell an overridden card which source actually takes effect.
@@ -188,16 +176,14 @@ export function RegistryView({ state, consumptionState, intent, onIntentConsumed
   }, [catalog, selectedSource]);
 
   const statusCounts = useMemo<McpStatusCounts>(() => {
-    let used = 0;
-    let unused = 0;
+    let effective = 0;
     let shadowed = 0;
     for (const item of sourceScoped) {
       if (!item.in_effect) shadowed += 1;
-      if (consumerIds(item.entry).length > 0 && item.in_effect) used += 1;
-      else if (item.in_effect) unused += 1;
+      else effective += 1;
     }
-    return { all: sourceScoped.length, used, unused, shadowed };
-  }, [consumerIds, sourceScoped]);
+    return { all: sourceScoped.length, effective, shadowed };
+  }, [sourceScoped]);
 
   const scoped = useMemo(() => {
     const s = q.trim().toLowerCase();
@@ -217,18 +203,9 @@ export function RegistryView({ state, consumptionState, intent, onIntentConsumed
 
   const filtered = useMemo(() => {
     if (statusFilter === "shadowed") return scoped.filter((item) => !item.in_effect);
-    if (statusFilter === "used") {
-      return scoped.filter(
-        (item) => item.in_effect && consumerIds(item.entry).length > 0
-      );
-    }
-    if (statusFilter === "unused") {
-      return scoped.filter(
-        (item) => item.in_effect && consumerIds(item.entry).length === 0
-      );
-    }
+    if (statusFilter === "effective") return scoped.filter((item) => item.in_effect);
     return scoped;
-  }, [consumerIds, scoped, statusFilter]);
+  }, [scoped, statusFilter]);
 
   useEffect(() => {
     if (!intent || state.loading || lastConsumedIntentId.current === intent.id) return;
@@ -328,8 +305,7 @@ export function RegistryView({ state, consumptionState, intent, onIntentConsumed
           value={statusFilter}
           options={[
             { value: "all", label: "全部", count: statusCounts.all },
-            { value: "used", label: "使用中", count: statusCounts.used },
-            { value: "unused", label: "未使用", count: statusCounts.unused },
+            { value: "effective", label: "生效", count: statusCounts.effective },
             { value: "shadowed", label: "被覆盖", count: statusCounts.shadowed },
           ]}
           onChange={changeStatus}
@@ -372,7 +348,6 @@ export function RegistryView({ state, consumptionState, intent, onIntentConsumed
                 : originLabel(winningOriginByKey.get(keyOf(detail.entry)), sourceName)
             }
             installedAgents={agentsForServer(keyOf(detail.entry))}
-            consumerAgentIds={consumerIds(detail.entry)}
             sourceName={sourceName}
             onClose={() => setDetail(null)}
             onCopy={() => copyConfig(detail.entry)}
@@ -387,7 +362,6 @@ export function RegistryView({ state, consumptionState, intent, onIntentConsumed
                 : undefined
             }
             onDelete={deletable(detail.entry) && detail.in_effect ? () => void deleteEntry(detail.entry) : undefined}
-            onManageConsumers={consumptionState && detail.in_effect ? () => setConsumerEntry(detail.entry) : undefined}
           />
         ) : undefined
       }
@@ -415,7 +389,6 @@ export function RegistryView({ state, consumptionState, intent, onIntentConsumed
               item={item}
               selected={detail === item}
               installedAgents={agentsForServer(keyOf(item.entry))}
-              consumerAgentIds={consumerIds(item.entry)}
               sourceName={sourceName}
               overriddenBy={
                 item.in_effect
@@ -429,35 +402,6 @@ export function RegistryView({ state, consumptionState, intent, onIntentConsumed
       )}
 
       {pasteOpen && <PasteConfigDialog state={state} onClose={() => setPasteOpen(false)} />}
-      {consumerEntry && consumptionState && (
-        <AssetConsumerDialog
-          asset={{ domain: "mcp", key: keyOf(consumerEntry) }}
-          assetName={consumerEntry.name}
-          consumers={consumersForAsset(consumptionState.inventory, {
-            domain: "mcp",
-            key: keyOf(consumerEntry),
-          })}
-          options={state.agents
-            .filter((agent) => agent.has_global)
-            .map((agent) => {
-              const compatible = agent.supported_transports.includes(transportOf(consumerEntry));
-              const selected = consumerIds(consumerEntry).includes(agent.id);
-              return {
-                id: agent.id,
-                name: agent.name,
-                description: `${agent.category} · ${agent.global ?? "无全局目标"}`,
-                disabled: !compatible && !selected,
-                reason: compatible ? undefined : "此 Agent 不支持该 MCP transport",
-              };
-            })}
-          onClose={() => setConsumerEntry(null)}
-          onReview={async (agentIds) => {
-            const asset: AssetRef = { domain: "mcp", key: keyOf(consumerEntry) };
-            await consumptionState.planForAsset(asset, agentIds);
-            setConsumerEntry(null);
-          }}
-        />
-      )}
       {consumptionState?.plan && (
         <AssetOperationReviewDialog
           plan={consumptionState.plan}
@@ -471,7 +415,7 @@ export function RegistryView({ state, consumptionState, intent, onIntentConsumed
             if (kind === "delete-asset") setDetail(null);
             toast.show({
               kind: "success",
-              msg: kind === "set-consumption" ? "MCP 消费关系已同步。" : "中央 MCP 资产与所有消费者已同步。",
+              msg: kind === "delete-asset" ? "MCP 资产已删除。" : "MCP 资产已保存。",
             });
           }}
         />
@@ -485,7 +429,6 @@ function RegistryCard({
   item,
   selected,
   installedAgents,
-  consumerAgentIds,
   sourceName,
   overriddenBy,
   onOpen,
@@ -493,7 +436,6 @@ function RegistryCard({
   item: CatalogItem;
   selected: boolean;
   installedAgents: string[];
-  consumerAgentIds: string[];
   sourceName: (id: string) => string;
   /** Label of the source that takes effect instead — presence marks this copy as shadowed. */
   overriddenBy?: string;
@@ -544,32 +486,20 @@ function RegistryCard({
         </div>
       }
       state={
-        <>
-          {overridden ? (
-            <Badge tone="warning"><LayersIcon className="w-3 h-3" />被覆盖</Badge>
-          ) : (
-            <Badge tone="success">生效中</Badge>
-          )}
-          {consumerAgentIds.length > 0 ? (
-            <Badge tone="info">使用中</Badge>
-          ) : (
-            <Badge tone="neutral">未使用</Badge>
-          )}
-        </>
+        overridden ? (
+          <Badge tone="warning"><LayersIcon className="w-3 h-3" />被覆盖</Badge>
+        ) : (
+          <Badge tone="success">生效中</Badge>
+        )
       }
-      impact={
-        <>
-          <AgentStack ids={consumerAgentIds} />
-          {overridden && (
+      impact={overridden ? (
           <span
-            className="mux-shadowed-source ml-auto min-w-0 truncate text-[10px]"
+            className="mux-shadowed-source min-w-0 truncate text-[10px]"
             title={`当前使用「${overriddenBy}」的配置`}
           >
             以 {overriddenBy} 为准
           </span>
-          )}
-        </>
-      }
+      ) : undefined}
     />
   );
 }
@@ -578,24 +508,20 @@ function RegistryDetail({
   entry,
   overriddenBy,
   installedAgents,
-  consumerAgentIds,
   sourceName,
   onClose,
   onCopy,
   onEdit,
   onDelete,
-  onManageConsumers,
 }: {
   entry: RegistryEntry;
   overriddenBy?: string;
   installedAgents: string[];
-  consumerAgentIds: string[];
   sourceName: (id: string) => string;
   onClose: () => void;
   onCopy: () => void;
   onEdit?: () => void;
   onDelete?: () => void;
-  onManageConsumers?: () => void;
 }) {
   const endpoint = endpointOf(entry);
   return (
@@ -612,7 +538,7 @@ function RegistryDetail({
       footer={
         <>
           {onDelete && (
-            <button onClick={onDelete} className="btn-danger" title="删除条目并从所有 Agent 卸载">
+            <button onClick={onDelete} className="btn-danger" title="删除中央 MCP 资产">
               <TrashIcon className="w-4 h-4" />
               删除
             </button>
@@ -647,12 +573,6 @@ function RegistryDetail({
 
       <InspectorSection title="连接">
         <InspectorField label="地址" mono>{endpoint.text}</InspectorField>
-        <InspectorField label="正在使用"><AgentStack ids={consumerAgentIds} /></InspectorField>
-        {onManageConsumers && (
-          <button type="button" className="btn-secondary" onClick={onManageConsumers}>
-            管理 Agent
-          </button>
-        )}
         {entry.repo && (
           <InspectorField label="主页">
             <button onClick={() => openUrl(entry.repo!)} className="mux-inline-link" title="在浏览器中打开">

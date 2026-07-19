@@ -16,7 +16,7 @@ import { formatError } from "../lib/format";
 import { keyOf, transportOf } from "../lib/mcp";
 import { consumptionsForAgent, externalForAgent } from "../lib/consumption";
 import { listModelAgents, listModelProfiles } from "../lib/api";
-import { EditIcon, LayersIcon, LinkIcon, PackageIcon, RefreshIcon, SparklesIcon } from "./icons";
+import { CheckIcon, EditIcon, LayersIcon, LinkIcon, PackageIcon, PlusIcon, RefreshIcon, SparklesIcon } from "./icons";
 import { Avatar, Badge, IconButton } from "./ui";
 import { AgentGlyph } from "./brandIcons";
 import { AgentConfigurationDialog } from "./AgentConfigurationDialog";
@@ -28,6 +28,14 @@ import {
   type ConsumptionPickerOption,
 } from "./ConsumptionPickerDialog";
 import { AssetOperationReviewDialog } from "./AssetOperationReviewDialog";
+
+type PickerDomain = "mcp" | "skill";
+
+function modelProtocolLabel(protocol: ModelProfileView["protocol"]) {
+  if (protocol === "anthropic-messages") return "Anthropic Messages";
+  if (protocol === "openai-responses") return "OpenAI Responses";
+  return "OpenAI Completions";
+}
 
 interface AgentViewProps {
   state: InstallState;
@@ -107,13 +115,14 @@ export function AgentView({
   const { entries, agents, refreshAgents, rescan } = state;
   const { show: showToast } = useToast();
   const [editingAgent, setEditingAgent] = useState(false);
-  const [pickerDomain, setPickerDomain] = useState<AssetRef["domain"] | null>(null);
+  const [pickerDomain, setPickerDomain] = useState<PickerDomain | null>(null);
   const [modelProfiles, setModelProfiles] = useState<ModelProfileView[]>([]);
   const [modelAgents, setModelAgents] = useState<ModelAgentView[]>([]);
   const [modelsLoading, setModelsLoading] = useState(true);
   const [modelsError, setModelsError] = useState<string | null>(null);
   const [resourceTab, setResourceTab] = useState<AgentResourceTab>("mcps");
   const [preparingChange, setPreparingChange] = useState(false);
+  const [selectedModelProfileId, setSelectedModelProfileId] = useState("");
   const [togglingMcp, setTogglingMcp] = useState<{
     key: string;
     enabled: boolean;
@@ -175,6 +184,18 @@ export function AgentView({
   const mcpExternal = externalForAgent(inventory, agentId, "mcp");
   const modelExternal = externalForAgent(inventory, agentId, "model");
   const skillExternal = externalForAgent(inventory, agentId, "skill");
+  const currentModelProfileId = modelRows.flatMap((item) =>
+    item.asset.domain === "model" ? [item.asset.profile_id] : []
+  )[0] ?? modelAgent?.assigned_profile ?? null;
+  const currentModelProfile = modelProfiles.find((profile) => profile.id === currentModelProfileId) ?? null;
+  const selectedModelProfile = compatibleProfiles.find((profile) => profile.id === selectedModelProfileId)
+    ?? compatibleProfiles.find((profile) => profile.id === currentModelProfileId)
+    ?? compatibleProfiles[0]
+    ?? null;
+
+  useEffect(() => {
+    setSelectedModelProfileId("");
+  }, [agentId]);
 
   if (!agent) return <div className="mux-agent-state">未找到该 Agent</div>;
 
@@ -230,7 +251,7 @@ export function AgentView({
   };
   const picker = pickerDomain ? pickerData(pickerDomain) : null;
 
-  function pickerData(domain: AssetRef["domain"]): {
+  function pickerData(domain: PickerDomain): {
     title: string;
     mode: "single" | "multiple";
     actionLabel: string;
@@ -256,22 +277,6 @@ export function AgentView({
             description: entry.description,
             meta: <TransportMark transport={transportOf(entry)} />,
           })),
-      };
-    }
-    if (domain === "model") {
-      return {
-        title: "切换 Model",
-        mode: "single",
-        actionLabel: "切换 Model",
-        busyLabel: "切换中…",
-        emptyMessage: "没有可切换的 Model",
-        searchPlaceholder: "搜索 Model",
-        options: compatibleProfiles.filter((profile) => !assigned.has(profile.id)).map((profile) => ({
-          id: profile.id,
-          name: profile.name,
-          description: `${profile.model} · ${profile.protocol}`,
-          reason: profile.credential_saved ? undefined : "无 Keychain 凭据",
-        })),
       };
     }
     return {
@@ -315,10 +320,8 @@ export function AgentView({
     }
   };
 
-  const planAdditions = (domain: AssetRef["domain"], ids: string[]) => {
-    const next = domain === "model"
-      ? ids.slice(0, 1)
-      : [...new Set([...currentIds(domain), ...ids])].sort();
+  const planAdditions = (domain: PickerDomain, ids: string[]) => {
+    const next = [...new Set([...currentIds(domain), ...ids])].sort();
     return planSelection(domain, next, true);
   };
 
@@ -416,7 +419,11 @@ export function AgentView({
         <AgentResourcePanel
           value={resourceTab}
           onChange={setResourceTab}
-          counts={{ mcps: mcpRows.length, models: modelRows.length, skills: skillRows.length }}
+          counts={{
+            mcps: mcpRows.length,
+            models: modelRows.length + (modelRows.length === 0 && modelExternal.length > 0 ? 1 : 0),
+            skills: skillRows.length,
+          }}
         >
           {resourceTab === "mcps" ? (
             <AgentConsumptionPanel
@@ -457,38 +464,29 @@ export function AgentView({
                 </div>
               </section>
             ) : (
-              <AgentConsumptionPanel
-                title="当前 Model"
-                description={`${modelRows.length} 项`}
-                manageLabel="切换 Model"
-                manageIcon={<RefreshIcon className="w-3.5 h-3.5" />}
-                rows={modelRows}
-                external={modelExternal}
-                onManage={() => setPickerDomain("model")}
-                onOpenAsset={openAsset}
-                manageDisabled={!consumptionState || !modelAgent || modelsLoading || preparingChange}
-                onRemove={(asset) => void planRemoval(asset)}
-                removeLabel={(name) => `从 ${agent.name} 移除 ${name}`}
-                removeDisabled={preparingChange}
-                emptyTitle="暂无 Model"
-                present={(asset) => {
-                  const id = asset.domain === "model" ? asset.profile_id : "";
-                  if (id.startsWith("external-")) {
-                    return {
-                      name: "外部 Model 配置",
-                      description: "未纳入中央 Models",
-                      icon: <LayersIcon className="w-4 h-4" />,
-                      meta: <Badge tone="warning">只读</Badge>,
-                    };
+              <AgentModelAssignment
+                loading={modelsLoading}
+                error={modelsError}
+                agent={modelAgent}
+                currentProfile={currentModelProfile}
+                hasExternalConfig={modelExternal.length > 0}
+                selectedProfile={selectedModelProfile}
+                compatibleProfiles={compatibleProfiles}
+                selectedProfileId={selectedModelProfile?.id ?? ""}
+                applying={preparingChange || consumptionState?.committing === true}
+                disabled={!consumptionState || Boolean(consumptionState.plan)}
+                onSelect={setSelectedModelProfileId}
+                onApply={() => {
+                  if (selectedModelProfile) {
+                    void planSelection("model", [selectedModelProfile.id], true);
                   }
-                  const profile = modelProfiles.find((candidate) => candidate.id === id);
-                  return {
-                    name: profile?.name ?? id,
-                    description: profile ? `${profile.model} · ${profile.protocol}` : "中央 Profile 已缺失",
-                    icon: <LayersIcon className="w-4 h-4" />,
-                    meta: profile?.credential_saved ? <Badge tone="success">Keychain</Badge> : null,
-                  };
                 }}
+                onOpenModels={() => navigateResource({ domain: "model", kind: "create" })}
+                onOpenModelDetail={(profileId) => navigateResource({
+                  domain: "model",
+                  kind: "detail",
+                  profileId,
+                })}
               />
             )
           ) : (
@@ -567,6 +565,131 @@ export function AgentView({
         />
       )}
     </div>
+  );
+}
+
+function AgentModelAssignment({
+  loading,
+  error,
+  agent,
+  currentProfile,
+  hasExternalConfig,
+  selectedProfile,
+  compatibleProfiles,
+  selectedProfileId,
+  applying,
+  disabled,
+  onSelect,
+  onApply,
+  onOpenModels,
+  onOpenModelDetail,
+}: {
+  loading: boolean;
+  error: string | null;
+  agent: ModelAgentView | null;
+  currentProfile: ModelProfileView | null;
+  hasExternalConfig: boolean;
+  selectedProfile: ModelProfileView | null;
+  compatibleProfiles: ModelProfileView[];
+  selectedProfileId: string;
+  applying: boolean;
+  disabled: boolean;
+  onSelect: (profileId: string) => void;
+  onApply: () => void;
+  onOpenModels: () => void;
+  onOpenModelDetail: (profileId: string) => void;
+}) {
+  if (loading) {
+    return <div className="mux-agent-inline-state">正在读取 Model…</div>;
+  }
+  if (error) {
+    return <div className="mux-agent-inline-state">Model 读取失败：{error}</div>;
+  }
+  if (!agent) {
+    return <div className="mux-agent-inline-state">此 Agent 尚未接入 Models。</div>;
+  }
+  if (compatibleProfiles.length === 0) {
+    return (
+      <div className="mux-agent-inline-state mux-agent-inline-state-action">
+        <span>模型库中没有兼容资产。</span>
+        <button type="button" className="btn-secondary" onClick={onOpenModels}>
+          <PlusIcon className="w-4 h-4" />
+          新建模型
+        </button>
+      </div>
+    );
+  }
+
+  const alreadyApplied = currentProfile?.id === selectedProfile?.id && !hasExternalConfig;
+  return (
+    <section className="mux-agent-section mux-agent-resource-content" aria-label="Model 配置">
+      <div className="mux-agent-section-head">
+        <div>
+          <h3>Model</h3>
+          <p>当前配置与可切换的中央模型。</p>
+        </div>
+      </div>
+      <div className="mux-agent-model-control">
+        <div className="mux-agent-model-current">
+          <Avatar seed={currentProfile?.name ?? agent.name} label="M" size={34} />
+          <div>
+            <span>当前模型</span>
+            <strong>{currentProfile?.name ?? (hasExternalConfig ? "外部配置" : "未配置")}</strong>
+            <code>
+              {currentProfile?.model
+                ?? (hasExternalConfig ? "未纳入中央模型库" : "尚未选择模型")}
+            </code>
+          </div>
+          {currentProfile && (
+            <IconButton
+              title={`查看 ${currentProfile.name} 资产`}
+              onClick={() => onOpenModelDetail(currentProfile.id)}
+            >
+              <LinkIcon className="w-4 h-4" />
+            </IconButton>
+          )}
+        </div>
+
+        <div className="mux-agent-model-apply">
+          <label htmlFor={`model-profile-${agent.id}`}>
+            可切换模型 · {compatibleProfiles.length}
+          </label>
+          <select
+            id={`model-profile-${agent.id}`}
+            className="mux-model-field"
+            value={selectedProfileId}
+            disabled={applying || disabled}
+            onChange={(event) => onSelect(event.target.value)}
+          >
+            {compatibleProfiles.map((profile) => (
+              <option key={profile.id} value={profile.id}>
+                {profile.name} · {profile.model}
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            className={alreadyApplied ? "btn-secondary" : "btn-primary"}
+            disabled={!selectedProfile || applying || disabled || alreadyApplied}
+            onClick={onApply}
+          >
+            {alreadyApplied
+              ? <CheckIcon className="w-4 h-4" />
+              : <RefreshIcon className="w-4 h-4" />}
+            {applying ? "切换中…" : alreadyApplied ? "当前模型" : "切换"}
+          </button>
+          <div className="mux-agent-model-preview">
+            <span className="mux-model-protocol-dot" data-protocol={selectedProfile?.protocol} />
+            <span>{selectedProfile ? modelProtocolLabel(selectedProfile.protocol) : ""}</span>
+            {selectedProfile?.credential_saved && (
+              <span className="mux-agent-model-key">
+                <CheckIcon className="w-3 h-3" /> Keychain
+              </span>
+            )}
+          </div>
+        </div>
+      </div>
+    </section>
   );
 }
 

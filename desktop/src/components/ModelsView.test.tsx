@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import { expect, it } from "vitest";
 
 const source = await readFile(resolve(process.cwd(), "src/components/ModelsView.tsx"), "utf8");
+const agentSource = await readFile(resolve(process.cwd(), "src/components/AgentView.tsx"), "utf8");
 const css = await readFile(resolve(process.cwd(), "src/index.css"), "utf8");
 
 it("maps Model cards to the shared resource interface", () => {
@@ -11,7 +12,6 @@ it("maps Model cards to the shared resource interface", () => {
   expect(card).toMatch(/identity=/);
   expect(card).toMatch(/configuration=/);
   expect(card).toMatch(/state=/);
-  expect(card).toMatch(/impact=/);
   expect(card).toMatch(/凭据已保存/);
   expect(card).not.toMatch(/<IconButton/);
 });
@@ -31,4 +31,20 @@ it("routes profile lifecycle through central asset plans", () => {
   expect(source).toMatch(/consumptionState\.planUpdate/);
   expect(source).toMatch(/consumptionState\.planDelete/);
   expect(source).not.toMatch(/saveModelProfile|deleteModelProfile|applyModelProfile/);
+});
+
+it("keeps the top-level Models workspace asset-only", () => {
+  expect(source).toMatch(/searchPlaceholder="搜索模型资产"/);
+  expect(source).toMatch(/label="模型资产"/);
+  expect(source).not.toMatch(/listModelAgents|planForAgent|planForAsset/);
+  expect(source).not.toMatch(/AssetConsumerDialog|管理 Agent|Agent 模型|使用中|未使用/);
+  expect(css).not.toMatch(/\.mux-model-agent-grid/);
+});
+
+it("owns current-model display and switching inside the Agent panel", () => {
+  expect(agentSource).toMatch(/function AgentModelAssignment/);
+  expect(agentSource).toMatch(/当前模型/);
+  expect(agentSource).toMatch(/可切换模型/);
+  expect(agentSource).toMatch(/planSelection\("model", \[selectedModelProfile\.id\], true\)/);
+  expect(css).toMatch(/\.mux-agent-model-control/);
 });

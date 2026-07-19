@@ -209,11 +209,14 @@ export async function collectVersionMismatches(
 }
 
 export function isReleaseMerge(beforeVersion, afterVersion, commitTitle) {
+  const expectedTitle = `chore(main): release ${afterVersion}`;
+  const escapedTitle = expectedTitle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   return (
     SEMVER_PATTERN.test(beforeVersion) &&
     SEMVER_PATTERN.test(afterVersion) &&
     beforeVersion !== afterVersion &&
-    commitTitle === `chore(main): release ${afterVersion}`
+    (commitTitle === expectedTitle ||
+      new RegExp(`^${escapedTitle} \\(#[1-9][0-9]*\\)$`).test(commitTitle))
   );
 }
 
@@ -404,29 +407,44 @@ function parseArguments(argv) {
   const [command, ...args] = argv;
   let root = REPOSITORY_ROOT;
   let stableTag;
+  let beforeVersion;
+  let afterVersion;
+  let commitTitle;
 
   for (let index = 0; index < args.length; index += 1) {
     if (args[index] === "--root" && args[index + 1]) {
       root = resolve(args[++index]);
     } else if (args[index] === "--tag" && args[index + 1]) {
       stableTag = args[++index];
+    } else if (args[index] === "--before" && args[index + 1]) {
+      beforeVersion = args[++index];
+    } else if (args[index] === "--after" && args[index + 1]) {
+      afterVersion = args[++index];
+    } else if (args[index] === "--title" && args[index + 1]) {
+      commitTitle = args[++index];
     } else {
       throw new Error(`unknown argument: ${args[index]}`);
     }
   }
-  return { command, root, stableTag };
+  return { command, root, stableTag, beforeVersion, afterVersion, commitTitle };
 }
 
 async function main() {
-  const { command, root, stableTag } = parseArguments(process.argv.slice(2));
+  const { command, root, stableTag, beforeVersion, afterVersion, commitTitle } =
+    parseArguments(process.argv.slice(2));
   if (command === "check") {
     await check(root, stableTag);
   } else if (command === "refresh-locks") {
     if (stableTag) throw new Error("refresh-locks does not accept --tag");
     await refreshLocks(root);
+  } else if (command === "is-release-merge") {
+    if (beforeVersion === undefined || afterVersion === undefined || commitTitle === undefined) {
+      throw new Error("is-release-merge requires --before, --after, and --title");
+    }
+    process.stdout.write(`${isReleaseMerge(beforeVersion, afterVersion, commitTitle)}\n`);
   } else {
     throw new Error(
-      "usage: node scripts/release-version.mjs <check|refresh-locks> [--tag vX.Y.Z] [--root PATH]",
+      "usage: node scripts/release-version.mjs <check|refresh-locks|is-release-merge> [options]",
     );
   }
 }

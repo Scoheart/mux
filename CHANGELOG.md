@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.6.1](https://github.com/Scoheart/mux/compare/v1.6.0...v1.6.1) (2026-07-19)
+
+
+### Bug Fixes
+
+* **assets:** keep consumption controls in Agent pages ([#52](https://github.com/Scoheart/mux/issues/52)) ([42973f8](https://github.com/Scoheart/mux/commit/42973f8f885445e65524c304d7b1c5970cf99ef7))
+
 ## [1.6.0](https://github.com/Scoheart/mux/compare/v1.5.0...v1.6.0) (2026-07-19)
 
 

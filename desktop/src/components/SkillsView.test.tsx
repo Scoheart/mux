@@ -558,10 +558,8 @@ describe("SkillsView", () => {
     expect(onIntentConsumed).toHaveBeenCalledOnce();
   });
 
-  it.each([
-    ["missing-skill", "missing-skill"],
-    ["external-copy", "external-copy"],
-  ])("consumes an unavailable detail intent for %s with a visible notice", async (skillName) => {
+  it("consumes an unavailable detail intent with a visible notice", async () => {
+    const skillName = "missing-skill";
     const inventory = skillsInventoryFixture();
     inventory.items.push({
       ...inventory.items[1],
@@ -581,10 +579,32 @@ describe("SkillsView", () => {
     );
 
     expect(
-      await screen.findByText(`未找到可管理的 Skill“${skillName}”。`),
+      await screen.findByText(`未找到 Skill 资产“${skillName}”。`),
     ).toBeVisible();
     expect(onIntentConsumed).toHaveBeenCalledOnce();
     expect(screen.queryByLabelText(`${skillName} 详情`)).not.toBeInTheDocument();
+  });
+
+  it("opens an external Skill candidate as an importable asset", async () => {
+    const inventory = skillsInventoryFixture();
+    inventory.items.push({
+      ...inventory.items[1],
+      identity: "central:external-copy",
+      name: "external-copy",
+      states: ["external"],
+      source: null,
+    });
+
+    render(
+      <SkillsView
+        state={stateWith(inventory)}
+        intent={{ id: 23, domain: "skill", kind: "detail", skillName: "external-copy" }}
+        onIntentConsumed={vi.fn()}
+      />,
+    );
+
+    expect(await screen.findByLabelText("external-copy 详情")).toBeVisible();
+    expect(screen.queryByRole("button", { name: "管理 Agent" })).not.toBeInTheDocument();
   });
 
   it.each(["missing", "broken_link"] as const)(
@@ -611,7 +631,7 @@ describe("SkillsView", () => {
       expect(await screen.findByLabelText(`${skillName} 详情`)).toBeVisible();
       expect(onIntentConsumed).toHaveBeenCalledWith(29);
       expect(
-        screen.queryByText(`未找到可管理的 Skill“${skillName}”。`),
+        screen.queryByText(`未找到 Skill 资产“${skillName}”。`),
       ).not.toBeInTheDocument();
     },
   );
@@ -657,13 +677,13 @@ describe("SkillsView", () => {
       />,
     );
     expect(
-      await screen.findByText("未找到可管理的 Skill“missing-skill”。"),
+      await screen.findByText("未找到 Skill 资产“missing-skill”。"),
     ).toBeVisible();
 
     await userEvent.click(screen.getByRole("button", { name: /review-changes/ }));
     expect(await screen.findByLabelText("review-changes 详情")).toBeVisible();
     expect(
-      screen.queryByText("未找到可管理的 Skill“missing-skill”。"),
+      screen.queryByText("未找到 Skill 资产“missing-skill”。"),
     ).not.toBeInTheDocument();
   });
 

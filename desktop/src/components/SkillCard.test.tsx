@@ -15,7 +15,7 @@ describe("SkillCard", () => {
     const card = screen.getByRole("button", { name: /review-changes/ });
     expect(card).toHaveAttribute("aria-pressed", "false");
     expect(card.querySelector("button")).toBeNull();
-    expect(screen.getByText("使用中")).toBeVisible();
+    expect(screen.queryByText("使用中")).not.toBeInTheDocument();
     expect(screen.getByText("高风险")).toMatchObject({
       className: "mux-skill-risk-badge",
     });
@@ -27,7 +27,7 @@ describe("SkillCard", () => {
     expect(onOpen).toHaveBeenCalledTimes(2);
   });
 
-  it("states unknown provenance and risk while retaining update errors and Agent impact", () => {
+  it("states unknown provenance and risk while retaining update errors without Agent impact", () => {
     const item = {
       ...skillsInventoryFixture().items[0],
       source: null,
@@ -48,7 +48,7 @@ describe("SkillCard", () => {
     expect(screen.getByText("未审阅")).toBeVisible();
     expect(screen.getByText(/更新检查失败：GitHub API rate limit/)).toBeVisible();
     expect(screen.getByText(/可重试：2026-07-17T01:02:03Z/)).toBeVisible();
-    expect(screen.getByText("3 个 Agent")).toBeVisible();
+    expect(screen.queryByText("3 个 Agent")).not.toBeInTheDocument();
   });
 
   it("marks imported provenance explicitly", () => {

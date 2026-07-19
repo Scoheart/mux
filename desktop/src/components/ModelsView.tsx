@@ -1,26 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { openUrl } from "@tauri-apps/plugin-opener";
-import {
-  listModelAgents,
-  listModelProfiles,
-} from "../lib/api";
+import { listModelProfiles } from "../lib/api";
 import type { ConsumptionState } from "../hooks/useConsumptionState";
 import type {
-  AssetRef,
-  ModelAgentView,
   ModelProfile,
   ModelProfileView,
   ModelProtocol,
   ResourceNavigationIntent,
 } from "../lib/types";
-import { consumersForAsset } from "../lib/consumption";
 import { formatError } from "../lib/format";
-import { AgentGlyph } from "./brandIcons";
 import { Avatar, Badge } from "./ui";
 import { ResourceCard } from "./ResourceCard";
 import { ResourceState } from "./ResourceState";
 import { DialogShell } from "./DialogShell";
-import { AssetConsumerDialog } from "./AssetConsumerDialog";
 import { AssetOperationReviewDialog } from "./AssetOperationReviewDialog";
 import {
   CheckIcon,
@@ -32,7 +23,6 @@ import {
 } from "./icons";
 import { useToast } from "./Toast";
 import {
-  AgentStack,
   InspectorField,
   InspectorSection,
   ResourceGrid,
@@ -50,7 +40,8 @@ const PROTOCOLS: Array<{ id: ModelProtocol; label: string }> = [
   { id: "openai-completions", label: "OpenAI Completions" },
 ];
 
-type ModelStatusFilter = "all" | "assigned" | "unassigned";
+type ModelAssetFilter = "all" | "credential" | "reasoning";
+
 const emptyProfile = (): ModelProfile => ({
   id: "",
   name: "",
@@ -74,25 +65,19 @@ export function ModelsView({
   onIntentConsumed?(id: number): void;
 } = {}) {
   const [profiles, setProfiles] = useState<ModelProfileView[]>([]);
-  const [agents, setAgents] = useState<ModelAgentView[]>([]);
   const [selectedProfileId, setSelectedProfileId] = useState<string | null>(null);
   const [editing, setEditing] = useState<ModelProfileView | null | undefined>(undefined);
-  const [consumerProfile, setConsumerProfile] = useState<ModelProfileView | null>(null);
   const [loading, setLoading] = useState(true);
   const [readError, setReadError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState<ModelStatusFilter>("all");
+  const [assetFilter, setAssetFilter] = useState<ModelAssetFilter>("all");
   const [protocolFilter, setProtocolFilter] = useState<ModelProtocol | null>(null);
   const toast = useToast();
   const lastConsumedIntentId = useRef<number | null>(null);
 
   const refresh = useCallback(async () => {
-    const [nextProfiles, nextAgents] = await Promise.all([
-      listModelProfiles(),
-      listModelAgents(),
-    ]);
+    const nextProfiles = await listModelProfiles();
     setProfiles(nextProfiles);
-    setAgents(nextAgents);
     setSelectedProfileId((current) =>
       current && nextProfiles.some((profile) => profile.id === current) ? current : null
     );
@@ -104,64 +89,45 @@ export function ModelsView({
       .catch((error) => {
         const message = formatError(error);
         setReadError(message);
-        toast.show({ kind: "error", msg: "读取模型配置失败：" + message });
+        toast.show({ kind: "error", msg: "读取模型资产失败：" + message });
       })
       .finally(() => setLoading(false));
-  }, [refresh]);
-
-  const agentsByProfile = useMemo(() => {
-    const map = new Map<string, string[]>();
-    if (consumptionState) {
-      for (const item of consumptionState.inventory?.consumptions ?? []) {
-        if (!item.desired || item.asset.domain !== "model") continue;
-        const rows = map.get(item.asset.profile_id) ?? [];
-        rows.push(item.agent_id);
-        map.set(item.asset.profile_id, rows);
-      }
-      return map;
-    }
-    for (const agent of agents) {
-      if (!agent.assigned_profile) continue;
-      const rows = map.get(agent.assigned_profile) ?? [];
-      rows.push(agent.id);
-      map.set(agent.assigned_profile, rows);
-    }
-    return map;
-  }, [agents, consumptionState]);
-
-  const statusCounts = useMemo(() => {
-    const scopedProfiles = protocolFilter
-      ? profiles.filter((profile) => profile.protocol === protocolFilter)
-      : profiles;
-    const assigned = scopedProfiles.filter((profile) => (agentsByProfile.get(profile.id)?.length ?? 0) > 0).length;
-    return { all: scopedProfiles.length, assigned, unassigned: scopedProfiles.length - assigned };
-  }, [agentsByProfile, profiles, protocolFilter]);
+  }, [refresh, toast]);
 
   const protocolCounts = useMemo(
-    () =>
-      Object.fromEntries(
-        PROTOCOLS.map((protocol) => [
-          protocol.id,
-          profiles.filter((profile) => profile.protocol === protocol.id).length,
-        ])
-      ) as Record<ModelProtocol, number>,
-    [profiles]
+    () => Object.fromEntries(
+      PROTOCOLS.map((protocol) => [
+        protocol.id,
+        profiles.filter((profile) => profile.protocol === protocol.id).length,
+      ])
+    ) as Record<ModelProtocol, number>,
+    [profiles],
   );
+
+  const assetCounts = useMemo(() => {
+    const scoped = protocolFilter
+      ? profiles.filter((profile) => profile.protocol === protocolFilter)
+      : profiles;
+    return {
+      all: scoped.length,
+      credential: scoped.filter((profile) => profile.credential_saved).length,
+      reasoning: scoped.filter((profile) => profile.reasoning).length,
+    };
+  }, [profiles, protocolFilter]);
 
   const filteredProfiles = useMemo(() => {
     const needle = query.trim().toLocaleLowerCase();
     return profiles.filter((profile) => {
-      const assigned = (agentsByProfile.get(profile.id)?.length ?? 0) > 0;
-      if (statusFilter === "assigned" && !assigned) return false;
-      if (statusFilter === "unassigned" && assigned) return false;
       if (protocolFilter && profile.protocol !== protocolFilter) return false;
+      if (assetFilter === "credential" && !profile.credential_saved) return false;
+      if (assetFilter === "reasoning" && !profile.reasoning) return false;
       if (!needle) return true;
       return [profile.name, profile.id, profile.model, profile.base_url, protocolLabel(profile.protocol)]
         .join(" ")
         .toLocaleLowerCase()
         .includes(needle);
     });
-  }, [agentsByProfile, profiles, protocolFilter, query, statusFilter]);
+  }, [assetFilter, profiles, protocolFilter, query]);
 
   const selectedProfile = profiles.find((profile) => profile.id === selectedProfileId) ?? null;
 
@@ -176,27 +142,13 @@ export function ModelsView({
     const profile = profiles.find((candidate) => candidate.id === intent.profileId);
     setQuery("");
     setProtocolFilter(null);
-    setStatusFilter("all");
+    setAssetFilter("all");
     setSelectedProfileId(profile?.id ?? null);
     if (!profile) toast.show({ kind: "error", msg: `未找到模型“${intent.profileId}”。` });
     onIntentConsumed?.(intent.id);
   }, [intent, loading, onIntentConsumed, profiles, toast]);
 
-  const changeQuery = (value: string) => {
-    setSelectedProfileId(null);
-    setQuery(value);
-  };
-
-  const changeStatus = (status: ModelStatusFilter) => {
-    setSelectedProfileId(null);
-    setStatusFilter(status);
-  };
-
-  const changeProtocol = (protocol: ModelProtocol | null) => {
-    setSelectedProfileId(null);
-    setProtocolFilter(protocol);
-  };
-
+  const clearSelection = () => setSelectedProfileId(null);
   const planProfileDelete = async (profile: ModelProfileView) => {
     if (!consumptionState) return;
     try {
@@ -217,7 +169,7 @@ export function ModelsView({
                 icon={<LayersIcon className="w-3.5 h-3.5" />}
                 label="全部协议"
                 count={profiles.length}
-                onClick={() => changeProtocol(null)}
+                onClick={() => { clearSelection(); setProtocolFilter(null); }}
               />
               {PROTOCOLS.map((protocol) => (
                 <SidebarItem
@@ -226,25 +178,25 @@ export function ModelsView({
                   icon={<LayersIcon className="w-3.5 h-3.5" />}
                   label={protocol.label}
                   count={protocolCounts[protocol.id]}
-                  onClick={() => changeProtocol(protocol.id)}
+                  onClick={() => { clearSelection(); setProtocolFilter(protocol.id); }}
                 />
               ))}
             </SidebarSection>
           </WorkspaceSidebar>
         }
         query={query}
-        onQueryChange={changeQuery}
-        searchPlaceholder="搜索模型"
+        onQueryChange={(value) => { clearSelection(); setQuery(value); }}
+        searchPlaceholder="搜索模型资产"
         filters={
           <ResourceTabs
-            label="模型状态"
-            value={statusFilter}
+            label="模型资产"
+            value={assetFilter}
             options={[
-              { value: "all", label: "全部", count: statusCounts.all },
-              { value: "assigned", label: "使用中", count: statusCounts.assigned },
-              { value: "unassigned", label: "未使用", count: statusCounts.unassigned },
+              { value: "all", label: "全部", count: assetCounts.all },
+              { value: "credential", label: "有凭据", count: assetCounts.credential },
+              { value: "reasoning", label: "推理模型", count: assetCounts.reasoning },
             ]}
-            onChange={changeStatus}
+            onChange={(value) => { clearSelection(); setAssetFilter(value); }}
           />
         }
         toolbarActions={
@@ -253,35 +205,28 @@ export function ModelsView({
             新建模型
           </button>
         }
-        inspector={
-          selectedProfile ? (
-            <ModelInspector
-              profile={selectedProfile}
-              profiles={profiles}
-              agents={agents}
-              assignedIds={agentsByProfile.get(selectedProfile.id) ?? []}
-              onManage={consumptionState ? () => setConsumerProfile(selectedProfile) : undefined}
-              onClose={() => setSelectedProfileId(null)}
-              onEdit={consumptionState ? () => setEditing(selectedProfile) : undefined}
-              onDelete={consumptionState ? () => void planProfileDelete(selectedProfile) : undefined}
-            />
-          ) : undefined
-        }
-        onInspectorClose={() => setSelectedProfileId(null)}
+        inspector={selectedProfile ? (
+          <ModelInspector
+            profile={selectedProfile}
+            onClose={clearSelection}
+            onEdit={consumptionState ? () => setEditing(selectedProfile) : undefined}
+            onDelete={consumptionState ? () => void planProfileDelete(selectedProfile) : undefined}
+          />
+        ) : undefined}
+        onInspectorClose={clearSelection}
       >
         {loading ? (
-          <ResourceState kind="loading" title="正在读取模型配置" />
+          <ResourceState kind="loading" title="正在读取模型资产" />
         ) : readError ? (
           <ResourceState
             kind="read-error"
             icon={<LayersIcon className="w-6 h-6" />}
-            title="读取模型配置失败"
+            title="读取模型资产失败"
             detail={readError}
             action={<button className="btn-primary" type="button" onClick={() => {
               setLoading(true);
               setReadError(null);
               void refresh()
-                .then(() => setReadError(null))
                 .catch((error) => setReadError(formatError(error)))
                 .finally(() => setLoading(false));
             }}>重试</button>}
@@ -290,17 +235,15 @@ export function ModelsView({
           <ResourceState
             kind={profiles.length === 0 ? "empty" : "no-match"}
             icon={<LayersIcon className="w-6 h-6" />}
-            title={profiles.length === 0 ? "暂无模型" : "没有匹配项"}
-            detail={profiles.length === 0 ? "创建模型后即可由 Agent 消费" : "调整搜索、协议或状态筛选后重试。"}
-            action={
-              profiles.length === 0 ? undefined : (
-                <button className="btn-secondary" type="button" onClick={() => {
-                  setQuery("");
-                  setProtocolFilter(null);
-                  setStatusFilter("all");
-                }}>清除筛选</button>
-              )
-            }
+            title={profiles.length === 0 ? "暂无模型资产" : "没有匹配项"}
+            detail={profiles.length === 0 ? "新建一个可复用的模型配置。" : "调整搜索或筛选。"}
+            action={profiles.length === 0 ? undefined : (
+              <button className="btn-secondary" type="button" onClick={() => {
+                setQuery("");
+                setProtocolFilter(null);
+                setAssetFilter("all");
+              }}>清除筛选</button>
+            )}
           />
         ) : (
           <ResourceGrid>
@@ -309,13 +252,13 @@ export function ModelsView({
                 key={profile.id}
                 profile={profile}
                 selected={profile.id === selectedProfileId}
-                agentIds={agentsByProfile.get(profile.id) ?? []}
                 onOpen={() => setSelectedProfileId(profile.id)}
               />
             ))}
           </ResourceGrid>
         )}
       </ResourceWorkspace>
+
       {editing !== undefined && (
         <ModelProfileDialog
           initial={editing}
@@ -332,35 +275,7 @@ export function ModelsView({
           }}
         />
       )}
-      {consumerProfile && consumptionState && (
-        <AssetConsumerDialog
-          asset={{ domain: "model", profile_id: consumerProfile.id }}
-          assetName={consumerProfile.name}
-          consumers={consumersForAsset(consumptionState.inventory, {
-            domain: "model",
-            profile_id: consumerProfile.id,
-          })}
-          options={agents.map((agent) => {
-            const compatible = agent.mode === "managed" && agent.supported_protocols.includes(consumerProfile.protocol);
-            const selected = (agentsByProfile.get(consumerProfile.id) ?? []).includes(agent.id);
-            return {
-              id: agent.id,
-              name: agent.name,
-              description: agent.installed ? agent.config_path : "未检测到安装",
-              disabled: !compatible && !selected,
-              reason: agent.mode === "guided"
-                ? "此 Agent 仅支持官方引导配置"
-                : compatible ? undefined : "协议不兼容",
-            };
-          })}
-          onClose={() => setConsumerProfile(null)}
-          onReview={async (agentIds) => {
-            const asset: AssetRef = { domain: "model", profile_id: consumerProfile.id };
-            await consumptionState.planForAsset(asset, agentIds);
-            setConsumerProfile(null);
-          }}
-        />
-      )}
+
       {consumptionState?.plan && (
         <AssetOperationReviewDialog
           plan={consumptionState.plan}
@@ -374,7 +289,7 @@ export function ModelsView({
             if (kind === "delete-asset") setSelectedProfileId(null);
             toast.show({
               kind: "success",
-              msg: kind === "set-consumption" ? "Model 消费关系已同步。" : "中央 Model 资产与所有消费者已同步。",
+              msg: kind === "delete-asset" ? "模型资产已删除。" : "模型资产已保存。",
             });
           }}
         />
@@ -386,12 +301,10 @@ export function ModelsView({
 function ModelCard({
   profile,
   selected,
-  agentIds,
   onOpen,
 }: {
   profile: ModelProfileView;
   selected: boolean;
-  agentIds: string[];
   onOpen: () => void;
 }) {
   return (
@@ -402,25 +315,25 @@ function ModelCard({
       onOpen={onOpen}
       identity={
         <>
-        <Avatar seed={profile.name} label="M" size={36} />
-        <div className="mux-model-card-identity">
-          <div className="mux-model-card-name">
-            <strong title={profile.name}>{profile.name}</strong>
-            {profile.credential_saved && (
-              <span className="mux-credential-mark" title="密钥已存入 Keychain">
-                <CheckIcon className="w-3 h-3" />
-              </span>
-            )}
+          <Avatar seed={profile.name} label="M" size={36} />
+          <div className="mux-model-card-identity">
+            <div className="mux-model-card-name">
+              <strong title={profile.name}>{profile.name}</strong>
+              {profile.credential_saved && (
+                <span className="mux-credential-mark" title="密钥已存入 Keychain">
+                  <CheckIcon className="w-3 h-3" />
+                </span>
+              )}
+            </div>
+            <code title={profile.model}>{profile.model}</code>
           </div>
-          <code title={profile.model}>{profile.model}</code>
-        </div>
         </>
       }
       configuration={
         <div className="mux-model-card-endpoint" title={profile.base_url}>
-        <LinkIcon className="w-3 h-3 flex-shrink-0" />
-        <span className="mux-model-card-endpoint-label">Base URL</span>
-        <code>{profile.base_url}</code>
+          <LinkIcon className="w-3 h-3 flex-shrink-0" />
+          <span className="mux-model-card-endpoint-label">Base URL</span>
+          <code>{profile.base_url}</code>
         </div>
       }
       state={
@@ -432,28 +345,17 @@ function ModelCard({
           </Badge>
         </>
       }
-      impact={
-        <AgentStack ids={agentIds} />
-      }
     />
   );
 }
 
 function ModelInspector({
   profile,
-  profiles,
-  agents,
-  assignedIds,
-  onManage,
   onClose,
   onEdit,
   onDelete,
 }: {
   profile: ModelProfileView;
-  profiles: ModelProfileView[];
-  agents: ModelAgentView[];
-  assignedIds: string[];
-  onManage?: () => void;
   onClose: () => void;
   onEdit?: () => void;
   onDelete?: () => void;
@@ -478,6 +380,11 @@ function ModelInspector({
         </>
       }
     >
+      <InspectorSection title="资产信息">
+        <InspectorField label="资产 ID" mono>{profile.id}</InspectorField>
+        <InspectorField label="协议">{protocolLabel(profile.protocol)}</InspectorField>
+        <InspectorField label="推理">{profile.reasoning ? "支持" : "未标记"}</InspectorField>
+      </InspectorSection>
       <InspectorSection title="接口">
         <InspectorField label="模型 ID" mono>{profile.model}</InspectorField>
         <InspectorField label="Base URL" mono>{profile.base_url}</InspectorField>
@@ -486,44 +393,6 @@ function ModelInspector({
             {profile.credential_saved ? "已保存到 Keychain" : "未保存"}
           </span>
         </InspectorField>
-      </InspectorSection>
-
-      <InspectorSection title="Agent">
-        <div className="mux-consumer-summary">
-          <AgentStack ids={assignedIds} />
-          <span>{assignedIds.length > 0 ? `${assignedIds.length} 个 Agent 正在使用` : "尚无 Agent 使用"}</span>
-          {onManage && <button type="button" className="btn-secondary" onClick={onManage}>管理 Agent</button>}
-        </div>
-        <div className="mux-model-connection-list">
-          {agents.map((agent) => {
-            const compatible = agent.supported_protocols.includes(profile.protocol);
-            const assigned = assignedIds.includes(agent.id);
-            const current = agent.assigned_profile
-              ? profiles.find((item) => item.id === agent.assigned_profile)?.name
-              : null;
-            return (
-              <div className="mux-model-connection-row" key={agent.id}>
-                <AgentGlyph id={agent.id} name={agent.name} size={30} />
-                <div className="min-w-0 flex-1">
-                  <strong>{agent.name}</strong>
-                  <span>
-                    {assigned ? "当前使用" : current ? `当前：${current}` : agent.installed ? "尚未配置" : "未检测到"}
-                  </span>
-                </div>
-                {agent.mode === "guided" ? (
-                  <button type="button" className="btn-ghost" onClick={() => openUrl(agent.docs)}>
-                    <LinkIcon className="w-4 h-4" />
-                    设置
-                  </button>
-                ) : assigned ? (
-                  <span className="mux-applied-label"><CheckIcon className="w-3.5 h-3.5" />已应用</span>
-                ) : (
-                  <span className="mux-status-muted">{compatible ? "未使用" : "不兼容"}</span>
-                )}
-              </div>
-            );
-          })}
-        </div>
       </InspectorSection>
     </ResourceInspector>
   );
@@ -569,21 +438,21 @@ function ModelProfileDialog({
 
   return (
     <DialogShell
-        kind="editor"
-        size="md"
-        title={initial ? "编辑模型" : "新建模型"}
-        subtitle="API Key 保存在 macOS Keychain。"
-        busy={busy}
-        onClose={onClose}
-        footerEnd={
-          <>
-            <button type="button" className="btn-ghost" disabled={busy} onClick={onClose}>取消</button>
-            <button type="button" className="btn-primary" disabled={!valid} onClick={() => void save()}>
-              {busy ? "保存中…" : "保存"}
-            </button>
-          </>
-        }
-      >
+      kind="editor"
+      size="md"
+      title={initial ? "编辑模型" : "新建模型"}
+      subtitle="API Key 保存在 macOS Keychain。"
+      busy={busy}
+      onClose={onClose}
+      footerEnd={
+        <>
+          <button type="button" className="btn-ghost" disabled={busy} onClick={onClose}>取消</button>
+          <button type="button" className="btn-primary" disabled={!valid} onClick={() => void save()}>
+            {busy ? "保存中…" : "保存"}
+          </button>
+        </>
+      }
+    >
       <div className="mux-model-form">
         <div className="mux-model-form-grid">
           <label>

@@ -2,15 +2,11 @@ import { useEffect, useState } from "react";
 import type {
   InventoryState,
   PlanRepairRequest,
-  SkillAgentView,
   SkillCommandError,
-  ConsumptionView,
   SkillDetail,
   SkillInventoryItem,
-  SkillTargetView,
 } from "../lib/types";
 import {
-  AgentStack,
   InspectorField,
   InspectorSection,
   ResourceInspector,
@@ -43,11 +39,6 @@ export type SkillLifecycleIntent =
       repair: PlanRepairRequest["repair"];
     };
 
-function presentAgentNames(item: SkillInventoryItem, agents: SkillAgentView[]) {
-  const names = new Map(agents.map((agent) => [agent.id, agent.name]));
-  return [...new Set(item.affected_agent_ids.map((id) => names.get(id) ?? id))];
-}
-
 function sourceKindLabel(item: SkillInventoryItem) {
   if (!item.source) return "外部副本";
   if (item.source.kind === "github") return "GitHub";
@@ -59,27 +50,19 @@ function sourceKindLabel(item: SkillInventoryItem) {
 export function SkillInspector({
   item,
   detail,
-  agents,
-  consumers = [],
   loading,
   error,
   onClose,
   onPlan,
-  onManageConsumers,
   planning = false,
   readOnly = false,
 }: {
   item: SkillInventoryItem;
   detail: SkillDetail | null;
-  agents: SkillAgentView[];
-  /** Deprecated: assignment targets are projected through consumption inventory. */
-  targets?: SkillTargetView[];
-  consumers?: ConsumptionView[];
   loading: boolean;
   error: SkillCommandError | null;
   onClose: () => void;
   onPlan?: (intent: SkillLifecycleIntent) => void;
-  onManageConsumers?: () => void;
   planning?: boolean;
   readOnly?: boolean;
 }) {
@@ -89,11 +72,6 @@ export function SkillInspector({
     setReplaceConflicts(false);
     setReplaceLocalChanges(false);
   }, [item.identity]);
-  const consumerIds = [...new Set(consumers.map((consumer) => consumer.agent_id))];
-  const affectedAgentNames = presentAgentNames(
-    { ...item, affected_agent_ids: consumerIds },
-    agents,
-  );
   const managedRecord = item.source !== null;
   const centralManaged = managedRecord && item.location.kind === "central";
   const healthyManaged = centralManaged && item.states.includes("managed");
@@ -231,10 +209,10 @@ export function SkillInspector({
       <InspectorSection title="状态与风险">
         <div className="mux-skill-inspector-state-list">
           <SkillRiskBadge level={item.risk?.level ?? null} />
-          {item.states.map((state) => (
+          {item.states.filter((state) => state !== "assigned").map((state) => (
             <Badge
               key={state}
-              tone={state === "managed" || state === "assigned" ? "success" : state === "external" ? "neutral" : "warning"}
+              tone={state === "managed" ? "success" : state === "external" ? "neutral" : "warning"}
             >
               {stateLabels[state]}
             </Badge>
@@ -281,18 +259,6 @@ export function SkillInspector({
         ) : (
           <p className="mux-skill-inspector-unreviewed">尚未执行风险审阅。</p>
         )}
-      </InspectorSection>
-
-      <InspectorSection title="Agent 影响">
-        <div className="mux-skill-inspector-agents">
-          <AgentStack ids={consumerIds} />
-          <p>{affectedAgentNames.length > 0 ? affectedAgentNames.join("、") : "尚无 Agent 使用此资产"}</p>
-          {centralManaged && onManageConsumers && (
-            <button type="button" className="btn-secondary" disabled={disabled} onClick={onManageConsumers}>
-              管理 Agent
-            </button>
-          )}
-        </div>
       </InspectorSection>
 
       {loading ? (

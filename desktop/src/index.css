@@ -1174,16 +1174,6 @@ body {
 .mux-credential-mark { display: inline-flex; width: 18px; height: 18px; flex: 0 0 auto; align-items: center; justify-content: center; border-radius: 5px; background: color-mix(in srgb, var(--color-green) 13%, transparent); color: #228B55; }
 .mux-status-ok { color: #228B55; }
 .mux-status-muted { color: var(--text-secondary); }
-.mux-model-connection-list { margin-top: 10px; border-top: 1px solid var(--border-hairline); }
-.mux-model-connection-row { display: flex; min-height: 54px; align-items: center; gap: 9px; padding: 8px 0; border-bottom: 1px solid var(--border-hairline); }
-.mux-model-connection-row strong,
-.mux-model-connection-row span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.mux-model-connection-row strong { color: var(--text-primary); font-size: 11px; }
-.mux-model-connection-row span { margin-top: 4px; color: var(--text-secondary); font-size: 9px; }
-.mux-model-connection-row .btn-ghost,
-.mux-model-connection-row .btn-secondary { flex: 0 0 auto; }
-.mux-applied-label { display: inline-flex !important; align-items: center; gap: 4px; flex: 0 0 auto; margin: 0 !important; color: #228B55 !important; font-size: 10px !important; font-weight: 650; }
-
 /* Agent configuration center */
 .mux-agent-state { display: flex; height: 100%; align-items: center; justify-content: center; color: var(--text-secondary); font-size: 12px; }
 .mux-agent-page { height: 100%; min-height: 0; overflow-y: auto; background: var(--surface-app); }

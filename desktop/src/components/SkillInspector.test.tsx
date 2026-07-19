@@ -2,7 +2,6 @@ import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  agentFixture,
   skillDetailFixture,
   skillsInventoryFixture,
 } from "../test/skillsFixtures";
@@ -11,17 +10,7 @@ import { SkillInspector } from "./SkillInspector";
 afterEach(cleanup);
 
 describe("SkillInspector", () => {
-  const consumers = ["codex", "cursor", "gemini"].map((agentId) => ({
-    agent_id: agentId,
-    asset: { domain: "skill" as const, name: "review-changes" },
-    desired: true,
-    observed: true,
-    status: "synced" as const,
-    reason: null,
-    affected_agent_ids: ["codex", "cursor", "gemini"],
-  }));
-
-  it("renders provenance, retained risk evidence, Agent names, and hostile preview text inertly", () => {
+  it("renders provenance, retained risk evidence, and hostile preview text inertly", () => {
     const item = {
       ...skillsInventoryFixture().items[0],
       risk: {
@@ -41,9 +30,6 @@ describe("SkillInspector", () => {
       <SkillInspector
         item={item}
         detail={detail}
-        agents={agentFixture()}
-        consumers={consumers}
-        targets={skillsInventoryFixture().targets}
         loading={false}
         error={null}
         onClose={() => undefined}
@@ -55,7 +41,7 @@ describe("SkillInspector", () => {
     expect(screen.getByText(item.resolved_revision!)).toBeVisible();
     expect(screen.getByText("scripts/install.sh:2")).toBeVisible();
     expect(screen.getByText("已显示 1 / 5 条证据")).toBeVisible();
-    expect(screen.getByText("Codex、Cursor、Gemini CLI")).toBeVisible();
+    expect(screen.queryByText("Agent 影响")).not.toBeInTheDocument();
     expect(screen.getByText("SKILL.md 预览已截断")).toBeVisible();
 
     const preview = screen.getByLabelText("SKILL.md 纯文本预览");
@@ -71,8 +57,6 @@ describe("SkillInspector", () => {
       <SkillInspector
         item={item}
         detail={null}
-        agents={agentFixture()}
-        targets={skillsInventoryFixture().targets}
         loading
         error={null}
         onClose={() => undefined}
@@ -86,8 +70,6 @@ describe("SkillInspector", () => {
       <SkillInspector
         item={item}
         detail={null}
-        agents={agentFixture()}
-        targets={skillsInventoryFixture().targets}
         loading={false}
         error={{
           code: "detail_unavailable",
@@ -104,29 +86,22 @@ describe("SkillInspector", () => {
     expect(screen.queryByLabelText("SKILL.md 纯文本预览")).not.toBeInTheDocument();
   });
 
-  it("uses the consumption projection and delegates relationship changes", async () => {
-    const user = userEvent.setup();
+  it("keeps the asset inspector free of Agent relationship controls", () => {
     const inventory = skillsInventoryFixture();
-    const onManageConsumers = vi.fn();
 
     render(
       <SkillInspector
         item={inventory.items[0]}
         detail={null}
-        agents={inventory.agents}
-        consumers={consumers}
         loading={false}
         error={null}
         onClose={() => undefined}
         onPlan={vi.fn()}
-        onManageConsumers={onManageConsumers}
       />,
     );
 
-    expect(screen.getByText("Codex、Cursor、Gemini CLI")).toBeVisible();
-    expect(screen.queryByRole("switch")).not.toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "管理 Agent" }));
-    expect(onManageConsumers).toHaveBeenCalledOnce();
+    expect(screen.queryByText("Agent 影响")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "管理 Agent" })).not.toBeInTheDocument();
   });
 
   it("offers an unchecked replacement choice and Update for locally modified content", async () => {
@@ -142,8 +117,6 @@ describe("SkillInspector", () => {
       <SkillInspector
         item={item}
         detail={null}
-        agents={inventory.agents}
-        targets={inventory.targets}
         loading={false}
         error={null}
         onClose={() => undefined}

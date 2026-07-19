@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.6.2](https://github.com/Scoheart/mux/compare/v1.6.1...v1.6.2) (2026-07-19)
+
+
+### Bug Fixes
+
+* **agent:** reconcile model state and agent identity ([#54](https://github.com/Scoheart/mux/issues/54)) ([b95792f](https://github.com/Scoheart/mux/commit/b95792f8109180b4d1519e0b94fd5e90df1d5635))
+
 ## [1.6.1](https://github.com/Scoheart/mux/compare/v1.6.0...v1.6.1) (2026-07-19)
 
 

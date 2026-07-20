@@ -37,7 +37,7 @@ import {
 const PROTOCOLS: Array<{ id: ModelProtocol; label: string }> = [
   { id: "anthropic-messages", label: "Anthropic Messages" },
   { id: "openai-responses", label: "OpenAI Responses" },
-  { id: "openai-completions", label: "OpenAI Completions" },
+  { id: "openai-completions", label: "OpenAI Chat Completions" },
 ];
 
 type ModelAssetFilter = "all" | "credential" | "reasoning";
@@ -388,6 +388,7 @@ function ModelInspector({
       <InspectorSection title="接口">
         <InspectorField label="模型 ID" mono>{profile.model}</InspectorField>
         <InspectorField label="Base URL" mono>{profile.base_url}</InspectorField>
+        {profile.env_key && <InspectorField label="环境变量" mono>{profile.env_key}</InspectorField>}
         <InspectorField label="API Key">
           <span className={profile.credential_saved ? "mux-status-ok" : "mux-status-muted"}>
             {profile.credential_saved ? "已保存到 Keychain" : "未保存"}
@@ -427,6 +428,7 @@ function ModelProfileDialog({
         name: draft.name.trim(),
         base_url: draft.base_url.trim().replace(/\/$/, ""),
         model: draft.model.trim(),
+        env_key: draft.env_key?.trim() || undefined,
       }, credentialUpdate);
       setCredential("");
     } catch (error) {
@@ -538,7 +540,18 @@ function ModelProfileDialog({
         )}
 
         <details className="mux-model-advanced">
-          <summary>Pi 高级设置</summary>
+          <summary>高级设置</summary>
+          <label>
+            <span>API Key 环境变量</span>
+            <input
+              className="mux-model-field"
+              value={draft.env_key ?? ""}
+              onChange={(event) => setDraft({ ...draft, env_key: event.target.value || undefined })}
+              placeholder="MY_API_KEY"
+              spellCheck={false}
+            />
+            <small>Grok Build 使用；变量值由启动环境提供，不从 Keychain 导出。</small>
+          </label>
           <div className="mux-model-form-grid">
             <label>
               <span>上下文窗口</span>

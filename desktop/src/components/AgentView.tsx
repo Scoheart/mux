@@ -36,7 +36,7 @@ type PickerDomain = "mcp" | "skill";
 function modelProtocolLabel(protocol: ModelProfileView["protocol"]) {
   if (protocol === "anthropic-messages") return "Anthropic Messages";
   if (protocol === "openai-responses") return "OpenAI Responses";
-  return "OpenAI Completions";
+  return "OpenAI Chat Completions";
 }
 
 interface AgentViewProps {
@@ -691,7 +691,11 @@ function AgentModelAssignment({
           <div className="mux-agent-model-preview">
             <span className="mux-model-protocol-dot" data-protocol={selectedProfile?.protocol} />
             <span>{selectedProfile ? modelProtocolLabel(selectedProfile.protocol) : ""}</span>
-            {selectedProfile?.credential_saved && (
+            {agent.id === "grok-build" && selectedProfile?.env_key ? (
+              <span className="mux-agent-model-key" title={`Grok Build 从 ${selectedProfile.env_key} 读取 API Key`}>
+                ENV · {selectedProfile.env_key}
+              </span>
+            ) : agent.id !== "grok-build" && selectedProfile?.credential_saved && (
               <span className="mux-agent-model-key">
                 <CheckIcon className="w-3 h-3" /> Keychain
               </span>

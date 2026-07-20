@@ -92,13 +92,13 @@ For the full 42 verified targets, 41 writable targets, and 194 retained records,
 
 The top-level **Models** workspace creates central reusable Profiles without touching an Agent. Each Agent page then shows its observed current state and compatible switch targets, with at most one Profile per Agent. Editing propagates through every consumer and deletion cascades through relationships and managed targets. API keys remain in macOS Keychain and never enter settings, persisted plans, previews, or backups.
 
-Claude Code currently accepts Anthropic Messages profiles, Codex uses the Responses API, and Pi supports all three initial protocols. Qoder, Grok Build, and MiniMax Code expose their verified paths and setup entry; MUX neither writes Qoder's unpublished encrypted model store nor persists a MUX Keychain secret as plaintext in Grok Build or MiniMax Code model configuration.
+Claude Code currently accepts Anthropic Messages profiles, Codex uses the Responses API, and Grok Build plus Pi support all three initial protocols. Grok Build reads authentication through its documented `env_key`; MUX never writes a Keychain secret into TOML. Qoder and MiniMax Code remain guided setup targets.
 
 ## Skills
 
-The top-level **Skills** workspace resolves candidates from public GitHub, a local folder, or a Skill archive, reviews files, local risk, and conflicts, then writes only one central copy. A separate consumer operation from an Agent page links that copy into verified Agent directories. Agents sharing one physical target are selected and reviewed as an inseparable group; Agent pages never resolve or install a Skill source.
+The top-level **Skills** workspace downloads from public GitHub or directly imports a local folder or Skill archive into one central copy, without an installation review screen. A separate consumer operation from an Agent page links that copy into verified Agent directories. Agents sharing one physical target are selected as an inseparable group; Agent pages never resolve or install a Skill source.
 
-Skills do not require system Git, Node.js, or `npx`. This version does not support project-level content, private repositories, or CLI/TUI Skills commands. See [User-level Skills](/en/guide/skills) for installation, shared aliases, high-risk second confirmation, backups, and recovery.
+Skills do not require system Git, Node.js, or `npx`. This version does not support project-level content, private repositories, or CLI/TUI Skills commands. See [User-level Skills](/en/guide/skills) for installation, shared aliases, backups, and recovery.
 
 ## Auto-update and the CLI
 

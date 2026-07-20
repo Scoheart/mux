@@ -13,7 +13,7 @@ MUX 的 Agent 数据分为两层：
 
 ## 已核验列表
 
-以下结果基于截至 **2026-07-20** 的官方文档、官方源码或签名应用包；Grok Build 使用其开源仓库核验，MiniMax Code 使用官方签名的 `3.0.51` macOS 应用包核验。
+以下结果基于截至 **2026-07-20** 的官方文档、官方源码或签名应用包；Grok Build 使用 xAI 官方文档核验，MiniMax Code 使用官方签名的 `3.0.51` macOS 应用包核验。
 
 | Agent | 格式 | 配置键 | 用户级全局路径 | 原生传输 |
 |---|---|---|---|---|
@@ -36,7 +36,7 @@ MUX 的 Agent 数据分为两层：
 | [Firebender](https://docs.firebender.com/context/mcp/overview) | JSON | `mcpServers` | `~/.firebender/firebender.json` | stdio / http |
 | [Gemini CLI](https://geminicli.com/docs/tools/mcp-server/) | JSON | `mcpServers` | `~/.gemini/settings.json` | stdio / http |
 | [Goose](https://goose-docs.ai/docs/guides/config-files/) | YAML | `extensions` | `~/Library/Application Support/Block/goose/config/config.yaml` | stdio / http |
-| [Grok Build](https://github.com/xai-org/grok-build/blob/main/crates/codegen/xai-grok-pager/docs/user-guide/07-mcp-servers.md) | TOML | `mcp_servers` | `~/.grok/config.toml` | stdio / http |
+| [Grok Build](https://docs.x.ai/build/features/mcp-servers) | TOML | `mcp_servers` | `~/.grok/config.toml` | stdio / http |
 | [Hermes Agent](https://github.com/NousResearch/hermes-agent/blob/main/website/docs/user-guide/features/mcp.md) | YAML | `mcp_servers` | `~/.hermes/config.yaml` | stdio / http |
 | [JetBrains Junie](https://www.jetbrains.com/help/junie/model-context-protocol-mcp.html) | JSON | `mcpServers` | `~/.junie/mcp/mcp.json` | stdio / http |
 | [Kilo Code CLI](https://kilo.ai/docs/automate/mcp/using-in-kilo-code) | JSON | `mcp` | `~/.config/kilo/kilo.jsonc` | stdio / http |
@@ -68,14 +68,14 @@ MUX 的 Agent 数据分为两层：
 - **Qoder Desktop / Qoder CLI**：两者是独立 Agent。Qoder Desktop 的 MCP 页面编辑 `SharedClientCache/mcp.json`；Qoder CLI 的 user scope 使用 `~/.qoder/settings.json`，MUX 分别扫描和写入。
 - **Claude Desktop / BoltAI**：列出的本地文件只原生支持 stdio。远程 MCP 分别由 Claude Connectors 或 BoltAI 的 `mcp-remote` 方案管理。
 - **Goose**：通用文档示例使用 `~/.config/goose/config.yaml`，当前 macOS 源码实际采用 `~/Library/Application Support/Block/goose/config/config.yaml`；MUX 按运行时代码定位。
-- **Grok Build**：MCP 与自定义模型共用 `~/.grok/config.toml`。MUX 可局部管理 `mcp_servers`，并保留模型、认证、超时和工具策略；Models 页面只提供官方引导，因为 Grok Build 暂无可按模型安全调用 Keychain 的凭据命令。
+- **Grok Build**：MCP 与自定义模型共用 `~/.grok/config.toml`。MUX 分别局部管理 `mcp_servers`、`[models].default` 和独立的 MUX 模型表，支持三种官方 API backend，并保留其他模型、认证、超时、权限和工具策略。认证只写 `env_key` 变量名，不写密钥正文。
 - **MiniMax Code**：主配置与 MCP 配置分离，分别是 `~/.mavis/config.yaml` 和 `~/.mavis/mcp.json`。MUX 可安全管理 `mcpServers`；Models 只提供引导，因为当前自定义 provider 会把 `options.apiKey` 明文写入 YAML。
 
 ## Skills 能力
 
 Skills 路径与上表的 MCP 配置路径分别核验，不能互相推断。首版为 Claude Code、Codex、Cursor、Gemini CLI、OpenCode 和 GitHub Copilot CLI 声明用户级 Skills 能力；运行时只显示本机安装探针命中的 Agent。
 
-Skills 分配按物理目录而不是 Agent 名称执行。Cursor、Gemini CLI、OpenCode 和 GitHub Copilot CLI 都可能兼容读取 `~/.agents/skills`，因此对 Codex 首选目录的操作可能同时影响多个已安装 Agent。MUX 会在审阅页展示真实影响并归一化重复链接。路径矩阵、安装来源、风险审阅和当前边界见 [用户级 Skills](/guide/skills#已核验的-agent-路径)。
+Skills 分配按物理目录而不是 Agent 名称执行。Cursor、Gemini CLI、OpenCode 和 GitHub Copilot CLI 都可能兼容读取 `~/.agents/skills`，因此对 Codex 首选目录的操作可能同时影响多个已安装 Agent。MUX 会在审阅页展示真实影响并归一化重复链接。路径矩阵、安装来源、后台安全校验和当前边界见 [用户级 Skills](/guide/skills#已核验的-agent-路径)。
 
 ## 不同 Agent 的格式差异
 

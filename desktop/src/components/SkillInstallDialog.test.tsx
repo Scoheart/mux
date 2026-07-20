@@ -103,7 +103,7 @@ function renderInstall(overrides: {
 
 async function resolveGithub(user: ReturnType<typeof userEvent.setup>) {
   await user.type(screen.getByLabelText("仓库地址"), "  acme/skills  ");
-  await user.click(screen.getByRole("button", { name: "读取" }));
+  await user.click(screen.getByRole("button", { name: "查找" }));
   await screen.findByRole("checkbox", { name: "review-changes" });
 }
 
@@ -139,7 +139,7 @@ describe("SkillInstallDialog central asset intake", () => {
     expect(screen.queryByText("目标 Agent")).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("checkbox", { name: "release-notes" }));
-    await user.click(screen.getByRole("button", { name: "添加 Skill" }));
+    await user.click(screen.getByRole("button", { name: "下载 Skill" }));
     expect(api.planSkillAssetInstall).toHaveBeenCalledWith({
       resolution_id: "resolve-fixture",
       skill_names: ["review-changes"],
@@ -162,6 +162,30 @@ describe("SkillInstallDialog central asset intake", () => {
     expect(screen.getByRole("heading", { name: "添加 Skill" })).toBeVisible();
   });
 
+  it("imports an archive directly without opening an audit dialog", async () => {
+    const resolution: SkillSourceResolution = {
+      ...resolutionFixture(),
+      source: {
+        kind: "archive",
+        path: "~/Downloads/skills.zip",
+        subpath: "review-changes",
+      },
+      resolved_revision: null,
+    };
+    const plan = safeInstallPlan();
+    const commit = vi.fn().mockResolvedValue(skillsInventoryFixture());
+    vi.mocked(api.resolveArchiveSkillSourceDialog).mockResolvedValueOnce(resolution);
+    vi.mocked(api.planSkillAssetInstall).mockResolvedValueOnce(plan);
+    renderInstall({ commit });
+
+    await userEvent.click(screen.getByRole("button", { name: "选择 Skill 压缩包" }));
+    await screen.findByRole("checkbox", { name: "review-changes" });
+    await userEvent.click(screen.getByRole("button", { name: "导入 Skill" }));
+
+    await waitFor(() => expect(commit).toHaveBeenCalledWith(plan, null));
+    expect(screen.queryByRole("dialog", { name: "审阅 Skill 操作" })).not.toBeInTheDocument();
+  });
+
   it("asks to back up only after a same-name conflict", async () => {
     const user = userEvent.setup();
     const cancel = vi.fn().mockResolvedValue(undefined);
@@ -170,9 +194,9 @@ describe("SkillInstallDialog central asset intake", () => {
       .mockResolvedValueOnce(safeInstallPlan());
     renderInstall({ cancel });
     await resolveGithub(user);
-    await user.click(screen.getByRole("button", { name: "添加 Skill" }));
+    await user.click(screen.getByRole("button", { name: "下载 Skill" }));
     expect(await screen.findByText("发现冲突")).toBeVisible();
-    await user.click(screen.getByRole("button", { name: "备份并重试" }));
+    await user.click(screen.getByRole("button", { name: "备份并下载" }));
     expect(api.planSkillAssetInstall).toHaveBeenCalledTimes(2);
     expect(vi.mocked(api.planSkillAssetInstall).mock.calls[0][0]).toEqual({
       resolution_id: "resolve-fixture",
@@ -210,7 +234,7 @@ describe("SkillInstallDialog central asset intake", () => {
     const onCommitted = vi.fn();
     renderInstall({ commit, cancel, onCommitted });
     await resolveGithub(user);
-    await user.click(screen.getByRole("button", { name: "添加 Skill" }));
+    await user.click(screen.getByRole("button", { name: "下载 Skill" }));
     expect(commit).toHaveBeenCalledOnce();
     expect(cancel).not.toHaveBeenCalled();
     const inventory = skillsInventoryFixture();
@@ -225,24 +249,25 @@ describe("SkillInstallDialog central asset intake", () => {
     const cancel = vi.fn().mockResolvedValue(undefined);
     const { unmount } = renderInstall({ commit: vi.fn(() => committing.promise), cancel });
     await resolveGithub(user);
-    await user.click(screen.getByRole("button", { name: "添加 Skill" }));
+    await user.click(screen.getByRole("button", { name: "下载 Skill" }));
     unmount();
     committing.reject({ code: "recovery_required", message: "recovery required" });
     await act(async () => { await committing.promise.catch(() => undefined); });
     expect(cancel).not.toHaveBeenCalled();
   });
 
-  it("expands to review only when Core reports high risk", async () => {
+  it("downloads high-risk content directly with the plan-bound findings hash", async () => {
     const user = userEvent.setup();
-    const commit = vi.fn();
-    vi.mocked(api.planSkillAssetInstall).mockResolvedValueOnce(highRiskPlan("high-risk"));
+    const plan = highRiskPlan("high-risk");
+    const commit = vi.fn().mockResolvedValue(skillsInventoryFixture());
+    vi.mocked(api.planSkillAssetInstall).mockResolvedValueOnce(plan);
     renderInstall({ commit });
     await resolveGithub(user);
 
-    await user.click(screen.getByRole("button", { name: "添加 Skill" }));
+    await user.click(screen.getByRole("button", { name: "下载 Skill" }));
 
-    expect(await screen.findByRole("dialog", { name: "审阅 Skill 操作" })).toBeVisible();
-    expect(commit).not.toHaveBeenCalled();
+    await waitFor(() => expect(commit).toHaveBeenCalledWith(plan, "high-risk"));
+    expect(screen.queryByRole("dialog", { name: "审阅 Skill 操作" })).not.toBeInTheDocument();
   });
 });
 
@@ -276,7 +301,10 @@ describe("Skills central lifecycle orchestration", () => {
       affected_agent_ids: ["codex", "cursor", "gemini"],
     };
     inventory.items = [external];
-    renderWorkspace(inventory);
+    const plan = planAs("import");
+    const commit = vi.fn().mockResolvedValue(skillsInventoryFixture());
+    vi.mocked(api.planSkillAssetImport).mockResolvedValueOnce(plan);
+    renderWorkspace(inventory, { commit });
     const inspector = await openInspector(external);
     await userEvent.click(within(inspector).getByRole("button", { name: "导入" }));
     expect(api.planSkillAssetImport).toHaveBeenCalledWith({
@@ -284,6 +312,8 @@ describe("Skills central lifecycle orchestration", () => {
       replace_conflicts: false,
     });
     expect(vi.mocked(api.planSkillAssetImport).mock.calls[0][0]).not.toHaveProperty("agent_ids");
+    await waitFor(() => expect(commit).toHaveBeenCalledWith(plan, null));
+    expect(screen.queryByRole("dialog", { name: "审阅 Skill 操作" })).not.toBeInTheDocument();
   });
 
   it("has no direct assignment switches in the Skill inspector", async () => {

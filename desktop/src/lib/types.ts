@@ -51,6 +51,8 @@ export interface ModelProfile {
   protocol: ModelProtocol;
   base_url: string;
   model: string;
+  /** Non-secret environment variable name for Agents such as Grok Build. */
+  env_key?: string;
   context_window?: number;
   max_output_tokens?: number;
   reasoning: boolean;

@@ -239,23 +239,18 @@ describe("installWizardReducer", () => {
       resolution: resolutionFixture(),
     });
     expect(state.selectedSkillNames).toEqual(["review-changes"]);
-    expect(state.plan).toBeNull();
   });
 
-  it("invalidates a loaded plan whenever Skill selection changes", () => {
+  it("keeps candidate selection independent from hidden Core planning", () => {
     let state = installWizardReducer(undefined, {
       type: "resolution_loaded",
       resolution: resolutionFixture(),
     });
     state = installWizardReducer(state, {
-      type: "plan_loaded",
-      plan: sharedTargetPlanFixture(),
-    });
-    state = installWizardReducer(state, {
       type: "toggle_skill",
       skillName: "review-changes",
     });
-    expect(state.plan).toBeNull();
+    expect(state.selectedSkillNames).toEqual([]);
   });
 });
 

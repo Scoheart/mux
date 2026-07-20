@@ -10,10 +10,12 @@ Skills are created and maintained in their top-level libraries; each Agent then
 selects which compatible assets it should consume. MUX adapts that desired state
 to the Agent's native format while preserving unrelated settings.
 
-Model credentials stay in macOS Keychain. Skills are resolved, reviewed, and
-audited locally before MUX writes one managed copy. Assigning that copy to
-verified Agent directories is a separate reviewed operation, so an Agent page
-never asks you to reinstall the same Skill.
+Model credentials managed by MUX stay in macOS Keychain; Grok Build profiles may
+instead reference a non-secret environment-variable name. Skills are downloaded
+from GitHub or imported from local folders and archives directly into one managed copy. MUX
+still validates paths, archive structure, hashes, and concurrent changes in the
+background. Assigning that copy to verified Agent directories remains a
+separate operation, so an Agent page never asks you to reinstall the same Skill.
 
 MUX ships as **two front-ends that share the same data** (`~/.mux/`):
 
@@ -51,10 +53,10 @@ A one-click **Mux 精选 (curated collection)** subscribes you to a curated set.
 - **Safe, local writes** — MUX reads and edits only fields it owns. Existing files are backed up, prepared, and verified as one recoverable transaction; unrelated keys, comments, formatting, policy fields, permissions, and symlinks are preserved.
 - **Unified Agent consumption center** — each Agent page shows only desired central assets under MCPs, Model, and Skills, with a central picker for relationship changes and a separate read-only external section.
 - **Reusable model endpoints (preview)** — define a protocol, Base URL, model ID, and optional token limits once, then let any number of compatible Agents consume the Profile, with at most one current Profile per Agent.
-- **User-level Skills in Desktop** — add a public GitHub repository, local folder, or `.zip` / `.tar.gz` / `.tgz` / `.tar` archive to the central library without Git, Node.js, or `npx`; assign the reviewed central copy to Agents in a separate step.
+- **User-level Skills in Desktop** — download a public GitHub repository or directly import a local folder or `.zip` / `.tar.gz` / `.tgz` / `.tar` archive without Git, Node.js, or `npx`; assign the central copy to Agents in a separate step.
 - **One proxy for MUX networking** — configure HTTP, SOCKS4/SOCKS4A, or SOCKS5 once for GitHub Skills, remote sources, CLI updates, and signed Desktop update checks; credentials are never stored in `settings.json`.
 - **CLI ⇄ Desktop in sync for MCP management** — both are built on one shared Rust core (`mux-core`) and read/write `~/.mux/`. Skills use the same core but intentionally have no CLI/TUI entry in this version.
-- **Dark mode** and a compact, consistent resource workspace for MCPs, Models, and Skills, with shared cards, right-side Inspectors, and review dialogs for consequential actions.
+- **Dark mode** and a compact, consistent resource workspace for MCPs, Models, and Skills, with shared cards, right-side Inspectors, and review dialogs only for consequential existing-asset changes.
 
 ## Screenshots
 
@@ -139,7 +141,7 @@ Everything lives under `~/.mux/`:
 │   ├── remote/<id>.json    # cached copies of subscribed URLs
 │   └── local/<id>.(json|toml)   # imported local files + the managed manual/discovered sources
 ├── skills/                 # one managed central copy per Skill
-├── staging/skills/         # resolved Skill candidates and reviewed Skill operations
+├── staging/skills/         # resolved Skill candidates and internal Skill operations
 ├── staging/consumption/    # reviewed cross-domain plans and durable rollback snapshots
 ├── backups/                # timestamped backups made before managed writes
 │   └── skills/             # reversible Skill replacements, imports, and removals
@@ -150,7 +152,7 @@ Skills-specific runtime paths:
 
 ```text
 ~/.mux/skills/                  managed Skill contents
-~/.mux/staging/skills/          reviewed candidates
+~/.mux/staging/skills/          staged candidates and internal operation plans
 ~/.mux/backups/skills/          reversible replacements/removals
 ~/.mux/journals/skills/         crash recovery journals
 ```
@@ -159,7 +161,7 @@ Model API keys are not stored under `~/.mux/`; they remain in macOS Keychain.
 
 ## How it works
 
-1. **Build the central libraries** — subscribe or import MCP sources, create Model Profiles, and add reviewed Skills. No Agent target is changed during central intake.
+1. **Build the central libraries** — subscribe or import MCP sources, create Model Profiles, and directly download or import Skills. No Agent target is changed during central intake.
 2. **Choose consumers** — from an Agent page, select the desired compatible assets. MCPs and Skills are sets; Model is a single current Profile.
 3. **Review one impact plan** — MUX shows central changes, relationship changes, target files, shared Skill-directory impact, drift, and conflicts before commit.
 4. **Commit and verify** — settings, Agent targets, and central lifecycle changes are applied as a recoverable transaction and rescanned before reporting success.

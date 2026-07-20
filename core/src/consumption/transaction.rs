@@ -1360,6 +1360,7 @@ mod tests {
             protocol: ModelProtocol::OpenaiResponses,
             base_url: "https://example.invalid/v1".into(),
             model: model.into(),
+            env_key: None,
             context_window: None,
             max_output_tokens: None,
             reasoning: false,

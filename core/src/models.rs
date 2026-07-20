@@ -1,9 +1,8 @@
 //! Reusable model endpoint profiles and safe per-Agent configuration writers.
 //!
-//! The managed set is deliberately small: Claude Code, Codex, and Pi are
-//! written through documented user-level configuration surfaces. Other Agents
-//! remain guidance-only until they expose a per-profile writer that can consume
-//! credentials from Keychain without persisting plaintext secrets.
+//! The managed set is deliberately small: Claude Code, Codex, Grok Build, and
+//! Pi are written through documented user-level configuration surfaces. Other
+//! Agents remain guidance-only until they expose a safe per-profile writer.
 
 use crate::applier::backup;
 use crate::paths::{backup_timestamp, backups_dir};
@@ -29,7 +28,7 @@ use toml_edit::{Array, Document, Item, Table};
 const KEYCHAIN_ACCOUNT: &str = "api-key";
 const CREDENTIAL_ROLLBACK_PREFIX: &str = "__asset-operation-rollback__";
 const QODER_DOCS: &str = "https://docs.qoder.com/user-guide/chat/custom-models";
-const GROK_BUILD_MODEL_DOCS: &str = "https://github.com/xai-org/grok-build/blob/main/crates/codegen/xai-grok-pager/docs/user-guide/11-custom-models.md";
+const GROK_BUILD_MODEL_DOCS: &str = "https://docs.x.ai/build/settings#model-id";
 const MINIMAX_CODE_DOCS: &str = "https://agent.minimax.io/download";
 
 static TEST_CREDENTIALS: LazyLock<Mutex<BTreeMap<String, Vec<u8>>>> =
@@ -405,6 +404,19 @@ fn validate_profile(profile: &ModelProfile) -> Result<(), String> {
     if profile.context_window == Some(0) || profile.max_output_tokens == Some(0) {
         return Err("token limits must be greater than zero".into());
     }
+    if let Some(env_key) = profile.env_key.as_deref() {
+        let mut bytes = env_key.bytes();
+        let valid = bytes
+            .next()
+            .is_some_and(|byte| byte.is_ascii_alphabetic() || byte == b'_')
+            && bytes.all(|byte| byte.is_ascii_alphanumeric() || byte == b'_');
+        if !valid {
+            return Err(
+                "environment variable name must start with a letter or '_' and contain only letters, digits, or '_'"
+                    .into(),
+            );
+        }
+    }
     Ok(())
 }
 
@@ -577,6 +589,7 @@ fn validate_profile_id(profile_id: &str) -> Result<(), String> {
         protocol: ModelProtocol::OpenaiResponses,
         base_url: "http://localhost".into(),
         model: "x".into(),
+        env_key: None,
         context_window: None,
         max_output_tokens: None,
         reasoning: false,
@@ -647,18 +660,18 @@ pub fn list_agents() -> Vec<ModelAgentView> {
         ModelAgentView {
             id: "grok-build".into(),
             name: "Grok Build".into(),
-            mode: "guided".into(),
+            mode: "managed".into(),
             installed: agent_installed(&["grok"], &[".grok"], &[]),
             config_path: grok_config_path,
             config_paths: grok_config_paths,
             docs: GROK_BUILD_MODEL_DOCS.into(),
-            assigned_profile: None,
+            assigned_profile: assignments.get("grok-build").cloned(),
             supported_protocols: vec![
                 ModelProtocol::AnthropicMessages,
                 ModelProtocol::OpenaiResponses,
                 ModelProtocol::OpenaiCompletions,
             ],
-            note: "Grok Build supports custom model endpoints, but its per-model credential is a literal api_key or environment variable; use the official config flow to avoid persisting a MUX Keychain secret in plaintext.".into(),
+            note: "MUX manages a dedicated custom model and [models].default. Set env_key when the endpoint needs authentication; secrets remain outside config.toml.".into(),
         },
         ModelAgentView {
             id: "pi".into(),
@@ -735,6 +748,7 @@ pub fn observe_profile(
     let observed = match agent_id {
         "claude-code" => observe_prepared(prepare_claude(&paths[0], profile, has_credential)),
         "codex" => observe_prepared(prepare_codex(&paths[0], profile, has_credential)),
+        "grok-build" => observe_prepared(prepare_grok_build(&paths[0], profile)),
         "pi" => {
             let models = observe_prepared(prepare_pi_models(&paths[0], profile, has_credential));
             let settings = observe_prepared(prepare_pi_settings(&paths[1], profile));
@@ -758,6 +772,7 @@ pub fn observe_external_model(agent_id: &str) -> Result<ExternalModelObservedSta
     match agent_id {
         "claude-code" => observe_external_claude(&paths[0]),
         "codex" => observe_external_codex(&paths[0]),
+        "grok-build" => observe_external_grok_build(&paths[0]),
         "pi" => observe_external_pi(&paths[0], &paths[1]),
         _ => Ok(ExternalModelObservedState::Absent),
     }
@@ -820,6 +835,30 @@ fn observe_external_codex(path: &Path) -> Result<ExternalModelObservedState, Str
             ExternalModelObservedState::Absent
         },
     )
+}
+
+fn observe_external_grok_build(path: &Path) -> Result<ExternalModelObservedState, String> {
+    let (document, original) = match read_toml(path) {
+        Ok(value) => value,
+        Err(_) if path.exists() => return Ok(ExternalModelObservedState::Conflicted),
+        Err(error) => return Err(error),
+    };
+    if original.is_none() {
+        return Ok(ExternalModelObservedState::Absent);
+    }
+    let has_default = document
+        .get("models")
+        .and_then(Item::as_table)
+        .is_some_and(|models| models.contains_key("default"));
+    let has_custom_models = document
+        .get("model")
+        .and_then(Item::as_table)
+        .is_some_and(|models| !models.is_empty());
+    Ok(if has_default || has_custom_models {
+        ExternalModelObservedState::Present
+    } else {
+        ExternalModelObservedState::Absent
+    })
 }
 
 fn observe_external_pi(
@@ -912,15 +951,10 @@ fn ensure_supported(agent_id: &str, protocol: &ModelProtocol) -> Result<(), Stri
     let supported = match agent_id {
         "claude-code" => matches!(protocol, ModelProtocol::AnthropicMessages),
         "codex" => matches!(protocol, ModelProtocol::OpenaiResponses),
-        "pi" => true,
+        "grok-build" | "pi" => true,
         "qoder" => {
             return Err(format!(
                 "Qoder custom models must currently be configured through /model; see {QODER_DOCS}"
-            ))
-        }
-        "grok-build" => {
-            return Err(format!(
-                "Grok Build custom models require api_key or env_key and do not expose a secure per-model credential command; see {GROK_BUILD_MODEL_DOCS}"
             ))
         }
         "minimax-code" => {
@@ -965,6 +999,7 @@ pub(crate) fn apply_profile_with_credential_presence(
     let result = match agent_id {
         "claude-code" => apply_claude(&paths[0], &profile, has_credential),
         "codex" => apply_codex(&paths[0], &profile, has_credential),
+        "grok-build" => apply_grok_build(&paths[0], &profile),
         "pi" => apply_pi(&paths[0], &paths[1], &profile, has_credential),
         _ => unreachable!("ensure_supported filtered unknown agents"),
     }?;
@@ -1004,6 +1039,12 @@ pub fn clear_profile(agent_id: &str, profile_id: &str) -> Result<(), String> {
         "codex" => {
             clear_one_model_file_with_profile(&paths[0], "codex", &profile, prepare_clear_codex)?
         }
+        "grok-build" => clear_one_model_file_with_profile(
+            &paths[0],
+            "grok-build",
+            &profile,
+            prepare_clear_grok_build,
+        )?,
         "pi" => clear_pi(&paths[0], &paths[1], &profile)?,
         _ => unreachable!("ensure_supported filtered unsupported model Agent"),
     }
@@ -1306,11 +1347,130 @@ fn prepare_clear_codex(
 }
 
 fn codex_provider_id(profile_id: &str) -> String {
+    mux_profile_id(profile_id)
+}
+
+fn mux_profile_id(profile_id: &str) -> String {
     let mut encoded = String::from("mux_");
     for byte in profile_id.bytes() {
         encoded.push_str(&format!("{byte:02x}"));
     }
     encoded
+}
+
+fn grok_model_id(profile_id: &str) -> String {
+    mux_profile_id(profile_id)
+}
+
+fn grok_api_backend(protocol: &ModelProtocol) -> &'static str {
+    match protocol {
+        ModelProtocol::AnthropicMessages => "messages",
+        ModelProtocol::OpenaiResponses => "responses",
+        ModelProtocol::OpenaiCompletions => "chat_completions",
+    }
+}
+
+fn insert_optional_toml_integer(
+    table: &mut Table,
+    name: &str,
+    value: Option<u64>,
+) -> Result<(), String> {
+    match value {
+        Some(value) => {
+            let value = i64::try_from(value)
+                .map_err(|_| format!("{name} exceeds the TOML integer range"))?;
+            table.insert(name, toml_edit::value(value));
+        }
+        None => {
+            table.remove(name);
+        }
+    }
+    Ok(())
+}
+
+fn prepare_grok_build(
+    path: &Path,
+    profile: &ModelProfile,
+) -> Result<(Option<String>, String), String> {
+    let (mut document, original) = read_toml(path)?;
+    let model_id = grok_model_id(&profile.id);
+
+    if !document.as_table().contains_key("models") {
+        document
+            .as_table_mut()
+            .insert("models", Item::Table(Table::new()));
+    }
+    let defaults = document
+        .get_mut("models")
+        .and_then(Item::as_table_mut)
+        .ok_or_else(|| {
+            format!(
+                "refusing to modify {}: 'models' is not a TOML table",
+                path.display()
+            )
+        })?;
+    defaults.insert("default", toml_edit::value(&model_id));
+
+    if !document.as_table().contains_key("model") {
+        document
+            .as_table_mut()
+            .insert("model", Item::Table(Table::new()));
+    }
+    let models = document
+        .get_mut("model")
+        .and_then(Item::as_table_mut)
+        .ok_or_else(|| {
+            format!(
+                "refusing to modify {}: 'model' is not a TOML table",
+                path.display()
+            )
+        })?;
+    if !models.contains_key(&model_id) {
+        models.insert(&model_id, Item::Table(Table::new()));
+    }
+    let model = models
+        .get_mut(&model_id)
+        .and_then(Item::as_table_mut)
+        .ok_or_else(|| format!("MUX model '{model_id}' is not a TOML table"))?;
+    model.insert("model", toml_edit::value(&profile.model));
+    model.insert("base_url", toml_edit::value(&profile.base_url));
+    model.insert("name", toml_edit::value(&profile.name));
+    model.insert(
+        "api_backend",
+        toml_edit::value(grok_api_backend(&profile.protocol)),
+    );
+    insert_optional_toml_integer(model, "context_window", profile.context_window)?;
+    insert_optional_toml_integer(model, "max_completion_tokens", profile.max_output_tokens)?;
+    model.remove("api_key");
+    match profile.env_key.as_deref() {
+        Some(env_key) => {
+            model.insert("env_key", toml_edit::value(env_key));
+        }
+        None => {
+            model.remove("env_key");
+        }
+    }
+    Ok((original, document.to_string()))
+}
+
+fn prepare_clear_grok_build(
+    path: &Path,
+    profile: &ModelProfile,
+) -> Result<(Option<String>, String), String> {
+    let (mut document, original) = read_toml(path)?;
+    if original.is_none() {
+        return Ok((None, String::new()));
+    }
+    let model_id = grok_model_id(&profile.id);
+    if let Some(defaults) = document.get_mut("models").and_then(Item::as_table_mut) {
+        if defaults.get("default").and_then(Item::as_str) == Some(model_id.as_str()) {
+            defaults.remove("default");
+        }
+    }
+    if let Some(models) = document.get_mut("model").and_then(Item::as_table_mut) {
+        models.remove(&model_id);
+    }
+    Ok((original, document.to_string()))
 }
 
 fn pi_provider_value(profile: &ModelProfile, has_credential: bool) -> Value {
@@ -1470,6 +1630,21 @@ fn apply_codex(
     })
 }
 
+fn apply_grok_build(path: &Path, profile: &ModelProfile) -> Result<ModelApplyResult, String> {
+    let (original, content) = prepare_grok_build(path, profile)?;
+    backup_config(path, "grok-build", &backup_timestamp())?;
+    write_if_unchanged(path, original.as_deref(), &content)?;
+    Ok(ModelApplyResult {
+        agent: "grok-build".into(),
+        profile: profile.id.clone(),
+        files: vec![path.display().to_string()],
+        restart_required: true,
+        message:
+            "Grok Build custom model and default selection updated; start a new session to use it."
+                .into(),
+    })
+}
+
 type ClearModelPrepare = fn(&Path) -> Result<(Option<String>, String), String>;
 type ClearModelWithProfilePrepare =
     fn(&Path, &ModelProfile) -> Result<(Option<String>, String), String>;
@@ -1608,6 +1783,7 @@ mod tests {
             protocol: ModelProtocol::AnthropicMessages,
             base_url: "https://gateway.example.test/anthropic".into(),
             model: "claude-sonnet-custom".into(),
+            env_key: None,
             context_window: Some(200_000),
             max_output_tokens: Some(16_384),
             reasoning: true,
@@ -1621,6 +1797,7 @@ mod tests {
             protocol: ModelProtocol::OpenaiResponses,
             base_url: "https://gateway.example.test/v1".into(),
             model: "gpt-custom".into(),
+            env_key: None,
             context_window: Some(128_000),
             max_output_tokens: Some(16_000),
             reasoning: true,
@@ -1784,21 +1961,126 @@ wire_api = "responses"
         assert!(ensure_supported("codex", &ModelProtocol::AnthropicMessages).is_err());
         assert!(ensure_supported("pi", &ModelProtocol::AnthropicMessages).is_ok());
         assert!(ensure_supported("qoder", &ModelProtocol::OpenaiResponses).is_err());
-        assert!(ensure_supported("grok-build", &ModelProtocol::OpenaiResponses).is_err());
+        assert!(ensure_supported("grok-build", &ModelProtocol::AnthropicMessages).is_ok());
+        assert!(ensure_supported("grok-build", &ModelProtocol::OpenaiResponses).is_ok());
+        assert!(ensure_supported("grok-build", &ModelProtocol::OpenaiCompletions).is_ok());
     }
 
     #[test]
-    fn grok_build_is_a_guided_three_protocol_target() {
+    fn grok_build_is_a_managed_three_protocol_target() {
         let _th = TestHome::new("model-grok-build");
         let agents = list_agents();
         let grok = agents
             .iter()
             .find(|agent| agent.id == "grok-build")
             .expect("Grok Build model target");
-        assert_eq!(grok.mode, "guided");
+        assert_eq!(grok.mode, "managed");
         assert_eq!(grok.config_path, "~/.grok/config.toml");
         assert_eq!(grok.supported_protocols.len(), 3);
-        assert!(grok.docs.contains("11-custom-models.md"));
+        assert!(grok.docs.starts_with("https://docs.x.ai/build/settings"));
+    }
+
+    #[test]
+    fn grok_build_patch_preserves_unrelated_config_and_uses_env_key() {
+        let th = TestHome::new("model-grok-build-patch");
+        let path = th.home.join(".grok/config.toml");
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(
+            &path,
+            r#"# keep Grok settings
+[models]
+default = "private"
+web_search = "grok-4.5"
+
+[model.private]
+model = "private-model"
+base_url = "https://private.invalid/v1"
+api_backend = "responses"
+
+[mcp_servers.keep]
+command = "keep-mcp"
+
+[permission]
+allow = ["Read(**)"]
+"#,
+        )
+        .unwrap();
+        let mut profile = responses_profile();
+        profile.env_key = Some("TEAM_OPENAI_API_KEY".into());
+
+        let (_, content) = prepare_grok_build(&path, &profile).unwrap();
+
+        assert!(content.contains("keep Grok settings"));
+        assert!(content.contains("web_search = \"grok-4.5\""));
+        assert!(content.contains("model.private"));
+        assert!(content.contains("mcp_servers.keep"));
+        assert!(content.contains("permission"));
+        assert!(content.contains("default = \"mux_7465616d2d6f70656e6169\""));
+        assert!(content.contains("model.mux_7465616d2d6f70656e6169"));
+        assert!(content.contains("api_backend = \"responses\""));
+        assert!(content.contains("env_key = \"TEAM_OPENAI_API_KEY\""));
+        assert!(content.contains("context_window = 128000"));
+        assert!(content.contains("max_completion_tokens = 16000"));
+        assert!(!content.contains("api_key ="));
+    }
+
+    #[test]
+    fn grok_build_apply_and_clear_manage_only_the_mux_model() {
+        let th = TestHome::new("model-grok-build-apply");
+        let path = th.home.join(".grok/config.toml");
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(
+            &path,
+            "[models]\nweb_search = \"grok-4.5\"\n\n[model.private]\nmodel = \"keep\"\n",
+        )
+        .unwrap();
+        let mut profile = responses_profile();
+        profile.env_key = Some("TEAM_OPENAI_API_KEY".into());
+        save_profile(profile.clone(), None).unwrap();
+
+        apply_profile("grok-build", &profile.id).unwrap();
+        assert_eq!(
+            load_settings()
+                .model_assignments
+                .as_ref()
+                .and_then(|assignments| assignments.get("grok-build"))
+                .map(String::as_str),
+            Some(profile.id.as_str())
+        );
+        assert_eq!(
+            observe_profile("grok-build", &profile).unwrap(),
+            ModelObservedState::Synced
+        );
+
+        clear_profile("grok-build", &profile.id).unwrap();
+        let content = fs::read_to_string(path).unwrap();
+        assert!(content.contains("model.private"));
+        assert!(content.contains("web_search = \"grok-4.5\""));
+        assert!(!content.contains("mux_7465616d2d6f70656e6169"));
+    }
+
+    #[test]
+    fn grok_build_reports_an_unmanaged_current_model_as_external() {
+        let th = TestHome::new("model-grok-build-external");
+        let path = th.home.join(".grok/config.toml");
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(
+            &path,
+            "[models]\ndefault = \"private\"\n\n[model.private]\nmodel = \"private-model\"\n",
+        )
+        .unwrap();
+
+        assert_eq!(
+            observe_external_model("grok-build").unwrap(),
+            ExternalModelObservedState::Present
+        );
+    }
+
+    #[test]
+    fn model_profile_rejects_invalid_environment_variable_name() {
+        let mut profile = responses_profile();
+        profile.env_key = Some("not-valid-key".into());
+        assert!(validate_profile(&profile).is_err());
     }
 
     #[test]

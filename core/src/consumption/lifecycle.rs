@@ -522,6 +522,7 @@ mod tests {
             protocol: ModelProtocol::OpenaiResponses,
             base_url: "https://old.invalid".into(),
             model: "old".into(),
+            env_key: None,
             context_window: None,
             max_output_tokens: None,
             reasoning: false,

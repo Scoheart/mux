@@ -629,6 +629,9 @@ function AgentModelAssignment({
   const display = describeAgentModel(currentProfile, consumption, hasExternalConfig);
   const alreadyApplied = display.synced && currentProfile?.id === selectedProfile?.id;
   const reapplying = !display.synced && currentProfile?.id === selectedProfile?.id;
+  const grokMissingEnv = agent.id === "grok-build"
+    && selectedProfile?.credential_saved === true
+    && !selectedProfile.env_key;
   return (
     <section className="mux-agent-section mux-agent-resource-content" aria-label="Model 配置">
       <div className="mux-agent-section-head">
@@ -678,7 +681,10 @@ function AgentModelAssignment({
           <button
             type="button"
             className={alreadyApplied ? "btn-secondary" : "btn-primary"}
-            disabled={!selectedProfile || applying || disabled || alreadyApplied}
+            disabled={!selectedProfile || applying || disabled || alreadyApplied || grokMissingEnv}
+            title={grokMissingEnv
+              ? "Grok Build 无法读取 MUX Keychain；请先在模型资产中设置 API Key 环境变量名。"
+              : undefined}
             onClick={onApply}
           >
             {alreadyApplied
@@ -691,7 +697,11 @@ function AgentModelAssignment({
           <div className="mux-agent-model-preview">
             <span className="mux-model-protocol-dot" data-protocol={selectedProfile?.protocol} />
             <span>{selectedProfile ? modelProtocolLabel(selectedProfile.protocol) : ""}</span>
-            {agent.id === "grok-build" && selectedProfile?.env_key ? (
+            {grokMissingEnv ? (
+              <span className="mux-agent-model-key" data-tone="warning" title="Keychain 中已有密钥，但 Grok Build 只能从环境变量读取">
+                缺少 ENV
+              </span>
+            ) : agent.id === "grok-build" && selectedProfile?.env_key ? (
               <span className="mux-agent-model-key" title={`Grok Build 从 ${selectedProfile.env_key} 读取 API Key`}>
                 ENV · {selectedProfile.env_key}
               </span>

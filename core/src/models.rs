@@ -571,6 +571,25 @@ pub(crate) fn credential_present(profile_id: &str) -> bool {
     credential_exists(profile_id)
 }
 
+/// Return the credential contract that prevents an Agent from consuming a
+/// Profile safely. Grok Build cannot read MUX's per-Profile Keychain item: an
+/// authenticated Profile must name an environment variable that Grok can read
+/// in its own process instead.
+pub(crate) fn profile_credential_issue(
+    agent_id: &str,
+    profile: &ModelProfile,
+    has_credential: bool,
+) -> Option<(&'static str, &'static str)> {
+    if agent_id == "grok-build" && has_credential && profile.env_key.is_none() {
+        Some((
+            "grok_build_env_key_required",
+            "Grok Build cannot read the API Key stored in MUX Keychain; set an environment variable name on this Profile before switching.",
+        ))
+    } else {
+        None
+    }
+}
+
 pub(crate) fn apply_credential_update(
     profile_id: &str,
     credential: Option<&str>,
@@ -671,7 +690,7 @@ pub fn list_agents() -> Vec<ModelAgentView> {
                 ModelProtocol::OpenaiResponses,
                 ModelProtocol::OpenaiCompletions,
             ],
-            note: "MUX manages a dedicated custom model and [models].default. Set env_key when the endpoint needs authentication; secrets remain outside config.toml.".into(),
+            note: "MUX switches a dedicated custom model, [models].default, and [ui].fork_secondary_model together. An authenticated Profile must set env_key because Grok Build cannot read MUX Keychain; secrets remain outside config.toml.".into(),
         },
         ModelAgentView {
             id: "pi".into(),
@@ -994,6 +1013,9 @@ pub(crate) fn apply_profile_with_credential_presence(
 ) -> Result<ModelApplyResult, String> {
     let profile = profile_for_apply(profile_id)?;
     ensure_supported(agent_id, &profile.protocol)?;
+    if let Some((code, message)) = profile_credential_issue(agent_id, &profile, has_credential) {
+        return Err(format!("{code}: {message}"));
+    }
     let paths =
         configured_paths(agent_id).ok_or_else(|| format!("unsupported model Agent: {agent_id}"))?;
     let result = match agent_id {
@@ -1411,6 +1433,22 @@ fn prepare_grok_build(
         })?;
     defaults.insert("default", toml_edit::value(&model_id));
 
+    if !document.as_table().contains_key("ui") {
+        document
+            .as_table_mut()
+            .insert("ui", Item::Table(Table::new()));
+    }
+    let ui = document
+        .get_mut("ui")
+        .and_then(Item::as_table_mut)
+        .ok_or_else(|| {
+            format!(
+                "refusing to modify {}: 'ui' is not a TOML table",
+                path.display()
+            )
+        })?;
+    ui.insert("fork_secondary_model", toml_edit::value(&model_id));
+
     if !document.as_table().contains_key("model") {
         document
             .as_table_mut()
@@ -1465,6 +1503,11 @@ fn prepare_clear_grok_build(
     if let Some(defaults) = document.get_mut("models").and_then(Item::as_table_mut) {
         if defaults.get("default").and_then(Item::as_str) == Some(model_id.as_str()) {
             defaults.remove("default");
+        }
+    }
+    if let Some(ui) = document.get_mut("ui").and_then(Item::as_table_mut) {
+        if ui.get("fork_secondary_model").and_then(Item::as_str) == Some(model_id.as_str()) {
+            ui.remove("fork_secondary_model");
         }
     }
     if let Some(models) = document.get_mut("model").and_then(Item::as_table_mut) {
@@ -1639,9 +1682,8 @@ fn apply_grok_build(path: &Path, profile: &ModelProfile) -> Result<ModelApplyRes
         profile: profile.id.clone(),
         files: vec![path.display().to_string()],
         restart_required: true,
-        message:
-            "Grok Build custom model and default selection updated; start a new session to use it."
-                .into(),
+        message: "Grok Build custom model, default selection, and fork model updated; start a new session to use it."
+            .into(),
     })
 }
 
@@ -2002,6 +2044,10 @@ command = "keep-mcp"
 
 [permission]
 allow = ["Read(**)"]
+
+[ui]
+max_thoughts_width = 120
+fork_secondary_model = "private-fork"
 "#,
         )
         .unwrap();
@@ -2019,6 +2065,8 @@ allow = ["Read(**)"]
         assert!(content.contains("model.mux_7465616d2d6f70656e6169"));
         assert!(content.contains("api_backend = \"responses\""));
         assert!(content.contains("env_key = \"TEAM_OPENAI_API_KEY\""));
+        assert!(content.contains("fork_secondary_model = \"mux_7465616d2d6f70656e6169\""));
+        assert!(content.contains("max_thoughts_width = 120"));
         assert!(content.contains("context_window = 128000"));
         assert!(content.contains("max_completion_tokens = 16000"));
         assert!(!content.contains("api_key ="));
@@ -2057,6 +2105,23 @@ allow = ["Read(**)"]
         assert!(content.contains("model.private"));
         assert!(content.contains("web_search = \"grok-4.5\""));
         assert!(!content.contains("mux_7465616d2d6f70656e6169"));
+        assert!(!content.contains("fork_secondary_model"));
+    }
+
+    #[test]
+    fn grok_build_apply_rejects_a_keychain_only_credential() {
+        let _th = TestHome::new("model-grok-build-keychain-only");
+        let profile = responses_profile();
+        save_profile(profile.clone(), Some("secret".into())).unwrap();
+
+        let error = apply_profile("grok-build", &profile.id).unwrap_err();
+
+        assert!(error.starts_with("grok_build_env_key_required:"));
+        assert!(!config_path(".grok/config.toml").exists());
+        assert!(!load_settings()
+            .model_assignments
+            .unwrap_or_default()
+            .contains_key("grok-build"));
     }
 
     #[test]

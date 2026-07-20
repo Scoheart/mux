@@ -1,6 +1,6 @@
 use super::types::{validate_mcp_asset_key, AssetRef};
 use crate::agents::load_agents;
-use crate::models::model_agent_capability;
+use crate::models::{credential_present, model_agent_capability, profile_credential_issue};
 use crate::registry::read_registry;
 use crate::settings::load_settings_strict;
 use crate::skills::skill_agent_capability;
@@ -123,6 +123,11 @@ fn model_compatibility(agent_id: &str, profile_id: &str) -> Result<Compatibility
             "model_protocol_unsupported",
             "此 Agent 不支持该 Profile 的 protocol。",
         ));
+    }
+    if let Some((code, message)) =
+        profile_credential_issue(agent_id, profile, credential_present(profile_id))
+    {
+        return Ok(CompatibilityView::unsupported(code, message));
     }
     Ok(CompatibilityView::supported(vec![agent_id.to_string()]))
 }
@@ -315,6 +320,46 @@ mod tests {
                 &AssetRef::Model {
                     profile_id: "work".into()
                 }
+            )
+            .unwrap()
+            .compatible
+        );
+    }
+
+    #[test]
+    fn grok_build_rejects_a_keychain_only_credential() {
+        let _home = TestHome::new("compat-model-grok-keychain");
+        add_profile(ModelProtocol::OpenaiCompletions);
+        crate::models::apply_credential_update("work", Some("secret")).unwrap();
+
+        let unsupported = compatibility_for(
+            "grok-build",
+            &AssetRef::Model {
+                profile_id: "work".into(),
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            unsupported.reason.unwrap().code,
+            "grok_build_env_key_required"
+        );
+
+        mutate_settings(|settings| {
+            settings
+                .model_profiles
+                .as_mut()
+                .unwrap()
+                .get_mut("work")
+                .unwrap()
+                .env_key = Some("OPENROUTER_API_KEY".into());
+        })
+        .unwrap();
+        assert!(
+            compatibility_for(
+                "grok-build",
+                &AssetRef::Model {
+                    profile_id: "work".into(),
+                },
             )
             .unwrap()
             .compatible

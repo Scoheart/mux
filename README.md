@@ -10,8 +10,10 @@ Skills are created and maintained in their top-level libraries; each Agent then
 selects which compatible assets it should consume. MUX adapts that desired state
 to the Agent's native format while preserving unrelated settings.
 
-Model credentials managed by MUX stay in macOS Keychain; Grok Build profiles may
-instead reference a non-secret environment-variable name. Skills are downloaded
+Model credentials managed by MUX stay in macOS Keychain. Grok Build cannot read
+those per-Profile Keychain items, so an authenticated Grok Profile must reference
+a non-secret environment-variable name; MUX switches its primary and fork models
+together and refuses a Keychain-only setup. Skills are downloaded
 from GitHub or imported from local folders and archives directly into one managed copy. MUX
 still validates paths, archive structure, hashes, and concurrent changes in the
 background. Assigning that copy to verified Agent directories remains a

@@ -1228,6 +1228,7 @@ body {
 .mux-agent-model-preview > span:not(.mux-model-protocol-dot) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mux-agent-model-preview .mux-model-protocol-dot { width: 7px; height: 7px; }
 .mux-agent-model-key { display: inline-flex !important; min-width: 0; flex: 0 1 auto; align-items: center; gap: 3px; color: #228B55 !important; }
+.mux-agent-model-key[data-tone="warning"] { color: var(--color-warning, #b76a16) !important; }
 .mux-agent-guided-model,
 .mux-agent-inline-state { display: flex; min-height: 72px; align-items: center; justify-content: space-between; gap: 16px; padding: 13px 14px; border: 1px solid var(--border-hairline); border-radius: 8px; background: var(--surface-raised); }
 .mux-agent-guided-model > div { min-width: 0; }

@@ -33,6 +33,8 @@ it("supports Grok Build env_key metadata without storing a secret value", () => 
   expect(source).toMatch(/变量值由启动环境提供，不从 Keychain 导出/);
   expect(agentSource).toMatch(/agent\.id === "grok-build" && selectedProfile\?\.env_key/);
   expect(agentSource).toMatch(/ENV · \{selectedProfile\.env_key\}/);
+  expect(agentSource).toMatch(/grokMissingEnv/);
+  expect(agentSource).toMatch(/缺少 ENV/);
 });
 
 it("routes profile lifecycle through central asset plans", () => {

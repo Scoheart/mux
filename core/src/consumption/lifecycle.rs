@@ -3,7 +3,9 @@ use super::types::{
     AssetOperationKind, AssetOperationPlan, AssetRef, CentralAssetAction, CentralAssetChange,
     CentralAssetDraft, DomainPlan, PlanDeleteCentralAssetRequest, PlanUpdateCentralAssetRequest,
 };
-use crate::models::{model_agent_capability, validate_profile_draft};
+use crate::models::{
+    credential_present, model_agent_capability, profile_credential_issue, validate_profile_draft,
+};
 use crate::paths::local_sources_dir;
 use crate::registry::{read_registry, read_registry_all};
 use crate::settings::{load_settings_strict, Settings};
@@ -192,13 +194,18 @@ fn plan_model_upsert(
         }
     };
 
-    let domain_plan = model_unchanged_consumers(&settings, &profile)?;
-    let consumer_count = domain_agent_count(&domain_plan);
     let credential_action = match credential.as_deref() {
         None => CredentialAction::Keep,
         Some("") => CredentialAction::Clear,
         Some(_) => CredentialAction::Set,
     };
+    let desired_credential_present = match credential_action {
+        CredentialAction::Keep => credential_present(&profile.id),
+        CredentialAction::Set => true,
+        CredentialAction::Clear => false,
+    };
+    let domain_plan = model_unchanged_consumers(&settings, &profile, desired_credential_present)?;
+    let consumer_count = domain_agent_count(&domain_plan);
     let draft_hash = hash_serializable(&profile)?;
     let lifecycle = LifecycleBinding::ModelUpsert {
         profile_id: profile.id.clone(),
@@ -404,6 +411,7 @@ fn mcp_delete_consumers(settings: &Settings, key: &str, keep_relationships: bool
 fn model_unchanged_consumers(
     settings: &Settings,
     profile: &ModelProfile,
+    desired_credential_present: bool,
 ) -> Result<DomainPlan, String> {
     let mut before = BTreeMap::new();
     let mut after = BTreeMap::new();
@@ -420,6 +428,11 @@ fn model_unchanged_consumers(
             return Err(format!(
                 "model_protocol_unsupported: the edited Profile is incompatible with {agent_id}"
             ));
+        }
+        if let Some((code, message)) =
+            profile_credential_issue(agent_id, profile, desired_credential_present)
+        {
+            return Err(format!("{code}: {message}"));
         }
         before.insert(agent_id.clone(), Some(profile.id.clone()));
         after.insert(agent_id.clone(), Some(profile.id.clone()));
@@ -555,6 +568,44 @@ mod tests {
         assert_eq!(plan.affected_agent_ids, vec!["codex"]);
         assert!(plan.relationship_changes.is_empty());
         assert_eq!(plan.kind, AssetOperationKind::UpdateAsset);
+    }
+
+    #[test]
+    fn grok_model_edit_rejects_a_new_credential_without_env_key() {
+        let _home = TestHome::new("lifecycle-grok-model-credential");
+        let profile = ModelProfile {
+            id: "work".into(),
+            name: "Work".into(),
+            protocol: ModelProtocol::OpenaiCompletions,
+            base_url: "https://openrouter.ai/api/v1".into(),
+            model: "provider/model".into(),
+            env_key: None,
+            context_window: None,
+            max_output_tokens: None,
+            reasoning: false,
+        };
+        mutate_settings(|settings| {
+            settings
+                .model_profiles
+                .get_or_insert_default()
+                .insert(profile.id.clone(), profile.clone());
+            settings
+                .model_assignments
+                .get_or_insert_default()
+                .insert("grok-build".into(), profile.id.clone());
+        })
+        .unwrap();
+
+        let error = plan_update_central_asset(PlanUpdateCentralAssetRequest {
+            draft: CentralAssetDraft::Model {
+                existing_id: Some(profile.id.clone()),
+                profile,
+                credential: Some("test-credential".into()),
+            },
+        })
+        .unwrap_err();
+
+        assert!(error.starts_with("grok_build_env_key_required:"));
     }
 
     #[test]

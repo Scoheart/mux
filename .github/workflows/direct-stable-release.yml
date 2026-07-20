@@ -139,9 +139,22 @@ jobs:
             --title "$RELEASE_TAG" \
             --generate-notes \
             --draft
-          draft=$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq '.isDraft')
-          test "$draft" = true
+          release_id=$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" | jq -er \
+            --arg tag "$RELEASE_TAG" \
+            '[.[] | select(.tag_name == $tag and .draft == true)] | if length == 1 then .[0].id else error("expected one matching Draft") end')
           git tag "$RELEASE_TAG" "$RELEASE_SHA"
           git push origin "refs/tags/$RELEASE_TAG"
           target=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG" --jq '.object.sha')
           test "$target" = "$RELEASE_SHA"
+          current_tag=$(gh api "repos/$GITHUB_REPOSITORY/releases/$release_id" --jq '.tag_name')
+          if [[ "$current_tag" != "$RELEASE_TAG" ]]; then
+            gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/$release_id" \
+              -f "tag_name=$RELEASE_TAG" \
+              -f "target_commitish=$RELEASE_SHA" \
+              -f "name=$RELEASE_TAG" \
+              --silent
+          fi
+          release=$(gh api "repos/$GITHUB_REPOSITORY/releases/$release_id")
+          test "$(jq -r '.draft' <<<"$release")" = true
+          test "$(jq -r '.tag_name' <<<"$release")" = "$RELEASE_TAG"
+          test "$(jq -r '.target_commitish' <<<"$release")" = "$RELEASE_SHA"

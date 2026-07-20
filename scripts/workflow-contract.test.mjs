@@ -153,6 +153,11 @@ test("direct stable mode turns one current main push into one Draft release", as
     "Draft must exist before its tag triggers the Stable workflow",
   );
   assert.match(workflow, /test "\$target" = "\$RELEASE_SHA"/);
+  assert.match(workflow, /expected one matching Draft/);
+  assert.match(workflow, /current_tag/);
+  assert.match(workflow, /-f "tag_name=\$RELEASE_TAG"/);
+  assert.match(workflow, /test "\$\(jq -r '\.tag_name'/);
+  assert.match(workflow, /test "\$\(jq -r '\.target_commitish'/);
   assert.doesNotMatch(workflow, /git (?:push|tag)[^\n]*(?:--force|-f)/);
   assert.doesNotMatch(workflow, /--clobber/);
 });

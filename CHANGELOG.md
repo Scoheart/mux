@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.8.5](https://github.com/Scoheart/mux/compare/v1.8.4...v1.8.5) (2026-07-20)
+
+
+### Bug Fixes
+
+* **models:** make Grok Build credentials atomic ([a0c2aa3](https://github.com/Scoheart/mux/commit/a0c2aa309321d6fe20b94def99388a3bbff3b470))
+
 ## [1.8.4](https://github.com/Scoheart/mux/compare/v1.8.3...v1.8.4) (2026-07-20)
 
 

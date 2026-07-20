@@ -13,8 +13,8 @@ const PASSIVE_CHECK_INTERVAL_SECS: i64 = 24 * 60 * 60;
 
 fn api_agent() -> Result<ureq::Agent, String> {
     crate::network::build_ureq_agent(
-        ureq::AgentBuilder::new()
-            .timeout(Duration::from_secs(15))
+        ureq::Agent::config_builder()
+            .timeout_global(Some(Duration::from_secs(15)))
             // GitHub API 要求带 User-Agent
             .user_agent("mux-cli-updater"),
     )
@@ -38,7 +38,8 @@ pub fn fetch_latest_version() -> Result<String, String> {
         .get(&url)
         .call()
         .map_err(|e| format!("查询最新版本失败: {}", e))?
-        .into_string()
+        .body_mut()
+        .read_to_string()
         .map_err(|e| format!("读取响应失败: {}", e))?;
     let json: serde_json::Value =
         serde_json::from_str(&body).map_err(|e| format!("解析响应失败: {}", e))?;
@@ -117,11 +118,11 @@ pub fn upgrade_cli(current_version: &str) -> Result<Option<UpgradeOutcome>, Stri
     fs::create_dir_all(&tmp_dir).map_err(|e| format!("创建临时目录失败: {}", e))?;
     let tarball = tmp_dir.join(&asset);
 
-    let resp = api_agent()?
+    let mut resp = api_agent()?
         .get(&url)
         .call()
         .map_err(|e| format!("下载 {} 失败: {}", asset, e))?;
-    let mut reader = resp.into_reader();
+    let mut reader = resp.body_mut().as_reader();
     let mut file = fs::File::create(&tarball).map_err(|e| format!("写入临时文件失败: {}", e))?;
     std::io::copy(&mut reader, &mut file).map_err(|e| format!("下载中断: {}", e))?;
     drop(file);

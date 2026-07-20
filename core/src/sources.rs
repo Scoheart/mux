@@ -101,13 +101,14 @@ pub fn source_count(def: &SourceDef) -> u32 {
 /// body size internally).
 pub fn fetch(url: &str) -> Result<String, String> {
     let agent = crate::network::build_ureq_agent(
-        ureq::AgentBuilder::new().timeout(Duration::from_secs(20)),
+        ureq::Agent::config_builder().timeout_global(Some(Duration::from_secs(20))),
     )?;
     agent
         .get(url)
         .call()
         .map_err(|e| format!("抓取失败: {}", e))?
-        .into_string()
+        .body_mut()
+        .read_to_string()
         .map_err(|e| format!("读取响应失败: {}", e))
 }
 

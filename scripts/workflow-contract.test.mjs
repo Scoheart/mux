@@ -115,12 +115,37 @@ test("Release Please uses the dedicated token and refreshes its PR", async () =>
   assert.match(workflow, /jq -er '\.headBranchName'/);
   assert.match(workflow, /node scripts\/release-version\.mjs refresh-locks/);
   assert.match(workflow, /desktop\/package-lock\.json Cargo\.lock desktop\/src-tauri\/Cargo\.lock/);
+  assert.match(workflow, /vars\.MUX_FAST_LANE_UNTIL/);
+  assert.match(workflow, /wait-for-verify\.sh "\$GITHUB_REPOSITORY" "\$HEAD_SHA"/);
+  assert.match(workflow, /--json headRefOid/);
+  assert.match(workflow, /test "\$CURRENT_HEAD" = "\$HEAD_SHA"/);
+  assert.match(workflow, /gh pr merge "\$PR_NUMBER"[^\n]+--squash --delete-branch --match-head-commit "\$HEAD_SHA"/);
 
   const actionReferences = [...workflow.matchAll(/uses:\s*[^@\s]+@([^\s#]+)/g)];
   assert.ok(actionReferences.length > 0);
   for (const [, reference] of actionReferences) {
     assert.match(reference, /^[0-9a-f]{40}$/);
   }
+});
+
+test("Fast Lane is exactly ten days and restores only main protection", async () => {
+  const config = JSON.parse(await read(".github/fast-lane.json"));
+  const workflow = await read(".github/workflows/fast-lane-expiry.yml");
+
+  assert.equal(config.mode, "direct-main-auto-release");
+  assert.equal(config.main_ruleset_id, 19114218);
+  assert.equal(
+    Date.parse(config.ends_at) - Date.parse(config.starts_at),
+    10 * 24 * 60 * 60 * 1000,
+  );
+  assert.match(workflow, /cron:\s*"17 \* \* \* \*"/);
+  assert.match(workflow, /secrets\.RELEASE_PLEASE_TOKEN/);
+  assert.match(workflow, /vars\.MUX_MAIN_RULESET_ID/);
+  assert.match(workflow, /enforcement:"active"/);
+  assert.match(workflow, /--method PUT/);
+  assert.match(workflow, /Fast Lane expired but main protection was not restored/);
+  assert.doesNotMatch(workflow, /MUX immutable stable tags/);
+  assert.doesNotMatch(workflow, /19114220/);
 });
 
 test("desktop workflow classifies and gates both publication channels", async () => {

@@ -34,6 +34,7 @@
 
 在本独立仓执行 status、commit、tag 和 push；父仓不得跟踪其内部文件。提交使用 `<type>(<scope>): <summary>` 并在 body 解释原因。不要提交 `target/`、`dist/`、临时 App、截图或本机配置。
 
+- 临时 Fast Lane：`2026-07-20T08:27:23Z` 至 `2026-07-30T08:27:23Z` 允许直接向 `main` 开发；期间 Release Please PR 仅在当前 head 的 `verify` 通过后自动 squash merge。到期自动恢复 `MUX main delivery` Ruleset 和下述标准 PR/人工批准正式发布流程；Stable tag 不可变规则与所有质量校验始终不变。权威期限记录在 `.github/fast-lane.json`。
 - 普通功能改动通过 PR 进入 `main`；`main` 的普通合并生成 Pre-release，并更新唯一一个 Release Please PR。功能 PR 不直接修改 `version.txt`、release-owned manifest 或 lockfile 版本。
 - npm lockfile 只能由 `release-version.mjs refresh-locks` 在无项目 `node_modules` 的临时目录生成；`check` 的 portable dependency closure 失败时不能绕过或手工补 JSON。完整 lock 在 Release PR 中只更新版本元数据，不重新解析依赖。
 - 只有用户明确批准并合并 `chore(main): release X.Y.Z` Release PR 才进入 Stable 路径。Release Please 创建不可移动的 `vX.Y.Z` tag 和 Draft Release；Desktop workflow 只在相同 SHA 的 `verify` 成功且签名资产完整后发布 Draft。

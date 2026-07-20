@@ -6,6 +6,12 @@ The JSON files in this directory are auditable request bodies for the GitHub Rep
 
 `tags.json` allows a new `v*` tag to be created, then blocks every update, force-push, and deletion. It deliberately has no `creation` rule and no bypass actor, so Release Please can create a tag but cannot move it later.
 
+## Temporary Fast Lane
+
+The audited window in `../fast-lane.json` temporarily permits direct `main` development through `2026-07-30T08:27:23Z`. The live repository variables `MUX_FAST_LANE_UNTIL` and `MUX_MAIN_RULESET_ID` drive automation; the JSON file records the authorized interval and expected Ruleset ID.
+
+During the window, `release-please.yml` may auto-merge the single Release Please PR only after the exact current PR head passes the GitHub Actions `verify` check. `fast-lane-expiry.yml` stops that automation at the deadline and restores the **MUX main delivery** Ruleset. If restoration fails, it opens a visible repository issue and fails the workflow. The **MUX immutable stable tags** Ruleset remains active throughout and is never modified by Fast Lane automation.
+
 ## Authorization boundary
 
 Reading repository settings is safe. Every POST, PATCH, or PUT below changes GitHub and requires explicit authorization for that step. Creating a Ruleset in `evaluate` or `disabled` mode is still an external mutation.

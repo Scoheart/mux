@@ -1,0 +1,71 @@
+name: Fast Lane Expiry
+
+on:
+  schedule:
+    - cron: "17 * * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Validate write access without changing effective protection
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: fast-lane-expiry
+  cancel-in-progress: false
+
+jobs:
+  restore-main-ruleset:
+    name: Restore main Ruleset
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+      FAST_LANE_UNTIL: ${{ vars.MUX_FAST_LANE_UNTIL }}
+      MAIN_RULESET_ID: ${{ vars.MUX_MAIN_RULESET_ID }}
+      DRY_RUN: ${{ inputs.dry_run || 'false' }}
+    steps:
+      - name: Decide whether restoration is due
+        id: due
+        run: |
+          test -n "$GH_TOKEN"
+          test -n "$FAST_LANE_UNTIL"
+          test -n "$MAIN_RULESET_ID"
+          due=false
+          if test "$DRY_RUN" = "true" || test "$(date -u +%s)" -ge "$(date -u -d "$FAST_LANE_UNTIL" +%s)"; then
+            due=true
+          fi
+          echo "due=$due" >>"$GITHUB_OUTPUT"
+
+      - name: Validate access or restore the main Ruleset
+        if: ${{ steps.due.outputs.due == 'true' }}
+        id: restore
+        continue-on-error: true
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/rulesets/$MAIN_RULESET_ID" >ruleset.json
+          test "$(jq -r '.name' ruleset.json)" = "MUX main delivery"
+          test "$(jq -r '.target' ruleset.json)" = "branch"
+          if test "$DRY_RUN" = "true"; then
+            jq '{name,target,enforcement,bypass_actors,conditions,rules}' ruleset.json >ruleset-current.json
+            gh api --method PUT "repos/$GITHUB_REPOSITORY/rulesets/$MAIN_RULESET_ID" --input ruleset-current.json >/dev/null
+            echo "Release token can update the expected main Ruleset without changing its effective state."
+            exit 0
+          fi
+          jq '{name,target,enforcement:"active",bypass_actors,conditions,rules}' ruleset.json >ruleset-active.json
+          gh api --method PUT "repos/$GITHUB_REPOSITORY/rulesets/$MAIN_RULESET_ID" --input ruleset-active.json >/dev/null
+          test "$(gh api "repos/$GITHUB_REPOSITORY/rulesets/$MAIN_RULESET_ID" --jq '.enforcement')" = "active"
+
+      - name: Report an automatic-restoration failure
+        if: ${{ steps.due.outputs.due == 'true' && steps.restore.outcome == 'failure' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          title="Fast Lane expired but main protection was not restored"
+          existing="$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "$title in:title" --json number --jq '.[0].number // empty')"
+          if test -z "$existing"; then
+            gh issue create --repo "$GITHUB_REPOSITORY" --title "$title" --body "The Fast Lane expiry workflow could not restore the **MUX main delivery** Ruleset. Re-enable Ruleset ID \`$MAIN_RULESET_ID\` and inspect this workflow run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          fi
+          exit 1

@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.6](https://github.com/Scoheart/mux/compare/v1.8.5...v1.8.6) (2026-07-20)
+
+### Changes
+
+* ci(release): turn main pushes into stable packages ([8966338](https://github.com/Scoheart/mux/commit/89663389e3267c066bbfa6f35703022c66dbf5fe))
+
 ## [1.8.5](https://github.com/Scoheart/mux/compare/v1.8.4...v1.8.5) (2026-07-20)
 
 

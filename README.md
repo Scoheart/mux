@@ -88,7 +88,7 @@ Skill consumption initially supports six separately verified user-level capabili
 
 Grab the **Desktop installer · Apple Silicon** asset from the latest stable [**Release**](../../releases/latest). The app checks that stable channel automatically and also exposes a manual **Check for updates** action. Installing the app makes its bundled `mux` CLI available through `~/.local/bin/mux` when that directory is on `PATH`.
 
-Every ordinary change merged into `main` also produces a versioned **Pre-release** with a Desktop installer and CLI archive for testing. Pre-releases never publish `latest.json` and are not offered by the in-app updater. Stable releases are proposed in one rolling Release PR; only merging that reviewed PR creates the stable tag and starts the signed Stable build.
+The normal delivery flow produces a versioned **Pre-release** for each ordinary `main` change, while one rolling Release PR proposes the next Stable version. Pre-releases never publish `latest.json` and are not offered by the in-app updater. During the audited 10-day Fast Lane recorded in `.github/fast-lane.json`, one current `main` push instead creates the next patch Stable release directly: Release Please and the redundant Pre-release are paused, but exact-commit CI, immutable tags, signing, artifact validation, and Draft-only publication remain mandatory. The standard flow resumes automatically when the window expires.
 
 Build from source:
 

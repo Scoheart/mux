@@ -4,13 +4,15 @@ The JSON files in this directory are auditable request bodies for the GitHub Rep
 
 `main.json` requires squash PRs, an up-to-date GitHub Actions `verify` result, resolved review conversations, linear history, and immutable branch history. The GitHub Actions App ID `15368` was verified from the live `verify` check rather than inferred from its name.
 
-`tags.json` allows a new `v*` tag to be created, then blocks every update, force-push, and deletion. It deliberately has no `creation` rule and no bypass actor, so Release Please can create a tag but cannot move it later.
+`tags.json` allows a new `v*` tag to be created, then blocks every update, force-push, and deletion. It deliberately has no `creation` rule and no bypass actor, so release automation can create a tag but cannot move it later.
 
 ## Temporary Fast Lane
 
 The audited window in `../fast-lane.json` temporarily permits direct `main` development through `2026-07-30T08:27:23Z`. The live repository variables `MUX_FAST_LANE_UNTIL` and `MUX_MAIN_RULESET_ID` drive automation; the JSON file records the authorized interval and expected Ruleset ID.
 
-During the window, `release-please.yml` may auto-merge the single Release Please PR only after the exact current PR head passes the GitHub Actions `verify` check. `fast-lane-expiry.yml` uses the dedicated `MUX_RULESET_ADMIN_TOKEN` to stop that automation at the deadline and restore the **MUX main delivery** Ruleset. A deadline-aligned cron targets `2026-07-30T08:27Z`; hourly restoration retries are limited to the first 24 hours after expiry, so this temporary workflow cannot override a future deliberate Ruleset change. If restoration fails, it opens a visible repository issue and fails the workflow. The **MUX immutable stable tags** Ruleset remains active throughout and is never modified by Fast Lane automation.
+During the window, `direct-stable-release.yml` ignores superseded pushes and turns the current `main` head into the next patch release: it updates release-owned metadata, pushes one release commit, then creates the matching immutable tag and Draft. `release-please.yml` and ordinary per-main Pre-release builds are gated off. The existing Stable build still waits for the exact release commit's GitHub Actions `verify`, signs and validates every artifact, and only then publishes the Draft.
+
+`fast-lane-expiry.yml` restores the **MUX main delivery** Ruleset at the deadline. A deadline-aligned cron targets `2026-07-30T08:27Z`; hourly restoration retries are limited to the first 24 hours after expiry, so this temporary workflow cannot override a future deliberate Ruleset change. Once the deadline has passed, the direct release gate is inactive and the standard Pre-release plus reviewed Release Please flow resumes. If restoration fails, the expiry workflow opens a visible repository issue and fails. The **MUX immutable stable tags** Ruleset remains active throughout and is never modified by Fast Lane automation.
 
 ## Authorization boundary
 

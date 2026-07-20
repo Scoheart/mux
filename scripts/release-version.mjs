@@ -77,6 +77,52 @@ export function readCargoPackageVersion(contents, path = "Cargo.toml") {
   return versions[0];
 }
 
+export function nextPatchVersion(version) {
+  const match = version.match(/^(\d+)\.(\d+)\.(\d+)$/);
+  if (!match) {
+    throw new Error(`invalid semantic version: ${JSON.stringify(version)}`);
+  }
+  return `${match[1]}.${match[2]}.${BigInt(match[3]) + 1n}`;
+}
+
+export function updateCargoPackageVersion(
+  contents,
+  version,
+  path = "Cargo.toml",
+) {
+  if (!SEMVER_PATTERN.test(version)) {
+    throw new Error(`invalid Cargo package version: ${JSON.stringify(version)}`);
+  }
+
+  let inPackage = false;
+  let updates = 0;
+  const refreshed = contents
+    .split(/(\r?\n)/)
+    .map((line) => {
+      const section = line.match(/^\s*\[([^\]]+)\]\s*(?:#.*)?$/);
+      if (section) {
+        inPackage = section[1] === "package";
+        return line;
+      }
+      if (!inPackage) return line;
+
+      const match = line.match(
+        /^(\s*version\s*=\s*)"[^"]+"(\s*(?:#.*)?)$/,
+      );
+      if (!match) return line;
+      updates += 1;
+      return `${match[1]}"${version}"${match[2]}`;
+    })
+    .join("");
+
+  if (updates !== 1) {
+    throw new Error(
+      `${path} must contain exactly one [package] version; found ${updates}`,
+    );
+  }
+  return refreshed;
+}
+
 async function readExpectedVersion(root, mismatches) {
   const path = join(root, "version.txt");
   try {
@@ -403,6 +449,114 @@ async function refreshLocks(root) {
   await check(root);
 }
 
+function updateJsonString(contents, fieldPath, value, path) {
+  const parsed = JSON.parse(contents);
+  let parent = parsed;
+  for (const field of fieldPath.slice(0, -1)) {
+    if (
+      parent === null ||
+      typeof parent !== "object" ||
+      !Object.hasOwn(parent, field)
+    ) {
+      throw new Error(`${path}.${formatJsonField(fieldPath)} does not exist`);
+    }
+    parent = parent[field];
+  }
+  const finalField = fieldPath.at(-1);
+  if (
+    parent === null ||
+    typeof parent !== "object" ||
+    typeof parent[finalField] !== "string"
+  ) {
+    throw new Error(`${path}.${formatJsonField(fieldPath)} must be a string`);
+  }
+  parent[finalField] = value;
+  return `${JSON.stringify(parsed, null, 2)}\n`;
+}
+
+function changelogCommits(root, previousVersion, sourceSha) {
+  const range = `v${previousVersion}..${sourceSha}`;
+  const output = execFileSync(
+    "git",
+    ["log", "--reverse", "--format=%H%x09%s", range],
+    { cwd: root, encoding: "utf8" },
+  ).trim();
+  if (!output) throw new Error(`no commits found in ${range}`);
+
+  return output.split("\n").map((line) => {
+    const separator = line.indexOf("\t");
+    if (separator !== 40) {
+      throw new Error(`unexpected git log entry in ${range}`);
+    }
+    const sha = line.slice(0, separator);
+    const title = line.slice(separator + 1).replaceAll("[", "\\[");
+    return `* ${title} ([${sha.slice(0, 7)}](https://github.com/Scoheart/mux/commit/${sha}))`;
+  });
+}
+
+export async function prepareDirectRelease(root, sourceSha) {
+  if (!/^[0-9a-f]{40}$/.test(sourceSha)) {
+    throw new Error("prepare-direct requires a full lowercase commit SHA");
+  }
+  execFileSync("git", ["cat-file", "-e", `${sourceSha}^{commit}`], {
+    cwd: root,
+    stdio: "pipe",
+  });
+
+  const versionPath = join(root, "version.txt");
+  const previousVersion = (await readFile(versionPath, "utf8")).trim();
+  if (!SEMVER_PATTERN.test(previousVersion)) {
+    throw new Error("version.txt must contain MAJOR.MINOR.PATCH");
+  }
+  const version = nextPatchVersion(previousVersion);
+
+  for (const [relativePath, kind, fieldPath] of SOURCE_FIELDS) {
+    const path = join(root, relativePath);
+    const contents = await readFile(path, "utf8");
+    const refreshed =
+      kind === "cargo"
+        ? updateCargoPackageVersion(contents, version, relativePath)
+        : updateJsonString(contents, fieldPath, version, relativePath);
+    await writeFile(path, refreshed);
+  }
+  await writeFile(versionPath, `${version}\n`);
+
+  const manifestPath = join(root, ".release-please-manifest.json");
+  const manifest = updateJsonString(
+    await readFile(manifestPath, "utf8"),
+    ["."],
+    version,
+    ".release-please-manifest.json",
+  );
+  await writeFile(manifestPath, manifest);
+
+  const changelogPath = join(root, "CHANGELOG.md");
+  const changelog = await readFile(changelogPath, "utf8");
+  const heading = "# Changelog\n";
+  if (!changelog.startsWith(heading)) {
+    throw new Error("CHANGELOG.md must start with # Changelog");
+  }
+  if (changelog.includes(`## [${version}]`)) {
+    throw new Error(`CHANGELOG.md already contains ${version}`);
+  }
+  const date = new Date().toISOString().slice(0, 10);
+  const commits = changelogCommits(root, previousVersion, sourceSha);
+  const entry = [
+    "",
+    `## [${version}](https://github.com/Scoheart/mux/compare/v${previousVersion}...v${version}) (${date})`,
+    "",
+    "### Changes",
+    "",
+    ...commits,
+    "",
+  ].join("\n");
+  await writeFile(changelogPath, `${heading}${entry}${changelog.slice(heading.length)}`);
+
+  await refreshLocks(root);
+  console.log(`Prepared direct stable version ${version}.`);
+  return version;
+}
+
 function parseArguments(argv) {
   const [command, ...args] = argv;
   let root = REPOSITORY_ROOT;
@@ -410,6 +564,7 @@ function parseArguments(argv) {
   let beforeVersion;
   let afterVersion;
   let commitTitle;
+  let sourceSha;
 
   for (let index = 0; index < args.length; index += 1) {
     if (args[index] === "--root" && args[index + 1]) {
@@ -422,16 +577,33 @@ function parseArguments(argv) {
       afterVersion = args[++index];
     } else if (args[index] === "--title" && args[index + 1]) {
       commitTitle = args[++index];
+    } else if (args[index] === "--source" && args[index + 1]) {
+      sourceSha = args[++index];
     } else {
       throw new Error(`unknown argument: ${args[index]}`);
     }
   }
-  return { command, root, stableTag, beforeVersion, afterVersion, commitTitle };
+  return {
+    command,
+    root,
+    stableTag,
+    beforeVersion,
+    afterVersion,
+    commitTitle,
+    sourceSha,
+  };
 }
 
 async function main() {
-  const { command, root, stableTag, beforeVersion, afterVersion, commitTitle } =
-    parseArguments(process.argv.slice(2));
+  const {
+    command,
+    root,
+    stableTag,
+    beforeVersion,
+    afterVersion,
+    commitTitle,
+    sourceSha,
+  } = parseArguments(process.argv.slice(2));
   if (command === "check") {
     await check(root, stableTag);
   } else if (command === "refresh-locks") {
@@ -442,9 +614,14 @@ async function main() {
       throw new Error("is-release-merge requires --before, --after, and --title");
     }
     process.stdout.write(`${isReleaseMerge(beforeVersion, afterVersion, commitTitle)}\n`);
+  } else if (command === "prepare-direct") {
+    if (sourceSha === undefined) {
+      throw new Error("prepare-direct requires --source");
+    }
+    await prepareDirectRelease(root, sourceSha);
   } else {
     throw new Error(
-      "usage: node scripts/release-version.mjs <check|refresh-locks|is-release-merge> [options]",
+      "usage: node scripts/release-version.mjs <check|refresh-locks|is-release-merge|prepare-direct> [options]",
     );
   }
 }

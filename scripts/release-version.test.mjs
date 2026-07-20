@@ -7,6 +7,8 @@ import test from "node:test";
 import {
   collectVersionMismatches,
   isReleaseMerge,
+  nextPatchVersion,
+  updateCargoPackageVersion,
   updateCargoLockPackageVersions,
 } from "./release-version.mjs";
 
@@ -93,6 +95,30 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
   assert.throws(
     () => updateCargoLockPackageVersions(lock, ["mux-cli"], "1.2.19"),
     /exactly one local mux-cli package; found 0/,
+  );
+});
+
+test("increments only the patch component for a direct stable release", () => {
+  assert.equal(nextPatchVersion("1.8.5"), "1.8.6");
+  assert.equal(nextPatchVersion("12.0.99999999999999999999"), "12.0.100000000000000000000");
+  assert.throws(() => nextPatchVersion("v1.8.5"), /invalid semantic version/);
+});
+
+test("updates only the Cargo package version", () => {
+  const manifest = `[package]
+name = "mux"
+version = "1.8.5" # release-owned
+
+[dependencies]
+version = "9.9.9"
+`;
+  assert.equal(
+    updateCargoPackageVersion(manifest, "1.8.6"),
+    manifest.replace('version = "1.8.5"', 'version = "1.8.6"'),
+  );
+  assert.throws(
+    () => updateCargoPackageVersion("[dependencies]\nversion = \"1.0.0\"\n", "1.8.6"),
+    /exactly one \[package\] version; found 0/,
   );
 });
 

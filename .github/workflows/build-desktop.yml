@@ -58,6 +58,7 @@ jobs:
           INPUT_STABLE_TAG: ${{ inputs.stable_tag }}
           RUN_NUMBER: ${{ github.run_number }}
           COMMIT_SHA: ${{ github.sha }}
+          FAST_LANE_UNTIL: ${{ vars.MUX_FAST_LANE_UNTIL }}
         run: |
           set -euo pipefail
           STABLE_TAG_REGEX='^v[0-9]+\.[0-9]+\.[0-9]+$'
@@ -68,18 +69,31 @@ jobs:
           source_ref=$COMMIT_SHA
 
           if [[ "$EVENT_NAME" == push && "$REF" == refs/heads/main ]]; then
-            before_version=$version
-            if git cat-file -e "$BEFORE_SHA:version.txt" 2>/dev/null; then
-              before_version=$(git show "$BEFORE_SHA:version.txt" | tr -d '[:space:]')
+            direct_stable=false
+            configured_mode=$(jq -er '.mode' .github/fast-lane.json)
+            if [[ "$configured_mode" == direct-main-stable && -n "$FAST_LANE_UNTIL" ]]; then
+              until_epoch=$(date -u -d "$FAST_LANE_UNTIL" +%s)
+              now_epoch=$(date -u +%s)
+              if (( now_epoch < until_epoch )); then
+                direct_stable=true
+              fi
             fi
-            title=$(git log -1 --format=%s)
-            release_merge=$(node scripts/release-version.mjs is-release-merge \
-              --before "$before_version" --after "$version" --title "$title")
-            if [[ "$release_merge" == true ]]; then
+            if [[ "$direct_stable" == true ]]; then
               mode=skip
             else
-              mode=prerelease
-              tag="v${version}-build.$(printf '%05d' "$RUN_NUMBER")"
+              before_version=$version
+              if git cat-file -e "$BEFORE_SHA:version.txt" 2>/dev/null; then
+                before_version=$(git show "$BEFORE_SHA:version.txt" | tr -d '[:space:]')
+              fi
+              title=$(git log -1 --format=%s)
+              release_merge=$(node scripts/release-version.mjs is-release-merge \
+                --before "$before_version" --after "$version" --title "$title")
+              if [[ "$release_merge" == true ]]; then
+                mode=skip
+              else
+                mode=prerelease
+                tag="v${version}-build.$(printf '%05d' "$RUN_NUMBER")"
+              fi
             fi
           elif [[ "$EVENT_NAME" == push && "$REF" == refs/tags/* ]]; then
             if [[ "$REF_NAME" =~ $STABLE_TAG_REGEX ]]; then

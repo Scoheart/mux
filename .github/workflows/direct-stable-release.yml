@@ -1,0 +1,145 @@
+name: Direct stable release
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: direct-stable-main
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Prepare stable release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require the dedicated release token
+        env:
+          RELEASE_PLEASE_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+        run: test -n "$RELEASE_PLEASE_TOKEN"
+
+      - name: Checkout the pushed commit
+        # actions/checkout v5.0.0
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+
+      - name: Check the direct stable window
+        id: gate
+        shell: bash
+        env:
+          FAST_LANE_UNTIL: ${{ vars.MUX_FAST_LANE_UNTIL }}
+        run: |
+          set -euo pipefail
+          active=false
+          configured_mode=$(jq -er '.mode' .github/fast-lane.json)
+          commit_title=$(git log -1 --format=%s)
+          if [[ "$configured_mode" == direct-main-stable && -n "$FAST_LANE_UNTIL" ]]; then
+            until_epoch=$(date -u -d "$FAST_LANE_UNTIL" +%s)
+            now_epoch=$(date -u +%s)
+            if (( now_epoch < until_epoch )) && [[ "$commit_title" != "chore(main): release "* ]]; then
+              active=true
+            fi
+          fi
+          echo "active=$active" >>"$GITHUB_OUTPUT"
+
+      - name: Confirm this push is still the main head
+        if: ${{ steps.gate.outputs.active == 'true' }}
+        id: head
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          git fetch origin main --no-tags
+          current=$(git rev-parse origin/main)
+          ready=false
+          if [[ "$current" == "$SOURCE_SHA" ]]; then
+            ready=true
+          else
+            echo "Skipping superseded main commit $SOURCE_SHA; current main is $current."
+          fi
+          echo "ready=$ready" >>"$GITHUB_OUTPUT"
+
+      - name: Setup Node
+        if: ${{ steps.head.outputs.ready == 'true' }}
+        # actions/setup-node v5.0.0
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+
+      - name: Setup Rust
+        if: ${{ steps.head.outputs.ready == 'true' }}
+        # dtolnay/rust-toolchain stable at implementation time
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
+
+      - name: Prepare the next patch release
+        if: ${{ steps.head.outputs.ready == 'true' }}
+        env:
+          SOURCE_SHA: ${{ github.sha }}
+        run: node scripts/release-version.mjs prepare-direct --source "$SOURCE_SHA"
+
+      - name: Commit and push the release metadata
+        if: ${{ steps.head.outputs.ready == 'true' }}
+        id: release
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=$(tr -d '[:space:]' <version.txt)
+          git add \
+            version.txt \
+            .release-please-manifest.json \
+            CHANGELOG.md \
+            core/Cargo.toml \
+            cli/Cargo.toml \
+            Cargo.lock \
+            desktop/package.json \
+            desktop/package-lock.json \
+            desktop/src-tauri/Cargo.toml \
+            desktop/src-tauri/Cargo.lock \
+            desktop/src-tauri/tauri.conf.json
+          if git diff --cached --quiet; then
+            echo "Direct stable preparation produced no changes." >&2
+            exit 1
+          fi
+          git -c user.name="mux-release[bot]" \
+            -c user.email="mux-release[bot]@users.noreply.github.com" \
+            commit -m "chore(main): release $version"
+          git push origin HEAD:main
+          echo "version=$version" >>"$GITHUB_OUTPUT"
+          echo "tag=v$version" >>"$GITHUB_OUTPUT"
+          echo "sha=$(git rev-parse HEAD)" >>"$GITHUB_OUTPUT"
+
+      - name: Create the immutable stable tag and Draft
+        if: ${{ steps.head.outputs.ready == 'true' }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+          RELEASE_SHA: ${{ steps.release.outputs.sha }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release already exists: $RELEASE_TAG" >&2
+            exit 1
+          fi
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "Tag already exists without a release: $RELEASE_TAG" >&2
+            exit 1
+          fi
+          gh release create "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$RELEASE_SHA" \
+            --title "$RELEASE_TAG" \
+            --generate-notes \
+            --draft
+          draft=$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq '.isDraft')
+          test "$draft" = true
+          target=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG" --jq '.object.sha')
+          test "$target" = "$RELEASE_SHA"

@@ -98,11 +98,15 @@ test("Release Please is one root component with generated locks", async () => {
   assert.ok(paths.every((path) => !path.endsWith("Cargo.lock")));
 });
 
-test("Release Please uses the dedicated token and refreshes its PR", async () => {
+test("Release Please is gated off during direct stable mode", async () => {
   const workflow = await read(".github/workflows/release-please.yml");
 
   assert.match(workflow, /branches:\s*\[main\]/);
   assert.match(workflow, /workflow_dispatch:/);
+  assert.match(workflow, /direct-main-stable/);
+  assert.match(workflow, /needs:\s*\[mode\]/);
+  assert.match(workflow, /if:\s*\$\{\{ needs\.mode\.outputs\.direct != 'true' \}\}/);
+  assert.match(workflow, /vars\.MUX_FAST_LANE_UNTIL/);
   assert.match(workflow, /RELEASE_PLEASE_TOKEN:\s*\$\{\{ secrets\.RELEASE_PLEASE_TOKEN \}\}/);
   assert.doesNotMatch(workflow, /token:\s*\$\{\{ github\.token \}\}/);
   assert.match(workflow, /outputs\.prs_created == 'true'/);
@@ -115,11 +119,8 @@ test("Release Please uses the dedicated token and refreshes its PR", async () =>
   assert.match(workflow, /jq -er '\.headBranchName'/);
   assert.match(workflow, /node scripts\/release-version\.mjs refresh-locks/);
   assert.match(workflow, /desktop\/package-lock\.json Cargo\.lock desktop\/src-tauri\/Cargo\.lock/);
-  assert.match(workflow, /vars\.MUX_FAST_LANE_UNTIL/);
-  assert.match(workflow, /bash \.github\/scripts\/wait-for-verify\.sh "\$GITHUB_REPOSITORY" "\$HEAD_SHA"/);
-  assert.match(workflow, /--json headRefOid/);
-  assert.match(workflow, /test "\$CURRENT_HEAD" = "\$HEAD_SHA"/);
-  assert.match(workflow, /gh pr merge "\$PR_NUMBER"[^\n]+--squash --delete-branch --match-head-commit "\$HEAD_SHA"/);
+  assert.doesNotMatch(workflow, /wait-for-verify\.sh/);
+  assert.doesNotMatch(workflow, /gh pr merge/);
 
   const actionReferences = [...workflow.matchAll(/uses:\s*[^@\s]+@([^\s#]+)/g)];
   assert.ok(actionReferences.length > 0);
@@ -128,11 +129,32 @@ test("Release Please uses the dedicated token and refreshes its PR", async () =>
   }
 });
 
+test("direct stable mode turns one current main push into one Draft release", async () => {
+  const workflow = await read(".github/workflows/direct-stable-release.yml");
+
+  assert.match(workflow, /push:\s*\n\s*branches:\s*\[main\]/);
+  assert.match(workflow, /cancel-in-progress:\s*false/);
+  assert.match(workflow, /direct-main-stable/);
+  assert.match(workflow, /vars\.MUX_FAST_LANE_UNTIL/);
+  assert.match(workflow, /secrets\.RELEASE_PLEASE_TOKEN/);
+  assert.match(workflow, /git rev-parse origin\/main/);
+  assert.match(workflow, /current.*SOURCE_SHA/);
+  assert.match(workflow, /release-version\.mjs prepare-direct --source "\$SOURCE_SHA"/);
+  assert.match(workflow, /commit -m "chore\(main\): release \$version"/);
+  assert.match(workflow, /git push origin HEAD:main/);
+  assert.match(workflow, /gh release create "\$RELEASE_TAG"/);
+  assert.match(workflow, /--target "\$RELEASE_SHA"/);
+  assert.match(workflow, /--draft/);
+  assert.match(workflow, /test "\$target" = "\$RELEASE_SHA"/);
+  assert.doesNotMatch(workflow, /git (?:push|tag)[^\n]*(?:--force|-f)/);
+  assert.doesNotMatch(workflow, /--clobber/);
+});
+
 test("Fast Lane is exactly ten days and restores only main protection", async () => {
   const config = JSON.parse(await read(".github/fast-lane.json"));
   const workflow = await read(".github/workflows/fast-lane-expiry.yml");
 
-  assert.equal(config.mode, "direct-main-auto-release");
+  assert.equal(config.mode, "direct-main-stable");
   assert.equal(config.main_ruleset_id, 19114218);
   assert.equal(
     Date.parse(config.ends_at) - Date.parse(config.starts_at),
@@ -162,6 +184,9 @@ test("desktop workflow classifies and gates both publication channels", async ()
   assert.match(workflow, /REF_NAME.*PRERELEASE_TAG_REGEX[\s\S]{0,80}mode=skip/);
   assert.match(workflow, /release-version\.mjs is-release-merge/);
   assert.match(workflow, /--before "\$before_version" --after "\$version" --title "\$title"/);
+  assert.match(workflow, /direct-main-stable/);
+  assert.match(workflow, /vars\.MUX_FAST_LANE_UNTIL/);
+  assert.match(workflow, /direct_stable[\s\S]{0,120}mode=skip/);
   const setupNodeReferences = [
     ...workflow.matchAll(/actions\/setup-node@([0-9a-f]{40})/g),
   ].map((match) => match[1]);

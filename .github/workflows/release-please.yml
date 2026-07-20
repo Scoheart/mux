@@ -15,8 +15,38 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  mode:
+    name: Check release mode
+    runs-on: ubuntu-latest
+    outputs:
+      direct: ${{ steps.mode.outputs.direct }}
+    steps:
+      - name: Checkout release policy
+        # actions/checkout v5.0.0
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+
+      - name: Check the direct stable window
+        id: mode
+        shell: bash
+        env:
+          FAST_LANE_UNTIL: ${{ vars.MUX_FAST_LANE_UNTIL }}
+        run: |
+          set -euo pipefail
+          direct=false
+          configured_mode=$(jq -er '.mode' .github/fast-lane.json)
+          if [[ "$configured_mode" == direct-main-stable && -n "$FAST_LANE_UNTIL" ]]; then
+            until_epoch=$(date -u -d "$FAST_LANE_UNTIL" +%s)
+            now_epoch=$(date -u +%s)
+            if (( now_epoch < until_epoch )); then
+              direct=true
+            fi
+          fi
+          echo "direct=$direct" >>"$GITHUB_OUTPUT"
+
   release-please:
     name: Release Please
+    needs: [mode]
+    if: ${{ needs.mode.outputs.direct != 'true' }}
     runs-on: ubuntu-latest
     env:
       RELEASE_PLEASE_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
@@ -76,41 +106,3 @@ jobs:
             -c user.email="55107282+release-please[bot]@users.noreply.github.com" \
             commit -m "chore(release): refresh generated lockfiles"
           git push origin "HEAD:$HEAD_BRANCH"
-
-      - name: Check the temporary Fast Lane window
-        if: ${{ steps.release.outputs.prs_created == 'true' }}
-        id: fast-lane
-        env:
-          FAST_LANE_UNTIL: ${{ vars.MUX_FAST_LANE_UNTIL }}
-        run: |
-          active=false
-          if test -n "$FAST_LANE_UNTIL"; then
-            until_epoch="$(date -u -d "$FAST_LANE_UNTIL" +%s)"
-            now_epoch="$(date -u +%s)"
-            if test "$now_epoch" -lt "$until_epoch"; then
-              active=true
-            fi
-          fi
-          echo "active=$active" >>"$GITHUB_OUTPUT"
-
-      - name: Wait for the exact Release PR head to verify
-        if: ${{ steps.release.outputs.prs_created == 'true' && steps.fast-lane.outputs.active == 'true' }}
-        env:
-          GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
-          RELEASE_PR: ${{ steps.release.outputs.pr }}
-        run: |
-          PR_NUMBER="$(jq -er '.number' <<<"$RELEASE_PR")"
-          HEAD_SHA="$(git rev-parse HEAD)"
-          bash .github/scripts/wait-for-verify.sh "$GITHUB_REPOSITORY" "$HEAD_SHA"
-          CURRENT_HEAD="$(gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json headRefOid --jq '.headRefOid')"
-          test "$CURRENT_HEAD" = "$HEAD_SHA"
-
-      - name: Auto-merge the verified Release PR during Fast Lane
-        if: ${{ steps.release.outputs.prs_created == 'true' && steps.fast-lane.outputs.active == 'true' }}
-        env:
-          GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
-          RELEASE_PR: ${{ steps.release.outputs.pr }}
-        run: |
-          PR_NUMBER="$(jq -er '.number' <<<"$RELEASE_PR")"
-          HEAD_SHA="$(git rev-parse HEAD)"
-          gh pr merge "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --squash --delete-branch --match-head-commit "$HEAD_SHA"

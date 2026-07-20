@@ -1209,10 +1209,11 @@ fn is_sha(value: &str) -> bool {
 
 fn github_agent() -> Result<ureq::Agent, SkillError> {
     crate::network::build_ureq_agent(
-        ureq::AgentBuilder::new()
-            .redirects(0)
-            .timeout_connect(Duration::from_secs(10))
-            .timeout_read(Duration::from_secs(30)),
+        ureq::Agent::config_builder()
+            .max_redirects(0)
+            .http_status_as_error(false)
+            .timeout_connect(Some(Duration::from_secs(10)))
+            .timeout_recv_body(Some(Duration::from_secs(30))),
     )
     .map_err(|message| SkillError::Network {
         message,
@@ -1267,7 +1268,7 @@ fn fetch_response(
     agent: &ureq::Agent,
     url: Url,
     endpoints: &GithubEndpoints,
-) -> Result<ureq::Response, SkillError> {
+) -> Result<ureq::http::Response<ureq::Body>, SkillError> {
     fetch_response_with_etag(agent, url, endpoints, None)
 }
 
@@ -1276,7 +1277,7 @@ fn fetch_response_with_etag(
     mut url: Url,
     endpoints: &GithubEndpoints,
     previous_etag: Option<&str>,
-) -> Result<ureq::Response, SkillError> {
+) -> Result<ureq::http::Response<ureq::Body>, SkillError> {
     let previous_etag = previous_etag
         .map(|value| {
             bounded_header_value(value)
@@ -1288,30 +1289,25 @@ fn fetch_response_with_etag(
         validate_request_url(&url, endpoints)?;
         let request = agent
             .get(url.as_str())
-            .set("User-Agent", concat!("MUX/", env!("CARGO_PKG_VERSION")))
-            .set("Accept", "application/vnd.github+json")
-            .set("X-GitHub-Api-Version", "2022-11-28");
+            .header("User-Agent", concat!("MUX/", env!("CARGO_PKG_VERSION")))
+            .header("Accept", "application/vnd.github+json")
+            .header("X-GitHub-Api-Version", "2022-11-28");
         let request = match previous_etag.as_deref() {
-            Some(etag) => request.set("If-None-Match", etag),
+            Some(etag) => request.header("If-None-Match", etag),
             None => request,
         };
-        let call = request.call();
-        let response = match call {
-            Ok(response) => response,
-            Err(ureq::Error::Status(_, response)) => response,
-            Err(ureq::Error::Transport(_)) => {
-                return Err(SkillError::Network {
-                    message: "the public GitHub request could not be completed".into(),
-                    retry_at: None,
-                })
-            }
-        };
-        if matches!(response.status(), 301 | 302 | 303 | 307 | 308) {
+        let response = request.call().map_err(|_| SkillError::Network {
+            message: "the public GitHub request could not be completed".into(),
+            retry_at: None,
+        })?;
+        if matches!(response.status().as_u16(), 301 | 302 | 303 | 307 | 308) {
             if redirects >= MAX_REDIRECTS {
                 return invalid_source("the GitHub redirect limit was exceeded");
             }
             let location = response
-                .header("Location")
+                .headers()
+                .get("Location")
+                .and_then(|value| value.to_str().ok())
                 .filter(|value| !value.is_empty() && value.len() <= MAX_SOURCE_BYTES)
                 .ok_or_else(|| {
                     invalid_source_error("the GitHub redirect is missing a safe location")
@@ -1326,9 +1322,12 @@ fn fetch_response_with_etag(
     }
 }
 
-fn ensure_public_status(response: &ureq::Response, resource: &str) -> Result<(), SkillError> {
+fn ensure_public_status(
+    response: &ureq::http::Response<ureq::Body>,
+    resource: &str,
+) -> Result<(), SkillError> {
     let (rate_limited, retry_at) = rate_limit_evidence(response);
-    match response.status() {
+    match response.status().as_u16() {
         200..=299 => Ok(()),
         403 if rate_limited => Err(SkillError::Network {
             message: "GitHub rate-limited the public source request".into(),
@@ -1348,7 +1347,7 @@ fn ensure_public_status(response: &ureq::Response, resource: &str) -> Result<(),
     }
 }
 
-fn rate_limit_evidence(response: &ureq::Response) -> (bool, Option<String>) {
+fn rate_limit_evidence(response: &ureq::http::Response<ureq::Body>) -> (bool, Option<String>) {
     let remaining_zero = bounded_response_header(response, "X-RateLimit-Remaining")
         .is_some_and(|value| value == "0");
     let retry_after = bounded_response_header(response, "Retry-After");
@@ -1370,8 +1369,11 @@ fn github_reset_retry_at(value: &str) -> Option<String> {
     Some(reset.to_rfc3339_opts(SecondsFormat::Secs, true))
 }
 
-fn bounded_response_header(response: &ureq::Response, name: &str) -> Option<String> {
-    bounded_header_value(response.header(name)?)
+fn bounded_response_header(
+    response: &ureq::http::Response<ureq::Body>,
+    name: &str,
+) -> Option<String> {
+    bounded_header_value(response.headers().get(name)?.to_str().ok()?)
 }
 
 fn bounded_header_value(value: &str) -> Option<String> {
@@ -1382,24 +1384,30 @@ fn bounded_header_value(value: &str) -> Option<String> {
     Some(capped_message(value))
 }
 
-fn read_json<T: for<'de> Deserialize<'de>>(response: ureq::Response) -> Result<T, SkillError> {
+fn read_json<T: for<'de> Deserialize<'de>>(
+    response: ureq::http::Response<ureq::Body>,
+) -> Result<T, SkillError> {
     let bytes = read_response_bounded(response, MAX_METADATA_BYTES, "metadata")?;
     serde_json::from_slice(&bytes)
         .map_err(|_| invalid_source_error("GitHub returned invalid public source metadata"))
 }
 
 fn read_response_bounded(
-    response: ureq::Response,
+    mut response: ureq::http::Response<ureq::Body>,
     maximum: u64,
     limit: &'static str,
 ) -> Result<Vec<u8>, SkillError> {
-    if let Some(length) = response.header("Content-Length") {
+    if let Some(length) = response
+        .headers()
+        .get("Content-Length")
+        .and_then(|value| value.to_str().ok())
+    {
         let length = length
             .parse::<u64>()
             .map_err(|_| invalid_source_error("the response Content-Length is invalid"))?;
         enforce_limit(limit, length, maximum)?;
     }
-    let mut reader = response.into_reader();
+    let mut reader = response.body_mut().as_reader();
     let mut bytes = Vec::new();
     let mut buffer = [0_u8; 64 * 1024];
     let mut total = 0_u64;
@@ -1434,10 +1442,12 @@ fn download_archive(
     destination: &StagingDirectory,
 ) -> Result<(), SkillError> {
     let url = endpoint_url(&endpoints.archive_base, &[owner, repo, "tar.gz", sha])?;
-    let response = fetch_response(agent, url, endpoints)?;
+    let mut response = fetch_response(agent, url, endpoints)?;
     ensure_public_status(&response, "archive")?;
     let declared = response
-        .header("Content-Length")
+        .headers()
+        .get("Content-Length")
+        .and_then(|value| value.to_str().ok())
         .map(|value| {
             value
                 .parse::<u64>()
@@ -1447,7 +1457,7 @@ fn download_archive(
     if let Some(declared) = declared {
         enforce_limit("download", declared, MAX_DOWNLOAD_BYTES)?;
     }
-    let mut source = response.into_reader();
+    let mut source = response.body_mut().as_reader();
     let mut output = destination.create_file("source.tar.gz", 0)?;
     let mut total = 0_u64;
     let mut buffer = [0_u8; 64 * 1024];

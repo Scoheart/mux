@@ -37,13 +37,22 @@ pub fn configured_proxy_url() -> Result<Option<String>, String> {
     get_proxy_settings().map(|settings| settings.proxy_url)
 }
 
-pub fn build_ureq_agent(builder: ureq::AgentBuilder) -> Result<ureq::Agent, String> {
+pub type UreqAgentBuilder = ureq::config::ConfigBuilder<ureq::typestate::AgentScope>;
+
+pub fn build_ureq_agent(builder: UreqAgentBuilder) -> Result<ureq::Agent, String> {
     let Some(proxy_url) = configured_proxy_url()? else {
-        return Ok(builder.build());
+        return Ok(builder.build().new_agent());
     };
-    let proxy =
-        ureq::Proxy::new(&proxy_url).map_err(|_| "代理地址无效，请重新配置。".to_owned())?;
-    Ok(builder.proxy(proxy).build())
+    // ureq 3 resolves `socks5://` targets locally by default. MUX historically
+    // delegated DNS to the configured SOCKS5 proxy, so use ureq's equivalent
+    // runtime scheme without changing the persisted user-facing URL.
+    let runtime_proxy_url = proxy_url
+        .strip_prefix("socks5://")
+        .map(|rest| format!("socks5h://{rest}"))
+        .unwrap_or_else(|| proxy_url.clone());
+    let proxy = ureq::Proxy::new(&runtime_proxy_url)
+        .map_err(|_| "代理地址无效，请重新配置。".to_owned())?;
+    Ok(builder.proxy(Some(proxy)).build().new_agent())
 }
 
 fn normalize_proxy_url(proxy_url: Option<String>) -> Result<Option<String>, String> {
@@ -153,7 +162,7 @@ mod tests {
         )
         .unwrap();
 
-        let error = build_ureq_agent(ureq::AgentBuilder::new()).unwrap_err();
+        let error = build_ureq_agent(ureq::Agent::config_builder()).unwrap_err();
         assert!(error.contains("SOCKS5"));
     }
 
@@ -169,21 +178,24 @@ mod tests {
             stream
                 .set_read_timeout(Some(Duration::from_secs(2)))
                 .unwrap();
-            let mut request = [0_u8; 2048];
-            let read = stream.read(&mut request).unwrap();
-            let request = String::from_utf8_lossy(&request[..read]);
-            assert!(request.starts_with("GET http://example.invalid/proxy-check HTTP/1.1"));
+            let request = read_http_request_head(&mut stream);
+            assert!(
+                request.starts_with("CONNECT example.invalid:80 HTTP/1.1"),
+                "unexpected proxy request: {request}"
+            );
             stream
-                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok")
+                .write_all(b"HTTP/1.1 200 Connection Established\r\n\r\n")
                 .unwrap();
+            assert_origin_form_request_and_reply(&mut stream);
         });
 
-        let response = build_ureq_agent(ureq::AgentBuilder::new())
+        let response = build_ureq_agent(ureq::Agent::config_builder())
             .unwrap()
             .get("http://example.invalid/proxy-check")
             .call()
             .unwrap()
-            .into_string()
+            .body_mut()
+            .read_to_string()
             .unwrap();
 
         assert_eq!(response, "ok");
@@ -221,12 +233,13 @@ mod tests {
             assert_origin_form_request_and_reply(&mut stream);
         });
 
-        let response = build_ureq_agent(ureq::AgentBuilder::new())
+        let response = build_ureq_agent(ureq::Agent::config_builder())
             .unwrap()
             .get("http://example.invalid/proxy-check")
             .call()
             .unwrap()
-            .into_string()
+            .body_mut()
+            .read_to_string()
             .unwrap();
 
         assert_eq!(response, "ok");
@@ -254,12 +267,13 @@ mod tests {
             assert_origin_form_request_and_reply(&mut stream);
         });
 
-        let response = build_ureq_agent(ureq::AgentBuilder::new())
+        let response = build_ureq_agent(ureq::Agent::config_builder())
             .unwrap()
             .get("http://127.0.0.1:3210/proxy-check")
             .call()
             .unwrap()
-            .into_string()
+            .body_mut()
+            .read_to_string()
             .unwrap();
 
         assert_eq!(response, "ok");
@@ -267,13 +281,23 @@ mod tests {
     }
 
     fn assert_origin_form_request_and_reply(stream: &mut TcpStream) {
-        let mut request = [0_u8; 2048];
-        let read = stream.read(&mut request).unwrap();
-        let request = String::from_utf8_lossy(&request[..read]);
+        let request = read_http_request_head(stream);
         assert!(request.starts_with("GET /proxy-check HTTP/1.1"));
         stream
             .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok")
             .unwrap();
+    }
+
+    fn read_http_request_head(stream: &mut TcpStream) -> String {
+        let mut request = Vec::new();
+        let mut chunk = [0_u8; 512];
+        while !request.windows(4).any(|window| window == b"\r\n\r\n") {
+            let read = stream.read(&mut chunk).unwrap();
+            assert!(read > 0, "proxy request ended before its headers");
+            request.extend_from_slice(&chunk[..read]);
+            assert!(request.len() <= 8192, "proxy request headers are too large");
+        }
+        String::from_utf8(request).unwrap()
     }
 
     #[test]

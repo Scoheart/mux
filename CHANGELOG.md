@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.8.2](https://github.com/Scoheart/mux/compare/v1.8.1...v1.8.2) (2026-07-20)
+
+
+### Bug Fixes
+
+* **release:** authorize prerelease publishing ([ea1d085](https://github.com/Scoheart/mux/commit/ea1d0853cf82b9c864c1ac798da994607c037b2c))
+
 ## [1.8.1](https://github.com/Scoheart/mux/compare/v1.8.0...v1.8.1) (2026-07-20)
 
 

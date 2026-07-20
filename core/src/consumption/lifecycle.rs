@@ -313,11 +313,29 @@ fn plan_model_delete(profile_id: String) -> Result<AssetOperationPlan, String> {
     }
     let mut before = BTreeMap::new();
     let mut after = BTreeMap::new();
-    for (agent_id, assigned) in settings.model_assignments.iter().flatten() {
-        if assigned == &profile_id {
-            before.insert(agent_id.clone(), Some(profile_id.clone()));
-            after.insert(agent_id.clone(), None);
+    let agent_ids: BTreeSet<String> = settings
+        .model_consumptions
+        .iter()
+        .flatten()
+        .map(|(agent_id, _)| agent_id.clone())
+        .chain(
+            settings
+                .model_assignments
+                .iter()
+                .flatten()
+                .map(|(id, _)| id.clone()),
+        )
+        .collect();
+    for agent_id in agent_ids {
+        let existing = settings.model_selection(&agent_id);
+        if !existing.profiles.contains_key(&profile_id) {
+            continue;
         }
+        let mut desired = existing.clone();
+        desired.profiles.remove(&profile_id);
+        desired.normalize_active();
+        before.insert(agent_id.clone(), existing);
+        after.insert(agent_id, desired);
     }
     let domain_plan = DomainPlan::Model { before, after };
     let consumer_count = domain_agent_count(&domain_plan);
@@ -413,13 +431,32 @@ fn model_unchanged_consumers(
     profile: &ModelProfile,
     desired_credential_present: bool,
 ) -> Result<DomainPlan, String> {
+    let mut candidate_settings = settings.clone();
+    candidate_settings
+        .model_profiles
+        .get_or_insert_default()
+        .insert(profile.id.clone(), profile.clone());
     let mut before = BTreeMap::new();
     let mut after = BTreeMap::new();
-    for (agent_id, assigned) in settings.model_assignments.iter().flatten() {
-        if assigned != &profile.id {
+    let agent_ids: BTreeSet<String> = settings
+        .model_consumptions
+        .iter()
+        .flatten()
+        .map(|(agent_id, _)| agent_id.clone())
+        .chain(
+            settings
+                .model_assignments
+                .iter()
+                .flatten()
+                .map(|(id, _)| id.clone()),
+        )
+        .collect();
+    for agent_id in agent_ids {
+        let selection = settings.model_selection(&agent_id);
+        if !selection.profiles.contains_key(&profile.id) {
             continue;
         }
-        let capability = model_agent_capability(agent_id).ok_or_else(|| {
+        let capability = model_agent_capability(&agent_id).ok_or_else(|| {
             format!("model_agent_unsupported: {agent_id} has no managed Model writer")
         })?;
         if capability.mode != "managed"
@@ -430,12 +467,17 @@ fn model_unchanged_consumers(
             ));
         }
         if let Some((code, message)) =
-            profile_credential_issue(agent_id, profile, desired_credential_present)
+            profile_credential_issue(&agent_id, profile, desired_credential_present)
         {
             return Err(format!("{code}: {message}"));
         }
-        before.insert(agent_id.clone(), Some(profile.id.clone()));
-        after.insert(agent_id.clone(), Some(profile.id.clone()));
+        super::planner::validate_model_selection_contract(
+            &candidate_settings,
+            &agent_id,
+            &selection,
+        )?;
+        before.insert(agent_id.clone(), selection.clone());
+        after.insert(agent_id, selection);
     }
     Ok(DomainPlan::Model { before, after })
 }

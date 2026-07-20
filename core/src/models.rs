@@ -1,8 +1,9 @@
 //! Reusable model endpoint profiles and safe per-Agent configuration writers.
 //!
-//! The managed set is deliberately small: Claude Code, Codex, Grok Build, and
-//! Pi are written through documented user-level configuration surfaces. Other
-//! Agents remain guidance-only until they expose a safe per-profile writer.
+//! Managed Agents are written only through documented user-level configuration
+//! surfaces. Multi-model Agents keep MUX provider entries independently from
+//! their one active primary pointer; unsupported or insecure surfaces remain
+//! guidance-only.
 
 use crate::applier::backup;
 use crate::paths::{backup_timestamp, backups_dir};
@@ -59,6 +60,11 @@ pub struct ModelAgentView {
     pub config_paths: Vec<String>,
     pub docs: String,
     pub assigned_profile: Option<String>,
+    pub assigned_profiles: Vec<String>,
+    pub active_profile: Option<String>,
+    pub supports_multiple: bool,
+    /// `keychain-command`, `environment-reference`, or `guided`.
+    pub credential_mode: String,
     pub supported_protocols: Vec<ModelProtocol>,
     pub note: String,
 }
@@ -87,6 +93,14 @@ pub enum ExternalModelObservedState {
     Conflicted,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum ObservedActiveModel {
+    Managed(String),
+    External,
+    None,
+    Conflicted,
+}
+
 fn home() -> PathBuf {
     dirs::home_dir().unwrap_or_else(|| PathBuf::from("."))
 }
@@ -101,6 +115,14 @@ pub fn default_config_paths(agent_id: &str) -> Option<Vec<String>> {
         "codex" => &["~/.codex/config.toml"],
         "grok-build" => &["~/.grok/config.toml"],
         "pi" => &["~/.pi/agent/models.json", "~/.pi/agent/settings.json"],
+        "opencode" => &["~/.config/opencode/opencode.json"],
+        "kilo-code" => &["~/.config/kilo/kilo.jsonc"],
+        "qwen-code" => &["~/.qwen/settings.json"],
+        "crush" => &["~/.config/crush/crush.json"],
+        "mistral-vibe" => &["~/.vibe/config.toml"],
+        "hermes" => &["~/.hermes/config.yaml"],
+        "factory-droid" => &["~/.factory/settings.json"],
+        "goose" => &["~/Library/Application Support/Block/goose/config/config.yaml"],
         "minimax-code" => &["~/.mavis/config.yaml"],
         "qoder" => &["~/.qoder/settings.json"],
         _ => return None,
@@ -563,6 +585,12 @@ pub(crate) fn delete_profile_metadata(profile_id: &str) -> Result<(), String> {
         if let Some(assignments) = settings.model_assignments.as_mut() {
             assignments.retain(|_, assigned| assigned != profile_id);
         }
+        if let Some(consumptions) = settings.model_consumptions.as_mut() {
+            for records in consumptions.values_mut() {
+                records.remove(profile_id);
+            }
+            consumptions.retain(|_, records| !records.is_empty());
+        }
     })
     .map_err(|error| error.to_string())
 }
@@ -572,18 +600,35 @@ pub(crate) fn credential_present(profile_id: &str) -> bool {
 }
 
 /// Return the credential contract that prevents an Agent from consuming a
-/// Profile safely. Grok Build cannot read MUX's per-Profile Keychain item: an
-/// authenticated Profile must name an environment variable that Grok can read
-/// in its own process instead.
+/// Profile safely. Environment-reference Agents cannot read MUX's per-Profile
+/// Keychain item, so an authenticated Profile must name an environment variable
+/// that the Agent can read in its own process instead.
 pub(crate) fn profile_credential_issue(
     agent_id: &str,
     profile: &ModelProfile,
     has_credential: bool,
 ) -> Option<(&'static str, &'static str)> {
-    if agent_id == "grok-build" && has_credential && profile.env_key.is_none() {
+    if matches!(
+        agent_id,
+        "grok-build"
+            | "opencode"
+            | "kilo-code"
+            | "qwen-code"
+            | "crush"
+            | "mistral-vibe"
+            | "hermes"
+            | "factory-droid"
+            | "goose"
+    ) && has_credential
+        && profile.env_key.is_none()
+    {
         Some((
-            "grok_build_env_key_required",
-            "Grok Build cannot read the API Key stored in MUX Keychain; set an environment variable name on this Profile before switching.",
+            if agent_id == "grok-build" {
+                "grok_build_env_key_required"
+            } else {
+                "model_env_key_required"
+            },
+            "This Agent cannot read the API Key stored in MUX Keychain; set an external environment variable name on this Profile before switching.",
         ))
     } else {
         None
@@ -645,6 +690,13 @@ fn agent_installed(names: &[&str], config_locations: &[&str], app_locations: &[&
 pub fn list_agents() -> Vec<ModelAgentView> {
     let settings = load_settings();
     let assignments = settings.model_assignments.clone().unwrap_or_default();
+    let assigned_profiles = |agent_id: &str| {
+        settings
+            .model_selection(agent_id)
+            .profiles
+            .into_keys()
+            .collect::<Vec<_>>()
+    };
     let (claude_config_path, claude_config_paths) = path_view(&settings, "claude-code");
     let (codex_config_path, codex_config_paths) = path_view(&settings, "codex");
     let (grok_config_path, grok_config_paths) = path_view(&settings, "grok-build");
@@ -661,6 +713,10 @@ pub fn list_agents() -> Vec<ModelAgentView> {
             config_paths: claude_config_paths,
             docs: "https://code.claude.com/docs/en/settings".into(),
             assigned_profile: assignments.get("claude-code").cloned(),
+            assigned_profiles: assigned_profiles("claude-code"),
+            active_profile: assignments.get("claude-code").cloned(),
+            supports_multiple: false,
+            credential_mode: "keychain-command".into(),
             supported_protocols: vec![ModelProtocol::AnthropicMessages],
             note: "Anthropic-compatible endpoint; restart the session after applying.".into(),
         },
@@ -673,6 +729,10 @@ pub fn list_agents() -> Vec<ModelAgentView> {
             config_paths: codex_config_paths,
             docs: "https://developers.openai.com/codex/config-advanced".into(),
             assigned_profile: assignments.get("codex").cloned(),
+            assigned_profiles: assigned_profiles("codex"),
+            active_profile: assignments.get("codex").cloned(),
+            supports_multiple: false,
+            credential_mode: "keychain-command".into(),
             supported_protocols: vec![ModelProtocol::OpenaiResponses],
             note: "Custom providers currently use the Responses API.".into(),
         },
@@ -685,12 +745,16 @@ pub fn list_agents() -> Vec<ModelAgentView> {
             config_paths: grok_config_paths,
             docs: GROK_BUILD_MODEL_DOCS.into(),
             assigned_profile: assignments.get("grok-build").cloned(),
+            assigned_profiles: assigned_profiles("grok-build"),
+            active_profile: assignments.get("grok-build").cloned(),
+            supports_multiple: true,
+            credential_mode: "environment-reference".into(),
             supported_protocols: vec![
                 ModelProtocol::AnthropicMessages,
                 ModelProtocol::OpenaiResponses,
                 ModelProtocol::OpenaiCompletions,
             ],
-            note: "MUX switches a dedicated custom model, [models].default, and [ui].fork_secondary_model together. An authenticated Profile must set env_key because Grok Build cannot read MUX Keychain; secrets remain outside config.toml.".into(),
+            note: "MUX manages custom model entries and [models].default only; fork_secondary_model remains independent. Authenticated Profiles use an external environment variable reference.".into(),
         },
         ModelAgentView {
             id: "pi".into(),
@@ -701,6 +765,10 @@ pub fn list_agents() -> Vec<ModelAgentView> {
             config_paths: pi_config_paths,
             docs: "https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/models.md".into(),
             assigned_profile: assignments.get("pi").cloned(),
+            assigned_profiles: assigned_profiles("pi"),
+            active_profile: assignments.get("pi").cloned(),
+            supports_multiple: true,
+            credential_mode: "keychain-command".into(),
             supported_protocols: vec![
                 ModelProtocol::AnthropicMessages,
                 ModelProtocol::OpenaiResponses,
@@ -721,6 +789,10 @@ pub fn list_agents() -> Vec<ModelAgentView> {
             config_paths: minimax_config_paths,
             docs: MINIMAX_CODE_DOCS.into(),
             assigned_profile: None,
+            assigned_profiles: Vec::new(),
+            active_profile: None,
+            supports_multiple: false,
+            credential_mode: "guided".into(),
             supported_protocols: vec![
                 ModelProtocol::AnthropicMessages,
                 ModelProtocol::OpenaiResponses,
@@ -741,10 +813,94 @@ pub fn list_agents() -> Vec<ModelAgentView> {
             config_paths: qoder_config_paths,
             docs: QODER_DOCS.into(),
             assigned_profile: None,
+            assigned_profiles: Vec::new(),
+            active_profile: None,
+            supports_multiple: false,
+            credential_mode: "guided".into(),
             supported_protocols: Vec::new(),
             note: "Qoder has no public secure non-interactive BYOK writer; configure it through /model.".into(),
         },
+        managed_agent_view(
+            &settings, "opencode", "OpenCode", &["opencode"], &[".config/opencode"],
+            "https://opencode.ai/docs/models/",
+            "原生 provider/models 与 model；API Key 只写 {env:VAR} 引用。",
+        ),
+        managed_agent_view(
+            &settings, "kilo-code", "Kilo Code CLI", &["kilo"], &[".config/kilo"],
+            "https://kilo.ai/docs/code-with-ai/agents/custom-models",
+            "原生 provider/models 与 model；API Key 只写 {env:VAR} 引用。",
+        ),
+        managed_agent_view(
+            &settings, "qwen-code", "Qwen Code", &["qwen"], &[".qwen"],
+            "https://qwenlm.github.io/qwen-code-docs/en/users/configuration/model-providers/",
+            "原生 modelProviders；API Key 由 envKey 指向外部环境变量。",
+        ),
+        managed_agent_view(
+            &settings, "crush", "Crush", &["crush"], &[".config/crush"],
+            "https://github.com/charmbracelet/crush",
+            "原生 providers 与 models.large；不会改 small 等辅助槽位。",
+        ),
+        managed_agent_view(
+            &settings, "mistral-vibe", "Mistral Vibe", &["vibe"], &[".vibe"],
+            "https://docs.mistral.ai/vibe/code/cli/api-keys-profiles",
+            "原生 providers/models 与 active_model；API Key 由 api_key_env_var 引用。",
+        ),
+        managed_agent_view(
+            &settings, "hermes", "Hermes Agent", &["hermes"], &[".hermes"],
+            "https://hermes-agent.nousresearch.com/docs/user-guide/configuring-models",
+            "原生命名 custom provider、model_aliases 与主模型指针；辅助任务模型保持独立。",
+        ),
+        managed_agent_view(
+            &settings, "factory-droid", "Factory Droid", &["droid"], &[".factory"],
+            "https://docs.factory.ai/cli/byok/overview",
+            "原生 customModels 与 model；API Key 只写 ${VAR} 引用。",
+        ),
+        managed_agent_view(
+            &settings, "goose", "Goose", &["goose"], &["Library/Application Support/Block/goose"],
+            "https://block.github.io/goose/docs/getting-started/providers",
+            "原生 providers/active_provider 与 declarative custom provider；密钥由外部环境变量提供。",
+        ),
     ]
+}
+
+fn managed_agent_view(
+    settings: &crate::settings::Settings,
+    id: &str,
+    name: &str,
+    commands: &[&str],
+    config_locations: &[&str],
+    docs: &str,
+    note: &str,
+) -> ModelAgentView {
+    let (config_path, config_paths) = path_view(settings, id);
+    let selection = settings.model_selection(id);
+    ModelAgentView {
+        id: id.into(),
+        name: name.into(),
+        mode: "managed".into(),
+        installed: agent_installed(commands, config_locations, &[]),
+        config_path,
+        config_paths,
+        docs: docs.into(),
+        assigned_profile: selection.active_profile_id.clone(),
+        assigned_profiles: selection.profiles.into_keys().collect(),
+        active_profile: selection.active_profile_id,
+        supports_multiple: true,
+        credential_mode: "environment-reference".into(),
+        supported_protocols: match id {
+            "qwen-code" | "crush" | "hermes" | "goose" => vec![
+                ModelProtocol::AnthropicMessages,
+                ModelProtocol::OpenaiCompletions,
+            ],
+            "mistral-vibe" => vec![ModelProtocol::OpenaiCompletions],
+            _ => vec![
+                ModelProtocol::AnthropicMessages,
+                ModelProtocol::OpenaiResponses,
+                ModelProtocol::OpenaiCompletions,
+            ],
+        },
+        note: note.into(),
+    }
 }
 
 /// Canonical read-only capability lookup used by the shared consumption
@@ -752,6 +908,131 @@ pub fn list_agents() -> Vec<ModelAgentView> {
 /// and guided Agent matrix from drifting out of sync with the Model writer.
 pub fn model_agent_capability(agent_id: &str) -> Option<ModelAgentView> {
     list_agents().into_iter().find(|agent| agent.id == agent_id)
+}
+
+pub(crate) fn observe_active_model_for_settings(
+    settings: &crate::settings::Settings,
+    agent_id: &str,
+) -> ObservedActiveModel {
+    let profiles = settings.model_profiles.clone().unwrap_or_default();
+    let Some(paths) = configured_path_strings_checked(settings, agent_id)
+        .ok()
+        .flatten()
+        .map(|paths| {
+            paths
+                .into_iter()
+                .map(|path| expand_tilde(&path))
+                .collect::<Vec<_>>()
+        })
+    else {
+        return ObservedActiveModel::None;
+    };
+    let selected = match agent_id {
+        "grok-build" => read_toml(&paths[0]).ok().and_then(|(document, _)| {
+            document
+                .get("models")?
+                .as_table()?
+                .get("default")?
+                .as_str()
+                .map(str::to_string)
+        }),
+        "pi" => read_jsonc(&paths[1]).ok().and_then(|(root, original)| {
+            original?;
+            root.to_serde_value()?
+                .get("defaultProvider")?
+                .as_str()
+                .map(str::to_string)
+        }),
+        "claude-code" | "codex" => settings.model_selection(agent_id).active_profile_id,
+        "opencode" | "kilo-code" | "qwen-code" | "crush" | "mistral-vibe" | "hermes"
+        | "factory-droid" | "goose" => {
+            return match crate::model_adapters::observe_active(agent_id, &paths, &profiles) {
+                crate::model_adapters::ObservedActiveModel::Managed(id) => {
+                    ObservedActiveModel::Managed(id)
+                }
+                crate::model_adapters::ObservedActiveModel::External => {
+                    ObservedActiveModel::External
+                }
+                crate::model_adapters::ObservedActiveModel::None => ObservedActiveModel::None,
+                crate::model_adapters::ObservedActiveModel::Conflicted => {
+                    ObservedActiveModel::Conflicted
+                }
+            };
+        }
+        _ => None,
+    };
+    let Some(selected) = selected else {
+        return ObservedActiveModel::None;
+    };
+    let matches: Vec<_> = profiles
+        .values()
+        .filter(|profile| match agent_id {
+            "grok-build" => selected == grok_model_id(&profile.id),
+            "pi" => selected == format!("mux-{}", profile.id),
+            _ => selected == profile.id,
+        })
+        .map(|profile| profile.id.clone())
+        .collect();
+    match matches.as_slice() {
+        [profile_id] => ObservedActiveModel::Managed(profile_id.clone()),
+        [] => ObservedActiveModel::External,
+        _ => ObservedActiveModel::Conflicted,
+    }
+}
+
+/// Adopt an Agent-native `/model` switch only when it points at an enabled
+/// MUX-managed Profile. External/built-in selections remain read-only and do
+/// not overwrite MUX relationships.
+pub fn reconcile_active_models() -> Result<(), String> {
+    let settings = crate::settings::load_settings_strict().map_err(|error| error.to_string())?;
+    let agent_ids: Vec<String> = settings
+        .model_consumptions
+        .iter()
+        .flatten()
+        .map(|(agent_id, _)| agent_id.clone())
+        .chain(
+            settings
+                .model_assignments
+                .iter()
+                .flatten()
+                .map(|(id, _)| id.clone()),
+        )
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect();
+    let mut updates = Vec::new();
+    for agent_id in agent_ids {
+        let ObservedActiveModel::Managed(profile_id) =
+            observe_active_model_for_settings(&settings, &agent_id)
+        else {
+            continue;
+        };
+        let selection = settings.model_selection(&agent_id);
+        if selection.active_profile_id.as_deref() == Some(profile_id.as_str())
+            || !selection
+                .profiles
+                .get(&profile_id)
+                .is_some_and(|record| record.enabled)
+        {
+            continue;
+        }
+        updates.push((agent_id, profile_id));
+    }
+    if updates.is_empty() {
+        return Ok(());
+    }
+    mutate_settings(|settings| {
+        for (agent_id, profile_id) in &updates {
+            let mut selection = settings.model_selection(agent_id);
+            selection.active_profile_id = Some(profile_id.clone());
+            if let Some(record) = selection.profiles.get_mut(profile_id) {
+                record.last_selected_at =
+                    Some(chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true));
+            }
+            settings.set_model_selection(agent_id, selection);
+        }
+    })
+    .map_err(|error| error.to_string())
 }
 
 /// Inspect only the fields owned by the Model adapter. Candidate generation
@@ -773,12 +1054,64 @@ pub fn observe_profile(
             let settings = observe_prepared(prepare_pi_settings(&paths[1], profile));
             combine_observed(models, settings)
         }
+        "opencode" | "kilo-code" | "qwen-code" | "crush" | "mistral-vibe" | "hermes"
+        | "factory-droid" | "goose" => Ok(crate::model_adapters::observe_prepared_files(
+            crate::model_adapters::prepare_apply(agent_id, &paths, profile, true),
+        )),
         _ => Ok(ModelObservedState::Conflicted),
     }?;
     // Credentials are optional because local and gateway endpoints may not
     // require authentication. Presence is surfaced on the central Profile; it
     // is not drift unless a future Profile schema explicitly marks it required.
     Ok(observed)
+}
+
+/// Observe one installed relationship without requiring it to be the Agent's
+/// current/default model. Multi-model Agents keep several provider entries but
+/// only one active pointer.
+pub fn observe_profile_consumption(
+    agent_id: &str,
+    profile: &ModelProfile,
+    active: bool,
+) -> Result<ModelObservedState, String> {
+    if active || matches!(agent_id, "claude-code" | "codex") {
+        return observe_profile(agent_id, profile);
+    }
+    let has_credential = credential_exists(&profile.id);
+    let paths =
+        configured_paths(agent_id).ok_or_else(|| format!("unsupported model Agent: {agent_id}"))?;
+    let absent = match agent_id {
+        "grok-build" => cleared_toml_profile_absent(prepare_clear_grok_build(&paths[0], profile)),
+        "pi" => cleared_toml_profile_absent(prepare_clear_pi_models(&paths[0], profile)),
+        "opencode" | "kilo-code" | "qwen-code" | "crush" | "mistral-vibe" | "hermes"
+        | "factory-droid" | "goose" => crate::model_adapters::cleared_profile_absent(
+            crate::model_adapters::prepare_clear(agent_id, &paths, profile),
+        ),
+        _ => Ok(false),
+    };
+    match absent {
+        Ok(true) => return Ok(ModelObservedState::Missing),
+        Ok(false) => {}
+        Err(_) => return Ok(ModelObservedState::Conflicted),
+    }
+    match agent_id {
+        "grok-build" => observe_prepared(prepare_grok_model(&paths[0], profile)),
+        "pi" => observe_prepared(prepare_pi_models(&paths[0], profile, has_credential)),
+        "opencode" | "kilo-code" | "qwen-code" | "crush" | "mistral-vibe" | "hermes"
+        | "factory-droid" | "goose" => Ok(crate::model_adapters::observe_prepared_files(
+            crate::model_adapters::prepare_apply(agent_id, &paths, profile, false),
+        )),
+        _ => observe_profile(agent_id, profile),
+    }
+}
+
+fn cleared_toml_profile_absent(
+    prepared: Result<(Option<String>, String), String>,
+) -> Result<bool, String> {
+    let (original, candidate) = prepared?;
+    Ok(original
+        .as_ref()
+        .is_none_or(|original| original == &candidate))
 }
 
 /// Detect model-owned fields when no desired Profile exists. This is a
@@ -793,6 +1126,10 @@ pub fn observe_external_model(agent_id: &str) -> Result<ExternalModelObservedSta
         "codex" => observe_external_codex(&paths[0]),
         "grok-build" => observe_external_grok_build(&paths[0]),
         "pi" => observe_external_pi(&paths[0], &paths[1]),
+        "opencode" | "kilo-code" | "qwen-code" | "crush" | "mistral-vibe" | "hermes"
+        | "factory-droid" | "goose" => {
+            Ok(crate::model_adapters::observe_external(agent_id, &paths[0]))
+        }
         _ => Ok(ExternalModelObservedState::Absent),
     }
 }
@@ -970,7 +1307,11 @@ fn ensure_supported(agent_id: &str, protocol: &ModelProtocol) -> Result<(), Stri
     let supported = match agent_id {
         "claude-code" => matches!(protocol, ModelProtocol::AnthropicMessages),
         "codex" => matches!(protocol, ModelProtocol::OpenaiResponses),
-        "grok-build" | "pi" => true,
+        "grok-build" | "pi" | "opencode" | "kilo-code" | "factory-droid" => true,
+        "qwen-code" => !matches!(protocol, ModelProtocol::OpenaiResponses),
+        "crush" | "mistral-vibe" | "hermes" | "goose" => {
+            !matches!(protocol, ModelProtocol::OpenaiResponses)
+        }
         "qoder" => {
             return Err(format!(
                 "Qoder custom models must currently be configured through /model; see {QODER_DOCS}"
@@ -1023,6 +1364,12 @@ pub(crate) fn apply_profile_with_credential_presence(
         "codex" => apply_codex(&paths[0], &profile, has_credential),
         "grok-build" => apply_grok_build(&paths[0], &profile),
         "pi" => apply_pi(&paths[0], &paths[1], &profile, has_credential),
+        "opencode" | "kilo-code" | "qwen-code" | "crush" | "mistral-vibe" | "hermes"
+        | "factory-droid" | "goose" => apply_native_multi_model(
+            agent_id,
+            &profile,
+            crate::model_adapters::prepare_apply(agent_id, &paths, &profile, true)?,
+        ),
         _ => unreachable!("ensure_supported filtered unknown agents"),
     }?;
 
@@ -1044,7 +1391,7 @@ pub(crate) fn apply_profile_with_credential_presence(
 pub fn clear_profile(agent_id: &str, profile_id: &str) -> Result<(), String> {
     let profile = profile_for_apply(profile_id)?;
     ensure_supported(agent_id, &profile.protocol)?;
-    match observe_profile(agent_id, &profile)? {
+    match observe_profile_consumption(agent_id, &profile, false)? {
         ModelObservedState::Synced => {}
         ModelObservedState::Missing => {}
         ModelObservedState::Drifted => {
@@ -1068,6 +1415,13 @@ pub fn clear_profile(agent_id: &str, profile_id: &str) -> Result<(), String> {
             prepare_clear_grok_build,
         )?,
         "pi" => clear_pi(&paths[0], &paths[1], &profile)?,
+        "opencode" | "kilo-code" | "qwen-code" | "crush" | "mistral-vibe" | "hermes"
+        | "factory-droid" | "goose" => {
+            commit_native_model_files(
+                agent_id,
+                crate::model_adapters::prepare_clear(agent_id, &paths, &profile)?,
+            )?;
+        }
         _ => unreachable!("ensure_supported filtered unsupported model Agent"),
     }
     mutate_settings(|settings| {
@@ -1078,6 +1432,73 @@ pub fn clear_profile(agent_id: &str, profile_id: &str) -> Result<(), String> {
         }
     })
     .map_err(|error| error.to_string())
+}
+
+fn apply_native_multi_model(
+    agent_id: &str,
+    profile: &ModelProfile,
+    files: Vec<crate::model_adapters::PreparedModelFile>,
+) -> Result<ModelApplyResult, String> {
+    let written = files
+        .iter()
+        .map(|file| file.path.display().to_string())
+        .collect();
+    commit_native_model_files(agent_id, files)?;
+    Ok(ModelApplyResult {
+        agent: agent_id.into(),
+        profile: profile.id.clone(),
+        files: written,
+        restart_required: true,
+        message: format!("{agent_id} Model Profile and primary selection updated."),
+    })
+}
+
+fn commit_native_model_files(
+    agent_id: &str,
+    files: Vec<crate::model_adapters::PreparedModelFile>,
+) -> Result<(), String> {
+    let stamp = backup_timestamp();
+    for file in &files {
+        backup_config(&file.path, agent_id, &stamp)?;
+    }
+    let mut applied: Vec<crate::model_adapters::PreparedModelFile> = Vec::new();
+    for file in &files {
+        let result = match (&file.original, &file.content) {
+            (original, Some(content)) => {
+                write_if_unchanged(&file.path, original.as_deref(), content)
+            }
+            (Some(original), None) => remove_if_unchanged(&file.path, original),
+            (None, None) => Ok(()),
+        };
+        if let Err(error) = result {
+            let mut rollback_errors = Vec::new();
+            for previous in applied.into_iter().rev() {
+                let rollback = match (&previous.original, &previous.content) {
+                    (Some(original), Some(content)) => {
+                        write_if_unchanged(&previous.path, Some(content), original)
+                    }
+                    (None, Some(content)) => remove_if_unchanged(&previous.path, content),
+                    (Some(original), None) => write_if_unchanged(&previous.path, None, original),
+                    (None, None) => Ok(()),
+                };
+                if let Err(rollback) = rollback {
+                    rollback_errors.push(rollback);
+                }
+            }
+            return if rollback_errors.is_empty() {
+                Err(format!(
+                    "Model config update failed and was rolled back: {error}"
+                ))
+            } else {
+                Err(format!(
+                    "Model config update failed ({error}); rollback failed: {}",
+                    rollback_errors.join("; ")
+                ))
+            };
+        }
+        applied.push(file.clone());
+    }
+    Ok(())
 }
 
 fn read_optional(path: &Path) -> Result<Option<String>, String> {
@@ -1433,22 +1854,25 @@ fn prepare_grok_build(
         })?;
     defaults.insert("default", toml_edit::value(&model_id));
 
-    if !document.as_table().contains_key("ui") {
-        document
-            .as_table_mut()
-            .insert("ui", Item::Table(Table::new()));
-    }
-    let ui = document
-        .get_mut("ui")
-        .and_then(Item::as_table_mut)
-        .ok_or_else(|| {
-            format!(
-                "refusing to modify {}: 'ui' is not a TOML table",
-                path.display()
-            )
-        })?;
-    ui.insert("fork_secondary_model", toml_edit::value(&model_id));
+    upsert_grok_model(&mut document, path, profile)?;
+    Ok((original, document.to_string()))
+}
 
+fn prepare_grok_model(
+    path: &Path,
+    profile: &ModelProfile,
+) -> Result<(Option<String>, String), String> {
+    let (mut document, original) = read_toml(path)?;
+    upsert_grok_model(&mut document, path, profile)?;
+    Ok((original, document.to_string()))
+}
+
+fn upsert_grok_model(
+    document: &mut Document,
+    path: &Path,
+    profile: &ModelProfile,
+) -> Result<(), String> {
+    let model_id = grok_model_id(&profile.id);
     if !document.as_table().contains_key("model") {
         document
             .as_table_mut()
@@ -1488,7 +1912,7 @@ fn prepare_grok_build(
             model.remove("env_key");
         }
     }
-    Ok((original, document.to_string()))
+    Ok(())
 }
 
 fn prepare_clear_grok_build(
@@ -1682,8 +2106,9 @@ fn apply_grok_build(path: &Path, profile: &ModelProfile) -> Result<ModelApplyRes
         profile: profile.id.clone(),
         files: vec![path.display().to_string()],
         restart_required: true,
-        message: "Grok Build custom model, default selection, and fork model updated; start a new session to use it."
-            .into(),
+        message:
+            "Grok Build custom model and primary default updated; start a new session to use it."
+                .into(),
     })
 }
 
@@ -2065,7 +2490,7 @@ fork_secondary_model = "private-fork"
         assert!(content.contains("model.mux_7465616d2d6f70656e6169"));
         assert!(content.contains("api_backend = \"responses\""));
         assert!(content.contains("env_key = \"TEAM_OPENAI_API_KEY\""));
-        assert!(content.contains("fork_secondary_model = \"mux_7465616d2d6f70656e6169\""));
+        assert!(content.contains("fork_secondary_model = \"private-fork\""));
         assert!(content.contains("max_thoughts_width = 120"));
         assert!(content.contains("context_window = 128000"));
         assert!(content.contains("max_completion_tokens = 16000"));

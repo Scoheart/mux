@@ -10,7 +10,9 @@ import { useConsumptionState } from "./useConsumptionState";
 vi.mock("../lib/api", () => ({
   listConsumptionInventory: vi.fn(),
   planSetAgentConsumption: vi.fn(),
+  planSetActiveModel: vi.fn(),
   planSetMcpEnabled: vi.fn(),
+  planSetModelEnabled: vi.fn(),
   planSetAssetConsumers: vi.fn(),
   planUpdateCentralAsset: vi.fn(),
   planDeleteCentralAsset: vi.fn(),
@@ -27,6 +29,12 @@ beforeEach(() => {
     assetOperationPlanFixture(),
   );
   vi.mocked(api.planSetMcpEnabled).mockResolvedValue(
+    assetOperationPlanFixture(),
+  );
+  vi.mocked(api.planSetModelEnabled).mockResolvedValue(
+    assetOperationPlanFixture(),
+  );
+  vi.mocked(api.planSetActiveModel).mockResolvedValue(
     assetOperationPlanFixture(),
   );
   vi.mocked(api.planUpdateCentralAsset).mockResolvedValue(
@@ -103,6 +111,22 @@ it("owns MCP enabled-state plans through the central operation slot", async () =
 
   expect(api.planSetMcpEnabled).toHaveBeenCalledWith("codex", "github::stdio", false);
   expect(result.current.plan?.candidate_hash).toBe("candidate");
+});
+
+it("owns Model enabled and active plans through the central operation slot", async () => {
+  const { result } = renderHook(() => useConsumptionState());
+  await waitFor(() => expect(result.current.loading).toBe(false));
+
+  await act(async () => {
+    await result.current.planModelEnabled("pi", "work", false);
+  });
+  expect(api.planSetModelEnabled).toHaveBeenCalledWith("pi", "work", false);
+
+  await act(async () => result.current.cancel());
+  await act(async () => {
+    await result.current.planActiveModel("pi", "personal");
+  });
+  expect(api.planSetActiveModel).toHaveBeenCalledWith("pi", "personal");
 });
 
 it("cancels the exact active operation", async () => {

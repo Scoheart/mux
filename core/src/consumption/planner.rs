@@ -2,8 +2,9 @@ use super::compatibility::compatibility_for;
 use super::inventory::list_consumption_inventory;
 use super::types::{
     AgentConsumptionSelection, AssetOperationKind, AssetOperationPlan, AssetRef,
-    CentralAssetChange, ConsumptionStatus, DomainPlan, PlanSetAgentConsumptionRequest,
-    PlanSetAssetConsumersRequest, PlanSetMcpEnabledRequest, PlanUpdateAgentConfigurationRequest,
+    CentralAssetChange, ConsumptionStatus, DomainPlan, ModelConsumptionRecord,
+    PlanSetActiveModelRequest, PlanSetAgentConsumptionRequest, PlanSetAssetConsumersRequest,
+    PlanSetMcpEnabledRequest, PlanSetModelEnabledRequest, PlanUpdateAgentConfigurationRequest,
     RelationshipAction, RelationshipChange,
 };
 use crate::agents::{
@@ -120,8 +121,7 @@ pub fn plan_set_agent_consumption(
             }
         }
         AgentConsumptionSelection::Model { profile_ids } => {
-            let after_profile = profile_ids.into_iter().next();
-            if let Some(profile_id) = &after_profile {
+            for profile_id in &profile_ids {
                 require_compatible(
                     &request.agent_id,
                     &AssetRef::Model {
@@ -129,14 +129,27 @@ pub fn plan_set_agent_consumption(
                     },
                 )?;
             }
-            let before = settings
-                .model_assignments
-                .as_ref()
-                .and_then(|assignments| assignments.get(&request.agent_id))
-                .cloned();
+            let before = settings.model_selection(&request.agent_id);
+            let desired: BTreeSet<_> = profile_ids.into_iter().collect();
+            let mut after = before.clone();
+            after
+                .profiles
+                .retain(|profile_id, _| desired.contains(profile_id));
+            for profile_id in desired {
+                after
+                    .profiles
+                    .entry(profile_id.clone())
+                    .or_insert(ModelConsumptionRecord {
+                        profile_id,
+                        enabled: true,
+                        last_selected_at: None,
+                    });
+            }
+            after.normalize_active();
+            validate_model_selection_contract(&settings, &request.agent_id, &after)?;
             DomainPlan::Model {
                 before: BTreeMap::from([(request.agent_id.clone(), before)]),
-                after: BTreeMap::from([(request.agent_id, after_profile)]),
+                after: BTreeMap::from([(request.agent_id, after)]),
             }
         }
         AgentConsumptionSelection::Skill { names } => {
@@ -148,6 +161,64 @@ pub fn plan_set_agent_consumption(
         }
     };
     finalize_plan(domain_plan)
+}
+
+pub fn plan_set_model_enabled(
+    request: PlanSetModelEnabledRequest,
+) -> Result<AssetOperationPlan, String> {
+    validate_agent_id(&request.agent_id)?;
+    let settings = load_settings_strict().map_err(|error| error.to_string())?;
+    let before = settings.model_selection(&request.agent_id);
+    let mut after = before.clone();
+    let record = after
+        .profiles
+        .get_mut(&request.profile_id)
+        .ok_or_else(|| "model_consumption_missing: Model is not added to this Agent".to_string())?;
+    if record.enabled == request.enabled {
+        return Err("model_enabled_unchanged: Model already has the requested state".into());
+    }
+    record.enabled = request.enabled;
+    after.normalize_active();
+    validate_model_selection_contract(&settings, &request.agent_id, &after)?;
+    finalize_plan(DomainPlan::Model {
+        before: BTreeMap::from([(request.agent_id.clone(), before)]),
+        after: BTreeMap::from([(request.agent_id, after)]),
+    })
+}
+
+pub fn plan_set_active_model(
+    request: PlanSetActiveModelRequest,
+) -> Result<AssetOperationPlan, String> {
+    validate_agent_id(&request.agent_id)?;
+    let settings = load_settings_strict().map_err(|error| error.to_string())?;
+    let before = settings.model_selection(&request.agent_id);
+    let mut after = before.clone();
+    validate_model_selection_contract(&settings, &request.agent_id, &after)?;
+    let record = after
+        .profiles
+        .get(&request.profile_id)
+        .ok_or_else(|| "model_consumption_missing: Model is not added to this Agent".to_string())?;
+    if !record.enabled {
+        return Err("model_consumption_disabled: enable the Model before selecting it".into());
+    }
+    require_compatible(
+        &request.agent_id,
+        &AssetRef::Model {
+            profile_id: request.profile_id.clone(),
+        },
+    )?;
+    if before.active_profile_id.as_deref() == Some(request.profile_id.as_str()) {
+        return Err("active_model_unchanged: Model is already current".into());
+    }
+    after.active_profile_id = Some(request.profile_id.clone());
+    if let Some(record) = after.profiles.get_mut(&request.profile_id) {
+        record.last_selected_at =
+            Some(chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true));
+    }
+    finalize_plan(DomainPlan::Model {
+        before: BTreeMap::from([(request.agent_id.clone(), before)]),
+        after: BTreeMap::from([(request.agent_id, after)]),
+    })
 }
 
 /// Plan an MCP on/off transition without removing its desired relationship.
@@ -520,18 +591,22 @@ pub fn plan_set_asset_consumers(
             let mut before = BTreeMap::new();
             let mut after = BTreeMap::new();
             for agent_id in affected {
-                let existing = settings
-                    .model_assignments
-                    .as_ref()
-                    .and_then(|assignments| assignments.get(&agent_id))
-                    .cloned();
-                let desired = if selected.contains(&agent_id) {
-                    Some(profile_id.clone())
-                } else if existing.as_deref() == Some(profile_id) {
-                    None
+                let existing = settings.model_selection(&agent_id);
+                let mut desired = existing.clone();
+                if selected.contains(&agent_id) {
+                    desired
+                        .profiles
+                        .entry(profile_id.clone())
+                        .or_insert(ModelConsumptionRecord {
+                            profile_id: profile_id.clone(),
+                            enabled: true,
+                            last_selected_at: None,
+                        });
                 } else {
-                    existing.clone()
-                };
+                    desired.profiles.remove(profile_id);
+                }
+                desired.normalize_active();
+                validate_model_selection_contract(&settings, &agent_id, &desired)?;
                 before.insert(agent_id.clone(), existing);
                 after.insert(agent_id, desired);
             }
@@ -556,6 +631,50 @@ pub fn plan_set_asset_consumers(
         }
     };
     finalize_plan(domain_plan)
+}
+
+pub(crate) fn validate_model_selection_contract(
+    settings: &crate::settings::Settings,
+    agent_id: &str,
+    selection: &crate::consumption::types::ModelAgentSelection,
+) -> Result<(), String> {
+    let capability = crate::models::model_agent_capability(agent_id)
+        .ok_or_else(|| format!("unsupported model Agent: {agent_id}"))?;
+    if !capability.supports_multiple && selection.profiles.len() > 1 {
+        return Err(format!(
+            "model_single_profile_only: {} supports one MUX Model Profile",
+            capability.name
+        ));
+    }
+    let mut identities = BTreeMap::<String, String>::new();
+    for (profile_id, record) in &selection.profiles {
+        if !record.enabled {
+            continue;
+        }
+        let profile = settings
+            .model_profiles
+            .as_ref()
+            .and_then(|profiles| profiles.get(profile_id))
+            .ok_or_else(|| format!("model_profile_missing: {profile_id}"))?;
+        let identity = match agent_id {
+            "qwen-code" => format!(
+                "{}::{}",
+                match profile.protocol {
+                    crate::types::ModelProtocol::AnthropicMessages => "anthropic",
+                    _ => "openai",
+                },
+                profile.model
+            ),
+            "factory-droid" => profile.model.clone(),
+            _ => profile_id.clone(),
+        };
+        if let Some(existing) = identities.insert(identity.clone(), profile_id.clone()) {
+            return Err(format!(
+                "model_native_identity_conflict: {agent_id} cannot distinguish Profiles {existing} and {profile_id} ({identity})"
+            ));
+        }
+    }
+    Ok(())
 }
 
 fn validate_unique_mcp_names(keys: &[String]) -> Result<(), String> {
@@ -755,7 +874,7 @@ pub(crate) fn finalize_plan_with(
         && matches!(
             &domain_plan,
             DomainPlan::Model { after, .. }
-                if after.values().all(Option::is_some)
+                if after.values().all(|selection| selection.active_profile_id.is_some())
         );
     let requires_conflict_confirmation =
         !blocked.is_empty() && (kind == AssetOperationKind::UpdateAsset || model_replacement);
@@ -829,25 +948,15 @@ fn relationship_changes(plan: &DomainPlan) -> Vec<RelationshipChange> {
         }
         DomainPlan::Model { before, after } => {
             for agent_id in union_keys(before, after) {
-                let left = before.get(agent_id).cloned().flatten();
-                let right = after.get(agent_id).cloned().flatten();
-                if left == right {
-                    continue;
-                }
-                if let Some(profile_id) = left {
-                    changes.push(RelationshipChange {
-                        agent_id: agent_id.clone(),
-                        asset: AssetRef::Model { profile_id },
-                        action: RelationshipAction::Remove,
-                    });
-                }
-                if let Some(profile_id) = right {
-                    changes.push(RelationshipChange {
-                        agent_id: agent_id.clone(),
-                        asset: AssetRef::Model { profile_id },
-                        action: RelationshipAction::Add,
-                    });
-                }
+                let left = before.get(agent_id).cloned().unwrap_or_default();
+                let right = after.get(agent_id).cloned().unwrap_or_default();
+                diff_many(
+                    agent_id,
+                    left.profiles.keys().cloned().collect(),
+                    right.profiles.keys().cloned().collect(),
+                    |profile_id| AssetRef::Model { profile_id },
+                    &mut changes,
+                );
             }
         }
         DomainPlan::AgentConfiguration {
@@ -957,15 +1066,12 @@ fn effect_assets(
     // unchanged desired profiles so drift/conflicts are reviewed and bound to
     // an explicit confirmation instead of producing an invisible no-op.
     if let DomainPlan::Model { after, .. } = plan {
-        effects.extend(after.iter().filter_map(|(agent_id, profile_id)| {
-            profile_id.as_ref().map(|profile_id| {
-                (
-                    agent_id.clone(),
-                    AssetRef::Model {
-                        profile_id: profile_id.clone(),
-                    },
-                )
-            })
+        effects.extend(after.iter().flat_map(|(agent_id, selection)| {
+            selection
+                .profiles
+                .keys()
+                .cloned()
+                .map(|profile_id| (agent_id.clone(), AssetRef::Model { profile_id }))
         }));
     }
     let agents = agents_for_plan(plan);
@@ -990,8 +1096,7 @@ fn asset_desired_after(plan: &DomainPlan, agent_id: &str, asset: &AssetRef) -> b
         }
         (DomainPlan::Model { after, .. }, AssetRef::Model { profile_id }) => after
             .get(agent_id)
-            .and_then(Option::as_deref)
-            .is_some_and(|desired| desired == profile_id),
+            .is_some_and(|selection| selection.profiles.contains_key(profile_id)),
         (DomainPlan::Skill { after, .. }, AssetRef::Skill { name }) => after
             .get(agent_id)
             .is_some_and(|names| names.contains(name)),
@@ -1038,12 +1143,22 @@ fn target_files(plan: &DomainPlan) -> Result<Vec<String>, String> {
                 }
             }
         }
-        DomainPlan::Model { .. } => {
+        DomainPlan::Model { before, after } => {
             let settings = load_settings_strict().map_err(|error| error.to_string())?;
             for agent_id in agents_for_plan(plan) {
                 let paths = crate::models::configured_path_strings_checked(&settings, &agent_id)?
                     .ok_or_else(|| format!("unsupported model Agent: {agent_id}"))?;
-                for path in paths {
+                let profile_ids: BTreeSet<String> = before
+                    .get(&agent_id)
+                    .into_iter()
+                    .chain(after.get(&agent_id))
+                    .flat_map(|selection| selection.profiles.keys().cloned())
+                    .collect();
+                for path in crate::model_adapters::target_files(
+                    &agent_id,
+                    &paths,
+                    &profile_ids.into_iter().collect::<Vec<_>>(),
+                ) {
                     files.insert(path);
                 }
             }
@@ -1185,7 +1300,9 @@ mod tests {
     use crate::registry::write_manual_entry;
     use crate::settings::mutate_settings;
     use crate::testenv::TestHome;
-    use crate::types::{HttpConfig, RegistryConfig, RegistryEntry, StdioConfig};
+    use crate::types::{
+        HttpConfig, ModelProfile, ModelProtocol, RegistryConfig, RegistryEntry, StdioConfig,
+    };
 
     fn write_external_skill(root: &Path, name: &str, description: &str) {
         let skill = root.join(name);
@@ -1324,6 +1441,89 @@ mod tests {
         })
         .unwrap_err();
         assert!(error.starts_with("mcp_identity_conflict:"));
+    }
+
+    #[test]
+    fn asset_entrypoint_cannot_add_a_second_profile_to_a_single_model_agent() {
+        let _home = TestHome::new("consume-model-single-profile");
+        let profile = |id: &str| ModelProfile {
+            id: id.into(),
+            name: id.into(),
+            protocol: ModelProtocol::AnthropicMessages,
+            base_url: format!("https://{id}.example.invalid/v1"),
+            model: format!("{id}-model"),
+            env_key: None,
+            context_window: None,
+            max_output_tokens: None,
+            reasoning: false,
+        };
+        mutate_settings(|settings| {
+            settings.model_profiles.get_or_insert_default().extend([
+                ("work".into(), profile("work")),
+                ("other".into(), profile("other")),
+            ]);
+            settings.set_model_selection(
+                "claude-code",
+                crate::consumption::ModelAgentSelection {
+                    profiles: BTreeMap::from([(
+                        "work".into(),
+                        ModelConsumptionRecord {
+                            profile_id: "work".into(),
+                            enabled: true,
+                            last_selected_at: None,
+                        },
+                    )]),
+                    active_profile_id: Some("work".into()),
+                },
+            );
+        })
+        .unwrap();
+
+        let error = plan_set_asset_consumers(PlanSetAssetConsumersRequest {
+            asset: AssetRef::Model {
+                profile_id: "other".into(),
+            },
+            agent_ids: vec!["claude-code".into()],
+        })
+        .unwrap_err();
+
+        assert!(error.starts_with("model_single_profile_only:"), "{error}");
+    }
+
+    #[test]
+    fn qwen_rejects_profiles_with_the_same_native_selection_identity() {
+        let _home = TestHome::new("consume-model-qwen-identity");
+        let profile = |id: &str| ModelProfile {
+            id: id.into(),
+            name: id.into(),
+            protocol: ModelProtocol::OpenaiCompletions,
+            base_url: format!("https://{id}.example.invalid/v1"),
+            model: "shared-model".into(),
+            env_key: None,
+            context_window: None,
+            max_output_tokens: None,
+            reasoning: false,
+        };
+        mutate_settings(|settings| {
+            settings.model_profiles.get_or_insert_default().extend([
+                ("first".into(), profile("first")),
+                ("second".into(), profile("second")),
+            ]);
+        })
+        .unwrap();
+
+        let error = plan_set_agent_consumption(PlanSetAgentConsumptionRequest {
+            agent_id: "qwen-code".into(),
+            selection: AgentConsumptionSelection::Model {
+                profile_ids: vec!["first".into(), "second".into()],
+            },
+        })
+        .unwrap_err();
+
+        assert!(
+            error.starts_with("model_native_identity_conflict:"),
+            "{error}"
+        );
     }
 
     #[test]

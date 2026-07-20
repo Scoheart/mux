@@ -1,8 +1,8 @@
 use mux_core::consumption::{
     AssetCommitRequest, AssetOperationPlan, ConsumptionInventory, McpAdoptionCandidate,
     PlanDeleteCentralAssetRequest, PlanMcpAdoptionRequest, PlanSetAgentConsumptionRequest,
-    PlanSetAssetConsumersRequest,
-    PlanUpdateAgentConfigurationRequest, PlanUpdateCentralAssetRequest,
+    PlanSetAssetConsumersRequest, PlanUpdateAgentConfigurationRequest,
+    PlanUpdateCentralAssetRequest,
 };
 use mux_core::registry::{read_registry, read_registry_all, user_override_keys, CatalogItem};
 use mux_core::skills::{
@@ -10,8 +10,7 @@ use mux_core::skills::{
     PlanRemoveRequest, PlanRepairRequest, PlanSkillAssetImportRequest,
     PlanSkillAssetInstallRequest, PlanUpdateRequest, SkillAgentView, SkillCommitRequest,
     SkillDetail, SkillError, SkillInventoryItem, SkillSourceInput, SkillSourceResolution,
-    SkillsInventory,
-    UpdateCheckOutcome,
+    SkillsInventory, UpdateCheckOutcome,
 };
 use mux_core::types::RegistryEntry;
 
@@ -54,12 +53,16 @@ where
 
 #[tauri::command]
 pub async fn list_consumption_inventory() -> Result<ConsumptionInventory, AssetCommandError> {
-    asset_blocking(mux_core::consumption::list_consumption_inventory).await
+    asset_blocking(|| {
+        mux_core::models::reconcile_active_models()?;
+        mux_core::consumption::list_consumption_inventory()
+    })
+    .await
 }
 
 #[tauri::command]
-pub async fn list_mcp_adoption_candidates(
-) -> Result<Vec<McpAdoptionCandidate>, AssetCommandError> {
+pub async fn list_mcp_adoption_candidates() -> Result<Vec<McpAdoptionCandidate>, AssetCommandError>
+{
     asset_blocking(mux_core::consumption::list_mcp_adoption_candidates).await
 }
 
@@ -82,6 +85,20 @@ pub async fn plan_set_mcp_enabled(
     request: mux_core::consumption::PlanSetMcpEnabledRequest,
 ) -> Result<AssetOperationPlan, AssetCommandError> {
     asset_blocking(move || mux_core::consumption::plan_set_mcp_enabled(request)).await
+}
+
+#[tauri::command]
+pub async fn plan_set_model_enabled(
+    request: mux_core::consumption::PlanSetModelEnabledRequest,
+) -> Result<AssetOperationPlan, AssetCommandError> {
+    asset_blocking(move || mux_core::consumption::plan_set_model_enabled(request)).await
+}
+
+#[tauri::command]
+pub async fn plan_set_active_model(
+    request: mux_core::consumption::PlanSetActiveModelRequest,
+) -> Result<AssetOperationPlan, AssetCommandError> {
+    asset_blocking(move || mux_core::consumption::plan_set_active_model(request)).await
 }
 
 #[tauri::command]
@@ -183,8 +200,8 @@ pub async fn list_skills_inventory() -> Result<SkillsInventory, SkillCommandErro
 }
 
 #[tauri::command]
-pub async fn list_skill_migration_candidates(
-) -> Result<Vec<SkillInventoryItem>, SkillCommandError> {
+pub async fn list_skill_migration_candidates() -> Result<Vec<SkillInventoryItem>, SkillCommandError>
+{
     skill_blocking(mux_core::skills::list_migration_candidates).await
 }
 
@@ -412,8 +429,9 @@ pub fn delete_model_profile(id: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn list_model_agents() -> Vec<mux_core::models::ModelAgentView> {
-    mux_core::models::list_agents()
+pub fn list_model_agents() -> Result<Vec<mux_core::models::ModelAgentView>, String> {
+    mux_core::models::reconcile_active_models()?;
+    Ok(mux_core::models::list_agents())
 }
 
 #[tauri::command]

@@ -1379,6 +1379,14 @@ body {
 .mux-consumption-meta { display: inline-flex; min-width: 0; flex: 0 0 auto; align-items: center; }
 .mux-transport-mark { color: var(--text-tertiary); font: 600 8px/1 var(--font-mono); letter-spacing: .04em; text-transform: uppercase; }
 .mux-consumption-actions { display: inline-flex; align-items: center; gap: 3px; }
+.mux-consumption-activate {
+  padding: 3px 6px; border: 0; border-radius: 5px;
+  background: color-mix(in srgb, var(--color-blue) 9%, transparent);
+  color: var(--color-blue); font-size: 8px; font-weight: 650; white-space: nowrap; cursor: pointer;
+}
+.mux-consumption-activate:hover:not(:disabled) { background: color-mix(in srgb, var(--color-blue) 16%, transparent); }
+.mux-consumption-activate:disabled { opacity: .42; cursor: default; }
+.mux-consumption-activate:focus-visible { outline: 2px solid color-mix(in srgb, var(--color-blue) 52%, transparent); outline-offset: 1px; }
 .mux-switch:focus-visible { outline: 2px solid color-mix(in srgb, var(--color-blue) 52%, transparent); outline-offset: 2px; }
 .mux-consumption-status { display: inline-flex; align-items: center; gap: 5px; color: var(--text-secondary); font-size: 9px; white-space: nowrap; }
 .mux-consumption-status > span { width: 7px; height: 7px; flex: 0 0 7px; border-radius: 50%; background: var(--color-gray-400); }

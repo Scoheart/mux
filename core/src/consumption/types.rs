@@ -102,6 +102,9 @@ pub struct ConsumptionView {
     /// MCP observations; Model and Skill relationships do not have an off state.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub enabled: Option<bool>,
+    /// Whether this Model Profile is the Agent's current primary model.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active: Option<bool>,
     pub status: ConsumptionStatus,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
@@ -129,6 +132,54 @@ pub struct McpConsumptionRecord {
     pub enabled: bool,
     #[serde(default)]
     pub overrides: OverridePatch,
+}
+
+/// One MUX-owned Model Profile installed for an Agent. Installation and the
+/// Agent's active/default model are intentionally separate: an Agent may keep
+/// several enabled profiles while only one is current.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ModelConsumptionRecord {
+    pub profile_id: String,
+    pub enabled: bool,
+    /// RFC3339 timestamp updated only when this Profile becomes current. It is
+    /// used to choose a deterministic fallback when the current Profile is
+    /// disabled or removed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_selected_at: Option<String>,
+}
+
+/// Complete desired Model state for one Agent.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct ModelAgentSelection {
+    #[serde(default)]
+    pub profiles: BTreeMap<String, ModelConsumptionRecord>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active_profile_id: Option<String>,
+}
+
+impl ModelAgentSelection {
+    /// Keep the current pointer valid, falling back to the most recently used
+    /// enabled Profile and then to a stable profile id.
+    pub fn normalize_active(&mut self) {
+        let active_available = self.active_profile_id.as_ref().is_some_and(|active| {
+            self.profiles
+                .get(active)
+                .is_some_and(|record| record.enabled)
+        });
+        if active_available {
+            return;
+        }
+        self.active_profile_id = self
+            .profiles
+            .values()
+            .filter(|record| record.enabled)
+            .max_by(|left, right| {
+                left.last_selected_at
+                    .cmp(&right.last_selected_at)
+                    .then_with(|| right.profile_id.cmp(&left.profile_id))
+            })
+            .map(|record| record.profile_id.clone());
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -183,8 +234,8 @@ pub enum DomainPlan {
         after: BTreeMap<String, Vec<String>>,
     },
     Model {
-        before: BTreeMap<String, Option<String>>,
-        after: BTreeMap<String, Option<String>>,
+        before: BTreeMap<String, ModelAgentSelection>,
+        after: BTreeMap<String, ModelAgentSelection>,
     },
     Skill {
         before: BTreeMap<String, Vec<String>>,
@@ -279,6 +330,21 @@ pub struct PlanSetMcpEnabledRequest {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
+pub struct PlanSetModelEnabledRequest {
+    pub agent_id: String,
+    pub profile_id: String,
+    pub enabled: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct PlanSetActiveModelRequest {
+    pub agent_id: String,
+    pub profile_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct PlanUpdateAgentConfigurationRequest {
     pub agent_id: String,
     pub configuration: AgentConfigurationInput,
@@ -306,9 +372,15 @@ impl McpConsumptionRecord {
     }
 }
 
+impl ModelConsumptionRecord {
+    pub fn validate(&self) -> Result<(), SelectionError> {
+        validate_nonempty("profile_id", &self.profile_id)
+    }
+}
+
 /// Complete desired selection for one Agent and one domain. Empty selections
-/// mean unassign. A vector is retained for Model at the wire boundary so stale
-/// or buggy clients attempting to assign multiple Profiles fail explicitly.
+/// mean unassign. Model accepts several installed Profiles; the current Profile
+/// is changed through the explicit active-model operation.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "domain", rename_all = "kebab-case", deny_unknown_fields)]
 pub enum AgentConsumptionSelection {
@@ -329,13 +401,12 @@ impl AgentConsumptionSelection {
                 })
             }
             Self::Model { profile_ids } => {
-                if profile_ids.len() > 1 {
-                    return Err(SelectionError::MultipleModelProfiles(profile_ids));
-                }
                 for profile_id in &profile_ids {
                     validate_nonempty("profile_id", profile_id)?;
                 }
-                Ok(Self::Model { profile_ids })
+                Ok(Self::Model {
+                    profile_ids: dedup_sorted(profile_ids),
+                })
             }
             Self::Skill { names } => {
                 for name in &names {
@@ -361,7 +432,6 @@ fn dedup_sorted(values: Vec<String>) -> Vec<String> {
 pub enum SelectionError {
     InvalidMcpAssetKey(String),
     InvalidIdentity { field: &'static str, value: String },
-    MultipleModelProfiles(Vec<String>),
 }
 
 impl fmt::Display for SelectionError {
@@ -372,9 +442,6 @@ impl fmt::Display for SelectionError {
                 "invalid MCP asset key {key:?}; expected name::stdio or name::http"
             ),
             Self::InvalidIdentity { field, .. } => write!(f, "{field} must not be empty"),
-            Self::MultipleModelProfiles(_) => {
-                write!(f, "an Agent can consume at most one Model Profile")
-            }
         }
     }
 }
@@ -453,12 +520,16 @@ mod tests {
     }
 
     #[test]
-    fn model_selection_rejects_multiple_profiles() {
-        let error = AgentConsumptionSelection::Model {
-            profile_ids: vec!["work".into(), "personal".into()],
-        }
-        .normalize()
-        .unwrap_err();
-        assert!(matches!(error, SelectionError::MultipleModelProfiles(_)));
+    fn model_selection_accepts_multiple_profiles_and_deduplicates() {
+        assert_eq!(
+            AgentConsumptionSelection::Model {
+                profile_ids: vec!["work".into(), "personal".into(), "work".into()],
+            }
+            .normalize()
+            .unwrap(),
+            AgentConsumptionSelection::Model {
+                profile_ids: vec!["personal".into(), "work".into()],
+            }
+        );
     }
 }

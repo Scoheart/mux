@@ -15,9 +15,8 @@ import type {
 import { formatError } from "../lib/format";
 import { keyOf, transportOf } from "../lib/mcp";
 import { consumptionsForAgent, externalForAgent } from "../lib/consumption";
-import { describeAgentModel } from "../lib/agentModels";
 import { listModelAgents, listModelProfiles } from "../lib/api";
-import { CheckIcon, EditIcon, LayersIcon, LinkIcon, PackageIcon, PlusIcon, RefreshIcon, SparklesIcon } from "./icons";
+import { EditIcon, LayersIcon, LinkIcon, PackageIcon, PlusIcon, SparklesIcon } from "./icons";
 import { Avatar, Badge, IconButton } from "./ui";
 import { AgentGlyph } from "./brandIcons";
 import { AgentConfigurationDialog } from "./AgentConfigurationDialog";
@@ -29,9 +28,8 @@ import {
   type ConsumptionPickerOption,
 } from "./ConsumptionPickerDialog";
 import { AssetOperationReviewDialog } from "./AssetOperationReviewDialog";
-import { ConsumptionStatus } from "./ConsumptionStatus";
 
-type PickerDomain = "mcp" | "skill";
+type PickerDomain = "mcp" | "model" | "skill";
 
 function modelProtocolLabel(protocol: ModelProfileView["protocol"]) {
   if (protocol === "anthropic-messages") return "Anthropic Messages";
@@ -69,18 +67,17 @@ function fallbackInventory(
           affected_agent_ids: [item.agent],
         })),
       ...modelAgents.flatMap((item) =>
-        item.assigned_profile
-          ? [{
+        (item.assigned_profiles ?? (item.assigned_profile ? [item.assigned_profile] : [])).map((profileId) => ({
               agent_id: item.id,
-              asset: { domain: "model" as const, profile_id: item.assigned_profile },
+              asset: { domain: "model" as const, profile_id: profileId },
               desired: true,
               observed: true,
-              enabled: null,
+              enabled: true,
+              active: profileId === (item.active_profile ?? item.assigned_profile),
               status: "synced" as const,
               reason: null,
               affected_agent_ids: [item.id],
-            }]
-          : [],
+            })),
       ),
     ],
     external: [],
@@ -92,9 +89,10 @@ function completedMessage(plan: AssetOperationPlan, agentName: string) {
   const asset = domain === "mcp" ? "MCP" : domain === "model" ? "Model" : "Skill";
   const hasAdd = plan.relationship_changes.some((change) => change.action === "add");
   const hasRemove = plan.relationship_changes.some((change) => change.action === "remove");
-  if (domain === "model" && hasAdd) return `${agentName} 已切换 Model。`;
+  if (domain === "model" && hasAdd) return `Model 已添加到 ${agentName}。`;
   if (hasAdd && !hasRemove) return `${asset} 已添加到 ${agentName}。`;
   if (hasRemove && !hasAdd) return `${asset} 已从 ${agentName} 移除。`;
+  if (domain === "model") return `${agentName} 的当前 Model 已更新。`;
   return `${agentName} 的 ${asset} 已更新。`;
 }
 
@@ -124,10 +122,14 @@ export function AgentView({
   const [modelsError, setModelsError] = useState<string | null>(null);
   const [resourceTab, setResourceTab] = useState<AgentResourceTab>("mcps");
   const [preparingChange, setPreparingChange] = useState(false);
-  const [selectedModelProfileId, setSelectedModelProfileId] = useState("");
   const [togglingMcp, setTogglingMcp] = useState<{
     key: string;
     enabled: boolean;
+  } | null>(null);
+  const [changingModel, setChangingModel] = useState<{
+    profileId: string;
+    kind: "enabled" | "active";
+    enabled?: boolean;
   } | null>(null);
 
   const navigateResource = useCallback((request: ResourceNavigationRequest) => {
@@ -186,19 +188,16 @@ export function AgentView({
   const mcpExternal = externalForAgent(inventory, agentId, "mcp");
   const modelExternal = externalForAgent(inventory, agentId, "model");
   const skillExternal = externalForAgent(inventory, agentId, "skill");
-  const modelRow = modelRows[0] ?? null;
-  const currentModelProfileId = modelRows.flatMap((item) =>
-    item.asset.domain === "model" ? [item.asset.profile_id] : []
-  )[0] ?? modelAgent?.assigned_profile ?? null;
-  const currentModelProfile = modelProfiles.find((profile) => profile.id === currentModelProfileId) ?? null;
-  const selectedModelProfile = compatibleProfiles.find((profile) => profile.id === selectedModelProfileId)
-    ?? compatibleProfiles.find((profile) => profile.id === currentModelProfileId)
-    ?? compatibleProfiles[0]
-    ?? null;
-
-  useEffect(() => {
-    setSelectedModelProfileId("");
-  }, [agentId]);
+  const displayedModelRows = useMemo(
+    () => modelRows.map((item) => (
+      changingModel?.kind === "enabled"
+      && item.asset.domain === "model"
+      && item.asset.profile_id === changingModel.profileId
+        ? { ...item, enabled: changingModel.enabled }
+        : item
+    )),
+    [changingModel, modelRows],
+  );
 
   if (!agent) return <div className="mux-agent-state">未找到该 Agent</div>;
 
@@ -228,7 +227,7 @@ export function AgentView({
       ? "读取失败"
       : modelAgent?.mode === "guided"
         ? "Agent 内管理"
-        : modelAgent ? "MUX 管理" : "未接入";
+        : modelAgent ? `MUX 管理${modelAgent.supports_multiple ? " · 多模型" : ""}` : "未接入";
   const skillsDescription = !skillsConfigPath
     ? "未接入"
     : skillsState.loading
@@ -282,6 +281,24 @@ export function AgentView({
           })),
       };
     }
+    if (domain === "model") {
+      return {
+        title: "添加 Model",
+        mode: modelAgent?.supports_multiple ? "multiple" : "single",
+        actionLabel: "添加 Model",
+        busyLabel: "添加中…",
+        emptyMessage: "没有可添加的兼容 Model",
+        searchPlaceholder: "搜索 Model",
+        options: compatibleProfiles
+          .filter((profile) => !assigned.has(profile.id))
+          .map((profile) => ({
+            id: profile.id,
+            name: profile.name,
+            description: profile.model,
+            meta: <TransportMark transport={modelProtocolLabel(profile.protocol)} />,
+          })),
+      };
+    }
     return {
       title: "添加 Skill",
       mode: "multiple",
@@ -324,7 +341,9 @@ export function AgentView({
   };
 
   const planAdditions = (domain: PickerDomain, ids: string[]) => {
-    const next = [...new Set([...currentIds(domain), ...ids])].sort();
+    const next = domain === "model" && modelAgent?.supports_multiple === false
+      ? ids
+      : [...new Set([...currentIds(domain), ...ids])].sort();
     return planSelection(domain, next, true);
   };
 
@@ -379,6 +398,40 @@ export function AgentView({
     }
   };
 
+  const toggleModelEnabled = async (item: typeof modelRows[number], enabled: boolean) => {
+    if (!consumptionState || item.asset.domain !== "model") return;
+    const profileId = item.asset.profile_id;
+    const name = modelProfiles.find((profile) => profile.id === profileId)?.name ?? profileId;
+    setChangingModel({ profileId, kind: "enabled", enabled });
+    try {
+      const plan = await consumptionState.planModelEnabled(agentId, profileId, enabled);
+      if (!requiresAgentReview(plan)) {
+        await commitPlan(undefined, plan, `${name} 已${enabled ? "启用" : "停用"}。`);
+      }
+    } catch (error) {
+      showToast({ kind: "error", msg: `${enabled ? "启用" : "停用"}失败：${formatError(error)}` });
+    } finally {
+      setChangingModel((current) => current?.profileId === profileId ? null : current);
+    }
+  };
+
+  const setActiveModel = async (item: typeof modelRows[number]) => {
+    if (!consumptionState || item.asset.domain !== "model" || item.enabled === false || item.active) return;
+    const profileId = item.asset.profile_id;
+    const name = modelProfiles.find((profile) => profile.id === profileId)?.name ?? profileId;
+    setChangingModel({ profileId, kind: "active" });
+    try {
+      const plan = await consumptionState.planActiveModel(agentId, profileId);
+      if (!requiresAgentReview(plan)) {
+        await commitPlan(undefined, plan, `${agent.name} 已切换到 ${name}。`);
+      }
+    } catch (error) {
+      showToast({ kind: "error", msg: `切换失败：${formatError(error)}` });
+    } finally {
+      setChangingModel((current) => current?.profileId === profileId ? null : current);
+    }
+  };
+
   const openAsset = (asset: AssetRef) => {
     if (asset.domain === "mcp") {
       const split = asset.key.lastIndexOf("::");
@@ -424,7 +477,7 @@ export function AgentView({
           onChange={setResourceTab}
           counts={{
             mcps: mcpRows.length,
-            models: modelRows.length + (modelRows.length === 0 && modelExternal.length > 0 ? 1 : 0),
+            models: modelRows.length + modelExternal.length,
             skills: skillRows.length,
           }}
         >
@@ -467,31 +520,74 @@ export function AgentView({
                 </div>
               </section>
             ) : (
-              <AgentModelAssignment
-                loading={modelsLoading}
-                error={modelsError}
-                agent={modelAgent}
-                currentProfile={currentModelProfile}
-                consumption={modelRow}
-                hasExternalConfig={modelExternal.length > 0}
-                selectedProfile={selectedModelProfile}
-                compatibleProfiles={compatibleProfiles}
-                selectedProfileId={selectedModelProfile?.id ?? ""}
-                applying={preparingChange || consumptionState?.committing === true}
-                disabled={!consumptionState || Boolean(consumptionState.plan)}
-                onSelect={setSelectedModelProfileId}
-                onApply={() => {
-                  if (selectedModelProfile) {
-                    void planSelection("model", [selectedModelProfile.id], true);
-                  }
-                }}
-                onOpenModels={() => navigateResource({ domain: "model", kind: "create" })}
-                onOpenModelDetail={(profileId) => navigateResource({
-                  domain: "model",
-                  kind: "detail",
-                  profileId,
-                })}
-              />
+              modelsLoading ? (
+                <div className="mux-agent-inline-state">正在读取 Model…</div>
+              ) : modelsError ? (
+                <div className="mux-agent-inline-state">Model 读取失败：{modelsError}</div>
+              ) : !modelAgent ? (
+                <div className="mux-agent-inline-state">此 Agent 尚未接入 Models。</div>
+              ) : (
+                <AgentConsumptionPanel
+                  title="Models"
+                  description={`${modelRows.length} 个已添加${modelAgent.supports_multiple ? " · 可保留多个并切换当前模型" : ""}`}
+                  manageLabel="添加 Model"
+                  rows={displayedModelRows}
+                  external={modelExternal}
+                  externalTitle="外部当前模型"
+                  externalDescription="由 Agent 或其他工具设置；MUX 不会自动覆盖"
+                  onManage={() => setPickerDomain("model")}
+                  manageDisabled={!consumptionState || preparingChange || compatibleProfiles.length === 0}
+                  onOpenAsset={openAsset}
+                  onEnabledChange={(item, enabled) => void toggleModelEnabled(item, enabled)}
+                  enabledChangeDisabled={(item) => !consumptionState
+                    || changingModel?.profileId === (item.asset.domain === "model" ? item.asset.profile_id : "")
+                    || item.status === "conflicted"}
+                  renderAction={(item) => item.active ? (
+                    <Badge tone="success">当前</Badge>
+                  ) : item.enabled === false ? null : (
+                    <button
+                      type="button"
+                      className="mux-consumption-activate"
+                      disabled={!consumptionState || changingModel !== null || item.status === "conflicted"}
+                      onClick={() => void setActiveModel(item)}
+                    >
+                      设为当前
+                    </button>
+                  )}
+                  onRemove={(asset) => void planRemoval(asset)}
+                  removeLabel={(name) => `从 ${agent.name} 移除 ${name}`}
+                  removeDisabled={preparingChange || changingModel !== null}
+                  emptyTitle="暂无 Model"
+                  emptyDescription={compatibleProfiles.length === 0
+                    ? "模型库中没有兼容资产。"
+                    : `从 Models 资产库添加到 ${agent.name}。`}
+                  emptyAction={compatibleProfiles.length === 0 ? (
+                    <button
+                      type="button"
+                      className="btn-secondary"
+                      onClick={() => navigateResource({ domain: "model", kind: "create" })}
+                    >
+                      <PlusIcon className="w-4 h-4" />新建模型
+                    </button>
+                  ) : undefined}
+                  present={(asset) => {
+                    const profileId = asset.domain === "model" ? asset.profile_id : "";
+                    const profile = modelProfiles.find((candidate) => candidate.id === profileId);
+                    const credential = profile && modelAgent.credential_mode === "environment-reference"
+                      ? profile.env_key
+                        ? `ENV · ${profile.env_key}`
+                        : profile.credential_saved ? "需要 ENV" : "无需凭据"
+                      : profile?.credential_saved ? "Keychain" : "无需凭据";
+                    return {
+                      name: profile?.name ?? (profileId.startsWith("external-") ? "Agent 当前配置" : profileId),
+                      description: profile
+                        ? `${profile.model} · ${modelProtocolLabel(profile.protocol)} · ${credential}`
+                        : "不属于 MUX 中央模型资产",
+                      icon: <Avatar seed={profile?.name ?? profileId} label="M" size={28} />,
+                    };
+                  }}
+                />
+              )
             )
           ) : (
             <AgentConsumptionPanel
@@ -569,151 +665,6 @@ export function AgentView({
         />
       )}
     </div>
-  );
-}
-
-function AgentModelAssignment({
-  loading,
-  error,
-  agent,
-  currentProfile,
-  consumption,
-  hasExternalConfig,
-  selectedProfile,
-  compatibleProfiles,
-  selectedProfileId,
-  applying,
-  disabled,
-  onSelect,
-  onApply,
-  onOpenModels,
-  onOpenModelDetail,
-}: {
-  loading: boolean;
-  error: string | null;
-  agent: ModelAgentView | null;
-  currentProfile: ModelProfileView | null;
-  consumption: ConsumptionInventory["consumptions"][number] | null;
-  hasExternalConfig: boolean;
-  selectedProfile: ModelProfileView | null;
-  compatibleProfiles: ModelProfileView[];
-  selectedProfileId: string;
-  applying: boolean;
-  disabled: boolean;
-  onSelect: (profileId: string) => void;
-  onApply: () => void;
-  onOpenModels: () => void;
-  onOpenModelDetail: (profileId: string) => void;
-}) {
-  if (loading) {
-    return <div className="mux-agent-inline-state">正在读取 Model…</div>;
-  }
-  if (error) {
-    return <div className="mux-agent-inline-state">Model 读取失败：{error}</div>;
-  }
-  if (!agent) {
-    return <div className="mux-agent-inline-state">此 Agent 尚未接入 Models。</div>;
-  }
-  if (compatibleProfiles.length === 0) {
-    return (
-      <div className="mux-agent-inline-state mux-agent-inline-state-action">
-        <span>模型库中没有兼容资产。</span>
-        <button type="button" className="btn-secondary" onClick={onOpenModels}>
-          <PlusIcon className="w-4 h-4" />
-          新建模型
-        </button>
-      </div>
-    );
-  }
-
-  const display = describeAgentModel(currentProfile, consumption, hasExternalConfig);
-  const alreadyApplied = display.synced && currentProfile?.id === selectedProfile?.id;
-  const reapplying = !display.synced && currentProfile?.id === selectedProfile?.id;
-  const grokMissingEnv = agent.id === "grok-build"
-    && selectedProfile?.credential_saved === true
-    && !selectedProfile.env_key;
-  return (
-    <section className="mux-agent-section mux-agent-resource-content" aria-label="Model 配置">
-      <div className="mux-agent-section-head">
-        <div>
-          <h3>Model</h3>
-          <p>当前配置与可切换的中央模型。</p>
-        </div>
-      </div>
-      <div className="mux-agent-model-control">
-        <div className="mux-agent-model-current">
-          <Avatar seed={currentProfile?.name ?? agent.name} label="M" size={34} />
-          <div>
-            <span>当前模型</span>
-            <strong>{display.label}</strong>
-            <code>{display.detail}</code>
-          </div>
-          {consumption && consumption.status !== "synced" && (
-            <ConsumptionStatus status={consumption.status} reason={consumption.reason} />
-          )}
-          {currentProfile && (
-            <IconButton
-              title={`查看 ${currentProfile.name} 资产`}
-              onClick={() => onOpenModelDetail(currentProfile.id)}
-            >
-              <LinkIcon className="w-4 h-4" />
-            </IconButton>
-          )}
-        </div>
-
-        <div className="mux-agent-model-apply">
-          <label htmlFor={`model-profile-${agent.id}`}>
-            可切换模型 · {compatibleProfiles.length}
-          </label>
-          <select
-            id={`model-profile-${agent.id}`}
-            className="mux-model-field"
-            value={selectedProfileId}
-            disabled={applying || disabled}
-            onChange={(event) => onSelect(event.target.value)}
-          >
-            {compatibleProfiles.map((profile) => (
-              <option key={profile.id} value={profile.id}>
-                {profile.name} · {profile.model}
-              </option>
-            ))}
-          </select>
-          <button
-            type="button"
-            className={alreadyApplied ? "btn-secondary" : "btn-primary"}
-            disabled={!selectedProfile || applying || disabled || alreadyApplied || grokMissingEnv}
-            title={grokMissingEnv
-              ? "Grok Build 无法读取 MUX Keychain；请先在模型资产中设置 API Key 环境变量名。"
-              : undefined}
-            onClick={onApply}
-          >
-            {alreadyApplied
-              ? <CheckIcon className="w-4 h-4" />
-              : <RefreshIcon className="w-4 h-4" />}
-            {applying
-              ? reapplying ? "同步中…" : "切换中…"
-              : alreadyApplied ? "当前模型" : reapplying ? "重新同步" : "切换"}
-          </button>
-          <div className="mux-agent-model-preview">
-            <span className="mux-model-protocol-dot" data-protocol={selectedProfile?.protocol} />
-            <span>{selectedProfile ? modelProtocolLabel(selectedProfile.protocol) : ""}</span>
-            {grokMissingEnv ? (
-              <span className="mux-agent-model-key" data-tone="warning" title="Keychain 中已有密钥，但 Grok Build 只能从环境变量读取">
-                缺少 ENV
-              </span>
-            ) : agent.id === "grok-build" && selectedProfile?.env_key ? (
-              <span className="mux-agent-model-key" title={`Grok Build 从 ${selectedProfile.env_key} 读取 API Key`}>
-                ENV · {selectedProfile.env_key}
-              </span>
-            ) : agent.id !== "grok-build" && selectedProfile?.credential_saved && (
-              <span className="mux-agent-model-key">
-                <CheckIcon className="w-3 h-3" /> Keychain
-              </span>
-            )}
-          </div>
-        </div>
-      </div>
-    </section>
   );
 }
 

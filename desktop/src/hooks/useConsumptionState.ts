@@ -5,8 +5,10 @@ import {
   listConsumptionInventory,
   planDeleteCentralAsset,
   planSetAgentConsumption,
+  planSetActiveModel,
   planSetAssetConsumers,
   planSetMcpEnabled,
+  planSetModelEnabled,
   planUpdateCentralAsset,
 } from "../lib/api";
 import type {
@@ -33,6 +35,15 @@ export interface ConsumptionState {
     agentId: string,
     assetKey: string,
     enabled: boolean,
+  ): Promise<AssetOperationPlan>;
+  planModelEnabled(
+    agentId: string,
+    profileId: string,
+    enabled: boolean,
+  ): Promise<AssetOperationPlan>;
+  planActiveModel(
+    agentId: string,
+    profileId: string,
   ): Promise<AssetOperationPlan>;
   planForAsset(asset: AssetRef, agentIds: string[]): Promise<AssetOperationPlan>;
   planUpdate(draft: CentralAssetDraft): Promise<AssetOperationPlan>;
@@ -155,6 +166,38 @@ export function useConsumptionState(): ConsumptionState {
     [ownPlan],
   );
 
+  const planModelEnabled = useCallback(
+    async (agentId: string, profileId: string, enabled: boolean) => {
+      if (planRef.current || planningRef.current) throw new Error("已有待确认的资产操作");
+      planningRef.current = true;
+      try {
+        return ownPlan(await planSetModelEnabled(agentId, profileId, enabled));
+      } catch (cause) {
+        if (mounted.current) setError(commandError(cause));
+        throw cause;
+      } finally {
+        planningRef.current = false;
+      }
+    },
+    [ownPlan],
+  );
+
+  const planActiveModel = useCallback(
+    async (agentId: string, profileId: string) => {
+      if (planRef.current || planningRef.current) throw new Error("已有待确认的资产操作");
+      planningRef.current = true;
+      try {
+        return ownPlan(await planSetActiveModel(agentId, profileId));
+      } catch (cause) {
+        if (mounted.current) setError(commandError(cause));
+        throw cause;
+      } finally {
+        planningRef.current = false;
+      }
+    },
+    [ownPlan],
+  );
+
   const planUpdate = useCallback(
     async (draft: CentralAssetDraft) => {
       if (planRef.current || planningRef.current) throw new Error("已有待确认的资产操作");
@@ -232,6 +275,8 @@ export function useConsumptionState(): ConsumptionState {
     refresh,
     planForAgent,
     planMcpEnabled,
+    planModelEnabled,
+    planActiveModel,
     planForAsset,
     planUpdate,
     planDelete,

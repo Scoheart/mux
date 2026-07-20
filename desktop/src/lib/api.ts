@@ -54,6 +54,19 @@ export const planSetMcpEnabled = (
 ) => invoke<AssetOperationPlan>("plan_set_mcp_enabled", {
   request: { agent_id: agentId, asset_key: assetKey, enabled },
 });
+export const planSetModelEnabled = (
+  agentId: string,
+  profileId: string,
+  enabled: boolean,
+) => invoke<AssetOperationPlan>("plan_set_model_enabled", {
+  request: { agent_id: agentId, profile_id: profileId, enabled },
+});
+export const planSetActiveModel = (
+  agentId: string,
+  profileId: string,
+) => invoke<AssetOperationPlan>("plan_set_active_model", {
+  request: { agent_id: agentId, profile_id: profileId },
+});
 export const planSetAssetConsumers = (asset: AssetRef, agentIds: string[]) =>
   invoke<AssetOperationPlan>("plan_set_asset_consumers", {
     request: { asset, agent_ids: agentIds },

@@ -90,6 +90,9 @@ fn desktop_registers_only_the_planned_asset_mutation_surface() {
     let source = include_str!("../src/lib.rs");
     for command in [
         "commands::plan_set_agent_consumption",
+        "commands::plan_set_mcp_enabled",
+        "commands::plan_set_model_enabled",
+        "commands::plan_set_active_model",
         "commands::plan_set_asset_consumers",
         "commands::plan_update_central_asset",
         "commands::plan_delete_central_asset",

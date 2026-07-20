@@ -71,6 +71,10 @@ export interface ModelAgentView {
   config_paths: string[];
   docs: string;
   assigned_profile: string | null;
+  assigned_profiles: string[];
+  active_profile: string | null;
+  supports_multiple: boolean;
+  credential_mode: "keychain-command" | "environment-reference" | "guided" | string;
   supported_protocols: ModelProtocol[];
   note: string;
 }
@@ -354,6 +358,7 @@ export interface ConsumptionView {
   desired: boolean;
   observed: boolean;
   enabled?: boolean | null;
+  active?: boolean | null;
   status: ConsumptionStatus;
   reason: string | null;
   affected_agent_ids: string[];
@@ -401,6 +406,17 @@ export interface RelationshipChange {
   action: RelationshipAction;
 }
 
+export interface ModelConsumptionRecord {
+  profile_id: string;
+  enabled: boolean;
+  last_selected_at?: string | null;
+}
+
+export interface ModelAgentSelection {
+  profiles: Record<string, ModelConsumptionRecord>;
+  active_profile_id?: string | null;
+}
+
 export type DomainPlan =
   | {
       domain: "mcp";
@@ -409,8 +425,8 @@ export type DomainPlan =
     }
   | {
       domain: "model";
-      before: Record<string, string | null>;
-      after: Record<string, string | null>;
+      before: Record<string, ModelAgentSelection>;
+      after: Record<string, ModelAgentSelection>;
     }
   | {
       domain: "skill";

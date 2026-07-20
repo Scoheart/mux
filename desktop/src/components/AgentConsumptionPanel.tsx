@@ -18,12 +18,15 @@ export function AgentConsumptionPanel({
   manageLabel,
   rows,
   external,
+  externalTitle = "外部配置",
+  externalDescription = "尚未由 MUX 管理",
   present,
   onManage,
   manageIcon = <PlusIcon className="w-3.5 h-3.5" />,
   onOpenAsset,
   onEnabledChange,
   enabledChangeDisabled,
+  renderAction,
   onRemove,
   removeLabel,
   manageDisabled = false,
@@ -37,12 +40,15 @@ export function AgentConsumptionPanel({
   manageLabel: string;
   rows: ConsumptionView[];
   external: ConsumptionView[];
+  externalTitle?: string;
+  externalDescription?: string;
   present(asset: AssetRef): ConsumptionAssetPresentation;
   onManage(): void;
   manageIcon?: ReactNode;
   onOpenAsset?(asset: AssetRef): void;
   onEnabledChange?(item: ConsumptionView, enabled: boolean): void;
   enabledChangeDisabled?: boolean | ((item: ConsumptionView) => boolean);
+  renderAction?(item: ConsumptionView): ReactNode;
   onRemove?(asset: AssetRef): void;
   removeLabel?(name: string): string;
   manageDisabled?: boolean;
@@ -72,8 +78,8 @@ export function AgentConsumptionPanel({
       {external.length > 0 && (
         <div className="mux-consumption-external" role="status">
           <div>
-            <strong>外部配置 {external.length}</strong>
-            <span>尚未由 MUX 管理</span>
+            <strong>{externalTitle} {external.length}</strong>
+            <span>{externalDescription}</span>
           </div>
           <ul>
             {external.slice(0, 3).map((item) => {
@@ -123,8 +129,9 @@ export function AgentConsumptionPanel({
                 {item.status !== "synced" && (
                   <ConsumptionStatus status={item.status} reason={item.reason} />
                 )}
-                {(onEnabledChange && enabled !== null || onOpenAsset || onRemove) && (
+                {(renderAction || onEnabledChange && enabled !== null || onOpenAsset || onRemove) && (
                   <span className="mux-consumption-actions">
+                    {renderAction?.(item)}
                     {onEnabledChange && enabled !== null && (
                       <Switch
                         checked={enabled}

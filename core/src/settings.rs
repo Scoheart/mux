@@ -11,7 +11,7 @@
 //! so a desktop write never clobbers data the CLI wrote, and vice versa. Every
 //! mutation is read-whole → modify one section → write-whole (atomically).
 
-use crate::consumption::types::McpConsumptionRecord;
+use crate::consumption::types::{McpConsumptionRecord, ModelConsumptionRecord};
 use crate::disabled::DisabledEntry;
 use crate::paths::{backups_dir, mux_dir, registry_dir, settings_file, user_agents_file};
 use crate::safe_write::{acquire_settings_lock, write_private_if_unchanged};
@@ -83,9 +83,15 @@ pub struct Settings {
     /// only in the macOS Keychain.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model_profiles: Option<BTreeMap<String, ModelProfile>>,
-    /// Managed model Agent id -> profile id.
+    /// Current/active managed Model Profile per Agent. This legacy-compatible
+    /// pointer is retained so older MUX builds do not lose the current model.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model_assignments: Option<BTreeMap<String, String>>,
+    /// Installed Model Profiles per Agent, including disabled relationships.
+    /// Older settings are projected into this collection from
+    /// `model_assignments` and persisted on the next Model mutation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_consumptions: Option<BTreeMap<String, BTreeMap<String, ModelConsumptionRecord>>>,
     /// Desired MCP consumption, keyed by canonical Agent id and then by the
     /// stable central Registry asset key (`name::transport`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -111,6 +117,66 @@ pub struct Settings {
     /// older binary never drops a newer one's data.
     #[serde(flatten)]
     pub extra: BTreeMap<String, Value>,
+}
+
+impl Settings {
+    /// Return the canonical Model state while transparently projecting legacy
+    /// `model_assignments` into an enabled installed relationship.
+    pub fn model_selection(
+        &self,
+        agent_id: &str,
+    ) -> crate::consumption::types::ModelAgentSelection {
+        use crate::consumption::types::{ModelAgentSelection, ModelConsumptionRecord};
+
+        let mut selection = ModelAgentSelection {
+            profiles: self
+                .model_consumptions
+                .as_ref()
+                .and_then(|all| all.get(agent_id))
+                .cloned()
+                .unwrap_or_default(),
+            active_profile_id: self
+                .model_assignments
+                .as_ref()
+                .and_then(|all| all.get(agent_id))
+                .cloned(),
+        };
+        if let Some(profile_id) = selection.active_profile_id.clone() {
+            selection
+                .profiles
+                .entry(profile_id.clone())
+                .or_insert(ModelConsumptionRecord {
+                    profile_id,
+                    enabled: true,
+                    last_selected_at: None,
+                });
+        }
+        selection
+    }
+
+    /// Persist one canonical Model state in both the multi-profile collection
+    /// and the legacy-compatible active pointer.
+    pub fn set_model_selection(
+        &mut self,
+        agent_id: &str,
+        selection: crate::consumption::types::ModelAgentSelection,
+    ) {
+        let all = self.model_consumptions.get_or_insert_default();
+        if selection.profiles.is_empty() {
+            all.remove(agent_id);
+        } else {
+            all.insert(agent_id.to_string(), selection.profiles);
+        }
+        let assignments = self.model_assignments.get_or_insert_default();
+        match selection.active_profile_id {
+            Some(profile_id) => {
+                assignments.insert(agent_id.to_string(), profile_id);
+            }
+            None => {
+                assignments.remove(agent_id);
+            }
+        }
+    }
 }
 
 /// Serializes read-modify-write within this process. Each transaction also
@@ -390,6 +456,35 @@ mod tests {
         assert_eq!(encoded["state"]["active"], serde_json::json!([]));
         assert_eq!(encoded["imported"], "2026-07-18T00:00:00Z");
         assert_eq!(encoded["future_consumption_field"]["keep"], true);
+    }
+
+    #[test]
+    fn legacy_model_assignment_projects_and_persists_as_multi_profile_selection() {
+        let mut settings: Settings =
+            serde_json::from_str(r#"{"model_assignments":{"grok-build":"work"}}"#).unwrap();
+
+        let mut selection = settings.model_selection("grok-build");
+        assert_eq!(selection.active_profile_id.as_deref(), Some("work"));
+        assert!(selection.profiles["work"].enabled);
+        assert!(settings.model_consumptions.is_none());
+
+        selection.profiles.insert(
+            "personal".into(),
+            ModelConsumptionRecord {
+                profile_id: "personal".into(),
+                enabled: true,
+                last_selected_at: None,
+            },
+        );
+        settings.set_model_selection("grok-build", selection);
+        assert!(settings.model_consumptions.as_ref().unwrap()["grok-build"].contains_key("work"));
+        assert!(
+            settings.model_consumptions.as_ref().unwrap()["grok-build"].contains_key("personal")
+        );
+        assert_eq!(
+            settings.model_assignments.as_ref().unwrap()["grok-build"],
+            "work"
+        );
     }
 
     #[test]

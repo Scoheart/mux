@@ -20,8 +20,8 @@ pub use migration::{
     PlanMcpAdoptionRequest,
 };
 pub use planner::{
-    plan_set_agent_consumption, plan_set_asset_consumers, plan_set_mcp_enabled,
-    plan_update_agent_configuration,
+    plan_set_active_model, plan_set_agent_consumption, plan_set_asset_consumers,
+    plan_set_mcp_enabled, plan_set_model_enabled, plan_update_agent_configuration,
 };
 pub use transaction::{
     cancel_asset_operation, commit_asset_operation, recover_pending_asset_operations,
@@ -30,7 +30,8 @@ pub use types::{
     AgentConsumptionSelection, AssetCommitRequest, AssetOperationKind, AssetOperationPlan,
     AssetRef, CentralAssetAction, CentralAssetChange, CentralAssetDraft, ConsumptionInventory,
     ConsumptionStatus, ConsumptionTarget, ConsumptionView, DomainPlan, McpConsumptionRecord,
-    PlanDeleteCentralAssetRequest, PlanSetAgentConsumptionRequest, PlanSetAssetConsumersRequest,
-    PlanSetMcpEnabledRequest, PlanUpdateAgentConfigurationRequest, PlanUpdateCentralAssetRequest,
-    RelationshipAction, RelationshipChange, SelectionError,
+    ModelAgentSelection, ModelConsumptionRecord, PlanDeleteCentralAssetRequest,
+    PlanSetActiveModelRequest, PlanSetAgentConsumptionRequest, PlanSetAssetConsumersRequest,
+    PlanSetMcpEnabledRequest, PlanSetModelEnabledRequest, PlanUpdateAgentConfigurationRequest,
+    PlanUpdateCentralAssetRequest, RelationshipAction, RelationshipChange, SelectionError,
 };

@@ -7,6 +7,7 @@ pub mod differ;
 pub mod disabled;
 pub mod effective;
 pub mod json_adapter;
+mod model_adapters;
 pub mod models;
 pub mod network;
 pub mod ops;

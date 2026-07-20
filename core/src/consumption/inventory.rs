@@ -3,8 +3,9 @@ use super::types::{
     AssetRef, ConsumptionInventory, ConsumptionStatus, ConsumptionTarget, ConsumptionView,
 };
 use crate::models::{
-    list_agents as list_model_agents, observe_external_model, observe_profile,
-    ExternalModelObservedState, ModelObservedState,
+    list_agents as list_model_agents, observe_active_model_for_settings, observe_external_model,
+    observe_profile_consumption, ExternalModelObservedState, ModelObservedState,
+    ObservedActiveModel,
 };
 use crate::ops::scan_installed;
 use crate::registry::read_registry;
@@ -96,6 +97,7 @@ fn project_mcps(
                 desired: true,
                 observed: is_observed,
                 enabled: Some(record.enabled),
+                active: None,
                 status,
                 reason,
                 affected_agent_ids: if compatibility.affected_agent_ids.is_empty() {
@@ -119,6 +121,7 @@ fn project_mcps(
             desired: false,
             observed: true,
             enabled: Some(item.enabled),
+            active: None,
             status: ConsumptionStatus::External,
             reason: Some(
                 if central.contains(&key) && !item.customized {
@@ -142,71 +145,133 @@ fn project_models(
     inventory: &mut ConsumptionInventory,
 ) -> Result<(), String> {
     let assigned_agents: BTreeSet<String> = settings
-        .model_assignments
+        .model_consumptions
         .iter()
         .flatten()
         .map(|(agent_id, _)| agent_id.clone())
+        .chain(
+            settings
+                .model_assignments
+                .iter()
+                .flatten()
+                .map(|(agent_id, _)| agent_id.clone()),
+        )
         .collect();
-    for (agent_id, profile_id) in settings.model_assignments.iter().flatten() {
-        let asset = AssetRef::Model {
-            profile_id: profile_id.clone(),
+    for agent_id in &assigned_agents {
+        let selection = settings.model_selection(agent_id);
+        let observed_active = observe_active_model_for_settings(settings, agent_id);
+        let observed_active_profile = match &observed_active {
+            ObservedActiveModel::Managed(profile_id) => Some(profile_id.as_str()),
+            _ => None,
         };
-        let compatibility = compatibility_for(agent_id, &asset)?;
-        let Some(profile) = settings
-            .model_profiles
-            .as_ref()
-            .and_then(|profiles| profiles.get(profile_id))
-        else {
+        for (profile_id, record) in &selection.profiles {
+            let asset = AssetRef::Model {
+                profile_id: profile_id.clone(),
+            };
+            let compatibility = compatibility_for(agent_id, &asset)?;
+            let Some(profile) = settings
+                .model_profiles
+                .as_ref()
+                .and_then(|profiles| profiles.get(profile_id))
+            else {
+                inventory.consumptions.push(ConsumptionView {
+                    agent_id: agent_id.clone(),
+                    asset,
+                    desired: true,
+                    observed: false,
+                    enabled: Some(record.enabled),
+                    active: Some(observed_active_profile == Some(profile_id)),
+                    status: ConsumptionStatus::Conflicted,
+                    reason: Some("model_profile_missing".into()),
+                    affected_agent_ids: vec![agent_id.clone()],
+                    target: None,
+                });
+                continue;
+            };
+            let (observed, status, reason) = if !compatibility.compatible {
+                (
+                    false,
+                    ConsumptionStatus::Unsupported,
+                    compatibility.reason.map(|reason| reason.code),
+                )
+            } else {
+                match (
+                    record.enabled,
+                    observe_profile_consumption(
+                        agent_id,
+                        profile,
+                        observed_active_profile == Some(profile_id),
+                    )?,
+                ) {
+                    (true, ModelObservedState::Synced) => (true, ConsumptionStatus::Synced, None),
+                    (true, ModelObservedState::Missing) => (
+                        false,
+                        ConsumptionStatus::Drifted,
+                        Some("model_target_missing".into()),
+                    ),
+                    (true, ModelObservedState::Drifted) => (
+                        true,
+                        ConsumptionStatus::Drifted,
+                        Some("model_owned_fields_drift".into()),
+                    ),
+                    (true, ModelObservedState::Conflicted) => (
+                        true,
+                        ConsumptionStatus::Conflicted,
+                        Some("model_target_conflicted".into()),
+                    ),
+                    (false, ModelObservedState::Missing) => {
+                        (false, ConsumptionStatus::Synced, None)
+                    }
+                    (false, ModelObservedState::Conflicted) => (
+                        true,
+                        ConsumptionStatus::Conflicted,
+                        Some("model_target_conflicted".into()),
+                    ),
+                    (false, _) => (
+                        true,
+                        ConsumptionStatus::Drifted,
+                        Some("model_disabled_state_drift".into()),
+                    ),
+                }
+            };
             inventory.consumptions.push(ConsumptionView {
                 agent_id: agent_id.clone(),
                 asset,
                 desired: true,
-                observed: false,
-                enabled: None,
-                status: ConsumptionStatus::Conflicted,
-                reason: Some("model_profile_missing".into()),
+                observed,
+                enabled: Some(record.enabled),
+                active: Some(observed_active_profile == Some(profile_id)),
+                status,
+                reason,
                 affected_agent_ids: vec![agent_id.clone()],
                 target: None,
             });
-            continue;
-        };
-        let (observed, status, reason) = if !compatibility.compatible {
-            (
-                false,
-                ConsumptionStatus::Unsupported,
-                compatibility.reason.map(|reason| reason.code),
-            )
-        } else {
-            match observe_profile(agent_id, profile)? {
-                ModelObservedState::Synced => (true, ConsumptionStatus::Synced, None),
-                ModelObservedState::Missing => (
-                    false,
-                    ConsumptionStatus::Drifted,
-                    Some("model_target_missing".into()),
-                ),
-                ModelObservedState::Drifted => (
-                    true,
-                    ConsumptionStatus::Drifted,
-                    Some("model_owned_fields_drift".into()),
-                ),
-                ModelObservedState::Conflicted => (
-                    true,
-                    ConsumptionStatus::Conflicted,
-                    Some("model_target_conflicted".into()),
-                ),
+        }
+        let external_reason = match observed_active {
+            ObservedActiveModel::External => {
+                Some((ConsumptionStatus::External, "model_external_current"))
             }
+            ObservedActiveModel::Conflicted => {
+                Some((ConsumptionStatus::Conflicted, "model_active_conflicted"))
+            }
+            _ => None,
         };
-        inventory.consumptions.push(ConsumptionView {
-            agent_id: agent_id.clone(),
-            asset,
-            desired: true,
-            observed,
-            enabled: None,
-            status,
-            reason,
-            affected_agent_ids: vec![agent_id.clone()],
-            target: None,
-        });
+        if let Some((status, reason)) = external_reason {
+            inventory.external.push(ConsumptionView {
+                agent_id: agent_id.clone(),
+                asset: AssetRef::Model {
+                    profile_id: format!("external-{agent_id}"),
+                },
+                desired: false,
+                observed: true,
+                enabled: None,
+                active: Some(true),
+                status,
+                reason: Some(reason.into()),
+                affected_agent_ids: vec![agent_id.clone()],
+                target: None,
+            });
+        }
     }
     for agent in list_model_agents()
         .into_iter()
@@ -231,6 +296,7 @@ fn project_models(
             desired: false,
             observed: true,
             enabled: None,
+            active: Some(true),
             status,
             reason,
             affected_agent_ids: vec![agent.id],
@@ -280,6 +346,7 @@ fn project_skills(
                     desired: true,
                     observed: false,
                     enabled: None,
+                    active: None,
                     status: ConsumptionStatus::Conflicted,
                     reason: Some("skill_target_unknown".into()),
                     affected_agent_ids: Vec::new(),
@@ -328,6 +395,7 @@ fn project_skills(
                     desired: true,
                     observed,
                     enabled: None,
+                    active: None,
                     status: status.clone(),
                     reason: reason.clone(),
                     affected_agent_ids: agents.clone(),
@@ -368,6 +436,7 @@ fn project_skills(
                 desired: false,
                 observed: true,
                 enabled: None,
+                active: None,
                 status: ConsumptionStatus::External,
                 reason: Some("skill_external".into()),
                 affected_agent_ids: agents.clone(),

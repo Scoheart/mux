@@ -3,12 +3,13 @@
 mod support;
 
 use mux_core::consumption::{
-    commit_asset_operation, plan_delete_central_asset, plan_set_agent_consumption,
-    plan_update_central_asset, AgentConsumptionSelection, AssetCommitRequest, AssetRef,
-    CentralAssetDraft, PlanDeleteCentralAssetRequest, PlanSetAgentConsumptionRequest,
-    PlanUpdateCentralAssetRequest,
+    commit_asset_operation, plan_delete_central_asset, plan_set_active_model,
+    plan_set_agent_consumption, plan_set_model_enabled, plan_update_central_asset,
+    AgentConsumptionSelection, AssetCommitRequest, AssetRef, CentralAssetDraft,
+    PlanDeleteCentralAssetRequest, PlanSetActiveModelRequest, PlanSetAgentConsumptionRequest,
+    PlanSetModelEnabledRequest, PlanUpdateCentralAssetRequest,
 };
-use mux_core::models::{apply_profile, list_profiles, save_profile};
+use mux_core::models::{apply_profile, list_profiles, reconcile_active_models, save_profile};
 use mux_core::registry::{read_registry, write_manual_entry};
 use mux_core::settings::load_settings;
 use mux_core::testenv::TestHome;
@@ -23,6 +24,16 @@ fn commit(plan: mux_core::consumption::AssetOperationPlan) {
         conflict_confirmation: None,
     })
     .unwrap();
+}
+
+fn mux_profile_id(profile_id: &str) -> String {
+    format!(
+        "mux_{}",
+        profile_id
+            .bytes()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>()
+    )
 }
 
 fn mcp(command: &str) -> RegistryEntry {
@@ -316,6 +327,112 @@ fn grok_build_consumes_and_switches_central_profiles() {
     assert_eq!(
         load_settings().model_assignments.unwrap()["grok-build"],
         messages.id
+    );
+}
+
+#[test]
+fn grok_build_keeps_multiple_profiles_and_falls_back_when_current_is_disabled() {
+    let home = TestHome::new("central-model-grok-build-multiple");
+    let mut first = model("first-model");
+    first.id = "first".into();
+    first.env_key = Some("FIRST_API_KEY".into());
+    let mut second = model("second-model");
+    second.id = "second".into();
+    second.env_key = Some("SECOND_API_KEY".into());
+    save_profile(first.clone(), None).unwrap();
+    save_profile(second.clone(), None).unwrap();
+
+    commit(
+        plan_set_agent_consumption(PlanSetAgentConsumptionRequest {
+            agent_id: "grok-build".into(),
+            selection: AgentConsumptionSelection::Model {
+                profile_ids: vec![first.id.clone(), second.id.clone()],
+            },
+        })
+        .unwrap(),
+    );
+    let initial = load_settings().model_selection("grok-build");
+    assert_eq!(initial.profiles.len(), 2);
+    let initial_active = initial.active_profile_id.unwrap();
+    let switched = if initial_active == first.id {
+        second.id.clone()
+    } else {
+        first.id.clone()
+    };
+    commit(
+        plan_set_active_model(PlanSetActiveModelRequest {
+            agent_id: "grok-build".into(),
+            profile_id: switched.clone(),
+        })
+        .unwrap(),
+    );
+
+    commit(
+        plan_set_model_enabled(PlanSetModelEnabledRequest {
+            agent_id: "grok-build".into(),
+            profile_id: switched.clone(),
+            enabled: false,
+        })
+        .unwrap(),
+    );
+    let disabled = load_settings().model_selection("grok-build");
+    assert_eq!(
+        disabled.active_profile_id.as_deref(),
+        Some(initial_active.as_str())
+    );
+    assert!(!disabled.profiles[&switched].enabled);
+    assert!(disabled.profiles[&initial_active].enabled);
+    let target = home.home.join(".grok/config.toml");
+    let disabled_config = fs::read_to_string(&target).unwrap();
+    let removed_env = if switched == first.id {
+        "FIRST_API_KEY"
+    } else {
+        "SECOND_API_KEY"
+    };
+    assert!(!disabled_config.contains(removed_env));
+
+    commit(
+        plan_set_model_enabled(PlanSetModelEnabledRequest {
+            agent_id: "grok-build".into(),
+            profile_id: switched.clone(),
+            enabled: true,
+        })
+        .unwrap(),
+    );
+    let reenabled = load_settings().model_selection("grok-build");
+    assert_eq!(
+        reenabled.active_profile_id.as_deref(),
+        Some(initial_active.as_str())
+    );
+    let reenabled_config = fs::read_to_string(&target).unwrap();
+    assert!(reenabled_config.contains("FIRST_API_KEY"));
+    assert!(reenabled_config.contains("SECOND_API_KEY"));
+
+    commit(
+        plan_set_active_model(PlanSetActiveModelRequest {
+            agent_id: "grok-build".into(),
+            profile_id: switched.clone(),
+        })
+        .unwrap(),
+    );
+    assert_eq!(
+        load_settings()
+            .model_selection("grok-build")
+            .active_profile_id,
+        Some(switched.clone())
+    );
+
+    let native = fs::read_to_string(&target).unwrap();
+    let switched_marker = format!("default = \"{}\"", mux_profile_id(&switched));
+    let initial_marker = format!("default = \"{}\"", mux_profile_id(&initial_active));
+    assert!(native.contains(&switched_marker));
+    fs::write(&target, native.replace(&switched_marker, &initial_marker)).unwrap();
+    reconcile_active_models().unwrap();
+    assert_eq!(
+        load_settings()
+            .model_selection("grok-build")
+            .active_profile_id,
+        Some(initial_active)
     );
 }
 

@@ -63,4 +63,24 @@ describe("AgentConsumptionPanel", () => {
     expect(screen.getByText("还没有添加 Skill")).toBeVisible();
     expect(screen.getByText("从 Skills 资产库选择并添加到 Codex。")).toBeVisible();
   });
+
+  it("renders a domain-specific row action", async () => {
+    const onActivate = vi.fn();
+    render(
+      <AgentConsumptionPanel
+        title="Models"
+        manageLabel="添加 Model"
+        rows={[{ ...syncedRow, asset: { domain: "model", profile_id: "work" }, active: false }]}
+        external={[]}
+        present={() => ({ name: "Work" })}
+        onManage={vi.fn()}
+        renderAction={(item) => (
+          <button type="button" onClick={() => onActivate(item)}>设为当前</button>
+        )}
+      />,
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: "设为当前" }));
+    expect(onActivate).toHaveBeenCalledOnce();
+  });
 });

@@ -6,7 +6,7 @@ use super::planner::{
 };
 use super::types::{
     AssetCommitRequest, AssetOperationPlan, AssetRef, ConsumptionInventory, ConsumptionStatus,
-    DomainPlan, McpConsumptionRecord,
+    DomainPlan, McpConsumptionRecord, ModelAgentSelection,
 };
 use crate::models::{
     apply_credential_update, apply_profile, apply_profile_with_credential_presence,
@@ -521,6 +521,14 @@ fn verify_operation(persisted: &PersistedAssetOperation) -> Result<(), String> {
                     .model_assignments
                     .as_ref()
                     .is_some_and(|assignments| assignments.values().any(|id| id == profile_id))
+                || settings
+                    .model_consumptions
+                    .as_ref()
+                    .is_some_and(|consumptions| {
+                        consumptions
+                            .values()
+                            .any(|records| records.contains_key(profile_id))
+                    })
             {
                 return Err("Model Profile deletion postcondition failed".into());
             }
@@ -663,8 +671,17 @@ fn reapply_model_consumers(
         return Err("asset operation domain mismatch".into());
     };
     for (agent_id, desired) in after {
-        if desired.as_deref() == Some(profile_id) {
+        if desired
+            .profiles
+            .get(profile_id)
+            .is_some_and(|record| record.enabled)
+        {
             apply_profile_with_credential_presence(agent_id, profile_id, credential_present)?;
+            if desired.active_profile_id.as_deref() != Some(profile_id) {
+                if let Some(active) = desired.active_profile_id.as_deref() {
+                    apply_profile(agent_id, active)?;
+                }
+            }
         }
     }
     Ok(())
@@ -712,11 +729,7 @@ fn verify_preconditions(persisted: &PersistedAssetOperation) -> Result<(), Strin
         }
         DomainPlan::Model { before, .. } => {
             for (agent_id, expected) in before {
-                let actual = current
-                    .model_assignments
-                    .as_ref()
-                    .and_then(|assignments| assignments.get(agent_id))
-                    .cloned();
+                let actual = current.model_selection(agent_id);
                 if &actual != expected {
                     return Err("asset_operation_stale: Model relationship changed".into());
                 }
@@ -928,25 +941,29 @@ fn apply_mcp_enabled(agent_id: &str, asset_key: &str, enabled: bool) -> Result<(
 }
 
 fn apply_model(
-    before: &BTreeMap<String, Option<String>>,
-    after: &BTreeMap<String, Option<String>>,
+    before: &BTreeMap<String, ModelAgentSelection>,
+    after: &BTreeMap<String, ModelAgentSelection>,
     replace_conflict: bool,
 ) -> Result<(), String> {
     for agent_id in union_keys(before, after) {
-        let left = before.get(agent_id).cloned().flatten();
-        let right = after.get(agent_id).cloned().flatten();
-        if left == right {
-            if replace_conflict {
-                if let Some(profile_id) = right {
-                    apply_profile(agent_id, &profile_id)?;
-                }
-            }
-            continue;
-        }
-        if let Some(profile_id) = left {
+        let left = before.get(agent_id).cloned().unwrap_or_default();
+        let right = after.get(agent_id).cloned().unwrap_or_default();
+        let removed_or_disabled: Vec<String> = left
+            .profiles
+            .iter()
+            .filter(|(profile_id, record)| {
+                record.enabled
+                    && !right
+                        .profiles
+                        .get(*profile_id)
+                        .is_some_and(|next| next.enabled)
+            })
+            .map(|(profile_id, _)| profile_id.clone())
+            .collect();
+        for profile_id in removed_or_disabled {
             if let Err(error) = clear_profile(agent_id, &profile_id) {
                 let replaceable = replace_conflict
-                    && right.is_some()
+                    && right.active_profile_id.is_some()
                     && (error.starts_with("model_owned_fields_drift:")
                         || error.starts_with("model_target_conflicted:"));
                 if !replaceable {
@@ -954,21 +971,23 @@ fn apply_model(
                 }
             }
         }
-        if let Some(profile_id) = right {
-            apply_profile(agent_id, &profile_id)?;
+        for (profile_id, record) in &right.profiles {
+            let was_enabled = left
+                .profiles
+                .get(profile_id)
+                .is_some_and(|previous| previous.enabled);
+            if record.enabled && (!was_enabled || replace_conflict) {
+                apply_profile(agent_id, profile_id)?;
+            }
+        }
+        if let Some(profile_id) = right.active_profile_id.as_deref() {
+            apply_profile(agent_id, profile_id)?;
         }
     }
     mutate_settings(|settings| {
-        let assignments = settings.model_assignments.get_or_insert_default();
         for agent_id in union_keys(before, after) {
-            match after.get(agent_id).cloned().flatten() {
-                Some(profile_id) => {
-                    assignments.insert(agent_id.clone(), profile_id);
-                }
-                None => {
-                    assignments.remove(agent_id);
-                }
-            }
+            settings
+                .set_model_selection(agent_id, after.get(agent_id).cloned().unwrap_or_default());
         }
     })
     .map_err(|error| error.to_string())
@@ -1024,20 +1043,39 @@ fn verify_postcondition(plan: &AssetOperationPlan) -> Result<(), String> {
         }
         DomainPlan::Model { after, .. } => {
             for (agent_id, expected) in after {
-                let actual = inventory.consumptions.iter().find_map(|item| {
-                    if item.agent_id != *agent_id || !item.desired {
-                        return None;
-                    }
-                    match &item.asset {
-                        AssetRef::Model { profile_id } => Some((profile_id.as_str(), &item.status)),
+                let actual: BTreeMap<_, _> = inventory
+                    .consumptions
+                    .iter()
+                    .filter(|item| item.agent_id == *agent_id && item.desired)
+                    .filter_map(|item| match &item.asset {
+                        AssetRef::Model { profile_id } => Some((profile_id, item)),
                         _ => None,
+                    })
+                    .collect();
+                if actual.len() != expected.profiles.len() {
+                    return Err(format!(
+                        "model post-commit verification failed: expected {} Profiles for {agent_id}, observed {}",
+                        expected.profiles.len(),
+                        actual.len()
+                    ));
+                }
+                for (profile_id, record) in &expected.profiles {
+                    let Some(item) = actual.get(profile_id) else {
+                        return Err(format!(
+                            "model post-commit verification failed: {profile_id} is missing for {agent_id}"
+                        ));
+                    };
+                    let expected_active =
+                        expected.active_profile_id.as_deref() == Some(profile_id.as_str());
+                    if item.status != ConsumptionStatus::Synced
+                        || item.enabled != Some(record.enabled)
+                        || item.active != Some(expected_active)
+                    {
+                        return Err(format!(
+                            "model post-commit verification failed: {profile_id} for {agent_id} is {:?} with enabled {:?} and active {:?}",
+                            item.status, item.enabled, item.active
+                        ));
                     }
-                });
-                match (expected.as_deref(), actual) {
-                    (None, None) => {}
-                    (Some(expected), Some((actual, ConsumptionStatus::Synced)))
-                        if expected == actual => {}
-                    _ => return Err("model post-commit verification failed".into()),
                 }
             }
         }
@@ -1159,8 +1197,7 @@ fn asset_desired_after(plan: &DomainPlan, agent_id: &str, asset: &AssetRef) -> b
         }
         (DomainPlan::Model { after, .. }, AssetRef::Model { profile_id }) => after
             .get(agent_id)
-            .and_then(Option::as_deref)
-            .is_some_and(|desired| desired == profile_id),
+            .is_some_and(|selection| selection.profiles.contains_key(profile_id)),
         (DomainPlan::Skill { after, .. }, AssetRef::Skill { name }) => after
             .get(agent_id)
             .is_some_and(|names| names.contains(name)),

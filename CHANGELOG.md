@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.7](https://github.com/Scoheart/mux/compare/v1.8.6...v1.8.7) (2026-07-20)
+
+### Changes
+
+* fix(release): verify Draft tag binding ([08b8614](https://github.com/Scoheart/mux/commit/08b8614b35e275fe4a878e72272bcfa6af31ff79))
+
 ## [1.8.6](https://github.com/Scoheart/mux/compare/v1.8.5...v1.8.6) (2026-07-20)
 
 ### Changes

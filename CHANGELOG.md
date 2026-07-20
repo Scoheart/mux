@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.8.0](https://github.com/Scoheart/mux/compare/v1.7.0...v1.8.0) (2026-07-20)
+
+
+### Features
+
+* **migration:** adopt historical MCPs and skills ([#67](https://github.com/Scoheart/mux/issues/67)) ([eda902a](https://github.com/Scoheart/mux/commit/eda902a4816dd60a37a89c4199a4114fe7b1c198))
+
 ## [1.7.0](https://github.com/Scoheart/mux/compare/v1.6.3...v1.7.0) (2026-07-20)
 
 

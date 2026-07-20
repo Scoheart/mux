@@ -268,7 +268,7 @@ jobs:
       - name: Publish per-commit Pre-release
         if: ${{ needs.classify.outputs.mode == 'prerelease' }}
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
           INSTALLER: ${{ steps.installer.outputs.path }}
           CLI_ARCHIVE: ${{ steps.cli.outputs.path }}
           ARCH_LABEL: ${{ steps.installer.outputs.arch_label }}

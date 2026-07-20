@@ -175,6 +175,7 @@ test("desktop workflow classifies and gates both publication channels", async ()
 
   const prerelease = workflow.match(/# PRE-RELEASE START([\s\S]*?)# PRE-RELEASE END/);
   assert.ok(prerelease, "missing bounded Pre-release section");
+  assert.match(prerelease[1], /GH_TOKEN:\s*\$\{\{ secrets\.RELEASE_PLEASE_TOKEN \}\}/);
   assert.doesNotMatch(prerelease[1], /latest\.json/);
   assert.doesNotMatch(prerelease[1], /publish-release-assets\.sh/);
 

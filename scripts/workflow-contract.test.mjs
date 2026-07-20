@@ -153,7 +153,9 @@ test("direct stable mode turns one current main push into one Draft release", as
     "Draft must exist before its tag triggers the Stable workflow",
   );
   assert.match(workflow, /test "\$target" = "\$RELEASE_SHA"/);
-  assert.match(workflow, /expected one matching Draft/);
+  assert.match(workflow, /for attempt in \{1\.\.10\}/);
+  assert.match(workflow, /--json databaseId,isDraft,tagName/);
+  assert.match(workflow, /Draft lookup did not converge/);
   assert.match(workflow, /current_tag/);
   assert.match(workflow, /-f "tag_name=\$RELEASE_TAG"/);
   assert.match(workflow, /test "\$\(jq -r '\.tag_name'/);

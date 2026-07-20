@@ -139,9 +139,21 @@ jobs:
             --title "$RELEASE_TAG" \
             --generate-notes \
             --draft
-          release_id=$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" | jq -er \
-            --arg tag "$RELEASE_TAG" \
-            '[.[] | select(.tag_name == $tag and .draft == true)] | if length == 1 then .[0].id else error("expected one matching Draft") end')
+          release_id=
+          for attempt in {1..10}; do
+            release_json=$(gh release view "$RELEASE_TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --json databaseId,isDraft,tagName 2>/dev/null || printf '{}')
+            release_id=$(jq -r --arg tag "$RELEASE_TAG" \
+              'if .isDraft == true and .tagName == $tag then .databaseId else empty end' \
+              <<<"$release_json")
+            [[ -n "$release_id" ]] && break
+            sleep 1
+          done
+          if [[ -z "$release_id" ]]; then
+            echo "Draft lookup did not converge for $RELEASE_TAG." >&2
+            exit 1
+          fi
           git tag "$RELEASE_TAG" "$RELEASE_SHA"
           git push origin "refs/tags/$RELEASE_TAG"
           target=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG" --jq '.object.sha')

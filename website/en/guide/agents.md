@@ -13,7 +13,7 @@ Agent files and Skill links are observed state, not an alternate asset database.
 
 ## Verified list
 
-The results below are based on official docs, official source, or signed application bundles through **2026-07-20**. Grok Build was verified from its newly published source; MiniMax Code was verified from the official signed `3.0.51` macOS bundle.
+The results below are based on official docs, official source, or signed application bundles through **2026-07-20**. Grok Build was verified against xAI's official documentation; MiniMax Code was verified from the official signed `3.0.51` macOS bundle.
 
 | Agent | Format | Config key | User-level global path | Native transports |
 |---|---|---|---|---|
@@ -36,7 +36,7 @@ The results below are based on official docs, official source, or signed applica
 | [Firebender](https://docs.firebender.com/context/mcp/overview) | JSON | `mcpServers` | `~/.firebender/firebender.json` | stdio / http |
 | [Gemini CLI](https://geminicli.com/docs/tools/mcp-server/) | JSON | `mcpServers` | `~/.gemini/settings.json` | stdio / http |
 | [Goose](https://goose-docs.ai/docs/guides/config-files/) | YAML | `extensions` | `~/Library/Application Support/Block/goose/config/config.yaml` | stdio / http |
-| [Grok Build](https://github.com/xai-org/grok-build/blob/main/crates/codegen/xai-grok-pager/docs/user-guide/07-mcp-servers.md) | TOML | `mcp_servers` | `~/.grok/config.toml` | stdio / http |
+| [Grok Build](https://docs.x.ai/build/features/mcp-servers) | TOML | `mcp_servers` | `~/.grok/config.toml` | stdio / http |
 | [Hermes Agent](https://github.com/NousResearch/hermes-agent/blob/main/website/docs/user-guide/features/mcp.md) | YAML | `mcp_servers` | `~/.hermes/config.yaml` | stdio / http |
 | [JetBrains Junie](https://www.jetbrains.com/help/junie/model-context-protocol-mcp.html) | JSON | `mcpServers` | `~/.junie/mcp/mcp.json` | stdio / http |
 | [Kilo Code CLI](https://kilo.ai/docs/automate/mcp/using-in-kilo-code) | JSON | `mcp` | `~/.config/kilo/kilo.jsonc` | stdio / http |
@@ -68,14 +68,14 @@ The results below are based on official docs, official source, or signed applica
 - **QoderWork**: user-defined MCP servers live in `~/.qoderwork/mcp.json`; MUX does not modify the client's built-in MCP data.
 - **Claude Desktop / BoltAI**: the local files listed natively support stdio only. Remote MCP is managed by Claude Connectors or BoltAI's `mcp-remote` approach, respectively.
 - **Goose**: the generic docs example uses `~/.config/goose/config.yaml`, but the current macOS source actually uses `~/Library/Application Support/Block/goose/config/config.yaml`; MUX locates it by the runtime code.
-- **Grok Build**: MCP and custom models share `~/.grok/config.toml`. MUX safely edits only `mcp_servers`, preserving model, auth, timeout, and tool policy. Models remains guided because Grok Build has no per-model credential command that can safely consume a MUX Keychain secret.
+- **Grok Build**: MCP and custom models share `~/.grok/config.toml`. MUX separately manages `mcp_servers`, `[models].default`, and one dedicated MUX model table across all three documented API backends while preserving other models, auth, timeout, permission, and tool settings. Authentication writes only an `env_key` name, never a secret value.
 - **MiniMax Code**: the main and MCP configurations are separate at `~/.mavis/config.yaml` and `~/.mavis/mcp.json`. MUX safely manages `mcpServers`; Models remains guided because the current custom-provider flow persists `options.apiKey` as plaintext YAML.
 
 ## Skills capabilities
 
 Skills paths are verified separately from the MCP config paths in the table above; MUX never infers one from the other. The initial release declares user-level Skills capabilities for Claude Code, Codex, Cursor, Gemini CLI, OpenCode, and GitHub Copilot CLI, and shows only Agents whose local installation probes succeed.
 
-Skills assignments operate on physical directories, not Agent names. Cursor, Gemini CLI, OpenCode, and GitHub Copilot CLI may all read the `~/.agents/skills` compatibility directory, so an operation on Codex's preferred directory can affect several installed Agents. MUX shows the real impact during review and normalizes duplicate links. See [User-level Skills](/en/guide/skills#verified-agent-paths) for the path matrix, installation sources, risk review, and current boundaries.
+Skills assignments operate on physical directories, not Agent names. Cursor, Gemini CLI, OpenCode, and GitHub Copilot CLI may all read the `~/.agents/skills` compatibility directory, so an operation on Codex's preferred directory can affect several installed Agents. MUX shows the real impact during review and normalizes duplicate links. See [User-level Skills](/en/guide/skills#verified-agent-paths) for the path matrix, installation sources, background safety checks, and current boundaries.
 
 ## Format differences across agents
 

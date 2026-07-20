@@ -6,7 +6,9 @@ MUX Desktop manages user-level Skills that follow the Agent Skills format as cen
 
 ## Add to the central library
 
-Open **Skills** in the top bar and choose **Add Skill**. Central intake has three steps: choose a source, select discovered Skills, then review and confirm the plan. It only writes the central copy under `~/.mux/skills/`; it selects no Agent, creates no link, and establishes no consumption relationship. After intake, choose the Skill from the relevant Agent page's Skills tab.
+Open **Skills** in the top bar and choose **Add Skill**. A GitHub source downloads directly; a local folder or archive imports directly. When a source contains multiple Skills, select only the ones you want. Central intake no longer opens review, risk-evidence, or file-diff screens. It only writes the central copy under `~/.mux/skills/`; it selects no Agent, creates no link, and establishes no consumption relationship.
+
+MUX still validates source identity, directory boundaries, archive structure, content hashes, and concurrent changes, then writes through a recoverable atomic transaction. These checks add no interaction step. A same-name central asset is replaced only after choosing the explicit backup-and-continue action.
 
 | Source | Behavior |
 |---|---|
@@ -14,13 +16,13 @@ Open **Skills** in the top bar and choose **Add Skill**. Central intake has thre
 | Local folder | Must be selected with the native macOS folder picker. MUX copies a snapshot, never creates a live link to the original folder, and does not accept a typed path. |
 | Local archive | Imports `.zip`, `.tar.gz`, `.tgz`, or `.tar` through the native picker. MUX extracts it safely and records each Skill's path inside the archive for later checks, updates, and repair. |
 
-A source may contain one or more Skills with a valid `SKILL.md`. Resolution, validation, diffs, and risk analysis run in MUX's bundled Rust core, so using this feature does not require Git, Node.js, or `npx`.
+A source may contain one or more Skills with a valid `SKILL.md`. Resolution and safety validation run in MUX's bundled Rust core, so using this feature does not require Git, Node.js, or `npx`.
 
 Private GitHub repositories, GitLab, SSH Git, and remote archive URLs are not supported yet.
 
 ## One central copy, multiple links
 
-After central intake is confirmed, MUX stores the single managed copy of each Skill at:
+After download or import completes, MUX stores the single managed copy of each Skill at:
 
 ```text
 ~/.mux/skills/<skill-name>/
@@ -45,29 +47,28 @@ The first release declares user-level Skills support for these six Agents. MUX s
 
 An Agent's MCP config path and Skills path are separate contracts; MUX never infers one from the other. See [Supported agents](/en/guide/agents#skills-capabilities) for context.
 
-## Local risk review
+## Background safety checks
 
-Before writing, MUX performs deterministic local static analysis of candidate files. Escaping links are rejected during structural validation. For auditable content, MUX flags patterns such as executables, scripts, download-and-execute commands, privilege escalation, destructive file operations, credential reads, data upload, and obfuscated payloads, with the rule, file, line when applicable, and reason.
+Before writing, MUX validates candidate structure and content locally. Escaping links, path traversal, special files, oversized archives, and content changed before commit are rejected. Executable and script findings remain available in asset details but no longer add an approval step during download or import.
 
 - Skill content, content hashes, file paths, and risk findings are never uploaded.
 - MUX does not run candidate scripts, and “no high-risk pattern found” is not a security certification.
-- A high-risk operation requires reviewing the displayed evidence, explicitly checking the override, and passing a separate second confirmation.
 - `SKILL.md` is rendered as plain text; embedded HTML, scripts, and remote resources are not executed.
 
 ## Lifecycle operations
 
-Every write starts with a plan and commits only after confirmation. When applicable, the plan shows file changes, risk, central-copy conflicts, target paths, shared impact, and the fact that a backup will be retained. If content or settings change after review, MUX rejects the stale plan and requires a new review.
+Download and import commit their internal plans directly from the user's action. Updates, removal, repair, and Agent assignment still show impact when applicable. If content or settings change after planning, MUX rejects the stale operation and asks the user to retry.
 
 | Operation | Result |
 |---|---|
 | Assign to an Agent | Choose the Skill from the relevant Agent page and review a separate relationship plan. The central copy itself does not change; all Agents sharing one target are shown and changed together. |
 | Check / update | Background and manual checks read only a GitHub revision, local-folder hash, or archive hash and never change content. Choosing Update then stages the candidate, shows the diff, reruns the audit, and confirms replacement. Local modifications to the central copy require “back up and replace.” |
-| Import | An external copy in an Agent directory remains read-only first. After confirmation, MUX copies and validates it, backs up the original directory, and replaces it with a central link; the original is not moved before success. |
+| Import | An external copy in an Agent directory remains read-only first. Choosing Import directly copies and validates it, backs up the original directory, and replaces it with a central link; the original is not moved before success. |
 | Disable | Removes the managed target link while retaining the central copy and other assignments. Review lists every Agent that loses access through a shared directory. |
 | Repair | Rebuilds a broken link that still matches the managed record. If central content is missing, MUX resolves the recorded source or read-only import backup again and presents the full diff and risk review. |
 | Remove | Removes all managed links, moves the central copy into timestamped `~/.mux/backups/skills/`, then removes its managed record. This version has no permanent backup purge action. |
 
-Candidates and reviewed plans live in `~/.mux/staging/skills/`; commit progress lives in `~/.mux/journals/skills/`. If a commit fails or the app crashes, the journal safely rolls back or finishes the commit according to the persisted phase. If recovery cannot complete, the Skills workspace becomes read-only and refuses new writes.
+Candidates and internal transaction plans live in `~/.mux/staging/skills/`; commit progress lives in `~/.mux/journals/skills/`. If a commit fails or the app crashes, the journal safely rolls back or finishes the commit according to the persisted phase. If recovery cannot complete, the Skills workspace becomes read-only and refuses new writes.
 
 ## Current boundaries
 

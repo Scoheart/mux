@@ -863,7 +863,7 @@ body {
   font: 10px/1.55 var(--font-mono);
 }
 
-/* Skills mutations stay staged in Core; ordinary intake is compact and risky changes expand for review. */
+/* Central intake commits directly; consequential existing-asset changes still use Core-backed review dialogs. */
 .mux-skill-install-dialog,
 .mux-skill-review-dialog,
 .mux-skill-risk-dialog {
@@ -1227,7 +1227,7 @@ body {
 .mux-agent-model-preview { display: flex; min-width: 0; align-items: center; gap: 6px; color: var(--text-secondary); font-size: 9px; }
 .mux-agent-model-preview > span:not(.mux-model-protocol-dot) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mux-agent-model-preview .mux-model-protocol-dot { width: 7px; height: 7px; }
-.mux-agent-model-key { display: inline-flex !important; flex: 0 0 auto; align-items: center; gap: 3px; color: #228B55 !important; }
+.mux-agent-model-key { display: inline-flex !important; min-width: 0; flex: 0 1 auto; align-items: center; gap: 3px; color: #228B55 !important; }
 .mux-agent-guided-model,
 .mux-agent-inline-state { display: flex; min-height: 72px; align-items: center; justify-content: space-between; gap: 16px; padding: 13px 14px; border: 1px solid var(--border-hairline); border-radius: 8px; background: var(--surface-raised); }
 .mux-agent-guided-model > div { min-width: 0; }
@@ -1445,6 +1445,7 @@ body {
 .mux-mcp-form { display: flex; flex-direction: column; gap: 14px; padding: 18px 22px; overflow-y: auto; }
 .mux-model-form-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
 .mux-model-form label > span { display: block; margin-bottom: 6px; color: var(--text-secondary); font-size: 11px; font-weight: 600; }
+.mux-model-form label > small { display: block; margin-top: 5px; color: var(--text-secondary); font-size: 9px; line-height: 1.45; }
 .mux-model-field { width: 100%; height: 36px; min-width: 0; padding: 0 10px; border: 1px solid var(--border-hairline); border-radius: 6px; outline: 0; background: var(--surface-raised); color: var(--text-primary); font: 12px/1 var(--font-sans); }
 .mux-model-field:focus { border-color: color-mix(in srgb, var(--color-blue) 62%, var(--border-hairline)); box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-blue) 10%, transparent); }
 .mux-model-field:disabled { opacity: .55; cursor: not-allowed; }

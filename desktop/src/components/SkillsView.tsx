@@ -237,13 +237,42 @@ export function SkillsView({
         return;
       }
       lifecyclePlanRef.current = plan;
+      if (intent.kind === "import") {
+        const inventory = await commitLifecycle(
+          plan,
+          plan.requires_risk_override ? plan.findings_hash : null,
+        );
+        if (lifecyclePlanRef.current?.operation_id === plan.operation_id) {
+          lifecyclePlanRef.current = null;
+        }
+        if (mounted.current && lifecycleGeneration.current === generation) {
+          toast.show({ kind: "success", msg: "Skill 已导入。" });
+          const selectedName = selected?.name;
+          if (
+            selectedName &&
+            !inventory.items.some((item) => item.name === selectedName)
+          ) {
+            closeInspector();
+          }
+        }
+        return;
+      }
       setLifecycleReview({ plan });
     } catch (reason) {
-      if (mounted.current && lifecycleGeneration.current === generation) {
-        const error = normalizeSkillCommandError(reason);
-        if (error.code === "recovery_required") {
-          setRecoveryRequired(error.message);
-        } else {
+      const error = normalizeSkillCommandError(reason);
+      const stillCurrent =
+        mounted.current && lifecycleGeneration.current === generation;
+      if (error.code === "recovery_required") {
+        if (stillCurrent) {
+          enterRecovery(error.message);
+        } else if (lifecyclePlanRef.current) {
+          lifecyclePlanRef.current = null;
+        }
+      } else {
+        const failedPlan = lifecyclePlanRef.current;
+        lifecyclePlanRef.current = null;
+        if (failedPlan) await cleanupLifecyclePlan(failedPlan, false);
+        if (stillCurrent) {
           toast.show({ kind: "error", msg: error.message });
         }
       }
@@ -287,12 +316,15 @@ export function SkillsView({
     return pending;
   };
 
-  const lifecycleCommitted = (inventory: SkillsInventory) => {
+  const lifecycleCommitted = (
+    inventory: SkillsInventory,
+    message = "Skill 操作已完成。",
+  ) => {
     const plan = lifecyclePlanRef.current;
     if (plan) lifecycleCommittedRef.current.add(plan.operation_id);
     lifecyclePlanRef.current = null;
     setLifecycleReview(null);
-    toast.show({ kind: "success", msg: "Skill 操作已完成。" });
+    toast.show({ kind: "success", msg: message });
     const selectedName = selected?.name;
     if (selectedName && !inventory.items.some((item) => item.name === selectedName)) {
       closeInspector();

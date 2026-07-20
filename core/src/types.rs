@@ -18,6 +18,11 @@ pub struct ModelProfile {
     pub protocol: ModelProtocol,
     pub base_url: String,
     pub model: String,
+    /// Optional environment variable name used by Agents such as Grok Build
+    /// that natively resolve per-model credentials from the process environment.
+    /// This is metadata only; the credential value is never stored here.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub env_key: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub context_window: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

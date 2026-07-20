@@ -215,6 +215,7 @@ mod tests {
                     protocol,
                     base_url: "https://example.invalid".into(),
                     model: "model".into(),
+                    env_key: None,
                     context_window: None,
                     max_output_tokens: None,
                     reasoning: false,
@@ -282,7 +283,7 @@ mod tests {
     }
 
     #[test]
-    fn model_distinguishes_protocol_and_guided_mode() {
+    fn model_distinguishes_protocol_and_managed_mode() {
         let _home = TestHome::new("compat-model");
         add_profile(ModelProtocol::AnthropicMessages);
         assert!(
@@ -308,7 +309,7 @@ mod tests {
             .code,
             "model_protocol_unsupported"
         );
-        assert_eq!(
+        assert!(
             compatibility_for(
                 "grok-build",
                 &AssetRef::Model {
@@ -316,10 +317,7 @@ mod tests {
                 }
             )
             .unwrap()
-            .reason
-            .unwrap()
-            .code,
-            "model_guided_only"
+            .compatible
         );
     }
 

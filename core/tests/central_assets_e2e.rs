@@ -224,6 +224,7 @@ fn model(model: &str) -> ModelProfile {
         protocol: ModelProtocol::OpenaiResponses,
         base_url: "https://example.invalid/v1".into(),
         model: model.into(),
+        env_key: None,
         context_window: Some(128_000),
         max_output_tokens: Some(8_192),
         reasoning: true,
@@ -270,6 +271,52 @@ fn model_edit_propagates_without_dropping_assignment_and_delete_cascades() {
     let cleared = fs::read_to_string(target).unwrap();
     assert!(!cleared.contains("work"));
     assert!(!cleared.contains("new-model"));
+}
+
+#[test]
+fn grok_build_consumes_and_switches_central_profiles() {
+    let home = TestHome::new("central-model-grok-build");
+    let mut responses = model("gpt-custom");
+    responses.id = "openai-work".into();
+    responses.env_key = Some("OPENAI_WORK_API_KEY".into());
+    let mut messages = model("claude-custom");
+    messages.id = "anthropic-work".into();
+    messages.protocol = ModelProtocol::AnthropicMessages;
+    messages.env_key = Some("ANTHROPIC_WORK_API_KEY".into());
+    save_profile(responses.clone(), None).unwrap();
+    save_profile(messages.clone(), None).unwrap();
+
+    commit(
+        plan_set_agent_consumption(PlanSetAgentConsumptionRequest {
+            agent_id: "grok-build".into(),
+            selection: AgentConsumptionSelection::Model {
+                profile_ids: vec![responses.id.clone()],
+            },
+        })
+        .unwrap(),
+    );
+    let target = home.home.join(".grok/config.toml");
+    let first = fs::read_to_string(&target).unwrap();
+    assert!(first.contains("api_backend = \"responses\""));
+    assert!(first.contains("env_key = \"OPENAI_WORK_API_KEY\""));
+
+    commit(
+        plan_set_agent_consumption(PlanSetAgentConsumptionRequest {
+            agent_id: "grok-build".into(),
+            selection: AgentConsumptionSelection::Model {
+                profile_ids: vec![messages.id.clone()],
+            },
+        })
+        .unwrap(),
+    );
+    let switched = fs::read_to_string(target).unwrap();
+    assert!(switched.contains("api_backend = \"messages\""));
+    assert!(switched.contains("env_key = \"ANTHROPIC_WORK_API_KEY\""));
+    assert!(!switched.contains("OPENAI_WORK_API_KEY"));
+    assert_eq!(
+        load_settings().model_assignments.unwrap()["grok-build"],
+        messages.id
+    );
 }
 
 #[test]

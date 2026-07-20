@@ -12,13 +12,11 @@ import {
 import * as api from "../lib/api";
 import { installWizardReducer } from "../lib/skills";
 import type {
-  OperationPlan,
   SkillCommandError,
   SkillSourceResolution,
   SkillsInventory,
 } from "../lib/types";
 import { FolderIcon, LinkIcon, PackageIcon } from "./icons";
-import { SkillReviewDialog } from "./SkillReviewDialog";
 import { useToast } from "./Toast";
 import { DialogShell } from "./DialogShell";
 
@@ -52,14 +50,6 @@ function selectedSnapshot(
   return `${skillNames.join("\u0000")}\u0001${replaceConflicts}`;
 }
 
-function requiresReview(plan: OperationPlan) {
-  return (
-    plan.requires_risk_override ||
-    plan.warnings.length > 0 ||
-    plan.skills.some((skill) => skill.risk.level === "high")
-  );
-}
-
 export function SkillInstallDialog({
   commit,
   cancel,
@@ -78,7 +68,6 @@ export function SkillInstallDialog({
   const [planning, setPlanning] = useState(false);
   const [committing, setCommitting] = useState(false);
   const [closing, setClosing] = useState(false);
-  const [reviewOpen, setReviewOpen] = useState(false);
   const [sourceError, setSourceError] = useState<SkillCommandError | null>(null);
   const [planError, setPlanError] = useState<SkillCommandError | null>(null);
   const mountedRef = useRef(true);
@@ -237,7 +226,6 @@ export function SkillInstallDialog({
     planGenerationRef.current += 1;
     if (resolution) await cancelOnce(resolution.operation_id, true);
     resolutionRef.current = null;
-    setReviewOpen(false);
     dispatch({ type: "reset" });
     setPlanError(null);
   };
@@ -316,21 +304,16 @@ export function SkillInstallDialog({
         });
         return;
       }
-      dispatch({ type: "plan_loaded", plan });
-      if (requiresReview(plan)) {
-        setReviewOpen(true);
-        return;
-      }
-
       try {
-        const inventory = await commitInstall(plan, null);
+        const inventory = await commitInstall(
+          plan,
+          plan.requires_risk_override ? plan.findings_hash : null,
+        );
         if (mountedRef.current && !closedRef.current) finishInstall(inventory);
       } catch (reason) {
         if (!mountedRef.current || closedRef.current) return;
         const error = normalizeSkillCommandError(reason);
-        if (error.code === "confirmation_required") {
-          setReviewOpen(true);
-        } else if (error.code === "recovery_required") {
+        if (error.code === "recovery_required") {
           enterRecovery(error.message);
         } else {
           setPlanError(error);
@@ -359,12 +342,6 @@ export function SkillInstallDialog({
     }
   };
 
-  const backFromReview = () => {
-    if (commitPromiseRef.current) return;
-    planGenerationRef.current += 1;
-    setReviewOpen(false);
-  };
-
   function enterRecovery(message: string) {
     recoveryRequiredRef.current = true;
     onRecoveryRequired(message);
@@ -375,18 +352,19 @@ export function SkillInstallDialog({
   const selectedCount = wizard.selectedSkillNames.length;
   const candidateCount = resolution?.candidates.length ?? 0;
   const busy = resolving || planning || committing || closing;
+  const actionVerb = resolution?.source.kind === "github" ? "下载" : "导入";
   const addLabel = wizard.replaceConflicts
-    ? "备份并重试"
+    ? `备份并${actionVerb}`
     : selectedCount > 1
-      ? `添加 ${selectedCount} 个 Skill`
-      : "添加 Skill";
+      ? `${actionVerb} ${selectedCount} 个 Skill`
+      : `${actionVerb} Skill`;
 
   return (
     <DialogShell
       kind="editor"
       size="md"
       title="添加 Skill"
-      subtitle="从 GitHub、本地文件夹或压缩包添加。"
+      subtitle="从 GitHub 下载，或从本地直接导入。"
       busy={busy}
       closeLabel="关闭"
       onClose={() => void closeDialog()}
@@ -402,7 +380,7 @@ export function SkillInstallDialog({
             disabled={selectedCount === 0 || busy}
             onClick={() => void addSelected()}
           >
-            {planning ? "检查中…" : committing ? "添加中…" : addLabel}
+            {planning || committing ? `${actionVerb}中…` : addLabel}
           </button>
         </>
       ) : (
@@ -445,7 +423,7 @@ export function SkillInstallDialog({
                     disabled={!githubValue.trim() || resolving || closing}
                     onClick={resolveGithub}
                   >
-                    {resolving ? "读取中…" : "读取"}
+                    {resolving ? "查找中…" : "查找"}
                   </button>
                 </div>
               </section>
@@ -551,16 +529,6 @@ export function SkillInstallDialog({
         </div>
 
       </div>
-
-      {reviewOpen && wizard.plan && (
-        <SkillReviewDialog
-          plan={wizard.plan}
-          onCommit={commitInstall}
-          onClose={backFromReview}
-          onCommitted={finishInstall}
-          onRecoveryRequired={enterRecovery}
-        />
-      )}
     </DialogShell>
   );
 }

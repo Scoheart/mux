@@ -1,8 +1,4 @@
-import type {
-  OperationPlan,
-  SkillInventoryItem,
-  SkillSourceResolution,
-} from "./types";
+import type { SkillInventoryItem, SkillSourceResolution } from "./types";
 
 export type SkillStatusFilter =
   | "all"
@@ -54,21 +50,18 @@ export interface InstallWizardState {
   resolution: SkillSourceResolution | null;
   selectedSkillNames: string[];
   replaceConflicts: boolean;
-  plan: OperationPlan | null;
 }
 
 export type InstallWizardAction =
   | { type: "resolution_loaded"; resolution: SkillSourceResolution }
   | { type: "toggle_skill"; skillName: string }
   | { type: "set_replace_conflicts"; enabled: boolean }
-  | { type: "plan_loaded"; plan: OperationPlan }
   | { type: "reset" };
 
 const initialWizardState: InstallWizardState = {
   resolution: null,
   selectedSkillNames: [],
   replaceConflicts: false,
-  plan: null,
 };
 
 const toggled = (values: string[], value: string) =>
@@ -88,7 +81,6 @@ export function installWizardReducer(
           (candidate) => candidate.name,
         ),
         replaceConflicts: false,
-        plan: null,
       };
     case "toggle_skill":
       return {
@@ -97,16 +89,12 @@ export function installWizardReducer(
           state.selectedSkillNames,
           action.skillName,
         ),
-        plan: null,
       };
     case "set_replace_conflicts":
       return {
         ...state,
         replaceConflicts: action.enabled,
-        plan: null,
       };
-    case "plan_loaded":
-      return { ...state, plan: action.plan };
     case "reset":
       return initialWizardState;
   }

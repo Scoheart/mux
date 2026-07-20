@@ -425,7 +425,7 @@ describe("SkillsView", () => {
     await user.click(screen.getByRole("button", { name: "添加 Skill" }));
 
     await user.type(screen.getByLabelText("仓库地址"), "acme/skills");
-    await user.click(screen.getByRole("button", { name: "读取" }));
+    await user.click(screen.getByRole("button", { name: "查找" }));
     expect(await screen.findByRole("checkbox", { name: "review-changes" })).toBeVisible();
 
     rerender(

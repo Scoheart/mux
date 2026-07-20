@@ -27,6 +27,14 @@ it("preserves Keychain presence-only rendering", () => {
   expect(source).not.toMatch(/credential_saved\s*\}\s*<code/);
 });
 
+it("supports Grok Build env_key metadata without storing a secret value", () => {
+  expect(source).toMatch(/API Key 环境变量/);
+  expect(source).toMatch(/env_key: draft\.env_key\?\.trim\(\) \|\| undefined/);
+  expect(source).toMatch(/变量值由启动环境提供，不从 Keychain 导出/);
+  expect(agentSource).toMatch(/agent\.id === "grok-build" && selectedProfile\?\.env_key/);
+  expect(agentSource).toMatch(/ENV · \{selectedProfile\.env_key\}/);
+});
+
 it("routes profile lifecycle through central asset plans", () => {
   expect(source).toMatch(/consumptionState\.planUpdate/);
   expect(source).toMatch(/consumptionState\.planDelete/);

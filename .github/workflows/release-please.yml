@@ -101,7 +101,7 @@ jobs:
         run: |
           PR_NUMBER="$(jq -er '.number' <<<"$RELEASE_PR")"
           HEAD_SHA="$(git rev-parse HEAD)"
-          .github/scripts/wait-for-verify.sh "$GITHUB_REPOSITORY" "$HEAD_SHA"
+          bash .github/scripts/wait-for-verify.sh "$GITHUB_REPOSITORY" "$HEAD_SHA"
           CURRENT_HEAD="$(gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json headRefOid --jq '.headRefOid')"
           test "$CURRENT_HEAD" = "$HEAD_SHA"
 

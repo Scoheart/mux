@@ -116,7 +116,7 @@ test("Release Please uses the dedicated token and refreshes its PR", async () =>
   assert.match(workflow, /node scripts\/release-version\.mjs refresh-locks/);
   assert.match(workflow, /desktop\/package-lock\.json Cargo\.lock desktop\/src-tauri\/Cargo\.lock/);
   assert.match(workflow, /vars\.MUX_FAST_LANE_UNTIL/);
-  assert.match(workflow, /wait-for-verify\.sh "\$GITHUB_REPOSITORY" "\$HEAD_SHA"/);
+  assert.match(workflow, /bash \.github\/scripts\/wait-for-verify\.sh "\$GITHUB_REPOSITORY" "\$HEAD_SHA"/);
   assert.match(workflow, /--json headRefOid/);
   assert.match(workflow, /test "\$CURRENT_HEAD" = "\$HEAD_SHA"/);
   assert.match(workflow, /gh pr merge "\$PR_NUMBER"[^\n]+--squash --delete-branch --match-head-commit "\$HEAD_SHA"/);

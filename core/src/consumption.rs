@@ -15,7 +15,10 @@ pub mod types;
 pub use compatibility::{compatibility_for, CompatibilityReason, CompatibilityView};
 pub use inventory::list_consumption_inventory;
 pub use lifecycle::{plan_delete_central_asset, plan_update_central_asset};
-pub use migration::{list_mcp_adoption_candidates, McpAdoptionCandidate, McpAdoptionStatus};
+pub use migration::{
+    list_mcp_adoption_candidates, plan_mcp_adoption, McpAdoptionCandidate, McpAdoptionStatus,
+    PlanMcpAdoptionRequest,
+};
 pub use planner::{
     plan_set_agent_consumption, plan_set_asset_consumers, plan_set_mcp_enabled,
     plan_update_agent_configuration,

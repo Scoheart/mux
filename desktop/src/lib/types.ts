@@ -104,6 +104,23 @@ export interface InstalledMcp {
    *  remembered in MUX's disabled store (false). */
   enabled: boolean;
 }
+export type McpAdoptionStatus = "adoptable" | "drifted" | "external";
+export interface McpAdoptionCandidate {
+  agent_id: string;
+  asset_key: string;
+  enabled: boolean;
+  status: McpAdoptionStatus;
+  config_hash: string;
+  fingerprint: string;
+  settings_hash: string;
+  target_hash: string;
+  candidate_hash: string;
+}
+export interface PlanMcpAdoptionRequest {
+  asset_key: string;
+  agent_ids: string[];
+  candidate_fingerprints: Record<string, string>;
+}
 export interface PatchInput {
   args?: string[]; env?: Record<string, string>; url?: string; headers?: Record<string, string>;
 }

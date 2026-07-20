@@ -18,8 +18,8 @@ pub(crate) use inventory::{
     skill_agent_capability_for_settings,
 };
 pub use inventory::{
-    get_skill_detail, list_inventory, list_skill_agents, normalize_agent_selection,
-    skill_agent_capability,
+    get_skill_detail, list_inventory, list_migration_candidates, list_skill_agents,
+    normalize_agent_selection, skill_agent_capability,
 };
 pub use manifest::*;
 pub use ops::*;

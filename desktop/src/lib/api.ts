@@ -11,10 +11,13 @@ import type {
   CatalogItem,
   ConsumptionInventory,
   InstalledMcp,
+  McpAdoptionCandidate,
   ModelAgentView,
   ModelProfileView,
   OperationPlan,
   PlanRemoveRequest,
+  PlanImportRequest,
+  PlanMcpAdoptionRequest,
   PlanRepairRequest,
   PlanSkillAssetImportRequest,
   PlanSkillAssetInstallRequest,
@@ -24,6 +27,7 @@ import type {
   SkillAgentView,
   SkillCommitRequest,
   SkillDetail,
+  SkillInventoryItem,
   SkillSourceResolution,
   SkillsInventory,
   SourceView,
@@ -32,6 +36,10 @@ import type {
 
 export const listConsumptionInventory = () =>
   invoke<ConsumptionInventory>("list_consumption_inventory");
+export const listMcpAdoptionCandidates = () =>
+  invoke<McpAdoptionCandidate[]>("list_mcp_adoption_candidates");
+export const planMcpAdoption = (request: PlanMcpAdoptionRequest) =>
+  invoke<AssetOperationPlan>("plan_mcp_adoption", { request });
 export const planSetAgentConsumption = (
   agentId: string,
   selection: AgentConsumptionSelection,
@@ -147,6 +155,8 @@ export const cellKey = (serverKey: string, agentId: string) =>
 
 export const listSkillsInventory = () =>
   invoke<SkillsInventory>("list_skills_inventory");
+export const listSkillMigrationCandidates = () =>
+  invoke<SkillInventoryItem[]>("list_skill_migration_candidates");
 export const listSkillAgents = () =>
   invoke<SkillAgentView[]>("list_skill_agents");
 export const getSkillDetail = (identity: string) =>
@@ -163,6 +173,8 @@ export const commitSkillInstall = (request: SkillCommitRequest) =>
   invoke<SkillsInventory>("commit_skill_install", { request });
 export const planSkillAssetImport = (request: PlanSkillAssetImportRequest) =>
   invoke<OperationPlan>("plan_skill_asset_import", { request });
+export const planSkillImport = (request: PlanImportRequest) =>
+  invoke<OperationPlan>("plan_skill_import", { request });
 export const commitSkillImport = (request: SkillCommitRequest) =>
   invoke<SkillsInventory>("commit_skill_import", { request });
 export const planSkillUpdate = (request: PlanUpdateRequest) =>

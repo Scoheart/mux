@@ -1,8 +1,9 @@
-import { ReactNode, useEffect, useState } from "react";
+import { ReactNode, useEffect, useRef, useState } from "react";
 import { getVersion } from "@tauri-apps/api/app";
 import type { AgentInfo, ProxySettings, View } from "../lib/types";
 import {
   DownloadIcon,
+  ChevronDownIcon,
   LayersIcon,
   MoonIcon,
   NetworkIcon,
@@ -27,6 +28,8 @@ interface LayoutProps {
   onSelectAgent: (id: string) => void;
   onAddAgent?: () => void;
   onRescan?: () => Promise<unknown> | void;
+  onOpenMigration?: () => void;
+  migrationCount?: number;
   updater?: UpdaterState;
   proxyUrl: string | null;
   proxySettingsLoading: boolean;
@@ -43,6 +46,8 @@ export function Layout({
   onSelectAgent,
   onAddAgent,
   onRescan,
+  onOpenMigration,
+  migrationCount = 0,
   updater,
   proxyUrl,
   proxySettingsLoading,
@@ -52,11 +57,22 @@ export function Layout({
   const [theme, setTheme] = useState<Theme>(getInitialTheme);
   const [version, setVersion] = useState("");
   const [proxySettingsOpen, setProxySettingsOpen] = useState(false);
+  const [scanMenuOpen, setScanMenuOpen] = useState(false);
+  const scanMenuRef = useRef<HTMLDivElement>(null);
   const toast = useToast();
 
   useEffect(() => {
     getVersion().then(setVersion).catch(() => {});
   }, []);
+
+  useEffect(() => {
+    if (!scanMenuOpen) return;
+    const close = (event: PointerEvent) => {
+      if (!scanMenuRef.current?.contains(event.target as Node)) setScanMenuOpen(false);
+    };
+    window.addEventListener("pointerdown", close);
+    return () => window.removeEventListener("pointerdown", close);
+  }, [scanMenuOpen]);
 
   const checkingUpdate = updater?.phase.kind === "checking";
   const handleCheckUpdate = async () => {
@@ -180,19 +196,52 @@ export function Layout({
         </button>
 
         {onRescan && (
-          <button
-            type="button"
-            className="mux-icon-btn flex-shrink-0"
-            title="重新扫描"
-            aria-label="重新扫描"
-            disabled={rescanning}
-            onClick={handleRescan}
-          >
-            <RefreshIcon
-              className="w-4 h-4"
-              style={rescanning ? { animation: "spin 0.8s linear infinite" } : undefined}
-            />
-          </button>
+          <div className="mux-scan-menu-wrap flex-shrink-0" ref={scanMenuRef}>
+            <button
+              type="button"
+              className="mux-icon-btn mux-scan-menu-trigger"
+              title="扫描与迁移"
+              aria-label="扫描与迁移"
+              aria-expanded={scanMenuOpen}
+              onClick={() => setScanMenuOpen((open) => !open)}
+            >
+              <RefreshIcon
+                className="w-4 h-4"
+                style={rescanning ? { animation: "spin 0.8s linear infinite" } : undefined}
+              />
+              <ChevronDownIcon className="mux-scan-menu-chevron" />
+              {migrationCount > 0 && <span className="mux-scan-menu-dot" aria-hidden="true" />}
+            </button>
+            {scanMenuOpen && (
+              <div className="mux-scan-menu" role="menu">
+                <button
+                  type="button"
+                  role="menuitem"
+                  disabled={rescanning}
+                  onClick={() => {
+                    setScanMenuOpen(false);
+                    void handleRescan();
+                  }}
+                >
+                  <RefreshIcon className="w-4 h-4" />
+                  <span><strong>{rescanning ? "扫描中…" : "重新扫描"}</strong><small>重新读取 Agent 配置</small></span>
+                </button>
+                {onOpenMigration && (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      setScanMenuOpen(false);
+                      onOpenMigration();
+                    }}
+                  >
+                    <PackageIcon className="w-4 h-4" />
+                    <span><strong>迁移历史配置</strong><small>{migrationCount > 0 ? `${migrationCount} 项待处理` : "没有待迁移配置"}</small></span>
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
         )}
 
         {/* Explicit update action: keep the installed version visible without

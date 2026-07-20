@@ -9,7 +9,7 @@ MUX 的 Agent 数据分为两层：
 
 桌面端把 MCP、Model 与 Skill 都视为中央资产：先在顶部 `MCPs`、`Models`、`Skills` 工作区统一创建、导入和维护，再由 Agent 建立消费关系。单个 Agent 页面使用 **MCPs → Model → Skills** 三个标签，只展示该 Agent 期望使用的中央资产；这里不会创建 MCP、填写 Model、解析 Skill 来源或重新安装 Skill。
 
-消费关系只在 Agent 页面管理：MCP 与 Skills 每个 Agent 可选择多个，Model 同时最多一个。中央资产详情只负责资产生命周期和只读影响范围，不反向修改 Agent。MUX 再把 Agent 文件或 Skill link 作为 observed state 对账，显示已同步、待同步、漂移或冲突；仅在 Agent 中发现的外部配置保持只读，扫描和刷新不会自动把它变成中央资产或消费关系。
+消费关系通常只在 Agent 页面管理：MCP 与 Skills 每个 Agent 可选择多个，Model 同时最多一个。中央资产详情只负责资产生命周期和只读影响范围，不反向修改 Agent。MUX 再把 Agent 文件或 Skill link 作为 observed state 对账；仅在 Agent 中发现的外部配置保持只读，扫描不会静默接管。检测到历史 MCP / Skill 时，桌面端提供一次显式迁移，把中央资产与原有消费关系作为同一项可恢复事务导入。
 
 ## 已核验列表
 

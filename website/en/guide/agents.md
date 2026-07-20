@@ -9,7 +9,7 @@ Clients whose global file path, top-level key, and entry structure have not been
 
 MUX Desktop treats MCPs, Models, and Skills as central assets. Create, import, and maintain them in the top-level libraries first; an Agent page is the only place that chooses which compatible assets that Agent should consume. MCPs and Skills are `0..N` per Agent, while Model is `0..1`. Asset Inspectors own lifecycle actions and show impact without editing Agent relationships.
 
-Agent files and Skill links are observed state, not an alternate asset database. MUX reconciles them as synced, pending, drifted, or conflicted. A configuration found only in an Agent remains read-only external state: scanning or refreshing never silently imports it or creates a desired relationship.
+Agent files and Skill links are observed state, not an alternate asset database. MUX reconciles them as synced, pending, drifted, or conflicted. Scanning never silently takes ownership. When historical MCPs or Skills are detected, Desktop offers an explicit migration that imports the central asset and adopts its original Agent relationships as one recoverable per-asset transaction.
 
 ## Verified list
 

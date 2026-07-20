@@ -155,6 +155,8 @@ test("desktop workflow classifies and gates both publication channels", async ()
   assert.match(workflow, /cache-dependency-path:\s*desktop\/package-lock\.json/);
   assert.match(workflow, /npm ci --no-audit --no-fund/);
   assert.match(workflow, /\^v\[0-9\]\+\\\.\[0-9\]\+\\\.\[0-9\]\+\$/);
+  assert.match(workflow, /PRERELEASE_TAG_REGEX=.*-build/);
+  assert.match(workflow, /REF_NAME.*PRERELEASE_TAG_REGEX[\s\S]{0,80}mode=skip/);
   assert.match(workflow, /release-version\.mjs is-release-merge/);
   assert.match(workflow, /--before "\$before_version" --after "\$version" --title "\$title"/);
   const setupNodeReferences = [

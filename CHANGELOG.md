@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.8.4](https://github.com/Scoheart/mux/compare/v1.8.3...v1.8.4) (2026-07-20)
+
+
+### Bug Fixes
+
+* **release:** bound fast lane restoration retries ([c115e72](https://github.com/Scoheart/mux/commit/c115e72a546f3d4e21e5a383e6c513e3f189d5b1))
+
 ## [1.8.3](https://github.com/Scoheart/mux/compare/v1.8.2...v1.8.3) (2026-07-20)
 
 

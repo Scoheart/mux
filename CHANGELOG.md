@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.8](https://github.com/Scoheart/mux/compare/v1.8.7...v1.8.8) (2026-07-20)
+
+### Changes
+
+* fix(release): tolerate Draft lookup latency ([3bb5eef](https://github.com/Scoheart/mux/commit/3bb5eef03ecab37b1624b9a5e9edeb3d182b7631))
+
 ## [1.8.7](https://github.com/Scoheart/mux/compare/v1.8.6...v1.8.7) (2026-07-20)
 
 ### Changes

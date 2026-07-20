@@ -1,11 +1,15 @@
 use super::anchored::{AnchoredFileKind, AnchoredIdentity, AnchoredRoot};
 #[cfg(test)]
 use super::files::MAX_SKILL_BYTES;
-use super::files::{classify_content, inspect_tree_anchored, validate_candidate_anchored};
+use super::files::{
+    classify_content, inspect_tree_anchored, validate_candidate_anchored,
+    validate_candidate_anchored_private,
+};
 use super::{
-    parse_manifest, InventoryState, ManagedSkillRecord, SkillAgentCapabilityView, SkillAgentView,
-    SkillContentKind, SkillDetail, SkillError, SkillInventoryItem, SkillLocation, SkillRiskSummary,
-    SkillSource, SkillTargetView, SkillUpdateState, SkillsInventory, SkillsPaths, ValidatedSkill,
+    audit_skill, parse_manifest, InventoryState, ManagedSkillRecord, SkillAgentCapabilityView,
+    SkillAgentView, SkillContentKind, SkillDetail, SkillError, SkillInventoryItem, SkillLocation,
+    SkillRiskSummary, SkillSource, SkillTargetView, SkillUpdateState, SkillsInventory, SkillsPaths,
+    ValidatedSkill,
 };
 use crate::agents::load_agents_from_settings;
 use crate::settings::{load_settings_strict, Settings};
@@ -468,6 +472,43 @@ pub fn get_skill_detail(identity: &str) -> Result<SkillDetail, SkillError> {
         skill_md,
         skill_md_truncated,
     })
+}
+
+/// Build the heavier read-only projection used by historical migration. The
+/// regular inventory intentionally avoids walking every external tree; this
+/// background scan validates and hashes only user-level Agent directories so
+/// exact copies can be grouped without weakening normal list performance.
+pub fn list_migration_candidates() -> Result<Vec<SkillInventoryItem>, SkillError> {
+    let paths = SkillsPaths::resolve_from_env()?;
+    let settings = strict_settings()?;
+    let graph = build_target_graph(&paths, &settings)?;
+    let inventory = build_inventory(&paths, &settings, &graph)?;
+    let mut items = inventory.items;
+
+    for item in items.iter_mut().filter(|item| {
+        matches!(item.location, SkillLocation::AgentTarget { .. })
+            && item.states.contains(&InventoryState::External)
+    }) {
+        if !item.states.contains(&InventoryState::Missing)
+            && !item.states.contains(&InventoryState::BrokenLink)
+            && !item.states.contains(&InventoryState::ConflictingLink)
+        {
+            if let Ok(parsed) = parse_identity(&item.identity) {
+                if let Ok(content_root) = detail_content_root(&parsed, &paths, &graph) {
+                    if let Ok(validated) = validate_candidate_anchored_private(&content_root) {
+                        item.content_hash = Some(validated.content_hash);
+                        item.content_kind = classify_content(&validated.files);
+                        // Planning repeats the bounded validation and audit. A
+                        // scan-time audit failure leaves the row blocked rather
+                        // than hiding it or silently approving risk.
+                        item.risk = audit_skill(content_root.canonical_path()).ok();
+                    }
+                }
+            }
+        }
+    }
+    items.sort_by(|left, right| left.identity.cmp(&right.identity));
+    Ok(items)
 }
 
 fn scan_central(

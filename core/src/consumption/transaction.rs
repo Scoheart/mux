@@ -296,6 +296,28 @@ fn apply_operation(persisted: &PersistedAssetOperation) -> Result<(), String> {
             write_manual_entry(&entry).map_err(|error| error.to_string())?;
             reapply_mcp_consumers(&persisted.plan.domain_plan, key)
         }
+        LifecycleBinding::McpAdopt {
+            key,
+            draft_hash,
+            enabled,
+        } => {
+            if let Some(draft_hash) = draft_hash {
+                let PendingAssetPayload::McpUpsert { entry } =
+                    require_pending_payload(&persisted.plan.operation_id)?
+                else {
+                    return Err(
+                        "asset_operation_expired: imported MCP config is unavailable; reopen migration"
+                            .into(),
+                    );
+                };
+                verify_payload_hash(&entry, draft_hash)?;
+                if entry.key() != *key {
+                    return Err("asset_operation_stale: MCP migration identity changed".into());
+                }
+                write_manual_entry(&entry).map_err(|error| error.to_string())?;
+            }
+            apply_mcp_adoption(&persisted.plan.domain_plan, key, enabled)
+        }
         LifecycleBinding::McpDelete {
             key,
             source_id,
@@ -396,6 +418,34 @@ fn verify_operation(persisted: &PersistedAssetOperation) -> Result<(), String> {
             let mut entry = entry;
             entry.origin = None;
             verify_payload_hash(&entry, draft_hash)
+        }
+        LifecycleBinding::McpAdopt {
+            key,
+            draft_hash,
+            enabled,
+        } => {
+            if let Some(draft_hash) = draft_hash {
+                let entry = read_registry()
+                    .into_iter()
+                    .find(|entry| entry.key() == *key)
+                    .ok_or_else(|| "MCP central migration verification failed".to_string())?;
+                let mut entry = entry;
+                entry.origin = None;
+                verify_payload_hash(&entry, draft_hash)?;
+            }
+            let settings = load_settings_strict().map_err(|error| error.to_string())?;
+            for (agent_id, expected) in enabled {
+                let actual = settings
+                    .mcp_consumptions
+                    .as_ref()
+                    .and_then(|records| records.get(agent_id))
+                    .and_then(|records| records.get(key))
+                    .map(|record| record.enabled);
+                if actual != Some(*expected) {
+                    return Err("MCP migration enabled state verification failed".into());
+                }
+            }
+            Ok(())
         }
         LifecycleBinding::McpDelete {
             key,
@@ -571,6 +621,37 @@ fn reapply_mcp_consumers(plan: &DomainPlan, key: &str) -> Result<(), String> {
         .map_err(|errors| errors.join("; "))?;
     }
     Ok(())
+}
+
+/// Adopt exact observed MCP copies without rewriting Agent files. The planner
+/// already bound every target byte and verified that all copies match one
+/// central config. Disabled observations remain in the existing snapshot store
+/// and are recorded as disabled desired relationships.
+fn apply_mcp_adoption(
+    plan: &DomainPlan,
+    key: &str,
+    enabled: &BTreeMap<String, bool>,
+) -> Result<(), String> {
+    let DomainPlan::Mcp { after, .. } = plan else {
+        return Err("asset operation domain mismatch".into());
+    };
+    mutate_settings(|settings| {
+        let all = settings.mcp_consumptions.get_or_insert_default();
+        for (agent_id, desired) in after {
+            if !desired.iter().any(|candidate| candidate == key) {
+                continue;
+            }
+            let records = all.entry(agent_id.clone()).or_default();
+            let mut record = records.remove(key).unwrap_or(McpConsumptionRecord {
+                asset_key: key.to_string(),
+                enabled: true,
+                overrides: OverridePatch::default(),
+            });
+            record.enabled = enabled.get(agent_id).copied().unwrap_or(true);
+            records.insert(key.to_string(), record);
+        }
+    })
+    .map_err(|error| error.to_string())
 }
 
 fn reapply_model_consumers(

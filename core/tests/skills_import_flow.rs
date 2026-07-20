@@ -4,9 +4,10 @@ mod support;
 
 use mux_core::settings::load_settings;
 use mux_core::skills::{
-    cancel_operation, commit_assignment, commit_import, hash_tree, list_inventory, plan_assignment,
-    plan_import, recover_pending, PlanAssignmentRequest, PlanImportRequest, PlanInstallRequest,
-    SkillError, SkillSource, SkillsPaths,
+    cancel_operation, commit_assignment, commit_import, hash_tree, list_inventory,
+    list_migration_candidates, plan_assignment, plan_import, recover_pending,
+    PlanAssignmentRequest, PlanImportRequest, PlanInstallRequest, SkillError, SkillSource,
+    SkillsPaths,
 };
 use serde_json::json;
 use std::fs;
@@ -88,6 +89,51 @@ fn import_from_alias_only_target_keeps_one_discovery_link() {
     assert_eq!(
         load_settings().skill_assignments.unwrap()[name],
         ["agents-user".to_owned()].into_iter().collect()
+    );
+}
+
+#[test]
+fn import_merges_identical_external_directories_across_targets() {
+    let fixture = SkillsFixture::installed_agents(&["claude-code", "cursor"]);
+    let name = "shared-history";
+    write_skill(
+        &fixture.target("claude-user", name),
+        name,
+        "Shared historical fixture",
+    );
+    write_skill(
+        &fixture.target("cursor-user", name),
+        name,
+        "Shared historical fixture",
+    );
+    let migration = list_migration_candidates().unwrap();
+    let matching: Vec<_> = migration.iter().filter(|item| item.name == name).collect();
+    assert_eq!(matching.len(), 2);
+    assert!(matching.iter().all(|item| item.content_hash.is_some()));
+    assert_eq!(matching[0].content_hash, matching[1].content_hash);
+    assert!(matching.iter().all(|item| item.risk.is_some()));
+    let inventory = list_inventory().unwrap();
+    let source = inventory
+        .items
+        .iter()
+        .find(|item| item.name == name)
+        .unwrap();
+
+    let plan = plan_import(PlanImportRequest {
+        identity: source.identity.clone(),
+        agent_ids: vec!["claude-code".into(), "cursor".into()],
+        replace_conflicts: false,
+    })
+    .unwrap();
+    commit_import(plan.confirmation()).unwrap();
+
+    assert_managed_link(fixture.target("claude-user", name), fixture.central(name));
+    assert_managed_link(fixture.target("cursor-user", name), fixture.central(name));
+    assert_eq!(
+        load_settings().skill_assignments.unwrap()[name],
+        ["claude-user".to_owned(), "cursor-user".to_owned()]
+            .into_iter()
+            .collect()
     );
 }
 

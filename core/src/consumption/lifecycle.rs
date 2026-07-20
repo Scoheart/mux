@@ -43,6 +43,18 @@ pub(crate) fn clear_pending_payload(operation_id: &str) {
         .remove(operation_id);
 }
 
+pub(crate) fn store_pending_mcp_entry(operation_id: &str, entry: RegistryEntry) {
+    PENDING_PAYLOADS
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .insert(
+            operation_id.to_string(),
+            PendingAssetPayload::McpUpsert {
+                entry: Box::new(entry),
+            },
+        );
+}
+
 pub fn plan_update_central_asset(
     request: PlanUpdateCentralAssetRequest,
 ) -> Result<AssetOperationPlan, String> {
@@ -145,15 +157,7 @@ fn plan_mcp_upsert(
         vec![display_path(&local_sources_dir().join("manual.json"))],
         Some(lifecycle),
     )?;
-    PENDING_PAYLOADS
-        .lock()
-        .unwrap_or_else(|error| error.into_inner())
-        .insert(
-            plan.operation_id.clone(),
-            PendingAssetPayload::McpUpsert {
-                entry: Box::new(entry),
-            },
-        );
+    store_pending_mcp_entry(&plan.operation_id, entry);
     Ok(plan)
 }
 

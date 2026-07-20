@@ -44,6 +44,8 @@ interface RegistryViewProps {
   onIntentConsumed?(id: number): void;
   onEdit: (name: string, transport: Transport) => void;
   onCreate: () => void;
+  migrationCount?: number;
+  onOpenMigration?(): void;
 }
 
 /** Origin buckets — still used to decide which entries are user-deletable. */
@@ -142,7 +144,7 @@ function originLabel(origin: RegistryOrigin | undefined, sourceName: (id: string
   return label || (origin.kind === "remote" ? "订阅" : "本地");
 }
 
-export function RegistryView({ state, consumptionState, intent, onIntentConsumed, onEdit, onCreate }: RegistryViewProps) {
+export function RegistryView({ state, consumptionState, intent, onIntentConsumed, onEdit, onCreate, migrationCount = 0, onOpenMigration }: RegistryViewProps) {
   const { catalog, entries, agentsForServer, sources } = state;
   const toast = useToast();
 
@@ -313,6 +315,11 @@ export function RegistryView({ state, consumptionState, intent, onIntentConsumed
       }
       toolbarActions={
         <>
+          {migrationCount > 0 && onOpenMigration && (
+            <button className="btn-secondary" type="button" onClick={onOpenMigration}>
+              历史配置 {migrationCount}
+            </button>
+          )}
           <button
             onClick={() => {
               setDetail(null);

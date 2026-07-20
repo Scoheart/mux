@@ -58,7 +58,7 @@ Consumption relationships are edited only from Agent pages; central asset Inspec
 
 An Agent page shows desired central assets even if an observed target is missing or conflicted. Core reconciles each relationship as synced, pending, drifted, or conflicted; it never silently overwrites drift in the background. Removing use changes that Agent's relationship and managed target but does not delete the central asset.
 
-Configurations found only in Agent files appear as read-only external state; scanning does not import them or create a relationship. Deleting a central asset first reviews all consumers, then atomically removes every managed target and relationship together with the central record.
+Configurations found only in Agent files first appear as read-only external state; scanning never silently imports them. A non-blocking migration inbox can explicitly deduplicate exact MCP / Skill copies, create one central asset, and adopt the original Agent relationships. Divergent same-name copies remain blocked instead of being overwritten. Deleting a central asset first reviews all consumers, then atomically removes every managed target and relationship together with the central record.
 
 ## Edit, paste, and export
 
@@ -74,7 +74,7 @@ The top of the source bar has just two add actions:
 - **Add subscription**: enter a remote config URL; the **Mux curated** button in the dialog fills in the official curated subscription.
 - **Import config**: select a local JSON / TOML config file.
 
-Remote subscriptions and local files can be refreshed; unmanaged sources can be deleted. Rescanning Agents only refreshes observed inventory and never creates managed `discovered` entries in the background. Source removal deletes its cache and catalog copies, while existing desired relationships must be handled through an impact plan.
+Remote subscriptions and local files can be refreshed; unmanaged sources can be deleted. Rescanning Agents only refreshes observed inventory and never creates managed `discovered` entries in the background. Historical state enters a private central source only after migration confirmation. Source removal deletes its cache and catalog copies, while existing desired relationships must be handled through an impact plan.
 
 The source model itself supports enable/disable, which the TUI's "Sources" screen does with `Space` / `Enter`. The desktop `v1.2.0` source bar does not yet offer an on/off toggle.
 

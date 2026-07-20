@@ -1,3 +1,4 @@
+use crate::safe_write::write_private_if_unchanged;
 use crate::settings::{load_settings, mutate_settings, Settings};
 use crate::sources::{cached_path, source_entries};
 use crate::types::{RegistryEntry, RegistryOrigin, SourceDef};
@@ -49,20 +50,25 @@ fn ensure_managed(settings: &mut Settings, id: &str, name: &str) {
     }
 }
 
-fn read_array(path: &Path) -> Vec<RegistryEntry> {
-    fs::read_to_string(path)
-        .ok()
-        .and_then(|c| serde_json::from_str::<Vec<RegistryEntry>>(&c).ok())
-        .unwrap_or_default()
+fn read_array_for_update(path: &Path) -> std::io::Result<(Vec<RegistryEntry>, Option<String>)> {
+    let source = match fs::read_to_string(path) {
+        Ok(source) => Some(source),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        Err(error) => return Err(error),
+    };
+    let list = match source.as_deref() {
+        Some(source) => serde_json::from_str::<Vec<RegistryEntry>>(source)
+            .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))?,
+        None => Vec::new(),
+    };
+    Ok((list, source))
 }
 
-fn write_array(path: &Path, list: &[RegistryEntry]) -> std::io::Result<()> {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)?;
-    }
+fn write_array(path: &Path, expected: Option<&str>, list: &[RegistryEntry]) -> std::io::Result<()> {
     let json = serde_json::to_string_pretty(list)
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
-    fs::write(path, json)
+    write_private_if_unchanged(path, expected, &json)
+        .map_err(|error| std::io::Error::new(std::io::ErrorKind::Other, error))
 }
 
 /// The entries currently stored in a managed source's file (origins preserved).
@@ -75,21 +81,21 @@ fn managed_entries(id: &str) -> Vec<RegistryEntry> {
 fn write_managed(id: &str, name: &str, entry: RegistryEntry) -> std::io::Result<()> {
     mutate_settings(|s| ensure_managed(s, id, name))?;
     let path = cached_path(&managed_def(id, name)).expect("managed source has a cached path");
-    let mut list = read_array(&path);
+    let (mut list, source) = read_array_for_update(&path)?;
     let key = entry.key();
     list.retain(|e| e.key() != key);
     list.push(entry);
-    write_array(&path, &list)
+    write_array(&path, source.as_deref(), &list)
 }
 
 /// Remove the entry matching `target_key` from a managed source's file.
 fn remove_managed(id: &str, name: &str, target_key: &str) -> std::io::Result<()> {
     let path = cached_path(&managed_def(id, name)).expect("managed source has a cached path");
-    let mut list = read_array(&path);
+    let (mut list, source) = read_array_for_update(&path)?;
     let before = list.len();
     list.retain(|e| e.key() != target_key);
     if list.len() != before {
-        write_array(&path, &list)?;
+        write_array(&path, source.as_deref(), &list)?;
     }
     Ok(())
 }

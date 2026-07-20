@@ -46,6 +46,12 @@ pub(crate) enum LifecycleBinding {
         key: String,
         draft_hash: String,
     },
+    McpAdopt {
+        key: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        draft_hash: Option<String>,
+        enabled: BTreeMap<String, bool>,
+    },
     McpDelete {
         key: String,
         source_id: String,
@@ -721,11 +727,9 @@ pub(crate) fn finalize_plan_with(
             // at the destination is the merge target, not an unmanaged clash.
             continue;
         }
-        for item in current_inventory
-            .external
-            .iter()
-            .filter(|item| external_blocks_selection(agent_id, asset, item))
-        {
+        for item in current_inventory.external.iter().filter(|item| {
+            kind != AssetOperationKind::Adopt && external_blocks_selection(agent_id, asset, item)
+        }) {
             blocked.push(format!(
                 "{}: {}",
                 item.agent_id,

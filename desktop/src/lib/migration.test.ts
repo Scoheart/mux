@@ -1,0 +1,66 @@
+import { describe, expect, it } from "vitest";
+import { buildMigrationCandidates } from "./migration";
+import type { McpAdoptionCandidate, SkillInventoryItem } from "./types";
+
+const mcp = (
+  agent: string,
+  configHash: string,
+  status: McpAdoptionCandidate["status"] = "external",
+): McpAdoptionCandidate => ({
+  agent_id: agent,
+  asset_key: "github::stdio",
+  enabled: true,
+  status,
+  config_hash: configHash,
+  fingerprint: `${agent}-${configHash}`,
+  settings_hash: "settings",
+  target_hash: "target",
+  candidate_hash: "candidate",
+});
+
+const skills = (hashes: string[], level: "low" | "high" = "low"): SkillInventoryItem[] =>
+  hashes.map((hash, index) => ({
+    identity: `target:target-${index}:review`,
+    name: "review",
+    description: "Review changes",
+    content_kind: "instructions",
+    states: ["external"],
+    location: { kind: "agent_target", target_id: `target-${index}`, global_dir: `~/skills-${index}` },
+    source: null,
+    resolved_revision: null,
+    content_hash: hash,
+    risk: { level, findings: [], finding_count: 0, findings_truncated: false },
+    update: { available: false, checked_at: null, resolved_revision: null, etag: null, error: null, retry_at: null },
+    assigned_target_ids: [],
+    affected_agent_ids: [`agent-${index}`],
+    installed_at: null,
+    updated_at: null,
+  }));
+
+describe("migration candidates", () => {
+  it("merges identical MCP copies and blocks divergent copies", () => {
+    expect(buildMigrationCandidates([mcp("a", "same"), mcp("b", "same")], null)[0]).toMatchObject({
+      safe: true,
+      agentIds: ["a", "b"],
+    });
+    expect(buildMigrationCandidates([mcp("a", "one"), mcp("b", "two")], null)[0]).toMatchObject({
+      safe: false,
+      conflictReason: "同名 MCP 的连接配置不一致；请先在原 Agent 中统一或重命名后重新扫描",
+    });
+  });
+
+  it("merges identical Skill directories and blocks different hashes", () => {
+    expect(buildMigrationCandidates([], skills(["same", "same"]))[0]).toMatchObject({
+      safe: true,
+      agentIds: ["agent-0", "agent-1"],
+    });
+    expect(buildMigrationCandidates([], skills(["one", "two"]))[0]).toMatchObject({
+      safe: false,
+      conflictReason: "同名 Skill 的内容不一致；请先统一内容或重命名来源目录后重新扫描",
+    });
+    expect(buildMigrationCandidates([], skills(["same"], "high"))[0]).toMatchObject({
+      safe: false,
+      conflictReason: "Skill 包含高风险内容；请在 Skills 页面单独导入并审阅风险",
+    });
+  });
+});

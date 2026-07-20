@@ -69,6 +69,8 @@ interface SkillsViewProps {
   state: SkillsState;
   intent?: SkillNavigationIntent;
   onIntentConsumed?(id: number): void;
+  migrationCount?: number;
+  onOpenMigration?(): void;
 }
 
 interface LifecycleReview {
@@ -79,6 +81,8 @@ export function SkillsView({
   state,
   intent,
   onIntentConsumed,
+  migrationCount = 0,
+  onOpenMigration,
 }: SkillsViewProps) {
   const toast = useToast();
   const [query, setQuery] = useState("");
@@ -504,6 +508,11 @@ export function SkillsView({
         searchPlaceholder="搜索 Skills"
         toolbarActions={
           <>
+            {migrationCount > 0 && onOpenMigration && (
+              <button className="btn-secondary" type="button" onClick={onOpenMigration}>
+                历史配置 {migrationCount}
+              </button>
+            )}
             <button
               className="btn-secondary"
               type="button"

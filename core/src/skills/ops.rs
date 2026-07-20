@@ -670,7 +670,13 @@ fn build_import_plan(
             return stale("the selected external Skill changed type after review");
         }
         if desired_managed && !is_source && is_link_conflict(&state) {
-            return conflict_result("an Agent Skill target conflicts with this import");
+            let identical_external = matches!(
+                &state,
+                LinkState::Directory { tree_hash } if tree_hash == &validated.content_hash
+            );
+            if !identical_external {
+                return conflict_result("an Agent Skill target conflicts with this import");
+            }
         } else if !desired_managed && !is_safe_absent_transition(&state) {
             return conflict_result(
                 "a prior Agent Skill assignment is no longer an exact managed link",

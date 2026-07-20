@@ -38,7 +38,7 @@ MUX doesn't bundle a fixed server list. Its central MCP catalog is assembled fro
 | **订阅 (Subscribe)** | A **URL** to an MCP config file. MUX fetches + caches it; refresh re-pulls upstream. |
 | **本地 (Local)** | A config file **imported from disk** — copied into MUX; refresh re-reads the original. |
 | **手动添加 (Manual)** | Servers you create by hand or **paste** in — stored as a managed local source. |
-| **外部发现 (External)** | Servers already present in Agent files, scanned as read-only observed state. They are not automatically imported or owned by MUX. |
+| **外部发现 (External)** | Servers already present in Agent files, scanned as read-only observed state. MUX detects them automatically and offers an explicit migration into central management. |
 
 A one-click **Mux 精选 (curated collection)** subscribes you to a curated set. Managed sources can be toggled on/off; the Registry shows their effective union, while external observations remain read-only until an explicit import.
 
@@ -49,6 +49,7 @@ A one-click **Mux 精选 (curated collection)** subscribes you to a curated set.
 - **Transport-aware** — `stdio` / `http` / `sse`, plus a **custom `type`** (e.g. `streamable-http`). Same-named stdio and http variants are tracked separately.
 - **Paste a config** — drop a `{"mcpServers": {…}}` block and MUX recognizes the servers and adds them.
 - **Desired vs. observed state** — Agent files and Skill links are scanned for `synced`, `pending`, `drifted`, `conflicted`, `unsupported`, and read-only `external` states; scans never silently create ownership.
+- **Historical configuration migration** — newly detected global MCPs and user-level Skills appear in a non-blocking migration inbox. Exact copies are deduplicated, original Agent relationships and disabled MCP state are preserved, and divergent same-name copies remain blocked for review.
 - **Reviewed propagation** — editing or deleting a central MCP or Model plans the central change together with every consumer. Drift replacement requires explicit confirmation, and unresolved conflicts prevent partial commits.
 - **Safe, local writes** — MUX reads and edits only fields it owns. Existing files are backed up, prepared, and verified as one recoverable transaction; unrelated keys, comments, formatting, policy fields, permissions, and symlinks are preserved.
 - **Unified Agent consumption center** — each Agent page shows only desired central assets under MCPs, Model, and Skills, with a central picker for relationship changes and a separate read-only external section.
@@ -165,7 +166,7 @@ Model API keys are not stored under `~/.mux/`; they remain in macOS Keychain.
 2. **Choose consumers** — from an Agent page, select the desired compatible assets. MCPs and Skills are sets; Model is a single current Profile.
 3. **Review one impact plan** — MUX shows central changes, relationship changes, target files, shared Skill-directory impact, drift, and conflicts before commit.
 4. **Commit and verify** — settings, Agent targets, and central lifecycle changes are applied as a recoverable transaction and rescanned before reporting success.
-5. **Keep external state explicit** — assets discovered only in Agent files remain read-only until explicitly imported; importing an asset still does not automatically establish a consumption relationship.
+5. **Migrate historical state explicitly** — MUX detects unmanaged global MCPs and user-level Skills without taking ownership. After one confirmation, each selected asset is imported and its original Agent relationships are adopted in one recoverable per-asset transaction.
 6. **Propagate central lifecycle changes** — updates reach every desired consumer; deletion clears all managed targets and relationships instead of leaving implicit orphan copies.
 
 Skills in this version are user-level only. Project-level Skills, private repositories, Skill editing, and CLI/TUI Skills commands are not supported.

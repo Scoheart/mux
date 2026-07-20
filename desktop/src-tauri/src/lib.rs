@@ -46,6 +46,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::list_consumption_inventory,
+            commands::list_mcp_adoption_candidates,
+            commands::plan_mcp_adoption,
             commands::plan_set_agent_consumption,
             commands::plan_set_mcp_enabled,
             commands::plan_set_asset_consumers,
@@ -55,6 +57,7 @@ pub fn run() {
             commands::commit_asset_operation,
             commands::cancel_asset_operation,
             commands::list_skills_inventory,
+            commands::list_skill_migration_candidates,
             commands::list_skill_agents,
             commands::get_skill_detail,
             commands::resolve_skill_source,
@@ -63,6 +66,7 @@ pub fn run() {
             commands::plan_skill_asset_install,
             commands::commit_skill_install,
             commands::plan_skill_asset_import,
+            commands::plan_skill_import,
             commands::commit_skill_import,
             commands::plan_skill_update,
             commands::commit_skill_update,

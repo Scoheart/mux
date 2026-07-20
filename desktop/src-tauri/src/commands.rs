@@ -1,6 +1,7 @@
 use mux_core::consumption::{
-    AssetCommitRequest, AssetOperationPlan, ConsumptionInventory, PlanDeleteCentralAssetRequest,
-    PlanSetAgentConsumptionRequest, PlanSetAssetConsumersRequest,
+    AssetCommitRequest, AssetOperationPlan, ConsumptionInventory, McpAdoptionCandidate,
+    PlanDeleteCentralAssetRequest, PlanMcpAdoptionRequest, PlanSetAgentConsumptionRequest,
+    PlanSetAssetConsumersRequest,
     PlanUpdateAgentConfigurationRequest, PlanUpdateCentralAssetRequest,
 };
 use mux_core::registry::{read_registry, read_registry_all, user_override_keys, CatalogItem};
@@ -8,7 +9,8 @@ use mux_core::skills::{
     GithubEndpoints, OperationPlan, PlanAssignmentRequest, PlanImportRequest, PlanInstallRequest,
     PlanRemoveRequest, PlanRepairRequest, PlanSkillAssetImportRequest,
     PlanSkillAssetInstallRequest, PlanUpdateRequest, SkillAgentView, SkillCommitRequest,
-    SkillDetail, SkillError, SkillSourceInput, SkillSourceResolution, SkillsInventory,
+    SkillDetail, SkillError, SkillInventoryItem, SkillSourceInput, SkillSourceResolution,
+    SkillsInventory,
     UpdateCheckOutcome,
 };
 use mux_core::types::RegistryEntry;
@@ -53,6 +55,19 @@ where
 #[tauri::command]
 pub async fn list_consumption_inventory() -> Result<ConsumptionInventory, AssetCommandError> {
     asset_blocking(mux_core::consumption::list_consumption_inventory).await
+}
+
+#[tauri::command]
+pub async fn list_mcp_adoption_candidates(
+) -> Result<Vec<McpAdoptionCandidate>, AssetCommandError> {
+    asset_blocking(mux_core::consumption::list_mcp_adoption_candidates).await
+}
+
+#[tauri::command]
+pub async fn plan_mcp_adoption(
+    request: PlanMcpAdoptionRequest,
+) -> Result<AssetOperationPlan, AssetCommandError> {
+    asset_blocking(move || mux_core::consumption::plan_mcp_adoption(request)).await
 }
 
 #[tauri::command]
@@ -165,6 +180,12 @@ where
 #[tauri::command]
 pub async fn list_skills_inventory() -> Result<SkillsInventory, SkillCommandError> {
     skill_blocking(mux_core::skills::list_inventory).await
+}
+
+#[tauri::command]
+pub async fn list_skill_migration_candidates(
+) -> Result<Vec<SkillInventoryItem>, SkillCommandError> {
+    skill_blocking(mux_core::skills::list_migration_candidates).await
 }
 
 #[tauri::command]

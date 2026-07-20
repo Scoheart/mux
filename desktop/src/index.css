@@ -1425,6 +1425,59 @@ body {
 .mux-agent-config-hint { color: var(--text-secondary); font-size: 10px; }
 .mux-asset-recovery-banner { position: fixed; inset: auto 16px 16px 16px; z-index: 1600; display: flex; align-items: center; gap: 10px; padding: 10px 14px; border: 1px solid color-mix(in srgb, var(--color-red) 45%, var(--border-hairline)); border-radius: 10px; background: color-mix(in srgb, var(--color-red) 10%, var(--surface-raised)); color: var(--text-primary); box-shadow: var(--shadow-sheet); font-size: 12px; }
 .mux-asset-recovery-banner strong { flex: 0 0 auto; }
+.mux-scan-menu-wrap { position: relative; }
+.mux-scan-menu-trigger { position: relative; gap: 1px; }
+.mux-scan-menu-chevron { width: 8px; height: 8px; margin-right: -3px; opacity: .62; }
+.mux-scan-menu-dot { position: absolute; top: 4px; right: 3px; width: 6px; height: 6px; border: 1px solid var(--surface-raised); border-radius: 50%; background: var(--color-brand-gold); }
+.mux-scan-menu { position: absolute; z-index: 620; top: calc(100% + 6px); right: 0; display: grid; width: 220px; padding: 5px; gap: 2px; border: 1px solid var(--glass-border); border-radius: 9px; background: var(--surface-popover); box-shadow: 0 18px 44px rgba(24, 29, 43, .20), 0 4px 12px rgba(24, 29, 43, .10); }
+.mux-scan-menu > button { display: grid; width: 100%; min-width: 0; grid-template-columns: 20px minmax(0, 1fr); align-items: center; gap: 8px; padding: 8px 9px; border: 0; border-radius: 6px; background: transparent; color: var(--text-secondary); text-align: left; cursor: pointer; }
+.mux-scan-menu > button:hover:not(:disabled) { background: var(--surface-app); color: var(--text-primary); }
+.mux-scan-menu > button:disabled { opacity: .5; cursor: default; }
+.mux-scan-menu > button span,
+.mux-scan-menu > button strong,
+.mux-scan-menu > button small { display: block; min-width: 0; }
+.mux-scan-menu > button strong { color: var(--text-primary); font-size: 10px; }
+.mux-scan-menu > button small { margin-top: 2px; color: var(--text-secondary); font-size: 9px; }
+.mux-migration-banner { position: fixed; z-index: 520; right: 18px; bottom: 18px; display: flex; max-width: calc(100vw - 36px); align-items: center; gap: 7px; padding: 9px 10px 9px 13px; border: 1px solid color-mix(in srgb, var(--color-blue) 30%, var(--glass-border)); border-radius: 10px; background: var(--glass-fill-strong); backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate)); box-shadow: var(--shadow-sheet), var(--glass-highlight); }
+.mux-migration-banner > span { min-width: 0; flex: 1; padding-right: 10px; }
+.mux-migration-banner strong,
+.mux-migration-banner small { display: block; }
+.mux-migration-banner strong { color: var(--text-primary); font-size: 11px; }
+.mux-migration-banner small { margin-top: 3px; color: var(--text-secondary); font-size: 9px; }
+.mux-migration-banner .btn-ghost,
+.mux-migration-banner .btn-primary { min-width: 0; padding-right: 10px; padding-left: 10px; }
+.mux-migration-content { display: grid; gap: 14px; }
+.mux-migration-intro { margin: 0; padding: 9px 10px; border-radius: 7px; background: var(--surface-app); color: var(--text-secondary); font-size: 10px; line-height: 1.5; }
+.mux-migration-section { display: grid; gap: 7px; }
+.mux-migration-section > header { display: flex; align-items: center; gap: 7px; color: var(--text-secondary); }
+.mux-migration-section > header strong { color: var(--text-primary); font-size: 11px; }
+.mux-migration-section > header span { display: inline-flex; min-width: 18px; height: 18px; align-items: center; justify-content: center; padding: 0 5px; border-radius: 9px; background: var(--surface-app); font-size: 9px; }
+.mux-migration-section > ul { display: grid; margin: 0; padding: 0; gap: 6px; list-style: none; }
+.mux-migration-section > ul > li { display: grid; min-width: 0; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 10px; padding: 9px 10px; border: 1px solid var(--border-hairline); border-radius: 8px; background: var(--surface-raised); }
+.mux-migration-section > ul > li[data-conflict="true"] { background: var(--surface-app); opacity: .72; }
+.mux-migration-section > ul > li[data-result="success"] { border-color: color-mix(in srgb, #34c759 40%, var(--border-hairline)); }
+.mux-migration-section > ul > li[data-result="error"] { border-color: color-mix(in srgb, var(--color-red) 40%, var(--border-hairline)); }
+.mux-migration-section label { display: flex; min-width: 0; align-items: flex-start; gap: 9px; cursor: pointer; }
+.mux-migration-section label:has(input:disabled) { cursor: default; }
+.mux-migration-section input { margin-top: 3px; accent-color: var(--color-blue); }
+.mux-migration-copy { display: block; min-width: 0; }
+.mux-migration-copy strong,
+.mux-migration-copy small,
+.mux-migration-copy em { display: block; min-width: 0; }
+.mux-migration-copy strong { overflow: hidden; color: var(--text-primary); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.mux-migration-copy small { margin-top: 3px; color: var(--text-secondary); font-size: 9px; line-height: 1.4; }
+.mux-migration-copy em { margin-top: 4px; color: var(--color-brand-gold); font-size: 9px; font-style: normal; }
+.mux-migration-copy em[data-result="success"] { color: #228b55; }
+.mux-migration-copy em[data-result="error"] { color: var(--color-red); }
+.mux-migration-agents { display: flex; align-items: center; }
+.mux-migration-agents > span { display: inline-flex; margin-left: -4px; border: 2px solid var(--surface-raised); border-radius: 50%; }
+.mux-migration-agents > span:first-child { margin-left: 0; }
+.mux-migration-agents > small { margin-left: 4px; color: var(--text-secondary); font-size: 9px; }
+.mux-migration-check { color: #34c759; }
+.mux-migration-summary { color: var(--text-secondary); font-size: 10px; }
+.mux-migration-empty { display: grid; min-height: 170px; place-content: center; justify-items: center; gap: 7px; color: #34c759; text-align: center; }
+.mux-migration-empty strong { color: var(--text-primary); font-size: 12px; }
+.mux-migration-empty span { color: var(--text-secondary); font-size: 10px; }
 .mux-asset-review { display: grid; gap: 18px; }
 .mux-asset-review section h3 { margin: 0 0 8px; color: var(--text-secondary); font-size: 10px; }
 .mux-asset-review ul { display: grid; margin: 0; padding: 0; gap: 6px; list-style: none; }

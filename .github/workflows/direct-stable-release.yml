@@ -116,7 +116,7 @@ jobs:
           echo "tag=v$version" >>"$GITHUB_OUTPUT"
           echo "sha=$(git rev-parse HEAD)" >>"$GITHUB_OUTPUT"
 
-      - name: Create the immutable stable tag and Draft
+      - name: Create the Draft and immutable stable tag
         if: ${{ steps.head.outputs.ready == 'true' }}
         shell: bash
         env:
@@ -141,5 +141,7 @@ jobs:
             --draft
           draft=$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq '.isDraft')
           test "$draft" = true
+          git tag "$RELEASE_TAG" "$RELEASE_SHA"
+          git push origin "refs/tags/$RELEASE_TAG"
           target=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG" --jq '.object.sha')
           test "$target" = "$RELEASE_SHA"

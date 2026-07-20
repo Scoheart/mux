@@ -2,6 +2,7 @@ name: Fast Lane Expiry
 
 on:
   schedule:
+    - cron: "27 8 30 7 *"
     - cron: "17 * * * *"
   workflow_dispatch:
     inputs:

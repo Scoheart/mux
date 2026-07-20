@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.7.0](https://github.com/Scoheart/mux/compare/v1.6.3...v1.7.0) (2026-07-20)
+
+
+### Features
+
+* **agents:** simplify skills and manage Grok models ([#65](https://github.com/Scoheart/mux/issues/65)) ([3705e78](https://github.com/Scoheart/mux/commit/3705e78e7c11e7f286d26febcce18d8e3abde030))
+
 ## [1.6.3](https://github.com/Scoheart/mux/compare/v1.6.2...v1.6.3) (2026-07-19)
 
 

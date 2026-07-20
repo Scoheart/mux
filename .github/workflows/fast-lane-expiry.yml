@@ -35,7 +35,10 @@ jobs:
           test -n "$FAST_LANE_UNTIL"
           test -n "$MAIN_RULESET_ID"
           due=false
-          if test "$DRY_RUN" = "true" || test "$(date -u +%s)" -ge "$(date -u -d "$FAST_LANE_UNTIL" +%s)"; then
+          now_epoch="$(date -u +%s)"
+          until_epoch="$(date -u -d "$FAST_LANE_UNTIL" +%s)"
+          retry_until_epoch="$((until_epoch + 24 * 60 * 60))"
+          if test "$DRY_RUN" = "true" || { test "$now_epoch" -ge "$until_epoch" && test "$now_epoch" -lt "$retry_until_epoch"; }; then
             due=true
           fi
           echo "due=$due" >>"$GITHUB_OUTPUT"

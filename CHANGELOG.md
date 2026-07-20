@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.9](https://github.com/Scoheart/mux/compare/v1.8.8...v1.8.9) (2026-07-20)
+
+### Changes
+
+* feat(models): manage multiple profiles per agent ([994a8a8](https://github.com/Scoheart/mux/commit/994a8a8e979b816eab9524f7eee4acd82e7e9c19))
+
 ## [1.8.8](https://github.com/Scoheart/mux/compare/v1.8.7...v1.8.8) (2026-07-20)
 
 ### Changes

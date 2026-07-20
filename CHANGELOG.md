@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.8.3](https://github.com/Scoheart/mux/compare/v1.8.2...v1.8.3) (2026-07-20)
+
+
+### Bug Fixes
+
+* **release:** ignore generated prerelease tag events ([9f40300](https://github.com/Scoheart/mux/commit/9f40300522b28faafb3d890c5ac5c03078d190d1))
+
 ## [1.8.2](https://github.com/Scoheart/mux/compare/v1.8.1...v1.8.2) (2026-07-20)
 
 

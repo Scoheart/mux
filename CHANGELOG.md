@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.8.1](https://github.com/Scoheart/mux/compare/v1.8.0...v1.8.1) (2026-07-20)
+
+
+### Bug Fixes
+
+* **release:** invoke verification script with bash ([3fc4b86](https://github.com/Scoheart/mux/commit/3fc4b864900bc4e75e4e9da04b7fa8eb87c21972))
+* **release:** isolate ruleset restoration token ([0e6ea63](https://github.com/Scoheart/mux/commit/0e6ea63837d51849317cd8d5b98b53579693db05))
+
 ## [1.8.0](https://github.com/Scoheart/mux/compare/v1.7.0...v1.8.0) (2026-07-20)
 
 

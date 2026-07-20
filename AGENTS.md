@@ -39,4 +39,4 @@
 - npm lockfile 只能由 `release-version.mjs refresh-locks` 在无项目 `node_modules` 的临时目录生成；`check` 的 portable dependency closure 失败时不能绕过或手工补 JSON。完整 lock 在 Release PR 中只更新版本元数据，不重新解析依赖。
 - 只有用户明确批准并合并 `chore(main): release X.Y.Z` Release PR 才进入 Stable 路径。Release Please 创建不可移动的 `vX.Y.Z` tag 和 Draft Release；Desktop workflow 只在相同 SHA 的 `verify` 成功且签名资产完整后发布 Draft。
 - 不手工创建、移动或覆盖 Stable tag，不直接发布 Draft，不以 `--clobber` 修复正式资产。发布缺陷使用新的 patch Release PR。
-- `RELEASE_PLEASE_TOKEN`、`COPILOT_PAT` 与 Tauri 签名材料只存在于 GitHub Secrets，不进入日志、fixture、文档或仓库。Ruleset 激活、Release PR 合并、正式发布和安装版替换均需当次明确授权。
+- `RELEASE_PLEASE_TOKEN`、`MUX_RULESET_ADMIN_TOKEN`、`COPILOT_PAT` 与 Tauri 签名材料只存在于 GitHub Secrets，不进入日志、fixture、文档或仓库。Ruleset 激活、Release PR 合并、正式发布和安装版替换均需当次明确授权。

@@ -139,7 +139,7 @@ test("Fast Lane is exactly ten days and restores only main protection", async ()
     10 * 24 * 60 * 60 * 1000,
   );
   assert.match(workflow, /cron:\s*"17 \* \* \* \*"/);
-  assert.match(workflow, /secrets\.RELEASE_PLEASE_TOKEN/);
+  assert.match(workflow, /secrets\.MUX_RULESET_ADMIN_TOKEN/);
   assert.match(workflow, /vars\.MUX_MAIN_RULESET_ID/);
   assert.match(workflow, /enforcement:"active"/);
   assert.match(workflow, /--method PUT/);

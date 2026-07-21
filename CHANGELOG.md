@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.8.14](https://github.com/Scoheart/mux/compare/v1.8.13...v1.8.14) (2026-07-21)
+
+### Changes
+
+* style(desktop): distinguish asset configuration items ([2a24ba8](https://github.com/Scoheart/mux/commit/2a24ba8eaf1b39d12b5677834f29f8e38a91d414))
+* docs(release): record temporary auto-publish approval ([8071c84](https://github.com/Scoheart/mux/commit/8071c844cbedb7e5404c52e24d2c649507625262))
+
 ## [1.8.13](https://github.com/Scoheart/mux/compare/v1.8.12...v1.8.13) (2026-07-21)
 
 ### Changes

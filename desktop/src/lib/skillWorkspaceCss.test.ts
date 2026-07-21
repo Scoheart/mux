@@ -80,16 +80,24 @@ it("uses one shared Soft Workbench geometry for every resource domain", () => {
   const content = declarations(css, ".mux-workspace-content");
   const grid = declarations(css, ".mux-resource-grid");
   expect(content).toMatch(/container:\s*resource-stage\s*\/\s*inline-size/);
-  expect(grid).toMatch(/grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/);
-  expect(grid).toMatch(/gap:\s*6px/);
+  expect(grid).toMatch(/grid-template-columns:\s*repeat\(3,\s*minmax\(0,\s*1fr\)\)/);
+  expect(grid).toMatch(/gap:\s*8px/);
   expect(grid).toMatch(/padding:\s*6px/);
   expect(grid).toMatch(/border:\s*0/);
   expect(grid).toMatch(/border-radius:\s*var\(--radius-region\)/);
   expect(grid).toMatch(/background:\s*var\(--surface-section\)/);
 
+  const mediumContainerGrid = mediaBlocks(
+    css,
+    "@container resource-stage (max-width: 760px)",
+  )
+    .map((block) => declarations(block, ".mux-resource-grid"))
+    .find((rule) => rule !== null);
+  expect(mediumContainerGrid).toMatch(/grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/);
+
   const narrowContainerGrid = mediaBlocks(
     css,
-    "@container resource-stage (max-width: 560px)",
+    "@container resource-stage (max-width: 500px)",
   )
     .map((block) => declarations(block, ".mux-resource-grid"))
     .find((rule) => rule !== null);

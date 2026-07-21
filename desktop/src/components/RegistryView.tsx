@@ -23,7 +23,7 @@ import {
   TrashIcon,
 } from "./icons";
 import { Avatar, Badge, IconButton, TransportPill } from "./ui";
-import { ResourceCard } from "./ResourceCard";
+import { ResourceCard, ResourceKindIcon } from "./ResourceCard";
 import { ResourceState } from "./ResourceState";
 import { useToast } from "./Toast";
 import { PasteConfigDialog } from "./PasteConfigDialog";
@@ -399,11 +399,6 @@ export function RegistryView({ state, consumptionState, intent, onIntentConsumed
               selected={detail === item}
               installedAgents={agentsForServer(keyOf(item.entry))}
               sourceName={sourceName}
-              overriddenBy={
-                item.in_effect
-                  ? undefined
-                  : originLabel(winningOriginByKey.get(keyOf(item.entry)), sourceName)
-              }
               onOpen={() => setDetail(item)}
             />
           ))}
@@ -433,82 +428,52 @@ export function RegistryView({ state, consumptionState, intent, onIntentConsumed
   );
 }
 
-/** Default entries stay visually quiet; only a shadowed copy carries state UI. */
 function RegistryCard({
   item,
   selected,
   installedAgents,
   sourceName,
-  overriddenBy,
   onOpen,
 }: {
   item: CatalogItem;
   selected: boolean;
   installedAgents: string[];
   sourceName: (id: string) => string;
-  /** Label of the source that takes effect instead — presence marks this copy as shadowed. */
-  overriddenBy?: string;
   onOpen: () => void;
 }) {
   const { entry } = item;
   const ep = endpointOf(entry);
-  const overridden = !!overriddenBy;
+  const transport = transportOf(entry).toUpperCase();
+  const discoveredAgent = entry.origin?.kind === "discovered" ? entry.origin.agent ?? installedAgents[0] : undefined;
+  const source = discoveredAgent
+    ? agentName(discoveredAgent)
+    : originLabel(entry.origin, sourceName);
 
   return (
     <ResourceCard
       selected={selected}
-      attention={overridden ? "shadowed" : undefined}
       ariaLabel={`打开 MCP ${entry.name} 详情`}
       onOpen={onOpen}
       identity={
         <>
-        <span className="mux-card-avatar flex-shrink-0">
-          <Avatar seed={entry.name} size={34} />
-        </span>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-1.5 min-w-0">
-            <span
-              className="text-[13px] font-semibold truncate leading-tight"
-              style={{ color: "var(--text-primary)" }}
-              title={entry.name}
-            >
-              {entry.name}
-            </span>
+          <ResourceKindIcon kind="mcp">
+            {ep.link ? <LinkIcon className="w-4 h-4" /> : <TerminalIcon className="w-4 h-4" />}
+          </ResourceKindIcon>
+          <div className="mux-resource-card-copy">
+            <div className="mux-resource-card-heading">
+              <strong title={entry.name}>{entry.name}</strong>
+            </div>
+            <code className="mux-resource-card-code" title={ep.text}>{ep.text}</code>
           </div>
-          <div className="flex items-center gap-1.5 mt-1 min-w-0">
-            <TransportPill entry={entry} />
-            <OriginTag entry={entry} installedAgents={installedAgents} sourceName={sourceName} />
-          </div>
-        </div>
         </>
       }
       configuration={
-        <div className="mux-resource-endpoint">
-        {ep.link ? (
-          <LinkIcon className="w-3 h-3 flex-shrink-0" style={{ color: "var(--color-blue)" }} />
-        ) : (
-          <TerminalIcon className="w-3 h-3 flex-shrink-0" style={{ color: "var(--text-secondary)" }} />
-        )}
-        <span style={{ color: ep.link ? "var(--color-blue)" : undefined }} title={ep.text}>
-          {ep.text}
-        </span>
+        <div className="mux-resource-card-facts">
+          <span className="mux-resource-card-fact" title={`${transport} · ${source}`}>
+            {transport} · {source}
+          </span>
         </div>
       }
-      state={
-        overridden ? (
-          <Badge tone="warning"><LayersIcon className="w-3 h-3" />被覆盖</Badge>
-        ) : (
-          <Badge tone="success">生效中</Badge>
-        )
-      }
-      impact={overridden ? (
-          <span
-            className="mux-shadowed-source min-w-0 truncate text-[10px]"
-            title={`当前使用「${overriddenBy}」的配置`}
-          >
-            以 {overriddenBy} 为准
-          </span>
-      ) : undefined}
     />
   );
 }

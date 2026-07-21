@@ -15,19 +15,19 @@ describe("SkillCard", () => {
     const card = screen.getByRole("button", { name: /review-changes/ });
     expect(card).toHaveAttribute("aria-pressed", "false");
     expect(card.querySelector("button")).toBeNull();
+    expect(screen.queryByText("Review repository changes")).not.toBeInTheDocument();
     expect(screen.queryByText("使用中")).not.toBeInTheDocument();
-    expect(screen.getByText("高风险")).toMatchObject({
-      className: "mux-skill-risk-badge",
-    });
-    expect(screen.getByText("高风险")).toHaveAttribute("data-level", "high");
-    expect(screen.getByText("高风险")).not.toHaveAttribute("style");
+    expect(screen.queryByText("高风险")).not.toBeInTheDocument();
+    expect(screen.getByText("GitHub · acme/skills / catalog/review-changes")).toBeVisible();
+    expect(screen.getByText("rev 0123456789ab")).toBeVisible();
+    expect(screen.getByText("有更新")).toBeVisible();
 
     fireEvent.keyDown(card, { key: "Enter" });
     fireEvent.keyDown(card, { key: " " });
     expect(onOpen).toHaveBeenCalledTimes(2);
   });
 
-  it("states unknown provenance and risk while retaining update errors without Agent impact", () => {
+  it("keeps unknown provenance concise and leaves risk or update errors to the Inspector", () => {
     const item = {
       ...skillsInventoryFixture().items[0],
       source: null,
@@ -44,14 +44,14 @@ describe("SkillCard", () => {
     render(<SkillCard item={item} selected onOpen={() => undefined} />);
 
     expect(screen.getByText("外部副本 · 来源未知")).toBeVisible();
-    expect(screen.getByText("未记录 revision")).toBeVisible();
-    expect(screen.getByText("未审阅")).toBeVisible();
-    expect(screen.getByText(/更新检查失败：GitHub API rate limit/)).toBeVisible();
-    expect(screen.getByText(/可重试：2026-07-17T01:02:03Z/)).toBeVisible();
+    expect(screen.getByText("rev —")).toBeVisible();
+    expect(screen.queryByText("未审阅")).not.toBeInTheDocument();
+    expect(screen.queryByText(/更新检查失败：GitHub API rate limit/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/可重试：2026-07-17T01:02:03Z/)).not.toBeInTheDocument();
     expect(screen.queryByText("3 个 Agent")).not.toBeInTheDocument();
   });
 
-  it("marks imported provenance explicitly", () => {
+  it("shows imported provenance without an extra status badge", () => {
     const item = {
       ...skillsInventoryFixture().items[1],
       source: {
@@ -63,7 +63,7 @@ describe("SkillCard", () => {
 
     render(<SkillCard item={item} selected={false} onOpen={() => undefined} />);
 
-    expect(screen.getByText("Imported")).toBeVisible();
     expect(screen.getByText("导入副本 · ~/.cursor/skills/local-copy")).toBeVisible();
+    expect(screen.queryByText("Imported")).not.toBeInTheDocument();
   });
 });

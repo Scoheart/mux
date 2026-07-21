@@ -9,9 +9,10 @@ it("maps MCP cards to the shared resource interface", () => {
   expect(card).toMatch(/<ResourceCard/);
   expect(card).toMatch(/identity=/);
   expect(card).toMatch(/configuration=/);
-  expect(card).toMatch(/state=/);
-  expect(card).toMatch(/impact=/);
-  expect(card).toMatch(/被覆盖/);
+  expect(card).not.toMatch(/state=/);
+  expect(card).not.toMatch(/impact=/);
+  expect(card).not.toMatch(/被覆盖|生效中/);
+  expect(card).toMatch(/transportOf\(entry\)\.toUpperCase\(\)/);
   expect(card).not.toMatch(/<IconButton/);
 });
 

@@ -1,6 +1,21 @@
 import type { KeyboardEvent, MouseEvent, ReactNode } from "react";
 
 export type ResourceCardAttention = "warning" | "danger" | "shadowed";
+export type ResourceKind = "model" | "mcp" | "skill";
+
+export function ResourceKindIcon({
+  kind,
+  children,
+}: {
+  kind: ResourceKind;
+  children: ReactNode;
+}) {
+  return (
+    <span className="mux-resource-kind-icon" data-kind={kind} aria-hidden="true">
+      {children}
+    </span>
+  );
+}
 
 export function ResourceCard({
   className,

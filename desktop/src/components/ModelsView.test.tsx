@@ -48,8 +48,10 @@ it("maps Model cards to the shared resource interface", () => {
   expect(card).toMatch(/<ResourceCard/);
   expect(card).toMatch(/identity=/);
   expect(card).toMatch(/configuration=/);
-  expect(card).toMatch(/state=/);
-  expect(card).toMatch(/凭据已保存/);
+  expect(card).not.toMatch(/state=/);
+  expect(card).toMatch(/Keychain/);
+  expect(card).toMatch(/无凭据/);
+  expect(card).not.toMatch(/可用|生效中|已托管/);
   expect(card).not.toMatch(/<IconButton/);
 });
 
@@ -60,7 +62,7 @@ it("uses neutral protocol classification without a card color rail", () => {
 });
 
 it("preserves Keychain presence-only rendering", () => {
-  expect(source).toMatch(/profile\.credential_saved \? "凭据已保存" : "无已存凭据"/);
+  expect(source).toMatch(/profile\.credential_saved \? "Keychain" : "无凭据"/);
   expect(source).not.toMatch(/credential_saved\s*\}\s*<code/);
 });
 

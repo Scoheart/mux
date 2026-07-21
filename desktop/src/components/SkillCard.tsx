@@ -1,22 +1,11 @@
 import type {
-  InventoryState,
   RiskLevel,
   SkillInventoryItem,
   SkillSource,
 } from "../lib/types";
-import { ResourceCard } from "./ResourceCard";
-import { Avatar, Badge } from "./ui";
-
-const stateLabels: Record<InventoryState, string> = {
-  managed: "已托管",
-  assigned: "使用中",
-  external: "外部副本",
-  locally_modified: "本地已修改",
-  broken_link: "链接损坏",
-  conflicting_link: "链接冲突",
-  missing: "正文缺失",
-  update_available: "有更新",
-};
+import { ResourceCard, ResourceKindIcon } from "./ResourceCard";
+import { Badge } from "./ui";
+import { PackageIcon } from "./icons";
 
 function appendSubpath(base: string, subpath: string) {
   return subpath ? `${base} / ${subpath}` : base;
@@ -73,46 +62,29 @@ export function SkillCard({
     <ResourceCard
       className="mux-skill-card"
       selected={selected}
-      attention={item.risk?.level === "high" ? "danger" : item.update.error ? "warning" : undefined}
       ariaLabel={`打开 Skill ${item.name} 详情`}
       onOpen={onOpen}
       identity={
         <>
-        <Avatar seed={item.name} label="S" size={36} />
-        <div className="mux-skill-card-identity">
-          <h2 title={item.name}>{item.name}</h2>
-          <p>{item.description}</p>
-        </div>
+          <ResourceKindIcon kind="skill">
+            <PackageIcon className="w-4 h-4" />
+          </ResourceKindIcon>
+          <div className="mux-resource-card-copy">
+            <div className="mux-resource-card-heading">
+              <h2 title={item.name}>{item.name}</h2>
+            </div>
+            <span className="mux-resource-card-code" title={skillSourceText(item.source)}>
+              {skillSourceText(item.source)}
+            </span>
+          </div>
         </>
       }
       configuration={
-        <div className="mux-skill-card-provenance">
-        <span title={skillSourceText(item.source)}>{skillSourceText(item.source)}</span>
-        {item.source?.kind === "imported" && <Badge tone="info">Imported</Badge>}
-        {item.resolved_revision ? (
-          <code title={item.resolved_revision}>revision {item.resolved_revision.slice(0, 12)}</code>
-        ) : (
-          <span>未记录 revision</span>
-        )}
-        </div>
-      }
-      state={
-        <div className="mux-skill-card-status">
-        <SkillRiskBadge level={item.risk?.level ?? null} />
-        {item.states.filter((state) => state !== "assigned").map((state) => (
-          <Badge
-            key={state}
-            tone={state === "managed" ? "success" : state === "external" ? "neutral" : "warning"}
-          >
-            {stateLabels[state]}
-          </Badge>
-        ))}
-        {item.update.error && (
-          <p className="mux-skill-card-update-error">
-            更新检查失败：{item.update.error}
-            {item.update.retry_at ? ` · 可重试：${item.update.retry_at}` : ""}
-          </p>
-        )}
+        <div className="mux-resource-card-facts">
+          <code className="mux-resource-card-fact" title={item.resolved_revision ?? "未记录 revision"}>
+            {item.resolved_revision ? `rev ${item.resolved_revision.slice(0, 12)}` : "rev —"}
+          </code>
+          {item.update.available && <Badge tone="info">有更新</Badge>}
         </div>
       }
     />

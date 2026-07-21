@@ -101,15 +101,18 @@ it("groups Agent identity and paths in one context region", () => {
   expect(declarations(".mux-consumption-external")).toMatch(/background:\s*var\(--surface-attention\)/);
 });
 
-it("uses the same dense two-column asset region in central and Agent views", () => {
+it("uses a dense three-column central region and keeps Agent relationships two-column", () => {
   const centralGrid = declarations(".mux-resource-grid");
   const agentGrid = declarations(".mux-consumption-list");
   const centralItem = declarations(".mux-resource-card");
   const agentItem = declarations(".mux-consumption-list > li");
 
+  expect(centralGrid).toMatch(/grid-template-columns:\s*repeat\(3,\s*minmax\(0,\s*1fr\)\)/);
+  expect(centralGrid).toMatch(/gap:\s*8px/);
+  expect(agentGrid).toMatch(/grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/);
+  expect(agentGrid).toMatch(/gap:\s*6px/);
+
   for (const grid of [centralGrid, agentGrid]) {
-    expect(grid).toMatch(/grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/);
-    expect(grid).toMatch(/gap:\s*6px/);
     expect(grid).toMatch(/padding:\s*6px/);
     expect(grid).toMatch(/border:\s*0/);
     expect(grid).toMatch(/border-radius:\s*var\(--radius-region\)/);

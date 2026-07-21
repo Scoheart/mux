@@ -10,17 +10,16 @@ import type {
 } from "../lib/types";
 import { formatError } from "../lib/format";
 import { Avatar, Badge } from "./ui";
-import { ResourceCard } from "./ResourceCard";
+import { ResourceCard, ResourceKindIcon } from "./ResourceCard";
 import { ResourceState } from "./ResourceState";
 import { DialogShell } from "./DialogShell";
 import { AssetOperationReviewDialog } from "./AssetOperationReviewDialog";
 import {
-  CheckIcon,
   CopyIcon,
   EditIcon,
   LayersIcon,
-  LinkIcon,
   PlusIcon,
+  SparklesIcon,
   TrashIcon,
 } from "./icons";
 import { useToast } from "./Toast";
@@ -60,6 +59,14 @@ function protocolLabel(protocol: ModelProtocol) {
 
 function providerLabel(providers: ModelProviderView[], provider: string) {
   return providers.find((item) => item.id === provider)?.name ?? (provider || "自动识别");
+}
+
+function compactBaseUrl(baseUrl: string) {
+  try {
+    return new URL(baseUrl).host;
+  } catch {
+    return baseUrl;
+  }
 }
 
 export function ModelsView({
@@ -402,36 +409,33 @@ function ModelCard({
       onOpen={onOpen}
       identity={
         <>
-          <Avatar seed={profile.name} label="M" size={36} />
-          <div className="mux-model-card-identity">
-            <div className="mux-model-card-name">
+          <ResourceKindIcon kind="model">
+            <LayersIcon className="w-4 h-4" />
+          </ResourceKindIcon>
+          <div className="mux-resource-card-copy">
+            <div className="mux-resource-card-heading">
               <strong title={profile.name}>{profile.name}</strong>
-              {profile.credential_saved && (
-                <span className="mux-credential-mark" title="密钥已存入 Keychain">
-                  <CheckIcon className="w-3 h-3" />
+              {profile.reasoning && (
+                <span className="mux-resource-capability" title="支持 Reasoning">
+                  <SparklesIcon className="w-3 h-3" />
                 </span>
               )}
             </div>
-            <code title={profile.model}>{profile.model}</code>
+            <code className="mux-resource-card-code" title={profile.model}>{profile.model}</code>
           </div>
         </>
       }
       configuration={
-        <div className="mux-model-card-endpoint" title={profile.base_url}>
-          <LinkIcon className="w-3 h-3 flex-shrink-0" />
-          <span className="mux-model-card-endpoint-label">Base URL</span>
-          <code>{profile.base_url}</code>
+        <div className="mux-resource-card-facts">
+          <span className="mux-resource-card-fact" title={`${providerName} · ${protocolLabel(profile.protocol)}`}>
+            {providerName} · {protocolLabel(profile.protocol)}
+          </span>
+          <span className="mux-resource-card-trailing">
+            <code title={profile.base_url}>{compactBaseUrl(profile.base_url)}</code>
+            <span aria-hidden="true">·</span>
+            <span>{profile.credential_saved ? "Keychain" : "无凭据"}</span>
+          </span>
         </div>
-      }
-      state={
-        <>
-          <Badge tone="info">{providerName}</Badge>
-          <Badge tone="neutral">{protocolLabel(profile.protocol)}</Badge>
-          {profile.reasoning && <Badge tone="info">Reasoning</Badge>}
-          <Badge tone={profile.credential_saved ? "success" : "neutral"}>
-            {profile.credential_saved ? "凭据已保存" : "无已存凭据"}
-          </Badge>
-        </>
       }
     />
   );

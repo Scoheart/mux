@@ -96,3 +96,14 @@ export function previewPinnedAgentOrder(
     ? movePinnedAgentAfter(ids, draggedId, targetId)
     : movePinnedAgentBefore(ids, draggedId, targetId);
 }
+
+export function projectedPinnedAgentOffset(
+  committedIds: string[],
+  projectedIds: string[],
+  id: string,
+): number {
+  const committedIndex = committedIds.indexOf(id);
+  const projectedIndex = projectedIds.indexOf(id);
+  if (committedIndex < 0 || projectedIndex < 0) return 0;
+  return projectedIndex - committedIndex;
+}

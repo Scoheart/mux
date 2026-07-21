@@ -139,7 +139,6 @@ export function Layout({
             <span className="flex items-center gap-1.5">
               <LayersIcon className="w-3.5 h-3.5" />
               Models
-              <span className="mux-seg-beta">Beta</span>
             </span>
           </button>
           <button

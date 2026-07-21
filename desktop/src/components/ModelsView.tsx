@@ -565,17 +565,21 @@ function ModelProfileDialog({
         <div className="mux-model-form-grid">
           <label>
             <span>Provider</span>
-            <select
+            <input
               autoFocus
               className="mux-model-field"
+              list="mux-model-provider-options"
               value={draft.provider}
               onChange={(event) => setDraft({ ...draft, provider: event.target.value })}
-            >
-              <option value="">根据 Base URL 自动识别</option>
+              placeholder="留空则根据 Base URL 自动识别"
+              spellCheck={false}
+            />
+            <datalist id="mux-model-provider-options">
               {providers.map((provider) => (
                 <option key={provider.id} value={provider.id}>{provider.name}</option>
               ))}
-            </select>
+            </datalist>
+            <small>留空自动识别；不在列表中可直接输入自定义 Provider ID。</small>
           </label>
           <label>
             <span>名称（可选）</span>
@@ -599,6 +603,7 @@ function ModelProfileDialog({
               <option key={protocol.id} value={protocol.id}>{protocol.label}</option>
             ))}
           </select>
+          <small>请选择服务端实际兼容的 API 协议；此项不会根据 Base URL 自动识别。</small>
         </label>
 
         <label>

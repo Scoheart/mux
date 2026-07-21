@@ -48,7 +48,7 @@ it("uses regions and row islands instead of structural divider lines", () => {
   expect(shell).toMatch(/background:\s*var\(--surface-frame\)/);
   expect(sidebar).toMatch(/background:\s*var\(--surface-navigation\)/);
   expect(toolbar).toMatch(/background:\s*var\(--surface-section\)/);
-  expect(row).toMatch(/background:\s*var\(--surface-item\)/);
+  expect(row).toMatch(/background:\s*transparent/);
   expect(declarations(".mux-resource-card:hover")).toMatch(/transform:\s*none/);
 });
 
@@ -76,4 +76,32 @@ it("groups Agent identity and paths in one context region", () => {
   expect(declarations(".mux-agent-context")).toMatch(/background:\s*var\(--surface-workspace\)/);
   expect(declarations(".mux-consumption-list > li")).toMatch(/border:\s*0/);
   expect(declarations(".mux-consumption-external")).toMatch(/background:\s*var\(--surface-attention\)/);
+});
+
+it("uses the same dense two-column asset region in central and Agent views", () => {
+  const centralGrid = declarations(".mux-resource-grid");
+  const agentGrid = declarations(".mux-consumption-list");
+  const centralItem = declarations(".mux-resource-card");
+  const agentItem = declarations(".mux-consumption-list > li");
+
+  for (const grid of [centralGrid, agentGrid]) {
+    expect(grid).toMatch(/grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/);
+    expect(grid).toMatch(/gap:\s*6px/);
+    expect(grid).toMatch(/padding:\s*6px/);
+    expect(grid).toMatch(/border:\s*0/);
+    expect(grid).toMatch(/border-radius:\s*var\(--radius-region\)/);
+    expect(grid).toMatch(/background:\s*var\(--surface-section\)/);
+  }
+
+  for (const item of [centralItem, agentItem]) {
+    expect(item).toMatch(/border:\s*0/);
+    expect(item).toMatch(/border-radius:\s*var\(--radius-row\)/);
+    expect(item).toMatch(/background:\s*transparent/);
+  }
+  expect(centralItem).toMatch(/grid-template-areas:\s*"identity"\s*"configuration"\s*"state"\s*"impact"/);
+  expect(centralItem).toMatch(/box-shadow:\s*none/);
+
+  const external = declarations(".mux-consumption-external");
+  expect(external).toMatch(/width:\s*100%/);
+  expect(external).toMatch(/border:\s*0/);
 });

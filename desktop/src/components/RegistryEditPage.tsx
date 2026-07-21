@@ -49,7 +49,6 @@ export function RegistryEditPage({ state, consumptionState, name, transport: edi
 
   const [serverName, setServerName] = useState(existing?.name ?? "");
   const [description, setDescription] = useState(existing?.description ?? "");
-  const [tagsText, setTagsText] = useState((existing?.tags ?? []).join(", "));
   const [transport, setTransport] = useState<Transport>(existing?.config.http ? "http" : "stdio");
 
   const [command, setCommand] = useState(existing?.config.stdio?.command ?? "");
@@ -68,7 +67,9 @@ export function RegistryEditPage({ state, consumptionState, name, transport: edi
   const buildEntry = (): RegistryEntry => ({
     name: serverName.trim(),
     description: description.trim(),
-    tags: tagsText.split(",").map((t) => t.trim()).filter(Boolean),
+    // Tags describe provenance supplied by curated or imported assets. They are
+    // intentionally not user-editable, but must survive an edit unchanged.
+    tags: existing?.tags ?? [],
     config:
       transport === "stdio"
         ? {
@@ -182,17 +183,6 @@ export function RegistryEditPage({ state, consumptionState, name, transport: edi
                   placeholder="一句话描述"
                 />
               </div>
-            </div>
-
-            {/* Tags */}
-            <div className="mb-4">
-              <label className={labelCls} style={labelStyle}>标签（逗号分隔）</label>
-              <input
-                style={inputStyle}
-                value={tagsText}
-                onChange={(e) => setTagsText(e.target.value)}
-                placeholder="official, builtin"
-              />
             </div>
 
             {/* Repo / homepage */}

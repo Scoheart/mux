@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { DragEvent, KeyboardEvent } from "react";
+import type { CSSProperties, DragEvent, KeyboardEvent } from "react";
 import type { AgentInfo } from "../lib/types";
 import {
   buildAgentPickerSections,
   MAX_PINNED_AGENTS,
   movePinnedAgentBy,
   previewPinnedAgentOrder,
+  projectedPinnedAgentOffset,
   togglePinnedAgent,
   type PinnedDropPlacement,
 } from "../lib/pinnedAgents";
@@ -52,24 +53,23 @@ export function AgentNavigation({
   const [draggedId, setDraggedId] = useState<string | null>(null);
   const [previewIds, setPreviewIds] = useState<string[] | null>(null);
   const [dropTarget, setDropTarget] = useState<AgentDropTarget | null>(null);
+  const [settling, setSettling] = useState(false);
   const [announcement, setAnnouncement] = useState("");
   const anchorRef = useRef<HTMLDivElement>(null);
+  const previewIdsRef = useRef<string[] | null>(null);
+  const settlingFrameRef = useRef<number | null>(null);
   const { agentIds, ready, saving, commit } = usePinnedAgents();
   const sections = useMemo(
     () => buildAgentPickerSections(agents, agentIds, query),
     [agentIds, agents, query],
   );
   const pinnedIds = sections.pinned.map(({ id }) => id);
-  const pinnedById = new Map(sections.pinned.map((agent) => [agent.id, agent]));
   const previewOrder = draggedId && previewIds ? previewIds : pinnedIds;
-  const orderedPinnedAgents = previewOrder.flatMap((id) => {
-    const agent = pinnedById.get(id);
-    return agent ? [agent] : [];
-  });
   const selectedAgent = agents.find(({ id }) => id === selectedAgentId) ?? null;
   const pinLimitReached = pinnedIds.length >= MAX_PINNED_AGENTS;
 
   const clearDragPreview = useCallback(() => {
+    previewIdsRef.current = null;
     setDraggedId(null);
     setPreviewIds(null);
     setDropTarget(null);
@@ -97,6 +97,12 @@ export function AgentNavigation({
       document.removeEventListener("pointerdown", closeOnPointerDown);
     };
   }, [clearDragPreview, open]);
+
+  useEffect(() => () => {
+    if (settlingFrameRef.current !== null) {
+      cancelAnimationFrame(settlingFrameRef.current);
+    }
+  }, []);
 
   const selectAgent = (id: string) => {
     onSelectAgent(id);
@@ -143,7 +149,15 @@ export function AgentNavigation({
   const previewAtRow = (event: DragEvent<HTMLDivElement>, targetId: string) => {
     event.preventDefault();
     event.dataTransfer.dropEffect = "move";
-    if (!ready || saving || !draggedId || targetId === draggedId) return;
+    if (!ready || saving || !draggedId) return;
+    if (targetId === draggedId) {
+      previewIdsRef.current = pinnedIds;
+      setPreviewIds((current) =>
+        current && sameOrder(current, pinnedIds) ? current : pinnedIds,
+      );
+      setDropTarget(null);
+      return;
+    }
     const bounds = event.currentTarget.getBoundingClientRect();
     const placement: PinnedDropPlacement =
       event.clientY >= bounds.top + bounds.height / 2 ? "after" : "before";
@@ -152,95 +166,127 @@ export function AgentNavigation({
         ? current
         : { id: targetId, placement },
     );
-    setPreviewIds((current) => {
-      const base = current ?? pinnedIds;
-      const next = previewPinnedAgentOrder(base, draggedId, targetId, placement);
-      return sameOrder(base, next) ? base : next;
-    });
+    const next = previewPinnedAgentOrder(pinnedIds, draggedId, targetId, placement);
+    const current = previewIdsRef.current ?? pinnedIds;
+    if (sameOrder(current, next)) return;
+    previewIdsRef.current = next;
+    setPreviewIds(next);
   };
 
   const finishDrop = (event: DragEvent<HTMLDivElement>) => {
     event.preventDefault();
     if (!ready || saving || !draggedId) return;
-    const next = previewIds ?? pinnedIds;
+    const next = previewIdsRef.current ?? pinnedIds;
     const movedId = draggedId;
+    setSettling(true);
     clearDragPreview();
     saveOrder(next, movedId);
+    if (settlingFrameRef.current !== null) {
+      cancelAnimationFrame(settlingFrameRef.current);
+    }
+    settlingFrameRef.current = requestAnimationFrame(() => {
+      settlingFrameRef.current = null;
+      setSettling(false);
+    });
   };
 
   const agentRow = (agent: AgentInfo, isPinned: boolean, sortable: boolean) => {
     const active = selectedAgentId === agent.id;
     const mutationUnavailable = !ready || saving;
     const pinLimitBlocked = !isPinned && pinLimitReached;
+    const orderOffset = sortable
+      ? projectedPinnedAgentOffset(pinnedIds, previewOrder, agent.id)
+      : 0;
     return (
       <div
         key={agent.id}
-        className="mux-agent-picker-row"
-        data-active={active ? "true" : undefined}
-        data-dragging={draggedId === agent.id ? "true" : undefined}
-        data-drop-position={dropTarget?.id === agent.id ? dropTarget.placement : undefined}
+        className="mux-agent-picker-slot"
+        data-sorting={sortable && draggedId ? "true" : undefined}
         onDragOver={sortable ? (event) => previewAtRow(event, agent.id) : undefined}
         onDrop={sortable ? finishDrop : undefined}
       >
-        {sortable && (
+        <div
+          className="mux-agent-picker-row"
+          data-active={active ? "true" : undefined}
+          data-dragging={draggedId === agent.id ? "true" : undefined}
+          data-drop-position={dropTarget?.id === agent.id ? dropTarget.placement : undefined}
+          style={
+            sortable
+              ? ({
+                  "--mux-agent-order-offset": `${orderOffset * 100}%`,
+                } as CSSProperties)
+              : undefined
+          }
+        >
+          {sortable && (
+            <button
+              type="button"
+              className="mux-agent-order-handle"
+              draggable={ready && !saving}
+              disabled={mutationUnavailable}
+              title="拖拽排序；Option + 上下方向键调整"
+              aria-label={`调整 ${agent.name} 的置顶顺序`}
+              aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"
+              onDragStart={(event) => {
+                event.dataTransfer.effectAllowed = "move";
+                event.dataTransfer.setData("text/plain", agent.id);
+                const bounds = event.currentTarget.getBoundingClientRect();
+                event.dataTransfer.setDragImage(
+                  event.currentTarget,
+                  bounds.width / 2,
+                  bounds.height / 2,
+                );
+                setDraggedId(agent.id);
+                previewIdsRef.current = pinnedIds;
+                setPreviewIds(pinnedIds);
+                setDropTarget(null);
+              }}
+              onDragEnd={clearDragPreview}
+              onKeyDown={(event) => moveByKeyboard(event, agent.id)}
+            >
+              <GripVerticalIcon className="w-4 h-4" />
+            </button>
+          )}
           <button
             type="button"
-            className="mux-agent-order-handle"
-            draggable={ready && !saving}
-            disabled={mutationUnavailable}
-            title="拖拽排序；Option + 上下方向键调整"
-            aria-label={`调整 ${agent.name} 的置顶顺序`}
-            onDragStart={(event) => {
-              event.dataTransfer.effectAllowed = "move";
-              event.dataTransfer.setData("text/plain", agent.id);
-              const row = event.currentTarget.closest(".mux-agent-picker-row");
-              if (row instanceof HTMLElement) {
-                const bounds = row.getBoundingClientRect();
-                event.dataTransfer.setDragImage(row, 18, Math.min(bounds.height / 2, 24));
-              }
-              setDraggedId(agent.id);
-              setPreviewIds(pinnedIds);
-              setDropTarget(null);
-            }}
-            onDragEnd={clearDragPreview}
-            onKeyDown={(event) => moveByKeyboard(event, agent.id)}
+            className="mux-agent-picker-select"
+            aria-current={active ? "page" : undefined}
+            onClick={() => selectAgent(agent.id)}
           >
-            <GripVerticalIcon className="w-4 h-4" />
+            <AgentGlyph id={agent.id} name={agent.name} size={32} />
+            <span className="min-w-0 flex-1">
+              <span className="mux-agent-picker-name">{agent.name}</span>
+              <span className="mux-agent-picker-meta">
+                {agent.format.toUpperCase()} · {agent.id}
+              </span>
+            </span>
+            {active && <CheckIcon className="mux-agent-picker-check" />}
           </button>
-        )}
-        <button
-          type="button"
-          className="mux-agent-picker-select"
-          aria-current={active ? "page" : undefined}
-          onClick={() => selectAgent(agent.id)}
-        >
-          <AgentGlyph id={agent.id} name={agent.name} size={32} />
-          <span className="min-w-0 flex-1">
-            <span className="mux-agent-picker-name">{agent.name}</span>
-            <span className="mux-agent-picker-meta">{agent.format.toUpperCase()} · {agent.id}</span>
-          </span>
-          {active && <CheckIcon className="mux-agent-picker-check" />}
-        </button>
-        <button
-          type="button"
-          className="mux-agent-pin-action"
-          data-pinned={isPinned ? "true" : undefined}
-          disabled={mutationUnavailable}
-          aria-disabled={pinLimitBlocked || undefined}
-          aria-describedby={pinLimitBlocked ? PIN_LIMIT_DESCRIPTION_ID : undefined}
-          title={isPinned ? "取消置顶" : "置顶"}
-          aria-label={`${isPinned ? "取消置顶" : "置顶"} ${agent.name}`}
-          aria-pressed={isPinned}
-          onClick={(event) => {
-            if (pinLimitBlocked) {
-              event.preventDefault();
-              return;
-            }
-            togglePin(agent.id);
-          }}
-        >
-          {isPinned ? <XIcon className="w-3.5 h-3.5" /> : <PinIcon className="w-3.5 h-3.5" />}
-        </button>
+          <button
+            type="button"
+            className="mux-agent-pin-action"
+            data-pinned={isPinned ? "true" : undefined}
+            disabled={mutationUnavailable}
+            aria-disabled={pinLimitBlocked || undefined}
+            aria-describedby={pinLimitBlocked ? PIN_LIMIT_DESCRIPTION_ID : undefined}
+            title={isPinned ? "取消置顶" : "置顶"}
+            aria-label={`${isPinned ? "取消置顶" : "置顶"} ${agent.name}`}
+            aria-pressed={isPinned}
+            onClick={(event) => {
+              if (pinLimitBlocked) {
+                event.preventDefault();
+                return;
+              }
+              togglePin(agent.id);
+            }}
+          >
+            {isPinned ? (
+              <XIcon className="w-3.5 h-3.5" />
+            ) : (
+              <PinIcon className="w-3.5 h-3.5" />
+            )}
+          </button>
+        </div>
       </div>
     );
   };
@@ -253,7 +299,7 @@ export function AgentNavigation({
       </span>
       {sections.pinned.length > 0 && (
         <nav className="mux-pinned-agent-bar" aria-label="置顶 Agent">
-          {orderedPinnedAgents.map((agent) => (
+          {sections.pinned.map((agent) => (
             <button
               type="button"
               key={agent.id}
@@ -327,7 +373,10 @@ export function AgentNavigation({
               </button>
             </div>
 
-            <div className="mux-agent-picker-list">
+            <div
+              className="mux-agent-picker-list"
+              data-settling={settling ? "true" : undefined}
+            >
               {sections.searchResults ? (
                 sections.searchResults.length > 0 ? (
                   sections.searchResults.map((agent) =>
@@ -342,7 +391,7 @@ export function AgentNavigation({
                     <span>已置顶</span><span>{sections.pinned.length}/{MAX_PINNED_AGENTS}</span>
                   </div>
                   {sections.pinned.length > 0 ? (
-                    orderedPinnedAgents.map((agent) => agentRow(agent, true, true))
+                    sections.pinned.map((agent) => agentRow(agent, true, true))
                   ) : (
                     <div className="mux-agent-picker-hint">在常用 Agent 右侧点击 Pin</div>
                   )}

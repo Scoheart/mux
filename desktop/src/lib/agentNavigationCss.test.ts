@@ -15,7 +15,9 @@ const types = await readFile(relativeFile("./types.ts"), "utf8");
 
 function declarations(source: string, selector: string): string {
   const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const match = source.match(new RegExp(`${escaped}\\s*\\{([^{}]*)\\}`));
+  const match = source.match(
+    new RegExp(`(?:^|\\n)\\s*${escaped}\\s*\\{([^{}]*)\\}`),
+  );
   expect(match, `expected ${selector} rule`).toBeTruthy();
   if (!match) throw new Error(`expected ${selector} rule`);
   return match[1];
@@ -49,6 +51,8 @@ it("keeps Skills as the third resource segment before Agent navigation", () => {
   expect(segment).toMatch(/data-active=\{view\.kind === "skills"/);
   expect(segment).toMatch(/onClick=\{onSelectSkills\}/);
   expect(segment).toMatch(/<SparklesIcon/);
+  expect(segment).not.toMatch(/Beta|mux-seg-beta/);
+  expect(css).not.toMatch(/mux-seg-beta/);
 });
 
 it("routes the single app-owned Skills state before the MCP loading gate", () => {
@@ -82,9 +86,6 @@ it("reserves compact 900px lanes for Skills and six pinned Agents", () => {
   const segment = declarations(compactCss, ".mux-topbar .mux-skill-seg");
   expect(pixelValue(segment, "width")).toBeLessThanOrEqual(240);
   expect(segment).toMatch(/flex:\s*0\s+0\s+\d+px/);
-
-  const beta = declarations(compactCss, ".mux-topbar .mux-seg-beta");
-  expect(beta).toMatch(/display:\s*none/);
 
   const picker = declarations(compactCss, ".mux-agent-picker-trigger");
   expect(pixelValue(picker, "width")).toBeLessThanOrEqual(132);
@@ -136,20 +137,44 @@ it("pinned Agent glyph is 30px normally and 28px in compact topbar", () => {
   expect(compactGlyph).toMatch(/height:\s*28px/);
 });
 
-it("drag preview drives both pinned surfaces and exposes target styling", () => {
+it("drag preview keeps DOM order stable and projects only picker rows", () => {
   expect(component).toMatch(/const \[previewIds, setPreviewIds\]/);
-  expect(component).toMatch(/const orderedPinnedAgents/);
+  expect(component).toMatch(/const previewIdsRef = useRef/);
+  expect(component).not.toMatch(/orderedPinnedAgents/);
   expect(
-    component.match(/orderedPinnedAgents\.map/g) ?? [],
-    "top shortcuts and pinned rows must share the preview order",
+    component.match(/sections\.pinned\.map\(\(agent\) =>/g) ?? [],
+    "top shortcuts and picker rows must keep the committed order during preview",
   ).toHaveLength(2);
   expect(component).toMatch(/previewPinnedAgentOrder/);
+  expect(component).toMatch(
+    /previewPinnedAgentOrder\(pinnedIds, draggedId, targetId, placement\)/,
+  );
+  expect(component).toMatch(/projectedPinnedAgentOffset/);
+  expect(component).toMatch(/--mux-agent-order-offset/);
+  expect(component).toMatch(/setDragImage\(\s*event\.currentTarget/);
+  expect(component).toMatch(/className="mux-agent-picker-slot"/);
+  expect(component).toMatch(/data-sorting=/);
   expect(component).toMatch(/data-drop-position=/);
+  expect(component).toMatch(/data-settling=\{settling/);
+  expect(component).toMatch(/requestAnimationFrame/);
 
+  const slot = declarations(css, ".mux-agent-picker-slot");
+  expect(slot).toMatch(/position:\s*relative/);
   const row = declarations(css, ".mux-agent-picker-row");
   expect(row).toMatch(/position:\s*relative/);
+  expect(row).toMatch(/transform:\s*translateY\(var\(--mux-agent-order-offset/);
+  expect(css).toMatch(
+    /\.mux-agent-picker-slot\[data-sorting="true"\] > \.mux-agent-picker-row\s*\{[^}]*pointer-events:\s*none/,
+  );
   expect(css).toMatch(/\.mux-agent-picker-row\[data-drop-position="before"\]::before/);
   expect(css).toMatch(/\.mux-agent-picker-row\[data-drop-position="after"\]::after/);
+  expect(css).toMatch(
+    /\.mux-agent-picker-list\[data-settling="true"\] \.mux-agent-picker-row\s*\{[^}]*transition:\s*none/,
+  );
+
+  const handle = declarations(css, ".mux-agent-order-handle");
+  expect(pixelValue(handle, "width")).toBeGreaterThanOrEqual(36);
+  expect(pixelValue(handle, "height")).toBeGreaterThanOrEqual(40);
 });
 
 it("reduced motion disables drag-preview transitions", () => {

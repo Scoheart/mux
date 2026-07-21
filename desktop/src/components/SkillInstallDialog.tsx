@@ -428,36 +428,32 @@ export function SkillInstallDialog({
                 </div>
               </section>
 
-              <div className="mux-skill-source-divider"><span>或</span></div>
-
-              <div className="mux-skill-local-sources">
-                <button
-                  type="button"
-                  className="mux-skill-local-source"
-                  aria-label="选择本地文件夹"
-                  disabled={resolving || closing}
-                  onClick={resolveLocal}
-                >
-                  <span className="mux-skill-local-source-icon"><FolderIcon className="w-4 h-4" /></span>
-                  <span>
-                    <strong>文件夹</strong>
-                    <small>本机目录</small>
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  className="mux-skill-local-source"
-                  aria-label="选择 Skill 压缩包"
-                  disabled={resolving || closing}
-                  onClick={resolveArchive}
-                >
-                  <span className="mux-skill-local-source-icon"><PackageIcon className="w-4 h-4" /></span>
-                  <span>
-                    <strong>压缩包</strong>
-                    <small>.zip · .tar.gz</small>
-                  </span>
-                </button>
-              </div>
+              <button
+                type="button"
+                className="mux-skill-local-source"
+                aria-label="选择本地文件夹"
+                disabled={resolving || closing}
+                onClick={resolveLocal}
+              >
+                <span className="mux-skill-local-source-icon"><FolderIcon className="w-4 h-4" /></span>
+                <span>
+                  <strong>文件夹</strong>
+                  <small>本机目录</small>
+                </span>
+              </button>
+              <button
+                type="button"
+                className="mux-skill-local-source"
+                aria-label="选择 Skill 压缩包"
+                disabled={resolving || closing}
+                onClick={resolveArchive}
+              >
+                <span className="mux-skill-local-source-icon"><PackageIcon className="w-4 h-4" /></span>
+                <span>
+                  <strong>压缩包</strong>
+                  <small>.zip · .tar.gz</small>
+                </span>
+              </button>
 
               {sourceError && (
                 <div className="mux-skill-dialog-error" role="alert">

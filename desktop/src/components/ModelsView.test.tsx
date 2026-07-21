@@ -1,10 +1,37 @@
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import { expect, it } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import type { ConsumptionState } from "../hooks/useConsumptionState";
+import * as api from "../lib/api";
+import { ModelsView } from "./ModelsView";
+import { ToastProvider } from "./Toast";
+
+vi.mock("../lib/api", async () => {
+  const actual = await vi.importActual<typeof import("../lib/api")>("../lib/api");
+  return {
+    ...actual,
+    listModelProfiles: vi.fn(),
+    listModelProviders: vi.fn(),
+  };
+});
 
 const source = await readFile(resolve(process.cwd(), "src/components/ModelsView.tsx"), "utf8");
 const agentSource = await readFile(resolve(process.cwd(), "src/components/AgentView.tsx"), "utf8");
 const css = await readFile(resolve(process.cwd(), "src/index.css"), "utf8");
+
+beforeEach(() => {
+  vi.mocked(api.listModelProfiles).mockResolvedValue([]);
+  vi.mocked(api.listModelProviders).mockResolvedValue([
+    { id: "openrouter", name: "OpenRouter" },
+  ]);
+});
+
+afterEach(() => {
+  cleanup();
+  vi.clearAllMocks();
+});
 
 it("maps Model cards to the shared resource interface", () => {
   const card = source.slice(source.indexOf("function ModelCard"), source.indexOf("function ModelInspector"));
@@ -34,6 +61,48 @@ it("supports env-only Agent metadata without storing a secret value", () => {
   expect(agentSource).toMatch(/modelAgent\.credential_mode === "environment-reference"/);
   expect(agentSource).toMatch(/ENV · \$\{profile\.env_key\}/);
   expect(agentSource).toMatch(/需要 ENV/);
+});
+
+it("allows an auto-detected or custom Provider while keeping protocol explicit", () => {
+  const providerField = source.slice(
+    source.indexOf("<span>Provider</span>"),
+    source.indexOf("<span>名称（可选）</span>"),
+  );
+  expect(providerField).toMatch(/<input\s+[\s\S]*?list="mux-model-provider-options"/);
+  expect(providerField).toMatch(/<datalist id="mux-model-provider-options">/);
+  expect(providerField).toMatch(/不在列表中可直接输入自定义 Provider ID/);
+  expect(providerField).not.toMatch(/<select/);
+  expect(source).toMatch(/provider: draft\.provider\.trim\(\)/);
+  expect(source).toMatch(/此项不会根据 Base URL 自动识别/);
+});
+
+it("submits an arbitrary Provider ID through the central asset plan", async () => {
+  const user = userEvent.setup();
+  const planUpdate = vi.fn().mockResolvedValue({ operation_id: "model-plan" });
+  const consumptionState = { plan: null, planUpdate } as unknown as ConsumptionState;
+
+  render(
+    <ToastProvider>
+      <ModelsView consumptionState={consumptionState} />
+    </ToastProvider>,
+  );
+
+  await waitFor(() => expect(screen.getByRole("button", { name: "新建模型" })).toBeEnabled());
+  await user.click(screen.getByRole("button", { name: "新建模型" }));
+  await user.type(screen.getByLabelText(/Provider/), "my-gateway");
+  await user.type(screen.getByPlaceholderText("https://api.example.com/v1"), "https://models.example.test/v1/");
+  await user.type(screen.getByPlaceholderText("model-name"), "custom-model");
+  await user.click(screen.getByRole("button", { name: "审阅更改" }));
+
+  await waitFor(() => expect(planUpdate).toHaveBeenCalledTimes(1));
+  expect(planUpdate).toHaveBeenCalledWith(expect.objectContaining({
+    domain: "model",
+    profile: expect.objectContaining({
+      provider: "my-gateway",
+      base_url: "https://models.example.test/v1",
+      model: "custom-model",
+    }),
+  }));
 });
 
 it("routes profile lifecycle through central asset plans", () => {

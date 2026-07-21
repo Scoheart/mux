@@ -127,6 +127,16 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("SkillInstallDialog central asset intake", () => {
+  it("presents GitHub, folder, and archive as three peer source entries", () => {
+    renderInstall();
+    expect(screen.getByRole("heading", { name: "GitHub" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "选择本地文件夹" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "选择 Skill 压缩包" })).toBeVisible();
+    expect(screen.queryByText("或")).not.toBeInTheDocument();
+    expect(document.querySelector(".mux-skill-source-divider")).not.toBeInTheDocument();
+    expect(document.querySelector(".mux-skill-local-sources")).not.toBeInTheDocument();
+  });
+
   it("selects only central candidates and never exposes Agent assignment", async () => {
     const user = userEvent.setup();
     vi.mocked(api.resolveGithubSkillSource).mockResolvedValueOnce(twoCandidateResolution());

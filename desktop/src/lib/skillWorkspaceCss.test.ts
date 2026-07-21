@@ -77,7 +77,31 @@ it("uses one shared Soft Workbench geometry for every resource domain", () => {
   expect(sharedToolbar).toMatch(/min-height:\s*52px/);
   expect(sharedFilters).toMatch(/height:\s*42px/);
 
+  const content = declarations(css, ".mux-workspace-content");
   const grid = declarations(css, ".mux-resource-grid");
-  expect(grid).toMatch(/grid-template-columns:\s*minmax\(0,\s*1fr\)/);
-  expect(grid).toMatch(/gap:\s*8px/);
+  expect(content).toMatch(/container:\s*resource-stage\s*\/\s*inline-size/);
+  expect(grid).toMatch(/grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/);
+  expect(grid).toMatch(/gap:\s*6px/);
+  expect(grid).toMatch(/padding:\s*6px/);
+  expect(grid).toMatch(/border:\s*0/);
+  expect(grid).toMatch(/border-radius:\s*var\(--radius-region\)/);
+  expect(grid).toMatch(/background:\s*var\(--surface-section\)/);
+
+  const narrowContainerGrid = mediaBlocks(
+    css,
+    "@container resource-stage (max-width: 560px)",
+  )
+    .map((block) => declarations(block, ".mux-resource-grid"))
+    .find((rule) => rule !== null);
+  expect(narrowContainerGrid).toMatch(/grid-template-columns:\s*minmax\(0,\s*1fr\)/);
+});
+
+it("lays out the three Skill intake sources as compact peers", () => {
+  const sources = declarations(css, ".mux-skill-source-step-compact");
+  expect(sources).toMatch(
+    /grid-template-columns:\s*minmax\(0,\s*2\.2fr\)\s*repeat\(2,\s*minmax\(118px,\s*1fr\)\)/,
+  );
+  expect(sources).toMatch(/align-items:\s*stretch/);
+  expect(sources).toMatch(/gap:\s*8px/);
+  expect(css).not.toMatch(/mux-skill-source-divider|mux-skill-local-sources/);
 });

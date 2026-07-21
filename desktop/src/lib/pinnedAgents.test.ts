@@ -7,6 +7,7 @@ import {
   movePinnedAgentBefore,
   movePinnedAgentBy,
   previewPinnedAgentOrder,
+  projectedPinnedAgentOffset,
   togglePinnedAgent,
   type PinnedDropPlacement,
 } from "./pinnedAgents.ts";
@@ -134,6 +135,35 @@ it("drag preview follows before and after targets across multiple rows", () => {
   expect(first).toEqual(["qoder", "claude-code", "codex", "pi"]);
   expect(second).toEqual(["claude-code", "codex", "qoder", "pi"]);
   expect(ids).toEqual(["claude-code", "codex", "qoder", "pi"]);
+});
+
+it("projects visual offsets without changing the committed DOM order", () => {
+  const committed = ["claude-code", "codex", "qoder", "pi"];
+  const projected = previewPinnedAgentOrder(
+    committed,
+    "qoder",
+    "claude-code",
+    "before",
+  );
+
+  expect(projectedPinnedAgentOffset(committed, projected, "qoder")).toBe(-2);
+  expect(projectedPinnedAgentOffset(committed, projected, "claude-code")).toBe(1);
+  expect(projectedPinnedAgentOffset(committed, projected, "codex")).toBe(1);
+  expect(projectedPinnedAgentOffset(committed, projected, "pi")).toBe(0);
+  expect(projectedPinnedAgentOffset(committed, projected, "missing")).toBe(0);
+  expect(committed).toEqual(["claude-code", "codex", "qoder", "pi"]);
+});
+
+it("recalculates every hover projection from the committed order", () => {
+  const committed = ["claude-code", "codex", "qoder", "pi"];
+
+  expect(
+    previewPinnedAgentOrder(committed, "qoder", "claude-code", "before"),
+  ).toEqual(["qoder", "claude-code", "codex", "pi"]);
+  expect(
+    previewPinnedAgentOrder(committed, "qoder", "pi", "after"),
+  ).toEqual(["claude-code", "codex", "pi", "qoder"]);
+  expect(committed).toEqual(["claude-code", "codex", "qoder", "pi"]);
 });
 
 it("drag preview preserves order for invalid and self targets", () => {

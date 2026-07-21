@@ -86,7 +86,7 @@ The source model itself supports enable/disable, which the TUI's "Sources" scree
 - Inside a built-in agent's page you may only override the global MCP path; the official format, config key, and codec are fixed, to avoid producing incompatible configs.
 - Paths inside the home directory are saved as `~/…`; absolute paths outside it keep their original value.
 
-For the full 42 verified targets, 41 writable targets, and 194 retained records, see [Supported agents](/en/guide/agents).
+For the full 45 verified targets, 44 writable targets, and 196 retained records, see [Supported agents](/en/guide/agents).
 
 ## Models (Beta)
 

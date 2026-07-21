@@ -70,6 +70,7 @@ const VERIFIED_SKILL_AGENT_IDS: &[&str] = &[
     "claude-code",
     "cline",
     "codebuddy-code",
+    "codewhale",
     "codex",
     "copilot-cli",
     "crush",
@@ -93,7 +94,9 @@ const VERIFIED_SKILL_AGENT_IDS: &[&str] = &[
     "qwen-code",
     "roo-code",
     "rovo-dev",
+    "stakpak",
     "vscode",
+    "vt-code",
     "warp",
     "windsurf",
     "zed",
@@ -622,11 +625,11 @@ mod tests {
     #[test]
     fn builtin_catalog_and_transport_metadata_load() {
         let a = builtin_agents();
-        assert_eq!(audited_agents().len(), 42);
+        assert_eq!(audited_agents().len(), 45);
         let catalog: BTreeMap<String, AgentDefinition> =
             serde_json::from_str(CATALOG_AGENTS_JSON).unwrap();
         assert_eq!(catalog.len(), 175);
-        assert_eq!(a.len(), 194);
+        assert_eq!(a.len(), 196);
         assert_eq!(a["claude-code"].key, "mcpServers");
         assert_eq!(a["codex"].format, "toml");
         assert!(!definition_supports_transport(&a["claude-desktop"], "http"));

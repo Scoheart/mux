@@ -36,7 +36,7 @@ MUX 按物理目录归一化消费关系。某些 Agent 会兼容读取另一个
 
 ## 已核验的 Agent 路径
 
-当前为以下 33 个 Agent 提供经过官方文档或官方源码核验的用户级 Skills 能力。MUX 只显示本机安装探针命中且能力资料已核验的 Agent；目录本身存在不等于对应 Agent 已安装。
+当前为以下 36 个 Agent 提供经过官方文档或官方源码核验的用户级 Skills 能力。MUX 只显示本机安装探针命中且能力资料已核验的 Agent；目录本身存在不等于对应 Agent 已安装。
 
 | Agent | 首选用户级目录 | 兼容读取目录 |
 |---|---|---|
@@ -46,6 +46,7 @@ MUX 按物理目录归一化消费关系。某些 Agent 会兼容读取另一个
 | Claude Code | `~/.claude/skills` | — |
 | Cline | `~/.cline/skills` | — |
 | CodeBuddy Code | `~/.codebuddy/skills` | — |
+| CodeWhale | `~/.codewhale/skills` | — |
 | Codex | `~/.agents/skills` | — |
 | GitHub Copilot CLI | `~/.copilot/skills` | `~/.agents/skills` |
 | Crush | `~/.config/crush/skills` | `~/.config/agents/skills`、`~/.agents/skills`、`~/.claude/skills` |
@@ -69,7 +70,9 @@ MUX 按物理目录归一化消费关系。某些 Agent 会兼容读取另一个
 | Qwen Code | `~/.qwen/skills` | — |
 | Roo Code | `~/.roo/skills` | `~/.agents/skills` |
 | Atlassian Rovo Dev CLI | `~/.rovodev/skills` | `~/.agents/skills` |
+| Stakpak | `~/.config/stakpak/skills` | — |
 | Visual Studio Code | `~/.copilot/skills` | `~/.claude/skills`、`~/.agents/skills` |
+| VT Code | `~/.agents/skills` | — |
 | Warp | `~/.agents/skills` | `~/.warp/skills`、`~/.claude/skills`、`~/.codex/skills`、`~/.cursor/skills`、`~/.gemini/skills`、`~/.copilot/skills`、`~/.factory/skills`、`~/.github/skills`、`~/.opencode/skills` |
 | Windsurf | `~/.codeium/windsurf/skills` | `~/.agents/skills` |
 | Zed | `~/.agents/skills` | — |

@@ -93,18 +93,53 @@ impl TomlListAdapter {
         Ok(())
     }
 
+    fn key_parts(&self) -> Vec<&str> {
+        self.key.split('.').collect()
+    }
+
+    fn section<'a>(&self, document: &'a Document) -> Option<&'a ArrayOfTables> {
+        let parts = self.key_parts();
+        let (leaf, parents) = parts.split_last()?;
+        let mut table = document.as_table();
+        for parent in parents {
+            table = table.get(*parent)?.as_table()?;
+        }
+        table.get(*leaf)?.as_array_of_tables()
+    }
+
     fn section_mut<'a>(
         &self,
         document: &'a mut Document,
         path: &Path,
         create: bool,
     ) -> Result<Option<&'a mut ArrayOfTables>, String> {
-        if !document.as_table().contains_key(&self.key) && create {
-            document
-                .as_table_mut()
-                .insert(&self.key, Item::ArrayOfTables(ArrayOfTables::new()));
+        let parts = self.key_parts();
+        let (leaf, parents) = parts
+            .split_last()
+            .ok_or_else(|| "TOML array key must not be empty".to_string())?;
+        if parts.iter().any(|part| part.is_empty()) {
+            return Err(format!("invalid dotted TOML array key '{}'", self.key));
         }
-        match document.as_table_mut().get_mut(&self.key) {
+        let mut table = document.as_table_mut();
+        for parent in parents {
+            if !table.contains_key(*parent) && create {
+                table.insert(parent, Item::Table(Table::new()));
+            }
+            let Some(item) = table.get_mut(*parent) else {
+                return Ok(None);
+            };
+            table = item.as_table_mut().ok_or_else(|| {
+                format!(
+                    "refusing to modify {}: '{}' is not a TOML table",
+                    path.display(),
+                    parent
+                )
+            })?;
+        }
+        if !table.contains_key(*leaf) && create {
+            table.insert(leaf, Item::ArrayOfTables(ArrayOfTables::new()));
+        }
+        match table.get_mut(*leaf) {
             Some(Item::ArrayOfTables(section)) => Ok(Some(section)),
             None => Ok(None),
             Some(_) => Err(format!(
@@ -200,7 +235,14 @@ impl TomlListAdapter {
     fn semantic_entries(&self, document: &Document) -> Result<Vec<Value>, String> {
         let semantic =
             toml::from_str::<Toml>(&document.to_string()).map_err(|error| error.to_string())?;
-        let Some(entries) = semantic.get(&self.key).and_then(Toml::as_array) else {
+        let mut section = &semantic;
+        for part in self.key.split('.') {
+            let Some(value) = section.get(part) else {
+                return Ok(Vec::new());
+            };
+            section = value;
+        }
+        let Some(entries) = section.as_array() else {
             return Ok(Vec::new());
         };
         entries
@@ -215,7 +257,7 @@ impl Adapter for TomlListAdapter {
         let Ok((document, _)) = self.read_document(path) else {
             return BTreeMap::new();
         };
-        let Some(Item::ArrayOfTables(section)) = document.as_table().get(&self.key) else {
+        let Some(section) = self.section(&document) else {
             return BTreeMap::new();
         };
         if self.ensure_unique_identities(section, path).is_err() {

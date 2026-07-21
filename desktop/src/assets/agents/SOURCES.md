@@ -9,6 +9,7 @@ New assets are copied from official product sites, official repositories, or the
 | `augment.svg` | <https://www.augmentcode.com/favicon.svg> |
 | `boltai.png` | <https://boltai.com/assets/app-icon-v4.png> |
 | `codebuddy-code.svg` | <https://codebuddy-1328495429.cos.accelerate.myqcloud.com/web/ide/logo.svg> |
+| `codewhale.svg` | <https://github.com/Hmbown/CodeWhale/blob/main/web/app/icon.svg> |
 | `crush.png` | <https://stuff.charm.sh/crush/charm-crush.png> |
 | `factory-droid.svg` | <https://www.factory.ai/favicon.svg> |
 | `firebender.svg` | <https://firebender.com/icon.svg> |
@@ -23,4 +24,6 @@ New assets are copied from official product sites, official repositories, or the
 | `openhands.svg` | <https://openhands.dev/favicon.svg> |
 | `qwen-code.png` | <https://qwenlm.github.io/qwen-code-docs/favicon.png> |
 | `rovo-dev.svg` | Atlassian `@atlaskit/logo@21.4.0`, `RovoDevIcon` |
+| `stakpak.svg` | <https://github.com/agentclientprotocol/registry/tree/main/stakpak> (provider-submitted registry icon) |
 | `tabnine.png` | <https://www.tabnine.com/wp-content/uploads/2024/09/cropped-tabnine-favicon-192x192.png> |
+| `vt-code.svg` | <https://github.com/agentclientprotocol/registry/tree/main/vtcode> (provider-submitted registry icon) |

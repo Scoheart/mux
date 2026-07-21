@@ -34,16 +34,46 @@ MUX normalizes consumption by physical directory. Some Agents also read a compat
 
 ## Verified Agent paths
 
-The first release declares user-level Skills support for these six Agents. MUX shows an Agent only when an installation probe succeeds and its capability data is verified; the existence of a shared directory alone does not prove that Agent is installed.
+MUX declares verified user-level Skills support for 36 Agents. It shows an Agent only when an installation probe succeeds and its capability data is verified; the existence of a shared directory alone does not prove that Agent is installed.
 
 | Agent | Preferred user-level directory | Compatibility directories |
 |---|---|---|
+| Amp | `~/.config/agents/skills` | `~/.agents/skills`, `~/.config/amp/skills`, `~/.claude/skills` |
+| Google Antigravity | `~/.gemini/config/skills` | — |
+| Augment Code | `~/.augment/skills` | `~/.claude/skills`, `~/.agents/skills` |
 | Claude Code | `~/.claude/skills` | — |
+| Cline | `~/.cline/skills` | — |
+| CodeBuddy Code | `~/.codebuddy/skills` | — |
+| CodeWhale | `~/.codewhale/skills` | — |
 | Codex | `~/.agents/skills` | — |
-| Cursor | `~/.cursor/skills` | `~/.agents/skills` |
-| Gemini CLI | `~/.gemini/skills` | `~/.agents/skills` |
-| OpenCode | `~/.config/opencode/skills` | `~/.claude/skills`, `~/.agents/skills` |
 | GitHub Copilot CLI | `~/.copilot/skills` | `~/.agents/skills` |
+| Crush | `~/.config/crush/skills` | `~/.config/agents/skills`, `~/.agents/skills`, `~/.claude/skills` |
+| Cursor | `~/.cursor/skills` | `~/.agents/skills` |
+| Factory Droid | `~/.factory/skills` | — |
+| Firebender | `~/.firebender/skills` | `~/.goose/skills`, `~/.claude/skills`, `~/.codex/skills`, `~/.cursor/skills`, `~/.agents/skills` |
+| Gemini CLI | `~/.gemini/skills` | `~/.agents/skills` |
+| Goose | `~/.agents/skills` | `~/.claude/skills` |
+| Grok Build | `~/.grok/skills` | — |
+| Hermes Agent | `~/.hermes/skills` | — |
+| Kilo Code CLI | `~/.kilo/skills` | — |
+| Kimi Code CLI | `~/.kimi-code/skills` | `~/.agents/skills` |
+| Kiro | `~/.kiro/skills` | — |
+| Mistral Vibe | `~/.vibe/skills` | — |
+| OpenCode | `~/.config/opencode/skills` | `~/.claude/skills`, `~/.agents/skills` |
+| OpenHands CLI | `~/.openhands/skills` | — |
+| Pi Coding Agent | `~/.pi/agent/skills` | `~/.agents/skills` |
+| Qoder Desktop | `~/.qoder/skills` | — |
+| Qoder CLI | `~/.qoder/skills` | — |
+| QoderWork | `~/.qoderwork/skills` | — |
+| Qwen Code | `~/.qwen/skills` | — |
+| Roo Code | `~/.roo/skills` | `~/.agents/skills` |
+| Atlassian Rovo Dev CLI | `~/.rovodev/skills` | `~/.agents/skills` |
+| Stakpak | `~/.config/stakpak/skills` | — |
+| Visual Studio Code | `~/.copilot/skills` | `~/.claude/skills`, `~/.agents/skills` |
+| VT Code | `~/.agents/skills` | — |
+| Warp | `~/.agents/skills` | `~/.warp/skills`, `~/.claude/skills`, `~/.codex/skills`, `~/.cursor/skills`, `~/.gemini/skills`, `~/.copilot/skills`, `~/.factory/skills`, `~/.github/skills`, `~/.opencode/skills` |
+| Windsurf | `~/.codeium/windsurf/skills` | `~/.agents/skills` |
+| Zed | `~/.agents/skills` | — |
 
 An Agent's MCP config path and Skills path are separate contracts; MUX never infers one from the other. See [Supported agents](/en/guide/agents#skills-capabilities) for context.
 

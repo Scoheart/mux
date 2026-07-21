@@ -66,6 +66,14 @@ const WARP_HTTP_FIELDS: &[&str] = &[
     "url",
     "headers",
 ];
+const VTCODE_FIELDS: &[&str] = &[
+    "command",
+    "args",
+    "env",
+    "working_directory",
+    "endpoint",
+    "headers",
+];
 const KIMI_FIELDS: &[&str] = &[
     "transport",
     "type",
@@ -133,6 +141,7 @@ pub enum Codec {
     Continue,
     Goose,
     Vibe,
+    VtCode,
     StdioOnly,
 }
 
@@ -195,6 +204,7 @@ pub fn from_name(name: Option<&str>, agent_id: &str) -> Codec {
         Some("continue") => Codec::Continue,
         Some("goose") => Codec::Goose,
         Some("vibe") => Codec::Vibe,
+        Some("vtcode") => Codec::VtCode,
         Some("server_url") => Codec::Windsurf,
         Some("url_transport") => Codec::Kimi,
         Some("stdio_only") => Codec::StdioOnly,
@@ -268,7 +278,7 @@ impl Codec {
                 env: string_map(object.get(if self == Codec::Goose { "envs" } else { "env" })),
                 cwd: string_field(
                     object,
-                    if self == Codec::Warp {
+                    if matches!(self, Codec::Warp | Codec::VtCode) {
                         "working_directory"
                     } else {
                         "cwd"
@@ -286,6 +296,7 @@ impl Codec {
                 ("serverUrl", "streamable-http")
             }
             Codec::Goose => ("uri", "streamable-http"),
+            Codec::VtCode => ("endpoint", "streamable-http"),
             _ => ("url", "http"),
         };
         let url = object.get(url_key).and_then(Value::as_str)?.to_string();
@@ -386,6 +397,7 @@ impl Codec {
                     ));
                 }
                 Codec::Warp => push_stdio_fields(&mut fields, stdio, "working_directory"),
+                Codec::VtCode => push_stdio_fields(&mut fields, stdio, "working_directory"),
                 Codec::Kimi => push_stdio_fields(&mut fields, stdio, "cwd"),
                 Codec::Transport => {
                     fields.push(("transport".into(), Value::String("stdio".into())));
@@ -536,6 +548,7 @@ impl Codec {
                     push_http_fields(&mut fields, http, "url", "headers");
                 }
                 Codec::Warp => push_http_fields(&mut fields, http, "url", "headers"),
+                Codec::VtCode => push_http_fields(&mut fields, http, "endpoint", "headers"),
                 Codec::Kimi => {
                     if http.kind == "sse" {
                         fields.push(("transport".into(), Value::String("sse".into())));
@@ -646,6 +659,7 @@ impl Codec {
             Codec::Continue => CONTINUE_FIELDS,
             Codec::Goose => GOOSE_FIELDS,
             Codec::Vibe => VIBE_FIELDS,
+            Codec::VtCode => VTCODE_FIELDS,
             _ => STANDARD_FIELDS,
         }
     }

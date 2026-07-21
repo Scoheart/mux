@@ -261,7 +261,7 @@ fn canonical_target_graph_merges_two_ids_resolving_to_one_path() {
     assert_eq!(inventory.targets[0].target_id, "agents-user");
     assert_eq!(
         inventory.targets[0].primary_agent_ids,
-        vec!["codex", "cursor", "goose", "warp", "zed"]
+        vec!["codex", "cursor", "goose", "vt-code", "warp", "zed"]
     );
 }
 

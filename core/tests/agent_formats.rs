@@ -293,7 +293,7 @@ fn every_writable_builtin_roundtrips_through_its_wire_format() {
         .values()
         .filter(|agent| agent.global.is_some())
         .count();
-    assert_eq!(writable, 41);
+    assert_eq!(writable, 44);
 
     for (agent_id, definition) in agents {
         if definition.global.is_none() {
@@ -460,6 +460,7 @@ fn builtin_global_paths_match_current_product_docs() {
         ),
         ("cline", "~/.cline/data/settings/cline_mcp_settings.json"),
         ("codebuddy-code", "~/.codebuddy/.mcp.json"),
+        ("codewhale", "~/.codewhale/mcp.json"),
         ("codex", "~/.codex/config.toml"),
         ("continue", "~/.continue/config.yaml"),
         ("copilot-cli", "~/.copilot/mcp-config.json"),
@@ -496,11 +497,13 @@ fn builtin_global_paths_match_current_product_docs() {
             "~/Library/Application Support/Code/User/globalStorage/rooveterinaryinc.roo-cline/settings/mcp_settings.json",
         ),
         ("rovo-dev", "~/.rovodev/mcp.json"),
+        ("stakpak", "~/.stakpak/mcp.toml"),
         ("tabnine", "~/.tabnine/mcp_servers.json"),
         (
             "vscode",
             "~/Library/Application Support/Code/User/mcp.json",
         ),
+        ("vt-code", "~/.vtcode/vtcode.toml"),
         ("warp", "~/.warp/.mcp.json"),
         ("windsurf", "~/.codeium/windsurf/mcp_config.json"),
         ("zed", "~/.config/zed/settings.json"),
@@ -523,16 +526,16 @@ fn verified_and_catalog_definitions_have_auditable_boundaries() {
     let all_ids: std::collections::BTreeSet<_> =
         verified_ids.union(&catalog_ids).cloned().collect();
 
-    assert_eq!(verified.len(), 42);
+    assert_eq!(verified.len(), 45);
     assert_eq!(catalog.len(), 175);
-    assert_eq!(verified_ids.intersection(&catalog_ids).count(), 23);
-    assert_eq!(all_ids.len(), 194);
+    assert_eq!(verified_ids.intersection(&catalog_ids).count(), 24);
+    assert_eq!(all_ids.len(), 196);
     assert_eq!(
         verified
             .values()
             .filter(|item| item.global.is_some())
             .count(),
-        41
+        44
     );
     assert!(catalog.len() >= 170);
     for (id, definition) in verified {
@@ -562,6 +565,7 @@ fn verified_and_catalog_definitions_have_auditable_boundaries() {
                         | "continue"
                         | "goose"
                         | "vibe"
+                        | "vtcode"
                         | "server_url"
                         | "url_transport"
                         | "stdio_only"
@@ -780,6 +784,100 @@ timeout = 42 # keep policy
     assert_eq!(target["enabled"].as_bool(), Some(false));
     assert_eq!(target["timeout"].as_integer(), Some(42));
     let _ = std::fs::remove_file(path);
+}
+
+#[test]
+fn new_agent_mcp_formats_preserve_user_policy_and_nested_toml() {
+    let agents = builtin_agents();
+
+    let codewhale = temp_file("codewhale", "json");
+    let original = r#"{
+  "default_text_model": "private-model",
+  "servers": {
+    "docs": {
+      "url": "https://old.example/mcp",
+      "disabled": true,
+      "timeout": 90
+    }
+  }
+}"#;
+    std::fs::write(&codewhale, original).unwrap();
+    get_agent_adapter_for(&agents["codewhale"], "codewhale")
+        .upsert(&codewhale, "docs", &http("https://new.example/mcp"))
+        .unwrap();
+    let root: Value = serde_json::from_str(&std::fs::read_to_string(&codewhale).unwrap()).unwrap();
+    assert_eq!(root["default_text_model"], "private-model");
+    assert_eq!(root["servers"]["docs"]["url"], "https://new.example/mcp");
+    assert_eq!(root["servers"]["docs"]["disabled"], true);
+    assert_eq!(root["servers"]["docs"]["timeout"], 90);
+
+    let stakpak = temp_file("stakpak", "toml");
+    let original = r#"# keep Stakpak profile
+[profiles.default]
+model = "private/model"
+
+[mcpServers.docs]
+url = "https://old.example/mcp"
+disabled = true
+timeout = 90 # keep policy
+"#;
+    std::fs::write(&stakpak, original).unwrap();
+    get_agent_adapter_for(&agents["stakpak"], "stakpak")
+        .upsert(&stakpak, "docs", &http("https://new.example/mcp"))
+        .unwrap();
+    let written = std::fs::read_to_string(&stakpak).unwrap();
+    let root: toml::Value = toml::from_str(&written).unwrap();
+    assert!(written.contains("# keep Stakpak profile"));
+    assert!(written.contains("# keep policy"));
+    assert_eq!(
+        root["profiles"]["default"]["model"].as_str(),
+        Some("private/model")
+    );
+    assert_eq!(
+        root["mcpServers"]["docs"]["url"].as_str(),
+        Some("https://new.example/mcp")
+    );
+    assert_eq!(root["mcpServers"]["docs"]["disabled"].as_bool(), Some(true));
+    assert_eq!(root["mcpServers"]["docs"]["timeout"].as_integer(), Some(90));
+
+    let vtcode = temp_file("vt-code", "toml");
+    let original = r#"# keep VT Code settings
+[agent]
+provider = "private"
+default_model = "private-model"
+
+[mcp]
+enabled = true
+
+[[mcp.providers]]
+name = "docs"
+enabled = false
+endpoint = "https://old.example/mcp"
+api_key_env = "DOCS_TOKEN"
+protocol_version = "2025-06-18" # keep policy
+"#;
+    std::fs::write(&vtcode, original).unwrap();
+    let adapter = get_agent_adapter_for(&agents["vt-code"], "vt-code");
+    assert!(matches!(adapter.read(&vtcode)["docs"], McpConfig::Http(_)));
+    adapter
+        .upsert(&vtcode, "docs", &http("https://new.example/mcp"))
+        .unwrap();
+    let written = std::fs::read_to_string(&vtcode).unwrap();
+    let root: toml::Value = toml::from_str(&written).unwrap();
+    let target = &root["mcp"]["providers"][0];
+    assert!(written.contains("# keep VT Code settings"));
+    assert!(written.contains("# keep policy"));
+    assert_eq!(root["agent"]["provider"].as_str(), Some("private"));
+    assert_eq!(root["mcp"]["enabled"].as_bool(), Some(true));
+    assert_eq!(target["endpoint"].as_str(), Some("https://new.example/mcp"));
+    assert_eq!(target["enabled"].as_bool(), Some(false));
+    assert_eq!(target["api_key_env"].as_str(), Some("DOCS_TOKEN"));
+    assert_eq!(target["protocol_version"].as_str(), Some("2025-06-18"));
+    assert!(target.get("url").is_none());
+
+    for path in [codewhale, stakpak, vtcode] {
+        let _ = std::fs::remove_file(path);
+    }
 }
 
 #[test]

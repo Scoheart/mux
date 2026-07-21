@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.16](https://github.com/Scoheart/mux/compare/v1.8.15...v1.8.16) (2026-07-21)
+
+### Changes
+
+* ci(release): accelerate temporary stable delivery ([2aebff3](https://github.com/Scoheart/mux/commit/2aebff3ad9dca0b9dd35a4ea511be15961f4a5d9))
+
 ## [1.8.15](https://github.com/Scoheart/mux/compare/v1.8.14...v1.8.15) (2026-07-21)
 
 ### Changes

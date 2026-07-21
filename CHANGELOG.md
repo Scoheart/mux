@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.19](https://github.com/Scoheart/mux/compare/v1.8.18...v1.8.19) (2026-07-21)
+
+### Changes
+
+* fix(ui): reorder central asset navigation ([b0153f0](https://github.com/Scoheart/mux/commit/b0153f04438f94f951d3c8166f5237302ecf7d70))
+
 ## [1.8.18](https://github.com/Scoheart/mux/compare/v1.8.17...v1.8.18) (2026-07-21)
 
 ### Changes

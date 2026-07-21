@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.13](https://github.com/Scoheart/mux/compare/v1.8.12...v1.8.13) (2026-07-21)
+
+### Changes
+
+* feat(desktop): refine asset management UX ([c63223d](https://github.com/Scoheart/mux/commit/c63223d87b2a9562cf3acbe08b573542d6739030))
+
 ## [1.8.12](https://github.com/Scoheart/mux/compare/v1.8.11...v1.8.12) (2026-07-21)
 
 ### Changes

@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.21](https://github.com/Scoheart/mux/compare/v1.8.20...v1.8.21) (2026-07-21)
+
+### Changes
+
+* fix(ui): focus model cards on provider ([e35b3c0](https://github.com/Scoheart/mux/commit/e35b3c070413a2b37fc7509ed451088f7c8c91cf))
+
 ## [1.8.20](https://github.com/Scoheart/mux/compare/v1.8.19...v1.8.20) (2026-07-21)
 
 ### Changes

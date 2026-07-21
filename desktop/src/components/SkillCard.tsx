@@ -72,20 +72,13 @@ export function SkillCard({
           <div className="mux-resource-card-copy">
             <div className="mux-resource-card-heading">
               <h2 title={item.name}>{item.name}</h2>
+              {item.update.available && <Badge tone="info">有更新</Badge>}
             </div>
             <span className="mux-resource-card-code" title={skillSourceText(item.source)}>
               {skillSourceText(item.source)}
             </span>
           </div>
         </>
-      }
-      configuration={
-        <div className="mux-resource-card-facts">
-          <code className="mux-resource-card-fact" title={item.resolved_revision ?? "未记录 revision"}>
-            {item.resolved_revision ? `rev ${item.resolved_revision.slice(0, 12)}` : "rev —"}
-          </code>
-          {item.update.available && <Badge tone="info">有更新</Badge>}
-        </div>
       }
     />
   );

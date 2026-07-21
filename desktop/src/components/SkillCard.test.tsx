@@ -19,7 +19,7 @@ describe("SkillCard", () => {
     expect(screen.queryByText("使用中")).not.toBeInTheDocument();
     expect(screen.queryByText("高风险")).not.toBeInTheDocument();
     expect(screen.getByText("GitHub · acme/skills / catalog/review-changes")).toBeVisible();
-    expect(screen.getByText("rev 0123456789ab")).toBeVisible();
+    expect(screen.queryByText("rev 0123456789ab")).not.toBeInTheDocument();
     expect(screen.getByText("有更新")).toBeVisible();
 
     fireEvent.keyDown(card, { key: "Enter" });
@@ -27,7 +27,7 @@ describe("SkillCard", () => {
     expect(onOpen).toHaveBeenCalledTimes(2);
   });
 
-  it("keeps unknown provenance concise and leaves risk or update errors to the Inspector", () => {
+  it("keeps unknown provenance concise and leaves revision, risk, or update errors to the Inspector", () => {
     const item = {
       ...skillsInventoryFixture().items[0],
       source: null,
@@ -44,7 +44,7 @@ describe("SkillCard", () => {
     render(<SkillCard item={item} selected onOpen={() => undefined} />);
 
     expect(screen.getByText("外部副本 · 来源未知")).toBeVisible();
-    expect(screen.getByText("rev —")).toBeVisible();
+    expect(screen.queryByText("rev —")).not.toBeInTheDocument();
     expect(screen.queryByText("未审阅")).not.toBeInTheDocument();
     expect(screen.queryByText(/更新检查失败：GitHub API rate limit/)).not.toBeInTheDocument();
     expect(screen.queryByText(/可重试：2026-07-17T01:02:03Z/)).not.toBeInTheDocument();

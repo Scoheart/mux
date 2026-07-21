@@ -49,8 +49,10 @@ it("maps Model cards to the shared resource interface", () => {
   expect(card).toMatch(/identity=/);
   expect(card).toMatch(/configuration=/);
   expect(card).not.toMatch(/state=/);
-  expect(card).toMatch(/Keychain/);
-  expect(card).toMatch(/无凭据/);
+  expect(card).toMatch(/<strong title=\{providerName\}>\{providerName\}<\/strong>/);
+  expect(card).toMatch(/title=\{profile\.model\}>\{profile\.model\}<\/code>/);
+  expect(card).toMatch(/title=\{protocolLabel\(profile\.protocol\)\}/);
+  expect(card).not.toMatch(/title=\{profile\.name\}|profile\.reasoning|profile\.base_url|Keychain|无凭据/);
   expect(card).not.toMatch(/可用|生效中|已托管/);
   expect(card).not.toMatch(/<IconButton/);
 });
@@ -61,8 +63,8 @@ it("uses neutral protocol classification without a card color rail", () => {
   expect(css).not.toMatch(/\.mux-model-card\[data-protocol=/);
 });
 
-it("preserves Keychain presence-only rendering", () => {
-  expect(source).toMatch(/profile\.credential_saved \? "Keychain" : "无凭据"/);
+it("keeps Keychain presence-only rendering in the Inspector", () => {
+  expect(source).toMatch(/profile\.credential_saved \? "已保存到 Keychain" : "未保存"/);
   expect(source).not.toMatch(/credential_saved\s*\}\s*<code/);
 });
 

@@ -19,7 +19,6 @@ import {
   EditIcon,
   LayersIcon,
   PlusIcon,
-  SparklesIcon,
   TrashIcon,
 } from "./icons";
 import { useToast } from "./Toast";
@@ -59,14 +58,6 @@ function protocolLabel(protocol: ModelProtocol) {
 
 function providerLabel(providers: ModelProviderView[], provider: string) {
   return providers.find((item) => item.id === provider)?.name ?? (provider || "自动识别");
-}
-
-function compactBaseUrl(baseUrl: string) {
-  try {
-    return new URL(baseUrl).host;
-  } catch {
-    return baseUrl;
-  }
 }
 
 export function ModelsView({
@@ -414,28 +405,16 @@ function ModelCard({
           </ResourceKindIcon>
           <div className="mux-resource-card-copy">
             <div className="mux-resource-card-heading">
-              <strong title={profile.name}>{profile.name}</strong>
-              {profile.reasoning && (
-                <span className="mux-resource-capability" title="支持 Reasoning">
-                  <SparklesIcon className="w-3 h-3" />
-                </span>
-              )}
+              <strong title={providerName}>{providerName}</strong>
             </div>
             <code className="mux-resource-card-code" title={profile.model}>{profile.model}</code>
           </div>
         </>
       }
       configuration={
-        <div className="mux-resource-card-facts">
-          <span className="mux-resource-card-fact" title={`${providerName} · ${protocolLabel(profile.protocol)}`}>
-            {providerName} · {protocolLabel(profile.protocol)}
-          </span>
-          <span className="mux-resource-card-trailing">
-            <code title={profile.base_url}>{compactBaseUrl(profile.base_url)}</code>
-            <span aria-hidden="true">·</span>
-            <span>{profile.credential_saved ? "Keychain" : "无凭据"}</span>
-          </span>
-        </div>
+        <span className="mux-resource-card-fact" title={protocolLabel(profile.protocol)}>
+          {protocolLabel(profile.protocol)}
+        </span>
       }
     />
   );

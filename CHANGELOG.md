@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.15](https://github.com/Scoheart/mux/compare/v1.8.14...v1.8.15) (2026-07-21)
+
+### Changes
+
+* style(desktop): compact metadata badges ([6014ea0](https://github.com/Scoheart/mux/commit/6014ea02a0ffa07481660967674762a04fc730f3))
+
 ## [1.8.14](https://github.com/Scoheart/mux/compare/v1.8.13...v1.8.14) (2026-07-21)
 
 ### Changes

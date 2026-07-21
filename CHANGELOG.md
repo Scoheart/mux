@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.17](https://github.com/Scoheart/mux/compare/v1.8.16...v1.8.17) (2026-07-21)
+
+### Changes
+
+* feat(models): suggest provider base URLs ([265293d](https://github.com/Scoheart/mux/commit/265293d31e94b6467f61adc45f0cd5a30e4fd6a1))
+
 ## [1.8.16](https://github.com/Scoheart/mux/compare/v1.8.15...v1.8.16) (2026-07-21)
 
 ### Changes

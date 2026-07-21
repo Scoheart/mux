@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.22](https://github.com/Scoheart/mux/compare/v1.8.21...v1.8.22) (2026-07-21)
+
+### Changes
+
+* feat(agents): add CodeWhale Stakpak and VT Code ([d3c00c3](https://github.com/Scoheart/mux/commit/d3c00c3a01550c3ea359f0c515423c7446074bad))
+
 ## [1.8.21](https://github.com/Scoheart/mux/compare/v1.8.20...v1.8.21) (2026-07-21)
 
 ### Changes

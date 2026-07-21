@@ -106,7 +106,7 @@ export function Layout({
         className="mux-topbar flex-shrink-0 flex items-center gap-3 px-5"
         style={{
           height: 56,
-          background: "var(--surface-app)",
+          background: "var(--surface-workspace)",
           position: "relative",
           zIndex: 100,
         }}

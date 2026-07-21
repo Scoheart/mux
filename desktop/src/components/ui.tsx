@@ -367,7 +367,7 @@ export function Modal({
       className="fixed inset-0 flex items-center justify-center z-40"
       data-modal-overlay="true"
       data-modal-layer={layer}
-      style={{ background: "rgba(27,34,48,.34)", zIndex: 700 }}
+      style={{ background: "var(--surface-modal-scrim)", zIndex: 700 }}
       onClick={(event) => {
         if (event.target === event.currentTarget) event.stopPropagation();
         if (

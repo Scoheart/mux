@@ -227,14 +227,16 @@ export function AgentView({
     return (
       <div className="mux-agent-page">
         <div className="mux-agent-shell">
-          <AgentHeader agent={agent} tone="reference" />
-          <div className="mux-agent-reference">
-            <strong>{agent.note ?? "未提供可写的用户级全局配置。"}</strong>
-            <span>
-              {agent.category} · {agent.evidence === "community-extension" ? "社区扩展" : "公开来源"}
-              {agent.verified_at ? ` · ${agent.verified_at}` : ""}
-            </span>
-          </div>
+          <section className="mux-agent-context" aria-label={`${agent.name} 参考信息`}>
+            <AgentHeader agent={agent} tone="reference" />
+            <div className="mux-agent-reference">
+              <strong>{agent.note ?? "未提供可写的用户级全局配置。"}</strong>
+              <span>
+                {agent.category} · {agent.evidence === "community-extension" ? "社区扩展" : "公开来源"}
+                {agent.verified_at ? ` · ${agent.verified_at}` : ""}
+              </span>
+            </div>
+          </section>
         </div>
       </div>
     );

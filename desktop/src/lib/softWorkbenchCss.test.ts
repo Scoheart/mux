@@ -72,6 +72,25 @@ it("separates interactive controls from nested preview content", () => {
   expect(declarations(".mux-skill-preview")).toMatch(/background:\s*var\(--surface-item\)/);
 });
 
+it("keeps passive metadata labels compact without shrinking interactive controls", () => {
+  expect(ui).toMatch(/className="mux-badge"/);
+  expect(ui).toMatch(/className="mux-transport-pill"/);
+
+  const labelFrame = declarations(":where(.mux-badge, .mux-transport-pill)");
+  const badge = declarations(".mux-badge");
+  const transport = declarations(".mux-transport-pill");
+  const risk = declarations(".mux-skill-risk-badge");
+  for (const label of [labelFrame, risk]) {
+    expect(label).toMatch(/height:\s*18px/);
+    expect(label).toMatch(/padding:\s*0 6px/);
+    expect(label).toMatch(/border-radius:\s*5px/);
+  }
+  expect(badge).toMatch(/font-size:\s*10px/);
+  expect(transport).toMatch(/font:\s*650 9px\/1 var\(--font-mono\)/);
+  expect(declarations(".mux-resource-tab")).toMatch(/height:\s*32px/);
+  expect(declarations(".mux-icon-btn")).toMatch(/width:\s*30px; height:\s*30px/);
+});
+
 it("groups Agent identity and paths in one context region", () => {
   expect(agentView).toMatch(/className="mux-agent-context"/);
   expect(agentView).toMatch(/<section className="mux-agent-context"[^>]*>[\s\S]*?<AgentHeader agent=\{agent\} tone="reference" \/>/);

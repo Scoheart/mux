@@ -226,6 +226,36 @@ body {
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--status-shadowed) 16%, transparent);
 }
 
+/* Passive metadata stays subordinate to titles; interactive chips keep their larger hit targets. */
+:where(.mux-badge, .mux-transport-pill) {
+  display: inline-flex;
+  height: 18px;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 3px;
+  padding: 0 6px;
+  border-radius: 5px;
+  white-space: nowrap;
+}
+.mux-badge {
+  font-size: 10px;
+  font-weight: 620;
+  line-height: 1;
+}
+.mux-badge svg { width: 10px; height: 10px; flex: 0 0 auto; }
+.mux-transport-pill {
+  background: var(--color-gray-150);
+  color: var(--color-gray-600);
+  font: 650 9px/1 var(--font-mono);
+  letter-spacing: .035em;
+  text-transform: uppercase;
+}
+.mux-transport-pill[data-compact="true"] {
+  height: 16px;
+  padding: 0 5px;
+  font-size: 9px;
+}
+
 /* Shadow state is exceptional: normal cards need no repeated status chrome. */
 .mux-state-badge {
   display: inline-flex;
@@ -628,7 +658,7 @@ body {
   min-width: 0; grid-area: configuration; padding: 0; overflow: hidden; border: 0; border-radius: 0;
   background: transparent; color: var(--text-secondary); font-size: 10px; line-height: 1.4;
 }
-.mux-resource-card-state { display: flex; min-width: 0; grid-area: state; flex-wrap: wrap; align-items: center; gap: 5px; }
+.mux-resource-card-state { display: flex; min-width: 0; grid-area: state; flex-wrap: wrap; align-items: center; gap: 4px; }
 .mux-resource-card-impact {
   display: flex; min-width: 0; min-height: 24px; grid-area: impact; align-items: center; margin: 0; padding: 0;
   border: 0;
@@ -823,11 +853,11 @@ body {
 .mux-skill-card-provenance > span:last-child {
   grid-column: 1 / -1; color: var(--text-primary); font: 9px/1.4 var(--font-mono);
 }
-.mux-skill-card-status { display: flex; min-width: 0; flex-wrap: wrap; align-items: center; gap: 5px; }
+.mux-skill-card-status { display: flex; min-width: 0; flex-wrap: wrap; align-items: center; gap: 4px; }
 .mux-skill-risk-badge {
-  display: inline-flex; min-height: 20px; flex: 0 0 auto; align-items: center; padding: 3px 7px;
-  border: 0; border-radius: 999px; background: var(--surface-quiet);
-  color: var(--text-secondary); font-size: 9px; font-weight: 680; line-height: 1.2;
+  display: inline-flex; height: 18px; min-height: 18px; flex: 0 0 auto; align-items: center; padding: 0 6px;
+  border: 0; border-radius: 5px; background: var(--surface-quiet);
+  color: var(--text-secondary); font-size: 10px; font-weight: 650; line-height: 1;
 }
 .mux-skill-risk-badge[data-level="low"] {
   background: var(--surface-success);
@@ -871,7 +901,7 @@ body {
   background: color-mix(in srgb, var(--color-red) 7%, var(--surface-raised));
 }
 .mux-skill-inspector-badges,
-.mux-skill-inspector-state-list { display: flex; min-width: 0; flex-wrap: wrap; align-items: center; gap: 5px; }
+.mux-skill-inspector-state-list { display: flex; min-width: 0; flex-wrap: wrap; align-items: center; gap: 4px; }
 .mux-skill-inspector-description { margin: 0 0 18px; color: var(--text-secondary); font-size: 12px; line-height: 1.55; }
 .mux-skill-inspector-findings { min-width: 0; margin-top: 10px; }
 .mux-skill-inspector-findings > p,
@@ -1220,7 +1250,7 @@ body {
 }
 .mux-model-card-endpoint-label { color: var(--text-secondary); font-size: 9px; font-weight: 650; }
 .mux-model-card-endpoint code { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-primary); font: 9px/1 var(--font-mono); }
-.mux-credential-mark { display: inline-flex; width: 18px; height: 18px; flex: 0 0 auto; align-items: center; justify-content: center; border-radius: 5px; background: color-mix(in srgb, var(--color-green) 13%, transparent); color: #228B55; }
+.mux-credential-mark { display: inline-flex; width: 16px; height: 16px; flex: 0 0 auto; align-items: center; justify-content: center; border-radius: 4px; background: color-mix(in srgb, var(--color-green) 13%, transparent); color: #228B55; }
 .mux-status-ok { color: #228B55; }
 .mux-status-muted { color: var(--text-secondary); }
 /* Agent configuration center */
@@ -1317,7 +1347,7 @@ body {
   font-size: 10px; line-height: 1.4; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
 }
 .mux-agent-skill-badges {
-  display: flex; flex: 0 0 auto; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 5px;
+  display: flex; flex: 0 0 auto; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 4px;
 }
 .mux-agent-skill-reality {
   display: block; margin-top: 8px; color: var(--text-primary); font-size: 10px; font-weight: 630;
@@ -1465,8 +1495,8 @@ body {
 .mux-consumption-external span { display: block; }
 .mux-consumption-external strong { color: var(--text-primary); font-size: 10px; }
 .mux-consumption-external span { margin-top: 4px; color: var(--text-secondary); font-size: 9px; line-height: 1.4; }
-.mux-consumption-external ul { display: flex; margin: 0; padding: 0; gap: 5px; list-style: none; }
-.mux-consumption-external li { padding: 5px 8px; border-radius: 8px; background: var(--surface-control); color: var(--text-secondary); font: 9px/1.35 var(--font-mono); }
+.mux-consumption-external ul { display: flex; margin: 0; padding: 0; gap: 4px; list-style: none; }
+.mux-consumption-external li { padding: 3px 6px; border-radius: 6px; background: var(--surface-control); color: var(--text-secondary); font: 9px/1.35 var(--font-mono); }
 .mux-consumption-external li small { display: block; margin-top: 2px; color: var(--color-brand-gold); font: 8px/1.3 var(--font-sans); }
 .mux-consumption-picker-check { display: inline-flex; width: 20px; height: 20px; flex: 0 0 20px; align-items: center; justify-content: center; border: 1px solid var(--border-hairline); border-radius: 5px; color: white; font-size: 11px; }
 .mux-consumption-picker-option[data-selected="true"] .mux-consumption-picker-check { border-color: var(--color-blue); background: var(--color-blue); }

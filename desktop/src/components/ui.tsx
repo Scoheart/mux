@@ -58,7 +58,7 @@ export function Badge({
   const c = TONE[tone];
   return (
     <span
-      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium whitespace-nowrap"
+      className="mux-badge"
       style={{ background: c.bg, color: c.fg }}
     >
       {icon}
@@ -462,10 +462,8 @@ export function TransportPill({ entry, compact }: { entry: RegistryEntry; compac
   return (
     <span
       title={full}
-      className={`inline-flex items-center text-[10px] font-medium uppercase tracking-wide whitespace-nowrap flex-shrink-0 ${
-        compact ? "px-1.5 py-0.5 rounded" : "px-2.5 py-1 rounded-full"
-      }`}
-      style={{ background: "var(--color-gray-150)", color: "var(--color-gray-600)", fontFamily: "var(--font-mono)" }}
+      className="mux-transport-pill"
+      data-compact={compact ? "true" : undefined}
     >
       {label}
     </span>

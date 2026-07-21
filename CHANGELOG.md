@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.18](https://github.com/Scoheart/mux/compare/v1.8.17...v1.8.18) (2026-07-21)
+
+### Changes
+
+* feat(ui): simplify central asset cards ([d393457](https://github.com/Scoheart/mux/commit/d393457d92504e5be7fc29c6f644e8fb915f5143))
+
 ## [1.8.17](https://github.com/Scoheart/mux/compare/v1.8.16...v1.8.17) (2026-07-21)
 
 ### Changes

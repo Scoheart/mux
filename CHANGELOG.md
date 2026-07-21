@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.20](https://github.com/Scoheart/mux/compare/v1.8.19...v1.8.20) (2026-07-21)
+
+### Changes
+
+* fix(ui): remove skill revision from cards ([c6bc8ff](https://github.com/Scoheart/mux/commit/c6bc8ff8ac1733dc1536b91052d40dcbb97a2bdb))
+
 ## [1.8.19](https://github.com/Scoheart/mux/compare/v1.8.18...v1.8.19) (2026-07-21)
 
 ### Changes

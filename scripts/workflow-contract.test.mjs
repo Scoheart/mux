@@ -166,25 +166,37 @@ test("direct stable mode turns one current main push into one Draft release", as
 
 test("Fast Lane is exactly ten days and restores only main protection", async () => {
   const config = JSON.parse(await read(".github/fast-lane.json"));
-  const workflow = await read(".github/workflows/fast-lane-expiry.yml");
+  const expiry = await read(".github/workflows/fast-lane-expiry.yml");
+  const direct = await read(".github/workflows/direct-stable-release.yml");
+  const releasePlease = await read(".github/workflows/release-please.yml");
 
   assert.equal(config.mode, "direct-main-stable");
+  assert.equal(config.skip_stable_quality_gate, true);
   assert.equal(config.main_ruleset_id, 19114218);
   assert.equal(
     Date.parse(config.ends_at) - Date.parse(config.starts_at),
     10 * 24 * 60 * 60 * 1000,
   );
-  assert.match(workflow, /cron:\s*"17 \* \* \* \*"/);
-  assert.match(workflow, /cron:\s*"27 8 30 7 \*"/);
-  assert.match(workflow, /secrets\.MUX_RULESET_ADMIN_TOKEN/);
-  assert.match(workflow, /vars\.MUX_MAIN_RULESET_ID/);
-  assert.match(workflow, /retry_until_epoch="\$\(\(until_epoch \+ 24 \* 60 \* 60\)\)"/);
-  assert.match(workflow, /now_epoch[^\n]+-lt "\$retry_until_epoch"/);
-  assert.match(workflow, /enforcement:"active"/);
-  assert.match(workflow, /--method PUT/);
-  assert.match(workflow, /Fast Lane expired but main protection was not restored/);
-  assert.doesNotMatch(workflow, /MUX immutable stable tags/);
-  assert.doesNotMatch(workflow, /19114220/);
+  assert.match(expiry, /cron:\s*"17 \* \* \* \*"/);
+  assert.match(expiry, /cron:\s*"27 8 30 7 \*"/);
+  assert.match(expiry, /secrets\.MUX_RULESET_ADMIN_TOKEN/);
+  assert.match(expiry, /vars\.MUX_MAIN_RULESET_ID/);
+  assert.match(expiry, /actions\/checkout@[0-9a-f]{40}/);
+  assert.match(expiry, /configured_until=.*\.ends_at/);
+  assert.match(expiry, /configured_ruleset_id=.*\.main_ruleset_id/);
+  assert.match(expiry, /MAIN_RULESET_ID=\$configured_ruleset_id.*GITHUB_ENV/);
+  assert.match(expiry, /date -u -d "\$configured_until"/);
+  assert.match(expiry, /retry_until_epoch="\$\(\(until_epoch \+ 24 \* 60 \* 60\)\)"/);
+  assert.match(expiry, /now_epoch[^\n]+-lt "\$retry_until_epoch"/);
+  assert.match(expiry, /enforcement:"active"/);
+  assert.match(expiry, /--method PUT/);
+  assert.match(expiry, /Fast Lane expired but main protection was not restored/);
+  assert.doesNotMatch(expiry, /MUX immutable stable tags/);
+  assert.doesNotMatch(expiry, /19114220/);
+  for (const workflow of [direct, releasePlease]) {
+    assert.match(workflow, /configured_end=.*\.ends_at/);
+    assert.match(workflow, /FAST_LANE_UNTIL" == "\$configured_end/);
+  }
 });
 
 test("desktop workflow classifies and gates both publication channels", async () => {
@@ -200,13 +212,42 @@ test("desktop workflow classifies and gates both publication channels", async ()
   assert.match(workflow, /--before "\$before_version" --after "\$version" --title "\$title"/);
   assert.match(workflow, /direct-main-stable/);
   assert.match(workflow, /vars\.MUX_FAST_LANE_UNTIL/);
-  assert.match(workflow, /direct_stable[\s\S]{0,120}mode=skip/);
+  assert.match(workflow, /configured_quality_bypass/);
+  assert.match(workflow, /FAST_LANE_UNTIL.*configured_end/);
+  assert.match(workflow, /fast_lane_active[\s\S]{0,120}mode=skip/);
+  assert.match(
+    workflow,
+    /EVENT_NAME" == push && "\$REF" == refs\/tags\/\* && "\$mode" == stable && "\$quality_bypass_active" == true/,
+  );
+  assert.match(workflow, /expected_title="chore\(main\): release \$version"/);
+  assert.match(workflow, /compare\/\$COMMIT_SHA\.\.\.main/);
+  assert.match(workflow, /\.target_commitish == \$sha/);
+  assert.match(workflow, /"\$draft_matches" == 1/);
   const setupNodeReferences = [
     ...workflow.matchAll(/actions\/setup-node@([0-9a-f]{40})/g),
   ].map((match) => match[1]);
   assert.ok(setupNodeReferences.length >= 2);
   assert.equal(new Set(setupNodeReferences).size, 1);
   assert.match(workflow, /wait-for-verify\.sh/);
+  assert.match(
+    workflow,
+    /Enforce the Stable Quality policy at publication time[\s\S]*BYPASS_REQUESTED[\s\S]*FAST_LANE_UNTIL[\s\S]*configured_end[\s\S]*now_epoch[\s\S]*wait-for-verify\.sh/,
+  );
+  const stablePolicy = workflow.match(
+    /- name: Enforce the Stable Quality policy at publication time([\s\S]*?)- name: Complete and publish stable Draft/,
+  );
+  assert.ok(stablePolicy);
+  assert.match(stablePolicy[1], /BYPASS_REQUESTED" != true/);
+  assert.ok(
+    stablePolicy[1].indexOf('BYPASS_REQUESTED" != true') <
+      stablePolicy[1].indexOf("configured_end=$(jq"),
+  );
+  assert.match(stablePolicy[1], /Date\.parse\(process\.argv\[1\]\)/);
+  assert.doesNotMatch(stablePolicy[1], /date -u -d/);
+  assert.ok(
+    workflow.indexOf("Enforce the Stable Quality policy at publication time") <
+      workflow.indexOf("Complete and publish stable Draft"),
+  );
   assert.match(workflow, /publish-release-assets\.sh/);
   assert.match(workflow, /gh release create/);
   assert.match(workflow, /source_ref:\s*\$\{\{ steps\.classify\.outputs\.source_ref \}\}/);
@@ -227,6 +268,24 @@ test("desktop workflow classifies and gates both publication channels", async ()
   assert.ok(stable, "missing bounded Stable section");
   assert.match(stable[1], /publish-release-assets\.sh/);
   assert.doesNotMatch(stable[1], /gh release create/);
+});
+
+test("desktop release packaging reuses the CLI already built for the sidecar", async () => {
+  const workflow = await read(".github/workflows/build-desktop.yml");
+  const sidecar = await read("desktop/scripts/prepare-sidecar.sh");
+  const publisher = await read(".github/scripts/publish-release-assets.sh");
+
+  assert.match(sidecar, /cargo build --release --locked -p mux-cli/);
+  assert.match(sidecar, /\.\.\/target\/release\/mux/);
+  assert.doesNotMatch(workflow, /cargo build --release -p mux-cli/);
+  assert.match(workflow, /CLI=target\/release\/mux/);
+  assert.match(workflow, /tar -C target\/release/);
+  assert.match(workflow, /desktop\/src-tauri -> target/);
+  assert.match(workflow, /^\s+\. -> target$/m);
+  assert.match(workflow, /tauri build -- --bundles app,dmg -- --locked/);
+  assert.match(publisher, /make_latest=legacy/);
+  assert.match(publisher, /releases\/latest/);
+  assert.match(publisher, /sort_by\(\.tag_name/);
 });
 
 test("every repository Action uses an immutable commit", async () => {

@@ -49,14 +49,16 @@ asset_json() {
 }
 
 release_json() {
-  local draft=$1 assets=$2
-  jq -n --arg tag "v1.2.18" --argjson draft "$draft" --argjson assets "$assets" \
-    '{id:99,tag_name:$tag,draft:$draft,prerelease:false,assets:$assets}'
+  local id=$1 tag=$2 draft=$3 assets=$4
+  jq -n --argjson id "$id" --arg tag "$tag" --argjson draft "$draft" --argjson assets "$assets" \
+    '{id:$id,tag_name:$tag,draft:$draft,prerelease:false,assets:$assets}'
 }
 
 current_release() {
+  draft=true
+  [[ -f "$FAKE_STATE/published" ]] && draft=false
   case "$FAKE_SCENARIO" in
-    publish-no-draft) release_json false '[]' ;;
+    publish-no-draft) release_json 99 v1.2.18 false '[]' ;;
     publish-missing)
       if [[ -f "$FAKE_STATE/uploaded" ]]; then
         names=()
@@ -65,21 +67,37 @@ current_release() {
         done <"$FAKE_STATE/uploaded"
         FAKE_ASSET_1=${names[0]} FAKE_ASSET_2=${names[1]} \
           FAKE_ASSET_3=${names[2]} FAKE_ASSET_4=${names[3]} \
-          release_json true "$(FAKE_ASSET_1=${names[0]} FAKE_ASSET_2=${names[1]} FAKE_ASSET_3=${names[2]} FAKE_ASSET_4=${names[3]} asset_json)"
+          release_json 99 v1.2.18 "$draft" "$(FAKE_ASSET_1=${names[0]} FAKE_ASSET_2=${names[1]} FAKE_ASSET_3=${names[2]} FAKE_ASSET_4=${names[3]} asset_json)"
       else
-        release_json true '[]'
+        release_json 99 v1.2.18 "$draft" '[]'
       fi
       ;;
-    *) release_json true "$(asset_json)" ;;
+    *) release_json 99 v1.2.18 "$draft" "$(asset_json)" ;;
   esac
+}
+
+all_releases() {
+  printf '['
+  current_release
+  if [[ "$FAKE_SCENARIO" == publish-higher ]]; then
+    printf ','
+    release_json 100 v1.2.19 false '[]'
+  fi
+  printf ']\n'
 }
 
 if [[ "$1" == api && "$2" == repos/*/commits/*/check-runs* ]]; then
   checks
 elif [[ "$1" == api && "$2" == --paginate && "$3" == --slurp && "$4" == repos/*/releases\?per_page=100 ]]; then
   printf '[['
-  current_release
+  all_releases | sed '1s/^\[//;$s/\]$//'
   printf ']]\n'
+elif [[ "$1" == api && "$2" == repos/*/releases/latest ]]; then
+  if [[ "$FAKE_SCENARIO" == publish-higher ]]; then
+    echo 'v1.2.19'
+  else
+    echo 'v1.2.18'
+  fi
 elif [[ "$1" == api && "$2" == repos/*/releases/99 ]]; then
   current_release
 elif [[ "$1" == api && "$2" == repos/*/releases/assets/* ]]; then
@@ -97,7 +115,11 @@ elif [[ "$1" == api && "$2" == --method && "$3" == PATCH && "$4" == repos/*/rele
     exit 1
   fi
 elif [[ "$1" == api && "$2" == --method && "$3" == PATCH && "$4" == repos/*/releases/* ]]; then
-  echo publish >>"$FAKE_STATE/log"
+  if [[ " $* " == *" draft=false "* ]]; then
+    [[ " $* " == *" make_latest=legacy "* ]]
+    touch "$FAKE_STATE/published"
+    echo publish >>"$FAKE_STATE/log"
+  fi
 elif [[ "$1" == release && "$2" == upload ]]; then
   : >"$FAKE_STATE/uploaded"
   shift 3
@@ -162,6 +184,7 @@ assets=(
 )
 
 : >"$FAKE_STATE/log"
+rm -f "$FAKE_STATE/published"
 FAKE_SCENARIO=publish-missing \
   bash "$ROOT/.github/scripts/publish-release-assets.sh" "$TAG" "${assets[@]}"
 [[ $(grep -c '^upload:' "$FAKE_STATE/log") -eq 4 ]]
@@ -169,14 +192,19 @@ FAKE_SCENARIO=publish-missing \
 [[ $(tail -n 1 "$FAKE_STATE/log") == publish ]]
 
 : >"$FAKE_STATE/log"
-rm -f "$FAKE_STATE/uploaded"
+rm -f "$FAKE_STATE/uploaded" "$FAKE_STATE/published"
 FAKE_SCENARIO=publish-identical \
   bash "$ROOT/.github/scripts/publish-release-assets.sh" "$TAG" "${assets[@]}"
 ! grep -q '^upload:' "$FAKE_STATE/log"
 [[ $(tail -n 1 "$FAKE_STATE/log") == publish ]]
 
+rm -f "$FAKE_STATE/published"
+FAKE_SCENARIO=publish-higher \
+  bash "$ROOT/.github/scripts/publish-release-assets.sh" "$TAG" "${assets[@]}"
+
 for scenario in publish-different publish-no-draft publish-label-failure; do
   : >"$FAKE_STATE/log"
+  rm -f "$FAKE_STATE/published"
   expect_failure env FAKE_SCENARIO="$scenario" \
     bash "$ROOT/.github/scripts/publish-release-assets.sh" "$TAG" "${assets[@]}"
   ! grep -q '^publish$' "$FAKE_STATE/log"

@@ -158,5 +158,40 @@ for index in "${!names[@]}"; do
 done
 
 gh api --method PATCH "repos/$repository/releases/$release_id" \
-  -F draft=false --silent
-echo "Published stable release $tag after verifying all assets."
+  -F draft=false -f make_latest=legacy --silent
+
+# Fast Lane builds can finish out of order. Ask GitHub to choose latest by its
+# legacy semantic-version policy, then verify that /releases/latest resolves to
+# the greatest published stable tag instead of whichever macOS job ended last.
+latest_verified=false
+for attempt in {1..5}; do
+  releases=$(gh api --paginate --slurp "repos/$repository/releases?per_page=100")
+  current_visible=$(jq -r --arg tag "$tag" '
+    [.[][] | select(.tag_name == $tag and .draft == false and .prerelease == false)] | length
+  ' <<<"$releases")
+  if [[ "$current_visible" != 1 ]]; then
+    sleep 1
+    continue
+  fi
+  expected_latest=$(jq -er '
+    [.[][] | select(
+      .draft == false and
+      .prerelease == false and
+      (.tag_name | test("^v[0-9]+\\.[0-9]+\\.[0-9]+$"))
+    )]
+    | sort_by(.tag_name | ltrimstr("v") | split(".") | map(tonumber))
+    | last.tag_name
+  ' <<<"$releases")
+  actual_latest=$(gh api "repos/$repository/releases/latest" --jq '.tag_name' 2>/dev/null || true)
+  if [[ "$actual_latest" == "$expected_latest" ]]; then
+    latest_verified=true
+    break
+  fi
+  sleep 1
+done
+[[ "$latest_verified" == true ]] || {
+  echo "latest stable release did not converge to the greatest semantic version" >&2
+  exit 1
+}
+
+echo "Published stable release $tag after verifying all assets and latest-channel ordering."

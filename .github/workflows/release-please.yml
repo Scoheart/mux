@@ -34,7 +34,10 @@ jobs:
           set -euo pipefail
           direct=false
           configured_mode=$(jq -er '.mode' .github/fast-lane.json)
-          if [[ "$configured_mode" == direct-main-stable && -n "$FAST_LANE_UNTIL" ]]; then
+          configured_end=$(jq -er '.ends_at' .github/fast-lane.json)
+          if [[ "$configured_mode" == direct-main-stable &&
+                -n "$FAST_LANE_UNTIL" &&
+                "$FAST_LANE_UNTIL" == "$configured_end" ]]; then
             until_epoch=$(date -u -d "$FAST_LANE_UNTIL" +%s)
             now_epoch=$(date -u +%s)
             if (( now_epoch < until_epoch )); then

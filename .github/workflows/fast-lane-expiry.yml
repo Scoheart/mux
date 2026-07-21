@@ -29,16 +29,27 @@ jobs:
       MAIN_RULESET_ID: ${{ vars.MUX_MAIN_RULESET_ID }}
       DRY_RUN: ${{ inputs.dry_run || 'false' }}
     steps:
+      - name: Checkout release policy
+        # actions/checkout v5.0.0
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+
       - name: Decide whether restoration is due
         id: due
         run: |
           test -n "$GH_TOKEN"
-          test -n "$FAST_LANE_UNTIL"
-          test -n "$MAIN_RULESET_ID"
           due=false
+          configured_until="$(jq -er '.ends_at' .github/fast-lane.json)"
+          configured_ruleset_id="$(jq -er '.main_ruleset_id' .github/fast-lane.json)"
+          echo "MAIN_RULESET_ID=$configured_ruleset_id" >>"$GITHUB_ENV"
           now_epoch="$(date -u +%s)"
-          until_epoch="$(date -u -d "$FAST_LANE_UNTIL" +%s)"
+          until_epoch="$(date -u -d "$configured_until" +%s)"
           retry_until_epoch="$((until_epoch + 24 * 60 * 60))"
+          if test "$FAST_LANE_UNTIL" != "$configured_until"; then
+            echo "::warning::Live Fast Lane deadline differs from committed policy; committed expiry remains authoritative."
+          fi
+          if test "$MAIN_RULESET_ID" != "$configured_ruleset_id"; then
+            echo "::warning::Live Ruleset ID differs from committed policy; committed Ruleset ID remains authoritative."
+          fi
           if test "$DRY_RUN" = "true" || { test "$now_epoch" -ge "$until_epoch" && test "$now_epoch" -lt "$retry_until_epoch"; }; then
             due=true
           fi

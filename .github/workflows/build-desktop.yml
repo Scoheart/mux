@@ -33,6 +33,7 @@ jobs:
       mode: ${{ steps.classify.outputs.mode }}
       tag: ${{ steps.classify.outputs.tag }}
       source_ref: ${{ steps.classify.outputs.source_ref }}
+      skip_stable_quality_gate: ${{ steps.classify.outputs.skip_stable_quality_gate }}
     steps:
       - name: Checkout
         # actions/checkout v5.0.0
@@ -59,6 +60,7 @@ jobs:
           RUN_NUMBER: ${{ github.run_number }}
           COMMIT_SHA: ${{ github.sha }}
           FAST_LANE_UNTIL: ${{ vars.MUX_FAST_LANE_UNTIL }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           STABLE_TAG_REGEX='^v[0-9]+\.[0-9]+\.[0-9]+$'
@@ -67,18 +69,27 @@ jobs:
           mode=
           tag=
           source_ref=$COMMIT_SHA
+          configured_mode=$(jq -er '.mode' .github/fast-lane.json)
+          configured_end=$(jq -er '.ends_at' .github/fast-lane.json)
+          configured_quality_bypass=$(jq -r '.skip_stable_quality_gate // false' .github/fast-lane.json)
+          fast_lane_active=false
+          quality_bypass_active=false
 
-          if [[ "$EVENT_NAME" == push && "$REF" == refs/heads/main ]]; then
-            direct_stable=false
-            configured_mode=$(jq -er '.mode' .github/fast-lane.json)
-            if [[ "$configured_mode" == direct-main-stable && -n "$FAST_LANE_UNTIL" ]]; then
-              until_epoch=$(date -u -d "$FAST_LANE_UNTIL" +%s)
-              now_epoch=$(date -u +%s)
-              if (( now_epoch < until_epoch )); then
-                direct_stable=true
+          if [[ "$configured_mode" == direct-main-stable &&
+                -n "$FAST_LANE_UNTIL" &&
+                "$FAST_LANE_UNTIL" == "$configured_end" ]]; then
+            until_epoch=$(date -u -d "$FAST_LANE_UNTIL" +%s)
+            now_epoch=$(date -u +%s)
+            if (( now_epoch < until_epoch )); then
+              fast_lane_active=true
+              if [[ "$configured_quality_bypass" == true ]]; then
+                quality_bypass_active=true
               fi
             fi
-            if [[ "$direct_stable" == true ]]; then
+          fi
+
+          if [[ "$EVENT_NAME" == push && "$REF" == refs/heads/main ]]; then
+            if [[ "$fast_lane_active" == true ]]; then
               mode=skip
             else
               before_version=$version
@@ -130,9 +141,32 @@ jobs:
             exit 1
           fi
 
+          skip_stable_quality_gate=false
+          if [[ "$EVENT_NAME" == push && "$REF" == refs/tags/* && "$mode" == stable && "$quality_bypass_active" == true ]]; then
+            expected_title="chore(main): release $version"
+            commit_title=$(git log -1 --format=%s)
+            main_relation=$(gh api "repos/$GITHUB_REPOSITORY/compare/$COMMIT_SHA...main" --jq '.status' 2>/dev/null || true)
+            releases=$(gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/releases?per_page=100" 2>/dev/null || printf '[]')
+            draft_matches=$(jq -r --arg tag "$tag" --arg sha "$COMMIT_SHA" '
+              [.[][] | select(
+                .tag_name == $tag and
+                .target_commitish == $sha and
+                .draft == true and
+                .prerelease == false
+              )] | length
+            ' <<<"$releases" 2>/dev/null || printf '0')
+            if [[ "$commit_title" == "$expected_title" &&
+                  ( "$main_relation" == identical || "$main_relation" == ahead ) &&
+                  "$draft_matches" == 1 ]]; then
+              skip_stable_quality_gate=true
+            else
+              echo "::notice::Stable tag lacks Fast Lane release provenance; exact-SHA Quality remains required."
+            fi
+          fi
           echo "mode=$mode" >>"$GITHUB_OUTPUT"
           echo "tag=$tag" >>"$GITHUB_OUTPUT"
           echo "source_ref=$source_ref" >>"$GITHUB_OUTPUT"
+          echo "skip_stable_quality_gate=$skip_stable_quality_gate" >>"$GITHUB_OUTPUT"
 
   build-dmg:
     name: Build and publish
@@ -204,7 +238,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
           rm -rf src-tauri/target/release/bundle
-          npm run tauri build -- --bundles app,dmg
+          npm run tauri build -- --bundles app,dmg -- --locked
 
       - name: Verify macOS release artifacts
         shell: bash
@@ -251,7 +285,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cargo build --release -p mux-cli
+          CLI=target/release/mux
+          EXPECTED=$(tr -d '[:space:]' <version.txt)
+          test -x "$CLI"
+          test "$("$CLI" --version)" = "mux $EXPECTED"
           case "$(uname -m)" in
             arm64|aarch64) TRIPLE=aarch64-apple-darwin ;;
             x86_64) TRIPLE=x86_64-apple-darwin ;;
@@ -277,7 +314,8 @@ jobs:
           echo "path=$DEST" >>"$GITHUB_OUTPUT"
           echo "arch_label=$ARCH_LABEL" >>"$GITHUB_OUTPUT"
 
-      - name: Wait for exact commit verification
+      - name: Wait for exact commit verification before Pre-release
+        if: ${{ needs.classify.outputs.mode == 'prerelease' }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: bash .github/scripts/wait-for-verify.sh "$GITHUB_REPOSITORY" "${{ steps.source.outputs.sha }}"
@@ -351,6 +389,36 @@ jobs:
           EOF
           jq -e . latest.json >/dev/null
           echo "asset=$ASSET" >>"$GITHUB_OUTPUT"
+
+      - name: Enforce the Stable Quality policy at publication time
+        if: ${{ needs.classify.outputs.mode == 'stable' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BYPASS_REQUESTED: ${{ needs.classify.outputs.skip_stable_quality_gate }}
+          FAST_LANE_UNTIL: ${{ vars.MUX_FAST_LANE_UNTIL }}
+          SOURCE_SHA: ${{ steps.source.outputs.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$BYPASS_REQUESTED" != true ]]; then
+            bash .github/scripts/wait-for-verify.sh "$GITHUB_REPOSITORY" "$SOURCE_SHA"
+            exit 0
+          fi
+          configured_end=$(jq -er '.ends_at' .github/fast-lane.json)
+          configured_bypass=$(jq -r '.skip_stable_quality_gate // false' .github/fast-lane.json)
+          now_epoch=$(date -u +%s)
+          end_epoch=$(node -e '
+            const value = Date.parse(process.argv[1]);
+            if (!Number.isFinite(value)) process.exit(1);
+            console.log(Math.floor(value / 1000));
+          ' "$configured_end")
+          if [[ "$configured_bypass" == true &&
+                "$FAST_LANE_UNTIL" == "$configured_end" ]] &&
+             (( now_epoch < end_epoch )); then
+            echo "::notice::Fast Lane Stable publication is not waiting for the asynchronous Quality monitor."
+          else
+            bash .github/scripts/wait-for-verify.sh "$GITHUB_REPOSITORY" "$SOURCE_SHA"
+          fi
 
       - name: Complete and publish stable Draft
         if: ${{ needs.classify.outputs.mode == 'stable' }}

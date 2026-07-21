@@ -37,8 +37,11 @@ jobs:
           set -euo pipefail
           active=false
           configured_mode=$(jq -er '.mode' .github/fast-lane.json)
+          configured_end=$(jq -er '.ends_at' .github/fast-lane.json)
           commit_title=$(git log -1 --format=%s)
-          if [[ "$configured_mode" == direct-main-stable && -n "$FAST_LANE_UNTIL" ]]; then
+          if [[ "$configured_mode" == direct-main-stable &&
+                -n "$FAST_LANE_UNTIL" &&
+                "$FAST_LANE_UNTIL" == "$configured_end" ]]; then
             until_epoch=$(date -u -d "$FAST_LANE_UNTIL" +%s)
             now_epoch=$(date -u +%s)
             if (( now_epoch < until_epoch )) && [[ "$commit_title" != "chore(main): release "* ]]; then

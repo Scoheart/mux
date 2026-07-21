@@ -34,10 +34,10 @@
 
 在本独立仓执行 status、commit、tag 和 push；父仓不得跟踪其内部文件。提交使用 `<type>(<scope>): <summary>` 并在 body 解释原因。不要提交 `target/`、`dist/`、临时 App、截图或本机配置。
 
-- 临时 Fast Lane：`2026-07-20T08:27:23Z` 至 `2026-07-30T08:27:23Z` 允许直接向 `main` 开发；期间普通 `main` push 不创建 Pre-release 或 Release PR，而由 `direct-stable-release.yml` 在确认该 push 仍是当前 head 后自动递增 patch、提交 release metadata，并创建不可变 Stable tag 与 Draft。现有 Desktop workflow 仍须等待该 release commit 的 `verify`，并完成签名与资产校验后才能发布 Draft。到期自动恢复 `MUX main delivery` Ruleset 和下述标准 PR/人工批准正式发布流程；Stable tag 不可变规则与所有质量校验始终不变。权威期限记录在 `.github/fast-lane.json`。
+- 临时 Fast Lane：`2026-07-20T08:27:23Z` 至 `2026-07-30T08:27:23Z` 允许直接向 `main` 开发；期间普通 `main` push 不创建 Pre-release 或 Release PR，而由 `direct-stable-release.yml` 在确认该 push 仍是当前 head 后自动递增 patch、提交 release metadata，并创建不可变 Stable tag 与 Draft。为支持快速迭代，只有能核对 release commit、main ancestry 与唯一 Draft 的原始 Stable tag push 不等待 exact-SHA `verify`；Quality monitor 继续异步验证当前 main，快速连续 push 可以取消已被取代的 run，本地按改动范围验证仍是提交前门禁。正式构建仍必须核对版本、签名、App/DMG、Updater、CLI、完整资产集合和 latest 语义版本顺序后才能发布 Draft。所有 workflow 同时对账 committed 与 live deadline，到期后 bypass 自动失效，并恢复 `MUX main delivery` Ruleset 和标准 PR/人工批准正式发布流程；Stable tag 不可变规则始终不变。权威期限与临时开关记录在 `.github/fast-lane.json`。
 - 用户已授权在上述 Fast Lane 截止时间前，将其明确要求且已完成验证的 MUX 改造直接提交 `main` 并自动发布 Stable，不再逐次请求发布确认；用户明确要求暂不发布时停止。该限时授权不覆盖无关改动、Ruleset/Secret 变更、Stable tag 人工操作或 `/Applications/MUX.app` 替换，过期即失效。
 - 普通功能改动通过 PR 进入 `main`；`main` 的普通合并生成 Pre-release，并更新唯一一个 Release Please PR。功能 PR 不直接修改 `version.txt`、release-owned manifest 或 lockfile 版本。
 - npm lockfile 只能由 `release-version.mjs refresh-locks` 在无项目 `node_modules` 的临时目录生成；`check` 的 portable dependency closure 失败时不能绕过或手工补 JSON。完整 lock 在 Release PR 中只更新版本元数据，不重新解析依赖。
-- 只有用户明确批准并合并 `chore(main): release X.Y.Z` Release PR 才进入 Stable 路径。Release Please 创建不可移动的 `vX.Y.Z` tag 和 Draft Release；Desktop workflow 只在相同 SHA 的 `verify` 成功且签名资产完整后发布 Draft。
+- 只有用户明确批准并合并 `chore(main): release X.Y.Z` Release PR 才进入标准 Stable 路径。Release Please 创建不可移动的 `vX.Y.Z` tag 和 Draft Release；除上述限时 Fast Lane bypass 外，Desktop workflow 只在相同 SHA 的 `verify` 成功且签名资产完整后发布 Draft。
 - 不手工创建、移动或覆盖 Stable tag，不直接发布 Draft，不以 `--clobber` 修复正式资产。发布缺陷使用新的 patch Release PR。
 - `RELEASE_PLEASE_TOKEN`、`MUX_RULESET_ADMIN_TOKEN`、`COPILOT_PAT` 与 Tauri 签名材料只存在于 GitHub Secrets，不进入日志、fixture、文档或仓库。除上述限时自动发布授权外，Ruleset 激活、Release PR 合并、正式发布和安装版替换均需当次明确授权。

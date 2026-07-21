@@ -34,6 +34,7 @@
   --surface-navigation: #EDF1F5;
   --surface-workspace: #FAFBFD;
   --surface-section: #E9EEF4;
+  --surface-asset: #FFFFFF;
   --surface-item: #F1F4F8;
   --surface-control: #FFFFFF;
   --surface-selected: #DDEBFF;
@@ -90,6 +91,7 @@
   --surface-navigation: #151B22;
   --surface-workspace: #1A2027;
   --surface-section: #222A33;
+  --surface-asset: #2C3641;
   --surface-item: #202730;
   --surface-control: #29323C;
   --surface-selected: #17416F;
@@ -593,7 +595,7 @@ body {
 .mux-resource-grid {
   display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
   align-items: stretch; gap: 6px; width: min(100%, 1280px); margin: 0 auto; padding: 6px;
-  border: 0; border-radius: var(--radius-region); background: var(--surface-section);
+  border: 0; border-radius: var(--radius-region); background: var(--surface-section); box-shadow: none;
 }
 .mux-resource-grid .mux-tile { min-height: 104px; }
 .mux-resource-card {
@@ -602,12 +604,18 @@ body {
   grid-template-areas: "identity" "configuration" "state" "impact";
   align-content: center; align-items: start; gap: 6px; padding: 10px 11px; overflow: hidden;
   border: 0; border-radius: var(--radius-row);
-  background: transparent; box-shadow: none;
+  background: var(--surface-asset); box-shadow: none;
   color: var(--text-primary); cursor: pointer; transition: background-color .12s ease;
 }
-.mux-resource-card:hover { background: color-mix(in srgb, var(--surface-selected) 55%, var(--surface-section)); box-shadow: none; transform: none; }
+.mux-resource-card:hover { background: color-mix(in srgb, var(--surface-selected) 38%, var(--surface-asset)); box-shadow: none; transform: none; }
 .mux-resource-card:focus-visible { outline: 2px solid color-mix(in srgb, var(--color-blue) 58%, transparent); outline-offset: 2px; }
 .mux-resource-card[data-selected="true"] { background: var(--surface-selected); box-shadow: none; }
+.mux-resource-card[data-attention="warning"]:not([data-selected="true"]) { background: color-mix(in srgb, var(--color-brand-gold) 12%, var(--surface-asset)); }
+.mux-resource-card[data-attention="warning"]:not([data-selected="true"]):hover { background: color-mix(in srgb, var(--color-brand-gold) 18%, var(--surface-asset)); }
+.mux-resource-card[data-attention="danger"]:not([data-selected="true"]) { background: color-mix(in srgb, var(--color-red) 10%, var(--surface-asset)); }
+.mux-resource-card[data-attention="danger"]:not([data-selected="true"]):hover { background: color-mix(in srgb, var(--color-red) 16%, var(--surface-asset)); }
+.mux-resource-card[data-attention="shadowed"]:not([data-selected="true"]) { background: var(--status-shadowed-surface); }
+.mux-resource-card[data-attention="shadowed"]:not([data-selected="true"]):hover { background: var(--status-shadowed-surface-hover); }
 .mux-resource-card[data-attention]::before {
   position: absolute; top: 9px; right: 9px; display: inline-flex; width: 16px; height: 16px; align-items: center; justify-content: center;
   border-radius: 50%; background: var(--surface-control); color: var(--text-secondary); content: "!"; font-size: 10px; font-weight: 760;
@@ -1391,24 +1399,26 @@ body {
 .mux-consumption-list {
   display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
   margin: 0; padding: 6px; gap: 6px; list-style: none;
-  border: 0; border-radius: var(--radius-region); background: var(--surface-section);
+  border: 0; border-radius: var(--radius-region); background: var(--surface-section); box-shadow: none;
 }
 .mux-consumption-list > li {
   display: grid; min-width: 0; min-height: 58px;
   grid-template-columns: 32px minmax(0, 1fr) auto auto;
   align-items: center; gap: 8px; padding: 8px 10px;
   border: 0; border-radius: var(--radius-row);
-  background: transparent;
+  background: var(--surface-asset); box-shadow: none;
   transition: background-color .14s ease;
 }
-.mux-consumption-list > li:hover { background: color-mix(in srgb, var(--surface-selected) 55%, var(--surface-section)); }
-.mux-consumption-list > li[data-enabled="false"] { background: transparent; }
+.mux-consumption-list > li:hover { background: color-mix(in srgb, var(--surface-selected) 38%, var(--surface-asset)); }
+.mux-consumption-list > li[data-enabled="false"] { background: color-mix(in srgb, var(--surface-asset) 68%, var(--surface-section)); }
 .mux-consumption-list > li[data-enabled="false"] .mux-consumption-icon,
 .mux-consumption-list > li[data-enabled="false"] .mux-consumption-copy { opacity: .48; }
-.mux-consumption-list > li[data-status="drifted"],
-.mux-consumption-list > li[data-status="conflicted"] {
-  background: var(--surface-attention);
-}
+.mux-consumption-list > li[data-status="drifted"] { background: var(--surface-attention); }
+.mux-consumption-list > li[data-status="drifted"]:hover { background: color-mix(in srgb, var(--surface-selected) 18%, var(--surface-attention)); }
+.mux-consumption-list > li[data-status="conflicted"],
+.mux-consumption-list > li[data-status="unsupported"] { background: color-mix(in srgb, var(--color-red) 11%, var(--surface-asset)); }
+.mux-consumption-list > li[data-status="conflicted"]:hover,
+.mux-consumption-list > li[data-status="unsupported"]:hover { background: color-mix(in srgb, var(--color-red) 17%, var(--surface-asset)); }
 .mux-consumption-icon { display: inline-flex; width: 30px; height: 30px; align-items: center; justify-content: center; border-radius: var(--radius-control); background: var(--surface-control); color: var(--color-blue); }
 .mux-consumption-copy { display: block; min-width: 0; }
 .mux-consumption-title { display: flex; min-width: 0; align-items: center; gap: 6px; }

@@ -18,14 +18,18 @@ function declarations(selector: string): string {
 
 it("defines role-based Soft Workbench surfaces and radius hierarchy", () => {
   const root = declarations(":root");
+  const dark = declarations(".dark");
   expect(root).toMatch(/--surface-frame:\s*#E3E9F0/);
   expect(root).toMatch(/--surface-navigation:\s*#EDF1F5/);
   expect(root).toMatch(/--surface-workspace:\s*#FAFBFD/);
   expect(root).toMatch(/--surface-section:\s*#E9EEF4/);
+  expect(root).toMatch(/--surface-asset:\s*#FFFFFF/);
   expect(root).toMatch(/--surface-item:\s*#F1F4F8/);
   expect(root).toMatch(/--surface-control:\s*#FFFFFF/);
   expect(root).toMatch(/--surface-selected:\s*#DDEBFF/);
   expect(root).toMatch(/--surface-modal-scrim:\s*rgba\(27, 34, 48, \.34\)/);
+  expect(dark).toMatch(/--surface-section:\s*#222A33/);
+  expect(dark).toMatch(/--surface-asset:\s*#2C3641/);
   expect(root).toMatch(/--radius-canvas:\s*22px/);
   expect(root).toMatch(/--radius-region:\s*18px/);
   expect(root).toMatch(/--radius-row:\s*14px/);
@@ -48,7 +52,7 @@ it("uses regions and row islands instead of structural divider lines", () => {
   expect(shell).toMatch(/background:\s*var\(--surface-frame\)/);
   expect(sidebar).toMatch(/background:\s*var\(--surface-navigation\)/);
   expect(toolbar).toMatch(/background:\s*var\(--surface-section\)/);
-  expect(row).toMatch(/background:\s*transparent/);
+  expect(row).toMatch(/background:\s*var\(--surface-asset\)/);
   expect(declarations(".mux-resource-card:hover")).toMatch(/transform:\s*none/);
 });
 
@@ -91,13 +95,20 @@ it("uses the same dense two-column asset region in central and Agent views", () 
     expect(grid).toMatch(/border:\s*0/);
     expect(grid).toMatch(/border-radius:\s*var\(--radius-region\)/);
     expect(grid).toMatch(/background:\s*var\(--surface-section\)/);
+    expect(grid).toMatch(/box-shadow:\s*none/);
   }
 
   for (const item of [centralItem, agentItem]) {
     expect(item).toMatch(/border:\s*0/);
     expect(item).toMatch(/border-radius:\s*var\(--radius-row\)/);
-    expect(item).toMatch(/background:\s*transparent/);
+    expect(item).toMatch(/background:\s*var\(--surface-asset\)/);
+    expect(item).toMatch(/box-shadow:\s*none/);
   }
+  expect(declarations(".mux-consumption-list > li[data-enabled=\"false\"]")).toMatch(
+    /background:\s*color-mix\(in srgb,\s*var\(--surface-asset\) 68%,\s*var\(--surface-section\)\)/,
+  );
+  expect(declarations(".mux-resource-card:hover")).toMatch(/var\(--surface-asset\)/);
+  expect(declarations(".mux-consumption-list > li:hover")).toMatch(/var\(--surface-asset\)/);
   expect(centralItem).toMatch(/grid-template-areas:\s*"identity"\s*"configuration"\s*"state"\s*"impact"/);
   expect(centralItem).toMatch(/box-shadow:\s*none/);
 

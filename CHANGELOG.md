@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.12](https://github.com/Scoheart/mux/compare/v1.8.11...v1.8.12) (2026-07-21)
+
+### Changes
+
+* style(desktop): strengthen workspace region hierarchy ([3f5bb93](https://github.com/Scoheart/mux/commit/3f5bb9372236eb71c8a9a62005b9d78fcce13a8c))
+
 ## [1.8.11](https://github.com/Scoheart/mux/compare/v1.8.10...v1.8.11) (2026-07-21)
 
 ### Changes

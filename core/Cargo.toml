@@ -1,6 +1,6 @@
 [package]
 name = "mux-core"
-version = "1.8.11"
+version = "1.8.12"
 edition = "2021"
 description = "Shared MCP config-management core for the MUX CLI and desktop app"
 

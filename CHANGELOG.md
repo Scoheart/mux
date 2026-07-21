@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.10](https://github.com/Scoheart/mux/compare/v1.8.9...v1.8.10) (2026-07-21)
+
+### Changes
+
+* feat(models): add profile migration and agent config import ([ec656a2](https://github.com/Scoheart/mux/commit/ec656a2285f03915b440af4a41b7caec89629b9c))
+
 ## [1.8.9](https://github.com/Scoheart/mux/compare/v1.8.8...v1.8.9) (2026-07-20)
 
 ### Changes

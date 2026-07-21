@@ -49,10 +49,11 @@ pub fn get_agent_adapter_for(definition: &AgentDefinition, agent_id: &str) -> Bo
     let root_defaults = definition.root_defaults.clone().unwrap_or_default();
     let list = definition.layout.as_deref() == Some("list");
     match (definition.format.as_str(), list) {
-        ("json", false) => Box::new(JsonAdapter::with_spec(
+        ("json", false) => Box::new(JsonAdapter::with_spec_and_key_path(
             &definition.key,
             codec,
             root_defaults,
+            definition.key_path,
         )),
         ("toml", false) => Box::new(TomlAdapter::with_spec(
             &definition.key,

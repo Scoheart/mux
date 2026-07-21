@@ -116,6 +116,8 @@ const VIBE_FIELDS: &[&str] = &[
     "url",
     "headers",
 ];
+const AGENTKUBE_FIELDS: &[&str] = &["transport", "command", "args", "env", "url"];
+const CHATMCP_FIELDS: &[&str] = &["type", "command", "args", "env"];
 const HEADERS_FIELD: &[&str] = &["headers"];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -142,6 +144,8 @@ pub enum Codec {
     Goose,
     Vibe,
     VtCode,
+    AgentKube,
+    ChatMcp,
     StdioOnly,
 }
 
@@ -205,6 +209,8 @@ pub fn from_name(name: Option<&str>, agent_id: &str) -> Codec {
         Some("goose") => Codec::Goose,
         Some("vibe") => Codec::Vibe,
         Some("vtcode") => Codec::VtCode,
+        Some("agentkube") => Codec::AgentKube,
+        Some("chatmcp") => Codec::ChatMcp,
         Some("server_url") => Codec::Windsurf,
         Some("url_transport") => Codec::Kimi,
         Some("stdio_only") => Codec::StdioOnly,
@@ -237,7 +243,35 @@ pub fn normalize_with_codec(codec: Codec, config: &McpConfig) -> McpConfig {
 }
 
 impl Codec {
+    /// Reject an existing entry that the Agent explicitly marks inactive. MUX
+    /// must not silently rewrite a disabled entry and present it as effective.
+    pub fn validate_existing_entry(self, value: &Value) -> Result<(), String> {
+        let object = value
+            .as_object()
+            .ok_or_else(|| "MCP entry is not an object".to_string())?;
+        match self {
+            Codec::AgentKube | Codec::VtCode => {
+                validate_active_field(object.get("enabled"), true, "enabled")?
+            }
+            Codec::ChatMcp if contains_sensitive_auth(value) => {
+                return Err(
+                    "credential-bearing ChatMCP entries are external-managed and read-only in MUX"
+                        .into(),
+                )
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+
+    pub fn validate_update(self, value: &Value, config: &McpConfig) -> Result<(), String> {
+        self.validate_existing_entry(value)?;
+        let _ = config;
+        Ok(())
+    }
+
     pub fn decode(self, value: &Value) -> Option<McpConfig> {
+        self.validate_existing_entry(value).ok()?;
         if self == Codec::Cline {
             if let Some(transport) = value.as_object().and_then(|object| object.get("transport")) {
                 return self.decode_flat(transport);
@@ -248,6 +282,20 @@ impl Codec {
 
     fn decode_flat(self, value: &Value) -> Option<McpConfig> {
         let object = value.as_object()?;
+        if self == Codec::ChatMcp {
+            let kind = match object.get("type").and_then(Value::as_str) {
+                Some("sse") => Some("sse"),
+                Some("streamable") => Some("streamable-http"),
+                _ => None,
+            };
+            if let (Some(kind), Some(url)) = (kind, object.get("command").and_then(Value::as_str)) {
+                return Some(McpConfig::Http(HttpConfig {
+                    kind: kind.into(),
+                    url: url.into(),
+                    headers: None,
+                }));
+            }
+        }
         if self == Codec::OpenCode {
             if let Some(command) = object.get("command").and_then(Value::as_array) {
                 let mut command = command.iter().map(Value::as_str);
@@ -300,18 +348,12 @@ impl Codec {
             _ => ("url", "http"),
         };
         let url = object.get(url_key).and_then(Value::as_str)?.to_string();
-        let raw_kind = object
-            .get(
-                if matches!(
-                    self,
-                    Codec::Kimi | Codec::Transport | Codec::Tabnine | Codec::Vibe
-                ) {
-                    "transport"
-                } else {
-                    "type"
-                },
-            )
-            .and_then(Value::as_str);
+        let raw_kind = match self {
+            Codec::Kimi | Codec::Transport | Codec::Tabnine | Codec::Vibe | Codec::AgentKube => {
+                object.get("transport").and_then(Value::as_str)
+            }
+            _ => object.get("type").and_then(Value::as_str),
+        };
         let kind = match (self, raw_kind) {
             (Codec::OpenCode, Some("remote")) => "http",
             (Codec::Cline, Some("streamableHttp")) => "streamable-http",
@@ -442,6 +484,21 @@ impl Codec {
                 Codec::Vibe => {
                     fields.push(("transport".into(), Value::String("stdio".into())));
                     push_stdio_fields(&mut fields, stdio, "cwd");
+                }
+                Codec::AgentKube => {
+                    reject_cwd(stdio, "Agentkube")?;
+                    fields.push(("transport".into(), Value::String("stdio".into())));
+                    fields.push(("command".into(), Value::String(stdio.command.clone())));
+                    push_optional(&mut fields, "args", &stdio.args);
+                    push_optional(&mut fields, "env", &stdio.env);
+                    defaults.push(("enabled".into(), Value::Bool(true)));
+                }
+                Codec::ChatMcp => {
+                    reject_cwd(stdio, "ChatMCP")?;
+                    fields.push(("type".into(), Value::String("stdio".into())));
+                    fields.push(("command".into(), Value::String(stdio.command.clone())));
+                    push_optional(&mut fields, "args", &stdio.args);
+                    push_optional(&mut fields, "env", &stdio.env);
                 }
                 _ => push_stdio_fields(&mut fields, stdio, "cwd"),
             },
@@ -623,6 +680,31 @@ impl Codec {
                     ));
                     push_http_fields(&mut fields, http, "url", "headers");
                 }
+                Codec::AgentKube => {
+                    if http.kind != "sse" {
+                        return Err("Agentkube accepts remote MCP servers over SSE only".into());
+                    }
+                    reject_headers(http, "Agentkube")?;
+                    fields.push(("transport".into(), Value::String("sse".into())));
+                    fields.push(("url".into(), Value::String(http.url.clone())));
+                    defaults.push(("enabled".into(), Value::Bool(true)));
+                }
+                Codec::ChatMcp => {
+                    require_http_kind(http, "ChatMCP", &["http", "streamable-http", "sse"])?;
+                    reject_headers(http, "ChatMCP")?;
+                    fields.push((
+                        "type".into(),
+                        Value::String(
+                            if http.kind == "sse" {
+                                "sse"
+                            } else {
+                                "streamable"
+                            }
+                            .into(),
+                        ),
+                    ));
+                    fields.push(("command".into(), Value::String(http.url.clone())));
+                }
                 _ => {
                     if http.kind != "http" {
                         fields.push(("type".into(), Value::String(http.kind.clone())));
@@ -660,8 +742,43 @@ impl Codec {
             Codec::Goose => GOOSE_FIELDS,
             Codec::Vibe => VIBE_FIELDS,
             Codec::VtCode => VTCODE_FIELDS,
+            Codec::AgentKube => AGENTKUBE_FIELDS,
+            Codec::ChatMcp => CHATMCP_FIELDS,
             _ => STANDARD_FIELDS,
         }
+    }
+}
+
+fn validate_active_field(
+    value: Option<&Value>,
+    active_value: bool,
+    field: &str,
+) -> Result<(), String> {
+    match value {
+        None => Ok(()),
+        Some(Value::Bool(value)) if *value == active_value => Ok(()),
+        Some(Value::Bool(_)) => Err(format!(
+            "MCP entry is disabled by '{field}'; enable it in the Agent before MUX updates it"
+        )),
+        Some(_) => Err(format!(
+            "MCP entry switch '{field}' is not a boolean; refusing to infer state"
+        )),
+    }
+}
+
+fn contains_sensitive_auth(value: &Value) -> bool {
+    match value {
+        Value::Object(object) => object.iter().any(|(key, value)| {
+            let normalized = key
+                .chars()
+                .filter(|character| character.is_ascii_alphanumeric())
+                .flat_map(char::to_lowercase)
+                .collect::<String>();
+            matches!(normalized.as_str(), "oauth" | "token" | "clientsecret")
+                || contains_sensitive_auth(value)
+        }),
+        Value::Array(values) => values.iter().any(contains_sensitive_auth),
+        _ => false,
     }
 }
 
@@ -696,6 +813,34 @@ fn string_map(value: Option<&Value>) -> Option<HashMap<String, String>> {
         .iter()
         .map(|(key, value)| Some((key.clone(), value.as_str()?.to_string())))
         .collect()
+}
+
+fn reject_cwd(config: &StdioConfig, agent: &str) -> Result<(), String> {
+    if config.cwd.is_some() {
+        return Err(format!(
+            "{agent}'s documented MCP schema does not support cwd"
+        ));
+    }
+    Ok(())
+}
+
+fn reject_headers(config: &HttpConfig, agent: &str) -> Result<(), String> {
+    if config.headers.is_some() {
+        return Err(format!(
+            "{agent}'s documented remote MCP schema does not support custom headers"
+        ));
+    }
+    Ok(())
+}
+
+fn require_http_kind(config: &HttpConfig, agent: &str, allowed: &[&str]) -> Result<(), String> {
+    if !allowed.contains(&config.kind.as_str()) {
+        return Err(format!(
+            "{agent}'s documented MCP schema does not support the '{}' transport",
+            config.kind
+        ));
+    }
+    Ok(())
 }
 
 fn nested_string_map(

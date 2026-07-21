@@ -111,6 +111,8 @@ export interface AgentDefinitionInput {
 }
 export interface AgentConfigurationInput {
   mcp_path: string;
+  /** Omitted only by legacy callers; normalized plans always include it. */
+  mcp_key?: string | null;
   model_paths: string[];
   skills_global_dir: string | null;
 }

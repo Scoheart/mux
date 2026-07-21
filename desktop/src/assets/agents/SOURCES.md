@@ -4,10 +4,12 @@ New assets are copied from official product sites, official repositories, or the
 
 | Asset | Official source |
 |---|---|
+| `agentkube.svg` | <https://agentkube.mintlify.app/favicon.svg> |
 | `amp.svg` | <https://ampcode.com/amp-mark-color.svg> |
 | `antigravity.png` | <https://antigravity.google/assets/image/antigravity-logo.png> |
 | `augment.svg` | <https://www.augmentcode.com/favicon.svg> |
 | `boltai.png` | <https://boltai.com/assets/app-icon-v4.png> |
+| `chatmcp.svg` | <https://github.com/daodao97/chatmcp/blob/main/macos/Runner/Assets.xcassets/AppIcon.appiconset/app_icon_128.png> |
 | `codebuddy-code.svg` | <https://codebuddy-1328495429.cos.accelerate.myqcloud.com/web/ide/logo.svg> |
 | `codewhale.svg` | <https://github.com/Hmbown/CodeWhale/blob/main/web/app/icon.svg> |
 | `crush.png` | <https://stuff.charm.sh/crush/charm-crush.png> |

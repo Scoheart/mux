@@ -316,6 +316,7 @@ fn model_plan_snapshots_and_writes_the_configured_override_path() {
             AgentConfigPathOverride {
                 model_paths: Some(vec!["~/.custom/codex-model.toml".into()]),
                 skills_global_dir: None,
+                ..Default::default()
             },
         )]));
     })

@@ -6,10 +6,10 @@ MUX deliberately separates client discovery from writable configuration support.
 
 | File | Purpose | Current size |
 |---|---|---:|
-| `data/agents.json` | Deep-audited definitions with product-specific paths, layouts, codecs, transports, and evidence | 42 |
-| `data/agent-catalog.json` | Discovery-only client records; unknown paths and formats always fail closed | 175 |
+| `data/agents.json` | Deep-audited definitions with product-specific MCP and/or Skills capabilities and evidence | 56 |
+| `data/agent-catalog.json` | Discovery-only client records; unknown paths and formats always fail closed | 201 |
 
-There are 23 overlapping IDs. Audited definitions override directory records, producing 194 distinct retained client records. The desktop picker intentionally shows only the 41 writable user-level targets among the 42 audited definitions; catalog-only records remain available to the core for future promotion. Devin remains read-only.
+There are 46 overlapping IDs. Audited definitions override directory records, producing 211 distinct retained Agent identities. Of the 56 audited definitions, 46 expose a writable user-level MCP target, nine are Skills-only targets, and Devin remains explicitly read-only. Catalog-only records remain available to the core for future promotion but never gain a writer by inference.
 
 ## Discovery sources
 
@@ -27,7 +27,7 @@ The broad catalog was assembled and cross-checked from:
 A catalog client is promoted into `data/agents.json` only after all of these are known:
 
 1. An official product page or official source confirms MCP client support.
-2. A user-level global config path is stable for the target platform, or the record is explicitly marked read-only.
+2. For an MCP writer, a user-level global config path is stable for the target platform; otherwise the MCP capability is explicitly read-only. A separately verified Skills-only definition does not gain an MCP writer.
 3. The top-level MCP key and map/list layout are known.
 4. Local and remote transport fields are known independently.
 5. Header, environment, working-directory, and command representations are known.
@@ -50,7 +50,7 @@ Skills support is audited separately from MCP configuration. Only definitions fr
 | `verified_at` | Date the Skills-specific evidence was last checked. |
 | `probes` | Read-only command, path, or macOS bundle checks that indicate the Agent is installed. Probe paths are evidence only and may be absolute application paths. |
 
-All preferred directories and aliases are validated before the built-in catalog is returned. The same `target_id` must always name the same path, and a physical path cannot be assigned contradictory target IDs. The audited capability-bearing ID set must be exactly Claude Code, Codex, Cursor, Gemini CLI, OpenCode, and GitHub Copilot CLI; missing or extra IDs, non-`official` evidence, blank documentation or verification dates, and empty probe lists reject the built-in catalog. Shared directories such as `~/.agents/skills` are never treated as installation evidence by themselves.
+All preferred directories and aliases are validated before the built-in catalog is returned. The same `target_id` must always name the same path, and a physical path cannot be assigned contradictory target IDs. The current audited data declares 45 Skills-capable Agents; missing definitions, evidence outside the reviewed `official` / `official-source` levels, blank documentation or verification dates, and empty probe lists reject the built-in catalog. Shared directories such as `~/.agents/skills` are never treated as installation evidence by themselves.
 
 ## Evidence levels
 
@@ -61,7 +61,7 @@ All preferred directories and aliases are validated before the built-in catalog 
 | `community-extension` | MCP support belongs to a named third-party extension, not the core product. |
 | `catalog` | Public discovery only; never writable. |
 
-Every audited definition records `verified_at`, documentation URL, supported transports, codec, and layout. The existing set was rechecked through 2026-07-15; Grok Build was verified against its newly published official source and MiniMax Code against its signed `3.0.51` application bundle on 2026-07-16.
+Every audited definition records a verification date and evidence URL; MCP-capable definitions additionally record transports, codec, and layout. The current set was rechecked through 2026-07-22; Grok Build was verified against its newly published official source and MiniMax Code against its signed `3.0.51` application bundle.
 
 ## Fail-closed rules
 

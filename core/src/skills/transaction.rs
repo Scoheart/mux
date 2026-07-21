@@ -1137,7 +1137,7 @@ fn validate_catalog_capability(
     if !valid_identity(agent_id)
         || !valid_identity(target_id)
         || docs.trim().is_empty()
-        || evidence != "official"
+        || !crate::agents::is_verified_skill_evidence(evidence)
         || verified_at.trim().is_empty()
         || probes_empty
     {

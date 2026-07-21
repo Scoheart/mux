@@ -272,6 +272,11 @@ pub struct AgentDefinition {
     pub project: Option<String>,
     pub format: String, // "json" | "toml" | "yaml"
     pub key: String,
+    /// Interpret a dotted JSON `key` as an object path instead of a literal
+    /// top-level property name. This stays opt-in so historical and custom
+    /// Agent definitions retain their original literal-key behavior.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub key_path: bool,
     pub enabled: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub builtin: Option<bool>,
@@ -300,12 +305,17 @@ pub struct AgentDefinition {
     pub identity_field: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub transports: Option<Vec<String>>,
-    /// Required top-level fields to add only when creating a new config file.
-    /// Existing values are never overwritten.
+    /// Required root fields to add when an adapter materializes its managed
+    /// capability. Existing values are never overwritten; adapters that
+    /// support nested defaults merge only missing descendants.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub root_defaults: Option<BTreeMap<String, serde_json::Value>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub skills: Option<AgentSkillsCapability>,
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 #[cfg(test)]

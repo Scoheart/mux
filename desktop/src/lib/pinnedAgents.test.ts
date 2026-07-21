@@ -57,6 +57,27 @@ it("search merges pinned and available matches without duplicates", () => {
   expect(sections.searchResults?.map(({ id }) => id)).toEqual(["claude-code", "codex"]);
 });
 
+it("includes verified Skills-only Agents but keeps catalog-only rows out", () => {
+  const skillsOnly = [
+    { ...agent("cortex-code", "Cortex Code", false), skills_global_dir: "~/.snowflake/cortex/skills" },
+    { ...agent("dirac", "Dirac", false), skills_global_dir: "~/.agents/skills" },
+    { ...agent("minion-code", "Minion Code", false), skills_global_dir: "~/.minion/skills" },
+  ];
+  const blankSkillsPath = {
+    ...agent("blank-skills", "Blank Skills", false),
+    skills_global_dir: "   ",
+  };
+  const sections = buildAgentPickerSections(
+    [...agents, ...skillsOnly, blankSkillsPath],
+    ["cortex-code", "dirac", "minion-code"],
+    "",
+  );
+
+  expect(sections.pinned.map(({ id }) => id)).toEqual(["cortex-code", "dirac", "minion-code"]);
+  expect(sections.available.map(({ id }) => id)).not.toContain("catalog-only");
+  expect(sections.available.map(({ id }) => id)).not.toContain("blank-skills");
+});
+
 it("toggle removes existing pins, appends new pins, and enforces the limit", () => {
   const removed = ["codex", "qoder"];
   const appended = ["codex"];

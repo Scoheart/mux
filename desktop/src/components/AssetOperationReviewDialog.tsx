@@ -49,7 +49,12 @@ function configurationChanges(plan: AssetOperationPlan) {
   const { before, after } = plan.domain_plan;
   const rows: Array<{ label: string; before: string; after: string }> = [];
   if (before.mcp_path !== after.mcp_path) {
-    rows.push({ label: "MCP", before: before.mcp_path, after: after.mcp_path });
+    rows.push({ label: "MCP 文件路径", before: before.mcp_path, after: after.mcp_path });
+  }
+  const beforeMcpKey = before.mcp_key ?? "";
+  const afterMcpKey = after.mcp_key ?? "";
+  if (beforeMcpKey !== afterMcpKey) {
+    rows.push({ label: "MCP 配置键", before: beforeMcpKey, after: afterMcpKey });
   }
   const beforeModels = before.model_paths.join(" · ");
   const afterModels = after.model_paths.join(" · ");
@@ -91,7 +96,25 @@ export function AssetOperationReviewDialog({
   const compatibleAgentCount = isAgentSkillPlan
     ? plan.affected_agent_ids.filter((id) => id !== agentId).length
     : 0;
+  const configurationPlan = plan.domain_plan.domain === "agent-configuration"
+    ? plan.domain_plan
+    : null;
+  const skillsPathChanged = configurationPlan !== null
+    && configurationPlan.before.skills_global_dir !== configurationPlan.after.skills_global_dir;
+  const sharedConfigurationReaderCount = isConfiguration
+    && configurationPlan
+    && skillsPathChanged
+    ? plan.affected_agent_ids.filter((id) => id !== configurationPlan.agent_id).length
+    : 0;
   const configChanges = configurationChanges(plan);
+  const mcpLocationChanged = configurationPlan !== null
+    && (configurationPlan.before.mcp_path !== configurationPlan.after.mcp_path
+      || configurationPlan.before.mcp_key !== configurationPlan.after.mcp_key);
+  const modelLocationChanged = configurationPlan !== null
+    && (configurationPlan.before.model_paths.length !== configurationPlan.after.model_paths.length
+      || configurationPlan.before.model_paths.some(
+        (path, index) => path !== configurationPlan.after.model_paths[index],
+      ));
   const agentCopy = agentName && plan.kind === "set-consumption" ? agentActionCopy(plan) : null;
   const title = isConfiguration ? "确认修改配置" : agentCopy?.title ?? (plan.kind === "update-asset"
     ? "审阅中央资产变更"
@@ -102,7 +125,9 @@ export function AssetOperationReviewDialog({
   const subtitle = agentName
     ? compatibleAgentCount > 0
       ? `${agentName} · 同一目录也被 ${compatibleAgentCount} 个 Agent 读取`
-      : plan.affected_agent_ids.length > 1
+      : sharedConfigurationReaderCount > 0
+        ? `${agentName} · Skills 目录变更涉及 ${sharedConfigurationReaderCount} 个其他 Agent`
+      : !isConfiguration && plan.affected_agent_ids.length > 1
       ? `${agentName} · 另影响 ${plan.affected_agent_ids.length - 1} 个 Agent`
       : agentName
     : `${plan.affected_agent_ids.length} 个 Agent · ${plan.target_files.length} 个目标`;
@@ -148,6 +173,16 @@ export function AssetOperationReviewDialog({
                 </li>
               ))}
             </ul>
+            {mcpLocationChanged && (
+              <p className="mux-asset-review-note">
+                只更新 MUX 后续使用的 MCP 配置位置；旧文件不会删除，现有 MCP 配置不会复制到新位置。
+              </p>
+            )}
+            {modelLocationChanged && (
+              <p className="mux-asset-review-note">
+                只更新 MUX 后续使用的 Model 配置位置；旧文件不会删除，现有 Model 配置不会复制到新位置。
+              </p>
+            )}
           </section>
         )}
         {plan.central_changes.length > 0 && (

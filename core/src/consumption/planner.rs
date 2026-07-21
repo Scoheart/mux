@@ -1672,6 +1672,39 @@ mod tests {
     }
 
     #[test]
+    fn configuration_plan_commits_a_key_only_override_without_touching_mcp_files() {
+        let _home = TestHome::new("configuration-mcp-key-only");
+        let mut configuration = current_configuration("codex").unwrap();
+        configuration.mcp_key = Some("custom.mcpServers".into());
+
+        let plan = plan_update_agent_configuration(PlanUpdateAgentConfigurationRequest {
+            agent_id: "codex".into(),
+            configuration,
+        })
+        .unwrap();
+
+        assert!(plan.target_files.is_empty());
+        let DomainPlan::AgentConfiguration { before, after, .. } = &plan.domain_plan else {
+            panic!("expected Agent configuration plan");
+        };
+        assert_eq!(before.mcp_key.as_deref(), Some("mcp_servers"));
+        assert_eq!(after.mcp_key.as_deref(), Some("custom.mcpServers"));
+        assert_eq!(before.mcp_path, after.mcp_path);
+
+        commit_asset_operation(AssetCommitRequest {
+            operation_id: plan.operation_id,
+            candidate_hash: plan.candidate_hash,
+            conflict_confirmation: None,
+        })
+        .unwrap();
+
+        assert_eq!(
+            crate::agents::load_agents()["codex"].key,
+            "custom.mcpServers"
+        );
+    }
+
+    #[test]
     fn configuration_plan_blocks_same_name_different_skill_content() {
         let home = TestHome::new("configuration-skill-conflict");
         fs::create_dir_all(home.home.join(".codex")).unwrap();

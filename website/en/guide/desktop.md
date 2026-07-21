@@ -13,7 +13,7 @@ Opening the app lands you on **MCPs** by default. The main interface is made up 
 | Area | Purpose |
 |---|---|
 | **MCPs / Models (Beta) / Skills** | Switch among the MCP catalog, model endpoints, and user-level Skills management. |
-| **Agent selector** | Search the verified writable targets; discovery-only records remain available for catalog validation without appearing as a separate tab. |
+| **Agent selector** | Search audited Agent targets, including safe MCP writers and eligible Skills-only targets; discovery-only records remain available for catalog validation without appearing as a separate tab. |
 | **`+`** | Add a custom agent, next to the agent selector. |
 | **Proxy / Theme / Rescan / Check for updates** | Configure MUX networking, switch appearance, re-read each agent's config, and manually check for stable updates. |
 | **Source bar** | Filter the catalog by source; the top offers "Add subscription" and "Import config." |
@@ -83,10 +83,10 @@ The source model itself supports enable/disable, which the TUI's "Sources" scree
 - The `+` to the right of the top agent selector adds a custom JSON, TOML, or YAML agent.
 - An Agent page is that Agent's consumption center. MCPs, Model, and Skills tabs show only desired central assets, their reconciled status, configuration paths, and a central picker; they do not embed asset creation, source resolution, or Skill installation.
 - When the paths match the page shows “Same file”; when model settings and MCP use different files it shows “Separate MCP file.” Paths identify configuration targets only; MUX never returns the complete config to the UI.
-- Inside a built-in agent's page you may only override the global MCP path; the official format, config key, and codec are fixed, to avoid producing incompatible configs.
+- Inside a built-in agent's page you may override the global MCP path and section key; the official format, layout, and codec remain catalog-owned, to avoid producing incompatible configs.
 - Paths inside the home directory are saved as `~/…`; absolute paths outside it keep their original value.
 
-For the full 45 verified targets, 44 writable targets, and 196 retained records, see [Supported agents](/en/guide/agents).
+MUX currently has 56 audited Agent definitions, 46 writable MCP targets, 45 Skills targets, and 14 Model targets (12 managed and 2 guided). Its 201 discovery-catalog entries combine with the audited definitions into 211 unique identities. See [Supported agents](/en/guide/agents) for the full matrix.
 
 ## Models (Beta)
 
@@ -115,6 +115,7 @@ The network icon in the top bar configures one global proxy for MUX. It accepts 
 - Atomic replacement and concurrent-modification checks avoid half-written files or overwriting changes the agent made at the same time.
 - When adding or removing a target server, only the MCP node is modified — the complete agent config is never read into the UI or returned.
 - When updating an existing server, only managed connection fields change, preserving its permissions, OAuth, tool policies, and other specific fields.
+- If a ChatMCP file contains OAuth, token, or client-secret material, MUX refuses the entire write before backup; sensitive entries never enter MUX inventory or backups.
 - Other top-level keys, other servers, comments, indentation, and key order are preserved; writes are refused when the JSON, TOML, or YAML structure is invalid or ambiguous.
 - `~/.mux/settings.json` uses atomic writes via temp file plus rename.
 

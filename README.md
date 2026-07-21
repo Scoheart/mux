@@ -75,18 +75,19 @@ filtering, and shadowed-configuration screenshots.
 
 ## Supported agents
 
-MUX retains **196 distinct MCP client records** for discovery and verification. Of those, **45 are deeply audited definitions** and **44 have verified, writable global config targets** with native JSON, TOML, or YAML schemas; only those writable targets appear in the desktop Agent picker. MUX never guesses a path or writes a generic schema into the remaining discovery-only records.
+MUX tracks **211 unique Agent identities** across its reviewed sources: **56 deeply audited definitions** and **201 discovery-catalog entries**, with 46 IDs overlapping. Of the audited definitions, **46 have verified, writable global MCP targets** with native JSON, TOML, or YAML schemas; the remaining audited definitions are Skills-only targets or the explicit read-only Devin record. MUX never guesses a path or writes a generic schema into discovery-only records.
 
-Audited targets include Claude Code/Desktop, Codex, Cursor, VS Code, Zed, Windsurf, Gemini CLI, Google Antigravity, Amazon Q, OpenCode, Grok Build, MiniMax Code, Copilot CLI, Cline, Continue, Goose, Hermes, Kimi Code, Qwen Code, Qoder Desktop, Qoder CLI, QoderWork, Mistral Vibe, Rovo Dev, Tabnine, LM Studio, and others. Claude Desktop and BoltAI local files accept stdio only. Pi is explicitly labeled as a community `pi-mcp-adapter` target because Pi core does not ship MCP support. Devin remains discovery-only because no stable user-level global config file is documented.
+Audited targets include Claude Code/Desktop, Codex, Cursor, VS Code, Zed, Windsurf, Gemini CLI, Google Antigravity, Amazon Q, OpenCode, Grok Build, MiniMax Code, Copilot CLI, Cline, Continue, Goose, Hermes, Kimi Code, Qwen Code, Qoder Desktop, Qoder CLI, QoderWork, Mistral Vibe, Rovo Dev, Tabnine, LM Studio, and others. Claude Desktop and BoltAI local files accept stdio only. Pi is explicitly labeled as a community `pi-mcp-adapter` target because Pi core does not ship MCP support. Devin remains an audited read-only record because no stable user-level global config file is documented.
 
-Model Profile management is available for Claude Code, Codex, Grok Build, Pi,
-OpenCode, Kilo Code CLI, Qwen Code, Crush, Mistral Vibe, Hermes Agent, Factory
-Droid, and Goose. MiniMax Code and Qoder remain guided because their available
+MUX exposes **14 Model targets**. Managed Model Profile configuration is available
+for Claude Code, Codex, Grok Build, Pi, OpenCode, Kilo Code CLI, Qwen Code,
+Crush, Mistral Vibe, Hermes Agent, Factory Droid, and Goose. MiniMax Code and
+Qoder are the two guided targets because their available
 configuration surfaces do not provide a safe equivalent writer for this flow.
 
 See the [complete audited matrix](website/guide/agents.md) and [catalog methodology](docs/agent-catalog.md). Every writable target's global path remains editable; paths inside the home directory are normalized to the portable `~/…` form.
 
-Skill consumption supports 33 separately verified user-level capabilities across CLI, IDE, and desktop Agents. Only capabilities detected on the current machine appear, and Agents sharing one physical compatibility directory are selected and reviewed as an inseparable impact group. Managed links expose one live central copy, so consumer-side edits are detected as central drift rather than isolated copies. See the [Skills guide](website/guide/skills.md).
+Skill consumption supports **45 separately verified user-level Agent capabilities** across CLI, IDE, and desktop products. Only capabilities detected on the current machine appear, and Agents sharing one physical compatibility directory are selected and reviewed as an inseparable impact group. Managed links expose one live central copy, so consumer-side edits are detected as central drift rather than isolated copies. See the [Skills guide](website/guide/skills.md).
 
 ---
 

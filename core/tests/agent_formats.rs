@@ -1,7 +1,7 @@
 use mux_core::adapter::{get_agent_adapter, get_agent_adapter_for};
 use mux_core::agents::builtin_agents;
 use mux_core::codec::{from_name, normalize_with_codec};
-use mux_core::types::{HttpConfig, McpConfig, StdioConfig};
+use mux_core::types::{AgentDefinition, HttpConfig, McpConfig, StdioConfig};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -293,7 +293,7 @@ fn every_writable_builtin_roundtrips_through_its_wire_format() {
         .values()
         .filter(|agent| agent.global.is_some())
         .count();
-    assert_eq!(writable, 44);
+    assert_eq!(writable, 46);
 
     for (agent_id, definition) in agents {
         if definition.global.is_none() {
@@ -315,13 +315,37 @@ fn every_writable_builtin_roundtrips_through_its_wire_format() {
             .unwrap_or_default()
             .iter()
             .any(|transport| transport == "http");
+        let strict_stdio = matches!(
+            codec,
+            mux_core::codec::Codec::AgentKube | mux_core::codec::Codec::ChatMcp
+        );
         let local = McpConfig::Stdio(StdioConfig {
             command: "npx".into(),
             args: Some(vec!["-y".into(), "matrix-server".into()]),
-            env: Some(HashMap::from([("TOKEN".into(), "fixture".into())])),
-            cwd: Some("/tmp/mux-matrix".into()),
+            env: Some(HashMap::from([(
+                if codec == mux_core::codec::Codec::ChatMcp {
+                    "MATRIX_MODE"
+                } else {
+                    "TOKEN"
+                }
+                .into(),
+                "fixture".into(),
+            )])),
+            cwd: (!strict_stdio).then(|| "/tmp/mux-matrix".into()),
         });
-        let remote = http("https://example.com/mcp");
+        let remote = McpConfig::Http(HttpConfig {
+            kind: if codec == mux_core::codec::Codec::AgentKube {
+                "sse".into()
+            } else {
+                "streamable-http".into()
+            },
+            url: "https://example.com/mcp".into(),
+            headers: (!matches!(
+                codec,
+                mux_core::codec::Codec::AgentKube | mux_core::codec::Codec::ChatMcp
+            ))
+            .then(|| HashMap::from([("X-New".into(), "value".into())])),
+        });
 
         adapter
             .upsert(&path, "local", &local)
@@ -448,6 +472,7 @@ fn warp_remote_uses_url_inference_and_preserves_environment() {
 fn builtin_global_paths_match_current_product_docs() {
     let agents = builtin_agents();
     let expected = [
+        ("agentkube", "~/.agentkube/mcp.json"),
         ("amp", "~/.config/amp/settings.json"),
         ("amazon-q", "~/.aws/amazonq/default.json"),
         ("antigravity", "~/.gemini/config/mcp_config.json"),
@@ -457,6 +482,10 @@ fn builtin_global_paths_match_current_product_docs() {
         (
             "claude-desktop",
             "~/Library/Application Support/Claude/claude_desktop_config.json",
+        ),
+        (
+            "chatmcp",
+            "~/Library/Application Support/ChatMcp/mcp_server.json",
         ),
         ("cline", "~/.cline/data/settings/cline_mcp_settings.json"),
         ("codebuddy-code", "~/.codebuddy/.mcp.json"),
@@ -526,16 +555,16 @@ fn verified_and_catalog_definitions_have_auditable_boundaries() {
     let all_ids: std::collections::BTreeSet<_> =
         verified_ids.union(&catalog_ids).cloned().collect();
 
-    assert_eq!(verified.len(), 45);
-    assert_eq!(catalog.len(), 175);
-    assert_eq!(verified_ids.intersection(&catalog_ids).count(), 24);
-    assert_eq!(all_ids.len(), 196);
+    assert_eq!(verified.len(), 56);
+    assert_eq!(catalog.len(), 201);
+    assert_eq!(verified_ids.intersection(&catalog_ids).count(), 46);
+    assert_eq!(all_ids.len(), 211);
     assert_eq!(
         verified
             .values()
             .filter(|item| item.global.is_some())
             .count(),
-        44
+        46
     );
     assert!(catalog.len() >= 170);
     for (id, definition) in verified {
@@ -566,6 +595,8 @@ fn verified_and_catalog_definitions_have_auditable_boundaries() {
                         | "goose"
                         | "vibe"
                         | "vtcode"
+                        | "agentkube"
+                        | "chatmcp"
                         | "server_url"
                         | "url_transport"
                         | "stdio_only"
@@ -651,7 +682,7 @@ fn verified_and_catalog_definitions_have_auditable_boundaries() {
         assert!(
             matches!(
                 definition.evidence.as_deref(),
-                Some("catalog" | "official" | "official-source")
+                Some("catalog" | "official" | "official-source" | "acp-registry")
             ),
             "{id}: invalid evidence {:?}",
             definition.evidence
@@ -851,7 +882,7 @@ enabled = true
 
 [[mcp.providers]]
 name = "docs"
-enabled = false
+enabled = true
 endpoint = "https://old.example/mcp"
 api_key_env = "DOCS_TOKEN"
 protocol_version = "2025-06-18" # keep policy
@@ -870,12 +901,92 @@ protocol_version = "2025-06-18" # keep policy
     assert_eq!(root["agent"]["provider"].as_str(), Some("private"));
     assert_eq!(root["mcp"]["enabled"].as_bool(), Some(true));
     assert_eq!(target["endpoint"].as_str(), Some("https://new.example/mcp"));
-    assert_eq!(target["enabled"].as_bool(), Some(false));
+    assert_eq!(target["enabled"].as_bool(), Some(true));
     assert_eq!(target["api_key_env"].as_str(), Some("DOCS_TOKEN"));
     assert_eq!(target["protocol_version"].as_str(), Some("2025-06-18"));
     assert!(target.get("url").is_none());
 
-    for path in [codewhale, stakpak, vtcode] {
+    let vtcode_missing_switch = temp_file("vt-code-missing-switch", "toml");
+    std::fs::write(
+        &vtcode_missing_switch,
+        r#"# keep existing VT Code model settings
+[agent]
+provider = "private"
+default_model = "private-model"
+"#,
+    )
+    .unwrap();
+    adapter
+        .upsert(
+            &vtcode_missing_switch,
+            "docs",
+            &http("https://new.example/mcp"),
+        )
+        .unwrap();
+    let written = std::fs::read_to_string(&vtcode_missing_switch).unwrap();
+    let root: toml::Value = toml::from_str(&written).unwrap();
+    assert!(written.contains("# keep existing VT Code model settings"));
+    assert_eq!(root["mcp"]["enabled"].as_bool(), Some(true));
+    assert_eq!(
+        root["mcp"]["providers"][0]["endpoint"].as_str(),
+        Some("https://new.example/mcp")
+    );
+
+    let vtcode_explicitly_disabled = temp_file("vt-code-disabled", "toml");
+    std::fs::write(
+        &vtcode_explicitly_disabled,
+        r#"[mcp]
+enabled = false
+"#,
+    )
+    .unwrap();
+    let disabled_root = std::fs::read_to_string(&vtcode_explicitly_disabled).unwrap();
+    assert!(adapter.read(&vtcode_explicitly_disabled).is_empty());
+    assert!(adapter
+        .upsert(
+            &vtcode_explicitly_disabled,
+            "docs",
+            &http("https://new.example/mcp"),
+        )
+        .unwrap_err()
+        .contains("mcp.enabled"));
+    assert_eq!(
+        std::fs::read_to_string(&vtcode_explicitly_disabled).unwrap(),
+        disabled_root
+    );
+
+    let vtcode_disabled_entry = temp_file("vt-code-disabled-entry", "toml");
+    let disabled_entry = r#"[mcp]
+enabled = true
+
+[[mcp.providers]]
+name = "docs"
+enabled = false
+endpoint = "https://old.example/mcp"
+"#;
+    std::fs::write(&vtcode_disabled_entry, disabled_entry).unwrap();
+    assert!(adapter.read(&vtcode_disabled_entry).is_empty());
+    assert!(adapter
+        .upsert(
+            &vtcode_disabled_entry,
+            "docs",
+            &http("https://new.example/mcp"),
+        )
+        .unwrap_err()
+        .contains("disabled by 'enabled'"));
+    assert_eq!(
+        std::fs::read_to_string(&vtcode_disabled_entry).unwrap(),
+        disabled_entry
+    );
+
+    for path in [
+        codewhale,
+        stakpak,
+        vtcode,
+        vtcode_missing_switch,
+        vtcode_explicitly_disabled,
+        vtcode_disabled_entry,
+    ] {
         let _ = std::fs::remove_file(path);
     }
 }
@@ -912,6 +1023,67 @@ fn new_json_codecs_use_documented_nested_and_transport_fields() {
         }
         let _ = std::fs::remove_file(path);
     }
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
+fn amp_explicitly_uses_a_nested_json_key_path() {
+    let agents = builtin_agents();
+    let definition = &agents["amp"];
+    assert!(definition.key_path);
+
+    let path = temp_file("amp-nested-key-path", "json");
+    let adapter = get_agent_adapter_for(definition, "amp");
+    adapter
+        .upsert(
+            &path,
+            "docs",
+            &McpConfig::Stdio(StdioConfig {
+                command: "npx".into(),
+                args: Some(vec!["-y".into(), "server".into()]),
+                env: None,
+                cwd: None,
+            }),
+        )
+        .unwrap();
+
+    let root: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    assert_eq!(root["amp"]["mcpServers"]["docs"]["command"], "npx");
+    assert!(root.get("amp.mcpServers").is_none());
+    assert!(adapter.read(&path).contains_key("docs"));
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
+fn custom_dotted_json_key_remains_a_literal_top_level_property() {
+    let definition = AgentDefinition {
+        global: Some("~/.custom/config.json".into()),
+        format: "json".into(),
+        key: "custom.mcpServers".into(),
+        enabled: true,
+        ..Default::default()
+    };
+    assert!(!definition.key_path);
+
+    let path = temp_file("custom-literal-dotted-key", "json");
+    let adapter = get_agent_adapter_for(&definition, "custom-agent");
+    adapter
+        .upsert(
+            &path,
+            "docs",
+            &McpConfig::Stdio(StdioConfig {
+                command: "npx".into(),
+                args: None,
+                env: None,
+                cwd: None,
+            }),
+        )
+        .unwrap();
+
+    let root: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    assert_eq!(root["custom.mcpServers"]["docs"]["command"], "npx");
+    assert!(root.get("custom").is_none());
+    assert!(adapter.read(&path).contains_key("docs"));
     let _ = std::fs::remove_file(path);
 }
 
@@ -1028,4 +1200,107 @@ fn catalog_only_and_unknown_formats_fail_closed() {
     );
     assert!(result.is_err());
     assert!(!path.exists());
+}
+
+#[test]
+fn agentkube_codec_preserves_agent_owned_policy() {
+    let agents = builtin_agents();
+    let agentkube = temp_file("agentkube-policy", "json");
+    std::fs::write(
+        &agentkube,
+        r#"{"mcpServers":{"docs":{"transport":"stdio","command":"old","enabled":true,"policy":"keep"}}}"#,
+    )
+    .unwrap();
+    get_agent_adapter_for(&agents["agentkube"], "agentkube")
+        .upsert(
+            &agentkube,
+            "docs",
+            &McpConfig::Http(HttpConfig {
+                kind: "sse".into(),
+                url: "https://new.example/sse".into(),
+                headers: None,
+            }),
+        )
+        .unwrap();
+    let root: Value = serde_json::from_str(&std::fs::read_to_string(&agentkube).unwrap()).unwrap();
+    let target = &root["mcpServers"]["docs"];
+    assert_eq!(target["transport"], "sse");
+    assert_eq!(target["url"], "https://new.example/sse");
+    assert_eq!(target["enabled"], true);
+    assert_eq!(target["policy"], "keep");
+    let _ = std::fs::remove_file(agentkube);
+}
+
+#[test]
+fn new_codecs_reject_unrepresentable_fields() {
+    let agents = builtin_agents();
+    let path = temp_file("strict-new-codecs", "json");
+    let with_cwd = McpConfig::Stdio(StdioConfig {
+        command: "npx".into(),
+        args: None,
+        env: None,
+        cwd: Some("/tmp/not-supported".into()),
+    });
+    assert!(get_agent_adapter_for(&agents["chatmcp"], "chatmcp")
+        .upsert(&path, "docs", &with_cwd)
+        .unwrap_err()
+        .contains("does not support cwd"));
+    assert!(!path.exists());
+
+    let sse_with_headers = McpConfig::Http(HttpConfig {
+        kind: "sse".into(),
+        url: "https://new.example/mcp".into(),
+        headers: Some(HashMap::from([("X-New".into(), "value".into())])),
+    });
+    assert!(get_agent_adapter_for(&agents["agentkube"], "agentkube")
+        .upsert(&path, "docs", &sse_with_headers)
+        .unwrap_err()
+        .contains("does not support custom headers"));
+    assert!(!path.exists());
+
+    let streamable = McpConfig::Http(HttpConfig {
+        kind: "streamable-http".into(),
+        url: "https://not-supported.example".into(),
+        headers: None,
+    });
+    assert!(get_agent_adapter_for(&agents["agentkube"], "agentkube")
+        .upsert(&path, "docs", &streamable)
+        .unwrap_err()
+        .contains("over SSE only"));
+    assert!(!path.exists());
+}
+
+#[test]
+fn agentkube_disabled_entries_are_skipped_and_rejected() {
+    let agents = builtin_agents();
+    let path = temp_file("agentkube-disabled-final", "json");
+    let original = r#"{"mcpServers":{"docs":{"command":"old","enabled":false}}}"#;
+    std::fs::write(&path, original).unwrap();
+    let adapter = get_agent_adapter_for(&agents["agentkube"], "agentkube");
+    assert!(adapter.read(&path).get("docs").is_none());
+    assert!(adapter
+        .upsert(&path, "docs", &http("https://new.example/mcp"))
+        .is_err());
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), original);
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
+fn chatmcp_credential_bearing_files_are_external_managed_and_read_only() {
+    let agents = builtin_agents();
+    let path = temp_file("chatmcp-oauth-final", "json");
+    let original = r#"{"mcpServers":{"docs":{"type":"streamable","command":"https://same.example/mcp","oauth":{"clientSecret":"fixture"},"policy":"keep"}}}"#;
+    std::fs::write(&path, original).unwrap();
+    let adapter = get_agent_adapter_for(&agents["chatmcp"], "chatmcp");
+    let remote = McpConfig::Http(HttpConfig {
+        kind: "streamable-http".into(),
+        url: "https://same.example/mcp".into(),
+        headers: None,
+    });
+    assert!(adapter.read(&path).is_empty());
+    assert!(adapter.upsert(&path, "docs", &remote).is_err());
+    assert!(adapter.snapshot(&path, "docs").is_err());
+    assert!(adapter.remove(&path, &["docs".into()]).is_err());
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), original);
+    let _ = std::fs::remove_file(path);
 }

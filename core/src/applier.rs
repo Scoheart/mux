@@ -137,6 +137,15 @@ pub fn restore_snapshot(
             error: "target config path is unavailable".into(),
         }]);
     };
+    let adapter = get_agent_adapter_for(def, agent_id);
+    if path.exists() {
+        if let Err(error) = adapter.snapshot(&path, server_name) {
+            return Err(vec![ApplyError {
+                target: path.display().to_string(),
+                error,
+            }]);
+        }
+    }
     if path.exists() {
         backup(
             &path,
@@ -152,7 +161,7 @@ pub fn restore_snapshot(
             }]
         })?;
     }
-    get_agent_adapter_for(def, agent_id)
+    adapter
         .restore(&path, server_name, snapshot)
         .map_err(|error| {
             vec![ApplyError {
@@ -179,6 +188,15 @@ pub fn remove_snapshot(
             error: "target config path is unavailable".into(),
         }]);
     };
+    let adapter = get_agent_adapter_for(def, agent_id);
+    if path.exists() {
+        if let Err(error) = adapter.snapshot(&path, server_name) {
+            return Err(vec![ApplyError {
+                target: path.display().to_string(),
+                error,
+            }]);
+        }
+    }
     if path.exists() {
         backup(
             &path,
@@ -194,7 +212,7 @@ pub fn remove_snapshot(
             }]
         })?;
     }
-    get_agent_adapter_for(def, agent_id)
+    adapter
         .remove_snapshot(&path, server_name, snapshot)
         .map_err(|error| {
             vec![ApplyError {
@@ -226,6 +244,16 @@ pub fn apply_diffs(
         let Some(path) = target_path(def, &diff.scope, project_dir) else {
             continue;
         };
+        let adapter = get_agent_adapter_for(def, &diff.agent);
+        if path.exists() {
+            if let Err(error) = adapter.snapshot(&path, &diff.mcp_name) {
+                errors.push(ApplyError {
+                    target: path.display().to_string(),
+                    error,
+                });
+                continue;
+            }
+        }
         if !backed_up.contains(&path) && path.exists() {
             if let Err(error) = backup(&path, backups_dir, timestamp, &diff.agent, &diff.scope) {
                 errors.push(ApplyError {
@@ -236,7 +264,6 @@ pub fn apply_diffs(
             }
             backed_up.insert(path.clone());
         }
-        let adapter = get_agent_adapter_for(def, &diff.agent);
         let result = match diff.action {
             DiffAction::Add => {
                 let Some(cfg) = configs.get(&diff.mcp_name) else {
@@ -486,6 +513,59 @@ mod tests {
 
         assert!(result.is_err());
         assert_eq!(std::fs::read_to_string(&cfg_path).unwrap(), original);
+        std::fs::remove_dir_all(&base).ok();
+    }
+
+    #[test]
+    fn chatmcp_credentials_are_rejected_before_whole_file_backup() {
+        let mut base = std::env::temp_dir();
+        base.push(format!(
+            "mux-chatmcp-credential-preflight-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&base).unwrap();
+        let cfg_path = base.join("mcp_server.json");
+        let original = r#"{"mcpServers":{"private":{"type":"streamable","command":"https://private.example/mcp","oauth":{"accessToken":"fixture"}}}}"#;
+        std::fs::write(&cfg_path, original).unwrap();
+
+        let mut agents = BTreeMap::new();
+        agents.insert(
+            "chatmcp".to_string(),
+            AgentDefinition {
+                global: None,
+                project: Some("mcp_server.json".into()),
+                format: "json".into(),
+                key: "mcpServers".into(),
+                codec: Some("chatmcp".into()),
+                enabled: true,
+                builtin: Some(true),
+                ..Default::default()
+            },
+        );
+        let mut configs = BTreeMap::new();
+        configs.insert(
+            "docs".to_string(),
+            McpConfig::Stdio(StdioConfig {
+                command: "npx".into(),
+                args: None,
+                env: None,
+                cwd: None,
+            }),
+        );
+        let diffs = vec![DiffEntry {
+            action: DiffAction::Add,
+            mcp_name: "docs".into(),
+            agent: "chatmcp".into(),
+            scope: "project".into(),
+        }];
+        let backups = base.join("backups");
+
+        let errors =
+            apply_diffs(&diffs, &agents, &configs, &backups, Some(&base), "STAMP").unwrap_err();
+
+        assert!(errors[0].error.contains("external-managed"));
+        assert_eq!(std::fs::read_to_string(&cfg_path).unwrap(), original);
+        assert!(!backups.exists());
         std::fs::remove_dir_all(&base).ok();
     }
 

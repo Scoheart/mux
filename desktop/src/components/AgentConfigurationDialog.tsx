@@ -28,6 +28,7 @@ export function AgentConfigurationDialog({
       ? [modelAgent.config_path]
       : [];
   const [mcpPath, setMcpPath] = useState(agent.global ?? "");
+  const [mcpKey, setMcpKey] = useState(agent.key);
   const [modelPaths, setModelPaths] = useState(initialModelPaths);
   const [skillsPath, setSkillsPath] = useState(agent.skills_global_dir ?? "");
   const [busy, setBusy] = useState(false);
@@ -37,6 +38,7 @@ export function AgentConfigurationDialog({
 
   const canSubmit = !busy
     && mcpPath.trim().length > 0
+    && mcpKey.trim().length > 0
     && modelPaths.every((path) => path.trim().length > 0)
     && (agent.skills_global_dir == null || skillsPath.trim().length > 0);
 
@@ -47,6 +49,7 @@ export function AgentConfigurationDialog({
     try {
       const nextPlan = await planUpdateAgentConfiguration(agent.id, {
         mcp_path: mcpPath.trim(),
+        mcp_key: mcpKey.trim(),
         model_paths: modelPaths.map((path) => path.trim()),
         skills_global_dir: agent.skills_global_dir == null ? null : skillsPath.trim(),
       });
@@ -130,9 +133,15 @@ export function AgentConfigurationDialog({
       <div className="mux-agent-config-form">
         <ConfigField
           icon={<PackageIcon className="w-4 h-4" />}
-          label="MCP"
+          label="MCP 文件路径"
           value={mcpPath}
           onChange={setMcpPath}
+        />
+        <ConfigField
+          icon={null}
+          label="MCP 配置键"
+          value={mcpKey}
+          onChange={setMcpKey}
         />
         {modelPaths.length > 0 ? modelPaths.map((path, index) => (
           <ConfigField

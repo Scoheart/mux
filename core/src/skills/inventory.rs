@@ -1466,7 +1466,7 @@ fn build_target_graph(paths: &SkillsPaths, settings: &Settings) -> Result<Target
         };
         if !valid_name(&id)
             || !valid_name(&capability.target_id)
-            || capability.evidence != "official"
+            || !crate::agents::is_verified_skill_evidence(&capability.evidence)
             || capability.docs.trim().is_empty()
             || capability.verified_at.trim().is_empty()
             || capability.probes.is_empty()

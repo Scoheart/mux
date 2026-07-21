@@ -2,21 +2,26 @@
 
 MUX's agent data comes in two layers:
 
-- **Configurable targets**: 45 individually verified product definitions, 44 of which have a stable user-level global config file that MUX can safely read and write.
-- **Client directory**: sourced from public MCP client directories and the official client matrix, used for discovery only. After deduplication against the configurable targets, the UI can search **196** clients in total.
+- **Audited definitions**: 56 individually verified Agent definitions, 46 of which have a stable user-level global MCP config file that MUX can safely read and write; another nine are Skills-only targets, while Devin is read-only.
+- **Client directory**: sourced from public MCP client directories and the official client matrix, used for discovery only. Its **201 entries** combine with the audited definitions into **211 unique Agent identities** after deduplication.
 
-Clients whose global file path, top-level key, and entry structure have not been confirmed are shown for discovery only and cannot be written to. This keeps expanding coverage without writing a generic JSON guess into an unknown product's config.
+For MCP capability, clients whose global file path, top-level key, and entry structure have not been confirmed never become writable MCP targets. Skills-only Agents appear only after their user-level directory contract is verified independently. This keeps expanding coverage without writing a generic JSON guess into an unknown product's config.
 
 MUX Desktop treats MCPs, Models, and Skills as central assets. Create, import, and maintain them in the top-level libraries first; an Agent page is the only place that chooses which compatible assets that Agent should consume. MCPs and Skills are `0..N` per Agent, while Model is `0..1`. Asset Inspectors own lifecycle actions and show impact without editing Agent relationships.
 
 Agent files and Skill links are observed state, not an alternate asset database. MUX reconciles them as synced, pending, drifted, or conflicted. Scanning never silently takes ownership. When historical MCPs or Skills are detected, Desktop offers an explicit migration that imports the central asset and adopts its original Agent relationships as one recoverable per-asset transaction.
 
+MUX currently exposes **14 Model targets**: 12 are safely managed, while MiniMax Code and Qoder remain the two guided targets because no equivalent safe writer is available.
+
 ## Verified list
 
 The results below are based on official docs, official source, or signed application bundles through **2026-07-22**. Grok Build was verified against xAI's official documentation; MiniMax Code was verified from the official signed `3.0.51` macOS bundle.
 
+The table focuses on MCP contracts: it lists the 46 writable targets and retains Devin as an explicit read-only comparison. See Skills capabilities below and [User-level Skills](/en/guide/skills#verified-agent-paths) for the Skills-only definitions.
+
 | Agent | Format | Config key | User-level global path | Native transports |
 |---|---|---|---|---|
+| [Agentkube](https://agentkube.mintlify.app/agents/mcp) | JSON | `mcpServers` | `~/.agentkube/mcp.json` | stdio / http |
 | [Amp](https://ampcode.com/manual#model-context-protocol-mcp) | JSON | `amp.mcpServers` | `~/.config/amp/settings.json` | stdio / http |
 | [Amazon Q Developer IDE](https://docs.aws.amazon.com/amazonq/latest/qdeveloper-ug/mcp-ide.html) | JSON | `mcpServers` | `~/.aws/amazonq/default.json` | stdio / http |
 | [Google Antigravity](https://antigravity.google/docs/mcp) | JSON | `mcpServers` | `~/.gemini/config/mcp_config.json` | stdio / http |
@@ -24,6 +29,7 @@ The results below are based on official docs, official source, or signed applica
 | [BoltAI](https://docs.boltai.com/docs/plugins/mcp-servers) | JSON | `mcpServers` | `~/.boltai/mcp.json` | stdio |
 | [Claude Code](https://docs.anthropic.com/en/docs/claude-code/mcp) | JSON | `mcpServers` | `~/.claude.json` | stdio / http |
 | [Claude Desktop](https://modelcontextprotocol.io/quickstart/user) | JSON | `mcpServers` | `~/Library/Application Support/Claude/claude_desktop_config.json` | stdio |
+| [ChatMCP](https://github.com/daodao97/chatmcp) | JSON | `mcpServers` | `~/Library/Application Support/ChatMcp/mcp_server.json` | stdio / http |
 | [Cline](https://docs.cline.bot/mcp/configuring-mcp-servers) | JSON | `mcpServers` | `~/.cline/data/settings/cline_mcp_settings.json` | stdio / http |
 | [CodeBuddy Code](https://www.codebuddy.ai/docs/cli/mcp) | JSON | `mcpServers` | `~/.codebuddy/.mcp.json` | stdio / http |
 | [CodeWhale](https://github.com/Hmbown/CodeWhale/blob/main/docs/MCP.md) | JSON | `servers` | `~/.codewhale/mcp.json` | stdio / http |
@@ -76,7 +82,7 @@ The results below are based on official docs, official source, or signed applica
 
 ## Skills capabilities
 
-Skills paths are verified separately from the MCP config paths in the table above; MUX never infers one from the other. MUX currently declares Skills capabilities for 36 audited Agents with stable user-level contracts, and shows only Agents whose local installation probes succeed.
+Skills paths are verified separately from the MCP config paths in the table above; MUX never infers one from the other. MUX currently declares Skills capabilities for **45 audited Agents** with stable user-level contracts, and shows only Agents whose local installation probes succeed.
 
 Skills assignments operate on physical directories, not Agent names. Cursor, Gemini CLI, OpenCode, and GitHub Copilot CLI may all read the `~/.agents/skills` compatibility directory, so an operation on Codex's preferred directory can affect several installed Agents. MUX shows the real impact during review and normalizes duplicate links. See [User-level Skills](/en/guide/skills#verified-agent-paths) for the path matrix, installation sources, background safety checks, and current boundaries.
 
@@ -100,6 +106,7 @@ MUX parses agent files locally, but only provides the structured connection fiel
 - JSON / JSONC use a syntax tree to locate the target entry, preserving comments, indentation, key order, other servers, and other top-level settings.
 - Both TOML maps and TOML lists are edited locally; YAML maps / lists likewise preserve unmanaged content and comments.
 - Agent-private fields like `enabled`, OAuth, timeouts, tool allowlists, and approval policies are preserved as-is.
+- If a ChatMCP file contains OAuth, token, or client-secret material, MUX treats the entire file as externally managed and refuses writes before backup; sensitive entries never enter MUX inventory or backups.
 - Writes are refused on an invalid document, a wrong node type, duplicate target keys, a YAML multi-document file, a failed backup, or a concurrent modification.
 - A timestamped independent backup is created before writing (directory `0700`, file `0600` on Unix), and the final replacement is atomic via a temp file in the same directory; symlink targets and the original config file's permissions are left unchanged.
 

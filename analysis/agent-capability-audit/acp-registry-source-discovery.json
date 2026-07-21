@@ -1,0 +1,636 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-21T19:21:00.299Z",
+  "registryDefaultBranch": "main",
+  "registryCommit": "cc4eb37906eb477a0b0a5e46a7312cbf25366aef",
+  "registryCommitUrl": "https://github.com/agentclientprotocol/registry/commit/cc4eb37906eb477a0b0a5e46a7312cbf25366aef",
+  "registryTree": "cc6c8d141806f0523685399a2ef7b87031e46b86",
+  "records": [
+    {
+      "registryId": "agoragentic-acp",
+      "suggestedMuxId": "agoragentic-acp",
+      "name": "Agoragentic",
+      "version": "1.3.0",
+      "description": "Agent marketplace with 174+ AI capabilities. Browse, invoke, and pay for agent services settled in USDC on Base L2.",
+      "repository": "https://github.com/rhein1/agoragentic-integrations",
+      "website": "https://agoragentic.com",
+      "license": "MIT",
+      "distributionKinds": [
+        "npx"
+      ],
+      "manifestUrl": "https://github.com/agentclientprotocol/registry/blob/cc4eb37906eb477a0b0a5e46a7312cbf25366aef/agoragentic-acp/agent.json",
+      "manifestRawUrl": "https://raw.githubusercontent.com/agentclientprotocol/registry/cc4eb37906eb477a0b0a5e46a7312cbf25366aef/agoragentic-acp/agent.json",
+      "checkedAt": "2026-07-22"
+    },
+    {
+      "registryId": "amp-acp",
+      "suggestedMuxId": "amp",
+      "name": "Amp",
+      "version": "0.8.1",
+      "description": "ACP wrapper for Amp - the frontier coding agent",
+      "repository": "https://github.com/tao12345666333/amp-acp",
+      "website": null,
+      "license": "Apache-2.0",
+      "distributionKinds": [
+        "binary"
+      ],
+      "manifestUrl": "https://github.com/agentclientprotocol/registry/blob/cc4eb37906eb477a0b0a5e46a7312cbf25366aef/amp-acp/agent.json",
+      "manifestRawUrl": "https://raw.githubusercontent.com/agentclientprotocol/registry/cc4eb37906eb477a0b0a5e46a7312cbf25366aef/amp-acp/agent.json",
+      "checkedAt": "2026-07-22"
+    },
+    {
+      "registryId": "auggie",
+      "suggestedMuxId": "augment",
+      "name": "Auggie CLI",
+      "version": "0.33.0",
+      "description": "Augment Code's powerful software agent, backed by industry-leading context engine",
+      "repository": "https://github.com/augmentcode/auggie",
+      "website": "https://www.augmentcode.com/",
+      "license": "proprietary",
+      "distributionKinds": [
+        "npx"
+      ],
+      "manifestUrl": "https://github.com/agentclientprotocol/registry/blob/cc4eb37906eb477a0b0a5e46a7312cbf25366aef/auggie/agent.json",
+      "manifestRawUrl": "https://raw.githubusercontent.com/agentclientprotocol/registry/cc4eb37906eb477a0b0a5e46a7312cbf25366aef/auggie/agent.json",
+      "checkedAt": "2026-07-22"
+    },
+    {
+      "registryId": "autohand",
+      "suggestedMuxId": "autohand",
+      "name": "Autohand Code",
+      "version": "0.2.1",
+      "description": "Autohand Code - AI coding agent powered by Autohand AI",
+      "repository": "https://github.com/autohandai/autohand-acp",
+      "website": "https://www.autohand.ai/cli/",
+      "license": "Apache-2.0",
+      "distributionKinds": [
+        "npx"
+      ],
+      "manifestUrl": "https://github.com/agentclientprotocol/registry/blob/cc4eb37906eb477a0b0a5e46a7312cbf25366aef/autohand/agent.json",
+      "manifestRawUrl": "https://raw.githubusercontent.com/agentclientprotocol/registry/cc4eb37906eb477a0b0a5e46a7312cbf25366aef/autohand/agent.json",
+      "checkedAt": "2026-07-22"
+    },
+    {
+      "registryId": "claude-acp",
+      "suggestedMuxId": "claude-code",
+      "name": "Claude Agent",
+      "version": "0.60.0",
+      "description": "ACP wrapper for Anthropic's Claude",
+      "repository": "https://github.com/agentclientprotocol/claude-agent-acp",
+      "website": null,
+      "license": "proprietary",
+      "distributionKinds": [
+        "npx"
+      ],
+      "manifestUrl": "https://github.com/agentclientprotocol/registry/blob/cc4eb37906eb477a0b0a5e46a7312cbf25366aef/claude-acp/agent.json",
+      "manifestRawUrl": "https://raw.githubusercontent.com/agentclientprotocol/registry/cc4eb37906eb477a0b0a5e46a7312cbf25366aef/claude-acp/agent.json",
+      "checkedAt": "2026-07-22"
+    },
+    {
+      "registryId": "cline",
+      "suggestedMuxId": "cline",
+      "name": "Cline",
+      "version": "3.0.46",
+      "description": "Autonomous coding agent CLI - capable of creating/editing files, running commands, using the browser, and more",
+      "repository": "https://github.com/cline/cline",
+      "website": "https://cline.bot/cli",
+      "license": "Apache-2.0",
+      "distributionKinds": [
+        "npx"
+      ],
+      "manifestUrl": "https://github.com/agentclientprotocol/registry/blob/cc4eb37906eb477a0b0a5e46a7312cbf25366aef/cline/agent.json",
+      "manifestRawUrl": "https://raw.githubusercontent.com/agentclientprotocol/registry/cc4eb37906eb477a0b0a5e46a7312cbf25366aef/cline/agent.json",
+      "checkedAt": "2026-07-22"
+    },
+    {
+      "registryId": "codebuddy-code",
+      "suggestedMuxId": "codebuddy-code",
+      "name": "Codebuddy Code",
+      "version": "2.106.7",
+      "description": "Tencent Cloud's official intelligent coding tool",
+      "repository": null,
+      "website": "https://www.codebuddy.cn/cli/",
+      "license": "Proprietary",
+      "distributionKinds": [
+        "npx"
+      ],
+      "manifestUrl": "https://github.com/agentclientprotocol/registry/blob/cc4eb37906eb477a0b0a5e46a7312cbf25366aef/codebuddy-code/agent.json",
+      "manifestRawUrl": "https://raw.githubusercontent.com/agentclientprotocol/registry/cc4eb37906eb477a0b0a5e46a7312cbf25366aef/codebuddy-code/agent.json",
+      "checkedAt": "2026-07-22"
+    },
+    {
+      "registryId": "codex-acp",
+      "suggestedMuxId": "codex",
+      "name": "Codex",
+      "version": "1.1.5",
+      "description": "ACP adapter for OpenAI's coding assistant",
+      "repository": "https://github.com/agentclientprotocol/codex-acp",
+      "website": null,
+      "license": "Apache-2.0",
+      "distributionKinds": [
+        "npx"
+      ],
+      "manifestUrl": "https://github.com/agentclientprotocol/registry/blob/cc4eb37906eb477a0b0a5e46a7312cbf25366aef/codex-acp/agent.json",
+      "manifestRawUrl": "https://raw.githubusercontent.com/agentclientprotocol/registry/cc4eb37906eb477a0b0a5e46a7312cbf25366aef/codex-acp/agent.json",
+      "checkedAt": "2026-07-22"
+    },
+    {
+      "registryId": "cortex-code",
+      "suggestedMuxId": "cortex-code",
+      "name": "Cortex Code",
+      "version": "1.0.73",
+      "description": "Snowflake's Cortex Code coding agent",
+      "repository": "https://docs.snowflake.com/en/user-guide/cortex-code/cortex-code",
+      "website": null,
+      "license": "proprietary",
+      "distributionKinds": [
+        "binary"
+      ],
+      "manifestUrl": "https://github.com/agentclientprotocol/registry/blob/cc4eb37906eb477a0b0a5e46a7312cbf25366aef/cortex-code/agent.json",
+      "manifestRawUrl": "https://raw.githubusercontent.com/agentclientprotocol/registry/cc4eb37906eb477a0b0a5e46a7312cbf25366aef/cortex-code/agent.json",
+      "checkedAt": "2026-07-22"
+    },
+    {
+      "registryId": "corust-agent",
+      "suggestedMuxId": "corust-agent",
+      "name": "Corust Agent",
+      "version": "0.6.0",
+      "description": "Co-building with a seasoned Rust partner.",
+      "repository": "https://github.com/Corust-ai/corust-agent-release",
+      "website": "https://corust.ai/",
+      "license": "GPL-3.0-or-later",
+      "distributionKinds": [
+        "binary"
+      ],
+      "manifestUrl": "https://github.com/agentclientprotocol/registry/blob/cc4eb37906eb477a0b0a5e46a7312cbf25366aef/corust-agent/agent.json",
+      "manifestRawUrl": "https://raw.githubusercontent.com/agentclientprotocol/registry/cc4eb37906eb477a0b0a5e46a7312cbf25366aef/corust-agent/agent.json",
+      "checkedAt": "2026-07-22"
+    },
+    {
+      "registryId": "crow-cli",
+      "suggestedMuxId": "crow-cli",
+      "name": "crow-cli",
+      "version": "0.1.24",
+      "description": "Minimal ACP Native Coding Agent",
+      "repository": "https://github.com/crow-cli/crow-cli",
+      "website": "https://crow-ai.dev",
+      "license": "Apache-2.0",
+      "distributionKinds": [
+        "binary"
+      ],
+      "manifestUrl": "https://github.com/agentclientprotocol/registry/blob/cc4eb37906eb477a0b0a5e46a7312cbf25366aef/crow-cli/agent.json",
+      "manifestRawUrl": "https://raw.githubusercontent.com/agentclientprotocol/registry/cc4eb37906eb477a0b0a5e46a7312cbf25366aef/crow-cli/agent.json",
+      "checkedAt": "2026-07-22"
+    },
+    {
+      "registryId": "cursor",
+      "suggestedMuxId": "cursor",
+      "name": "Cursor",
+      "version": "2026.07.17",
+      "description": "Cursor's coding agent",
+      "repository": null,
+      "website": "https://cursor.com/docs/cli/acp",
+      "license": "proprietary",
+      "distributionKinds": [
+        "binary"
+      ],
+      "manifestUrl": "https://github.com/agentclientprotocol/registry/blob/cc4eb37906eb477a0b0a5e46a7312cbf25366aef/cursor/agent.json",
+      "manifestRawUrl": "https://raw.githubusercontent.com/agentclientprotocol/registry/cc4eb37906eb477a0b0a5e46a7312cbf25366aef/cursor/agent.json",
+      "checkedAt": "2026-07-22"
+    },
+    {
+      "registryId": "deepagents",
+      "suggestedMuxId": "deepagents",
+      "name": "DeepAgents",
+      "version": "0.1.7",
+      "description": "Batteries-included AI coding and general purpose agent powered by LangChain.",
+      "repository": "https://github.com/langchain-ai/deepagentsjs",
+      "website": "https://docs.langchain.com/oss/javascript/deepagents/overview",
+      "license": "MIT",
+      "distributionKinds": [
+        "npx"
+      ],
+      "manifestUrl": "https://github.com/agentclientprotocol/registry/blob/cc4eb37906eb477a0b0a5e46a7312cbf25366aef/deepagents/agent.json",
+      "manifestRawUrl": "https://raw.githubusercontent.com/agentclientprotocol/registry/cc4eb37906eb477a0b0a5e46a7312cbf25366aef/deepagents/agent.json",
+      "checkedAt": "2026-07-22"
+    },
+    {
+      "registryId": "devin",
+      "suggestedMuxId": "devin",
+      "name": "Devin",
+      "version": "3000.2.17",
+      "description": "Devin CLI coding agent by Cognition",
+      "repository": "https://github.com/CognitionAI/devin-cli",
+      "website": "https://docs.devin.ai/cli",
+      "license": "proprietary",
+      "distributionKinds": [
+        "binary"
+      ],
+      "manifestUrl": "https://github.com/agentclientprotocol/registry/blob/cc4eb37906eb477a0b0a5e46a7312cbf25366aef/devin/agent.json",
+      "manifestRawUrl": "https://raw.githubusercontent.com/agentclientprotocol/registry/cc4eb37906eb477a0b0a5e46a7312cbf25366aef/devin/agent.json",
+      "checkedAt": "2026-07-22"
+    },
+    {
+      "registryId": "dimcode",
+      "suggestedMuxId": "dimcode",
+      "name": "DimCode",
+      "version": "0.2.35",
+      "description": "A coding agent that puts leading models at your command.",
+      "repository": null,
+      "website": "https://dimcode.dev/docs/acp.html",
+      "license": "proprietary",
+      "distributionKinds": [
+        "npx"
+      ],
+      "manifestUrl": "https://github.com/agentclientprotocol/registry/blob/cc4eb37906eb477a0b0a5e46a7312cbf25366aef/dimcode/agent.json",
+      "manifestRawUrl": "https://raw.githubusercontent.com/agentclientprotocol/registry/cc4eb37906eb477a0b0a5e46a7312cbf25366aef/dimcode/agent.json",
+      "checkedAt": "2026-07-22"
+    },
+    {
+      "registryId": "dirac",
+      "suggestedMuxId": "dirac",
+      "name": "Dirac",
+      "version": "0.4.21",
+      "description": "Reduces API costs by more than 50%, produces better and faster work. Uses Hash anchored parallel edits, AST manipulation and a whole lot of neat optimizations. Fully Open Source.",
+      "repository": "https://github.com/dirac-run/dirac",
+      "website": "https://dirac.run",
+      "license": "Apache-2.0",
+      "distributionKinds": [
+        "npx"
+      ],
+      "manifestUrl": "https://github.com/agentclientprotocol/registry/blob/cc4eb37906eb477a0b0a5e46a7312cbf25366aef/dirac/agent.json",
+      "manifestRawUrl": "https://raw.githubusercontent.com/agentclientprotocol/registry/cc4eb37906eb477a0b0a5e46a7312cbf25366aef/dirac/agent.json",
+      "checkedAt": "2026-07-22"
+    },
+    {
+      "registryId": "factory-droid",
+      "suggestedMuxId": "factory-droid",
+      "name": "Factory Droid",
+      "version": "0.176.0",
+      "description": "Factory Droid - AI coding agent powered by Factory AI",
+      "repository": null,
+      "website": "https://factory.ai/product/cli",
+      "license": "proprietary",
+      "distributionKinds": [
+        "npx"
+      ],
+      "manifestUrl": "https://github.com/agentclientprotocol/registry/blob/cc4eb37906eb477a0b0a5e46a7312cbf25366aef/factory-droid/agent.json",
+      "manifestRawUrl": "https://raw.githubusercontent.com/agentclientprotocol/registry/cc4eb37906eb477a0b0a5e46a7312cbf25366aef/factory-droid/agent.json",
+      "checkedAt": "2026-07-22"
+    },
+    {
+      "registryId": "fast-agent",
+      "suggestedMuxId": "fast-agent",
+      "name": "fast-agent",
+      "version": "0.9.19",
+      "description": "Code and build agents with comprehensive multi-provider support",
+      "repository": "https://github.com/evalstate/fast-agent",
+      "website": "https://fast-agent.ai",
+      "license": "Apache 2.0",
+      "distributionKinds": [
+        "uvx"
+      ],
+      "manifestUrl": "https://github.com/agentclientprotocol/registry/blob/cc4eb37906eb477a0b0a5e46a7312cbf25366aef/fast-agent/agent.json",
+      "manifestRawUrl": "https://raw.githubusercontent.com/agentclientprotocol/registry/cc4eb37906eb477a0b0a5e46a7312cbf25366aef/fast-agent/agent.json",
+      "checkedAt": "2026-07-22"
+    },
+    {
+      "registryId": "gemini",
+      "suggestedMuxId": "gemini",
+      "name": "Gemini CLI",
+      "version": "0.51.0",
+      "description": "Google's official CLI for Gemini",
+      "repository": "https://github.com/google-gemini/gemini-cli",
+      "website": "https://geminicli.com",
+      "license": "Apache-2.0",
+      "distributionKinds": [
+        "npx"
+      ],
+      "manifestUrl": "https://github.com/agentclientprotocol/registry/blob/cc4eb37906eb477a0b0a5e46a7312cbf25366aef/gemini/agent.json",
+      "manifestRawUrl": "https://raw.githubusercontent.com/agentclientprotocol/registry/cc4eb37906eb477a0b0a5e46a7312cbf25366aef/gemini/agent.json",
+      "checkedAt": "2026-07-22"
+    },
+    {
+      "registryId": "github-copilot-cli",
+      "suggestedMuxId": "copilot-cli",
+      "name": "GitHub Copilot",
+      "version": "1.0.73",
+      "description": "GitHub's AI pair programmer",
+      "repository": "https://github.com/github/copilot-cli",
+      "website": "https://github.com/features/copilot/cli/",
+      "license": "proprietary",
+      "distributionKinds": [
+        "npx"
+      ],
+      "manifestUrl": "https://github.com/agentclientprotocol/registry/blob/cc4eb37906eb477a0b0a5e46a7312cbf25366aef/github-copilot-cli/agent.json",
+      "manifestRawUrl": "https://raw.githubusercontent.com/agentclientprotocol/registry/cc4eb37906eb477a0b0a5e46a7312cbf25366aef/github-copilot-cli/agent.json",
+      "checkedAt": "2026-07-22"
+    },
+    {
+      "registryId": "github-copilot",
+      "suggestedMuxId": "github-copilot",
+      "name": "GitHub Copilot",
+      "version": "1.524.0",
+      "description": "GitHub's AI pair programmer",
+      "repository": "https://github.com/github/copilot-language-server-release",
+      "website": "https://github.com/features/copilot/cli/",
+      "license": "proprietary",
+      "distributionKinds": [
+        "npx"
+      ],
+      "manifestUrl": "https://github.com/agentclientprotocol/registry/blob/cc4eb37906eb477a0b0a5e46a7312cbf25366aef/github-copilot/agent.json",
+      "manifestRawUrl": "https://raw.githubusercontent.com/agentclientprotocol/registry/cc4eb37906eb477a0b0a5e46a7312cbf25366aef/github-copilot/agent.json",
+      "checkedAt": "2026-07-22"
+    },
+    {
+      "registryId": "glm-acp-agent",
+      "suggestedMuxId": "glm-acp-agent",
+      "name": "GLM Agent",
+      "version": "1.3.0",
+      "description": "ACP agent powered by Zhipu AI's GLM Coding Plan models (glm-5.1, glm-5-turbo, glm-4.7, glm-4.5-air). Supports streaming, tool calls, mid-session model switching, image input via Z.AI Coding Plan Vision MCP, and session load/fork/resume with on-disk persistence.",
+      "repository": "https://github.com/stefandevo/glm-acp-agent",
+      "website": null,
+      "license": "Apache-2.0",
+      "distributionKinds": [
+        "npx"
+      ],
+      "manifestUrl": "https://github.com/agentclientprotocol/registry/blob/cc4eb37906eb477a0b0a5e46a7312cbf25366aef/glm-acp-agent/agent.json",
+      "manifestRawUrl": "https://raw.githubusercontent.com/agentclientprotocol/registry/cc4eb37906eb477a0b0a5e46a7312cbf25366aef/glm-acp-agent/agent.json",
+      "checkedAt": "2026-07-22"
+    },
+    {
+      "registryId": "goose",
+      "suggestedMuxId": "goose",
+      "name": "goose",
+      "version": "1.43.0",
+      "description": "A local, extensible, open source AI agent that automates engineering tasks",
+      "repository": "https://github.com/block/goose",
+      "website": "https://block.github.io/goose/",
+      "license": "Apache-2.0",
+      "distributionKinds": [
+        "binary"
+      ],
+      "manifestUrl": "https://github.com/agentclientprotocol/registry/blob/cc4eb37906eb477a0b0a5e46a7312cbf25366aef/goose/agent.json",
+      "manifestRawUrl": "https://raw.githubusercontent.com/agentclientprotocol/registry/cc4eb37906eb477a0b0a5e46a7312cbf25366aef/goose/agent.json",
+      "checkedAt": "2026-07-22"
+    },
+    {
+      "registryId": "grok-build",
+      "suggestedMuxId": "grok-build",
+      "name": "Grok Build",
+      "version": "0.2.109",
+      "description": "xAI's coding agent and CLI",
+      "repository": null,
+      "website": "https://x.ai/cli",
+      "license": "proprietary",
+      "distributionKinds": [
+        "npx"
+      ],
+      "manifestUrl": "https://github.com/agentclientprotocol/registry/blob/cc4eb37906eb477a0b0a5e46a7312cbf25366aef/grok-build/agent.json",
+      "manifestRawUrl": "https://raw.githubusercontent.com/agentclientprotocol/registry/cc4eb37906eb477a0b0a5e46a7312cbf25366aef/grok-build/agent.json",
+      "checkedAt": "2026-07-22"
+    },
+    {
+      "registryId": "harn",
+      "suggestedMuxId": "harn",
+      "name": "Harn",
+      "version": "0.10.29",
+      "description": "Harn runs .harn agent pipelines as a native ACP coding agent over stdio.",
+      "repository": "https://github.com/burin-labs/harn",
+      "website": "https://harnlang.com",
+      "license": "Apache-2.0",
+      "distributionKinds": [
+        "binary"
+      ],
+      "manifestUrl": "https://github.com/agentclientprotocol/registry/blob/cc4eb37906eb477a0b0a5e46a7312cbf25366aef/harn/agent.json",
+      "manifestRawUrl": "https://raw.githubusercontent.com/agentclientprotocol/registry/cc4eb37906eb477a0b0a5e46a7312cbf25366aef/harn/agent.json",
+      "checkedAt": "2026-07-22"
+    },
+    {
+      "registryId": "junie",
+      "suggestedMuxId": "junie",
+      "name": "Junie",
+      "version": "2383.9.0",
+      "description": "AI Coding Agent by JetBrains",
+      "repository": "https://github.com/JetBrains/junie",
+      "website": "https://junie.jetbrains.com",
+      "license": "proprietary",
+      "distributionKinds": [
+        "binary"
+      ],
+      "manifestUrl": "https://github.com/agentclientprotocol/registry/blob/cc4eb37906eb477a0b0a5e46a7312cbf25366aef/junie/agent.json",
+      "manifestRawUrl": "https://raw.githubusercontent.com/agentclientprotocol/registry/cc4eb37906eb477a0b0a5e46a7312cbf25366aef/junie/agent.json",
+      "checkedAt": "2026-07-22"
+    },
+    {
+      "registryId": "kilo",
+      "suggestedMuxId": "kilo-code",
+      "name": "Kilo",
+      "version": "7.4.11",
+      "description": "The open source coding agent",
+      "repository": "https://github.com/Kilo-Org/kilocode",
+      "website": "https://kilo.ai/",
+      "license": "MIT",
+      "distributionKinds": [
+        "binary",
+        "npx"
+      ],
+      "manifestUrl": "https://github.com/agentclientprotocol/registry/blob/cc4eb37906eb477a0b0a5e46a7312cbf25366aef/kilo/agent.json",
+      "manifestRawUrl": "https://raw.githubusercontent.com/agentclientprotocol/registry/cc4eb37906eb477a0b0a5e46a7312cbf25366aef/kilo/agent.json",
+      "checkedAt": "2026-07-22"
+    },
+    {
+      "registryId": "kimi",
+      "suggestedMuxId": "kimi-code",
+      "name": "Kimi CLI",
+      "version": "1.49.0",
+      "description": "Moonshot AI's coding assistant",
+      "repository": "https://github.com/MoonshotAI/kimi-cli",
+      "website": "https://moonshotai.github.io/kimi-cli/",
+      "license": "MIT",
+      "distributionKinds": [
+        "binary"
+      ],
+      "manifestUrl": "https://github.com/agentclientprotocol/registry/blob/cc4eb37906eb477a0b0a5e46a7312cbf25366aef/kimi/agent.json",
+      "manifestRawUrl": "https://raw.githubusercontent.com/agentclientprotocol/registry/cc4eb37906eb477a0b0a5e46a7312cbf25366aef/kimi/agent.json",
+      "checkedAt": "2026-07-22"
+    },
+    {
+      "registryId": "minion-code",
+      "suggestedMuxId": "minion-code",
+      "name": "Minion Code",
+      "version": "0.1.44",
+      "description": "An enhanced AI code assistant built on the Minion framework with rich development tools",
+      "repository": "https://github.com/femto/minion-code",
+      "website": null,
+      "license": "AGPL-3.0",
+      "distributionKinds": [
+        "uvx"
+      ],
+      "manifestUrl": "https://github.com/agentclientprotocol/registry/blob/cc4eb37906eb477a0b0a5e46a7312cbf25366aef/minion-code/agent.json",
+      "manifestRawUrl": "https://raw.githubusercontent.com/agentclientprotocol/registry/cc4eb37906eb477a0b0a5e46a7312cbf25366aef/minion-code/agent.json",
+      "checkedAt": "2026-07-22"
+    },
+    {
+      "registryId": "mistral-vibe",
+      "suggestedMuxId": "mistral-vibe",
+      "name": "Mistral Vibe",
+      "version": "2.22.0",
+      "description": "Mistral's open-source coding assistant",
+      "repository": "https://github.com/mistralai/mistral-vibe",
+      "website": "https://mistral.ai/products/vibe",
+      "license": "Apache-2.0",
+      "distributionKinds": [
+        "binary"
+      ],
+      "manifestUrl": "https://github.com/agentclientprotocol/registry/blob/cc4eb37906eb477a0b0a5e46a7312cbf25366aef/mistral-vibe/agent.json",
+      "manifestRawUrl": "https://raw.githubusercontent.com/agentclientprotocol/registry/cc4eb37906eb477a0b0a5e46a7312cbf25366aef/mistral-vibe/agent.json",
+      "checkedAt": "2026-07-22"
+    },
+    {
+      "registryId": "nova",
+      "suggestedMuxId": "nova",
+      "name": "Nova",
+      "version": "1.1.29",
+      "description": "Nova by Compass AI - a fully-fledged software engineer at your command",
+      "repository": "https://github.com/Compass-Agentic-Platform/nova",
+      "website": "https://www.compassap.ai/portfolio/nova.html",
+      "license": "proprietary",
+      "distributionKinds": [
+        "npx"
+      ],
+      "manifestUrl": "https://github.com/agentclientprotocol/registry/blob/cc4eb37906eb477a0b0a5e46a7312cbf25366aef/nova/agent.json",
+      "manifestRawUrl": "https://raw.githubusercontent.com/agentclientprotocol/registry/cc4eb37906eb477a0b0a5e46a7312cbf25366aef/nova/agent.json",
+      "checkedAt": "2026-07-22"
+    },
+    {
+      "registryId": "opencode",
+      "suggestedMuxId": "opencode",
+      "name": "OpenCode",
+      "version": "1.18.4",
+      "description": "The open source coding agent",
+      "repository": "https://github.com/anomalyco/opencode",
+      "website": "https://opencode.ai",
+      "license": "MIT",
+      "distributionKinds": [
+        "binary"
+      ],
+      "manifestUrl": "https://github.com/agentclientprotocol/registry/blob/cc4eb37906eb477a0b0a5e46a7312cbf25366aef/opencode/agent.json",
+      "manifestRawUrl": "https://raw.githubusercontent.com/agentclientprotocol/registry/cc4eb37906eb477a0b0a5e46a7312cbf25366aef/opencode/agent.json",
+      "checkedAt": "2026-07-22"
+    },
+    {
+      "registryId": "pi-acp",
+      "suggestedMuxId": "pi",
+      "name": "pi ACP",
+      "version": "0.0.31",
+      "description": "ACP adapter for pi coding agent",
+      "repository": "https://github.com/svkozak/pi-acp",
+      "website": null,
+      "license": "MIT",
+      "distributionKinds": [
+        "npx"
+      ],
+      "manifestUrl": "https://github.com/agentclientprotocol/registry/blob/cc4eb37906eb477a0b0a5e46a7312cbf25366aef/pi-acp/agent.json",
+      "manifestRawUrl": "https://raw.githubusercontent.com/agentclientprotocol/registry/cc4eb37906eb477a0b0a5e46a7312cbf25366aef/pi-acp/agent.json",
+      "checkedAt": "2026-07-22"
+    },
+    {
+      "registryId": "poolside",
+      "suggestedMuxId": "poolside",
+      "name": "Poolside",
+      "version": "1.0.13",
+      "description": "Poolside's coding agent",
+      "repository": "https://github.com/poolsideai/pool",
+      "website": "https://poolside.ai",
+      "license": "proprietary",
+      "distributionKinds": [
+        "binary"
+      ],
+      "manifestUrl": "https://github.com/agentclientprotocol/registry/blob/cc4eb37906eb477a0b0a5e46a7312cbf25366aef/poolside/agent.json",
+      "manifestRawUrl": "https://raw.githubusercontent.com/agentclientprotocol/registry/cc4eb37906eb477a0b0a5e46a7312cbf25366aef/poolside/agent.json",
+      "checkedAt": "2026-07-22"
+    },
+    {
+      "registryId": "qoder",
+      "suggestedMuxId": "qoder-cli",
+      "name": "Qoder CLI",
+      "version": "0.2.14",
+      "description": "AI coding assistant with agentic capabilities",
+      "repository": null,
+      "website": "https://qoder.com",
+      "license": "proprietary",
+      "distributionKinds": [
+        "npx"
+      ],
+      "manifestUrl": "https://github.com/agentclientprotocol/registry/blob/cc4eb37906eb477a0b0a5e46a7312cbf25366aef/qoder/agent.json",
+      "manifestRawUrl": "https://raw.githubusercontent.com/agentclientprotocol/registry/cc4eb37906eb477a0b0a5e46a7312cbf25366aef/qoder/agent.json",
+      "checkedAt": "2026-07-22"
+    },
+    {
+      "registryId": "qwen-code",
+      "suggestedMuxId": "qwen-code",
+      "name": "Qwen Code",
+      "version": "0.20.1",
+      "description": "Alibaba's Qwen coding assistant",
+      "repository": "https://github.com/QwenLM/qwen-code",
+      "website": "https://qwenlm.github.io/qwen-code-docs/en/users/overview",
+      "license": "Apache-2.0",
+      "distributionKinds": [
+        "npx"
+      ],
+      "manifestUrl": "https://github.com/agentclientprotocol/registry/blob/cc4eb37906eb477a0b0a5e46a7312cbf25366aef/qwen-code/agent.json",
+      "manifestRawUrl": "https://raw.githubusercontent.com/agentclientprotocol/registry/cc4eb37906eb477a0b0a5e46a7312cbf25366aef/qwen-code/agent.json",
+      "checkedAt": "2026-07-22"
+    },
+    {
+      "registryId": "sigit",
+      "suggestedMuxId": "sigit",
+      "name": "siGit Code",
+      "version": "1.4.1",
+      "description": "Local-first coding agent. Runs entirely on your machine with optional on-device LLM inference via Onde.",
+      "repository": "https://github.com/getsigit/sigit",
+      "website": "https://github.com/getsigit/sigit",
+      "license": "Apache-2.0",
+      "distributionKinds": [
+        "binary",
+        "npx"
+      ],
+      "manifestUrl": "https://github.com/agentclientprotocol/registry/blob/cc4eb37906eb477a0b0a5e46a7312cbf25366aef/sigit/agent.json",
+      "manifestRawUrl": "https://raw.githubusercontent.com/agentclientprotocol/registry/cc4eb37906eb477a0b0a5e46a7312cbf25366aef/sigit/agent.json",
+      "checkedAt": "2026-07-22"
+    },
+    {
+      "registryId": "stakpak",
+      "suggestedMuxId": "stakpak",
+      "name": "Stakpak",
+      "version": "0.3.88",
+      "description": "Open-source DevOps agent in Rust with enterprise-grade security",
+      "repository": "https://github.com/stakpak/agent",
+      "website": "https://stakpak.dev",
+      "license": "Apache-2.0",
+      "distributionKinds": [
+        "binary"
+      ],
+      "manifestUrl": "https://github.com/agentclientprotocol/registry/blob/cc4eb37906eb477a0b0a5e46a7312cbf25366aef/stakpak/agent.json",
+      "manifestRawUrl": "https://raw.githubusercontent.com/agentclientprotocol/registry/cc4eb37906eb477a0b0a5e46a7312cbf25366aef/stakpak/agent.json",
+      "checkedAt": "2026-07-22"
+    },
+    {
+      "registryId": "vtcode",
+      "suggestedMuxId": "vt-code",
+      "name": "VT Code",
+      "version": "0.96.14",
+      "description": "An open-source coding agent with LLM-native code understanding and robust shell safety. Supports multiple LLM providers with automatic failover and efficient context management.",
+      "repository": "https://github.com/vinhnx/VTCode",
+      "website": "https://github.com/vinhnx/VTCode/blob/main/docs/guides/zed-acp.md",
+      "license": "MIT",
+      "distributionKinds": [
+        "binary"
+      ],
+      "manifestUrl": "https://github.com/agentclientprotocol/registry/blob/cc4eb37906eb477a0b0a5e46a7312cbf25366aef/vtcode/agent.json",
+      "manifestRawUrl": "https://raw.githubusercontent.com/agentclientprotocol/registry/cc4eb37906eb477a0b0a5e46a7312cbf25366aef/vtcode/agent.json",
+      "checkedAt": "2026-07-22"
+    }
+  ]
+}

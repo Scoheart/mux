@@ -133,3 +133,35 @@ fn unavailable_or_unknown_agents_fail_without_losing_snapshots() {
     assert!(clean.cleaned.is_empty());
     assert!(clean.errors[0].contains("unknown Agent"));
 }
+
+#[test]
+fn vt_code_enable_keeps_snapshot_when_root_mcp_switch_was_disabled() {
+    let th = TestHome::new("vt-code-disabled-before-restore");
+    let directory = th.home.join(".vtcode");
+    std::fs::create_dir_all(&directory).unwrap();
+    let path = directory.join("vtcode.toml");
+    std::fs::write(
+        &path,
+        r#"[mcp]
+enabled = true
+
+[[mcp.providers]]
+name = "srv"
+enabled = true
+command = "npx"
+args = ["-y", "srv"]
+"#,
+    )
+    .unwrap();
+
+    ops::disable("srv", "stdio", "global", &["vt-code".into()], None).unwrap();
+    assert!(load_disabled().contains_key("vt-code"));
+
+    let disabled_root = "[mcp]\nenabled = false\n";
+    std::fs::write(&path, disabled_root).unwrap();
+    let errors = ops::enable("srv", "stdio", "global", &["vt-code".into()], None).unwrap_err();
+
+    assert!(errors.iter().any(|error| error.contains("mcp.enabled")));
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), disabled_root);
+    assert!(load_disabled().contains_key("vt-code"));
+}

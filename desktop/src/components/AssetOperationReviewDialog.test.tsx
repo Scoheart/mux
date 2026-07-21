@@ -160,11 +160,13 @@ it("shows configuration paths and shared Skill migration compactly", () => {
     agent_id: "codex",
     before: {
       mcp_path: "~/.codex/config.toml",
+      mcp_key: "mcp_servers",
       model_paths: ["~/.codex/config.toml"],
       skills_global_dir: "~/.agents/skills",
     },
     after: {
       mcp_path: "~/.codex/config.toml",
+      mcp_key: "mcp_servers",
       model_paths: ["~/.codex/config.toml"],
       skills_global_dir: "~/.private/skills",
     },
@@ -188,6 +190,136 @@ it("shows configuration paths and shared Skill migration compactly", () => {
   expect(screen.getByRole("heading", { name: "确认修改配置" })).toBeVisible();
   expect(screen.getByText("~/.agents/skills")).toBeVisible();
   expect(screen.getByText("review-changes、frontend-design")).toBeVisible();
-  expect(screen.getByText("Codex · 另影响 1 个 Agent")).toBeVisible();
+  expect(screen.getByText("Codex · Skills 目录变更涉及 1 个其他 Agent")).toBeVisible();
+  expect(screen.queryByText(/另影响/)).not.toBeInTheDocument();
   expect(screen.getByRole("button", { name: "保存配置" })).toBeEnabled();
+});
+
+it("describes shared Skills readers even when the changed directory has no Skills to migrate", () => {
+  const plan = assetOperationPlanFixture();
+  plan.kind = "update-configuration";
+  plan.domain_plan = {
+    domain: "agent-configuration",
+    agent_id: "codex",
+    before: {
+      mcp_path: "~/.codex/config.toml",
+      mcp_key: "mcp_servers",
+      model_paths: ["~/.codex/config.toml"],
+      skills_global_dir: "~/.agents/skills",
+    },
+    after: {
+      mcp_path: "~/.codex/config.toml",
+      mcp_key: "mcp_servers",
+      model_paths: ["~/.codex/config.toml"],
+      skills_global_dir: "~/.private/skills",
+    },
+    skills_before: {},
+    skills_after: {},
+    affected_agent_ids: ["codex", "cursor"],
+    migrated_skill_names: [],
+  };
+  plan.affected_agent_ids = ["codex", "cursor"];
+  plan.relationship_changes = [];
+
+  render(
+    <AssetOperationReviewDialog
+      plan={plan}
+      busy={false}
+      agentName="Codex"
+      onCommit={vi.fn()}
+      onCancel={vi.fn()}
+    />,
+  );
+
+  expect(screen.getByText("Codex · Skills 目录变更涉及 1 个其他 Agent")).toBeVisible();
+  expect(screen.queryByText(/另影响/)).not.toBeInTheDocument();
+});
+
+it("reviews an MCP key-only location change without implying migration", () => {
+  const plan = assetOperationPlanFixture();
+  plan.kind = "update-configuration";
+  plan.domain_plan = {
+    domain: "agent-configuration",
+    agent_id: "amp",
+    before: {
+      mcp_path: "~/.config/amp/settings.json",
+      mcp_key: "mcpServers",
+      model_paths: [],
+      skills_global_dir: null,
+    },
+    after: {
+      mcp_path: "~/.config/amp/settings.json",
+      mcp_key: "amp.mcpServers",
+      model_paths: [],
+      skills_global_dir: null,
+    },
+    skills_before: {},
+    skills_after: {},
+    affected_agent_ids: ["amp"],
+    migrated_skill_names: [],
+  };
+  plan.target_files = [];
+  plan.affected_agent_ids = ["amp"];
+  plan.relationship_changes = [];
+
+  render(
+    <AssetOperationReviewDialog
+      plan={plan}
+      busy={false}
+      agentName="Amp"
+      onCommit={vi.fn()}
+      onCancel={vi.fn()}
+    />,
+  );
+
+  expect(screen.getByText("MCP 配置键")).toBeVisible();
+  expect(screen.queryByText("MCP 文件路径")).not.toBeInTheDocument();
+  expect(screen.getByText("mcpServers")).toBeVisible();
+  expect(screen.getByText("amp.mcpServers")).toBeVisible();
+  expect(screen.getByText(
+    "只更新 MUX 后续使用的 MCP 配置位置；旧文件不会删除，现有 MCP 配置不会复制到新位置。",
+  )).toBeVisible();
+});
+
+it("explains that changing Model paths does not move existing configuration", () => {
+  const plan = assetOperationPlanFixture();
+  plan.kind = "update-configuration";
+  plan.domain_plan = {
+    domain: "agent-configuration",
+    agent_id: "codex",
+    before: {
+      mcp_path: "~/.codex/config.toml",
+      mcp_key: "mcp_servers",
+      model_paths: ["~/.codex/config.toml"],
+      skills_global_dir: "~/.agents/skills",
+    },
+    after: {
+      mcp_path: "~/.codex/config.toml",
+      mcp_key: "mcp_servers",
+      model_paths: ["~/.codex/models.toml"],
+      skills_global_dir: "~/.agents/skills",
+    },
+    skills_before: {},
+    skills_after: {},
+    affected_agent_ids: ["codex"],
+    migrated_skill_names: [],
+  };
+  plan.target_files = [];
+  plan.affected_agent_ids = ["codex"];
+  plan.relationship_changes = [];
+
+  render(
+    <AssetOperationReviewDialog
+      plan={plan}
+      busy={false}
+      agentName="Codex"
+      onCommit={vi.fn()}
+      onCancel={vi.fn()}
+    />,
+  );
+
+  expect(screen.getByText(
+    "只更新 MUX 后续使用的 Model 配置位置；旧文件不会删除，现有 Model 配置不会复制到新位置。",
+  )).toBeVisible();
+  expect(screen.queryByText(/后续使用的 MCP/)).not.toBeInTheDocument();
 });

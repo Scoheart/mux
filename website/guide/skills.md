@@ -36,7 +36,7 @@ MUX 按物理目录归一化消费关系。某些 Agent 会兼容读取另一个
 
 ## 已核验的 Agent 路径
 
-当前为以下 36 个 Agent 提供经过官方文档或官方源码核验的用户级 Skills 能力。MUX 只显示本机安装探针命中且能力资料已核验的 Agent；目录本身存在不等于对应 Agent 已安装。
+当前为以下 **45 个 Agent** 提供经过官方文档或官方源码核验的用户级 Skills 能力。MUX 只显示本机安装探针命中且能力资料已核验的 Agent；目录本身存在不等于对应 Agent 已安装。
 
 | Agent | 首选用户级目录 | 兼容读取目录 |
 |---|---|---|
@@ -51,6 +51,9 @@ MUX 按物理目录归一化消费关系。某些 Agent 会兼容读取另一个
 | GitHub Copilot CLI | `~/.copilot/skills` | `~/.agents/skills` |
 | Crush | `~/.config/crush/skills` | `~/.config/agents/skills`、`~/.agents/skills`、`~/.claude/skills` |
 | Cursor | `~/.cursor/skills` | `~/.agents/skills` |
+| Dirac | `~/.agents/skills` | `~/.dirac/skills`、`~/.claude/skills`、`~/.ai/skills` |
+| Docker Agent | `~/.agents/skills` | — |
+| Eclipse Theia IDE | `~/.agents/skills` | — |
 | Factory Droid | `~/.factory/skills` | — |
 | Firebender | `~/.firebender/skills` | `~/.goose/skills`、`~/.claude/skills`、`~/.codex/skills`、`~/.cursor/skills`、`~/.agents/skills` |
 | Gemini CLI | `~/.gemini/skills` | `~/.agents/skills` |
@@ -60,22 +63,28 @@ MUX 按物理目录归一化消费关系。某些 Agent 会兼容读取另一个
 | Kilo Code CLI | `~/.kilo/skills` | — |
 | Kimi Code CLI | `~/.kimi-code/skills` | `~/.agents/skills` |
 | Kiro | `~/.kiro/skills` | — |
+| Minion Code | `~/.minion/skills` | `~/.claude/skills` |
 | Mistral Vibe | `~/.vibe/skills` | — |
 | OpenCode | `~/.config/opencode/skills` | `~/.claude/skills`、`~/.agents/skills` |
 | OpenHands CLI | `~/.openhands/skills` | — |
 | Pi Coding Agent | `~/.pi/agent/skills` | `~/.agents/skills` |
+| Poolside | `~/.agents/skills` | — |
 | Qoder Desktop | `~/.qoder/skills` | — |
 | Qoder CLI | `~/.qoder/skills` | — |
 | QoderWork | `~/.qoderwork/skills` | — |
 | Qwen Code | `~/.qwen/skills` | — |
+| Raycast | `~/.config/raycast/skills` | `~/.claude/skills`、`~/.config/agents/skills`、`~/.agents/skills` |
 | Roo Code | `~/.roo/skills` | `~/.agents/skills` |
 | Atlassian Rovo Dev CLI | `~/.rovodev/skills` | `~/.agents/skills` |
-| Stakpak | `~/.config/stakpak/skills` | — |
+| Snowflake Cortex Code | `~/.snowflake/cortex/skills` | `~/.claude/skills` |
+| Stakpak | `~/.stakpak/skills` | — |
+| TRAE IDE | `~/.trae/skills` | — |
 | Visual Studio Code | `~/.copilot/skills` | `~/.claude/skills`、`~/.agents/skills` |
 | VT Code | `~/.agents/skills` | — |
 | Warp | `~/.agents/skills` | `~/.warp/skills`、`~/.claude/skills`、`~/.codex/skills`、`~/.cursor/skills`、`~/.gemini/skills`、`~/.copilot/skills`、`~/.factory/skills`、`~/.github/skills`、`~/.opencode/skills` |
 | Windsurf | `~/.codeium/windsurf/skills` | `~/.agents/skills` |
 | Zed | `~/.agents/skills` | — |
+| Zencoder | `~/.agents/skills` | — |
 
 Agent 的 MCP 配置路径和 Skills 路径是两套独立契约，MUX 不会从其中一个推断另一个。特别是 `~/.codex/skills` 只在 Firebender 与 Warp 文档中作为兼容目录出现；Codex 自身经过核验的用户级目录仍是 `~/.agents/skills`。更多背景见 [支持的 Agent](/guide/agents#skills-能力)。
 

@@ -218,18 +218,43 @@ impl TomlListAdapter {
     }
 
     fn apply_root_defaults(&self, document: &mut Document) -> Result<(), String> {
-        let defaults = Self::fields_table(
-            self.root_defaults
-                .iter()
-                .map(|(key, value)| (key.clone(), value.clone()))
-                .collect(),
-        )?;
-        for (field, value) in defaults.iter() {
-            if !document.as_table().contains_key(field) {
-                document.as_table_mut().insert(field, value.clone());
+        let mut defaults = Table::new();
+        for (field, value) in &self.root_defaults {
+            defaults.insert(field, Self::default_item(value)?);
+        }
+        Self::merge_missing_defaults(document.as_table_mut(), &defaults);
+        Ok(())
+    }
+
+    fn default_item(value: &Value) -> Result<Item, String> {
+        if let Value::Object(fields) = value {
+            let mut table = Table::new();
+            for (field, value) in fields {
+                table.insert(field, Self::default_item(value)?);
+            }
+            return Ok(Item::Table(table));
+        }
+        let fields = Self::fields_table(vec![("value".into(), value.clone())])?;
+        fields
+            .get("value")
+            .cloned()
+            .ok_or_else(|| "failed to materialize TOML root default".to_string())
+    }
+
+    /// Merge only absent default fields. Nested tables are traversed so a
+    /// capability-level switch can be materialized in an existing config, but
+    /// every explicit user value (including `false`) remains authoritative.
+    fn merge_missing_defaults(target: &mut Table, defaults: &Table) {
+        for (field, default) in defaults.iter() {
+            let Some(existing) = target.get_mut(field) else {
+                target.insert(field, default.clone());
+                continue;
+            };
+            if let (Some(existing), Some(defaults)) = (existing.as_table_mut(), default.as_table())
+            {
+                Self::merge_missing_defaults(existing, defaults);
             }
         }
-        Ok(())
     }
 
     fn semantic_entries(&self, document: &Document) -> Result<Vec<Value>, String> {
@@ -250,6 +275,31 @@ impl TomlListAdapter {
             .map(|entry| serde_json::to_value(entry).map_err(|error| error.to_string()))
             .collect()
     }
+
+    fn validate_root_enablement(&self, document: &Document) -> Result<(), String> {
+        if self.codec != Codec::VtCode {
+            return Ok(());
+        }
+        let semantic =
+            toml::from_str::<Toml>(&document.to_string()).map_err(|error| error.to_string())?;
+        let Some(mcp) = semantic.get("mcp") else {
+            return Ok(());
+        };
+        let table = mcp
+            .as_table()
+            .ok_or_else(|| "VT Code 'mcp' root is not a TOML table".to_string())?;
+        match table.get("enabled") {
+            None | Some(Toml::Boolean(true)) => Ok(()),
+            Some(Toml::Boolean(false)) => Err(
+                "VT Code MCP is disabled by 'mcp.enabled'; enable it in VT Code before MUX updates it"
+                    .into(),
+            ),
+            Some(_) => Err(
+                "VT Code MCP switch 'mcp.enabled' is not a boolean; refusing to infer state"
+                    .into(),
+            ),
+        }
+    }
 }
 
 impl Adapter for TomlListAdapter {
@@ -257,6 +307,9 @@ impl Adapter for TomlListAdapter {
         let Ok((document, _)) = self.read_document(path) else {
             return BTreeMap::new();
         };
+        if self.validate_root_enablement(&document).is_err() {
+            return BTreeMap::new();
+        }
         let Some(section) = self.section(&document) else {
             return BTreeMap::new();
         };
@@ -279,9 +332,25 @@ impl Adapter for TomlListAdapter {
 
     fn upsert(&self, path: &Path, name: &str, config: &McpConfig) -> Result<(), String> {
         let (mut document, original) = self.read_document(path)?;
-        if original.is_none() {
-            self.apply_root_defaults(&mut document)?;
+        self.validate_root_enablement(&document)?;
+        let existing_entries = self.semantic_entries(&document)?;
+        let matching_entries = existing_entries
+            .iter()
+            .filter(|entry| {
+                entry
+                    .as_object()
+                    .and_then(|object| object.get(&self.identity_field))
+                    .and_then(Value::as_str)
+                    == Some(name)
+            })
+            .collect::<Vec<_>>();
+        if matching_entries.len() > 1 {
+            return Err(format!("duplicate TOML identity '{}.{}'", self.key, name));
         }
+        if let Some(entry) = matching_entries.first() {
+            self.codec.validate_update(entry, config)?;
+        }
+        self.apply_root_defaults(&mut document)?;
         let patch = self.codec.patch(config)?;
         let section = self
             .section_mut(&mut document, path, true)?
@@ -335,6 +404,7 @@ impl Adapter for TomlListAdapter {
 
     fn snapshot(&self, path: &Path, name: &str) -> Result<Option<Value>, String> {
         let (document, _) = self.read_document(path)?;
+        self.validate_root_enablement(&document)?;
         let mut matches = self
             .semantic_entries(&document)?
             .into_iter()
@@ -348,6 +418,9 @@ impl Adapter for TomlListAdapter {
         let first = matches.next();
         if matches.next().is_some() {
             return Err(format!("duplicate TOML identity '{}.{}'", self.key, name));
+        }
+        if let Some(entry) = first.as_ref() {
+            self.codec.validate_existing_entry(entry)?;
         }
         Ok(first)
     }
@@ -373,6 +446,7 @@ impl Adapter for TomlListAdapter {
     }
 
     fn restore(&self, path: &Path, name: &str, snapshot: &Value) -> Result<(), String> {
+        self.codec.validate_existing_entry(snapshot)?;
         let Some(mut fields) = snapshot.as_object().cloned() else {
             return Err("refusing to restore a non-table TOML snapshot".into());
         };
@@ -388,9 +462,7 @@ impl Adapter for TomlListAdapter {
             .entry(self.identity_field.clone())
             .or_insert_with(|| Value::String(name.into()));
         let (mut document, original) = self.read_document(path)?;
-        if original.is_none() {
-            self.apply_root_defaults(&mut document)?;
-        }
+        self.apply_root_defaults(&mut document)?;
         let section = self
             .section_mut(&mut document, path, true)?
             .expect("created TOML array of tables");

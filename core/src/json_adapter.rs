@@ -12,6 +12,7 @@ use std::path::Path;
 
 pub struct JsonAdapter {
     pub key: String,
+    key_path: bool,
     codec: Codec,
     root_defaults: BTreeMap<String, Value>,
 }
@@ -26,8 +27,18 @@ impl JsonAdapter {
     }
 
     pub fn with_spec(key: &str, codec: Codec, root_defaults: BTreeMap<String, Value>) -> Self {
+        Self::with_spec_and_key_path(key, codec, root_defaults, false)
+    }
+
+    pub fn with_spec_and_key_path(
+        key: &str,
+        codec: Codec,
+        root_defaults: BTreeMap<String, Value>,
+        key_path: bool,
+    ) -> Self {
         Self {
             key: key.to_string(),
+            key_path,
             codec,
             root_defaults,
         }
@@ -161,6 +172,57 @@ impl JsonAdapter {
         Ok(())
     }
 
+    fn section_object(
+        &self,
+        root: CstObject,
+        path: &Path,
+        create: bool,
+    ) -> Result<Option<CstObject>, String> {
+        let mut current = root;
+        let mut context = "$root".to_string();
+        let components = if self.key_path {
+            self.key.split('.').collect::<Vec<_>>()
+        } else {
+            vec![self.key.as_str()]
+        };
+        for name in components {
+            if name.is_empty() {
+                return Err(format!(
+                    "refusing to modify {}: JSON key path '{}' contains an empty component",
+                    path.display(),
+                    self.key
+                ));
+            }
+            Self::ensure_unique_property(&current, name, path, &context)?;
+            let next = if create {
+                current.object_value_or_create(name).ok_or_else(|| {
+                    format!(
+                        "refusing to modify {}: '{}.{}' is not an object",
+                        path.display(),
+                        context,
+                        name
+                    )
+                })?
+            } else {
+                let Some(property) = current.get(name) else {
+                    return Ok(None);
+                };
+                property.object_value().ok_or_else(|| {
+                    format!(
+                        "refusing to read {}: '{}.{}' is not an object",
+                        path.display(),
+                        context,
+                        name
+                    )
+                })?
+            };
+            context.push('.');
+            context.push_str(name);
+            current = next;
+        }
+        Ok(Some(current))
+    }
+
     fn patch_nested_object(
         target: &CstObject,
         patch: ObjectPatch,
@@ -207,6 +269,32 @@ impl JsonAdapter {
         }
         Value::Object(fields)
     }
+
+    /// ChatMCP stores OAuth material beside MCP connection metadata. A normal
+    /// whole-file backup would copy those external credentials into MUX's
+    /// backup area, so any credential-bearing entry makes the entire file
+    /// read-only. The error deliberately reports only policy, never values.
+    fn validate_section_mutation_policy(
+        &self,
+        section: &CstObject,
+        path: &Path,
+    ) -> Result<(), String> {
+        if self.codec != Codec::ChatMcp {
+            return Ok(());
+        }
+        for property in section.properties() {
+            let value = property.to_serde_value().ok_or_else(|| {
+                format!(
+                    "refusing to modify {}: ChatMCP MCP entry has no valid JSON value",
+                    path.display()
+                )
+            })?;
+            self.codec
+                .validate_existing_entry(&value)
+                .map_err(|reason| format!("refusing to modify {}: {reason}", path.display()))?;
+        }
+        Ok(())
+    }
 }
 
 impl Adapter for JsonAdapter {
@@ -214,10 +302,10 @@ impl Adapter for JsonAdapter {
         let Ok((root, _)) = self.read_document(path) else {
             return BTreeMap::new();
         };
-        let Some(section) = root
-            .object_value()
-            .and_then(|object| object.object_value(&self.key))
-        else {
+        let Some(object) = root.object_value() else {
+            return BTreeMap::new();
+        };
+        let Ok(Some(section)) = self.section_object(object, path, false) else {
             return BTreeMap::new();
         };
         section
@@ -248,17 +336,22 @@ impl Adapter for JsonAdapter {
                 }
             }
         }
-        Self::ensure_unique_property(&object, &self.key, path, "$root")?;
-        let section = object.object_value_or_create(&self.key).ok_or_else(|| {
-            format!(
-                "refusing to modify {}: '{}' is not an object",
-                path.display(),
-                self.key
-            )
-        })?;
+        let section = self
+            .section_object(object, path, true)?
+            .expect("create=true always returns a section");
         Self::ensure_unique_keys(&section, path, &self.key)?;
+        self.validate_section_mutation_policy(&section, path)?;
         let patch = self.codec.patch(cfg)?;
         if let Some(property) = section.get(name) {
+            let current = property.to_serde_value().ok_or_else(|| {
+                format!(
+                    "refusing to modify {}: '{}.{}' has no valid JSON value",
+                    path.display(),
+                    self.key,
+                    name
+                )
+            })?;
+            self.codec.validate_update(&current, cfg)?;
             if let Some(value) = property.value() {
                 Self::ensure_unique_nested_keys(&value, path, &format!("{}.{}", self.key, name))?;
             }
@@ -319,18 +412,11 @@ impl Adapter for JsonAdapter {
                 path.display()
             )
         })?;
-        Self::ensure_unique_property(&object, &self.key, path, "$root")?;
-        let Some(section_property) = object.get(&self.key) else {
+        let Some(section) = self.section_object(object, path, false)? else {
             return Ok(());
         };
-        let section = section_property.object_value().ok_or_else(|| {
-            format!(
-                "refusing to modify {}: '{}' is not an object",
-                path.display(),
-                self.key
-            )
-        })?;
         Self::ensure_unique_keys(&section, path, &self.key)?;
+        self.validate_section_mutation_policy(&section, path)?;
         let mut changed = false;
         for name in names {
             if let Some(property) = section.get(name) {
@@ -345,25 +431,24 @@ impl Adapter for JsonAdapter {
     }
 
     fn snapshot(&self, path: &Path, name: &str) -> Result<Option<Value>, String> {
-        let (root, _) = self.read_document(path)?;
+        let (root, original) = self.read_document(path)?;
+        if original
+            .as_deref()
+            .is_none_or(|content| content.trim().is_empty())
+        {
+            return Ok(None);
+        }
         let object = root.object_value().ok_or_else(|| {
             format!(
                 "refusing to read {}: JSON root is not an object",
                 path.display()
             )
         })?;
-        Self::ensure_unique_property(&object, &self.key, path, "$root")?;
-        let Some(section_property) = object.get(&self.key) else {
+        let Some(section) = self.section_object(object, path, false)? else {
             return Ok(None);
         };
-        let section = section_property.object_value().ok_or_else(|| {
-            format!(
-                "refusing to read {}: '{}' is not an object",
-                path.display(),
-                self.key
-            )
-        })?;
         Self::ensure_unique_keys(&section, path, &self.key)?;
+        self.validate_section_mutation_policy(&section, path)?;
         let Some(property) = section.get(name) else {
             return Ok(None);
         };
@@ -392,6 +477,7 @@ impl Adapter for JsonAdapter {
                 name
             ));
         }
+        self.codec.validate_existing_entry(&value)?;
         Ok(Some(value))
     }
 
@@ -403,15 +489,15 @@ impl Adapter for JsonAdapter {
                 path.display()
             )
         })?;
-        Self::ensure_unique_property(&object, &self.key, path, "$root")?;
-        let section = object.object_value(&self.key).ok_or_else(|| {
+        let section = self.section_object(object, path, false)?.ok_or_else(|| {
             format!(
-                "refusing to modify {}: '{}' is missing or not an object",
+                "refusing to modify {}: '{}' is missing",
                 path.display(),
                 self.key
             )
         })?;
         Self::ensure_unique_keys(&section, path, &self.key)?;
+        self.validate_section_mutation_policy(&section, path)?;
         let property = section.get(name).ok_or_else(|| {
             format!(
                 "refusing to remove {}: '{}.{}' no longer exists",
@@ -453,6 +539,7 @@ impl Adapter for JsonAdapter {
         if !snapshot.is_object() {
             return Err("refusing to restore a non-object MCP snapshot".into());
         }
+        self.codec.validate_existing_entry(snapshot)?;
         let (root, original) = self.read_document(path)?;
         let object = root.object_value_or_create().ok_or_else(|| {
             format!(
@@ -460,15 +547,11 @@ impl Adapter for JsonAdapter {
                 path.display()
             )
         })?;
-        Self::ensure_unique_property(&object, &self.key, path, "$root")?;
-        let section = object.object_value_or_create(&self.key).ok_or_else(|| {
-            format!(
-                "refusing to modify {}: '{}' is not an object",
-                path.display(),
-                self.key
-            )
-        })?;
+        let section = self
+            .section_object(object, path, true)?
+            .expect("create=true always returns a section");
         Self::ensure_unique_keys(&section, path, &self.key)?;
+        self.validate_section_mutation_policy(&section, path)?;
         if section.get(name).is_some() {
             return Err(format!(
                 "refusing to restore {}: '{}.{}' already exists",
@@ -757,6 +840,18 @@ mod tests {
     fn read_missing_file_is_empty() {
         let adapter = JsonAdapter::new("mcpServers");
         assert!(adapter.read(Path::new("/nonexistent/xyz.json")).is_empty());
+    }
+
+    #[test]
+    fn snapshot_missing_or_blank_file_has_no_entry() {
+        let adapter = JsonAdapter::new("mcpServers");
+        let p = tmp("snapshot-empty");
+        let _ = std::fs::remove_file(&p);
+        assert_eq!(adapter.snapshot(&p, "git").unwrap(), None);
+
+        std::fs::write(&p, "  \n").unwrap();
+        assert_eq!(adapter.snapshot(&p, "git").unwrap(), None);
+        let _ = std::fs::remove_file(&p);
     }
 
     #[test]

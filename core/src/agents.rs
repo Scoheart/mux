@@ -34,6 +34,9 @@ pub struct AgentInfo {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AgentConfigurationInput {
     pub mcp_path: String,
+    /// `None` keeps the effective key for backward-compatible callers.
+    #[serde(default)]
+    pub mcp_key: Option<String>,
     #[serde(default)]
     pub model_paths: Vec<String>,
     pub skills_global_dir: Option<String>,
@@ -73,8 +76,11 @@ const VERIFIED_SKILL_AGENT_IDS: &[&str] = &[
     "codewhale",
     "codex",
     "copilot-cli",
+    "cortex-code",
     "crush",
     "cursor",
+    "dirac",
+    "docker-agent",
     "factory-droid",
     "firebender",
     "gemini",
@@ -84,22 +90,28 @@ const VERIFIED_SKILL_AGENT_IDS: &[&str] = &[
     "kilo-code",
     "kimi-code",
     "kiro",
+    "minion-code",
     "mistral-vibe",
     "opencode",
     "openhands",
     "pi",
+    "poolside",
     "qoder",
     "qoder-cli",
     "qoderwork",
     "qwen-code",
+    "raycast",
     "roo-code",
     "rovo-dev",
     "stakpak",
+    "theiaai-theiaide",
+    "trae-ide",
     "vscode",
     "vt-code",
     "warp",
     "windsurf",
     "zed",
+    "zencoder",
 ];
 
 fn audited_agents() -> BTreeMap<String, AgentDefinition> {
@@ -149,9 +161,9 @@ fn validate_skill_capabilities(agents: &BTreeMap<String, AgentDefinition>) -> Re
         let Some(capability) = definition.skills.as_ref() else {
             continue;
         };
-        if capability.evidence != "official" {
+        if !is_verified_skill_evidence(&capability.evidence) {
             return Err(format!(
-                "Skills capability for {agent_id} requires official evidence"
+                "Skills capability for {agent_id} requires official docs or official-source evidence"
             ));
         }
         if capability.docs.trim().is_empty() {
@@ -209,6 +221,10 @@ fn validate_skill_capabilities(agents: &BTreeMap<String, AgentDefinition>) -> Re
     Ok(())
 }
 
+pub(crate) fn is_verified_skill_evidence(evidence: &str) -> bool {
+    matches!(evidence, "official" | "official-source")
+}
+
 fn validate_skill_directory(path: &str) -> Result<(), String> {
     if !path.starts_with("~/") || !path.ends_with("/skills") {
         return Err(format!("{path} must be a ~/.../skills path"));
@@ -239,20 +255,22 @@ pub(crate) fn load_agents_from_settings(
         _ => builtin_agents(),
     };
     for (agent_id, path_override) in settings.agent_config_paths.iter().flatten() {
-        let Some(global_dir) = path_override.skills_global_dir.as_ref() else {
+        let Some(definition) = agents.get_mut(agent_id) else {
             continue;
         };
-        if let Some(capability) = agents
-            .get_mut(agent_id)
-            .and_then(|definition| definition.skills.as_mut())
-        {
-            if capability.global_dir != *global_dir {
-                capability.global_dir = global_dir.clone();
-                // A configured primary directory is a runtime declaration of
-                // its own. Reusing the audited target id would make one id
-                // point to both the catalog path and the override path when
-                // another Agent still declares the catalog target.
-                capability.target_id = format!("{agent_id}-configured");
+        if let Some(mcp_key) = path_override.mcp_key.as_ref() {
+            definition.key = mcp_key.clone();
+        }
+        if let Some(global_dir) = path_override.skills_global_dir.as_ref() {
+            if let Some(capability) = definition.skills.as_mut() {
+                if capability.global_dir != *global_dir {
+                    capability.global_dir = global_dir.clone();
+                    // A configured primary directory is a runtime declaration
+                    // of its own. Reusing the audited target id would make one
+                    // id point to both the catalog path and the override path
+                    // when another Agent still declares the catalog target.
+                    capability.target_id = format!("{agent_id}-configured");
+                }
             }
         }
     }
@@ -365,7 +383,10 @@ pub fn put(id: String, mut def: AgentDefinition, allow_overwrite: bool) -> Resul
             // not just the UI, may override only global path and enabled state.
             def.project = existing.project.clone();
             def.format = existing.format.clone();
-            def.key = existing.key.clone();
+            def.key = builtin_agents()
+                .get(&id)
+                .map(|definition| definition.key.clone())
+                .unwrap_or_else(|| existing.key.clone());
         }
         copy_internal_metadata(&mut def, existing);
         if existing.builtin != Some(true) {
@@ -433,6 +454,7 @@ pub(crate) fn current_configuration(id: &str) -> Result<AgentConfigurationInput,
             .global
             .clone()
             .ok_or_else(|| "该 Agent 尚无可写的 MCP 配置".to_string())?,
+        mcp_key: Some(agent.key.clone()),
         model_paths,
         skills_global_dir: agent
             .skills
@@ -463,6 +485,20 @@ pub(crate) fn normalize_configuration(
         return Err("MCP 配置路径不能为空".into());
     }
     let mcp_path = collapse_home(mcp_path);
+    let mcp_key = input
+        .mcp_key
+        .as_deref()
+        .unwrap_or(current.key.as_str())
+        .trim();
+    if mcp_key.is_empty() {
+        return Err("MCP 配置键不能为空".into());
+    }
+    let structured_key =
+        current.key_path || (current.format == "toml" && current.layout.as_deref() == Some("list"));
+    if structured_key && mcp_key.split('.').any(str::is_empty) {
+        return Err("MCP 配置键路径无效：不能包含空层级".into());
+    }
+    let mcp_key = Some(mcp_key.to_string());
 
     let model_defaults = crate::models::default_config_paths(&id);
     let model_paths = match model_defaults.as_ref() {
@@ -493,6 +529,7 @@ pub(crate) fn normalize_configuration(
 
     Ok(AgentConfigurationInput {
         mcp_path,
+        mcp_key,
         model_paths,
         skills_global_dir,
     })
@@ -505,6 +542,10 @@ pub(crate) fn apply_configuration(
 ) -> Result<(), String> {
     let id = id.to_string();
     let mcp_path = input.mcp_path.clone();
+    let mcp_key = input
+        .mcp_key
+        .clone()
+        .ok_or_else(|| "MCP 配置键不能为空".to_string())?;
     let model_paths = input.model_paths.clone();
     let skills_global_dir = input.skills_global_dir.clone();
     let model_defaults = crate::models::default_config_paths(&id);
@@ -515,14 +556,22 @@ pub(crate) fn apply_configuration(
 
     mutate_settings_checked(|settings| {
         let mut agents = load_agents_from_settings(settings);
+        let builtins = builtin_agents();
+        let default_mcp_key = agents
+            .get(&id)
+            .filter(|definition| definition.builtin == Some(true))
+            .and_then(|_| builtins.get(&id))
+            .map(|definition| definition.key.clone());
         let definition = agents
             .get_mut(&id)
             .ok_or_else(|| Error::new(ErrorKind::NotFound, format!("agent 不存在: {id}")))?;
         definition.global = Some(mcp_path.clone());
+        // Built-in schema stays catalog-owned; its effective key is overlaid
+        // from `agent_config_paths` below. Custom Agents own their key.
+        definition.key = default_mcp_key.clone().unwrap_or_else(|| mcp_key.clone());
 
         // Skills runtime paths are overlaid from `agent_config_paths`; keep the
         // persisted Agent definition equal to its audited catalog metadata.
-        let builtins = builtin_agents();
         for (agent_id, definition) in &mut agents {
             if let Some(builtin) = builtins.get(agent_id) {
                 definition.skills = builtin.skills.clone();
@@ -533,6 +582,9 @@ pub(crate) fn apply_configuration(
 
         let path_overrides = settings.agent_config_paths.get_or_insert_default();
         let path_override = path_overrides.entry(id.clone()).or_default();
+        path_override.mcp_key = default_mcp_key
+            .as_ref()
+            .and_then(|default| (default != &mcp_key).then(|| mcp_key.clone()));
         path_override.model_paths = model_defaults
             .as_ref()
             .is_some_and(|defaults| defaults != &model_paths)
@@ -600,6 +652,7 @@ fn copy_internal_metadata(definition: &mut AgentDefinition, existing: &AgentDefi
     definition.identity_field = existing.identity_field.clone();
     definition.transports = existing.transports.clone();
     definition.root_defaults = existing.root_defaults.clone();
+    definition.key_path = existing.key_path;
     definition.skills = existing.skills.clone();
 }
 
@@ -625,13 +678,19 @@ mod tests {
     #[test]
     fn builtin_catalog_and_transport_metadata_load() {
         let a = builtin_agents();
-        assert_eq!(audited_agents().len(), 45);
+        assert_eq!(audited_agents().len(), 56);
         let catalog: BTreeMap<String, AgentDefinition> =
             serde_json::from_str(CATALOG_AGENTS_JSON).unwrap();
-        assert_eq!(catalog.len(), 175);
-        assert_eq!(a.len(), 196);
+        assert_eq!(catalog.len(), 201);
+        assert_eq!(a.len(), 211);
         assert_eq!(a["claude-code"].key, "mcpServers");
         assert_eq!(a["codex"].format, "toml");
+        assert_eq!(
+            a.iter()
+                .filter_map(|(id, definition)| definition.key_path.then_some(id.as_str()))
+                .collect::<Vec<_>>(),
+            vec!["amp"]
+        );
         assert!(!definition_supports_transport(&a["claude-desktop"], "http"));
         assert!(definition_supports_transport(&a["claude-desktop"], "stdio"));
         assert!(definition_supports_transport(&a["claude-code"], "http"));
@@ -681,10 +740,54 @@ mod tests {
             .iter()
             .any(|alias| alias.global_dir == "~/.codex/skills"));
 
+        let codewhale = agents["codewhale"].skills.as_ref().unwrap();
+        assert_eq!(codewhale.global_dir, "~/.codewhale/skills");
+        assert_eq!(
+            codewhale
+                .aliases
+                .iter()
+                .map(|alias| alias.global_dir.as_str())
+                .collect::<Vec<_>>(),
+            vec!["~/.agents/skills", "~/.claude/skills"]
+        );
+
+        let stakpak = agents["stakpak"].skills.as_ref().unwrap();
+        assert_eq!(stakpak.global_dir, "~/.stakpak/skills");
+
+        assert_eq!(
+            agents["docker-agent"].skills.as_ref().unwrap().global_dir,
+            "~/.agents/skills"
+        );
+        let cortex = agents["cortex-code"].skills.as_ref().unwrap();
+        assert_eq!(cortex.global_dir, "~/.snowflake/cortex/skills");
+        assert_eq!(cortex.aliases[0].global_dir, "~/.claude/skills");
+
+        let dirac = agents["dirac"].skills.as_ref().unwrap();
+        assert_eq!(dirac.global_dir, "~/.agents/skills");
+        assert_eq!(
+            dirac
+                .aliases
+                .iter()
+                .map(|alias| alias.global_dir.as_str())
+                .collect::<Vec<_>>(),
+            vec!["~/.dirac/skills", "~/.claude/skills", "~/.ai/skills"]
+        );
+
+        let minion = agents["minion-code"].skills.as_ref().unwrap();
+        assert_eq!(minion.global_dir, "~/.minion/skills");
+        assert_eq!(minion.aliases[0].global_dir, "~/.claude/skills");
+
+        for id in ["cortex-code", "dirac", "minion-code"] {
+            assert!(agents[id].global.is_none());
+            assert!(agents[id].transports.as_ref().is_some_and(Vec::is_empty));
+        }
         for &id in VERIFIED_SKILL_AGENT_IDS {
             let capability = agents[id].skills.as_ref().unwrap();
             assert!(!capability.docs.is_empty());
-            assert_eq!(capability.evidence, "official");
+            assert!(matches!(
+                capability.evidence.as_str(),
+                "official" | "official-source"
+            ));
             assert!(!capability.probes.is_empty());
         }
     }
@@ -701,6 +804,15 @@ mod tests {
 
         assert_eq!(codex.skills_global_dir.as_deref(), Some("~/.agents/skills"));
         assert_eq!(claude_desktop.skills_global_dir, None);
+        for (id, expected) in [
+            ("cortex-code", "~/.snowflake/cortex/skills"),
+            ("dirac", "~/.agents/skills"),
+            ("minion-code", "~/.minion/skills"),
+        ] {
+            let info = infos.iter().find(|agent| agent.id == id).unwrap();
+            assert!(!info.has_global);
+            assert_eq!(info.skills_global_dir.as_deref(), Some(expected));
+        }
     }
 
     #[test]
@@ -711,6 +823,7 @@ mod tests {
             "codex".into(),
             AgentConfigurationInput {
                 mcp_path: "~/.custom/codex-mcp.toml".into(),
+                mcp_key: Some("custom_mcp_servers".into()),
                 model_paths: vec!["~/.custom/codex-model.toml".into()],
                 skills_global_dir: Some("~/.custom/codex/skills".into()),
             },
@@ -722,6 +835,7 @@ mod tests {
             agents["codex"].global.as_deref(),
             Some("~/.custom/codex-mcp.toml")
         );
+        assert_eq!(agents["codex"].key, "custom_mcp_servers");
         assert_eq!(
             agents["codex"]
                 .skills
@@ -734,6 +848,118 @@ mod tests {
             .find(|agent| agent.id == "codex")
             .unwrap();
         assert_eq!(model.config_paths, ["~/.custom/codex-model.toml"]);
+    }
+
+    #[test]
+    fn unified_configuration_overrides_and_resets_builtin_mcp_key() {
+        let _home = crate::testenv::TestHome::new("agent-unified-mcp-key");
+        let default_key = builtin_agents()["codex"].key.clone();
+        let mut configuration = current_configuration("codex").unwrap();
+        configuration.mcp_key = Some("  custom.mcpServers  ".into());
+
+        update_configuration("codex".into(), configuration).unwrap();
+
+        assert_eq!(load_agents()["codex"].key, "custom.mcpServers");
+        assert_eq!(
+            list_infos()
+                .into_iter()
+                .find(|agent| agent.id == "codex")
+                .unwrap()
+                .key,
+            "custom.mcpServers"
+        );
+        let settings = load_settings();
+        assert_eq!(
+            settings
+                .agent_config_paths
+                .as_ref()
+                .and_then(|overrides| overrides.get("codex"))
+                .and_then(|path_override| path_override.mcp_key.as_deref()),
+            Some("custom.mcpServers")
+        );
+        assert!(settings.agents.is_none());
+
+        let mut reset = current_configuration("codex").unwrap();
+        reset.mcp_key = Some(default_key.clone());
+        update_configuration("codex".into(), reset).unwrap();
+
+        assert_eq!(load_agents()["codex"].key, default_key);
+        assert!(load_settings().agent_config_paths.is_none());
+    }
+
+    #[test]
+    fn unified_configuration_preserves_mcp_key_for_legacy_callers() {
+        let _home = crate::testenv::TestHome::new("agent-unified-legacy-mcp-key");
+        let before = current_configuration("codex").unwrap();
+        let mut legacy_input = before.clone();
+        legacy_input.mcp_path = "~/.custom/legacy-codex.toml".into();
+        legacy_input.mcp_key = None;
+
+        update_configuration("codex".into(), legacy_input).unwrap();
+
+        let after = current_configuration("codex").unwrap();
+        assert_eq!(after.mcp_path, "~/.custom/legacy-codex.toml");
+        assert_eq!(after.mcp_key, before.mcp_key);
+    }
+
+    #[test]
+    fn unified_configuration_rejects_an_empty_mcp_key() {
+        let _home = crate::testenv::TestHome::new("agent-unified-empty-mcp-key");
+        let mut configuration = current_configuration("codex").unwrap();
+        configuration.mcp_key = Some("   ".into());
+
+        assert_eq!(
+            update_configuration("codex".into(), configuration).unwrap_err(),
+            "MCP 配置键不能为空"
+        );
+    }
+
+    #[test]
+    fn unified_configuration_rejects_empty_structured_mcp_key_segments() {
+        let _home = crate::testenv::TestHome::new("agent-unified-invalid-mcp-key-path");
+        let mut configuration = current_configuration("amp").unwrap();
+        configuration.mcp_key = Some("amp..mcpServers".into());
+
+        assert_eq!(
+            update_configuration("amp".into(), configuration).unwrap_err(),
+            "MCP 配置键路径无效：不能包含空层级"
+        );
+        assert!(load_settings().agent_config_paths.is_none());
+    }
+
+    #[test]
+    fn unified_configuration_updates_a_custom_agents_owned_mcp_key() {
+        let _home = crate::testenv::TestHome::new("agent-unified-custom-mcp-key");
+        put(
+            "custom-agent".into(),
+            AgentDefinition {
+                global: Some("~/.custom-agent/config.json".into()),
+                project: None,
+                format: "json".into(),
+                key: "mcpServers".into(),
+                enabled: true,
+                builtin: Some(false),
+                ..Default::default()
+            },
+            false,
+        )
+        .unwrap();
+        let mut configuration = current_configuration("custom-agent").unwrap();
+        configuration.mcp_key = Some("custom.mcpServers".into());
+
+        update_configuration("custom-agent".into(), configuration).unwrap();
+
+        assert_eq!(load_agents()["custom-agent"].key, "custom.mcpServers");
+        let settings = load_settings();
+        assert_eq!(
+            settings
+                .agents
+                .as_ref()
+                .and_then(|agents| agents.get("custom-agent"))
+                .map(|definition| definition.key.as_str()),
+            Some("custom.mcpServers")
+        );
+        assert!(settings.agent_config_paths.is_none());
     }
 
     #[test]
@@ -805,6 +1031,39 @@ mod tests {
             },
         );
         assert!(merge_builtin_definitions(BTreeMap::new(), extra).is_err());
+    }
+
+    #[test]
+    fn skill_evidence_accepts_official_source_but_rejects_community_claims() {
+        let mut source = BTreeMap::from([(
+            "source-backed".into(),
+            AgentDefinition {
+                skills: Some(skills_capability(
+                    "source-backed-user",
+                    "~/.source-backed/skills",
+                )),
+                ..Default::default()
+            },
+        )]);
+        source
+            .get_mut("source-backed")
+            .unwrap()
+            .skills
+            .as_mut()
+            .unwrap()
+            .evidence = "official-source".into();
+        validate_skill_capabilities(&source).unwrap();
+
+        source
+            .get_mut("source-backed")
+            .unwrap()
+            .skills
+            .as_mut()
+            .unwrap()
+            .evidence = "community".into();
+        assert!(validate_skill_capabilities(&source)
+            .unwrap_err()
+            .contains("official docs or official-source"));
     }
 
     #[test]
@@ -1085,6 +1344,7 @@ mod tests {
         codex.layout = Some("list".into());
         codex.identity_field = Some("unsafe".into());
         codex.transports = Some(vec!["stdio".into()]);
+        codex.key_path = true;
         codex.builtin = Some(false);
 
         put("codex".into(), codex, true).unwrap();
@@ -1096,6 +1356,7 @@ mod tests {
         assert_eq!(codex.key, "mcp_servers");
         assert_eq!(codex.codec.as_deref(), Some("codex"));
         assert_eq!(codex.layout.as_deref(), Some("map"));
+        assert!(!codex.key_path);
         assert_eq!(codex.builtin, Some(true));
         assert!(definition_supports_transport(codex, "http"));
 

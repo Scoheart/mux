@@ -165,6 +165,12 @@ export function AgentView({
     [agents, agentId],
   );
 
+  useEffect(() => {
+    if (agent && !agent.has_global && agent.skills_global_dir) {
+      setResourceTab("skills");
+    }
+  }, [agent?.has_global, agent?.id, agent?.skills_global_dir]);
+
   const refreshModels = useCallback(async () => {
     try {
       const [profiles, nextAgents] = await Promise.all([listModelProfiles(), listModelAgents()]);
@@ -223,7 +229,7 @@ export function AgentView({
 
   if (!agent) return <div className="mux-agent-state">未找到该 Agent</div>;
 
-  if (!agent.has_global) {
+  if (!agent.has_global && !agent.skills_global_dir) {
     return (
       <div className="mux-agent-page">
         <div className="mux-agent-shell">
@@ -243,6 +249,9 @@ export function AgentView({
   }
 
   const mcpConfigPath = agent.global ?? "";
+  const mcpDescription = agent.has_global
+    ? `${agent.format.toUpperCase()} · ${agent.key}`
+    : "此 Agent 未接入 MCP";
   const skillsConfigPath = agent.skills_global_dir;
   const runtimeSkillAgent = skillsState.inventory?.agents.find((item) => item.id === agentId) ?? null;
   const modelDescription = modelsLoading
@@ -488,16 +497,19 @@ export function AgentView({
                 <h3 id="agent-files-title">配置位置</h3>
                 <p>这些是 MUX 为当前 Agent 读取或写入的实际位置</p>
               </div>
-              <button type="button" className="btn-secondary" onClick={() => setEditingAgent(true)}>
-                <EditIcon className="w-3.5 h-3.5" />编辑配置
-              </button>
+              {agent.has_global && (
+                <button type="button" className="btn-secondary" onClick={() => setEditingAgent(true)}>
+                  <EditIcon className="w-3.5 h-3.5" />编辑配置
+                </button>
+              )}
             </div>
             <div className="mux-agent-file-map">
               <ConfigPath
                 icon={<PackageIcon className="w-4 h-4" />}
                 label="MCPs"
-                description={`${agent.format.toUpperCase()} · ${agent.key}`}
-                path={mcpConfigPath}
+                description={mcpDescription}
+                path={agent.has_global ? mcpConfigPath : null}
+                unavailableLabel={agent.has_global ? undefined : "未接入"}
               />
               <ConfigPath icon={<LayersIcon className="w-4 h-4" />} label="Models" description={modelDescription} path={modelAgent?.config_path ?? null} />
               <ConfigPath icon={<SparklesIcon className="w-4 h-4" />} label="Skills" description={skillsDescription} path={skillsConfigPath} />
@@ -514,7 +526,9 @@ export function AgentView({
             skills: skillRows.length,
           }}
         >
-          {resourceTab === "mcps" ? (
+          {resourceTab === "mcps" ? !agent.has_global ? (
+            <div className="mux-agent-inline-state">此 Agent 未接入 MCP。</div>
+          ) : (
             <AgentConsumptionPanel
               title="MCP"
               description={`${mcpRows.length} 项`}
@@ -522,7 +536,7 @@ export function AgentView({
               rows={displayedMcpRows}
               external={mcpExternal}
               onManage={() => setPickerDomain("mcp")}
-              manageDisabled={!consumptionState || preparingChange}
+              manageDisabled={!agent.has_global || !consumptionState || preparingChange}
               onEnabledChange={(item, enabled) => void toggleMcpEnabled(item, enabled)}
               enabledChangeDisabled={(item) => !consumptionState
                 || togglingMcp?.key === (item.asset.domain === "mcp" ? item.asset.key : "")
@@ -739,18 +753,22 @@ function ConfigPath({
   label,
   description,
   path,
+  unavailableLabel = "不可用",
 }: {
   icon: ReactNode;
   label: string;
   description: string;
   path: string | null;
+  unavailableLabel?: string;
 }) {
   return (
     <div className="mux-agent-file-row">
       <span className="mux-agent-file-icon">{icon}</span>
       <div className="mux-agent-file-copy">
         <div><strong>{label}</strong><span>{description}</span></div>
-        {path ? <code title={path}>{path}</code> : <span className="mux-agent-file-unavailable">不可用</span>}
+        {path ? <code title={path}>{path}</code> : (
+          <span className="mux-agent-file-unavailable">{unavailableLabel}</span>
+        )}
       </div>
     </div>
   );

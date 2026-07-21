@@ -60,6 +60,7 @@ it("owns central update and delete plans through the same operation state", asyn
       profile: {
         id: "work",
         name: "Work",
+        provider: "custom",
         protocol: "openai-responses",
         base_url: "https://example.invalid",
         model: "gpt",

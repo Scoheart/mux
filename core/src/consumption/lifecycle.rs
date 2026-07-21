@@ -1,10 +1,12 @@
 use super::planner::{finalize_plan_with, CredentialAction, LifecycleBinding};
 use super::types::{
-    AssetOperationKind, AssetOperationPlan, AssetRef, CentralAssetAction, CentralAssetChange,
-    CentralAssetDraft, DomainPlan, PlanDeleteCentralAssetRequest, PlanUpdateCentralAssetRequest,
+    AssetCommitRequest, AssetOperationKind, AssetOperationPlan, AssetRef, CentralAssetAction,
+    CentralAssetChange, CentralAssetDraft, DomainPlan, ModelAgentSelection, ModelConsumptionRecord,
+    PlanDeleteCentralAssetRequest, PlanUpdateCentralAssetRequest,
 };
 use crate::models::{
-    credential_present, model_agent_capability, profile_credential_issue, validate_profile_draft,
+    credential_present, migrated_profiles_v2, model_agent_capability, prepare_profile_draft,
+    profile_credential_issue,
 };
 use crate::paths::local_sources_dir;
 use crate::registry::{read_registry, read_registry_all};
@@ -22,8 +24,11 @@ pub(crate) enum PendingAssetPayload {
         entry: Box<RegistryEntry>,
     },
     ModelUpsert {
-        profile: ModelProfile,
+        profile: Box<ModelProfile>,
         credential: Option<Zeroizing<String>>,
+    },
+    ModelSchemaV2 {
+        profiles: BTreeMap<String, ModelProfile>,
     },
 }
 
@@ -57,6 +62,153 @@ pub(crate) fn store_pending_mcp_entry(operation_id: &str, entry: RegistryEntry) 
         );
 }
 
+pub(crate) fn store_pending_model_profile(
+    operation_id: &str,
+    profile: ModelProfile,
+    credential: Option<String>,
+) {
+    store_pending_model_profile_secret(operation_id, profile, credential.map(Zeroizing::new));
+}
+
+pub(crate) fn store_pending_model_profile_secret(
+    operation_id: &str,
+    profile: ModelProfile,
+    credential: Option<Zeroizing<String>>,
+) {
+    PENDING_PAYLOADS
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .insert(
+            operation_id.to_string(),
+            PendingAssetPayload::ModelUpsert {
+                profile: Box::new(profile),
+                credential,
+            },
+        );
+}
+
+fn remap_model_selection(
+    selection: ModelAgentSelection,
+    id_map: &BTreeMap<String, String>,
+) -> Result<ModelAgentSelection, String> {
+    let profiles = selection
+        .profiles
+        .into_iter()
+        .map(|(old_id, record)| {
+            let new_id = id_map
+                .get(&old_id)
+                .ok_or_else(|| format!("model_schema_migration_missing_profile: {old_id}"))?
+                .clone();
+            Ok((
+                new_id.clone(),
+                ModelConsumptionRecord {
+                    profile_id: new_id,
+                    enabled: record.enabled,
+                    last_selected_at: record.last_selected_at,
+                },
+            ))
+        })
+        .collect::<Result<BTreeMap<_, _>, String>>()?;
+    let active_profile_id = selection
+        .active_profile_id
+        .map(|old_id| {
+            id_map
+                .get(&old_id)
+                .cloned()
+                .ok_or_else(|| format!("model_schema_migration_missing_profile: {old_id}"))
+        })
+        .transpose()?;
+    Ok(ModelAgentSelection {
+        profiles,
+        active_profile_id,
+    })
+}
+
+pub fn plan_model_schema_v2_migration() -> Result<Option<AssetOperationPlan>, String> {
+    let settings = load_settings_strict().map_err(|error| error.to_string())?;
+    if settings.version.unwrap_or_default() >= crate::settings::SETTINGS_VERSION {
+        return Ok(None);
+    }
+    let (id_map, profiles) = migrated_profiles_v2(&settings)?;
+    let agent_ids = settings
+        .model_consumptions
+        .iter()
+        .flatten()
+        .map(|(agent_id, _)| agent_id.clone())
+        .chain(
+            settings
+                .model_assignments
+                .iter()
+                .flatten()
+                .map(|(agent_id, _)| agent_id.clone()),
+        )
+        .collect::<BTreeSet<_>>();
+    let mut before = BTreeMap::new();
+    let mut after = BTreeMap::new();
+    for agent_id in agent_ids {
+        let selection = settings.model_selection(&agent_id);
+        before.insert(agent_id.clone(), selection.clone());
+        after.insert(agent_id, remap_model_selection(selection, &id_map)?);
+    }
+    let domain_plan = DomainPlan::Model { before, after };
+    let draft_hash = hash_serializable(&profiles)?;
+    let credential_profile_ids = id_map
+        .keys()
+        .filter(|profile_id| credential_present(profile_id))
+        .cloned()
+        .collect::<BTreeSet<_>>();
+    let central_changes = id_map
+        .iter()
+        .map(|(old_id, new_id)| CentralAssetChange {
+            asset: AssetRef::Model {
+                profile_id: new_id.clone(),
+            },
+            action: CentralAssetAction::Update,
+            summary: vec![
+                format!("升级 Model Profile {old_id}"),
+                "迁移 Agent 关系与 Keychain credential".into(),
+            ],
+        })
+        .collect();
+    let plan = finalize_plan_with(
+        AssetOperationKind::UpdateAsset,
+        domain_plan,
+        central_changes,
+        Vec::new(),
+        Some(LifecycleBinding::ModelSchemaV2 {
+            id_map,
+            draft_hash,
+            credential_profile_ids,
+        }),
+    )?;
+    PENDING_PAYLOADS
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .insert(
+            plan.operation_id.clone(),
+            PendingAssetPayload::ModelSchemaV2 { profiles },
+        );
+    Ok(Some(plan))
+}
+
+pub fn migrate_model_profiles_v2_if_needed() -> Result<bool, String> {
+    let Some(plan) = plan_model_schema_v2_migration()? else {
+        return Ok(false);
+    };
+    if !plan.can_commit || plan.requires_conflict_confirmation {
+        let _ = super::transaction::cancel_asset_operation(&plan.operation_id);
+        return Err(
+            "model_schema_migration_blocked: existing Model config requires manual review".into(),
+        );
+    }
+    super::transaction::commit_asset_operation(AssetCommitRequest {
+        operation_id: plan.operation_id.clone(),
+        candidate_hash: plan.candidate_hash.clone(),
+        conflict_confirmation: None,
+    })?;
+    Ok(true)
+}
+
 pub fn plan_update_central_asset(
     request: PlanUpdateCentralAssetRequest,
 ) -> Result<AssetOperationPlan, String> {
@@ -69,7 +221,7 @@ pub fn plan_update_central_asset(
             existing_id,
             profile,
             credential,
-        } => plan_model_upsert(existing_id, profile, credential),
+        } => plan_model_upsert(existing_id, *profile, credential),
     }
 }
 
@@ -168,17 +320,14 @@ fn plan_model_upsert(
     profile: ModelProfile,
     credential: Option<String>,
 ) -> Result<AssetOperationPlan, String> {
-    validate_profile_draft(&profile)?;
     let settings = load_settings_strict().map_err(|error| error.to_string())?;
+    let profile = prepare_profile_draft(&settings, existing_id.as_deref(), profile)?;
     let existing = settings
         .model_profiles
         .as_ref()
         .and_then(|profiles| profiles.get(&profile.id));
     let action = match existing_id {
-        Some(existing_id) => {
-            if existing_id != profile.id {
-                return Err("asset_identity_change: Model Profile id cannot change".into());
-            }
+        Some(_) => {
             if existing.is_none() {
                 return Err("asset_operation_stale: Model Profile no longer exists".into());
             }
@@ -228,16 +377,7 @@ fn plan_model_upsert(
         Vec::new(),
         Some(lifecycle),
     )?;
-    PENDING_PAYLOADS
-        .lock()
-        .unwrap_or_else(|error| error.into_inner())
-        .insert(
-            plan.operation_id.clone(),
-            PendingAssetPayload::ModelUpsert {
-                profile,
-                credential: credential.map(Zeroizing::new),
-            },
-        );
+    store_pending_model_profile(&plan.operation_id, profile, credential);
     Ok(plan)
 }
 
@@ -578,6 +718,9 @@ mod tests {
         let profile = ModelProfile {
             id: "work".into(),
             name: "Work".into(),
+            provider: "custom".into(),
+            model_vendor: None,
+            native_ids: Default::default(),
             protocol: ModelProtocol::OpenaiResponses,
             base_url: "https://old.invalid".into(),
             model: "old".into(),
@@ -602,7 +745,7 @@ mod tests {
         let plan = plan_update_central_asset(PlanUpdateCentralAssetRequest {
             draft: CentralAssetDraft::Model {
                 existing_id: Some("work".into()),
-                profile: edited,
+                profile: Box::new(edited),
                 credential: None,
             },
         })
@@ -618,6 +761,9 @@ mod tests {
         let profile = ModelProfile {
             id: "work".into(),
             name: "Work".into(),
+            provider: "openrouter".into(),
+            model_vendor: Some("provider".into()),
+            native_ids: Default::default(),
             protocol: ModelProtocol::OpenaiCompletions,
             base_url: "https://openrouter.ai/api/v1".into(),
             model: "provider/model".into(),
@@ -641,7 +787,7 @@ mod tests {
         let error = plan_update_central_asset(PlanUpdateCentralAssetRequest {
             draft: CentralAssetDraft::Model {
                 existing_id: Some(profile.id.clone()),
-                profile,
+                profile: Box::new(profile),
                 credential: Some("test-credential".into()),
             },
         })
@@ -679,5 +825,102 @@ mod tests {
         .unwrap();
         assert_eq!(plan.relationship_changes.len(), 1);
         assert_eq!(plan.kind, AssetOperationKind::DeleteAsset);
+    }
+
+    #[test]
+    fn model_schema_v2_migrates_identity_metadata_and_keychain_atomically() {
+        let _home = TestHome::new("model-schema-v2-central");
+        let legacy = ModelProfile {
+            id: "openrouter-free".into(),
+            name: "OpenRouter Free".into(),
+            provider: String::new(),
+            model_vendor: None,
+            native_ids: Default::default(),
+            protocol: ModelProtocol::OpenaiCompletions,
+            base_url: "https://openrouter.ai/api/v1".into(),
+            model: "openrouter/free".into(),
+            env_key: None,
+            context_window: None,
+            max_output_tokens: None,
+            reasoning: false,
+        };
+        mutate_settings(|settings| {
+            settings.version = Some(1);
+            settings
+                .extra
+                .insert("future".into(), serde_json::json!({"keep": true}));
+            settings
+                .model_profiles
+                .get_or_insert_default()
+                .insert(legacy.id.clone(), legacy.clone());
+        })
+        .unwrap();
+        crate::models::apply_credential_update(&legacy.id, Some("test-secret")).unwrap();
+
+        assert!(migrate_model_profiles_v2_if_needed().unwrap());
+
+        let settings = load_settings_strict().unwrap();
+        assert_eq!(settings.version, Some(crate::settings::SETTINGS_VERSION));
+        assert_eq!(settings.extra["future"]["keep"], true);
+        let profiles = settings.model_profiles.unwrap();
+        assert_eq!(profiles.len(), 1);
+        let profile = profiles.values().next().unwrap();
+        assert_ne!(profile.id, legacy.id);
+        assert!(profile.id.starts_with("openrouter-openrouter-free-"));
+        assert_eq!(profile.provider, "openrouter");
+        assert_eq!(profile.model_vendor.as_deref(), Some("openrouter"));
+        assert!(!crate::models::credential_present(&legacy.id));
+        assert!(crate::models::credential_present(&profile.id));
+    }
+
+    #[test]
+    fn model_schema_v2_rewrites_a_managed_agent_provider_identity() {
+        let _home = TestHome::new("model-schema-v2-consumer");
+        let legacy = ModelProfile {
+            id: "legacy-router".into(),
+            name: "Legacy Router".into(),
+            provider: String::new(),
+            model_vendor: None,
+            native_ids: Default::default(),
+            protocol: ModelProtocol::OpenaiCompletions,
+            base_url: "https://openrouter.ai/api/v1".into(),
+            model: "openrouter/free".into(),
+            env_key: Some("OPENROUTER_API_KEY".into()),
+            context_window: None,
+            max_output_tokens: None,
+            reasoning: false,
+        };
+        mutate_settings(|settings| {
+            settings.version = Some(1);
+            settings
+                .model_profiles
+                .get_or_insert_default()
+                .insert(legacy.id.clone(), legacy.clone());
+        })
+        .unwrap();
+        crate::models::apply_profile("grok-build", &legacy.id).unwrap();
+
+        assert!(migrate_model_profiles_v2_if_needed().unwrap());
+
+        let settings = load_settings_strict().unwrap();
+        let profile = settings
+            .model_profiles
+            .as_ref()
+            .unwrap()
+            .values()
+            .next()
+            .unwrap();
+        assert_ne!(profile.id, legacy.id);
+        assert_eq!(
+            settings
+                .model_selection("grok-build")
+                .active_profile_id
+                .as_deref(),
+            Some(profile.id.as_str())
+        );
+        assert_eq!(
+            crate::models::observe_profile("grok-build", profile).unwrap(),
+            crate::models::ModelObservedState::Synced
+        );
     }
 }

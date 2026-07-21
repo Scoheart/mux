@@ -5,6 +5,8 @@ import { describeAgentModel } from "./agentModels";
 const profile: ModelProfileView = {
   id: "team-openai",
   name: "Team OpenAI",
+  provider: "custom",
+  catalog_key: "custom/gpt-test",
   protocol: "openai-responses",
   base_url: "https://example.invalid/v1",
   model: "gpt-test",

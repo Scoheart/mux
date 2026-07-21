@@ -217,6 +217,9 @@ mod tests {
                 ModelProfile {
                     id: "work".into(),
                     name: "Work".into(),
+                    provider: "custom".into(),
+                    model_vendor: None,
+                    native_ids: Default::default(),
                     protocol,
                     base_url: "https://example.invalid".into(),
                     model: "model".into(),

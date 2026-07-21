@@ -29,7 +29,9 @@ pub fn run() {
             let skills_recovery_ok = mux_core::skills::recover_pending().is_ok();
             let asset_recovery_ok =
                 mux_core::consumption::recover_pending_asset_operations().is_ok();
-            let recovery_ok = skills_recovery_ok && asset_recovery_ok;
+            let model_migration_ok = asset_recovery_ok
+                && mux_core::consumption::migrate_model_profiles_v2_if_needed().is_ok();
+            let recovery_ok = skills_recovery_ok && asset_recovery_ok && model_migration_ok;
             if recovery_ok {
                 std::thread::spawn(|| {
                     let _ = mux_core::skills::check_updates_if_due();
@@ -48,6 +50,8 @@ pub fn run() {
             commands::list_consumption_inventory,
             commands::list_mcp_adoption_candidates,
             commands::plan_mcp_adoption,
+            commands::list_model_adoption_candidates,
+            commands::plan_model_adoption,
             commands::plan_set_agent_consumption,
             commands::plan_set_mcp_enabled,
             commands::plan_set_model_enabled,
@@ -81,6 +85,7 @@ pub fn run() {
             commands::cancel_skill_operation,
             commands::list_registry,
             commands::list_model_profiles,
+            commands::list_model_providers,
             commands::list_model_agents,
             commands::list_registry_all,
             commands::list_custom_registry_keys,

@@ -37,6 +37,15 @@ function modelProtocolLabel(protocol: ModelProfileView["protocol"]) {
   return "OpenAI Chat Completions";
 }
 
+function modelCompatibilityReason(profile: ModelProfileView, agent: ModelAgentView | null) {
+  if (!agent || agent.mode !== "managed") return "此 Agent 不支持 MUX Model 管理";
+  if (!agent.supported_protocols.includes(profile.protocol)) return "协议不兼容";
+  if (agent.credential_mode === "environment-reference" && profile.credential_saved && !profile.env_key) {
+    return "此 Agent 需要 Profile 提供环境变量名";
+  }
+  return null;
+}
+
 interface AgentViewProps {
   state: InstallState;
   skillsState: SkillsState;
@@ -46,6 +55,7 @@ interface AgentViewProps {
   /** Transitional test adapters. */
   onOpenModels?: () => void;
   onOpenSkills?: (request: Extract<ResourceNavigationRequest, { domain: "skill" }>) => void;
+  onOpenMigration?: () => void;
 }
 
 function fallbackInventory(
@@ -92,7 +102,15 @@ function completedMessage(plan: AssetOperationPlan, agentName: string) {
   if (domain === "model" && hasAdd) return `Model 已添加到 ${agentName}。`;
   if (hasAdd && !hasRemove) return `${asset} 已添加到 ${agentName}。`;
   if (hasRemove && !hasAdd) return `${asset} 已从 ${agentName} 移除。`;
-  if (domain === "model") return `${agentName} 的当前 Model 已更新。`;
+  if (domain === "model") {
+    if (plan.model_state_changes.some((change) => change.reason === "model_disabled")) {
+      return `${agentName} 的 Model 已停用。`;
+    }
+    if (plan.model_state_changes.some((change) => change.reason === "model_enabled")) {
+      return `${agentName} 的 Model 已启用。`;
+    }
+    return `${agentName} 的当前 Model 已更新。`;
+  }
   return `${agentName} 的 ${asset} 已更新。`;
 }
 
@@ -100,7 +118,10 @@ function requiresAgentReview(plan: AssetOperationPlan) {
   return !plan.can_commit
     || plan.requires_conflict_confirmation
     || plan.warnings.length > 0
-    || plan.affected_agent_ids.length > 1;
+    || plan.affected_agent_ids.length > 1
+    || plan.model_state_changes.some((change) =>
+      change.before.active && !change.after.active && (!change.after.enabled || !change.after.added)
+    );
 }
 
 export function AgentView({
@@ -111,6 +132,7 @@ export function AgentView({
   onOpenResource,
   onOpenModels,
   onOpenSkills,
+  onOpenMigration,
 }: AgentViewProps) {
   const { entries, agents, refreshAgents, rescan } = state;
   const { show: showToast } = useToast();
@@ -169,7 +191,7 @@ export function AgentView({
   );
   const compatibleProfiles = useMemo(
     () => modelAgent
-      ? modelProfiles.filter((profile) => modelAgent.supported_protocols.includes(profile.protocol))
+      ? modelProfiles.filter((profile) => modelCompatibilityReason(profile, modelAgent) === null)
       : [],
     [modelAgent, modelProfiles],
   );
@@ -289,14 +311,18 @@ export function AgentView({
         busyLabel: "添加中…",
         emptyMessage: "没有可添加的兼容 Model",
         searchPlaceholder: "搜索 Model",
-        options: compatibleProfiles
+        options: modelProfiles
           .filter((profile) => !assigned.has(profile.id))
-          .map((profile) => ({
+          .map((profile) => {
+            const reason = modelCompatibilityReason(profile, modelAgent);
+            return {
             id: profile.id,
             name: profile.name,
             description: profile.model,
             meta: <TransportMark transport={modelProtocolLabel(profile.protocol)} />,
-          })),
+            disabled: reason !== null,
+            reason: reason ?? undefined,
+          };}),
       };
     }
     return {
@@ -535,6 +561,9 @@ export function AgentView({
                   external={modelExternal}
                   externalTitle="外部当前模型"
                   externalDescription="由 Agent 或其他工具设置；MUX 不会自动覆盖"
+                  externalAction={modelExternal.length > 0 && onOpenMigration ? (
+                    <button type="button" className="btn-secondary" onClick={onOpenMigration}>导入并统一管理</button>
+                  ) : undefined}
                   onManage={() => setPickerDomain("model")}
                   manageDisabled={!consumptionState || preparingChange || compatibleProfiles.length === 0}
                   onOpenAsset={openAsset}
@@ -542,8 +571,12 @@ export function AgentView({
                   enabledChangeDisabled={(item) => !consumptionState
                     || changingModel?.profileId === (item.asset.domain === "model" ? item.asset.profile_id : "")
                     || item.status === "conflicted"}
-                  renderAction={(item) => item.active ? (
-                    <Badge tone="success">当前</Badge>
+                  renderAction={(item) => item.desired_active ? (
+                    <Badge tone={item.active === false ? "warning" : "success"}>
+                      {item.active === false ? "期望当前" : "当前"}
+                    </Badge>
+                  ) : item.active ? (
+                    <Badge tone="warning">Agent 实际当前</Badge>
                   ) : item.enabled === false ? null : (
                     <button
                       type="button"

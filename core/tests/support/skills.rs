@@ -33,6 +33,41 @@ pub const OLD_SHA: &str = "1111111111111111111111111111111111111111";
 pub const NEW_SHA: &str = "2222222222222222222222222222222222222222";
 pub const TRANSACTION_OPERATION_ID: &str = "00000000-0000-4000-8000-000000000006";
 const VERIFIED_SKILL_AGENT_IDS: &[&str] = &[
+    "amp",
+    "antigravity",
+    "augment",
+    "claude-code",
+    "cline",
+    "codebuddy-code",
+    "codex",
+    "copilot-cli",
+    "crush",
+    "cursor",
+    "factory-droid",
+    "firebender",
+    "gemini",
+    "goose",
+    "grok-build",
+    "hermes",
+    "kilo-code",
+    "kimi-code",
+    "kiro",
+    "mistral-vibe",
+    "opencode",
+    "openhands",
+    "pi",
+    "qoder",
+    "qoder-cli",
+    "qoderwork",
+    "qwen-code",
+    "roo-code",
+    "rovo-dev",
+    "vscode",
+    "warp",
+    "windsurf",
+    "zed",
+];
+const DEFAULT_SKILL_FIXTURE_AGENT_IDS: &[&str] = &[
     "claude-code",
     "codex",
     "copilot-cli",
@@ -52,12 +87,39 @@ impl SkillsFixture {
         let home = TestHome::new("skills-flow");
         for id in ids {
             let probe = match *id {
+                "amp" => home.home.join(".config/amp"),
+                "antigravity" => home.home.join(".gemini/config"),
+                "augment" => home.home.join(".augment"),
                 "claude-code" => home.home.join(".claude"),
+                "cline" => home.home.join(".cline"),
+                "codebuddy-code" => home.home.join(".codebuddy"),
                 "codex" => home.home.join(".codex"),
                 "copilot-cli" => home.home.join(".copilot"),
+                "crush" => home.home.join(".config/crush"),
                 "cursor" => home.home.join("Library/Application Support/Cursor"),
+                "factory-droid" => home.home.join(".factory"),
+                "firebender" => home.home.join(".firebender"),
                 "gemini" => home.home.join(".gemini"),
+                "goose" => home.home.join("Library/Application Support/Block/goose"),
+                "grok-build" => home.home.join(".grok"),
+                "hermes" => home.home.join(".hermes"),
+                "kilo-code" => home.home.join(".config/kilo"),
+                "kimi-code" => home.home.join(".kimi-code"),
+                "kiro" => home.home.join(".kiro"),
+                "mistral-vibe" => home.home.join(".vibe"),
                 "opencode" => home.home.join(".config/opencode"),
+                "openhands" => home.home.join(".openhands"),
+                "pi" => home.home.join(".pi/agent"),
+                "qoder" => home.home.join("Library/Application Support/Qoder"),
+                "qoder-cli" => home.home.join(".qoder"),
+                "qoderwork" => home.home.join(".qoderwork"),
+                "qwen-code" => home.home.join(".qwen"),
+                "roo-code" => home.home.join(".roo"),
+                "rovo-dev" => home.home.join(".rovodev"),
+                "vscode" => home.home.join("Library/Application Support/Code"),
+                "warp" => home.home.join(".warp"),
+                "windsurf" => home.home.join(".codeium/windsurf"),
+                "zed" => home.home.join(".config/zed"),
                 other => panic!("unknown verified Skill Agent fixture id: {other}"),
             };
             fs::create_dir_all(probe).unwrap();
@@ -83,7 +145,7 @@ impl SkillsFixture {
     }
 
     pub fn managed_on_targets(name: &str, target_ids: &[&str]) -> Self {
-        let fixture = Self::installed_agents(VERIFIED_SKILL_AGENT_IDS);
+        let fixture = Self::installed_agents(DEFAULT_SKILL_FIXTURE_AGENT_IDS);
         let paths = SkillsPaths::from_env().unwrap();
         let central = paths.central_skill(name);
         write_skill(&central, name, "Managed fixture");
@@ -457,12 +519,35 @@ impl UpdateFixture {
 
 fn primary_agent_for_target(target_id: &str) -> &'static str {
     match target_id {
+        "config-agents-user" | "amp-user" => "amp",
+        "antigravity-user" => "antigravity",
+        "augment-user" => "augment",
         "claude-user" => "claude-code",
         "agents-user" => "codex",
+        "cline-user" => "cline",
+        "codebuddy-user" => "codebuddy-code",
         "copilot-user" => "copilot-cli",
+        "crush-user" => "crush",
         "cursor-user" => "cursor",
+        "factory-user" => "factory-droid",
+        "firebender-user" | "goose-user" | "codex-compat-user" => "firebender",
         "gemini-user" => "gemini",
+        "grok-user" => "grok-build",
+        "hermes-user" => "hermes",
+        "kilo-user" => "kilo-code",
+        "kimi-code-user" => "kimi-code",
+        "kiro-user" => "kiro",
+        "vibe-user" => "mistral-vibe",
         "opencode-user" => "opencode",
+        "openhands-user" => "openhands",
+        "pi-user" => "pi",
+        "qoder-user" => "qoder-cli",
+        "qoderwork-user" => "qoderwork",
+        "qwen-user" => "qwen-code",
+        "roo-user" => "roo-code",
+        "rovodev-user" => "rovo-dev",
+        "warp-user" | "github-user" | "opencode-compat-user" => "warp",
+        "windsurf-user" => "windsurf",
         other => panic!("unknown verified Skill target fixture id: {other}"),
     }
 }

@@ -58,7 +58,7 @@ pub fn prepare_clear(
     profile: &ModelProfile,
 ) -> Result<Vec<PreparedModelFile>, String> {
     let prepared = match agent_id {
-        "opencode" | "kilo-code" => prepare_clear_open_code(&paths[0], profile)?,
+        "opencode" | "kilo-code" => prepare_clear_open_code(agent_id, &paths[0], profile)?,
         "qwen-code" => prepare_clear_qwen(&paths[0], profile)?,
         "crush" => prepare_clear_crush(&paths[0], profile)?,
         "mistral-vibe" => prepare_clear_vibe(&paths[0], profile)?,
@@ -74,6 +74,7 @@ pub fn target_files(
     agent_id: &str,
     config_paths: &[String],
     profile_ids: &[String],
+    profiles: &std::collections::BTreeMap<String, ModelProfile>,
 ) -> Vec<String> {
     let mut paths = config_paths.to_vec();
     if agent_id == "goose" {
@@ -85,12 +86,16 @@ pub fn target_files(
             .parent()
             .unwrap_or_else(|| Path::new("."))
             .join("custom_providers");
-        paths.extend(profile_ids.iter().map(|profile_id| {
-            crate::scanner::collapse_home(
-                &directory
-                    .join(format!("{}.json", provider_id(profile_id)))
-                    .to_string_lossy(),
-            )
+        paths.extend(profile_ids.iter().filter_map(|profile_id| {
+            let provider = profiles
+                .get(profile_id)
+                .map(|profile| provider_id_for("goose", profile))
+                .unwrap_or_else(|| provider_id(profile_id));
+            safe_provider_id(&provider).then(|| {
+                crate::scanner::collapse_home(
+                    &directory.join(format!("{provider}.json")).to_string_lossy(),
+                )
+            })
         }));
     }
     paths.sort();
@@ -219,12 +224,12 @@ pub fn observe_active(
         .values()
         .filter(|profile| match agent_id {
             "opencode" | "kilo-code" => {
-                selected == format!("{}/{}", provider_id(&profile.id), profile.model)
+                selected == format!("{}/{}", provider_id_for(agent_id, profile), profile.model)
             }
             "qwen-code" => selected == format!("{}::{}", qwen_auth_type(profile), profile.model),
             "factory-droid" => selected == profile.model,
-            "hermes" => selected == format!("custom:{}", provider_id(&profile.id)),
-            _ => selected == provider_id(&profile.id),
+            "hermes" => selected == format!("custom:{}", provider_id_for(agent_id, profile)),
+            _ => selected == provider_id_for(agent_id, profile),
         })
         .map(|profile| profile.id.clone())
         .collect();
@@ -260,6 +265,24 @@ fn provider_id(profile_id: &str) -> String {
         encoded.push_str(&format!("{byte:02x}"));
     }
     encoded
+}
+
+fn provider_id_for(agent_id: &str, profile: &ModelProfile) -> String {
+    profile
+        .native_ids
+        .get(agent_id)
+        .cloned()
+        .unwrap_or_else(|| provider_id(&profile.id))
+}
+
+fn safe_provider_id(provider: &str) -> bool {
+    !provider.is_empty()
+        && provider.len() <= 128
+        && provider != "."
+        && provider != ".."
+        && provider
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
 }
 
 fn env_ref(profile: &ModelProfile, open: &str, close: &str) -> Option<String> {
@@ -344,14 +367,6 @@ fn set_json(object: &CstObject, key: &str, value: Option<Value>) {
     }
 }
 
-fn object_value(object: &CstObject, key: &str) -> Option<Map<String, Value>> {
-    object
-        .get(key)
-        .and_then(|property| property.value())
-        .and_then(|node| node.to_serde_value())
-        .and_then(|value| value.as_object().cloned())
-}
-
 fn array_value(object: &CstObject, key: &str) -> Vec<Value> {
     object
         .get(key)
@@ -403,7 +418,7 @@ fn open_code_provider(profile: &ModelProfile) -> Value {
 }
 
 fn prepare_open_code(
-    _agent_id: &str,
+    agent_id: &str,
     path: &Path,
     profile: &ModelProfile,
     active: bool,
@@ -420,7 +435,7 @@ fn prepare_open_code(
     ensure_unique(&providers, path, "provider")?;
     set_json(
         &providers,
-        &provider_id(&profile.id),
+        &provider_id_for(agent_id, profile),
         Some(open_code_provider(profile)),
     );
     if active {
@@ -429,7 +444,7 @@ fn prepare_open_code(
             "model",
             Some(Value::String(format!(
                 "{}/{}",
-                provider_id(&profile.id),
+                provider_id_for(agent_id, profile),
                 profile.model
             ))),
         );
@@ -438,6 +453,7 @@ fn prepare_open_code(
 }
 
 fn prepare_clear_open_code(
+    agent_id: &str,
     path: &Path,
     profile: &ModelProfile,
 ) -> Result<PreparedModelFile, String> {
@@ -446,9 +462,9 @@ fn prepare_clear_open_code(
     ensure_unique(&object, path, "$root")?;
     if let Some(providers) = object.object_value("provider") {
         ensure_unique(&providers, path, "provider")?;
-        set_json(&providers, &provider_id(&profile.id), None);
+        set_json(&providers, &provider_id_for(agent_id, profile), None);
     }
-    let selected = format!("{}/{}", provider_id(&profile.id), profile.model);
+    let selected = format!("{}/{}", provider_id_for(agent_id, profile), profile.model);
     let is_selected = object
         .get("model")
         .and_then(|p| p.value())
@@ -492,6 +508,59 @@ fn qwen_matches(value: &Value, profile: &ModelProfile) -> bool {
         && value.get("baseUrl").and_then(Value::as_str) == Some(profile.base_url.as_str())
 }
 
+fn qwen_providers(object: &CstObject, path: &Path) -> Result<Option<Map<String, Value>>, String> {
+    let Some(property) = object.get("modelProviders") else {
+        return Ok(None);
+    };
+    property
+        .value()
+        .and_then(|node| node.to_serde_value())
+        .and_then(|value| value.as_object().cloned())
+        .map(Some)
+        .ok_or_else(|| {
+            format!(
+                "refusing to modify {}: Qwen modelProviders is not an object",
+                path.display()
+            )
+        })
+}
+
+fn qwen_provider_models(
+    value: Option<Value>,
+    auth: &str,
+    path: &Path,
+) -> Result<Vec<Value>, String> {
+    // Qwen Code 0.20.0 still consumes `modelProviders.<auth>` as
+    // `ModelConfig[]` and skips non-arrays. Older MUX builds followed a newer
+    // docs draft and wrote `{ protocol, models }`, so migrate only that exact
+    // wrapper and fail closed when it contains any Agent-owned extension.
+    match value {
+        None => Ok(Vec::new()),
+        Some(Value::Array(models)) => Ok(models),
+        Some(Value::Object(mut legacy)) => {
+            let protocol = legacy.remove("protocol");
+            let models = legacy.remove("models");
+            if !legacy.is_empty()
+                || protocol.as_ref().and_then(Value::as_str) != Some(auth)
+                || !matches!(models, Some(Value::Array(_)))
+            {
+                return Err(format!(
+                    "refusing to modify {}: Qwen modelProviders.{auth} is neither the stable array shape nor the exact legacy MUX wrapper",
+                    path.display()
+                ));
+            }
+            let Some(Value::Array(models)) = models else {
+                unreachable!("legacy Qwen models shape was checked above")
+            };
+            Ok(models)
+        }
+        Some(_) => Err(format!(
+            "refusing to modify {}: Qwen modelProviders.{auth} must be an array",
+            path.display()
+        )),
+    }
+}
+
 fn prepare_qwen(
     path: &Path,
     profile: &ModelProfile,
@@ -500,21 +569,12 @@ fn prepare_qwen(
     let (root, original) = read_jsonc(path)?;
     let object = root_object(&root, path)?;
     ensure_unique(&object, path, "$root")?;
-    let mut providers = object_value(&object, "modelProviders").unwrap_or_default();
+    let mut providers = qwen_providers(&object, path)?.unwrap_or_default();
     let auth = qwen_auth_type(profile);
-    let mut provider = providers
-        .remove(auth)
-        .and_then(|value| value.as_object().cloned())
-        .unwrap_or_default();
-    let mut models = provider
-        .remove("models")
-        .and_then(|value| value.as_array().cloned())
-        .unwrap_or_default();
+    let mut models = qwen_provider_models(providers.remove(auth), auth, path)?;
     models.retain(|value| !qwen_matches(value, profile));
     models.push(qwen_model(profile));
-    provider.insert("protocol".into(), Value::String(auth.into()));
-    provider.insert("models".into(), Value::Array(models));
-    providers.insert(auth.into(), Value::Object(provider));
+    providers.insert(auth.into(), Value::Array(models));
     set_json(&object, "modelProviders", Some(Value::Object(providers)));
     if active {
         let model = object
@@ -541,19 +601,12 @@ fn prepare_clear_qwen(path: &Path, profile: &ModelProfile) -> Result<PreparedMod
     let object = root_object(&root, path)?;
     ensure_unique(&object, path, "$root")?;
     let auth = qwen_auth_type(profile);
-    if let Some(mut providers) = object_value(&object, "modelProviders") {
-        if let Some(mut provider) = providers
-            .remove(auth)
-            .and_then(|value| value.as_object().cloned())
-        {
-            let mut models = provider
-                .remove("models")
-                .and_then(|value| value.as_array().cloned())
-                .unwrap_or_default();
+    if let Some(mut providers) = qwen_providers(&object, path)? {
+        if let Some(provider) = providers.remove(auth) {
+            let mut models = qwen_provider_models(Some(provider), auth, path)?;
             models.retain(|value| !qwen_matches(value, profile));
             if !models.is_empty() {
-                provider.insert("models".into(), Value::Array(models));
-                providers.insert(auth.into(), Value::Object(provider));
+                providers.insert(auth.into(), Value::Array(models));
             }
         }
         set_json(&object, "modelProviders", Some(Value::Object(providers)));
@@ -581,7 +634,10 @@ fn crush_provider(profile: &ModelProfile) -> Value {
         _ => "openai-compat",
     };
     let mut value = Map::from_iter([
-        ("id".into(), Value::String(provider_id(&profile.id))),
+        (
+            "id".into(),
+            Value::String(provider_id_for("crush", profile)),
+        ),
         ("name".into(), Value::String(profile.name.clone())),
         ("base_url".into(), Value::String(profile.base_url.clone())),
         ("type".into(), Value::String(provider_type.into())),
@@ -610,7 +666,7 @@ fn prepare_crush(
         .ok_or_else(|| "Crush providers is not an object".to_string())?;
     set_json(
         &providers,
-        &provider_id(&profile.id),
+        &provider_id_for("crush", profile),
         Some(crush_provider(profile)),
     );
     if active {
@@ -620,14 +676,15 @@ fn prepare_crush(
         set_json(
             &models,
             "large",
-            Some(json!({"model": profile.model, "provider": provider_id(&profile.id)})),
+            Some(json!({"model": profile.model, "provider": provider_id_for("crush", profile)})),
         );
     }
     Ok(prepared_json(path, original, root))
 }
 
 fn selected_model_matches(value: &Value, profile: &ModelProfile) -> bool {
-    value.get("provider").and_then(Value::as_str) == Some(provider_id(&profile.id).as_str())
+    value.get("provider").and_then(Value::as_str)
+        == Some(provider_id_for("crush", profile).as_str())
         && value.get("model").and_then(Value::as_str) == Some(profile.model.as_str())
 }
 
@@ -635,7 +692,7 @@ fn prepare_clear_crush(path: &Path, profile: &ModelProfile) -> Result<PreparedMo
     let (root, original) = read_jsonc(path)?;
     let object = root_object(&root, path)?;
     if let Some(providers) = object.object_value("providers") {
-        set_json(&providers, &provider_id(&profile.id), None);
+        set_json(&providers, &provider_id_for("crush", profile), None);
     }
     if let Some(models) = object.object_value("models") {
         let slots: Vec<String> = models
@@ -705,7 +762,7 @@ fn prepare_vibe(
     active: bool,
 ) -> Result<PreparedModelFile, String> {
     let (mut document, original) = read_toml(path)?;
-    let id = provider_id(&profile.id);
+    let id = provider_id_for("mistral-vibe", profile);
     let providers = ensure_aot(&mut document, "providers")?;
     remove_aot_matching(providers, |table| {
         table_string(table, "name").as_deref() == Some(id.as_str())
@@ -740,7 +797,7 @@ fn prepare_vibe(
 
 fn prepare_clear_vibe(path: &Path, profile: &ModelProfile) -> Result<PreparedModelFile, String> {
     let (mut document, original) = read_toml(path)?;
-    let id = provider_id(&profile.id);
+    let id = provider_id_for("mistral-vibe", profile);
     if let Some(providers) = document
         .get_mut("providers")
         .and_then(Item::as_array_of_tables_mut)
@@ -846,7 +903,7 @@ fn prepare_goose(
     active: bool,
 ) -> Result<Vec<PreparedModelFile>, String> {
     let config = prepare_yaml_model(path, profile, active, YamlAgent::Goose)?;
-    let provider_path = goose_provider_path(path, &profile.id);
+    let provider_path = goose_provider_path(path, profile)?;
     let original = read_optional(&provider_path)?;
     let engine = if profile.protocol == ModelProtocol::AnthropicMessages {
         "anthropic"
@@ -855,7 +912,7 @@ fn prepare_goose(
     };
     let context = profile.context_window.unwrap_or(128_000);
     let provider = json!({
-        "name": provider_id(&profile.id), "engine": engine, "display_name": profile.name,
+        "name": provider_id_for("goose", profile), "engine": engine, "display_name": profile.name,
         "description": format!("MUX managed {} provider", profile.name),
         "api_key_env": profile.env_key.clone().unwrap_or_default(), "base_url": profile.base_url,
         "models": [{"name": profile.model, "context_limit": context, "input_token_cost": null,
@@ -881,7 +938,7 @@ fn prepare_clear_goose(
     profile: &ModelProfile,
 ) -> Result<Vec<PreparedModelFile>, String> {
     let config = prepare_clear_yaml_model(path, profile, YamlAgent::Goose)?;
-    let provider_path = goose_provider_path(path, &profile.id);
+    let provider_path = goose_provider_path(path, profile)?;
     let original = read_optional(&provider_path)?;
     Ok(vec![
         config,
@@ -893,18 +950,31 @@ fn prepare_clear_goose(
     ])
 }
 
-fn goose_provider_path(config: &Path, profile_id: &str) -> PathBuf {
-    config
+fn goose_provider_path(config: &Path, profile: &ModelProfile) -> Result<PathBuf, String> {
+    let provider = provider_id_for("goose", profile);
+    if !safe_provider_id(&provider) {
+        return Err("invalid Goose provider identity: refusing unsafe provider filename".into());
+    }
+    Ok(config
         .parent()
         .unwrap_or_else(|| Path::new("."))
         .join("custom_providers")
-        .join(format!("{}.json", provider_id(profile_id)))
+        .join(format!("{provider}.json")))
 }
 
 #[derive(Clone, Copy)]
 enum YamlAgent {
     Hermes,
     Goose,
+}
+
+impl YamlAgent {
+    fn id(self) -> &'static str {
+        match self {
+            Self::Hermes => "hermes",
+            Self::Goose => "goose",
+        }
+    }
 }
 
 fn prepare_yaml_model(
@@ -915,7 +985,7 @@ fn prepare_yaml_model(
 ) -> Result<PreparedModelFile, String> {
     let (file, document, original) = read_yaml(path)?;
     let root = yaml_root(&document, path)?;
-    let id = provider_id(&profile.id);
+    let id = provider_id_for(agent.id(), profile);
     let mut pending = Vec::new();
     match agent {
         YamlAgent::Hermes => {
@@ -1008,7 +1078,7 @@ fn prepare_clear_yaml_model(
 ) -> Result<PreparedModelFile, String> {
     let (_file, document, original) = read_yaml(path)?;
     let root = yaml_root(&document, path)?;
-    let id = provider_id(&profile.id);
+    let id = provider_id_for(agent.id(), profile);
     let mut content = original.clone().unwrap_or_default();
     let state: Value = serde_yaml::from_str(if content.is_empty() { "{}" } else { &content })
         .map_err(|error| error.to_string())?;
@@ -1530,6 +1600,9 @@ mod tests {
         ModelProfile {
             id: "work".into(),
             name: "Work Model".into(),
+            provider: "custom".into(),
+            model_vendor: Some("vendor".into()),
+            native_ids: Default::default(),
             protocol,
             base_url: "https://gateway.example/v1".into(),
             model: "vendor/model".into(),
@@ -1571,7 +1644,7 @@ mod tests {
     #[test]
     fn qwen_preserves_external_models_and_sets_official_selection_fields() {
         let path = temp_path("qwen", "json");
-        fs::write(&path, r#"{"modelProviders":{"openai":{"protocol":"openai","models":[{"id":"external","baseUrl":"https://external"}]}},"future":true}"#).unwrap();
+        fs::write(&path, r#"{"modelProviders":{"openai":[{"id":"external","baseUrl":"https://external"}]},"future":true}"#).unwrap();
         let file = &prepare_apply(
             "qwen-code",
             &[path.clone()],
@@ -1584,10 +1657,7 @@ mod tests {
         assert_eq!(value["model"]["name"], "vendor/model");
         assert_eq!(value["security"]["auth"]["selectedType"], "openai");
         assert_eq!(
-            value["modelProviders"]["openai"]["models"]
-                .as_array()
-                .unwrap()
-                .len(),
+            value["modelProviders"]["openai"].as_array().unwrap().len(),
             2
         );
         fs::write(&path, file.content.as_deref().unwrap()).unwrap();
@@ -1602,6 +1672,49 @@ mod tests {
             observe_active("qwen-code", &[path.clone()], &profiles),
             ObservedActiveModel::Managed("work".into())
         );
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn qwen_migrates_the_exact_legacy_mux_wrapper_to_the_stable_array_shape() {
+        let path = temp_path("qwen-legacy", "json");
+        fs::write(
+            &path,
+            r#"{"modelProviders":{"openai":{"protocol":"openai","models":[{"id":"external","baseUrl":"https://external"}]}},"future":true}"#,
+        )
+        .unwrap();
+        let file = &prepare_apply(
+            "qwen-code",
+            &[path.clone()],
+            &profile(ModelProtocol::OpenaiCompletions),
+            false,
+        )
+        .unwrap()[0];
+        let value: Value = serde_json::from_str(file.content.as_deref().unwrap()).unwrap();
+        assert!(value["modelProviders"]["openai"].is_array());
+        assert_eq!(
+            value["modelProviders"]["openai"].as_array().unwrap().len(),
+            2
+        );
+        assert_eq!(value["future"], true);
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn qwen_rejects_an_unrecognized_provider_wrapper_without_overwriting_it() {
+        let path = temp_path("qwen-unknown-wrapper", "json");
+        let original =
+            r#"{"modelProviders":{"openai":{"protocol":"openai","models":[],"future":true}}}"#;
+        fs::write(&path, original).unwrap();
+        let error = prepare_apply(
+            "qwen-code",
+            &[path.clone()],
+            &profile(ModelProtocol::OpenaiCompletions),
+            false,
+        )
+        .unwrap_err();
+        assert!(error.contains("neither the stable array shape nor the exact legacy MUX wrapper"));
+        assert_eq!(fs::read_to_string(&path).unwrap(), original);
         fs::remove_file(path).unwrap();
     }
 
@@ -1818,6 +1931,17 @@ model:
     }
 
     #[test]
+    fn goose_rejects_an_unsafe_adopted_provider_filename() {
+        let path = temp_path("goose-unsafe-provider", "yaml");
+        let mut profile = profile(ModelProtocol::OpenaiCompletions);
+        profile
+            .native_ids
+            .insert("goose".into(), "../../outside".into());
+        let error = prepare_apply("goose", &[path], &profile, true).unwrap_err();
+        assert!(error.contains("unsafe provider filename"));
+    }
+
+    #[test]
     fn goose_clear_preserves_external_providers_and_config_comments() {
         let root = temp_path("goose-clear-root", "dir");
         fs::create_dir_all(root.join("custom_providers")).unwrap();
@@ -1838,15 +1962,11 @@ other_policy: strict # keep policy
 "#,
         )
         .unwrap();
-        let provider_path = goose_provider_path(&path, "work");
+        let profile = profile(ModelProtocol::OpenaiCompletions);
+        let provider_path = goose_provider_path(&path, &profile).unwrap();
         fs::write(&provider_path, "{\"name\":\"mux_776f726b\"}\n").unwrap();
 
-        let files = prepare_clear(
-            "goose",
-            &[path.clone()],
-            &profile(ModelProtocol::OpenaiCompletions),
-        )
-        .unwrap();
+        let files = prepare_clear("goose", &[path.clone()], &profile).unwrap();
         assert_eq!(files.len(), 2);
         let content = files[0].content.as_deref().unwrap();
         let value: Value = serde_yaml::from_str(content).unwrap();

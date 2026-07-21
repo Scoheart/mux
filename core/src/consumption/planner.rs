@@ -2,10 +2,10 @@ use super::compatibility::compatibility_for;
 use super::inventory::list_consumption_inventory;
 use super::types::{
     AgentConsumptionSelection, AssetOperationKind, AssetOperationPlan, AssetRef,
-    CentralAssetChange, ConsumptionStatus, DomainPlan, ModelConsumptionRecord,
-    PlanSetActiveModelRequest, PlanSetAgentConsumptionRequest, PlanSetAssetConsumersRequest,
-    PlanSetMcpEnabledRequest, PlanSetModelEnabledRequest, PlanUpdateAgentConfigurationRequest,
-    RelationshipAction, RelationshipChange,
+    CentralAssetChange, ConsumptionStatus, DomainPlan, ModelConsumptionRecord, ModelStateChange,
+    ModelStateSnapshot, PlanSetActiveModelRequest, PlanSetAgentConsumptionRequest,
+    PlanSetAssetConsumersRequest, PlanSetMcpEnabledRequest, PlanSetModelEnabledRequest,
+    PlanUpdateAgentConfigurationRequest, RelationshipAction, RelationshipChange,
 };
 use crate::agents::{
     builtin_agents, current_configuration, load_agents, normalize_configuration,
@@ -70,8 +70,19 @@ pub(crate) enum LifecycleBinding {
         draft_hash: String,
         credential_action: CredentialAction,
     },
+    ModelAdopt {
+        profile_id: String,
+        draft_hash: String,
+        credential_action: CredentialAction,
+    },
     ModelDelete {
         profile_id: String,
+    },
+    ModelSchemaV2 {
+        id_map: BTreeMap<String, String>,
+        draft_hash: String,
+        #[serde(default)]
+        credential_profile_ids: BTreeSet<String>,
     },
     AgentConfiguration {
         agent_id: String,
@@ -809,6 +820,7 @@ pub(crate) fn finalize_plan_with(
         return Err(format!("recovery_required: {error}"));
     }
     let relationship_changes = relationship_changes(&domain_plan);
+    let model_state_changes = model_state_changes(&domain_plan);
     let affected_agent_ids: Vec<String> = agents_for_plan(&domain_plan).into_iter().collect();
     let mut target_files = target_files(&domain_plan)?;
     target_files.extend(extra_target_files);
@@ -887,6 +899,7 @@ pub(crate) fn finalize_plan_with(
         &domain_plan,
         &central_changes,
         &relationship_changes,
+        &model_state_changes,
         &target_files,
         &affected_agent_ids,
         &warnings,
@@ -904,6 +917,7 @@ pub(crate) fn finalize_plan_with(
         domain_plan,
         central_changes,
         relationship_changes,
+        model_state_changes,
         target_files,
         affected_agent_ids,
         warnings,
@@ -919,6 +933,69 @@ pub(crate) fn finalize_plan_with(
         lifecycle,
     })?;
     Ok(plan)
+}
+
+fn model_state_changes(plan: &DomainPlan) -> Vec<ModelStateChange> {
+    let DomainPlan::Model { before, after } = plan else {
+        return Vec::new();
+    };
+    let mut changes = Vec::new();
+    for agent_id in union_keys(before, after) {
+        let left = before.get(agent_id).cloned().unwrap_or_default();
+        let right = after.get(agent_id).cloned().unwrap_or_default();
+        let profile_ids: BTreeSet<String> = left
+            .profiles
+            .keys()
+            .chain(right.profiles.keys())
+            .cloned()
+            .collect();
+        for profile_id in profile_ids {
+            let snapshot = |selection: &super::types::ModelAgentSelection| {
+                let record = selection.profiles.get(&profile_id);
+                ModelStateSnapshot {
+                    added: record.is_some(),
+                    enabled: record.is_some_and(|record| record.enabled),
+                    active: selection.active_profile_id.as_deref() == Some(profile_id.as_str()),
+                }
+            };
+            let before_state = snapshot(&left);
+            let after_state = snapshot(&right);
+            if before_state == after_state {
+                continue;
+            }
+            let reason = if !before_state.added && after_state.added {
+                "model_added"
+            } else if before_state.added && !after_state.added {
+                "model_removed"
+            } else if before_state.enabled != after_state.enabled {
+                if after_state.enabled {
+                    "model_enabled"
+                } else {
+                    "model_disabled"
+                }
+            } else if before_state.active != after_state.active {
+                if after_state.active {
+                    "model_activated"
+                } else {
+                    "model_deactivated"
+                }
+            } else {
+                "model_state_updated"
+            };
+            let fallback_profile_id = (before_state.active && !after_state.active)
+                .then(|| right.active_profile_id.clone())
+                .flatten();
+            changes.push(ModelStateChange {
+                agent_id: agent_id.clone(),
+                profile_id,
+                before: before_state,
+                after: after_state,
+                fallback_profile_id,
+                reason: reason.into(),
+            });
+        }
+    }
+    changes
 }
 
 fn relationship_changes(plan: &DomainPlan) -> Vec<RelationshipChange> {
@@ -1158,6 +1235,7 @@ fn target_files(plan: &DomainPlan) -> Result<Vec<String>, String> {
                     &agent_id,
                     &paths,
                     &profile_ids.into_iter().collect::<Vec<_>>(),
+                    settings.model_profiles.as_ref().unwrap_or(&BTreeMap::new()),
                 ) {
                     files.insert(path);
                 }
@@ -1449,6 +1527,9 @@ mod tests {
         let profile = |id: &str| ModelProfile {
             id: id.into(),
             name: id.into(),
+            provider: "custom".into(),
+            model_vendor: None,
+            native_ids: Default::default(),
             protocol: ModelProtocol::AnthropicMessages,
             base_url: format!("https://{id}.example.invalid/v1"),
             model: format!("{id}-model"),
@@ -1496,6 +1577,9 @@ mod tests {
         let profile = |id: &str| ModelProfile {
             id: id.into(),
             name: id.into(),
+            provider: "custom".into(),
+            model_vendor: None,
+            native_ids: Default::default(),
             protocol: ModelProtocol::OpenaiCompletions,
             base_url: format!("https://{id}.example.invalid/v1"),
             model: "shared-model".into(),

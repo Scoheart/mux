@@ -64,12 +64,39 @@ fn supported_transports(definition: &AgentDefinition) -> Vec<&'static str> {
 const BUILTIN_AGENTS_JSON: &str = include_str!("../../data/agents.json");
 const CATALOG_AGENTS_JSON: &str = include_str!("../../data/agent-catalog.json");
 const VERIFIED_SKILL_AGENT_IDS: &[&str] = &[
+    "amp",
+    "antigravity",
+    "augment",
     "claude-code",
+    "cline",
+    "codebuddy-code",
     "codex",
     "copilot-cli",
+    "crush",
     "cursor",
+    "factory-droid",
+    "firebender",
     "gemini",
+    "goose",
+    "grok-build",
+    "hermes",
+    "kilo-code",
+    "kimi-code",
+    "kiro",
+    "mistral-vibe",
     "opencode",
+    "openhands",
+    "pi",
+    "qoder",
+    "qoder-cli",
+    "qoderwork",
+    "qwen-code",
+    "roo-code",
+    "rovo-dev",
+    "vscode",
+    "warp",
+    "windsurf",
+    "zed",
 ];
 
 fn audited_agents() -> BTreeMap<String, AgentDefinition> {
@@ -632,17 +659,7 @@ mod tests {
             .iter()
             .filter_map(|(id, definition)| definition.skills.as_ref().map(|_| id.as_str()))
             .collect();
-        assert_eq!(
-            capability_ids,
-            [
-                "claude-code",
-                "codex",
-                "copilot-cli",
-                "cursor",
-                "gemini",
-                "opencode",
-            ]
-        );
+        assert_eq!(capability_ids, VERIFIED_SKILL_AGENT_IDS);
 
         let codex = agents["codex"].skills.as_ref().unwrap();
         assert_eq!(codex.target_id, "agents-user");
@@ -654,14 +671,14 @@ mod tests {
         assert_eq!(cursor.aliases[0].target_id, "agents-user");
         assert_eq!(cursor.aliases[0].global_dir, "~/.agents/skills");
 
-        for id in [
-            "claude-code",
-            "codex",
-            "cursor",
-            "gemini",
-            "opencode",
-            "copilot-cli",
-        ] {
+        let warp = agents["warp"].skills.as_ref().unwrap();
+        assert_eq!(warp.global_dir, "~/.agents/skills");
+        assert!(warp
+            .aliases
+            .iter()
+            .any(|alias| alias.global_dir == "~/.codex/skills"));
+
+        for &id in VERIFIED_SKILL_AGENT_IDS {
             let capability = agents[id].skills.as_ref().unwrap();
             assert!(!capability.docs.is_empty());
             assert_eq!(capability.evidence, "official");

@@ -73,9 +73,9 @@ MUX 的 Agent 数据分为两层：
 
 ## Skills 能力
 
-Skills 路径与上表的 MCP 配置路径分别核验，不能互相推断。首版为 Claude Code、Codex、Cursor、Gemini CLI、OpenCode 和 GitHub Copilot CLI 声明用户级 Skills 能力；运行时只显示本机安装探针命中的 Agent。
+Skills 路径与上表的 MCP 配置路径分别核验，不能互相推断。当前为 Mux 已审计 Agent 中 33 个具有稳定 user-level 契约的产品声明 Skills 能力；运行时只显示本机安装探针命中的 Agent。没有公开稳定用户级目录、只有项目级目录或仅提供 rules/prompts 的产品继续保持只读或不接入 Skills writer。
 
-Skills 分配按物理目录而不是 Agent 名称执行。Cursor、Gemini CLI、OpenCode 和 GitHub Copilot CLI 都可能兼容读取 `~/.agents/skills`，因此对 Codex 首选目录的操作可能同时影响多个已安装 Agent。MUX 会在审阅页展示真实影响并归一化重复链接。路径矩阵、安装来源、后台安全校验和当前边界见 [用户级 Skills](/guide/skills#已核验的-agent-路径)。
+Skills 分配按物理目录而不是 Agent 名称执行。`~/.agents/skills` 现在同时是 Codex、Goose、Warp 与 Zed 的首选目录，也是多个 Agent 的兼容读取目录，因此一次写入可能影响更多已安装产品。MUX 会在审阅页展示真实影响并归一化重复链接。链接指向同一份可写中央内容，消费者侧修改会形成中央 drift；路径矩阵、安装来源、后台安全校验和当前边界见 [用户级 Skills](/guide/skills#已核验的-agent-路径)。
 
 ## 不同 Agent 的格式差异
 

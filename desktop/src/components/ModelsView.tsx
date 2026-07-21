@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { listModelProfiles } from "../lib/api";
+import { listModelProfiles, listModelProviders } from "../lib/api";
 import type { ConsumptionState } from "../hooks/useConsumptionState";
 import type {
   ModelProfile,
   ModelProfileView,
+  ModelProviderView,
   ModelProtocol,
   ResourceNavigationIntent,
 } from "../lib/types";
@@ -15,6 +16,7 @@ import { DialogShell } from "./DialogShell";
 import { AssetOperationReviewDialog } from "./AssetOperationReviewDialog";
 import {
   CheckIcon,
+  CopyIcon,
   EditIcon,
   LayersIcon,
   LinkIcon,
@@ -45,6 +47,7 @@ type ModelAssetFilter = "all" | "credential" | "reasoning";
 const emptyProfile = (): ModelProfile => ({
   id: "",
   name: "",
+  provider: "",
   protocol: "openai-responses",
   base_url: "",
   model: "",
@@ -55,29 +58,43 @@ function protocolLabel(protocol: ModelProtocol) {
   return PROTOCOLS.find((item) => item.id === protocol)?.label ?? protocol;
 }
 
+function providerLabel(providers: ModelProviderView[], provider: string) {
+  return providers.find((item) => item.id === provider)?.name ?? (provider || "自动识别");
+}
+
 export function ModelsView({
   consumptionState,
   intent,
   onIntentConsumed,
+  migrationCount = 0,
+  onOpenMigration,
 }: {
   consumptionState?: ConsumptionState;
   intent?: Extract<ResourceNavigationIntent, { domain: "model" }>;
   onIntentConsumed?(id: number): void;
+  migrationCount?: number;
+  onOpenMigration?(): void;
 } = {}) {
   const [profiles, setProfiles] = useState<ModelProfileView[]>([]);
+  const [providers, setProviders] = useState<ModelProviderView[]>([]);
   const [selectedProfileId, setSelectedProfileId] = useState<string | null>(null);
   const [editing, setEditing] = useState<ModelProfileView | null | undefined>(undefined);
   const [loading, setLoading] = useState(true);
   const [readError, setReadError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [assetFilter, setAssetFilter] = useState<ModelAssetFilter>("all");
+  const [providerFilter, setProviderFilter] = useState<string | null>(null);
   const [protocolFilter, setProtocolFilter] = useState<ModelProtocol | null>(null);
   const toast = useToast();
   const lastConsumedIntentId = useRef<number | null>(null);
 
   const refresh = useCallback(async () => {
-    const nextProfiles = await listModelProfiles();
+    const [nextProfiles, nextProviders] = await Promise.all([
+      listModelProfiles(),
+      listModelProviders(),
+    ]);
     setProfiles(nextProfiles);
+    setProviders(nextProviders);
     setSelectedProfileId((current) =>
       current && nextProfiles.some((profile) => profile.id === current) ? current : null
     );
@@ -104,30 +121,61 @@ export function ModelsView({
     [profiles],
   );
 
+  const providerOptions = useMemo(() => {
+    const known = new Map(providers.map((provider) => [provider.id, provider]));
+    for (const profile of profiles) {
+      if (!known.has(profile.provider)) {
+        known.set(profile.provider, { id: profile.provider, name: profile.provider });
+      }
+    }
+    return [...known.values()].filter((provider) =>
+      profiles.some((profile) => profile.provider === provider.id)
+    );
+  }, [profiles, providers]);
+
+  const providerCounts = useMemo(
+    () => Object.fromEntries(providerOptions.map((provider) => [
+      provider.id,
+      profiles.filter((profile) => profile.provider === provider.id).length,
+    ])) as Record<string, number>,
+    [profiles, providerOptions],
+  );
+
   const assetCounts = useMemo(() => {
-    const scoped = protocolFilter
-      ? profiles.filter((profile) => profile.protocol === protocolFilter)
-      : profiles;
+    const scoped = profiles.filter((profile) =>
+      (!providerFilter || profile.provider === providerFilter) &&
+      (!protocolFilter || profile.protocol === protocolFilter)
+    );
     return {
       all: scoped.length,
       credential: scoped.filter((profile) => profile.credential_saved).length,
       reasoning: scoped.filter((profile) => profile.reasoning).length,
     };
-  }, [profiles, protocolFilter]);
+  }, [profiles, protocolFilter, providerFilter]);
 
   const filteredProfiles = useMemo(() => {
     const needle = query.trim().toLocaleLowerCase();
     return profiles.filter((profile) => {
       if (protocolFilter && profile.protocol !== protocolFilter) return false;
+      if (providerFilter && profile.provider !== providerFilter) return false;
       if (assetFilter === "credential" && !profile.credential_saved) return false;
       if (assetFilter === "reasoning" && !profile.reasoning) return false;
       if (!needle) return true;
-      return [profile.name, profile.id, profile.model, profile.base_url, protocolLabel(profile.protocol)]
+      return [
+        profile.name,
+        profile.id,
+        profile.model,
+        profile.base_url,
+        profile.provider,
+        profile.model_vendor,
+        profile.catalog_key,
+        protocolLabel(profile.protocol),
+      ]
         .join(" ")
         .toLocaleLowerCase()
         .includes(needle);
     });
-  }, [assetFilter, profiles, protocolFilter, query]);
+  }, [assetFilter, profiles, protocolFilter, providerFilter, query]);
 
   const selectedProfile = profiles.find((profile) => profile.id === selectedProfileId) ?? null;
 
@@ -141,6 +189,7 @@ export function ModelsView({
     }
     const profile = profiles.find((candidate) => candidate.id === intent.profileId);
     setQuery("");
+    setProviderFilter(null);
     setProtocolFilter(null);
     setAssetFilter("all");
     setSelectedProfileId(profile?.id ?? null);
@@ -163,6 +212,25 @@ export function ModelsView({
       <ResourceWorkspace
         sidebar={
           <WorkspaceSidebar title="Models" count={profiles.length}>
+            <SidebarSection title="Provider">
+              <SidebarItem
+                active={providerFilter === null}
+                icon={<LayersIcon className="w-3.5 h-3.5" />}
+                label="全部 Provider"
+                count={profiles.length}
+                onClick={() => { clearSelection(); setProviderFilter(null); }}
+              />
+              {providerOptions.map((provider) => (
+                <SidebarItem
+                  key={provider.id}
+                  active={providerFilter === provider.id}
+                  icon={<LayersIcon className="w-3.5 h-3.5" />}
+                  label={provider.name}
+                  count={providerCounts[provider.id]}
+                  onClick={() => { clearSelection(); setProviderFilter(provider.id); }}
+                />
+              ))}
+            </SidebarSection>
             <SidebarSection title="协议">
               <SidebarItem
                 active={protocolFilter === null}
@@ -200,14 +268,22 @@ export function ModelsView({
           />
         }
         toolbarActions={
-          <button className="btn-primary" type="button" disabled={!consumptionState} onClick={() => setEditing(null)}>
-            <PlusIcon className="w-4 h-4" />
-            新建模型
-          </button>
+          <>
+            {migrationCount > 0 && onOpenMigration && (
+              <button className="btn-secondary" type="button" onClick={onOpenMigration}>
+                历史配置 {migrationCount}
+              </button>
+            )}
+            <button className="btn-primary" type="button" disabled={!consumptionState} onClick={() => setEditing(null)}>
+              <PlusIcon className="w-4 h-4" />
+              新建模型
+            </button>
+          </>
         }
         inspector={selectedProfile ? (
           <ModelInspector
             profile={selectedProfile}
+            providerName={providerLabel(providers, selectedProfile.provider)}
             onClose={clearSelection}
             onEdit={consumptionState ? () => setEditing(selectedProfile) : undefined}
             onDelete={consumptionState ? () => void planProfileDelete(selectedProfile) : undefined}
@@ -240,6 +316,7 @@ export function ModelsView({
             action={profiles.length === 0 ? undefined : (
               <button className="btn-secondary" type="button" onClick={() => {
                 setQuery("");
+                setProviderFilter(null);
                 setProtocolFilter(null);
                 setAssetFilter("all");
               }}>清除筛选</button>
@@ -251,6 +328,7 @@ export function ModelsView({
               <ModelCard
                 key={profile.id}
                 profile={profile}
+                providerName={providerLabel(providers, profile.provider)}
                 selected={profile.id === selectedProfileId}
                 onOpen={() => setSelectedProfileId(profile.id)}
               />
@@ -262,6 +340,7 @@ export function ModelsView({
       {editing !== undefined && (
         <ModelProfileDialog
           initial={editing}
+          providers={providers}
           onClose={() => setEditing(undefined)}
           onReview={async (profile, credential) => {
             if (!consumptionState) throw new Error("中央资产事务不可用");
@@ -300,10 +379,12 @@ export function ModelsView({
 
 function ModelCard({
   profile,
+  providerName,
   selected,
   onOpen,
 }: {
   profile: ModelProfileView;
+  providerName: string;
   selected: boolean;
   onOpen: () => void;
 }) {
@@ -338,6 +419,7 @@ function ModelCard({
       }
       state={
         <>
+          <Badge tone="info">{providerName}</Badge>
           <Badge tone="neutral">{protocolLabel(profile.protocol)}</Badge>
           {profile.reasoning && <Badge tone="info">Reasoning</Badge>}
           <Badge tone={profile.credential_saved ? "success" : "neutral"}>
@@ -351,15 +433,23 @@ function ModelCard({
 
 function ModelInspector({
   profile,
+  providerName,
   onClose,
   onEdit,
   onDelete,
 }: {
   profile: ModelProfileView;
+  providerName: string;
   onClose: () => void;
   onEdit?: () => void;
   onDelete?: () => void;
 }) {
+  const toast = useToast();
+  const copyProfileId = () => {
+    navigator.clipboard.writeText(profile.id)
+      .then(() => toast.show({ kind: "success", msg: "Profile ID 已复制。" }))
+      .catch(() => toast.show({ kind: "error", msg: "复制失败。" }));
+  };
   return (
     <ResourceInspector
       title={profile.name}
@@ -381,7 +471,8 @@ function ModelInspector({
       }
     >
       <InspectorSection title="资产信息">
-        <InspectorField label="资产 ID" mono>{profile.id}</InspectorField>
+        <InspectorField label="Provider">{providerName}</InspectorField>
+        {profile.model_vendor && <InspectorField label="模型开发商">{profile.model_vendor}</InspectorField>}
         <InspectorField label="协议">{protocolLabel(profile.protocol)}</InspectorField>
         <InspectorField label="推理">{profile.reasoning ? "支持" : "未标记"}</InspectorField>
       </InspectorSection>
@@ -395,16 +486,27 @@ function ModelInspector({
           </span>
         </InspectorField>
       </InspectorSection>
+      <InspectorSection title="技术详情">
+        <InspectorField label="Profile ID" mono>
+          <span>{profile.id}</span>
+          <button type="button" className="mux-copy-inline" aria-label="复制 Profile ID" onClick={copyProfileId}>
+            <CopyIcon className="w-3.5 h-3.5" />
+          </button>
+        </InspectorField>
+        <InspectorField label="Catalog Key" mono>{profile.catalog_key}</InspectorField>
+      </InspectorSection>
     </ResourceInspector>
   );
 }
 
 function ModelProfileDialog({
   initial,
+  providers,
   onClose,
   onReview,
 }: {
   initial: ModelProfileView | null;
+  providers: ModelProviderView[];
   onClose: () => void;
   onReview: (profile: ModelProfile, credential?: string) => Promise<void>;
 }) {
@@ -415,7 +517,7 @@ function ModelProfileDialog({
   const toast = useToast();
 
   const valid =
-    draft.id.trim() && draft.name.trim() && draft.base_url.trim() && draft.model.trim() && !busy;
+    draft.base_url.trim() && draft.model.trim() && !busy;
 
   const save = async () => {
     if (!valid) return;
@@ -424,8 +526,10 @@ function ModelProfileDialog({
       const credentialUpdate = clearCredential ? "" : credential || undefined;
       await onReview({
         ...draft,
-        id: draft.id.trim(),
+        id: initial?.id ?? "",
         name: draft.name.trim(),
+        provider: draft.provider.trim(),
+        model_vendor: draft.model_vendor?.trim() || undefined,
         base_url: draft.base_url.trim().replace(/\/$/, ""),
         model: draft.model.trim(),
         env_key: draft.env_key?.trim() || undefined,
@@ -458,24 +562,26 @@ function ModelProfileDialog({
       <div className="mux-model-form">
         <div className="mux-model-form-grid">
           <label>
-            <span>名称</span>
-            <input
+            <span>Provider</span>
+            <select
               autoFocus
+              className="mux-model-field"
+              value={draft.provider}
+              onChange={(event) => setDraft({ ...draft, provider: event.target.value })}
+            >
+              <option value="">根据 Base URL 自动识别</option>
+              {providers.map((provider) => (
+                <option key={provider.id} value={provider.id}>{provider.name}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            <span>名称（可选）</span>
+            <input
               className="mux-model-field"
               value={draft.name}
               onChange={(event) => setDraft({ ...draft, name: event.target.value })}
-              placeholder="公司网关"
-            />
-          </label>
-          <label>
-            <span>ID</span>
-            <input
-              className="mux-model-field"
-              value={draft.id}
-              disabled={Boolean(initial)}
-              onChange={(event) => setDraft({ ...draft, id: event.target.value.toLowerCase() })}
-              placeholder="company-gateway"
-              spellCheck={false}
+              placeholder="留空则根据模型自动生成"
             />
           </label>
         </div>
@@ -541,6 +647,16 @@ function ModelProfileDialog({
 
         <details className="mux-model-advanced">
           <summary>高级设置</summary>
+          <label>
+            <span>模型开发商</span>
+            <input
+              className="mux-model-field"
+              value={draft.model_vendor ?? ""}
+              onChange={(event) => setDraft({ ...draft, model_vendor: event.target.value || undefined })}
+              placeholder="自动推导，例如 anthropic"
+              spellCheck={false}
+            />
+          </label>
           <label>
             <span>API Key 环境变量</span>
             <input

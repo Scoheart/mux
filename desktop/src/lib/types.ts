@@ -48,6 +48,12 @@ export type ModelProtocol =
 export interface ModelProfile {
   id: string;
   name: string;
+  /** Actual API/billing channel, such as openrouter or anthropic. */
+  provider: string;
+  /** Model creator; independent from the API provider. */
+  model_vendor?: string;
+  /** Agent-native identities retained by an adopted historical config. */
+  native_ids?: Record<string, string>;
   protocol: ModelProtocol;
   base_url: string;
   model: string;
@@ -59,7 +65,13 @@ export interface ModelProfile {
 }
 
 export interface ModelProfileView extends ModelProfile {
+  catalog_key: string;
   credential_saved: boolean;
+}
+
+export interface ModelProviderView {
+  id: string;
+  name: string;
 }
 
 export interface ModelAgentView {
@@ -123,6 +135,31 @@ export interface McpAdoptionCandidate {
 export interface PlanMcpAdoptionRequest {
   asset_key: string;
   agent_ids: string[];
+  candidate_fingerprints: Record<string, string>;
+}
+export type ModelAdoptionStatus = "adoptable" | "needs-credential" | "unsupported" | "conflicted";
+export type ModelCredentialKind = "none" | "environment-reference" | "literal" | "external-command";
+export interface ModelAdoptionCandidate {
+  candidate_id: string;
+  agent_id: string;
+  native_id: string;
+  name: string;
+  provider: string;
+  model_vendor?: string | null;
+  protocol: ModelProtocol;
+  base_url: string;
+  model: string;
+  env_key?: string | null;
+  active: boolean;
+  credential_kind: ModelCredentialKind;
+  status: ModelAdoptionStatus;
+  reason?: string | null;
+  fingerprint: string;
+  settings_hash: string;
+  target_hash: string;
+  candidate_hash: string;
+}
+export interface PlanModelAdoptionRequest {
   candidate_fingerprints: Record<string, string>;
 }
 export interface PatchInput {
@@ -359,6 +396,7 @@ export interface ConsumptionView {
   observed: boolean;
   enabled?: boolean | null;
   active?: boolean | null;
+  desired_active?: boolean | null;
   status: ConsumptionStatus;
   reason: string | null;
   affected_agent_ids: string[];
@@ -406,6 +444,21 @@ export interface RelationshipChange {
   action: RelationshipAction;
 }
 
+export interface ModelStateSnapshot {
+  added: boolean;
+  enabled: boolean;
+  active: boolean;
+}
+
+export interface ModelStateChange {
+  agent_id: string;
+  profile_id: string;
+  before: ModelStateSnapshot;
+  after: ModelStateSnapshot;
+  fallback_profile_id?: string | null;
+  reason: string;
+}
+
 export interface ModelConsumptionRecord {
   profile_id: string;
   enabled: boolean;
@@ -450,6 +503,7 @@ export interface AssetOperationPlan {
   domain_plan: DomainPlan;
   central_changes: CentralAssetChange[];
   relationship_changes: RelationshipChange[];
+  model_state_changes: ModelStateChange[];
   target_files: string[];
   affected_agent_ids: string[];
   warnings: string[];

@@ -12,12 +12,15 @@ import type {
   ConsumptionInventory,
   InstalledMcp,
   McpAdoptionCandidate,
+  ModelAdoptionCandidate,
   ModelAgentView,
+  ModelProviderView,
   ModelProfileView,
   OperationPlan,
   PlanRemoveRequest,
   PlanImportRequest,
   PlanMcpAdoptionRequest,
+  PlanModelAdoptionRequest,
   PlanRepairRequest,
   PlanSkillAssetImportRequest,
   PlanSkillAssetInstallRequest,
@@ -40,6 +43,10 @@ export const listMcpAdoptionCandidates = () =>
   invoke<McpAdoptionCandidate[]>("list_mcp_adoption_candidates");
 export const planMcpAdoption = (request: PlanMcpAdoptionRequest) =>
   invoke<AssetOperationPlan>("plan_mcp_adoption", { request });
+export const listModelAdoptionCandidates = () =>
+  invoke<ModelAdoptionCandidate[]>("list_model_adoption_candidates");
+export const planModelAdoption = (request: PlanModelAdoptionRequest) =>
+  invoke<AssetOperationPlan>("plan_model_adoption", { request });
 export const planSetAgentConsumption = (
   agentId: string,
   selection: AgentConsumptionSelection,
@@ -98,6 +105,8 @@ export type { AssetCommandError };
 export const listRegistry = () => invoke<RegistryEntry[]>("list_registry");
 export const listModelProfiles = () =>
   invoke<ModelProfileView[]>("list_model_profiles");
+export const listModelProviders = () =>
+  invoke<ModelProviderView[]>("list_model_providers");
 export const listModelAgents = () =>
   invoke<ModelAgentView[]>("list_model_agents");
 /** All entry copies across sources (not deduped), each flagged in_effect. */

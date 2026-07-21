@@ -739,6 +739,8 @@ body {
 .mux-inspector-field > span { color: var(--text-secondary); font-size: 11px; }
 .mux-inspector-field > div { min-width: 0; overflow-wrap: anywhere; color: var(--text-primary); font-size: 11px; }
 .mux-inspector-field-mono { font-family: var(--font-mono); font-size: 10px !important; line-height: 1.5; }
+.mux-copy-inline { display: inline-flex; align-items: center; margin-left: 6px; padding: 2px; color: var(--text-tertiary); border-radius: 5px; }
+.mux-copy-inline:hover { color: var(--accent); background: var(--surface-hover); }
 .mux-inspector-description { margin: 0 0 18px; color: var(--text-secondary); font-size: 12px; line-height: 1.55; }
 .mux-inline-link { display: inline-flex; align-items: flex-start; gap: 5px; max-width: 100%; padding: 0; border: 0; background: transparent; color: var(--color-blue); font: inherit; text-align: left; cursor: pointer; overflow-wrap: anywhere; }
 .mux-config-preview { margin: 0; padding: 11px; overflow-x: auto; border: 1px solid var(--border-hairline); border-radius: 6px; background: var(--surface-app); color: var(--text-primary); font: 10px/1.55 var(--font-mono); }

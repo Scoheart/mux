@@ -25,6 +25,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::{LazyLock, Mutex};
 use toml_edit::{Array, Document, Item, Table};
+use uuid::Uuid;
 
 const KEYCHAIN_ACCOUNT: &str = "api-key";
 const CREDENTIAL_ROLLBACK_PREFIX: &str = "__asset-operation-rollback__";
@@ -46,7 +47,298 @@ fn test_credential_key(profile_id: &str) -> String {
 pub struct ModelProfileView {
     #[serde(flatten)]
     pub profile: ModelProfile,
+    pub catalog_key: String,
     pub credential_saved: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ModelProviderView {
+    pub id: &'static str,
+    pub name: &'static str,
+}
+
+const MODEL_PROVIDERS: &[ModelProviderView] = &[
+    ModelProviderView {
+        id: "openrouter",
+        name: "OpenRouter",
+    },
+    ModelProviderView {
+        id: "anthropic",
+        name: "Anthropic",
+    },
+    ModelProviderView {
+        id: "openai",
+        name: "OpenAI",
+    },
+    ModelProviderView {
+        id: "google",
+        name: "Google",
+    },
+    ModelProviderView {
+        id: "xai",
+        name: "xAI",
+    },
+    ModelProviderView {
+        id: "mistral",
+        name: "Mistral AI",
+    },
+    ModelProviderView {
+        id: "cohere",
+        name: "Cohere",
+    },
+    ModelProviderView {
+        id: "deepseek",
+        name: "DeepSeek",
+    },
+    ModelProviderView {
+        id: "groq",
+        name: "Groq",
+    },
+    ModelProviderView {
+        id: "alibaba",
+        name: "Alibaba Cloud",
+    },
+    ModelProviderView {
+        id: "xiaomi",
+        name: "Xiaomi MiMo",
+    },
+    ModelProviderView {
+        id: "local",
+        name: "Local",
+    },
+    ModelProviderView {
+        id: "custom",
+        name: "Custom Provider",
+    },
+];
+
+pub fn list_providers() -> &'static [ModelProviderView] {
+    MODEL_PROVIDERS
+}
+
+pub fn catalog_key(profile: &ModelProfile) -> String {
+    format!("{}/{}", profile.provider, profile.model)
+}
+
+fn normalize_slug(value: &str) -> String {
+    let mut slug = String::new();
+    let mut pending_separator = false;
+    for byte in value.bytes() {
+        if byte.is_ascii_alphanumeric() {
+            if pending_separator && !slug.is_empty() {
+                slug.push('-');
+            }
+            slug.push((byte as char).to_ascii_lowercase());
+            pending_separator = false;
+        } else {
+            pending_separator = true;
+        }
+    }
+    slug.trim_matches('-').to_string()
+}
+
+pub fn infer_provider(base_url: &str) -> String {
+    let host = url::Url::parse(base_url)
+        .ok()
+        .and_then(|url| url.host_str().map(str::to_ascii_lowercase))
+        .unwrap_or_default();
+    match host.as_str() {
+        "openrouter.ai" | "api.openrouter.ai" => "openrouter",
+        "api.anthropic.com" => "anthropic",
+        "api.openai.com" => "openai",
+        "generativelanguage.googleapis.com" | "aiplatform.googleapis.com" => "google",
+        "api.x.ai" => "xai",
+        "api.mistral.ai" => "mistral",
+        "api.cohere.ai" => "cohere",
+        "api.deepseek.com" => "deepseek",
+        "api.groq.com" => "groq",
+        "dashscope.aliyuncs.com" => "alibaba",
+        "token-plan-cn.xiaomimimo.com" => "xiaomi",
+        "localhost" | "127.0.0.1" | "::1" => "local",
+        _ => "custom",
+    }
+    .to_string()
+}
+
+pub fn infer_model_vendor(provider: &str, model: &str) -> Option<String> {
+    let candidate = model
+        .split_once('/')
+        .map(|(vendor, _)| vendor)
+        .unwrap_or(provider);
+    let candidate = normalize_slug(candidate);
+    (!candidate.is_empty() && candidate != "custom" && candidate != "local").then_some(candidate)
+}
+
+fn generated_profile_id(provider: &str, model: &str, existing: &BTreeSet<String>) -> String {
+    let prefix = normalize_slug(&format!("{provider}-{model}"));
+    let prefix = if prefix.is_empty() { "model" } else { &prefix };
+    loop {
+        let suffix = &Uuid::new_v4().simple().to_string()[..8];
+        let max_prefix = 64usize.saturating_sub(suffix.len() + 1);
+        let mut compact = prefix.chars().take(max_prefix).collect::<String>();
+        while compact.ends_with('-') {
+            compact.pop();
+        }
+        let id = format!("{compact}-{suffix}");
+        if !existing.contains(&id) {
+            return id;
+        }
+    }
+}
+
+fn default_profile_name(model: &str) -> String {
+    let leaf = model.rsplit('/').next().unwrap_or(model);
+    let name = leaf
+        .split(['-', '_', ':', '.'])
+        .filter(|part| !part.is_empty())
+        .map(|part| {
+            let mut chars = part.chars();
+            chars
+                .next()
+                .map(|first| first.to_uppercase().collect::<String>() + chars.as_str())
+                .unwrap_or_default()
+        })
+        .collect::<Vec<_>>()
+        .join(" ");
+    if name.is_empty() {
+        "Model".into()
+    } else {
+        name
+    }
+}
+
+fn unique_profile_name(
+    settings: &crate::settings::Settings,
+    provider: &str,
+    requested: &str,
+    excluding_id: Option<&str>,
+) -> String {
+    let used = settings
+        .model_profiles
+        .iter()
+        .flatten()
+        .filter(|(id, profile)| Some(id.as_str()) != excluding_id && profile.provider == provider)
+        .map(|(_, profile)| profile.name.to_lowercase())
+        .collect::<BTreeSet<_>>();
+    if !used.contains(&requested.to_lowercase()) {
+        return requested.to_string();
+    }
+    for index in 2.. {
+        let candidate = format!("{requested} {index}");
+        if !used.contains(&candidate.to_lowercase()) {
+            return candidate;
+        }
+    }
+    unreachable!()
+}
+
+pub(crate) fn prepare_profile_draft(
+    settings: &crate::settings::Settings,
+    existing_id: Option<&str>,
+    mut profile: ModelProfile,
+) -> Result<ModelProfile, String> {
+    profile.provider = if profile.provider.trim().is_empty() {
+        infer_provider(&profile.base_url)
+    } else {
+        normalize_slug(&profile.provider)
+    };
+    if profile.provider.is_empty() {
+        profile.provider = "custom".into();
+    }
+    profile.model_vendor = profile
+        .model_vendor
+        .as_deref()
+        .map(normalize_slug)
+        .filter(|vendor| !vendor.is_empty())
+        .or_else(|| infer_model_vendor(&profile.provider, &profile.model));
+    match existing_id {
+        Some(existing_id) => {
+            if profile.id.is_empty() {
+                profile.id = existing_id.to_string();
+            }
+            if profile.id != existing_id {
+                return Err("asset_identity_change: Model Profile id cannot change".into());
+            }
+            let existing = settings
+                .model_profiles
+                .as_ref()
+                .and_then(|profiles| profiles.get(existing_id))
+                .ok_or_else(|| {
+                    "asset_operation_stale: Model Profile no longer exists".to_string()
+                })?;
+            // Agent-native identities are evidence created only by the explicit
+            // adoption flow. Ordinary metadata edits cannot redirect a writer
+            // to a different provider key.
+            profile.native_ids = existing.native_ids.clone();
+        }
+        None => {
+            if !profile.id.is_empty() {
+                return Err("invalid_asset: Model Profile id is generated by MUX".into());
+            }
+            if !profile.native_ids.is_empty() {
+                return Err(
+                    "invalid_asset: Agent-native identities require explicit adoption".into(),
+                );
+            }
+            let existing = settings
+                .model_profiles
+                .iter()
+                .flatten()
+                .map(|(id, _)| id.clone())
+                .collect();
+            profile.id = generated_profile_id(&profile.provider, &profile.model, &existing);
+        }
+    }
+    let requested_name = if profile.name.trim().is_empty() {
+        default_profile_name(&profile.model)
+    } else {
+        profile.name.trim().to_string()
+    };
+    profile.name = unique_profile_name(settings, &profile.provider, &requested_name, existing_id);
+    validate_profile(&profile)?;
+    Ok(profile)
+}
+
+type MigratedProfiles = (BTreeMap<String, String>, BTreeMap<String, ModelProfile>);
+
+pub(crate) fn migrated_profiles_v2(
+    settings: &crate::settings::Settings,
+) -> Result<MigratedProfiles, String> {
+    let old_profiles = settings.model_profiles.clone().unwrap_or_default();
+    let mut used_ids = old_profiles.keys().cloned().collect::<BTreeSet<_>>();
+    let mut id_map = BTreeMap::new();
+    let mut profiles = BTreeMap::new();
+    let mut naming = crate::settings::Settings::default();
+    for (old_id, mut profile) in old_profiles {
+        profile.provider = if profile.provider.trim().is_empty() {
+            infer_provider(&profile.base_url)
+        } else {
+            normalize_slug(&profile.provider)
+        };
+        if profile.provider.is_empty() {
+            profile.provider = "custom".into();
+        }
+        profile.model_vendor = profile
+            .model_vendor
+            .as_deref()
+            .map(normalize_slug)
+            .filter(|vendor| !vendor.is_empty())
+            .or_else(|| infer_model_vendor(&profile.provider, &profile.model));
+        let new_id = generated_profile_id(&profile.provider, &profile.model, &used_ids);
+        used_ids.insert(new_id.clone());
+        profile.id = new_id.clone();
+        let requested_name = if profile.name.trim().is_empty() {
+            default_profile_name(&profile.model)
+        } else {
+            profile.name.trim().to_string()
+        };
+        profile.name = unique_profile_name(&naming, &profile.provider, &requested_name, None);
+        validate_profile(&profile)?;
+        id_map.insert(old_id, new_id.clone());
+        profiles.insert(new_id.clone(), profile);
+        naming.model_profiles = Some(profiles.clone());
+    }
+    Ok((id_map, profiles))
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -414,6 +706,9 @@ fn validate_profile(profile: &ModelProfile) -> Result<(), String> {
     if profile.name.trim().is_empty() {
         return Err("profile name is required".into());
     }
+    if profile.provider.is_empty() || normalize_slug(&profile.provider) != profile.provider {
+        return Err("provider must be a lowercase identifier".into());
+    }
     if profile.model.trim().is_empty() {
         return Err("model id is required".into());
     }
@@ -440,10 +735,6 @@ fn validate_profile(profile: &ModelProfile) -> Result<(), String> {
         }
     }
     Ok(())
-}
-
-pub(crate) fn validate_profile_draft(profile: &ModelProfile) -> Result<(), String> {
-    validate_profile(profile)
 }
 
 pub(crate) fn credential_snapshot(profile_id: &str) -> Option<Vec<u8>> {
@@ -520,6 +811,7 @@ pub fn list_profiles() -> Vec<ModelProfileView> {
         .unwrap_or_default()
         .into_values()
         .map(|profile| ModelProfileView {
+            catalog_key: catalog_key(&profile),
             credential_saved: credential_exists(&profile.id),
             profile,
         })
@@ -650,6 +942,9 @@ fn validate_profile_id(profile_id: &str) -> Result<(), String> {
     let dummy = ModelProfile {
         id: profile_id.into(),
         name: "x".into(),
+        provider: "custom".into(),
+        model_vendor: None,
+        native_ids: Default::default(),
         protocol: ModelProtocol::OpenaiResponses,
         base_url: "http://localhost".into(),
         model: "x".into(),
@@ -967,8 +1262,8 @@ pub(crate) fn observe_active_model_for_settings(
     let matches: Vec<_> = profiles
         .values()
         .filter(|profile| match agent_id {
-            "grok-build" => selected == grok_model_id(&profile.id),
-            "pi" => selected == format!("mux-{}", profile.id),
+            "grok-build" => selected == grok_model_id(profile),
+            "pi" => selected == pi_provider_id(profile),
             _ => selected == profile.id,
         })
         .map(|profile| profile.id.clone())
@@ -1723,7 +2018,7 @@ fn prepare_codex(
 ) -> Result<(Option<String>, String), String> {
     let (mut document, original) = read_toml(path)?;
     document["model"] = toml_edit::value(&profile.model);
-    let provider_id = codex_provider_id(&profile.id);
+    let provider_id = codex_provider_id(profile);
     document["model_provider"] = toml_edit::value(&provider_id);
 
     if !document.as_table().contains_key("model_providers") {
@@ -1784,13 +2079,21 @@ fn prepare_clear_codex(
         .get_mut("model_providers")
         .and_then(Item::as_table_mut)
     {
-        providers.remove(&codex_provider_id(&profile.id));
+        providers.remove(&codex_provider_id(profile));
     }
     Ok((original, document.to_string()))
 }
 
-fn codex_provider_id(profile_id: &str) -> String {
-    mux_profile_id(profile_id)
+fn native_profile_id(profile: &ModelProfile, agent_id: &str, fallback: String) -> String {
+    profile
+        .native_ids
+        .get(agent_id)
+        .cloned()
+        .unwrap_or(fallback)
+}
+
+fn codex_provider_id(profile: &ModelProfile) -> String {
+    native_profile_id(profile, "codex", mux_profile_id(&profile.id))
 }
 
 fn mux_profile_id(profile_id: &str) -> String {
@@ -1801,8 +2104,12 @@ fn mux_profile_id(profile_id: &str) -> String {
     encoded
 }
 
-fn grok_model_id(profile_id: &str) -> String {
-    mux_profile_id(profile_id)
+fn grok_model_id(profile: &ModelProfile) -> String {
+    native_profile_id(profile, "grok-build", mux_profile_id(&profile.id))
+}
+
+fn pi_provider_id(profile: &ModelProfile) -> String {
+    native_profile_id(profile, "pi", format!("mux-{}", profile.id))
 }
 
 fn grok_api_backend(protocol: &ModelProtocol) -> &'static str {
@@ -1836,7 +2143,7 @@ fn prepare_grok_build(
     profile: &ModelProfile,
 ) -> Result<(Option<String>, String), String> {
     let (mut document, original) = read_toml(path)?;
-    let model_id = grok_model_id(&profile.id);
+    let model_id = grok_model_id(profile);
 
     if !document.as_table().contains_key("models") {
         document
@@ -1872,7 +2179,7 @@ fn upsert_grok_model(
     path: &Path,
     profile: &ModelProfile,
 ) -> Result<(), String> {
-    let model_id = grok_model_id(&profile.id);
+    let model_id = grok_model_id(profile);
     if !document.as_table().contains_key("model") {
         document
             .as_table_mut()
@@ -1923,7 +2230,7 @@ fn prepare_clear_grok_build(
     if original.is_none() {
         return Ok((None, String::new()));
     }
-    let model_id = grok_model_id(&profile.id);
+    let model_id = grok_model_id(profile);
     if let Some(defaults) = document.get_mut("models").and_then(Item::as_table_mut) {
         if defaults.get("default").and_then(Item::as_str) == Some(model_id.as_str()) {
             defaults.remove("default");
@@ -1989,7 +2296,7 @@ fn prepare_pi_models(
         )
     })?;
     ensure_unique_keys(&providers, path, "providers")?;
-    let provider_id = format!("mux-{}", profile.id);
+    let provider_id = pi_provider_id(profile);
     set_json_property(
         &providers,
         &provider_id,
@@ -2010,7 +2317,7 @@ fn prepare_pi_settings(
     set_json_property(
         &object,
         "defaultProvider",
-        Some(Value::String(format!("mux-{}", profile.id))),
+        Some(Value::String(pi_provider_id(profile))),
         path,
         "$root",
     )?;
@@ -2038,7 +2345,7 @@ fn prepare_clear_pi_models(
         ensure_unique_keys(&providers, path, "providers")?;
         set_json_property(
             &providers,
-            &format!("mux-{}", profile.id),
+            &pi_provider_id(profile),
             None,
             path,
             "providers",
@@ -2247,6 +2554,9 @@ mod tests {
         ModelProfile {
             id: "team-anthropic".into(),
             name: "Team Anthropic".into(),
+            provider: "custom".into(),
+            model_vendor: Some("anthropic".into()),
+            native_ids: Default::default(),
             protocol: ModelProtocol::AnthropicMessages,
             base_url: "https://gateway.example.test/anthropic".into(),
             model: "claude-sonnet-custom".into(),
@@ -2261,6 +2571,9 @@ mod tests {
         ModelProfile {
             id: "team-openai".into(),
             name: "Team OpenAI".into(),
+            provider: "custom".into(),
+            model_vendor: Some("openai".into()),
+            native_ids: Default::default(),
             protocol: ModelProtocol::OpenaiResponses,
             base_url: "https://gateway.example.test/v1".into(),
             model: "gpt-custom".into(),
@@ -2277,6 +2590,46 @@ mod tests {
         let json = serde_json::to_string(&profile).unwrap();
         assert!(!json.contains("credential"));
         assert!(!json.contains("api_key"));
+    }
+
+    #[test]
+    fn ordinary_profile_creation_cannot_inject_an_agent_native_identity() {
+        let settings = crate::settings::Settings::default();
+        let mut draft = responses_profile();
+        draft.id.clear();
+        draft
+            .native_ids
+            .insert("goose".into(), "../../unexpected".into());
+
+        let error = prepare_profile_draft(&settings, None, draft).unwrap_err();
+
+        assert_eq!(
+            error,
+            "invalid_asset: Agent-native identities require explicit adoption"
+        );
+    }
+
+    #[test]
+    fn ordinary_profile_edit_preserves_the_adopted_native_identity() {
+        let mut settings = crate::settings::Settings::default();
+        let mut adopted = responses_profile();
+        adopted
+            .native_ids
+            .insert("codex".into(), "legacy-provider".into());
+        settings
+            .model_profiles
+            .get_or_insert_default()
+            .insert(adopted.id.clone(), adopted.clone());
+        let mut edited = adopted.clone();
+        edited.model = "gpt-custom-new".into();
+        edited
+            .native_ids
+            .insert("codex".into(), "redirected-provider".into());
+
+        let prepared = prepare_profile_draft(&settings, Some(&adopted.id), edited).unwrap();
+
+        assert_eq!(prepared.native_ids, adopted.native_ids);
+        assert_eq!(prepared.model, "gpt-custom-new");
     }
 
     #[test]
@@ -2650,8 +3003,8 @@ url = "https://example.test/mcp"
 
     #[test]
     fn codex_provider_ids_do_not_collapse_profile_punctuation() {
-        assert_ne!(codex_provider_id("a-b"), codex_provider_id("a_b"));
-        assert_ne!(codex_provider_id("a.b"), codex_provider_id("a_b"));
+        assert_ne!(mux_profile_id("a-b"), mux_profile_id("a_b"));
+        assert_ne!(mux_profile_id("a.b"), mux_profile_id("a_b"));
     }
 
     #[cfg(target_os = "macos")]

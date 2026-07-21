@@ -51,6 +51,7 @@ export const assetOperationPlanFixture = (): AssetOperationPlan => ({
       action: "add",
     },
   ],
+  model_state_changes: [],
   target_files: ["~/.claude.json"],
   affected_agent_ids: ["claude-code"],
   warnings: [],

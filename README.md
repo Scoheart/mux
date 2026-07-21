@@ -52,7 +52,7 @@ A one-click **Mux 精选 (curated collection)** subscribes you to a curated set.
 - **Transport-aware** — `stdio` / `http` / `sse`, plus a **custom `type`** (e.g. `streamable-http`). Same-named stdio and http variants are tracked separately.
 - **Paste a config** — drop a `{"mcpServers": {…}}` block and MUX recognizes the servers and adds them.
 - **Desired vs. observed state** — Agent files and Skill links are scanned for `synced`, `pending`, `drifted`, `conflicted`, `unsupported`, and read-only `external` states; scans never silently create ownership.
-- **Historical configuration migration** — newly detected global MCPs and user-level Skills appear in a non-blocking migration inbox. Exact copies are deduplicated, original Agent relationships and disabled MCP state are preserved, and divergent same-name copies remain blocked for review.
+- **Historical configuration migration** — newly detected global MCPs, Model Profiles, and user-level Skills appear in a non-blocking migration inbox. Exact copies are deduplicated, original Agent relationships and disabled MCP state are preserved, and divergent same-name copies remain blocked for review.
 - **Reviewed propagation** — editing or deleting a central MCP or Model plans the central change together with every consumer. Drift replacement requires explicit confirmation, and unresolved conflicts prevent partial commits.
 - **Safe, local writes** — MUX reads and edits only fields it owns. Existing files are backed up, prepared, and verified as one recoverable transaction; unrelated keys, comments, formatting, policy fields, permissions, and symlinks are preserved.
 - **Unified Agent consumption center** — each Agent page shows only desired central assets under MCPs, Model, and Skills, with a central picker for relationship changes and a separate read-only external section.
@@ -86,7 +86,7 @@ configuration surfaces do not provide a safe equivalent writer for this flow.
 
 See the [complete audited matrix](website/guide/agents.md) and [catalog methodology](docs/agent-catalog.md). Every writable target's global path remains editable; paths inside the home directory are normalized to the portable `~/…` form.
 
-Skill consumption initially supports six separately verified user-level capabilities: Claude Code, Codex, Cursor, Gemini CLI, OpenCode, and GitHub Copilot CLI. Only capabilities detected on the current machine appear, and Agents sharing one physical compatibility directory are selected and reviewed as an inseparable impact group. See the [Skills guide](website/guide/skills.md).
+Skill consumption supports 33 separately verified user-level capabilities across CLI, IDE, and desktop Agents. Only capabilities detected on the current machine appear, and Agents sharing one physical compatibility directory are selected and reviewed as an inseparable impact group. Managed links expose one live central copy, so consumer-side edits are detected as central drift rather than isolated copies. See the [Skills guide](website/guide/skills.md).
 
 ---
 
@@ -174,7 +174,7 @@ Model API keys are not stored under `~/.mux/`; they remain in macOS Keychain.
 2. **Choose consumers** — from an Agent page, select compatible assets. MCPs and Skills are sets; supported multi-model Agents also keep a Model Profile set plus one independent current pointer.
 3. **Review one impact plan** — MUX shows central changes, relationship changes, target files, shared Skill-directory impact, drift, and conflicts before commit.
 4. **Commit and verify** — settings, Agent targets, and central lifecycle changes are applied as a recoverable transaction and rescanned before reporting success.
-5. **Migrate historical state explicitly** — MUX detects unmanaged global MCPs and user-level Skills without taking ownership. After one confirmation, each selected asset is imported and its original Agent relationships are adopted in one recoverable per-asset transaction.
+5. **Migrate historical state explicitly** — MUX detects unmanaged global MCPs, Model Profiles, and user-level Skills without taking ownership. After one confirmation, each selected asset is imported and its original Agent relationships are adopted in one recoverable per-asset transaction.
 6. **Propagate central lifecycle changes** — updates reach every desired consumer; deletion clears all managed targets and relationships instead of leaving implicit orphan copies.
 
 Skills in this version are user-level only. Project-level Skills, private repositories, Skill editing, and CLI/TUI Skills commands are not supported.

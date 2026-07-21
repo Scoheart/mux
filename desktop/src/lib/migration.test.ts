@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildMigrationCandidates } from "./migration";
-import type { McpAdoptionCandidate, SkillInventoryItem } from "./types";
+import type { McpAdoptionCandidate, ModelAdoptionCandidate, SkillInventoryItem } from "./types";
 
 const mcp = (
   agent: string,
@@ -37,6 +37,27 @@ const skills = (hashes: string[], level: "low" | "high" = "low"): SkillInventory
     updated_at: null,
   }));
 
+const model = (agent: string, status: ModelAdoptionCandidate["status"] = "adoptable"): ModelAdoptionCandidate => ({
+  candidate_id: `candidate-${agent}`,
+  agent_id: agent,
+  native_id: `native-${agent}`,
+  name: "HY3",
+  provider: "openrouter",
+  model_vendor: "tencent",
+  protocol: "openai-completions",
+  base_url: "https://openrouter.ai/api/v1",
+  model: "tencent/hy3:free",
+  env_key: "OPENROUTER_API_KEY",
+  active: agent === "grok-build",
+  credential_kind: "environment-reference",
+  status,
+  reason: status === "adoptable" ? null : "需要安全 credential",
+  fingerprint: "same-model",
+  settings_hash: "settings",
+  target_hash: `target-${agent}`,
+  candidate_hash: `hash-${agent}`,
+});
+
 describe("migration candidates", () => {
   it("merges identical MCP copies and blocks divergent copies", () => {
     expect(buildMigrationCandidates([mcp("a", "same"), mcp("b", "same")], null)[0]).toMatchObject({
@@ -61,6 +82,19 @@ describe("migration candidates", () => {
     expect(buildMigrationCandidates([], skills(["same"], "high"))[0]).toMatchObject({
       safe: false,
       conflictReason: "Skill 包含高风险内容；请在 Skills 页面单独导入并审阅风险",
+    });
+  });
+
+  it("groups identical Model connections and keeps unsafe credentials blocked", () => {
+    expect(buildMigrationCandidates([], null, [model("grok-build"), model("opencode")])[0]).toMatchObject({
+      domain: "model",
+      safe: true,
+      agentIds: ["grok-build", "opencode"],
+      model: { active: true },
+    });
+    expect(buildMigrationCandidates([], null, [model("grok-build", "needs-credential")])[0]).toMatchObject({
+      safe: false,
+      conflictReason: "需要安全 credential",
     });
   });
 });

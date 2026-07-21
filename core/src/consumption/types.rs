@@ -105,6 +105,10 @@ pub struct ConsumptionView {
     /// Whether this Model Profile is the Agent's current primary model.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub active: Option<bool>,
+    /// Desired current/default state for a Model Profile. `active` remains the
+    /// observed Agent state so drift is visible instead of being flattened.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub desired_active: Option<bool>,
     pub status: ConsumptionStatus,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
@@ -224,6 +228,26 @@ pub struct RelationshipChange {
     pub action: RelationshipAction,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ModelStateSnapshot {
+    pub added: bool,
+    pub enabled: bool,
+    pub active: bool,
+}
+
+/// Review projection for Model's four user-visible states. Relationship
+/// changes alone cannot explain enable/disable or current-model fallback.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ModelStateChange {
+    pub agent_id: String,
+    pub profile_id: String,
+    pub before: ModelStateSnapshot,
+    pub after: ModelStateSnapshot,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fallback_profile_id: Option<String>,
+    pub reason: String,
+}
+
 /// Domain-specific desired sets remain typed. The common coordinator owns
 /// lifecycle and review, not MCP/Model/Skill payloads.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -264,6 +288,8 @@ pub struct AssetOperationPlan {
     #[serde(default)]
     pub relationship_changes: Vec<RelationshipChange>,
     #[serde(default)]
+    pub model_state_changes: Vec<ModelStateChange>,
+    #[serde(default)]
     pub target_files: Vec<String>,
     #[serde(default)]
     pub affected_agent_ids: Vec<String>,
@@ -289,7 +315,7 @@ pub enum CentralAssetDraft {
     Model {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         existing_id: Option<String>,
-        profile: ModelProfile,
+        profile: Box<ModelProfile>,
         /// `None` keeps an existing credential, `Some("")` clears it, and a
         /// non-empty value replaces it. The value is never persisted.
         #[serde(default, skip_serializing_if = "Option::is_none")]

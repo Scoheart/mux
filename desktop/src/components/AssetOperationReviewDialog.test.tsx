@@ -69,6 +69,46 @@ it("presents Agent assignment as a direct add action", () => {
   expect(screen.queryByText(/desired relationship/)).not.toBeInTheDocument();
 });
 
+it("distinguishes adding a Model from switching the current Model", () => {
+  const plan = assetOperationPlanFixture();
+  plan.domain_plan = {
+    domain: "model",
+    before: { codex: { profiles: {}, active_profile_id: null } },
+    after: {
+      codex: {
+        profiles: { work: { profile_id: "work", enabled: true } },
+        active_profile_id: "work",
+      },
+    },
+  };
+  plan.relationship_changes = [{
+    agent_id: "codex",
+    asset: { domain: "model", profile_id: "work" },
+    action: "add",
+  }];
+  plan.model_state_changes = [{
+    agent_id: "codex",
+    profile_id: "work",
+    before: { added: false, enabled: false, active: false },
+    after: { added: true, enabled: true, active: true },
+    fallback_profile_id: null,
+    reason: "model_added",
+  }];
+  render(
+    <AssetOperationReviewDialog
+      plan={plan}
+      busy={false}
+      agentId="codex"
+      agentName="Codex"
+      onCommit={vi.fn()}
+      onCancel={vi.fn()}
+    />,
+  );
+  expect(screen.getByRole("heading", { name: "确认添加 Model" })).toBeVisible();
+  expect(screen.queryByRole("heading", { name: "确认切换 Model" })).not.toBeInTheDocument();
+  expect(screen.getByText("未添加 → 已启用 · 当前")).toBeVisible();
+});
+
 it("separates direct Skill assignment from compatible visibility", () => {
   const plan = assetOperationPlanFixture();
   plan.domain_plan = {

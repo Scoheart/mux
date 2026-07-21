@@ -232,6 +232,9 @@ fn model(model: &str) -> ModelProfile {
     ModelProfile {
         id: "work".into(),
         name: "Work".into(),
+        provider: "custom".into(),
+        model_vendor: None,
+        native_ids: Default::default(),
         protocol: ModelProtocol::OpenaiResponses,
         base_url: "https://example.invalid/v1".into(),
         model: model.into(),
@@ -254,7 +257,7 @@ fn model_edit_propagates_without_dropping_assignment_and_delete_cascades() {
         plan_update_central_asset(PlanUpdateCentralAssetRequest {
             draft: CentralAssetDraft::Model {
                 existing_id: Some("work".into()),
-                profile: model("new-model"),
+                profile: Box::new(model("new-model")),
                 credential: None,
             },
         })

@@ -109,6 +109,9 @@ fn model_assignment_remains_visible_when_target_is_missing() {
             ModelProfile {
                 id: "inventory-profile".into(),
                 name: "Inventory".into(),
+                provider: "custom".into(),
+                model_vendor: None,
+                native_ids: Default::default(),
                 protocol: ModelProtocol::AnthropicMessages,
                 base_url: "https://example.invalid".into(),
                 model: "example".into(),
@@ -141,6 +144,9 @@ fn model_profile() -> ModelProfile {
     ModelProfile {
         id: "inventory-profile".into(),
         name: "Inventory".into(),
+        provider: "custom".into(),
+        model_vendor: None,
+        native_ids: Default::default(),
         protocol: ModelProtocol::OpenaiResponses,
         base_url: "https://example.invalid".into(),
         model: "example".into(),

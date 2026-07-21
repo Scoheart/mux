@@ -25,6 +25,8 @@ use std::io::{Error, ErrorKind};
 use std::path::Path;
 use std::sync::Mutex;
 
+pub const SETTINGS_VERSION: u32 = 2;
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
 pub struct UiSettings {
     #[serde(default)]
@@ -225,7 +227,7 @@ fn save_with_expected(
     original: Option<&str>,
 ) -> std::io::Result<()> {
     let mut settings = settings.clone();
-    settings.version.get_or_insert(1);
+    settings.version.get_or_insert(SETTINGS_VERSION);
     let json = serde_json::to_string_pretty(&settings)
         .map_err(|error| Error::new(ErrorKind::InvalidData, error))?;
     write_private_if_unchanged(path, original, &json).map_err(Error::other)

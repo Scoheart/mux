@@ -1,9 +1,10 @@
 import type {
   McpAdoptionCandidate,
+  ModelAdoptionCandidate,
   SkillInventoryItem,
 } from "./types";
 
-export type MigrationDomain = "mcp" | "skill";
+export type MigrationDomain = "mcp" | "model" | "skill";
 
 export interface MigrationCandidate {
   id: string;
@@ -21,6 +22,12 @@ export interface MigrationCandidate {
   skill?: {
     identity: string;
   };
+  model?: {
+    candidateFingerprints: Record<string, string>;
+    provider: string;
+    model: string;
+    active: boolean;
+  };
 }
 
 const blockedSkillStates = new Set([
@@ -33,14 +40,55 @@ const blockedSkillStates = new Set([
 export function buildMigrationCandidates(
   mcps: McpAdoptionCandidate[],
   skills: SkillInventoryItem[] | null,
+  models: ModelAdoptionCandidate[] = [],
 ): MigrationCandidate[] {
   const candidates = [
     ...groupMcps(mcps),
+    ...groupModels(models),
     ...groupSkills(skills),
   ];
   return candidates.sort((left, right) =>
     left.domain.localeCompare(right.domain) || left.name.localeCompare(right.name),
   );
+}
+
+function groupModels(items: ModelAdoptionCandidate[]): MigrationCandidate[] {
+  const groups = new Map<string, ModelAdoptionCandidate[]>();
+  for (const item of items) {
+    const rows = groups.get(item.fingerprint) ?? [];
+    rows.push(item);
+    groups.set(item.fingerprint, rows);
+  }
+  return [...groups.entries()].map(([fingerprint, rows]) => {
+    rows.sort((left, right) => Number(right.active) - Number(left.active)
+      || left.agent_id.localeCompare(right.agent_id));
+    const uniqueAgents = new Set(rows.map((row) => row.agent_id)).size === rows.length;
+    const safe = uniqueAgents && rows.every((row) => row.status === "adoptable");
+    const primary = rows[0];
+    const activeCount = rows.filter((row) => row.active).length;
+    const conflictReason = !uniqueAgents
+      ? "同一 Agent 中多个模型共用 native provider identity；请先拆分 provider 后再导入"
+      : safe
+      ? null
+      : rows.find((row) => row.status !== "adoptable")?.reason
+        ?? "该模型需要先处理 credential 或配置冲突";
+    return {
+      id: `model:${fingerprint}`,
+      domain: "model",
+      name: primary.name || primary.model,
+      detail: `${primary.provider} · ${primary.model} · ${rows.length} 个 Agent${activeCount ? ` · ${activeCount} 个当前使用` : ""}`,
+      agentIds: rows.map((row) => row.agent_id),
+      fingerprint: `model:${fingerprint}:${rows.map((row) => row.candidate_hash).join(":")}`,
+      safe,
+      conflictReason,
+      model: {
+        candidateFingerprints: Object.fromEntries(rows.map((row) => [row.candidate_id, row.fingerprint])),
+        provider: primary.provider,
+        model: primary.model,
+        active: activeCount > 0,
+      },
+    };
+  });
 }
 
 function groupMcps(items: McpAdoptionCandidate[]): MigrationCandidate[] {
@@ -150,6 +198,7 @@ function splitAssetKey(key: string): [string, string] {
 export const migrationCounts = (items: MigrationCandidate[]) => ({
   all: items.length,
   mcp: items.filter((item) => item.domain === "mcp").length,
+  model: items.filter((item) => item.domain === "model").length,
   skill: items.filter((item) => item.domain === "skill").length,
   safe: items.filter((item) => item.safe).length,
   conflicts: items.filter((item) => !item.safe).length,

@@ -65,13 +65,18 @@ pub fn commit_asset_operation(request: AssetCommitRequest) -> Result<Consumption
             .map(|path| PathSnapshot::capture(&crate::scanner::expand_tilde(path)))
             .collect::<Result<Vec<_>, _>>()?,
     );
-    let credential_backup = lifecycle_profile_id(persisted.lifecycle.as_ref())
-        .map(|profile_id| (profile_id.to_string(), credential_snapshot(profile_id)));
-    if let Some((profile_id, credential)) = &credential_backup {
+    let credential_backups = lifecycle_profile_ids(persisted.lifecycle.as_ref())
+        .into_iter()
+        .map(|profile_id| {
+            let credential = credential_snapshot(&profile_id);
+            (profile_id, credential)
+        })
+        .collect::<Vec<_>>();
+    for (profile_id, credential) in &credential_backups {
         persist_credential_rollback(&request.operation_id, profile_id, credential.as_deref())?;
     }
     if let Err(error) = persist_rollback_snapshots(&request.operation_id, &snapshots) {
-        if let Some((profile_id, _)) = &credential_backup {
+        for (profile_id, _) in &credential_backups {
             clear_credential_rollback(&request.operation_id, profile_id).map_err(|cleanup| {
                 format!(
                     "failed to persist rollback snapshots ({error}); Keychain rollback cleanup failed: {cleanup}"
@@ -91,13 +96,13 @@ pub fn commit_asset_operation(request: AssetCommitRequest) -> Result<Consumption
                 rollback_errors.push(rollback);
             }
         }
-        if let Some((profile_id, credential)) = &credential_backup {
+        for (profile_id, credential) in &credential_backups {
             if let Err(rollback) = restore_credential_snapshot(profile_id, credential.as_deref()) {
                 rollback_errors.push(format!("failed to restore Model credential: {rollback}"));
             }
         }
         if rollback_errors.is_empty() {
-            if let Some((profile_id, _)) = &credential_backup {
+            for (profile_id, _) in &credential_backups {
                 if let Err(cleanup) = clear_credential_rollback(&request.operation_id, profile_id) {
                     rollback_errors.push(format!(
                         "failed to clear durable Model credential rollback: {cleanup}"
@@ -123,7 +128,7 @@ pub fn commit_asset_operation(request: AssetCommitRequest) -> Result<Consumption
         ));
     }
 
-    if let Some((profile_id, _)) = &credential_backup {
+    for (profile_id, _) in &credential_backups {
         clear_credential_rollback(&request.operation_id, profile_id).map_err(|error| {
             format!("asset operation committed but Keychain rollback cleanup failed: {error}")
         })?;
@@ -161,9 +166,9 @@ pub fn recover_pending_asset_operations() -> Result<Vec<String>, String> {
         let operation_id = entry.file_name().to_string_lossy().into_owned();
         let persisted =
             load_operation(&operation_id).map_err(|error| format!("recovery_required: {error}"))?;
-        let profile_id = lifecycle_profile_id(persisted.lifecycle.as_ref()).map(str::to_string);
+        let profile_ids = lifecycle_profile_ids(persisted.lifecycle.as_ref());
         let Some(snapshots) = load_rollback_snapshots(&operation_id)? else {
-            if let Some(profile_id) = &profile_id {
+            for profile_id in &profile_ids {
                 clear_credential_rollback(&operation_id, profile_id)
                     .map_err(|error| format!("recovery_required: {error}"))?;
             }
@@ -175,7 +180,7 @@ pub fn recover_pending_asset_operations() -> Result<Vec<String>, String> {
         };
 
         if operation_commit_marker(&operation_id).is_file() {
-            if let Some(profile_id) = &profile_id {
+            for profile_id in &profile_ids {
                 clear_credential_rollback(&operation_id, profile_id)
                     .map_err(|error| format!("recovery_required: {error}"))?;
             }
@@ -189,23 +194,22 @@ pub fn recover_pending_asset_operations() -> Result<Vec<String>, String> {
         // A Model operation cannot prove that a same-presence credential was
         // replaced after a crash. Validate its Keychain rollback item before
         // touching files, then conservatively restore the complete transaction.
-        let credential_backup = if let Some(profile_id) = &profile_id {
+        let mut credential_backups = Vec::new();
+        for profile_id in &profile_ids {
             let snapshot = credential_rollback_snapshot(&operation_id, profile_id)
                 .map_err(|error| format!("recovery_required: {error}"))?
                 .ok_or_else(|| {
                     "recovery_required: Model credential rollback item is missing".to_string()
                 })?;
-            Some(snapshot.map(Zeroizing::new))
-        } else {
-            None
-        };
-        if profile_id.is_some() || verify_operation(&persisted).is_err() {
+            credential_backups.push((profile_id.clone(), snapshot.map(Zeroizing::new)));
+        }
+        if !profile_ids.is_empty() || verify_operation(&persisted).is_err() {
             for snapshot in snapshots.iter().rev() {
                 snapshot
                     .restore()
                     .map_err(|error| format!("recovery_required: {error}"))?;
             }
-            if let (Some(profile_id), Some(credential)) = (&profile_id, &credential_backup) {
+            for (profile_id, credential) in &credential_backups {
                 restore_credential_snapshot(
                     profile_id,
                     credential.as_ref().map(|value| value.as_slice()),
@@ -213,7 +217,7 @@ pub fn recover_pending_asset_operations() -> Result<Vec<String>, String> {
                 .map_err(|error| format!("recovery_required: {error}"))?;
             }
         }
-        if let Some(profile_id) = &profile_id {
+        for profile_id in &profile_ids {
             clear_credential_rollback(&operation_id, profile_id)
                 .map_err(|error| format!("recovery_required: {error}"))?;
         }
@@ -256,11 +260,16 @@ pub fn cancel_asset_operation(operation_id: &str) -> Result<(), String> {
     }
 }
 
-fn lifecycle_profile_id(lifecycle: Option<&LifecycleBinding>) -> Option<&str> {
+fn lifecycle_profile_ids(lifecycle: Option<&LifecycleBinding>) -> Vec<String> {
     match lifecycle {
         Some(LifecycleBinding::ModelUpsert { profile_id, .. })
-        | Some(LifecycleBinding::ModelDelete { profile_id }) => Some(profile_id),
-        _ => None,
+        | Some(LifecycleBinding::ModelAdopt { profile_id, .. })
+        | Some(LifecycleBinding::ModelDelete { profile_id }) => vec![profile_id.clone()],
+        Some(LifecycleBinding::ModelSchemaV2 { id_map, .. }) => id_map
+            .iter()
+            .flat_map(|(old_id, new_id)| [old_id.clone(), new_id.clone()])
+            .collect(),
+        _ => Vec::new(),
     }
 }
 
@@ -367,7 +376,7 @@ fn apply_operation(persisted: &PersistedAssetOperation) -> Result<(), String> {
                 CredentialAction::Set => true,
                 CredentialAction::Clear => false,
             };
-            save_profile(profile, None)?;
+            save_profile(*profile, None)?;
             reapply_model_consumers(
                 &persisted.plan.domain_plan,
                 profile_id,
@@ -378,6 +387,41 @@ fn apply_operation(persisted: &PersistedAssetOperation) -> Result<(), String> {
             // a crash after it has a fully verifiable committed state.
             apply_credential_update(profile_id, credential.as_deref().map(String::as_str))
         }
+        LifecycleBinding::ModelAdopt {
+            profile_id,
+            draft_hash,
+            credential_action,
+        } => {
+            let PendingAssetPayload::ModelUpsert {
+                profile,
+                credential,
+            } = require_pending_payload(&persisted.plan.operation_id)?
+            else {
+                return Err("asset_operation_expired: Model adoption payload is unavailable; reopen migration review".into());
+            };
+            verify_payload_hash(&profile, draft_hash)?;
+            if profile.id != *profile_id || credential_action_for(&credential) != *credential_action
+            {
+                return Err("asset_operation_stale: Model adoption payload changed".into());
+            }
+            let desired_credential_present = matches!(credential_action, CredentialAction::Set);
+            save_profile(*profile, None)?;
+            reapply_model_consumers(
+                &persisted.plan.domain_plan,
+                profile_id,
+                desired_credential_present,
+            )?;
+            let DomainPlan::Model { after, .. } = &persisted.plan.domain_plan else {
+                return Err("asset operation domain mismatch".into());
+            };
+            mutate_settings(|settings| {
+                for (agent_id, selection) in after {
+                    settings.set_model_selection(agent_id, selection.clone());
+                }
+            })
+            .map_err(|error| error.to_string())?;
+            apply_credential_update(profile_id, credential.as_deref().map(String::as_str))
+        }
         LifecycleBinding::ModelDelete { profile_id } => {
             apply_domain_plan(
                 &persisted.plan.domain_plan,
@@ -385,6 +429,59 @@ fn apply_operation(persisted: &PersistedAssetOperation) -> Result<(), String> {
             )?;
             delete_profile_metadata(profile_id)?;
             apply_credential_update(profile_id, Some(""))
+        }
+        LifecycleBinding::ModelSchemaV2 {
+            id_map,
+            draft_hash,
+            credential_profile_ids,
+        } => {
+            let PendingAssetPayload::ModelSchemaV2 { profiles } =
+                require_pending_payload(&persisted.plan.operation_id)?
+            else {
+                return Err(
+                    "asset_operation_expired: Model migration payload is unavailable; restart MUX"
+                        .into(),
+                );
+            };
+            verify_payload_hash(&profiles, draft_hash)?;
+            if profiles.keys().cloned().collect::<BTreeSet<_>>()
+                != id_map.values().cloned().collect::<BTreeSet<_>>()
+            {
+                return Err("asset_operation_stale: Model migration identities changed".into());
+            }
+            mutate_settings(|settings| {
+                settings
+                    .model_profiles
+                    .get_or_insert_default()
+                    .extend(profiles.clone());
+            })
+            .map_err(|error| error.to_string())?;
+            for (old_id, new_id) in id_map {
+                if credential_profile_ids.contains(old_id) {
+                    let credential = credential_snapshot(old_id).ok_or_else(|| {
+                        format!("model_schema_migration_credential_missing: {old_id}")
+                    })?;
+                    restore_credential_snapshot(new_id, Some(&credential))?;
+                }
+            }
+            apply_domain_plan(
+                &persisted.plan.domain_plan,
+                persisted.plan.requires_conflict_confirmation,
+            )?;
+            mutate_settings(|settings| {
+                settings.model_profiles = Some(profiles.clone());
+                settings.version = Some(crate::settings::SETTINGS_VERSION);
+                if let DomainPlan::Model { after, .. } = &persisted.plan.domain_plan {
+                    for (agent_id, selection) in after {
+                        settings.set_model_selection(agent_id, selection.clone());
+                    }
+                }
+            })
+            .map_err(|error| error.to_string())?;
+            for old_id in id_map.keys() {
+                apply_credential_update(old_id, Some(""))?;
+            }
+            Ok(())
         }
         LifecycleBinding::AgentConfiguration {
             agent_id,
@@ -483,7 +580,7 @@ fn verify_operation(persisted: &PersistedAssetOperation) -> Result<(), String> {
                     && item.name == name
                     && item.transport == transport
             });
-            if desired != Some(*after) || !observed.is_some_and(|item| item.enabled == *after) {
+            if desired != Some(*after) || observed.is_none_or(|item| item.enabled != *after) {
                 return Err("MCP enabled state did not match the reviewed change".into());
             }
             Ok(())
@@ -511,6 +608,24 @@ fn verify_operation(persisted: &PersistedAssetOperation) -> Result<(), String> {
             }
             Ok(())
         }
+        LifecycleBinding::ModelAdopt {
+            profile_id,
+            draft_hash,
+            credential_action,
+        } => {
+            let settings = load_settings_strict().map_err(|error| error.to_string())?;
+            let profile = settings
+                .model_profiles
+                .as_ref()
+                .and_then(|profiles| profiles.get(profile_id))
+                .ok_or_else(|| "Model Profile missing after adoption".to_string())?;
+            verify_payload_hash(profile, draft_hash)?;
+            if matches!(credential_action, CredentialAction::Set) != credential_present(profile_id)
+            {
+                return Err("Model credential presence did not match adoption plan".into());
+            }
+            Ok(())
+        }
         LifecycleBinding::ModelDelete { profile_id } => {
             let settings = load_settings_strict().map_err(|error| error.to_string())?;
             if settings
@@ -534,6 +649,29 @@ fn verify_operation(persisted: &PersistedAssetOperation) -> Result<(), String> {
             }
             if credential_present(profile_id) {
                 return Err("Model credential still exists after deletion".into());
+            }
+            Ok(())
+        }
+        LifecycleBinding::ModelSchemaV2 {
+            id_map,
+            draft_hash,
+            credential_profile_ids,
+        } => {
+            let settings = load_settings_strict().map_err(|error| error.to_string())?;
+            if settings.version != Some(crate::settings::SETTINGS_VERSION) {
+                return Err("Model schema version was not updated".into());
+            }
+            let profiles = settings.model_profiles.unwrap_or_default();
+            verify_payload_hash(&profiles, draft_hash)?;
+            for (old_id, new_id) in id_map {
+                if profiles.contains_key(old_id) || !profiles.contains_key(new_id) {
+                    return Err("Model Profile identity migration postcondition failed".into());
+                }
+                if credential_present(old_id)
+                    || credential_present(new_id) != credential_profile_ids.contains(old_id)
+                {
+                    return Err("Model credential migration postcondition failed".into());
+                }
             }
             Ok(())
         }
@@ -1475,6 +1613,9 @@ mod tests {
         ModelProfile {
             id: "work".into(),
             name: "Work".into(),
+            provider: "custom".into(),
+            model_vendor: None,
+            native_ids: Default::default(),
             protocol: ModelProtocol::OpenaiResponses,
             base_url: "https://example.invalid/v1".into(),
             model: model.into(),
@@ -1698,7 +1839,7 @@ mod tests {
         let plan = plan_update_central_asset(PlanUpdateCentralAssetRequest {
             draft: CentralAssetDraft::Model {
                 existing_id: Some("work".into()),
-                profile: model("new-model"),
+                profile: Box::new(model("new-model")),
                 credential: Some("new-secret".into()),
             },
         })
@@ -1724,7 +1865,7 @@ mod tests {
         let plan = plan_update_central_asset(PlanUpdateCentralAssetRequest {
             draft: CentralAssetDraft::Model {
                 existing_id: Some("work".into()),
-                profile: model("new-model"),
+                profile: Box::new(model("new-model")),
                 credential: Some("new-secret".into()),
             },
         })

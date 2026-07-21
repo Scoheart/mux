@@ -13,8 +13,20 @@ function agentActionCopy(plan: AssetOperationPlan) {
   const asset = domain === "mcp" ? "MCP" : domain === "model" ? "Model" : "Skill";
   const hasAdd = plan.relationship_changes.some((change) => change.action === "add");
   const hasRemove = plan.relationship_changes.some((change) => change.action === "remove");
-  if (domain === "model" && hasAdd) {
-    return { title: "确认切换 Model", commit: "切换 Model", busy: "切换中…" };
+  if (domain === "model") {
+    const states = plan.model_state_changes;
+    if (states.some((change) => change.reason === "model_activated") && !hasAdd && !hasRemove) {
+      return { title: "确认切换当前 Model", commit: "切换当前 Model", busy: "切换中…" };
+    }
+    if (hasAdd && !hasRemove) {
+      return { title: "确认添加 Model", commit: "添加 Model", busy: "添加中…" };
+    }
+    if (states.some((change) => change.reason === "model_disabled")) {
+      return { title: "确认停用 Model", commit: "停用 Model", busy: "停用中…" };
+    }
+    if (states.some((change) => change.reason === "model_enabled")) {
+      return { title: "确认启用 Model", commit: "启用 Model", busy: "启用中…" };
+    }
   }
   if (hasAdd && !hasRemove) {
     return { title: `确认添加 ${asset}`, commit: `添加 ${asset}`, busy: "添加中…" };
@@ -23,6 +35,13 @@ function agentActionCopy(plan: AssetOperationPlan) {
     return { title: `确认移除 ${asset}`, commit: `移除 ${asset}`, busy: "移除中…" };
   }
   return { title: `确认更新 ${asset}`, commit: `更新 ${asset}`, busy: "更新中…" };
+}
+
+function modelStateLabel(state: { added: boolean; enabled: boolean; active: boolean }) {
+  if (!state.added) return "未添加";
+  if (!state.enabled) return "已添加 · 已停用";
+  if (state.active) return "已启用 · 当前";
+  return "已启用 · 非当前";
 }
 
 function configurationChanges(plan: AssetOperationPlan) {
@@ -142,6 +161,23 @@ export function AssetOperationReviewDialog({
                   </span>
                   <code>{assetLabel(change.asset)}</code>
                   {change.summary.length > 0 && <small>{change.summary.join("；")}</small>}
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+        {plan.model_state_changes.length > 0 && (
+          <section>
+            <h3>Model 状态变化</h3>
+            <ul>
+              {plan.model_state_changes.map((change) => (
+                <li key={`${change.agent_id}:${change.profile_id}`}>
+                  <strong>{change.agent_id}</strong>
+                  <code>{change.profile_id}</code>
+                  <small>
+                    {modelStateLabel(change.before)} → {modelStateLabel(change.after)}
+                    {change.fallback_profile_id ? `；回退到 ${change.fallback_profile_id}` : ""}
+                  </small>
                 </li>
               ))}
             </ul>

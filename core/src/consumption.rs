@@ -8,16 +8,24 @@ pub mod compatibility;
 pub mod inventory;
 pub mod lifecycle;
 pub mod migration;
+pub mod model_migration;
 pub mod planner;
 pub mod transaction;
 pub mod types;
 
 pub use compatibility::{compatibility_for, CompatibilityReason, CompatibilityView};
 pub use inventory::list_consumption_inventory;
-pub use lifecycle::{plan_delete_central_asset, plan_update_central_asset};
+pub use lifecycle::{
+    migrate_model_profiles_v2_if_needed, plan_delete_central_asset, plan_model_schema_v2_migration,
+    plan_update_central_asset,
+};
 pub use migration::{
     list_mcp_adoption_candidates, plan_mcp_adoption, McpAdoptionCandidate, McpAdoptionStatus,
     PlanMcpAdoptionRequest,
+};
+pub use model_migration::{
+    list_model_adoption_candidates, plan_model_adoption, ModelAdoptionCandidate,
+    ModelAdoptionStatus, ModelCredentialKind, PlanModelAdoptionRequest,
 };
 pub use planner::{
     plan_set_active_model, plan_set_agent_consumption, plan_set_asset_consumers,
@@ -30,8 +38,9 @@ pub use types::{
     AgentConsumptionSelection, AssetCommitRequest, AssetOperationKind, AssetOperationPlan,
     AssetRef, CentralAssetAction, CentralAssetChange, CentralAssetDraft, ConsumptionInventory,
     ConsumptionStatus, ConsumptionTarget, ConsumptionView, DomainPlan, McpConsumptionRecord,
-    ModelAgentSelection, ModelConsumptionRecord, PlanDeleteCentralAssetRequest,
-    PlanSetActiveModelRequest, PlanSetAgentConsumptionRequest, PlanSetAssetConsumersRequest,
-    PlanSetMcpEnabledRequest, PlanSetModelEnabledRequest, PlanUpdateAgentConfigurationRequest,
-    PlanUpdateCentralAssetRequest, RelationshipAction, RelationshipChange, SelectionError,
+    ModelAgentSelection, ModelConsumptionRecord, ModelStateChange, ModelStateSnapshot,
+    PlanDeleteCentralAssetRequest, PlanSetActiveModelRequest, PlanSetAgentConsumptionRequest,
+    PlanSetAssetConsumersRequest, PlanSetMcpEnabledRequest, PlanSetModelEnabledRequest,
+    PlanUpdateAgentConfigurationRequest, PlanUpdateCentralAssetRequest, RelationshipAction,
+    RelationshipChange, SelectionError,
 };

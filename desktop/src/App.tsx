@@ -15,9 +15,10 @@ import { useNetworkSettings } from "./hooks/useNetworkSettings";
 import { UpdateBanner } from "./components/UpdateBanner";
 import { MigrationDialog } from "./components/MigrationDialog";
 import { buildMigrationCandidates, migrationCounts } from "./lib/migration";
-import { listMcpAdoptionCandidates, listSkillMigrationCandidates } from "./lib/api";
+import { listMcpAdoptionCandidates, listModelAdoptionCandidates, listSkillMigrationCandidates } from "./lib/api";
 import type {
   McpAdoptionCandidate,
+  ModelAdoptionCandidate,
   ResourceNavigationRequest,
   SkillInventoryItem,
   View,
@@ -29,7 +30,7 @@ import {
 } from "./lib/resourceNavigation";
 import type { Transport } from "./lib/mcp";
 
-const MIGRATION_IGNORED_KEY = "mux:migration-ignored:v1";
+const MIGRATION_IGNORED_KEY = "mux:migration-ignored:v2";
 
 function loadIgnoredMigrations(): Set<string> {
   try {
@@ -50,6 +51,7 @@ function App() {
   const [migrationOpen, setMigrationOpen] = useState(false);
   const [mcpMigrationCandidates, setMcpMigrationCandidates] = useState<McpAdoptionCandidate[]>([]);
   const [skillMigrationCandidates, setSkillMigrationCandidates] = useState<SkillInventoryItem[]>([]);
+  const [modelMigrationCandidates, setModelMigrationCandidates] = useState<ModelAdoptionCandidate[]>([]);
   const [ignoredMigrations, setIgnoredMigrations] = useState(loadIgnoredMigrations);
   const nextResourceNavigationId = useRef(0);
   const state = useInstallState();
@@ -61,8 +63,8 @@ function App() {
   useCliTool();
 
   const migrationCandidates = useMemo(
-    () => buildMigrationCandidates(mcpMigrationCandidates, skillMigrationCandidates),
-    [mcpMigrationCandidates, skillMigrationCandidates],
+    () => buildMigrationCandidates(mcpMigrationCandidates, skillMigrationCandidates, modelMigrationCandidates),
+    [mcpMigrationCandidates, modelMigrationCandidates, skillMigrationCandidates],
   );
   const newMigrationCandidates = useMemo(
     () => migrationCandidates.filter((candidate) => !ignoredMigrations.has(candidate.fingerprint)),
@@ -71,12 +73,14 @@ function App() {
   const migrationCandidateCounts = migrationCounts(migrationCandidates);
 
   const refreshMigrations = useCallback(async () => {
-    const [mcps, skills] = await Promise.all([
+    const [mcps, skills, models] = await Promise.all([
       listMcpAdoptionCandidates(),
       listSkillMigrationCandidates(),
+      listModelAdoptionCandidates(),
     ]);
     setMcpMigrationCandidates(mcps);
     setSkillMigrationCandidates(skills);
+    setModelMigrationCandidates(models);
   }, []);
 
   useEffect(() => {
@@ -147,6 +151,8 @@ function App() {
           consumptionState={consumptionState}
           intent={view.intent}
           onIntentConsumed={consumeResourceIntent}
+          migrationCount={migrationCandidateCounts.model}
+          onOpenMigration={() => setMigrationOpen(true)}
         />
       ) : view.kind === "agent" ? (
         <AgentView
@@ -155,6 +161,7 @@ function App() {
           consumptionState={consumptionState}
           agentId={view.id}
           onOpenResource={openResource}
+          onOpenMigration={() => setMigrationOpen(true)}
         />
       ) : (
         <RegistryView

@@ -7,6 +7,7 @@ import { MigrationDialog } from "./MigrationDialog";
 
 vi.mock("../lib/api", () => ({
   planMcpAdoption: vi.fn(),
+  planModelAdoption: vi.fn(),
   commitAssetOperation: vi.fn(),
   cancelAssetOperation: vi.fn(),
   planSkillImport: vi.fn(),
@@ -25,6 +26,7 @@ const basePlan = {
   domain_plan: { domain: "mcp" as const, before: {}, after: {} },
   central_changes: [],
   relationship_changes: [],
+  model_state_changes: [],
   target_files: [],
   affected_agent_ids: [],
   warnings: [],
@@ -34,6 +36,22 @@ const basePlan = {
 };
 
 const candidates: MigrationCandidate[] = [
+  {
+    id: "model:same",
+    domain: "model",
+    name: "HY3",
+    detail: "openrouter · tencent/hy3:free · 1 个 Agent",
+    agentIds: ["grok-build"],
+    fingerprint: "model-fingerprint",
+    safe: true,
+    conflictReason: null,
+    model: {
+      candidateFingerprints: { "candidate-grok": "model-fingerprint" },
+      provider: "openrouter",
+      model: "tencent/hy3:free",
+      active: true,
+    },
+  },
   {
     id: "mcp:github::stdio",
     domain: "mcp",
@@ -79,8 +97,14 @@ describe("MigrationDialog", () => {
     vi.mocked(api.commitSkillImport).mockResolvedValue({ items: [], agents: [], targets: [], recovery_error: null });
     const onRefresh = vi.fn().mockResolvedValue(undefined);
 
+    vi.mocked(api.planModelAdoption).mockResolvedValue({
+      ...basePlan,
+      operation_id: "model-operation",
+      domain_plan: { domain: "model", before: {}, after: {} },
+      candidate_hash: "model-plan",
+    });
     render(<MigrationDialog candidates={candidates} onClose={vi.fn()} onRefresh={onRefresh} />);
-    await userEvent.click(screen.getByRole("button", { name: "导入并统一管理 (2)" }));
+    await userEvent.click(screen.getByRole("button", { name: "导入并统一管理 (3)" }));
 
     await waitFor(() => expect(onRefresh).toHaveBeenCalledOnce());
     expect(api.planMcpAdoption).toHaveBeenCalledWith({
@@ -89,6 +113,9 @@ describe("MigrationDialog", () => {
       candidate_fingerprints: { "claude-code": "candidate-fingerprint" },
     });
     expect(api.commitAssetOperation).toHaveBeenCalledWith(basePlan);
+    expect(api.planModelAdoption).toHaveBeenCalledWith({
+      candidate_fingerprints: { "candidate-grok": "model-fingerprint" },
+    });
     expect(api.planSkillImport).toHaveBeenCalledWith({
       identity: "target:agents-user:review",
       agent_ids: ["codex"],
@@ -99,7 +126,7 @@ describe("MigrationDialog", () => {
       candidate_hash: "skill-candidate",
       findings_confirmation: null,
     });
-    expect(screen.getByText("成功 2 项，失败 0 项")).toBeVisible();
+    expect(screen.getByText("成功 3 项，失败 0 项")).toBeVisible();
   });
 
   it("keeps conflicts disabled and unselected", () => {
@@ -129,7 +156,7 @@ describe("MigrationDialog", () => {
     });
     vi.mocked(api.cancelSkillOperation).mockResolvedValue(undefined);
 
-    render(<MigrationDialog candidates={[candidates[1]]} onClose={vi.fn()} onRefresh={vi.fn().mockResolvedValue(undefined)} />);
+    render(<MigrationDialog candidates={[candidates[2]]} onClose={vi.fn()} onRefresh={vi.fn().mockResolvedValue(undefined)} />);
     await userEvent.click(screen.getByRole("button", { name: "导入并统一管理 (1)" }));
 
     await waitFor(() => expect(api.cancelSkillOperation).toHaveBeenCalledWith("risk-operation"));

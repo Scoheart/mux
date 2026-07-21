@@ -1,6 +1,7 @@
 use mux_core::consumption::{
     AssetCommitRequest, AssetOperationPlan, ConsumptionInventory, McpAdoptionCandidate,
-    PlanDeleteCentralAssetRequest, PlanMcpAdoptionRequest, PlanSetAgentConsumptionRequest,
+    ModelAdoptionCandidate, PlanModelAdoptionRequest, PlanDeleteCentralAssetRequest,
+    PlanMcpAdoptionRequest, PlanSetAgentConsumptionRequest,
     PlanSetAssetConsumersRequest, PlanUpdateAgentConfigurationRequest,
     PlanUpdateCentralAssetRequest,
 };
@@ -71,6 +72,19 @@ pub async fn plan_mcp_adoption(
     request: PlanMcpAdoptionRequest,
 ) -> Result<AssetOperationPlan, AssetCommandError> {
     asset_blocking(move || mux_core::consumption::plan_mcp_adoption(request)).await
+}
+
+#[tauri::command]
+pub async fn list_model_adoption_candidates(
+) -> Result<Vec<ModelAdoptionCandidate>, AssetCommandError> {
+    asset_blocking(mux_core::consumption::list_model_adoption_candidates).await
+}
+
+#[tauri::command]
+pub async fn plan_model_adoption(
+    request: PlanModelAdoptionRequest,
+) -> Result<AssetOperationPlan, AssetCommandError> {
+    asset_blocking(move || mux_core::consumption::plan_model_adoption(request)).await
 }
 
 #[tauri::command]
@@ -413,6 +427,11 @@ pub async fn cancel_skill_operation(operation_id: String) -> Result<(), SkillCom
 #[tauri::command]
 pub fn list_model_profiles() -> Vec<mux_core::models::ModelProfileView> {
     mux_core::models::list_profiles()
+}
+
+#[tauri::command]
+pub fn list_model_providers() -> &'static [mux_core::models::ModelProviderView] {
+    mux_core::models::list_providers()
 }
 
 #[tauri::command]

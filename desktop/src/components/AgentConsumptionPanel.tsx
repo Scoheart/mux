@@ -20,6 +20,7 @@ export function AgentConsumptionPanel({
   external,
   externalTitle = "外部配置",
   externalDescription = "尚未由 MUX 管理",
+  externalAction,
   present,
   onManage,
   manageIcon = <PlusIcon className="w-3.5 h-3.5" />,
@@ -42,6 +43,7 @@ export function AgentConsumptionPanel({
   external: ConsumptionView[];
   externalTitle?: string;
   externalDescription?: string;
+  externalAction?: ReactNode;
   present(asset: AssetRef): ConsumptionAssetPresentation;
   onManage(): void;
   manageIcon?: ReactNode;
@@ -80,6 +82,7 @@ export function AgentConsumptionPanel({
           <div>
             <strong>{externalTitle} {external.length}</strong>
             <span>{externalDescription}</span>
+            {externalAction}
           </div>
           <ul>
             {external.slice(0, 3).map((item) => {

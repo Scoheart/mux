@@ -121,6 +121,13 @@ fn main() {
     // then move manual/discovered registry entries into managed source files so
     // the CLI and desktop share the same source-based storage.
     migrate_if_needed();
+    if let Err(error) = mux_core::consumption::recover_pending_asset_operations() {
+        eprintln!("MUX recovery failed; refusing to continue: {error}");
+        std::process::exit(1);
+    }
+    if let Err(error) = mux_core::consumption::migrate_model_profiles_v2_if_needed() {
+        eprintln!("MUX Model Profile migration needs Desktop review: {error}");
+    }
     migrate_registry_to_sources();
 
     let cli = Cli::parse();

@@ -98,6 +98,7 @@ fn project_mcps(
                 observed: is_observed,
                 enabled: Some(record.enabled),
                 active: None,
+                desired_active: None,
                 status,
                 reason,
                 affected_agent_ids: if compatibility.affected_agent_ids.is_empty() {
@@ -122,6 +123,7 @@ fn project_mcps(
             observed: true,
             enabled: Some(item.enabled),
             active: None,
+            desired_active: None,
             status: ConsumptionStatus::External,
             reason: Some(
                 if central.contains(&key) && !item.customized {
@@ -181,6 +183,9 @@ fn project_models(
                     observed: false,
                     enabled: Some(record.enabled),
                     active: Some(observed_active_profile == Some(profile_id)),
+                    desired_active: Some(
+                        selection.active_profile_id.as_deref() == Some(profile_id.as_str()),
+                    ),
                     status: ConsumptionStatus::Conflicted,
                     reason: Some("model_profile_missing".into()),
                     affected_agent_ids: vec![agent_id.clone()],
@@ -188,6 +193,9 @@ fn project_models(
                 });
                 continue;
             };
+            let desired_active =
+                selection.active_profile_id.as_deref() == Some(profile_id.as_str());
+            let observed_is_active = observed_active_profile == Some(profile_id);
             let (observed, status, reason) = if !compatibility.compatible {
                 (
                     false,
@@ -195,13 +203,9 @@ fn project_models(
                     compatibility.reason.map(|reason| reason.code),
                 )
             } else {
-                match (
+                let state = match (
                     record.enabled,
-                    observe_profile_consumption(
-                        agent_id,
-                        profile,
-                        observed_active_profile == Some(profile_id),
-                    )?,
+                    observe_profile_consumption(agent_id, profile, observed_is_active)?,
                 ) {
                     (true, ModelObservedState::Synced) => (true, ConsumptionStatus::Synced, None),
                     (true, ModelObservedState::Missing) => (
@@ -232,6 +236,15 @@ fn project_models(
                         ConsumptionStatus::Drifted,
                         Some("model_disabled_state_drift".into()),
                     ),
+                };
+                if state.1 == ConsumptionStatus::Synced && desired_active != observed_is_active {
+                    (
+                        state.0,
+                        ConsumptionStatus::Drifted,
+                        Some("model_active_state_drift".into()),
+                    )
+                } else {
+                    state
                 }
             };
             inventory.consumptions.push(ConsumptionView {
@@ -240,7 +253,8 @@ fn project_models(
                 desired: true,
                 observed,
                 enabled: Some(record.enabled),
-                active: Some(observed_active_profile == Some(profile_id)),
+                active: Some(observed_is_active),
+                desired_active: Some(desired_active),
                 status,
                 reason,
                 affected_agent_ids: vec![agent_id.clone()],
@@ -266,6 +280,7 @@ fn project_models(
                 observed: true,
                 enabled: None,
                 active: Some(true),
+                desired_active: Some(false),
                 status,
                 reason: Some(reason.into()),
                 affected_agent_ids: vec![agent_id.clone()],
@@ -297,6 +312,7 @@ fn project_models(
             observed: true,
             enabled: None,
             active: Some(true),
+            desired_active: Some(false),
             status,
             reason,
             affected_agent_ids: vec![agent.id],
@@ -347,6 +363,7 @@ fn project_skills(
                     observed: false,
                     enabled: None,
                     active: None,
+                    desired_active: None,
                     status: ConsumptionStatus::Conflicted,
                     reason: Some("skill_target_unknown".into()),
                     affected_agent_ids: Vec::new(),
@@ -396,6 +413,7 @@ fn project_skills(
                     observed,
                     enabled: None,
                     active: None,
+                    desired_active: None,
                     status: status.clone(),
                     reason: reason.clone(),
                     affected_agent_ids: agents.clone(),
@@ -437,6 +455,7 @@ fn project_skills(
                 observed: true,
                 enabled: None,
                 active: None,
+                desired_active: None,
                 status: ConsumptionStatus::External,
                 reason: Some("skill_external".into()),
                 affected_agent_ids: agents.clone(),

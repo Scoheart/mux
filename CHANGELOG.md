@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.23](https://github.com/Scoheart/mux/compare/v1.8.22...v1.8.23) (2026-07-21)
+
+### Changes
+
+* feat(agents): expand audited capability support ([ad4ff2c](https://github.com/Scoheart/mux/commit/ad4ff2cecbeacb9a55917526b77bb15bbf37aafd))
+
 ## [1.8.22](https://github.com/Scoheart/mux/compare/v1.8.21...v1.8.22) (2026-07-21)
 
 ### Changes

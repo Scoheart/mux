@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.11](https://github.com/Scoheart/mux/compare/v1.8.10...v1.8.11) (2026-07-21)
+
+### Changes
+
+* feat(ui): adopt soft workbench layout ([eddcec0](https://github.com/Scoheart/mux/commit/eddcec0f485c0b1bcd5e2185bd86b2e5caba9748))
+
 ## [1.8.10](https://github.com/Scoheart/mux/compare/v1.8.9...v1.8.10) (2026-07-21)
 
 ### Changes

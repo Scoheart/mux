@@ -125,7 +125,11 @@ export function ModelsView({
     const known = new Map(providers.map((provider) => [provider.id, provider]));
     for (const profile of profiles) {
       if (!known.has(profile.provider)) {
-        known.set(profile.provider, { id: profile.provider, name: profile.provider });
+        known.set(profile.provider, {
+          id: profile.provider,
+          name: profile.provider,
+          default_base_url: null,
+        });
       }
     }
     return [...known.values()].filter((provider) =>
@@ -516,7 +520,23 @@ function ModelProfileDialog({
   const [credential, setCredential] = useState("");
   const [clearCredential, setClearCredential] = useState(false);
   const [busy, setBusy] = useState(false);
+  const baseUrlAutoManaged = useRef(initial === null);
   const toast = useToast();
+
+  const updateProvider = (provider: string) => {
+    setDraft((current) => ({
+      ...current,
+      provider,
+      base_url: baseUrlAutoManaged.current
+        ? providers.find((candidate) => candidate.id === provider.trim())?.default_base_url ?? ""
+        : current.base_url,
+    }));
+  };
+
+  const updateBaseUrl = (baseUrl: string) => {
+    baseUrlAutoManaged.current = false;
+    setDraft((current) => ({ ...current, base_url: baseUrl }));
+  };
 
   const valid =
     draft.base_url.trim() && draft.model.trim() && !busy;
@@ -567,10 +587,11 @@ function ModelProfileDialog({
             <span>Provider</span>
             <input
               autoFocus
+              aria-label="Provider"
               className="mux-model-field"
               list="mux-model-provider-options"
               value={draft.provider}
-              onChange={(event) => setDraft({ ...draft, provider: event.target.value })}
+              onChange={(event) => updateProvider(event.target.value)}
               placeholder="留空则根据 Base URL 自动识别"
               spellCheck={false}
             />
@@ -609,12 +630,14 @@ function ModelProfileDialog({
         <label>
           <span>Base URL</span>
           <input
+            aria-label="Base URL"
             className="mux-model-field"
             value={draft.base_url}
-            onChange={(event) => setDraft({ ...draft, base_url: event.target.value })}
+            onChange={(event) => updateBaseUrl(event.target.value)}
             placeholder="https://api.example.com/v1"
             spellCheck={false}
           />
+          <small>选择列表中的 Provider 时自动填入建议地址；你仍可手动修改。</small>
         </label>
 
         <label>

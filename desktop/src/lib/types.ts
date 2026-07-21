@@ -72,6 +72,7 @@ export interface ModelProfileView extends ModelProfile {
 export interface ModelProviderView {
   id: string;
   name: string;
+  default_base_url: string | null;
 }
 
 export interface ModelAgentView {

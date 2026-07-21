@@ -24,7 +24,17 @@ const css = await readFile(resolve(process.cwd(), "src/index.css"), "utf8");
 beforeEach(() => {
   vi.mocked(api.listModelProfiles).mockResolvedValue([]);
   vi.mocked(api.listModelProviders).mockResolvedValue([
-    { id: "openrouter", name: "OpenRouter" },
+    {
+      id: "openrouter",
+      name: "OpenRouter",
+      default_base_url: "https://openrouter.ai/api/v1",
+    },
+    {
+      id: "openai",
+      name: "OpenAI",
+      default_base_url: "https://api.openai.com/v1",
+    },
+    { id: "custom", name: "Custom Provider", default_base_url: null },
   ]);
 });
 
@@ -76,6 +86,101 @@ it("allows an auto-detected or custom Provider while keeping protocol explicit",
   expect(source).toMatch(/此项不会根据 Base URL 自动识别/);
 });
 
+it("fills and switches a known Provider default until the Base URL is edited", async () => {
+  const user = userEvent.setup();
+  const consumptionState = { plan: null, planUpdate: vi.fn() } as unknown as ConsumptionState;
+
+  render(
+    <ToastProvider>
+      <ModelsView consumptionState={consumptionState} />
+    </ToastProvider>,
+  );
+
+  await waitFor(() => expect(screen.getByRole("button", { name: "新建模型" })).toBeEnabled());
+  await user.click(screen.getByRole("button", { name: "新建模型" }));
+  await waitFor(() => expect(screen.getByRole("heading", { name: "新建模型" })).toHaveFocus());
+  const provider = screen.getByLabelText("Provider");
+  const baseUrl = screen.getByLabelText("Base URL");
+
+  await user.type(provider, "openrouter");
+  expect(baseUrl).toHaveValue("https://openrouter.ai/api/v1");
+
+  await user.clear(provider);
+  await user.type(provider, "openai");
+  expect(baseUrl).toHaveValue("https://api.openai.com/v1");
+
+  await user.clear(provider);
+  await user.type(provider, "custom");
+  expect(baseUrl).toHaveValue("");
+
+  await user.clear(provider);
+  await user.type(provider, "openrouter");
+  expect(baseUrl).toHaveValue("https://openrouter.ai/api/v1");
+
+  await user.clear(baseUrl);
+  await user.clear(provider);
+  await user.type(provider, "openai");
+  expect(baseUrl).toHaveValue("");
+
+  await user.type(baseUrl, "https://gateway.example.test/v1");
+  await user.clear(provider);
+  await user.type(provider, "openrouter");
+  expect(baseUrl).toHaveValue("https://gateway.example.test/v1");
+});
+
+it("does not overwrite a Base URL that was entered before the Provider", async () => {
+  const user = userEvent.setup();
+  const consumptionState = { plan: null, planUpdate: vi.fn() } as unknown as ConsumptionState;
+
+  render(
+    <ToastProvider>
+      <ModelsView consumptionState={consumptionState} />
+    </ToastProvider>,
+  );
+
+  await waitFor(() => expect(screen.getByRole("button", { name: "新建模型" })).toBeEnabled());
+  await user.click(screen.getByRole("button", { name: "新建模型" }));
+  await waitFor(() => expect(screen.getByRole("heading", { name: "新建模型" })).toHaveFocus());
+  const baseUrl = screen.getByLabelText("Base URL");
+
+  await user.type(baseUrl, "https://gateway.example.test/v1");
+  await user.type(screen.getByLabelText("Provider"), "openrouter");
+
+  expect(baseUrl).toHaveValue("https://gateway.example.test/v1");
+});
+
+it("does not overwrite the Base URL of an existing model", async () => {
+  vi.mocked(api.listModelProfiles).mockResolvedValue([{
+    id: "existing-model",
+    name: "Existing Model",
+    provider: "custom",
+    protocol: "openai-responses",
+    base_url: "https://gateway.example.test/v1",
+    model: "existing-model-id",
+    reasoning: false,
+    catalog_key: "custom/existing-model-id",
+    credential_saved: false,
+  }]);
+  const user = userEvent.setup();
+  const consumptionState = { plan: null, planUpdate: vi.fn() } as unknown as ConsumptionState;
+
+  render(
+    <ToastProvider>
+      <ModelsView consumptionState={consumptionState} />
+    </ToastProvider>,
+  );
+
+  await user.click(await screen.findByRole("button", { name: "打开模型 Existing Model 详情" }));
+  await user.click(screen.getByRole("button", { name: "编辑" }));
+  await waitFor(() => expect(screen.getByRole("heading", { name: "编辑模型" })).toHaveFocus());
+
+  const provider = screen.getByLabelText("Provider");
+  await user.clear(provider);
+  await user.type(provider, "openrouter");
+
+  expect(screen.getByLabelText("Base URL")).toHaveValue("https://gateway.example.test/v1");
+});
+
 it("submits an arbitrary Provider ID through the central asset plan", async () => {
   const user = userEvent.setup();
   const planUpdate = vi.fn().mockResolvedValue({ operation_id: "model-plan" });
@@ -89,7 +194,8 @@ it("submits an arbitrary Provider ID through the central asset plan", async () =
 
   await waitFor(() => expect(screen.getByRole("button", { name: "新建模型" })).toBeEnabled());
   await user.click(screen.getByRole("button", { name: "新建模型" }));
-  await user.type(screen.getByLabelText(/Provider/), "my-gateway");
+  await waitFor(() => expect(screen.getByRole("heading", { name: "新建模型" })).toHaveFocus());
+  await user.type(screen.getByLabelText("Provider"), "my-gateway");
   await user.type(screen.getByPlaceholderText("https://api.example.com/v1"), "https://models.example.test/v1/");
   await user.type(screen.getByPlaceholderText("model-name"), "custom-model");
   await user.click(screen.getByRole("button", { name: "审阅更改" }));

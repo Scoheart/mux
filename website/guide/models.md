@@ -42,7 +42,7 @@ Claude Code 只接收 Anthropic Messages，Codex 只接收 Responses；其余自
 ## 新建中央 Profile 并选择消费者
 
 1. 打开顶部 **Models**。
-2. 新建模型接口，填写协议、Base URL 和模型 ID；Grok Build 需要认证时，在高级设置填写 API Key 环境变量名，本地无鉴权端点可留空。
+2. 新建模型接口；选择已知 Provider 时，MUX 会填入常用的官方 Base URL 建议，你仍可按地区、套餐或代理地址手动修改。协议保持独立选择，再填写模型 ID；Grok Build 需要认证时，在高级设置填写 API Key 环境变量名，本地无鉴权端点可留空。
 3. Profile 保存到中央资产库后，进入对应 Agent 页的 Model 标签，查看当前状态并选择一个兼容 Profile。
 4. 审阅关系变化、目标文件与异常状态后提交。MUX 备份、写入并重新读取验证；成功后重启对应 Agent 会话。
 

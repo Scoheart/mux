@@ -55,60 +55,74 @@ pub struct ModelProfileView {
 pub struct ModelProviderView {
     pub id: &'static str,
     pub name: &'static str,
+    pub default_base_url: Option<&'static str>,
 }
 
 const MODEL_PROVIDERS: &[ModelProviderView] = &[
     ModelProviderView {
         id: "openrouter",
         name: "OpenRouter",
+        default_base_url: Some("https://openrouter.ai/api/v1"),
     },
     ModelProviderView {
         id: "anthropic",
         name: "Anthropic",
+        default_base_url: Some("https://api.anthropic.com"),
     },
     ModelProviderView {
         id: "openai",
         name: "OpenAI",
+        default_base_url: Some("https://api.openai.com/v1"),
     },
     ModelProviderView {
         id: "google",
         name: "Google",
+        default_base_url: Some("https://generativelanguage.googleapis.com/v1beta/openai"),
     },
     ModelProviderView {
         id: "xai",
         name: "xAI",
+        default_base_url: Some("https://api.x.ai/v1"),
     },
     ModelProviderView {
         id: "mistral",
         name: "Mistral AI",
+        default_base_url: Some("https://api.mistral.ai/v1"),
     },
     ModelProviderView {
         id: "cohere",
         name: "Cohere",
+        default_base_url: Some("https://api.cohere.ai/compatibility/v1"),
     },
     ModelProviderView {
         id: "deepseek",
         name: "DeepSeek",
+        default_base_url: Some("https://api.deepseek.com"),
     },
     ModelProviderView {
         id: "groq",
         name: "Groq",
+        default_base_url: Some("https://api.groq.com/openai/v1"),
     },
     ModelProviderView {
         id: "alibaba",
         name: "Alibaba Cloud",
+        default_base_url: Some("https://dashscope.aliyuncs.com/compatible-mode/v1"),
     },
     ModelProviderView {
         id: "xiaomi",
         name: "Xiaomi MiMo",
+        default_base_url: Some("https://api.xiaomimimo.com/v1"),
     },
     ModelProviderView {
         id: "local",
         name: "Local",
+        default_base_url: None,
     },
     ModelProviderView {
         id: "custom",
         name: "Custom Provider",
+        default_base_url: None,
     },
 ];
 
@@ -153,7 +167,10 @@ pub fn infer_provider(base_url: &str) -> String {
         "api.deepseek.com" => "deepseek",
         "api.groq.com" => "groq",
         "dashscope.aliyuncs.com" => "alibaba",
-        "token-plan-cn.xiaomimimo.com" => "xiaomi",
+        "api.xiaomimimo.com"
+        | "token-plan-cn.xiaomimimo.com"
+        | "token-plan-sgp.xiaomimimo.com"
+        | "token-plan-ams.xiaomimimo.com" => "xiaomi",
         "localhost" | "127.0.0.1" | "::1" => "local",
         _ => "custom",
     }
@@ -2549,6 +2566,45 @@ fn clear_pi(
 mod tests {
     use super::*;
     use crate::testenv::TestHome;
+
+    #[test]
+    fn provider_default_base_urls_are_unique_valid_and_inferable() {
+        let mut ids = BTreeSet::new();
+        for provider in list_providers() {
+            assert!(
+                ids.insert(provider.id),
+                "duplicate provider id: {}",
+                provider.id
+            );
+            let Some(default_base_url) = provider.default_base_url else {
+                continue;
+            };
+            assert!(
+                !default_base_url.ends_with('/'),
+                "provider default must not end with a slash: {default_base_url}"
+            );
+            let parsed = url::Url::parse(default_base_url).unwrap_or_else(|error| {
+                panic!("invalid provider default {default_base_url}: {error}")
+            });
+            assert_eq!(parsed.scheme(), "https");
+            assert_eq!(infer_provider(default_base_url), provider.id);
+        }
+
+        assert_eq!(
+            list_providers()
+                .iter()
+                .find(|provider| provider.id == "local")
+                .and_then(|provider| provider.default_base_url),
+            None
+        );
+        assert_eq!(
+            list_providers()
+                .iter()
+                .find(|provider| provider.id == "custom")
+                .and_then(|provider| provider.default_base_url),
+            None
+        );
+    }
 
     fn anthropic_profile() -> ModelProfile {
         ModelProfile {

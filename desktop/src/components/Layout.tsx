@@ -123,22 +123,22 @@ export function Layout({
         <div className="mux-seg mux-skill-seg flex-shrink-0">
           <button
             className="mux-seg-item"
-            data-active={view.kind === "registry" ? "true" : undefined}
-            onClick={onSelectRegistry}
-          >
-            <span className="flex items-center gap-1.5">
-              <PackageIcon className="w-3.5 h-3.5" />
-              MCPs
-            </span>
-          </button>
-          <button
-            className="mux-seg-item"
             data-active={view.kind === "models" ? "true" : undefined}
             onClick={onSelectModels}
           >
             <span className="flex items-center gap-1.5">
               <LayersIcon className="w-3.5 h-3.5" />
               Models
+            </span>
+          </button>
+          <button
+            className="mux-seg-item"
+            data-active={view.kind === "registry" ? "true" : undefined}
+            onClick={onSelectRegistry}
+          >
+            <span className="flex items-center gap-1.5">
+              <PackageIcon className="w-3.5 h-3.5" />
+              MCPs
             </span>
           </button>
           <button

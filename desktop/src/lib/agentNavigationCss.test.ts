@@ -30,7 +30,7 @@ function pixelValue(source: string, property: string): number {
   return Number(match[1]);
 }
 
-it("keeps Skills as the third resource segment before Agent navigation", () => {
+it("keeps Models, MCPs, Skills order before Agent navigation", () => {
   expect(types).toMatch(
     /\| \{ kind: "skills"; intent\?: SkillNavigationIntent \}/,
   );
@@ -45,7 +45,7 @@ it("keeps Skills as the third resource segment before Agent navigation", () => {
   );
 
   const segment = layout.slice(segmentStart, agentNavigationStart);
-  const labels = ["MCPs", "Models", "Skills"].map((label) => segment.indexOf(label));
+  const labels = ["Models", "MCPs", "Skills"].map((label) => segment.indexOf(label));
   expect(labels.every((index) => index >= 0)).toBe(true);
   expect(labels).toEqual([...labels].sort((left, right) => left - right));
   expect(segment).toMatch(/data-active=\{view\.kind === "skills"/);

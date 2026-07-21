@@ -130,6 +130,8 @@ export function ResourceTabs<T extends string>({
 
 export function ResourceWorkspace({
   sidebar,
+  title,
+  description,
   query,
   onQueryChange,
   searchPlaceholder,
@@ -140,6 +142,8 @@ export function ResourceWorkspace({
   onInspectorClose,
 }: {
   sidebar: ReactNode;
+  title?: string;
+  description?: string;
   query: string;
   onQueryChange: (value: string) => void;
   searchPlaceholder: string;
@@ -276,6 +280,14 @@ export function ResourceWorkspace({
         >
           {sidebar}
           <section className="mux-workspace-stage">
+            {title && (
+              <header className="mux-workspace-intro">
+                <div>
+                  <h1>{title}</h1>
+                  {description && <p>{description}</p>}
+                </div>
+              </header>
+            )}
             <div className="mux-workspace-toolbar">
               <SearchBar value={query} onChange={onQueryChange} placeholder={searchPlaceholder} />
               <div className="mux-workspace-actions">{toolbarActions}</div>

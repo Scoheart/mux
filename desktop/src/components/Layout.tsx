@@ -106,11 +106,7 @@ export function Layout({
         className="mux-topbar flex-shrink-0 flex items-center gap-3 px-5"
         style={{
           height: 56,
-          background: "var(--glass-fill-strong)",
-          borderBottom: "1px solid var(--glass-border)",
-          backdropFilter: "blur(var(--glass-blur)) saturate(var(--glass-saturate))",
-          WebkitBackdropFilter: "blur(var(--glass-blur)) saturate(var(--glass-saturate))",
-          boxShadow: "var(--glass-highlight)",
+          background: "var(--surface-app)",
           position: "relative",
           zIndex: 100,
         }}
@@ -167,9 +163,6 @@ export function Layout({
           onSelectAgent={onSelectAgent}
           onAddAgent={onAddAgent}
         />
-
-        {/* Divider */}
-        <div className="h-5 w-px flex-shrink-0" style={{ background: "var(--border-hairline)" }} />
 
         {/* Right action group */}
         <button

@@ -6,23 +6,6 @@ import type { RegistryEntry } from "../lib/types";
 
 /* ── Avatar ──────────────────────────────────────────────────────────── */
 
-// A small palette of macOS-flavoured gradients; picked deterministically by name.
-const GRADIENTS = [
-  "linear-gradient(135deg, #007AFF, #5AC8FA)",
-  "linear-gradient(135deg, #FF8C64, #E664C8)",
-  "linear-gradient(135deg, #34C759, #30D158)",
-  "linear-gradient(135deg, #FFC83C, #FF8C64)",
-  "linear-gradient(135deg, #5E5CE6, #BF5AF2)",
-  "linear-gradient(135deg, #FF375F, #FF8C64)",
-  "linear-gradient(135deg, #64D2FF, #007AFF)",
-];
-
-function gradientFor(seed: string): string {
-  let h = 0;
-  for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) >>> 0;
-  return GRADIENTS[h % GRADIENTS.length];
-}
-
 export function Avatar({
   seed,
   label,
@@ -42,7 +25,8 @@ export function Avatar({
         height: size,
         borderRadius: Math.round(size * 0.3),
         fontSize: Math.round(size * 0.4),
-        background: gradientFor(seed),
+        background: "var(--surface-selected)",
+        color: "var(--color-blue)",
         fontFamily: mono ? "var(--font-mono)" : undefined,
       }}
     >
@@ -56,10 +40,10 @@ export function Avatar({
 type Tone = "neutral" | "success" | "warning" | "info";
 
 const TONE: Record<Tone, { bg: string; fg: string }> = {
-  neutral: { bg: "var(--color-gray-150)", fg: "var(--color-gray-600)" },
-  success: { bg: "color-mix(in srgb, #34C759 14%, transparent)", fg: "#1A9447" },
-  warning: { bg: "color-mix(in srgb, #FF9500 14%, transparent)", fg: "#C26A00" },
-  info: { bg: "color-mix(in srgb, #007AFF 12%, transparent)", fg: "#007AFF" },
+  neutral: { bg: "var(--surface-quiet)", fg: "var(--text-secondary)" },
+  success: { bg: "var(--surface-success)", fg: "#237A48" },
+  warning: { bg: "var(--surface-attention)", fg: "#986006" },
+  info: { bg: "var(--surface-selected)", fg: "var(--color-blue)" },
 };
 
 export function Badge({
@@ -383,7 +367,7 @@ export function Modal({
       className="fixed inset-0 flex items-center justify-center z-40"
       data-modal-overlay="true"
       data-modal-layer={layer}
-      style={{ background: "rgba(0,0,0,.3)", backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)", zIndex: 700 }}
+      style={{ background: "rgba(27,34,48,.34)", zIndex: 700 }}
       onClick={(event) => {
         if (event.target === event.currentTarget) event.stopPropagation();
         if (
@@ -405,10 +389,9 @@ export function Modal({
           width,
           maxHeight,
           background: "var(--surface-overlay)",
-          backdropFilter: "blur(var(--glass-blur)) saturate(var(--glass-saturate))",
-          WebkitBackdropFilter: "blur(var(--glass-blur)) saturate(var(--glass-saturate))",
-          border: "1px solid var(--glass-border)",
-          boxShadow: "var(--shadow-sheet), var(--glass-highlight)",
+          border: 0,
+          borderRadius: "20px",
+          boxShadow: "var(--shadow-sheet)",
         }}
         onClick={(event) => event.stopPropagation()}
       >
@@ -432,10 +415,10 @@ export function ModalHeader({
   onClose: () => void;
 }) {
   return (
-    <div className="flex items-start gap-4 px-6 py-5" style={{ borderBottom: "1px solid var(--border-hairline)" }}>
+    <div className="flex items-start gap-4 px-6 py-5">
       <div
-        className="w-11 h-11 rounded-mac flex-shrink-0 flex items-center justify-center text-white text-2xl font-semibold leading-none"
-        style={{ background: "linear-gradient(135deg, var(--color-brand-gold), var(--color-brand-coral), var(--color-brand-magenta))" }}
+        className="w-11 h-11 rounded-mac flex-shrink-0 flex items-center justify-center text-2xl font-semibold leading-none"
+        style={{ background: "var(--surface-selected)", color: "var(--color-blue)" }}
       >
         {glyph}
       </div>

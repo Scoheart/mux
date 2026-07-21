@@ -487,6 +487,8 @@ export function SkillsView({
   return (
     <div className="mux-skill-workspace">
       <ResourceWorkspace
+        title="Skills"
+        description="集中管理可复用的工作流与参考资料"
         sidebar={
           <WorkspaceSidebar title="Skills" count={items.length}>
             <SidebarSection title="来源">

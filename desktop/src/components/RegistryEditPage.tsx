@@ -155,7 +155,7 @@ export function RegistryEditPage({ state, consumptionState, name, transport: edi
             <button onClick={onBack} disabled={saving} className="btn-ghost">取消</button>
             <button onClick={handleSave} disabled={!valid || saving} className="btn-primary">
               <SaveIcon className="w-4 h-4" />
-              {saving ? "保存中…" : "保存"}
+              {saving ? "生成计划中…" : "审阅更改"}
             </button>
           </>
         }

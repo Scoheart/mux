@@ -59,22 +59,25 @@ it("scopes the Skills busy spinner and disables it for reduced motion", () => {
   expect(reducedMotionBusy).toMatch(/animation:\s*none/);
 });
 
-it("uses one shared workspace geometry for every resource domain", () => {
+it("uses one shared Soft Workbench geometry for every resource domain", () => {
   expect(skillsView).toMatch(/className="mux-skill-workspace"/);
 
   const sharedSidebar = declarations(css, ".mux-workspace-sidebar");
   const sharedToolbar = declarations(css, ".mux-workspace-toolbar");
   const sharedFilters = declarations(css, ".mux-workspace-filters");
-  expect(sharedSidebar).toMatch(/border-right:\s*1px\s+solid/);
-  expect(sharedToolbar).toMatch(/border-bottom:\s*1px\s+solid/);
-  expect(sharedFilters).toMatch(/border-bottom:\s*1px\s+solid/);
+  expect(sharedSidebar).toMatch(/border:\s*0/);
+  expect(sharedSidebar).toMatch(/border-radius:\s*var\(--radius-canvas\)/);
+  expect(sharedToolbar).toMatch(/border:\s*0/);
+  expect(sharedToolbar).toMatch(/border-radius:\s*var\(--radius-row\)/);
+  expect(sharedFilters).toMatch(/border:\s*0/);
+  expect(sharedFilters).toMatch(/border-radius:\s*var\(--radius-row\)/);
 
   expect(css).not.toMatch(/\.mux-skill-workspace\s+\.mux-workspace-(?:sidebar|toolbar|filters|scroll)/);
   expect(css).not.toMatch(/\.mux-skill-workspace\s+\.mux-resource-(?:grid|tabs|tab)/);
-  expect(sharedToolbar).toMatch(/min-height:\s*56px/);
-  expect(sharedFilters).toMatch(/height:\s*40px/);
+  expect(sharedToolbar).toMatch(/min-height:\s*52px/);
+  expect(sharedFilters).toMatch(/height:\s*42px/);
 
   const grid = declarations(css, ".mux-resource-grid");
-  expect(grid).toMatch(/minmax\(250px,\s*1fr\)/);
-  expect(grid).toMatch(/gap:\s*12px/);
+  expect(grid).toMatch(/grid-template-columns:\s*minmax\(0,\s*1fr\)/);
+  expect(grid).toMatch(/gap:\s*8px/);
 });

@@ -477,25 +477,30 @@ export function AgentView({
   return (
     <div className="mux-agent-page">
       <div className="mux-agent-shell">
-        <AgentHeader agent={agent} />
+        <section className="mux-agent-context" aria-label={`${agent.name} 配置范围`}>
+          <AgentHeader agent={agent} />
 
-        <section className="mux-agent-section" aria-labelledby="agent-files-title" aria-label="配置位置">
-          <div className="mux-agent-section-head">
-            <h3 id="agent-files-title">配置位置</h3>
-            <button type="button" className="btn-secondary" onClick={() => setEditingAgent(true)}>
-              <EditIcon className="w-3.5 h-3.5" />编辑配置
-            </button>
-          </div>
-          <div className="mux-agent-file-map">
-            <ConfigPath
-              icon={<PackageIcon className="w-4 h-4" />}
-              label="MCPs"
-              description={`${agent.format.toUpperCase()} · ${agent.key}`}
-              path={mcpConfigPath}
-            />
-            <ConfigPath icon={<LayersIcon className="w-4 h-4" />} label="Models" description={modelDescription} path={modelAgent?.config_path ?? null} />
-            <ConfigPath icon={<SparklesIcon className="w-4 h-4" />} label="Skills" description={skillsDescription} path={skillsConfigPath} />
-          </div>
+          <section className="mux-agent-section" aria-labelledby="agent-files-title" aria-label="配置位置">
+            <div className="mux-agent-section-head">
+              <div>
+                <h3 id="agent-files-title">配置位置</h3>
+                <p>这些是 MUX 为当前 Agent 读取或写入的实际位置</p>
+              </div>
+              <button type="button" className="btn-secondary" onClick={() => setEditingAgent(true)}>
+                <EditIcon className="w-3.5 h-3.5" />编辑配置
+              </button>
+            </div>
+            <div className="mux-agent-file-map">
+              <ConfigPath
+                icon={<PackageIcon className="w-4 h-4" />}
+                label="MCPs"
+                description={`${agent.format.toUpperCase()} · ${agent.key}`}
+                path={mcpConfigPath}
+              />
+              <ConfigPath icon={<LayersIcon className="w-4 h-4" />} label="Models" description={modelDescription} path={modelAgent?.config_path ?? null} />
+              <ConfigPath icon={<SparklesIcon className="w-4 h-4" />} label="Skills" description={skillsDescription} path={skillsConfigPath} />
+            </div>
+          </section>
         </section>
 
         <AgentResourcePanel

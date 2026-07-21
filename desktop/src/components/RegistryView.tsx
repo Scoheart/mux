@@ -291,6 +291,8 @@ export function RegistryView({ state, consumptionState, intent, onIntentConsumed
 
   return (
     <ResourceWorkspace
+      title="MCPs"
+      description="集中管理可复用的 MCP 连接、来源与配置"
       sidebar={
         <SourcesSidebar
           state={state}

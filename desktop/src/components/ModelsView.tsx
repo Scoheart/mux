@@ -210,6 +210,8 @@ export function ModelsView({
   return (
     <>
       <ResourceWorkspace
+        title="Models"
+        description="集中管理模型连接、协议与凭据引用"
         sidebar={
           <WorkspaceSidebar title="Models" count={profiles.length}>
             <SidebarSection title="Provider">
@@ -554,7 +556,7 @@ function ModelProfileDialog({
         <>
           <button type="button" className="btn-ghost" disabled={busy} onClick={onClose}>取消</button>
           <button type="button" className="btn-primary" disabled={!valid} onClick={() => void save()}>
-            {busy ? "保存中…" : "保存"}
+            {busy ? "生成计划中…" : "审阅更改"}
           </button>
         </>
       }

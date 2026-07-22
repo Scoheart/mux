@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.30](https://github.com/Scoheart/mux/compare/v1.8.29...v1.8.30) (2026-07-22)
+
+### Changes
+
+* fix(models): allow Grok profile removal beside native models ([b9aa9ae](https://github.com/Scoheart/mux/commit/b9aa9ae27b2505fbc7a40c5f878b212efa9e5136))
+
 ## [1.8.29](https://github.com/Scoheart/mux/compare/v1.8.28...v1.8.29) (2026-07-22)
 
 ### Changes

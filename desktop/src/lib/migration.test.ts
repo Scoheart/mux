@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { buildMigrationCandidates, mcpMigrationCandidateId } from "./migration";
+import {
+  buildMigrationCandidates,
+  mcpMigrationCandidateId,
+  modelMigrationCandidateId,
+  skillMigrationCandidateId,
+} from "./migration";
 import type { McpAdoptionCandidate, ModelAdoptionCandidate, SkillInventoryItem } from "./types";
 
 const mcp = (
@@ -63,6 +68,17 @@ describe("migration candidates", () => {
     expect(mcpMigrationCandidateId("github::stdio")).toBe("mcp:github::stdio");
     expect(buildMigrationCandidates([mcp("a", "same")], null)[0].id).toBe(
       mcpMigrationCandidateId("github::stdio"),
+    );
+  });
+
+  it("uses stable Model and Skill candidate ids for targeted adoption", () => {
+    expect(modelMigrationCandidateId("same-model")).toBe("model:same-model");
+    expect(skillMigrationCandidateId("review")).toBe("skill:review");
+    expect(buildMigrationCandidates([], null, [model("grok-build")])[0].id).toBe(
+      modelMigrationCandidateId("same-model"),
+    );
+    expect(buildMigrationCandidates([], skills(["same"]))[0].id).toBe(
+      skillMigrationCandidateId("review"),
     );
   });
 

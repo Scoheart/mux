@@ -8,6 +8,7 @@ import type {
   AssetOperationPlan,
   AssetRef,
   ConsumptionInventory,
+  ModelAdoptionCandidate,
   ModelAgentView,
   ModelProfileView,
   ResourceNavigationRequest,
@@ -28,6 +29,7 @@ import {
   type ConsumptionPickerOption,
 } from "./ConsumptionPickerDialog";
 import { AssetOperationReviewDialog } from "./AssetOperationReviewDialog";
+import { modelMigrationCandidateId, skillMigrationCandidateId } from "../lib/migration";
 
 type PickerDomain = "mcp" | "model" | "skill";
 
@@ -51,11 +53,12 @@ interface AgentViewProps {
   skillsState: SkillsState;
   consumptionState?: ConsumptionState;
   agentId: string;
+  modelMigrationCandidates?: ModelAdoptionCandidate[];
   onOpenResource?(request: ResourceNavigationRequest): void;
   /** Transitional test adapters. */
   onOpenModels?: () => void;
   onOpenSkills?: (request: Extract<ResourceNavigationRequest, { domain: "skill" }>) => void;
-  onOpenMigration?: () => void;
+  onOpenMigration?: (focusId?: string | null) => void;
   onManageExternalMcp?: (assetKey: string) => void;
 }
 
@@ -130,6 +133,7 @@ export function AgentView({
   skillsState,
   consumptionState,
   agentId,
+  modelMigrationCandidates = [],
   onOpenResource,
   onOpenModels,
   onOpenSkills,
@@ -216,8 +220,36 @@ export function AgentView({
     [mcpRows, togglingMcp],
   );
   const mcpExternal = externalForAgent(inventory, agentId, "mcp");
-  const modelExternal = externalForAgent(inventory, agentId, "model");
   const skillExternal = externalForAgent(inventory, agentId, "skill");
+  const agentModelMigrationCandidates = useMemo(
+    () => modelMigrationCandidates
+      .filter((candidate) => candidate.agent_id === agentId)
+      .sort((left, right) => Number(right.active) - Number(left.active)
+        || (left.name || left.model).localeCompare(right.name || right.model)),
+    [agentId, modelMigrationCandidates],
+  );
+  const externalModelCandidateByProfileId = useMemo(
+    () => new Map(agentModelMigrationCandidates.map((candidate) => [
+      `external-model:${candidate.candidate_id}`,
+      candidate,
+    ])),
+    [agentModelMigrationCandidates],
+  );
+  const modelExternalCards = useMemo(
+    () => agentModelMigrationCandidates.map((candidate) => ({
+      agent_id: agentId,
+      asset: { domain: "model" as const, profile_id: `external-model:${candidate.candidate_id}` },
+      desired: false,
+      observed: true,
+      enabled: false,
+      active: candidate.active,
+      desired_active: false,
+      status: "external" as const,
+      reason: candidate.reason ?? `model_${candidate.status}`,
+      affected_agent_ids: [agentId],
+    })),
+    [agentId, agentModelMigrationCandidates],
+  );
   const displayedModelRows = useMemo(
     () => modelRows.map((item) => (
       changingModel?.kind === "enabled"
@@ -523,9 +555,9 @@ export function AgentView({
           value={resourceTab}
           onChange={setResourceTab}
           counts={{
-            mcps: mcpRows.length,
-            models: modelRows.length + modelExternal.length,
-            skills: skillRows.length,
+            mcps: mcpRows.length + mcpExternal.length,
+            models: modelRows.length + modelExternalCards.length,
+            skills: skillRows.length + skillExternal.length,
           }}
         >
           {resourceTab === "mcps" ? !agent.has_global ? (
@@ -597,12 +629,22 @@ export function AgentView({
                   manageLabel="添加 Model"
                   rows={displayedModelRows}
                   columns={3}
-                  external={modelExternal}
-                  externalTitle="外部当前模型"
-                  externalDescription="由 Agent 或其他工具设置；MUX 不会自动覆盖"
-                  externalAction={modelExternal.length > 0 && onOpenMigration ? (
-                    <button type="button" className="btn-secondary" onClick={onOpenMigration}>导入并统一管理</button>
-                  ) : undefined}
+                  external={modelExternalCards}
+                  externalMode="cards"
+                  renderExternalAction={(item) => {
+                    if (item.asset.domain !== "model" || !onOpenMigration) return null;
+                    const candidate = externalModelCandidateByProfileId.get(item.asset.profile_id);
+                    if (!candidate) return null;
+                    return (
+                      <button
+                        type="button"
+                        className="mux-consumption-adopt"
+                        onClick={() => onOpenMigration(modelMigrationCandidateId(candidate.fingerprint))}
+                      >
+                        让 MUX 管理
+                      </button>
+                    );
+                  }}
                   onManage={() => setPickerDomain("model")}
                   manageDisabled={!consumptionState || preparingChange || compatibleProfiles.length === 0}
                   onOpenAsset={openAsset}
@@ -644,6 +686,15 @@ export function AgentView({
                   ) : undefined}
                   present={(asset) => {
                     const profileId = asset.domain === "model" ? asset.profile_id : "";
+                    const externalCandidate = externalModelCandidateByProfileId.get(profileId);
+                    if (externalCandidate) {
+                      return {
+                        name: externalCandidate.name || externalCandidate.model,
+                        description: `${externalCandidate.model} · ${modelProtocolLabel(externalCandidate.protocol)} · ${externalCandidate.provider}`,
+                        icon: <Avatar seed={externalCandidate.name || externalCandidate.model} label="M" size={28} />,
+                        meta: externalCandidate.active ? <Badge tone="warning">Agent 当前</Badge> : null,
+                      };
+                    }
                     const profile = modelProfiles.find((candidate) => candidate.id === profileId);
                     const credential = profile && modelAgent.credential_mode === "environment-reference"
                       ? profile.env_key
@@ -651,10 +702,10 @@ export function AgentView({
                         : profile.credential_saved ? "需要 ENV" : "无需凭据"
                       : profile?.credential_saved ? "Keychain" : "无需凭据";
                     return {
-                      name: profile?.name ?? (profileId.startsWith("external-") ? "Agent 当前配置" : profileId),
+                      name: profile?.name ?? profileId,
                       description: profile
                         ? `${profile.model} · ${modelProtocolLabel(profile.protocol)} · ${credential}`
-                        : "不属于 MUX 中央模型资产",
+                        : "MUX 中央模型资产已缺失",
                       icon: <Avatar seed={profile?.name ?? profileId} label="M" size={28} />,
                     };
                   }}
@@ -667,7 +718,22 @@ export function AgentView({
               description={`${skillRows.length} 项`}
               manageLabel="添加 Skill"
               rows={skillRows}
+              columns={3}
               external={skillExternal}
+              externalMode="cards"
+              renderExternalAction={(item) => {
+                if (item.asset.domain !== "skill" || !onOpenMigration) return null;
+                const skillName = item.asset.name;
+                return (
+                  <button
+                    type="button"
+                    className="mux-consumption-adopt"
+                    onClick={() => onOpenMigration(skillMigrationCandidateId(skillName))}
+                  >
+                    让 MUX 管理
+                  </button>
+                );
+              }}
               onManage={() => setPickerDomain("skill")}
               onOpenAsset={openAsset}
               manageDisabled={!runtimeSkillAgent || !consumptionState || preparingChange}
@@ -675,16 +741,21 @@ export function AgentView({
               removeLabel={(name) => `从 ${agent.name} 移除 ${name}`}
               removeDisabled={preparingChange}
               emptyTitle="暂无 Skill"
-              columns={3}
               present={(asset) => {
                 const name = asset.domain === "skill" ? asset.name : "";
                 const skill = centralSkills.find((candidate) => candidate.name === name);
+                const externalSkill = (skillsState.inventory?.items ?? []).find(
+                  (candidate) => candidate.name === name
+                    && candidate.location.kind === "agent_target"
+                    && candidate.states.includes("external")
+                    && candidate.affected_agent_ids.includes(agentId),
+                );
                 const sharedCount = skillRows.find(
                   (row) => row.asset.domain === "skill" && row.asset.name === name,
                 )?.affected_agent_ids.length ?? 0;
                 return {
                   name,
-                  description: skill?.description ?? "中央 Skill 已缺失",
+                  description: skill?.description ?? externalSkill?.description ?? "Skill 资产已缺失",
                   icon: <SparklesIcon className="w-4 h-4" />,
                   meta: sharedCount > 1
                     ? <Badge tone="warning">共用 · {sharedCount}</Badge>

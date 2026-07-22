@@ -10,6 +10,14 @@ export function mcpMigrationCandidateId(assetKey: string) {
   return `mcp:${assetKey}`;
 }
 
+export function modelMigrationCandidateId(fingerprint: string) {
+  return `model:${fingerprint}`;
+}
+
+export function skillMigrationCandidateId(name: string) {
+  return `skill:${name}`;
+}
+
 export interface MigrationCandidate {
   id: string;
   domain: MigrationDomain;
@@ -77,7 +85,7 @@ function groupModels(items: ModelAdoptionCandidate[]): MigrationCandidate[] {
       : rows.find((row) => row.status !== "adoptable")?.reason
         ?? "该模型需要先处理 credential 或配置冲突";
     return {
-      id: `model:${fingerprint}`,
+      id: modelMigrationCandidateId(fingerprint),
       domain: "model",
       name: primary.name || primary.model,
       detail: `${primary.provider} · ${primary.model} · ${rows.length} 个 Agent${activeCount ? ` · ${activeCount} 个当前使用` : ""}`,
@@ -181,7 +189,7 @@ function groupSkills(items: SkillInventoryItem[] | null): MigrationCandidate[] {
     }
     const hash = hashes.values().next().value ?? "unavailable";
     return {
-      id: `skill:${name}`,
+      id: skillMigrationCandidateId(name),
       domain: "skill",
       name,
       detail: `${agentIds.length} 个 Agent · ${rows.length} 个目录 · 合并为一份中央副本`,

@@ -178,8 +178,9 @@ function App() {
           skillsState={skillsState}
           consumptionState={consumptionState}
           agentId={view.id}
+          modelMigrationCandidates={modelMigrationCandidates}
           onOpenResource={openResource}
-          onOpenMigration={() => openMigration()}
+          onOpenMigration={(focusId) => openMigration(focusId ?? null)}
           onManageExternalMcp={manageExternalMcp}
         />
       ) : (

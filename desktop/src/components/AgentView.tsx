@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type { InstallState } from "../hooks/useInstallState";
 import type { SkillsState } from "../hooks/useSkillsState";
@@ -17,7 +17,7 @@ import { formatError } from "../lib/format";
 import { keyOf, transportOf } from "../lib/mcp";
 import { consumptionsForAgent, externalForAgent } from "../lib/consumption";
 import { listModelAgents, listModelProfiles } from "../lib/api";
-import { EditIcon, LayersIcon, LinkIcon, PackageIcon, PlusIcon, SparklesIcon } from "./icons";
+import { EditIcon, LinkIcon, PlusIcon, SparklesIcon } from "./icons";
 import { Avatar, Badge, IconButton } from "./ui";
 import { AgentGlyph } from "./brandIcons";
 import { AgentConfigurationDialog } from "./AgentConfigurationDialog";
@@ -282,28 +282,7 @@ export function AgentView({
     );
   }
 
-  const mcpConfigPath = agent.global ?? "";
-  const mcpDescription = agent.has_global
-    ? `${agent.format.toUpperCase()} · ${agent.key}`
-    : "此 Agent 未接入 MCP";
-  const skillsConfigPath = agent.skills_global_dir;
   const runtimeSkillAgent = skillsState.inventory?.agents.find((item) => item.id === agentId) ?? null;
-  const modelDescription = modelsLoading
-    ? "读取中…"
-    : modelsError
-      ? "读取失败"
-      : modelAgent?.mode === "guided"
-        ? "Agent 内管理"
-        : modelAgent ? `MUX 管理${modelAgent.supports_multiple ? " · 多模型" : ""}` : "未接入";
-  const skillsDescription = !skillsConfigPath
-    ? "未接入"
-    : skillsState.loading
-      ? "读取中…"
-      : skillsState.error
-        ? "读取失败"
-        : runtimeSkillAgent && runtimeSkillAgent.affected_agent_ids.length > 1
-          ? `用户目录 · 共用 ${runtimeSkillAgent.affected_agent_ids.length}`
-          : "用户目录";
 
   const centralSkills = (skillsState.inventory?.items ?? []).filter(
     (item) => item.location.kind === "central" && item.states.includes("managed"),
@@ -523,32 +502,10 @@ export function AgentView({
     <div className="mux-agent-page">
       <div className="mux-agent-shell">
         <section className="mux-agent-context" aria-label={`${agent.name} 配置范围`}>
-          <AgentHeader agent={agent} />
-
-          <section className="mux-agent-section" aria-labelledby="agent-files-title" aria-label="配置位置">
-            <div className="mux-agent-section-head">
-              <div>
-                <h3 id="agent-files-title">配置位置</h3>
-                <p>这些是 MUX 为当前 Agent 读取或写入的实际位置</p>
-              </div>
-              {agent.has_global && (
-                <button type="button" className="btn-secondary" onClick={() => setEditingAgent(true)}>
-                  <EditIcon className="w-3.5 h-3.5" />编辑配置
-                </button>
-              )}
-            </div>
-            <div className="mux-agent-file-map">
-              <ConfigPath
-                icon={<PackageIcon className="w-4 h-4" />}
-                label="MCPs"
-                description={mcpDescription}
-                path={agent.has_global ? mcpConfigPath : null}
-                unavailableLabel={agent.has_global ? undefined : "未接入"}
-              />
-              <ConfigPath icon={<LayersIcon className="w-4 h-4" />} label="Models" description={modelDescription} path={modelAgent?.config_path ?? null} />
-              <ConfigPath icon={<SparklesIcon className="w-4 h-4" />} label="Skills" description={skillsDescription} path={skillsConfigPath} />
-            </div>
-          </section>
+          <AgentHeader
+            agent={agent}
+            onEdit={agent.has_global ? () => setEditingAgent(true) : undefined}
+          />
         </section>
 
         <AgentResourcePanel
@@ -816,9 +773,17 @@ function TransportMark({ transport }: { transport: string }) {
   return <span className="mux-transport-mark">{transport}</span>;
 }
 
-function AgentHeader({ agent, tone }: { agent: InstallState["agents"][number]; tone?: "reference" }) {
+function AgentHeader({
+  agent,
+  tone,
+  onEdit,
+}: {
+  agent: InstallState["agents"][number];
+  tone?: "reference";
+  onEdit?: () => void;
+}) {
   return (
-    <header className="mux-agent-header">
+    <header className="mux-agent-header" data-tone={tone}>
       <AgentGlyph id={agent.id} name={agent.name} size={44} />
       <div className="mux-agent-header-copy">
         <div>
@@ -829,37 +794,16 @@ function AgentHeader({ agent, tone }: { agent: InstallState["agents"][number]; t
         </div>
         <span>{agent.id} · {agent.category}</span>
       </div>
+      {onEdit && (
+        <IconButton title="编辑 Agent 设置" onClick={onEdit}>
+          <EditIcon className="w-4 h-4" />
+        </IconButton>
+      )}
       {agent.docs && (
         <IconButton title="打开官方文档" onClick={() => openUrl(agent.docs!)}>
           <LinkIcon className="w-4 h-4" />
         </IconButton>
       )}
     </header>
-  );
-}
-
-function ConfigPath({
-  icon,
-  label,
-  description,
-  path,
-  unavailableLabel = "不可用",
-}: {
-  icon: ReactNode;
-  label: string;
-  description: string;
-  path: string | null;
-  unavailableLabel?: string;
-}) {
-  return (
-    <div className="mux-agent-file-row">
-      <span className="mux-agent-file-icon">{icon}</span>
-      <div className="mux-agent-file-copy">
-        <div><strong>{label}</strong><span>{description}</span></div>
-        {path ? <code title={path}>{path}</code> : (
-          <span className="mux-agent-file-unavailable">{unavailableLabel}</span>
-        )}
-      </div>
-    </div>
   );
 }

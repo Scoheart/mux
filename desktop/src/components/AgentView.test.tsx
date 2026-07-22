@@ -71,7 +71,7 @@ const skillsState = {
   refresh: vi.fn(),
 } as unknown as SkillsState;
 
-it("shows a Skills-only Agent without exposing empty MCP schema metadata", async () => {
+it("shows a Skills-only Agent without a configuration-path map or empty MCP schema metadata", async () => {
   render(
     <AgentView
       state={state}
@@ -80,13 +80,10 @@ it("shows a Skills-only Agent without exposing empty MCP schema metadata", async
     />,
   );
 
-  const configurationLocations = screen.getByLabelText("配置位置");
-  const mcpLocation = within(configurationLocations)
-    .getByText("MCPs")
-    .closest<HTMLElement>(".mux-agent-file-row");
-  expect(mcpLocation).not.toBeNull();
-  expect(within(mcpLocation!).getByText("此 Agent 未接入 MCP")).toBeVisible();
-  expect(within(mcpLocation!).getByText("未接入")).toBeVisible();
+  expect(screen.queryByText("配置位置")).not.toBeInTheDocument();
+  expect(screen.queryByText(/读取或写入的实际位置/)).not.toBeInTheDocument();
+  expect(screen.queryByText(skillsOnlyAgent.skills_global_dir!)).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "编辑 Agent 设置" })).not.toBeInTheDocument();
   expect(screen.queryByText(/UNKNOWN/)).not.toBeInTheDocument();
 
   await waitFor(() => {
@@ -141,6 +138,10 @@ it("offers only targeted MUX adoption for an external MCP card", async () => {
       onManageExternalMcp={onManageExternalMcp}
     />,
   );
+
+  expect(screen.queryByText("配置位置")).not.toBeInTheDocument();
+  expect(screen.queryByText(mcpAgent.global!)).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "编辑 Agent 设置" })).toBeVisible();
 
   const card = screen.getByText("computer-use").closest<HTMLElement>("li");
   expect(card).not.toBeNull();

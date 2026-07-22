@@ -30,6 +30,19 @@ function pixelValue(source: string, property: string): number {
   return Number(match[1]);
 }
 
+function mediaBlock(source: string, heading: string): string {
+  const start = source.indexOf(heading);
+  expect(start, `expected ${heading}`).not.toBe(-1);
+  const openingBrace = source.indexOf("{", start + heading.length);
+  let depth = 0;
+  for (let index = openingBrace; index < source.length; index += 1) {
+    if (source[index] === "{") depth += 1;
+    if (source[index] === "}") depth -= 1;
+    if (depth === 0) return source.slice(start, index + 1);
+  }
+  throw new Error(`unterminated ${heading}`);
+}
+
 it("keeps Models, MCPs, Skills order before Agent navigation", () => {
   expect(types).toMatch(
     /\| \{ kind: "skills"; intent\?: SkillNavigationIntent \}/,
@@ -98,6 +111,54 @@ it("reserves compact 900px lanes for Skills and six pinned Agents", () => {
   const pinned = declarations(compactCss, ".mux-pinned-agent");
   expect(pixelValue(pinned, "width")).toBeLessThanOrEqual(26);
   expect(pixelValue(pinned, "flex-basis")).toBeLessThanOrEqual(26);
+});
+
+it("keeps the complete narrow topbar within its width budget", () => {
+  const compactCss = mediaBlock(css, "@media (max-width: 920px)");
+  const topbar = declarations(compactCss, ".mux-topbar");
+  const wordmark = declarations(compactCss, ".mux-topbar .mux-wordmark");
+  const resources = declarations(compactCss, ".mux-topbar .mux-skill-seg");
+  const navigation = declarations(compactCss, ".mux-agent-navigation");
+  const picker = declarations(compactCss, ".mux-agent-picker-trigger");
+  const pinnedBar = declarations(compactCss, ".mux-pinned-agent-bar");
+  const pinned = declarations(compactCss, ".mux-pinned-agent");
+  const action = declarations(compactCss, ".mux-topbar .mux-icon-btn");
+  const update = declarations(compactCss, ".mux-topbar .mux-update-check");
+
+  const topLevelItemCount = 8;
+  const pinnedCount = 6;
+  const actionCount = 3;
+  const fixedWidth =
+    pixelValue(topbar, "padding-left") +
+    pixelValue(topbar, "padding-right") +
+    pixelValue(topbar, "gap") * (topLevelItemCount - 1) +
+    pixelValue(wordmark, "flex-basis") +
+    pixelValue(resources, "flex-basis") +
+    pixelValue(navigation, "gap") +
+    pixelValue(picker, "width") +
+    pixelValue(pinnedBar, "padding-left") +
+    pixelValue(pinnedBar, "padding-right") +
+    pixelValue(pinned, "flex-basis") * pinnedCount +
+    pixelValue(action, "width") * actionCount +
+    pixelValue(update, "flex-basis");
+
+  expect(fixedWidth).toBeLessThanOrEqual(820);
+  expect(declarations(compactCss, ".mux-topbar .mux-update-check-label")).toMatch(
+    /clip-path:\s*inset\(50%\)/,
+  );
+  expect(layout).toMatch(/className="mux-update-check-label"/);
+  expect(layout).toMatch(/aria-label=\{version \? `检查更新，当前版本/);
+});
+
+it("keeps all resource destinations accessible in the extra-compact lane", () => {
+  const compactCss = mediaBlock(css, "@media (max-width: 840px)");
+  expect(declarations(compactCss, ".mux-topbar .mux-skill-seg")).toMatch(
+    /flex-basis:\s*120px/,
+  );
+  expect(declarations(compactCss, ".mux-topbar .mux-resource-label")).toMatch(
+    /clip-path:\s*inset\(50%\)/,
+  );
+  expect(layout.match(/className="mux-resource-label"/g) ?? []).toHaveLength(3);
 });
 
 it("popup action focus rule includes the search clear button", () => {

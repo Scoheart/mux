@@ -128,7 +128,7 @@ export function Layout({
           >
             <span className="flex items-center gap-1.5">
               <LayersIcon className="w-3.5 h-3.5" />
-              Models
+              <span className="mux-resource-label">Models</span>
             </span>
           </button>
           <button
@@ -138,7 +138,7 @@ export function Layout({
           >
             <span className="flex items-center gap-1.5">
               <PackageIcon className="w-3.5 h-3.5" />
-              MCPs
+              <span className="mux-resource-label">MCPs</span>
             </span>
           </button>
           <button
@@ -148,13 +148,13 @@ export function Layout({
           >
             <span className="flex items-center gap-1.5">
               <SparklesIcon className="w-3.5 h-3.5" />
-              Skills
+              <span className="mux-resource-label">Skills</span>
             </span>
           </button>
         </div>
 
         {/* Spacer — pushes Agent navigation to the right */}
-        <div className="flex-1" />
+        <div className="mux-topbar-spacer flex-1" />
 
         <AgentNavigation
           agents={agents}
@@ -255,7 +255,7 @@ export function Layout({
               ? <RefreshIcon className="w-full h-full" />
               : <DownloadIcon className="w-full h-full" />}
           </span>
-          <span>{checkingUpdate ? "检查中…" : "检查更新"}</span>
+          <span className="mux-update-check-label">{checkingUpdate ? "检查中…" : "检查更新"}</span>
           {version && <span className="mux-update-version">v{version}</span>}
         </button>
       </header>

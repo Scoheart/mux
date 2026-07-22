@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.26](https://github.com/Scoheart/mux/compare/v1.8.25...v1.8.26) (2026-07-22)
+
+### Changes
+
+* fix(desktop): restore pinned Agent drag sorting ([65b6918](https://github.com/Scoheart/mux/commit/65b6918a6dd8c0279fe2aeff1a902ccecdd32ab8))
+
 ## [1.8.25](https://github.com/Scoheart/mux/compare/v1.8.24...v1.8.25) (2026-07-22)
 
 ### Changes

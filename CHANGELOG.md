@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.34](https://github.com/Scoheart/mux/compare/v1.8.33...v1.8.34) (2026-07-22)
+
+### Changes
+
+* feat(ui): simplify agent page and compact topbar ([50d3e7f](https://github.com/Scoheart/mux/commit/50d3e7f00db047218dba351f8c5d48b427948943))
+
 ## [1.8.33](https://github.com/Scoheart/mux/compare/v1.8.32...v1.8.33) (2026-07-22)
 
 ### Changes

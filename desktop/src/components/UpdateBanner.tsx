@@ -67,13 +67,17 @@ export function UpdateBanner({ updater }: { updater: UpdaterState }) {
           <div
             className="mt-2.5 h-1.5 rounded-full overflow-hidden"
             style={{ background: "color-mix(in srgb, var(--text-primary) 12%, transparent)" }}
+            role="progressbar"
+            aria-label="更新下载进度"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={phase.percent ?? undefined}
           >
             <div
               className="h-full rounded-full"
               style={{
                 width: `${phase.percent ?? 8}%`,
                 background: "var(--color-blue)",
-                transition: "width .25s ease",
               }}
             />
           </div>

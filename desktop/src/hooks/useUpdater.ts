@@ -94,17 +94,21 @@ export function useUpdater(proxyUrl: string | null = null): UpdaterState {
     setPhase({ kind: "downloading", percent: null });
     let total: number | null = null;
     let received = 0;
+    let reportedPercent: number | null = null;
     try {
       await update.downloadAndInstall((ev) => {
         if (ev.event === "Started") {
           total = ev.data.contentLength ?? null;
+          received = 0;
+          reportedPercent = null;
         } else if (ev.event === "Progress") {
           received += ev.data.chunkLength;
           if (total) {
-            setPhase({
-              kind: "downloading",
-              percent: Math.min(99, Math.round((received / total) * 100)),
-            });
+            const percent = Math.min(99, Math.round((received / total) * 100));
+            if (percent !== reportedPercent) {
+              reportedPercent = percent;
+              setPhase({ kind: "downloading", percent });
+            }
           }
         } else if (ev.event === "Finished") {
           setPhase({ kind: "downloading", percent: 100 });

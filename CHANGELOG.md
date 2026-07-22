@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.31](https://github.com/Scoheart/mux/compare/v1.8.30...v1.8.31) (2026-07-22)
+
+### Changes
+
+* fix(updater): synchronize download progress feedback ([940f67b](https://github.com/Scoheart/mux/commit/940f67b696b0f70e5546185da651a0c212dabc95))
+
 ## [1.8.30](https://github.com/Scoheart/mux/compare/v1.8.29...v1.8.30) (2026-07-22)
 
 ### Changes

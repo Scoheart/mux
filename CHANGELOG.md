@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.27](https://github.com/Scoheart/mux/compare/v1.8.26...v1.8.27) (2026-07-22)
+
+### Changes
+
+* refactor(agent): manage external MCPs individually ([dac9784](https://github.com/Scoheart/mux/commit/dac978424a7204ddcbd9075a19565827df3e4404))
+
 ## [1.8.26](https://github.com/Scoheart/mux/compare/v1.8.25...v1.8.26) (2026-07-22)
 
 ### Changes

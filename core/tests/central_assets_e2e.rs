@@ -334,6 +334,40 @@ fn grok_build_consumes_and_switches_central_profiles() {
 }
 
 #[test]
+fn grok_build_delete_preserves_an_unmanaged_model_without_failing_verification() {
+    let home = TestHome::new("central-model-grok-build-delete-with-external");
+    let target = home.home.join(".grok/config.toml");
+    fs::create_dir_all(target.parent().unwrap()).unwrap();
+    fs::write(
+        &target,
+        "[models]\ndefault = \"private\"\n\n[model.private]\nmodel = \"keep\"\n",
+    )
+    .unwrap();
+
+    let mut profile = model("delete-me");
+    profile.id = "a".into();
+    profile.env_key = Some("DELETE_ME_API_KEY".into());
+    save_profile(profile.clone(), None).unwrap();
+    apply_profile("grok-build", &profile.id).unwrap();
+
+    commit(
+        plan_delete_central_asset(PlanDeleteCentralAssetRequest {
+            asset: AssetRef::Model {
+                profile_id: profile.id.clone(),
+            },
+            source_id: None,
+        })
+        .unwrap(),
+    );
+
+    let cleared = fs::read_to_string(target).unwrap();
+    assert!(cleared.contains("model.private"));
+    assert!(cleared.contains("model = \"keep\""));
+    assert!(!cleared.contains(&mux_profile_id(&profile.id)));
+    assert!(list_profiles().is_empty());
+}
+
+#[test]
 fn grok_build_keeps_multiple_profiles_and_falls_back_when_current_is_disabled() {
     let home = TestHome::new("central-model-grok-build-multiple");
     let mut first = model("first-model");

@@ -1358,10 +1358,11 @@ fn external_remains_after_removal(
     }
     match (asset, &external.asset) {
         (AssetRef::Mcp { key }, AssetRef::Mcp { key: external_key }) => key == external_key,
-        // When a Model assignment has been removed, any remaining model-owned
-        // fields are an incomplete clear even though the external projection has
-        // no central Profile identity.
-        (AssetRef::Model { .. }, AssetRef::Model { .. }) => true,
+        // Model writers clear the exact Profile-owned fields before desired
+        // state is updated. The external projection is deliberately
+        // identity-free, so it may describe an unrelated native model that the
+        // clear correctly preserved and cannot prove that this Profile remains.
+        (AssetRef::Model { .. }, AssetRef::Model { .. }) => false,
         (
             AssetRef::Skill { name },
             AssetRef::Skill {

@@ -8,7 +8,7 @@ import {
 import { formatError } from "../lib/format";
 import { DialogShell } from "./DialogShell";
 import { AssetOperationReviewDialog } from "./AssetOperationReviewDialog";
-import { LayersIcon, PackageIcon, SparklesIcon } from "./icons";
+import { LayersIcon, PackageIcon, PlusIcon, SparklesIcon, XIcon } from "./icons";
 import { useToast } from "./Toast";
 
 export function AgentConfigurationDialog({
@@ -30,7 +30,11 @@ export function AgentConfigurationDialog({
   const [mcpPath, setMcpPath] = useState(agent.global ?? "");
   const [mcpKey, setMcpKey] = useState(agent.key);
   const [modelPaths, setModelPaths] = useState(initialModelPaths);
-  const [skillsPath, setSkillsPath] = useState(agent.skills_global_dir ?? "");
+  const [skillsPaths, setSkillsPaths] = useState(
+    agent.skills_global_dirs?.length
+      ? agent.skills_global_dirs
+      : agent.skills_global_dir ? [agent.skills_global_dir] : [],
+  );
   const [busy, setBusy] = useState(false);
   const [plan, setPlan] = useState<AssetOperationPlan | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -40,7 +44,7 @@ export function AgentConfigurationDialog({
     && mcpPath.trim().length > 0
     && mcpKey.trim().length > 0
     && modelPaths.every((path) => path.trim().length > 0)
-    && (agent.skills_global_dir == null || skillsPath.trim().length > 0);
+    && skillsPaths.every((path) => path.trim().length > 0);
 
   const save = async () => {
     if (!canSubmit) return;
@@ -51,7 +55,8 @@ export function AgentConfigurationDialog({
         mcp_path: mcpPath.trim(),
         mcp_key: mcpKey.trim(),
         model_paths: modelPaths.map((path) => path.trim()),
-        skills_global_dir: agent.skills_global_dir == null ? null : skillsPath.trim(),
+        skills_global_dir: skillsPaths[0]?.trim() ?? null,
+        skills_alias_dirs: skillsPaths.slice(1).map((path) => path.trim()),
       });
       setPlan(nextPlan);
     } catch (error) {
@@ -95,6 +100,12 @@ export function AgentConfigurationDialog({
 
   const updateModelPath = (index: number, value: string) => {
     setModelPaths((current) => current.map((path, candidate) => (
+      candidate === index ? value : path
+    )));
+  };
+
+  const updateSkillsPath = (index: number, value: string) => {
+    setSkillsPaths((current) => current.map((path, candidate) => (
       candidate === index ? value : path
     )));
   };
@@ -159,13 +170,41 @@ export function AgentConfigurationDialog({
             disabled
           />
         )}
-        <ConfigField
-          icon={<SparklesIcon className="w-4 h-4" />}
-          label="Skills"
-          value={agent.skills_global_dir == null ? "未接入" : skillsPath}
-          disabled={agent.skills_global_dir == null}
-          onChange={setSkillsPath}
-        />
+        {skillsPaths.length > 0 ? skillsPaths.map((path, index) => (
+          <ConfigField
+            key={index}
+            icon={index === 0 ? <SparklesIcon className="w-4 h-4" /> : null}
+            label={skillsPaths.length > 1 ? `Skills ${index + 1}` : "Skills"}
+            value={path}
+            onChange={(value) => updateSkillsPath(index, value)}
+            action={index > 0 ? (
+              <button
+                type="button"
+                className="mux-agent-config-remove"
+                aria-label={`移除 Skills 目录 ${index + 1}`}
+                onClick={() => setSkillsPaths((current) => current.filter((_, candidate) => candidate !== index))}
+              >
+                <XIcon className="w-4 h-4" />
+              </button>
+            ) : null}
+          />
+        )) : (
+          <ConfigField
+            icon={<SparklesIcon className="w-4 h-4" />}
+            label="Skills"
+            value="未接入"
+            disabled
+          />
+        )}
+        {skillsPaths.length > 0 && skillsPaths.length < 16 && (
+          <button
+            type="button"
+            className="mux-agent-config-add"
+            onClick={() => setSkillsPaths((current) => [...current, ""])}
+          >
+            <PlusIcon className="w-3.5 h-3.5" />添加 Skills 目录
+          </button>
+        )}
       </div>
     </DialogShell>
   );
@@ -177,12 +216,14 @@ function ConfigField({
   value,
   disabled = false,
   onChange,
+  action,
 }: {
   icon: ReactNode;
   label: string;
   value: string;
   disabled?: boolean;
   onChange?(value: string): void;
+  action?: ReactNode;
 }) {
   return (
     <label className="mux-agent-config-field" data-disabled={disabled || undefined}>
@@ -195,6 +236,7 @@ function ConfigField({
         spellCheck={false}
         onChange={(event) => onChange?.(event.target.value)}
       />
+      {action}
     </label>
   );
 }

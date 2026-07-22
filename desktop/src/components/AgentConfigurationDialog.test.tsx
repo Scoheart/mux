@@ -68,6 +68,46 @@ it("edits and submits the MCP path and configuration key together", async () => 
       mcp_key: "custom.mcpServers",
       model_paths: [],
       skills_global_dir: null,
+      skills_alias_dirs: [],
+    });
+  });
+});
+
+it("adds and removes multiple Skills compatibility directories", async () => {
+  apiMocks.planUpdateAgentConfiguration.mockResolvedValue(assetOperationPlanFixture());
+  const codex: AgentInfo = {
+    ...amp,
+    id: "codex",
+    name: "Codex",
+    global: "~/.codex/config.toml",
+    skills_global_dir: "~/.agents/skills",
+    skills_global_dirs: ["~/.agents/skills", "~/.claude/skills"],
+  };
+  render(
+    <AgentConfigurationDialog
+      agent={codex}
+      modelAgent={null}
+      onClose={vi.fn()}
+      onSaved={vi.fn()}
+    />,
+  );
+
+  expect(screen.getByLabelText("Skills 2")).toHaveValue("~/.claude/skills");
+  await userEvent.click(screen.getByRole("button", { name: "移除 Skills 目录 2" }));
+  expect(screen.queryByLabelText("Skills 2")).not.toBeInTheDocument();
+  await userEvent.click(screen.getByRole("button", { name: "添加 Skills 目录" }));
+  const second = screen.getByLabelText("Skills 2");
+  expect(screen.getByRole("button", { name: "继续" })).toBeDisabled();
+  await userEvent.type(second, "~/.codex/skills");
+  await userEvent.click(screen.getByRole("button", { name: "继续" }));
+
+  await waitFor(() => {
+    expect(apiMocks.planUpdateAgentConfiguration).toHaveBeenCalledWith("codex", {
+      mcp_path: "~/.codex/config.toml",
+      mcp_key: "amp.mcpServers",
+      model_paths: [],
+      skills_global_dir: "~/.agents/skills",
+      skills_alias_dirs: ["~/.codex/skills"],
     });
   });
 });

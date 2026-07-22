@@ -2,7 +2,7 @@ use crate::scanner::collapse_home;
 use crate::settings::{
     load_settings, mutate_settings, mutate_settings_checked, AgentConfigPathOverride,
 };
-use crate::types::AgentDefinition;
+use crate::types::{AgentDefinition, AgentSkillsDirectory};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::{Error, ErrorKind};
@@ -29,6 +29,7 @@ pub struct AgentInfo {
     pub verified_at: Option<String>,
     pub builtin: bool,
     pub skills_global_dir: Option<String>,
+    pub skills_global_dirs: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -40,6 +41,8 @@ pub struct AgentConfigurationInput {
     #[serde(default)]
     pub model_paths: Vec<String>,
     pub skills_global_dir: Option<String>,
+    #[serde(default)]
+    pub skills_alias_dirs: Vec<String>,
 }
 
 pub fn supports_transport(agent_id: &str, transport: &str) -> bool {
@@ -273,6 +276,33 @@ pub(crate) fn load_agents_from_settings(
                 }
             }
         }
+        if let Some(alias_dirs) = path_override.skills_alias_dirs.as_ref() {
+            if let Some(capability) = definition.skills.as_mut() {
+                let catalog = builtin_agents()
+                    .get(agent_id)
+                    .and_then(|definition| definition.skills.clone());
+                capability.aliases = alias_dirs
+                    .iter()
+                    .enumerate()
+                    .map(|(index, global_dir)| {
+                        catalog
+                            .as_ref()
+                            .and_then(|catalog| {
+                                std::iter::once(AgentSkillsDirectory {
+                                    target_id: catalog.target_id.clone(),
+                                    global_dir: catalog.global_dir.clone(),
+                                })
+                                .chain(catalog.aliases.clone())
+                                .find(|directory| directory.global_dir == *global_dir)
+                            })
+                            .unwrap_or_else(|| AgentSkillsDirectory {
+                                target_id: format!("{agent_id}-configured-alias-{}", index + 1),
+                                global_dir: global_dir.clone(),
+                            })
+                    })
+                    .collect();
+            }
+        }
     }
     agents
 }
@@ -460,6 +490,17 @@ pub(crate) fn current_configuration(id: &str) -> Result<AgentConfigurationInput,
             .skills
             .as_ref()
             .map(|capability| capability.global_dir.clone()),
+        skills_alias_dirs: agent
+            .skills
+            .as_ref()
+            .map(|capability| {
+                capability
+                    .aliases
+                    .iter()
+                    .map(|alias| alias.global_dir.clone())
+                    .collect()
+            })
+            .unwrap_or_default(),
     })
 }
 
@@ -526,12 +567,41 @@ pub(crate) fn normalize_configuration(
         }
         (None, _) => None,
     };
+    let skills_alias_dirs = if skills_default.is_some() {
+        let mut seen = BTreeSet::new();
+        if let Some(primary) = &skills_global_dir {
+            seen.insert(primary.clone());
+        }
+        let mut aliases = Vec::new();
+        for path in input.skills_alias_dirs {
+            let path = collapse_home(path.trim());
+            validate_skill_directory(&path)
+                .map_err(|reason| format!("Skills 兼容目录无效: {reason}"))?;
+            if !seen.insert(path.clone()) {
+                continue;
+            }
+            aliases.push(path);
+        }
+        if aliases.len() > 15 {
+            return Err("Skills 配置目录最多 16 个".into());
+        }
+        aliases
+    } else if input
+        .skills_alias_dirs
+        .iter()
+        .any(|path| !path.trim().is_empty())
+    {
+        return Err("该 Agent 尚未接入 Skills writer".into());
+    } else {
+        Vec::new()
+    };
 
     Ok(AgentConfigurationInput {
         mcp_path,
         mcp_key,
         model_paths,
         skills_global_dir,
+        skills_alias_dirs,
     })
 }
 
@@ -548,11 +618,23 @@ pub(crate) fn apply_configuration(
         .ok_or_else(|| "MCP 配置键不能为空".to_string())?;
     let model_paths = input.model_paths.clone();
     let skills_global_dir = input.skills_global_dir.clone();
+    let skills_alias_dirs = input.skills_alias_dirs.clone();
     let model_defaults = crate::models::default_config_paths(&id);
     let skills_default = builtin_agents()
         .get(&id)
         .and_then(|definition| definition.skills.as_ref())
         .map(|capability| capability.global_dir.clone());
+    let skills_alias_defaults = builtin_agents()
+        .get(&id)
+        .and_then(|definition| definition.skills.as_ref())
+        .map(|capability| {
+            capability
+                .aliases
+                .iter()
+                .map(|alias| alias.global_dir.clone())
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
 
     mutate_settings_checked(|settings| {
         let mut agents = load_agents_from_settings(settings);
@@ -593,6 +675,8 @@ pub(crate) fn apply_configuration(
             .as_ref()
             .zip(skills_global_dir.as_ref())
             .and_then(|(default, current)| (default != current).then_some(current.clone()));
+        path_override.skills_alias_dirs =
+            (skills_alias_defaults != skills_alias_dirs).then_some(skills_alias_dirs.clone());
         if path_override == &AgentConfigPathOverride::default() {
             path_overrides.remove(&id);
         }
@@ -616,6 +700,20 @@ pub fn list_infos() -> Vec<AgentInfo> {
                 .skills
                 .as_ref()
                 .map(|capability| capability.global_dir.clone());
+            let skills_global_dirs = d
+                .skills
+                .as_ref()
+                .map(|capability| {
+                    std::iter::once(capability.global_dir.clone())
+                        .chain(
+                            capability
+                                .aliases
+                                .iter()
+                                .map(|alias| alias.global_dir.clone()),
+                        )
+                        .collect()
+                })
+                .unwrap_or_default();
             AgentInfo {
                 supported_transports: supported_transports(&d),
                 name: d.name.clone().unwrap_or_else(|| id.clone()),
@@ -634,6 +732,7 @@ pub fn list_infos() -> Vec<AgentInfo> {
                 verified_at: d.verified_at,
                 builtin: d.builtin == Some(true),
                 skills_global_dir,
+                skills_global_dirs,
             }
         })
         .collect()
@@ -793,7 +892,7 @@ mod tests {
     }
 
     #[test]
-    fn agent_info_projects_only_trusted_primary_skills_directories() {
+    fn agent_info_projects_every_trusted_skills_directory() {
         let _home = crate::testenv::TestHome::new("agent-info-skills-path");
         let infos = list_infos();
         let codex = infos.iter().find(|agent| agent.id == "codex").unwrap();
@@ -803,6 +902,11 @@ mod tests {
             .unwrap();
 
         assert_eq!(codex.skills_global_dir.as_deref(), Some("~/.agents/skills"));
+        let cursor = infos.iter().find(|agent| agent.id == "cursor").unwrap();
+        assert_eq!(
+            cursor.skills_global_dirs,
+            ["~/.cursor/skills", "~/.agents/skills"]
+        );
         assert_eq!(claude_desktop.skills_global_dir, None);
         for (id, expected) in [
             ("cortex-code", "~/.snowflake/cortex/skills"),
@@ -826,6 +930,7 @@ mod tests {
                 mcp_key: Some("custom_mcp_servers".into()),
                 model_paths: vec!["~/.custom/codex-model.toml".into()],
                 skills_global_dir: Some("~/.custom/codex/skills".into()),
+                skills_alias_dirs: vec!["~/.custom/shared/skills".into()],
             },
         )
         .unwrap();
@@ -842,6 +947,16 @@ mod tests {
                 .as_ref()
                 .map(|capability| capability.global_dir.as_str()),
             Some("~/.custom/codex/skills")
+        );
+        assert_eq!(
+            agents["codex"].skills.as_ref().unwrap().aliases[0].global_dir,
+            "~/.custom/shared/skills"
+        );
+        assert_eq!(
+            load_settings().agent_config_paths.as_ref().unwrap()["codex"]
+                .skills_alias_dirs
+                .as_deref(),
+            Some(["~/.custom/shared/skills".to_string()].as_slice())
         );
         let model = crate::models::list_agents()
             .into_iter()

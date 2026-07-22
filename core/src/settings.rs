@@ -47,7 +47,8 @@ pub struct NetworkSettings {
 
 /// User-selected write locations that are independent from an Agent's audited
 /// wire schema. MCP section keys plus Model and Skills paths live here so a
-/// location override never mutates the built-in codec contract.
+/// location override never mutates the built-in codec contract. Skills keeps
+/// one primary write directory plus zero or more compatibility read targets.
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
 pub struct AgentConfigPathOverride {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -56,6 +57,8 @@ pub struct AgentConfigPathOverride {
     pub model_paths: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub skills_global_dir: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub skills_alias_dirs: Option<Vec<String>>,
 }
 
 /// The whole `~/.mux/settings.json` document.

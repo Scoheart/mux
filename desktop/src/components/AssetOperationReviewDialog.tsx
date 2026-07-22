@@ -61,11 +61,15 @@ function configurationChanges(plan: AssetOperationPlan) {
   if (beforeModels !== afterModels) {
     rows.push({ label: "Model", before: beforeModels, after: afterModels });
   }
-  if (before.skills_global_dir !== after.skills_global_dir) {
+  const beforeSkills = [before.skills_global_dir, ...(before.skills_alias_dirs ?? [])]
+    .filter(Boolean).join(" · ");
+  const afterSkills = [after.skills_global_dir, ...(after.skills_alias_dirs ?? [])]
+    .filter(Boolean).join(" · ");
+  if (beforeSkills !== afterSkills) {
     rows.push({
       label: "Skills",
-      before: before.skills_global_dir ?? "未接入",
-      after: after.skills_global_dir ?? "未接入",
+      before: beforeSkills || "未接入",
+      after: afterSkills || "未接入",
     });
   }
   return rows;
@@ -100,7 +104,9 @@ export function AssetOperationReviewDialog({
     ? plan.domain_plan
     : null;
   const skillsPathChanged = configurationPlan !== null
-    && configurationPlan.before.skills_global_dir !== configurationPlan.after.skills_global_dir;
+    && (configurationPlan.before.skills_global_dir !== configurationPlan.after.skills_global_dir
+      || JSON.stringify(configurationPlan.before.skills_alias_dirs ?? [])
+        !== JSON.stringify(configurationPlan.after.skills_alias_dirs ?? []));
   const sharedConfigurationReaderCount = isConfiguration
     && configurationPlan
     && skillsPathChanged

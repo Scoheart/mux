@@ -1049,6 +1049,7 @@ mod tests {
             verified_at: None,
             builtin: false,
             skills_global_dir: None,
+            skills_global_dirs: Vec::new(),
         }
     }
 

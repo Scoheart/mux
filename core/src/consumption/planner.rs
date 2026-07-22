@@ -289,18 +289,16 @@ pub fn plan_update_agent_configuration(
     let mut target_files = Vec::new();
     let mut configuration_affected_agents = BTreeSet::from([request.agent_id.clone()]);
 
-    if before.skills_global_dir != after.skills_global_dir {
+    if before.skills_global_dir != after.skills_global_dir
+        || before.skills_alias_dirs != after.skills_alias_dirs
+    {
         let old_capability = skill_agent_capability_for_settings(&settings, &request.agent_id)
             .map_err(|error| format!("{error:?}"))?
             .ok_or_else(|| "skill_target_unavailable: 当前 Agent 没有 Skills 目标".to_string())?;
         let old_inventory =
             list_inventory_for_settings(&settings).map_err(|error| format!("{error:?}"))?;
         let mut prospective = settings.clone();
-        set_prospective_skill_path(
-            &mut prospective,
-            &request.agent_id,
-            after.skills_global_dir.as_deref(),
-        )?;
+        set_prospective_skill_paths(&mut prospective, &request.agent_id, &after)?;
         prospective.skill_assignments = None;
         let new_capability = skill_agent_capability_for_settings(&prospective, &request.agent_id)
             .map_err(|error| format!("{error:?}"))?
@@ -328,39 +326,49 @@ pub fn plan_update_agent_configuration(
                     .filter(|entry| entry.source.is_some())
                     .map(|entry| entry.destination.clone()),
             );
-
-            let mut assignments =
-                canonical_skill_assignments(&settings).map_err(|error| format!("{error:?}"))?;
-            let retained_old_target = prospective_targets.targets.iter().find_map(|target| {
-                if target.affected_agent_ids.is_empty() {
-                    return None;
-                }
-                canonical_skill_target_path(&target.global_dir)
-                    .ok()
-                    .filter(|path| path == &old_path)
-                    .map(|_| target.target_id.clone())
-            });
-            for target_ids in assignments.values_mut() {
-                if !target_ids.remove(&old_capability.target_id) {
-                    continue;
-                }
-                if let Some(target_id) = &retained_old_target {
-                    target_ids.insert(target_id.clone());
-                }
-                target_ids.insert(new_capability.target_id.clone());
-            }
-            assignments.retain(|_, target_ids| !target_ids.is_empty());
-            prospective.skill_assignments =
-                (!assignments.is_empty()).then_some(assignments.clone());
-            let after_inventory =
-                list_inventory_for_settings(&prospective).map_err(|error| format!("{error:?}"))?;
-            skills_before = projected_skill_relationships(
-                &canonical_skill_assignments(&settings).map_err(|error| format!("{error:?}"))?,
-                &old_inventory,
-            );
-            skills_after = projected_skill_relationships(&assignments, &after_inventory);
-            skill_assignments_after = Some(assignments);
         }
+
+        let previous_assignments =
+            canonical_skill_assignments(&settings).map_err(|error| format!("{error:?}"))?;
+        let mut assignments = BTreeMap::new();
+        for (name, target_ids) in &previous_assignments {
+            let mut remapped = BTreeSet::new();
+            for target_id in target_ids {
+                let old_target = old_inventory
+                    .targets
+                    .iter()
+                    .find(|target| &target.target_id == target_id)
+                    .ok_or_else(|| {
+                        "skill_target_unavailable: 现有 Skills 目标已不可用".to_string()
+                    })?;
+                let target_path = canonical_skill_target_path(&old_target.global_dir)
+                    .map_err(|error| format!("{error:?}"))?;
+                if target_id == &old_capability.target_id && old_path != new_path {
+                    remapped.insert(new_capability.target_id.clone());
+                }
+                if let Some(target) = prospective_targets.targets.iter().find(|target| {
+                    canonical_skill_target_path(&target.global_dir)
+                        .ok()
+                        .as_ref()
+                        == Some(&target_path)
+                }) {
+                    remapped.insert(target.target_id.clone());
+                } else if target_id != &old_capability.target_id || old_path == new_path {
+                    return Err(format!(
+                        "skill_path_migration_conflict: {name} 仍分配到即将移除的 Skills 目录"
+                    ));
+                }
+            }
+            if !remapped.is_empty() {
+                assignments.insert(name.clone(), remapped);
+            }
+        }
+        prospective.skill_assignments = (!assignments.is_empty()).then_some(assignments.clone());
+        let after_inventory =
+            list_inventory_for_settings(&prospective).map_err(|error| format!("{error:?}"))?;
+        skills_before = projected_skill_relationships(&previous_assignments, &old_inventory);
+        skills_after = projected_skill_relationships(&assignments, &after_inventory);
+        skill_assignments_after = Some(assignments);
     }
 
     let domain_plan = DomainPlan::AgentConfiguration {
@@ -393,25 +401,40 @@ pub fn plan_update_agent_configuration(
     )
 }
 
-fn set_prospective_skill_path(
+fn set_prospective_skill_paths(
     settings: &mut Settings,
     agent_id: &str,
-    global_dir: Option<&str>,
+    configuration: &AgentConfigurationInput,
 ) -> Result<(), String> {
-    let default = builtin_agents()
+    let defaults = builtin_agents()
         .get(agent_id)
         .and_then(|definition| definition.skills.as_ref())
-        .map(|capability| capability.global_dir.clone());
-    let Some(global_dir) = global_dir else {
-        if default.is_some() {
+        .cloned();
+    let Some(global_dir) = configuration.skills_global_dir.as_deref() else {
+        if defaults.is_some() {
             return Err("skill_target_unavailable: Skills 配置路径不能为空".into());
         }
         return Ok(());
     };
+    let default_aliases = defaults
+        .as_ref()
+        .map(|capability| {
+            capability
+                .aliases
+                .iter()
+                .map(|alias| alias.global_dir.clone())
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
     let overrides = settings.agent_config_paths.get_or_insert_default();
     let entry = overrides.entry(agent_id.to_string()).or_default();
-    entry.skills_global_dir =
-        (default.as_deref() != Some(global_dir)).then(|| global_dir.to_string());
+    entry.skills_global_dir = (defaults
+        .as_ref()
+        .map(|capability| capability.global_dir.as_str())
+        != Some(global_dir))
+    .then(|| global_dir.to_string());
+    entry.skills_alias_dirs = (default_aliases != configuration.skills_alias_dirs)
+        .then(|| configuration.skills_alias_dirs.clone());
     if entry == &AgentConfigPathOverride::default() {
         overrides.remove(agent_id);
     }
@@ -1672,6 +1695,43 @@ mod tests {
     }
 
     #[test]
+    fn configuration_plan_adds_a_skills_compatibility_directory_without_moving_primary_content() {
+        let home = TestHome::new("configuration-skill-alias");
+        fs::create_dir_all(home.home.join(".codex")).unwrap();
+        let mut configuration = current_configuration("codex").unwrap();
+        configuration.skills_alias_dirs = vec!["~/.codex/skills".into()];
+
+        let plan = plan_update_agent_configuration(PlanUpdateAgentConfigurationRequest {
+            agent_id: "codex".into(),
+            configuration,
+        })
+        .unwrap();
+        assert!(plan.target_files.is_empty());
+        let DomainPlan::AgentConfiguration { before, after, .. } = &plan.domain_plan else {
+            panic!("expected Agent configuration plan");
+        };
+        assert!(before.skills_alias_dirs.is_empty());
+        assert_eq!(after.skills_alias_dirs, ["~/.codex/skills"]);
+
+        commit_asset_operation(AssetCommitRequest {
+            operation_id: plan.operation_id,
+            candidate_hash: plan.candidate_hash,
+            conflict_confirmation: None,
+        })
+        .unwrap();
+
+        assert_eq!(
+            crate::agents::load_agents()["codex"]
+                .skills
+                .as_ref()
+                .unwrap()
+                .aliases[0]
+                .global_dir,
+            "~/.codex/skills"
+        );
+    }
+
+    #[test]
     fn configuration_plan_commits_a_key_only_override_without_touching_mcp_files() {
         let _home = TestHome::new("configuration-mcp-key-only");
         let mut configuration = current_configuration("codex").unwrap();
@@ -1724,7 +1784,10 @@ mod tests {
         })
         .unwrap_err();
 
-        assert!(error.starts_with("skill_path_migration_conflict:"));
+        assert!(
+            error.starts_with("skill_path_migration_conflict:"),
+            "{error}"
+        );
         assert_eq!(
             crate::agents::load_agents()["cursor"]
                 .skills

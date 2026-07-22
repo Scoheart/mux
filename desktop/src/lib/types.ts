@@ -32,6 +32,7 @@ export interface AgentInfo {
   /** Raw stored config paths (e.g. `~/Library/Application Support/…/mcp.json`). */
   global: string | null; project: string | null;
   skills_global_dir: string | null;
+  skills_global_dirs?: string[];
   docs: string | null;
   note: string | null;
   category: string;
@@ -115,6 +116,7 @@ export interface AgentConfigurationInput {
   mcp_key?: string | null;
   model_paths: string[];
   skills_global_dir: string | null;
+  skills_alias_dirs?: string[];
 }
 export interface InstalledMcp {
   name: string; agent: string; scope: string; file_path: string; transport: string;

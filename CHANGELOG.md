@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.28](https://github.com/Scoheart/mux/compare/v1.8.27...v1.8.28) (2026-07-22)
+
+### Changes
+
+* feat(agent): support multiple Skills directories ([dbd007b](https://github.com/Scoheart/mux/commit/dbd007b61d18dd3ebd2ddb19859c685595b297ce))
+
 ## [1.8.27](https://github.com/Scoheart/mux/compare/v1.8.26...v1.8.27) (2026-07-22)
 
 ### Changes

@@ -1,6 +1,6 @@
 [package]
 name = "mux-cli"
-version = "1.8.27"
+version = "1.8.28"
 edition = "2021"
 
 [[bin]]

@@ -14,7 +14,7 @@ import { useCliTool } from "./hooks/useCliTool";
 import { useNetworkSettings } from "./hooks/useNetworkSettings";
 import { UpdateBanner } from "./components/UpdateBanner";
 import { MigrationDialog } from "./components/MigrationDialog";
-import { buildMigrationCandidates, migrationCounts } from "./lib/migration";
+import { buildMigrationCandidates, mcpMigrationCandidateId, migrationCounts } from "./lib/migration";
 import { listMcpAdoptionCandidates, listModelAdoptionCandidates, listSkillMigrationCandidates } from "./lib/api";
 import type {
   McpAdoptionCandidate,
@@ -49,6 +49,7 @@ function App() {
     transport?: Transport;
   } | null>(null);
   const [migrationOpen, setMigrationOpen] = useState(false);
+  const [migrationFocusId, setMigrationFocusId] = useState<string | null>(null);
   const [mcpMigrationCandidates, setMcpMigrationCandidates] = useState<McpAdoptionCandidate[]>([]);
   const [skillMigrationCandidates, setSkillMigrationCandidates] = useState<SkillInventoryItem[]>([]);
   const [modelMigrationCandidates, setModelMigrationCandidates] = useState<ModelAdoptionCandidate[]>([]);
@@ -71,6 +72,23 @@ function App() {
     [ignoredMigrations, migrationCandidates],
   );
   const migrationCandidateCounts = migrationCounts(migrationCandidates);
+  const visibleMigrationCandidates = migrationFocusId
+    ? migrationCandidates.filter((candidate) => candidate.id === migrationFocusId)
+    : migrationCandidates;
+
+  const openMigration = useCallback((focusId: string | null = null) => {
+    setMigrationFocusId(focusId);
+    setMigrationOpen(true);
+  }, []);
+
+  const closeMigration = useCallback(() => {
+    setMigrationOpen(false);
+    setMigrationFocusId(null);
+  }, []);
+
+  const manageExternalMcp = useCallback((assetKey: string) => {
+    openMigration(mcpMigrationCandidateId(assetKey));
+  }, [openMigration]);
 
   const refreshMigrations = useCallback(async () => {
     const [mcps, skills, models] = await Promise.all([
@@ -128,7 +146,7 @@ function App() {
       onSelectAgent={(id) => setView({ kind: "agent", id })}
       onAddAgent={() => setAddAgentOpen(true)}
       onRescan={refreshEverything}
-      onOpenMigration={() => setMigrationOpen(true)}
+      onOpenMigration={() => openMigration()}
       migrationCount={migrationCandidateCounts.all}
     >
       {view.kind === "skills" ? (
@@ -137,7 +155,7 @@ function App() {
           intent={view.intent}
           onIntentConsumed={consumeResourceIntent}
           migrationCount={migrationCandidateCounts.skill}
-          onOpenMigration={() => setMigrationOpen(true)}
+          onOpenMigration={() => openMigration()}
         />
       ) : state.loading ? (
         <div
@@ -152,7 +170,7 @@ function App() {
           intent={view.intent}
           onIntentConsumed={consumeResourceIntent}
           migrationCount={migrationCandidateCounts.model}
-          onOpenMigration={() => setMigrationOpen(true)}
+          onOpenMigration={() => openMigration()}
         />
       ) : view.kind === "agent" ? (
         <AgentView
@@ -161,7 +179,8 @@ function App() {
           consumptionState={consumptionState}
           agentId={view.id}
           onOpenResource={openResource}
-          onOpenMigration={() => setMigrationOpen(true)}
+          onOpenMigration={() => openMigration()}
+          onManageExternalMcp={manageExternalMcp}
         />
       ) : (
         <RegistryView
@@ -172,7 +191,7 @@ function App() {
           onEdit={(name, transport) => setMcpEditor({ name, transport })}
           onCreate={() => setMcpEditor({ name: null })}
           migrationCount={migrationCandidateCounts.mcp}
-          onOpenMigration={() => setMigrationOpen(true)}
+          onOpenMigration={() => openMigration()}
         />
       )}
 
@@ -210,14 +229,14 @@ function App() {
             <small>可以导入 MUX 统一管理</small>
           </span>
           <button type="button" className="btn-ghost" onClick={ignoreCurrentMigrations}>稍后</button>
-          <button type="button" className="btn-primary" onClick={() => setMigrationOpen(true)}>查看</button>
+          <button type="button" className="btn-primary" onClick={() => openMigration()}>查看</button>
         </aside>
       )}
 
       {migrationOpen && (
         <MigrationDialog
-          candidates={migrationCandidates}
-          onClose={() => setMigrationOpen(false)}
+          candidates={visibleMigrationCandidates}
+          onClose={closeMigration}
           onRefresh={refreshEverything}
         />
       )}

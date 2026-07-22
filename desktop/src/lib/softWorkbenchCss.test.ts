@@ -142,4 +142,6 @@ it("uses three columns for central assets and every Agent asset domain", () => {
   const external = declarations(".mux-consumption-external");
   expect(external).toMatch(/width:\s*100%/);
   expect(external).toMatch(/border:\s*0/);
+  expect(agentView).toMatch(/externalMode="cards"/);
+  expect(declarations(".mux-consumption-adopt")).toMatch(/color:\s*var\(--color-blue\)/);
 });

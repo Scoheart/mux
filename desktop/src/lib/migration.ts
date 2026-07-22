@@ -6,6 +6,10 @@ import type {
 
 export type MigrationDomain = "mcp" | "model" | "skill";
 
+export function mcpMigrationCandidateId(assetKey: string) {
+  return `mcp:${assetKey}`;
+}
+
 export interface MigrationCandidate {
   id: string;
   domain: MigrationDomain;
@@ -113,7 +117,7 @@ function groupMcps(items: McpAdoptionCandidate[]): MigrationCandidate[] {
         ? "外部配置与中央资产不一致；请先在 MUX 或原 Agent 中统一后重新扫描"
         : "同名 MCP 的连接配置不一致；请先在原 Agent 中统一或重命名后重新扫描";
     return {
-      id: `mcp:${assetKey}`,
+      id: mcpMigrationCandidateId(assetKey),
       domain: "mcp",
       name,
       detail: `${transport.toUpperCase()} · ${rows.length} 个 Agent${disabled > 0 ? ` · ${disabled} 个停用` : ""}${centralExists ? " · 原地认领" : " · 创建中央副本"}`,

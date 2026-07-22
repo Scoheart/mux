@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ConsumptionView } from "../lib/types";
@@ -15,6 +15,14 @@ const syncedRow: ConsumptionView = {
   status: "synced",
   reason: null,
   affected_agent_ids: ["codex"],
+};
+
+const externalRow: ConsumptionView = {
+  ...syncedRow,
+  asset: { domain: "mcp", key: "computer-use::stdio" },
+  desired: false,
+  status: "external",
+  reason: "mcp_adoptable",
 };
 
 describe("AgentConsumptionPanel", () => {
@@ -84,5 +92,43 @@ describe("AgentConsumptionPanel", () => {
 
     await userEvent.click(screen.getByRole("button", { name: "设为当前" }));
     expect(onActivate).toHaveBeenCalledOnce();
+  });
+
+  it("renders every external asset as a disabled card with only its adoption action", async () => {
+    const onAdopt = vi.fn();
+    const onEnabledChange = vi.fn();
+    const onOpenAsset = vi.fn();
+    const onRemove = vi.fn();
+    render(
+      <AgentConsumptionPanel
+        title="MCP"
+        manageLabel="添加 MCP"
+        rows={[syncedRow]}
+        external={[externalRow]}
+        externalMode="cards"
+        present={(asset) => ({ name: asset.domain === "mcp" ? asset.key : "asset" })}
+        onManage={vi.fn()}
+        onEnabledChange={onEnabledChange}
+        onOpenAsset={onOpenAsset}
+        onRemove={onRemove}
+        renderExternalAction={(item) => (
+          <button type="button" onClick={() => onAdopt(item)}>让 MUX 管理</button>
+        )}
+      />,
+    );
+
+    const cards = screen.getAllByRole("listitem");
+    expect(cards).toHaveLength(2);
+    expect(cards[1]).toHaveAttribute("data-status", "external");
+    expect(cards[1]).toHaveAttribute("data-enabled", "false");
+    expect(within(cards[1]).getByText("外部配置")).toBeVisible();
+    expect(within(cards[1]).queryByRole("switch")).not.toBeInTheDocument();
+    expect(within(cards[1]).queryByRole("button", { name: /查看|移除/ })).not.toBeInTheDocument();
+
+    await userEvent.click(within(cards[1]).getByRole("button", { name: "让 MUX 管理" }));
+    expect(onAdopt).toHaveBeenCalledWith(externalRow);
+    expect(onEnabledChange).not.toHaveBeenCalled();
+    expect(onOpenAsset).not.toHaveBeenCalled();
+    expect(onRemove).not.toHaveBeenCalled();
   });
 });

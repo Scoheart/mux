@@ -56,6 +56,7 @@ interface AgentViewProps {
   onOpenModels?: () => void;
   onOpenSkills?: (request: Extract<ResourceNavigationRequest, { domain: "skill" }>) => void;
   onOpenMigration?: () => void;
+  onManageExternalMcp?: (assetKey: string) => void;
 }
 
 function fallbackInventory(
@@ -133,6 +134,7 @@ export function AgentView({
   onOpenModels,
   onOpenSkills,
   onOpenMigration,
+  onManageExternalMcp,
 }: AgentViewProps) {
   const { entries, agents, refreshAgents, rescan } = state;
   const { show: showToast } = useToast();
@@ -536,6 +538,20 @@ export function AgentView({
               rows={displayedMcpRows}
               columns={3}
               external={mcpExternal}
+              externalMode="cards"
+              renderExternalAction={(item) => {
+                if (item.asset.domain !== "mcp" || !onManageExternalMcp) return null;
+                const assetKey = item.asset.key;
+                return (
+                  <button
+                    type="button"
+                    className="mux-consumption-adopt"
+                    onClick={() => onManageExternalMcp(assetKey)}
+                  >
+                    让 MUX 管理
+                  </button>
+                );
+              }}
               onManage={() => setPickerDomain("mcp")}
               manageDisabled={!agent.has_global || !consumptionState || preparingChange}
               onEnabledChange={(item, enabled) => void toggleMcpEnabled(item, enabled)}

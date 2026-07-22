@@ -1444,6 +1444,13 @@ body {
 .mux-consumption-activate:hover:not(:disabled) { background: color-mix(in srgb, var(--color-blue) 16%, transparent); }
 .mux-consumption-activate:disabled { opacity: .42; cursor: default; }
 .mux-consumption-activate:focus-visible { outline: 2px solid color-mix(in srgb, var(--color-blue) 52%, transparent); outline-offset: 1px; }
+.mux-consumption-adopt {
+  padding: 4px 7px; border: 0; border-radius: 6px;
+  background: color-mix(in srgb, var(--color-blue) 10%, transparent);
+  color: var(--color-blue); font-size: 9px; font-weight: 650; white-space: nowrap; cursor: pointer;
+}
+.mux-consumption-adopt:hover { background: color-mix(in srgb, var(--color-blue) 18%, transparent); }
+.mux-consumption-adopt:focus-visible { outline: 2px solid color-mix(in srgb, var(--color-blue) 52%, transparent); outline-offset: 1px; }
 .mux-switch:focus-visible { outline: 2px solid color-mix(in srgb, var(--color-blue) 52%, transparent); outline-offset: 2px; }
 .mux-consumption-status { display: inline-flex; align-items: center; gap: 5px; color: var(--text-secondary); font-size: 9px; white-space: nowrap; }
 .mux-consumption-status > span { width: 7px; height: 7px; flex: 0 0 7px; border-radius: 50%; background: var(--color-gray-400); }

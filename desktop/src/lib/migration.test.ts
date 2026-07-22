@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildMigrationCandidates } from "./migration";
+import { buildMigrationCandidates, mcpMigrationCandidateId } from "./migration";
 import type { McpAdoptionCandidate, ModelAdoptionCandidate, SkillInventoryItem } from "./types";
 
 const mcp = (
@@ -59,6 +59,13 @@ const model = (agent: string, status: ModelAdoptionCandidate["status"] = "adopta
 });
 
 describe("migration candidates", () => {
+  it("uses a stable MCP candidate id for targeted adoption", () => {
+    expect(mcpMigrationCandidateId("github::stdio")).toBe("mcp:github::stdio");
+    expect(buildMigrationCandidates([mcp("a", "same")], null)[0].id).toBe(
+      mcpMigrationCandidateId("github::stdio"),
+    );
+  });
+
   it("merges identical MCP copies and blocks divergent copies", () => {
     expect(buildMigrationCandidates([mcp("a", "same"), mcp("b", "same")], null)[0]).toMatchObject({
       safe: true,

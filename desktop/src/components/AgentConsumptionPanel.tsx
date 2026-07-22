@@ -18,6 +18,7 @@ export function AgentConsumptionPanel({
   manageLabel,
   rows,
   external,
+  externalMode = "summary",
   externalTitle = "外部配置",
   externalDescription = "尚未由 MUX 管理",
   externalAction,
@@ -28,6 +29,7 @@ export function AgentConsumptionPanel({
   onEnabledChange,
   enabledChangeDisabled,
   renderAction,
+  renderExternalAction,
   onRemove,
   removeLabel,
   manageDisabled = false,
@@ -42,6 +44,7 @@ export function AgentConsumptionPanel({
   manageLabel: string;
   rows: ConsumptionView[];
   external: ConsumptionView[];
+  externalMode?: "summary" | "cards";
   externalTitle?: string;
   externalDescription?: string;
   externalAction?: ReactNode;
@@ -52,6 +55,7 @@ export function AgentConsumptionPanel({
   onEnabledChange?(item: ConsumptionView, enabled: boolean): void;
   enabledChangeDisabled?: boolean | ((item: ConsumptionView) => boolean);
   renderAction?(item: ConsumptionView): ReactNode;
+  renderExternalAction?(item: ConsumptionView): ReactNode;
   onRemove?(asset: AssetRef): void;
   removeLabel?(name: string): string;
   manageDisabled?: boolean;
@@ -61,6 +65,11 @@ export function AgentConsumptionPanel({
   emptyAction?: ReactNode;
   columns?: 2 | 3;
 }) {
+  const items = [
+    ...rows.map((item) => ({ item, external: false })),
+    ...(externalMode === "cards" ? external.map((item) => ({ item, external: true })) : []),
+  ];
+
   return (
     <section className="mux-agent-section mux-agent-resource-content mux-consumption-panel">
       <div className="mux-agent-section-head">
@@ -79,7 +88,7 @@ export function AgentConsumptionPanel({
         </button>
       </div>
 
-      {external.length > 0 && (
+      {externalMode === "summary" && external.length > 0 && (
         <div className="mux-consumption-external" role="status">
           <div>
             <strong>{externalTitle} {external.length}</strong>
@@ -100,7 +109,7 @@ export function AgentConsumptionPanel({
         </div>
       )}
 
-      {rows.length === 0 ? (
+      {items.length === 0 ? (
         <div className="mux-consumption-empty">
           <PackageIcon className="w-7 h-7" />
           <strong>{emptyTitle}</strong>
@@ -109,17 +118,18 @@ export function AgentConsumptionPanel({
         </div>
       ) : (
         <ul className="mux-consumption-list" data-columns={columns}>
-          {rows.map((item) => {
+          {items.map(({ item, external: isExternal }) => {
             const presentation = present(item.asset);
             const enabled = typeof item.enabled === "boolean" ? item.enabled : null;
             const toggleDisabled = typeof enabledChangeDisabled === "function"
               ? enabledChangeDisabled(item)
               : enabledChangeDisabled;
+            const externalActionNode = isExternal ? renderExternalAction?.(item) : null;
             return (
               <li
                 key={`${item.agent_id}:${item.asset.domain}:${assetIdentity(item.asset)}`}
                 data-status={item.status}
-                data-enabled={enabled === false ? "false" : undefined}
+                data-enabled={isExternal || enabled === false ? "false" : undefined}
               >
                 <span className="mux-consumption-icon">{presentation.icon}</span>
                 <span className="mux-consumption-copy">
@@ -131,10 +141,14 @@ export function AgentConsumptionPanel({
                   </span>
                   <small>{presentation.description ?? assetIdentity(item.asset)}</small>
                 </span>
-                {item.status !== "synced" && (
+                {(isExternal || item.status !== "synced") && (
                   <ConsumptionStatus status={item.status} reason={item.reason} />
                 )}
-                {(renderAction || onEnabledChange && enabled !== null || onOpenAsset || onRemove) && (
+                {isExternal ? externalActionNode && (
+                  <span className="mux-consumption-actions">
+                    {externalActionNode}
+                  </span>
+                ) : (renderAction || onEnabledChange && enabled !== null || onOpenAsset || onRemove) && (
                   <span className="mux-consumption-actions">
                     {renderAction?.(item)}
                     {onEnabledChange && enabled !== null && (

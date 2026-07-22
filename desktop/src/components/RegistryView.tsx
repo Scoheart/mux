@@ -5,6 +5,7 @@ import type { RegistryEntry, RegistryOrigin, CatalogItem, ResourceNavigationInte
 import { keyOf, transportOf, type Transport } from "../lib/mcp";
 import { exportEffectiveDialog } from "../lib/api";
 import { formatError } from "../lib/format";
+import { resourceInitial } from "../lib/resourceInitial";
 import { redactSensitiveConfig } from "../lib/resourceWorkspace";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { SourcesSidebar } from "./SourcesSidebar";
@@ -14,7 +15,6 @@ import {
   EditIcon,
   PlusIcon,
   LinkIcon,
-  TerminalIcon,
   CloudIcon,
   DownloadIcon,
   FolderIcon,
@@ -457,7 +457,7 @@ function RegistryCard({
       identity={
         <>
           <ResourceKindIcon kind="mcp">
-            {ep.link ? <LinkIcon className="w-4 h-4" /> : <TerminalIcon className="w-4 h-4" />}
+            <span className="text-sm font-semibold">{resourceInitial(entry.name, "M")}</span>
           </ResourceKindIcon>
           <div className="mux-resource-card-copy">
             <div className="mux-resource-card-heading">

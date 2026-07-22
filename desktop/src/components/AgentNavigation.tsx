@@ -82,7 +82,10 @@ export function AgentNavigation({
     }
     const closeOnEscape = (event: globalThis.KeyboardEvent) => {
       if (event.key !== "Escape") return;
-      if (wasHandledByLayer(event) || document.querySelector(MODAL_DIALOG_SELECTOR)) return;
+      const blockingModal = document.querySelector(
+        `${MODAL_DIALOG_SELECTOR}:not([data-modal-layer="detail"])`,
+      );
+      if (wasHandledByLayer(event) || blockingModal) return;
       claimLayerKeyboardEvent(event);
       setOpen(false);
     };

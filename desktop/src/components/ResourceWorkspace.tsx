@@ -13,7 +13,7 @@ import {
   useState,
 } from "react";
 import { AgentGlyph, agentName } from "./brandIcons";
-import { MODAL_DIALOG_SELECTOR, SearchBar, wasHandledByLayer } from "./ui";
+import { MODAL_DIALOG_SELECTOR, Modal, SearchBar, wasHandledByLayer } from "./ui";
 import { XIcon } from "./icons";
 import {
   MAX_SIDEBAR_WIDTH,
@@ -158,8 +158,6 @@ export function ResourceWorkspace({
   );
   const sidebarWidthRef = useRef(sidebarWidth);
   const resizeSessionRef = useRef<SidebarResizeSession | null>(null);
-  const previousFocusRef = useRef<HTMLElement | null>(null);
-  const inspectorSurfaceRef = useRef<HTMLDivElement>(null);
   const [isResizing, setIsResizing] = useState(false);
   const workspaceId = useId();
   const panelId = `mux-resource-workspace-panel-${workspaceId}`;
@@ -247,23 +245,6 @@ export function ResourceWorkspace({
 
   useEffect(() => () => finishSidebarResize(true), [finishSidebarResize]);
 
-  useEffect(() => {
-    if (isInspectorOpen) {
-      const activeElement = document.activeElement;
-      previousFocusRef.current = activeElement instanceof HTMLElement && activeElement.isConnected
-        ? activeElement
-        : null;
-      const frame = requestAnimationFrame(() => {
-        inspectorSurfaceRef.current?.querySelector<HTMLElement>("[data-resource-inspector]")?.focus();
-      });
-      return () => cancelAnimationFrame(frame);
-    }
-
-    const previousFocus = previousFocusRef.current;
-    previousFocusRef.current = null;
-    if (previousFocus?.isConnected) previousFocus.focus();
-  }, [isInspectorOpen]);
-
   return (
     <ResourcePanelContext.Provider value={resourcePanelContext}>
       <WorkspaceResizeContext.Provider
@@ -306,21 +287,15 @@ export function ResourceWorkspace({
                 {children}
               </div>
               {inspector && (
-                <div className="mux-workspace-inspector-layer">
-                  <button
-                    type="button"
-                    className="mux-workspace-inspector-mask"
-                    aria-label="关闭详情"
-                    onClick={() => onInspectorClose?.()}
-                  />
-                  <div
-                    ref={inspectorSurfaceRef}
-                    className="mux-workspace-inspector-surface"
-                    onPointerDown={(event) => event.stopPropagation()}
-                  >
-                    {inspector}
-                  </div>
-                </div>
+                <Modal
+                  width="min(720px, calc(100vw - 32px))"
+                  maxHeight="calc(100vh - 32px)"
+                  ariaLabel="资源详情"
+                  layer="detail"
+                  onClose={() => onInspectorClose?.()}
+                >
+                  <div className="mux-workspace-inspector-surface">{inspector}</div>
+                </Modal>
               )}
             </div>
           </section>
@@ -489,7 +464,13 @@ export function ResourceInspector({
   }, [onClose]);
 
   return (
-    <aside className="mux-resource-inspector" data-resource-inspector tabIndex={-1} aria-label={`${title} 详情`}>
+    <aside
+      className="mux-resource-inspector"
+      data-resource-inspector
+      data-modal-initial-focus
+      tabIndex={-1}
+      aria-label={`${title} 详情`}
+    >
       <header className="mux-resource-inspector-head">
         {avatar}
         <div className="min-w-0 flex-1">

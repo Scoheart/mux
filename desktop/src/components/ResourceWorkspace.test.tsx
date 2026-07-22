@@ -88,7 +88,7 @@ describe("ResourceWorkspace", () => {
     expect(separator).toHaveAttribute("aria-valuenow", "184");
   });
 
-  it("makes the resource panel inert and restores focus after Inspector close", async () => {
+  it("opens the Inspector as a centered modal and restores focus after close", async () => {
     render(<WorkspaceHarness />);
     const opener = screen.getByRole("button", { name: "打开资源 A" });
     opener.focus();
@@ -97,11 +97,11 @@ describe("ResourceWorkspace", () => {
     const panel = screen.getByRole("tabpanel", { hidden: true });
     expect(panel).toHaveAttribute("inert");
     expect(panel).toHaveAttribute("aria-hidden", "true");
-    await waitFor(() => {
-      expect(screen.getByRole("complementary", { name: "资源 A 详情" })).toHaveFocus();
-    });
+    const dialog = await screen.findByRole("dialog", { name: "资源详情" });
+    expect(dialog).toHaveAttribute("aria-modal", "true");
+    await waitFor(() => expect(screen.getByRole("complementary", { name: "资源 A 详情" })).toHaveFocus());
 
-    fireEvent.click(screen.getAllByRole("button", { name: "关闭详情" })[0]);
+    fireEvent.click(screen.getByRole("button", { name: "关闭详情" }));
     await waitFor(() => expect(opener).toHaveFocus());
   });
 
@@ -109,6 +109,7 @@ describe("ResourceWorkspace", () => {
     const onInspectorClose = vi.fn();
     render(<WorkspaceHarness onInspectorClose={onInspectorClose} />);
     fireEvent.click(screen.getByRole("button", { name: "打开资源 A" }));
+    expect(await screen.findByRole("dialog", { name: "资源详情" })).toBeVisible();
     await waitFor(() => screen.getByRole("complementary", { name: "资源 A 详情" }));
     fireEvent.click(screen.getByRole("button", { name: "打开确认" }));
     expect(screen.getByRole("dialog", { name: "确认资源" })).toBeVisible();

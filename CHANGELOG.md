@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.29](https://github.com/Scoheart/mux/compare/v1.8.28...v1.8.29) (2026-07-22)
+
+### Changes
+
+* fix(desktop): center resource detail modal ([c235b02](https://github.com/Scoheart/mux/commit/c235b022937cd8cc37060eb8a5b4c612fe6af737))
+
 ## [1.8.28](https://github.com/Scoheart/mux/compare/v1.8.27...v1.8.28) (2026-07-22)
 
 ### Changes

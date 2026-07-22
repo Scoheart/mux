@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.33](https://github.com/Scoheart/mux/compare/v1.8.32...v1.8.33) (2026-07-22)
+
+### Changes
+
+* feat(agent): show external assets individually ([c7202a0](https://github.com/Scoheart/mux/commit/c7202a08286212365d695b2daeea02e7414d8869))
+
 ## [1.8.32](https://github.com/Scoheart/mux/compare/v1.8.31...v1.8.32) (2026-07-22)
 
 ### Changes

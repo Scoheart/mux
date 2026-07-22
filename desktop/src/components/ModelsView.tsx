@@ -14,6 +14,7 @@ import { ResourceCard, ResourceKindIcon } from "./ResourceCard";
 import { ResourceState } from "./ResourceState";
 import { DialogShell } from "./DialogShell";
 import { AssetOperationReviewDialog } from "./AssetOperationReviewDialog";
+import { FormSelect } from "./FormSelect";
 import {
   CopyIcon,
   EditIcon,
@@ -39,6 +40,8 @@ const PROTOCOLS: Array<{ id: ModelProtocol; label: string }> = [
   { id: "openai-responses", label: "OpenAI Responses" },
   { id: "openai-completions", label: "OpenAI Chat Completions" },
 ];
+
+const CUSTOM_PROVIDER_OPTION = "__custom__";
 
 type ModelAssetFilter = "all" | "credential" | "reasoning";
 
@@ -505,6 +508,16 @@ function ModelProfileDialog({
   const [busy, setBusy] = useState(false);
   const baseUrlAutoManaged = useRef(initial === null);
   const toast = useToast();
+  const initialProvider = initial?.provider.trim() ?? "";
+  const initialProviderIsKnown = providers.some(
+    (provider) => provider.id !== "custom" && provider.id === initialProvider,
+  );
+  const [providerSelection, setProviderSelection] = useState(
+    initialProvider && !initialProviderIsKnown ? CUSTOM_PROVIDER_OPTION : initialProvider,
+  );
+  const [customProvider, setCustomProvider] = useState(
+    initialProvider && !initialProviderIsKnown ? initialProvider : "",
+  );
 
   const updateProvider = (provider: string) => {
     setDraft((current) => ({
@@ -516,13 +529,27 @@ function ModelProfileDialog({
     }));
   };
 
+  const selectProvider = (provider: string) => {
+    setProviderSelection(provider);
+    updateProvider(provider === CUSTOM_PROVIDER_OPTION ? customProvider : provider);
+  };
+
+  const updateCustomProvider = (provider: string) => {
+    setCustomProvider(provider);
+    updateProvider(provider);
+  };
+
   const updateBaseUrl = (baseUrl: string) => {
     baseUrlAutoManaged.current = false;
     setDraft((current) => ({ ...current, base_url: baseUrl }));
   };
 
-  const valid =
-    draft.base_url.trim() && draft.model.trim() && !busy;
+  const valid = Boolean(
+    draft.base_url.trim()
+      && draft.model.trim()
+      && (providerSelection !== CUSTOM_PROVIDER_OPTION || draft.provider.trim())
+      && !busy,
+  );
 
   const save = async () => {
     if (!valid) return;
@@ -566,25 +593,33 @@ function ModelProfileDialog({
     >
       <div className="mux-model-form">
         <div className="mux-model-form-grid">
-          <label>
+          <div className="mux-model-form-field">
             <span>Provider</span>
-            <input
+            <FormSelect
               autoFocus
-              aria-label="Provider"
-              className="mux-model-field"
-              list="mux-model-provider-options"
-              value={draft.provider}
-              onChange={(event) => updateProvider(event.target.value)}
-              placeholder="留空则根据 Base URL 自动识别"
-              spellCheck={false}
+              ariaLabel="Provider"
+              value={providerSelection}
+              options={[
+                { value: "", label: "自动识别" },
+                ...providers
+                  .filter((provider) => provider.id !== "custom")
+                  .map((provider) => ({ value: provider.id, label: provider.name })),
+                { value: CUSTOM_PROVIDER_OPTION, label: "Custom Provider…" },
+              ]}
+              onChange={selectProvider}
             />
-            <datalist id="mux-model-provider-options">
-              {providers.map((provider) => (
-                <option key={provider.id} value={provider.id}>{provider.name}</option>
-              ))}
-            </datalist>
-            <small>留空自动识别；不在列表中可直接输入自定义 Provider ID。</small>
-          </label>
+            {providerSelection === CUSTOM_PROVIDER_OPTION && (
+              <input
+                aria-label="自定义 Provider ID"
+                className="mux-model-field mux-model-custom-provider"
+                value={customProvider}
+                onChange={(event) => updateCustomProvider(event.target.value)}
+                placeholder="例如 my-gateway"
+                spellCheck={false}
+              />
+            )}
+            <small>选择已知 Provider 会填入建议地址；选择 Custom 可填写自己的 Provider ID。</small>
+          </div>
           <label>
             <span>名称（可选）</span>
             <input
@@ -596,19 +631,16 @@ function ModelProfileDialog({
           </label>
         </div>
 
-        <label>
+        <div className="mux-model-form-field">
           <span>协议</span>
-          <select
-            className="mux-model-field"
+          <FormSelect
+            ariaLabel="协议"
             value={draft.protocol}
-            onChange={(event) => setDraft({ ...draft, protocol: event.target.value as ModelProtocol })}
-          >
-            {PROTOCOLS.map((protocol) => (
-              <option key={protocol.id} value={protocol.id}>{protocol.label}</option>
-            ))}
-          </select>
+            options={PROTOCOLS.map((protocol) => ({ value: protocol.id, label: protocol.label }))}
+            onChange={(protocol) => setDraft({ ...draft, protocol: protocol as ModelProtocol })}
+          />
           <small>请选择服务端实际兼容的 API 协议；此项不会根据 Base URL 自动识别。</small>
-        </label>
+        </div>
 
         <label>
           <span>Base URL</span>

@@ -336,10 +336,18 @@ body {
   outline-offset: 1px;
 }
 .mux-update-check:disabled { opacity: .62; cursor: default; }
+.mux-update-check-icon {
+  display: inline-flex; width: 14px; height: 14px; flex: 0 0 14px; transform-origin: center;
+}
+.mux-update-check-icon[data-busy="true"] { animation: spin .8s linear infinite; }
 .mux-update-version {
   padding-left: 6px;
   color: var(--text-secondary);
   font: 500 10px/1 var(--font-mono);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mux-update-check-icon[data-busy="true"] { animation: none; }
 }
 
 /* Segmented control (top-bar tabs) */
@@ -1556,11 +1564,28 @@ body {
 .mux-model-form,
 .mux-mcp-form { display: flex; flex-direction: column; gap: 14px; padding: 16px; overflow-y: auto; border-radius: 15px; background: var(--surface-section); }
 .mux-model-form-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
-.mux-model-form label > span { display: block; margin-bottom: 6px; color: var(--text-secondary); font-size: 11px; font-weight: 600; }
-.mux-model-form label > small { display: block; margin-top: 5px; color: var(--text-secondary); font-size: 9px; line-height: 1.45; }
-.mux-model-field { width: 100%; height: 36px; min-width: 0; padding: 0 10px; border: 1px solid var(--border-hairline); border-radius: 6px; outline: 0; background: var(--surface-raised); color: var(--text-primary); font: 12px/1 var(--font-sans); }
+.mux-model-form :where(label, .mux-model-form-field) > span { display: block; margin-bottom: 6px; color: var(--text-secondary); font-size: 11px; font-weight: 600; }
+.mux-model-form :where(label, .mux-model-form-field) > small { display: block; margin-top: 5px; color: var(--text-secondary); font-size: 9px; line-height: 1.45; }
+.mux-model-field { box-sizing: border-box; width: 100%; height: 36px; min-width: 0; padding: 0 10px; border: 1px solid var(--border-hairline); border-radius: 6px; outline: 0; appearance: none; background: var(--surface-raised); color: var(--text-primary); font: 12px/1 var(--font-sans); }
 .mux-model-field:focus { border-color: color-mix(in srgb, var(--color-blue) 62%, var(--border-hairline)); box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-blue) 10%, transparent); }
 .mux-model-field:disabled { opacity: .55; cursor: not-allowed; }
+.mux-form-select { position: relative; width: 100%; }
+.mux-form-select-trigger { display: flex; align-items: center; justify-content: space-between; gap: 10px; text-align: left; cursor: pointer; }
+.mux-form-select-trigger[data-open="true"] { border-color: color-mix(in srgb, var(--color-blue) 62%, var(--border-hairline)); box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-blue) 10%, transparent); }
+.mux-form-select-value { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mux-form-select-chevron { width: 14px; height: 14px; flex: 0 0 14px; color: var(--text-secondary); transition: transform .14s ease, color .14s ease; }
+.mux-form-select-trigger[data-open="true"] .mux-form-select-chevron { color: var(--color-blue); transform: rotate(180deg); }
+.mux-form-select-menu { position: absolute; z-index: 620; top: calc(100% + 5px); right: 0; left: 0; max-height: 220px; padding: 4px; overflow-y: auto; border: 1px solid var(--border-hairline); border-radius: 9px; background: var(--surface-popover); box-shadow: var(--shadow-sheet); animation: mux-form-select-in .12s ease-out; }
+@keyframes mux-form-select-in { from { opacity: 0; transform: translateY(-3px) scale(.995); } to { opacity: 1; transform: translateY(0) scale(1); } }
+.mux-form-select-option { display: flex; width: 100%; min-height: 32px; align-items: center; justify-content: space-between; gap: 8px; padding: 0 8px; border: 0; border-radius: 6px; background: transparent; color: var(--text-primary); font: 12px/1.25 var(--font-sans); text-align: left; cursor: pointer; }
+.mux-form-select-option[data-active="true"] { background: var(--surface-selected); }
+.mux-form-select-option[data-selected="true"] { color: var(--color-blue); font-weight: 650; }
+.mux-form-select-option-mark { width: 14px; flex: 0 0 14px; text-align: center; }
+@media (prefers-reduced-motion: reduce) {
+  .mux-form-select-menu { animation: none; }
+  .mux-form-select-chevron { transition: none; }
+}
+.mux-model-custom-provider { margin-top: 6px; }
 .mux-model-check { display: inline-flex; align-items: center; gap: 7px; color: var(--text-secondary); font-size: 11px; }
 .mux-model-check input { accent-color: var(--color-blue); }
 .mux-model-advanced { padding: 12px; border: 0; border-radius: 12px; background: var(--surface-control); }

@@ -101,7 +101,7 @@ it("groups Agent identity and paths in one context region", () => {
   expect(declarations(".mux-consumption-external")).toMatch(/background:\s*var\(--surface-attention\)/);
 });
 
-it("uses three columns for dense central and Agent Skill grids while keeping other relationships two-column", () => {
+it("uses three columns for central assets and every Agent asset domain", () => {
   const centralGrid = declarations(".mux-resource-grid");
   const agentGrid = declarations(".mux-consumption-list");
   const agentSkillGrid = declarations(".mux-consumption-list[data-columns=\"3\"]");
@@ -112,6 +112,8 @@ it("uses three columns for dense central and Agent Skill grids while keeping oth
   expect(centralGrid).toMatch(/gap:\s*8px/);
   expect(agentGrid).toMatch(/grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/);
   expect(agentSkillGrid).toMatch(/grid-template-columns:\s*repeat\(3,\s*minmax\(0,\s*1fr\)\)/);
+  expect(agentView).toMatch(/title="MCP"[\s\S]{0,220}columns=\{3\}/);
+  expect(agentView).toMatch(/title="Models"[\s\S]{0,300}columns=\{3\}/);
   expect(agentView).toMatch(/title="Skills"[\s\S]{0,900}columns=\{3\}/);
   expect(agentGrid).toMatch(/gap:\s*6px/);
 

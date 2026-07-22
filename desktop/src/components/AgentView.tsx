@@ -534,6 +534,7 @@ export function AgentView({
               description={`${mcpRows.length} 项`}
               manageLabel="添加 MCP"
               rows={displayedMcpRows}
+              columns={3}
               external={mcpExternal}
               onManage={() => setPickerDomain("mcp")}
               manageDisabled={!agent.has_global || !consumptionState || preparingChange}
@@ -579,6 +580,7 @@ export function AgentView({
                   description={`${modelRows.length} 个已添加${modelAgent.supports_multiple ? " · 可保留多个并切换当前模型" : ""}`}
                   manageLabel="添加 Model"
                   rows={displayedModelRows}
+                  columns={3}
                   external={modelExternal}
                   externalTitle="外部当前模型"
                   externalDescription="由 Agent 或其他工具设置；MUX 不会自动覆盖"

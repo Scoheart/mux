@@ -246,10 +246,15 @@ export function Layout({
           disabled={checkingUpdate}
           onClick={() => void handleCheckUpdate()}
         >
-          <DownloadIcon
-            className="w-3.5 h-3.5"
-            style={checkingUpdate ? { animation: "spin 0.8s linear infinite" } : undefined}
-          />
+          <span
+            className="mux-update-check-icon"
+            data-busy={checkingUpdate ? "true" : undefined}
+            aria-hidden="true"
+          >
+            {checkingUpdate
+              ? <RefreshIcon className="w-full h-full" />
+              : <DownloadIcon className="w-full h-full" />}
+          </span>
           <span>{checkingUpdate ? "检查中…" : "检查更新"}</span>
           {version && <span className="mux-update-version">v{version}</span>}
         </button>

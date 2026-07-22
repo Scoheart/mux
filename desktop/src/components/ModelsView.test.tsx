@@ -43,6 +43,17 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
+async function chooseFormSelect(
+  user: ReturnType<typeof userEvent.setup>,
+  label: string,
+  option: string,
+) {
+  const combobox = screen.getByRole("combobox", { name: label });
+  await user.click(combobox);
+  await user.click(screen.getByRole("option", { name: option }));
+  return combobox;
+}
+
 it("maps Model cards to the shared resource interface", () => {
   const card = source.slice(source.indexOf("function ModelCard"), source.indexOf("function ModelInspector"));
   expect(card).toMatch(/<ResourceCard/);
@@ -77,17 +88,27 @@ it("supports env-only Agent metadata without storing a secret value", () => {
   expect(agentSource).toMatch(/需要 ENV/);
 });
 
-it("allows an auto-detected or custom Provider while keeping protocol explicit", () => {
+it("uses the unified Provider select with a conditional custom ID field", () => {
   const providerField = source.slice(
     source.indexOf("<span>Provider</span>"),
     source.indexOf("<span>名称（可选）</span>"),
   );
-  expect(providerField).toMatch(/<input\s+[\s\S]*?list="mux-model-provider-options"/);
-  expect(providerField).toMatch(/<datalist id="mux-model-provider-options">/);
-  expect(providerField).toMatch(/不在列表中可直接输入自定义 Provider ID/);
-  expect(providerField).not.toMatch(/<select/);
+  expect(providerField).toMatch(/<FormSelect\s+[\s\S]*?ariaLabel="Provider"/);
+  expect(providerField).toMatch(/\{ value: "", label: "自动识别" \}/);
+  expect(providerField).toMatch(/\{ value: CUSTOM_PROVIDER_OPTION, label: "Custom Provider…" \}/);
+  expect(providerField).toMatch(/providerSelection === CUSTOM_PROVIDER_OPTION/);
+  expect(providerField).toMatch(/aria-label="自定义 Provider ID"/);
+  expect(providerField).not.toMatch(/<select|datalist/);
   expect(source).toMatch(/provider: draft\.provider\.trim\(\)/);
   expect(source).toMatch(/此项不会根据 Base URL 自动识别/);
+});
+
+it("uses one custom select surface for Provider and protocol", () => {
+  expect(source).toMatch(/<FormSelect\s+[\s\S]*?ariaLabel="Provider"/);
+  expect(source).toMatch(/<FormSelect\s+[\s\S]*?ariaLabel="协议"/);
+  expect(source).not.toMatch(/<select/);
+  expect(css).toMatch(/\.mux-form-select-menu/);
+  expect(css).toMatch(/background: var\(--surface-popover\)/);
 });
 
 it("fills and switches a known Provider default until the Base URL is edited", async () => {
@@ -103,33 +124,31 @@ it("fills and switches a known Provider default until the Base URL is edited", a
   await waitFor(() => expect(screen.getByRole("button", { name: "新建模型" })).toBeEnabled());
   await user.click(screen.getByRole("button", { name: "新建模型" }));
   await waitFor(() => expect(screen.getByRole("heading", { name: "新建模型" })).toHaveFocus());
-  const provider = screen.getByLabelText("Provider");
+  const provider = screen.getByRole("combobox", { name: "Provider" });
   const baseUrl = screen.getByLabelText("Base URL");
 
-  await user.type(provider, "openrouter");
+  await chooseFormSelect(user, "Provider", "OpenRouter");
   expect(baseUrl).toHaveValue("https://openrouter.ai/api/v1");
 
-  await user.clear(provider);
-  await user.type(provider, "openai");
+  await chooseFormSelect(user, "Provider", "OpenAI");
   expect(baseUrl).toHaveValue("https://api.openai.com/v1");
 
-  await user.clear(provider);
-  await user.type(provider, "custom");
+  await chooseFormSelect(user, "Provider", "Custom Provider…");
   expect(baseUrl).toHaveValue("");
+  await user.type(screen.getByLabelText("自定义 Provider ID"), "my-gateway");
 
-  await user.clear(provider);
-  await user.type(provider, "openrouter");
+  await chooseFormSelect(user, "Provider", "OpenRouter");
   expect(baseUrl).toHaveValue("https://openrouter.ai/api/v1");
+  expect(screen.queryByLabelText("自定义 Provider ID")).not.toBeInTheDocument();
 
   await user.clear(baseUrl);
-  await user.clear(provider);
-  await user.type(provider, "openai");
+  await chooseFormSelect(user, "Provider", "OpenAI");
   expect(baseUrl).toHaveValue("");
 
   await user.type(baseUrl, "https://gateway.example.test/v1");
-  await user.clear(provider);
-  await user.type(provider, "openrouter");
+  await chooseFormSelect(user, "Provider", "OpenRouter");
   expect(baseUrl).toHaveValue("https://gateway.example.test/v1");
+  expect(provider).toHaveTextContent("OpenRouter");
 });
 
 it("does not overwrite a Base URL that was entered before the Provider", async () => {
@@ -148,7 +167,7 @@ it("does not overwrite a Base URL that was entered before the Provider", async (
   const baseUrl = screen.getByLabelText("Base URL");
 
   await user.type(baseUrl, "https://gateway.example.test/v1");
-  await user.type(screen.getByLabelText("Provider"), "openrouter");
+  await chooseFormSelect(user, "Provider", "OpenRouter");
 
   expect(baseUrl).toHaveValue("https://gateway.example.test/v1");
 });
@@ -178,9 +197,10 @@ it("does not overwrite the Base URL of an existing model", async () => {
   await user.click(screen.getByRole("button", { name: "编辑" }));
   await waitFor(() => expect(screen.getByRole("heading", { name: "编辑模型" })).toHaveFocus());
 
-  const provider = screen.getByLabelText("Provider");
-  await user.clear(provider);
-  await user.type(provider, "openrouter");
+  const provider = screen.getByRole("combobox", { name: "Provider" });
+  expect(provider).toHaveTextContent("Custom Provider…");
+  expect(screen.getByLabelText("自定义 Provider ID")).toHaveValue("custom");
+  await chooseFormSelect(user, "Provider", "OpenRouter");
 
   expect(screen.getByLabelText("Base URL")).toHaveValue("https://gateway.example.test/v1");
 });
@@ -199,7 +219,8 @@ it("submits an arbitrary Provider ID through the central asset plan", async () =
   await waitFor(() => expect(screen.getByRole("button", { name: "新建模型" })).toBeEnabled());
   await user.click(screen.getByRole("button", { name: "新建模型" }));
   await waitFor(() => expect(screen.getByRole("heading", { name: "新建模型" })).toHaveFocus());
-  await user.type(screen.getByLabelText("Provider"), "my-gateway");
+  await chooseFormSelect(user, "Provider", "Custom Provider…");
+  await user.type(screen.getByLabelText("自定义 Provider ID"), "my-gateway");
   await user.type(screen.getByPlaceholderText("https://api.example.com/v1"), "https://models.example.test/v1/");
   await user.type(screen.getByPlaceholderText("model-name"), "custom-model");
   await user.click(screen.getByRole("button", { name: "审阅更改" }));

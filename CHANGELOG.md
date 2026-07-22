@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.25](https://github.com/Scoheart/mux/compare/v1.8.24...v1.8.25) (2026-07-22)
+
+### Changes
+
+* fix(desktop): unify feedback-driven controls ([cf30e7f](https://github.com/Scoheart/mux/commit/cf30e7f4fdc55857674b0a9fd463bca07805bee6))
+
 ## [1.8.24](https://github.com/Scoheart/mux/compare/v1.8.23...v1.8.24) (2026-07-22)
 
 ### Changes

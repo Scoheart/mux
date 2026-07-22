@@ -35,6 +35,7 @@ export function AgentConsumptionPanel({
   emptyTitle = "还没有添加资产",
   emptyDescription,
   emptyAction,
+  columns = 2,
 }: {
   title: string;
   description?: string;
@@ -58,6 +59,7 @@ export function AgentConsumptionPanel({
   emptyTitle?: string;
   emptyDescription?: string;
   emptyAction?: ReactNode;
+  columns?: 2 | 3;
 }) {
   return (
     <section className="mux-agent-section mux-agent-resource-content mux-consumption-panel">
@@ -106,7 +108,7 @@ export function AgentConsumptionPanel({
           {emptyAction}
         </div>
       ) : (
-        <ul className="mux-consumption-list">
+        <ul className="mux-consumption-list" data-columns={columns}>
           {rows.map((item) => {
             const presentation = present(item.asset);
             const enabled = typeof item.enabled === "boolean" ? item.enabled : null;

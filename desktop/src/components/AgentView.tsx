@@ -657,6 +657,7 @@ export function AgentView({
               removeLabel={(name) => `从 ${agent.name} 移除 ${name}`}
               removeDisabled={preparingChange}
               emptyTitle="暂无 Skill"
+              columns={3}
               present={(asset) => {
                 const name = asset.domain === "skill" ? asset.name : "";
                 const skill = centralSkills.find((candidate) => candidate.name === name);

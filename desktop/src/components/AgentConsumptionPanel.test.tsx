@@ -34,9 +34,11 @@ describe("AgentConsumptionPanel", () => {
         onEnabledChange={onEnabledChange}
         onRemove={onRemove}
         removeLabel={(name) => `从 Codex 移除 ${name}`}
+        columns={3}
       />,
     );
 
+    expect(screen.getByRole("list")).toHaveAttribute("data-columns", "3");
     expect(screen.getByRole("button", { name: "添加 MCP" })).toBeVisible();
     expect(screen.queryByText("已同步")).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole("switch", { name: "停用 GitHub" }));

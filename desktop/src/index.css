@@ -415,7 +415,7 @@ body {
   border-radius: 6px; color: var(--text-primary); transform: translateY(var(--mux-agent-order-offset, 0));
   transition: background-color .12s ease, opacity .12s ease, transform .18s cubic-bezier(.2, .8, .2, 1);
 }
-.mux-agent-picker-slot[data-sorting="true"] > .mux-agent-picker-row { pointer-events: none; }
+.mux-agent-picker-slot[data-sorting="true"]:not([data-drag-source="true"]) > .mux-agent-picker-row { pointer-events: none; }
 .mux-agent-picker-list[data-settling="true"] .mux-agent-picker-row { transition: none; }
 .mux-agent-picker-row:hover { background: color-mix(in srgb, var(--text-primary) 6%, transparent); }
 .mux-agent-picker-row[data-active="true"] { background: color-mix(in srgb, var(--color-blue) 11%, transparent); }

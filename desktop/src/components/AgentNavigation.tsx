@@ -194,7 +194,7 @@ export function AgentNavigation({
     const active = selectedAgentId === agent.id;
     const mutationUnavailable = !ready || saving;
     const pinLimitBlocked = !isPinned && pinLimitReached;
-    const orderOffset = sortable
+    const orderOffset = sortable && draggedId !== agent.id
       ? projectedPinnedAgentOffset(pinnedIds, previewOrder, agent.id)
       : 0;
     return (
@@ -202,6 +202,7 @@ export function AgentNavigation({
         key={agent.id}
         className="mux-agent-picker-slot"
         data-sorting={sortable && draggedId ? "true" : undefined}
+        data-drag-source={sortable && draggedId === agent.id ? "true" : undefined}
         onDragOver={sortable ? (event) => previewAtRow(event, agent.id) : undefined}
         onDrop={sortable ? finishDrop : undefined}
       >

@@ -154,6 +154,7 @@ it("drag preview keeps DOM order stable and projects only picker rows", () => {
   expect(component).toMatch(/setDragImage\(\s*event\.currentTarget/);
   expect(component).toMatch(/className="mux-agent-picker-slot"/);
   expect(component).toMatch(/data-sorting=/);
+  expect(component).toMatch(/data-drag-source=/);
   expect(component).toMatch(/data-drop-position=/);
   expect(component).toMatch(/data-settling=\{settling/);
   expect(component).toMatch(/requestAnimationFrame/);
@@ -164,7 +165,7 @@ it("drag preview keeps DOM order stable and projects only picker rows", () => {
   expect(row).toMatch(/position:\s*relative/);
   expect(row).toMatch(/transform:\s*translateY\(var\(--mux-agent-order-offset/);
   expect(css).toMatch(
-    /\.mux-agent-picker-slot\[data-sorting="true"\] > \.mux-agent-picker-row\s*\{[^}]*pointer-events:\s*none/,
+    /\.mux-agent-picker-slot\[data-sorting="true"\]:not\(\[data-drag-source="true"\]\) > \.mux-agent-picker-row\s*\{[^}]*pointer-events:\s*none/,
   );
   expect(css).toMatch(/\.mux-agent-picker-row\[data-drop-position="before"\]::before/);
   expect(css).toMatch(/\.mux-agent-picker-row\[data-drop-position="after"\]::after/);

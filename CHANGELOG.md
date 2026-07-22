@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.32](https://github.com/Scoheart/mux/compare/v1.8.31...v1.8.32) (2026-07-22)
+
+### Changes
+
+* fix(mcp): use name initials for resource cards ([8c57413](https://github.com/Scoheart/mux/commit/8c5741343ed54b47c075e4949071047d5aef3ba4))
+
 ## [1.8.31](https://github.com/Scoheart/mux/compare/v1.8.30...v1.8.31) (2026-07-22)
 
 ### Changes

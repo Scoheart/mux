@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.41](https://github.com/Scoheart/mux/compare/v1.8.40...v1.8.41) (2026-07-23)
+
+### Changes
+
+* fix(ci): satisfy Rust 1.97 lint contracts ([436771b](https://github.com/Scoheart/mux/commit/436771bc6b5640fed7350d8b5acdd6bfab88491d))
+
 ## [1.8.40](https://github.com/Scoheart/mux/compare/v1.8.39...v1.8.40) (2026-07-23)
 
 ### Changes

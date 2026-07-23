@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.42](https://github.com/Scoheart/mux/compare/v1.8.41...v1.8.42) (2026-07-23)
+
+### Changes
+
+* feat(registry): expand curated web research servers ([aae87b5](https://github.com/Scoheart/mux/commit/aae87b5a0d89f31b937a519c1c1be7a66d2939d3))
+
 ## [1.8.41](https://github.com/Scoheart/mux/compare/v1.8.40...v1.8.41) (2026-07-23)
 
 ### Changes

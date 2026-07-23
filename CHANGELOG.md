@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.37](https://github.com/Scoheart/mux/compare/v1.8.36...v1.8.37) (2026-07-23)
+
+### Changes
+
+* feat(desktop): refine asset and migration UI ([6aba0b4](https://github.com/Scoheart/mux/commit/6aba0b40a5ffc5d5f29d352ac09cb7fa492cd56d))
+
 ## [1.8.36](https://github.com/Scoheart/mux/compare/v1.8.35...v1.8.36) (2026-07-23)
 
 ### Changes

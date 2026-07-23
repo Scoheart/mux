@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.43](https://github.com/Scoheart/mux/compare/v1.8.42...v1.8.43) (2026-07-23)
+
+### Changes
+
+* docs(architecture): document current MUX design ([880d8ab](https://github.com/Scoheart/mux/commit/880d8ab3672b7179d5265b549b09916e152bce4d))
+
 ## [1.8.42](https://github.com/Scoheart/mux/compare/v1.8.41...v1.8.42) (2026-07-23)
 
 ### Changes

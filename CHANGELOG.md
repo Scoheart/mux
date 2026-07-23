@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.40](https://github.com/Scoheart/mux/compare/v1.8.39...v1.8.40) (2026-07-23)
+
+### Changes
+
+* fix(ci): restore cross-platform quality gate ([7af14eb](https://github.com/Scoheart/mux/commit/7af14eb8add337be5b08a8ecd7424e3ad6a0af88))
+
 ## [1.8.39](https://github.com/Scoheart/mux/compare/v1.8.38...v1.8.39) (2026-07-23)
 
 ### Changes

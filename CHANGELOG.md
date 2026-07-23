@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.39](https://github.com/Scoheart/mux/compare/v1.8.38...v1.8.39) (2026-07-23)
+
+### Changes
+
+* refactor(core): unify Agent resource architecture ([c4d7ac1](https://github.com/Scoheart/mux/commit/c4d7ac174c6416fdde51ad6e1fd4e9113999386f))
+
 ## [1.8.38](https://github.com/Scoheart/mux/compare/v1.8.37...v1.8.38) (2026-07-23)
 
 ### Changes

@@ -3,7 +3,8 @@ name: Fast Lane Expiry
 on:
   schedule:
     - cron: "27 8 30 7 *"
-    - cron: "17 * * * *"
+    # 09:17 and 21:17 Asia/Shanghai: low-noise retries around the exact deadline.
+    - cron: "17 1,13 * * *"
   workflow_dispatch:
     inputs:
       dry_run:

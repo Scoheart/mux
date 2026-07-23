@@ -177,7 +177,8 @@ test("Fast Lane is exactly ten days and restores only main protection", async ()
     Date.parse(config.ends_at) - Date.parse(config.starts_at),
     10 * 24 * 60 * 60 * 1000,
   );
-  assert.match(expiry, /cron:\s*"17 \* \* \* \*"/);
+  assert.match(expiry, /cron:\s*"17 1,13 \* \* \*"/);
+  assert.doesNotMatch(expiry, /cron:\s*"17 \* \* \* \*"/);
   assert.match(expiry, /cron:\s*"27 8 30 7 \*"/);
   assert.match(expiry, /secrets\.MUX_RULESET_ADMIN_TOKEN/);
   assert.match(expiry, /vars\.MUX_MAIN_RULESET_ID/);

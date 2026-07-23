@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.35](https://github.com/Scoheart/mux/compare/v1.8.34...v1.8.35) (2026-07-23)
+
+### Changes
+
+* fix(app): harden agent resources and update surfaces ([44a5f28](https://github.com/Scoheart/mux/commit/44a5f287c286a487b170a972134fa243612fd0d8))
+
 ## [1.8.34](https://github.com/Scoheart/mux/compare/v1.8.33...v1.8.34) (2026-07-22)
 
 ### Changes

@@ -360,6 +360,177 @@ mod tests {
         }
     }
 
+    fn builtin_entry<'a>(
+        entries: &'a [RegistryEntry],
+        name: &str,
+        transport: &str,
+    ) -> &'a RegistryEntry {
+        entries
+            .iter()
+            .find(|entry| entry.name == name && entry.transport() == transport)
+            .unwrap_or_else(|| panic!("missing curated entry {name}::{transport}"))
+    }
+
+    #[test]
+    fn curated_web_research_entries_match_verified_configs() {
+        let entries = builtin_registry();
+        let stdio_cases: [(&str, &str, &[&str], &str, &str, &[&str]); 6] = [
+            (
+                "tavily",
+                "npx",
+                &["-y", "tavily-mcp@latest"],
+                "TAVILY_API_KEY",
+                "https://github.com/tavily-ai/tavily-mcp",
+                &["web", "search", "crawl", "official"],
+            ),
+            (
+                "firecrawl",
+                "npx",
+                &["-y", "firecrawl-mcp"],
+                "FIRECRAWL_API_KEY",
+                "https://github.com/firecrawl/firecrawl-mcp-server",
+                &["web", "search", "crawl", "official"],
+            ),
+            (
+                "brave-search",
+                "npx",
+                &[
+                    "-y",
+                    "@brave/brave-search-mcp-server",
+                    "--transport",
+                    "stdio",
+                ],
+                "BRAVE_API_KEY",
+                "https://github.com/brave/brave-search-mcp-server",
+                &["web", "search", "news", "images", "official"],
+            ),
+            (
+                "perplexity",
+                "npx",
+                &["-y", "@perplexity-ai/mcp-server"],
+                "PERPLEXITY_API_KEY",
+                "https://github.com/perplexityai/modelcontextprotocol",
+                &["search", "research", "citations", "ai", "official"],
+            ),
+            (
+                "serper",
+                "uvx",
+                &["serper-mcp-server"],
+                "SERPER_API_KEY",
+                "https://github.com/garylab/serper-mcp-server",
+                &["web", "search", "google", "community"],
+            ),
+            (
+                "kagi",
+                "uvx",
+                &["kagimcp"],
+                "KAGI_API_KEY",
+                "https://github.com/kagisearch/kagimcp",
+                &["web", "search", "privacy", "official"],
+            ),
+        ];
+
+        for (name, command, args, env_key, repo, tags) in stdio_cases {
+            let entry = builtin_entry(&entries, name, "stdio");
+            let stdio = entry.config.stdio.as_ref().unwrap();
+            assert_eq!(stdio.command, command, "{name}: command drifted");
+            assert_eq!(
+                stdio
+                    .args
+                    .as_deref()
+                    .unwrap()
+                    .iter()
+                    .map(String::as_str)
+                    .collect::<Vec<_>>(),
+                args,
+                "{name}: args drifted"
+            );
+            let env = stdio.env.as_ref().unwrap();
+            assert_eq!(env.len(), 1, "{name}: unexpected environment fields");
+            assert_eq!(
+                env.get(env_key).map(String::as_str),
+                Some(""),
+                "{name}: credential must remain an empty placeholder"
+            );
+            assert_eq!(entry.repo.as_deref(), Some(repo), "{name}: repo drifted");
+            assert!(
+                tags.iter()
+                    .all(|tag| entry.tags.iter().any(|value| value == tag)),
+                "{name}: required tags drifted"
+            );
+        }
+
+        let http_cases = [
+            (
+                "exa",
+                "https://mcp.exa.ai/mcp?tools=web_search_advanced_exa",
+                "https://exa.ai/docs/reference/exa-mcp",
+                &["search", "research", "ai", "official"][..],
+            ),
+            (
+                "serpapi",
+                "https://mcp.serpapi.com/mcp",
+                "https://serpapi.com/integrations/mcp",
+                &["web", "search", "serp", "official"][..],
+            ),
+            (
+                "jina",
+                "https://mcp.jina.ai/v1",
+                "https://github.com/jina-ai/MCP",
+                &["web", "search", "extraction", "research", "official"][..],
+            ),
+        ];
+
+        for (name, url, repo, tags) in http_cases {
+            let entry = builtin_entry(&entries, name, "http");
+            let http = entry.config.http.as_ref().unwrap();
+            assert_eq!(http.kind, "http", "{name}: HTTP type drifted");
+            assert_eq!(http.url, url, "{name}: endpoint drifted");
+            assert_eq!(entry.repo.as_deref(), Some(repo), "{name}: repo drifted");
+            assert!(
+                tags.iter()
+                    .all(|tag| entry.tags.iter().any(|value| value == tag)),
+                "{name}: required tags drifted"
+            );
+        }
+
+        let serpapi = builtin_entry(&entries, "serpapi", "http");
+        assert_eq!(
+            serpapi
+                .config
+                .http
+                .as_ref()
+                .unwrap()
+                .headers
+                .as_ref()
+                .unwrap()
+                .get("Authorization")
+                .map(String::as_str),
+            Some("Bearer ${SERPAPI_API_KEY}")
+        );
+        assert!(builtin_entry(&entries, "serper", "stdio")
+            .tags
+            .iter()
+            .all(|tag| tag != "official"));
+        assert_eq!(
+            entries
+                .iter()
+                .filter(|entry| entry.name == "firecrawl")
+                .map(RegistryEntry::transport)
+                .collect::<HashSet<_>>(),
+            HashSet::from(["http", "stdio"])
+        );
+        assert_eq!(
+            builtin_entry(&entries, "firecrawl", "http")
+                .config
+                .http
+                .as_ref()
+                .unwrap()
+                .url,
+            "https://mcp.firecrawl.dev/v2/mcp"
+        );
+    }
+
     #[test]
     fn managed_def_paths_are_stable() {
         assert!(cached_path(&managed_def(MANUAL_ID, "手动添加"))

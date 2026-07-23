@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.38](https://github.com/Scoheart/mux/compare/v1.8.37...v1.8.38) (2026-07-23)
+
+### Changes
+
+* feat(desktop): restore agent configuration locations ([0dd9db3](https://github.com/Scoheart/mux/commit/0dd9db362968a9e37ef006e1be374882cfafbff2))
+
 ## [1.8.37](https://github.com/Scoheart/mux/compare/v1.8.36...v1.8.37) (2026-07-23)
 
 ### Changes

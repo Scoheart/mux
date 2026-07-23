@@ -1631,7 +1631,7 @@ mod tests {
             fs::write(&path, "{\n  // keep me\n  \"theme\": \"dark\"\n}\n").unwrap();
             let files = prepare_apply(
                 agent,
-                &[path.clone()],
+                std::slice::from_ref(&path),
                 &profile(ModelProtocol::OpenaiCompletions),
                 true,
             )
@@ -1650,7 +1650,7 @@ mod tests {
         fs::write(&path, r#"{"modelProviders":{"openai":[{"id":"external","baseUrl":"https://external"}]},"future":true}"#).unwrap();
         let file = &prepare_apply(
             "qwen-code",
-            &[path.clone()],
+            std::slice::from_ref(&path),
             &profile(ModelProtocol::OpenaiCompletions),
             true,
         )
@@ -1672,7 +1672,7 @@ mod tests {
             (anthropic.id.clone(), anthropic),
         ]);
         assert_eq!(
-            observe_active("qwen-code", &[path.clone()], &profiles),
+            observe_active("qwen-code", std::slice::from_ref(&path), &profiles),
             ObservedActiveModel::Managed("work".into())
         );
         fs::remove_file(path).unwrap();
@@ -1688,7 +1688,7 @@ mod tests {
         .unwrap();
         let file = &prepare_apply(
             "qwen-code",
-            &[path.clone()],
+            std::slice::from_ref(&path),
             &profile(ModelProtocol::OpenaiCompletions),
             false,
         )
@@ -1711,7 +1711,7 @@ mod tests {
         fs::write(&path, original).unwrap();
         let error = prepare_apply(
             "qwen-code",
-            &[path.clone()],
+            std::slice::from_ref(&path),
             &profile(ModelProtocol::OpenaiCompletions),
             false,
         )
@@ -1731,7 +1731,7 @@ mod tests {
         .unwrap();
         let file = &prepare_apply(
             "crush",
-            &[path.clone()],
+            std::slice::from_ref(&path),
             &profile(ModelProtocol::OpenaiCompletions),
             true,
         )
@@ -1752,7 +1752,7 @@ mod tests {
         fs::write(&path, "# keep me\n[telemetry]\nenabled = false\n").unwrap();
         let file = &prepare_apply(
             "mistral-vibe",
-            &[path.clone()],
+            std::slice::from_ref(&path),
             &profile(ModelProtocol::OpenaiCompletions),
             true,
         )
@@ -1770,7 +1770,7 @@ mod tests {
         fs::write(&path, r#"{"customModels":[{"model":"external","baseUrl":"https://external"}],"mission":{"model":"worker"}}"#).unwrap();
         let file = &prepare_apply(
             "factory-droid",
-            &[path.clone()],
+            std::slice::from_ref(&path),
             &profile(ModelProtocol::OpenaiResponses),
             true,
         )
@@ -1793,7 +1793,7 @@ mod tests {
             fs::write(&path, original).unwrap();
             let prepared = prepare_clear(
                 agent_id,
-                &[path.clone()],
+                std::slice::from_ref(&path),
                 &profile(ModelProtocol::OpenaiCompletions),
             )
             .unwrap();
@@ -1826,7 +1826,7 @@ model:
         .unwrap();
         let file = &prepare_apply(
             "hermes",
-            &[path.clone()],
+            std::slice::from_ref(&path),
             &profile(ModelProtocol::OpenaiCompletions),
             true,
         )
@@ -1887,7 +1887,7 @@ model:
         .unwrap();
         let content = prepare_clear(
             "hermes",
-            &[path.clone()],
+            std::slice::from_ref(&path),
             &profile(ModelProtocol::OpenaiCompletions),
         )
         .unwrap()[0]
@@ -1920,7 +1920,7 @@ model:
         fs::write(&path, "# keep me\nextensions: {}\n").unwrap();
         let files = prepare_apply(
             "goose",
-            &[path.clone()],
+            std::slice::from_ref(&path),
             &profile(ModelProtocol::AnthropicMessages),
             true,
         )
@@ -1969,7 +1969,7 @@ other_policy: strict # keep policy
         let provider_path = goose_provider_path(&path, &profile).unwrap();
         fs::write(&provider_path, "{\"name\":\"mux_776f726b\"}\n").unwrap();
 
-        let files = prepare_clear("goose", &[path.clone()], &profile).unwrap();
+        let files = prepare_clear("goose", std::slice::from_ref(&path), &profile).unwrap();
         assert_eq!(files.len(), 2);
         let content = files[0].content.as_deref().unwrap();
         let value: Value = serde_yaml::from_str(content).unwrap();

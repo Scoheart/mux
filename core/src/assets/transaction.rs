@@ -887,7 +887,7 @@ fn reapply_mcp_consumers(plan: &DomainPlan, key: &str) -> Result<(), String> {
             name,
             transport,
             "global",
-            &[agent_id.clone()],
+            std::slice::from_ref(agent_id),
             None,
             &HashMap::from([(agent_id.clone(), patch)]),
         )
@@ -902,8 +902,14 @@ fn reapply_mcp_consumers(plan: &DomainPlan, key: &str) -> Result<(), String> {
             // Refresh the remembered snapshot from the reviewed central
             // configuration, then return the Agent to its desired disabled
             // state instead of accidentally enabling it.
-            ops::disable(name, transport, "global", &[agent_id.clone()], None)
-                .map_err(|errors| errors.join("; "))?;
+            ops::disable(
+                name,
+                transport,
+                "global",
+                std::slice::from_ref(agent_id),
+                None,
+            )
+            .map_err(|errors| errors.join("; "))?;
         }
     }
     Ok(())
@@ -1151,8 +1157,14 @@ fn apply_mcp(
             .collect();
         for key in left.difference(&right) {
             let (name, transport) = split_mcp_key(key)?;
-            ops::delete(name, transport, "global", &[agent_id.clone()], None)
-                .map_err(|errors| errors.join("; "))?;
+            ops::delete(
+                name,
+                transport,
+                "global",
+                std::slice::from_ref(agent_id),
+                None,
+            )
+            .map_err(|errors| errors.join("; "))?;
         }
         for key in right.difference(&left) {
             // Adopting an exact external observation only records desired state;
@@ -1173,7 +1185,7 @@ fn apply_mcp(
                 name,
                 transport,
                 "global",
-                &[agent_id.clone()],
+                std::slice::from_ref(agent_id),
                 None,
                 &HashMap::from([(agent_id.clone(), patch)]),
             )

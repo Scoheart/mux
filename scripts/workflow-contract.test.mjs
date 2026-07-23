@@ -34,6 +34,11 @@ test("quality workflow runs independent producer jobs", async () => {
   );
   assert.match(
     tauri,
+    /working-directory:\s*desktop[\s\S]*bash scripts\/prepare-sidecar\.sh[\s\S]*cargo clippy/,
+  );
+  assert.doesNotMatch(tauri, /\btouch\s+.*binaries\/mux/);
+  assert.match(
+    tauri,
     /cargo clippy --locked --manifest-path desktop\/src-tauri\/Cargo\.toml --all-targets -- -D warnings/,
   );
   assert.match(

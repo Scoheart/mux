@@ -27,6 +27,22 @@ pub(super) struct ConsumedFile {
     pub sha256: String,
 }
 
+#[cfg(unix)]
+pub(super) fn normalize_stat_u64<T>(value: T) -> u64
+where
+    u64: TryFrom<T>,
+{
+    u64::try_from(value).unwrap_or(u64::MAX)
+}
+
+#[cfg(unix)]
+pub(super) fn normalize_stat_u32<T>(value: T) -> u32
+where
+    u32: TryFrom<T>,
+{
+    u32::try_from(value).unwrap_or(u32::MAX)
+}
+
 pub(super) fn verify_anchored_identity(
     expected: &AnchoredIdentity,
     actual: &AnchoredIdentity,
@@ -728,11 +744,11 @@ mod platform {
                 FileType::Symlink => AnchoredFileKind::Symlink,
                 _ => AnchoredFileKind::Other,
             },
-            device: stat.st_dev as u64,
+            device: normalize_stat_u64(stat.st_dev),
             inode: stat.st_ino,
-            links: stat.st_nlink as u64,
+            links: normalize_stat_u64(stat.st_nlink),
             size: u64::try_from(stat.st_size).unwrap_or(u64::MAX),
-            mode: stat.st_mode as u32,
+            mode: normalize_stat_u32(stat.st_mode),
         }
     }
 

@@ -14,7 +14,9 @@ struct StagingMetadata<'a> {
 
 #[cfg(unix)]
 mod platform {
-    use super::super::anchored::{AnchoredFileKind, AnchoredIdentity, AnchoredRoot};
+    use super::super::anchored::{
+        normalize_stat_u32, normalize_stat_u64, AnchoredFileKind, AnchoredIdentity, AnchoredRoot,
+    };
     use super::*;
     use rustix::fs::{
         fchmod, fstat, mkdirat, openat, renameat, statat, symlinkat, unlinkat, AtFlags, Dir,
@@ -706,11 +708,11 @@ mod platform {
         };
         AnchoredIdentity {
             kind,
-            device: u64::try_from(stat.st_dev).unwrap_or(u64::MAX),
+            device: normalize_stat_u64(stat.st_dev),
             inode: stat.st_ino,
-            links: u64::from(stat.st_nlink),
+            links: normalize_stat_u64(stat.st_nlink),
             size: u64::try_from(stat.st_size).unwrap_or(u64::MAX),
-            mode: u32::from(stat.st_mode),
+            mode: normalize_stat_u32(stat.st_mode),
         }
     }
 

@@ -71,7 +71,7 @@ const skillsState = {
   refresh: vi.fn(),
 } as unknown as SkillsState;
 
-it("shows a Skills-only Agent without a configuration-path map or empty MCP schema metadata", async () => {
+it("shows a Skills-only Agent with the three configuration locations and no empty MCP schema metadata", async () => {
   render(
     <AgentView
       state={state}
@@ -80,9 +80,13 @@ it("shows a Skills-only Agent without a configuration-path map or empty MCP sche
     />,
   );
 
-  expect(screen.queryByText("配置位置")).not.toBeInTheDocument();
-  expect(screen.queryByText(/读取或写入的实际位置/)).not.toBeInTheDocument();
-  expect(screen.queryByText(skillsOnlyAgent.skills_global_dir!)).not.toBeInTheDocument();
+  const locations = screen.getByRole("region", { name: "配置位置" });
+  expect(within(locations).getByText("配置位置")).toBeVisible();
+  expect(within(locations).getByText(/读取或写入的实际位置/)).toBeVisible();
+  expect(within(locations).getByText("MCPs")).toBeVisible();
+  expect(within(locations).getByText("Models")).toBeVisible();
+  expect(within(locations).getByText("Skills")).toBeVisible();
+  expect(within(locations).getByText(skillsOnlyAgent.skills_global_dir!)).toBeVisible();
   expect(screen.queryByRole("button", { name: "编辑 Agent 设置" })).not.toBeInTheDocument();
   expect(screen.queryByText(/UNKNOWN/)).not.toBeInTheDocument();
   expect(screen.queryByText(/coding-agent/)).not.toBeInTheDocument();
@@ -108,7 +112,8 @@ it("offers only targeted MUX adoption for an external MCP card", async () => {
     has_global: true,
     global: "~/.codex/config.toml",
     supported_transports: ["stdio", "http"],
-    skills_global_dir: null,
+    skills_global_dir: "~/.agents/skills",
+    skills_global_dirs: ["~/.agents/skills", "~/.claude/skills"],
   };
   const mcpState = {
     ...state,
@@ -142,10 +147,13 @@ it("offers only targeted MUX adoption for an external MCP card", async () => {
     />,
   );
 
-  expect(screen.queryByText("配置位置")).not.toBeInTheDocument();
-  expect(screen.queryByText(mcpAgent.global!)).not.toBeInTheDocument();
+  const locations = screen.getByRole("region", { name: "配置位置" });
+  expect(within(locations).getByText(mcpAgent.global!)).toBeVisible();
+  expect(within(locations).getByText("~/.agents/skills · ~/.claude/skills")).toBeVisible();
   expect(screen.queryByText(`${mcpAgent.id} · ${mcpAgent.category}`)).not.toBeInTheDocument();
   expect(screen.getByRole("button", { name: "编辑 Agent 设置" })).toBeVisible();
+  await userEvent.click(within(locations).getByRole("button", { name: "编辑配置" }));
+  expect(screen.getByRole("heading", { name: "编辑配置" })).toBeVisible();
 
   const card = screen.getByText("computer-use").closest<HTMLElement>("li");
   expect(card).not.toBeNull();

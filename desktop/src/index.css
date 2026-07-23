@@ -288,8 +288,11 @@ body {
 }
 
 /* Square icon button */
-.mux-topbar { width: 100%; min-width: 0; max-width: 100%; background: var(--surface-workspace); }
-.mux-topbar-spacer { min-width: 0; }
+.mux-topbar {
+  width: 100%; min-width: 0; max-width: 100%; gap: 8px; padding-right: 16px; padding-left: 16px;
+  background: var(--surface-workspace);
+}
+.mux-topbar-navigation-lane { display: flex; min-width: 0; flex: 1 1 auto; justify-content: flex-end; }
 .mux-icon-btn {
   display: inline-flex; align-items: center; justify-content: center;
   width: 30px; height: 30px; border: 0; border-radius: 8px;
@@ -380,9 +383,15 @@ body {
 .mux-src-row .mux-icon-btn { width: 24px; height: 24px; border-radius: 6px; }
 
 /* Persistent Agent shortcuts and their searchable management popup. */
-.mux-agent-navigation { display: flex; min-width: 0; flex: 0 0 auto; align-items: center; gap: 8px; }
-.mux-pinned-agent-bar { display: flex; height: 40px; align-items: center; gap: 3px; padding: 3px 5px; border: 0; border-radius: 14px; background: var(--surface-section); box-shadow: none; }
+.mux-agent-navigation { display: flex; width: 100%; min-width: 0; flex: 1 1 auto; align-items: center; justify-content: flex-end; gap: 8px; }
+.mux-pinned-agent-bar {
+  display: flex; min-width: 0; height: 40px; flex: 0 1 auto; align-items: center; gap: 3px; padding: 3px 5px;
+  overflow-x: auto; overflow-y: hidden; overscroll-behavior-inline: contain; scroll-snap-type: x proximity;
+  border: 0; border-radius: 14px; background: var(--surface-section); box-shadow: none; scrollbar-width: none;
+}
+.mux-pinned-agent-bar::-webkit-scrollbar { display: none; }
 .mux-pinned-agent { position: relative; display: inline-flex; width: 34px; height: 34px; flex: 0 0 34px; align-items: center; justify-content: center; padding: 0; border: 1px solid transparent; border-radius: 7px; background: transparent; cursor: pointer; }
+.mux-pinned-agent { scroll-snap-align: center; }
 .mux-pinned-agent-glyph { display: inline-flex; width: 30px; height: 30px; flex: 0 0 auto; }
 .mux-pinned-agent-glyph > * { width: 100% !important; height: 100% !important; }
 .mux-pinned-agent:hover { background: color-mix(in srgb, var(--text-primary) 7%, transparent); }
@@ -445,65 +454,6 @@ body {
 .mux-agent-picker-footer button { display: inline-flex; height: 32px; align-items: center; gap: 7px; padding: 0 10px; border: 0; border-radius: 7px; background: transparent; color: var(--color-blue); font: 600 12px/1 var(--font-sans); cursor: pointer; }
 .mux-agent-picker-footer button:hover { background: color-mix(in srgb, var(--color-blue) 9%, transparent); }
 @media (max-height: 680px) { .mux-agent-picker { max-height: calc(100vh - 66px); } .mux-agent-picker-list { min-height: 160px; } }
-@media (max-width: 1080px) {
-  .mux-topbar { gap: 4px; padding-right: 8px; padding-left: 8px; }
-  .mux-topbar .mux-wordmark { width: 48px; flex-basis: 48px; }
-  .mux-topbar .mux-seg { width: 186px; flex: 0 0 186px; gap: 0; padding: 2px; }
-  .mux-topbar .mux-skill-seg { width: 240px; flex: 0 0 240px; }
-  .mux-topbar .mux-seg-item { padding: 5px 7px; }
-  .mux-topbar .mux-seg-item > span { gap: 4px; }
-  .mux-topbar .mux-icon-btn { width: 28px; height: 28px; }
-  .mux-topbar .mux-update-check { width: 132px; flex-basis: 132px; gap: 4px; padding-right: 6px; padding-left: 6px; }
-  .mux-topbar .mux-update-version { padding-left: 4px; }
-  .mux-agent-navigation { gap: 4px; }
-  .mux-agent-picker-trigger { width: 170px; }
-  .mux-pinned-agent-bar { gap: 0; padding-right: 2px; padding-left: 2px; }
-  .mux-pinned-agent { width: 28px; height: 28px; flex-basis: 28px; }
-  .mux-pinned-agent-glyph { width: 28px; height: 28px; }
-}
-@media (max-width: 980px) {
-  .mux-topbar { gap: 3px; padding-right: 6px; padding-left: 6px; }
-  .mux-topbar .mux-wordmark { width: 48px; flex-basis: 48px; }
-  .mux-topbar .mux-skill-seg { width: 220px; flex: 0 0 220px; }
-  .mux-topbar .mux-seg-item { padding: 5px 6px; }
-  .mux-agent-navigation { gap: 3px; }
-  .mux-agent-picker-trigger { width: 40px; padding: 0; justify-content: center; }
-  .mux-agent-picker-trigger-name {
-    position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden;
-    clip: rect(0 0 0 0); clip-path: inset(50%); border: 0; white-space: nowrap;
-  }
-  .mux-agent-picker-chevron { display: none; }
-  .mux-pinned-agent-bar { padding-right: 1px; padding-left: 1px; }
-  .mux-pinned-agent { width: 26px; height: 26px; flex-basis: 26px; }
-  .mux-pinned-agent-glyph { width: 26px; height: 26px; }
-  .mux-topbar .mux-update-check { width: 112px; flex-basis: 112px; }
-  .mux-topbar .mux-update-version { display: none; }
-}
-@media (max-width: 920px) {
-  .mux-topbar { gap: 2px; padding-right: 4px; padding-left: 4px; }
-  .mux-topbar .mux-wordmark { width: 44px; flex-basis: 44px; }
-  .mux-topbar .mux-skill-seg { width: 204px; flex-basis: 204px; }
-  .mux-topbar .mux-seg-item { min-width: 0; padding-right: 4px; padding-left: 4px; }
-  .mux-agent-navigation { gap: 2px; }
-  .mux-agent-picker-trigger { width: 38px; height: 36px; }
-  .mux-pinned-agent-bar { height: 36px; padding-right: 1px; padding-left: 1px; }
-  .mux-pinned-agent { width: 24px; height: 24px; flex-basis: 24px; }
-  .mux-pinned-agent-glyph { width: 24px; height: 24px; }
-  .mux-topbar .mux-icon-btn { width: 26px; height: 26px; }
-  .mux-topbar .mux-update-check { width: 32px; flex-basis: 32px; gap: 0; padding: 0; }
-  .mux-topbar .mux-update-check-label {
-    position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden;
-    clip: rect(0 0 0 0); clip-path: inset(50%); border: 0; white-space: nowrap;
-  }
-}
-@media (max-width: 840px) {
-  .mux-topbar .mux-skill-seg { width: 120px; flex-basis: 120px; }
-  .mux-topbar .mux-seg-item { flex: 1; justify-content: center; padding: 5px 4px; }
-  .mux-topbar .mux-resource-label {
-    position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden;
-    clip: rect(0 0 0 0); clip-path: inset(50%); border: 0; white-space: nowrap;
-  }
-}
 @media (prefers-reduced-motion: reduce) { .mux-agent-picker { animation: none; } .mux-agent-picker-row { transition: none; } }
 
 /* Button system: a solid primary action + a quiet ghost/secondary. */

@@ -38,14 +38,6 @@ export function UpdateBanner({ updater }: { updater: UpdaterState }) {
             </div>
             <div className="min-w-0 flex-1">
               <div className="text-sm font-semibold">发现新版本 v{phase.version}</div>
-              {phase.notes && (
-                <div
-                  className="mt-1 text-xs whitespace-pre-wrap overflow-y-auto"
-                  style={{ color: "var(--text-secondary)", maxHeight: 96 }}
-                >
-                  {phase.notes}
-                </div>
-              )}
             </div>
           </div>
           <div className="flex justify-end gap-2 mt-3">

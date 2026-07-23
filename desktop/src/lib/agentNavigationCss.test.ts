@@ -30,19 +30,6 @@ function pixelValue(source: string, property: string): number {
   return Number(match[1]);
 }
 
-function mediaBlock(source: string, heading: string): string {
-  const start = source.indexOf(heading);
-  expect(start, `expected ${heading}`).not.toBe(-1);
-  const openingBrace = source.indexOf("{", start + heading.length);
-  let depth = 0;
-  for (let index = openingBrace; index < source.length; index += 1) {
-    if (source[index] === "{") depth += 1;
-    if (source[index] === "}") depth -= 1;
-    if (depth === 0) return source.slice(start, index + 1);
-  }
-  throw new Error(`unterminated ${heading}`);
-}
-
 it("keeps Models, MCPs, Skills order before Agent navigation", () => {
   expect(types).toMatch(
     /\| \{ kind: "skills"; intent\?: SkillNavigationIntent \}/,
@@ -83,82 +70,41 @@ it("routes the single app-owned Skills state before the MCP loading gate", () =>
   expect(agentBranch, "expected an explicit Agent route").toBeGreaterThan(loadingGate);
 });
 
-it("reserves compact 900px lanes for Skills and six pinned Agents", () => {
-  const compactStart = css.indexOf("@media (max-width: 980px)");
-  const compactEnd = css.indexOf("@media", compactStart + 1);
-  expect(compactStart, "expected the 900px topbar media query").not.toBe(-1);
-  const compactCss = css.slice(
-    compactStart,
-    compactEnd === -1 ? css.length : compactEnd,
-  );
+it("keeps topbar controls at their wide-layout sizes without compact overrides", () => {
+  const topbar = declarations(css, ".mux-topbar");
+  expect(pixelValue(topbar, "gap")).toBe(8);
+  expect(pixelValue(topbar, "padding-left")).toBe(16);
+  expect(pixelValue(declarations(css, ".mux-icon-btn"), "width")).toBe(30);
+  expect(pixelValue(declarations(css, ".mux-icon-btn"), "height")).toBe(30);
+  expect(pixelValue(declarations(css, ".mux-agent-picker-trigger"), "width")).toBe(220);
+  expect(pixelValue(declarations(css, ".mux-agent-picker-trigger"), "height")).toBe(40);
+  expect(pixelValue(declarations(css, ".mux-pinned-agent"), "width")).toBe(34);
+  expect(pixelValue(declarations(css, ".mux-pinned-agent"), "height")).toBe(34);
+  expect(pixelValue(declarations(css, ".mux-update-check"), "height")).toBe(32);
 
-  const wordmark = declarations(compactCss, ".mux-topbar .mux-wordmark");
-  expect(pixelValue(wordmark, "width")).toBeGreaterThanOrEqual(48);
-  expect(pixelValue(wordmark, "flex-basis")).toBeGreaterThanOrEqual(48);
-
-  const segment = declarations(compactCss, ".mux-topbar .mux-skill-seg");
-  expect(pixelValue(segment, "width")).toBeLessThanOrEqual(240);
-  expect(segment).toMatch(/flex:\s*0\s+0\s+\d+px/);
-
-  const picker = declarations(compactCss, ".mux-agent-picker-trigger");
-  expect(pixelValue(picker, "width")).toBeLessThanOrEqual(132);
-
-  const pickerName = declarations(compactCss, ".mux-agent-picker-trigger-name");
-  expect(pixelValue(pickerName, "width")).toBe(1);
-  expect(pickerName).toMatch(/clip-path:\s*inset\(50%\)/);
-  expect(pickerName).not.toMatch(/display:\s*none/);
-
-  const pinned = declarations(compactCss, ".mux-pinned-agent");
-  expect(pixelValue(pinned, "width")).toBeLessThanOrEqual(26);
-  expect(pixelValue(pinned, "flex-basis")).toBeLessThanOrEqual(26);
-});
-
-it("keeps the complete narrow topbar within its width budget", () => {
-  const compactCss = mediaBlock(css, "@media (max-width: 920px)");
-  const topbar = declarations(compactCss, ".mux-topbar");
-  const wordmark = declarations(compactCss, ".mux-topbar .mux-wordmark");
-  const resources = declarations(compactCss, ".mux-topbar .mux-skill-seg");
-  const navigation = declarations(compactCss, ".mux-agent-navigation");
-  const picker = declarations(compactCss, ".mux-agent-picker-trigger");
-  const pinnedBar = declarations(compactCss, ".mux-pinned-agent-bar");
-  const pinned = declarations(compactCss, ".mux-pinned-agent");
-  const action = declarations(compactCss, ".mux-topbar .mux-icon-btn");
-  const update = declarations(compactCss, ".mux-topbar .mux-update-check");
-
-  const topLevelItemCount = 8;
-  const pinnedCount = 6;
-  const actionCount = 3;
-  const fixedWidth =
-    pixelValue(topbar, "padding-left") +
-    pixelValue(topbar, "padding-right") +
-    pixelValue(topbar, "gap") * (topLevelItemCount - 1) +
-    pixelValue(wordmark, "flex-basis") +
-    pixelValue(resources, "flex-basis") +
-    pixelValue(navigation, "gap") +
-    pixelValue(picker, "width") +
-    pixelValue(pinnedBar, "padding-left") +
-    pixelValue(pinnedBar, "padding-right") +
-    pixelValue(pinned, "flex-basis") * pinnedCount +
-    pixelValue(action, "width") * actionCount +
-    pixelValue(update, "flex-basis");
-
-  expect(fixedWidth).toBeLessThanOrEqual(820);
-  expect(declarations(compactCss, ".mux-topbar .mux-update-check-label")).toMatch(
-    /clip-path:\s*inset\(50%\)/,
-  );
+  expect(css).not.toMatch(/\.mux-topbar \.mux-(?:wordmark|seg|skill-seg|seg-item|icon-btn|update-check)/);
+  expect(css.match(/\.mux-agent-picker-trigger\s*\{/g) ?? []).toHaveLength(1);
+  expect(css.match(/\.mux-pinned-agent-glyph\s*\{/g) ?? []).toHaveLength(1);
+  expect(css).not.toMatch(/@media \(max-width: (?:980|840)px\)/);
   expect(layout).toMatch(/className="mux-update-check-label"/);
   expect(layout).toMatch(/aria-label=\{version \? `检查更新，当前版本/);
+  expect(layout.match(/className="mux-resource-label"/g) ?? []).toHaveLength(3);
 });
 
-it("keeps all resource destinations accessible in the extra-compact lane", () => {
-  const compactCss = mediaBlock(css, "@media (max-width: 840px)");
-  expect(declarations(compactCss, ".mux-topbar .mux-skill-seg")).toMatch(
-    /flex-basis:\s*120px/,
-  );
-  expect(declarations(compactCss, ".mux-topbar .mux-resource-label")).toMatch(
-    /clip-path:\s*inset\(50%\)/,
-  );
-  expect(layout.match(/className="mux-resource-label"/g) ?? []).toHaveLength(3);
+it("absorbs narrow widths in a horizontally scrollable pinned Agent lane", () => {
+  expect(layout).toMatch(/className="mux-topbar-navigation-lane"/);
+  const lane = declarations(css, ".mux-topbar-navigation-lane");
+  expect(lane).toMatch(/min-width:\s*0/);
+  expect(lane).toMatch(/flex:\s*1\s+1\s+auto/);
+
+  const navigation = declarations(css, ".mux-agent-navigation");
+  expect(navigation).toMatch(/width:\s*100%/);
+  expect(navigation).toMatch(/min-width:\s*0/);
+  const pinned = declarations(css, ".mux-pinned-agent-bar");
+  expect(pinned).toMatch(/overflow-x:\s*auto/);
+  expect(pinned).toMatch(/overscroll-behavior-inline:\s*contain/);
+  expect(pinned).toMatch(/scroll-snap-type:\s*x\s+proximity/);
+  expect(declarations(css, ".mux-agent-picker-anchor")).toMatch(/flex:\s*0\s+0\s+auto/);
 });
 
 it("popup action focus rule includes the search clear button", () => {
@@ -177,7 +123,7 @@ it("popup action focus rule includes the search clear button", () => {
   ).toContain(".mux-agent-picker-search-clear:focus-visible");
 });
 
-it("pinned Agent glyph is 30px normally and 28px in compact topbar", () => {
+it("pinned Agent glyph remains 30px at every viewport width", () => {
   expect(component).toMatch(
     /className="mux-pinned-agent-glyph">\s*<AgentGlyph[^>]*size=\{30\}\s*\/>\s*<\/span>/,
   );
@@ -189,13 +135,7 @@ it("pinned Agent glyph is 30px normally and 28px in compact topbar", () => {
   expect(renderedGlyph).toMatch(/width:\s*100%\s*!important/);
   expect(renderedGlyph).toMatch(/height:\s*100%\s*!important/);
 
-  const compactStart = css.indexOf("@media (max-width: 1080px)");
-  const compactEnd = css.indexOf("@media (prefers-reduced-motion", compactStart);
-  expect(compactStart, "expected compact topbar media query").not.toBe(-1);
-  const compactCss = css.slice(compactStart, compactEnd);
-  const compactGlyph = declarations(compactCss, ".mux-pinned-agent-glyph");
-  expect(compactGlyph).toMatch(/width:\s*28px/);
-  expect(compactGlyph).toMatch(/height:\s*28px/);
+  expect(css.match(/\.mux-pinned-agent-glyph\s*\{/g) ?? []).toHaveLength(1);
 });
 
 it("drag preview keeps DOM order stable and projects only picker rows", () => {

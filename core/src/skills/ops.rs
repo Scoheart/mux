@@ -781,17 +781,14 @@ fn build_assignment_plan(
     let target_views = selected_target_views(&inventory, &touched_target_ids)?;
     let mut expected_links = Vec::new();
     for target in &target_views {
-        let state = inspect_link(
-            &target_path(&paths, target, &request.skill_name)?,
-            &central,
-            &paths,
-        )?;
+        let link_path = target_path(&paths, target, &request.skill_name)?;
+        let state = inspect_link(&link_path, &central, &paths)?;
         let desired_managed = desired_target_ids.contains(&target.target_id);
         if desired_managed && is_link_conflict(&state) {
             return conflict_result("assignment would overwrite an unreviewed Agent Skill target");
         }
         if !desired_managed && !is_safe_absent_transition(&state) {
-            return conflict_result("only an exact managed Skill link can be disabled");
+            return disable_conflict(&state, &link_path, paths.user_home());
         }
         expected_links.push(ExpectedLink {
             skill_name: request.skill_name.clone(),
@@ -2296,6 +2293,23 @@ fn is_safe_absent_transition(state: &LinkState) -> bool {
     matches!(state, LinkState::Missing | LinkState::ManagedSymlink { .. })
 }
 
+fn disable_conflict<T>(state: &LinkState, path: &Path, home: &Path) -> Result<T, SkillError> {
+    let reason = match state {
+        LinkState::Directory { .. } => "an unmanaged Skill directory cannot be disabled",
+        LinkState::BrokenSymlink { .. } => "a broken Skill link cannot be disabled",
+        LinkState::UnknownSymlink { .. } => {
+            "a Skill link that points to unmanaged content cannot be disabled"
+        }
+        LinkState::Missing | LinkState::ManagedSymlink { .. } => {
+            "only an exact managed Skill link can be disabled"
+        }
+    };
+    Err(SkillError::Conflict {
+        message: super::capped_message(reason),
+        path: collapse_home(path, home),
+    })
+}
+
 fn existing_states(inventory: &SkillsInventory, name: &str) -> BTreeSet<InventoryState> {
     inventory
         .items
@@ -2489,9 +2503,15 @@ fn sanitize_error(error: SkillError) -> SkillError {
             message: super::capped_message(message),
             path: String::new(),
         },
-        SkillError::Conflict { message, .. } => SkillError::Conflict {
+        SkillError::Conflict { message, path } => SkillError::Conflict {
             message: super::capped_message(message),
-            path: String::new(),
+            // Public operation errors may retain an explicitly home-collapsed
+            // target path. Raw absolute paths from lower layers remain hidden.
+            path: if path == "~" || path.starts_with("~/") {
+                super::capped_message(path)
+            } else {
+                String::new()
+            },
         },
         SkillError::Io { message, .. } => SkillError::Io {
             message: super::capped_message(message),
@@ -2544,6 +2564,102 @@ mod tests {
         SkillSourceInput,
     };
     use crate::testenv::TestHome;
+
+    fn install_assigned_fixture(home: &TestHome, skill_name: &str) -> SkillsPaths {
+        fs::create_dir_all(home.home.join(".claude")).unwrap();
+        let source = home.home.join("source").join(skill_name);
+        fs::create_dir_all(&source).unwrap();
+        fs::write(
+            source.join("SKILL.md"),
+            format!("---\nname: {skill_name}\ndescription: Assignment fixture\n---\n"),
+        )
+        .unwrap();
+        let resolution = resolve_source(
+            SkillSourceInput::Local {
+                path: source.to_string_lossy().into_owned(),
+            },
+            GithubEndpoints::production(),
+        )
+        .unwrap();
+        let plan = plan_install(PlanInstallRequest {
+            resolution_id: resolution.operation_id,
+            skill_names: vec![skill_name.into()],
+            agent_ids: vec!["claude-code".into()],
+            replace_conflicts: false,
+        })
+        .unwrap();
+        commit_install(plan.confirmation()).unwrap();
+        SkillsPaths::from_env().unwrap()
+    }
+
+    #[test]
+    fn assignment_disable_accepts_managed_and_safely_missing_links() {
+        let home = TestHome::new("assignment-disable-safe");
+        install_assigned_fixture(&home, "disable-managed");
+        let managed_path = home.home.join(".claude/skills/disable-managed");
+        assert!(fs::symlink_metadata(&managed_path)
+            .unwrap()
+            .file_type()
+            .is_symlink());
+
+        let managed_plan = plan_assignment(PlanAssignmentRequest {
+            skill_name: "disable-managed".into(),
+            agent_ids: vec!["claude-code".into()],
+            enabled: false,
+        })
+        .unwrap();
+        commit_assignment(managed_plan.confirmation()).unwrap();
+        assert!(!managed_path.exists());
+
+        let paths = install_assigned_fixture(&home, "disable-missing");
+        let missing_path = home.home.join(".claude/skills/disable-missing");
+        fs::remove_file(&missing_path).unwrap();
+        let missing_plan = plan_assignment(PlanAssignmentRequest {
+            skill_name: "disable-missing".into(),
+            agent_ids: vec!["claude-code".into()],
+            enabled: false,
+        })
+        .unwrap();
+        commit_assignment(missing_plan.confirmation()).unwrap();
+        assert!(!missing_path.exists());
+        assert!(paths.central_skill("disable-missing").is_dir());
+    }
+
+    #[test]
+    fn assignment_disable_conflicts_explain_unsafe_link_state_and_target_path() {
+        let home = TestHome::new("assignment-disable-conflicts");
+        let path = home.home.join(".agents/skills/dws");
+        let cases = [
+            (
+                LinkState::Directory {
+                    tree_hash: "hash".into(),
+                },
+                "unmanaged Skill directory",
+            ),
+            (
+                LinkState::BrokenSymlink {
+                    target: PathBuf::from("missing"),
+                },
+                "broken Skill link",
+            ),
+            (
+                LinkState::UnknownSymlink {
+                    target: PathBuf::from("external"),
+                },
+                "unmanaged content",
+            ),
+        ];
+
+        for (state, reason) in cases {
+            let error = disable_conflict::<()>(&state, &path, &home.home).unwrap_err();
+            let sanitized = sanitize_error(error);
+            assert!(matches!(
+                sanitized,
+                SkillError::Conflict { ref message, ref path }
+                    if message.contains(reason) && path == "~/.agents/skills/dws"
+            ));
+        }
+    }
 
     #[test]
     fn central_backup_specs_retain_replaced_content_but_not_empty_rollback_paths() {

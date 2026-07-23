@@ -521,6 +521,7 @@ export function AgentView({
             <div className="mux-agent-inline-state">此 Agent 未接入 MCP。</div>
           ) : (
             <AgentConsumptionPanel
+              domain="mcp"
               title="MCP"
               description={`${mcpRows.length} 项`}
               manageLabel="添加 MCP"
@@ -581,6 +582,7 @@ export function AgentView({
                 <div className="mux-agent-inline-state">此 Agent 尚未接入 Models。</div>
               ) : (
                 <AgentConsumptionPanel
+                  domain="model"
                   title="Models"
                   description={`${modelRows.length} 个已添加${modelAgent.supports_multiple ? " · 可保留多个并切换当前模型" : ""}`}
                   manageLabel="添加 Model"
@@ -671,6 +673,7 @@ export function AgentView({
             )
           ) : (
             <AgentConsumptionPanel
+              domain="skill"
               title="Skills"
               description={`${skillRows.length} 项`}
               manageLabel="添加 Skill"

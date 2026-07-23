@@ -13,6 +13,7 @@ export interface ConsumptionAssetPresentation {
 }
 
 export function AgentConsumptionPanel({
+  domain,
   title,
   description,
   manageLabel,
@@ -39,6 +40,7 @@ export function AgentConsumptionPanel({
   emptyAction,
   columns = 2,
 }: {
+  domain: AssetRef["domain"];
   title: string;
   description?: string;
   manageLabel: string;
@@ -65,9 +67,11 @@ export function AgentConsumptionPanel({
   emptyAction?: ReactNode;
   columns?: 2 | 3;
 }) {
+  const domainRows = rows.filter((item) => item.asset.domain === domain);
+  const domainExternal = external.filter((item) => item.asset.domain === domain);
   const items = [
-    ...rows.map((item) => ({ item, external: false })),
-    ...(externalMode === "cards" ? external.map((item) => ({ item, external: true })) : []),
+    ...domainRows.map((item) => ({ item, external: false })),
+    ...(externalMode === "cards" ? domainExternal.map((item) => ({ item, external: true })) : []),
   ];
 
   return (
@@ -88,15 +92,15 @@ export function AgentConsumptionPanel({
         </button>
       </div>
 
-      {externalMode === "summary" && external.length > 0 && (
+      {externalMode === "summary" && domainExternal.length > 0 && (
         <div className="mux-consumption-external" role="status">
           <div>
-            <strong>{externalTitle} {external.length}</strong>
+            <strong>{externalTitle} {domainExternal.length}</strong>
             <span>{externalDescription}</span>
             {externalAction}
           </div>
           <ul>
-            {external.slice(0, 3).map((item) => {
+            {domainExternal.slice(0, 3).map((item) => {
               const shared = item.asset.domain === "skill" && item.affected_agent_ids.length > 1;
               return (
                 <li key={`${item.agent_id}:${item.asset.domain}:${assetIdentity(item.asset)}`}>

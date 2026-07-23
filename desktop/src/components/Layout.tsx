@@ -153,15 +153,16 @@ export function Layout({
           </button>
         </div>
 
-        {/* Spacer — pushes Agent navigation to the right */}
-        <div className="mux-topbar-spacer flex-1" />
-
-        <AgentNavigation
-          agents={agents}
-          selectedAgentId={view.kind === "agent" ? view.id : null}
-          onSelectAgent={onSelectAgent}
-          onAddAgent={onAddAgent}
-        />
+        {/* The middle lane absorbs narrow widths. Pinned Agents scroll inside
+            this lane while every control keeps its normal hit target. */}
+        <div className="mux-topbar-navigation-lane">
+          <AgentNavigation
+            agents={agents}
+            selectedAgentId={view.kind === "agent" ? view.id : null}
+            onSelectAgent={onSelectAgent}
+            onAddAgent={onAddAgent}
+          />
+        </div>
 
         {/* Right action group */}
         <button

@@ -32,6 +32,7 @@ describe("AgentConsumptionPanel", () => {
     const onEnabledChange = vi.fn();
     render(
       <AgentConsumptionPanel
+        domain="mcp"
         title="MCP"
         description="1 个已添加到 Codex。"
         manageLabel="添加 MCP"
@@ -58,6 +59,7 @@ describe("AgentConsumptionPanel", () => {
   it("uses asset-specific empty copy", () => {
     render(
       <AgentConsumptionPanel
+        domain="skill"
         title="Skills"
         description="0 个已添加到 Codex。"
         manageLabel="添加 Skill"
@@ -78,6 +80,7 @@ describe("AgentConsumptionPanel", () => {
     const onActivate = vi.fn();
     render(
       <AgentConsumptionPanel
+        domain="model"
         title="Models"
         manageLabel="添加 Model"
         rows={[{ ...syncedRow, asset: { domain: "model", profile_id: "work" }, active: false }]}
@@ -101,6 +104,7 @@ describe("AgentConsumptionPanel", () => {
     const onRemove = vi.fn();
     render(
       <AgentConsumptionPanel
+        domain="mcp"
         title="MCP"
         manageLabel="添加 MCP"
         rows={[syncedRow]}
@@ -130,5 +134,37 @@ describe("AgentConsumptionPanel", () => {
     expect(onEnabledChange).not.toHaveBeenCalled();
     expect(onOpenAsset).not.toHaveBeenCalled();
     expect(onRemove).not.toHaveBeenCalled();
+  });
+
+  it("rejects cross-domain rows at the panel boundary", () => {
+    const modelRow: ConsumptionView = {
+      ...syncedRow,
+      asset: { domain: "model", profile_id: "claude-opus-4-7" },
+      active: true,
+    };
+    const skillRow: ConsumptionView = {
+      ...syncedRow,
+      asset: { domain: "skill", name: "dws" },
+      enabled: null,
+      affected_agent_ids: Array.from({ length: 9 }, (_, index) => `agent-${index}`),
+    };
+
+    render(
+      <AgentConsumptionPanel
+        domain="model"
+        title="Models"
+        manageLabel="添加 Model"
+        rows={[modelRow, skillRow]}
+        external={[]}
+        present={(asset) => ({
+          name: asset.domain === "model" ? asset.profile_id : asset.domain === "skill" ? asset.name : asset.key,
+        })}
+        onManage={vi.fn()}
+      />,
+    );
+
+    expect(screen.getAllByText("claude-opus-4-7")[0]).toBeVisible();
+    expect(screen.queryByText("dws")).not.toBeInTheDocument();
+    expect(screen.getAllByRole("listitem")).toHaveLength(1);
   });
 });

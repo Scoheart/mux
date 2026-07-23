@@ -3,6 +3,8 @@ import { createPortal } from "react-dom";
 import { SearchIcon, XIcon } from "./icons";
 import { transportLabel, transportOf } from "../lib/mcp";
 import type { RegistryEntry } from "../lib/types";
+import { assetAvatarColor } from "../lib/assetAvatar";
+import { resourceInitial } from "../lib/resourceInitial";
 
 /* ── Avatar ──────────────────────────────────────────────────────────── */
 
@@ -10,27 +12,34 @@ export function Avatar({
   seed,
   label,
   mono,
+  kind,
+  icon,
   size = 40,
 }: {
   seed: string;
   label?: string;
   mono?: boolean;
+  kind?: "mcp" | "model" | "skill";
+  icon?: ReactNode;
   size?: number;
 }) {
   return (
     <div
-      className="flex-shrink-0 flex items-center justify-center text-white font-semibold select-none"
+      className="mux-asset-avatar flex-shrink-0 flex items-center justify-center text-white font-semibold select-none"
+      data-kind={kind}
+      data-has-icon={icon ? "true" : undefined}
+      aria-hidden="true"
       style={{
         width: size,
         height: size,
         borderRadius: Math.round(size * 0.3),
         fontSize: Math.round(size * 0.4),
-        background: "var(--surface-selected)",
-        color: "var(--color-blue)",
+        background: assetAvatarColor(seed),
+        color: "#fff",
         fontFamily: mono ? "var(--font-mono)" : undefined,
       }}
     >
-      {(label ?? seed)[0]?.toUpperCase() ?? "?"}
+      {icon ?? resourceInitial(label ?? seed)}
     </div>
   );
 }

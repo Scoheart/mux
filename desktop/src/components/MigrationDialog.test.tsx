@@ -104,7 +104,7 @@ describe("MigrationDialog", () => {
       candidate_hash: "model-plan",
     });
     render(<MigrationDialog candidates={candidates} onClose={vi.fn()} onRefresh={onRefresh} />);
-    await userEvent.click(screen.getByRole("button", { name: "导入并统一管理 (3)" }));
+    await userEvent.click(screen.getByRole("button", { name: "导入 3 项" }));
 
     await waitFor(() => expect(onRefresh).toHaveBeenCalledOnce());
     expect(api.planMcpAdoption).toHaveBeenCalledWith({
@@ -127,6 +127,7 @@ describe("MigrationDialog", () => {
       findings_confirmation: null,
     });
     expect(screen.getByText("成功 3 项，失败 0 项")).toBeVisible();
+    expect(screen.getByRole("button", { name: "导入 0 项" })).toBeDisabled();
   });
 
   it("keeps conflicts disabled and unselected", () => {
@@ -139,7 +140,26 @@ describe("MigrationDialog", () => {
     };
     render(<MigrationDialog candidates={[conflict]} onClose={vi.fn()} onRefresh={vi.fn()} />);
     expect(screen.getByRole("checkbox")).toBeDisabled();
-    expect(screen.getByRole("button", { name: "导入并统一管理 (0)" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "导入 0 项" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "全选 Model" })).toBeDisabled();
+  });
+
+  it("supports selecting and clearing each safe domain as a group", async () => {
+    render(<MigrationDialog candidates={candidates} onClose={vi.fn()} onRefresh={vi.fn()} />);
+
+    expect(screen.getByRole("heading", { name: "导入旧配置" })).toBeVisible();
+    expect(screen.getByText("共 3 项 · 3 项可导入 · 0 项需先处理")).toBeVisible();
+    expect(screen.getByText(
+      "选择要整理到 MUX 的旧配置；原 Agent 的权限和登录状态不会改变。",
+    )).toBeVisible();
+    expect(screen.getByRole("button", { name: "关闭" })).toBeEnabled();
+
+    await userEvent.click(screen.getByRole("button", { name: "取消全选 MCP" }));
+    expect(screen.getByRole("button", { name: "导入 2 项" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "全选 MCP" })).toBeEnabled();
+
+    await userEvent.click(screen.getByRole("button", { name: "全选 MCP" }));
+    expect(screen.getByRole("button", { name: "导入 3 项" })).toBeEnabled();
   });
 
   it("stops and cancels when a Skill becomes high risk after review", async () => {
@@ -157,7 +177,7 @@ describe("MigrationDialog", () => {
     vi.mocked(api.cancelSkillOperation).mockResolvedValue(undefined);
 
     render(<MigrationDialog candidates={[candidates[2]]} onClose={vi.fn()} onRefresh={vi.fn().mockResolvedValue(undefined)} />);
-    await userEvent.click(screen.getByRole("button", { name: "导入并统一管理 (1)" }));
+    await userEvent.click(screen.getByRole("button", { name: "导入 1 项" }));
 
     await waitFor(() => expect(api.cancelSkillOperation).toHaveBeenCalledWith("risk-operation"));
     expect(api.commitSkillImport).not.toHaveBeenCalled();

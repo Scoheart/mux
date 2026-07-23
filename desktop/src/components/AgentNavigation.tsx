@@ -18,6 +18,7 @@ import {
   GripVerticalIcon,
   PackageIcon,
   PinIcon,
+  PinOffIcon,
   PlusIcon,
   SearchIcon,
   XIcon,
@@ -260,9 +261,6 @@ export function AgentNavigation({
             <AgentGlyph id={agent.id} name={agent.name} size={32} />
             <span className="min-w-0 flex-1">
               <span className="mux-agent-picker-name">{agent.name}</span>
-              <span className="mux-agent-picker-meta">
-                {agent.format.toUpperCase()} · {agent.id}
-              </span>
             </span>
             {active && <CheckIcon className="mux-agent-picker-check" />}
           </button>
@@ -285,7 +283,7 @@ export function AgentNavigation({
             }}
           >
             {isPinned ? (
-              <PinIcon className="w-3.5 h-3.5" />
+              <PinOffIcon className="w-3.5 h-3.5" />
             ) : (
               <PinIcon className="w-3.5 h-3.5" />
             )}

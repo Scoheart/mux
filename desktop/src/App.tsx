@@ -14,6 +14,7 @@ import { useCliTool } from "./hooks/useCliTool";
 import { useNetworkSettings } from "./hooks/useNetworkSettings";
 import { UpdateBanner } from "./components/UpdateBanner";
 import { MigrationDialog } from "./components/MigrationDialog";
+import { MigrationBanner } from "./components/MigrationBanner";
 import { buildMigrationCandidates, mcpMigrationCandidateId, migrationCounts } from "./lib/migration";
 import { listMcpAdoptionCandidates, listModelAdoptionCandidates, listSkillMigrationCandidates } from "./lib/api";
 import type {
@@ -218,14 +219,11 @@ function App() {
         consumptionState.error?.code !== "recovery_required" &&
         skillsState.error?.code !== "recovery_required" &&
         newMigrationCandidates.length > 0 && (
-        <aside className="mux-migration-banner" role="status">
-          <span>
-            <strong>发现 {newMigrationCandidates.length} 项历史配置</strong>
-            <small>可以导入 MUX 统一管理</small>
-          </span>
-          <button type="button" className="btn-ghost" onClick={ignoreCurrentMigrations}>稍后</button>
-          <button type="button" className="btn-primary" onClick={() => openMigration()}>查看</button>
-        </aside>
+        <MigrationBanner
+          candidates={newMigrationCandidates}
+          onLater={ignoreCurrentMigrations}
+          onOpen={() => openMigration()}
+        />
       )}
 
       {migrationOpen && (

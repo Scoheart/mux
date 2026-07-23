@@ -5,7 +5,6 @@ import type {
 } from "../lib/types";
 import { ResourceCard, ResourceKindIcon } from "./ResourceCard";
 import { Badge } from "./ui";
-import { PackageIcon } from "./icons";
 
 function appendSubpath(base: string, subpath: string) {
   return subpath ? `${base} / ${subpath}` : base;
@@ -66,9 +65,7 @@ export function SkillCard({
       onOpen={onOpen}
       identity={
         <>
-          <ResourceKindIcon kind="skill">
-            <PackageIcon className="w-4 h-4" />
-          </ResourceKindIcon>
+          <ResourceKindIcon kind="skill" seed={item.name} />
           <div className="mux-resource-card-copy">
             <div className="mux-resource-card-heading">
               <h2 title={item.name}>{item.name}</h2>

@@ -178,7 +178,7 @@ export function SkillInspector({
   return (
     <ResourceInspector
       title={item.name}
-      avatar={<Avatar seed={item.name} label="S" size={40} />}
+      avatar={<Avatar seed={item.name} kind="skill" size={40} />}
       subtitle={
         <div className="mux-skill-inspector-badges">
           <Badge tone={item.source?.kind === "github" ? "info" : "neutral"}>

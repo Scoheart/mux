@@ -17,7 +17,7 @@ import { formatError } from "../lib/format";
 import { keyOf, transportOf } from "../lib/mcp";
 import { consumptionsForAgent, externalForAgent } from "../lib/consumption";
 import { listModelAgents, listModelProfiles } from "../lib/api";
-import { EditIcon, LinkIcon, PlusIcon, SparklesIcon } from "./icons";
+import { EditIcon, LinkIcon, PlusIcon } from "./icons";
 import { Avatar, Badge, IconButton } from "./ui";
 import { AgentGlyph } from "./brandIcons";
 import { AgentConfigurationDialog } from "./AgentConfigurationDialog";
@@ -283,6 +283,14 @@ export function AgentView({
   const centralSkills = (skillsState.inventory?.items ?? []).filter(
     (item) => item.location.kind === "central" && item.states.includes("managed"),
   );
+  const agentDisplayNames = Object.fromEntries(
+    agents.map((item) => [item.id, item.name]),
+  );
+  const assetDisplayNames = Object.fromEntries([
+    ...entries.map((entry) => [`mcp:${keyOf(entry)}`, entry.name] as const),
+    ...modelProfiles.map((profile) => [`model:${profile.id}`, profile.name] as const),
+    ...centralSkills.map((skill) => [`skill:${skill.name}`, skill.name] as const),
+  ]);
 
   const currentIds = (domain: AssetRef["domain"]): string[] => {
     if (domain === "mcp") {
@@ -554,7 +562,7 @@ export function AgentView({
                 return {
                   name: entry?.name ?? key.replace(/::(?:stdio|http)$/, ""),
                   description: entry?.description || key,
-                  icon: <Avatar seed={entry?.name ?? key} size={28} />,
+                  icon: <Avatar seed={entry?.name ?? key} kind="mcp" size={28} />,
                   meta: <TransportMark transport={entry ? transportOf(entry) : key.split("::").at(-1) ?? ""} />,
                 };
               }}
@@ -646,7 +654,7 @@ export function AgentView({
                       return {
                         name: externalCandidate.name || externalCandidate.model,
                         description: `${externalCandidate.model} · ${modelProtocolLabel(externalCandidate.protocol)} · ${externalCandidate.provider}`,
-                        icon: <Avatar seed={externalCandidate.name || externalCandidate.model} label="M" size={28} />,
+                        icon: <Avatar seed={externalCandidate.name || externalCandidate.model} kind="model" size={28} />,
                         meta: externalCandidate.active ? <Badge tone="warning">Agent 当前</Badge> : null,
                       };
                     }
@@ -661,7 +669,7 @@ export function AgentView({
                       description: profile
                         ? `${profile.model} · ${modelProtocolLabel(profile.protocol)} · ${credential}`
                         : "MUX 中央模型资产已缺失",
-                      icon: <Avatar seed={profile?.name ?? profileId} label="M" size={28} />,
+                      icon: <Avatar seed={profile?.name ?? profileId} kind="model" size={28} />,
                     };
                   }}
                 />
@@ -712,7 +720,7 @@ export function AgentView({
                 return {
                   name,
                   description: skill?.description ?? externalSkill?.description ?? "Skill 资产已缺失",
-                  icon: <SparklesIcon className="w-4 h-4" />,
+                  icon: <Avatar seed={name} kind="skill" size={28} />,
                   meta: sharedCount > 1
                     ? <Badge tone="warning">共用 · {sharedCount}</Badge>
                     : null,
@@ -742,9 +750,11 @@ export function AgentView({
         <AssetOperationReviewDialog
           plan={consumptionState.plan}
           busy={consumptionState.committing}
-          error={consumptionState.error?.message}
+          error={consumptionState.error}
           agentId={agent.id}
           agentName={agent.name}
+          agentDisplayNames={agentDisplayNames}
+          assetDisplayNames={assetDisplayNames}
           onCommit={(conflictConfirmation) => commitPlan(conflictConfirmation)}
           onCancel={consumptionState.cancel}
         />

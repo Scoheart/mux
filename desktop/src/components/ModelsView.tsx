@@ -393,7 +393,10 @@ export function ModelsView({
         <AssetOperationReviewDialog
           plan={consumptionState.plan}
           busy={consumptionState.committing}
-          error={consumptionState.error?.message}
+          error={consumptionState.error}
+          assetDisplayNames={Object.fromEntries(
+            profiles.map((profile) => [`model:${profile.id}`, profile.name]),
+          )}
           onCancel={consumptionState.cancel}
           onCommit={async (conflictConfirmation) => {
             const kind = consumptionState.plan?.kind;
@@ -430,9 +433,7 @@ function ModelCard({
       onOpen={onOpen}
       identity={
         <>
-          <ResourceKindIcon kind="model">
-            <LayersIcon className="w-4 h-4" />
-          </ResourceKindIcon>
+          <ResourceKindIcon kind="model" seed={profile.name} />
           <div className="mux-resource-card-copy">
             <div className="mux-resource-card-heading">
               <strong title={providerName}>{providerName}</strong>
@@ -472,7 +473,7 @@ function ModelInspector({
   return (
     <ResourceInspector
       title={profile.name}
-      avatar={<Avatar seed={profile.name} label="M" size={40} />}
+      avatar={<Avatar seed={profile.name} kind="model" size={40} />}
       subtitle={<Badge tone="neutral">{protocolLabel(profile.protocol)}</Badge>}
       onClose={onClose}
       footer={
@@ -771,7 +772,7 @@ function ModelProfileDialog({
     return (
       <ResourceInspector
         title={initial.name}
-        avatar={<Avatar seed={initial.name} label="M" size={40} />}
+        avatar={<Avatar seed={initial.name} kind="model" size={40} />}
         subtitle={<Badge tone="neutral">编辑 · {protocolLabel(draft.protocol)}</Badge>}
         onClose={onClose}
         footer={

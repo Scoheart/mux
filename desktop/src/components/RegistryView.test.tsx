@@ -13,7 +13,7 @@ it("maps MCP cards to the shared resource interface", () => {
   expect(card).not.toMatch(/impact=/);
   expect(card).not.toMatch(/被覆盖|生效中/);
   expect(card).toMatch(/transportOf\(entry\)\.toUpperCase\(\)/);
-  expect(card).toMatch(/resourceInitial\(entry\.name, "M"\)/);
+  expect(card).toMatch(/<ResourceKindIcon kind="mcp" seed=\{entry\.name\} \/>/);
   expect(card).not.toMatch(/LinkIcon|TerminalIcon/);
   expect(card).not.toMatch(/<IconButton/);
 });

@@ -1,12 +1,88 @@
 import { useState } from "react";
-import type { AssetOperationPlan, AssetRef } from "../lib/types";
+import type { AssetCommandError, AssetOperationPlan, AssetRef } from "../lib/types";
 import { assetIdentity } from "../lib/consumption";
 import { DialogShell } from "./DialogShell";
 import { TrashIcon } from "./icons";
 
-function assetLabel(asset: AssetRef) {
+function assetKey(asset: AssetRef) {
+  return `${asset.domain}:${assetIdentity(asset)}`;
+}
+
+function readableIdentity(value: string) {
+  return value
+    .replace(/::(?:stdio|http)$/, "")
+    .split(/[-_]/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toLocaleUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function displayAssetName(asset: AssetRef, names: Record<string, string>) {
+  return names[assetKey(asset)] ?? readableIdentity(assetIdentity(asset));
+}
+
+function displayAgentName(
+  id: string,
+  currentId: string | undefined,
+  currentName: string | undefined,
+  names: Record<string, string>,
+) {
+  if (id === currentId && currentName) return currentName;
+  return names[id] ?? readableIdentity(id);
+}
+
+function assetLabel(asset: AssetRef, names: Record<string, string>) {
   const domain = asset.domain === "mcp" ? "MCP" : asset.domain === "model" ? "Model" : "Skill";
-  return `${domain} · ${assetIdentity(asset)}`;
+  return `${domain} · ${displayAssetName(asset, names)}`;
+}
+
+export function assetReviewErrorMessage(
+  error: AssetCommandError | string,
+  plan: AssetOperationPlan,
+) {
+  const code = typeof error === "string" ? "" : error.code;
+  const message = typeof error === "string" ? error : error.message;
+  const domain = plan.domain_plan.domain;
+  const normalized = `${code} ${message}`.toLocaleLowerCase();
+  if (
+    domain === "skill"
+    && /only an exact managed skill link can be disabled/i.test(message)
+  ) {
+    const target = plan.target_files.find((path) => path.trim().length > 0) ?? "路径未知";
+    return `无法移除：这不是可安全移除的托管 Skill 链接（${target}）。`;
+  }
+  if (
+    code === "model_consumption_missing"
+    || /(?:requested )?model.*(?:not assigned|not added)/i.test(message)
+  ) {
+    return "该 Model 未添加到此 Agent，无法移除。";
+  }
+  if (
+    code === "mcp_consumption_missing"
+    || /mcp.*(?:not assigned|not added)/i.test(message)
+  ) {
+    return "该 MCP 未分配给此 Agent，无法移除。";
+  }
+  if (
+    code === "skill_consumption_missing"
+    || /skill.*(?:not assigned|not added)/i.test(message)
+  ) {
+    return "该 Skill 未分配给此 Agent，无法移除。";
+  }
+  const hasRemove = plan.relationship_changes.some((change) => change.action === "remove");
+  if (
+    hasRemove
+    && (
+      normalized.includes("conflict")
+      || normalized.includes("not assigned")
+      || normalized.includes("not added")
+      || /^[\[{].*[\]}]$/s.test(message.trim())
+    )
+  ) {
+    const asset = domain === "mcp" ? "MCP" : domain === "model" ? "Model" : "Skill";
+    return `当前 ${asset} 状态已变化，无法按此计划移除。请关闭后刷新再试。`;
+  }
+  return message;
 }
 
 function agentActionCopy(plan: AssetOperationPlan) {
@@ -82,14 +158,18 @@ export function AssetOperationReviewDialog({
   error,
   agentId,
   agentName,
+  agentDisplayNames = {},
+  assetDisplayNames = {},
   onCommit,
   onCancel,
 }: {
   plan: AssetOperationPlan;
   busy: boolean;
-  error?: string | null;
+  error?: AssetCommandError | string | null;
   agentId?: string;
   agentName?: string;
+  agentDisplayNames?: Record<string, string>;
+  assetDisplayNames?: Record<string, string>;
   onCommit(conflictConfirmation?: string): Promise<unknown> | unknown;
   onCancel(): Promise<unknown> | unknown;
 }) {
@@ -122,6 +202,10 @@ export function AssetOperationReviewDialog({
       || configurationPlan.before.model_paths.some(
         (path, index) => path !== configurationPlan.after.model_paths[index],
       ));
+  const hasAdd = plan.relationship_changes.some((change) => change.action === "add");
+  const hasRemove = plan.relationship_changes.some((change) => change.action === "remove");
+  const isRemoveOnly = hasRemove && !hasAdd;
+  const reviewError = error ? assetReviewErrorMessage(error, plan) : null;
   const agentCopy = agentName && plan.kind === "set-consumption" ? agentActionCopy(plan) : null;
   const title = isConfiguration ? "确认修改配置" : agentCopy?.title ?? (plan.kind === "update-asset"
     ? "确认更改"
@@ -150,24 +234,70 @@ export function AssetOperationReviewDialog({
         ? <span className="mux-review-error">存在冲突，暂不可继续。</span>
         : plan.requires_conflict_confirmation
           ? <span className="mux-review-error">将覆盖差异，写入前备份。</span>
-          : null}
-      footerStart={error ? <span className="mux-review-error">{error}</span> : null}
+          : reviewError
+            ? <div className="mux-asset-review-error" role="alert">
+                <strong>操作未完成</strong>
+                <span>{reviewError}</span>
+              </div>
+            : null}
       footerEnd={
         <>
           <button type="button" className="btn-ghost" disabled={busy} onClick={() => void onCancel()}>取消</button>
           <button
             type="button"
-            className="btn-primary"
+            className={isRemoveOnly || plan.kind === "delete-asset" ? "btn-danger" : "btn-primary"}
             disabled={busy || !plan.can_commit || (plan.requires_conflict_confirmation && !replaceDrift)}
             onClick={() => void onCommit(plan.requires_conflict_confirmation ? plan.candidate_hash : undefined)}
           >
-            {!busy && plan.kind === "delete-asset" && <TrashIcon className="w-4 h-4" />}
-            {busy ? (isConfiguration ? "保存中…" : agentCopy?.busy ?? "处理中…") : commitLabel}
+            {!busy && (isRemoveOnly || plan.kind === "delete-asset") && <TrashIcon className="w-4 h-4" />}
+            {busy
+              ? (isConfiguration ? "保存中…" : agentCopy?.busy ?? "处理中…")
+              : reviewError && isRemoveOnly
+                ? `重试${commitLabel}`
+                : commitLabel}
           </button>
         </>
       }
     >
       <div className="mux-review-content mux-asset-review">
+        {isRemoveOnly && (
+          <section className="mux-asset-review-summary">
+            <h3>影响摘要</h3>
+            {plan.relationship_changes
+              .filter((change) => change.action === "remove")
+              .map((change, index) => (
+                <p key={`${change.agent_id}:${assetIdentity(change.asset)}:${index}`}>
+                  {isAgentSkillPlan && change.agent_id !== agentId ? (
+                    <>
+                      共用目录将同步影响
+                      <strong>
+                        {displayAgentName(
+                          change.agent_id,
+                          agentId,
+                          agentName,
+                          agentDisplayNames,
+                        )}
+                      </strong>
+                      的 Skill 可见性。
+                    </>
+                  ) : (
+                    <>
+                      将从
+                      <strong>
+                        {displayAgentName(
+                          change.agent_id,
+                          agentId,
+                          agentName,
+                          agentDisplayNames,
+                        )}
+                      </strong>
+                      移除 {assetLabel(change.asset, assetDisplayNames)}。
+                    </>
+                  )}
+                </p>
+              ))}
+          </section>
+        )}
         {isConfiguration && configChanges.length > 0 && (
           <section className="mux-config-review">
             <h3>配置位置</h3>
@@ -202,7 +332,7 @@ export function AssetOperationReviewDialog({
                   <span data-action={change.action}>
                     {change.action === "create" ? "创建" : change.action === "update" ? "更新" : "删除"}
                   </span>
-                  <code>{assetLabel(change.asset)}</code>
+                  <code>{assetLabel(change.asset, assetDisplayNames)}</code>
                   {change.summary.length > 0 && <small>{change.summary.join("；")}</small>}
                 </li>
               ))}
@@ -215,8 +345,15 @@ export function AssetOperationReviewDialog({
             <ul>
               {plan.model_state_changes.map((change) => (
                 <li key={`${change.agent_id}:${change.profile_id}`}>
-                  <strong>{change.agent_id}</strong>
-                  <code>{change.profile_id}</code>
+                  <strong>
+                    {displayAgentName(change.agent_id, agentId, agentName, agentDisplayNames)}
+                  </strong>
+                  <code>
+                    {displayAssetName(
+                      { domain: "model", profile_id: change.profile_id },
+                      assetDisplayNames,
+                    )}
+                  </code>
                   <small>
                     {modelStateLabel(change.before)} → {modelStateLabel(change.after)}
                     {change.fallback_profile_id ? `；回退到 ${change.fallback_profile_id}` : ""}
@@ -241,12 +378,19 @@ export function AssetOperationReviewDialog({
                   ? isDirect ? "直接添加" : "兼容可见"
                   : isDirect ? "直接移除" : "同步不可见";
                 return (
-                <li key={`${change.agent_id}:${assetIdentity(change.asset)}:${index}`}>
+                <li
+                  className="mux-asset-review-relationship"
+                  key={`${change.agent_id}:${assetIdentity(change.asset)}:${index}`}
+                >
                   <span data-action={change.action} data-impact={isDirect ? "direct" : "compatible"}>
                     {isAgentSkillPlan ? action : change.action === "add" ? "添加" : "移除"}
                   </span>
-                  <strong>{change.agent_id}</strong>
-                  <code>{assetLabel(change.asset)}</code>
+                  <span className="mux-asset-review-relationship-copy">
+                    <strong>
+                      {displayAgentName(change.agent_id, agentId, agentName, agentDisplayNames)}
+                    </strong>
+                    <small>{assetLabel(change.asset, assetDisplayNames)}</small>
+                  </span>
                 </li>
                 );
               })}

@@ -233,11 +233,23 @@ export function TerminalIcon({ className, style }: IconProps) {
 
 export function PinIcon({ className, style }: IconProps) {
   return (
-    <svg viewBox="0 0 24 24" className={className} style={style} stroke="currentColor" fill="none"
+    <svg data-icon="pin" viewBox="0 0 24 24" className={className} style={style} stroke="currentColor" fill="none"
       strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="M12 17v5" />
       <path d="M5 17h14" />
       <path d="M7 3h10l-1 6 3 3v2H5v-2l3-3Z" />
+    </svg>
+  );
+}
+
+export function PinOffIcon({ className, style }: IconProps) {
+  return (
+    <svg data-icon="pin-off" viewBox="0 0 24 24" className={className} style={style} stroke="currentColor" fill="none"
+      strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 17v5" />
+      <path d="M5 17h14" />
+      <path d="M7 3h10l-1 6 3 3v2H5v-2l3-3Z" />
+      <path d="M3 3l18 18" />
     </svg>
   );
 }

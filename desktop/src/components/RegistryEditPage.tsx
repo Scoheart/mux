@@ -285,7 +285,7 @@ export function RegistryEditPage({
     return (
       <ResourceInspector
         title={existing.name}
-        avatar={<Avatar seed={existing.name} size={40} />}
+        avatar={<Avatar seed={existing.name} kind="mcp" size={40} />}
         subtitle={`编辑 · ${transport === "stdio" ? "stdio" : "HTTP"} · 全局配置`}
         onClose={onBack}
         footer={

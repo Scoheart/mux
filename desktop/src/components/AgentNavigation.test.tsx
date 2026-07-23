@@ -42,6 +42,7 @@ const agents = [
   agent("claude-code", "Claude Code"),
   agent("codex", "Codex"),
   agent("qoder", "Qoder"),
+  agent("amp", "Amp"),
 ];
 
 beforeEach(() => {
@@ -109,4 +110,31 @@ it("keeps the HTML drag source hit-testable and commits the dropped order", asyn
       "codex",
     ]);
   });
+});
+
+it("uses a dedicated crossed pin for unpinning and keeps the action wired", async () => {
+  const { container } = render(
+    <AgentNavigation
+      agents={agents}
+      selectedAgentId="codex"
+      onSelectAgent={vi.fn()}
+    />,
+  );
+
+  fireEvent.click(container.querySelector<HTMLButtonElement>(".mux-agent-picker-trigger")!);
+
+  const unpin = screen.getByRole("button", { name: "取消置顶 Claude Code" });
+  const pin = screen.getByRole("button", { name: "置顶 Amp" });
+  expect(screen.queryByText("JSON · claude-code")).not.toBeInTheDocument();
+  expect(screen.queryByText("JSON · amp")).not.toBeInTheDocument();
+  expect(unpin.querySelector('[data-icon="pin-off"]')).not.toBeNull();
+  expect(unpin.querySelector('[data-icon="pin"]')).toBeNull();
+  expect(pin.querySelector('[data-icon="pin"]')).not.toBeNull();
+  expect(pin.querySelector('[data-icon="pin-off"]')).toBeNull();
+
+  fireEvent.click(unpin);
+  await waitFor(() => {
+    expect(pinnedAgentMocks.commit).toHaveBeenCalledWith(["codex", "qoder"]);
+  });
+  expect(screen.getByText("Claude Code 已取消置顶")).toHaveAttribute("aria-live", "polite");
 });

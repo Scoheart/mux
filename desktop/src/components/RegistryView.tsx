@@ -5,7 +5,6 @@ import type { RegistryEntry, RegistryOrigin, CatalogItem, ResourceNavigationInte
 import { keyOf, transportOf } from "../lib/mcp";
 import { exportEffectiveDialog } from "../lib/api";
 import { formatError } from "../lib/format";
-import { resourceInitial } from "../lib/resourceInitial";
 import { redactSensitiveConfig } from "../lib/resourceWorkspace";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { SourcesSidebar } from "./SourcesSidebar";
@@ -429,7 +428,7 @@ export function RegistryView({ state, consumptionState, intent, onIntentConsumed
         <AssetOperationReviewDialog
           plan={consumptionState.plan}
           busy={consumptionState.committing}
-          error={consumptionState.error?.message}
+          error={consumptionState.error}
           onCancel={consumptionState.cancel}
           onCommit={async (conflictConfirmation) => {
             const kind = consumptionState.plan?.kind;
@@ -475,9 +474,7 @@ function RegistryCard({
       onOpen={onOpen}
       identity={
         <>
-          <ResourceKindIcon kind="mcp">
-            <span className="text-sm font-semibold">{resourceInitial(entry.name, "M")}</span>
-          </ResourceKindIcon>
+          <ResourceKindIcon kind="mcp" seed={entry.name} />
           <div className="mux-resource-card-copy">
             <div className="mux-resource-card-heading">
               <strong title={entry.name}>{entry.name}</strong>
@@ -520,7 +517,7 @@ function RegistryDetail({
   return (
     <ResourceInspector
       title={entry.name}
-      avatar={<Avatar seed={entry.name} size={40} />}
+      avatar={<Avatar seed={entry.name} kind="mcp" size={40} />}
       subtitle={
         <div className="flex items-center gap-1.5">
           <TransportPill entry={entry} />

@@ -1,20 +1,19 @@
 import type { KeyboardEvent, MouseEvent, ReactNode } from "react";
+import { Avatar } from "./ui";
 
 export type ResourceCardAttention = "warning" | "danger" | "shadowed";
 export type ResourceKind = "model" | "mcp" | "skill";
 
 export function ResourceKindIcon({
   kind,
-  children,
+  seed,
+  icon,
 }: {
   kind: ResourceKind;
-  children: ReactNode;
+  seed: string;
+  icon?: ReactNode;
 }) {
-  return (
-    <span className="mux-resource-kind-icon" data-kind={kind} aria-hidden="true">
-      {children}
-    </span>
-  );
+  return <Avatar seed={seed} kind={kind} icon={icon} size={34} />;
 }
 
 export function ResourceCard({

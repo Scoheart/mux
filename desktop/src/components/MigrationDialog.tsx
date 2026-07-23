@@ -31,7 +31,10 @@ export function MigrationDialog({
   const [results, setResults] = useState<MigrationResult[]>([]);
   const counts = migrationCounts(candidates);
   const selectedItems = candidates.filter(
-    (candidate) => candidate.safe && selected.has(candidate.id),
+    (candidate) =>
+      candidate.safe
+      && selected.has(candidate.id)
+      && !results.some((result) => result.id === candidate.id && result.ok),
   );
 
   const toggle = (id: string) => {
@@ -106,13 +109,30 @@ export function MigrationDialog({
   };
 
   const rows = (domain: "mcp" | "model" | "skill") => candidates.filter((item) => item.domain === domain);
+  const toggleDomain = (domainRows: MigrationCandidate[]) => {
+    const selectable = domainRows.filter(
+      (candidate) =>
+        candidate.safe
+        && !results.some((result) => result.id === candidate.id && result.ok),
+    );
+    const allSelected = selectable.length > 0
+      && selectable.every((candidate) => selected.has(candidate.id));
+    setSelected((current) => {
+      const next = new Set(current);
+      for (const candidate of selectable) {
+        if (allSelected) next.delete(candidate.id);
+        else next.add(candidate.id);
+      }
+      return next;
+    });
+  };
 
   return (
     <DialogShell
       kind="review"
       size="lg"
-      title="迁移历史配置"
-      subtitle={`发现 ${counts.all} 项 · ${counts.safe} 项可直接迁移 · ${counts.conflicts} 项需处理`}
+      title="导入旧配置"
+      subtitle={`共 ${counts.all} 项 · ${counts.safe} 项可导入 · ${counts.conflicts} 项需先处理`}
       busy={busy}
       onClose={onClose}
       footerStart={results.length > 0 ? (
@@ -129,24 +149,44 @@ export function MigrationDialog({
             disabled={busy || selectedItems.length === 0}
             onClick={() => void migrate()}
           >
-            {busy ? "迁移中…" : `导入并统一管理 (${selectedItems.length})`}
+            {busy ? "正在导入…" : `导入 ${selectedItems.length} 项`}
           </button>
         </>
       }
     >
       <div className="mux-migration-content">
         <p className="mux-migration-intro">
-          MUX 只接管连接字段、Model Profile 和用户级 Skill；Agent 自己的权限、OAuth 与工具策略保持不变。credential 不会出现在预览或日志中。
+          选择要整理到 MUX 的旧配置；原 Agent 的权限和登录状态不会改变。
         </p>
         {(["mcp", "model", "skill"] as const).map((domain) => {
           const domainRows = rows(domain);
           if (domainRows.length === 0) return null;
+          const domainLabel = domain === "mcp" ? "MCP" : domain === "model" ? "Model" : "Skill";
+          const selectable = domainRows.filter(
+            (candidate) =>
+              candidate.safe
+              && !results.some((result) => result.id === candidate.id && result.ok),
+          );
+          const allSelected = selectable.length > 0
+            && selectable.every((candidate) => selected.has(candidate.id));
           return (
-            <section key={domain} className="mux-migration-section">
+            <section
+              key={domain}
+              className="mux-migration-section"
+              aria-label={`${domainLabel} 旧配置`}
+            >
               <header>
                 {domain === "mcp" ? <PackageIcon className="w-4 h-4" /> : domain === "model" ? <LayersIcon className="w-4 h-4" /> : <SparklesIcon className="w-4 h-4" />}
-                <strong>{domain === "mcp" ? "MCPs" : domain === "model" ? "Models" : "Skills"}</strong>
+                <strong>{domainLabel}</strong>
                 <span>{domainRows.length}</span>
+                <button
+                  type="button"
+                  disabled={busy || selectable.length === 0}
+                  aria-label={`${allSelected ? "取消全选" : "全选"} ${domainLabel}`}
+                  onClick={() => toggleDomain(domainRows)}
+                >
+                  {selectable.length === 0 ? "无可导入项" : allSelected ? "取消全选" : "全选"}
+                </button>
               </header>
               <ul>
                 {domainRows.map((candidate) => {
@@ -162,16 +202,16 @@ export function MigrationDialog({
                         />
                         <span className="mux-migration-copy">
                           <strong>{candidate.name}</strong>
-                          <small>{candidate.detail}</small>
+                          <small title={candidate.detail}>{candidate.detail}</small>
                           {candidate.conflictReason && <em>{candidate.conflictReason}</em>}
                           {result && <em data-result={result.ok ? "success" : "error"}>{result.message}</em>}
                         </span>
                       </label>
                       <span className="mux-migration-agents" aria-label={`${candidate.agentIds.length} 个 Agent`}>
-                        {candidate.agentIds.slice(0, 5).map((agentId) => (
+                        {candidate.agentIds.slice(0, 3).map((agentId) => (
                           <span key={agentId} title={agentName(agentId)}><AgentGlyph id={agentId} size={18} /></span>
                         ))}
-                        {candidate.agentIds.length > 5 && <small>+{candidate.agentIds.length - 5}</small>}
+                        {candidate.agentIds.length > 3 && <small>+{candidate.agentIds.length - 3}</small>}
                       </span>
                       {result?.ok && <CheckIcon className="mux-migration-check w-4 h-4" />}
                     </li>

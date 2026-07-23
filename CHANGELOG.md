@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.8.44](https://github.com/Scoheart/mux/compare/v1.8.43...v1.8.44) (2026-07-23)
+
+### Changes
+
+* chore(dev): add local Tauri launcher ([69055fd](https://github.com/Scoheart/mux/commit/69055fd39e020e1b1114df14e4b6b61aa9ddf0df))
+* docs(agents): update parent knowledge paths ([b047521](https://github.com/Scoheart/mux/commit/b047521c454f9ab95f11dc66a7afed3e933255b9))
+
 ## [1.8.43](https://github.com/Scoheart/mux/compare/v1.8.42...v1.8.43) (2026-07-23)
 
 ### Changes

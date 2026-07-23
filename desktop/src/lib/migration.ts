@@ -122,7 +122,7 @@ function groupMcps(items: McpAdoptionCandidate[]): MigrationCandidate[] {
     const conflictReason = safe
       ? null
       : drifted
-        ? "外部配置与中央资产不一致；请先在 MUX 或原 Agent 中统一后重新扫描"
+        ? "外部配置与 MUX 中的配置不一致；请先在 MUX 或原 Agent 中统一后重新扫描"
         : "同名 MCP 的连接配置不一致；请先在原 Agent 中统一或重命名后重新扫描";
     return {
       id: mcpMigrationCandidateId(assetKey),
@@ -177,9 +177,9 @@ function groupSkills(items: SkillInventoryItem[] | null): MigrationCandidate[] {
     const safe = !invalid && !centralConflict && !highRisk && !missingAudit && hashes.size === 1;
     let conflictReason: string | null = null;
     if (centralConflict) {
-      conflictReason = "中央资产库已存在同名 Skill；请先重命名来源目录或处理中央冲突后重新扫描";
+      conflictReason = "MUX 已存在同名 Skill；请先重命名来源目录或处理冲突后重新扫描";
     } else if (highRisk) {
-      conflictReason = "Skill 包含高风险内容；请在 Skills 页面单独导入并审阅风险";
+      conflictReason = "Skill 包含高风险内容；请在 Skills 页面单独导入并确认风险";
     } else if (missingAudit) {
       conflictReason = "Skill 风险检查未完成；请修复内容后重新扫描";
     } else if (hashes.size > 1) {

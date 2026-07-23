@@ -161,6 +161,6 @@ describe("MigrationDialog", () => {
 
     await waitFor(() => expect(api.cancelSkillOperation).toHaveBeenCalledWith("risk-operation"));
     expect(api.commitSkillImport).not.toHaveBeenCalled();
-    expect(screen.getByText("Skill 风险状态已变化；请在 Skills 页面单独导入并审阅风险。")).toBeVisible();
+    expect(screen.getByText("Skill 风险状态已变化；请在 Skills 页面单独导入并确认风险。")).toBeVisible();
   });
 });

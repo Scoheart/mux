@@ -72,7 +72,7 @@ export function MigrationDialog({
           });
           pending = { domain: "skill", operationId: plan.operation_id };
           if (plan.requires_risk_override) {
-            throw new Error("Skill 风险状态已变化；请在 Skills 页面单独导入并审阅风险。");
+            throw new Error("Skill 风险状态已变化；请在 Skills 页面单独导入并确认风险。");
           }
           await api.commitSkillImport({
             operation_id: plan.operation_id,

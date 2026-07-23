@@ -29,7 +29,7 @@ export function skillRiskLabel(level: RiskLevel | null) {
   if (level === "high") return "高风险";
   if (level === "medium") return "中风险";
   if (level === "low") return "未发现高风险模式";
-  return "未审阅";
+  return "尚未检查";
 }
 
 export function SkillRiskBadge({

@@ -20,6 +20,43 @@ const attentionStates = new Set([
   "missing",
 ]);
 
+/**
+ * The inventory keeps target-specific identities for lifecycle operations, while
+ * the library presents one user-facing Skill per manifest name.
+ */
+export function aggregateSkillsByName(
+  items: SkillInventoryItem[],
+): SkillInventoryItem[] {
+  const groups = new Map<string, SkillInventoryItem[]>();
+  for (const item of items) {
+    const group = groups.get(item.name) ?? [];
+    group.push(item);
+    groups.set(item.name, group);
+  }
+
+  return [...groups.values()].map((group) => {
+    const representative =
+      group.find((item) => item.location.kind === "central") ??
+      [...group].sort((left, right) => left.identity.localeCompare(right.identity))[0];
+    const states = new Set(group.flatMap((item) => item.states));
+    const contentHashes = new Set(
+      group.flatMap((item) => item.content_hash ? [item.content_hash] : []),
+    );
+    if (contentHashes.size > 1) states.add("conflicting_link");
+
+    return {
+      ...representative,
+      states: [...states],
+      assigned_target_ids: [
+        ...new Set(group.flatMap((item) => item.assigned_target_ids)),
+      ].sort(),
+      affected_agent_ids: [
+        ...new Set(group.flatMap((item) => item.affected_agent_ids)),
+      ].sort(),
+    };
+  });
+}
+
 export function filterSkills(
   items: SkillInventoryItem[],
   filters: SkillFilters,

@@ -12,6 +12,7 @@ import {
 } from "../hooks/useSkillsState";
 import * as api from "../lib/api";
 import {
+  aggregateSkillsByName,
   filterSkills,
   type SkillSourceFilter,
   type SkillStatusFilter,
@@ -116,7 +117,10 @@ export function SkillsView({
   const lastConsumedIntentId = useRef<number | null>(null);
   cancelRef.current = state.cancel;
   toastRef.current = toast;
-  const items = state.inventory?.items ?? [];
+  const items = useMemo(
+    () => aggregateSkillsByName(state.inventory?.items ?? []),
+    [state.inventory?.items],
+  );
   const filters = { status, source, query };
   const filtered = useMemo(
     () => filterSkills(items, filters),
@@ -261,6 +265,13 @@ export function SkillsView({
         }
         return;
       }
+      // Lifecycle confirmation replaces the detail Inspector instead of stacking
+      // a second full-size dialog over the selected Skill.
+      detailGeneration.current += 1;
+      setSelectedIdentity(null);
+      setDetail(null);
+      setDetailLoading(false);
+      setDetailError(null);
       setLifecycleReview({ plan });
     } catch (reason) {
       const error = normalizeSkillCommandError(reason);

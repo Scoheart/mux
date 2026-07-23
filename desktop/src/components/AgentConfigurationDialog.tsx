@@ -8,7 +8,7 @@ import {
 import { formatError } from "../lib/format";
 import { DialogShell } from "./DialogShell";
 import { AssetOperationReviewDialog } from "./AssetOperationReviewDialog";
-import { LayersIcon, PackageIcon, PlusIcon, SparklesIcon, XIcon } from "./icons";
+import { LayersIcon, PackageIcon, PlusIcon, SparklesIcon, TrashIcon } from "./icons";
 import { useToast } from "./Toast";
 
 export function AgentConfigurationDialog({
@@ -62,7 +62,7 @@ export function AgentConfigurationDialog({
     } catch (error) {
       const message = formatError(error);
       setError(message);
-      toast.show({ kind: "error", msg: "无法生成修改计划：" + message });
+      toast.show({ kind: "error", msg: "无法保存配置：" + message });
     } finally {
       setBusy(false);
     }
@@ -131,7 +131,7 @@ export function AgentConfigurationDialog({
       subtitle={agent.name}
       busy={busy}
       onClose={onClose}
-      footerStart={<span className="mux-agent-config-hint">保存前审阅影响</span>}
+      footerStart={<span className="mux-agent-config-hint">保存前将显示影响范围</span>}
       footerEnd={(
         <>
           <button type="button" className="btn-ghost" disabled={busy} onClick={onClose}>取消</button>
@@ -184,7 +184,7 @@ export function AgentConfigurationDialog({
                 aria-label={`移除 Skills 目录 ${index + 1}`}
                 onClick={() => setSkillsPaths((current) => current.filter((_, candidate) => candidate !== index))}
               >
-                <XIcon className="w-4 h-4" />
+                <TrashIcon className="w-4 h-4" />
               </button>
             ) : null}
           />

@@ -12,7 +12,9 @@ import {
   ResourceInspector,
 } from "./ResourceWorkspace";
 import { SkillRiskBadge, skillSourceText } from "./SkillCard";
+import { agentName } from "./brandIcons";
 import { Avatar, Badge } from "./ui";
+import { TrashIcon } from "./icons";
 
 const stateLabels: Record<InventoryState, string> = {
   managed: "已托管",
@@ -165,6 +167,7 @@ export function SkillInspector({
           disabled={disabled}
           onClick={() => onPlan({ kind: "remove", skillName: item.name })}
         >
+          <TrashIcon className="w-4 h-4" />
           移除
         </button>
       )}
@@ -204,6 +207,11 @@ export function SkillInspector({
         <InspectorField label="更新时间" mono>
           {item.updated_at ?? "未记录"}
         </InspectorField>
+        {item.affected_agent_ids.length > 0 && (
+          <InspectorField label="关联 Agent">
+            {item.affected_agent_ids.length} 个 · {item.affected_agent_ids.map((id) => agentName(id)).join("、")}
+          </InspectorField>
+        )}
       </InspectorSection>
 
       <InspectorSection title="状态与风险">
@@ -257,7 +265,7 @@ export function SkillInspector({
             )}
           </div>
         ) : (
-          <p className="mux-skill-inspector-unreviewed">尚未执行风险审阅。</p>
+          <p className="mux-skill-inspector-unreviewed">尚未完成风险检查。</p>
         )}
       </InspectorSection>
 

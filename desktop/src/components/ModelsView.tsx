@@ -188,6 +188,7 @@ export function ModelsView({
     if (!intent || loading || lastConsumedIntentId.current === intent.id) return;
     lastConsumedIntentId.current = intent.id;
     if (intent.kind === "create") {
+      setSelectedProfileId(null);
       setEditing(null);
       onIntentConsumed?.(intent.id);
       return;
@@ -202,13 +203,16 @@ export function ModelsView({
     onIntentConsumed?.(intent.id);
   }, [intent, loading, onIntentConsumed, profiles, toast]);
 
-  const clearSelection = () => setSelectedProfileId(null);
+  const clearSelection = useCallback(() => {
+    setSelectedProfileId(null);
+    setEditing(undefined);
+  }, []);
   const planProfileDelete = async (profile: ModelProfileView) => {
     if (!consumptionState) return;
     try {
       await consumptionState.planDelete({ domain: "model", profile_id: profile.id });
     } catch (error) {
-      toast.show({ kind: "error", msg: "无法生成删除计划：" + formatError(error) });
+      toast.show({ kind: "error", msg: "无法删除：" + formatError(error) });
     }
   };
 
@@ -281,13 +285,33 @@ export function ModelsView({
                 历史配置 {migrationCount}
               </button>
             )}
-            <button className="btn-primary" type="button" disabled={!consumptionState} onClick={() => setEditing(null)}>
+            <button className="btn-primary" type="button" disabled={!consumptionState} onClick={() => {
+              clearSelection();
+              setEditing(null);
+            }}>
               <PlusIcon className="w-4 h-4" />
               新建模型
             </button>
           </>
         }
-        inspector={selectedProfile ? (
+        inspector={selectedProfile && editing?.id === selectedProfile.id ? (
+          <ModelProfileDialog
+            initial={editing}
+            providers={providers}
+            presentation="inspector"
+            onClose={clearSelection}
+            onReview={async (profile, credential) => {
+              if (!consumptionState) throw new Error("配置保存暂不可用");
+              await consumptionState.planUpdate({
+                domain: "model",
+                existing_id: editing.id,
+                profile,
+                credential,
+              });
+              clearSelection();
+            }}
+          />
+        ) : selectedProfile ? (
           <ModelInspector
             profile={selectedProfile}
             providerName={providerLabel(providers, selectedProfile.provider)}
@@ -337,23 +361,26 @@ export function ModelsView({
                 profile={profile}
                 providerName={providerLabel(providers, profile.provider)}
                 selected={profile.id === selectedProfileId}
-                onOpen={() => setSelectedProfileId(profile.id)}
+                onOpen={() => {
+                  setEditing(undefined);
+                  setSelectedProfileId(profile.id);
+                }}
               />
             ))}
           </ResourceGrid>
         )}
       </ResourceWorkspace>
 
-      {editing !== undefined && (
+      {editing === null && (
         <ModelProfileDialog
           initial={editing}
           providers={providers}
           onClose={() => setEditing(undefined)}
           onReview={async (profile, credential) => {
-            if (!consumptionState) throw new Error("中央资产事务不可用");
+            if (!consumptionState) throw new Error("配置保存暂不可用");
             await consumptionState.planUpdate({
               domain: "model",
-              existing_id: editing?.id,
+              existing_id: undefined,
               profile,
               credential,
             });
@@ -496,11 +523,13 @@ function ModelProfileDialog({
   providers,
   onClose,
   onReview,
+  presentation = "dialog",
 }: {
   initial: ModelProfileView | null;
   providers: ModelProviderView[];
   onClose: () => void;
   onReview: (profile: ModelProfile, credential?: string) => Promise<void>;
+  presentation?: "dialog" | "inspector";
 }) {
   const [draft, setDraft] = useState<ModelProfile>(initial ?? emptyProfile());
   const [credential, setCredential] = useState("");
@@ -574,24 +603,16 @@ function ModelProfileDialog({
     }
   };
 
-  return (
-    <DialogShell
-      kind="editor"
-      size="md"
-      title={initial ? "编辑模型" : "新建模型"}
-      subtitle="API Key 保存在 macOS Keychain。"
-      busy={busy}
-      onClose={onClose}
-      footerEnd={
-        <>
-          <button type="button" className="btn-ghost" disabled={busy} onClick={onClose}>取消</button>
-          <button type="button" className="btn-primary" disabled={!valid} onClick={() => void save()}>
-            {busy ? "生成计划中…" : "审阅更改"}
-          </button>
-        </>
-      }
-    >
-      <div className="mux-model-form">
+  const footer = (
+    <>
+      <button type="button" className="btn-ghost" disabled={busy} onClick={onClose}>取消</button>
+      <button type="button" className="btn-primary" disabled={!valid} onClick={() => void save()}>
+        {busy ? "保存中…" : "保存"}
+      </button>
+    </>
+  );
+  const form = (
+    <div className="mux-model-form">
         <div className="mux-model-form-grid">
           <div className="mux-model-form-field">
             <span>Provider</span>
@@ -618,7 +639,6 @@ function ModelProfileDialog({
                 spellCheck={false}
               />
             )}
-            <small>选择已知 Provider 会填入建议地址；选择 Custom 可填写自己的 Provider ID。</small>
           </div>
           <label>
             <span>名称（可选）</span>
@@ -639,7 +659,6 @@ function ModelProfileDialog({
             options={PROTOCOLS.map((protocol) => ({ value: protocol.id, label: protocol.label }))}
             onChange={(protocol) => setDraft({ ...draft, protocol: protocol as ModelProtocol })}
           />
-          <small>请选择服务端实际兼容的 API 协议；此项不会根据 Base URL 自动识别。</small>
         </div>
 
         <label>
@@ -652,7 +671,6 @@ function ModelProfileDialog({
             placeholder="https://api.example.com/v1"
             spellCheck={false}
           />
-          <small>选择列表中的 Provider 时自动填入建议地址；你仍可手动修改。</small>
         </label>
 
         <label>
@@ -746,7 +764,39 @@ function ModelProfileDialog({
             推理模型
           </label>
         </details>
-      </div>
+    </div>
+  );
+
+  if (presentation === "inspector" && initial) {
+    return (
+      <ResourceInspector
+        title={initial.name}
+        avatar={<Avatar seed={initial.name} label="M" size={40} />}
+        subtitle={<Badge tone="neutral">编辑 · {protocolLabel(draft.protocol)}</Badge>}
+        onClose={onClose}
+        footer={
+          <>
+            <div className="flex-1" />
+            {footer}
+          </>
+        }
+      >
+        {form}
+      </ResourceInspector>
+    );
+  }
+
+  return (
+    <DialogShell
+      kind="editor"
+      size="md"
+      title={initial ? "编辑模型" : "新建模型"}
+      subtitle="API Key 保存在 macOS Keychain。"
+      busy={busy}
+      onClose={onClose}
+      footerEnd={footer}
+    >
+      {form}
     </DialogShell>
   );
 }

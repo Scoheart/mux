@@ -127,6 +127,16 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("SkillInstallDialog central asset intake", () => {
+  it("keeps the source step compact without an empty single-action footer", async () => {
+    const { props } = renderInstall();
+    const dialog = screen.getByRole("dialog", { name: "添加 Skill" });
+    expect(dialog.querySelector(".mux-dialog-shell-footer")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "取消" })).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "关闭" }));
+    expect(props.onClose).toHaveBeenCalledOnce();
+  });
+
   it("presents GitHub, folder, and archive as three peer source entries", () => {
     renderInstall();
     expect(screen.getByRole("heading", { name: "GitHub" })).toBeVisible();
@@ -147,6 +157,8 @@ describe("SkillInstallDialog central asset intake", () => {
     expect(screen.getByRole("checkbox", { name: "review-changes" })).toBeChecked();
     expect(screen.getByRole("checkbox", { name: "release-notes" })).toBeChecked();
     expect(screen.queryByText("目标 Agent")).not.toBeInTheDocument();
+    expect(document.querySelector(".mux-dialog-shell-footer")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "更换来源" })).toBeVisible();
 
     await user.click(screen.getByRole("checkbox", { name: "release-notes" }));
     await user.click(screen.getByRole("button", { name: "下载 Skill" }));
@@ -193,7 +205,7 @@ describe("SkillInstallDialog central asset intake", () => {
     await userEvent.click(screen.getByRole("button", { name: "导入 Skill" }));
 
     await waitFor(() => expect(commit).toHaveBeenCalledWith(plan, null));
-    expect(screen.queryByRole("dialog", { name: "审阅 Skill 操作" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "确认 Skill 更改" })).not.toBeInTheDocument();
   });
 
   it("asks to back up only after a same-name conflict", async () => {
@@ -277,7 +289,7 @@ describe("SkillInstallDialog central asset intake", () => {
     await user.click(screen.getByRole("button", { name: "下载 Skill" }));
 
     await waitFor(() => expect(commit).toHaveBeenCalledWith(plan, "high-risk"));
-    expect(screen.queryByRole("dialog", { name: "审阅 Skill 操作" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "确认 Skill 更改" })).not.toBeInTheDocument();
   });
 });
 
@@ -323,7 +335,7 @@ describe("Skills central lifecycle orchestration", () => {
     });
     expect(vi.mocked(api.planSkillAssetImport).mock.calls[0][0]).not.toHaveProperty("agent_ids");
     await waitFor(() => expect(commit).toHaveBeenCalledWith(plan, null));
-    expect(screen.queryByRole("dialog", { name: "审阅 Skill 操作" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "确认 Skill 更改" })).not.toBeInTheDocument();
   });
 
   it("has no direct assignment switches in the Skill inspector", async () => {

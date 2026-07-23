@@ -45,7 +45,7 @@ describe("SkillCard", () => {
 
     expect(screen.getByText("外部副本 · 来源未知")).toBeVisible();
     expect(screen.queryByText("rev —")).not.toBeInTheDocument();
-    expect(screen.queryByText("未审阅")).not.toBeInTheDocument();
+    expect(screen.queryByText("尚未检查")).not.toBeInTheDocument();
     expect(screen.queryByText(/更新检查失败：GitHub API rate limit/)).not.toBeInTheDocument();
     expect(screen.queryByText(/可重试：2026-07-17T01:02:03Z/)).not.toBeInTheDocument();
     expect(screen.queryByText("3 个 Agent")).not.toBeInTheDocument();

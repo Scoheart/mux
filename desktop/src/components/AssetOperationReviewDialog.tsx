@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { AssetOperationPlan, AssetRef } from "../lib/types";
 import { assetIdentity } from "../lib/consumption";
 import { DialogShell } from "./DialogShell";
+import { TrashIcon } from "./icons";
 
 function assetLabel(asset: AssetRef) {
   const domain = asset.domain === "mcp" ? "MCP" : asset.domain === "model" ? "Model" : "Skill";
@@ -123,11 +124,11 @@ export function AssetOperationReviewDialog({
       ));
   const agentCopy = agentName && plan.kind === "set-consumption" ? agentActionCopy(plan) : null;
   const title = isConfiguration ? "确认修改配置" : agentCopy?.title ?? (plan.kind === "update-asset"
-    ? "审阅中央资产变更"
+    ? "确认更改"
     : plan.kind === "delete-asset"
-      ? "审阅中央资产删除"
-      : "审阅资产消费变更");
-  const commitLabel = isConfiguration ? "保存配置" : agentCopy?.commit ?? (plan.kind === "delete-asset" ? "确认删除并同步" : "确认并同步");
+      ? "确认删除"
+      : "确认更新配置");
+  const commitLabel = isConfiguration ? "保存配置" : agentCopy?.commit ?? (plan.kind === "delete-asset" ? "删除" : "应用更改");
   const subtitle = agentName
     ? compatibleAgentCount > 0
       ? `${agentName} · 同一目录也被 ${compatibleAgentCount} 个 Agent 读取`
@@ -160,7 +161,8 @@ export function AssetOperationReviewDialog({
             disabled={busy || !plan.can_commit || (plan.requires_conflict_confirmation && !replaceDrift)}
             onClick={() => void onCommit(plan.requires_conflict_confirmation ? plan.candidate_hash : undefined)}
           >
-            {busy ? (isConfiguration ? "保存中…" : agentCopy?.busy ?? "同步中…") : commitLabel}
+            {!busy && plan.kind === "delete-asset" && <TrashIcon className="w-4 h-4" />}
+            {busy ? (isConfiguration ? "保存中…" : agentCopy?.busy ?? "处理中…") : commitLabel}
           </button>
         </>
       }
@@ -193,7 +195,7 @@ export function AssetOperationReviewDialog({
         )}
         {plan.central_changes.length > 0 && (
           <section>
-            <h3>中央资产变化</h3>
+            <h3>资源变化</h3>
             <ul>
               {plan.central_changes.map((change) => (
                 <li key={`${change.action}:${assetIdentity(change.asset)}`}>

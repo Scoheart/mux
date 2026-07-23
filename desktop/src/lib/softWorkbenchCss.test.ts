@@ -101,6 +101,16 @@ it("groups Agent identity and paths in one context region", () => {
   expect(declarations(".mux-consumption-external")).toMatch(/background:\s*var\(--surface-attention\)/);
 });
 
+it("centers the Agent identity independently from its header actions", () => {
+  expect(declarations(".mux-agent-header")).toMatch(
+    /grid-template-columns:\s*1fr minmax\(0,\s*2fr\) 1fr/,
+  );
+  expect(declarations(".mux-agent-header-identity")).toMatch(/grid-column:\s*2/);
+  expect(declarations(".mux-agent-header-identity")).toMatch(/justify-content:\s*center/);
+  expect(declarations(".mux-agent-header-actions")).toMatch(/grid-column:\s*3/);
+  expect(agentView).not.toMatch(/agent\.id\} · \{agent\.category/);
+});
+
 it("uses three columns for central assets and every Agent asset domain", () => {
   const centralGrid = declarations(".mux-resource-grid");
   const agentGrid = declarations(".mux-consumption-list");

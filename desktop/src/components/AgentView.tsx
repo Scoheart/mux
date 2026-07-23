@@ -271,10 +271,6 @@ export function AgentView({
             <AgentHeader agent={agent} tone="reference" />
             <div className="mux-agent-reference">
               <strong>{agent.note ?? "未提供可写的用户级全局配置。"}</strong>
-              <span>
-                {agent.category} · {agent.evidence === "community-extension" ? "社区扩展" : "公开来源"}
-                {agent.verified_at ? ` · ${agent.verified_at}` : ""}
-              </span>
             </div>
           </section>
         </div>
@@ -786,26 +782,35 @@ function AgentHeader({
   onEdit?: () => void;
 }) {
   return (
-    <header className="mux-agent-header" data-tone={tone}>
-      <AgentGlyph id={agent.id} name={agent.name} size={44} />
-      <div className="mux-agent-header-copy">
-        <div>
-          <h2>{agent.name}</h2>
-          {tone === "reference" ? <Badge>仅供参考</Badge> : agent.evidence === "community-extension" ? (
-            <Badge tone="warning">社区扩展</Badge>
-          ) : agent.builtin ? <Badge tone="success">已核验</Badge> : <Badge>自定义</Badge>}
+    <header
+      className="mux-agent-header"
+      data-tone={tone}
+      aria-label={`Agent ${agent.name} (${agent.id})`}
+    >
+      <div className="mux-agent-header-identity">
+        <AgentGlyph id={agent.id} name={agent.name} size={44} />
+        <div className="mux-agent-header-copy">
+          <div>
+            <h2>{agent.name}</h2>
+            {tone === "reference" ? <Badge>仅供参考</Badge> : agent.evidence === "community-extension" ? (
+              <Badge tone="warning">社区扩展</Badge>
+            ) : agent.builtin ? <Badge tone="success">已核验</Badge> : <Badge>自定义</Badge>}
+          </div>
         </div>
-        <span>{agent.id} · {agent.category}</span>
       </div>
-      {onEdit && (
-        <IconButton title="编辑 Agent 设置" onClick={onEdit}>
-          <EditIcon className="w-4 h-4" />
-        </IconButton>
-      )}
-      {agent.docs && (
-        <IconButton title="打开官方文档" onClick={() => openUrl(agent.docs!)}>
-          <LinkIcon className="w-4 h-4" />
-        </IconButton>
+      {(onEdit || agent.docs) && (
+        <div className="mux-agent-header-actions">
+          {onEdit && (
+            <IconButton title="编辑 Agent 设置" onClick={onEdit}>
+              <EditIcon className="w-4 h-4" />
+            </IconButton>
+          )}
+          {agent.docs && (
+            <IconButton title="打开官方文档" onClick={() => openUrl(agent.docs!)}>
+              <LinkIcon className="w-4 h-4" />
+            </IconButton>
+          )}
+        </div>
       )}
     </header>
   );

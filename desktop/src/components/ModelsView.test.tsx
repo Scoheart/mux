@@ -99,8 +99,18 @@ it("uses the unified Provider select with a conditional custom ID field", () => 
   expect(providerField).toMatch(/providerSelection === CUSTOM_PROVIDER_OPTION/);
   expect(providerField).toMatch(/aria-label="自定义 Provider ID"/);
   expect(providerField).not.toMatch(/<select|datalist/);
+  expect(providerField).not.toMatch(/<small>/);
+  const protocolField = source.slice(
+    source.indexOf("<span>协议</span>"),
+    source.indexOf("<span>Base URL</span>"),
+  );
+  const baseUrlField = source.slice(
+    source.indexOf("<span>Base URL</span>"),
+    source.indexOf("<span>模型 ID</span>"),
+  );
+  expect(protocolField).not.toMatch(/<small>/);
+  expect(baseUrlField).not.toMatch(/<small>/);
   expect(source).toMatch(/provider: draft\.provider\.trim\(\)/);
-  expect(source).toMatch(/此项不会根据 Base URL 自动识别/);
 });
 
 it("uses one custom select surface for Provider and protocol", () => {
@@ -195,7 +205,10 @@ it("does not overwrite the Base URL of an existing model", async () => {
 
   await user.click(await screen.findByRole("button", { name: "打开模型 Existing Model 详情" }));
   await user.click(screen.getByRole("button", { name: "编辑" }));
-  await waitFor(() => expect(screen.getByRole("heading", { name: "编辑模型" })).toHaveFocus());
+  await waitFor(() => expect(screen.getByRole("combobox", { name: "Provider" })).toBeVisible());
+  expect(screen.getAllByRole("dialog")).toHaveLength(1);
+  expect(screen.getByRole("complementary", { name: "Existing Model 详情" })).toBeVisible();
+  expect(screen.queryByRole("dialog", { name: "编辑模型" })).not.toBeInTheDocument();
 
   const provider = screen.getByRole("combobox", { name: "Provider" });
   expect(provider).toHaveTextContent("Custom Provider…");
@@ -223,7 +236,7 @@ it("submits an arbitrary Provider ID through the central asset plan", async () =
   await user.type(screen.getByLabelText("自定义 Provider ID"), "my-gateway");
   await user.type(screen.getByPlaceholderText("https://api.example.com/v1"), "https://models.example.test/v1/");
   await user.type(screen.getByPlaceholderText("model-name"), "custom-model");
-  await user.click(screen.getByRole("button", { name: "审阅更改" }));
+  await user.click(screen.getByRole("button", { name: "保存" }));
 
   await waitFor(() => expect(planUpdate).toHaveBeenCalledTimes(1));
   expect(planUpdate).toHaveBeenCalledWith(expect.objectContaining({

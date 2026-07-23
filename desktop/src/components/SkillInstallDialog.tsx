@@ -383,11 +383,7 @@ export function SkillInstallDialog({
             {planning || committing ? `${actionVerb}中…` : addLabel}
           </button>
         </>
-      ) : (
-        <button type="button" className="btn-ghost" disabled={busy} onClick={() => void closeDialog()}>
-          取消
-        </button>
-      )}
+      ) : undefined}
     >
       <div className="mux-skill-install-dialog">
         <div className="mux-skill-dialog-body">

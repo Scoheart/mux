@@ -28,7 +28,6 @@ import {
   createResourceNavigationIntent,
   viewForResourceIntent,
 } from "./lib/resourceNavigation";
-import type { Transport } from "./lib/mcp";
 
 const MIGRATION_IGNORED_KEY = "mux:migration-ignored:v2";
 
@@ -44,10 +43,7 @@ function loadIgnoredMigrations(): Set<string> {
 function App() {
   const [view, setView] = useState<View>({ kind: "registry" });
   const [addAgentOpen, setAddAgentOpen] = useState(false);
-  const [mcpEditor, setMcpEditor] = useState<{
-    name: string | null;
-    transport?: Transport;
-  } | null>(null);
+  const [mcpEditorOpen, setMcpEditorOpen] = useState(false);
   const [migrationOpen, setMigrationOpen] = useState(false);
   const [migrationFocusId, setMigrationFocusId] = useState<string | null>(null);
   const [mcpMigrationCandidates, setMcpMigrationCandidates] = useState<McpAdoptionCandidate[]>([]);
@@ -189,8 +185,7 @@ function App() {
           consumptionState={consumptionState}
           intent={view.intent}
           onIntentConsumed={consumeResourceIntent}
-          onEdit={(name, transport) => setMcpEditor({ name, transport })}
-          onCreate={() => setMcpEditor({ name: null })}
+          onCreate={() => setMcpEditorOpen(true)}
           migrationCount={migrationCandidateCounts.mcp}
           onOpenMigration={() => openMigration()}
         />
@@ -203,19 +198,18 @@ function App() {
         />
       )}
 
-      {mcpEditor && (
+      {mcpEditorOpen && (
         <RegistryEditPage
           state={state}
           consumptionState={consumptionState}
-          name={mcpEditor.name}
-          transport={mcpEditor.transport}
-          onBack={() => setMcpEditor(null)}
+          name={null}
+          onBack={() => setMcpEditorOpen(false)}
         />
       )}
 
       {consumptionState.error?.code === "recovery_required" && (
         <div className="mux-asset-recovery-banner" role="alert">
-          <strong>中央资产事务需要恢复</strong>
+          <strong>资源更改需要恢复</strong>
           <span>{consumptionState.error.message}</span>
         </div>
       )}

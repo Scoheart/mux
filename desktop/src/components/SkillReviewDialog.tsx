@@ -300,7 +300,7 @@ export function SkillReviewDialog({
         setReviewExpired(true);
         setError({
           code: "protocol_error",
-          message: "提交响应缺少风险证据哈希，请重新生成计划。",
+          message: "风险确认信息不完整，请重新操作。",
         });
       } else if (nextError.code === "confirmation_required") {
         setRiskHash(null);
@@ -308,7 +308,7 @@ export function SkillReviewDialog({
         setReviewExpired(true);
         setError({
           code: "confirmation_mismatch",
-          message: "风险证据已变化，请重新生成计划。",
+          message: "风险内容已变化，请重新操作。",
         });
       } else if (nextError.code === "plan_stale") {
         setRiskHash(null);
@@ -316,7 +316,7 @@ export function SkillReviewDialog({
         setReviewExpired(true);
         setError({
           code: "plan_stale",
-          message: "审阅已失效，请重新生成计划。",
+          message: "确认已过期，请重新操作。",
         });
       } else if (nextError.code === "recovery_required") {
         setError(nextError);
@@ -340,8 +340,8 @@ export function SkillReviewDialog({
     <DialogShell
       kind="review"
       size="lg"
-      title="审阅 Skill 操作"
-      subtitle={`${operationLabels[plan.kind]}计划 · ${plan.skills.length} 个 Skill · 以下内容由 MUX Core 固化`}
+      title="确认 Skill 更改"
+      subtitle={`${operationLabels[plan.kind]} · ${plan.skills.length} 个 Skill · 以下内容由 MUX Core 固化`}
       busy={busy}
       onClose={closeReview}
       footerEnd={
@@ -443,12 +443,12 @@ export function SkillReviewDialog({
           kind="review"
           size="md"
           title="确认高风险覆盖"
-          subtitle="这些证据来自刚才审阅的同一份不可变计划。"
+          subtitle="以下证据来自当前待确认的更改。"
           busy={busy}
           onClose={closeRiskReview}
           footerEnd={
             <>
-              <button type="button" className="btn-ghost" disabled={busy} onClick={closeRiskReview}>返回审阅</button>
+              <button type="button" className="btn-ghost" disabled={busy} onClick={closeRiskReview}>返回</button>
               <button
                 type="button"
                 className="btn-danger"
@@ -476,7 +476,7 @@ export function SkillReviewDialog({
                   disabled={busy}
                   onChange={(event) => setRiskAcknowledged(event.target.checked)}
                 />
-                <span>我已审阅高风险证据并理解影响</span>
+                <span>我已了解高风险内容及其影响</span>
               </label>
             </div>
 

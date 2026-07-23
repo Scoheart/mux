@@ -5,17 +5,23 @@ import type { RegistryEntry } from "../lib/types";
 import { keyOf, type Transport } from "../lib/mcp";
 import { EnvEditor } from "./EnvEditor";
 import { DialogShell } from "./DialogShell";
+import { ResourceInspector } from "./ResourceWorkspace";
 import { SaveIcon } from "./icons";
 import { useToast } from "./Toast";
+import { Avatar } from "./ui";
 
 interface RegistryEditPageProps {
   state: InstallState;
   consumptionState: ConsumptionState;
   /** Entry name to edit; null = create a new entry. */
   name: string | null;
+  /** Exact catalog entry when editing from an Inspector, including shadowed copies. */
+  entry?: RegistryEntry;
   /** Which transport variant to edit (a name can have both stdio + http). */
   transport?: Transport;
   onBack: () => void;
+  /** Existing MCPs can edit inside the already-open resource Inspector. */
+  presentation?: "dialog" | "inspector";
 }
 
 const labelCls = "text-xs font-semibold mb-1.5 block";
@@ -31,19 +37,28 @@ const inputStyle = {
   width: "100%",
 } as const;
 
-export function RegistryEditPage({ state, consumptionState, name, transport: editTransport, onBack }: RegistryEditPageProps) {
+export function RegistryEditPage({
+  state,
+  consumptionState,
+  name,
+  entry,
+  transport: editTransport,
+  onBack,
+  presentation = "dialog",
+}: RegistryEditPageProps) {
   const { entries, customKeys } = state;
   const toast = useToast();
 
   const isNew = name === null;
   const existing = useMemo(
     () =>
-      name
+      entry ??
+      (name
         ? entries.find(
             (e) => e.name === name && (e.config.http ? "http" : "stdio") === (editTransport ?? "stdio")
           ) ?? null
-        : null,
-    [entries, name, editTransport]
+        : null),
+    [entries, entry, name, editTransport]
   );
   const isCustom = existing ? customKeys.has(keyOf(existing)) : false;
 
@@ -106,10 +121,10 @@ export function RegistryEditPage({ state, consumptionState, name, transport: edi
         existing_key: existing ? keyOf(existing) : undefined,
         entry: draft,
       });
-      toast.show({ kind: "success", msg: "已生成中央资产变更计划，请审阅后同步。" });
+      toast.show({ kind: "success", msg: "已准备好更改，请确认后应用。" });
       onBack();
     } catch (err) {
-      toast.show({ kind: "error", msg: `无法生成变更计划: ${String(err)}` });
+      toast.show({ kind: "error", msg: `无法保存：${String(err)}` });
     } finally {
       setSaving(false);
     }
@@ -124,7 +139,7 @@ export function RegistryEditPage({ state, consumptionState, name, transport: edi
         { domain: "mcp", key: keyOf(existing) },
         sourceId,
       );
-      toast.show({ kind: "success", msg: `已生成“恢复默认”计划: ${name}` });
+      toast.show({ kind: "success", msg: `已准备恢复 ${name} 的默认设置，请确认后应用。` });
       onBack();
     } catch (err) {
       toast.show({ kind: "error", msg: `恢复失败: ${String(err)}` });
@@ -133,35 +148,8 @@ export function RegistryEditPage({ state, consumptionState, name, transport: edi
     }
   };
 
-  return (
-    <>
-    <DialogShell
-        kind="editor"
-        size="lg"
-        title={isNew ? "新建 MCP" : "编辑 MCP"}
-        subtitle={transport === "stdio" ? "stdio · 全局配置" : "HTTP · 全局配置"}
-        busy={saving}
-        onClose={onBack}
-        footerStart={
-          <>
-            {!isNew && isCustom && (
-              <button onClick={handleRevert} disabled={saving} className="btn-danger" title="删除自定义，恢复内置默认">
-                恢复默认
-              </button>
-            )}
-          </>
-        }
-        footerEnd={
-          <>
-            <button onClick={onBack} disabled={saving} className="btn-ghost">取消</button>
-            <button onClick={handleSave} disabled={!valid || saving} className="btn-primary">
-              <SaveIcon className="w-4 h-4" />
-              {saving ? "生成计划中…" : "审阅更改"}
-            </button>
-          </>
-        }
-      >
-      <div className="mux-mcp-form">
+  const form = (
+    <div className="mux-mcp-form">
             {/* Name + description */}
             <div className="flex gap-4 mb-4">
               <div className="flex-1 min-w-0">
@@ -275,9 +263,56 @@ export function RegistryEditPage({ state, consumptionState, name, transport: edi
                 </div>
               </>
             )}
-      </div>
+    </div>
+  );
 
-    </DialogShell>
+  const footerStart = !isNew && isCustom ? (
+    <button onClick={handleRevert} disabled={saving} className="btn-danger" title="删除自定义，恢复内置默认">
+      恢复默认
+    </button>
+  ) : null;
+  const footerEnd = (
+    <>
+      <button onClick={onBack} disabled={saving} className="btn-ghost">取消</button>
+      <button onClick={handleSave} disabled={!valid || saving} className="btn-primary">
+        <SaveIcon className="w-4 h-4" />
+        {saving ? "保存中…" : "保存"}
+      </button>
     </>
+  );
+
+  if (presentation === "inspector" && existing) {
+    return (
+      <ResourceInspector
+        title={existing.name}
+        avatar={<Avatar seed={existing.name} size={40} />}
+        subtitle={`编辑 · ${transport === "stdio" ? "stdio" : "HTTP"} · 全局配置`}
+        onClose={onBack}
+        footer={
+          <>
+            {footerStart}
+            <div className="flex-1" />
+            {footerEnd}
+          </>
+        }
+      >
+        {form}
+      </ResourceInspector>
+    );
+  }
+
+  return (
+    <DialogShell
+      kind="editor"
+      size="lg"
+      title={isNew ? "新建 MCP" : "编辑 MCP"}
+      subtitle={transport === "stdio" ? "stdio · 全局配置" : "HTTP · 全局配置"}
+      busy={saving}
+      onClose={onBack}
+      footerStart={footerStart}
+      footerEnd={footerEnd}
+    >
+      {form}
+    </DialogShell>
   );
 }

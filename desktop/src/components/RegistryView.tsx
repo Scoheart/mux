@@ -2,7 +2,7 @@ import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import type { InstallState } from "../hooks/useInstallState";
 import type { ConsumptionState } from "../hooks/useConsumptionState";
 import type { RegistryEntry, RegistryOrigin, CatalogItem, ResourceNavigationIntent } from "../lib/types";
-import { keyOf, transportOf, type Transport } from "../lib/mcp";
+import { keyOf, transportOf } from "../lib/mcp";
 import { exportEffectiveDialog } from "../lib/api";
 import { formatError } from "../lib/format";
 import { resourceInitial } from "../lib/resourceInitial";
@@ -28,6 +28,7 @@ import { ResourceState } from "./ResourceState";
 import { useToast } from "./Toast";
 import { PasteConfigDialog } from "./PasteConfigDialog";
 import { AssetOperationReviewDialog } from "./AssetOperationReviewDialog";
+import { RegistryEditPage } from "./RegistryEditPage";
 import {
   InspectorField,
   InspectorSection,
@@ -42,7 +43,6 @@ interface RegistryViewProps {
   consumptionState?: ConsumptionState;
   intent?: Extract<ResourceNavigationIntent, { domain: "mcp" }>;
   onIntentConsumed?(id: number): void;
-  onEdit: (name: string, transport: Transport) => void;
   onCreate: () => void;
   migrationCount?: number;
   onOpenMigration?(): void;
@@ -144,7 +144,7 @@ function originLabel(origin: RegistryOrigin | undefined, sourceName: (id: string
   return label || (origin.kind === "remote" ? "订阅" : "本地");
 }
 
-export function RegistryView({ state, consumptionState, intent, onIntentConsumed, onEdit, onCreate, migrationCount = 0, onOpenMigration }: RegistryViewProps) {
+export function RegistryView({ state, consumptionState, intent, onIntentConsumed, onCreate, migrationCount = 0, onOpenMigration }: RegistryViewProps) {
   const { catalog, entries, agentsForServer, sources } = state;
   const toast = useToast();
 
@@ -154,6 +154,7 @@ export function RegistryView({ state, consumptionState, intent, onIntentConsumed
   const [selectedSource, setSelectedSource] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<McpStatusFilter>("all");
   const [detail, setDetail] = useState<CatalogItem | null>(null);
+  const [editingDetail, setEditingDetail] = useState(false);
   const [pasteOpen, setPasteOpen] = useState(false);
   const lastConsumedIntentId = useRef<number | null>(null);
 
@@ -214,6 +215,7 @@ export function RegistryView({ state, consumptionState, intent, onIntentConsumed
     lastConsumedIntentId.current = intent.id;
     if (intent.kind === "create") {
       setDetail(null);
+      setEditingDetail(false);
       onCreate();
       onIntentConsumed?.(intent.id);
       return;
@@ -230,24 +232,33 @@ export function RegistryView({ state, consumptionState, intent, onIntentConsumed
     setSelectedSource(null);
     setStatusFilter("all");
     setDetail(item ?? null);
+    setEditingDetail(false);
     if (!item) toast.show({ kind: "error", msg: `未找到 MCP“${intent.name}”。` });
     onIntentConsumed?.(intent.id);
   }, [catalog, intent, onCreate, onIntentConsumed, state.loading, toast]);
 
   const changeQuery = (value: string) => {
     setDetail(null);
+    setEditingDetail(false);
     setQ(value);
   };
 
   const changeSource = (sourceId: string | null) => {
     setDetail(null);
+    setEditingDetail(false);
     setSelectedSource(sourceId);
   };
 
   const changeStatus = (status: McpStatusFilter) => {
     setDetail(null);
+    setEditingDetail(false);
     setStatusFilter(status);
   };
+
+  const closeDetail = useCallback(() => {
+    setDetail(null);
+    setEditingDetail(false);
+  }, []);
 
   const copyConfig = useCallback(
     (entry: RegistryEntry) => {
@@ -283,7 +294,7 @@ export function RegistryView({ state, consumptionState, intent, onIntentConsumed
           sourceId,
         );
       } catch (e) {
-        toast.show({ kind: "error", msg: `无法生成删除计划：${String(e)}` });
+        toast.show({ kind: "error", msg: `无法删除：${String(e)}` });
       }
     },
     [consumptionState, deletable, toast]
@@ -324,7 +335,7 @@ export function RegistryView({ state, consumptionState, intent, onIntentConsumed
           )}
           <button
             onClick={() => {
-              setDetail(null);
+              closeDetail();
               setPasteOpen(true);
             }}
             className="btn-ghost"
@@ -337,7 +348,7 @@ export function RegistryView({ state, consumptionState, intent, onIntentConsumed
           </IconButton>
           <button
             onClick={() => {
-              setDetail(null);
+              closeDetail();
               onCreate();
             }}
             className="btn-primary"
@@ -348,7 +359,17 @@ export function RegistryView({ state, consumptionState, intent, onIntentConsumed
         </>
       }
       inspector={
-        detail ? (
+        detail && editingDetail && consumptionState ? (
+          <RegistryEditPage
+            state={state}
+            consumptionState={consumptionState}
+            name={detail.entry.name}
+            entry={detail.entry}
+            transport={transportOf(detail.entry)}
+            presentation="inspector"
+            onBack={closeDetail}
+          />
+        ) : detail ? (
           <RegistryDetail
             entry={detail.entry}
             overriddenBy={
@@ -358,23 +379,18 @@ export function RegistryView({ state, consumptionState, intent, onIntentConsumed
             }
             installedAgents={agentsForServer(keyOf(detail.entry))}
             sourceName={sourceName}
-            onClose={() => setDetail(null)}
+            onClose={closeDetail}
             onCopy={() => copyConfig(detail.entry)}
             onEdit={
-              editable(detail.entry)
-                ? () => {
-                    const { name } = detail.entry;
-                    const transport = transportOf(detail.entry);
-                    setDetail(null);
-                    onEdit(name, transport);
-                  }
+              editable(detail.entry) && consumptionState
+                ? () => setEditingDetail(true)
                 : undefined
             }
             onDelete={deletable(detail.entry) && detail.in_effect ? () => void deleteEntry(detail.entry) : undefined}
           />
         ) : undefined
       }
-      onInspectorClose={() => setDetail(null)}
+      onInspectorClose={closeDetail}
     >
       {filtered.length === 0 ? (
         <ResourceState
@@ -399,7 +415,10 @@ export function RegistryView({ state, consumptionState, intent, onIntentConsumed
               selected={detail === item}
               installedAgents={agentsForServer(keyOf(item.entry))}
               sourceName={sourceName}
-              onOpen={() => setDetail(item)}
+              onOpen={() => {
+                setEditingDetail(false);
+                setDetail(item);
+              }}
             />
           ))}
         </ResourceGrid>

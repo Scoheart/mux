@@ -85,6 +85,9 @@ it("shows a Skills-only Agent without a configuration-path map or empty MCP sche
   expect(screen.queryByText(skillsOnlyAgent.skills_global_dir!)).not.toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "编辑 Agent 设置" })).not.toBeInTheDocument();
   expect(screen.queryByText(/UNKNOWN/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/coding-agent/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/公开来源/)).not.toBeInTheDocument();
+  expect(screen.queryByText(skillsOnlyAgent.verified_at!)).not.toBeInTheDocument();
 
   await waitFor(() => {
     expect(screen.getByRole("tab", { name: /Skills/ })).toHaveAttribute("aria-selected", "true");
@@ -141,6 +144,7 @@ it("offers only targeted MUX adoption for an external MCP card", async () => {
 
   expect(screen.queryByText("配置位置")).not.toBeInTheDocument();
   expect(screen.queryByText(mcpAgent.global!)).not.toBeInTheDocument();
+  expect(screen.queryByText(`${mcpAgent.id} · ${mcpAgent.category}`)).not.toBeInTheDocument();
   expect(screen.getByRole("button", { name: "编辑 Agent 设置" })).toBeVisible();
 
   const card = screen.getByText("computer-use").closest<HTMLElement>("li");

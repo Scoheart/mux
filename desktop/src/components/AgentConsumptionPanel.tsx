@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import type { AssetRef, ConsumptionView } from "../lib/types";
 import { assetIdentity } from "../lib/consumption";
-import { LinkIcon, PackageIcon, PlusIcon, XIcon } from "./icons";
+import { LinkIcon, PackageIcon, PlusIcon, TrashIcon } from "./icons";
 import { ConsumptionStatus } from "./ConsumptionStatus";
 import { Switch } from "./ui";
 
@@ -183,7 +183,7 @@ export function AgentConsumptionPanel({
                         disabled={removeDisabled}
                         onClick={() => onRemove(item.asset)}
                       >
-                        <XIcon className="w-4 h-4" />
+                        <TrashIcon className="w-4 h-4" />
                       </button>
                     )}
                   </span>

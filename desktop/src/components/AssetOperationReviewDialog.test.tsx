@@ -20,7 +20,7 @@ it("requires explicit bound confirmation before replacing drift", async () => {
       onCancel={vi.fn()}
     />,
   );
-  const commit = screen.getByRole("button", { name: "确认并同步" });
+  const commit = screen.getByRole("button", { name: "应用更改" });
   expect(commit).toBeDisabled();
   await userEvent.click(screen.getByRole("checkbox"));
   expect(commit).toBeEnabled();
@@ -44,9 +44,9 @@ it("shows central lifecycle impact independently from relationship changes", () 
       onCancel={vi.fn()}
     />,
   );
-  expect(screen.getByText("中央资产变化")).toBeVisible();
+  expect(screen.getByText("资源变化")).toBeVisible();
   expect(screen.getByText(/级联解除 2 个 consumer/)).toBeVisible();
-  expect(screen.getByRole("button", { name: "确认删除并同步" })).toBeEnabled();
+  expect(screen.getByRole("button", { name: "删除" })).toBeEnabled();
 });
 
 it("presents Agent assignment as a direct add action", () => {

@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { PlusIcon, XIcon } from "./icons";
+import { PlusIcon, TrashIcon } from "./icons";
 
 let _uid = 0;
 const nextId = () => ++_uid;
@@ -89,7 +89,7 @@ export function EnvEditor({ value, onChange }: EnvEditorProps) {
             style={{ color: "var(--text-secondary)" }}
             title="删除"
           >
-            <XIcon className="w-3.5 h-3.5" />
+            <TrashIcon className="w-3.5 h-3.5" />
           </button>
         </div>
       ))}

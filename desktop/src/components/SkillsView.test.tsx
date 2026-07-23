@@ -20,6 +20,7 @@ import type {
 } from "../lib/types";
 import {
   resolutionFixture,
+  sharedTargetPlanFixture,
   skillDetailFixture,
   skillsInventoryFixture,
   skillsStateFixture,
@@ -42,6 +43,7 @@ vi.mock("../lib/api", async () => {
   return {
     ...actual,
     getSkillDetail: vi.fn(),
+    planSkillUpdate: vi.fn(),
     resolveGithubSkillSource: vi.fn(),
   };
 });
@@ -159,6 +161,11 @@ beforeEach(() => {
   );
   vi.mocked(api.resolveGithubSkillSource).mockReset();
   vi.mocked(api.resolveGithubSkillSource).mockResolvedValue(resolutionFixture());
+  vi.mocked(api.planSkillUpdate).mockReset();
+  vi.mocked(api.planSkillUpdate).mockResolvedValue({
+    ...sharedTargetPlanFixture(),
+    kind: "update",
+  });
   appMocks.useInstallState.mockReset();
   appMocks.useInstallState.mockReturnValue(installStateForApp(true));
   appMocks.useSkillsState.mockReset();
@@ -188,6 +195,68 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("SkillsView", () => {
+  it("replaces the Skill Inspector with lifecycle confirmation instead of stacking dialogs", async () => {
+    const user = userEvent.setup();
+    render(<SkillsView state={skillsStateFixture()} />);
+
+    await user.click(screen.getByRole("button", { name: /打开 Skill review-changes 详情/ }));
+    expect(await screen.findByRole("complementary", { name: "review-changes 详情" })).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "更新" }));
+
+    expect(await screen.findByRole("dialog", { name: "确认 Skill 更改" })).toBeVisible();
+    expect(screen.getAllByRole("dialog")).toHaveLength(1);
+    expect(screen.queryByRole("complementary", { name: "review-changes 详情" })).not.toBeInTheDocument();
+  });
+
+  it("shows one card and one source count for duplicate target rows with the same name", () => {
+    const inventory = skillsInventoryFixture();
+    const base = inventory.items[1];
+    const duplicateRows: SkillInventoryItem[] = [
+      {
+        ...base,
+        identity: "target:agents-user:dws",
+        name: "dws",
+        location: {
+          kind: "agent_target",
+          target_id: "agents-user",
+          global_dir: "~/.agents/skills",
+        },
+        source: {
+          kind: "imported",
+          original_path: "~/.agents/skills/dws",
+          backup_path: "~/.mux/backups/skills/dws",
+        },
+        affected_agent_ids: ["codex", "cursor"],
+      },
+      {
+        ...base,
+        identity: "target:claude-user:dws",
+        name: "dws",
+        location: {
+          kind: "agent_target",
+          target_id: "claude-user",
+          global_dir: "~/.claude/skills",
+        },
+        source: {
+          kind: "imported",
+          original_path: "~/.claude/skills/dws",
+          backup_path: "~/.mux/backups/skills/dws-claude",
+        },
+        affected_agent_ids: ["claude-code"],
+      },
+    ];
+
+    render(
+      <SkillsView
+        state={stateWith({ ...inventory, items: duplicateRows })}
+      />,
+    );
+
+    expect(screen.getAllByRole("heading", { name: "dws" })).toHaveLength(1);
+    expect(screen.getByRole("button", { name: /全部来源.*1/ })).toBeVisible();
+    expect(screen.getByRole("button", { name: /本地.*1/ })).toBeVisible();
+  });
+
   it("renders the app-owned inventory inside the Skills workspace", () => {
     render(<SkillsView state={skillsStateFixture()} />);
 

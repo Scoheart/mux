@@ -41,16 +41,16 @@ function ModalStackHarness() {
   return (
     <>
       <button type="button" onClick={() => setReviewOpen(true)}>
-        打开变更审阅
+        打开更改确认
       </button>
       {reviewOpen && (
         <Modal
-          ariaLabel="Skill 变更审阅"
+          ariaLabel="Skill 更改确认"
           layer="review"
           onClose={() => setReviewOpen(false)}
         >
           <h2 tabIndex={-1} data-modal-initial-focus>
-            Skill 变更审阅
+            Skill 更改确认
           </h2>
           <button type="button" onClick={() => setRiskOpen(true)}>
             确认风险
@@ -68,7 +68,7 @@ function ModalStackHarness() {
               <button type="button" tabIndex={-1}>
                 程序控制焦点
               </button>
-              <button type="button">返回审阅</button>
+              <button type="button">返回</button>
               <button type="button">接受风险</button>
             </Modal>
           )}
@@ -282,7 +282,7 @@ describe("SkillReviewDialog", () => {
       name: "确认高风险覆盖",
     });
     const acknowledgment = screen.getByRole("checkbox", {
-      name: /我已审阅/,
+      name: /我已了解/,
     });
     expect(acknowledgment).not.toBeChecked();
     expect(
@@ -319,7 +319,7 @@ describe("SkillReviewDialog", () => {
 
     fireEvent.keyDown(document, { key: "Escape" });
     expect(screen.queryByRole("dialog", { name: "确认高风险覆盖" })).not.toBeInTheDocument();
-    expect(screen.getByRole("dialog", { name: "审阅 Skill 操作" })).toBeVisible();
+    expect(screen.getByRole("dialog", { name: "确认 Skill 更改" })).toBeVisible();
     expect(onClose).not.toHaveBeenCalled();
 
     fireEvent.keyDown(document, { key: "Escape" });
@@ -352,7 +352,7 @@ describe("SkillReviewDialog", () => {
 
     await userEvent.click(screen.getByRole("button", { name: "确认安装" }));
     const riskDialog = await screen.findByRole("dialog", { name: "确认高风险覆盖" });
-    await userEvent.click(within(riskDialog).getByRole("checkbox", { name: /我已审阅/ }));
+    await userEvent.click(within(riskDialog).getByRole("checkbox", { name: /我已了解/ }));
     await userEvent.click(within(riskDialog).getByRole("button", { name: "仍然安装" }));
 
     expect(await within(riskDialog).findByRole("alert")).toHaveTextContent(
@@ -363,11 +363,11 @@ describe("SkillReviewDialog", () => {
   it.each([
     [
       { code: "confirmation_required", message: "changed", findings_hash: "different-hash" },
-      "风险证据已变化，请重新生成计划。",
+      "风险内容已变化，请重新操作。",
     ],
     [
       { code: "plan_stale", message: "changed" },
-      "审阅已失效，请重新生成计划。",
+      "确认已过期，请重新操作。",
     ],
   ])("expires a nested review when the override response is stale", async (secondError, expectedMessage) => {
     const plan = highRiskPlan("findings-nested-stale");
@@ -392,7 +392,7 @@ describe("SkillReviewDialog", () => {
 
     await userEvent.click(screen.getByRole("button", { name: "确认安装" }));
     const riskDialog = await screen.findByRole("dialog", { name: "确认高风险覆盖" });
-    await userEvent.click(within(riskDialog).getByRole("checkbox", { name: /我已审阅/ }));
+    await userEvent.click(within(riskDialog).getByRole("checkbox", { name: /我已了解/ }));
     await userEvent.click(within(riskDialog).getByRole("button", { name: "仍然安装" }));
 
     expect(await screen.findByText(expectedMessage)).toBeVisible();
@@ -405,9 +405,9 @@ describe("SkillReviewDialog", () => {
     [
       "missing",
       undefined,
-      "提交响应缺少风险证据哈希，请重新生成计划。",
+      "风险确认信息不完整，请重新操作。",
     ],
-    ["mismatched", "findings-other", "风险证据已变化，请重新生成计划。"],
+    ["mismatched", "findings-other", "风险内容已变化，请重新操作。"],
   ])(
     "expires review when the confirmation hash is %s",
     async (_case, findingsHash, expectedMessage) => {
@@ -459,7 +459,7 @@ describe("SkillReviewDialog", () => {
     await userEvent.click(screen.getByRole("button", { name: "确认安装" }));
 
     expect(
-      await screen.findByText("审阅已失效，请重新生成计划。"),
+      await screen.findByText("确认已过期，请重新操作。"),
     ).toBeVisible();
     expect(screen.getByRole("button", { name: "确认安装" })).toBeDisabled();
   });
@@ -556,9 +556,9 @@ describe("SkillReviewDialog", () => {
     );
 
     expect(
-      screen.getByRole("dialog", { name: "审阅 Skill 操作" }),
+      screen.getByRole("dialog", { name: "确认 Skill 更改" }),
     ).toBeVisible();
-    expect(screen.getByRole("heading", { name: "审阅 Skill 操作" })).toBeVisible();
+    expect(screen.getByRole("heading", { name: "确认 Skill 更改" })).toBeVisible();
     expect(screen.getByText("review-changes")).toBeVisible();
     expect(screen.getByText("现有来源")).toBeVisible();
     expect(screen.getByText("本地 · ~/existing-skills / review-changes")).toBeVisible();
@@ -591,16 +591,16 @@ describe("Modal stack infrastructure", () => {
     const user = userEvent.setup();
     const { container } = render(<ModalStackHarness />);
 
-    const opener = screen.getByRole("button", { name: "打开变更审阅" });
+    const opener = screen.getByRole("button", { name: "打开更改确认" });
     await user.click(opener);
-    const review = screen.getByRole("dialog", { name: "Skill 变更审阅" });
+    const review = screen.getByRole("dialog", { name: "Skill 更改确认" });
     expect(document.body).toContainElement(review);
     expect(container).not.toContainElement(review);
 
     const riskTrigger = screen.getByRole("button", { name: "确认风险" });
     await waitFor(() =>
       expect(
-        screen.getByRole("heading", { name: "Skill 变更审阅" }),
+        screen.getByRole("heading", { name: "Skill 更改确认" }),
       ).toHaveFocus(),
     );
     await user.click(riskTrigger);
@@ -610,12 +610,12 @@ describe("Modal stack infrastructure", () => {
     expect(
       screen.queryByRole("dialog", { name: "确认风险证据" }),
     ).not.toBeInTheDocument();
-    expect(screen.getByRole("dialog", { name: "Skill 变更审阅" })).toBeVisible();
+    expect(screen.getByRole("dialog", { name: "Skill 更改确认" })).toBeVisible();
     await waitFor(() => expect(riskTrigger).toHaveFocus());
 
     await user.keyboard("{Escape}");
     expect(
-      screen.queryByRole("dialog", { name: "Skill 变更审阅" }),
+      screen.queryByRole("dialog", { name: "Skill 更改确认" }),
     ).not.toBeInTheDocument();
     await waitFor(() => expect(opener).toHaveFocus());
   });
@@ -624,7 +624,7 @@ describe("Modal stack infrastructure", () => {
     const user = userEvent.setup();
     render(<ModalStackHarness />);
 
-    await user.click(screen.getByRole("button", { name: "打开变更审阅" }));
+    await user.click(screen.getByRole("button", { name: "打开更改确认" }));
     await user.click(screen.getByRole("button", { name: "确认风险" }));
     const reviewScrim = document.querySelector<HTMLElement>(
       '[data-modal-layer="review"]',
@@ -636,7 +636,7 @@ describe("Modal stack infrastructure", () => {
     expect(riskScrim).not.toBeNull();
 
     fireEvent.click(reviewScrim!);
-    expect(screen.getByRole("dialog", { name: "Skill 变更审阅" })).toBeVisible();
+    expect(screen.getByRole("dialog", { name: "Skill 更改确认" })).toBeVisible();
     expect(screen.getByRole("dialog", { name: "确认风险证据" })).toBeVisible();
 
     fireEvent.click(screen.getByRole("dialog", { name: "确认风险证据" }));
@@ -646,16 +646,16 @@ describe("Modal stack infrastructure", () => {
     expect(
       screen.queryByRole("dialog", { name: "确认风险证据" }),
     ).not.toBeInTheDocument();
-    expect(screen.getByRole("dialog", { name: "Skill 变更审阅" })).toBeVisible();
+    expect(screen.getByRole("dialog", { name: "Skill 更改确认" })).toBeVisible();
   });
 
   it("traps forward and reverse Tab inside the topmost modal", async () => {
     const user = userEvent.setup();
     render(<ModalStackHarness />);
 
-    await user.click(screen.getByRole("button", { name: "打开变更审阅" }));
+    await user.click(screen.getByRole("button", { name: "打开更改确认" }));
     await user.click(screen.getByRole("button", { name: "确认风险" }));
-    const first = screen.getByRole("button", { name: "返回审阅" });
+    const first = screen.getByRole("button", { name: "返回" });
     const last = screen.getByRole("button", { name: "接受风险" });
     await waitFor(() =>
       expect(
@@ -720,7 +720,7 @@ describe("Modal stack infrastructure", () => {
     document.body.append(appRoot);
     render(<ModalStackHarness />);
 
-    await user.click(screen.getByRole("button", { name: "打开变更审阅" }));
+    await user.click(screen.getByRole("button", { name: "打开更改确认" }));
     expect(appRoot).toHaveAttribute("inert");
     await user.click(screen.getByRole("button", { name: "确认风险" }));
     expect(appRoot).toHaveAttribute("inert");
@@ -731,7 +731,7 @@ describe("Modal stack infrastructure", () => {
     expect(appRoot).not.toHaveAttribute("inert");
 
     appRoot.setAttribute("inert", "");
-    await user.click(screen.getByRole("button", { name: "打开变更审阅" }));
+    await user.click(screen.getByRole("button", { name: "打开更改确认" }));
     await user.keyboard("{Escape}");
     expect(appRoot).toHaveAttribute("inert");
     appRoot.remove();

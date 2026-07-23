@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import * as api from "./api";
 import {
+  aggregateSkillsByName,
   filterSkills,
   installWizardReducer,
   resolveStagedResult,
@@ -160,6 +161,47 @@ describe("Skills wire contracts", () => {
 });
 
 describe("filterSkills", () => {
+  it("aggregates target-specific inventory rows by Skill name", () => {
+    const base = skillsInventoryFixture().items[1];
+    const rows = [
+      {
+        ...base,
+        identity: "target:claude-user:dws",
+        name: "dws",
+        location: {
+          kind: "agent_target" as const,
+          target_id: "claude-user",
+          global_dir: "~/.claude/skills",
+        },
+        content_hash: "claude-content",
+        assigned_target_ids: ["claude-user"],
+        affected_agent_ids: ["claude-code"],
+      },
+      {
+        ...base,
+        identity: "target:agents-user:dws",
+        name: "dws",
+        location: {
+          kind: "agent_target" as const,
+          target_id: "agents-user",
+          global_dir: "~/.agents/skills",
+        },
+        content_hash: "agents-content",
+        assigned_target_ids: ["agents-user"],
+        affected_agent_ids: ["codex", "cursor"],
+      },
+    ];
+
+    const result = aggregateSkillsByName(rows);
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({
+      name: "dws",
+      assigned_target_ids: ["agents-user", "claude-user"],
+      affected_agent_ids: ["claude-code", "codex", "cursor"],
+    });
+    expect(result[0].states).toContain("conflicting_link");
+  });
+
   it("combines status, source, and search", () => {
     const result = filterSkills(skillsInventoryFixture().items, {
       status: "needs_attention",

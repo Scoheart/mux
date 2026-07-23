@@ -104,7 +104,7 @@ describe("migration candidates", () => {
     });
     expect(buildMigrationCandidates([], skills(["same"], "high"))[0]).toMatchObject({
       safe: false,
-      conflictReason: "Skill 包含高风险内容；请在 Skills 页面单独导入并审阅风险",
+      conflictReason: "Skill 包含高风险内容；请在 Skills 页面单独导入并确认风险",
     });
   });
 

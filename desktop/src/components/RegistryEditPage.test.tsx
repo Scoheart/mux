@@ -7,6 +7,7 @@ import type { ConsumptionState } from "../hooks/useConsumptionState";
 import type { InstallState } from "../hooks/useInstallState";
 import type { RegistryEntry } from "../lib/types";
 import { RegistryEditPage } from "./RegistryEditPage";
+import { ResourceWorkspace } from "./ResourceWorkspace";
 import { ToastProvider } from "./Toast";
 
 const source = await readFile(resolve(process.cwd(), "src/components/RegistryEditPage.tsx"), "utf8");
@@ -56,10 +57,54 @@ it("keeps imported tags when an existing MCP edit is planned", async () => {
     </ToastProvider>,
   );
 
-  await user.click(screen.getByRole("button", { name: "审阅更改" }));
+  await user.click(screen.getByRole("button", { name: "保存" }));
   await waitFor(() => expect(planUpdate).toHaveBeenCalledTimes(1));
   expect(planUpdate).toHaveBeenCalledWith(expect.objectContaining({
     domain: "mcp",
     entry: expect.objectContaining({ tags: ["official", "catalog"] }),
   }));
+});
+
+it("renders an existing MCP editor inside one resource dialog", () => {
+  const existing: RegistryEntry = {
+    name: "single-shell-mcp",
+    description: "Single shell",
+    tags: [],
+    origin: { kind: "manual" },
+    config: { stdio: { command: "npx", args: ["single-shell-mcp"] } },
+  };
+  const state = {
+    entries: [existing],
+    customKeys: new Set<string>(),
+  } as unknown as InstallState;
+  const consumptionState = {} as ConsumptionState;
+
+  render(
+    <ToastProvider>
+      <ResourceWorkspace
+        sidebar={<div />}
+        query=""
+        onQueryChange={() => undefined}
+        searchPlaceholder="搜索 MCP"
+        toolbarActions={null}
+        inspector={
+          <RegistryEditPage
+            state={state}
+            consumptionState={consumptionState}
+            name={existing.name}
+            entry={existing}
+            transport="stdio"
+            presentation="inspector"
+            onBack={() => undefined}
+          />
+        }
+      >
+        <div />
+      </ResourceWorkspace>
+    </ToastProvider>,
+  );
+
+  expect(screen.getAllByRole("dialog")).toHaveLength(1);
+  expect(screen.getByRole("complementary", { name: `${existing.name} 详情` })).toBeVisible();
+  expect(screen.queryByRole("dialog", { name: "编辑 MCP" })).not.toBeInTheDocument();
 });

@@ -28,7 +28,7 @@ it("selects one asset and names the direct Agent action", async () => {
   expect(action).toBeEnabled();
   await userEvent.click(action);
   expect(onSelect).toHaveBeenCalledWith(["deep"]);
-  expect(screen.queryByText("审阅变更")).not.toBeInTheDocument();
+  expect(screen.queryByText("确认更改")).not.toBeInTheDocument();
 });
 
 it("adds multiple MCPs in one action", async () => {

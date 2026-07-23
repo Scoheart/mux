@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.8.36](https://github.com/Scoheart/mux/compare/v1.8.35...v1.8.36) (2026-07-23)
+
+### Changes
+
+* feat(desktop): unify resource workflows ([93621a9](https://github.com/Scoheart/mux/commit/93621a9a0de175077825a66521ce3fa501378d36))
+* ci(actions): reduce transient failure noise ([8825366](https://github.com/Scoheart/mux/commit/8825366327e7d9ccc8082dd0770820e45e28f176))
+* test(ci): align Fast Lane expiry contract ([fd31dd3](https://github.com/Scoheart/mux/commit/fd31dd374ac76a321239e2bb70e9215e83e23f71))
+
 ## [1.8.35](https://github.com/Scoheart/mux/compare/v1.8.34...v1.8.35) (2026-07-23)
 
 ### Changes

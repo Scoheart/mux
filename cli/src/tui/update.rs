@@ -277,18 +277,16 @@ fn editor_key(model: &mut Model, k: KeyEvent) -> Vec<Effect> {
             }
         }
         KeyCode::Esc => model.editor = None, // cancel
-        KeyCode::Char('r') => {
+        KeyCode::Char('r') if ed.is_custom => {
             // Revert a custom entry to its source default.
-            if ed.is_custom {
-                if let Some(old) = ed.original_key.clone() {
-                    if let Some((name, transport)) = old.rsplit_once("::") {
-                        let eff = Effect::RevertEntry {
-                            name: name.to_string(),
-                            transport: transport.to_string(),
-                        };
-                        model.editor = None;
-                        return vec![eff];
-                    }
+            if let Some(old) = ed.original_key.clone() {
+                if let Some((name, transport)) = old.rsplit_once("::") {
+                    let eff = Effect::RevertEntry {
+                        name: name.to_string(),
+                        transport: transport.to_string(),
+                    };
+                    model.editor = None;
+                    return vec![eff];
                 }
             }
         }

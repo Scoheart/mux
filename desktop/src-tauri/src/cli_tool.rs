@@ -4,7 +4,7 @@
 //! CLI 天然同版本（VS Code / Docker Desktop 同款思路的用户目录变体）。
 
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use serde::Serialize;
 
@@ -41,7 +41,7 @@ fn local_bin_in_path() -> bool {
         .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
         .or_else(|| std::env::var("PATH").ok())
         .unwrap_or_default();
-    path.split(':').any(|p| PathBuf::from(p) == needle)
+    path.split(':').any(|p| Path::new(p) == needle)
 }
 
 #[derive(Serialize)]

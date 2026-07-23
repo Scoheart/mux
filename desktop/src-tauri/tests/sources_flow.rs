@@ -53,11 +53,10 @@ fn local_source_flow_populates_toggles_and_removes() {
         .join(".mux")
         .join("sources")
         .join("local")
-        .join(format!("{}.json", id));
+        .join(format!("{id}.json"));
     assert!(
         cached.exists(),
-        "cached local copy should exist at {:?}",
-        cached
+        "cached local copy should exist at {cached:?}"
     );
     let cached_text = fs::read_to_string(&cached).unwrap();
     assert!(cached_text.contains("mcpServers"));

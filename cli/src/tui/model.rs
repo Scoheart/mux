@@ -6,10 +6,10 @@ use std::time::Duration;
 
 use fuzzy_matcher::skim::SkimMatcherV2;
 use fuzzy_matcher::FuzzyMatcher;
-use mux_core::agents::AgentInfo;
-use mux_core::ops::InstalledMcp;
-use mux_core::sources::SourceView;
-use mux_core::types::{HttpConfig, RegistryConfig, RegistryEntry, StdioConfig};
+use mux_core::application::agents::AgentInfo;
+use mux_core::application::mcp::operations::InstalledMcp;
+use mux_core::application::mcp::sources::SourceView;
+use mux_core::domain::types::{HttpConfig, RegistryConfig, RegistryEntry, StdioConfig};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Screen {
@@ -289,7 +289,7 @@ impl AgentForm {
 
     /// Build (id, AgentDefinition). Core's `agents::put` does the real validation
     /// (id/key/global path non-empty); this just assembles the fields.
-    pub fn to_def(&self) -> (String, mux_core::types::AgentDefinition) {
+    pub fn to_def(&self) -> (String, mux_core::domain::types::AgentDefinition) {
         let opt = |s: &str| {
             let t = s.trim();
             if t.is_empty() {
@@ -300,7 +300,7 @@ impl AgentForm {
         };
         (
             self.id.trim().to_string(),
-            mux_core::types::AgentDefinition {
+            mux_core::domain::types::AgentDefinition {
                 global: opt(&self.global),
                 project: self.legacy_project.clone(),
                 format: self.format.clone(),
@@ -322,7 +322,7 @@ pub enum Modal {
     Help,
     Install(InstallWizard),
     AddMcp(AddMcpState),
-    Confirm(ConfirmState),
+    Confirm(Box<ConfirmState>),
     Paste(PasteState),
     Subscribe(SubscribeForm),
     AddLocal(LocalForm),
@@ -335,10 +335,11 @@ pub enum EditorTransport {
     Http,
 }
 
-/// The full-page catalog-entry editor (create or edit). Multi-value fields are
-/// single-line and comma-separated (`args`, `tags`) or `KEY=val,` (`env`,
-/// `headers`), mirroring the old `mux add` form. Field 3 (transport) toggles
-/// instead of taking text; the name is only editable when new or custom.
+/// The full-page catalog-entry editor (create or edit). Tags retain the legacy
+/// comma form; structured args/env/header values are rendered as JSON so
+/// arbitrary strings round-trip. Field 3 (transport) toggles instead of taking
+/// text. Name and transport form the durable asset identity and are editable
+/// only while creating a new entry.
 pub struct EditorState {
     pub original_key: Option<String>,
     pub is_custom: bool,
@@ -349,6 +350,9 @@ pub struct EditorState {
     pub command: String,
     pub args: String,
     pub env: String,
+    /// `cwd` is not currently exposed as a form field, but it is part of the
+    /// managed stdio contract and must survive edits to unrelated fields.
+    pub cwd: Option<String>,
     pub http_type: String,
     pub url: String,
     pub headers: String,
@@ -374,6 +378,7 @@ impl EditorState {
             command: String::new(),
             args: String::new(),
             env: String::new(),
+            cwd: None,
             http_type: "http".into(),
             url: String::new(),
             headers: String::new(),
@@ -395,8 +400,9 @@ impl EditorState {
         if let Some(stdio) = &entry.config.stdio {
             s.transport = EditorTransport::Stdio;
             s.command = stdio.command.clone();
-            s.args = stdio.args.clone().unwrap_or_default().join(", ");
+            s.args = string_list_to_json(stdio.args.as_deref());
             s.env = kv_to_string(stdio.env.as_ref());
+            s.cwd = stdio.cwd.clone();
         } else if let Some(http) = &entry.config.http {
             s.transport = EditorTransport::Http;
             s.http_type = http.kind.clone();
@@ -408,7 +414,11 @@ impl EditorState {
     }
 
     pub fn name_editable(&self) -> bool {
-        self.original_key.is_none() || self.is_custom
+        self.original_key.is_none()
+    }
+
+    pub fn transport_editable(&self) -> bool {
+        self.original_key.is_none()
     }
 
     pub fn labels(&self) -> [&'static str; EDITOR_FIELDS] {
@@ -419,8 +429,8 @@ impl EditorState {
                 "标签（逗号）",
                 "传输",
                 "命令",
-                "参数（逗号）",
-                "环境（KEY=val,）",
+                "参数（JSON 数组）",
+                "环境（JSON 对象）",
                 "仓库 URL",
             ],
             EditorTransport::Http => [
@@ -430,7 +440,7 @@ impl EditorState {
                 "传输",
                 "类型",
                 "URL",
-                "请求头（KEY=val,）",
+                "请求头（JSON 对象）",
                 "仓库 URL",
             ],
         }
@@ -478,7 +488,7 @@ impl EditorState {
     /// Validate the form and build a `RegistryEntry`, preserving `origin`.
     pub fn to_entry(
         &self,
-        origin: Option<mux_core::types::RegistryOrigin>,
+        origin: Option<mux_core::domain::types::RegistryOrigin>,
     ) -> Result<RegistryEntry, String> {
         let name = self.name.trim();
         if name.is_empty() {
@@ -490,13 +500,13 @@ impl EditorState {
                 if self.command.trim().is_empty() {
                     return Err("stdio 需要填写命令".into());
                 }
-                let args = split_commas(&self.args);
+                let args = parse_string_list(&self.args)?;
                 RegistryConfig {
                     stdio: Some(StdioConfig {
                         command: self.command.trim().to_string(),
                         args: if args.is_empty() { None } else { Some(args) },
-                        env: parse_kv(&self.env),
-                        cwd: None,
+                        env: parse_kv(&self.env)?,
+                        cwd: self.cwd.clone(),
                     }),
                     http: None,
                 }
@@ -515,7 +525,7 @@ impl EditorState {
                             kind.to_string()
                         },
                         url: self.url.trim().to_string(),
-                        headers: parse_kv(&self.headers),
+                        headers: parse_kv(&self.headers)?,
                     }),
                 }
             }
@@ -543,8 +553,40 @@ fn split_commas(raw: &str) -> Vec<String> {
         .collect()
 }
 
-/// Parse `KEY=val, KEY2=val2` into a map (None if empty).
-fn parse_kv(raw: &str) -> Option<std::collections::HashMap<String, String>> {
+/// Parse a JSON string array. The legacy comma form remains accepted for
+/// hand-written new entries, while existing values are rendered as JSON so
+/// commas and whitespace round-trip without ambiguity.
+fn parse_string_list(raw: &str) -> Result<Vec<String>, String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Ok(Vec::new());
+    }
+    if trimmed.starts_with('[') {
+        return serde_json::from_str(trimmed)
+            .map_err(|error| format!("参数 JSON 数组无效: {error}"));
+    }
+    Ok(split_commas(trimmed))
+}
+
+fn string_list_to_json(values: Option<&[String]>) -> String {
+    let Some(values) = values else {
+        return String::new();
+    };
+    serde_json::to_string(values).unwrap_or_default()
+}
+
+/// Parse a JSON string map. `KEY=val, KEY2=val2` remains accepted for legacy
+/// input, but the editor renders maps as JSON to preserve commas and `=`.
+fn parse_kv(raw: &str) -> Result<Option<std::collections::HashMap<String, String>>, String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Ok(None);
+    }
+    if trimmed.starts_with('{') {
+        let map = serde_json::from_str(trimmed)
+            .map_err(|error| format!("键值 JSON 对象无效: {error}"))?;
+        return Ok(Some(map));
+    }
     let map: std::collections::HashMap<String, String> = raw
         .split(',')
         .filter_map(|pair| {
@@ -557,23 +599,14 @@ fn parse_kv(raw: &str) -> Option<std::collections::HashMap<String, String>> {
             }
         })
         .collect();
-    if map.is_empty() {
-        None
-    } else {
-        Some(map)
-    }
+    Ok(if map.is_empty() { None } else { Some(map) })
 }
 
-/// Serialize a map back to `KEY=val, KEY2=val2` (keys sorted for stability).
+/// Serialize a map as stable JSON so arbitrary string values round-trip.
 fn kv_to_string(map: Option<&std::collections::HashMap<String, String>>) -> String {
     let Some(map) = map else { return String::new() };
-    let mut pairs: Vec<(&String, &String)> = map.iter().collect();
-    pairs.sort_by(|a, b| a.0.cmp(b.0));
-    pairs
-        .iter()
-        .map(|(k, v)| format!("{}={}", k, v))
-        .collect::<Vec<_>>()
-        .join(", ")
+    let sorted = map.iter().collect::<std::collections::BTreeMap<_, _>>();
+    serde_json::to_string(&sorted).unwrap_or_default()
 }
 
 pub struct Model {
@@ -623,7 +656,7 @@ impl Model {
             .data
             .registry
             .iter()
-            .filter(|e| want.map_or(true, |b| bucket_of(e) == b))
+            .filter(|e| want.is_none_or(|b| bucket_of(e) == b))
             .filter(|e| {
                 if q.is_empty() {
                     return true;

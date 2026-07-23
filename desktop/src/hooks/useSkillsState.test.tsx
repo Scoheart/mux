@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import * as api from "../lib/api";
 import type {
   OperationPlan,
+  OperationCommitResult,
   SkillCommandError,
   SkillOperationKind,
   SkillsInventory,
@@ -12,17 +13,17 @@ import {
   sharedTargetPlanFixture,
   skillsInventoryFixture,
 } from "../test/skillsFixtures";
-import { useSkillsState } from "./useSkillsState";
+import {
+  normalizeSkillCommandError,
+  type SkillPlanOperationRequest,
+  useSkillsState,
+} from "./useSkillsState";
 
 vi.mock("../lib/api", () => ({
   listSkillsInventory: vi.fn(),
-  commitSkillInstall: vi.fn(),
-  commitSkillImport: vi.fn(),
-  commitSkillUpdate: vi.fn(),
-  commitSkillRemove: vi.fn(),
-  commitSkillAssignment: vi.fn(),
-  commitSkillRepair: vi.fn(),
-  cancelSkillOperation: vi.fn(),
+  planOperation: vi.fn(),
+  commitOperation: vi.fn(),
+  cancelOperation: vi.fn(),
   checkSkillUpdates: vi.fn(),
 }));
 
@@ -67,23 +68,84 @@ const planFor = (kind: SkillOperationKind): OperationPlan => ({
   kind,
 });
 
-const committers = {
-  install: api.commitSkillInstall,
-  import: api.commitSkillImport,
-  update: api.commitSkillUpdate,
-  remove: api.commitSkillRemove,
-  assignment: api.commitSkillAssignment,
-  repair: api.commitSkillRepair,
-};
+const skillPlanRequests: Array<{
+  request: SkillPlanOperationRequest;
+  kind: SkillOperationKind;
+}> = [
+  {
+    request: {
+      operation: "install_skill",
+      request: {
+        resolution_id: "resolution-id",
+        skill_names: ["review-changes"],
+        replace_conflicts: false,
+      },
+    },
+    kind: "install",
+  },
+  {
+    request: {
+      operation: "import_skill",
+      request: {
+        identity: "target:agents-user:review-changes",
+        replace_conflicts: true,
+      },
+    },
+    kind: "import",
+  },
+  {
+    request: {
+      operation: "assign_skill",
+      request: {
+        skill_name: "review-changes",
+        agent_ids: ["codex"],
+        enabled: true,
+      },
+    },
+    kind: "assignment",
+  },
+  {
+    request: {
+      operation: "update_skill",
+      request: {
+        skill_name: "review-changes",
+        replace_local_changes: false,
+      },
+    },
+    kind: "update",
+  },
+  {
+    request: {
+      operation: "remove_skill",
+      request: { skill_name: "review-changes" },
+    },
+    kind: "remove",
+  },
+  {
+    request: {
+      operation: "repair_skill",
+      request: {
+        skill_name: "review-changes",
+        repair: { kind: "central" },
+      },
+    },
+    kind: "repair",
+  },
+];
 
 beforeEach(() => {
   vi.resetAllMocks();
   vi.mocked(api.listSkillsInventory).mockResolvedValue(skillsInventoryFixture());
-  vi.mocked(api.cancelSkillOperation).mockResolvedValue(undefined);
+  vi.mocked(api.planOperation).mockResolvedValue({
+    domain: "skill",
+    plan: sharedTargetPlanFixture(),
+  });
+  vi.mocked(api.commitOperation).mockResolvedValue({
+    domain: "skill",
+    inventory: skillsInventoryFixture(),
+  });
+  vi.mocked(api.cancelOperation).mockResolvedValue(undefined);
   vi.mocked(api.checkSkillUpdates).mockResolvedValue(outcomeFixture());
-  for (const committer of Object.values(committers)) {
-    vi.mocked(committer).mockResolvedValue(skillsInventoryFixture());
-  }
 });
 
 describe("useSkillsState", () => {
@@ -99,6 +161,41 @@ describe("useSkillsState", () => {
     expect(api.listSkillsInventory).toHaveBeenCalledOnce();
   });
 
+  it.each(skillPlanRequests)(
+    "plans $request.operation through the exact unified request envelope",
+    async ({ request, kind }) => {
+      const planned = planFor(kind);
+      vi.mocked(api.planOperation).mockResolvedValueOnce({
+        domain: "skill",
+        plan: planned,
+      });
+      const { result } = renderHook(() => useSkillsState());
+
+      let returned!: OperationPlan;
+      await act(async () => {
+        returned = await result.current.plan(request);
+      });
+
+      expect(api.planOperation).toHaveBeenCalledWith(request);
+      expect(returned).toBe(planned);
+    },
+  );
+
+  it("restores the Skill findings token from the unified Core confirmation", () => {
+    expect(normalizeSkillCommandError({
+      code: "confirmation_required",
+      message: "请确认风险。",
+      confirmation: {
+        kind: "skill_findings",
+        token: "findings-from-unified-core",
+      },
+    })).toEqual({
+      code: "confirmation_required",
+      message: "请确认风险。",
+      findings_hash: "findings-from-unified-core",
+    });
+  });
+
   it.each<SkillOperationKind>([
     "install",
     "import",
@@ -108,7 +205,10 @@ describe("useSkillsState", () => {
     "repair",
   ])("dispatches %s through the sole committer with the exact confirmation string", async (kind) => {
     const next = inventoryNamed(`${kind}-committed`);
-    vi.mocked(committers[kind]).mockResolvedValueOnce(next);
+    vi.mocked(api.commitOperation).mockResolvedValueOnce({
+      domain: "skill",
+      inventory: next,
+    });
     const { result } = renderHook(() => useSkillsState());
     await waitFor(() => expect(result.current.inventory).not.toBeNull());
 
@@ -116,17 +216,21 @@ describe("useSkillsState", () => {
       await result.current.commit(planFor(kind), "findings-from-core");
     });
 
-    expect(committers[kind]).toHaveBeenCalledWith({
-      operation_id: `${kind}-operation`,
-      candidate_hash: "candidate-hash",
-      findings_confirmation: "findings-from-core",
+    expect(api.commitOperation).toHaveBeenCalledWith({
+      domain: "skill",
+      kind,
+      request: {
+        operation_id: `${kind}-operation`,
+        candidate_hash: "candidate-hash",
+        findings_confirmation: "findings-from-core",
+      },
     });
     expect(result.current.inventory).toBe(next);
   });
 
   it("claims commits synchronously and rejects a duplicate without invoking it", async () => {
-    const pending = deferred<SkillsInventory>();
-    vi.mocked(api.commitSkillInstall).mockReturnValueOnce(pending.promise);
+    const pending = deferred<OperationCommitResult>();
+    vi.mocked(api.commitOperation).mockReturnValueOnce(pending.promise);
     const { result } = renderHook(() => useSkillsState());
     await waitFor(() => expect(result.current.inventory).not.toBeNull());
 
@@ -141,11 +245,13 @@ describe("useSkillsState", () => {
       code: "operation_pending",
       message: "已有 Skill 操作正在进行。",
     });
-    expect(api.commitSkillInstall).toHaveBeenCalledOnce();
-    expect(api.commitSkillImport).not.toHaveBeenCalled();
+    expect(api.commitOperation).toHaveBeenCalledOnce();
     expect(result.current.pendingOperation).toBe("install-operation");
 
-    pending.resolve(inventoryNamed("committed"));
+    pending.resolve({
+      domain: "skill",
+      inventory: inventoryNamed("committed"),
+    });
     await act(async () => {
       await first;
     });
@@ -161,7 +267,7 @@ describe("useSkillsState", () => {
       findings_hash: "findings-current",
     };
     vi.mocked(api.listSkillsInventory).mockResolvedValueOnce(initial);
-    vi.mocked(api.commitSkillInstall).mockRejectedValueOnce(commandError);
+    vi.mocked(api.commitOperation).mockRejectedValueOnce(commandError);
     const { result } = renderHook(() => useSkillsState());
     await waitFor(() => expect(result.current.inventory).toBe(initial));
 
@@ -177,7 +283,7 @@ describe("useSkillsState", () => {
   });
 
   it("normalizes unknown rejection values without leaking their contents", async () => {
-    vi.mocked(api.commitSkillInstall).mockRejectedValueOnce(
+    vi.mocked(api.commitOperation).mockRejectedValueOnce(
       new Error("private path: /Users/example/.mux/skills"),
     );
     const { result } = renderHook(() => useSkillsState());
@@ -196,7 +302,10 @@ describe("useSkillsState", () => {
     const oldRefresh = deferred<SkillsInventory>();
     const committed = inventoryNamed("authoritative-commit");
     vi.mocked(api.listSkillsInventory).mockReturnValueOnce(oldRefresh.promise);
-    vi.mocked(api.commitSkillInstall).mockResolvedValueOnce(committed);
+    vi.mocked(api.commitOperation).mockResolvedValueOnce({
+      domain: "skill",
+      inventory: committed,
+    });
     const { result } = renderHook(() => useSkillsState());
 
     await act(async () => {
@@ -221,7 +330,10 @@ describe("useSkillsState", () => {
       .mockResolvedValueOnce(initial)
       .mockResolvedValueOnce(stale);
     vi.mocked(api.checkSkillUpdates).mockReturnValueOnce(check.promise);
-    vi.mocked(api.commitSkillInstall).mockResolvedValueOnce(committed);
+    vi.mocked(api.commitOperation).mockResolvedValueOnce({
+      domain: "skill",
+      inventory: committed,
+    });
     const { result } = renderHook(() => useSkillsState());
     await waitFor(() => expect(result.current.inventory).toBe(initial));
 
@@ -260,8 +372,8 @@ describe("useSkillsState", () => {
   });
 
   it("keeps an in-flight commit pending when staging cleanup is requested", async () => {
-    const pending = deferred<SkillsInventory>();
-    vi.mocked(api.commitSkillInstall).mockReturnValueOnce(pending.promise);
+    const pending = deferred<OperationCommitResult>();
+    vi.mocked(api.commitOperation).mockReturnValueOnce(pending.promise);
     const { result } = renderHook(() => useSkillsState());
     await waitFor(() => expect(result.current.inventory).not.toBeNull());
 
@@ -272,10 +384,16 @@ describe("useSkillsState", () => {
     await act(async () => {
       await result.current.cancel("install-operation");
     });
-    expect(api.cancelSkillOperation).toHaveBeenCalledWith("install-operation");
+    expect(api.cancelOperation).toHaveBeenCalledWith({
+      domain: "skill",
+      operation_id: "install-operation",
+    });
     expect(result.current.pendingOperation).toBe("install-operation");
 
-    pending.resolve(inventoryNamed("committed"));
+    pending.resolve({
+      domain: "skill",
+      inventory: inventoryNamed("committed"),
+    });
     await act(async () => {
       await committing;
     });

@@ -1,6 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import type { AgentInfo } from "../lib/types";
+import type { AgentCapabilityView, AgentInfo } from "../lib/types";
+import { mergeAgentInfos } from "../lib/agentCapabilities";
 import { AgentNavigation } from "./AgentNavigation";
 
 const pinnedAgentMocks = vi.hoisted(() => ({
@@ -137,4 +138,41 @@ it("uses a dedicated crossed pin for unpinning and keeps the action wired", asyn
     expect(pinnedAgentMocks.commit).toHaveBeenCalledWith(["codex", "qoder"]);
   });
   expect(screen.getByText("Claude Code 已取消置顶")).toHaveAttribute("aria-live", "polite");
+});
+
+it("lists and opens a projection-only Model Agent", () => {
+  const projection: AgentCapabilityView = {
+    identity: {
+      id: "model-only",
+      name: "Projection Model",
+      enabled: true,
+      builtin: true,
+      category: "coding-agent",
+      evidence: "official",
+    },
+    installed: true,
+    capabilities: {
+      model: {
+        mode: "managed",
+        installed: true,
+        config_paths: ["~/.model-only/config.json"],
+        assigned_profiles: [],
+        supports_multiple: false,
+        credential_mode: "guided",
+        supported_protocols: ["openai-responses"],
+      },
+    },
+  };
+  const onSelectAgent = vi.fn();
+  const { container } = render(
+    <AgentNavigation
+      agents={mergeAgentInfos([], [projection])}
+      selectedAgentId={null}
+      onSelectAgent={onSelectAgent}
+    />,
+  );
+
+  fireEvent.click(container.querySelector<HTMLButtonElement>(".mux-agent-picker-trigger")!);
+  fireEvent.click(screen.getByText("Projection Model").closest("button")!);
+  expect(onSelectAgent).toHaveBeenCalledWith("model-only");
 });

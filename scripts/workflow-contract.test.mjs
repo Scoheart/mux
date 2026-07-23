@@ -19,16 +19,36 @@ function jobBlock(workflow, job, nextJob) {
 
 test("quality workflow runs independent producer jobs", async () => {
   const workflow = await read(".github/workflows/quality-monitor.yml");
-  const rust = jobBlock(workflow, "rust", "desktop");
+  const rust = jobBlock(workflow, "rust", "tauri");
+  const tauri = jobBlock(workflow, "tauri", "desktop");
   const desktop = jobBlock(workflow, "desktop", "website");
   const website = jobBlock(workflow, "website", "verify");
 
   assert.match(rust, /cargo test --locked -p mux-core -p mux-cli/);
+  assert.match(rust, /cargo fmt --all --check/);
+  assert.match(rust, /cargo clippy --locked -p mux-core -p mux-cli --all-targets -- -D warnings/);
+  assert.match(tauri, /runs-on:\s*macos-latest/);
+  assert.match(
+    tauri,
+    /cargo fmt --all --manifest-path desktop\/src-tauri\/Cargo\.toml --check/,
+  );
+  assert.match(
+    tauri,
+    /cargo clippy --locked --manifest-path desktop\/src-tauri\/Cargo\.toml --all-targets -- -D warnings/,
+  );
+  assert.match(
+    tauri,
+    /cargo test --locked --manifest-path desktop\/src-tauri\/Cargo\.toml/,
+  );
   assert.match(desktop, /node-version:\s*24/);
   assert.match(desktop, /cache:\s*npm/);
   assert.match(desktop, /cache-dependency-path:\s*desktop\/package-lock\.json/);
   assert.match(desktop, /npm ci --no-audit --no-fund/);
   assert.match(desktop, /node scripts\/release-version\.mjs check/);
+  assert.match(
+    desktop,
+    /node --test scripts\/workflow-contract\.test\.mjs scripts\/release-version\.test\.mjs/,
+  );
   assert.match(website, /node-version:\s*24/);
   assert.match(website, /cache-dependency-path:\s*website\/package-lock\.json/);
   assert.match(website, /npm ci --no-audit --no-fund/);
@@ -41,8 +61,8 @@ test("verify is the stable aggregate result", async () => {
 
   assert.match(verify, /name:\s*verify/);
   assert.match(verify, /if:\s*\$\{\{ always\(\) \}\}/);
-  assert.match(verify, /needs:\s*\[rust, desktop, website\]/);
-  for (const producer of ["rust", "desktop", "website"]) {
+  assert.match(verify, /needs:\s*\[rust, tauri, desktop, website\]/);
+  for (const producer of ["rust", "tauri", "desktop", "website"]) {
     assert.match(verify, new RegExp(`needs\\.${producer}\\.result`));
   }
 });

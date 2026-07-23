@@ -6,10 +6,18 @@ use std::io::Error;
 pub const MAX_PINNED_AGENTS: usize = 6;
 
 fn configurable_agent_ids(settings: &Settings) -> BTreeSet<String> {
-    load_agents_from_settings(settings)
+    let mut ids: BTreeSet<String> = load_agents_from_settings(settings)
         .into_iter()
-        .filter_map(|(id, definition)| definition.global.is_some().then_some(id))
-        .collect()
+        .filter_map(|(id, definition)| {
+            (definition.global.is_some() || definition.skills.is_some()).then_some(id)
+        })
+        .collect();
+    ids.extend(
+        crate::resources::model::list_agents()
+            .into_iter()
+            .map(|agent| agent.id),
+    );
+    ids
 }
 
 fn normalize_loaded(ids: Vec<String>, configurable: &BTreeSet<String>) -> Vec<String> {
@@ -31,7 +39,7 @@ fn validate_requested(ids: &[String], configurable: &BTreeSet<String>) -> Result
             return Err(format!("置顶 Agent 不能重复: {id}"));
         }
         if !configurable.contains(id) {
-            return Err(format!("Agent 不存在或没有全局配置能力: {id}"));
+            return Err(format!("Agent 不存在或没有可配置资源能力: {id}"));
         }
     }
     Ok(())
@@ -98,22 +106,41 @@ mod tests {
     }
 
     #[test]
-    fn write_rejects_limit_duplicates_unknown_and_read_only_agents() {
+    fn write_rejects_limit_duplicates_and_unknown_agents() {
         let _home = TestHome::new("pinned-validation");
-        let configurable: Vec<String> = load_agents()
+        let configurable: Vec<String> = configurable_agent_ids(&Settings::default())
             .into_iter()
-            .filter_map(|(id, definition)| definition.global.is_some().then_some(id))
             .collect();
-        assert!(configurable.len() >= MAX_PINNED_AGENTS + 1);
+        assert!(configurable.len() > MAX_PINNED_AGENTS);
         assert!(set_pinned_agents(configurable[..MAX_PINNED_AGENTS + 1].to_vec()).is_err());
         assert!(set_pinned_agents(vec!["codex".into(), "codex".into()]).is_err());
         assert!(set_pinned_agents(vec!["missing-agent".into()]).is_err());
+    }
 
-        let read_only = load_agents()
+    #[test]
+    fn skill_only_and_model_capable_agents_are_configurable() {
+        let _home = TestHome::new("pinned-non-mcp");
+        let agents = load_agents();
+        let skill_only = agents
+            .iter()
+            .find_map(|(id, definition)| {
+                (definition.global.is_none() && definition.skills.is_some()).then(|| id.clone())
+            })
+            .expect("catalog must retain at least one Skill-only Agent");
+        let model_ids: BTreeSet<_> = crate::resources::model::list_agents()
             .into_iter()
-            .find_map(|(id, definition)| definition.global.is_none().then_some(id))
-            .expect("catalog must retain at least one read-only Agent");
-        assert!(set_pinned_agents(vec![read_only]).is_err());
+            .map(|agent| agent.id)
+            .collect();
+        let configurable = configurable_agent_ids(&Settings::default());
+        assert!(model_ids.iter().all(|id| configurable.contains(id)));
+        let model_agent = model_ids
+            .into_iter()
+            .find(|id| id != &skill_only)
+            .expect("model catalog must not be empty");
+
+        let saved = set_pinned_agents(vec![skill_only.clone(), model_agent.clone()]).unwrap();
+        assert_eq!(saved, vec![skill_only, model_agent]);
+        assert_eq!(get_pinned_agents().unwrap(), saved);
     }
 
     #[test]
@@ -153,17 +180,19 @@ mod tests {
 
     #[test]
     fn validation_uses_agents_from_the_mutation_settings_snapshot() {
-        let mut stale = Settings::default();
-        stale.agents = Some(std::collections::BTreeMap::from([(
-            "snapshot-agent".into(),
-            crate::types::AgentDefinition {
-                global: Some("~/.snapshot/mcp.json".into()),
-                format: "json".into(),
-                key: "mcpServers".into(),
-                enabled: true,
-                ..Default::default()
-            },
-        )]));
+        let stale = Settings {
+            agents: Some(std::collections::BTreeMap::from([(
+                "snapshot-agent".into(),
+                crate::domain::types::AgentDefinition {
+                    global: Some("~/.snapshot/mcp.json".into()),
+                    format: "json".into(),
+                    key: "mcpServers".into(),
+                    enabled: true,
+                    ..Default::default()
+                },
+            )])),
+            ..Default::default()
+        };
         assert!(configurable_agent_ids(&stale).contains("snapshot-agent"));
 
         let mut current = Settings::default();

@@ -29,6 +29,7 @@ import {
   createResourceNavigationIntent,
   viewForResourceIntent,
 } from "./lib/resourceNavigation";
+import { mergeAgentInfos } from "./lib/agentCapabilities";
 
 const MIGRATION_IGNORED_KEY = "mux:migration-ignored:v2";
 
@@ -60,6 +61,10 @@ function App() {
   // 启动后静默安装/修复 ~/.local/bin/mux 软链（装 App 即带 CLI）。
   useCliTool();
 
+  const agents = useMemo(
+    () => mergeAgentInfos(state.agents, consumptionState.agents),
+    [consumptionState.agents, state.agents],
+  );
   const migrationCandidates = useMemo(
     () => buildMigrationCandidates(mcpMigrationCandidates, skillMigrationCandidates, modelMigrationCandidates),
     [mcpMigrationCandidates, modelMigrationCandidates, skillMigrationCandidates],
@@ -135,7 +140,7 @@ function App() {
       proxyUrl={networkSettings.settings.proxy_url}
       proxySettingsLoading={networkSettings.loading}
       onSaveProxy={networkSettings.save}
-      agents={state.agents}
+      agents={agents}
       view={view}
       onSelectRegistry={() => setView({ kind: "registry" })}
       onSelectModels={() => setView({ kind: "models" })}

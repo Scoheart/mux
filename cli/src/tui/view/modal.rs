@@ -42,7 +42,7 @@ fn render_agent_form(f: &mut Frame, form: &crate::tui::model::AgentForm) {
     f.render_widget(Clear, area);
     let labels = form.labels();
     let mut lines: Vec<Line> = Vec::new();
-    for i in 0..AGENT_FIELDS {
+    for (i, label) in labels.iter().enumerate().take(AGENT_FIELDS) {
         let focused = i == form.field;
         let caret = if focused {
             Span::from("› ").cyan().bold()
@@ -60,7 +60,7 @@ fn render_agent_form(f: &mut Frame, form: &crate::tui::model::AgentForm) {
         } else {
             Span::from(raw)
         };
-        let mut spans = vec![caret, Span::from(format!("{:<12}", labels[i])).dim(), val];
+        let mut spans = vec![caret, Span::from(format!("{label:<12}")).dim(), val];
         if editing {
             spans.push(Span::from("▏").cyan());
         }
@@ -68,7 +68,7 @@ fn render_agent_form(f: &mut Frame, form: &crate::tui::model::AgentForm) {
     }
     lines.push(Line::from(""));
     if let Some(err) = &form.error {
-        lines.push(Line::from(Span::from(format!("✗ {}", err)).red()));
+        lines.push(Line::from(Span::from(format!("✗ {err}")).red()));
     } else if form.field == 1 {
         lines.push(Line::from(Span::from("Enter 切换 json ↔ toml").dim()));
     }
@@ -322,7 +322,7 @@ fn render_help(f: &mut Frame) {
         .iter()
         .map(|(k, d)| {
             Line::from(vec![
-                Span::from(format!("{:<12}", k)).cyan().bold(),
+                Span::from(format!("{k:<12}")).cyan().bold(),
                 Span::from(*d),
             ])
         })

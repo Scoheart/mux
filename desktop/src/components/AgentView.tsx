@@ -30,6 +30,7 @@ import {
 } from "./ConsumptionPickerDialog";
 import { AssetOperationReviewDialog } from "./AssetOperationReviewDialog";
 import { modelMigrationCandidateId, skillMigrationCandidateId } from "../lib/migration";
+import { mergeAgentInfos } from "../lib/agentCapabilities";
 
 type PickerDomain = "mcp" | "model" | "skill";
 
@@ -140,7 +141,7 @@ export function AgentView({
   onOpenMigration,
   onManageExternalMcp,
 }: AgentViewProps) {
-  const { entries, agents, refreshAgents, rescan } = state;
+  const { entries, refreshAgents, rescan } = state;
   const { show: showToast } = useToast();
   const [editingAgent, setEditingAgent] = useState(false);
   const [pickerDomain, setPickerDomain] = useState<PickerDomain | null>(null);
@@ -166,9 +167,13 @@ export function AgentView({
     if (request.domain === "model") return onOpenModels?.();
   }, [onOpenModels, onOpenResource, onOpenSkills]);
 
+  const agents = useMemo(
+    () => mergeAgentInfos(state.agents, consumptionState?.agents ?? []),
+    [consumptionState?.agents, state.agents],
+  );
   const agent = useMemo(
     () => agents.find((item) => item.id === agentId) ?? null,
-    [agents, agentId],
+    [agentId, agents],
   );
 
   useEffect(() => {
@@ -200,6 +205,9 @@ export function AgentView({
   const modelAgent = useMemo(
     () => modelAgents.find((item) => item.id === agentId) ?? null,
     [modelAgents, agentId],
+  );
+  const canEditConfiguration = Boolean(
+    agent?.has_global || modelAgent !== null || agent?.skills_global_dir,
   );
   const compatibleProfiles = useMemo(
     () => modelAgent
@@ -263,7 +271,7 @@ export function AgentView({
 
   if (!agent) return <div className="mux-agent-state">未找到该 Agent</div>;
 
-  if (!agent.has_global && !agent.skills_global_dir) {
+  if (!agent.has_global && !agent.skills_global_dir && !modelsLoading && !modelAgent) {
     return (
       <div className="mux-agent-page">
         <div className="mux-agent-shell">
@@ -531,7 +539,7 @@ export function AgentView({
         <section className="mux-agent-context" aria-label={`${agent.name} 配置范围`}>
           <AgentHeader
             agent={agent}
-            onEdit={agent.has_global ? () => setEditingAgent(true) : undefined}
+            onEdit={canEditConfiguration ? () => setEditingAgent(true) : undefined}
           />
 
           <section
@@ -544,7 +552,7 @@ export function AgentView({
                 <h3 id="agent-files-title">配置位置</h3>
                 <p>这些是 MUX 为当前 Agent 读取或写入的实际位置</p>
               </div>
-              {agent.has_global && (
+              {canEditConfiguration && (
                 <button type="button" className="btn-secondary" onClick={() => setEditingAgent(true)}>
                   <EditIcon className="w-3.5 h-3.5" />编辑配置
                 </button>

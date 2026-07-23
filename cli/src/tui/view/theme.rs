@@ -9,7 +9,7 @@ use ratatui::widgets::{Block, List, ListItem, ListState};
 use ratatui::Frame;
 
 use crate::tui::model::bucket_of;
-use mux_core::types::RegistryEntry;
+use mux_core::domain::types::RegistryEntry;
 
 /// `[stdio]` / `[http]` transport pill.
 pub fn transport_pill(entry: &RegistryEntry) -> Span<'static> {

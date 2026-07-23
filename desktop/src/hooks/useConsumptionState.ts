@@ -1,26 +1,23 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  cancelAssetOperation,
-  commitAssetOperation,
-  listConsumptionInventory,
-  planDeleteCentralAsset,
-  planSetAgentConsumption,
-  planSetActiveModel,
-  planSetAssetConsumers,
-  planSetMcpEnabled,
-  planSetModelEnabled,
-  planUpdateCentralAsset,
+  cancelOperation,
+  commitOperation,
+  getWorkspaceSnapshot,
+  planOperation,
 } from "../lib/api";
 import type {
   AgentConsumptionSelection,
+  AgentCapabilityView,
   AssetCommandError,
   AssetOperationPlan,
   AssetRef,
   CentralAssetDraft,
   ConsumptionInventory,
+  PlanOperationRequest,
 } from "../lib/types";
 
 export interface ConsumptionState {
+  agents: AgentCapabilityView[];
   inventory: ConsumptionInventory | null;
   loading: boolean;
   error: AssetCommandError | null;
@@ -67,7 +64,16 @@ function commandError(error: unknown): AssetCommandError {
   return { code: "asset_operation_failed", message: String(error) };
 }
 
+async function planAsset(request: PlanOperationRequest): Promise<AssetOperationPlan> {
+  const result = await planOperation(request);
+  if (result.domain !== "asset") {
+    throw new Error("Core returned a Skill plan for an asset request");
+  }
+  return result.plan;
+}
+
 export function useConsumptionState(): ConsumptionState {
+  const [agents, setAgents] = useState<AgentCapabilityView[]>([]);
   const [inventory, setInventory] = useState<ConsumptionInventory | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<AssetCommandError | null>(null);
@@ -87,8 +93,10 @@ export function useConsumptionState(): ConsumptionState {
   const refresh = useCallback(async () => {
     const ownGeneration = ++generation.current;
     try {
-      const next = await listConsumptionInventory();
+      const snapshot = await getWorkspaceSnapshot();
+      const next = snapshot.relationships;
       if (mounted.current && ownGeneration === generation.current) {
+        setAgents(snapshot.agents);
         setInventory(next);
         setError(next.recovery_error
           ? { code: "recovery_required", message: next.recovery_error }
@@ -123,7 +131,10 @@ export function useConsumptionState(): ConsumptionState {
       if (planRef.current || planningRef.current) throw new Error("已有待确认的资产操作");
       planningRef.current = true;
       try {
-        return ownPlan(await planSetAgentConsumption(agentId, selection));
+        return ownPlan(await planAsset({
+          operation: "set_agent_consumption",
+          request: { agent_id: agentId, selection },
+        }));
       } catch (cause) {
         if (mounted.current) setError(commandError(cause));
         throw cause;
@@ -139,7 +150,10 @@ export function useConsumptionState(): ConsumptionState {
       if (planRef.current || planningRef.current) throw new Error("已有待确认的资产操作");
       planningRef.current = true;
       try {
-        return ownPlan(await planSetAssetConsumers(asset, agentIds));
+        return ownPlan(await planAsset({
+          operation: "set_asset_consumers",
+          request: { asset, agent_ids: agentIds },
+        }));
       } catch (cause) {
         if (mounted.current) setError(commandError(cause));
         throw cause;
@@ -155,7 +169,10 @@ export function useConsumptionState(): ConsumptionState {
       if (planRef.current || planningRef.current) throw new Error("已有待确认的资产操作");
       planningRef.current = true;
       try {
-        return ownPlan(await planSetMcpEnabled(agentId, assetKey, enabled));
+        return ownPlan(await planAsset({
+          operation: "set_mcp_enabled",
+          request: { agent_id: agentId, asset_key: assetKey, enabled },
+        }));
       } catch (cause) {
         if (mounted.current) setError(commandError(cause));
         throw cause;
@@ -171,7 +188,10 @@ export function useConsumptionState(): ConsumptionState {
       if (planRef.current || planningRef.current) throw new Error("已有待确认的资产操作");
       planningRef.current = true;
       try {
-        return ownPlan(await planSetModelEnabled(agentId, profileId, enabled));
+        return ownPlan(await planAsset({
+          operation: "set_model_enabled",
+          request: { agent_id: agentId, profile_id: profileId, enabled },
+        }));
       } catch (cause) {
         if (mounted.current) setError(commandError(cause));
         throw cause;
@@ -187,7 +207,10 @@ export function useConsumptionState(): ConsumptionState {
       if (planRef.current || planningRef.current) throw new Error("已有待确认的资产操作");
       planningRef.current = true;
       try {
-        return ownPlan(await planSetActiveModel(agentId, profileId));
+        return ownPlan(await planAsset({
+          operation: "set_active_model",
+          request: { agent_id: agentId, profile_id: profileId },
+        }));
       } catch (cause) {
         if (mounted.current) setError(commandError(cause));
         throw cause;
@@ -203,7 +226,10 @@ export function useConsumptionState(): ConsumptionState {
       if (planRef.current || planningRef.current) throw new Error("已有待确认的资产操作");
       planningRef.current = true;
       try {
-        return ownPlan(await planUpdateCentralAsset(draft));
+        return ownPlan(await planAsset({
+          operation: "update_central_asset",
+          request: { draft },
+        }));
       } catch (cause) {
         if (mounted.current) setError(commandError(cause));
         throw cause;
@@ -219,7 +245,10 @@ export function useConsumptionState(): ConsumptionState {
       if (planRef.current || planningRef.current) throw new Error("已有待确认的资产操作");
       planningRef.current = true;
       try {
-        return ownPlan(await planDeleteCentralAsset(asset, sourceId));
+        return ownPlan(await planAsset({
+          operation: "delete_central_asset",
+          request: { asset, source_id: sourceId },
+        }));
       } catch (cause) {
         if (mounted.current) setError(commandError(cause));
         throw cause;
@@ -236,7 +265,18 @@ export function useConsumptionState(): ConsumptionState {
     committingRef.current = true;
     setCommitting(true);
     try {
-      const next = await commitAssetOperation(active, conflictConfirmation);
+      const committed = await commitOperation({
+        domain: "asset",
+        request: {
+          operation_id: active.operation_id,
+          candidate_hash: active.candidate_hash,
+          conflict_confirmation: conflictConfirmation,
+        },
+      });
+      if (committed.domain !== "asset") {
+        throw new Error("Core returned a Skill inventory for an asset commit");
+      }
+      const next = committed.inventory;
       ++generation.current;
       if (mounted.current && planRef.current?.operation_id === active.operation_id) {
         setInventory(next);
@@ -259,7 +299,7 @@ export function useConsumptionState(): ConsumptionState {
   const cancel = useCallback(async () => {
     const active = planRef.current;
     if (!active || committingRef.current) return;
-    await cancelAssetOperation(active.operation_id);
+    await cancelOperation({ domain: "asset", operation_id: active.operation_id });
     if (mounted.current && planRef.current?.operation_id === active.operation_id) {
       planRef.current = null;
       setPlan(null);
@@ -267,6 +307,7 @@ export function useConsumptionState(): ConsumptionState {
   }, []);
 
   return {
+    agents,
     inventory,
     loading,
     error,

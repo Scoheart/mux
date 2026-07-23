@@ -21,7 +21,7 @@ Qwen 是本轮唯一出现官方材料自相矛盾的项目：官网 Model Provi
 
 ## 本轮修正
 
-1. `core/src/model_adapters.rs`
+1. [`core/src/resources/model/adapters.rs`](../core/src/resources/model/adapters.rs)
    - Qwen 改写为 stable 数组结构。
    - 保留其他 auth group 与外部 model。
    - 按 `id + baseUrl` 识别 MUX model。

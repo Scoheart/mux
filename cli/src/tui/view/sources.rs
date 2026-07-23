@@ -8,7 +8,7 @@ use ratatui::Frame;
 
 use super::theme::render_list;
 use crate::tui::model::Model;
-use mux_core::sources::SourceView;
+use mux_core::application::mcp::sources::SourceView;
 
 pub fn render(model: &Model, f: &mut Frame, area: Rect) {
     let rows = Layout::vertical([Constraint::Length(1), Constraint::Min(0)]).split(area);
@@ -21,7 +21,7 @@ pub fn render(model: &Model, f: &mut Frame, area: Rect) {
         .map(|s| s.server_count)
         .sum();
     let header = Line::from(vec![
-        Span::from(format!("共 {} 个 server", enabled)).bold(),
+        Span::from(format!("共 {enabled} 个 server")).bold(),
         Span::from("（已启用来源）").dim(),
     ]);
     f.render_widget(Paragraph::new(header), rows[0]);
@@ -68,7 +68,7 @@ fn source_line(s: &SourceView) -> Line<'static> {
         state,
     ];
     if let Some(err) = &s.error {
-        spans.push(Span::from(format!("  ⚠ {}", err)).red());
+        spans.push(Span::from(format!("  ⚠ {err}")).red());
     }
     Line::from(spans)
 }

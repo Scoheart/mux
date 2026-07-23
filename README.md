@@ -1,6 +1,6 @@
 <img src="desktop/src-tauri/icons/icon.png" width="104" align="right" alt="MUX icon" />
 
-# MUX — MCP Multiplexer
+# MUX — Agent Resource Manager
 
 **Configure MCP servers, reusable model endpoints, and user-level Agent Skills once, then let each Agent consume those central assets.**
 
@@ -26,9 +26,10 @@ MUX ships as **two front-ends that share the same data** (`~/.mux/`):
 - ⌨️ a **CLI + TUI** (`mux`, a native Rust binary) — an interactive terminal UI
   plus scriptable subcommands.
 
-The Desktop app uses the central-asset consumption workflow. The existing CLI
-and TUI continue to manage MCP targets through the same Rust core and `~/.mux/`
-data while their UI migration remains out of scope for this release.
+Both frontends enter through the same revisioned workspace, capability graph,
+startup recovery, and plan/commit/cancel application boundary. Legacy CLI/TUI
+editing screens remain MCP-focused for compatibility, while `mux workspace`,
+`mux models`, `mux skills`, and `mux agents` expose the complete resource model.
 
 ---
 
@@ -59,7 +60,7 @@ A one-click **Mux 精选 (curated collection)** subscribes you to a curated set.
 - **Reusable model endpoints (preview)** — define a protocol, Base URL, model ID, and optional token limits once, then add compatible Profiles to any number of Agents. Native multi-model Agents can keep several Profiles installed, enable or disable each one, and choose exactly one current primary model; Claude Code and Codex retain their single-Profile contract.
 - **User-level Skills in Desktop** — download a public GitHub repository or directly import a local folder or `.zip` / `.tar.gz` / `.tgz` / `.tar` archive without Git, Node.js, or `npx`; assign the central copy to Agents in a separate step.
 - **One proxy for MUX networking** — configure HTTP, SOCKS4/SOCKS4A, or SOCKS5 once for GitHub Skills, remote sources, CLI updates, and signed Desktop update checks; credentials are never stored in `settings.json`.
-- **CLI ⇄ Desktop in sync for MCP management** — both are built on one shared Rust core (`mux-core`) and read/write `~/.mux/`. Skills use the same core but intentionally have no CLI/TUI entry in this version.
+- **CLI ⇄ Desktop on one application core** — both use the same bootstrap, Agent capability graph, revisioned MCP/Model/Skill snapshot, typed errors, and recoverable operation coordinator.
 - **Dark mode** and a compact, consistent resource workspace for MCPs, Models, and Skills, with shared cards, right-side Inspectors, and review dialogs only for consequential existing-asset changes.
 
 ## Screenshots
@@ -126,15 +127,18 @@ paste catalog entries, and manage sources and agents. Press `?` for the keymap,
 Or drive it non-interactively with subcommands:
 
 ```bash
-mux import          # scan agents and import discovered servers
+mux import          # safely adopt compatible external MCP observations
 mux list            # list catalog entries
-mux apply <names…>  # apply MCPs to global agent configs (--agent)
+mux apply <names…>  # add central MCPs to Agent desired state (--agent)
 mux add <name>      # add a server to the manual source
 mux remove <name>   # remove a manual entry
 mux status          # show what's active across agents
 mux export [--out <file>]  # export the effective catalog as JSON
-mux clean [--agent <name>]   # clear MCPs from enabled agents
+mux clean [--agent <name>]   # remove MUX-managed MCP relationships
 mux agents [list | enable <name> | disable <name>]
+mux workspace [--json]      # unified revisioned workspace
+mux models                  # list central Model Profiles
+mux skills                  # list centrally managed Skills
 mux upgrade         # upgrade a standalone CLI from the latest stable Release
 ```
 
@@ -178,14 +182,18 @@ Model API keys are not stored under `~/.mux/`; they remain in macOS Keychain.
 5. **Migrate historical state explicitly** — MUX detects unmanaged global MCPs, Model Profiles, and user-level Skills without taking ownership. After one confirmation, each selected asset is imported and its original Agent relationships are adopted in one recoverable per-asset transaction.
 6. **Propagate central lifecycle changes** — updates reach every desired consumer; deletion clears all managed targets and relationships instead of leaving implicit orphan copies.
 
-Skills in this version are user-level only. Project-level Skills, private repositories, Skill editing, and CLI/TUI Skills commands are not supported.
+Skills in this version are user-level only. Project-level Skills, private repositories, and Skill editing are not supported. The CLI can inspect managed Skills; lifecycle editing remains in Desktop while the compatibility TUI is MCP-focused.
 
 ## Development
 
 A Cargo workspace plus the Tauri desktop app:
 
 ```
-core/           # mux-core — the shared Rust core (types, settings, sources, adapters, ops)
+core/           # mux-core — domain contracts, application facade, resource engines, transactions
+  src/domain/       # IO-free Agent/resource/relationship/error contracts
+  src/application/  # bootstrap, workspace snapshot, capability graph, plan/commit/cancel
+  src/resources/    # MCP/Model/Skill-specific engines (MCP codecs no longer occupy root)
+  src/assets/       # cross-domain desired/observed relationships and coordinator
 cli/            # mux-cli  — the clap-based `mux` binary, built on mux-core
 desktop/        # Tauri v2 (Rust, depends on mux-core) + React 19 + Vite + Tailwind v4
 data/           # audited agent definitions + discovery catalog + curated MCP collection

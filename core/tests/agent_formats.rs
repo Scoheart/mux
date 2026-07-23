@@ -1277,7 +1277,7 @@ fn agentkube_disabled_entries_are_skipped_and_rejected() {
     let original = r#"{"mcpServers":{"docs":{"command":"old","enabled":false}}}"#;
     std::fs::write(&path, original).unwrap();
     let adapter = get_agent_adapter_for(&agents["agentkube"], "agentkube");
-    assert!(adapter.read(&path).get("docs").is_none());
+    assert!(!adapter.read(&path).contains_key("docs"));
     assert!(adapter
         .upsert(&path, "docs", &http("https://new.example/mcp"))
         .is_err());

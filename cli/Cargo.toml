@@ -2,6 +2,7 @@
 name = "mux-cli"
 version = "1.8.38"
 edition = "2021"
+description = "CLI and TUI for the MUX central Agent resource manager"
 
 [[bin]]
 name = "mux"

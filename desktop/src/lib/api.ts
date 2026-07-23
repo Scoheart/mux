@@ -2,7 +2,9 @@ import { invoke } from "@tauri-apps/api/core";
 import type {
   AgentDefinitionInput,
   AgentConfigurationInput,
+  AgentConfigurationPatch,
   AgentConsumptionSelection,
+  AgentCapabilityView,
   AgentInfo,
   AssetCommandError,
   AssetOperationPlan,
@@ -10,6 +12,8 @@ import type {
   CentralAssetDraft,
   CatalogItem,
   ConsumptionInventory,
+  CommitOperationRequest,
+  CancelOperationRequest,
   InstalledMcp,
   McpAdoptionCandidate,
   ModelAdoptionCandidate,
@@ -17,6 +21,8 @@ import type {
   ModelProviderView,
   ModelProfileView,
   OperationPlan,
+  OperationCommitResult,
+  PlanOperationRequest,
   PlanRemoveRequest,
   PlanImportRequest,
   PlanMcpAdoptionRequest,
@@ -35,7 +41,20 @@ import type {
   SkillsInventory,
   SourceView,
   UpdateCheckOutcome,
+  UnifiedOperationPlan,
+  WorkspaceSnapshot,
 } from "./types";
+
+export const getWorkspaceSnapshot = () =>
+  invoke<WorkspaceSnapshot>("get_workspace_snapshot");
+export const listAgentCapabilities = () =>
+  invoke<AgentCapabilityView[]>("list_agent_capabilities");
+export const planOperation = (request: PlanOperationRequest) =>
+  invoke<UnifiedOperationPlan>("plan_operation", { request });
+export const commitOperation = (request: CommitOperationRequest) =>
+  invoke<OperationCommitResult>("commit_operation", { request });
+export const cancelOperation = (request: CancelOperationRequest) =>
+  invoke<void>("cancel_operation", { request });
 
 export const listConsumptionInventory = () =>
   invoke<ConsumptionInventory>("list_consumption_inventory");
@@ -141,6 +160,12 @@ export const planUpdateAgentConfiguration = (
   configuration: AgentConfigurationInput,
 ) => invoke<AssetOperationPlan>("plan_update_agent_configuration", {
   request: { agent_id: id, configuration },
+});
+export const planUpdateAgentCapabilities = (
+  id: string,
+  patch: AgentConfigurationPatch,
+) => invoke<AssetOperationPlan>("plan_update_agent_capabilities", {
+  request: { agent_id: id, patch },
 });
 export const scanInstalled = () => invoke<InstalledMcp[]>("scan_installed");
 /** Parse a pasted config blob (JSON/TOML) and add its servers to the manual

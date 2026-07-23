@@ -231,6 +231,17 @@ const stateFrom = (inventory: SkillsInventory): SkillsState => ({
   pendingOperation: null,
   error: null,
   refresh: async () => inventory,
+  plan: async (request) => ({
+    ...sharedTargetPlanFixture(),
+    kind: ({
+      install_skill: "install",
+      import_skill: "import",
+      assign_skill: "assignment",
+      update_skill: "update",
+      remove_skill: "remove",
+      repair_skill: "repair",
+    } as const)[request.operation],
+  }),
   commit: async () => inventory,
   cancel: async () => undefined,
   checkUpdates: async () => ({

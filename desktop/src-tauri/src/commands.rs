@@ -1,19 +1,25 @@
-use mux_core::consumption::{
+use mux_core::application::assets::{
     AssetCommitRequest, AssetOperationPlan, ConsumptionInventory, McpAdoptionCandidate,
-    ModelAdoptionCandidate, PlanModelAdoptionRequest, PlanDeleteCentralAssetRequest,
-    PlanMcpAdoptionRequest, PlanSetAgentConsumptionRequest,
-    PlanSetAssetConsumersRequest, PlanUpdateAgentConfigurationRequest,
+    ModelAdoptionCandidate, PlanDeleteCentralAssetRequest, PlanMcpAdoptionRequest,
+    PlanModelAdoptionRequest, PlanSetAgentConsumptionRequest, PlanSetAssetConsumersRequest,
+    PlanUpdateAgentCapabilitiesRequest, PlanUpdateAgentConfigurationRequest,
     PlanUpdateCentralAssetRequest,
 };
-use mux_core::registry::{read_registry, read_registry_all, user_override_keys, CatalogItem};
-use mux_core::skills::{
-    GithubEndpoints, OperationPlan, PlanAssignmentRequest, PlanImportRequest, PlanInstallRequest,
-    PlanRemoveRequest, PlanRepairRequest, PlanSkillAssetImportRequest,
-    PlanSkillAssetInstallRequest, PlanUpdateRequest, SkillAgentView, SkillCommitRequest,
-    SkillDetail, SkillError, SkillInventoryItem, SkillSourceInput, SkillSourceResolution,
-    SkillsInventory, UpdateCheckOutcome,
+use mux_core::application::mcp::catalog::{
+    read_registry, read_registry_all, user_override_keys, CatalogItem,
 };
-use mux_core::types::RegistryEntry;
+use mux_core::application::operations::{
+    CancelOperationRequest, CommitOperationRequest, OperationCommitResult,
+    OperationPlan as UnifiedOperationPlan, PlanOperationRequest,
+};
+use mux_core::application::skills::{
+    GithubEndpoints, OperationPlan, PlanImportRequest, PlanRemoveRequest, PlanRepairRequest,
+    PlanSkillAssetImportRequest, PlanSkillAssetInstallRequest, PlanUpdateRequest, SkillAgentView,
+    SkillCommitRequest, SkillDetail, SkillError, SkillInventoryItem, SkillSourceInput,
+    SkillSourceResolution, SkillsInventory, UpdateCheckOutcome,
+};
+use mux_core::domain::error::{CoreError, CoreResult};
+use mux_core::domain::types::RegistryEntry;
 
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct AssetCommandError {
@@ -52,107 +58,152 @@ where
         .map_err(Into::into)
 }
 
+async fn core_blocking<T, F>(operation: F) -> CoreResult<T>
+where
+    T: Send + 'static,
+    F: FnOnce() -> CoreResult<T> + Send + 'static,
+{
+    tauri::async_runtime::spawn_blocking(operation)
+        .await
+        .map_err(|_| CoreError::new("worker_failed", "后台任务失败，请重试。"))?
+}
+
+#[tauri::command]
+pub async fn get_workspace_snapshot(
+) -> CoreResult<mux_core::application::workspace::WorkspaceSnapshot> {
+    core_blocking(mux_core::application::MuxCore::snapshot).await
+}
+
+#[tauri::command]
+pub async fn list_agent_capabilities(
+) -> CoreResult<Vec<mux_core::application::agents::AgentCapabilityView>> {
+    core_blocking(mux_core::application::agents::list_capabilities).await
+}
+
+#[tauri::command]
+pub async fn plan_operation(request: PlanOperationRequest) -> CoreResult<UnifiedOperationPlan> {
+    core_blocking(move || mux_core::application::MuxCore::plan(request)).await
+}
+
+#[tauri::command]
+pub async fn commit_operation(
+    request: CommitOperationRequest,
+) -> CoreResult<OperationCommitResult> {
+    core_blocking(move || mux_core::application::MuxCore::commit(request)).await
+}
+
+#[tauri::command]
+pub async fn cancel_operation(request: CancelOperationRequest) -> CoreResult<()> {
+    core_blocking(move || mux_core::application::MuxCore::cancel(request)).await
+}
+
 #[tauri::command]
 pub async fn list_consumption_inventory() -> Result<ConsumptionInventory, AssetCommandError> {
-    asset_blocking(|| {
-        mux_core::models::reconcile_active_models()?;
-        mux_core::consumption::list_consumption_inventory()
-    })
-    .await
+    asset_blocking(mux_core::application::assets::list_inventory).await
 }
 
 #[tauri::command]
 pub async fn list_mcp_adoption_candidates() -> Result<Vec<McpAdoptionCandidate>, AssetCommandError>
 {
-    asset_blocking(mux_core::consumption::list_mcp_adoption_candidates).await
+    asset_blocking(mux_core::application::assets::list_mcp_adoption_candidates).await
 }
 
 #[tauri::command]
 pub async fn plan_mcp_adoption(
     request: PlanMcpAdoptionRequest,
 ) -> Result<AssetOperationPlan, AssetCommandError> {
-    asset_blocking(move || mux_core::consumption::plan_mcp_adoption(request)).await
+    asset_blocking(move || mux_core::application::assets::plan_mcp_adoption(request)).await
 }
 
 #[tauri::command]
 pub async fn list_model_adoption_candidates(
 ) -> Result<Vec<ModelAdoptionCandidate>, AssetCommandError> {
-    asset_blocking(mux_core::consumption::list_model_adoption_candidates).await
+    asset_blocking(mux_core::application::assets::list_model_adoption_candidates).await
 }
 
 #[tauri::command]
 pub async fn plan_model_adoption(
     request: PlanModelAdoptionRequest,
 ) -> Result<AssetOperationPlan, AssetCommandError> {
-    asset_blocking(move || mux_core::consumption::plan_model_adoption(request)).await
+    asset_blocking(move || mux_core::application::assets::plan_model_adoption(request)).await
 }
 
 #[tauri::command]
 pub async fn plan_set_agent_consumption(
     request: PlanSetAgentConsumptionRequest,
 ) -> Result<AssetOperationPlan, AssetCommandError> {
-    asset_blocking(move || mux_core::consumption::plan_set_agent_consumption(request)).await
+    asset_blocking(move || mux_core::application::assets::plan_set_agent_consumption(request)).await
 }
 
 #[tauri::command]
 pub async fn plan_set_mcp_enabled(
-    request: mux_core::consumption::PlanSetMcpEnabledRequest,
+    request: mux_core::application::assets::PlanSetMcpEnabledRequest,
 ) -> Result<AssetOperationPlan, AssetCommandError> {
-    asset_blocking(move || mux_core::consumption::plan_set_mcp_enabled(request)).await
+    asset_blocking(move || mux_core::application::assets::plan_set_mcp_enabled(request)).await
 }
 
 #[tauri::command]
 pub async fn plan_set_model_enabled(
-    request: mux_core::consumption::PlanSetModelEnabledRequest,
+    request: mux_core::application::assets::PlanSetModelEnabledRequest,
 ) -> Result<AssetOperationPlan, AssetCommandError> {
-    asset_blocking(move || mux_core::consumption::plan_set_model_enabled(request)).await
+    asset_blocking(move || mux_core::application::assets::plan_set_model_enabled(request)).await
 }
 
 #[tauri::command]
 pub async fn plan_set_active_model(
-    request: mux_core::consumption::PlanSetActiveModelRequest,
+    request: mux_core::application::assets::PlanSetActiveModelRequest,
 ) -> Result<AssetOperationPlan, AssetCommandError> {
-    asset_blocking(move || mux_core::consumption::plan_set_active_model(request)).await
+    asset_blocking(move || mux_core::application::assets::plan_set_active_model(request)).await
 }
 
 #[tauri::command]
 pub async fn plan_set_asset_consumers(
     request: PlanSetAssetConsumersRequest,
 ) -> Result<AssetOperationPlan, AssetCommandError> {
-    asset_blocking(move || mux_core::consumption::plan_set_asset_consumers(request)).await
+    asset_blocking(move || mux_core::application::assets::plan_set_asset_consumers(request)).await
 }
 
 #[tauri::command]
 pub async fn plan_update_agent_configuration(
     request: PlanUpdateAgentConfigurationRequest,
 ) -> Result<AssetOperationPlan, AssetCommandError> {
-    asset_blocking(move || mux_core::consumption::plan_update_agent_configuration(request)).await
+    asset_blocking(move || mux_core::application::assets::plan_update_agent_configuration(request))
+        .await
+}
+
+#[tauri::command]
+pub async fn plan_update_agent_capabilities(
+    request: PlanUpdateAgentCapabilitiesRequest,
+) -> Result<AssetOperationPlan, AssetCommandError> {
+    asset_blocking(move || mux_core::application::assets::plan_update_agent_capabilities(request))
+        .await
 }
 
 #[tauri::command]
 pub async fn plan_update_central_asset(
     request: PlanUpdateCentralAssetRequest,
 ) -> Result<AssetOperationPlan, AssetCommandError> {
-    asset_blocking(move || mux_core::consumption::plan_update_central_asset(request)).await
+    asset_blocking(move || mux_core::application::assets::plan_update_central_asset(request)).await
 }
 
 #[tauri::command]
 pub async fn plan_delete_central_asset(
     request: PlanDeleteCentralAssetRequest,
 ) -> Result<AssetOperationPlan, AssetCommandError> {
-    asset_blocking(move || mux_core::consumption::plan_delete_central_asset(request)).await
+    asset_blocking(move || mux_core::application::assets::plan_delete_central_asset(request)).await
 }
 
 #[tauri::command]
 pub async fn commit_asset_operation(
     request: AssetCommitRequest,
 ) -> Result<ConsumptionInventory, AssetCommandError> {
-    asset_blocking(move || mux_core::consumption::commit_asset_operation(request)).await
+    asset_blocking(move || mux_core::application::assets::commit_asset_operation(request)).await
 }
 
 #[tauri::command]
 pub async fn cancel_asset_operation(operation_id: String) -> Result<(), AssetCommandError> {
-    asset_blocking(move || mux_core::consumption::cancel_asset_operation(&operation_id)).await
+    asset_blocking(move || mux_core::application::assets::cancel_asset_operation(&operation_id))
+        .await
 }
 
 // ── User-level Skills ────────────────────────────────────────────────────
@@ -210,23 +261,23 @@ where
 
 #[tauri::command]
 pub async fn list_skills_inventory() -> Result<SkillsInventory, SkillCommandError> {
-    skill_blocking(mux_core::skills::list_inventory).await
+    skill_blocking(mux_core::application::skills::list_inventory).await
 }
 
 #[tauri::command]
 pub async fn list_skill_migration_candidates() -> Result<Vec<SkillInventoryItem>, SkillCommandError>
 {
-    skill_blocking(mux_core::skills::list_migration_candidates).await
+    skill_blocking(mux_core::application::skills::list_migration_candidates).await
 }
 
 #[tauri::command]
 pub async fn list_skill_agents() -> Result<Vec<SkillAgentView>, SkillCommandError> {
-    skill_blocking(mux_core::skills::list_skill_agents).await
+    skill_blocking(mux_core::application::skills::list_skill_agents).await
 }
 
 #[tauri::command]
 pub async fn get_skill_detail(identity: String) -> Result<SkillDetail, SkillCommandError> {
-    skill_blocking(move || mux_core::skills::get_skill_detail(&identity)).await
+    skill_blocking(move || mux_core::application::skills::get_skill_detail(&identity)).await
 }
 
 #[tauri::command]
@@ -234,7 +285,7 @@ pub async fn resolve_skill_source(
     value: String,
 ) -> Result<SkillSourceResolution, SkillCommandError> {
     skill_blocking(move || {
-        mux_core::skills::resolve_source(
+        mux_core::application::skills::resolve_source(
             SkillSourceInput::Github { value },
             GithubEndpoints::production(),
         )
@@ -267,7 +318,7 @@ pub async fn resolve_local_skill_source_dialog(
         .to_owned();
 
     skill_blocking(move || {
-        mux_core::skills::resolve_source(
+        mux_core::application::skills::resolve_source(
             SkillSourceInput::Local { path: value },
             GithubEndpoints::production(),
         )
@@ -305,7 +356,7 @@ pub async fn resolve_archive_skill_source_dialog(
         .to_owned();
 
     skill_blocking(move || {
-        mux_core::skills::resolve_source(
+        mux_core::application::skills::resolve_source(
             SkillSourceInput::Archive { path: value },
             GithubEndpoints::production(),
         )
@@ -315,150 +366,114 @@ pub async fn resolve_archive_skill_source_dialog(
 }
 
 #[tauri::command]
-pub async fn plan_skill_install(
-    request: PlanInstallRequest,
-) -> Result<OperationPlan, SkillCommandError> {
-    skill_blocking(move || mux_core::skills::plan_install(request)).await
-}
-
-#[tauri::command]
 pub async fn plan_skill_asset_install(
     request: PlanSkillAssetInstallRequest,
 ) -> Result<OperationPlan, SkillCommandError> {
-    skill_blocking(move || mux_core::skills::plan_asset_install(request)).await
+    skill_blocking(move || mux_core::application::skills::plan_asset_install(request)).await
 }
 
 #[tauri::command]
 pub async fn commit_skill_install(
     request: SkillCommitRequest,
 ) -> Result<SkillsInventory, SkillCommandError> {
-    skill_blocking(move || mux_core::skills::commit_install(request)).await
+    skill_blocking(move || mux_core::application::skills::commit_install(request)).await
 }
 
 #[tauri::command]
 pub async fn plan_skill_import(
     request: PlanImportRequest,
 ) -> Result<OperationPlan, SkillCommandError> {
-    skill_blocking(move || mux_core::skills::plan_import(request)).await
+    skill_blocking(move || mux_core::application::skills::plan_import(request)).await
 }
 
 #[tauri::command]
 pub async fn plan_skill_asset_import(
     request: PlanSkillAssetImportRequest,
 ) -> Result<OperationPlan, SkillCommandError> {
-    skill_blocking(move || mux_core::skills::plan_asset_import(request)).await
+    skill_blocking(move || mux_core::application::skills::plan_asset_import(request)).await
 }
 
 #[tauri::command]
 pub async fn commit_skill_import(
     request: SkillCommitRequest,
 ) -> Result<SkillsInventory, SkillCommandError> {
-    skill_blocking(move || mux_core::skills::commit_import(request)).await
+    skill_blocking(move || mux_core::application::skills::commit_import(request)).await
 }
 
 #[tauri::command]
 pub async fn plan_skill_update(
     request: PlanUpdateRequest,
 ) -> Result<OperationPlan, SkillCommandError> {
-    skill_blocking(move || mux_core::skills::plan_update(request)).await
+    skill_blocking(move || mux_core::application::skills::plan_update(request)).await
 }
 
 #[tauri::command]
 pub async fn commit_skill_update(
     request: SkillCommitRequest,
 ) -> Result<SkillsInventory, SkillCommandError> {
-    skill_blocking(move || mux_core::skills::commit_update(request)).await
+    skill_blocking(move || mux_core::application::skills::commit_update(request)).await
 }
 
 #[tauri::command]
 pub async fn plan_skill_remove(
     request: PlanRemoveRequest,
 ) -> Result<OperationPlan, SkillCommandError> {
-    skill_blocking(move || mux_core::skills::plan_remove(request)).await
+    skill_blocking(move || mux_core::application::skills::plan_remove(request)).await
 }
 
 #[tauri::command]
 pub async fn commit_skill_remove(
     request: SkillCommitRequest,
 ) -> Result<SkillsInventory, SkillCommandError> {
-    skill_blocking(move || mux_core::skills::commit_remove(request)).await
-}
-
-#[tauri::command]
-pub async fn plan_skill_assignment(
-    request: PlanAssignmentRequest,
-) -> Result<OperationPlan, SkillCommandError> {
-    skill_blocking(move || mux_core::skills::plan_assignment(request)).await
+    skill_blocking(move || mux_core::application::skills::commit_remove(request)).await
 }
 
 #[tauri::command]
 pub async fn commit_skill_assignment(
     request: SkillCommitRequest,
 ) -> Result<SkillsInventory, SkillCommandError> {
-    skill_blocking(move || mux_core::skills::commit_assignment(request)).await
+    skill_blocking(move || mux_core::application::skills::commit_assignment(request)).await
 }
 
 #[tauri::command]
 pub async fn plan_skill_repair(
     request: PlanRepairRequest,
 ) -> Result<OperationPlan, SkillCommandError> {
-    skill_blocking(move || mux_core::skills::plan_repair(request)).await
+    skill_blocking(move || mux_core::application::skills::plan_repair(request)).await
 }
 
 #[tauri::command]
 pub async fn commit_skill_repair(
     request: SkillCommitRequest,
 ) -> Result<SkillsInventory, SkillCommandError> {
-    skill_blocking(move || mux_core::skills::commit_repair(request)).await
+    skill_blocking(move || mux_core::application::skills::commit_repair(request)).await
 }
 
 #[tauri::command]
 pub async fn check_skill_updates(manual: bool) -> Result<UpdateCheckOutcome, SkillCommandError> {
-    skill_blocking(move || mux_core::skills::check_updates(manual)).await
+    skill_blocking(move || mux_core::application::skills::check_updates(manual)).await
 }
 
 #[tauri::command]
 pub async fn cancel_skill_operation(operation_id: String) -> Result<(), SkillCommandError> {
-    skill_blocking(move || mux_core::skills::cancel_operation(&operation_id)).await
+    skill_blocking(move || mux_core::application::skills::cancel_operation(&operation_id)).await
 }
 
 // ── Model endpoint profiles ─────────────────────────────────────────────
 
 #[tauri::command]
-pub fn list_model_profiles() -> Vec<mux_core::models::ModelProfileView> {
-    mux_core::models::list_profiles()
+pub fn list_model_profiles() -> Vec<mux_core::application::models::ModelProfileView> {
+    mux_core::application::models::list_profiles()
 }
 
 #[tauri::command]
-pub fn list_model_providers() -> &'static [mux_core::models::ModelProviderView] {
-    mux_core::models::list_providers()
+pub fn list_model_providers() -> &'static [mux_core::application::models::ModelProviderView] {
+    mux_core::application::models::list_providers()
 }
 
 #[tauri::command]
-pub fn save_model_profile(
-    profile: mux_core::types::ModelProfile,
-    credential: Option<String>,
-) -> Result<(), String> {
-    mux_core::models::save_profile(profile, credential)
-}
-
-#[tauri::command]
-pub fn delete_model_profile(id: String) -> Result<(), String> {
-    mux_core::models::delete_profile(&id)
-}
-
-#[tauri::command]
-pub fn list_model_agents() -> Result<Vec<mux_core::models::ModelAgentView>, String> {
-    mux_core::models::reconcile_active_models()?;
-    Ok(mux_core::models::list_agents())
-}
-
-#[tauri::command]
-pub fn apply_model_profile(
-    agent_id: String,
-    profile_id: String,
-) -> Result<mux_core::models::ModelApplyResult, String> {
-    mux_core::models::apply_profile(&agent_id, &profile_id)
+pub fn list_model_agents() -> Result<Vec<mux_core::application::models::ModelAgentView>, String> {
+    mux_core::application::models::list_agent_capabilities()
 }
 
 #[tauri::command]
@@ -476,21 +491,6 @@ pub fn list_registry_all() -> Vec<CatalogItem> {
     read_registry_all()
 }
 
-/// Persist (create or overwrite) a user registry entry; auto-syncs the new
-/// config to every agent that has it installed. Returns the synced agents.
-#[tauri::command]
-pub fn upsert_registry_entry(entry: RegistryEntry) -> Result<Vec<String>, String> {
-    mux_core::ops::upsert_entry(entry)
-}
-
-/// Remove a user registry override for a given name+transport; reverts to
-/// whatever a source provides (or nothing), auto-syncing the fallback config
-/// to installed agents. Returns the synced agents.
-#[tauri::command]
-pub fn delete_registry_entry(name: String, transport: String) -> Result<Vec<String>, String> {
-    mux_core::ops::remove_entry(&name, &transport)
-}
-
 /// Composite keys (`name::transport`) of registry entries that currently have a
 /// user override.
 #[tauri::command]
@@ -498,24 +498,54 @@ pub fn list_custom_registry_keys() -> Vec<String> {
     user_override_keys()
 }
 
-/// Delete a manual/discovered catalog entry AND uninstall it from every agent
-/// that has it. (Remote/local source entries have nothing user-owned to delete.)
-#[tauri::command]
-pub fn forget_entry(name: String, transport: String) -> Result<(), Vec<String>> {
-    mux_core::ops::forget_entry(&name, &transport)
-}
-
 /// Parse a pasted config blob (JSON or TOML) and add every MCP server it contains
 /// to the managed "manual" source. Returns the names that were added.
 #[tauri::command]
 pub fn import_pasted_config(text: String) -> Result<Vec<String>, String> {
-    mux_core::ops::import_pasted(&text)
+    let entries = mux_core::application::mcp::operations::parse_pasted_entries(&text)?;
+    let mut names = Vec::new();
+    for entry in entries {
+        let existing_key = read_registry()
+            .iter()
+            .any(|candidate| candidate.key() == entry.key())
+            .then(|| entry.key());
+        let plan = mux_core::application::assets::plan_update_central_asset(
+            PlanUpdateCentralAssetRequest {
+                draft: mux_core::application::assets::CentralAssetDraft::Mcp {
+                    existing_key,
+                    entry: Box::new(entry),
+                },
+            },
+        )?;
+        if !plan.can_commit || plan.requires_conflict_confirmation {
+            let _ = mux_core::application::assets::cancel_asset_operation(&plan.operation_id);
+            return Err("粘贴导入需要覆盖漂移配置；请在资源审查界面逐项处理".into());
+        }
+        names.extend(
+            plan.central_changes
+                .iter()
+                .filter_map(|change| match &change.asset {
+                    mux_core::application::assets::AssetRef::Mcp { key } => {
+                        key.rsplit_once("::").map(|(name, _)| name.to_string())
+                    }
+                    _ => None,
+                }),
+        );
+        mux_core::application::assets::commit_asset_operation(AssetCommitRequest {
+            operation_id: plan.operation_id,
+            candidate_hash: plan.candidate_hash,
+            conflict_confirmation: None,
+        })?;
+    }
+    names.sort();
+    names.dedup();
+    Ok(names)
 }
 
 // ── Catalog sources (subscribe remote / add local) ────────────────────────
-// Orchestration lives in `mux_core::sources`; these are thin command wrappers.
+// Orchestration lives in `mux_core::application::mcp::sources`; these are thin command wrappers.
 
-use mux_core::sources::{self, SourceView};
+use mux_core::application::mcp::sources::{self, SourceView};
 
 #[tauri::command]
 pub fn list_sources() -> Vec<SourceView> {
@@ -563,7 +593,7 @@ pub async fn add_local_source_dialog(app: tauri::AppHandle) -> Result<Option<Sou
 #[tauri::command]
 pub async fn export_effective_dialog(app: tauri::AppHandle) -> Result<Option<String>, String> {
     use tauri_plugin_dialog::DialogExt;
-    let content = mux_core::ops::export_effective()?;
+    let content = mux_core::application::mcp::operations::export_effective()?;
     let picked = tauri::async_runtime::spawn_blocking(move || {
         app.dialog()
             .file()
@@ -600,35 +630,35 @@ pub fn remove_source(id: String) -> Result<(), String> {
     sources::remove(id)
 }
 
-use mux_core::agents::{load_agents, AgentInfo};
-use mux_core::types::AgentDefinition;
+use mux_core::application::agents::{load_agents, AgentInfo};
+use mux_core::domain::types::AgentDefinition;
 
 /// 新增一个自定义 agent，持久化到 settings.agents（在内置/已有定义之上合并）。
 /// id 为空或已存在时报错，避免误覆盖内置 agent。
 #[tauri::command]
 pub fn add_agent(id: String, def: AgentDefinition) -> Result<(), String> {
-    mux_core::agents::put(id, def, false)
+    mux_core::application::agents::put(id, def, false)
 }
 
 /// 编辑一个已存在 agent 的配置（路径 / 格式 / key），覆盖写回 settings.agents。
 #[tauri::command]
 pub fn update_agent(id: String, def: AgentDefinition) -> Result<(), String> {
-    mux_core::agents::put(id, def, true)
+    mux_core::application::agents::put(id, def, true)
 }
 
 #[tauri::command]
 pub fn list_agents() -> Vec<AgentInfo> {
-    mux_core::agents::list_infos()
+    mux_core::application::agents::list_infos()
 }
 
 #[tauri::command]
 pub fn get_pinned_agents() -> Result<Vec<String>, String> {
-    mux_core::pinned_agents::get_pinned_agents()
+    mux_core::application::ui::get_pinned_agents()
 }
 
 #[tauri::command]
 pub fn set_pinned_agents(agent_ids: Vec<String>) -> Result<Vec<String>, String> {
-    mux_core::pinned_agents::set_pinned_agents(agent_ids)
+    mux_core::application::ui::set_pinned_agents(agent_ids)
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -638,40 +668,29 @@ pub struct ProxySettingsView {
 
 #[tauri::command]
 pub fn get_proxy_settings() -> Result<ProxySettingsView, String> {
-    mux_core::network::get_proxy_settings().map(|settings| ProxySettingsView {
+    mux_core::application::network::get_proxy_settings().map(|settings| ProxySettingsView {
         proxy_url: settings.proxy_url,
     })
 }
 
 #[tauri::command]
 pub fn set_proxy_settings(proxy_url: Option<String>) -> Result<ProxySettingsView, String> {
-    mux_core::network::set_proxy_url(proxy_url).map(|settings| ProxySettingsView {
+    mux_core::application::network::set_proxy_url(proxy_url).map(|settings| ProxySettingsView {
         proxy_url: settings.proxy_url,
     })
 }
 
-pub use mux_core::ops::InstalledMcp;
+pub use mux_core::application::mcp::operations::InstalledMcp;
 
 /// 扫描全局配置文件，返回「谁装在哪」。MUX 当前不管理项目级配置。
 #[tauri::command]
 pub fn scan_installed() -> Vec<InstalledMcp> {
-    mux_core::ops::scan_installed(None)
+    mux_core::application::mcp::operations::scan_installed(None)
 }
 
-/// Pre-detect: scan every agent's real config and register any discovered server
-/// that the Registry doesn't already know (keyed by `name::transport`) as an
-/// `origin=discovered` entry carrying its actual on-disk config. Idempotent — only
-/// adds what's missing, so builtins / user entries aren't duplicated. Returns the
-/// number newly imported. This is what makes an agent's pre-existing MCPs show up
-/// in the Registry (with a「来自 X」label) and become manageable like any other.
-#[tauri::command]
-pub fn import_discovered() -> Result<usize, String> {
-    mux_core::ops::import_discovered(None)
-}
-
-use mux_core::effective::effective_config;
-use mux_core::ops::{resolve_entry, target_file};
-use mux_core::r#override::OverridePatch;
+use mux_core::application::mcp::operations::effective_config;
+use mux_core::application::mcp::operations::{resolve_entry, target_file};
+use mux_core::domain::mcp::OverridePatch;
 use std::collections::HashMap;
 
 #[derive(serde::Deserialize)]
@@ -724,7 +743,7 @@ pub fn preview_install(req: InstallRequest) -> Result<Vec<PlannedWrite>, String>
         let def = agents
             .get(agent_id)
             .ok_or_else(|| format!("{agent_id}: unknown Agent"))?;
-        if !mux_core::agents::supports_transport(agent_id, &req.transport) {
+        if !mux_core::application::agents::supports_transport(agent_id, &req.transport) {
             return Err(format!(
                 "{agent_id}: {} transport is not supported by this agent",
                 req.transport
@@ -744,104 +763,45 @@ pub fn preview_install(req: InstallRequest) -> Result<Vec<PlannedWrite>, String>
     Ok(out)
 }
 
-#[tauri::command]
-pub fn apply_install(req: InstallRequest) -> Result<(), Vec<String>> {
-    let overrides: HashMap<String, OverridePatch> = req
-        .overrides
-        .iter()
-        .map(|(k, v)| (k.clone(), v.to_patch()))
-        .collect();
-    mux_core::ops::install(
-        &req.server_name,
-        &req.transport,
-        "global",
-        &req.agents,
-        None,
-        &overrides,
-    )
-}
-
-#[tauri::command]
-pub fn uninstall(req: InstallRequest) -> Result<(), Vec<String>> {
-    mux_core::ops::uninstall(&req.server_name, "global", &req.agents, None)
-}
-
-/// Re-stamp an entry's current config into the agents that have it installed
-/// (global scope). `force=false` skips hand-customized installs (reported back);
-/// `force=true` overwrites them.
-#[tauri::command]
-pub fn resync_entry(
-    name: String,
-    transport: String,
-    force: bool,
-) -> Result<mux_core::ops::ResyncOutcome, Vec<String>> {
-    mux_core::ops::resync_entry(&name, &transport, force)
-}
-
-/// Disable a server: snapshot its current on-disk config into MUX's disabled
-/// store, then remove it from the agent file.
-#[tauri::command]
-pub fn disable_mcp(req: InstallRequest) -> Result<(), Vec<String>> {
-    mux_core::ops::disable(
-        &req.server_name,
-        &req.transport,
-        "global",
-        &req.agents,
-        None,
-    )
-}
-
-/// Re-enable a previously disabled server from its remembered config snapshot.
-#[tauri::command]
-pub fn enable_mcp(req: InstallRequest) -> Result<(), Vec<String>> {
-    mux_core::ops::enable(
-        &req.server_name,
-        &req.transport,
-        "global",
-        &req.agents,
-        None,
-    )
-}
-
-/// Hard-delete a server from an agent: remove it from the file and purge any
-/// remembered disabled snapshot.
-#[tauri::command]
-pub fn delete_mcp(req: InstallRequest) -> Result<(), Vec<String>> {
-    mux_core::ops::delete(
-        &req.server_name,
-        &req.transport,
-        "global",
-        &req.agents,
-        None,
-    )
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mux_core::types::{McpConfig, StdioConfig};
+    use mux_core::domain::types::{McpConfig, StdioConfig};
 
     #[test]
     fn preview_returns_planned_write_for_seeded_server() {
-        use mux_core::types::{RegistryConfig, RegistryEntry, StdioConfig};
+        use mux_core::domain::types::{RegistryConfig, RegistryEntry, StdioConfig};
         // No built-in catalog anymore: seed a manual entry through the real store
         // (a managed local source) in an isolated ~/.mux, then preview it.
         let _th = mux_core::testenv::TestHome::new("preview");
-        mux_core::registry::write_manual_entry(&RegistryEntry {
-            name: "seeded".into(),
-            description: String::new(),
-            tags: vec![],
-            config: RegistryConfig {
-                stdio: Some(StdioConfig {
-                    command: "npx".into(),
-                    args: Some(vec!["-y".into(), "seeded".into()]),
-                    env: None,
-                    cwd: None,
-                }),
-                http: None,
+        let plan = mux_core::application::assets::plan_update_central_asset(
+            PlanUpdateCentralAssetRequest {
+                draft: mux_core::application::assets::CentralAssetDraft::Mcp {
+                    existing_key: None,
+                    entry: Box::new(RegistryEntry {
+                        name: "seeded".into(),
+                        description: String::new(),
+                        tags: vec![],
+                        config: RegistryConfig {
+                            stdio: Some(StdioConfig {
+                                command: "npx".into(),
+                                args: Some(vec!["-y".into(), "seeded".into()]),
+                                env: None,
+                                cwd: None,
+                            }),
+                            http: None,
+                        },
+                        origin: None,
+                        repo: None,
+                    }),
+                },
             },
-            origin: None,
-            repo: None,
+        )
+        .unwrap();
+        mux_core::application::assets::commit_asset_operation(AssetCommitRequest {
+            operation_id: plan.operation_id,
+            candidate_hash: plan.candidate_hash,
+            conflict_confirmation: None,
         })
         .unwrap();
         // Legacy callers may still send project fields. Serde ignores them and

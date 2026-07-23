@@ -4,7 +4,12 @@ import { afterEach, expect, it, vi } from "vitest";
 import type { InstallState } from "../hooks/useInstallState";
 import type { SkillsState } from "../hooks/useSkillsState";
 import type { ConsumptionState } from "../hooks/useConsumptionState";
-import type { AgentInfo, ModelAdoptionCandidate, ModelAgentView } from "../lib/types";
+import type {
+  AgentCapabilityView,
+  AgentInfo,
+  ModelAdoptionCandidate,
+  ModelAgentView,
+} from "../lib/types";
 import { AgentView } from "./AgentView";
 
 const apiMocks = vi.hoisted(() => ({
@@ -42,6 +47,30 @@ const skillsOnlyAgent: AgentInfo = {
   builtin: true,
 };
 
+const skillsOnlyProjection: AgentCapabilityView = {
+  identity: {
+    id: skillsOnlyAgent.id,
+    name: skillsOnlyAgent.name,
+    enabled: true,
+    builtin: true,
+    category: skillsOnlyAgent.category,
+    evidence: skillsOnlyAgent.evidence,
+    docs: skillsOnlyAgent.docs,
+    note: skillsOnlyAgent.note,
+    verified_at: skillsOnlyAgent.verified_at,
+  },
+  installed: true,
+  capabilities: {
+    skill: {
+      installed: true,
+      target_id: "cortex-user",
+      global_dir: skillsOnlyAgent.skills_global_dir!,
+      alias_dirs: [],
+      affected_agent_ids: [skillsOnlyAgent.id],
+    },
+  },
+};
+
 const state = {
   entries: [],
   agents: [skillsOnlyAgent],
@@ -71,11 +100,22 @@ const skillsState = {
   refresh: vi.fn(),
 } as unknown as SkillsState;
 
-it("shows a Skills-only Agent with the three configuration locations and no empty MCP schema metadata", async () => {
+it("opens a projection-only Skills Agent without a legacy MCP-shaped row", async () => {
+  const projectionOnlyState = {
+    ...state,
+    agents: [],
+    refreshAgents: vi.fn().mockResolvedValue([]),
+  } as unknown as InstallState;
+  const consumptionState = {
+    agents: [skillsOnlyProjection],
+    inventory: { consumptions: [], external: [] },
+  } as unknown as ConsumptionState;
+
   render(
     <AgentView
-      state={state}
+      state={projectionOnlyState}
       skillsState={skillsState}
+      consumptionState={consumptionState}
       agentId={skillsOnlyAgent.id}
     />,
   );
@@ -87,7 +127,7 @@ it("shows a Skills-only Agent with the three configuration locations and no empt
   expect(within(locations).getByText("Models")).toBeVisible();
   expect(within(locations).getByText("Skills")).toBeVisible();
   expect(within(locations).getByText(skillsOnlyAgent.skills_global_dir!)).toBeVisible();
-  expect(screen.queryByRole("button", { name: "编辑 Agent 设置" })).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "编辑 Agent 设置" })).toBeVisible();
   expect(screen.queryByText(/UNKNOWN/)).not.toBeInTheDocument();
   expect(screen.queryByText(/coding-agent/)).not.toBeInTheDocument();
   expect(screen.queryByText(/公开来源/)).not.toBeInTheDocument();
@@ -100,6 +140,74 @@ it("shows a Skills-only Agent with the three configuration locations and no empt
   await userEvent.click(screen.getByRole("tab", { name: /MCPs/ }));
   expect(screen.getByText("此 Agent 未接入 MCP。")).toBeVisible();
   expect(screen.queryByRole("button", { name: "添加 MCP" })).not.toBeInTheDocument();
+});
+
+it("keeps a Model-only Agent in the full resource workspace", async () => {
+  const modelOnlyAgent: AgentCapabilityView = {
+    identity: {
+      id: "model-only",
+      name: "Model Only",
+      enabled: true,
+      builtin: true,
+      category: "coding-agent",
+      evidence: "official",
+      docs: "https://example.invalid",
+      note: "只管理 Model。",
+      verified_at: "2026-07-23",
+    },
+    installed: true,
+    capabilities: {
+      model: {
+        mode: "managed",
+        installed: true,
+        config_paths: ["~/.model-only/config.json"],
+        assigned_profiles: [],
+        active_profile: null,
+        supports_multiple: false,
+        credential_mode: "guided",
+        supported_protocols: ["openai-responses"],
+      },
+    },
+  };
+  const modelOnlyState = {
+    ...state,
+    agents: [],
+    refreshAgents: vi.fn().mockResolvedValue([]),
+  } as unknown as InstallState;
+  apiMocks.listModelAgents.mockResolvedValueOnce([{
+    id: modelOnlyAgent.identity.id,
+    name: modelOnlyAgent.identity.name,
+    mode: "managed",
+    installed: true,
+    config_path: "~/.model-only/config.json",
+    config_paths: ["~/.model-only/config.json"],
+    docs: "https://example.invalid",
+    assigned_profile: null,
+    assigned_profiles: [],
+    active_profile: null,
+    supports_multiple: false,
+    credential_mode: "guided",
+    supported_protocols: ["openai-responses"],
+    note: "",
+  } satisfies ModelAgentView]);
+
+  render(
+    <AgentView
+      state={modelOnlyState}
+      skillsState={skillsState}
+      consumptionState={{
+        agents: [modelOnlyAgent],
+        inventory: { consumptions: [], external: [] },
+      } as unknown as ConsumptionState}
+      agentId={modelOnlyAgent.identity.id}
+    />,
+  );
+
+  await waitFor(() => {
+    expect(screen.getByRole("button", { name: "编辑 Agent 设置" })).toBeVisible();
+  });
+  expect(screen.getByText("~/.model-only/config.json")).toBeVisible();
+  expect(screen.queryByText(/未提供可写的用户级全局配置/)).not.toBeInTheDocument();
 });
 
 it("offers only targeted MUX adoption for an external MCP card", async () => {

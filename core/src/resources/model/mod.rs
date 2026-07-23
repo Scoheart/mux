@@ -1,0 +1,3124 @@
+//! Reusable model endpoint profiles and safe per-Agent configuration writers.
+//!
+//! Managed Agents are written only through documented user-level configuration
+//! surfaces. Multi-model Agents keep MUX provider entries independently from
+//! their one active primary pointer; unsupported or insecure surfaces remain
+//! guidance-only.
+
+pub(crate) mod adapters;
+
+use crate::domain::types::{ModelProfile, ModelProtocol};
+use crate::paths::{backup_timestamp, backups_dir, settings_file};
+use crate::resources::mcp::applier::backup;
+use crate::resources::mcp::scanner::{collapse_home, expand_tilde};
+use crate::safe_write::{
+    acquire_settings_lock, remove_if_unchanged, write_if_unchanged, SettingsLock,
+};
+use crate::settings::{load_settings, mutate_settings};
+use jsonc_parser::cst::{CstInputValue, CstNode, CstObject, CstRootNode};
+use jsonc_parser::ParseOptions;
+use serde::Serialize;
+use serde_json::Value;
+use std::collections::{BTreeMap, BTreeSet};
+use std::fs;
+use std::io::ErrorKind;
+#[cfg(target_os = "macos")]
+use std::io::Write;
+use std::path::{Path, PathBuf};
+#[cfg(target_os = "macos")]
+use std::process::{Command, Stdio};
+use std::sync::{LazyLock, Mutex};
+use toml_edit::{Array, Document, Item, Table};
+use uuid::Uuid;
+
+const KEYCHAIN_ACCOUNT: &str = "api-key";
+const CREDENTIAL_ROLLBACK_PREFIX: &str = "__asset-operation-rollback__";
+const QODER_DOCS: &str = "https://docs.qoder.com/user-guide/chat/custom-models";
+const GROK_BUILD_MODEL_DOCS: &str = "https://docs.x.ai/build/settings#model-id";
+const MINIMAX_CODE_DOCS: &str = "https://agent.minimax.io/download";
+
+fn mutation_lock() -> Result<SettingsLock, String> {
+    acquire_settings_lock(&settings_file())
+}
+
+static TEST_CREDENTIALS: LazyLock<Mutex<BTreeMap<String, Vec<u8>>>> =
+    LazyLock::new(|| Mutex::new(BTreeMap::new()));
+
+fn test_credential_key(profile_id: &str) -> String {
+    format!(
+        "{}::{profile_id}",
+        std::env::var("MUX_TEST_PROBE_ROOT").unwrap_or_default()
+    )
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ModelProfileView {
+    #[serde(flatten)]
+    pub profile: ModelProfile,
+    pub catalog_key: String,
+    pub credential_saved: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ModelProviderView {
+    pub id: &'static str,
+    pub name: &'static str,
+    pub default_base_url: Option<&'static str>,
+}
+
+const MODEL_PROVIDERS: &[ModelProviderView] = &[
+    ModelProviderView {
+        id: "openrouter",
+        name: "OpenRouter",
+        default_base_url: Some("https://openrouter.ai/api/v1"),
+    },
+    ModelProviderView {
+        id: "anthropic",
+        name: "Anthropic",
+        default_base_url: Some("https://api.anthropic.com"),
+    },
+    ModelProviderView {
+        id: "openai",
+        name: "OpenAI",
+        default_base_url: Some("https://api.openai.com/v1"),
+    },
+    ModelProviderView {
+        id: "google",
+        name: "Google",
+        default_base_url: Some("https://generativelanguage.googleapis.com/v1beta/openai"),
+    },
+    ModelProviderView {
+        id: "xai",
+        name: "xAI",
+        default_base_url: Some("https://api.x.ai/v1"),
+    },
+    ModelProviderView {
+        id: "mistral",
+        name: "Mistral AI",
+        default_base_url: Some("https://api.mistral.ai/v1"),
+    },
+    ModelProviderView {
+        id: "cohere",
+        name: "Cohere",
+        default_base_url: Some("https://api.cohere.ai/compatibility/v1"),
+    },
+    ModelProviderView {
+        id: "deepseek",
+        name: "DeepSeek",
+        default_base_url: Some("https://api.deepseek.com"),
+    },
+    ModelProviderView {
+        id: "groq",
+        name: "Groq",
+        default_base_url: Some("https://api.groq.com/openai/v1"),
+    },
+    ModelProviderView {
+        id: "alibaba",
+        name: "Alibaba Cloud",
+        default_base_url: Some("https://dashscope.aliyuncs.com/compatible-mode/v1"),
+    },
+    ModelProviderView {
+        id: "xiaomi",
+        name: "Xiaomi MiMo",
+        default_base_url: Some("https://api.xiaomimimo.com/v1"),
+    },
+    ModelProviderView {
+        id: "local",
+        name: "Local",
+        default_base_url: None,
+    },
+    ModelProviderView {
+        id: "custom",
+        name: "Custom Provider",
+        default_base_url: None,
+    },
+];
+
+pub fn list_providers() -> &'static [ModelProviderView] {
+    MODEL_PROVIDERS
+}
+
+pub fn catalog_key(profile: &ModelProfile) -> String {
+    format!("{}/{}", profile.provider, profile.model)
+}
+
+fn normalize_slug(value: &str) -> String {
+    let mut slug = String::new();
+    let mut pending_separator = false;
+    for byte in value.bytes() {
+        if byte.is_ascii_alphanumeric() {
+            if pending_separator && !slug.is_empty() {
+                slug.push('-');
+            }
+            slug.push((byte as char).to_ascii_lowercase());
+            pending_separator = false;
+        } else {
+            pending_separator = true;
+        }
+    }
+    slug.trim_matches('-').to_string()
+}
+
+pub fn infer_provider(base_url: &str) -> String {
+    let host = url::Url::parse(base_url)
+        .ok()
+        .and_then(|url| url.host_str().map(str::to_ascii_lowercase))
+        .unwrap_or_default();
+    match host.as_str() {
+        "openrouter.ai" | "api.openrouter.ai" => "openrouter",
+        "api.anthropic.com" => "anthropic",
+        "api.openai.com" => "openai",
+        "generativelanguage.googleapis.com" | "aiplatform.googleapis.com" => "google",
+        "api.x.ai" => "xai",
+        "api.mistral.ai" => "mistral",
+        "api.cohere.ai" => "cohere",
+        "api.deepseek.com" => "deepseek",
+        "api.groq.com" => "groq",
+        "dashscope.aliyuncs.com" => "alibaba",
+        "api.xiaomimimo.com"
+        | "token-plan-cn.xiaomimimo.com"
+        | "token-plan-sgp.xiaomimimo.com"
+        | "token-plan-ams.xiaomimimo.com" => "xiaomi",
+        "localhost" | "127.0.0.1" | "::1" => "local",
+        _ => "custom",
+    }
+    .to_string()
+}
+
+pub fn infer_model_vendor(provider: &str, model: &str) -> Option<String> {
+    let candidate = model
+        .split_once('/')
+        .map(|(vendor, _)| vendor)
+        .unwrap_or(provider);
+    let candidate = normalize_slug(candidate);
+    (!candidate.is_empty() && candidate != "custom" && candidate != "local").then_some(candidate)
+}
+
+fn generated_profile_id(provider: &str, model: &str, existing: &BTreeSet<String>) -> String {
+    let prefix = normalize_slug(&format!("{provider}-{model}"));
+    let prefix = if prefix.is_empty() { "model" } else { &prefix };
+    loop {
+        let suffix = &Uuid::new_v4().simple().to_string()[..8];
+        let max_prefix = 64usize.saturating_sub(suffix.len() + 1);
+        let mut compact = prefix.chars().take(max_prefix).collect::<String>();
+        while compact.ends_with('-') {
+            compact.pop();
+        }
+        let id = format!("{compact}-{suffix}");
+        if !existing.contains(&id) {
+            return id;
+        }
+    }
+}
+
+fn default_profile_name(model: &str) -> String {
+    let leaf = model.rsplit('/').next().unwrap_or(model);
+    let name = leaf
+        .split(['-', '_', ':', '.'])
+        .filter(|part| !part.is_empty())
+        .map(|part| {
+            let mut chars = part.chars();
+            chars
+                .next()
+                .map(|first| first.to_uppercase().collect::<String>() + chars.as_str())
+                .unwrap_or_default()
+        })
+        .collect::<Vec<_>>()
+        .join(" ");
+    if name.is_empty() {
+        "Model".into()
+    } else {
+        name
+    }
+}
+
+fn unique_profile_name(
+    settings: &crate::settings::Settings,
+    provider: &str,
+    requested: &str,
+    excluding_id: Option<&str>,
+) -> String {
+    let used = settings
+        .model_profiles
+        .iter()
+        .flatten()
+        .filter(|(id, profile)| Some(id.as_str()) != excluding_id && profile.provider == provider)
+        .map(|(_, profile)| profile.name.to_lowercase())
+        .collect::<BTreeSet<_>>();
+    if !used.contains(&requested.to_lowercase()) {
+        return requested.to_string();
+    }
+    for index in 2.. {
+        let candidate = format!("{requested} {index}");
+        if !used.contains(&candidate.to_lowercase()) {
+            return candidate;
+        }
+    }
+    unreachable!()
+}
+
+pub(crate) fn prepare_profile_draft(
+    settings: &crate::settings::Settings,
+    existing_id: Option<&str>,
+    mut profile: ModelProfile,
+) -> Result<ModelProfile, String> {
+    profile.provider = if profile.provider.trim().is_empty() {
+        infer_provider(&profile.base_url)
+    } else {
+        normalize_slug(&profile.provider)
+    };
+    if profile.provider.is_empty() {
+        profile.provider = "custom".into();
+    }
+    profile.model_vendor = profile
+        .model_vendor
+        .as_deref()
+        .map(normalize_slug)
+        .filter(|vendor| !vendor.is_empty())
+        .or_else(|| infer_model_vendor(&profile.provider, &profile.model));
+    match existing_id {
+        Some(existing_id) => {
+            if profile.id.is_empty() {
+                profile.id = existing_id.to_string();
+            }
+            if profile.id != existing_id {
+                return Err("asset_identity_change: Model Profile id cannot change".into());
+            }
+            let existing = settings
+                .model_profiles
+                .as_ref()
+                .and_then(|profiles| profiles.get(existing_id))
+                .ok_or_else(|| {
+                    "asset_operation_stale: Model Profile no longer exists".to_string()
+                })?;
+            // Agent-native identities are evidence created only by the explicit
+            // adoption flow. Ordinary metadata edits cannot redirect a writer
+            // to a different provider key.
+            profile.native_ids = existing.native_ids.clone();
+        }
+        None => {
+            if !profile.id.is_empty() {
+                return Err("invalid_asset: Model Profile id is generated by MUX".into());
+            }
+            if !profile.native_ids.is_empty() {
+                return Err(
+                    "invalid_asset: Agent-native identities require explicit adoption".into(),
+                );
+            }
+            let existing = settings
+                .model_profiles
+                .iter()
+                .flatten()
+                .map(|(id, _)| id.clone())
+                .collect();
+            profile.id = generated_profile_id(&profile.provider, &profile.model, &existing);
+        }
+    }
+    let requested_name = if profile.name.trim().is_empty() {
+        default_profile_name(&profile.model)
+    } else {
+        profile.name.trim().to_string()
+    };
+    profile.name = unique_profile_name(settings, &profile.provider, &requested_name, existing_id);
+    validate_profile(&profile)?;
+    Ok(profile)
+}
+
+type MigratedProfiles = (BTreeMap<String, String>, BTreeMap<String, ModelProfile>);
+
+pub(crate) fn migrated_profiles_v2(
+    settings: &crate::settings::Settings,
+) -> Result<MigratedProfiles, String> {
+    let old_profiles = settings.model_profiles.clone().unwrap_or_default();
+    let mut used_ids = old_profiles.keys().cloned().collect::<BTreeSet<_>>();
+    let mut id_map = BTreeMap::new();
+    let mut profiles = BTreeMap::new();
+    let mut naming = crate::settings::Settings::default();
+    for (old_id, mut profile) in old_profiles {
+        profile.provider = if profile.provider.trim().is_empty() {
+            infer_provider(&profile.base_url)
+        } else {
+            normalize_slug(&profile.provider)
+        };
+        if profile.provider.is_empty() {
+            profile.provider = "custom".into();
+        }
+        profile.model_vendor = profile
+            .model_vendor
+            .as_deref()
+            .map(normalize_slug)
+            .filter(|vendor| !vendor.is_empty())
+            .or_else(|| infer_model_vendor(&profile.provider, &profile.model));
+        let new_id = generated_profile_id(&profile.provider, &profile.model, &used_ids);
+        used_ids.insert(new_id.clone());
+        profile.id = new_id.clone();
+        let requested_name = if profile.name.trim().is_empty() {
+            default_profile_name(&profile.model)
+        } else {
+            profile.name.trim().to_string()
+        };
+        profile.name = unique_profile_name(&naming, &profile.provider, &requested_name, None);
+        validate_profile(&profile)?;
+        id_map.insert(old_id, new_id.clone());
+        profiles.insert(new_id.clone(), profile);
+        naming.model_profiles = Some(profiles.clone());
+    }
+    Ok((id_map, profiles))
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ModelAgentView {
+    pub id: String,
+    pub name: String,
+    /// `managed` or `guided`.
+    pub mode: String,
+    pub installed: bool,
+    pub config_path: String,
+    pub config_paths: Vec<String>,
+    pub docs: String,
+    pub assigned_profile: Option<String>,
+    pub assigned_profiles: Vec<String>,
+    pub active_profile: Option<String>,
+    pub supports_multiple: bool,
+    /// `keychain-command`, `environment-reference`, or `guided`.
+    pub credential_mode: String,
+    pub supported_protocols: Vec<ModelProtocol>,
+    pub note: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ModelApplyResult {
+    pub agent: String,
+    pub profile: String,
+    pub files: Vec<String>,
+    pub restart_required: bool,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ModelObservedState {
+    Synced,
+    Missing,
+    Drifted,
+    Conflicted,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExternalModelObservedState {
+    Absent,
+    Present,
+    Conflicted,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum ObservedActiveModel {
+    Managed(String),
+    External,
+    None,
+    Conflicted,
+}
+
+fn home() -> PathBuf {
+    dirs::home_dir().unwrap_or_else(|| PathBuf::from("."))
+}
+
+fn config_path(relative: &str) -> PathBuf {
+    home().join(relative)
+}
+
+pub fn default_config_paths(agent_id: &str) -> Option<Vec<String>> {
+    let paths: &[&str] = match agent_id {
+        "claude-code" => &["~/.claude/settings.json"],
+        "codex" => &["~/.codex/config.toml"],
+        "grok-build" => &["~/.grok/config.toml"],
+        "pi" => &["~/.pi/agent/models.json", "~/.pi/agent/settings.json"],
+        "opencode" => &["~/.config/opencode/opencode.json"],
+        "kilo-code" => &["~/.config/kilo/kilo.jsonc"],
+        "qwen-code" => &["~/.qwen/settings.json"],
+        "crush" => &["~/.config/crush/crush.json"],
+        "mistral-vibe" => &["~/.vibe/config.toml"],
+        "hermes" => &["~/.hermes/config.yaml"],
+        "factory-droid" => &["~/.factory/settings.json"],
+        "goose" => &["~/Library/Application Support/Block/goose/config/config.yaml"],
+        "minimax-code" => &["~/.mavis/config.yaml"],
+        "qoder" => &["~/.qoder/settings.json"],
+        _ => return None,
+    };
+    Some(paths.iter().map(|path| (*path).to_string()).collect())
+}
+
+pub fn normalize_config_paths(paths: &[String], expected: usize) -> Result<Vec<String>, String> {
+    if paths.len() != expected {
+        return Err(format!("Model 配置需要 {expected} 个路径"));
+    }
+    paths
+        .iter()
+        .map(|path| {
+            let path = collapse_home(path.trim());
+            if !path.starts_with("~/") {
+                return Err("Model 配置路径必须位于用户目录".into());
+            }
+            if path[2..]
+                .split('/')
+                .any(|component| component.is_empty() || matches!(component, "." | ".."))
+            {
+                return Err(format!("Model 配置路径不安全: {path}"));
+            }
+            Ok(path)
+        })
+        .collect()
+}
+
+pub(crate) fn configured_path_strings_checked(
+    settings: &crate::settings::Settings,
+    agent_id: &str,
+) -> Result<Option<Vec<String>>, String> {
+    let Some(defaults) = default_config_paths(agent_id) else {
+        return Ok(None);
+    };
+    let expected = defaults.len();
+    let paths = settings
+        .agent_config_paths
+        .as_ref()
+        .and_then(|overrides| overrides.get(agent_id))
+        .and_then(|path_override| path_override.model_paths.clone())
+        .unwrap_or(defaults);
+    normalize_config_paths(&paths, expected).map(Some)
+}
+
+fn configured_path_strings(
+    settings: &crate::settings::Settings,
+    agent_id: &str,
+) -> Option<Vec<String>> {
+    configured_path_strings_checked(settings, agent_id)
+        .ok()
+        .flatten()
+}
+
+fn configured_paths(agent_id: &str) -> Option<Vec<PathBuf>> {
+    configured_path_strings(&load_settings(), agent_id).map(|paths| {
+        paths
+            .iter()
+            .map(|path| expand_tilde(path))
+            .collect::<Vec<_>>()
+    })
+}
+
+fn path_view(settings: &crate::settings::Settings, agent_id: &str) -> (String, Vec<String>) {
+    let paths = configured_path_strings(settings, agent_id).unwrap_or_default();
+    (paths.join(" + "), paths)
+}
+
+fn keychain_service(profile_id: &str) -> String {
+    format!("com.scoheart.mux.model-profile.{profile_id}")
+}
+
+fn security_command(profile_id: &str) -> Vec<String> {
+    vec![
+        "/usr/bin/security".into(),
+        "find-generic-password".into(),
+        "-w".into(),
+        "-s".into(),
+        keychain_service(profile_id),
+        "-a".into(),
+        KEYCHAIN_ACCOUNT.into(),
+    ]
+}
+
+fn security_shell_command(profile_id: &str) -> String {
+    security_command(profile_id).join(" ")
+}
+
+#[cfg(target_os = "macos")]
+fn read_credential(profile_id: &str) -> Option<Vec<u8>> {
+    if std::env::var_os("MUX_TEST_PROBE_ROOT").is_some() {
+        return TEST_CREDENTIALS
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .get(&test_credential_key(profile_id))
+            .cloned();
+    }
+    let output = Command::new("/usr/bin/security")
+        .args([
+            "find-generic-password",
+            "-w",
+            "-s",
+            &keychain_service(profile_id),
+            "-a",
+            KEYCHAIN_ACCOUNT,
+        ])
+        .stderr(Stdio::null())
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let mut value = output.stdout;
+    while value
+        .last()
+        .is_some_and(|byte| matches!(byte, b'\n' | b'\r'))
+    {
+        value.pop();
+    }
+    Some(value)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn read_credential(_profile_id: &str) -> Option<Vec<u8>> {
+    if std::env::var_os("MUX_TEST_PROBE_ROOT").is_some() {
+        return TEST_CREDENTIALS
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .get(&test_credential_key(_profile_id))
+            .cloned();
+    }
+    None
+}
+
+fn credential_exists(profile_id: &str) -> bool {
+    // TestHome sets this marker specifically to isolate probes from the real
+    // machine. Never consult the user's Keychain from a test process.
+    if std::env::var_os("MUX_TEST_PROBE_ROOT").is_some() {
+        return TEST_CREDENTIALS
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .contains_key(&test_credential_key(profile_id))
+            || std::env::var("MUX_TEST_MODEL_CREDENTIAL_PROFILES")
+                .ok()
+                .is_some_and(|profiles| profiles.split(',').any(|item| item == profile_id));
+    }
+    #[cfg(target_os = "macos")]
+    {
+        Command::new("/usr/bin/security")
+            .args([
+                "find-generic-password",
+                "-s",
+                &keychain_service(profile_id),
+                "-a",
+                KEYCHAIN_ACCOUNT,
+            ])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .is_ok_and(|status| status.success())
+    }
+    #[cfg(not(target_os = "macos"))]
+    false
+}
+
+#[cfg(target_os = "macos")]
+fn set_credential(profile_id: &str, credential: &[u8]) -> Result<(), String> {
+    if std::env::var_os("MUX_TEST_PROBE_ROOT").is_some() {
+        TEST_CREDENTIALS
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .insert(test_credential_key(profile_id), credential.to_vec());
+        return Ok(());
+    }
+    if credential.contains(&b'\n') || credential.contains(&b'\r') {
+        return Err("API key cannot contain a newline".into());
+    }
+    let mut child = Command::new("/usr/bin/security")
+        .args([
+            "add-generic-password",
+            "-s",
+            &keychain_service(profile_id),
+            "-a",
+            KEYCHAIN_ACCOUNT,
+            "-T",
+            "/usr/bin/security",
+            "-U",
+            "-w",
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|error| format!("failed to start macOS Keychain helper: {error}"))?;
+    let stdin = child
+        .stdin
+        .as_mut()
+        .ok_or_else(|| "failed to open macOS Keychain helper input".to_string())?;
+    // `security ... -w` prompts twice for a new item. Sending the value through
+    // stdin keeps it out of argv, process listings, logs, and shell history.
+    stdin
+        .write_all(credential)
+        .and_then(|_| stdin.write_all(b"\n"))
+        .and_then(|_| stdin.write_all(credential))
+        .and_then(|_| stdin.write_all(b"\n"))
+        .map_err(|error| format!("failed to send API key to macOS Keychain: {error}"))?;
+    let output = child
+        .wait_with_output()
+        .map_err(|error| format!("macOS Keychain helper failed: {error}"))?;
+    if output.status.success() {
+        Ok(())
+    } else {
+        Err(format!(
+            "failed to save API key in macOS Keychain: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ))
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn set_credential(_profile_id: &str, _credential: &[u8]) -> Result<(), String> {
+    if std::env::var_os("MUX_TEST_PROBE_ROOT").is_some() {
+        TEST_CREDENTIALS
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .insert(test_credential_key(_profile_id), _credential.to_vec());
+        return Ok(());
+    }
+    Err("secure model credentials are currently supported on macOS only".into())
+}
+
+#[cfg(target_os = "macos")]
+fn delete_credential(profile_id: &str) -> Result<(), String> {
+    if std::env::var_os("MUX_TEST_PROBE_ROOT").is_some() {
+        TEST_CREDENTIALS
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .remove(&test_credential_key(profile_id));
+        return Ok(());
+    }
+    if !credential_exists(profile_id) {
+        return Ok(());
+    }
+    let output = Command::new("/usr/bin/security")
+        .args([
+            "delete-generic-password",
+            "-s",
+            &keychain_service(profile_id),
+            "-a",
+            KEYCHAIN_ACCOUNT,
+        ])
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .output()
+        .map_err(|error| format!("failed to start macOS Keychain helper: {error}"))?;
+    if output.status.success() {
+        Ok(())
+    } else {
+        Err(format!(
+            "failed to remove API key from macOS Keychain: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ))
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn delete_credential(_profile_id: &str) -> Result<(), String> {
+    if std::env::var_os("MUX_TEST_PROBE_ROOT").is_some() {
+        TEST_CREDENTIALS
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .remove(&test_credential_key(_profile_id));
+    }
+    Ok(())
+}
+
+fn validate_profile(profile: &ModelProfile) -> Result<(), String> {
+    let valid_id = !profile.id.is_empty()
+        && profile.id.len() <= 64
+        && profile.id.bytes().enumerate().all(|(index, byte)| {
+            byte.is_ascii_lowercase()
+                || byte.is_ascii_digit()
+                || (index > 0 && matches!(byte, b'-' | b'_' | b'.'))
+        });
+    if !valid_id {
+        return Err("profile id must be 1-64 lowercase letters, digits, '.', '_' or '-'".into());
+    }
+    if profile.name.trim().is_empty() {
+        return Err("profile name is required".into());
+    }
+    if profile.provider.is_empty() || normalize_slug(&profile.provider) != profile.provider {
+        return Err("provider must be a lowercase identifier".into());
+    }
+    if profile.model.trim().is_empty() {
+        return Err("model id is required".into());
+    }
+    let base_url = profile.base_url.trim();
+    if !(base_url.starts_with("https://") || base_url.starts_with("http://"))
+        || base_url.chars().any(char::is_whitespace)
+    {
+        return Err("base URL must be an http(s) URL without whitespace".into());
+    }
+    if profile.context_window == Some(0) || profile.max_output_tokens == Some(0) {
+        return Err("token limits must be greater than zero".into());
+    }
+    if let Some(env_key) = profile.env_key.as_deref() {
+        let mut bytes = env_key.bytes();
+        let valid = bytes
+            .next()
+            .is_some_and(|byte| byte.is_ascii_alphabetic() || byte == b'_')
+            && bytes.all(|byte| byte.is_ascii_alphanumeric() || byte == b'_');
+        if !valid {
+            return Err(
+                "environment variable name must start with a letter or '_' and contain only letters, digits, or '_'"
+                    .into(),
+            );
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn credential_snapshot(profile_id: &str) -> Option<Vec<u8>> {
+    read_credential(profile_id)
+}
+
+fn credential_rollback_profile_id(operation_id: &str, profile_id: &str) -> String {
+    format!("{CREDENTIAL_ROLLBACK_PREFIX}.{operation_id}.{profile_id}")
+}
+
+/// Persist the pre-transaction credential in Keychain, never in the operation
+/// journal. The first byte distinguishes a missing credential from an empty
+/// lookup result; user credentials themselves cannot contain newlines because
+/// the normal Keychain writer rejects them.
+pub(crate) fn persist_credential_rollback(
+    operation_id: &str,
+    profile_id: &str,
+    credential: Option<&[u8]>,
+) -> Result<(), String> {
+    let mut payload = Vec::with_capacity(1 + credential.map_or(0, |value| value.len()));
+    match credential {
+        Some(value) => {
+            payload.push(1);
+            payload.extend_from_slice(value);
+        }
+        None => payload.push(0),
+    }
+    set_credential(
+        &credential_rollback_profile_id(operation_id, profile_id),
+        &payload,
+    )
+}
+
+/// Returns `None` when no durable rollback item exists, `Some(None)` when the
+/// original Profile had no credential, and `Some(Some(bytes))` otherwise.
+pub(crate) fn credential_rollback_snapshot(
+    operation_id: &str,
+    profile_id: &str,
+) -> Result<Option<Option<Vec<u8>>>, String> {
+    let Some(payload) = read_credential(&credential_rollback_profile_id(operation_id, profile_id))
+    else {
+        return Ok(None);
+    };
+    let Some((&tag, value)) = payload.split_first() else {
+        return Err("credential rollback item is invalid".into());
+    };
+    match tag {
+        0 if value.is_empty() => Ok(Some(None)),
+        1 => Ok(Some(Some(value.to_vec()))),
+        _ => Err("credential rollback item is invalid".into()),
+    }
+}
+
+pub(crate) fn clear_credential_rollback(
+    operation_id: &str,
+    profile_id: &str,
+) -> Result<(), String> {
+    delete_credential(&credential_rollback_profile_id(operation_id, profile_id))
+}
+
+pub(crate) fn restore_credential_snapshot(
+    profile_id: &str,
+    credential: Option<&[u8]>,
+) -> Result<(), String> {
+    match credential {
+        Some(value) => set_credential(profile_id, value),
+        None => delete_credential(profile_id),
+    }
+}
+
+pub fn list_profiles() -> Vec<ModelProfileView> {
+    load_settings()
+        .model_profiles
+        .unwrap_or_default()
+        .into_values()
+        .map(|profile| ModelProfileView {
+            catalog_key: catalog_key(&profile),
+            credential_saved: credential_exists(&profile.id),
+            profile,
+        })
+        .collect()
+}
+
+/// Save metadata and optionally update its Keychain credential. `None` keeps
+/// the existing credential; an empty string explicitly removes it.
+pub fn save_profile(profile: ModelProfile, credential: Option<String>) -> Result<(), String> {
+    let _settings_guard = mutation_lock()?;
+    validate_profile(&profile)?;
+    let previous_credential = credential.as_ref().map(|_| read_credential(&profile.id));
+    if let Some(value) = credential.as_deref() {
+        if value.is_empty() {
+            delete_credential(&profile.id)?;
+        } else {
+            set_credential(&profile.id, value.as_bytes())?;
+        }
+    }
+
+    let profile_id = profile.id.clone();
+    if let Err(error) = mutate_settings(|settings| {
+        settings
+            .model_profiles
+            .get_or_insert_with(BTreeMap::new)
+            .insert(profile_id.clone(), profile);
+    }) {
+        if let Some(previous) = previous_credential {
+            match previous {
+                Some(value) => {
+                    let _ = set_credential(&profile_id, &value);
+                }
+                None => {
+                    let _ = delete_credential(&profile_id);
+                }
+            }
+        }
+        return Err(error.to_string());
+    }
+    Ok(())
+}
+
+pub fn delete_profile(profile_id: &str) -> Result<(), String> {
+    let _settings_guard = mutation_lock()?;
+    validate_profile_id(profile_id)?;
+    let previous_credential = read_credential(profile_id);
+    if credential_exists(profile_id) {
+        delete_credential(profile_id)?;
+    }
+    if let Err(error) = delete_profile_metadata(profile_id) {
+        if let Some(credential) = previous_credential {
+            let _ = set_credential(profile_id, &credential);
+        }
+        return Err(error);
+    }
+    Ok(())
+}
+
+pub(crate) fn delete_profile_metadata(profile_id: &str) -> Result<(), String> {
+    validate_profile_id(profile_id)?;
+    mutate_settings(|settings| {
+        if let Some(profiles) = settings.model_profiles.as_mut() {
+            profiles.remove(profile_id);
+        }
+        if let Some(assignments) = settings.model_assignments.as_mut() {
+            assignments.retain(|_, assigned| assigned != profile_id);
+        }
+        if let Some(consumptions) = settings.model_consumptions.as_mut() {
+            for records in consumptions.values_mut() {
+                records.remove(profile_id);
+            }
+            consumptions.retain(|_, records| !records.is_empty());
+        }
+    })
+    .map_err(|error| error.to_string())
+}
+
+pub(crate) fn credential_present(profile_id: &str) -> bool {
+    credential_exists(profile_id)
+}
+
+/// Return the credential contract that prevents an Agent from consuming a
+/// Profile safely. Environment-reference Agents cannot read MUX's per-Profile
+/// Keychain item, so an authenticated Profile must name an environment variable
+/// that the Agent can read in its own process instead.
+pub(crate) fn profile_credential_issue(
+    agent_id: &str,
+    profile: &ModelProfile,
+    has_credential: bool,
+) -> Option<(&'static str, &'static str)> {
+    if matches!(
+        agent_id,
+        "grok-build"
+            | "opencode"
+            | "kilo-code"
+            | "qwen-code"
+            | "crush"
+            | "mistral-vibe"
+            | "hermes"
+            | "factory-droid"
+            | "goose"
+    ) && has_credential
+        && profile.env_key.is_none()
+    {
+        Some((
+            if agent_id == "grok-build" {
+                "grok_build_env_key_required"
+            } else {
+                "model_env_key_required"
+            },
+            "This Agent cannot read the API Key stored in MUX Keychain; set an external environment variable name on this Profile before switching.",
+        ))
+    } else {
+        None
+    }
+}
+
+pub(crate) fn apply_credential_update(
+    profile_id: &str,
+    credential: Option<&str>,
+) -> Result<(), String> {
+    match credential {
+        None => Ok(()),
+        Some("") => delete_credential(profile_id),
+        Some(value) => set_credential(profile_id, value.as_bytes()),
+    }
+}
+
+fn validate_profile_id(profile_id: &str) -> Result<(), String> {
+    let dummy = ModelProfile {
+        id: profile_id.into(),
+        name: "x".into(),
+        provider: "custom".into(),
+        model_vendor: None,
+        native_ids: Default::default(),
+        protocol: ModelProtocol::OpenaiResponses,
+        base_url: "http://localhost".into(),
+        model: "x".into(),
+        env_key: None,
+        context_window: None,
+        max_output_tokens: None,
+        reasoning: false,
+    };
+    validate_profile(&dummy)
+}
+
+fn command_exists(names: &[&str]) -> bool {
+    let mut directories = std::env::var_os("PATH")
+        .map(|path| std::env::split_paths(&path).collect::<Vec<_>>())
+        .unwrap_or_default();
+    directories.extend([
+        PathBuf::from("/opt/homebrew/bin"),
+        PathBuf::from("/usr/local/bin"),
+        home().join(".local/bin"),
+        home().join(".bun/bin"),
+        home().join(".cargo/bin"),
+    ]);
+    directories
+        .iter()
+        .any(|directory| names.iter().any(|name| directory.join(name).is_file()))
+}
+
+fn agent_installed(names: &[&str], config_locations: &[&str], app_locations: &[&str]) -> bool {
+    command_exists(names)
+        || config_locations
+            .iter()
+            .any(|location| config_path(location).exists())
+        || app_locations
+            .iter()
+            .any(|location| Path::new(location).exists())
+}
+
+pub fn list_agents() -> Vec<ModelAgentView> {
+    let settings = load_settings();
+    let assignments = settings.model_assignments.clone().unwrap_or_default();
+    let assigned_profiles = |agent_id: &str| {
+        settings
+            .model_selection(agent_id)
+            .profiles
+            .into_keys()
+            .collect::<Vec<_>>()
+    };
+    let (claude_config_path, claude_config_paths) = path_view(&settings, "claude-code");
+    let (codex_config_path, codex_config_paths) = path_view(&settings, "codex");
+    let (grok_config_path, grok_config_paths) = path_view(&settings, "grok-build");
+    let (pi_config_path, pi_config_paths) = path_view(&settings, "pi");
+    let (minimax_config_path, minimax_config_paths) = path_view(&settings, "minimax-code");
+    let (qoder_config_path, qoder_config_paths) = path_view(&settings, "qoder");
+    vec![
+        ModelAgentView {
+            id: "claude-code".into(),
+            name: "Claude Code".into(),
+            mode: "managed".into(),
+            installed: agent_installed(&["claude"], &[".claude"], &[]),
+            config_path: claude_config_path,
+            config_paths: claude_config_paths,
+            docs: "https://code.claude.com/docs/en/settings".into(),
+            assigned_profile: assignments.get("claude-code").cloned(),
+            assigned_profiles: assigned_profiles("claude-code"),
+            active_profile: assignments.get("claude-code").cloned(),
+            supports_multiple: false,
+            credential_mode: "keychain-command".into(),
+            supported_protocols: vec![ModelProtocol::AnthropicMessages],
+            note: "Anthropic-compatible endpoint; restart the session after applying.".into(),
+        },
+        ModelAgentView {
+            id: "codex".into(),
+            name: "Codex".into(),
+            mode: "managed".into(),
+            installed: agent_installed(&["codex"], &[".codex"], &["/Applications/Codex.app"]),
+            config_path: codex_config_path,
+            config_paths: codex_config_paths,
+            docs: "https://developers.openai.com/codex/config-advanced".into(),
+            assigned_profile: assignments.get("codex").cloned(),
+            assigned_profiles: assigned_profiles("codex"),
+            active_profile: assignments.get("codex").cloned(),
+            supports_multiple: false,
+            credential_mode: "keychain-command".into(),
+            supported_protocols: vec![ModelProtocol::OpenaiResponses],
+            note: "Custom providers currently use the Responses API.".into(),
+        },
+        ModelAgentView {
+            id: "grok-build".into(),
+            name: "Grok Build".into(),
+            mode: "managed".into(),
+            installed: agent_installed(&["grok"], &[".grok"], &[]),
+            config_path: grok_config_path,
+            config_paths: grok_config_paths,
+            docs: GROK_BUILD_MODEL_DOCS.into(),
+            assigned_profile: assignments.get("grok-build").cloned(),
+            assigned_profiles: assigned_profiles("grok-build"),
+            active_profile: assignments.get("grok-build").cloned(),
+            supports_multiple: true,
+            credential_mode: "environment-reference".into(),
+            supported_protocols: vec![
+                ModelProtocol::AnthropicMessages,
+                ModelProtocol::OpenaiResponses,
+                ModelProtocol::OpenaiCompletions,
+            ],
+            note: "MUX manages custom model entries and [models].default only; fork_secondary_model remains independent. Authenticated Profiles use an external environment variable reference.".into(),
+        },
+        ModelAgentView {
+            id: "pi".into(),
+            name: "Pi".into(),
+            mode: "managed".into(),
+            installed: agent_installed(&["pi"], &[".pi/agent"], &[]),
+            config_path: pi_config_path,
+            config_paths: pi_config_paths,
+            docs: "https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/models.md".into(),
+            assigned_profile: assignments.get("pi").cloned(),
+            assigned_profiles: assigned_profiles("pi"),
+            active_profile: assignments.get("pi").cloned(),
+            supports_multiple: true,
+            credential_mode: "keychain-command".into(),
+            supported_protocols: vec![
+                ModelProtocol::AnthropicMessages,
+                ModelProtocol::OpenaiResponses,
+                ModelProtocol::OpenaiCompletions,
+            ],
+            note: "MUX updates the custom provider and default model as one transaction.".into(),
+        },
+        ModelAgentView {
+            id: "minimax-code".into(),
+            name: "MiniMax Code".into(),
+            mode: "guided".into(),
+            installed: agent_installed(
+                &["mavis"],
+                &[".mavis"],
+                &["/Applications/MiniMax Code.app"],
+            ),
+            config_path: minimax_config_path,
+            config_paths: minimax_config_paths,
+            docs: MINIMAX_CODE_DOCS.into(),
+            assigned_profile: None,
+            assigned_profiles: Vec::new(),
+            active_profile: None,
+            supports_multiple: false,
+            credential_mode: "guided".into(),
+            supported_protocols: vec![
+                ModelProtocol::AnthropicMessages,
+                ModelProtocol::OpenaiResponses,
+                ModelProtocol::OpenaiCompletions,
+            ],
+            note: "MiniMax Code supports custom providers, but its current config flow stores options.apiKey as plaintext YAML; use its own model configuration flow rather than exporting a MUX Keychain secret.".into(),
+        },
+        ModelAgentView {
+            id: "qoder".into(),
+            name: "Qoder".into(),
+            mode: "guided".into(),
+            installed: agent_installed(
+                &["qoder", "qodercli"],
+                &[".qoder"],
+                &["/Applications/Qoder.app"],
+            ),
+            config_path: qoder_config_path,
+            config_paths: qoder_config_paths,
+            docs: QODER_DOCS.into(),
+            assigned_profile: None,
+            assigned_profiles: Vec::new(),
+            active_profile: None,
+            supports_multiple: false,
+            credential_mode: "guided".into(),
+            supported_protocols: Vec::new(),
+            note: "Qoder has no public secure non-interactive BYOK writer; configure it through /model.".into(),
+        },
+        managed_agent_view(
+            &settings, "opencode", "OpenCode", &["opencode"], &[".config/opencode"],
+            "https://opencode.ai/docs/models/",
+            "原生 provider/models 与 model；API Key 只写 {env:VAR} 引用。",
+        ),
+        managed_agent_view(
+            &settings, "kilo-code", "Kilo Code CLI", &["kilo"], &[".config/kilo"],
+            "https://kilo.ai/docs/code-with-ai/agents/custom-models",
+            "原生 provider/models 与 model；API Key 只写 {env:VAR} 引用。",
+        ),
+        managed_agent_view(
+            &settings, "qwen-code", "Qwen Code", &["qwen"], &[".qwen"],
+            "https://qwenlm.github.io/qwen-code-docs/en/users/configuration/model-providers/",
+            "原生 modelProviders；API Key 由 envKey 指向外部环境变量。",
+        ),
+        managed_agent_view(
+            &settings, "crush", "Crush", &["crush"], &[".config/crush"],
+            "https://github.com/charmbracelet/crush",
+            "原生 providers 与 models.large；不会改 small 等辅助槽位。",
+        ),
+        managed_agent_view(
+            &settings, "mistral-vibe", "Mistral Vibe", &["vibe"], &[".vibe"],
+            "https://docs.mistral.ai/vibe/code/cli/api-keys-profiles",
+            "原生 providers/models 与 active_model；API Key 由 api_key_env_var 引用。",
+        ),
+        managed_agent_view(
+            &settings, "hermes", "Hermes Agent", &["hermes"], &[".hermes"],
+            "https://hermes-agent.nousresearch.com/docs/user-guide/configuring-models",
+            "原生命名 custom provider、model_aliases 与主模型指针；辅助任务模型保持独立。",
+        ),
+        managed_agent_view(
+            &settings, "factory-droid", "Factory Droid", &["droid"], &[".factory"],
+            "https://docs.factory.ai/cli/byok/overview",
+            "原生 customModels 与 model；API Key 只写 ${VAR} 引用。",
+        ),
+        managed_agent_view(
+            &settings, "goose", "Goose", &["goose"], &["Library/Application Support/Block/goose"],
+            "https://block.github.io/goose/docs/getting-started/providers",
+            "原生 providers/active_provider 与 declarative custom provider；密钥由外部环境变量提供。",
+        ),
+    ]
+}
+
+fn managed_agent_view(
+    settings: &crate::settings::Settings,
+    id: &str,
+    name: &str,
+    commands: &[&str],
+    config_locations: &[&str],
+    docs: &str,
+    note: &str,
+) -> ModelAgentView {
+    let (config_path, config_paths) = path_view(settings, id);
+    let selection = settings.model_selection(id);
+    ModelAgentView {
+        id: id.into(),
+        name: name.into(),
+        mode: "managed".into(),
+        installed: agent_installed(commands, config_locations, &[]),
+        config_path,
+        config_paths,
+        docs: docs.into(),
+        assigned_profile: selection.active_profile_id.clone(),
+        assigned_profiles: selection.profiles.into_keys().collect(),
+        active_profile: selection.active_profile_id,
+        supports_multiple: true,
+        credential_mode: "environment-reference".into(),
+        supported_protocols: match id {
+            "qwen-code" | "crush" | "hermes" | "goose" => vec![
+                ModelProtocol::AnthropicMessages,
+                ModelProtocol::OpenaiCompletions,
+            ],
+            "mistral-vibe" => vec![ModelProtocol::OpenaiCompletions],
+            _ => vec![
+                ModelProtocol::AnthropicMessages,
+                ModelProtocol::OpenaiResponses,
+                ModelProtocol::OpenaiCompletions,
+            ],
+        },
+        note: note.into(),
+    }
+}
+
+/// Canonical read-only capability lookup used by the shared consumption
+/// service. Keeping this projection here prevents another copy of the managed
+/// and guided Agent matrix from drifting out of sync with the Model writer.
+pub fn model_agent_capability(agent_id: &str) -> Option<ModelAgentView> {
+    list_agents().into_iter().find(|agent| agent.id == agent_id)
+}
+
+pub(crate) fn observe_active_model_for_settings(
+    settings: &crate::settings::Settings,
+    agent_id: &str,
+) -> ObservedActiveModel {
+    let profiles = settings.model_profiles.clone().unwrap_or_default();
+    let Some(paths) = configured_path_strings_checked(settings, agent_id)
+        .ok()
+        .flatten()
+        .map(|paths| {
+            paths
+                .into_iter()
+                .map(|path| expand_tilde(&path))
+                .collect::<Vec<_>>()
+        })
+    else {
+        return ObservedActiveModel::None;
+    };
+    let selected = match agent_id {
+        "grok-build" => read_toml(&paths[0]).ok().and_then(|(document, _)| {
+            document
+                .get("models")?
+                .as_table()?
+                .get("default")?
+                .as_str()
+                .map(str::to_string)
+        }),
+        "pi" => read_jsonc(&paths[1]).ok().and_then(|(root, original)| {
+            original?;
+            root.to_serde_value()?
+                .get("defaultProvider")?
+                .as_str()
+                .map(str::to_string)
+        }),
+        "claude-code" | "codex" => settings.model_selection(agent_id).active_profile_id,
+        "opencode" | "kilo-code" | "qwen-code" | "crush" | "mistral-vibe" | "hermes"
+        | "factory-droid" | "goose" => {
+            return match adapters::observe_active(agent_id, &paths, &profiles) {
+                adapters::ObservedActiveModel::Managed(id) => ObservedActiveModel::Managed(id),
+                adapters::ObservedActiveModel::External => ObservedActiveModel::External,
+                adapters::ObservedActiveModel::None => ObservedActiveModel::None,
+                adapters::ObservedActiveModel::Conflicted => ObservedActiveModel::Conflicted,
+            };
+        }
+        _ => None,
+    };
+    let Some(selected) = selected else {
+        return ObservedActiveModel::None;
+    };
+    let matches: Vec<_> = profiles
+        .values()
+        .filter(|profile| match agent_id {
+            "grok-build" => selected == grok_model_id(profile),
+            "pi" => selected == pi_provider_id(profile),
+            _ => selected == profile.id,
+        })
+        .map(|profile| profile.id.clone())
+        .collect();
+    match matches.as_slice() {
+        [profile_id] => ObservedActiveModel::Managed(profile_id.clone()),
+        [] => ObservedActiveModel::External,
+        _ => ObservedActiveModel::Conflicted,
+    }
+}
+
+/// Adopt an Agent-native `/model` switch only when it points at an enabled
+/// MUX-managed Profile. External/built-in selections remain read-only and do
+/// not overwrite MUX relationships.
+pub fn reconcile_active_models() -> Result<(), String> {
+    let _settings_guard = mutation_lock()?;
+    let settings = crate::settings::load_settings_strict().map_err(|error| error.to_string())?;
+    let agent_ids: Vec<String> = settings
+        .model_consumptions
+        .iter()
+        .flatten()
+        .map(|(agent_id, _)| agent_id.clone())
+        .chain(
+            settings
+                .model_assignments
+                .iter()
+                .flatten()
+                .map(|(id, _)| id.clone()),
+        )
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect();
+    let mut updates = Vec::new();
+    for agent_id in agent_ids {
+        let ObservedActiveModel::Managed(profile_id) =
+            observe_active_model_for_settings(&settings, &agent_id)
+        else {
+            continue;
+        };
+        let selection = settings.model_selection(&agent_id);
+        if selection.active_profile_id.as_deref() == Some(profile_id.as_str())
+            || !selection
+                .profiles
+                .get(&profile_id)
+                .is_some_and(|record| record.enabled)
+        {
+            continue;
+        }
+        updates.push((agent_id, profile_id));
+    }
+    if updates.is_empty() {
+        return Ok(());
+    }
+    mutate_settings(|settings| {
+        for (agent_id, profile_id) in &updates {
+            let mut selection = settings.model_selection(agent_id);
+            selection.active_profile_id = Some(profile_id.clone());
+            if let Some(record) = selection.profiles.get_mut(profile_id) {
+                record.last_selected_at =
+                    Some(chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true));
+            }
+            settings.set_model_selection(agent_id, selection);
+        }
+    })
+    .map_err(|error| error.to_string())
+}
+
+/// Inspect only the fields owned by the Model adapter. Candidate generation
+/// preserves all unrelated bytes, so comparing it with the source identifies
+/// owned-field drift without treating comments or unknown settings as drift.
+pub fn observe_profile(
+    agent_id: &str,
+    profile: &ModelProfile,
+) -> Result<ModelObservedState, String> {
+    let has_credential = credential_exists(&profile.id);
+    let paths =
+        configured_paths(agent_id).ok_or_else(|| format!("unsupported model Agent: {agent_id}"))?;
+    let observed = match agent_id {
+        "claude-code" => observe_prepared(prepare_claude(&paths[0], profile, has_credential)),
+        "codex" => observe_prepared(prepare_codex(&paths[0], profile, has_credential)),
+        "grok-build" => observe_prepared(prepare_grok_build(&paths[0], profile)),
+        "pi" => {
+            let models = observe_prepared(prepare_pi_models(&paths[0], profile, has_credential));
+            let settings = observe_prepared(prepare_pi_settings(&paths[1], profile));
+            combine_observed(models, settings)
+        }
+        "opencode" | "kilo-code" | "qwen-code" | "crush" | "mistral-vibe" | "hermes"
+        | "factory-droid" | "goose" => Ok(adapters::observe_prepared_files(
+            adapters::prepare_apply(agent_id, &paths, profile, true),
+        )),
+        _ => Ok(ModelObservedState::Conflicted),
+    }?;
+    // Credentials are optional because local and gateway endpoints may not
+    // require authentication. Presence is surfaced on the central Profile; it
+    // is not drift unless a future Profile schema explicitly marks it required.
+    Ok(observed)
+}
+
+/// Observe one installed relationship without requiring it to be the Agent's
+/// current/default model. Multi-model Agents keep several provider entries but
+/// only one active pointer.
+pub fn observe_profile_consumption(
+    agent_id: &str,
+    profile: &ModelProfile,
+    active: bool,
+) -> Result<ModelObservedState, String> {
+    if active || matches!(agent_id, "claude-code" | "codex") {
+        return observe_profile(agent_id, profile);
+    }
+    let has_credential = credential_exists(&profile.id);
+    let paths =
+        configured_paths(agent_id).ok_or_else(|| format!("unsupported model Agent: {agent_id}"))?;
+    let absent = match agent_id {
+        "grok-build" => cleared_toml_profile_absent(prepare_clear_grok_build(&paths[0], profile)),
+        "pi" => cleared_toml_profile_absent(prepare_clear_pi_models(&paths[0], profile)),
+        "opencode" | "kilo-code" | "qwen-code" | "crush" | "mistral-vibe" | "hermes"
+        | "factory-droid" | "goose" => {
+            adapters::cleared_profile_absent(adapters::prepare_clear(agent_id, &paths, profile))
+        }
+        _ => Ok(false),
+    };
+    match absent {
+        Ok(true) => return Ok(ModelObservedState::Missing),
+        Ok(false) => {}
+        Err(_) => return Ok(ModelObservedState::Conflicted),
+    }
+    match agent_id {
+        "grok-build" => observe_prepared(prepare_grok_model(&paths[0], profile)),
+        "pi" => observe_prepared(prepare_pi_models(&paths[0], profile, has_credential)),
+        "opencode" | "kilo-code" | "qwen-code" | "crush" | "mistral-vibe" | "hermes"
+        | "factory-droid" | "goose" => Ok(adapters::observe_prepared_files(
+            adapters::prepare_apply(agent_id, &paths, profile, false),
+        )),
+        _ => observe_profile(agent_id, profile),
+    }
+}
+
+fn cleared_toml_profile_absent(
+    prepared: Result<(Option<String>, String), String>,
+) -> Result<bool, String> {
+    let (original, candidate) = prepared?;
+    Ok(original
+        .as_ref()
+        .is_none_or(|original| original == &candidate))
+}
+
+/// Detect model-owned fields when no desired Profile exists. This is a
+/// deliberately identity-free external projection: it prevents a central
+/// selection from silently taking over an Agent configuration without treating
+/// the Agent file as a source of central Profile metadata.
+pub fn observe_external_model(agent_id: &str) -> Result<ExternalModelObservedState, String> {
+    let paths =
+        configured_paths(agent_id).ok_or_else(|| format!("unsupported model Agent: {agent_id}"))?;
+    match agent_id {
+        "claude-code" => observe_external_claude(&paths[0]),
+        "codex" => observe_external_codex(&paths[0]),
+        "grok-build" => observe_external_grok_build(&paths[0]),
+        "pi" => observe_external_pi(&paths[0], &paths[1]),
+        "opencode" | "kilo-code" | "qwen-code" | "crush" | "mistral-vibe" | "hermes"
+        | "factory-droid" | "goose" => Ok(adapters::observe_external(agent_id, &paths[0])),
+        _ => Ok(ExternalModelObservedState::Absent),
+    }
+}
+
+fn observe_external_claude(path: &Path) -> Result<ExternalModelObservedState, String> {
+    let (root, original) = match read_jsonc(path) {
+        Ok(value) => value,
+        Err(_) if path.exists() => return Ok(ExternalModelObservedState::Conflicted),
+        Err(error) => return Err(error),
+    };
+    if original.is_none() {
+        return Ok(ExternalModelObservedState::Absent);
+    }
+    let object = match json_root_object(&root, path) {
+        Ok(object) => object,
+        Err(_) => return Ok(ExternalModelObservedState::Conflicted),
+    };
+    if ensure_unique_keys(&object, path, "$root").is_err() {
+        return Ok(ExternalModelObservedState::Conflicted);
+    }
+    let mut present = object.get("model").is_some() || object.get("apiKeyHelper").is_some();
+    if object.get("env").is_some() {
+        let Some(env) = object.object_value("env") else {
+            return Ok(ExternalModelObservedState::Conflicted);
+        };
+        if ensure_unique_keys(&env, path, "env").is_err() {
+            return Ok(ExternalModelObservedState::Conflicted);
+        }
+        present |= [
+            "ANTHROPIC_BASE_URL",
+            "ANTHROPIC_AUTH_TOKEN",
+            "ANTHROPIC_API_KEY",
+        ]
+        .iter()
+        .any(|field| env.get(field).is_some());
+    }
+    Ok(if present {
+        ExternalModelObservedState::Present
+    } else {
+        ExternalModelObservedState::Absent
+    })
+}
+
+fn observe_external_codex(path: &Path) -> Result<ExternalModelObservedState, String> {
+    let (document, original) = match read_toml(path) {
+        Ok(value) => value,
+        Err(_) if path.exists() => return Ok(ExternalModelObservedState::Conflicted),
+        Err(error) => return Err(error),
+    };
+    if original.is_none() {
+        return Ok(ExternalModelObservedState::Absent);
+    }
+    Ok(
+        if document.as_table().contains_key("model")
+            || document.as_table().contains_key("model_provider")
+        {
+            ExternalModelObservedState::Present
+        } else {
+            ExternalModelObservedState::Absent
+        },
+    )
+}
+
+fn observe_external_grok_build(path: &Path) -> Result<ExternalModelObservedState, String> {
+    let (document, original) = match read_toml(path) {
+        Ok(value) => value,
+        Err(_) if path.exists() => return Ok(ExternalModelObservedState::Conflicted),
+        Err(error) => return Err(error),
+    };
+    if original.is_none() {
+        return Ok(ExternalModelObservedState::Absent);
+    }
+    let has_default = document
+        .get("models")
+        .and_then(Item::as_table)
+        .is_some_and(|models| models.contains_key("default"));
+    let has_custom_models = document
+        .get("model")
+        .and_then(Item::as_table)
+        .is_some_and(|models| !models.is_empty());
+    Ok(if has_default || has_custom_models {
+        ExternalModelObservedState::Present
+    } else {
+        ExternalModelObservedState::Absent
+    })
+}
+
+fn observe_external_pi(
+    models_path: &Path,
+    settings_path: &Path,
+) -> Result<ExternalModelObservedState, String> {
+    let models_present = match read_jsonc(models_path) {
+        Ok((_, None)) => false,
+        Ok((root, Some(_))) => {
+            let object = match json_root_object(&root, models_path) {
+                Ok(object) => object,
+                Err(_) => return Ok(ExternalModelObservedState::Conflicted),
+            };
+            if ensure_unique_keys(&object, models_path, "$root").is_err() {
+                return Ok(ExternalModelObservedState::Conflicted);
+            }
+            if object.get("providers").is_some() {
+                let Some(providers) = object.object_value("providers") else {
+                    return Ok(ExternalModelObservedState::Conflicted);
+                };
+                if ensure_unique_keys(&providers, models_path, "providers").is_err() {
+                    return Ok(ExternalModelObservedState::Conflicted);
+                }
+                !providers.properties().is_empty()
+            } else {
+                false
+            }
+        }
+        Err(_) if models_path.exists() => return Ok(ExternalModelObservedState::Conflicted),
+        Err(error) => return Err(error),
+    };
+    let settings_present = match read_jsonc(settings_path) {
+        Ok((_, None)) => false,
+        Ok((root, Some(_))) => {
+            let object = match json_root_object(&root, settings_path) {
+                Ok(object) => object,
+                Err(_) => return Ok(ExternalModelObservedState::Conflicted),
+            };
+            if ensure_unique_keys(&object, settings_path, "$root").is_err() {
+                return Ok(ExternalModelObservedState::Conflicted);
+            }
+            object.get("defaultProvider").is_some() || object.get("defaultModel").is_some()
+        }
+        Err(_) if settings_path.exists() => return Ok(ExternalModelObservedState::Conflicted),
+        Err(error) => return Err(error),
+    };
+    Ok(if models_present || settings_present {
+        ExternalModelObservedState::Present
+    } else {
+        ExternalModelObservedState::Absent
+    })
+}
+
+fn observe_prepared(
+    prepared: Result<(Option<String>, String), String>,
+) -> Result<ModelObservedState, String> {
+    match prepared {
+        Ok((None, _)) => Ok(ModelObservedState::Missing),
+        Ok((Some(original), candidate)) if original == candidate => Ok(ModelObservedState::Synced),
+        Ok((Some(_), _)) => Ok(ModelObservedState::Drifted),
+        Err(_) => Ok(ModelObservedState::Conflicted),
+    }
+}
+
+fn combine_observed(
+    left: Result<ModelObservedState, String>,
+    right: Result<ModelObservedState, String>,
+) -> Result<ModelObservedState, String> {
+    use ModelObservedState::*;
+    let (left, right) = (left?, right?);
+    Ok(if left == Conflicted || right == Conflicted {
+        Conflicted
+    } else if left == Missing || right == Missing {
+        Missing
+    } else if left == Drifted || right == Drifted {
+        Drifted
+    } else {
+        Synced
+    })
+}
+
+fn profile_for_apply(profile_id: &str) -> Result<ModelProfile, String> {
+    load_settings()
+        .model_profiles
+        .and_then(|profiles| profiles.get(profile_id).cloned())
+        .ok_or_else(|| format!("unknown model profile: {profile_id}"))
+}
+
+fn ensure_supported(agent_id: &str, protocol: &ModelProtocol) -> Result<(), String> {
+    let supported = match agent_id {
+        "claude-code" => matches!(protocol, ModelProtocol::AnthropicMessages),
+        "codex" => matches!(protocol, ModelProtocol::OpenaiResponses),
+        "grok-build" | "pi" | "opencode" | "kilo-code" | "factory-droid" => true,
+        "qwen-code" => !matches!(protocol, ModelProtocol::OpenaiResponses),
+        "crush" | "mistral-vibe" | "hermes" | "goose" => {
+            !matches!(protocol, ModelProtocol::OpenaiResponses)
+        }
+        "qoder" => {
+            return Err(format!(
+                "Qoder custom models must currently be configured through /model; see {QODER_DOCS}"
+            ))
+        }
+        "minimax-code" => {
+            return Err(format!(
+                "MiniMax Code custom providers currently persist options.apiKey in plaintext YAML and do not expose a Keychain-compatible credential command; see {MINIMAX_CODE_DOCS}"
+            ))
+        }
+        _ => return Err(format!("unsupported model Agent: {agent_id}")),
+    };
+    if supported {
+        Ok(())
+    } else {
+        Err(format!(
+            "{} does not support the '{}' profile protocol in this MUX release",
+            agent_id,
+            protocol_name(protocol)
+        ))
+    }
+}
+
+fn protocol_name(protocol: &ModelProtocol) -> &'static str {
+    match protocol {
+        ModelProtocol::AnthropicMessages => "anthropic-messages",
+        ModelProtocol::OpenaiResponses => "openai-responses",
+        ModelProtocol::OpenaiCompletions => "openai-completions",
+    }
+}
+
+pub fn apply_profile(agent_id: &str, profile_id: &str) -> Result<ModelApplyResult, String> {
+    let _settings_guard = mutation_lock()?;
+    apply_profile_with_credential_presence(agent_id, profile_id, credential_exists(profile_id))
+}
+
+pub(crate) fn apply_profile_with_credential_presence(
+    agent_id: &str,
+    profile_id: &str,
+    has_credential: bool,
+) -> Result<ModelApplyResult, String> {
+    let profile = profile_for_apply(profile_id)?;
+    ensure_supported(agent_id, &profile.protocol)?;
+    if let Some((code, message)) = profile_credential_issue(agent_id, &profile, has_credential) {
+        return Err(format!("{code}: {message}"));
+    }
+    let paths =
+        configured_paths(agent_id).ok_or_else(|| format!("unsupported model Agent: {agent_id}"))?;
+    let result = match agent_id {
+        "claude-code" => apply_claude(&paths[0], &profile, has_credential),
+        "codex" => apply_codex(&paths[0], &profile, has_credential),
+        "grok-build" => apply_grok_build(&paths[0], &profile),
+        "pi" => apply_pi(&paths[0], &paths[1], &profile, has_credential),
+        "opencode" | "kilo-code" | "qwen-code" | "crush" | "mistral-vibe" | "hermes"
+        | "factory-droid" | "goose" => apply_native_multi_model(
+            agent_id,
+            &profile,
+            adapters::prepare_apply(agent_id, &paths, &profile, true)?,
+        ),
+        _ => unreachable!("ensure_supported filtered unknown agents"),
+    }?;
+
+    mutate_settings(|settings| {
+        settings
+            .model_assignments
+            .get_or_insert_with(BTreeMap::new)
+            .insert(agent_id.into(), profile_id.into());
+    })
+    .map_err(|error| {
+        format!("model config was applied, but MUX could not record the assignment: {error}")
+    })?;
+    Ok(result)
+}
+
+/// Remove only the fields owned by a previously assigned MUX Profile, then
+/// clear the desired assignment. The caller must identify the exact Profile so
+/// unrelated providers and Agent policy remain untouched.
+pub fn clear_profile(agent_id: &str, profile_id: &str) -> Result<(), String> {
+    let _settings_guard = mutation_lock()?;
+    let profile = profile_for_apply(profile_id)?;
+    ensure_supported(agent_id, &profile.protocol)?;
+    match observe_profile_consumption(agent_id, &profile, false)? {
+        ModelObservedState::Synced => {}
+        ModelObservedState::Missing => {}
+        ModelObservedState::Drifted => {
+            return Err("model_owned_fields_drift: review the Agent config before clearing".into())
+        }
+        ModelObservedState::Conflicted => {
+            return Err("model_target_conflicted: the Agent config is ambiguous".into())
+        }
+    }
+    let paths =
+        configured_paths(agent_id).ok_or_else(|| format!("unsupported model Agent: {agent_id}"))?;
+    match agent_id {
+        "claude-code" => clear_one_model_file(&paths[0], "claude-code", prepare_clear_claude)?,
+        "codex" => {
+            clear_one_model_file_with_profile(&paths[0], "codex", &profile, prepare_clear_codex)?
+        }
+        "grok-build" => clear_one_model_file_with_profile(
+            &paths[0],
+            "grok-build",
+            &profile,
+            prepare_clear_grok_build,
+        )?,
+        "pi" => clear_pi(&paths[0], &paths[1], &profile)?,
+        "opencode" | "kilo-code" | "qwen-code" | "crush" | "mistral-vibe" | "hermes"
+        | "factory-droid" | "goose" => {
+            commit_native_model_files(
+                agent_id,
+                adapters::prepare_clear(agent_id, &paths, &profile)?,
+            )?;
+        }
+        _ => unreachable!("ensure_supported filtered unsupported model Agent"),
+    }
+    mutate_settings(|settings| {
+        if let Some(assignments) = settings.model_assignments.as_mut() {
+            if assignments.get(agent_id).is_some_and(|id| id == profile_id) {
+                assignments.remove(agent_id);
+            }
+        }
+    })
+    .map_err(|error| error.to_string())
+}
+
+fn apply_native_multi_model(
+    agent_id: &str,
+    profile: &ModelProfile,
+    files: Vec<adapters::PreparedModelFile>,
+) -> Result<ModelApplyResult, String> {
+    let written = files
+        .iter()
+        .map(|file| file.path.display().to_string())
+        .collect();
+    commit_native_model_files(agent_id, files)?;
+    Ok(ModelApplyResult {
+        agent: agent_id.into(),
+        profile: profile.id.clone(),
+        files: written,
+        restart_required: true,
+        message: format!("{agent_id} Model Profile and primary selection updated."),
+    })
+}
+
+fn commit_native_model_files(
+    agent_id: &str,
+    files: Vec<adapters::PreparedModelFile>,
+) -> Result<(), String> {
+    let stamp = backup_timestamp();
+    for file in &files {
+        backup_config(&file.path, agent_id, &stamp)?;
+    }
+    let mut applied: Vec<adapters::PreparedModelFile> = Vec::new();
+    for file in &files {
+        let result = match (&file.original, &file.content) {
+            (original, Some(content)) => {
+                write_if_unchanged(&file.path, original.as_deref(), content)
+            }
+            (Some(original), None) => remove_if_unchanged(&file.path, original),
+            (None, None) => Ok(()),
+        };
+        if let Err(error) = result {
+            let mut rollback_errors = Vec::new();
+            for previous in applied.into_iter().rev() {
+                let rollback = match (&previous.original, &previous.content) {
+                    (Some(original), Some(content)) => {
+                        write_if_unchanged(&previous.path, Some(content), original)
+                    }
+                    (None, Some(content)) => remove_if_unchanged(&previous.path, content),
+                    (Some(original), None) => write_if_unchanged(&previous.path, None, original),
+                    (None, None) => Ok(()),
+                };
+                if let Err(rollback) = rollback {
+                    rollback_errors.push(rollback);
+                }
+            }
+            return if rollback_errors.is_empty() {
+                Err(format!(
+                    "Model config update failed and was rolled back: {error}"
+                ))
+            } else {
+                Err(format!(
+                    "Model config update failed ({error}); rollback failed: {}",
+                    rollback_errors.join("; ")
+                ))
+            };
+        }
+        applied.push(file.clone());
+    }
+    Ok(())
+}
+
+fn read_optional(path: &Path) -> Result<Option<String>, String> {
+    match fs::read_to_string(path) {
+        Ok(content) => Ok(Some(content)),
+        Err(error) if error.kind() == ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(format!("failed to read {}: {}", path.display(), error)),
+    }
+}
+
+fn input_value(value: Value) -> CstInputValue {
+    match value {
+        Value::Null => CstInputValue::Null,
+        Value::Bool(value) => CstInputValue::Bool(value),
+        Value::Number(value) => CstInputValue::Number(value.to_string()),
+        Value::String(value) => CstInputValue::String(value),
+        Value::Array(values) => CstInputValue::Array(values.into_iter().map(input_value).collect()),
+        Value::Object(values) => CstInputValue::Object(
+            values
+                .into_iter()
+                .map(|(name, value)| (name, input_value(value)))
+                .collect(),
+        ),
+    }
+}
+
+fn property_count(object: &CstObject, name: &str) -> usize {
+    object
+        .properties()
+        .into_iter()
+        .filter(|property| {
+            property
+                .name()
+                .and_then(|name| name.decoded_value().ok())
+                .is_some_and(|decoded| decoded == name)
+        })
+        .count()
+}
+
+fn ensure_unique(object: &CstObject, name: &str, path: &Path, context: &str) -> Result<(), String> {
+    if property_count(object, name) > 1 {
+        return Err(format!(
+            "refusing to modify {}: duplicate JSON key '{}.{}' is ambiguous",
+            path.display(),
+            context,
+            name
+        ));
+    }
+    Ok(())
+}
+
+fn ensure_unique_keys(object: &CstObject, path: &Path, context: &str) -> Result<(), String> {
+    let mut seen = BTreeSet::new();
+    for property in object.properties() {
+        let Some(name) = property.name().and_then(|name| name.decoded_value().ok()) else {
+            continue;
+        };
+        if !seen.insert(name.clone()) {
+            return Err(format!(
+                "refusing to modify {}: duplicate JSON key '{}.{}' is ambiguous",
+                path.display(),
+                context,
+                name
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn set_json_property(
+    object: &CstObject,
+    name: &str,
+    value: Option<Value>,
+    path: &Path,
+    context: &str,
+) -> Result<(), String> {
+    ensure_unique(object, name, path, context)?;
+    match (object.get(name), value) {
+        (Some(property), Some(value)) => property.set_value(input_value(value)),
+        (None, Some(value)) => {
+            object.append(name, input_value(value));
+        }
+        (Some(property), None) => property.remove(),
+        (None, None) => {}
+    }
+    Ok(())
+}
+
+fn read_jsonc(path: &Path) -> Result<(CstRootNode, Option<String>), String> {
+    let original = read_optional(path)?;
+    let root = CstRootNode::parse(
+        original.as_deref().unwrap_or_default(),
+        &ParseOptions::default(),
+    )
+    .map_err(|error| {
+        format!(
+            "refusing to modify invalid JSON/JSONC at {}: {}",
+            path.display(),
+            error
+        )
+    })?;
+    Ok((root, original))
+}
+
+fn json_root_object(root: &CstRootNode, path: &Path) -> Result<CstObject, String> {
+    root.object_value_or_create().ok_or_else(|| {
+        format!(
+            "refusing to modify {}: JSON root is not an object",
+            path.display()
+        )
+    })
+}
+
+fn truthy_json_value(node: Option<CstNode>) -> bool {
+    node.and_then(|node| node.to_serde_value())
+        .is_some_and(|value| match value {
+            Value::Bool(value) => value,
+            Value::String(value) => {
+                let normalized = value.trim().to_ascii_lowercase();
+                !normalized.is_empty() && normalized != "0" && normalized != "false"
+            }
+            Value::Null => false,
+            _ => true,
+        })
+}
+
+fn prepare_claude(
+    path: &Path,
+    profile: &ModelProfile,
+    has_credential: bool,
+) -> Result<(Option<String>, String), String> {
+    let (root, original) = read_jsonc(path)?;
+    let object = json_root_object(&root, path)?;
+    ensure_unique_keys(&object, path, "$root")?;
+    ensure_unique(&object, "env", path, "$root")?;
+
+    let env = object.object_value_or_create("env").ok_or_else(|| {
+        format!(
+            "refusing to modify {}: 'env' is not an object",
+            path.display()
+        )
+    })?;
+    ensure_unique_keys(&env, path, "env")?;
+    for field in [
+        "CLAUDE_CODE_USE_BEDROCK",
+        "CLAUDE_CODE_USE_VERTEX",
+        "CLAUDE_CODE_USE_FOUNDRY",
+    ] {
+        if truthy_json_value(env.get(field).and_then(|property| property.value())) {
+            return Err(format!(
+                "refusing to replace active {} routing in {}",
+                field,
+                path.display()
+            ));
+        }
+    }
+
+    set_json_property(
+        &object,
+        "model",
+        Some(Value::String(profile.model.clone())),
+        path,
+        "$root",
+    )?;
+    set_json_property(
+        &object,
+        "apiKeyHelper",
+        has_credential.then(|| Value::String(security_shell_command(&profile.id))),
+        path,
+        "$root",
+    )?;
+    set_json_property(
+        &env,
+        "ANTHROPIC_BASE_URL",
+        Some(Value::String(profile.base_url.clone())),
+        path,
+        "env",
+    )?;
+    // These have higher precedence than apiKeyHelper. Applying a MUX profile is
+    // an explicit connection takeover, so remove only these conflicting fields.
+    set_json_property(&env, "ANTHROPIC_AUTH_TOKEN", None, path, "env")?;
+    set_json_property(&env, "ANTHROPIC_API_KEY", None, path, "env")?;
+    Ok((original, root.to_string()))
+}
+
+fn prepare_clear_claude(path: &Path) -> Result<(Option<String>, String), String> {
+    let (root, original) = read_jsonc(path)?;
+    if original.is_none() {
+        return Ok((None, String::new()));
+    }
+    let object = json_root_object(&root, path)?;
+    ensure_unique_keys(&object, path, "$root")?;
+    set_json_property(&object, "model", None, path, "$root")?;
+    set_json_property(&object, "apiKeyHelper", None, path, "$root")?;
+    if let Some(env) = object.object_value("env") {
+        ensure_unique_keys(&env, path, "env")?;
+        set_json_property(&env, "ANTHROPIC_BASE_URL", None, path, "env")?;
+    }
+    Ok((original, root.to_string()))
+}
+
+fn read_toml(path: &Path) -> Result<(Document, Option<String>), String> {
+    let original = read_optional(path)?;
+    let document = original
+        .as_deref()
+        .unwrap_or_default()
+        .parse::<Document>()
+        .map_err(|error| {
+            format!(
+                "refusing to modify invalid TOML at {}: {}",
+                path.display(),
+                error
+            )
+        })?;
+    Ok((document, original))
+}
+
+fn prepare_codex(
+    path: &Path,
+    profile: &ModelProfile,
+    has_credential: bool,
+) -> Result<(Option<String>, String), String> {
+    let (mut document, original) = read_toml(path)?;
+    document["model"] = toml_edit::value(&profile.model);
+    let provider_id = codex_provider_id(profile);
+    document["model_provider"] = toml_edit::value(&provider_id);
+
+    if !document.as_table().contains_key("model_providers") {
+        document
+            .as_table_mut()
+            .insert("model_providers", Item::Table(Table::new()));
+    }
+    let providers = document
+        .get_mut("model_providers")
+        .and_then(Item::as_table_mut)
+        .ok_or_else(|| {
+            format!(
+                "refusing to modify {}: 'model_providers' is not a TOML table",
+                path.display()
+            )
+        })?;
+    if !providers.contains_key(&provider_id) {
+        providers.insert(&provider_id, Item::Table(Table::new()));
+    }
+    let provider = providers
+        .get_mut(&provider_id)
+        .and_then(Item::as_table_mut)
+        .ok_or_else(|| format!("MUX provider '{provider_id}' is not a TOML table"))?;
+    provider.insert("name", toml_edit::value(&profile.name));
+    provider.insert("base_url", toml_edit::value(&profile.base_url));
+    provider.insert("wire_api", toml_edit::value("responses"));
+    provider.remove("env_key");
+    provider.remove("experimental_bearer_token");
+    provider.remove("requires_openai_auth");
+
+    if has_credential {
+        let mut auth = Table::new();
+        let command = security_command(&profile.id);
+        auth.insert("command", toml_edit::value(&command[0]));
+        let mut args = Array::new();
+        for argument in &command[1..] {
+            args.push(argument.as_str());
+        }
+        auth.insert("args", toml_edit::value(args));
+        provider.insert("auth", Item::Table(auth));
+    } else {
+        provider.remove("auth");
+    }
+    Ok((original, document.to_string()))
+}
+
+fn prepare_clear_codex(
+    path: &Path,
+    profile: &ModelProfile,
+) -> Result<(Option<String>, String), String> {
+    let (mut document, original) = read_toml(path)?;
+    if original.is_none() {
+        return Ok((None, String::new()));
+    }
+    document.remove("model");
+    document.remove("model_provider");
+    if let Some(providers) = document
+        .get_mut("model_providers")
+        .and_then(Item::as_table_mut)
+    {
+        providers.remove(&codex_provider_id(profile));
+    }
+    Ok((original, document.to_string()))
+}
+
+fn native_profile_id(profile: &ModelProfile, agent_id: &str, fallback: String) -> String {
+    profile
+        .native_ids
+        .get(agent_id)
+        .cloned()
+        .unwrap_or(fallback)
+}
+
+fn codex_provider_id(profile: &ModelProfile) -> String {
+    native_profile_id(profile, "codex", mux_profile_id(&profile.id))
+}
+
+fn mux_profile_id(profile_id: &str) -> String {
+    let mut encoded = String::from("mux_");
+    for byte in profile_id.bytes() {
+        encoded.push_str(&format!("{byte:02x}"));
+    }
+    encoded
+}
+
+fn grok_model_id(profile: &ModelProfile) -> String {
+    native_profile_id(profile, "grok-build", mux_profile_id(&profile.id))
+}
+
+fn pi_provider_id(profile: &ModelProfile) -> String {
+    native_profile_id(profile, "pi", format!("mux-{}", profile.id))
+}
+
+fn grok_api_backend(protocol: &ModelProtocol) -> &'static str {
+    match protocol {
+        ModelProtocol::AnthropicMessages => "messages",
+        ModelProtocol::OpenaiResponses => "responses",
+        ModelProtocol::OpenaiCompletions => "chat_completions",
+    }
+}
+
+fn insert_optional_toml_integer(
+    table: &mut Table,
+    name: &str,
+    value: Option<u64>,
+) -> Result<(), String> {
+    match value {
+        Some(value) => {
+            let value = i64::try_from(value)
+                .map_err(|_| format!("{name} exceeds the TOML integer range"))?;
+            table.insert(name, toml_edit::value(value));
+        }
+        None => {
+            table.remove(name);
+        }
+    }
+    Ok(())
+}
+
+fn prepare_grok_build(
+    path: &Path,
+    profile: &ModelProfile,
+) -> Result<(Option<String>, String), String> {
+    let (mut document, original) = read_toml(path)?;
+    let model_id = grok_model_id(profile);
+
+    if !document.as_table().contains_key("models") {
+        document
+            .as_table_mut()
+            .insert("models", Item::Table(Table::new()));
+    }
+    let defaults = document
+        .get_mut("models")
+        .and_then(Item::as_table_mut)
+        .ok_or_else(|| {
+            format!(
+                "refusing to modify {}: 'models' is not a TOML table",
+                path.display()
+            )
+        })?;
+    defaults.insert("default", toml_edit::value(&model_id));
+
+    upsert_grok_model(&mut document, path, profile)?;
+    Ok((original, document.to_string()))
+}
+
+fn prepare_grok_model(
+    path: &Path,
+    profile: &ModelProfile,
+) -> Result<(Option<String>, String), String> {
+    let (mut document, original) = read_toml(path)?;
+    upsert_grok_model(&mut document, path, profile)?;
+    Ok((original, document.to_string()))
+}
+
+fn upsert_grok_model(
+    document: &mut Document,
+    path: &Path,
+    profile: &ModelProfile,
+) -> Result<(), String> {
+    let model_id = grok_model_id(profile);
+    if !document.as_table().contains_key("model") {
+        document
+            .as_table_mut()
+            .insert("model", Item::Table(Table::new()));
+    }
+    let models = document
+        .get_mut("model")
+        .and_then(Item::as_table_mut)
+        .ok_or_else(|| {
+            format!(
+                "refusing to modify {}: 'model' is not a TOML table",
+                path.display()
+            )
+        })?;
+    if !models.contains_key(&model_id) {
+        models.insert(&model_id, Item::Table(Table::new()));
+    }
+    let model = models
+        .get_mut(&model_id)
+        .and_then(Item::as_table_mut)
+        .ok_or_else(|| format!("MUX model '{model_id}' is not a TOML table"))?;
+    model.insert("model", toml_edit::value(&profile.model));
+    model.insert("base_url", toml_edit::value(&profile.base_url));
+    model.insert("name", toml_edit::value(&profile.name));
+    model.insert(
+        "api_backend",
+        toml_edit::value(grok_api_backend(&profile.protocol)),
+    );
+    insert_optional_toml_integer(model, "context_window", profile.context_window)?;
+    insert_optional_toml_integer(model, "max_completion_tokens", profile.max_output_tokens)?;
+    model.remove("api_key");
+    match profile.env_key.as_deref() {
+        Some(env_key) => {
+            model.insert("env_key", toml_edit::value(env_key));
+        }
+        None => {
+            model.remove("env_key");
+        }
+    }
+    Ok(())
+}
+
+fn prepare_clear_grok_build(
+    path: &Path,
+    profile: &ModelProfile,
+) -> Result<(Option<String>, String), String> {
+    let (mut document, original) = read_toml(path)?;
+    if original.is_none() {
+        return Ok((None, String::new()));
+    }
+    let model_id = grok_model_id(profile);
+    if let Some(defaults) = document.get_mut("models").and_then(Item::as_table_mut) {
+        if defaults.get("default").and_then(Item::as_str) == Some(model_id.as_str()) {
+            defaults.remove("default");
+        }
+    }
+    if let Some(ui) = document.get_mut("ui").and_then(Item::as_table_mut) {
+        if ui.get("fork_secondary_model").and_then(Item::as_str) == Some(model_id.as_str()) {
+            ui.remove("fork_secondary_model");
+        }
+    }
+    if let Some(models) = document.get_mut("model").and_then(Item::as_table_mut) {
+        models.remove(&model_id);
+    }
+    Ok((original, document.to_string()))
+}
+
+fn pi_provider_value(profile: &ModelProfile, has_credential: bool) -> Value {
+    let mut provider = serde_json::Map::from_iter([
+        ("baseUrl".into(), Value::String(profile.base_url.clone())),
+        (
+            "api".into(),
+            Value::String(protocol_name(&profile.protocol).into()),
+        ),
+    ]);
+    if has_credential {
+        provider.insert(
+            "apiKey".into(),
+            Value::String(format!("!{}", security_shell_command(&profile.id))),
+        );
+    }
+    let mut model = serde_json::Map::from_iter([
+        ("id".into(), Value::String(profile.model.clone())),
+        ("name".into(), Value::String(profile.name.clone())),
+        ("reasoning".into(), Value::Bool(profile.reasoning)),
+        (
+            "input".into(),
+            Value::Array(vec![Value::String("text".into())]),
+        ),
+    ]);
+    if let Some(value) = profile.context_window {
+        model.insert("contextWindow".into(), Value::Number(value.into()));
+    }
+    if let Some(value) = profile.max_output_tokens {
+        model.insert("maxTokens".into(), Value::Number(value.into()));
+    }
+    provider.insert("models".into(), Value::Array(vec![Value::Object(model)]));
+    Value::Object(provider)
+}
+
+fn prepare_pi_models(
+    path: &Path,
+    profile: &ModelProfile,
+    has_credential: bool,
+) -> Result<(Option<String>, String), String> {
+    let (root, original) = read_jsonc(path)?;
+    let object = json_root_object(&root, path)?;
+    ensure_unique_keys(&object, path, "$root")?;
+    ensure_unique(&object, "providers", path, "$root")?;
+    let providers = object.object_value_or_create("providers").ok_or_else(|| {
+        format!(
+            "refusing to modify {}: 'providers' is not an object",
+            path.display()
+        )
+    })?;
+    ensure_unique_keys(&providers, path, "providers")?;
+    let provider_id = pi_provider_id(profile);
+    set_json_property(
+        &providers,
+        &provider_id,
+        Some(pi_provider_value(profile, has_credential)),
+        path,
+        "providers",
+    )?;
+    Ok((original, root.to_string()))
+}
+
+fn prepare_pi_settings(
+    path: &Path,
+    profile: &ModelProfile,
+) -> Result<(Option<String>, String), String> {
+    let (root, original) = read_jsonc(path)?;
+    let object = json_root_object(&root, path)?;
+    ensure_unique_keys(&object, path, "$root")?;
+    set_json_property(
+        &object,
+        "defaultProvider",
+        Some(Value::String(pi_provider_id(profile))),
+        path,
+        "$root",
+    )?;
+    set_json_property(
+        &object,
+        "defaultModel",
+        Some(Value::String(profile.model.clone())),
+        path,
+        "$root",
+    )?;
+    Ok((original, root.to_string()))
+}
+
+fn prepare_clear_pi_models(
+    path: &Path,
+    profile: &ModelProfile,
+) -> Result<(Option<String>, String), String> {
+    let (root, original) = read_jsonc(path)?;
+    if original.is_none() {
+        return Ok((None, String::new()));
+    }
+    let object = json_root_object(&root, path)?;
+    ensure_unique_keys(&object, path, "$root")?;
+    if let Some(providers) = object.object_value("providers") {
+        ensure_unique_keys(&providers, path, "providers")?;
+        set_json_property(
+            &providers,
+            &pi_provider_id(profile),
+            None,
+            path,
+            "providers",
+        )?;
+    }
+    Ok((original, root.to_string()))
+}
+
+fn prepare_clear_pi_settings(path: &Path) -> Result<(Option<String>, String), String> {
+    let (root, original) = read_jsonc(path)?;
+    if original.is_none() {
+        return Ok((None, String::new()));
+    }
+    let object = json_root_object(&root, path)?;
+    ensure_unique_keys(&object, path, "$root")?;
+    set_json_property(&object, "defaultProvider", None, path, "$root")?;
+    set_json_property(&object, "defaultModel", None, path, "$root")?;
+    Ok((original, root.to_string()))
+}
+
+fn backup_config(path: &Path, agent: &str, stamp: &str) -> Result<(), String> {
+    backup(path, &backups_dir(), stamp, agent, "model")
+}
+
+fn apply_claude(
+    path: &Path,
+    profile: &ModelProfile,
+    has_credential: bool,
+) -> Result<ModelApplyResult, String> {
+    let (original, content) = prepare_claude(path, profile, has_credential)?;
+    backup_config(path, "claude-code", &backup_timestamp())?;
+    write_if_unchanged(path, original.as_deref(), &content)?;
+    Ok(ModelApplyResult {
+        agent: "claude-code".into(),
+        profile: profile.id.clone(),
+        files: vec![path.display().to_string()],
+        restart_required: true,
+        message: "Claude Code model routing updated; start a new session to use it.".into(),
+    })
+}
+
+fn apply_codex(
+    path: &Path,
+    profile: &ModelProfile,
+    has_credential: bool,
+) -> Result<ModelApplyResult, String> {
+    let (original, content) = prepare_codex(path, profile, has_credential)?;
+    backup_config(path, "codex", &backup_timestamp())?;
+    write_if_unchanged(path, original.as_deref(), &content)?;
+    Ok(ModelApplyResult {
+        agent: "codex".into(),
+        profile: profile.id.clone(),
+        files: vec![path.display().to_string()],
+        restart_required: true,
+        message: "Codex model provider updated; start a new session to use it.".into(),
+    })
+}
+
+fn apply_grok_build(path: &Path, profile: &ModelProfile) -> Result<ModelApplyResult, String> {
+    let (original, content) = prepare_grok_build(path, profile)?;
+    backup_config(path, "grok-build", &backup_timestamp())?;
+    write_if_unchanged(path, original.as_deref(), &content)?;
+    Ok(ModelApplyResult {
+        agent: "grok-build".into(),
+        profile: profile.id.clone(),
+        files: vec![path.display().to_string()],
+        restart_required: true,
+        message:
+            "Grok Build custom model and primary default updated; start a new session to use it."
+                .into(),
+    })
+}
+
+type ClearModelPrepare = fn(&Path) -> Result<(Option<String>, String), String>;
+type ClearModelWithProfilePrepare =
+    fn(&Path, &ModelProfile) -> Result<(Option<String>, String), String>;
+
+fn clear_one_model_file(
+    path: &Path,
+    backup_name: &str,
+    prepare: ClearModelPrepare,
+) -> Result<(), String> {
+    let (original, content) = prepare(path)?;
+    let Some(original) = original else {
+        return Ok(());
+    };
+    backup_config(path, backup_name, &backup_timestamp())?;
+    write_if_unchanged(path, Some(&original), &content)
+}
+
+fn clear_one_model_file_with_profile(
+    path: &Path,
+    backup_name: &str,
+    profile: &ModelProfile,
+    prepare: ClearModelWithProfilePrepare,
+) -> Result<(), String> {
+    let (original, content) = prepare(path, profile)?;
+    let Some(original) = original else {
+        return Ok(());
+    };
+    backup_config(path, backup_name, &backup_timestamp())?;
+    write_if_unchanged(path, Some(&original), &content)
+}
+
+fn rollback(path: &Path, original: Option<&str>, written: &str) -> Result<(), String> {
+    match original {
+        Some(original) => write_if_unchanged(path, Some(written), original),
+        None => remove_if_unchanged(path, written),
+    }
+}
+
+fn write_pi_transaction(
+    models_path: &Path,
+    models_original: Option<&str>,
+    models_content: &str,
+    settings_path: &Path,
+    settings_original: Option<&str>,
+    settings_content: &str,
+) -> Result<(), String> {
+    write_if_unchanged(models_path, models_original, models_content)?;
+    if let Err(error) = write_if_unchanged(settings_path, settings_original, settings_content) {
+        return match rollback(models_path, models_original, models_content) {
+            Ok(()) => Err(format!(
+                "Pi settings update failed and models.json was rolled back: {error}"
+            )),
+            Err(rollback_error) => Err(format!(
+                "Pi settings update failed ({error}); models.json rollback also failed ({rollback_error})"
+            )),
+        };
+    }
+    Ok(())
+}
+
+fn apply_pi(
+    models_path: &Path,
+    settings_path: &Path,
+    profile: &ModelProfile,
+    has_credential: bool,
+) -> Result<ModelApplyResult, String> {
+    let (models_original, models_content) =
+        prepare_pi_models(models_path, profile, has_credential)?;
+    let (settings_original, settings_content) = prepare_pi_settings(settings_path, profile)?;
+    let stamp = backup_timestamp();
+    backup_config(models_path, "pi-models", &stamp)?;
+    backup_config(settings_path, "pi-settings", &stamp)?;
+
+    write_pi_transaction(
+        models_path,
+        models_original.as_deref(),
+        &models_content,
+        settings_path,
+        settings_original.as_deref(),
+        &settings_content,
+    )?;
+
+    Ok(ModelApplyResult {
+        agent: "pi".into(),
+        profile: profile.id.clone(),
+        files: vec![
+            models_path.display().to_string(),
+            settings_path.display().to_string(),
+        ],
+        restart_required: true,
+        message: "Pi custom provider and default model updated.".into(),
+    })
+}
+
+fn clear_pi(
+    models_path: &Path,
+    settings_path: &Path,
+    profile: &ModelProfile,
+) -> Result<(), String> {
+    let (models_original, models_content) = prepare_clear_pi_models(models_path, profile)?;
+    let (settings_original, settings_content) = prepare_clear_pi_settings(settings_path)?;
+    if models_original.is_none() && settings_original.is_none() {
+        return Ok(());
+    }
+    let stamp = backup_timestamp();
+    backup_config(models_path, "pi-models", &stamp)?;
+    backup_config(settings_path, "pi-settings", &stamp)?;
+    match (models_original.as_deref(), settings_original.as_deref()) {
+        (Some(models_before), Some(settings_before)) => write_pi_transaction(
+            models_path,
+            Some(models_before),
+            &models_content,
+            settings_path,
+            Some(settings_before),
+            &settings_content,
+        ),
+        (Some(models_before), None) => {
+            write_if_unchanged(models_path, Some(models_before), &models_content)
+        }
+        (None, Some(settings_before)) => {
+            write_if_unchanged(settings_path, Some(settings_before), &settings_content)
+        }
+        (None, None) => Ok(()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::testenv::TestHome;
+    use std::sync::mpsc;
+    use std::thread;
+    use std::time::Duration;
+
+    #[test]
+    fn provider_default_base_urls_are_unique_valid_and_inferable() {
+        let mut ids = BTreeSet::new();
+        for provider in list_providers() {
+            assert!(
+                ids.insert(provider.id),
+                "duplicate provider id: {}",
+                provider.id
+            );
+            let Some(default_base_url) = provider.default_base_url else {
+                continue;
+            };
+            assert!(
+                !default_base_url.ends_with('/'),
+                "provider default must not end with a slash: {default_base_url}"
+            );
+            let parsed = url::Url::parse(default_base_url).unwrap_or_else(|error| {
+                panic!("invalid provider default {default_base_url}: {error}")
+            });
+            assert_eq!(parsed.scheme(), "https");
+            assert_eq!(infer_provider(default_base_url), provider.id);
+        }
+
+        assert_eq!(
+            list_providers()
+                .iter()
+                .find(|provider| provider.id == "local")
+                .and_then(|provider| provider.default_base_url),
+            None
+        );
+        assert_eq!(
+            list_providers()
+                .iter()
+                .find(|provider| provider.id == "custom")
+                .and_then(|provider| provider.default_base_url),
+            None
+        );
+    }
+
+    fn anthropic_profile() -> ModelProfile {
+        ModelProfile {
+            id: "team-anthropic".into(),
+            name: "Team Anthropic".into(),
+            provider: "custom".into(),
+            model_vendor: Some("anthropic".into()),
+            native_ids: Default::default(),
+            protocol: ModelProtocol::AnthropicMessages,
+            base_url: "https://gateway.example.test/anthropic".into(),
+            model: "claude-sonnet-custom".into(),
+            env_key: None,
+            context_window: Some(200_000),
+            max_output_tokens: Some(16_384),
+            reasoning: true,
+        }
+    }
+
+    fn responses_profile() -> ModelProfile {
+        ModelProfile {
+            id: "team-openai".into(),
+            name: "Team OpenAI".into(),
+            provider: "custom".into(),
+            model_vendor: Some("openai".into()),
+            native_ids: Default::default(),
+            protocol: ModelProtocol::OpenaiResponses,
+            base_url: "https://gateway.example.test/v1".into(),
+            model: "gpt-custom".into(),
+            env_key: None,
+            context_window: Some(128_000),
+            max_output_tokens: Some(16_000),
+            reasoning: true,
+        }
+    }
+
+    #[test]
+    fn public_model_writer_waits_for_the_settings_filesystem_lock() {
+        let _home = TestHome::new("model-public-writer-lock");
+        let settings_guard = acquire_settings_lock(&settings_file()).unwrap();
+        let profile = responses_profile();
+        let (started_tx, started_rx) = mpsc::channel();
+        let (done_tx, done_rx) = mpsc::channel();
+
+        let writer = thread::spawn(move || {
+            started_tx.send(()).unwrap();
+            let result = save_profile(profile, None);
+            done_tx.send(result).unwrap();
+        });
+        started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert!(
+            done_rx.recv_timeout(Duration::from_millis(150)).is_err(),
+            "public Model writer bypassed the settings filesystem lock"
+        );
+
+        drop(settings_guard);
+        let result = done_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+        assert!(result.is_ok(), "{result:?}");
+        writer.join().unwrap();
+        assert!(list_profiles()
+            .iter()
+            .any(|profile| profile.profile.id == "team-openai"));
+    }
+
+    #[test]
+    fn profile_metadata_never_serializes_a_credential() {
+        let profile = responses_profile();
+        let json = serde_json::to_string(&profile).unwrap();
+        assert!(!json.contains("credential"));
+        assert!(!json.contains("api_key"));
+    }
+
+    #[test]
+    fn ordinary_profile_creation_cannot_inject_an_agent_native_identity() {
+        let settings = crate::settings::Settings::default();
+        let mut draft = responses_profile();
+        draft.id.clear();
+        draft
+            .native_ids
+            .insert("goose".into(), "../../unexpected".into());
+
+        let error = prepare_profile_draft(&settings, None, draft).unwrap_err();
+
+        assert_eq!(
+            error,
+            "invalid_asset: Agent-native identities require explicit adoption"
+        );
+    }
+
+    #[test]
+    fn ordinary_profile_edit_preserves_the_adopted_native_identity() {
+        let mut settings = crate::settings::Settings::default();
+        let mut adopted = responses_profile();
+        adopted
+            .native_ids
+            .insert("codex".into(), "legacy-provider".into());
+        settings
+            .model_profiles
+            .get_or_insert_default()
+            .insert(adopted.id.clone(), adopted.clone());
+        let mut edited = adopted.clone();
+        edited.model = "gpt-custom-new".into();
+        edited
+            .native_ids
+            .insert("codex".into(), "redirected-provider".into());
+
+        let prepared = prepare_profile_draft(&settings, Some(&adopted.id), edited).unwrap();
+
+        assert_eq!(prepared.native_ids, adopted.native_ids);
+        assert_eq!(prepared.model, "gpt-custom-new");
+    }
+
+    #[test]
+    fn detects_agent_from_existing_config_without_shell_path() {
+        let th = TestHome::new("model-agent-detect");
+        fs::create_dir_all(th.home.join(".pi/agent")).unwrap();
+        assert!(agent_installed(&[], &[".pi/agent"], &[]));
+    }
+
+    #[test]
+    fn editing_profile_metadata_preserves_desired_assignments() {
+        let _th = TestHome::new("model-profile-edit");
+        let profile = responses_profile();
+        save_profile(profile.clone(), None).unwrap();
+        mutate_settings(|settings| {
+            settings
+                .model_assignments
+                .get_or_insert_with(BTreeMap::new)
+                .insert("codex".into(), profile.id.clone());
+        })
+        .unwrap();
+
+        let mut changed = profile;
+        changed.model = "gpt-custom-new".into();
+        save_profile(changed, None).unwrap();
+
+        assert_eq!(
+            load_settings()
+                .model_assignments
+                .unwrap_or_default()
+                .get("codex")
+                .map(String::as_str),
+            Some("team-openai")
+        );
+    }
+
+    #[test]
+    fn clearing_pi_does_not_create_a_missing_counterpart_file() {
+        let th = TestHome::new("model-pi-clear-one-file");
+        let models_path = th.home.join(".pi/agent/models.json");
+        let settings_path = th.home.join(".pi/agent/settings.json");
+        fs::create_dir_all(models_path.parent().unwrap()).unwrap();
+        fs::write(
+            &models_path,
+            r#"{"providers":{"mux-team-openai":{"baseUrl":"https://gateway.example.test/v1","api":"openai-responses","models":[{"id":"gpt-custom","name":"Team OpenAI"}]}}}"#,
+        )
+        .unwrap();
+
+        clear_pi(&models_path, &settings_path, &responses_profile()).unwrap();
+
+        assert!(models_path.exists());
+        assert!(!settings_path.exists());
+    }
+
+    #[test]
+    fn claude_patch_preserves_jsonc_and_unrelated_settings() {
+        let th = TestHome::new("model-claude");
+        let path = th.home.join(".claude/settings.json");
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(
+            &path,
+            r#"{
+  // keep this comment
+  "permissions": { "allow": ["Bash(git:*)"] },
+  "model": "old",
+  "env": {
+    "KEEP_ME": "yes",
+    "ANTHROPIC_AUTH_TOKEN": "old-secret"
+  }
+}"#,
+        )
+        .unwrap();
+
+        let (_, content) = prepare_claude(&path, &anthropic_profile(), true).unwrap();
+        assert!(content.contains("keep this comment"));
+        assert!(content.contains("KEEP_ME"));
+        assert!(content.contains("permissions"));
+        assert!(!content.contains("old-secret"));
+        assert!(content.contains("apiKeyHelper"));
+        assert!(content.contains("claude-sonnet-custom"));
+    }
+
+    #[test]
+    fn claude_refuses_to_override_cloud_provider_routing() {
+        let th = TestHome::new("model-claude-cloud");
+        let path = th.home.join(".claude/settings.json");
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let original = r#"{"env":{"CLAUDE_CODE_USE_BEDROCK":"1"}}"#;
+        fs::write(&path, original).unwrap();
+        assert!(prepare_claude(&path, &anthropic_profile(), true).is_err());
+        assert_eq!(fs::read_to_string(path).unwrap(), original);
+    }
+
+    #[test]
+    fn codex_patch_preserves_mcp_and_other_provider_tables() {
+        let th = TestHome::new("model-codex");
+        let path = th.home.join(".codex/config.toml");
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(
+            &path,
+            r#"# keep this comment
+model = "old"
+
+[mcp_servers.github]
+url = "https://example.test/mcp"
+
+[model_providers.existing]
+name = "Existing"
+base_url = "https://existing.test/v1"
+wire_api = "responses"
+"#,
+        )
+        .unwrap();
+
+        let (_, content) = prepare_codex(&path, &responses_profile(), true).unwrap();
+        assert!(content.contains("keep this comment"));
+        assert!(content.contains("mcp_servers.github"));
+        assert!(content.contains("model_providers.existing"));
+        assert!(content.contains("model_providers.mux_7465616d2d6f70656e6169"));
+        assert!(content.contains("find-generic-password"));
+    }
+
+    #[test]
+    fn pi_patch_accepts_jsonc_and_preserves_other_providers() {
+        let th = TestHome::new("model-pi");
+        let path = th.home.join(".pi/agent/models.json");
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(
+            &path,
+            r#"{
+  // user provider
+  "providers": {
+    "local": { "baseUrl": "http://localhost:8080", "models": [], },
+  },
+}"#,
+        )
+        .unwrap();
+
+        let (_, content) = prepare_pi_models(&path, &responses_profile(), true).unwrap();
+        assert!(content.contains("user provider"));
+        assert!(content.contains("\"local\""));
+        assert!(content.contains("\"mux-team-openai\""));
+        assert!(content.contains("!/usr/bin/security"));
+    }
+
+    #[test]
+    fn protocol_matrix_rejects_incompatible_assignments() {
+        assert!(ensure_supported("claude-code", &ModelProtocol::OpenaiResponses).is_err());
+        assert!(ensure_supported("codex", &ModelProtocol::AnthropicMessages).is_err());
+        assert!(ensure_supported("pi", &ModelProtocol::AnthropicMessages).is_ok());
+        assert!(ensure_supported("qoder", &ModelProtocol::OpenaiResponses).is_err());
+        assert!(ensure_supported("grok-build", &ModelProtocol::AnthropicMessages).is_ok());
+        assert!(ensure_supported("grok-build", &ModelProtocol::OpenaiResponses).is_ok());
+        assert!(ensure_supported("grok-build", &ModelProtocol::OpenaiCompletions).is_ok());
+    }
+
+    #[test]
+    fn grok_build_is_a_managed_three_protocol_target() {
+        let _th = TestHome::new("model-grok-build");
+        let agents = list_agents();
+        let grok = agents
+            .iter()
+            .find(|agent| agent.id == "grok-build")
+            .expect("Grok Build model target");
+        assert_eq!(grok.mode, "managed");
+        assert_eq!(grok.config_path, "~/.grok/config.toml");
+        assert_eq!(grok.supported_protocols.len(), 3);
+        assert!(grok.docs.starts_with("https://docs.x.ai/build/settings"));
+    }
+
+    #[test]
+    fn grok_build_patch_preserves_unrelated_config_and_uses_env_key() {
+        let th = TestHome::new("model-grok-build-patch");
+        let path = th.home.join(".grok/config.toml");
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(
+            &path,
+            r#"# keep Grok settings
+[models]
+default = "private"
+web_search = "grok-4.5"
+
+[model.private]
+model = "private-model"
+base_url = "https://private.invalid/v1"
+api_backend = "responses"
+
+[mcp_servers.keep]
+command = "keep-mcp"
+
+[permission]
+allow = ["Read(**)"]
+
+[ui]
+max_thoughts_width = 120
+fork_secondary_model = "private-fork"
+"#,
+        )
+        .unwrap();
+        let mut profile = responses_profile();
+        profile.env_key = Some("TEAM_OPENAI_API_KEY".into());
+
+        let (_, content) = prepare_grok_build(&path, &profile).unwrap();
+
+        assert!(content.contains("keep Grok settings"));
+        assert!(content.contains("web_search = \"grok-4.5\""));
+        assert!(content.contains("model.private"));
+        assert!(content.contains("mcp_servers.keep"));
+        assert!(content.contains("permission"));
+        assert!(content.contains("default = \"mux_7465616d2d6f70656e6169\""));
+        assert!(content.contains("model.mux_7465616d2d6f70656e6169"));
+        assert!(content.contains("api_backend = \"responses\""));
+        assert!(content.contains("env_key = \"TEAM_OPENAI_API_KEY\""));
+        assert!(content.contains("fork_secondary_model = \"private-fork\""));
+        assert!(content.contains("max_thoughts_width = 120"));
+        assert!(content.contains("context_window = 128000"));
+        assert!(content.contains("max_completion_tokens = 16000"));
+        assert!(!content.contains("api_key ="));
+    }
+
+    #[test]
+    fn grok_build_apply_and_clear_manage_only_the_mux_model() {
+        let th = TestHome::new("model-grok-build-apply");
+        let path = th.home.join(".grok/config.toml");
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(
+            &path,
+            "[models]\nweb_search = \"grok-4.5\"\n\n[model.private]\nmodel = \"keep\"\n",
+        )
+        .unwrap();
+        let mut profile = responses_profile();
+        profile.env_key = Some("TEAM_OPENAI_API_KEY".into());
+        save_profile(profile.clone(), None).unwrap();
+
+        apply_profile("grok-build", &profile.id).unwrap();
+        assert_eq!(
+            load_settings()
+                .model_assignments
+                .as_ref()
+                .and_then(|assignments| assignments.get("grok-build"))
+                .map(String::as_str),
+            Some(profile.id.as_str())
+        );
+        assert_eq!(
+            observe_profile("grok-build", &profile).unwrap(),
+            ModelObservedState::Synced
+        );
+
+        clear_profile("grok-build", &profile.id).unwrap();
+        let content = fs::read_to_string(path).unwrap();
+        assert!(content.contains("model.private"));
+        assert!(content.contains("web_search = \"grok-4.5\""));
+        assert!(!content.contains("mux_7465616d2d6f70656e6169"));
+        assert!(!content.contains("fork_secondary_model"));
+    }
+
+    #[test]
+    fn grok_build_apply_rejects_a_keychain_only_credential() {
+        let _th = TestHome::new("model-grok-build-keychain-only");
+        let profile = responses_profile();
+        save_profile(profile.clone(), Some("secret".into())).unwrap();
+
+        let error = apply_profile("grok-build", &profile.id).unwrap_err();
+
+        assert!(error.starts_with("grok_build_env_key_required:"));
+        assert!(!config_path(".grok/config.toml").exists());
+        assert!(!load_settings()
+            .model_assignments
+            .unwrap_or_default()
+            .contains_key("grok-build"));
+    }
+
+    #[test]
+    fn grok_build_reports_an_unmanaged_current_model_as_external() {
+        let th = TestHome::new("model-grok-build-external");
+        let path = th.home.join(".grok/config.toml");
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(
+            &path,
+            "[models]\ndefault = \"private\"\n\n[model.private]\nmodel = \"private-model\"\n",
+        )
+        .unwrap();
+
+        assert_eq!(
+            observe_external_model("grok-build").unwrap(),
+            ExternalModelObservedState::Present
+        );
+    }
+
+    #[test]
+    fn model_profile_rejects_invalid_environment_variable_name() {
+        let mut profile = responses_profile();
+        profile.env_key = Some("not-valid-key".into());
+        assert!(validate_profile(&profile).is_err());
+    }
+
+    #[test]
+    fn minimax_code_is_a_guided_three_protocol_target() {
+        let _th = TestHome::new("model-minimax-code");
+        let agents = list_agents();
+        let minimax = agents
+            .iter()
+            .find(|agent| agent.id == "minimax-code")
+            .expect("MiniMax Code model target");
+        assert_eq!(minimax.mode, "guided");
+        assert_eq!(minimax.config_path, "~/.mavis/config.yaml");
+        assert_eq!(minimax.supported_protocols.len(), 3);
+        assert!(minimax.docs.contains("agent.minimax.io/download"));
+        assert!(ensure_supported("minimax-code", &ModelProtocol::OpenaiResponses).is_err());
+    }
+
+    #[test]
+    fn isolated_apply_preserves_codex_mcp_and_records_assignment() {
+        let th = TestHome::new("model-codex-apply");
+        let path = th.home.join(".codex/config.toml");
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(
+            &path,
+            r#"model = "old"
+
+[mcp_servers.keep]
+url = "https://example.test/mcp"
+"#,
+        )
+        .unwrap();
+        save_profile(responses_profile(), None).unwrap();
+
+        let result = apply_profile("codex", "team-openai").unwrap();
+
+        assert_eq!(result.files, vec![path.display().to_string()]);
+        let content = fs::read_to_string(&path).unwrap();
+        assert!(content.contains("mcp_servers.keep"));
+        assert!(content.contains("model_providers.mux_7465616d2d6f70656e6169"));
+        assert!(!content.contains("find-generic-password"));
+        assert_eq!(
+            load_settings()
+                .model_assignments
+                .unwrap()
+                .get("codex")
+                .map(String::as_str),
+            Some("team-openai")
+        );
+        assert!(fs::read_dir(th.home.join(".mux/backups"))
+            .unwrap()
+            .next()
+            .is_some());
+    }
+
+    #[test]
+    fn pi_transaction_rolls_back_first_file_when_second_changed() {
+        let th = TestHome::new("model-pi-rollback");
+        let models = th.home.join("models.json");
+        let settings = th.home.join("settings.json");
+        fs::write(&models, "models-old").unwrap();
+        fs::write(&settings, "settings-newer").unwrap();
+
+        let error = write_pi_transaction(
+            &models,
+            Some("models-old"),
+            "models-mux",
+            &settings,
+            Some("settings-old"),
+            "settings-mux",
+        )
+        .unwrap_err();
+
+        assert!(error.contains("rolled back"));
+        assert_eq!(fs::read_to_string(models).unwrap(), "models-old");
+        assert_eq!(fs::read_to_string(settings).unwrap(), "settings-newer");
+    }
+
+    #[test]
+    fn codex_provider_ids_do_not_collapse_profile_punctuation() {
+        assert_ne!(mux_profile_id("a-b"), mux_profile_id("a_b"));
+        assert_ne!(mux_profile_id("a.b"), mux_profile_id("a_b"));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    #[ignore = "touches the current user's macOS Keychain"]
+    fn macos_keychain_helper_round_trip() {
+        let profile_id = format!("mux-smoke-{}", std::process::id());
+        let _ = delete_credential(&profile_id);
+        set_credential(&profile_id, b"mux-smoke-value").unwrap();
+        let actual = read_credential(&profile_id);
+        let helper = std::process::Command::new("/usr/bin/security")
+            .args(&security_command(&profile_id)[1..])
+            .output()
+            .unwrap();
+        let cleanup = delete_credential(&profile_id);
+        assert_eq!(actual.as_deref(), Some(b"mux-smoke-value".as_slice()));
+        assert!(helper.status.success());
+        assert_eq!(
+            String::from_utf8(helper.stdout).unwrap().trim(),
+            "mux-smoke-value"
+        );
+        cleanup.unwrap();
+        assert!(!credential_exists(&profile_id));
+    }
+}

@@ -9,7 +9,7 @@ const audited = JSON.parse(await readFile(resolve(root, "data/agents.json"), "ut
 const catalog = JSON.parse(await readFile(resolve(root, "data/agent-catalog.json"), "utf8"));
 const discovery = JSON.parse(await readFile(resolve(root, "analysis/agent-capability-audit/catalog-source-discovery.json"), "utf8"));
 const acp = JSON.parse(await readFile(resolve(root, "analysis/agent-capability-audit/acp-registry-source-discovery.json"), "utf8"));
-const modelSource = await readFile(resolve(root, "core/src/models.rs"), "utf8");
+const modelSource = await readFile(resolve(root, "core/src/resources/model/mod.rs"), "utf8");
 const outputJson = resolve(root, "analysis/agent-capability-audit/coverage-baseline.json");
 const outputMarkdown = resolve(root, "analysis/agent-capability-audit/coverage-baseline.md");
 

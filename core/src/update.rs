@@ -33,16 +33,16 @@ pub fn managed_by_desktop_app() -> Option<PathBuf> {
 /// 查询最新稳定 Release 的版本号(去掉 `v` 前缀)。预发布(-build.N)不会出现在
 /// `releases/latest`，所以这里天然只追正式版通道。
 pub fn fetch_latest_version() -> Result<String, String> {
-    let url = format!("https://api.github.com/repos/{}/releases/latest", REPO);
+    let url = format!("https://api.github.com/repos/{REPO}/releases/latest");
     let body = api_agent()?
         .get(&url)
         .call()
-        .map_err(|e| format!("查询最新版本失败: {}", e))?
+        .map_err(|e| format!("查询最新版本失败: {e}"))?
         .body_mut()
         .read_to_string()
-        .map_err(|e| format!("读取响应失败: {}", e))?;
+        .map_err(|e| format!("读取响应失败: {e}"))?;
     let json: serde_json::Value =
-        serde_json::from_str(&body).map_err(|e| format!("解析响应失败: {}", e))?;
+        serde_json::from_str(&body).map_err(|e| format!("解析响应失败: {e}"))?;
     let tag = json["tag_name"]
         .as_str()
         .ok_or("响应缺少 tag_name(可能还没有正式 Release)")?;
@@ -78,17 +78,13 @@ pub fn is_newer(latest: &str, current: &str) -> bool {
 }
 
 fn target_triple() -> String {
-    let arch = match std::env::consts::ARCH {
-        "aarch64" => "aarch64",
-        "x86_64" => "x86_64",
-        other => other,
-    };
+    let arch = std::env::consts::ARCH;
     let os = match std::env::consts::OS {
         "macos" => "apple-darwin",
         "linux" => "unknown-linux-gnu",
         other => other,
     };
-    format!("{}-{}", arch, os)
+    format!("{arch}-{os}")
 }
 
 pub struct UpgradeOutcome {
@@ -106,25 +102,22 @@ pub fn upgrade_cli(current_version: &str) -> Result<Option<UpgradeOutcome>, Stri
 
     // Release 资产名与 CI 打包一致：mux_v{ver}_{triple}.tar.gz
     let triple = target_triple();
-    let asset = format!("mux_v{}_{}.tar.gz", latest, triple);
-    let url = format!(
-        "https://github.com/{}/releases/download/v{}/{}",
-        REPO, latest, asset
-    );
+    let asset = format!("mux_v{latest}_{triple}.tar.gz");
+    let url = format!("https://github.com/{REPO}/releases/download/v{latest}/{asset}");
 
     // 下载到 ~/.mux 下的临时目录(与最终 rename 同卷，且天然可写)。
     let tmp_dir = mux_dir().join("update-tmp");
     let _ = fs::remove_dir_all(&tmp_dir);
-    fs::create_dir_all(&tmp_dir).map_err(|e| format!("创建临时目录失败: {}", e))?;
+    fs::create_dir_all(&tmp_dir).map_err(|e| format!("创建临时目录失败: {e}"))?;
     let tarball = tmp_dir.join(&asset);
 
     let mut resp = api_agent()?
         .get(&url)
         .call()
-        .map_err(|e| format!("下载 {} 失败: {}", asset, e))?;
+        .map_err(|e| format!("下载 {asset} 失败: {e}"))?;
     let mut reader = resp.body_mut().as_reader();
-    let mut file = fs::File::create(&tarball).map_err(|e| format!("写入临时文件失败: {}", e))?;
-    std::io::copy(&mut reader, &mut file).map_err(|e| format!("下载中断: {}", e))?;
+    let mut file = fs::File::create(&tarball).map_err(|e| format!("写入临时文件失败: {e}"))?;
+    std::io::copy(&mut reader, &mut file).map_err(|e| format!("下载中断: {e}"))?;
     drop(file);
 
     // 解包(依赖系统 tar，macOS/Linux 都有，免拉压缩库依赖)。
@@ -134,7 +127,7 @@ pub fn upgrade_cli(current_version: &str) -> Result<Option<UpgradeOutcome>, Stri
         .arg("-C")
         .arg(&tmp_dir)
         .status()
-        .map_err(|e| format!("调用 tar 失败: {}", e))?;
+        .map_err(|e| format!("调用 tar 失败: {e}"))?;
     if !status.success() {
         return Err("解包更新失败".into());
     }
@@ -144,15 +137,15 @@ pub fn upgrade_cli(current_version: &str) -> Result<Option<UpgradeOutcome>, Stri
     }
 
     // 原子替换：老的先挪走(运行中的二进制可以 rename)，新的挪进来，失败则回滚。
-    let current_exe = std::env::current_exe().map_err(|e| format!("定位当前二进制失败: {}", e))?;
+    let current_exe = std::env::current_exe().map_err(|e| format!("定位当前二进制失败: {e}"))?;
     let backup: PathBuf = current_exe.with_extension("old");
     let _ = fs::remove_file(&backup);
-    fs::rename(&current_exe, &backup).map_err(|e| format!("备份当前二进制失败: {}", e))?;
+    fs::rename(&current_exe, &backup).map_err(|e| format!("备份当前二进制失败: {e}"))?;
     if let Err(e) =
         fs::rename(&new_bin, &current_exe).or_else(|_| fs::copy(&new_bin, &current_exe).map(|_| ()))
     {
         let _ = fs::rename(&backup, &current_exe); // 回滚
-        return Err(format!("替换二进制失败: {}", e));
+        return Err(format!("替换二进制失败: {e}"));
     }
     #[cfg(unix)]
     {
@@ -208,8 +201,7 @@ pub fn passive_check_notice(current_version: &str) -> Option<String> {
 
     if is_newer(&latest, current_version) {
         Some(format!(
-            "✨ 新版本 v{} 可用(当前 v{})，运行 `mux upgrade` 升级",
-            latest, current_version
+            "✨ 新版本 v{latest} 可用(当前 v{current_version})，运行 `mux upgrade` 升级"
         ))
     } else {
         None

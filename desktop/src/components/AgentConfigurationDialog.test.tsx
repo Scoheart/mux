@@ -1,20 +1,39 @@
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { AgentInfo } from "../lib/types";
-import { assetOperationPlanFixture } from "../test/consumptionFixtures";
+import {
+  assetOperationPlanFixture,
+  consumptionInventoryFixture,
+} from "../test/consumptionFixtures";
 import { AgentConfigurationDialog } from "./AgentConfigurationDialog";
 
 const apiMocks = vi.hoisted(() => ({
-  planUpdateAgentConfiguration: vi.fn(),
+  planOperation: vi.fn(),
+  commitOperation: vi.fn(),
+  cancelOperation: vi.fn(),
 }));
 
 vi.mock("../lib/api", async () => {
   const actual = await vi.importActual<typeof import("../lib/api")>("../lib/api");
   return {
     ...actual,
-    planUpdateAgentConfiguration: apiMocks.planUpdateAgentConfiguration,
+    planOperation: apiMocks.planOperation,
+    commitOperation: apiMocks.commitOperation,
+    cancelOperation: apiMocks.cancelOperation,
   };
+});
+
+beforeEach(() => {
+  apiMocks.planOperation.mockResolvedValue({
+    domain: "asset",
+    plan: assetOperationPlanFixture(),
+  });
+  apiMocks.commitOperation.mockResolvedValue({
+    domain: "asset",
+    inventory: consumptionInventoryFixture(),
+  });
+  apiMocks.cancelOperation.mockResolvedValue(undefined);
 });
 
 afterEach(() => {
@@ -43,7 +62,6 @@ const amp: AgentInfo = {
 };
 
 it("edits and submits the MCP path and configuration key together", async () => {
-  apiMocks.planUpdateAgentConfiguration.mockResolvedValue(assetOperationPlanFixture());
   render(
     <AgentConfigurationDialog
       agent={amp}
@@ -63,18 +81,22 @@ it("edits and submits the MCP path and configuration key together", async () => 
   await userEvent.click(screen.getByRole("button", { name: "继续" }));
 
   await waitFor(() => {
-    expect(apiMocks.planUpdateAgentConfiguration).toHaveBeenCalledWith("amp", {
-      mcp_path: "~/.config/amp/settings.json",
-      mcp_key: "custom.mcpServers",
-      model_paths: [],
-      skills_global_dir: null,
-      skills_alias_dirs: [],
+    expect(apiMocks.planOperation).toHaveBeenCalledWith({
+      operation: "update_agent_capabilities",
+      request: {
+        agent_id: "amp",
+        patch: {
+          mcp: {
+            path: "~/.config/amp/settings.json",
+            key: "custom.mcpServers",
+          },
+        },
+      },
     });
   });
 });
 
 it("adds and removes multiple Skills compatibility directories", async () => {
-  apiMocks.planUpdateAgentConfiguration.mockResolvedValue(assetOperationPlanFixture());
   const codex: AgentInfo = {
     ...amp,
     id: "codex",
@@ -102,12 +124,124 @@ it("adds and removes multiple Skills compatibility directories", async () => {
   await userEvent.click(screen.getByRole("button", { name: "继续" }));
 
   await waitFor(() => {
-    expect(apiMocks.planUpdateAgentConfiguration).toHaveBeenCalledWith("codex", {
-      mcp_path: "~/.codex/config.toml",
-      mcp_key: "amp.mcpServers",
-      model_paths: [],
-      skills_global_dir: "~/.agents/skills",
-      skills_alias_dirs: ["~/.codex/skills"],
+    expect(apiMocks.planOperation).toHaveBeenCalledWith({
+      operation: "update_agent_capabilities",
+      request: {
+        agent_id: "codex",
+        patch: {
+          mcp: {
+            path: "~/.codex/config.toml",
+            key: "amp.mcpServers",
+          },
+          skill: {
+            global_dir: "~/.agents/skills",
+            alias_dirs: ["~/.codex/skills"],
+          },
+        },
+      },
+    });
+  });
+});
+
+it("submits a Model-only Agent without inventing MCP configuration", async () => {
+  const grok: AgentInfo = {
+    ...amp,
+    id: "grok-build",
+    name: "Grok Build",
+    has_global: false,
+    global: null,
+  };
+  render(
+    <AgentConfigurationDialog
+      agent={grok}
+      modelAgent={{
+        id: "grok-build",
+        name: "Grok Build",
+        mode: "managed",
+        installed: true,
+        config_path: "~/.grok-build/config.json",
+        config_paths: ["~/.grok-build/config.json"],
+        docs: "https://example.invalid",
+        assigned_profile: null,
+        assigned_profiles: [],
+        active_profile: null,
+        supports_multiple: false,
+        credential_mode: "guided",
+        supported_protocols: ["openai-responses"],
+        note: "",
+      }}
+      onClose={vi.fn()}
+      onSaved={vi.fn()}
+    />,
+  );
+
+  expect(screen.getByLabelText("MCP")).toBeDisabled();
+  const model = screen.getByLabelText("Model");
+  await userEvent.clear(model);
+  await userEvent.type(model, "/tmp/grok-build/custom.json");
+  await userEvent.click(screen.getByRole("button", { name: "继续" }));
+
+  await waitFor(() => {
+    expect(apiMocks.planOperation).toHaveBeenCalledWith({
+      operation: "update_agent_capabilities",
+      request: {
+        agent_id: "grok-build",
+        patch: {
+          model: { paths: ["/tmp/grok-build/custom.json"] },
+        },
+      },
+    });
+  });
+});
+
+it("commits the reviewed Agent configuration through the unified asset envelope", async () => {
+  const plan = assetOperationPlanFixture();
+  const onClose = vi.fn();
+  const onSaved = vi.fn();
+  render(
+    <AgentConfigurationDialog
+      agent={amp}
+      modelAgent={null}
+      onClose={onClose}
+      onSaved={onSaved}
+    />,
+  );
+
+  await userEvent.click(screen.getByRole("button", { name: "继续" }));
+  await userEvent.click(await screen.findByRole("button", { name: "添加 MCP" }));
+
+  await waitFor(() => {
+    expect(apiMocks.commitOperation).toHaveBeenCalledWith({
+      domain: "asset",
+      request: {
+        operation_id: plan.operation_id,
+        candidate_hash: plan.candidate_hash,
+        conflict_confirmation: null,
+      },
+    });
+  });
+  expect(onSaved).toHaveBeenCalledOnce();
+  expect(onClose).toHaveBeenCalledOnce();
+});
+
+it("cancels the reviewed Agent configuration through the unified asset envelope", async () => {
+  const plan = assetOperationPlanFixture();
+  render(
+    <AgentConfigurationDialog
+      agent={amp}
+      modelAgent={null}
+      onClose={vi.fn()}
+      onSaved={vi.fn()}
+    />,
+  );
+
+  await userEvent.click(screen.getByRole("button", { name: "继续" }));
+  await userEvent.click(await screen.findByRole("button", { name: "取消" }));
+
+  await waitFor(() => {
+    expect(apiMocks.cancelOperation).toHaveBeenCalledWith({
+      domain: "asset",
+      operation_id: plan.operation_id,
     });
   });
 });

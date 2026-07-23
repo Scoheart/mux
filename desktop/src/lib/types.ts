@@ -28,6 +28,8 @@ export interface CatalogItem {
 export interface AgentInfo {
   id: string; name: string; format: string; key: string;
   has_global: boolean; has_project: boolean; enabled: boolean;
+  /** Derived from WorkspaceSnapshot; absent on the legacy MCP-shaped wire. */
+  has_model?: boolean;
   supported_transports: Array<"stdio" | "http">;
   /** Raw stored config paths (e.g. `~/Library/Application Support/…/mcp.json`). */
   global: string | null; project: string | null;
@@ -39,6 +41,49 @@ export interface AgentInfo {
   evidence: "official" | "official-source" | "catalog" | "custom" | string;
   verified_at: string | null;
   builtin: boolean;
+}
+
+export interface AgentIdentityView {
+  id: string;
+  name: string;
+  enabled: boolean;
+  builtin: boolean;
+  category: string;
+  evidence: string;
+  docs?: string | null;
+  note?: string | null;
+  verified_at?: string | null;
+}
+
+export interface AgentCapabilityView {
+  identity: AgentIdentityView;
+  installed: boolean;
+  capabilities: {
+    mcp?: {
+      writable: boolean;
+      config_path?: string | null;
+      format: string;
+      key: string;
+      supported_transports: string[];
+    } | null;
+    model?: {
+      mode: string;
+      installed: boolean;
+      config_paths: string[];
+      assigned_profiles: string[];
+      active_profile?: string | null;
+      supports_multiple: boolean;
+      credential_mode: string;
+      supported_protocols: ModelProtocol[];
+    } | null;
+    skill?: {
+      installed: boolean;
+      target_id: string;
+      global_dir: string;
+      alias_dirs: string[];
+      affected_agent_ids: string[];
+    } | null;
+  };
 }
 
 export type ModelProtocol =
@@ -117,6 +162,22 @@ export interface AgentConfigurationInput {
   model_paths: string[];
   skills_global_dir: string | null;
   skills_alias_dirs?: string[];
+}
+export interface McpConfigurationPatch {
+  path: string;
+  key?: string | null;
+}
+export interface ModelConfigurationPatch {
+  paths: string[];
+}
+export interface SkillConfigurationPatch {
+  global_dir: string;
+  alias_dirs: string[];
+}
+export interface AgentConfigurationPatch {
+  mcp?: McpConfigurationPatch | null;
+  model?: ModelConfigurationPatch | null;
+  skill?: SkillConfigurationPatch | null;
 }
 export interface InstalledMcp {
   name: string; agent: string; scope: string; file_path: string; transport: string;
@@ -377,6 +438,13 @@ export interface SkillInventoryItem {
 export interface SkillsInventory {
   items: SkillInventoryItem[];
   agents: SkillAgentView[];
+  capabilities?: Array<{
+    id: string;
+    installed: boolean;
+    target_id: string;
+    global_dir: string;
+    affected_agent_ids: string[];
+  }>;
   targets: SkillTargetView[];
   recovery_error: string | null;
 }
@@ -500,6 +568,16 @@ export type DomainPlan =
       skills_after: Record<string, string[]>;
       affected_agent_ids: string[];
       migrated_skill_names: string[];
+    }
+  | {
+      domain: "agent-capabilities";
+      agent_id: string;
+      before: AgentConfigurationPatch;
+      after: AgentConfigurationPatch;
+      skills_before: Record<string, string[]>;
+      skills_after: Record<string, string[]>;
+      affected_agent_ids: string[];
+      migrated_skill_names: string[];
     };
 
 export interface AssetOperationPlan {
@@ -516,6 +594,109 @@ export interface AssetOperationPlan {
   requires_conflict_confirmation: boolean;
   candidate_hash: string;
 }
+
+export interface CoreError {
+  code: string;
+  message: string;
+  details?: Record<string, unknown>;
+  retry_at?: string | null;
+  confirmation?: { kind: string; token: string } | null;
+}
+
+export interface WorkspaceSnapshot {
+  revision: string;
+  agents: AgentCapabilityView[];
+  assets: {
+    mcp: RegistryEntry[];
+    models: ModelProfileView[];
+    skills: SkillsInventory;
+  };
+  relationships: ConsumptionInventory;
+}
+
+export type UnifiedOperationPlan =
+  | { domain: "asset"; plan: AssetOperationPlan }
+  | { domain: "skill"; plan: OperationPlan };
+
+export type PlanOperationRequest =
+  | { operation: "update_central_asset"; request: { draft: CentralAssetDraft } }
+  | { operation: "delete_central_asset"; request: { asset: AssetRef; source_id?: string | null } }
+  | {
+      operation: "set_agent_consumption";
+      request: { agent_id: string; selection: AgentConsumptionSelection };
+    }
+  | {
+      operation: "ensure_agent_consumption";
+      request: { agent_id: string; selection: AgentConsumptionSelection };
+    }
+  | {
+      operation: "set_asset_consumers";
+      request: { asset: AssetRef; agent_ids: string[] };
+    }
+  | {
+      operation: "update_asset_consumers";
+      request: {
+        asset: AssetRef;
+        add_agent_ids: string[];
+        remove_agent_ids: string[];
+      };
+    }
+  | {
+      operation: "set_mcp_enabled";
+      request: { agent_id: string; asset_key: string; enabled: boolean };
+    }
+  | {
+      operation: "reapply_mcp";
+      request: { asset_key: string };
+    }
+  | {
+      operation: "set_model_enabled";
+      request: { agent_id: string; profile_id: string; enabled: boolean };
+    }
+  | {
+      operation: "set_active_model";
+      request: { agent_id: string; profile_id: string };
+    }
+  | {
+      operation: "update_agent_capabilities";
+      request: { agent_id: string; patch: AgentConfigurationPatch };
+    }
+  | {
+      operation: "update_agent_configuration";
+      request: { agent_id: string; configuration: AgentConfigurationInput };
+    }
+  | { operation: "adopt_mcp"; request: PlanMcpAdoptionRequest }
+  | { operation: "adopt_model"; request: PlanModelAdoptionRequest }
+  | { operation: "adopt_skill"; request: PlanImportRequest }
+  | { operation: "install_skill"; request: PlanSkillAssetInstallRequest }
+  | { operation: "import_skill"; request: PlanSkillAssetImportRequest }
+  | { operation: "assign_skill"; request: PlanAssignmentRequest }
+  | { operation: "update_skill"; request: PlanUpdateRequest }
+  | { operation: "remove_skill"; request: PlanRemoveRequest }
+  | { operation: "repair_skill"; request: PlanRepairRequest };
+
+export type CommitOperationRequest =
+  | {
+      domain: "asset";
+      request: {
+        operation_id: string;
+        candidate_hash: string;
+        conflict_confirmation?: string | null;
+      };
+    }
+  | {
+      domain: "skill";
+      kind: SkillOperationKind;
+      request: SkillCommitRequest;
+    };
+
+export type CancelOperationRequest =
+  | { domain: "asset"; operation_id: string }
+  | { domain: "skill"; operation_id: string };
+
+export type OperationCommitResult =
+  | { domain: "asset"; inventory: ConsumptionInventory }
+  | { domain: "skill"; inventory: SkillsInventory };
 
 export interface AssetCommandError {
   code: string;

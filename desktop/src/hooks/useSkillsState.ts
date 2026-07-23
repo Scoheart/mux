@@ -2,12 +2,25 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import * as api from "../lib/api";
 import type {
   OperationPlan,
+  PlanOperationRequest,
   SkillCommandError,
   SkillCommitRequest,
-  SkillOperationKind,
   SkillsInventory,
   UpdateCheckOutcome,
 } from "../lib/types";
+
+type SkillPlanOperation =
+  | "install_skill"
+  | "import_skill"
+  | "assign_skill"
+  | "update_skill"
+  | "remove_skill"
+  | "repair_skill";
+
+export type SkillPlanOperationRequest = Extract<
+  PlanOperationRequest,
+  { operation: SkillPlanOperation }
+>;
 
 export interface SkillsState {
   inventory: SkillsInventory | null;
@@ -15,6 +28,7 @@ export interface SkillsState {
   pendingOperation: string | null;
   error: SkillCommandError | null;
   refresh(): Promise<SkillsInventory>;
+  plan(request: SkillPlanOperationRequest): Promise<OperationPlan>;
   commit(
     plan: OperationPlan,
     findingsConfirmation: string | null,
@@ -46,21 +60,20 @@ export function normalizeSkillCommandError(value: unknown): SkillCommandError {
   }
   if (typeof candidate.findings_hash === "string") {
     normalized.findings_hash = candidate.findings_hash;
+  } else if (
+    typeof candidate.confirmation === "object" &&
+    candidate.confirmation !== null
+  ) {
+    const confirmation = candidate.confirmation as Record<string, unknown>;
+    if (
+      confirmation.kind === "skill_findings" &&
+      typeof confirmation.token === "string"
+    ) {
+      normalized.findings_hash = confirmation.token;
+    }
   }
   return normalized;
 }
-
-const committers = {
-  install: api.commitSkillInstall,
-  import: api.commitSkillImport,
-  update: api.commitSkillUpdate,
-  remove: api.commitSkillRemove,
-  assignment: api.commitSkillAssignment,
-  repair: api.commitSkillRepair,
-} satisfies Record<
-  SkillOperationKind,
-  (request: SkillCommitRequest) => Promise<SkillsInventory>
->;
 
 export function useSkillsState(): SkillsState {
   const [inventory, setInventory] = useState<SkillsInventory | null>(null);
@@ -125,6 +138,24 @@ export function useSkillsState(): SkillsState {
     void refresh().catch(() => undefined);
   }, [refresh]);
 
+  const plan = useCallback(
+    async (request: SkillPlanOperationRequest): Promise<OperationPlan> => {
+      try {
+        const result = await api.planOperation(request);
+        if (result.domain !== "skill") {
+          throw {
+            code: "protocol_error",
+            message: "Core returned an Asset plan for a Skill request.",
+          } satisfies SkillCommandError;
+        }
+        return result.plan;
+      } catch (reason) {
+        throw normalizeSkillCommandError(reason);
+      }
+    },
+    [],
+  );
+
   const commit = useCallback(
     async (
       plan: OperationPlan,
@@ -151,7 +182,18 @@ export function useSkillsState(): SkillsState {
       };
 
       try {
-        const next = await committers[plan.kind](request);
+        const result = await api.commitOperation({
+          domain: "skill",
+          kind: plan.kind,
+          request,
+        });
+        if (result.domain !== "skill") {
+          throw {
+            code: "protocol_error",
+            message: "Core returned an Asset inventory for a Skill commit.",
+          } satisfies SkillCommandError;
+        }
+        const next = result.inventory;
         ++cacheGeneration.current;
         if (mounted.current) setInventory(next);
         return next;
@@ -172,7 +214,10 @@ export function useSkillsState(): SkillsState {
   const cancel = useCallback(async (operationId: string) => {
     if (mounted.current) setError(null);
     try {
-      await api.cancelSkillOperation(operationId);
+      await api.cancelOperation({
+        domain: "skill",
+        operation_id: operationId,
+      });
     } catch (reason) {
       const normalized = normalizeSkillCommandError(reason);
       if (mounted.current) setError(normalized);
@@ -208,6 +253,7 @@ export function useSkillsState(): SkillsState {
     pendingOperation,
     error,
     refresh,
+    plan,
     commit,
     cancel,
     checkUpdates,

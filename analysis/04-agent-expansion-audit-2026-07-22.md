@@ -19,7 +19,7 @@ MUX 不是 Agent 安装器，而是 MCP、Models、Skills 中央资产库。Agen
 
 - MUX 仅管理全局 Agent 配置和用户级 Skills，不能把项目配置误当全局配置（[`AGENTS.md`](../AGENTS.md)）。
 - 写入必须保留未知字段、注释和格式；凭据不能进入 Agent 配置或日志，只能使用 Keychain 或环境变量（[`AGENTS.md`](../AGENTS.md)）。
-- 当前 Models adapter 只覆盖 14 个 Agent 配置族；新增 Models 消费者必须新增路径、codec、round-trip 和冲突测试（[`core/src/models.rs:421`](../core/src/models.rs#L421)）。
+- 当前 Models adapter 只覆盖 14 个 Agent 配置族；新增 Models 消费者必须新增路径、codec、round-trip 和冲突测试（[`core/src/resources/model/mod.rs`](../core/src/resources/model/mod.rs)、[`core/src/resources/model/adapters.rs`](../core/src/resources/model/adapters.rs)）。
 - 本轮审计开始前 Agent catalog 有 42 项；例如 Augment、Devin、Gemini、Grok Build、Kiro 已在 source of truth 中（[`data/agents.json:5`](../data/agents.json#L5)、[`data/agents.json:16`](../data/agents.json#L16)、[`data/agents.json:19`](../data/agents.json#L19)、[`data/agents.json:21`](../data/agents.json#L21)、[`data/agents.json:26`](../data/agents.json#L26)）。
 
 ACP Registry 只能作为“这个 Agent 可以被 ACP Host 启动”的证据，不能作为“MUX 能安全写它的 MCP / Models / Skills 配置”的证据。官方 Registry 的 CI 主要验证 ACP 握手能返回有效的 `authMethods`，并不验证这些资产的本地配置文件。

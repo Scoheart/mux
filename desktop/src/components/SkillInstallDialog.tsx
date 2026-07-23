@@ -21,6 +21,7 @@ import { useToast } from "./Toast";
 import { DialogShell } from "./DialogShell";
 
 export interface SkillInstallDialogProps {
+  plan: SkillsState["plan"];
   commit: SkillsState["commit"];
   cancel: SkillsState["cancel"];
   onClose(): void;
@@ -51,6 +52,7 @@ function selectedSnapshot(
 }
 
 export function SkillInstallDialog({
+  plan,
   commit,
   cancel,
   onClose,
@@ -278,10 +280,13 @@ export function SkillInstallDialog({
     setPlanning(true);
     setPlanError(null);
     try {
-      const plan = await api.planSkillAssetInstall({
-        resolution_id: resolution.operation_id,
-        skill_names: wizard.selectedSkillNames,
-        replace_conflicts: wizard.replaceConflicts,
+      const nextPlan = await plan({
+        operation: "install_skill",
+        request: {
+          resolution_id: resolution.operation_id,
+          skill_names: wizard.selectedSkillNames,
+          replace_conflicts: wizard.replaceConflicts,
+        },
       });
       const currentWizard = wizardRef.current;
       const stillCurrent =
@@ -296,8 +301,8 @@ export function SkillInstallDialog({
       if (!stillCurrent) {
         return;
       }
-      if (plan.operation_id !== resolution.operation_id) {
-        await cancelOnce(plan.operation_id, false);
+      if (nextPlan.operation_id !== resolution.operation_id) {
+        await cancelOnce(nextPlan.operation_id, false);
         setPlanError({
           code: "protocol_error",
           message: "安装计划未绑定当前来源，请重新读取来源。",
@@ -306,8 +311,8 @@ export function SkillInstallDialog({
       }
       try {
         const inventory = await commitInstall(
-          plan,
-          plan.requires_risk_override ? plan.findings_hash : null,
+          nextPlan,
+          nextPlan.requires_risk_override ? nextPlan.findings_hash : null,
         );
         if (mountedRef.current && !closedRef.current) finishInstall(inventory);
       } catch (reason) {

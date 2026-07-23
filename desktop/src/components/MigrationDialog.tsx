@@ -51,36 +51,69 @@ export function MigrationDialog({
     setBusy(true);
     const nextResults: MigrationResult[] = [];
     for (const candidate of selectedItems) {
-      let pending: { domain: "mcp" | "model" | "skill"; operationId: string } | null = null;
+      let pending: { domain: "asset" | "skill"; operationId: string } | null = null;
       try {
         if (candidate.domain === "mcp" && candidate.mcp) {
-          const plan = await api.planMcpAdoption({
-            asset_key: candidate.mcp.assetKey,
-            agent_ids: candidate.agentIds,
-            candidate_fingerprints: candidate.mcp.candidateFingerprints,
+          const result = await api.planOperation({
+            operation: "adopt_mcp",
+            request: {
+              asset_key: candidate.mcp.assetKey,
+              agent_ids: candidate.agentIds,
+              candidate_fingerprints: candidate.mcp.candidateFingerprints,
+            },
           });
-          pending = { domain: "mcp", operationId: plan.operation_id };
-          await api.commitAssetOperation(plan);
+          if (result.domain !== "asset") throw new Error("Core returned a Skill adoption plan for MCP");
+          const plan = result.plan;
+          pending = { domain: "asset", operationId: plan.operation_id };
+          await api.commitOperation({
+            domain: "asset",
+            request: {
+              operation_id: plan.operation_id,
+              candidate_hash: plan.candidate_hash,
+              conflict_confirmation: null,
+            },
+          });
         } else if (candidate.domain === "model" && candidate.model) {
-          const plan = await api.planModelAdoption({
-            candidate_fingerprints: candidate.model.candidateFingerprints,
+          const result = await api.planOperation({
+            operation: "adopt_model",
+            request: {
+              candidate_fingerprints: candidate.model.candidateFingerprints,
+            },
           });
-          pending = { domain: "model", operationId: plan.operation_id };
-          await api.commitAssetOperation(plan);
+          if (result.domain !== "asset") throw new Error("Core returned a Skill adoption plan for Model");
+          const plan = result.plan;
+          pending = { domain: "asset", operationId: plan.operation_id };
+          await api.commitOperation({
+            domain: "asset",
+            request: {
+              operation_id: plan.operation_id,
+              candidate_hash: plan.candidate_hash,
+              conflict_confirmation: null,
+            },
+          });
         } else if (candidate.domain === "skill" && candidate.skill) {
-          const plan = await api.planSkillImport({
-            identity: candidate.skill.identity,
-            agent_ids: candidate.agentIds,
-            replace_conflicts: false,
+          const result = await api.planOperation({
+            operation: "adopt_skill",
+            request: {
+              identity: candidate.skill.identity,
+              agent_ids: candidate.agentIds,
+              replace_conflicts: false,
+            },
           });
+          if (result.domain !== "skill") throw new Error("Core returned an asset adoption plan for Skill");
+          const plan = result.plan;
           pending = { domain: "skill", operationId: plan.operation_id };
           if (plan.requires_risk_override) {
             throw new Error("Skill 风险状态已变化；请在 Skills 页面单独导入并确认风险。");
           }
-          await api.commitSkillImport({
-            operation_id: plan.operation_id,
-            candidate_hash: plan.candidate_hash,
-            findings_confirmation: null,
+          await api.commitOperation({
+            domain: "skill",
+            kind: "import",
+            request: {
+              operation_id: plan.operation_id,
+              candidate_hash: plan.candidate_hash,
+              findings_confirmation: null,
+            },
           });
         } else {
           throw new Error("迁移候选缺少受管来源。");
@@ -94,10 +127,10 @@ export function MigrationDialog({
         pending = null;
       } catch (reason) {
         if (pending) {
-          const cancellation = pending.domain === "mcp" || pending.domain === "model"
-            ? api.cancelAssetOperation(pending.operationId)
-            : api.cancelSkillOperation(pending.operationId);
-          await cancellation.catch(() => undefined);
+          await api.cancelOperation({
+            domain: pending.domain,
+            operation_id: pending.operationId,
+          }).catch(() => undefined);
         }
         const message = formatError(reason);
         nextResults.push({ id: candidate.id, name: candidate.name, ok: false, message });

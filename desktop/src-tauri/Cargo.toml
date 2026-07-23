@@ -1,8 +1,8 @@
 [package]
 name = "desktop"
 version = "1.8.38"
-description = "A Tauri App"
-authors = ["you"]
+description = "MUX desktop adapter for the shared MCP, Model, Skill, and Agent core"
+authors = ["Scoheart"]
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html

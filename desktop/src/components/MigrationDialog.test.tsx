@@ -6,13 +6,9 @@ import type { MigrationCandidate } from "../lib/migration";
 import { MigrationDialog } from "./MigrationDialog";
 
 vi.mock("../lib/api", () => ({
-  planMcpAdoption: vi.fn(),
-  planModelAdoption: vi.fn(),
-  commitAssetOperation: vi.fn(),
-  cancelAssetOperation: vi.fn(),
-  planSkillImport: vi.fn(),
-  commitSkillImport: vi.fn(),
-  cancelSkillOperation: vi.fn(),
+  planOperation: vi.fn(),
+  commitOperation: vi.fn(),
+  cancelOperation: vi.fn(),
 }));
 
 afterEach(() => {
@@ -80,12 +76,16 @@ const candidates: MigrationCandidate[] = [
 ];
 
 describe("MigrationDialog", () => {
-  it("imports each selected asset through its existing verified transaction", async () => {
-    vi.mocked(api.planMcpAdoption).mockResolvedValue(basePlan);
-    vi.mocked(api.commitAssetOperation).mockResolvedValue({ consumptions: [], external: [] });
-    vi.mocked(api.planSkillImport).mockResolvedValue({
+  it("imports each selected asset through the unified transaction wire", async () => {
+    const modelPlan = {
+      ...basePlan,
+      operation_id: "model-operation",
+      domain_plan: { domain: "model" as const, before: {}, after: {} },
+      candidate_hash: "model-plan",
+    };
+    const skillPlan = {
       operation_id: "skill-operation",
-      kind: "import",
+      kind: "import" as const,
       skills: [],
       targets: [],
       settings_hash: "settings",
@@ -93,38 +93,54 @@ describe("MigrationDialog", () => {
       findings_hash: "findings",
       requires_risk_override: false,
       warnings: [],
-    });
-    vi.mocked(api.commitSkillImport).mockResolvedValue({ items: [], agents: [], targets: [], recovery_error: null });
+    };
+    vi.mocked(api.planOperation)
+      .mockResolvedValueOnce({ domain: "asset", plan: modelPlan })
+      .mockResolvedValueOnce({ domain: "asset", plan: basePlan })
+      .mockResolvedValueOnce({ domain: "skill", plan: skillPlan });
+    vi.mocked(api.commitOperation).mockImplementation(async (request) =>
+      request.domain === "asset"
+        ? { domain: "asset", inventory: { consumptions: [], external: [] } }
+        : {
+            domain: "skill",
+            inventory: { items: [], agents: [], targets: [], recovery_error: null },
+          });
     const onRefresh = vi.fn().mockResolvedValue(undefined);
 
-    vi.mocked(api.planModelAdoption).mockResolvedValue({
-      ...basePlan,
-      operation_id: "model-operation",
-      domain_plan: { domain: "model", before: {}, after: {} },
-      candidate_hash: "model-plan",
-    });
     render(<MigrationDialog candidates={candidates} onClose={vi.fn()} onRefresh={onRefresh} />);
     await userEvent.click(screen.getByRole("button", { name: "导入 3 项" }));
 
     await waitFor(() => expect(onRefresh).toHaveBeenCalledOnce());
-    expect(api.planMcpAdoption).toHaveBeenCalledWith({
-      asset_key: "github::stdio",
-      agent_ids: ["claude-code"],
-      candidate_fingerprints: { "claude-code": "candidate-fingerprint" },
+    expect(api.planOperation).toHaveBeenCalledWith({
+      operation: "adopt_mcp",
+      request: {
+        asset_key: "github::stdio",
+        agent_ids: ["claude-code"],
+        candidate_fingerprints: { "claude-code": "candidate-fingerprint" },
+      },
     });
-    expect(api.commitAssetOperation).toHaveBeenCalledWith(basePlan);
-    expect(api.planModelAdoption).toHaveBeenCalledWith({
-      candidate_fingerprints: { "candidate-grok": "model-fingerprint" },
+    expect(api.planOperation).toHaveBeenCalledWith({
+      operation: "adopt_model",
+      request: {
+        candidate_fingerprints: { "candidate-grok": "model-fingerprint" },
+      },
     });
-    expect(api.planSkillImport).toHaveBeenCalledWith({
-      identity: "target:agents-user:review",
-      agent_ids: ["codex"],
-      replace_conflicts: false,
+    expect(api.planOperation).toHaveBeenCalledWith({
+      operation: "adopt_skill",
+      request: {
+        identity: "target:agents-user:review",
+        agent_ids: ["codex"],
+        replace_conflicts: false,
+      },
     });
-    expect(api.commitSkillImport).toHaveBeenCalledWith({
-      operation_id: "skill-operation",
-      candidate_hash: "skill-candidate",
-      findings_confirmation: null,
+    expect(api.commitOperation).toHaveBeenCalledWith({
+      domain: "skill",
+      kind: "import",
+      request: {
+        operation_id: "skill-operation",
+        candidate_hash: "skill-candidate",
+        findings_confirmation: null,
+      },
     });
     expect(screen.getByText("成功 3 项，失败 0 项")).toBeVisible();
     expect(screen.getByRole("button", { name: "导入 0 项" })).toBeDisabled();
@@ -163,24 +179,30 @@ describe("MigrationDialog", () => {
   });
 
   it("stops and cancels when a Skill becomes high risk after review", async () => {
-    vi.mocked(api.planSkillImport).mockResolvedValue({
-      operation_id: "risk-operation",
-      kind: "import",
-      skills: [],
-      targets: [],
-      settings_hash: "settings",
-      candidate_hash: "risk-candidate",
-      findings_hash: "risk-findings",
-      requires_risk_override: true,
-      warnings: [],
+    vi.mocked(api.planOperation).mockResolvedValue({
+      domain: "skill",
+      plan: {
+        operation_id: "risk-operation",
+        kind: "import",
+        skills: [],
+        targets: [],
+        settings_hash: "settings",
+        candidate_hash: "risk-candidate",
+        findings_hash: "risk-findings",
+        requires_risk_override: true,
+        warnings: [],
+      },
     });
-    vi.mocked(api.cancelSkillOperation).mockResolvedValue(undefined);
+    vi.mocked(api.cancelOperation).mockResolvedValue(undefined);
 
     render(<MigrationDialog candidates={[candidates[2]]} onClose={vi.fn()} onRefresh={vi.fn().mockResolvedValue(undefined)} />);
     await userEvent.click(screen.getByRole("button", { name: "导入 1 项" }));
 
-    await waitFor(() => expect(api.cancelSkillOperation).toHaveBeenCalledWith("risk-operation"));
-    expect(api.commitSkillImport).not.toHaveBeenCalled();
+    await waitFor(() => expect(api.cancelOperation).toHaveBeenCalledWith({
+      domain: "skill",
+      operation_id: "risk-operation",
+    }));
+    expect(api.commitOperation).not.toHaveBeenCalled();
     expect(screen.getByText("Skill 风险状态已变化；请在 Skills 页面单独导入并确认风险。")).toBeVisible();
   });
 });

@@ -2,25 +2,32 @@
 //! sources, registry) with the desktop app; all real logic lives in the core
 //! crate, so the two front-ends can never drift.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::io::{self, Write};
 
 mod tui;
 
 use clap::{Parser, Subcommand};
 
-use mux_core::agents::{load_agents, save_agents};
-use mux_core::ops;
-use mux_core::registry::{
-    delete_registry_entry, migrate_registry_to_sources, read_registry, write_manual_entry,
+use mux_core::application::agents::load_agents;
+use mux_core::application::assets::{
+    AgentConsumptionSelection, AssetCommitRequest, AssetOperationPlan, AssetRef, CentralAssetDraft,
+    McpAdoptionCandidate, PlanDeleteCentralAssetRequest, PlanEnsureAgentConsumptionRequest,
+    PlanMcpAdoptionRequest, PlanSetAgentConsumptionRequest, PlanUpdateCentralAssetRequest,
 };
-use mux_core::scanner::scan_agents;
-use mux_core::settings::migrate_if_needed;
-use mux_core::types::{RegistryConfig, RegistryEntry, RegistryOrigin, StdioConfig};
+use mux_core::application::mcp::catalog::read_registry;
+use mux_core::application::mcp::operations as ops;
+use mux_core::application::mcp::scanning::scan_agents;
+use mux_core::application::operations::{
+    CancelOperationRequest, CommitOperationRequest, OperationCommitResult, OperationPlan,
+    PlanOperationRequest,
+};
+use mux_core::application::MuxCore;
+use mux_core::domain::types::{RegistryConfig, RegistryEntry, StdioConfig};
 
 // ---- tiny ANSI helpers (no dependency; mirrors the old picocolors output) ----
 fn paint(code: &str, s: &str) -> String {
-    format!("\x1b[{}m{}\x1b[0m", code, s)
+    format!("\x1b[{code}m{s}\x1b[0m")
 }
 fn bold(s: &str) -> String {
     paint("1", s)
@@ -47,7 +54,7 @@ fn split_commas(raw: &str) -> Vec<String> {
 }
 
 fn prompt(question: &str) -> String {
-    print!("{}", question);
+    print!("{question}");
     let _ = io::stdout().flush();
     let mut line = String::new();
     io::stdin().read_line(&mut line).ok();
@@ -58,7 +65,7 @@ fn prompt(question: &str) -> String {
 #[command(
     name = "mux",
     version,
-    about = "MCP Multiplexer — Unified MCP Server configuration manager"
+    about = "MUX — central MCP, Model, and Skill assets for AI Agents"
 )]
 struct Cli {
     #[command(subcommand)]
@@ -67,13 +74,13 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Clear all MCP configurations from enabled agents
+    /// Remove MUX-managed MCP relationships from enabled Agents
     Clean {
         /// Only clean a specific agent
         #[arg(long)]
         agent: Option<String>,
     },
-    /// Scan existing configs and import MCPs to registry
+    /// Review-safe adoption of existing global MCP observations
     Import,
     /// List all MCPs in registry
     List,
@@ -90,7 +97,7 @@ enum Command {
         #[arg(long)]
         out: Option<String>,
     },
-    /// Apply MCPs non-interactively
+    /// Add central MCPs to Agent desired state non-interactively
     Apply {
         names: Vec<String>,
         /// Comma-separated agent names, or "all"
@@ -102,6 +109,16 @@ enum Command {
         #[command(subcommand)]
         action: Option<AgentsAction>,
     },
+    /// Show the unified MCP / Model / Skill workspace
+    Workspace {
+        /// Print the complete revisioned snapshot as JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// List central Model Profiles
+    Models,
+    /// List centrally managed Skills
+    Skills,
     /// Upgrade mux to the latest stable release
     Upgrade,
 }
@@ -117,18 +134,18 @@ enum AgentsAction {
 }
 
 fn main() {
-    // Fold any legacy ~/.mux files into a single settings.json on first run,
-    // then move manual/discovered registry entries into managed source files so
-    // the CLI and desktop share the same source-based storage.
-    migrate_if_needed();
-    if let Err(error) = mux_core::consumption::recover_pending_asset_operations() {
-        eprintln!("MUX recovery failed; refusing to continue: {error}");
-        std::process::exit(1);
+    let bootstrap = match mux_core::application::MuxCore::bootstrap(
+        mux_core::application::bootstrap::Frontend::Cli,
+    ) {
+        Ok(report) => report,
+        Err(error) => {
+            eprintln!("MUX recovery failed; refusing to continue: {error}");
+            std::process::exit(1);
+        }
+    };
+    for warning in bootstrap.warnings {
+        eprintln!("MUX startup warning: {}", warning.message);
     }
-    if let Err(error) = mux_core::consumption::migrate_model_profiles_v2_if_needed() {
-        eprintln!("MUX Model Profile migration needs Desktop review: {error}");
-    }
-    migrate_registry_to_sources();
 
     let cli = Cli::parse();
     match cli.command {
@@ -145,6 +162,9 @@ fn main() {
             Some(AgentsAction::Disable { name }) => cmd_agents_set(&name, false),
             _ => cmd_agents_list(),
         },
+        Some(Command::Workspace { json }) => cmd_workspace(json),
+        Some(Command::Models) => cmd_models(),
+        Some(Command::Skills) => cmd_skills(),
         Some(Command::Upgrade) => {
             cmd_upgrade();
             return; // upgrade 自身不需要再叠加被动提醒
@@ -156,7 +176,7 @@ fn main() {
                 let _ = <Cli as clap::CommandFactory>::command().print_help();
                 println!();
             } else if let Err(e) = tui::run() {
-                eprintln!("TUI 错误: {}", e);
+                eprintln!("TUI 错误: {e}");
                 std::process::exit(1);
             }
             return; // TUI 会话结束后不打扰
@@ -165,7 +185,9 @@ fn main() {
 
     // 被动更新提醒：普通命令结束后追加一行(每天最多联网检查一次，
     // MUX_NO_UPDATE_CHECK=1 关闭)。
-    if let Some(notice) = mux_core::update::passive_check_notice(env!("CARGO_PKG_VERSION")) {
+    if let Some(notice) =
+        mux_core::application::update::passive_check_notice(env!("CARGO_PKG_VERSION"))
+    {
         eprintln!("\n{}", yellow(&notice));
     }
 }
@@ -173,21 +195,21 @@ fn main() {
 fn cmd_upgrade() {
     let current = env!("CARGO_PKG_VERSION");
     // 桌面 App 里带出来的 CLI（sidecar 软链）随 App 自动更新，不自行替换。
-    if let Some(real) = mux_core::update::managed_by_desktop_app() {
+    if let Some(real) = mux_core::application::update::managed_by_desktop_app() {
         println!(
             "此 mux 由桌面 App 提供（{}），会随桌面 App 自动更新，无需单独升级。",
             real.display()
         );
         return;
     }
-    println!("当前版本 v{}，正在检查最新稳定版…", current);
-    match mux_core::update::upgrade_cli(current) {
+    println!("当前版本 v{current}，正在检查最新稳定版…");
+    match mux_core::application::update::upgrade_cli(current) {
         Ok(Some(o)) => {
             println!("{}", green(&format!("✔ 已从 v{} 升级到 v{}", o.from, o.to)));
         }
         Ok(None) => println!("{}", dim("已是最新版本。")),
         Err(e) => {
-            eprintln!("{}", red(&format!("升级失败: {}", e)));
+            eprintln!("{}", red(&format!("升级失败: {e}")));
             std::process::exit(1);
         }
     }
@@ -237,7 +259,7 @@ fn cmd_status() {
         by.entry(key).or_default().push(s.name.clone());
     }
     for key in order {
-        println!("{}", bold(&format!("  {}:", key)));
+        println!("{}", bold(&format!("  {key}:")));
         for n in &by[&key] {
             println!("    {}", green(n));
         }
@@ -246,20 +268,57 @@ fn cmd_status() {
 }
 
 fn cmd_import() {
-    println!("{}", bold("Scanning targets...\n"));
-    match ops::import_discovered(None) {
-        Ok(n) => println!("{}", bold(&format!("\n{} new MCPs imported.", n))),
-        Err(e) => eprintln!("{}", red(&format!("import failed: {}", e))),
+    println!("{}", bold("Scanning external MCP observations...\n"));
+    let candidates = match mux_core::application::assets::list_mcp_adoption_candidates() {
+        Ok(candidates) => candidates,
+        Err(error) => {
+            eprintln!("{}", red(&format!("import failed: {error}")));
+            return;
+        }
+    };
+    let mut grouped = BTreeMap::<String, Vec<McpAdoptionCandidate>>::new();
+    for candidate in candidates {
+        grouped
+            .entry(candidate.asset_key.clone())
+            .or_default()
+            .push(candidate);
+    }
+    let mut imported = 0;
+    for (asset_key, candidates) in grouped {
+        let request = PlanMcpAdoptionRequest {
+            asset_key: asset_key.clone(),
+            agent_ids: candidates
+                .iter()
+                .map(|candidate| candidate.agent_id.clone())
+                .collect(),
+            candidate_fingerprints: candidates
+                .into_iter()
+                .map(|candidate| (candidate.agent_id, candidate.fingerprint))
+                .collect(),
+        };
+        match mux_core::application::assets::plan_mcp_adoption(request)
+            .and_then(commit_reviewed_asset_plan)
+        {
+            Ok(_) => imported += 1,
+            Err(error) => eprintln!("{}", red(&format!("  ✗ {asset_key}: {error}"))),
+        }
+    }
+    if imported == 0 {
+        println!("{}", dim("No safe MCP migration was available."));
+    } else {
+        println!(
+            "{}",
+            bold(&format!("\n{imported} central MCP asset(s) adopted."))
+        );
     }
 }
 
 fn cmd_add(name: &str) {
-    // `add` only creates stdio (command-based) entries → key is `${name}::stdio`.
-    let existing: HashSet<String> = read_registry().iter().map(|e| e.key()).collect();
-    if existing.contains(&format!("{}::stdio", name)) {
+    let key = format!("{name}::stdio");
+    if read_registry().iter().any(|entry| entry.key() == key) {
         println!(
             "{}",
-            yellow(&format!("\"{}\" (stdio) already exists in registry.", name))
+            yellow(&format!("\"{name}\" (stdio) already exists in registry."))
         );
         return;
     }
@@ -281,32 +340,57 @@ fn cmd_add(name: &str) {
             }),
             http: None,
         },
-        origin: Some(RegistryOrigin {
-            kind: "manual".into(),
-            agent: None,
-            scope: None,
-            source: None,
-        }),
+        origin: None,
         repo: None,
     };
-    match write_manual_entry(&entry) {
-        Ok(()) => println!("{}", green(&format!("✓ {} added to registry", name))),
-        Err(e) => eprintln!("{}", red(&format!("failed to add: {}", e))),
+    let result =
+        mux_core::application::assets::plan_update_central_asset(PlanUpdateCentralAssetRequest {
+            draft: CentralAssetDraft::Mcp {
+                existing_key: None,
+                entry: Box::new(entry),
+            },
+        })
+        .and_then(commit_reviewed_asset_plan);
+    match result {
+        Ok(_) => println!("{}", green(&format!("✓ {name} added to registry"))),
+        Err(error) => eprintln!("{}", red(&format!("failed to add: {error}"))),
     }
 }
 
 fn cmd_remove(name: &str) {
-    // A name may have a stdio and/or an http variant; clear whichever exist.
-    let mut removed = false;
-    for t in ["stdio", "http"] {
-        if delete_registry_entry(name, t).is_ok() {
-            removed = true;
+    let entries = read_registry()
+        .into_iter()
+        .filter(|entry| entry.name == name)
+        .collect::<Vec<_>>();
+    if entries.is_empty() {
+        println!("{}", red(&format!("\"{name}\" not found in registry.")));
+        return;
+    }
+    let mut removed = 0;
+    for entry in entries {
+        let key = entry.key();
+        let source_id = entry
+            .origin
+            .as_ref()
+            .and_then(|origin| origin.source.clone())
+            .or_else(|| entry.origin.as_ref().map(|origin| origin.kind.clone()));
+        let result = mux_core::application::assets::plan_delete_central_asset(
+            PlanDeleteCentralAssetRequest {
+                asset: AssetRef::Mcp { key: key.clone() },
+                source_id,
+            },
+        )
+        .and_then(commit_reviewed_asset_plan);
+        match result {
+            Ok(_) => removed += 1,
+            Err(error) => eprintln!("{}", red(&format!("  ✗ {key}: {error}"))),
         }
     }
-    if removed {
-        println!("{}", green(&format!("✓ {} removed from registry", name)));
-    } else {
-        println!("{}", red(&format!("\"{}\" not found in registry.", name)));
+    if removed > 0 {
+        println!(
+            "{}",
+            green(&format!("✓ {removed} {name} asset variant(s) removed"))
+        );
     }
 }
 
@@ -314,16 +398,16 @@ fn cmd_export(out: Option<&str>) {
     let content = match ops::export_effective() {
         Ok(c) => c,
         Err(e) => {
-            println!("{}", red(&format!("导出失败: {}", e)));
+            println!("{}", red(&format!("导出失败: {e}")));
             return;
         }
     };
     match out {
         Some(path) => match std::fs::write(path, &content) {
-            Ok(_) => println!("{}", green(&format!("✓ 已导出生效配置 → {}", path))),
-            Err(e) => println!("{}", red(&format!("写入 {} 失败: {}", path, e))),
+            Ok(_) => println!("{}", green(&format!("✓ 已导出生效配置 → {path}"))),
+            Err(e) => println!("{}", red(&format!("写入 {path} 失败: {e}"))),
         },
-        None => println!("{}", content),
+        None => println!("{content}"),
     }
 }
 
@@ -339,88 +423,288 @@ fn cmd_apply(names: Vec<String>, agent: &str) {
         agent.split(',').map(|s| s.trim().to_string()).collect()
     };
     let registry = read_registry();
-    let overrides = HashMap::new();
-    let mut applied = 0;
-    let mut errors: Vec<String> = Vec::new();
+    let mut requested = Vec::new();
+    let mut errors = Vec::new();
     for name in &names {
-        let mut transports: Vec<&'static str> = registry
+        let keys = registry
             .iter()
             .filter(|e| &e.name == name)
-            .map(|e| e.transport())
-            .collect();
-        transports.sort_unstable();
-        transports.dedup();
-        if transports.is_empty() {
-            errors.push(format!("{}: not in registry", name));
-            continue;
+            .map(RegistryEntry::key)
+            .collect::<Vec<_>>();
+        if keys.is_empty() {
+            errors.push(format!("{name}: not in registry"));
+        } else if keys.len() > 1 {
+            errors.push(format!(
+                "{name}: both stdio and http exist; select the asset in Desktop"
+            ));
+        } else {
+            requested.push(keys[0].clone());
         }
-        for t in transports {
-            match ops::install(name, t, "global", &agent_ids, None, &overrides) {
-                Ok(()) => applied += 1,
-                Err(e) => errors.extend(e),
+    }
+    let mut applied = 0;
+    if errors.is_empty() {
+        for agent_id in agent_ids {
+            let plan = MuxCore::plan(PlanOperationRequest::EnsureAgentConsumption(
+                PlanEnsureAgentConsumptionRequest {
+                    agent_id: agent_id.clone(),
+                    selection: AgentConsumptionSelection::Mcp {
+                        asset_keys: requested.clone(),
+                    },
+                },
+            ))
+            .map_err(|error| error.to_string())
+            .and_then(|plan| match plan {
+                OperationPlan::Asset { plan } => Ok(*plan),
+                OperationPlan::Skill { .. } => {
+                    Err("Core returned a Skill plan for MCP apply".into())
+                }
+            });
+            match plan.and_then(commit_reviewed_asset_plan) {
+                Ok(_) => applied += 1,
+                Err(error) => errors.push(format!("{agent_id}: {error}")),
             }
         }
     }
     for e in &errors {
-        eprintln!("{}", red(&format!("  ✗ {}", e)));
+        eprintln!("{}", red(&format!("  ✗ {e}")));
     }
     if applied > 0 {
-        println!("{}", green(&format!("✓ Applied {} target(s)", applied)));
+        println!("{}", green(&format!("✓ Applied {applied} target(s)")));
     } else if errors.is_empty() {
         println!("{}", dim("No changes needed."));
     }
 }
 
 fn cmd_clean(agent: Option<&str>) {
-    let outcome = ops::clean(agent);
-    for error in &outcome.errors {
-        eprintln!("{}", red(&format!("  ✗ {}", error)));
-    }
-    if outcome.cleaned.is_empty() {
-        if outcome.errors.is_empty() {
-            println!("{}", dim("Nothing to clean."));
-        } else {
-            println!("{}", red("No agent config was cleaned."));
+    let configured = load_agents();
+    let agent_ids = match agent {
+        Some(agent_id) => vec![agent_id.to_string()],
+        None => configured
+            .iter()
+            .filter(|(_, definition)| definition.enabled)
+            .map(|(agent_id, _)| agent_id.clone())
+            .collect(),
+    };
+    let inventory = match mux_core::application::assets::list_inventory() {
+        Ok(inventory) => inventory,
+        Err(error) => {
+            eprintln!("{}", red(&format!("clean failed: {error}")));
+            return;
         }
-        return;
+    };
+    let desired_agents = inventory
+        .consumptions
+        .iter()
+        .filter(|item| matches!(&item.asset, AssetRef::Mcp { .. }) && item.desired)
+        .map(|item| item.agent_id.as_str())
+        .collect::<BTreeSet<_>>();
+    let mut cleaned = 0;
+    for agent_id in agent_ids {
+        if !desired_agents.contains(agent_id.as_str()) {
+            continue;
+        }
+        let result = mux_core::application::assets::plan_set_agent_consumption(
+            PlanSetAgentConsumptionRequest {
+                agent_id: agent_id.clone(),
+                selection: AgentConsumptionSelection::Mcp {
+                    asset_keys: Vec::new(),
+                },
+            },
+        )
+        .and_then(commit_reviewed_asset_plan);
+        match result {
+            Ok(_) => {
+                cleaned += 1;
+                println!("{}", green(&format!("  ✓ {agent_id} desired MCPs removed")));
+            }
+            Err(error) => eprintln!("{}", red(&format!("  ✗ {agent_id}: {error}"))),
+        }
     }
-    for name in &outcome.cleaned {
-        println!("{}", green(&format!("  ✓ {} [global] cleaned", name)));
+    if cleaned == 0 {
+        println!("{}", dim("No MUX-managed MCP relationship to clean."));
     }
-    println!(
-        "{}",
-        bold(&format!("\n{} agent(s) cleaned.", outcome.cleaned.len()))
-    );
+}
+
+fn commit_reviewed_asset_plan(
+    plan: AssetOperationPlan,
+) -> Result<mux_core::application::assets::ConsumptionInventory, String> {
+    if !plan.can_commit {
+        let _ = MuxCore::cancel(CancelOperationRequest::Asset {
+            operation_id: plan.operation_id.clone(),
+        });
+        return Err("operation is blocked by an unresolved conflict".into());
+    }
+    if plan.requires_conflict_confirmation {
+        let _ = MuxCore::cancel(CancelOperationRequest::Asset {
+            operation_id: plan.operation_id.clone(),
+        });
+        return Err("operation requires Desktop review of drifted targets".into());
+    }
+    match MuxCore::commit(CommitOperationRequest::Asset {
+        request: AssetCommitRequest {
+            operation_id: plan.operation_id,
+            candidate_hash: plan.candidate_hash,
+            conflict_confirmation: None,
+        },
+    })
+    .map_err(|error| error.to_string())?
+    {
+        OperationCommitResult::Asset { inventory } => Ok(inventory),
+        OperationCommitResult::Skill { .. } => {
+            Err("Core returned a Skill result for an asset commit".into())
+        }
+    }
 }
 
 fn cmd_agents_list() {
-    let config = load_agents();
-    println!("{}", bold("Configured agents:\n"));
-    for (name, def) in &config {
-        let status = if def.enabled {
+    let agents = match mux_core::application::agents::list_capabilities() {
+        Ok(agents) => agents,
+        Err(error) => {
+            eprintln!(
+                "{}",
+                red(&format!("failed to load Agent capabilities: {error}"))
+            );
+            return;
+        }
+    };
+    println!("{}", bold("Configured Agents:\n"));
+    for agent in agents {
+        let status = if agent.identity.enabled {
             green("enabled")
         } else {
             dim("disabled")
         };
-        println!("  {} [{}]", name, status);
-        if let Some(g) = &def.global {
-            println!("    global:  {}", dim(g));
+        let mut capabilities = Vec::new();
+        if agent.capabilities.mcp.is_some() {
+            capabilities.push("MCP");
+        }
+        if agent.capabilities.model.is_some() {
+            capabilities.push("Model");
+        }
+        if agent.capabilities.skill.is_some() {
+            capabilities.push("Skill");
+        }
+        println!(
+            "  {} [{}] {}",
+            agent.identity.name,
+            status,
+            dim(&capabilities.join(" · "))
+        );
+        if let Some(mcp) = agent.capabilities.mcp {
+            if let Some(path) = mcp.config_path {
+                println!("    MCP:    {}", dim(&path));
+            }
+        }
+        if let Some(model) = agent.capabilities.model {
+            if !model.config_paths.is_empty() {
+                println!("    Model:  {}", dim(&model.config_paths.join(", ")));
+            }
+        }
+        if let Some(skill) = agent.capabilities.skill {
+            println!("    Skills: {}", dim(&skill.global_dir));
         }
     }
 }
 
-fn cmd_agents_set(name: &str, enabled: bool) {
-    let mut config = load_agents();
-    let Some(def) = config.get_mut(name) else {
-        println!("{}", red(&format!("Agent \"{}\" not found.", name)));
-        return;
+fn cmd_workspace(json: bool) {
+    let snapshot = match mux_core::application::MuxCore::snapshot() {
+        Ok(snapshot) => snapshot,
+        Err(error) => {
+            eprintln!("{}", red(&format!("failed to load workspace: {error}")));
+            return;
+        }
     };
-    def.enabled = enabled;
-    match save_agents(&config) {
+    if json {
+        match serde_json::to_string_pretty(&snapshot) {
+            Ok(output) => println!("{output}"),
+            Err(error) => eprintln!("{}", red(&format!("failed to encode workspace: {error}"))),
+        }
+        return;
+    }
+    let central_skills = snapshot
+        .assets
+        .skills
+        .items
+        .iter()
+        .filter(|item| {
+            matches!(
+                item.location,
+                mux_core::application::skills::SkillLocation::Central
+            )
+        })
+        .count();
+    println!("{}", bold("MUX workspace"));
+    println!("  revision: {}", dim(&snapshot.revision[..12]));
+    println!("  Agents:   {}", snapshot.agents.len());
+    println!("  MCPs:     {}", snapshot.assets.mcp.len());
+    println!("  Models:   {}", snapshot.assets.models.len());
+    println!("  Skills:   {central_skills}");
+    println!("  desired:  {}", snapshot.relationships.consumptions.len());
+    println!("  external: {}", snapshot.relationships.external.len());
+}
+
+fn cmd_models() {
+    let profiles = mux_core::application::models::list_profiles();
+    if profiles.is_empty() {
+        println!("{}", dim("No Model Profiles configured."));
+        return;
+    }
+    println!("{}", bold(&format!("{} Model Profiles:\n", profiles.len())));
+    for profile in profiles {
+        let credential = if profile.credential_saved {
+            green("credential saved")
+        } else {
+            dim("no credential")
+        };
+        println!(
+            "  {} [{}] {}",
+            profile.profile.name, profile.profile.provider, credential
+        );
+        println!("    {}", dim(&profile.profile.model));
+    }
+}
+
+fn cmd_skills() {
+    let inventory = match mux_core::application::skills::list_inventory() {
+        Ok(inventory) => inventory,
+        Err(error) => {
+            let parts = error.into_command_parts();
+            eprintln!(
+                "{}",
+                red(&format!("failed to load Skills: {}", parts.message))
+            );
+            return;
+        }
+    };
+    let mut names = inventory
+        .items
+        .iter()
+        .filter_map(|item| {
+            matches!(
+                item.location,
+                mux_core::application::skills::SkillLocation::Central
+            )
+            .then_some(item.name.as_str())
+        })
+        .collect::<Vec<_>>();
+    names.sort_unstable();
+    names.dedup();
+    if names.is_empty() {
+        println!("{}", dim("No centrally managed Skills."));
+        return;
+    }
+    println!("{}", bold(&format!("{} managed Skills:\n", names.len())));
+    for name in names {
+        println!("  {}", green(name));
+    }
+}
+
+fn cmd_agents_set(name: &str, enabled: bool) {
+    match mux_core::application::agents::set_enabled(name, enabled) {
         Ok(()) => {
             let verb = if enabled { "enabled" } else { "disabled" };
-            println!("{}", green(&format!("✓ {} {}", name, verb)));
+            println!("{}", green(&format!("✓ {name} {verb}")));
         }
-        Err(e) => eprintln!("{}", red(&format!("failed to save agents: {}", e))),
+        Err(e) => eprintln!("{}", red(&format!("failed to save agents: {e}"))),
     }
 }

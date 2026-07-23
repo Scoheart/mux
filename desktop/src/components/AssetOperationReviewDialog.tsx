@@ -121,26 +121,79 @@ function modelStateLabel(state: { added: boolean; enabled: boolean; active: bool
   return "已启用 · 非当前";
 }
 
-function configurationChanges(plan: AssetOperationPlan) {
-  if (plan.domain_plan.domain !== "agent-configuration") return [];
-  const { before, after } = plan.domain_plan;
-  const rows: Array<{ label: string; before: string; after: string }> = [];
-  if (before.mcp_path !== after.mcp_path) {
-    rows.push({ label: "MCP 文件路径", before: before.mcp_path, after: after.mcp_path });
+interface ConfigurationValues {
+  mcpPath: string | null;
+  mcpKey: string | null;
+  modelPaths: string[];
+  skillsGlobalDir: string | null;
+  skillsAliasDirs: string[];
+}
+
+function configurationPlanValues(plan: AssetOperationPlan): {
+  agentId: string;
+  before: ConfigurationValues;
+  after: ConfigurationValues;
+  migratedSkillNames: string[];
+} | null {
+  const domainPlan = plan.domain_plan;
+  if (domainPlan.domain === "agent-configuration") {
+    const project = (value: typeof domainPlan.before): ConfigurationValues => ({
+      mcpPath: value.mcp_path,
+      mcpKey: value.mcp_key ?? null,
+      modelPaths: value.model_paths,
+      skillsGlobalDir: value.skills_global_dir,
+      skillsAliasDirs: value.skills_alias_dirs ?? [],
+    });
+    return {
+      agentId: domainPlan.agent_id,
+      before: project(domainPlan.before),
+      after: project(domainPlan.after),
+      migratedSkillNames: domainPlan.migrated_skill_names,
+    };
   }
-  const beforeMcpKey = before.mcp_key ?? "";
-  const afterMcpKey = after.mcp_key ?? "";
+  if (domainPlan.domain === "agent-capabilities") {
+    const project = (value: typeof domainPlan.before): ConfigurationValues => ({
+      mcpPath: value.mcp?.path ?? null,
+      mcpKey: value.mcp?.key ?? null,
+      modelPaths: value.model?.paths ?? [],
+      skillsGlobalDir: value.skill?.global_dir ?? null,
+      skillsAliasDirs: value.skill?.alias_dirs ?? [],
+    });
+    return {
+      agentId: domainPlan.agent_id,
+      before: project(domainPlan.before),
+      after: project(domainPlan.after),
+      migratedSkillNames: domainPlan.migrated_skill_names,
+    };
+  }
+  return null;
+}
+
+function configurationChanges(plan: AssetOperationPlan) {
+  const configuration = configurationPlanValues(plan);
+  if (!configuration) return [];
+  const { before, after } = configuration;
+  const rows: Array<{ label: string; before: string; after: string }> = [];
+  if (before.mcpPath !== after.mcpPath) {
+    rows.push({
+      label: "MCP 文件路径",
+      before: before.mcpPath ?? "未接入",
+      after: after.mcpPath ?? "未接入",
+    });
+  }
+  const beforeMcpKey = before.mcpKey ?? "";
+  const afterMcpKey = after.mcpKey ?? "";
   if (beforeMcpKey !== afterMcpKey) {
     rows.push({ label: "MCP 配置键", before: beforeMcpKey, after: afterMcpKey });
   }
-  const beforeModels = before.model_paths.join(" · ");
-  const afterModels = after.model_paths.join(" · ");
+  const beforeModels = before.modelPaths.join(" · ");
+  const afterModels = after.modelPaths.join(" · ");
   if (beforeModels !== afterModels) {
     rows.push({ label: "Model", before: beforeModels, after: afterModels });
   }
-  const beforeSkills = [before.skills_global_dir, ...(before.skills_alias_dirs ?? [])]
+  const beforeSkills = [before.skillsGlobalDir, ...before.skillsAliasDirs]
     .filter(Boolean).join(" · ");
-  const afterSkills = [after.skills_global_dir, ...(after.skills_alias_dirs ?? [])]
+  const afterSkills = [after.skillsGlobalDir, ...after.skillsAliasDirs]
     .filter(Boolean).join(" · ");
   if (beforeSkills !== afterSkills) {
     rows.push({
@@ -181,26 +234,24 @@ export function AssetOperationReviewDialog({
   const compatibleAgentCount = isAgentSkillPlan
     ? plan.affected_agent_ids.filter((id) => id !== agentId).length
     : 0;
-  const configurationPlan = plan.domain_plan.domain === "agent-configuration"
-    ? plan.domain_plan
-    : null;
+  const configurationPlan = configurationPlanValues(plan);
   const skillsPathChanged = configurationPlan !== null
-    && (configurationPlan.before.skills_global_dir !== configurationPlan.after.skills_global_dir
-      || JSON.stringify(configurationPlan.before.skills_alias_dirs ?? [])
-        !== JSON.stringify(configurationPlan.after.skills_alias_dirs ?? []));
+    && (configurationPlan.before.skillsGlobalDir !== configurationPlan.after.skillsGlobalDir
+      || JSON.stringify(configurationPlan.before.skillsAliasDirs)
+        !== JSON.stringify(configurationPlan.after.skillsAliasDirs));
   const sharedConfigurationReaderCount = isConfiguration
     && configurationPlan
     && skillsPathChanged
-    ? plan.affected_agent_ids.filter((id) => id !== configurationPlan.agent_id).length
+    ? plan.affected_agent_ids.filter((id) => id !== configurationPlan.agentId).length
     : 0;
   const configChanges = configurationChanges(plan);
   const mcpLocationChanged = configurationPlan !== null
-    && (configurationPlan.before.mcp_path !== configurationPlan.after.mcp_path
-      || configurationPlan.before.mcp_key !== configurationPlan.after.mcp_key);
+    && (configurationPlan.before.mcpPath !== configurationPlan.after.mcpPath
+      || configurationPlan.before.mcpKey !== configurationPlan.after.mcpKey);
   const modelLocationChanged = configurationPlan !== null
-    && (configurationPlan.before.model_paths.length !== configurationPlan.after.model_paths.length
-      || configurationPlan.before.model_paths.some(
-        (path, index) => path !== configurationPlan.after.model_paths[index],
+    && (configurationPlan.before.modelPaths.length !== configurationPlan.after.modelPaths.length
+      || configurationPlan.before.modelPaths.some(
+        (path, index) => path !== configurationPlan.after.modelPaths[index],
       ));
   const hasAdd = plan.relationship_changes.some((change) => change.action === "add");
   const hasRemove = plan.relationship_changes.some((change) => change.action === "remove");
@@ -397,11 +448,11 @@ export function AssetOperationReviewDialog({
             </ul>
           )}
         </section>}
-        {plan.domain_plan.domain === "agent-configuration"
-          && plan.domain_plan.migrated_skill_names.length > 0 && (
+        {configurationPlan
+          && configurationPlan.migratedSkillNames.length > 0 && (
             <section>
               <h3>迁移 Skills</h3>
-              <p>{plan.domain_plan.migrated_skill_names.join("、")}</p>
+              <p>{configurationPlan.migratedSkillNames.join("、")}</p>
             </section>
           )}
         {plan.target_files.length > 0 && (

@@ -18,7 +18,10 @@ export function buildAgentPickerSections(
   query: string,
 ): AgentPickerSections {
   const configurable = agents.filter(
-    (agent) => agent.has_global || Boolean(agent.skills_global_dir?.trim()),
+    (agent) =>
+      agent.has_global ||
+      Boolean(agent.skills_global_dir?.trim()) ||
+      agent.has_model === true,
   );
   const byId = new Map(configurable.map((agent) => [agent.id, agent]));
   const seen = new Set<string>();

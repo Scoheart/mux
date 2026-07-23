@@ -32,8 +32,38 @@ jobs:
       - name: Cache Rust build
         uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
 
+      - name: Check Rust formatting
+        run: cargo fmt --all --check
+
+      - name: Lint core and CLI
+        run: cargo clippy --locked -p mux-core -p mux-cli --all-targets -- -D warnings
+
       - name: Test core and CLI
         run: cargo test --locked -p mux-core -p mux-cli
+
+  tauri:
+    name: Desktop Rust
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          workspaces: desktop/src-tauri -> target
+
+      - name: Check Tauri Rust formatting
+        run: cargo fmt --all --manifest-path desktop/src-tauri/Cargo.toml --check
+
+      - name: Lint Tauri command adapters
+        run: cargo clippy --locked --manifest-path desktop/src-tauri/Cargo.toml --all-targets -- -D warnings
+
+      - name: Test Tauri command adapters
+        run: cargo test --locked --manifest-path desktop/src-tauri/Cargo.toml
 
   desktop:
     name: Desktop
@@ -51,6 +81,9 @@ jobs:
 
       - name: Check release version metadata
         run: node scripts/release-version.mjs check
+
+      - name: Test workflow contracts
+        run: node --test scripts/workflow-contract.test.mjs scripts/release-version.test.mjs
 
       - name: Install dependencies
         working-directory: desktop
@@ -89,16 +122,18 @@ jobs:
   verify:
     name: verify
     if: ${{ always() }}
-    needs: [rust, desktop, website]
+    needs: [rust, tauri, desktop, website]
     runs-on: ubuntu-latest
     steps:
       - name: Require every producer
         env:
           RUST_RESULT: ${{ needs.rust.result }}
+          TAURI_RESULT: ${{ needs.tauri.result }}
           DESKTOP_RESULT: ${{ needs.desktop.result }}
           WEBSITE_RESULT: ${{ needs.website.result }}
         run: |
           test "$RUST_RESULT" = success
+          test "$TAURI_RESULT" = success
           test "$DESKTOP_RESULT" = success
           test "$WEBSITE_RESULT" = success
 

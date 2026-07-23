@@ -11,12 +11,12 @@
 //! so a desktop write never clobbers data the CLI wrote, and vice versa. Every
 //! mutation is read-whole → modify one section → write-whole (atomically).
 
-use crate::consumption::types::{McpConsumptionRecord, ModelConsumptionRecord};
-use crate::disabled::DisabledEntry;
+use crate::domain::assets::{McpConsumptionRecord, ModelConsumptionRecord};
+use crate::domain::mcp::DisabledEntry;
+use crate::domain::skill::ManagedSkillRecord;
+use crate::domain::types::{AgentDefinition, ModelProfile, RegistryEntry, SourceDef};
 use crate::paths::{backups_dir, mux_dir, registry_dir, settings_file, user_agents_file};
 use crate::safe_write::{acquire_settings_lock, write_private_if_unchanged};
-use crate::skills::ManagedSkillRecord;
-use crate::types::{AgentDefinition, ModelProfile, RegistryEntry, SourceDef};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
@@ -128,11 +128,8 @@ pub struct Settings {
 impl Settings {
     /// Return the canonical Model state while transparently projecting legacy
     /// `model_assignments` into an enabled installed relationship.
-    pub fn model_selection(
-        &self,
-        agent_id: &str,
-    ) -> crate::consumption::types::ModelAgentSelection {
-        use crate::consumption::types::{ModelAgentSelection, ModelConsumptionRecord};
+    pub fn model_selection(&self, agent_id: &str) -> crate::domain::assets::ModelAgentSelection {
+        use crate::domain::assets::{ModelAgentSelection, ModelConsumptionRecord};
 
         let mut selection = ModelAgentSelection {
             profiles: self
@@ -165,7 +162,7 @@ impl Settings {
     pub fn set_model_selection(
         &mut self,
         agent_id: &str,
-        selection: crate::consumption::types::ModelAgentSelection,
+        selection: crate::domain::assets::ModelAgentSelection,
     ) {
         let all = self.model_consumptions.get_or_insert_default();
         if selection.profiles.is_empty() {
@@ -239,9 +236,13 @@ fn save_with_expected(
 
 /// Persist the whole settings document (pretty JSON, atomic). Stamps `version`.
 pub fn save_settings(settings: &Settings) -> std::io::Result<()> {
-    let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let path = settings_file();
+    // Global lock order is filesystem → process. Asset transactions already
+    // hold the filesystem lock while calling nested settings mutations; taking
+    // these in the opposite order lets a concurrent raw writer stall both
+    // threads until the filesystem-lock timeout.
     let _filesystem_guard = acquire_settings_lock(&path).map_err(Error::other)?;
+    let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let original = read_optional(&path)?;
     save_with_expected(&path, settings, original.as_deref())
 }
@@ -252,9 +253,9 @@ pub fn mutate_settings<F, R>(f: F) -> std::io::Result<R>
 where
     F: FnOnce(&mut Settings) -> R,
 {
-    let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let path = settings_file();
     let _filesystem_guard = acquire_settings_lock(&path).map_err(Error::other)?;
+    let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let (mut settings, original) = parse_for_update(&path)?;
     let out = f(&mut settings);
     save_with_expected(&path, &settings, original.as_deref())?;
@@ -267,9 +268,9 @@ pub fn mutate_settings_checked<F, R>(f: F) -> std::io::Result<R>
 where
     F: FnOnce(&mut Settings) -> std::io::Result<R>,
 {
-    let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let path = settings_file();
     let _filesystem_guard = acquire_settings_lock(&path).map_err(Error::other)?;
+    let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let (mut settings, original) = parse_for_update(&path)?;
     let out = f(&mut settings)?;
     save_with_expected(&path, &settings, original.as_deref())?;
@@ -300,12 +301,28 @@ pub fn migrate_if_needed() {
     let state_path = mux_dir().join("state.json");
     let imported_path = mux_dir().join(".imported");
 
-    let any_legacy = reg_dir.is_dir()
-        || agents_path.exists()
-        || disabled_path.exists()
-        || state_path.exists()
-        || imported_path.exists();
-    if !any_legacy {
+    let has_legacy = || {
+        reg_dir.is_dir()
+            || agents_path.exists()
+            || disabled_path.exists()
+            || state_path.exists()
+            || imported_path.exists()
+    };
+    // Avoid creating ~/.mux solely to discover that there is nothing to
+    // migrate. Once legacy state exists, serialize the complete check, write,
+    // and archival decision with every other cooperating settings writer.
+    if !has_legacy() {
+        return;
+    }
+
+    let _filesystem_guard = match acquire_settings_lock(&settings_path) {
+        Ok(guard) => guard,
+        Err(_) => return,
+    };
+    let _process_guard = LOCK.lock().unwrap_or_else(|error| error.into_inner());
+    // Another process may have completed migration or created fresh settings
+    // while this process was waiting for the filesystem lock.
+    if settings_path.exists() || !has_legacy() {
         return;
     }
 
@@ -360,11 +377,13 @@ pub fn migrate_if_needed() {
     }
 
     // Only archive the legacy files once the new file is safely written.
-    if save_settings(&s).is_err() {
+    // The caller already owns both locks, so use the internal CAS writer
+    // directly instead of re-entering the non-reentrant process mutex.
+    if save_with_expected(&settings_path, &s, None).is_err() {
         return;
     }
     let stamp = super::paths::backup_timestamp();
-    let legacy_dir = backups_dir().join(format!("legacy-{}", stamp));
+    let legacy_dir = backups_dir().join(format!("legacy-{stamp}"));
     archive(&reg_dir, &legacy_dir, "registry");
     archive(&agents_path, &legacy_dir, "agents.json");
     archive(&disabled_path, &legacy_dir, "disabled.json");
@@ -375,8 +394,8 @@ pub fn migrate_if_needed() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::types::{RegistryConfig, StdioConfig};
     use crate::safe_write::acquire_settings_lock;
-    use crate::types::{RegistryConfig, StdioConfig};
     use std::sync::mpsc;
     use std::time::Duration;
 
@@ -636,6 +655,68 @@ mod tests {
         let saved: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
         assert_eq!(saved["imported"], "mutation");
         assert_eq!(saved["future"]["value"], 2);
+    }
+
+    #[test]
+    fn settings_writers_take_the_filesystem_lock_before_the_process_mutex() {
+        let home = crate::testenv::TestHome::new("settings-lock-order");
+        let path = home.home.join(".mux/settings.json");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, r#"{"imported":"original"}"#).unwrap();
+
+        let filesystem_lock = acquire_settings_lock(&path).unwrap();
+        let (started_tx, started_rx) = mpsc::channel();
+        let writer = std::thread::spawn(move || {
+            started_tx.send(()).unwrap();
+            mutate_settings(|settings| settings.imported = Some("writer".into()))
+        });
+        started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        std::thread::sleep(Duration::from_millis(100));
+
+        let process_guard = LOCK
+            .try_lock()
+            .expect("a writer waiting on the filesystem lock must not hold the process mutex");
+        drop(process_guard);
+
+        // This models an asset transaction: the current thread already owns
+        // the filesystem lock, then enters a nested settings mutation.
+        mutate_settings(|settings| settings.imported = Some("transaction".into())).unwrap();
+        drop(filesystem_lock);
+        writer.join().unwrap().unwrap();
+
+        assert_eq!(
+            load_settings_strict().unwrap().imported.as_deref(),
+            Some("writer")
+        );
+    }
+
+    #[test]
+    fn legacy_migration_rechecks_settings_after_waiting_for_filesystem_lock() {
+        let home = crate::testenv::TestHome::new("migration-lock");
+        let mux = home.home.join(".mux");
+        let path = mux.join("settings.json");
+        std::fs::create_dir_all(&mux).unwrap();
+        std::fs::write(mux.join("agents.json"), r#"{"legacy":{"name":"Legacy"}}"#).unwrap();
+
+        let filesystem_lock = acquire_settings_lock(&path).unwrap();
+        let (started_tx, started_rx) = mpsc::channel();
+        let migration = std::thread::spawn(move || {
+            started_tx.send(()).unwrap();
+            migrate_if_needed();
+        });
+        started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        std::thread::sleep(Duration::from_millis(100));
+
+        let fresh = r#"{"imported":"created-while-migration-waited"}"#;
+        std::fs::write(&path, fresh).unwrap();
+        drop(filesystem_lock);
+        migration.join().unwrap();
+
+        assert_eq!(std::fs::read_to_string(path).unwrap(), fresh);
+        assert!(
+            mux.join("agents.json").exists(),
+            "legacy inputs must not be archived when fresh settings already won"
+        );
     }
 
     #[test]

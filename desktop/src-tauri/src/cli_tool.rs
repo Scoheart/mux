@@ -85,7 +85,7 @@ pub fn install_cli() -> Result<CliStatus, String> {
     }
     match fs::symlink_metadata(&link) {
         Ok(meta) if meta.file_type().is_symlink() => {
-            fs::remove_file(&link).map_err(|e| format!("移除旧软链失败: {}", e))?;
+            fs::remove_file(&link).map_err(|e| format!("移除旧软链失败: {e}"))?;
         }
         Ok(_) => {
             return Err(format!(
@@ -96,7 +96,7 @@ pub fn install_cli() -> Result<CliStatus, String> {
         Err(_) => {}
     }
     #[cfg(unix)]
-    std::os::unix::fs::symlink(&cli, &link).map_err(|e| format!("创建软链失败: {}", e))?;
+    std::os::unix::fs::symlink(&cli, &link).map_err(|e| format!("创建软链失败: {e}"))?;
     #[cfg(not(unix))]
     return Err("仅支持 macOS/Linux".into());
     Ok(cli_status())

@@ -2,7 +2,7 @@
 name = "mux-core"
 version = "1.8.38"
 edition = "2021"
-description = "Shared MCP config-management core for the MUX CLI and desktop app"
+description = "Shared MCP, Model, Skill, Agent, and transaction core for MUX frontends"
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }

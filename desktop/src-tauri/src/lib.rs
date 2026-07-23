@@ -15,26 +15,16 @@ pub fn run() {
         // Needed to relaunch the app after an update is installed.
         .plugin(tauri_plugin_process::init())
         .setup(|app| {
-            // Fold any legacy ~/.mux files into a single settings.json on first run.
-            mux_core::settings::migrate_if_needed();
-            // Move any legacy settings.registry entries into the managed
-            // "manual"/"discovered" local-source files (one-time).
-            mux_core::registry::migrate_registry_to_sources();
-            // Agent MCP files are observed state only. Startup must never turn
-            // external configuration into a central asset or desired relation.
-
-            // Skills owns its nested journal; recover it first, then let the
-            // cross-domain asset coordinator either finalize a verified commit
-            // or restore its private rollback snapshots.
-            let skills_recovery_ok = mux_core::skills::recover_pending().is_ok();
-            let asset_recovery_ok =
-                mux_core::consumption::recover_pending_asset_operations().is_ok();
-            let model_migration_ok = asset_recovery_ok
-                && mux_core::consumption::migrate_model_profiles_v2_if_needed().is_ok();
-            let recovery_ok = skills_recovery_ok && asset_recovery_ok && model_migration_ok;
-            if recovery_ok {
+            let bootstrap = mux_core::application::MuxCore::bootstrap(
+                mux_core::application::bootstrap::Frontend::Desktop,
+            )
+            .expect("Desktop bootstrap remains diagnostic");
+            for warning in &bootstrap.warnings {
+                eprintln!("MUX startup warning: {warning:?}");
+            }
+            if bootstrap.skill_updates_allowed {
                 std::thread::spawn(|| {
-                    let _ = mux_core::skills::check_updates_if_due();
+                    let _ = mux_core::application::skills::check_updates_if_due();
                 });
             }
 
@@ -47,6 +37,11 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            commands::get_workspace_snapshot,
+            commands::list_agent_capabilities,
+            commands::plan_operation,
+            commands::commit_operation,
+            commands::cancel_operation,
             commands::list_consumption_inventory,
             commands::list_mcp_adoption_candidates,
             commands::plan_mcp_adoption,
@@ -57,6 +52,7 @@ pub fn run() {
             commands::plan_set_model_enabled,
             commands::plan_set_active_model,
             commands::plan_set_asset_consumers,
+            commands::plan_update_agent_capabilities,
             commands::plan_update_agent_configuration,
             commands::plan_update_central_asset,
             commands::plan_delete_central_asset,

@@ -43,7 +43,6 @@ vi.mock("../lib/api", async () => {
   return {
     ...actual,
     getSkillDetail: vi.fn(),
-    planSkillUpdate: vi.fn(),
     resolveGithubSkillSource: vi.fn(),
   };
 });
@@ -161,11 +160,6 @@ beforeEach(() => {
   );
   vi.mocked(api.resolveGithubSkillSource).mockReset();
   vi.mocked(api.resolveGithubSkillSource).mockResolvedValue(resolutionFixture());
-  vi.mocked(api.planSkillUpdate).mockReset();
-  vi.mocked(api.planSkillUpdate).mockResolvedValue({
-    ...sharedTargetPlanFixture(),
-    kind: "update",
-  });
   appMocks.useInstallState.mockReset();
   appMocks.useInstallState.mockReturnValue(installStateForApp(true));
   appMocks.useSkillsState.mockReset();
@@ -197,12 +191,24 @@ afterEach(cleanup);
 describe("SkillsView", () => {
   it("replaces the Skill Inspector with lifecycle confirmation instead of stacking dialogs", async () => {
     const user = userEvent.setup();
-    render(<SkillsView state={skillsStateFixture()} />);
+    const planned = {
+      ...sharedTargetPlanFixture(),
+      kind: "update" as const,
+    };
+    const plan = vi.fn().mockResolvedValue(planned);
+    render(<SkillsView state={stateWith(skillsInventoryFixture(), { plan })} />);
 
     await user.click(screen.getByRole("button", { name: /打开 Skill review-changes 详情/ }));
     expect(await screen.findByRole("complementary", { name: "review-changes 详情" })).toBeVisible();
     await user.click(screen.getByRole("button", { name: "更新" }));
 
+    expect(plan).toHaveBeenCalledWith({
+      operation: "update_skill",
+      request: {
+        skill_name: "review-changes",
+        replace_local_changes: false,
+      },
+    });
     expect(await screen.findByRole("dialog", { name: "确认 Skill 更改" })).toBeVisible();
     expect(screen.getAllByRole("dialog")).toHaveLength(1);
     expect(screen.queryByRole("complementary", { name: "review-changes 详情" })).not.toBeInTheDocument();

@@ -12,8 +12,6 @@ use super::model::{
     InstallWizard, LocalForm, Modal, Model, PasteState, Screen, SubscribeForm, AGENT_FIELDS,
     EDITOR_FIELDS,
 };
-use mux_core::types::AgentDefinition;
-
 /// The GitHub raw URL of the curated collection, offered as a remote subscribe.
 const OFFICIAL_URL: &str = "https://raw.githubusercontent.com/Scoheart/mux/main/data/registry.json";
 
@@ -35,10 +33,10 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
         }
         Msg::Mutated { label, result } => match result {
             Ok(()) => {
-                model.status = Some(format!("✓ {}", label));
+                model.status = Some(format!("✓ {label}"));
                 return vec![Effect::LoadAll];
             }
-            Err(e) => model.status = Some(format!("✗ {}：{}", label, e)),
+            Err(e) => model.status = Some(format!("✗ {label}：{e}")),
         },
         Msg::Resynced {
             name,
@@ -48,7 +46,7 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
             Ok(outcome) => {
                 if !outcome.skipped_customized.is_empty() {
                     // Some installs are hand-customized — offer to force-overwrite.
-                    model.modal = Some(Modal::Confirm(ConfirmState {
+                    model.modal = Some(Modal::Confirm(Box::new(ConfirmState {
                         prompt: format!(
                             "{} 个 agent 的配置被手改过（{}），强制覆盖为当前配置？",
                             outcome.skipped_customized.len(),
@@ -59,9 +57,9 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
                             transport,
                             force: true,
                         },
-                    }));
+                    })));
                 } else if outcome.synced.is_empty() {
-                    model.status = Some(format!("没有需要同步的已安装 agent：{}", name));
+                    model.status = Some(format!("没有需要同步的已安装 agent：{name}"));
                 } else {
                     model.status = Some(format!(
                         "✓ 已同步 {} 到 {} 个 agent",
@@ -72,7 +70,7 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
                 // Reflect any clean installs that were just re-stamped.
                 return vec![Effect::LoadAll];
             }
-            Err(e) => model.status = Some(format!("✗ 同步失败：{}", e)),
+            Err(e) => model.status = Some(format!("✗ 同步失败：{e}")),
         },
         Msg::Key(k) => return on_key(model, k),
     }
@@ -190,13 +188,12 @@ fn open_forget_confirm(model: &mut Model) {
         model.status = Some("订阅/本地来源的条目请到「来源」页管理".into());
         return;
     }
-    model.modal = Some(Modal::Confirm(ConfirmState {
+    model.modal = Some(Modal::Confirm(Box::new(ConfirmState {
         prompt: format!(
-            "删除「{}」（{}）？会从目录移除，并从所有 agent 卸载（有备份）。",
-            name, transport
+            "删除「{name}」（{transport}）？会从目录移除，并从所有 agent 卸载（有备份）。"
         ),
         effect: Effect::ForgetEntry { name, transport },
-    }));
+    })));
 }
 
 /// `S`: re-sync the selected entry's current config to its installed agents.
@@ -269,10 +266,12 @@ fn editor_key(model: &mut Model, k: KeyEvent) -> Vec<Effect> {
         KeyCode::Down | KeyCode::Char('j') => ed.field = clamp(ed.field + 1, EDITOR_FIELDS),
         KeyCode::Enter => {
             if ed.field == 3 {
-                ed.transport = match ed.transport {
-                    EditorTransport::Stdio => EditorTransport::Http,
-                    EditorTransport::Http => EditorTransport::Stdio,
-                };
+                if ed.transport_editable() {
+                    ed.transport = match ed.transport {
+                        EditorTransport::Stdio => EditorTransport::Http,
+                        EditorTransport::Http => EditorTransport::Stdio,
+                    };
+                }
             } else if ed.field_mut(ed.field).is_some() {
                 ed.editing = true;
             }
@@ -300,7 +299,7 @@ fn editor_key(model: &mut Model, k: KeyEvent) -> Vec<Effect> {
 
 /// Validate the editor form, guard collisions, and emit the save effect.
 fn save_editor(model: &mut Model) -> Vec<Effect> {
-    let (result, original_key, is_custom) = {
+    let (result, original_key) = {
         let Some(ed) = model.editor.as_ref() else {
             return vec![];
         };
@@ -309,7 +308,7 @@ fn save_editor(model: &mut Model) -> Vec<Effect> {
             .as_ref()
             .and_then(|k| model.data.registry.iter().find(|e| &e.key() == k))
             .and_then(|e| e.origin.clone());
-        (ed.to_entry(origin), ed.original_key.clone(), ed.is_custom)
+        (ed.to_entry(origin), ed.original_key.clone())
     };
     match result {
         Err(msg) => {
@@ -328,14 +327,11 @@ fn save_editor(model: &mut Model) -> Vec<Effect> {
                 }
                 return vec![];
             }
-            let delete_old = match &original_key {
-                Some(old) if *old != new_key && is_custom => old
-                    .rsplit_once("::")
-                    .map(|(n, t)| (n.to_string(), t.to_string())),
-                _ => None,
-            };
             model.editor = None;
-            vec![Effect::UpsertEntry { entry, delete_old }]
+            vec![Effect::UpsertEntry {
+                entry,
+                existing_key: original_key,
+            }]
         }
     }
 }
@@ -405,7 +401,7 @@ fn sources_key(model: &mut Model, k: KeyEvent) -> Vec<Effect> {
 }
 
 /// The source row under the cursor.
-fn current_source(model: &Model) -> Option<&mux_core::sources::SourceView> {
+fn current_source(model: &Model) -> Option<&mux_core::application::mcp::sources::SourceView> {
     model.data.sources.get(model.sources_ui.cursor)
 }
 
@@ -443,10 +439,10 @@ fn open_remove_source_confirm(model: &mut Model) {
         return;
     }
     let (id, name) = (s.id.clone(), s.name.clone());
-    model.modal = Some(Modal::Confirm(ConfirmState {
-        prompt: format!("删除来源「{}」？其缓存文件会一并删除。", name),
+    model.modal = Some(Modal::Confirm(Box::new(ConfirmState {
+        prompt: format!("删除来源「{name}」？其缓存文件会一并删除。"),
         effect: Effect::RemoveSource { id },
-    }));
+    })));
 }
 
 fn agents_key(model: &mut Model, k: KeyEvent) -> Vec<Effect> {
@@ -537,17 +533,14 @@ fn open_delete_confirm(model: &mut Model) {
     let Some((server, transport, agent)) = selected_installed(model) else {
         return;
     };
-    model.modal = Some(Modal::Confirm(ConfirmState {
-        prompt: format!(
-            "从 {} 删除 {}？此操作会写回配置文件（有备份）。",
-            agent, server
-        ),
+    model.modal = Some(Modal::Confirm(Box::new(ConfirmState {
+        prompt: format!("从 {agent} 删除 {server}？此操作会写回配置文件（有备份）。"),
         effect: Effect::Delete {
             server,
             transport,
             agent,
         },
-    }));
+    })));
 }
 
 /// `a`: open the "add MCP to this agent" search popover for the selected agent.
@@ -566,27 +559,15 @@ fn open_add_mcp(model: &mut Model) {
     }));
 }
 
-/// Space on an agent row: flip its enabled flag (persisted via agents::put).
+/// Space on an agent row: flip only its enabled flag, preserving every
+/// capability definition.
 fn toggle_agent_enabled(model: &mut Model) -> Vec<Effect> {
     let Some(a) = model.data.agents.get(model.agents_ui.agent_cursor) else {
         return vec![];
     };
-    if !a.has_global {
-        return vec![];
-    }
-    let def = AgentDefinition {
-        global: a.global.clone(),
-        project: a.project.clone(),
-        format: a.format.clone(),
-        key: a.key.clone(),
-        enabled: !a.enabled,
-        builtin: Some(a.builtin),
-        ..Default::default()
-    };
-    vec![Effect::PutAgent {
+    vec![Effect::SetAgentEnabled {
         id: a.id.clone(),
-        def,
-        overwrite: true,
+        enabled: !a.enabled,
     }]
 }
 
@@ -896,7 +877,9 @@ fn add_mcp_key(model: &mut Model, mut st: AddMcpState, k: KeyEvent) -> Vec<Effec
 mod tests {
     use super::*;
     use crate::tui::message::LoadedData;
-    use mux_core::types::{HttpConfig, RegistryConfig, RegistryEntry, RegistryOrigin, StdioConfig};
+    use mux_core::domain::types::{
+        HttpConfig, RegistryConfig, RegistryEntry, RegistryOrigin, StdioConfig,
+    };
 
     fn key(c: char) -> Msg {
         Msg::Key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::empty()))
@@ -1030,8 +1013,8 @@ mod tests {
         assert!(m2.should_quit);
     }
 
-    fn agent(id: &str, has_global: bool) -> mux_core::agents::AgentInfo {
-        mux_core::agents::AgentInfo {
+    fn agent(id: &str, has_global: bool) -> mux_core::application::agents::AgentInfo {
+        mux_core::application::agents::AgentInfo {
             id: id.into(),
             name: id.into(),
             format: "json".into(),
@@ -1053,7 +1036,10 @@ mod tests {
         }
     }
 
-    fn loaded_full(entries: Vec<RegistryEntry>, agents: Vec<mux_core::agents::AgentInfo>) -> Msg {
+    fn loaded_full(
+        entries: Vec<RegistryEntry>,
+        agents: Vec<mux_core::application::agents::AgentInfo>,
+    ) -> Msg {
         Msg::Loaded(Box::new(LoadedData {
             registry: entries,
             custom_keys: vec![],
@@ -1136,14 +1122,14 @@ mod tests {
     fn confirm_yes_runs_effect_no_cancels() {
         use crate::tui::model::ConfirmState;
         let mut m = Model::new();
-        m.modal = Some(Modal::Confirm(ConfirmState {
+        m.modal = Some(Modal::Confirm(Box::new(ConfirmState {
             prompt: "x".into(),
             effect: Effect::Delete {
                 server: "git".into(),
                 transport: "stdio".into(),
                 agent: "claude".into(),
             },
-        }));
+        })));
         let eff = update(&mut m, key('y'));
         assert_eq!(eff.len(), 1);
         assert!(matches!(&eff[0], Effect::Delete { .. }));
@@ -1151,14 +1137,14 @@ mod tests {
 
         // 'n' cancels without an effect
         let mut m2 = Model::new();
-        m2.modal = Some(Modal::Confirm(ConfirmState {
+        m2.modal = Some(Modal::Confirm(Box::new(ConfirmState {
             prompt: "x".into(),
             effect: Effect::Delete {
                 server: "git".into(),
                 transport: "stdio".into(),
                 agent: "claude".into(),
             },
-        }));
+        })));
         let eff2 = update(&mut m2, key('n'));
         assert!(eff2.is_empty());
         assert!(m2.modal.is_none());
@@ -1206,9 +1192,44 @@ mod tests {
         let eff = update(&mut m, ctrl('s'));
         assert_eq!(eff.len(), 1);
         assert!(
-            matches!(&eff[0], Effect::UpsertEntry { entry, delete_old: None } if entry.name == "git")
+            matches!(&eff[0], Effect::UpsertEntry { entry, existing_key: None } if entry.name == "git")
         );
         assert!(m.editor.is_none());
+    }
+
+    #[test]
+    fn existing_custom_entry_keeps_name_and_transport_identity_locked() {
+        let mut m = Model::new();
+        update(&mut m, loaded(vec![entry("git", "manual")]));
+        m.data.custom_keys.insert("git::stdio".into());
+        update(&mut m, key('e'));
+
+        let editor = m.editor.as_ref().unwrap();
+        assert!(editor.is_custom);
+        assert!(!editor.name_editable());
+        assert!(!editor.transport_editable());
+
+        update(&mut m, code(KeyCode::Enter));
+        typed(&mut m, "-renamed");
+        assert_eq!(m.editor.as_ref().unwrap().name, "git");
+
+        for _ in 0..3 {
+            update(&mut m, code(KeyCode::Down));
+        }
+        update(&mut m, code(KeyCode::Enter));
+        assert!(matches!(
+            m.editor.as_ref().unwrap().transport,
+            EditorTransport::Stdio
+        ));
+
+        let eff = update(&mut m, ctrl('s'));
+        assert!(matches!(
+            &eff[0],
+            Effect::UpsertEntry {
+                entry,
+                existing_key: Some(existing_key),
+            } if entry.key() == "git::stdio" && existing_key == "git::stdio"
+        ));
     }
 
     #[test]
@@ -1230,6 +1251,44 @@ mod tests {
         assert_eq!(ed.repo, "https://github.com/x/y");
         let out = ed.to_entry(None).unwrap();
         assert_eq!(out.repo.as_deref(), Some("https://github.com/x/y"));
+    }
+
+    #[test]
+    fn editor_preserves_structured_stdio_values_round_trip() {
+        use crate::tui::model::EditorState;
+        let mut e = entry("structured", "manual");
+        let stdio = e.config.stdio.as_mut().unwrap();
+        stdio.args = Some(vec!["--label=a,b".into(), " spaced value ".into()]);
+        stdio.env = Some(std::collections::HashMap::from([
+            ("CSV".into(), "a,b,c".into()),
+            ("EQUALS".into(), "a=b".into()),
+        ]));
+        stdio.cwd = Some("~/work,bench".into());
+
+        let ed = EditorState::from_entry(&e, true);
+        let out = ed.to_entry(None).unwrap();
+
+        assert_eq!(out.config.stdio, e.config.stdio);
+    }
+
+    #[test]
+    fn editor_preserves_structured_http_headers_round_trip() {
+        use crate::tui::model::EditorState;
+        let mut e = entry("structured-http", "manual");
+        e.config.stdio = None;
+        e.config.http = Some(mux_core::domain::types::HttpConfig {
+            kind: "http".into(),
+            url: "https://example.invalid/mcp".into(),
+            headers: Some(std::collections::HashMap::from([
+                ("Cookie".into(), "a=1,b=2".into()),
+                ("X-List".into(), "one,two".into()),
+            ])),
+        });
+
+        let ed = EditorState::from_entry(&e, true);
+        let out = ed.to_entry(None).unwrap();
+
+        assert_eq!(out.config.http, e.config.http);
     }
 
     #[test]
@@ -1263,8 +1322,12 @@ mod tests {
         assert!(matches!(&eff[0], Effect::ImportPaste(t) if t == "{}"));
     }
 
-    fn source(id: &str, enabled: bool, managed: bool) -> mux_core::sources::SourceView {
-        mux_core::sources::SourceView {
+    fn source(
+        id: &str,
+        enabled: bool,
+        managed: bool,
+    ) -> mux_core::application::mcp::sources::SourceView {
+        mux_core::application::mcp::sources::SourceView {
             id: id.into(),
             kind: "remote".into(),
             name: id.into(),
@@ -1280,7 +1343,7 @@ mod tests {
         }
     }
 
-    fn loaded_sources(srcs: Vec<mux_core::sources::SourceView>) -> Msg {
+    fn loaded_sources(srcs: Vec<mux_core::application::mcp::sources::SourceView>) -> Msg {
         Msg::Loaded(Box::new(LoadedData {
             registry: vec![],
             custom_keys: vec![],
@@ -1339,11 +1402,14 @@ mod tests {
     fn space_toggles_agent_enabled() {
         let mut m = Model::new();
         m.screen = Screen::Agents;
-        update(&mut m, loaded_full(vec![], vec![agent("claude", true)]));
+        update(
+            &mut m,
+            loaded_full(vec![], vec![agent("skill-only", false)]),
+        );
         let eff = update(&mut m, key(' '));
         assert!(
-            matches!(&eff[0], Effect::PutAgent { id, def, overwrite: true }
-            if id == "claude" && !def.enabled)
+            matches!(&eff[0], Effect::SetAgentEnabled { id, enabled: false }
+            if id == "skill-only")
         );
     }
 
@@ -1396,7 +1462,7 @@ mod tests {
     #[test]
     fn resynced_with_customized_opens_force_confirm() {
         let mut m = Model::new();
-        let outcome = mux_core::ops::ResyncOutcome {
+        let outcome = mux_core::application::mcp::operations::ResyncOutcome {
             synced: vec![],
             skipped_customized: vec!["qoder".into()],
         };
@@ -1443,7 +1509,7 @@ mod tests {
     #[test]
     fn resynced_clean_only_sets_status_no_modal() {
         let mut m = Model::new();
-        let outcome = mux_core::ops::ResyncOutcome {
+        let outcome = mux_core::application::mcp::operations::ResyncOutcome {
             synced: vec!["claude-code".into()],
             skipped_customized: vec![],
         };

@@ -1,9 +1,14 @@
 import { useState, type ReactNode } from "react";
-import type { AgentInfo, AssetOperationPlan, ModelAgentView } from "../lib/types";
+import type {
+  AgentConfigurationPatch,
+  AgentInfo,
+  AssetOperationPlan,
+  ModelAgentView,
+} from "../lib/types";
 import {
-  cancelAssetOperation,
-  commitAssetOperation,
-  planUpdateAgentConfiguration,
+  cancelOperation,
+  commitOperation,
+  planOperation,
 } from "../lib/api";
 import { formatError } from "../lib/format";
 import { DialogShell } from "./DialogShell";
@@ -39,26 +44,43 @@ export function AgentConfigurationDialog({
   const [plan, setPlan] = useState<AssetOperationPlan | null>(null);
   const [error, setError] = useState<string | null>(null);
   const toast = useToast();
+  const hasMcp = agent.has_global;
+  const hasModel = modelAgent !== null;
+  const hasSkills = agent.skills_global_dir !== null;
 
   const canSubmit = !busy
-    && mcpPath.trim().length > 0
-    && mcpKey.trim().length > 0
-    && modelPaths.every((path) => path.trim().length > 0)
-    && skillsPaths.every((path) => path.trim().length > 0);
+    && (!hasMcp || (mcpPath.trim().length > 0 && mcpKey.trim().length > 0))
+    && (!hasModel || (modelPaths.length > 0
+      && modelPaths.every((path) => path.trim().length > 0)))
+    && (!hasSkills || (skillsPaths.length > 0
+      && skillsPaths.every((path) => path.trim().length > 0)));
 
   const save = async () => {
     if (!canSubmit) return;
     setBusy(true);
     setError(null);
     try {
-      const nextPlan = await planUpdateAgentConfiguration(agent.id, {
-        mcp_path: mcpPath.trim(),
-        mcp_key: mcpKey.trim(),
-        model_paths: modelPaths.map((path) => path.trim()),
-        skills_global_dir: skillsPaths[0]?.trim() ?? null,
-        skills_alias_dirs: skillsPaths.slice(1).map((path) => path.trim()),
+      const patch: AgentConfigurationPatch = {};
+      if (hasMcp) {
+        patch.mcp = { path: mcpPath.trim(), key: mcpKey.trim() };
+      }
+      if (hasModel) {
+        patch.model = { paths: modelPaths.map((path) => path.trim()) };
+      }
+      if (hasSkills) {
+        patch.skill = {
+          global_dir: skillsPaths[0].trim(),
+          alias_dirs: skillsPaths.slice(1).map((path) => path.trim()),
+        };
+      }
+      const result = await planOperation({
+        operation: "update_agent_capabilities",
+        request: { agent_id: agent.id, patch },
       });
-      setPlan(nextPlan);
+      if (result.domain !== "asset") {
+        throw new Error("Core returned a Skill plan for an Agent configuration request");
+      }
+      setPlan(result.plan);
     } catch (error) {
       const message = formatError(error);
       setError(message);
@@ -73,7 +95,17 @@ export function AgentConfigurationDialog({
     setBusy(true);
     setError(null);
     try {
-      await commitAssetOperation(plan, conflictConfirmation);
+      const result = await commitOperation({
+        domain: "asset",
+        request: {
+          operation_id: plan.operation_id,
+          candidate_hash: plan.candidate_hash,
+          conflict_confirmation: conflictConfirmation ?? null,
+        },
+      });
+      if (result.domain !== "asset") {
+        throw new Error("Core returned a Skill inventory for an Agent configuration commit");
+      }
       await onSaved();
       toast.show({ kind: "success", msg: `${agent.name} 配置已更新。` });
       onClose();
@@ -88,7 +120,10 @@ export function AgentConfigurationDialog({
     if (!plan) return onClose();
     setBusy(true);
     try {
-      await cancelAssetOperation(plan.operation_id);
+      await cancelOperation({
+        domain: "asset",
+        operation_id: plan.operation_id,
+      });
       setPlan(null);
       setError(null);
     } catch (cancelError) {
@@ -142,18 +177,29 @@ export function AgentConfigurationDialog({
       )}
     >
       <div className="mux-agent-config-form">
-        <ConfigField
-          icon={<PackageIcon className="w-4 h-4" />}
-          label="MCP 文件路径"
-          value={mcpPath}
-          onChange={setMcpPath}
-        />
-        <ConfigField
-          icon={null}
-          label="MCP 配置键"
-          value={mcpKey}
-          onChange={setMcpKey}
-        />
+        {hasMcp ? (
+          <>
+            <ConfigField
+              icon={<PackageIcon className="w-4 h-4" />}
+              label="MCP 文件路径"
+              value={mcpPath}
+              onChange={setMcpPath}
+            />
+            <ConfigField
+              icon={null}
+              label="MCP 配置键"
+              value={mcpKey}
+              onChange={setMcpKey}
+            />
+          </>
+        ) : (
+          <ConfigField
+            icon={<PackageIcon className="w-4 h-4" />}
+            label="MCP"
+            value="未接入"
+            disabled
+          />
+        )}
         {modelPaths.length > 0 ? modelPaths.map((path, index) => (
           <ConfigField
             key={index}

@@ -218,24 +218,33 @@ fn main_window_starts_hidden_without_changing_existing_window_contracts() {
 #[test]
 fn startup_recovers_before_showing_and_checks_updates_only_after_success() {
     let source = include_str!("../src/lib.rs");
-    let recovery = source
-        .find("let skills_recovery_ok = mux_core::skills::recover_pending().is_ok();")
-        .expect("startup must attempt Skills recovery");
-    let asset_recovery = source
-        .find("mux_core::consumption::recover_pending_asset_operations()")
-        .expect("startup must recover cross-domain asset transactions");
+    let bootstrap = source
+        .find("mux_core::application::MuxCore::bootstrap(")
+        .expect("startup must delegate recovery to the core bootstrap");
     let conditional_check = source
-        .find("if recovery_ok {")
+        .find("if bootstrap.skill_updates_allowed {")
         .expect("due checking must be conditional on successful recovery");
     let due_check = source
-        .find("mux_core::skills::check_updates_if_due()")
+        .find("mux_core::application::skills::check_updates_if_due()")
         .expect("startup must schedule the metadata-only due check");
     let show = source
         .find("window.show()?")
         .expect("startup must still show the initialized main window");
 
-    assert!(recovery < asset_recovery);
-    assert!(asset_recovery < conditional_check);
+    assert!(bootstrap < conditional_check);
     assert!(conditional_check < due_check);
     assert!(due_check < show);
+
+    let bootstrap_source = include_str!("../../../core/src/application/bootstrap.rs");
+    let skill_recovery = bootstrap_source
+        .find("BootstrapStage::SkillRecovery")
+        .expect("bootstrap must recover Skills");
+    let asset_recovery = bootstrap_source
+        .find("BootstrapStage::AssetRecovery")
+        .expect("bootstrap must recover asset operations");
+    let model_migration = bootstrap_source
+        .find("migrate_model_profiles_v2_if_needed")
+        .expect("bootstrap must run Model migration after recovery");
+    assert!(skill_recovery < asset_recovery);
+    assert!(asset_recovery < model_migration);
 }

@@ -96,7 +96,7 @@ mod tests {
     use crate::tui::message::LoadedData;
     use crate::tui::message::Msg;
     use crate::tui::update::update;
-    use mux_core::types::{RegistryConfig, RegistryEntry, RegistryOrigin, StdioConfig};
+    use mux_core::domain::types::{RegistryConfig, RegistryEntry, RegistryOrigin, StdioConfig};
     use ratatui::backend::TestBackend;
     use ratatui::Terminal;
 

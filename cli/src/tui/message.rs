@@ -4,10 +4,10 @@
 
 use crossterm::event::KeyEvent;
 
-use mux_core::agents::AgentInfo;
-use mux_core::ops::{InstalledMcp, ResyncOutcome};
-use mux_core::sources::SourceView;
-use mux_core::types::RegistryEntry;
+use mux_core::application::agents::AgentInfo;
+use mux_core::application::mcp::operations::{InstalledMcp, ResyncOutcome};
+use mux_core::application::mcp::sources::SourceView;
+use mux_core::domain::types::RegistryEntry;
 
 pub enum Msg {
     /// First message: kick off the initial data load.

@@ -1,6 +1,10 @@
 use desktop_lib::commands;
-use mux_core::consumption::{CentralAssetDraft, PlanUpdateCentralAssetRequest};
-use mux_core::types::{RegistryConfig, RegistryEntry, StdioConfig};
+use mux_core::application::assets::{CentralAssetDraft, PlanUpdateCentralAssetRequest};
+use mux_core::application::operations::{
+    CancelOperationRequest, CommitOperationRequest, OperationPlan, PlanOperationRequest,
+};
+use mux_core::application::skills::SkillOperationKind;
+use mux_core::domain::types::{RegistryConfig, RegistryEntry, StdioConfig};
 use serde_json::json;
 
 #[test]
@@ -45,10 +49,83 @@ fn lifecycle_requests_keep_the_tagged_core_wire_shape() {
 }
 
 #[test]
+fn unified_operation_envelopes_match_the_tauri_json_contract() {
+    let asset_plan: PlanOperationRequest = serde_json::from_value(json!({
+        "operation": "set_agent_consumption",
+        "request": {
+            "agent_id": "codex",
+            "selection": {
+                "domain": "mcp",
+                "asset_keys": ["local::stdio"]
+            }
+        }
+    }))
+    .unwrap();
+    assert!(matches!(
+        asset_plan,
+        PlanOperationRequest::SetAgentConsumption(_)
+    ));
+
+    let skill_plan: PlanOperationRequest = serde_json::from_value(json!({
+        "operation": "assign_skill",
+        "request": {
+            "skill_name": "review-changes",
+            "agent_ids": ["codex"],
+            "enabled": true
+        }
+    }))
+    .unwrap();
+    assert!(matches!(skill_plan, PlanOperationRequest::AssignSkill(_)));
+
+    let asset_commit: CommitOperationRequest = serde_json::from_value(json!({
+        "domain": "asset",
+        "request": {
+            "operation_id": "asset-operation",
+            "candidate_hash": "asset-candidate",
+            "conflict_confirmation": null
+        }
+    }))
+    .unwrap();
+    assert!(matches!(asset_commit, CommitOperationRequest::Asset { .. }));
+
+    let skill_commit: CommitOperationRequest = serde_json::from_value(json!({
+        "domain": "skill",
+        "kind": "assignment",
+        "request": {
+            "operation_id": "skill-operation",
+            "candidate_hash": "skill-candidate",
+            "findings_confirmation": null
+        }
+    }))
+    .unwrap();
+    assert!(matches!(
+        skill_commit,
+        CommitOperationRequest::Skill {
+            kind: SkillOperationKind::Assignment,
+            ..
+        }
+    ));
+
+    let asset_cancel: CancelOperationRequest = serde_json::from_value(json!({
+        "domain": "asset",
+        "operation_id": "asset-operation"
+    }))
+    .unwrap();
+    assert!(matches!(asset_cancel, CancelOperationRequest::Asset { .. }));
+
+    let skill_cancel: CancelOperationRequest = serde_json::from_value(json!({
+        "domain": "skill",
+        "operation_id": "skill-operation"
+    }))
+    .unwrap();
+    assert!(matches!(skill_cancel, CancelOperationRequest::Skill { .. }));
+}
+
+#[test]
 fn lifecycle_command_returns_a_secret_free_review_plan() {
     let home = mux_core::testenv::TestHome::new("tauri-consumption-command");
-    let plan = tauri::async_runtime::block_on(commands::plan_update_central_asset(
-        PlanUpdateCentralAssetRequest {
+    let plan = tauri::async_runtime::block_on(commands::plan_operation(
+        PlanOperationRequest::UpdateCentralAsset(PlanUpdateCentralAssetRequest {
             draft: CentralAssetDraft::Mcp {
                 existing_key: None,
                 entry: Box::new(RegistryEntry {
@@ -68,9 +145,13 @@ fn lifecycle_command_returns_a_secret_free_review_plan() {
                     repo: None,
                 }),
             },
-        },
+        }),
     ))
     .unwrap();
+    let OperationPlan::Asset { plan } = plan else {
+        panic!("MCP lifecycle must return an asset operation");
+    };
+    let plan = *plan;
     assert_eq!(plan.central_changes.len(), 1);
     let serialized = serde_json::to_string(&plan).unwrap();
     assert!(!serialized.contains("private-command-sentinel"));
@@ -82,18 +163,31 @@ fn lifecycle_command_returns_a_secret_free_review_plan() {
     )
     .unwrap();
     assert!(!persisted.contains("private-command-sentinel"));
-    tauri::async_runtime::block_on(commands::cancel_asset_operation(plan.operation_id)).unwrap();
+    tauri::async_runtime::block_on(commands::cancel_operation(CancelOperationRequest::Asset {
+        operation_id: plan.operation_id,
+    }))
+    .unwrap();
 }
 
 #[test]
-fn desktop_registers_only_the_planned_asset_mutation_surface() {
+fn desktop_registers_the_unified_surface_without_legacy_mutations() {
     let source = include_str!("../src/lib.rs");
+    for command in [
+        "commands::get_workspace_snapshot",
+        "commands::list_agent_capabilities",
+        "commands::plan_operation",
+        "commands::commit_operation",
+        "commands::cancel_operation",
+    ] {
+        assert!(source.contains(command), "missing registration: {command}");
+    }
     for command in [
         "commands::plan_set_agent_consumption",
         "commands::plan_set_mcp_enabled",
         "commands::plan_set_model_enabled",
         "commands::plan_set_active_model",
         "commands::plan_set_asset_consumers",
+        "commands::plan_update_agent_capabilities",
         "commands::plan_update_central_asset",
         "commands::plan_delete_central_asset",
         "commands::commit_asset_operation",
@@ -119,6 +213,28 @@ fn desktop_registers_only_the_planned_asset_mutation_surface() {
         assert!(
             !source.contains(legacy),
             "legacy Desktop mutation is registered: {legacy}"
+        );
+    }
+
+    let commands = include_str!("../src/commands.rs");
+    for dead_command in [
+        "pub fn apply_model_profile",
+        "pub fn save_model_profile",
+        "pub fn delete_model_profile",
+        "pub fn upsert_registry_entry",
+        "pub fn delete_registry_entry",
+        "pub fn resync_entry",
+        "pub fn forget_entry",
+        "pub fn apply_install",
+        "pub fn uninstall",
+        "pub fn disable_mcp",
+        "pub fn enable_mcp",
+        "pub fn delete_mcp",
+        "pub async fn plan_skill_assignment",
+    ] {
+        assert!(
+            !commands.contains(dead_command),
+            "dead legacy command is still compiled: {dead_command}"
         );
     }
 }

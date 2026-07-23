@@ -47,7 +47,7 @@ fn render_filter(model: &Model, f: &mut Frame, area: Rect) {
         }
     }
     let count = model.filtered_registry().len();
-    spans.push(Span::from(format!("   {} 个", count)).dim());
+    spans.push(Span::from(format!("   {count} 个")).dim());
     f.render_widget(Paragraph::new(Line::from(spans)), area);
 }
 
@@ -85,7 +85,7 @@ fn render_catalog(model: &Model, f: &mut Frame, area: Rect) {
                 spans.push(Span::from("  ✎ 自定义").yellow());
             }
             if usage > 0 {
-                spans.push(Span::from(format!("  {} 用", usage)).blue());
+                spans.push(Span::from(format!("  {usage} 用")).blue());
             }
             if !e.description.is_empty() {
                 spans.push(Span::from(format!("  — {}", e.description)).dim());

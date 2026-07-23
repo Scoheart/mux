@@ -21,16 +21,22 @@ pub fn render(model: &Model, f: &mut Frame, area: Rect) {
 
     let labels = ed.labels();
     let mut lines: Vec<Line> = Vec::new();
-    for i in 0..EDITOR_FIELDS {
-        lines.push(field_line(ed, i, labels[i]));
+    for (i, label) in labels.iter().enumerate().take(EDITOR_FIELDS) {
+        lines.push(field_line(ed, i, label));
     }
     lines.push(Line::from(""));
     if let Some(err) = &ed.error {
-        lines.push(Line::from(Span::from(format!("✗ {}", err)).red()));
-    } else if ed.field == 3 {
+        lines.push(Line::from(Span::from(format!("✗ {err}")).red()));
+    } else if ed.field == 3 && ed.transport_editable() {
         lines.push(Line::from(Span::from("Enter 切换 stdio ↔ http").dim()));
     } else if !ed.name_editable() && ed.field == 0 {
-        lines.push(Line::from(Span::from("名称不可修改（非自定义条目）").dim()));
+        lines.push(Line::from(
+            Span::from("名称属于资产标识，编辑时不可修改").dim(),
+        ));
+    } else if !ed.transport_editable() && ed.field == 3 {
+        lines.push(Line::from(
+            Span::from("传输类型属于资产标识，编辑时不可修改").dim(),
+        ));
     }
 
     let block = Block::default()
@@ -50,13 +56,13 @@ fn field_line(ed: &EditorState, i: usize, label: &str) -> Line<'static> {
     } else {
         Span::from("  ")
     };
-    let label_span = Span::from(format!("{:<14}", label)).dim();
+    let label_span = Span::from(format!("{label:<14}")).dim();
 
     let raw = ed.value(i);
     let editing = focused && ed.editing;
     let value = if raw.is_empty() && !editing {
         Span::from("—").dim()
-    } else if i == 0 && !ed.name_editable() {
+    } else if (i == 0 && !ed.name_editable()) || (i == 3 && !ed.transport_editable()) {
         Span::from(raw).dim()
     } else if focused {
         Span::from(raw).white()

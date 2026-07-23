@@ -49,6 +49,11 @@ pub fn user_agents_file() -> PathBuf {
     mux_dir().join("agents.json")
 }
 
+/// Filename-safe local timestamp (`%Y-%m-%dT%H-%M-%S`) used for backup artifacts.
+pub fn backup_timestamp() -> String {
+    chrono::Local::now().format("%Y-%m-%dT%H-%M-%S").to_string()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -65,9 +70,4 @@ mod tests {
         let _home = TestHome::new("paths-backups");
         assert!(backups_dir().starts_with(mux_dir()));
     }
-}
-
-/// Filename-safe local timestamp (`%Y-%m-%dT%H-%M-%S`) used for backup artifacts.
-pub fn backup_timestamp() -> String {
-    chrono::Local::now().format("%Y-%m-%dT%H-%M-%S").to_string()
 }

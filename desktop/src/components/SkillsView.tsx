@@ -221,21 +221,33 @@ export function SkillsView({
       const plan = await (() => {
         switch (intent.kind) {
           case "import":
-            return api.planSkillAssetImport({
-              identity: intent.identity,
-              replace_conflicts: intent.replaceConflicts,
+            return state.plan({
+              operation: "import_skill",
+              request: {
+                identity: intent.identity,
+                replace_conflicts: intent.replaceConflicts,
+              },
             });
           case "update":
-            return api.planSkillUpdate({
-              skill_name: intent.skillName,
-              replace_local_changes: intent.replaceLocalChanges,
+            return state.plan({
+              operation: "update_skill",
+              request: {
+                skill_name: intent.skillName,
+                replace_local_changes: intent.replaceLocalChanges,
+              },
             });
           case "remove":
-            return api.planSkillRemove({ skill_name: intent.skillName });
+            return state.plan({
+              operation: "remove_skill",
+              request: { skill_name: intent.skillName },
+            });
           case "repair":
-            return api.planSkillRepair({
-              skill_name: intent.skillName,
-              repair: intent.repair,
+            return state.plan({
+              operation: "repair_skill",
+              request: {
+                skill_name: intent.skillName,
+                repair: intent.repair,
+              },
             });
         }
       })();
@@ -639,6 +651,7 @@ export function SkillsView({
       </ResourceWorkspace>
       {installOpen && state.inventory && !recoveryError && (
         <SkillInstallDialog
+          plan={state.plan}
           commit={state.commit}
           cancel={state.cancel}
           onClose={() => {

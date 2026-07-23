@@ -31,10 +31,10 @@ MUX 写入 ~/.claude/skills/frontend-design
 
 ### 2. MUX 把兼容读取者加入物理目标的影响范围
 
-[`core/src/skills/inventory.rs`](../core/src/skills/inventory.rs) 的 `build_target_graph`：
+[`core/src/resources/skill/inventory.rs`](../core/src/resources/skill/inventory.rs) 的 `build_target_graph`：
 
-- 第 1441–1460 行注册每个 Agent 的首选目标和 aliases。
-- 第 1473–1480 行把所有已安装 Agent 加入其声明目录的 `affected_agent_ids`。
+- 先注册每个 Agent 的首选目标和 aliases。
+- 再把所有已安装 Agent 加入其声明目录的 `affected_agent_ids`。
 
 所以 `claude-user` 这个物理目标的影响集合会成为：
 
@@ -46,9 +46,9 @@ claude-user -> { claude-code, opencode }
 
 ### 3. 确认计划主动扩展到全部真实消费者
 
-[`core/src/consumption/planner.rs`](../core/src/consumption/planner.rs) 第 581–600 行把目标的 `affected_agent_ids` 合并进计划，并为这些 Agent 生成关系变化。因此选择 Claude Code 后，确认框会同时出现 `claude-code` 与 `opencode`。
+[`core/src/assets/planner.rs`](../core/src/assets/planner.rs) 把目标的 `affected_agent_ids` 合并进计划，并为这些 Agent 生成关系变化。因此选择 Claude Code 后，确认框会同时出现 `claude-code` 与 `opencode`。
 
-[`desktop/src/components/AssetOperationReviewDialog.tsx`](../desktop/src/components/AssetOperationReviewDialog.tsx) 第 75–79、140–150 行只是渲染核心计划，所以显示为“另影响 1 个 Agent”和“添加 opencode”。
+[`desktop/src/components/AssetOperationReviewDialog.tsx`](../desktop/src/components/AssetOperationReviewDialog.tsx) 只渲染核心计划，所以显示为“另影响 1 个 Agent”和“添加 opencode”。
 
 ## OpenCode 官方行为
 
@@ -77,7 +77,7 @@ OPENCODE_DISABLE_CLAUDE_CODE_SKILLS=1
 
 ### “将更新的位置”列出了三个目录
 
-原实现中，[`core/src/consumption/planner.rs`](../core/src/consumption/planner.rs) 会遍历所有受影响 Agent 声明过的全部 Skills 目标，因此计划预览会列出：
+原实现中，[`core/src/assets/planner.rs`](../core/src/assets/planner.rs) 会遍历所有受影响 Agent 声明过的全部 Skills 目标，因此计划预览会列出：
 
 - `~/.claude/skills/frontend-design`
 - `~/.agents/skills/frontend-design`

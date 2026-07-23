@@ -36,16 +36,21 @@ fn render_agent_list(model: &Model, f: &mut Frame, area: Rect) {
         .agents
         .iter()
         .map(|a| {
-            let state = if !a.has_global {
-                Span::from("· ").dim()
-            } else if a.enabled {
+            let state = if a.enabled {
                 Span::from("● ").green()
             } else {
                 Span::from("○ ").dim()
             };
             let mut spans = vec![state, Span::from(a.name.clone())];
             if !a.has_global {
-                spans.push(Span::from("  目录").dim());
+                spans.push(
+                    Span::from(if a.skills_global_dir.is_some() {
+                        "  Skills"
+                    } else {
+                        "  非 MCP"
+                    })
+                    .dim(),
+                );
             }
             ListItem::new(Line::from(spans))
         })
@@ -64,14 +69,17 @@ fn render_installed(model: &Model, f: &mut Frame, area: Rect) {
     let path = agent
         .global
         .clone()
-        .unwrap_or_else(|| "未设置全局路径".into());
-    let head = vec![
-        Line::from(vec![
-            Span::from(agent.id.clone()).bold(),
-            Span::from(format!("  · {}", agent.format)).dim(),
-        ]),
-        Line::from(Span::from(path).dim()),
-    ];
+        .or_else(|| agent.skills_global_dir.clone())
+        .unwrap_or_else(|| "无 MCP/Skills 配置路径".into());
+    let mut identity = vec![Span::from(agent.id.clone()).bold()];
+    if agent.has_global {
+        identity.push(Span::from(format!("  · {}", agent.format)).dim());
+    } else if agent.skills_global_dir.is_some() {
+        identity.push(Span::from("  · Skills").dim());
+    } else {
+        identity.push(Span::from("  · 非 MCP Agent").dim());
+    }
+    let head = vec![Line::from(identity), Line::from(Span::from(path).dim())];
     f.render_widget(Paragraph::new(head), rows[0]);
 
     let installed = model.installed_for_selected_agent();

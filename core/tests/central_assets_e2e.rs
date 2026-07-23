@@ -3,10 +3,11 @@
 mod support;
 
 use mux_core::consumption::{
-    commit_asset_operation, plan_delete_central_asset, plan_set_active_model,
-    plan_set_agent_consumption, plan_set_model_enabled, plan_update_central_asset,
-    AgentConsumptionSelection, AssetCommitRequest, AssetRef, CentralAssetDraft,
-    PlanDeleteCentralAssetRequest, PlanSetActiveModelRequest, PlanSetAgentConsumptionRequest,
+    commit_asset_operation, plan_delete_central_asset, plan_reapply_mcp, plan_set_active_model,
+    plan_set_agent_consumption, plan_set_mcp_enabled, plan_set_model_enabled,
+    plan_update_central_asset, AgentConsumptionSelection, AssetCommitRequest, AssetRef,
+    CentralAssetDraft, PlanDeleteCentralAssetRequest, PlanReapplyMcpRequest,
+    PlanSetActiveModelRequest, PlanSetAgentConsumptionRequest, PlanSetMcpEnabledRequest,
     PlanSetModelEnabledRequest, PlanUpdateCentralAssetRequest,
 };
 use mux_core::models::{apply_profile, list_profiles, reconcile_active_models, save_profile};
@@ -226,6 +227,135 @@ fn drifted_consumer_requires_bound_confirmation_before_central_update() {
     })
     .unwrap();
     assert!(fs::read_to_string(target).unwrap().contains("new-server"));
+}
+
+#[test]
+fn mcp_reapply_repairs_drift_without_changing_the_central_asset() {
+    let home = TestHome::new("central-mcp-reapply");
+    write_manual_entry(&mcp("managed-server")).unwrap();
+    commit(
+        plan_set_agent_consumption(PlanSetAgentConsumptionRequest {
+            agent_id: "claude-code".into(),
+            selection: AgentConsumptionSelection::Mcp {
+                asset_keys: vec!["local::stdio".into()],
+            },
+        })
+        .unwrap(),
+    );
+    let target = home.home.join(".claude.json");
+    let drifted = fs::read_to_string(&target)
+        .unwrap()
+        .replace("managed-server", "tampered-server");
+    fs::write(&target, drifted).unwrap();
+
+    let plan = plan_reapply_mcp(PlanReapplyMcpRequest {
+        asset_key: "local::stdio".into(),
+    })
+    .unwrap();
+    assert!(plan.can_commit);
+    assert!(plan.requires_conflict_confirmation);
+    commit_asset_operation(AssetCommitRequest {
+        operation_id: plan.operation_id,
+        candidate_hash: plan.candidate_hash.clone(),
+        conflict_confirmation: Some(plan.candidate_hash),
+    })
+    .unwrap();
+
+    let repaired = fs::read_to_string(target).unwrap();
+    assert!(repaired.contains("managed-server"));
+    assert!(!repaired.contains("tampered-server"));
+    assert_eq!(
+        read_registry()
+            .into_iter()
+            .find(|entry| entry.key() == "local::stdio")
+            .unwrap()
+            .config
+            .stdio
+            .unwrap()
+            .command,
+        "managed-server"
+    );
+}
+
+#[test]
+fn mcp_reapply_preserves_a_disabled_desired_relationship() {
+    let home = TestHome::new("central-mcp-reapply-disabled");
+    write_manual_entry(&mcp("managed-server")).unwrap();
+    commit(
+        plan_set_agent_consumption(PlanSetAgentConsumptionRequest {
+            agent_id: "claude-code".into(),
+            selection: AgentConsumptionSelection::Mcp {
+                asset_keys: vec!["local::stdio".into()],
+            },
+        })
+        .unwrap(),
+    );
+    commit(
+        plan_set_mcp_enabled(PlanSetMcpEnabledRequest {
+            agent_id: "claude-code".into(),
+            asset_key: "local::stdio".into(),
+            enabled: false,
+        })
+        .unwrap(),
+    );
+
+    let target = home.home.join(".claude.json");
+    assert!(!fs::read_to_string(&target)
+        .unwrap()
+        .contains("managed-server"));
+
+    commit(
+        plan_reapply_mcp(PlanReapplyMcpRequest {
+            asset_key: "local::stdio".into(),
+        })
+        .unwrap(),
+    );
+
+    assert!(!fs::read_to_string(target)
+        .unwrap()
+        .contains("managed-server"));
+    assert!(
+        !load_settings().mcp_consumptions.unwrap()["claude-code"]["local::stdio"].enabled,
+        "reapply must refresh the disabled snapshot without enabling the relationship"
+    );
+}
+
+#[test]
+fn mcp_reapply_rejects_a_catalog_change_after_review() {
+    let home = TestHome::new("central-mcp-reapply-stale-catalog");
+    write_manual_entry(&mcp("reviewed-server")).unwrap();
+    commit(
+        plan_set_agent_consumption(PlanSetAgentConsumptionRequest {
+            agent_id: "claude-code".into(),
+            selection: AgentConsumptionSelection::Mcp {
+                asset_keys: vec!["local::stdio".into()],
+            },
+        })
+        .unwrap(),
+    );
+    let target = home.home.join(".claude.json");
+    let drifted = fs::read_to_string(&target)
+        .unwrap()
+        .replace("reviewed-server", "local-customization");
+    fs::write(&target, &drifted).unwrap();
+
+    let plan = plan_reapply_mcp(PlanReapplyMcpRequest {
+        asset_key: "local::stdio".into(),
+    })
+    .unwrap();
+    write_manual_entry(&mcp("changed-after-review")).unwrap();
+    let error = commit_asset_operation(AssetCommitRequest {
+        operation_id: plan.operation_id,
+        candidate_hash: plan.candidate_hash.clone(),
+        conflict_confirmation: Some(plan.candidate_hash),
+    })
+    .unwrap_err();
+
+    assert!(
+        error.contains("central MCP catalog changed after review"),
+        "{error}"
+    );
+    assert_eq!(fs::read_to_string(target).unwrap(), drifted);
 }
 
 fn model(model: &str) -> ModelProfile {

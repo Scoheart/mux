@@ -1,6 +1,6 @@
 # AGENTS.md — MUX
 
-> 作用域：MUX 独立 Git 仓库。用户用法写 README；完整操作规则按任务读取父仓 `memory/reference/`。
+> 作用域：MUX 独立 Git 仓库。用户用法写 README；完整操作规则按任务读取父仓 `llm-wiki/wiki/knowledge/`。
 
 ## 架构边界
 
@@ -25,10 +25,10 @@
 
 ## 按需路由
 
-- Registry、codec、Models、更新与发布：[`mux-registry-release.md`](../../../memory/reference/mux-registry-release.md)
-- 测试环境：[`mux-test-isolation.md`](../../../memory/reference/mux-test-isolation.md)
-- 正式安装版 UI：[`mux-ui-review.md`](../../../memory/reference/mux-ui-review.md)
-- Git、记忆与跨仓交付：[`repository-delivery.md`](../../../memory/reference/repository-delivery.md)
+- Registry、codec、Models、更新与发布：[`mux-registry-release.md`](../../../llm-wiki/wiki/knowledge/mux-registry-release.md)
+- 测试环境：[`mux-test-isolation.md`](../../../llm-wiki/wiki/knowledge/mux-test-isolation.md)
+- 正式安装版 UI：[`mux-ui-review.md`](../../../llm-wiki/wiki/knowledge/mux-ui-review.md)
+- Git、记忆与跨仓交付：[`repository-delivery.md`](../../../llm-wiki/wiki/knowledge/repository-delivery.md)
 
 ## Git
 

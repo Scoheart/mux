@@ -371,10 +371,19 @@ mod tests {
             .unwrap_or_else(|| panic!("missing curated entry {name}::{transport}"))
     }
 
+    type StdioRegistryCase<'a> = (
+        &'a str,
+        &'a str,
+        &'a [&'a str],
+        &'a str,
+        &'a str,
+        &'a [&'a str],
+    );
+
     #[test]
     fn curated_web_research_entries_match_verified_configs() {
         let entries = builtin_registry();
-        let stdio_cases: [(&str, &str, &[&str], &str, &str, &[&str]); 6] = [
+        let stdio_cases: [StdioRegistryCase<'_>; 6] = [
             (
                 "tavily",
                 "npx",

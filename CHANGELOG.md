@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.49](https://github.com/Scoheart/mux/compare/v1.8.48...v1.8.49) (2026-07-24)
+
+### Changes
+
+* fix(models): separate backup install from activation ([1b81e7d](https://github.com/Scoheart/mux/commit/1b81e7d31138cd908f2831cdd4610c1559faa646))
+
 ## [1.8.48](https://github.com/Scoheart/mux/compare/v1.8.47...v1.8.48) (2026-07-24)
 
 ### Changes

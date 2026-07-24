@@ -135,6 +135,7 @@ it("opens a projection-only Skills Agent without a legacy MCP-shaped row", async
   expect(screen.queryByText(/coding-agent/)).not.toBeInTheDocument();
   expect(screen.queryByText(/公开来源/)).not.toBeInTheDocument();
   expect(screen.queryByText(skillsOnlyAgent.verified_at!)).not.toBeInTheDocument();
+  expect(screen.queryByText("已核验")).not.toBeInTheDocument();
 
   await waitFor(() => {
     expect(screen.getByRole("tab", { name: /Skills/ })).toHaveAttribute("aria-selected", "true");
@@ -143,6 +144,58 @@ it("opens a projection-only Skills Agent without a legacy MCP-shaped row", async
   await userEvent.click(screen.getByRole("tab", { name: /MCPs/ }));
   expect(screen.getByText("此 Agent 未接入 MCP。")).toBeVisible();
   expect(screen.queryByRole("button", { name: "添加 MCP" })).not.toBeInTheDocument();
+});
+
+it("keeps meaningful Agent badges while leaving builtin headers clean", () => {
+  const communityAgent: AgentInfo = {
+    ...skillsOnlyAgent,
+    id: "pi",
+    name: "Pi",
+    evidence: "community-extension",
+  };
+  const customAgent: AgentInfo = {
+    ...skillsOnlyAgent,
+    id: "custom-agent",
+    name: "Custom Agent",
+    builtin: false,
+  };
+  const badgeState = {
+    ...state,
+    agents: [skillsOnlyAgent, communityAgent, customAgent],
+  } as unknown as InstallState;
+  const badgeSkillsState = {
+    ...skillsState,
+    inventory: { ...skillsState.inventory, agents: [] },
+  } as unknown as SkillsState;
+
+  const view = render(
+    <AgentView
+      state={badgeState}
+      skillsState={badgeSkillsState}
+      agentId={skillsOnlyAgent.id}
+    />,
+  );
+
+  expect(screen.queryByText("已核验")).not.toBeInTheDocument();
+  expect(screen.queryByText("自定义")).not.toBeInTheDocument();
+
+  view.rerender(
+    <AgentView
+      state={badgeState}
+      skillsState={badgeSkillsState}
+      agentId={communityAgent.id}
+    />,
+  );
+  expect(screen.getByText("社区扩展")).toBeVisible();
+
+  view.rerender(
+    <AgentView
+      state={badgeState}
+      skillsState={badgeSkillsState}
+      agentId={customAgent.id}
+    />,
+  );
+  expect(screen.getByText("自定义")).toBeVisible();
 });
 
 it("keeps a Model-only Agent in the full resource workspace", async () => {

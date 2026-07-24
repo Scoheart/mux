@@ -850,7 +850,7 @@ function AgentHeader({
             <h2>{agent.name}</h2>
             {tone === "reference" ? <Badge>仅供参考</Badge> : agent.evidence === "community-extension" ? (
               <Badge tone="warning">社区扩展</Badge>
-            ) : agent.builtin ? <Badge tone="success">已核验</Badge> : <Badge>自定义</Badge>}
+            ) : !agent.builtin ? <Badge>自定义</Badge> : null}
           </div>
         </div>
       </div>

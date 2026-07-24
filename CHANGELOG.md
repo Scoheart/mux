@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.54](https://github.com/Scoheart/mux/compare/v1.8.53...v1.8.54) (2026-07-24)
+
+### Changes
+
+* fix(agents): remove verified header badge ([9c25a97](https://github.com/Scoheart/mux/commit/9c25a97693c2fc3df4272596465a0c2993f50e5a))
+
 ## [1.8.53](https://github.com/Scoheart/mux/compare/v1.8.52...v1.8.53) (2026-07-24)
 
 ### Changes

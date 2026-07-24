@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { listModelProfiles, listModelProviders } from "../lib/api";
+import { inferModelProvider, listModelProfiles, listModelProviders } from "../lib/api";
 import type { ConsumptionState } from "../hooks/useConsumptionState";
 import type {
   ModelProfile,
@@ -60,7 +60,7 @@ function protocolLabel(protocol: ModelProtocol) {
 }
 
 function providerLabel(providers: ModelProviderView[], provider: string) {
-  return providers.find((item) => item.id === provider)?.name ?? (provider || "自动识别");
+  return providers.find((item) => item.id === provider)?.name ?? (provider || "Custom Provider");
 }
 
 export function ModelsView({
@@ -537,6 +537,7 @@ function ModelProfileDialog({
   const [clearCredential, setClearCredential] = useState(false);
   const [busy, setBusy] = useState(false);
   const baseUrlAutoManaged = useRef(initial === null);
+  const providerInferenceSequence = useRef(0);
   const toast = useToast();
   const initialProvider = initial?.provider.trim() ?? "";
   const initialProviderIsKnown = providers.some(
@@ -559,7 +560,31 @@ function ModelProfileDialog({
     }));
   };
 
+  const inferProviderFromBaseUrl = async (baseUrl: string) => {
+    const sequence = ++providerInferenceSequence.current;
+    const inferred = await inferModelProvider(baseUrl);
+    if (sequence !== providerInferenceSequence.current) return;
+
+    const known = providers.some(
+      (provider) => provider.id !== "custom" && provider.id === inferred,
+    );
+    if (known) {
+      setProviderSelection(inferred);
+      setDraft((current) => ({ ...current, provider: inferred }));
+      return;
+    }
+
+    const customId = customProvider.trim() || "custom";
+    setCustomProvider(customId);
+    setProviderSelection(CUSTOM_PROVIDER_OPTION);
+    setDraft((current) => ({ ...current, provider: customId }));
+  };
+
   const selectProvider = (provider: string) => {
+    if (!baseUrlAutoManaged.current && draft.base_url.trim()) {
+      void inferProviderFromBaseUrl(draft.base_url.trim());
+      return;
+    }
     setProviderSelection(provider);
     updateProvider(provider === CUSTOM_PROVIDER_OPTION ? customProvider : provider);
   };
@@ -572,6 +597,11 @@ function ModelProfileDialog({
   const updateBaseUrl = (baseUrl: string) => {
     baseUrlAutoManaged.current = false;
     setDraft((current) => ({ ...current, base_url: baseUrl }));
+    if (baseUrl.trim()) {
+      void inferProviderFromBaseUrl(baseUrl.trim());
+    } else {
+      providerInferenceSequence.current += 1;
+    }
   };
 
   const valid = Boolean(
@@ -621,8 +651,8 @@ function ModelProfileDialog({
               autoFocus
               ariaLabel="Provider"
               value={providerSelection}
+              placeholder="根据 Base URL 识别"
               options={[
-                { value: "", label: "自动识别" },
                 ...providers
                   .filter((provider) => provider.id !== "custom")
                   .map((provider) => ({ value: provider.id, label: provider.name })),

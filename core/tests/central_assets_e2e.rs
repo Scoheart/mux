@@ -254,6 +254,14 @@ fn mcp_reapply_repairs_drift_without_changing_the_central_asset() {
     .unwrap();
     assert!(plan.can_commit);
     assert!(plan.requires_conflict_confirmation);
+    assert_eq!(
+        plan.central_changes[0].summary,
+        vec![
+            "重新同步 MCP 配置",
+            "将更新 1 个已关联 Agent",
+            "中央配置保持不变",
+        ]
+    );
     commit_asset_operation(AssetCommitRequest {
         operation_id: plan.operation_id,
         candidate_hash: plan.candidate_hash.clone(),

@@ -126,6 +126,8 @@ export const listModelProfiles = () =>
   invoke<ModelProfileView[]>("list_model_profiles");
 export const listModelProviders = () =>
   invoke<ModelProviderView[]>("list_model_providers");
+export const inferModelProvider = (baseUrl: string) =>
+  invoke<string>("infer_model_provider", { baseUrl });
 export const listModelAgents = () =>
   invoke<ModelAgentView[]>("list_model_agents");
 /** All entry copies across sources (not deduped), each flagged in_effect. */

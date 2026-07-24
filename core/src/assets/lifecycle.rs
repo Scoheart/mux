@@ -152,7 +152,6 @@ pub fn plan_model_schema_v2_migration() -> Result<Option<AssetOperationPlan>, St
         before.insert(agent_id.clone(), selection.clone());
         after.insert(agent_id, remap_model_selection(selection, &id_map)?);
     }
-    let domain_plan = DomainPlan::Model { before, after };
     let draft_hash = hash_serializable(&profiles)?;
     let credential_profile_ids = id_map
         .keys()
@@ -166,12 +165,16 @@ pub fn plan_model_schema_v2_migration() -> Result<Option<AssetOperationPlan>, St
                 profile_id: new_id.clone(),
             },
             action: CentralAssetAction::Update,
-            summary: vec![
-                format!("升级 Model Profile {old_id}"),
-                "迁移 Agent 关系与 Keychain credential".into(),
-            ],
+            summary: model_schema_migration_summary(
+                before
+                    .values()
+                    .filter(|selection| selection.profiles.contains_key(old_id))
+                    .count(),
+                credential_profile_ids.contains(old_id),
+            ),
         })
         .collect();
+    let domain_plan = DomainPlan::Model { before, after };
     let plan = finalize_plan_with(
         AssetOperationKind::UpdateAsset,
         domain_plan,
@@ -299,16 +302,14 @@ fn plan_mcp_upsert(
         key: key.clone(),
         draft_hash,
     };
+    let summary = central_upsert_summary("中央 MCP 配置", &action, consumer_count);
     let plan = finalize_plan_with(
         AssetOperationKind::UpdateAsset,
         domain_plan,
         vec![CentralAssetChange {
             asset: AssetRef::Mcp { key },
             action,
-            summary: vec![
-                "中央 MCP 配置与元数据".into(),
-                format!("传播到 {consumer_count} 个 desired consumer"),
-            ],
+            summary,
         }],
         vec![display_path(&local_sources_dir().join("manual.json"))],
         Some(lifecycle),
@@ -361,8 +362,9 @@ fn plan_model_upsert(
     let lifecycle = LifecycleBinding::ModelUpsert {
         profile_id: profile.id.clone(),
         draft_hash,
-        credential_action,
+        credential_action: credential_action.clone(),
     };
+    let summary = model_upsert_summary(&action, &credential_action, consumer_count);
     let plan = finalize_plan_with(
         AssetOperationKind::UpdateAsset,
         domain_plan,
@@ -371,10 +373,7 @@ fn plan_model_upsert(
                 profile_id: profile.id.clone(),
             },
             action,
-            summary: vec![
-                "Profile metadata 与 Keychain credential presence".into(),
-                format!("传播到 {consumer_count} 个 desired consumer"),
-            ],
+            summary,
         }],
         Vec::new(),
         Some(lifecycle),
@@ -417,20 +416,14 @@ fn plan_mcp_delete(key: String, source_id: Option<String>) -> Result<AssetOperat
         }
     };
     let consumer_count = domain_agent_count(&domain_plan);
+    let summary = mcp_delete_summary(effective_before, fallback_exists, consumer_count);
     finalize_plan_with(
         AssetOperationKind::DeleteAsset,
         domain_plan,
         vec![CentralAssetChange {
             asset: AssetRef::Mcp { key: key.clone() },
             action: CentralAssetAction::Delete,
-            summary: vec![
-                format!("删除 {source_id} source copy"),
-                if fallback_exists {
-                    format!("保留关系并将 fallback 传播到 {consumer_count} 个 consumer")
-                } else {
-                    format!("级联解除 {consumer_count} 个 desired consumer")
-                },
-            ],
+            summary,
         }],
         vec![display_path(
             &local_sources_dir().join(format!("{source_id}.json")),
@@ -481,6 +474,7 @@ fn plan_model_delete(profile_id: String) -> Result<AssetOperationPlan, String> {
     }
     let domain_plan = DomainPlan::Model { before, after };
     let consumer_count = domain_agent_count(&domain_plan);
+    let summary = model_delete_summary(consumer_count);
     finalize_plan_with(
         AssetOperationKind::DeleteAsset,
         domain_plan,
@@ -489,10 +483,7 @@ fn plan_model_delete(profile_id: String) -> Result<AssetOperationPlan, String> {
                 profile_id: profile_id.clone(),
             },
             action: CentralAssetAction::Delete,
-            summary: vec![
-                "删除 Profile metadata 与 Keychain credential".into(),
-                format!("级联解除 {consumer_count} 个 desired consumer"),
-            ],
+            summary,
         }],
         Vec::new(),
         Some(LifecycleBinding::ModelDelete { profile_id }),
@@ -660,6 +651,100 @@ fn domain_agent_count(plan: &DomainPlan) -> usize {
     }
 }
 
+fn central_upsert_summary(
+    central_label: &str,
+    action: &CentralAssetAction,
+    consumer_count: usize,
+) -> Vec<String> {
+    let verb = match action {
+        CentralAssetAction::Create => "创建",
+        CentralAssetAction::Update => "更新",
+        CentralAssetAction::Delete => "删除",
+    };
+    let prefix = if consumer_count == 0 { "仅" } else { "" };
+    vec![
+        format!("{prefix}{verb}{central_label}"),
+        agent_sync_summary(consumer_count),
+    ]
+}
+
+fn model_upsert_summary(
+    action: &CentralAssetAction,
+    credential_action: &CredentialAction,
+    consumer_count: usize,
+) -> Vec<String> {
+    let mut summary = central_upsert_summary("中央模型配置", action, consumer_count);
+    if let Some(credential_summary) = match credential_action {
+        CredentialAction::Keep => None,
+        CredentialAction::Set if matches!(action, CentralAssetAction::Create) => {
+            Some("将 API Key 保存到钥匙串")
+        }
+        CredentialAction::Set => Some("更新钥匙串中的 API Key"),
+        CredentialAction::Clear => Some("清除钥匙串中的 API Key"),
+    } {
+        summary.insert(1, credential_summary.into());
+    }
+    summary
+}
+
+fn model_schema_migration_summary(consumer_count: usize, credential_present: bool) -> Vec<String> {
+    let mut summary = vec!["升级模型配置".into()];
+    if credential_present {
+        summary.push("保留钥匙串中的 API Key".into());
+    }
+    summary.push(agent_sync_summary(consumer_count));
+    summary
+}
+
+fn model_delete_summary(consumer_count: usize) -> Vec<String> {
+    let mut summary = vec![
+        "删除中央模型配置".into(),
+        "同时清理钥匙串中的 API Key（如有）".into(),
+    ];
+    summary.push(if consumer_count == 0 {
+        "当前没有已关联的 Agent，只删除中央配置".into()
+    } else {
+        format!("将从 {consumer_count} 个已关联 Agent 移除")
+    });
+    summary
+}
+
+fn mcp_delete_summary(
+    effective_before: bool,
+    fallback_exists: bool,
+    consumer_count: usize,
+) -> Vec<String> {
+    if !effective_before {
+        return vec![
+            "删除这份 MCP 配置".into(),
+            "当前生效的 MCP 配置与 Agent 关联不会改变".into(),
+        ];
+    }
+    if fallback_exists {
+        return vec![
+            "删除当前使用的 MCP 配置".into(),
+            "改用同名的其他 MCP 配置".into(),
+            agent_sync_summary(consumer_count),
+        ];
+    }
+    vec![
+        "删除中央 MCP 配置".into(),
+        if consumer_count == 0 {
+            "当前没有已关联的 Agent，只删除中央配置".into()
+        } else {
+            format!("将从 {consumer_count} 个已关联 Agent 移除并解除关联")
+        },
+    ]
+}
+
+fn agent_sync_summary(consumer_count: usize) -> String {
+    if consumer_count == 0 {
+        "当前没有已关联的 Agent，无需同步".into()
+    } else {
+        format!("将同步到 {consumer_count} 个已关联 Agent")
+    }
+}
+
 fn hash_serializable<T: serde::Serialize>(value: &T) -> Result<String, String> {
     let bytes = serde_json::to_vec(value).map_err(|error| error.to_string())?;
     Ok(hex::encode(Sha256::digest(bytes)))
@@ -711,6 +796,10 @@ mod tests {
             },
         })
         .unwrap();
+        assert_eq!(
+            plan.central_changes[0].summary,
+            vec!["仅创建中央 MCP 配置", "当前没有已关联的 Agent，无需同步"]
+        );
         let persisted = std::fs::read_to_string(
             home.home
                 .join(".mux/staging/consumption")
@@ -762,6 +851,64 @@ mod tests {
         assert_eq!(plan.affected_agent_ids, vec!["codex"]);
         assert!(plan.relationship_changes.is_empty());
         assert_eq!(plan.kind, AssetOperationKind::UpdateAsset);
+        assert_eq!(
+            plan.central_changes[0].summary,
+            vec!["更新中央模型配置", "将同步到 1 个已关联 Agent"]
+        );
+    }
+
+    #[test]
+    fn model_review_copy_explains_credentials_and_zero_agent_scope() {
+        assert_eq!(
+            model_upsert_summary(&CentralAssetAction::Create, &CredentialAction::Set, 0),
+            vec![
+                "仅创建中央模型配置",
+                "将 API Key 保存到钥匙串",
+                "当前没有已关联的 Agent，无需同步",
+            ]
+        );
+        assert_eq!(
+            model_upsert_summary(&CentralAssetAction::Update, &CredentialAction::Clear, 2),
+            vec![
+                "更新中央模型配置",
+                "清除钥匙串中的 API Key",
+                "将同步到 2 个已关联 Agent",
+            ]
+        );
+        assert_eq!(
+            model_delete_summary(0),
+            vec![
+                "删除中央模型配置",
+                "同时清理钥匙串中的 API Key（如有）",
+                "当前没有已关联的 Agent，只删除中央配置",
+            ]
+        );
+    }
+
+    #[test]
+    fn mcp_delete_review_copy_distinguishes_fallback_and_inactive_copies() {
+        assert_eq!(
+            mcp_delete_summary(true, true, 2),
+            vec![
+                "删除当前使用的 MCP 配置",
+                "改用同名的其他 MCP 配置",
+                "将同步到 2 个已关联 Agent",
+            ]
+        );
+        assert_eq!(
+            mcp_delete_summary(false, false, 0),
+            vec![
+                "删除这份 MCP 配置",
+                "当前生效的 MCP 配置与 Agent 关联不会改变",
+            ]
+        );
+        assert_eq!(
+            mcp_delete_summary(true, false, 0),
+            vec![
+                "删除中央 MCP 配置",
+                "当前没有已关联的 Agent，只删除中央配置",
+            ]
+        );
     }
 
     #[test]

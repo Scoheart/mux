@@ -384,7 +384,13 @@ export function AssetOperationReviewDialog({
                     {change.action === "create" ? "创建" : change.action === "update" ? "更新" : "删除"}
                   </span>
                   <code>{assetLabel(change.asset, assetDisplayNames)}</code>
-                  {change.summary.length > 0 && <small>{change.summary.join("；")}</small>}
+                  {change.summary.length > 0 && (
+                    <span className="mux-central-change-summary">
+                      {change.summary.map((item, index) => (
+                        <small key={`${index}:${item}`}>{item}</small>
+                      ))}
+                    </span>
+                  )}
                 </li>
               ))}
             </ul>

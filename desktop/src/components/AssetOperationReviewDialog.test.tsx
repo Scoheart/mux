@@ -34,7 +34,7 @@ it("shows central lifecycle impact independently from relationship changes", () 
   plan.central_changes = [{
     asset: { domain: "model", profile_id: "work" },
     action: "delete",
-    summary: ["删除 Profile metadata", "级联解除 2 个 consumer"],
+    summary: ["删除中央模型配置", "将从 2 个已关联 Agent 移除"],
   }];
   render(
     <AssetOperationReviewDialog
@@ -45,8 +45,36 @@ it("shows central lifecycle impact independently from relationship changes", () 
     />,
   );
   expect(screen.getByText("资源变化")).toBeVisible();
-  expect(screen.getByText(/级联解除 2 个 consumer/)).toBeVisible();
+  expect(screen.getByText("删除中央模型配置")).toBeVisible();
+  expect(screen.getByText("将从 2 个已关联 Agent 移除")).toBeVisible();
+  expect(screen.queryByText(/Profile metadata|consumer/)).not.toBeInTheDocument();
   expect(screen.getByRole("button", { name: "删除" })).toBeEnabled();
+});
+
+it("explains a central-only Model update without presenting zero Agents as an error", () => {
+  const plan = assetOperationPlanFixture();
+  plan.kind = "update-asset";
+  plan.central_changes = [{
+    asset: { domain: "model", profile_id: "work" },
+    action: "update",
+    summary: ["仅更新中央模型配置", "当前没有已关联的 Agent，无需同步"],
+  }];
+  plan.affected_agent_ids = [];
+  plan.target_files = [];
+
+  render(
+    <AssetOperationReviewDialog
+      plan={plan}
+      busy={false}
+      onCommit={vi.fn()}
+      onCancel={vi.fn()}
+    />,
+  );
+
+  expect(screen.getByText("0 个 Agent · 0 个目标")).toBeVisible();
+  expect(screen.getByText("仅更新中央模型配置")).toBeVisible();
+  expect(screen.getByText("当前没有已关联的 Agent，无需同步")).toBeVisible();
+  expect(screen.queryByText(/desired consumer|credential presence/)).not.toBeInTheDocument();
 });
 
 it("presents Agent assignment as a direct add action", () => {

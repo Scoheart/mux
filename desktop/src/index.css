@@ -1575,6 +1575,8 @@ body {
 .mux-asset-review li > span[data-action="remove"] { color: var(--color-red); }
 .mux-asset-review li > strong { font-size: 10px; }
 .mux-asset-review li > code { min-width: 0; }
+.mux-asset-review li > .mux-central-change-summary { display: grid; min-width: 0; gap: 2px; color: var(--text-secondary); font-size: 9px; line-height: 1.4; }
+.mux-central-change-summary small { display: block; min-width: 0; }
 .mux-asset-review li.mux-asset-review-relationship { grid-template-columns: auto minmax(0, 1fr); align-items: start; }
 .mux-asset-review-relationship-copy { display: grid; min-width: 0; gap: 2px; color: var(--text-primary) !important; }
 .mux-asset-review-relationship-copy strong { overflow: hidden; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }

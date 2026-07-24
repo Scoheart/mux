@@ -12,12 +12,14 @@ export function FormSelect({
   options,
   onChange,
   autoFocus = false,
+  placeholder,
 }: {
   ariaLabel: string;
   value: string;
   options: readonly FormSelectOption[];
   onChange: (value: string) => void;
   autoFocus?: boolean;
+  placeholder?: string;
 }) {
   const [open, setOpen] = useState(false);
   const selectedIndex = Math.max(0, options.findIndex((option) => option.value === value));
@@ -25,7 +27,7 @@ export function FormSelect({
   const rootRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const listboxId = useId();
-  const selected = options.find((option) => option.value === value) ?? options[0];
+  const selected = options.find((option) => option.value === value);
 
   const openMenu = () => {
     setActiveIndex(selectedIndex);
@@ -119,7 +121,7 @@ export function FormSelect({
           }
         }}
       >
-        <span className="mux-form-select-value">{selected?.label ?? ""}</span>
+        <span className="mux-form-select-value">{selected?.label ?? placeholder ?? ""}</span>
         <ChevronDownIcon className="mux-form-select-chevron" />
       </button>
 

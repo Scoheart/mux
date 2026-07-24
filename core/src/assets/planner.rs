@@ -353,12 +353,29 @@ pub fn plan_reapply_mcp(request: PlanReapplyMcpRequest) -> Result<AssetOperation
         return Err("asset_operation_stale: central MCP asset no longer exists".into());
     }
     let settings = load_settings_strict().map_err(|error| error.to_string())?;
-    let domain_plan = {
+    let (domain_plan, consumer_count) = {
         let consumers = current_mcp_consumers(&settings, &request.asset_key);
-        DomainPlan::Mcp {
-            before: consumers.clone(),
-            after: consumers,
-        }
+        let consumer_count = consumers.len();
+        (
+            DomainPlan::Mcp {
+                before: consumers.clone(),
+                after: consumers,
+            },
+            consumer_count,
+        )
+    };
+    let summary = if consumer_count == 0 {
+        vec![
+            "重新同步 MCP 配置".into(),
+            "当前没有已关联的 Agent，无需同步".into(),
+            "中央配置保持不变".into(),
+        ]
+    } else {
+        vec![
+            "重新同步 MCP 配置".into(),
+            format!("将更新 {consumer_count} 个已关联 Agent"),
+            "中央配置保持不变".into(),
+        ]
     };
     finalize_plan_with(
         AssetOperationKind::UpdateAsset,
@@ -368,7 +385,7 @@ pub fn plan_reapply_mcp(request: PlanReapplyMcpRequest) -> Result<AssetOperation
                 key: request.asset_key.clone(),
             },
             action: crate::domain::assets::CentralAssetAction::Update,
-            summary: vec!["重新传播中央 MCP；中央资产内容保持不变".into()],
+            summary,
         }],
         Vec::new(),
         Some(LifecycleBinding::McpReapply {

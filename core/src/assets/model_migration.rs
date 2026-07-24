@@ -370,6 +370,14 @@ pub fn plan_model_adoption(
         .collect::<Vec<_>>();
     target_files.sort();
     target_files.dedup();
+    let mut summary = vec![
+        "创建中央模型配置".into(),
+        format!("使用 {} / {}", profile.provider, profile.model),
+    ];
+    if credential_action == CredentialAction::Set {
+        summary.push("将 API Key 保存到钥匙串".into());
+    }
+    summary.push(format!("关联 {} 个 Agent 中的现有模型配置", selected.len()));
     let plan = finalize_plan_with(
         AssetOperationKind::Adopt,
         domain_plan,
@@ -378,10 +386,7 @@ pub fn plan_model_adoption(
                 profile_id: profile.id.clone(),
             },
             action: CentralAssetAction::Create,
-            summary: vec![
-                format!("{} / {}", profile.provider, profile.model),
-                format!("接管 {} 个 Agent-native 配置", selected.len()),
-            ],
+            summary,
         }],
         target_files,
         Some(LifecycleBinding::ModelAdopt {
@@ -1511,6 +1516,14 @@ api_backend = "chat_completions"
         .unwrap();
         assert_eq!(plan.kind, AssetOperationKind::Adopt);
         assert_eq!(plan.model_state_changes.len(), 1);
+        assert_eq!(
+            plan.central_changes[0].summary,
+            vec![
+                "创建中央模型配置",
+                "使用 openrouter / tencent/hy3:free",
+                "关联 1 个 Agent 中的现有模型配置",
+            ]
+        );
         commit_asset_operation(AssetCommitRequest {
             operation_id: plan.operation_id,
             candidate_hash: plan.candidate_hash,

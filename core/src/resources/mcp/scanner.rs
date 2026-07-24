@@ -95,6 +95,7 @@ pub fn scan_agents(
 mod tests {
     use super::*;
     use crate::domain::types::AgentDefinition;
+    use crate::testenv::TestHome;
 
     #[test]
     fn scans_project_json_config() {
@@ -155,9 +156,8 @@ mod tests {
 
     #[test]
     fn collapse_home_absolute_home_path_collapses_to_tilde() {
-        if let Some(home) = dirs::home_dir() {
-            let abs = format!("{}/Library/App Support/mcp.json", home.display());
-            assert_eq!(collapse_home(&abs), "~/Library/App Support/mcp.json");
-        }
+        let home = TestHome::new("collapse-home");
+        let abs = format!("{}/Library/App Support/mcp.json", home.home.display());
+        assert_eq!(collapse_home(&abs), "~/Library/App Support/mcp.json");
     }
 }

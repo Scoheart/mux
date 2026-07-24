@@ -23,8 +23,9 @@ it("keeps top-level MCP, Model, and Skill workspaces asset-only", async () => {
 it("owns multi-Model consumption and current-model switching in the Agent workspace", async () => {
   const source = await read("src/components/AgentView.tsx");
   expect(source).toContain("planForAgent");
-  expect(source).toContain("可保留多个并切换当前模型");
-  expect(source).toContain("planModelEnabled");
+  expect(source).toContain("同一时间使用其中一个");
+  expect(source).not.toContain("planModelEnabled");
   expect(source).toContain("planActiveModel");
-  expect(source).toContain("设为当前");
+  expect(source).toContain('toggleKind="current"');
+  expect(source).not.toContain("设为当前");
 });

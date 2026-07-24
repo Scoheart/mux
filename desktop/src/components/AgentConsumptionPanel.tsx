@@ -29,6 +29,7 @@ export function AgentConsumptionPanel({
   onOpenAsset,
   onEnabledChange,
   enabledChangeDisabled,
+  toggleKind = "enabled",
   renderAction,
   renderExternalAction,
   onRemove,
@@ -56,6 +57,7 @@ export function AgentConsumptionPanel({
   onOpenAsset?(asset: AssetRef): void;
   onEnabledChange?(item: ConsumptionView, enabled: boolean): void;
   enabledChangeDisabled?: boolean | ((item: ConsumptionView) => boolean);
+  toggleKind?: "enabled" | "current";
   renderAction?(item: ConsumptionView): ReactNode;
   renderExternalAction?(item: ConsumptionView): ReactNode;
   onRemove?(asset: AssetRef): void;
@@ -129,6 +131,13 @@ export function AgentConsumptionPanel({
             const toggleDisabled = typeof enabledChangeDisabled === "function"
               ? enabledChangeDisabled(item)
               : enabledChangeDisabled;
+            const toggleLabel = toggleKind === "current"
+              ? enabled
+                ? `${presentation.name} 当前正在使用；请选择其他 Model 切换`
+                : `使用 ${presentation.name}`
+              : enabled
+                ? `停用 ${presentation.name}`
+                : `启用 ${presentation.name}`;
             const externalActionNode = isExternal ? renderExternalAction?.(item) : null;
             return (
               <li
@@ -161,8 +170,8 @@ export function AgentConsumptionPanel({
                         checked={enabled}
                         compact
                         disabled={toggleDisabled}
-                        ariaLabel={enabled ? `停用 ${presentation.name}` : `启用 ${presentation.name}`}
-                        title={enabled ? `停用 ${presentation.name}` : `启用 ${presentation.name}`}
+                        ariaLabel={toggleLabel}
+                        title={toggleLabel}
                         onChange={(next) => onEnabledChange(item, next)}
                       />
                     )}

@@ -9,8 +9,11 @@ import type {
   AgentInfo,
   ModelAdoptionCandidate,
   ModelAgentView,
+  ModelProfileView,
 } from "../lib/types";
+import { assetOperationPlanFixture } from "../test/consumptionFixtures";
 import { AgentView } from "./AgentView";
+import { ToastProvider } from "./Toast";
 
 const apiMocks = vi.hoisted(() => ({
   listModelAgents: vi.fn().mockResolvedValue([]),
@@ -411,4 +414,179 @@ it("renders external Skills as disabled cards with targeted adoption", async () 
 
   await userEvent.click(within(card!).getByRole("button", { name: "让 MUX 管理" }));
   expect(onOpenMigration).toHaveBeenCalledWith("skill:review");
+});
+
+it("uses one current-Model switch and activates a disabled backup atomically", async () => {
+  const piAgent: AgentInfo = {
+    ...skillsOnlyAgent,
+    id: "pi",
+    name: "Pi Coding Agent",
+    format: "json",
+    key: "mcpServers",
+    has_global: true,
+    global: "~/.pi/agent/mcp.json",
+    supported_transports: ["stdio", "http"],
+    skills_global_dir: "~/.pi/agent/skills",
+  };
+  const piModelAgent: ModelAgentView = {
+    id: "pi",
+    name: piAgent.name,
+    mode: "managed",
+    installed: true,
+    config_path: "~/.pi/agent/models.json + ~/.pi/agent/settings.json",
+    config_paths: ["~/.pi/agent/models.json", "~/.pi/agent/settings.json"],
+    docs: "https://github.com/earendil-works/pi",
+    assigned_profile: "idealab",
+    assigned_profiles: ["idealab", "qwen"],
+    active_profile: "idealab",
+    supports_multiple: true,
+    credential_mode: "keychain-command",
+    supported_protocols: ["openai-responses"],
+    note: "",
+  };
+  const profiles: ModelProfileView[] = [
+    {
+      id: "idealab",
+      name: "idealab",
+      provider: "idealab",
+      protocol: "openai-responses",
+      base_url: "https://idealab.example.test/v1",
+      model: "Peach-07-17-DogFooding",
+      reasoning: true,
+      catalog_key: "idealab/Peach-07-17-DogFooding",
+      credential_saved: true,
+    },
+    {
+      id: "qwen",
+      name: "Qwen3 7 Plus",
+      provider: "max-ai",
+      protocol: "openai-responses",
+      base_url: "https://max-ai.example.test/v1",
+      model: "qwen3.7-plus",
+      reasoning: true,
+      catalog_key: "max-ai/qwen3.7-plus",
+      credential_saved: true,
+    },
+  ];
+  apiMocks.listModelAgents.mockResolvedValue([piModelAgent]);
+  apiMocks.listModelProfiles.mockResolvedValue(profiles);
+  const inventory = {
+    consumptions: [
+      {
+        agent_id: "pi",
+        asset: { domain: "model" as const, profile_id: "idealab" },
+        desired: true,
+        observed: true,
+        enabled: true,
+        active: true,
+        desired_active: true,
+        status: "synced" as const,
+        reason: null,
+        affected_agent_ids: ["pi"],
+      },
+      {
+        agent_id: "pi",
+        asset: { domain: "model" as const, profile_id: "qwen" },
+        desired: true,
+        observed: false,
+        enabled: false,
+        active: false,
+        desired_active: false,
+        status: "synced" as const,
+        reason: null,
+        affected_agent_ids: ["pi"],
+      },
+    ],
+    external: [],
+  };
+  const plan = assetOperationPlanFixture();
+  plan.domain_plan = {
+    domain: "model",
+    before: {
+      pi: {
+        profiles: {
+          idealab: { profile_id: "idealab", enabled: true },
+          qwen: { profile_id: "qwen", enabled: false },
+        },
+        active_profile_id: "idealab",
+      },
+    },
+    after: {
+      pi: {
+        profiles: {
+          idealab: { profile_id: "idealab", enabled: true },
+          qwen: { profile_id: "qwen", enabled: true },
+        },
+        active_profile_id: "qwen",
+      },
+    },
+  };
+  plan.relationship_changes = [];
+  plan.model_state_changes = [
+    {
+      agent_id: "pi",
+      profile_id: "idealab",
+      before: { added: true, enabled: true, active: true },
+      after: { added: true, enabled: true, active: false },
+      reason: "active_model_changed",
+    },
+    {
+      agent_id: "pi",
+      profile_id: "qwen",
+      before: { added: true, enabled: false, active: false },
+      after: { added: true, enabled: true, active: true },
+      reason: "active_model_changed",
+    },
+  ];
+  plan.target_files = ["~/.pi/agent/models.json", "~/.pi/agent/settings.json"];
+  plan.affected_agent_ids = ["pi"];
+  const planActiveModel = vi.fn().mockResolvedValue(plan);
+  const commit = vi.fn().mockResolvedValue(inventory);
+  const taskSkillsState = {
+    ...skillsState,
+    refresh: vi.fn().mockResolvedValue(skillsState.inventory),
+  } as unknown as SkillsState;
+  const consumptionState = {
+    agents: [],
+    inventory,
+    plan: null,
+    planActiveModel,
+    commit,
+  } as unknown as ConsumptionState;
+
+  render(
+    <ToastProvider>
+      <AgentView
+        state={{ ...state, agents: [piAgent] } as unknown as InstallState}
+        skillsState={taskSkillsState}
+        consumptionState={consumptionState}
+        agentId="pi"
+      />
+    </ToastProvider>,
+  );
+
+  await userEvent.click(await screen.findByRole("tab", { name: /Models/ }));
+  expect(screen.getByText("2 个已添加 · 同一时间使用其中一个")).toBeVisible();
+  expect(screen.queryByRole("button", { name: "设为当前" })).not.toBeInTheDocument();
+  const current = screen.getByRole("switch", {
+    name: "idealab 当前正在使用；请选择其他 Model 切换",
+  });
+  const backup = screen.getByRole("switch", { name: "使用 Qwen3 7 Plus" });
+  expect(current).toBeChecked();
+  expect(backup).not.toBeChecked();
+  expect(
+    screen
+      .getAllByRole("switch")
+      .filter((item) => item.getAttribute("aria-checked") === "true"),
+  ).toHaveLength(1);
+
+  await userEvent.click(current);
+  expect(await screen.findByText("请先选择其他当前 Model。")).toBeVisible();
+  expect(planActiveModel).not.toHaveBeenCalled();
+
+  await userEvent.click(backup);
+  await waitFor(() => {
+    expect(planActiveModel).toHaveBeenCalledWith("pi", "qwen");
+    expect(commit).toHaveBeenCalledOnce();
+  });
 });

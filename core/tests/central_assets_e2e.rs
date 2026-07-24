@@ -566,36 +566,29 @@ fn grok_build_keeps_multiple_profiles_and_falls_back_when_current_is_disabled() 
     };
     assert!(!disabled_config.contains(removed_env));
 
-    commit(
-        plan_set_model_enabled(PlanSetModelEnabledRequest {
-            agent_id: "grok-build".into(),
-            profile_id: switched.clone(),
-            enabled: true,
-        })
-        .unwrap(),
-    );
+    let switch_plan = plan_set_active_model(PlanSetActiveModelRequest {
+        agent_id: "grok-build".into(),
+        profile_id: switched.clone(),
+    })
+    .unwrap();
+    assert!(switch_plan.model_state_changes.iter().any(|change| {
+        change.profile_id == switched
+            && change.after.enabled
+            && change.after.active
+            && !change.before.enabled
+            && !change.before.active
+    }));
+    commit(switch_plan);
     let reenabled = load_settings().model_selection("grok-build");
     assert_eq!(
         reenabled.active_profile_id.as_deref(),
-        Some(initial_active.as_str())
+        Some(switched.as_str())
     );
+    assert!(reenabled.profiles[&switched].enabled);
+    assert!(reenabled.profiles[&initial_active].enabled);
     let reenabled_config = fs::read_to_string(&target).unwrap();
     assert!(reenabled_config.contains("FIRST_API_KEY"));
     assert!(reenabled_config.contains("SECOND_API_KEY"));
-
-    commit(
-        plan_set_active_model(PlanSetActiveModelRequest {
-            agent_id: "grok-build".into(),
-            profile_id: switched.clone(),
-        })
-        .unwrap(),
-    );
-    assert_eq!(
-        load_settings()
-            .model_selection("grok-build")
-            .active_profile_id,
-        Some(switched.clone())
-    );
 
     let native = fs::read_to_string(&target).unwrap();
     let switched_marker = format!("default = \"{}\"", mux_profile_id(&switched));

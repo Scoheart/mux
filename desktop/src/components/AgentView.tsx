@@ -155,11 +155,7 @@ export function AgentView({
     key: string;
     enabled: boolean;
   } | null>(null);
-  const [changingModel, setChangingModel] = useState<{
-    profileId: string;
-    kind: "enabled" | "active";
-    enabled?: boolean;
-  } | null>(null);
+  const [changingModel, setChangingModel] = useState<{ profileId: string } | null>(null);
 
   const navigateResource = useCallback((request: ResourceNavigationRequest) => {
     if (onOpenResource) return onOpenResource(request);
@@ -259,13 +255,13 @@ export function AgentView({
     [agentId, agentModelMigrationCandidates],
   );
   const displayedModelRows = useMemo(
-    () => modelRows.map((item) => (
-      changingModel?.kind === "enabled"
-      && item.asset.domain === "model"
-      && item.asset.profile_id === changingModel.profileId
-        ? { ...item, enabled: changingModel.enabled }
-        : item
-    )),
+    () => modelRows.map((item) => {
+      const profileId = item.asset.domain === "model" ? item.asset.profile_id : "";
+      const current = changingModel
+        ? profileId === changingModel.profileId
+        : item.desired_active ?? item.active ?? false;
+      return { ...item, enabled: current };
+    }),
     [changingModel, modelRows],
   );
 
@@ -483,28 +479,11 @@ export function AgentView({
     }
   };
 
-  const toggleModelEnabled = async (item: typeof modelRows[number], enabled: boolean) => {
-    if (!consumptionState || item.asset.domain !== "model") return;
-    const profileId = item.asset.profile_id;
-    const name = modelProfiles.find((profile) => profile.id === profileId)?.name ?? profileId;
-    setChangingModel({ profileId, kind: "enabled", enabled });
-    try {
-      const plan = await consumptionState.planModelEnabled(agentId, profileId, enabled);
-      if (!requiresAgentReview(plan)) {
-        await commitPlan(undefined, plan, `${name} 已${enabled ? "启用" : "停用"}。`);
-      }
-    } catch (error) {
-      showToast({ kind: "error", msg: `${enabled ? "启用" : "停用"}失败：${formatError(error)}` });
-    } finally {
-      setChangingModel((current) => current?.profileId === profileId ? null : current);
-    }
-  };
-
   const setActiveModel = async (item: typeof modelRows[number]) => {
-    if (!consumptionState || item.asset.domain !== "model" || item.enabled === false || item.active) return;
+    if (!consumptionState || item.asset.domain !== "model" || item.desired_active) return;
     const profileId = item.asset.profile_id;
     const name = modelProfiles.find((profile) => profile.id === profileId)?.name ?? profileId;
-    setChangingModel({ profileId, kind: "active" });
+    setChangingModel({ profileId });
     try {
       const plan = await consumptionState.planActiveModel(agentId, profileId);
       if (!requiresAgentReview(plan)) {
@@ -515,6 +494,11 @@ export function AgentView({
     } finally {
       setChangingModel((current) => current?.profileId === profileId ? null : current);
     }
+  };
+
+  const switchActiveModel = (item: typeof modelRows[number], current: boolean) => {
+    if (current) return void setActiveModel(item);
+    showToast({ kind: "error", msg: "请先选择其他当前 Model。" });
   };
 
   const openAsset = (asset: AssetRef) => {
@@ -658,7 +642,7 @@ export function AgentView({
                 <AgentConsumptionPanel
                   domain="model"
                   title="Models"
-                  description={`${modelRows.length} 个已添加${modelAgent.supports_multiple ? " · 可保留多个并切换当前模型" : ""}`}
+                  description={`${modelRows.length} 个已添加${modelAgent.supports_multiple ? " · 同一时间使用其中一个" : ""}`}
                   manageLabel="添加 Model"
                   rows={displayedModelRows}
                   columns={3}
@@ -681,9 +665,10 @@ export function AgentView({
                   onManage={() => setPickerDomain("model")}
                   manageDisabled={!consumptionState || preparingChange || compatibleProfiles.length === 0}
                   onOpenAsset={openAsset}
-                  onEnabledChange={(item, enabled) => void toggleModelEnabled(item, enabled)}
+                  onEnabledChange={switchActiveModel}
+                  toggleKind="current"
                   enabledChangeDisabled={(item) => !consumptionState
-                    || changingModel?.profileId === (item.asset.domain === "model" ? item.asset.profile_id : "")
+                    || changingModel !== null
                     || item.status === "conflicted"}
                   renderAction={(item) => item.desired_active ? (
                     <Badge tone={item.active === false ? "warning" : "success"}>
@@ -691,16 +676,7 @@ export function AgentView({
                     </Badge>
                   ) : item.active ? (
                     <Badge tone="warning">Agent 实际当前</Badge>
-                  ) : item.enabled === false ? null : (
-                    <button
-                      type="button"
-                      className="mux-consumption-activate"
-                      disabled={!consumptionState || changingModel !== null || item.status === "conflicted"}
-                      onClick={() => void setActiveModel(item)}
-                    >
-                      设为当前
-                    </button>
-                  )}
+                  ) : null}
                   onRemove={(asset) => void planRemoval(asset)}
                   removeLabel={(name) => `从 ${agent.name} 移除 ${name}`}
                   removeDisabled={preparingChange || changingModel !== null}

@@ -255,6 +255,17 @@ pub fn plan_set_model_enabled(
     if record.enabled == request.enabled {
         return Err("model_enabled_unchanged: Model already has the requested state".into());
     }
+    if !request.enabled
+        && before.active_profile_id.as_deref() == Some(request.profile_id.as_str())
+        && !before
+            .profiles
+            .values()
+            .any(|candidate| candidate.profile_id != request.profile_id && candidate.enabled)
+    {
+        return Err(
+            "active_model_required: choose another current Model before disabling this one".into(),
+        );
+    }
     record.enabled = request.enabled;
     after.normalize_active();
     validate_model_selection_contract(&settings, &request.agent_id, &after)?;
@@ -272,12 +283,8 @@ pub fn plan_set_active_model(
     let before = settings.model_selection(&request.agent_id);
     let mut after = before.clone();
     validate_model_selection_contract(&settings, &request.agent_id, &after)?;
-    let record = after
-        .profiles
-        .get(&request.profile_id)
-        .ok_or_else(|| "model_consumption_missing: Model is not added to this Agent".to_string())?;
-    if !record.enabled {
-        return Err("model_consumption_disabled: enable the Model before selecting it".into());
+    if !before.profiles.contains_key(&request.profile_id) {
+        return Err("model_consumption_missing: Model is not added to this Agent".into());
     }
     require_compatible(
         &request.agent_id,
@@ -290,9 +297,11 @@ pub fn plan_set_active_model(
     }
     after.active_profile_id = Some(request.profile_id.clone());
     if let Some(record) = after.profiles.get_mut(&request.profile_id) {
+        record.enabled = true;
         record.last_selected_at =
             Some(chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true));
     }
+    validate_model_selection_contract(&settings, &request.agent_id, &after)?;
     finalize_plan(DomainPlan::Model {
         before: BTreeMap::from([(request.agent_id.clone(), before)]),
         after: BTreeMap::from([(request.agent_id, after)]),
@@ -2306,6 +2315,147 @@ mod tests {
         let selection = load_settings_strict().unwrap().model_selection("pi");
         assert_eq!(selection.active_profile_id.as_deref(), Some("current"));
         assert!(selection.profiles["backup"].enabled);
+    }
+
+    #[test]
+    fn current_model_cannot_be_disabled_without_an_enabled_successor() {
+        let _home = TestHome::new("consume-model-current-required");
+        let profile = ModelProfile {
+            id: "current".into(),
+            name: "Current".into(),
+            provider: "custom".into(),
+            model_vendor: None,
+            native_ids: Default::default(),
+            protocol: ModelProtocol::OpenaiResponses,
+            base_url: "https://current.example.invalid/v1".into(),
+            model: "current-model".into(),
+            env_key: None,
+            context_window: None,
+            max_output_tokens: None,
+            reasoning: false,
+        };
+        mutate_settings(|settings| {
+            settings
+                .model_profiles
+                .get_or_insert_default()
+                .insert(profile.id.clone(), profile);
+            settings.set_model_selection(
+                "pi",
+                ModelAgentSelection {
+                    profiles: BTreeMap::from([(
+                        "current".into(),
+                        ModelConsumptionRecord {
+                            profile_id: "current".into(),
+                            enabled: true,
+                            last_selected_at: None,
+                        },
+                    )]),
+                    active_profile_id: Some("current".into()),
+                },
+            );
+        })
+        .unwrap();
+
+        let error = plan_set_model_enabled(PlanSetModelEnabledRequest {
+            agent_id: "pi".into(),
+            profile_id: "current".into(),
+            enabled: false,
+        })
+        .unwrap_err();
+
+        assert!(error.starts_with("active_model_required:"), "{error}");
+    }
+
+    #[test]
+    fn pi_switches_to_a_disabled_backup_and_updates_native_defaults_atomically() {
+        let home = TestHome::new("consume-model-pi-switch-backup");
+        let profile = |id: &str, model: &str| ModelProfile {
+            id: id.into(),
+            name: id.into(),
+            provider: "custom".into(),
+            model_vendor: None,
+            native_ids: Default::default(),
+            protocol: ModelProtocol::OpenaiResponses,
+            base_url: format!("https://{id}.example.invalid/v1"),
+            model: model.into(),
+            env_key: None,
+            context_window: None,
+            max_output_tokens: None,
+            reasoning: false,
+        };
+        mutate_settings(|settings| {
+            settings.model_profiles.get_or_insert_default().extend([
+                ("current".into(), profile("current", "current-model")),
+                ("backup".into(), profile("backup", "backup-model")),
+            ]);
+            settings.set_model_selection(
+                "pi",
+                ModelAgentSelection {
+                    profiles: BTreeMap::from([
+                        (
+                            "current".into(),
+                            ModelConsumptionRecord {
+                                profile_id: "current".into(),
+                                enabled: true,
+                                last_selected_at: None,
+                            },
+                        ),
+                        (
+                            "backup".into(),
+                            ModelConsumptionRecord {
+                                profile_id: "backup".into(),
+                                enabled: false,
+                                last_selected_at: None,
+                            },
+                        ),
+                    ]),
+                    active_profile_id: Some("current".into()),
+                },
+            );
+        })
+        .unwrap();
+        crate::resources::model::apply_profile("pi", "current").unwrap();
+
+        let plan = plan_set_active_model(PlanSetActiveModelRequest {
+            agent_id: "pi".into(),
+            profile_id: "backup".into(),
+        })
+        .unwrap();
+        assert_eq!(
+            plan.target_files,
+            vec!["~/.pi/agent/models.json", "~/.pi/agent/settings.json"]
+        );
+        assert!(plan.model_state_changes.iter().any(|change| {
+            change.profile_id == "backup"
+                && !change.before.enabled
+                && !change.before.active
+                && change.after.enabled
+                && change.after.active
+        }));
+
+        commit_asset_operation(AssetCommitRequest {
+            operation_id: plan.operation_id,
+            candidate_hash: plan.candidate_hash,
+            conflict_confirmation: None,
+        })
+        .unwrap();
+
+        let selection = load_settings_strict().unwrap().model_selection("pi");
+        assert_eq!(selection.active_profile_id.as_deref(), Some("backup"));
+        assert!(selection.profiles["backup"].enabled);
+        assert!(selection.profiles["current"].enabled);
+        let native: serde_json::Value = serde_json::from_str(
+            &fs::read_to_string(home.home.join(".pi/agent/settings.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(native["defaultProvider"], "mux-backup");
+        assert_eq!(native["defaultModel"], "backup-model");
+        let providers: serde_json::Value = serde_json::from_str(
+            &fs::read_to_string(home.home.join(".pi/agent/models.json")).unwrap(),
+        )
+        .unwrap();
+        assert!(providers["providers"].get("mux-current").is_some());
+        assert!(providers["providers"].get("mux-backup").is_some());
     }
 
     #[test]

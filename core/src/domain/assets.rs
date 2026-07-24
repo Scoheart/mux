@@ -142,7 +142,9 @@ pub struct McpConsumptionRecord {
 
 /// One MUX-owned Model Profile installed for an Agent. Installation and the
 /// Agent's active/default model are intentionally separate: an Agent may keep
-/// several enabled profiles while only one is current.
+/// several enabled profiles while only one is current. Frontends expose the
+/// current pointer as the primary on/off control; `enabled` remains lifecycle
+/// availability rather than a claim that several Models are in use.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ModelConsumptionRecord {
     pub profile_id: String,
@@ -165,7 +167,8 @@ pub struct ModelAgentSelection {
 
 impl ModelAgentSelection {
     /// Keep the current pointer valid, falling back to the most recently used
-    /// enabled Profile and then to a stable profile id.
+    /// enabled Profile and then to a stable installed Profile. A non-empty
+    /// managed selection always retains one enabled current Profile.
     pub fn normalize_active(&mut self) {
         let active_available = self.active_profile_id.as_ref().is_some_and(|active| {
             self.profiles
@@ -175,7 +178,7 @@ impl ModelAgentSelection {
         if active_available {
             return;
         }
-        self.active_profile_id = self
+        let fallback = self
             .profiles
             .values()
             .filter(|record| record.enabled)
@@ -184,7 +187,20 @@ impl ModelAgentSelection {
                     .cmp(&right.last_selected_at)
                     .then_with(|| right.profile_id.cmp(&left.profile_id))
             })
+            .or_else(|| {
+                self.profiles.values().max_by(|left, right| {
+                    left.last_selected_at
+                        .cmp(&right.last_selected_at)
+                        .then_with(|| right.profile_id.cmp(&left.profile_id))
+                })
+            })
             .map(|record| record.profile_id.clone());
+        self.active_profile_id = fallback.clone();
+        if let Some(profile_id) = fallback {
+            if let Some(record) = self.profiles.get_mut(&profile_id) {
+                record.enabled = true;
+            }
+        }
     }
 }
 
@@ -608,5 +624,36 @@ mod tests {
                 profile_ids: vec!["personal".into(), "work".into()],
             }
         );
+    }
+
+    #[test]
+    fn model_selection_promotes_one_installed_profile_when_none_are_enabled() {
+        let mut selection = ModelAgentSelection {
+            profiles: BTreeMap::from([
+                (
+                    "backup".into(),
+                    ModelConsumptionRecord {
+                        profile_id: "backup".into(),
+                        enabled: false,
+                        last_selected_at: None,
+                    },
+                ),
+                (
+                    "work".into(),
+                    ModelConsumptionRecord {
+                        profile_id: "work".into(),
+                        enabled: false,
+                        last_selected_at: Some("2026-07-24T00:00:00Z".into()),
+                    },
+                ),
+            ]),
+            active_profile_id: None,
+        };
+
+        selection.normalize_active();
+
+        assert_eq!(selection.active_profile_id.as_deref(), Some("work"));
+        assert!(selection.profiles["work"].enabled);
+        assert!(!selection.profiles["backup"].enabled);
     }
 }

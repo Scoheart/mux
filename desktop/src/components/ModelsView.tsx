@@ -9,6 +9,11 @@ import type {
   ResourceNavigationIntent,
 } from "../lib/types";
 import { formatError } from "../lib/format";
+import {
+  getCachedModelsDevMetadata,
+  loadModelsDevMetadata,
+  type ModelsDevMetadata,
+} from "../lib/modelsDev";
 import { Avatar, Badge } from "./ui";
 import { ResourceCard, ResourceKindIcon } from "./ResourceCard";
 import { ResourceState } from "./ResourceState";
@@ -62,6 +67,31 @@ function providerLabel(providers: ModelProviderView[], provider: string) {
   return providers.find((item) => item.id === provider)?.name ?? (provider || "Custom Provider");
 }
 
+function formatTokens(value: number) {
+  if (value >= 1_000_000) {
+    return `${Number((value / 1_000_000).toFixed(value % 1_000_000 === 0 ? 0 : 2))}M`;
+  }
+  if (value >= 1_000) {
+    return `${Number((value / 1_000).toFixed(value % 1_000 === 0 ? 0 : 1))}K`;
+  }
+  return String(value);
+}
+
+function formatCatalogCost(value: number) {
+  return `$${Number(value.toFixed(value < 0.01 ? 4 : 2))}/M`;
+}
+
+function readableModelName(
+  profile: ModelProfileView,
+  providerName: string,
+  metadata?: ModelsDevMetadata,
+) {
+  const profileName = profile.name.trim();
+  const isProviderPlaceholder = [providerName, profile.provider]
+    .some((candidate) => candidate.trim().toLocaleLowerCase() === profileName.toLocaleLowerCase());
+  return ((!profileName || isProviderPlaceholder ? metadata?.name : profileName) || profileName || profile.model);
+}
+
 export function ModelsView({
   consumptionState,
   intent,
@@ -84,6 +114,7 @@ export function ModelsView({
   const [query, setQuery] = useState("");
   const [assetFilter, setAssetFilter] = useState<ModelAssetFilter>("all");
   const [protocolFilter, setProtocolFilter] = useState<ModelProtocol | null>(null);
+  const [modelsDevByProfileId, setModelsDevByProfileId] = useState<Record<string, ModelsDevMetadata>>({});
   const toast = useToast();
   const lastConsumedIntentId = useRef<number | null>(null);
 
@@ -109,6 +140,17 @@ export function ModelsView({
       })
       .finally(() => setLoading(false));
   }, [refresh, toast]);
+
+  useEffect(() => {
+    let active = true;
+    setModelsDevByProfileId(getCachedModelsDevMetadata(profiles));
+    if (profiles.length > 0) {
+      void loadModelsDevMetadata(profiles).then((metadata) => {
+        if (active) setModelsDevByProfileId(metadata);
+      });
+    }
+    return () => { active = false; };
+  }, [profiles]);
 
   const protocolCounts = useMemo(
     () => Object.fromEntries(
@@ -267,6 +309,7 @@ export function ModelsView({
           <ModelInspector
             profile={selectedProfile}
             providerName={providerLabel(providers, selectedProfile.provider)}
+            metadata={modelsDevByProfileId[selectedProfile.id]}
             onClose={clearSelection}
             onEdit={consumptionState ? () => setEditing(selectedProfile) : undefined}
             onDelete={consumptionState ? () => void planProfileDelete(selectedProfile) : undefined}
@@ -311,6 +354,7 @@ export function ModelsView({
                 key={profile.id}
                 profile={profile}
                 providerName={providerLabel(providers, profile.provider)}
+                metadata={modelsDevByProfileId[profile.id]}
                 selected={profile.id === selectedProfileId}
                 onOpen={() => {
                   setEditing(undefined);
@@ -368,14 +412,25 @@ export function ModelsView({
 function ModelCard({
   profile,
   providerName,
+  metadata,
   selected,
   onOpen,
 }: {
   profile: ModelProfileView;
   providerName: string;
+  metadata?: ModelsDevMetadata;
   selected: boolean;
   onOpen: () => void;
 }) {
+  const displayName = readableModelName(profile, providerName, metadata);
+  const contextWindow = profile.context_window ?? metadata?.contextWindow;
+  const maxOutputTokens = profile.max_output_tokens ?? metadata?.maxOutputTokens;
+  const capabilities = [
+    (profile.reasoning || metadata?.reasoning) && "推理",
+    metadata?.toolCall && "Tools",
+    metadata?.structuredOutput && "结构化",
+    metadata?.modalities?.some((modality) => modality !== "text") && "多模态",
+  ].filter((item): item is string => Boolean(item)).slice(0, 3);
   return (
     <ResourceCard
       className="mux-model-card"
@@ -384,19 +439,41 @@ function ModelCard({
       onOpen={onOpen}
       identity={
         <>
-          <ResourceKindIcon kind="model" seed={profile.name} />
+          <ResourceKindIcon kind="model" seed={displayName} />
           <div className="mux-resource-card-copy">
             <div className="mux-resource-card-heading">
-              <strong title={providerName}>{providerName}</strong>
+              <strong title={displayName}>{displayName}</strong>
             </div>
-            <code className="mux-resource-card-code" title={profile.model}>{profile.model}</code>
+            <div className="mux-model-card-subtitle">
+              <code className="mux-resource-card-code" title={profile.model}>{profile.model}</code>
+              <span className="mux-model-card-provider">{providerName}</span>
+            </div>
           </div>
         </>
       }
-      configuration={
-        <span className="mux-resource-card-fact" title={protocolLabel(profile.protocol)}>
-          {protocolLabel(profile.protocol)}
-        </span>
+      configuration={metadata?.description ? (
+        <p className="mux-model-card-description" title={metadata.description}>{metadata.description}</p>
+      ) : undefined}
+      state={(contextWindow || maxOutputTokens || metadata?.inputCost != null || metadata?.outputCost != null || capabilities.length > 0) ? (
+        <>
+          {contextWindow && <span className="mux-model-card-metric">{formatTokens(contextWindow)} 上下文</span>}
+          {maxOutputTokens && <span className="mux-model-card-metric">{formatTokens(maxOutputTokens)} 输出</span>}
+          {metadata?.inputCost != null && (
+            <span className="mux-model-card-metric">{formatCatalogCost(metadata.inputCost)} 输入</span>
+          )}
+          {metadata?.outputCost != null && (
+            <span className="mux-model-card-metric">{formatCatalogCost(metadata.outputCost)} 输出</span>
+          )}
+          {capabilities.map((capability) => (
+            <span className="mux-model-card-capability" key={capability}>{capability}</span>
+          ))}
+        </>
+      ) : undefined}
+      impact={
+        <div className="mux-model-card-footer-line">
+          <span className="mux-model-card-protocol">{protocolLabel(profile.protocol)}</span>
+          {metadata && <span className="mux-model-card-source">参考 models.dev</span>}
+        </div>
       }
     />
   );
@@ -405,17 +482,26 @@ function ModelCard({
 function ModelInspector({
   profile,
   providerName,
+  metadata,
   onClose,
   onEdit,
   onDelete,
 }: {
   profile: ModelProfileView;
   providerName: string;
+  metadata?: ModelsDevMetadata;
   onClose: () => void;
   onEdit?: () => void;
   onDelete?: () => void;
 }) {
   const toast = useToast();
+  const contextWindow = profile.context_window ?? metadata?.contextWindow;
+  const maxOutputTokens = profile.max_output_tokens ?? metadata?.maxOutputTokens;
+  const capabilities = [
+    metadata?.toolCall && "Tools",
+    metadata?.structuredOutput && "结构化输出",
+    metadata?.modalities?.some((modality) => modality !== "text") && "多模态",
+  ].filter((item): item is string => Boolean(item));
   const copyProfileId = () => {
     navigator.clipboard.writeText(profile.id)
       .then(() => toast.show({ kind: "success", msg: "Profile ID 已复制。" }))
@@ -423,7 +509,7 @@ function ModelInspector({
   };
   return (
     <ResourceInspector
-      title={profile.name}
+      title={readableModelName(profile, providerName, metadata)}
       avatar={<Avatar seed={profile.name} kind="model" size={40} />}
       subtitle={<Badge tone="neutral">{protocolLabel(profile.protocol)}</Badge>}
       onClose={onClose}
@@ -445,7 +531,23 @@ function ModelInspector({
         <InspectorField label="Provider">{providerName}</InspectorField>
         {profile.model_vendor && <InspectorField label="模型开发商">{profile.model_vendor}</InspectorField>}
         <InspectorField label="协议">{protocolLabel(profile.protocol)}</InspectorField>
-        <InspectorField label="推理">{profile.reasoning ? "支持" : "未标记"}</InspectorField>
+        <InspectorField label="推理">
+          {profile.reasoning ? "Profile 已启用" : metadata?.reasoning ? "models.dev 目录标记" : "未标记"}
+        </InspectorField>
+        {metadata?.description && <InspectorField label="模型简介">{metadata.description}</InspectorField>}
+        {contextWindow && <InspectorField label="上下文">{formatTokens(contextWindow)} tokens</InspectorField>}
+        {maxOutputTokens && <InspectorField label="输出上限">{formatTokens(maxOutputTokens)} tokens</InspectorField>}
+        {(metadata?.inputCost != null || metadata?.outputCost != null) && (
+          <InspectorField label="目录参考价">
+            {[
+              metadata.inputCost != null && `${formatCatalogCost(metadata.inputCost)} 输入`,
+              metadata.outputCost != null && `${formatCatalogCost(metadata.outputCost)} 输出`,
+            ].filter(Boolean).join(" · ")}
+          </InspectorField>
+        )}
+        {capabilities.length > 0 && <InspectorField label="能力">{capabilities.join(" · ")}</InspectorField>}
+        {metadata?.releaseDate && <InspectorField label="发布日期">{metadata.releaseDate}</InspectorField>}
+        {metadata && <InspectorField label="目录来源">models.dev（参考数据）</InspectorField>}
         <InspectorField label="模型 ID" mono>{profile.model}</InspectorField>
         <InspectorField label="Base URL" mono>{profile.base_url}</InspectorField>
         {profile.env_key && <InspectorField label="环境变量" mono>{profile.env_key}</InspectorField>}

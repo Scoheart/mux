@@ -656,6 +656,44 @@ body {
 .mux-resource-card-fact {
   min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-secondary);
 }
+.mux-model-card { min-height: 158px; align-content: start; }
+.mux-model-card-subtitle {
+  display: flex; min-width: 0; align-items: center; gap: 6px; margin-top: 5px;
+}
+.mux-model-card-subtitle .mux-resource-card-code { min-width: 0; flex: 1; margin-top: 0; }
+.mux-model-card-provider,
+.mux-model-card-protocol,
+.mux-model-card-source,
+.mux-model-card-metric,
+.mux-model-card-capability {
+  display: inline-flex; min-width: 0; align-items: center; border-radius: 999px;
+  white-space: nowrap;
+}
+.mux-model-card-provider {
+  max-width: 44%; flex: 0 1 auto; padding: 2px 6px; overflow: hidden;
+  background: var(--color-gray-150); color: var(--text-secondary);
+  font-size: 8px; line-height: 1.2; text-overflow: ellipsis;
+}
+.mux-model-card-description {
+  display: -webkit-box; margin: 0; overflow: hidden; color: var(--text-secondary);
+  font-size: 9px; line-height: 1.45; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
+}
+.mux-model-card-metric,
+.mux-model-card-capability {
+  padding: 3px 6px; background: var(--color-gray-150); color: var(--text-secondary);
+  font-size: 8px; line-height: 1.2;
+}
+.mux-model-card-capability {
+  background: color-mix(in srgb, var(--color-blue) 9%, var(--surface-raised)); color: var(--color-blue);
+}
+.mux-model-card-footer-line {
+  display: flex; width: 100%; min-width: 0; align-items: center; justify-content: space-between; gap: 7px;
+}
+.mux-model-card-protocol {
+  min-width: 0; padding: 3px 7px; overflow: hidden; background: var(--color-gray-150);
+  color: var(--text-secondary); font-size: 8px; line-height: 1.2; text-overflow: ellipsis;
+}
+.mux-model-card-source { flex: 0 0 auto; color: var(--text-secondary); font-size: 8px; line-height: 1.2; }
 .mux-resource-card-footer {
   display: flex; align-items: center; justify-content: space-between; gap: 8px;
   min-height: 35px; margin-top: auto; padding-top: 9px; border: 0;

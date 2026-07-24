@@ -5,6 +5,7 @@ import { resolve } from "node:path";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { ConsumptionState } from "../hooks/useConsumptionState";
 import * as api from "../lib/api";
+import * as modelsDev from "../lib/modelsDev";
 import { ModelsView } from "./ModelsView";
 import { ToastProvider } from "./Toast";
 
@@ -15,6 +16,15 @@ vi.mock("../lib/api", async () => {
     listModelProfiles: vi.fn(),
     listModelProviders: vi.fn(),
     inferModelProvider: vi.fn(),
+  };
+});
+
+vi.mock("../lib/modelsDev", async () => {
+  const actual = await vi.importActual<typeof import("../lib/modelsDev")>("../lib/modelsDev");
+  return {
+    ...actual,
+    getCachedModelsDevMetadata: vi.fn(() => ({})),
+    loadModelsDevMetadata: vi.fn(async () => ({})),
   };
 });
 
@@ -49,6 +59,8 @@ beforeEach(() => {
     if (host === "api.openai.com") return "openai";
     return "custom";
   });
+  vi.mocked(modelsDev.getCachedModelsDevMetadata).mockReturnValue({});
+  vi.mocked(modelsDev.loadModelsDevMetadata).mockResolvedValue({});
 });
 
 afterEach(() => {
@@ -72,13 +84,60 @@ it("maps Model cards to the shared resource interface", () => {
   expect(card).toMatch(/<ResourceCard/);
   expect(card).toMatch(/identity=/);
   expect(card).toMatch(/configuration=/);
-  expect(card).not.toMatch(/state=/);
-  expect(card).toMatch(/<strong title=\{providerName\}>\{providerName\}<\/strong>/);
+  expect(card).toMatch(/state=/);
+  expect(card).toMatch(/<strong title=\{displayName\}>\{displayName\}<\/strong>/);
   expect(card).toMatch(/title=\{profile\.model\}>\{profile\.model\}<\/code>/);
-  expect(card).toMatch(/title=\{protocolLabel\(profile\.protocol\)\}/);
-  expect(card).not.toMatch(/title=\{profile\.name\}|profile\.reasoning|profile\.base_url|Keychain|无凭据/);
+  expect(card).toMatch(/mux-model-card-protocol/);
+  expect(card).toMatch(/profile\.reasoning|metadata\?\.reasoning/);
+  expect(card).not.toMatch(/profile\.base_url|Keychain|无凭据/);
   expect(card).not.toMatch(/可用|生效中|已托管/);
   expect(card).not.toMatch(/<IconButton/);
+});
+
+it("enriches an OpenRouter card without overriding user token limits", async () => {
+  vi.mocked(api.listModelProfiles).mockResolvedValue([{
+    id: "qwen-profile",
+    name: "OpenRouter",
+    provider: "openrouter",
+    protocol: "openai-completions",
+    base_url: "https://openrouter.ai/api/v1",
+    model: "qwen/qwen3",
+    context_window: 200_000,
+    max_output_tokens: 16_000,
+    reasoning: false,
+    catalog_key: "openrouter/qwen/qwen3",
+    credential_saved: true,
+  }]);
+  vi.mocked(modelsDev.loadModelsDevMetadata).mockResolvedValue({
+    "qwen-profile": {
+      name: "Qwen3",
+      description: "A capable reasoning and tool-use model.",
+      contextWindow: 262_144,
+      maxOutputTokens: 32_768,
+      reasoning: true,
+      toolCall: true,
+      inputCost: 0.2,
+      outputCost: 0.8,
+    },
+  });
+
+  render(
+    <ToastProvider>
+      <ModelsView />
+    </ToastProvider>,
+  );
+
+  const card = await screen.findByRole("button", { name: "打开模型 OpenRouter 详情" });
+  await waitFor(() => expect(within(card).getByText("Qwen3")).toBeVisible());
+  expect(within(card).getByText("qwen/qwen3")).toBeVisible();
+  expect(within(card).getByText("OpenRouter")).toBeVisible();
+  expect(within(card).getByText("200K 上下文")).toBeVisible();
+  expect(within(card).getByText("16K 输出")).toBeVisible();
+  expect(within(card).queryByText("262.1K 上下文")).not.toBeInTheDocument();
+  expect(within(card).getByText("$0.2/M 输入")).toBeVisible();
+  expect(within(card).getByText("推理")).toBeVisible();
+  expect(within(card).getByText("Tools")).toBeVisible();
+  expect(within(card).getByText("参考 models.dev")).toBeVisible();
 });
 
 it("uses neutral protocol classification without a card color rail", () => {

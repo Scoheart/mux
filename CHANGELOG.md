@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.57](https://github.com/Scoheart/mux/compare/v1.8.56...v1.8.57) (2026-07-24)
+
+### Changes
+
+* feat(models): enrich model cards with catalog metadata ([72c1e6d](https://github.com/Scoheart/mux/commit/72c1e6d7336fff5290c62e4ec8e33aa0360f3d3a))
+
 ## [1.8.56](https://github.com/Scoheart/mux/compare/v1.8.55...v1.8.56) (2026-07-24)
 
 ### Changes

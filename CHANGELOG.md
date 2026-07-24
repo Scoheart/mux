@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.52](https://github.com/Scoheart/mux/compare/v1.8.51...v1.8.52) (2026-07-24)
+
+### Changes
+
+* fix(models): simplify edit inspector header ([d3d5ad6](https://github.com/Scoheart/mux/commit/d3d5ad6caf05e8f8e809f3f6552d68943b18578c))
+
 ## [1.8.51](https://github.com/Scoheart/mux/compare/v1.8.50...v1.8.51) (2026-07-24)
 
 ### Changes

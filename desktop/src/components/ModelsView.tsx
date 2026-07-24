@@ -796,9 +796,9 @@ function ModelProfileDialog({
   if (presentation === "inspector" && initial) {
     return (
       <ResourceInspector
-        title={initial.name}
+        title="编辑模型"
         avatar={<Avatar seed={initial.name} kind="model" size={40} />}
-        subtitle={<Badge tone="neutral">编辑 · {protocolLabel(draft.protocol)}</Badge>}
+        subtitle="API Key 保存在 macOS Keychain。"
         onClose={onClose}
         footer={
           <>

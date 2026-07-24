@@ -304,7 +304,11 @@ it("does not overwrite the Base URL of an existing model", async () => {
   await user.click(screen.getByRole("button", { name: "编辑" }));
   await waitFor(() => expect(screen.getByRole("combobox", { name: "Provider" })).toBeVisible());
   expect(screen.getAllByRole("dialog")).toHaveLength(1);
-  expect(screen.getByRole("complementary", { name: "Existing Model 详情" })).toBeVisible();
+  const editor = screen.getByRole("complementary", { name: "编辑模型 详情" });
+  expect(editor).toBeVisible();
+  expect(within(editor).getByRole("heading", { name: "编辑模型" })).toBeVisible();
+  expect(within(editor).getByText("API Key 保存在 macOS Keychain。")).toBeVisible();
+  expect(within(editor).queryByText("编辑 · OpenAI Responses")).not.toBeInTheDocument();
   expect(screen.queryByRole("dialog", { name: "编辑模型" })).not.toBeInTheDocument();
 
   const provider = screen.getByRole("combobox", { name: "Provider" });

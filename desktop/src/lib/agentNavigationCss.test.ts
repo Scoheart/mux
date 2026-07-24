@@ -76,7 +76,13 @@ it("keeps topbar controls at their wide-layout sizes without compact overrides",
   expect(pixelValue(topbar, "padding-left")).toBe(16);
   expect(pixelValue(declarations(css, ".mux-icon-btn"), "width")).toBe(30);
   expect(pixelValue(declarations(css, ".mux-icon-btn"), "height")).toBe(30);
-  expect(pixelValue(declarations(css, ".mux-agent-picker-trigger"), "width")).toBe(220);
+  const pickerAnchor = declarations(css, ".mux-agent-picker-anchor");
+  expect(pixelValue(pickerAnchor, "--mux-agent-picker-width")).toBe(220);
+  expect(pickerAnchor).toMatch(/width:\s*var\(--mux-agent-picker-width\)/);
+  expect(declarations(css, ".mux-agent-picker-trigger")).toMatch(/width:\s*100%/);
+  const picker = declarations(css, ".mux-agent-picker");
+  expect(picker).toMatch(/right:\s*0/);
+  expect(picker).toMatch(/width:\s*var\(--mux-agent-picker-width\)/);
   expect(pixelValue(declarations(css, ".mux-agent-picker-trigger"), "height")).toBe(40);
   expect(pixelValue(declarations(css, ".mux-pinned-agent"), "width")).toBe(34);
   expect(pixelValue(declarations(css, ".mux-pinned-agent"), "height")).toBe(34);

@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
@@ -90,6 +90,58 @@ it("uses neutral protocol classification without a card color rail", () => {
 it("keeps Keychain presence-only rendering in the Inspector", () => {
   expect(source).toMatch(/profile\.credential_saved \? "已保存到 Keychain" : "未保存"/);
   expect(source).not.toMatch(/credential_saved\s*\}\s*<code/);
+});
+
+it("renders model details as one continuous field list without section cards", async () => {
+  vi.mocked(api.listModelProfiles).mockResolvedValue([{
+    id: "qwen3-7-plus",
+    name: "Qwen3 7 Plus",
+    provider: "max-ai",
+    model_vendor: "Qwen",
+    protocol: "openai-responses",
+    base_url: "https://models.example.test/v1",
+    model: "qwen3.7-plus",
+    env_key: "MAX_AI_API_KEY",
+    reasoning: true,
+    catalog_key: "max-ai/qwen3.7-plus",
+    credential_saved: true,
+  }]);
+  const user = userEvent.setup();
+
+  render(
+    <ToastProvider>
+      <ModelsView />
+    </ToastProvider>,
+  );
+
+  await user.click(await screen.findByRole("button", { name: "打开模型 Qwen3 7 Plus 详情" }));
+
+  const inspector = screen.getByRole("complementary", { name: "Qwen3 7 Plus 详情" });
+  const fields = within(inspector).getByRole("region", { name: "模型详情字段" });
+  expect(fields).toHaveClass("mux-model-inspector-fields");
+  expect(fields.querySelectorAll(".mux-inspector-field")).toHaveLength(10);
+  expect(fields.querySelectorAll(".mux-inspector-section")).toHaveLength(0);
+  for (const label of [
+    "Provider",
+    "模型开发商",
+    "协议",
+    "推理",
+    "模型 ID",
+    "Base URL",
+    "环境变量",
+    "API Key",
+    "Profile ID",
+    "Catalog Key",
+  ]) {
+    expect(within(fields).getByText(label)).toBeVisible();
+  }
+  expect(within(fields).getByText("已保存到 Keychain")).toBeVisible();
+  expect(within(fields).getByRole("button", { name: "复制 Profile ID" })).toBeVisible();
+  expect(within(inspector).queryByRole("heading", { name: "资产信息" })).not.toBeInTheDocument();
+  expect(within(inspector).queryByRole("heading", { name: "接口" })).not.toBeInTheDocument();
+  expect(within(inspector).queryByRole("heading", { name: "技术详情" })).not.toBeInTheDocument();
+  expect(within(inspector).getByRole("button", { name: "删除" })).toBeVisible();
+  expect(within(inspector).getByRole("button", { name: "编辑" })).toBeVisible();
 });
 
 it("supports env-only Agent metadata without storing a secret value", () => {

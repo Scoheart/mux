@@ -25,7 +25,6 @@ import {
 import { useToast } from "./Toast";
 import {
   InspectorField,
-  InspectorSection,
   ResourceGrid,
   ResourceInspector,
   ResourceTabs,
@@ -490,13 +489,11 @@ function ModelInspector({
         </>
       }
     >
-      <InspectorSection title="资产信息">
+      <section className="mux-model-inspector-fields" aria-label="模型详情字段">
         <InspectorField label="Provider">{providerName}</InspectorField>
         {profile.model_vendor && <InspectorField label="模型开发商">{profile.model_vendor}</InspectorField>}
         <InspectorField label="协议">{protocolLabel(profile.protocol)}</InspectorField>
         <InspectorField label="推理">{profile.reasoning ? "支持" : "未标记"}</InspectorField>
-      </InspectorSection>
-      <InspectorSection title="接口">
         <InspectorField label="模型 ID" mono>{profile.model}</InspectorField>
         <InspectorField label="Base URL" mono>{profile.base_url}</InspectorField>
         {profile.env_key && <InspectorField label="环境变量" mono>{profile.env_key}</InspectorField>}
@@ -505,8 +502,6 @@ function ModelInspector({
             {profile.credential_saved ? "已保存到 Keychain" : "未保存"}
           </span>
         </InspectorField>
-      </InspectorSection>
-      <InspectorSection title="技术详情">
         <InspectorField label="Profile ID" mono>
           <span>{profile.id}</span>
           <button type="button" className="mux-copy-inline" aria-label="复制 Profile ID" onClick={copyProfileId}>
@@ -514,7 +509,7 @@ function ModelInspector({
           </button>
         </InspectorField>
         <InspectorField label="Catalog Key" mono>{profile.catalog_key}</InspectorField>
-      </InspectorSection>
+      </section>
     </ResourceInspector>
   );
 }

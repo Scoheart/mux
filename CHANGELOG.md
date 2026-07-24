@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.53](https://github.com/Scoheart/mux/compare/v1.8.52...v1.8.53) (2026-07-24)
+
+### Changes
+
+* test(core): serialize HOME collapse fixture ([c520f32](https://github.com/Scoheart/mux/commit/c520f327daf404c2e4b6a44c2fec3d342b2ca2ba))
+
 ## [1.8.52](https://github.com/Scoheart/mux/compare/v1.8.51...v1.8.52) (2026-07-24)
 
 ### Changes

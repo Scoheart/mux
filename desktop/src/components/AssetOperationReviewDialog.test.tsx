@@ -132,9 +132,87 @@ it("distinguishes adding a Model from switching the current Model", () => {
       onCancel={vi.fn()}
     />,
   );
-  expect(screen.getByRole("heading", { name: "确认添加 Model" })).toBeVisible();
+  expect(screen.getByRole("heading", { name: "确认添加当前 Model" })).toBeVisible();
   expect(screen.queryByRole("heading", { name: "确认切换 Model" })).not.toBeInTheDocument();
   expect(screen.getByText("未添加 → 已启用 · 当前")).toBeVisible();
+});
+
+it("labels a non-current Model addition as a backup without raw conflict codes", () => {
+  const plan = assetOperationPlanFixture();
+  plan.domain_plan = {
+    domain: "model",
+    before: {
+      pi: {
+        profiles: { current: { profile_id: "current", enabled: true } },
+        active_profile_id: "current",
+      },
+    },
+    after: {
+      pi: {
+        profiles: {
+          current: { profile_id: "current", enabled: true },
+          backup: { profile_id: "backup", enabled: true },
+        },
+        active_profile_id: "current",
+      },
+    },
+  };
+  plan.relationship_changes = [{
+    agent_id: "pi",
+    asset: { domain: "model", profile_id: "backup" },
+    action: "add",
+  }];
+  plan.model_state_changes = [{
+    agent_id: "pi",
+    profile_id: "backup",
+    before: { added: false, enabled: false, active: false },
+    after: { added: true, enabled: true, active: false },
+    fallback_profile_id: null,
+    reason: "model_added",
+  }];
+  plan.target_files = ["~/.pi/agent/models.json"];
+  plan.warnings = [];
+
+  render(
+    <AssetOperationReviewDialog
+      plan={plan}
+      busy={false}
+      agentId="pi"
+      agentName="Pi"
+      onCommit={vi.fn()}
+      onCancel={vi.fn()}
+    />,
+  );
+
+  expect(screen.getByRole("heading", { name: "确认添加备选 Model" })).toBeVisible();
+  expect(screen.getByRole("button", { name: "添加备选 Model" })).toBeEnabled();
+  expect(screen.getByText("未添加 → 已启用 · 非当前")).toBeVisible();
+  expect(screen.getByText("~/.pi/agent/models.json")).toBeVisible();
+  expect(screen.queryByText("~/.pi/agent/settings.json")).not.toBeInTheDocument();
+  expect(screen.queryByText(/model_active_state_drift|model_external_current/)).not.toBeInTheDocument();
+});
+
+it("translates Model conflict warnings into user-facing copy", () => {
+  const plan = assetOperationPlanFixture();
+  plan.domain_plan = { domain: "model", before: {}, after: {} };
+  plan.warnings = [
+    "pi: model_active_state_drift",
+    "pi: model_external_current",
+  ];
+  plan.can_commit = false;
+
+  render(
+    <AssetOperationReviewDialog
+      plan={plan}
+      busy={false}
+      onCommit={vi.fn()}
+      onCancel={vi.fn()}
+    />,
+  );
+
+  expect(screen.getByText("Pi：当前 Model 与 MUX 记录不一致，请先刷新或重新选择当前 Model")).toBeVisible();
+  expect(screen.getByText("Pi：当前 Model 由 Agent 外部配置管理，切换前需要先让 MUX 接管")).toBeVisible();
+  expect(screen.queryByText(/pi: model_/)).not.toBeInTheDocument();
 });
 
 it("presents a Model removal as a readable danger summary", () => {

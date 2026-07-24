@@ -96,7 +96,12 @@ function agentActionCopy(plan: AssetOperationPlan) {
       return { title: "确认切换当前 Model", commit: "切换当前 Model", busy: "切换中…" };
     }
     if (hasAdd && !hasRemove) {
-      return { title: "确认添加 Model", commit: "添加 Model", busy: "添加中…" };
+      const addsCurrent = states.some(
+        (change) => change.reason === "model_added" && change.after.active,
+      );
+      return addsCurrent
+        ? { title: "确认添加当前 Model", commit: "添加 Model", busy: "添加中…" }
+        : { title: "确认添加备选 Model", commit: "添加备选 Model", busy: "添加中…" };
     }
     if (states.some((change) => change.reason === "model_disabled")) {
       return { title: "确认停用 Model", commit: "停用 Model", busy: "停用中…" };
@@ -112,6 +117,18 @@ function agentActionCopy(plan: AssetOperationPlan) {
     return { title: `确认移除 ${asset}`, commit: `移除 ${asset}`, busy: "移除中…" };
   }
   return { title: `确认更新 ${asset}`, commit: `更新 ${asset}`, busy: "更新中…" };
+}
+
+function warningCopy(warning: string) {
+  const [agent, reason] = warning.split(/:\s*/, 2);
+  const labels: Record<string, string> = {
+    model_active_state_drift: "当前 Model 与 MUX 记录不一致，请先刷新或重新选择当前 Model",
+    model_external_current: "当前 Model 由 Agent 外部配置管理，切换前需要先让 MUX 接管",
+    model_active_conflicted: "当前 Model 配置存在歧义，请先修复配置",
+    model_owned_fields_drift: "该 Model 的托管字段已被外部修改",
+    model_target_missing: "该 Model 的 Agent 配置缺失",
+  };
+  return labels[reason] ? `${readableIdentity(agent)}：${labels[reason]}` : warning;
 }
 
 function modelStateLabel(state: { added: boolean; enabled: boolean; active: boolean }) {
@@ -470,7 +487,7 @@ export function AssetOperationReviewDialog({
         {plan.warnings.length > 0 && (
           <section className="mux-asset-review-warnings">
             <h3>需要处理</h3>
-            <ul>{plan.warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul>
+            <ul>{plan.warnings.map((warning) => <li key={warning}>{warningCopy(warning)}</li>)}</ul>
           </section>
         )}
         {plan.requires_conflict_confirmation && (

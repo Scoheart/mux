@@ -1123,7 +1123,8 @@ pub(crate) fn finalize_plan_with(
             continue;
         }
         for item in current_inventory.external.iter().filter(|item| {
-            kind != AssetOperationKind::Adopt && external_blocks_selection(agent_id, asset, item)
+            kind != AssetOperationKind::Adopt
+                && external_blocks_selection(&domain_plan, agent_id, asset, item)
         }) {
             blocked.push(format!(
                 "{}: {}",
@@ -1453,17 +1454,38 @@ fn effect_assets(
         .iter()
         .map(|change| (change.agent_id.clone(), change.asset.clone()))
         .collect();
-    // Re-selecting an assigned Model is the Agent-scoped repair path. Include
-    // unchanged desired profiles so drift/conflicts are reviewed and bound to
-    // an explicit confirmation instead of producing an invisible no-op.
-    if let DomainPlan::Model { after, .. } = plan {
-        effects.extend(after.iter().flat_map(|(agent_id, selection)| {
-            selection
+    if let DomainPlan::Model { before, after } = plan {
+        for agent_id in union_keys(before, after) {
+            let left = before.get(agent_id).cloned().unwrap_or_default();
+            let right = after.get(agent_id).cloned().unwrap_or_default();
+            if left == right {
+                // Re-selecting an unchanged assignment is the Agent-scoped
+                // repair path, so every desired profile remains in scope.
+                effects.extend(
+                    right
+                        .profiles
+                        .keys()
+                        .cloned()
+                        .map(|profile_id| (agent_id.clone(), AssetRef::Model { profile_id })),
+                );
+                continue;
+            }
+            let profile_ids: BTreeSet<String> = left
                 .profiles
                 .keys()
+                .chain(right.profiles.keys())
                 .cloned()
-                .map(|profile_id| (agent_id.clone(), AssetRef::Model { profile_id }))
-        }));
+                .collect();
+            effects.extend(profile_ids.into_iter().filter_map(|profile_id| {
+                let left_record = left.profiles.get(&profile_id);
+                let right_record = right.profiles.get(&profile_id);
+                let active_changed = (left.active_profile_id.as_deref()
+                    == Some(profile_id.as_str()))
+                    != (right.active_profile_id.as_deref() == Some(profile_id.as_str()));
+                (left_record != right_record || active_changed)
+                    .then(|| (agent_id.clone(), AssetRef::Model { profile_id }))
+            }));
+        }
     }
     let agents = agents_for_plan(plan);
     for change in central_changes {
@@ -1506,6 +1528,7 @@ fn asset_desired_after(plan: &DomainPlan, agent_id: &str, asset: &AssetRef) -> b
 }
 
 fn external_blocks_selection(
+    plan: &DomainPlan,
     agent_id: &str,
     asset: &AssetRef,
     external: &super::types::ConsumptionView,
@@ -1517,7 +1540,15 @@ fn external_blocks_selection(
         (AssetRef::Mcp { key }, AssetRef::Mcp { key: external_key }) => {
             key == external_key && external.reason.as_deref() != Some("mcp_adoptable")
         }
-        (AssetRef::Model { .. }, AssetRef::Model { .. }) => true,
+        (AssetRef::Model { profile_id }, AssetRef::Model { .. }) => {
+            let DomainPlan::Model { before, after } = plan else {
+                return true;
+            };
+            let left = before.get(agent_id).cloned().unwrap_or_default();
+            let right = after.get(agent_id).cloned().unwrap_or_default();
+            left.active_profile_id != right.active_profile_id
+                || right.active_profile_id.as_deref() == Some(profile_id)
+        }
         (
             AssetRef::Skill { name },
             AssetRef::Skill {
@@ -1542,9 +1573,17 @@ fn target_files(plan: &DomainPlan) -> Result<Vec<String>, String> {
         DomainPlan::Model { before, after } => {
             let settings = load_settings_strict().map_err(|error| error.to_string())?;
             for agent_id in agents_for_plan(plan) {
-                let paths =
+                let mut paths =
                     crate::resources::model::configured_path_strings_checked(&settings, &agent_id)?
                         .ok_or_else(|| format!("unsupported model Agent: {agent_id}"))?;
+                let left = before.get(&agent_id).cloned().unwrap_or_default();
+                let right = after.get(&agent_id).cloned().unwrap_or_default();
+                if agent_id == "pi"
+                    && left != right
+                    && left.active_profile_id == right.active_profile_id
+                {
+                    paths.truncate(1);
+                }
                 let profile_ids: BTreeSet<String> = before
                     .get(&agent_id)
                     .into_iter()
@@ -2186,6 +2225,87 @@ mod tests {
             error.starts_with("model_native_identity_conflict:"),
             "{error}"
         );
+    }
+
+    #[test]
+    fn pi_can_add_a_backup_profile_without_taking_over_external_current() {
+        let home = TestHome::new("consume-model-pi-backup");
+        let profile = |id: &str, model: &str| ModelProfile {
+            id: id.into(),
+            name: id.into(),
+            provider: "custom".into(),
+            model_vendor: None,
+            native_ids: Default::default(),
+            protocol: ModelProtocol::OpenaiResponses,
+            base_url: format!("https://{id}.example.invalid/v1"),
+            model: model.into(),
+            env_key: None,
+            context_window: None,
+            max_output_tokens: None,
+            reasoning: false,
+        };
+        mutate_settings(|settings| {
+            settings.model_profiles.get_or_insert_default().extend([
+                ("current".into(), profile("current", "current-model")),
+                ("backup".into(), profile("backup", "backup-model")),
+            ]);
+            settings.set_model_selection(
+                "pi",
+                ModelAgentSelection {
+                    profiles: BTreeMap::from([(
+                        "current".into(),
+                        ModelConsumptionRecord {
+                            profile_id: "current".into(),
+                            enabled: true,
+                            last_selected_at: None,
+                        },
+                    )]),
+                    active_profile_id: Some("current".into()),
+                },
+            );
+        })
+        .unwrap();
+        crate::resources::model::apply_profile("pi", "current").unwrap();
+        let pi_settings = home.home.join(".pi/agent/settings.json");
+        fs::write(
+            &pi_settings,
+            r#"{"defaultProvider":"external","defaultModel":"external-model"}"#,
+        )
+        .unwrap();
+        let external_defaults = fs::read_to_string(&pi_settings).unwrap();
+
+        let plan = plan_ensure_agent_consumption(PlanEnsureAgentConsumptionRequest {
+            agent_id: "pi".into(),
+            selection: AgentConsumptionSelection::Model {
+                profile_ids: vec!["backup".into()],
+            },
+        })
+        .unwrap();
+
+        assert!(plan.can_commit, "{:?}", plan.warnings);
+        assert!(plan.warnings.is_empty(), "{:?}", plan.warnings);
+        assert_eq!(plan.target_files, vec!["~/.pi/agent/models.json"]);
+        assert!(plan.model_state_changes.iter().any(|change| {
+            change.profile_id == "backup"
+                && change.after.enabled
+                && !change.after.active
+                && change.reason == "model_added"
+        }));
+
+        commit_asset_operation(AssetCommitRequest {
+            operation_id: plan.operation_id,
+            candidate_hash: plan.candidate_hash,
+            conflict_confirmation: None,
+        })
+        .unwrap();
+
+        assert_eq!(fs::read_to_string(pi_settings).unwrap(), external_defaults);
+        assert!(fs::read_to_string(home.home.join(".pi/agent/models.json"))
+            .unwrap()
+            .contains("backup-model"));
+        let selection = load_settings_strict().unwrap().model_selection("pi");
+        assert_eq!(selection.active_profile_id.as_deref(), Some("current"));
+        assert!(selection.profiles["backup"].enabled);
     }
 
     #[test]

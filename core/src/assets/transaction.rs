@@ -18,8 +18,9 @@ use crate::resources::mcp::registry::{
     write_manual_entry,
 };
 use crate::resources::model::{
-    apply_credential_update, apply_profile, apply_profile_with_credential_presence,
-    clear_credential_rollback, clear_profile, credential_present, credential_rollback_snapshot,
+    apply_credential_update, apply_profile, apply_profile_consumption,
+    apply_profile_consumption_with_credential_presence, clear_credential_rollback,
+    clear_profile_consumption, credential_present, credential_rollback_snapshot,
     credential_snapshot, delete_profile_metadata, persist_credential_rollback,
     restore_credential_snapshot, save_profile,
 };
@@ -960,12 +961,12 @@ fn reapply_model_consumers(
             .get(profile_id)
             .is_some_and(|record| record.enabled)
         {
-            apply_profile_with_credential_presence(agent_id, profile_id, credential_present)?;
-            if desired.active_profile_id.as_deref() != Some(profile_id) {
-                if let Some(active) = desired.active_profile_id.as_deref() {
-                    apply_profile(agent_id, active)?;
-                }
-            }
+            apply_profile_consumption_with_credential_presence(
+                agent_id,
+                profile_id,
+                credential_present,
+                desired.active_profile_id.as_deref() == Some(profile_id),
+            )?;
         }
     }
     Ok(())
@@ -1267,7 +1268,11 @@ fn apply_model(
             .map(|(profile_id, _)| profile_id.clone())
             .collect();
         for profile_id in removed_or_disabled {
-            if let Err(error) = clear_profile(agent_id, &profile_id) {
+            if let Err(error) = clear_profile_consumption(
+                agent_id,
+                &profile_id,
+                left.active_profile_id.as_deref() == Some(profile_id.as_str()),
+            ) {
                 let replaceable = replace_conflict
                     && right.active_profile_id.is_some()
                     && (error.starts_with("model_owned_fields_drift:")
@@ -1283,10 +1288,21 @@ fn apply_model(
                 .get(profile_id)
                 .is_some_and(|previous| previous.enabled);
             if record.enabled && (!was_enabled || replace_conflict) {
-                apply_profile(agent_id, profile_id)?;
+                apply_profile_consumption(
+                    agent_id,
+                    profile_id,
+                    right.active_profile_id.as_deref() == Some(profile_id),
+                )?;
             }
         }
-        if let Some(profile_id) = right.active_profile_id.as_deref() {
+        if left.active_profile_id != right.active_profile_id
+            && right.active_profile_id.as_ref().is_some_and(|profile_id| {
+                left.profiles
+                    .get(profile_id)
+                    .is_some_and(|record| record.enabled)
+            })
+        {
+            let profile_id = right.active_profile_id.as_deref().expect("checked above");
             apply_profile(agent_id, profile_id)?;
         }
     }
@@ -1382,10 +1398,14 @@ fn verify_postcondition(plan: &AssetOperationPlan) -> Result<(), String> {
                     };
                     let expected_active =
                         expected.active_profile_id.as_deref() == Some(profile_id.as_str());
-                    if item.status != ConsumptionStatus::Synced
-                        || item.enabled != Some(record.enabled)
-                        || item.active != Some(expected_active)
-                    {
+                    let state_changed = plan.model_state_changes.iter().any(|change| {
+                        change.agent_id == *agent_id && change.profile_id == *profile_id
+                    });
+                    let invalid = item.enabled != Some(record.enabled)
+                        || (state_changed
+                            && (item.status != ConsumptionStatus::Synced
+                                || item.active != Some(expected_active)));
+                    if invalid {
                         return Err(format!(
                             "model post-commit verification failed: {profile_id} for {agent_id} is {:?} with enabled {:?} and active {:?}",
                             item.status, item.enabled, item.active

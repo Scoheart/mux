@@ -1663,10 +1663,33 @@ pub fn apply_profile(agent_id: &str, profile_id: &str) -> Result<ModelApplyResul
     apply_profile_with_credential_presence(agent_id, profile_id, credential_exists(profile_id))
 }
 
+pub(crate) fn apply_profile_consumption(
+    agent_id: &str,
+    profile_id: &str,
+    active: bool,
+) -> Result<ModelApplyResult, String> {
+    let _settings_guard = mutation_lock()?;
+    apply_profile_consumption_with_credential_presence(
+        agent_id,
+        profile_id,
+        credential_exists(profile_id),
+        active,
+    )
+}
+
 pub(crate) fn apply_profile_with_credential_presence(
     agent_id: &str,
     profile_id: &str,
     has_credential: bool,
+) -> Result<ModelApplyResult, String> {
+    apply_profile_consumption_with_credential_presence(agent_id, profile_id, has_credential, true)
+}
+
+pub(crate) fn apply_profile_consumption_with_credential_presence(
+    agent_id: &str,
+    profile_id: &str,
+    has_credential: bool,
+    active: bool,
 ) -> Result<ModelApplyResult, String> {
     let profile = profile_for_apply(profile_id)?;
     ensure_supported(agent_id, &profile.protocol)?;
@@ -1678,26 +1701,30 @@ pub(crate) fn apply_profile_with_credential_presence(
     let result = match agent_id {
         "claude-code" => apply_claude(&paths[0], &profile, has_credential),
         "codex" => apply_codex(&paths[0], &profile, has_credential),
-        "grok-build" => apply_grok_build(&paths[0], &profile),
-        "pi" => apply_pi(&paths[0], &paths[1], &profile, has_credential),
+        "grok-build" if active => apply_grok_build(&paths[0], &profile),
+        "grok-build" => apply_grok_model(&paths[0], &profile),
+        "pi" => apply_pi(&paths[0], &paths[1], &profile, has_credential, active),
         "opencode" | "kilo-code" | "qwen-code" | "crush" | "mistral-vibe" | "hermes"
         | "factory-droid" | "goose" => apply_native_multi_model(
             agent_id,
             &profile,
-            adapters::prepare_apply(agent_id, &paths, &profile, true)?,
+            adapters::prepare_apply(agent_id, &paths, &profile, active)?,
+            active,
         ),
         _ => unreachable!("ensure_supported filtered unknown agents"),
     }?;
 
-    mutate_settings(|settings| {
-        settings
-            .model_assignments
-            .get_or_insert_with(BTreeMap::new)
-            .insert(agent_id.into(), profile_id.into());
-    })
-    .map_err(|error| {
-        format!("model config was applied, but MUX could not record the assignment: {error}")
-    })?;
+    if active {
+        mutate_settings(|settings| {
+            settings
+                .model_assignments
+                .get_or_insert_with(BTreeMap::new)
+                .insert(agent_id.into(), profile_id.into());
+        })
+        .map_err(|error| {
+            format!("model config was applied, but MUX could not record the assignment: {error}")
+        })?;
+    }
     Ok(result)
 }
 
@@ -1705,6 +1732,14 @@ pub(crate) fn apply_profile_with_credential_presence(
 /// clear the desired assignment. The caller must identify the exact Profile so
 /// unrelated providers and Agent policy remain untouched.
 pub fn clear_profile(agent_id: &str, profile_id: &str) -> Result<(), String> {
+    clear_profile_consumption(agent_id, profile_id, true)
+}
+
+pub(crate) fn clear_profile_consumption(
+    agent_id: &str,
+    profile_id: &str,
+    active: bool,
+) -> Result<(), String> {
     let _settings_guard = mutation_lock()?;
     let profile = profile_for_apply(profile_id)?;
     ensure_supported(agent_id, &profile.protocol)?;
@@ -1731,7 +1766,7 @@ pub fn clear_profile(agent_id: &str, profile_id: &str) -> Result<(), String> {
             &profile,
             prepare_clear_grok_build,
         )?,
-        "pi" => clear_pi(&paths[0], &paths[1], &profile)?,
+        "pi" => clear_pi(&paths[0], &paths[1], &profile, active)?,
         "opencode" | "kilo-code" | "qwen-code" | "crush" | "mistral-vibe" | "hermes"
         | "factory-droid" | "goose" => {
             commit_native_model_files(
@@ -1755,6 +1790,7 @@ fn apply_native_multi_model(
     agent_id: &str,
     profile: &ModelProfile,
     files: Vec<adapters::PreparedModelFile>,
+    active: bool,
 ) -> Result<ModelApplyResult, String> {
     let written = files
         .iter()
@@ -1766,7 +1802,11 @@ fn apply_native_multi_model(
         profile: profile.id.clone(),
         files: written,
         restart_required: true,
-        message: format!("{agent_id} Model Profile and primary selection updated."),
+        message: if active {
+            format!("{agent_id} Model Profile and primary selection updated.")
+        } else {
+            format!("{agent_id} backup Model Profile installed without changing the current Model.")
+        },
     })
 }
 
@@ -2441,6 +2481,20 @@ fn apply_grok_build(path: &Path, profile: &ModelProfile) -> Result<ModelApplyRes
     })
 }
 
+fn apply_grok_model(path: &Path, profile: &ModelProfile) -> Result<ModelApplyResult, String> {
+    let (original, content) = prepare_grok_model(path, profile)?;
+    backup_config(path, "grok-build", &backup_timestamp())?;
+    write_if_unchanged(path, original.as_deref(), &content)?;
+    Ok(ModelApplyResult {
+        agent: "grok-build".into(),
+        profile: profile.id.clone(),
+        files: vec![path.display().to_string()],
+        restart_required: true,
+        message: "Grok Build backup Model Profile installed without changing the primary default."
+            .into(),
+    })
+}
+
 type ClearModelPrepare = fn(&Path) -> Result<(Option<String>, String), String>;
 type ClearModelWithProfilePrepare =
     fn(&Path, &ModelProfile) -> Result<(Option<String>, String), String>;
@@ -2506,9 +2560,21 @@ fn apply_pi(
     settings_path: &Path,
     profile: &ModelProfile,
     has_credential: bool,
+    active: bool,
 ) -> Result<ModelApplyResult, String> {
     let (models_original, models_content) =
         prepare_pi_models(models_path, profile, has_credential)?;
+    if !active {
+        backup_config(models_path, "pi-models", &backup_timestamp())?;
+        write_if_unchanged(models_path, models_original.as_deref(), &models_content)?;
+        return Ok(ModelApplyResult {
+            agent: "pi".into(),
+            profile: profile.id.clone(),
+            files: vec![models_path.display().to_string()],
+            restart_required: true,
+            message: "Pi backup Model Profile installed without changing the default Model.".into(),
+        });
+    }
     let (settings_original, settings_content) = prepare_pi_settings(settings_path, profile)?;
     let stamp = backup_timestamp();
     backup_config(models_path, "pi-models", &stamp)?;
@@ -2539,8 +2605,16 @@ fn clear_pi(
     models_path: &Path,
     settings_path: &Path,
     profile: &ModelProfile,
+    active: bool,
 ) -> Result<(), String> {
     let (models_original, models_content) = prepare_clear_pi_models(models_path, profile)?;
+    if !active {
+        let Some(models_before) = models_original.as_deref() else {
+            return Ok(());
+        };
+        backup_config(models_path, "pi-models", &backup_timestamp())?;
+        return write_if_unchanged(models_path, Some(models_before), &models_content);
+    }
     let (settings_original, settings_content) = prepare_clear_pi_settings(settings_path)?;
     if models_original.is_none() && settings_original.is_none() {
         return Ok(());
@@ -2770,7 +2844,7 @@ mod tests {
         )
         .unwrap();
 
-        clear_pi(&models_path, &settings_path, &responses_profile()).unwrap();
+        clear_pi(&models_path, &settings_path, &responses_profile(), true).unwrap();
 
         assert!(models_path.exists());
         assert!(!settings_path.exists());
@@ -2865,6 +2939,36 @@ wire_api = "responses"
         assert!(content.contains("\"local\""));
         assert!(content.contains("\"mux-team-openai\""));
         assert!(content.contains("!/usr/bin/security"));
+    }
+
+    #[test]
+    fn pi_backup_profile_does_not_change_external_defaults() {
+        let th = TestHome::new("model-pi-backup");
+        let models_path = th.home.join(".pi/agent/models.json");
+        let settings_path = th.home.join(".pi/agent/settings.json");
+        fs::create_dir_all(models_path.parent().unwrap()).unwrap();
+        fs::write(
+            &settings_path,
+            r#"{"defaultProvider":"external","defaultModel":"external-model","keep":true}"#,
+        )
+        .unwrap();
+        let before = fs::read_to_string(&settings_path).unwrap();
+
+        let result = apply_pi(
+            &models_path,
+            &settings_path,
+            &responses_profile(),
+            true,
+            false,
+        )
+        .unwrap();
+
+        assert_eq!(fs::read_to_string(&settings_path).unwrap(), before);
+        assert!(fs::read_to_string(&models_path)
+            .unwrap()
+            .contains("\"mux-team-openai\""));
+        assert_eq!(result.files, vec![models_path.display().to_string()]);
+        assert!(result.message.contains("without changing the default"));
     }
 
     #[test]

@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.58](https://github.com/Scoheart/mux/compare/v1.8.57...v1.8.58) (2026-07-24)
+
+### Changes
+
+* feat(skills): add managed enable toggles ([613a328](https://github.com/Scoheart/mux/commit/613a328ad4d513165986f5f450ef95f79ba60164))
+
 ## [1.8.57](https://github.com/Scoheart/mux/compare/v1.8.56...v1.8.57) (2026-07-24)
 
 ### Changes

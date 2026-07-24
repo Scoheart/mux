@@ -5,10 +5,11 @@ mod support;
 use mux_core::consumption::{
     commit_asset_operation, plan_delete_central_asset, plan_reapply_mcp, plan_set_active_model,
     plan_set_agent_consumption, plan_set_mcp_enabled, plan_set_model_enabled,
-    plan_update_central_asset, AgentConsumptionSelection, AssetCommitRequest, AssetRef,
-    CentralAssetDraft, PlanDeleteCentralAssetRequest, PlanReapplyMcpRequest,
-    PlanSetActiveModelRequest, PlanSetAgentConsumptionRequest, PlanSetMcpEnabledRequest,
-    PlanSetModelEnabledRequest, PlanUpdateCentralAssetRequest,
+    plan_set_skill_enabled, plan_update_central_asset, AgentConsumptionSelection,
+    AssetCommitRequest, AssetRef, CentralAssetDraft, PlanDeleteCentralAssetRequest,
+    PlanReapplyMcpRequest, PlanSetActiveModelRequest, PlanSetAgentConsumptionRequest,
+    PlanSetMcpEnabledRequest, PlanSetModelEnabledRequest, PlanSetSkillEnabledRequest,
+    PlanUpdateCentralAssetRequest,
 };
 use mux_core::models::{apply_profile, list_profiles, reconcile_active_models, save_profile};
 use mux_core::registry::{read_registry, write_manual_entry};
@@ -635,6 +636,90 @@ fn shared_skill_target_expands_agent_intent_and_rejects_partial_asset_selection(
     )
     .unwrap_err();
     assert!(error.starts_with("skill_shared_target_conflict:"));
+}
+
+#[test]
+fn shared_skill_toggle_preserves_assignment_and_changes_the_physical_target_once() {
+    let fixture = SkillsFixture::managed_on_targets("review-changes", &["agents-user"]);
+    let target = fixture.target("agents-user", "review-changes");
+
+    let disable = plan_set_skill_enabled(PlanSetSkillEnabledRequest {
+        agent_id: "codex".into(),
+        name: "review-changes".into(),
+        enabled: false,
+    })
+    .unwrap();
+    assert_eq!(
+        disable.affected_agent_ids,
+        vec!["codex", "copilot-cli", "cursor", "gemini", "opencode"]
+    );
+    assert_eq!(
+        disable.target_files,
+        vec!["~/.agents/skills/review-changes"]
+    );
+    commit(disable);
+
+    let settings = load_settings();
+    assert!(settings.skill_assignments.as_ref().unwrap()["review-changes"].contains("agents-user"));
+    assert!(
+        !settings.skill_consumptions.as_ref().unwrap()["review-changes"]["agents-user"].enabled
+    );
+    assert!(!target.exists());
+    let disabled = mux_core::consumption::list_consumption_inventory().unwrap();
+    let rows: Vec<_> = disabled
+        .consumptions
+        .iter()
+        .filter(|item| {
+            item.asset
+                == (AssetRef::Skill {
+                    name: "review-changes".into(),
+                })
+        })
+        .collect();
+    assert_eq!(rows.len(), 5);
+    assert!(rows.iter().all(|item| {
+        item.desired
+            && !item.observed
+            && item.enabled == Some(false)
+            && item.status == mux_core::consumption::ConsumptionStatus::Synced
+    }));
+    let repair = mux_core::skills::plan_repair(mux_core::skills::PlanRepairRequest {
+        skill_name: "review-changes".into(),
+        repair: mux_core::skills::RepairKind::Target {
+            target_id: "agents-user".into(),
+        },
+    })
+    .unwrap_err();
+    assert!(matches!(
+        repair,
+        mux_core::skills::SkillError::Conflict { .. }
+    ));
+
+    commit(
+        plan_set_skill_enabled(PlanSetSkillEnabledRequest {
+            agent_id: "cursor".into(),
+            name: "review-changes".into(),
+            enabled: true,
+        })
+        .unwrap(),
+    );
+    let settings = load_settings();
+    assert!(settings.skill_assignments.as_ref().unwrap()["review-changes"].contains("agents-user"));
+    assert!(settings.skill_consumptions.as_ref().unwrap()["review-changes"]["agents-user"].enabled);
+    assert!(target.is_symlink());
+    let enabled = mux_core::consumption::list_consumption_inventory().unwrap();
+    assert!(enabled
+        .consumptions
+        .iter()
+        .filter(|item| item.asset
+            == (AssetRef::Skill {
+                name: "review-changes".into(),
+            }))
+        .all(|item| {
+            item.observed
+                && item.enabled == Some(true)
+                && item.status == mux_core::consumption::ConsumptionStatus::Synced
+        }));
 }
 
 #[test]

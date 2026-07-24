@@ -32,8 +32,8 @@ pub use model_migration::{
 pub use planner::{
     plan_ensure_agent_consumption, plan_reapply_mcp, plan_set_active_model,
     plan_set_agent_consumption, plan_set_asset_consumers, plan_set_mcp_enabled,
-    plan_set_model_enabled, plan_update_agent_capabilities, plan_update_agent_configuration,
-    plan_update_asset_consumers,
+    plan_set_model_enabled, plan_set_skill_enabled, plan_update_agent_capabilities,
+    plan_update_agent_configuration, plan_update_asset_consumers,
 };
 pub use transaction::{
     cancel_asset_operation, commit_asset_operation, recover_pending_asset_operations,
@@ -45,7 +45,8 @@ pub use types::{
     ModelAgentSelection, ModelConsumptionRecord, ModelStateChange, ModelStateSnapshot,
     PlanDeleteCentralAssetRequest, PlanEnsureAgentConsumptionRequest, PlanReapplyMcpRequest,
     PlanSetActiveModelRequest, PlanSetAgentConsumptionRequest, PlanSetAssetConsumersRequest,
-    PlanSetMcpEnabledRequest, PlanSetModelEnabledRequest, PlanUpdateAgentCapabilitiesRequest,
-    PlanUpdateAgentConfigurationRequest, PlanUpdateAssetConsumersRequest,
-    PlanUpdateCentralAssetRequest, RelationshipAction, RelationshipChange, SelectionError,
+    PlanSetMcpEnabledRequest, PlanSetModelEnabledRequest, PlanSetSkillEnabledRequest,
+    PlanUpdateAgentCapabilitiesRequest, PlanUpdateAgentConfigurationRequest,
+    PlanUpdateAssetConsumersRequest, PlanUpdateCentralAssetRequest, RelationshipAction,
+    RelationshipChange, SelectionError, SkillConsumptionRecord,
 };

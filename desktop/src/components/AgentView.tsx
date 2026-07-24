@@ -155,6 +155,10 @@ export function AgentView({
     key: string;
     enabled: boolean;
   } | null>(null);
+  const [togglingSkill, setTogglingSkill] = useState<{
+    name: string;
+    enabled: boolean;
+  } | null>(null);
   const [changingModel, setChangingModel] = useState<{ profileId: string } | null>(null);
 
   const navigateResource = useCallback((request: ResourceNavigationRequest) => {
@@ -222,6 +226,14 @@ export function AgentView({
         : item
     )),
     [mcpRows, togglingMcp],
+  );
+  const displayedSkillRows = useMemo(
+    () => skillRows.map((item) => (
+      togglingSkill && item.asset.domain === "skill" && item.asset.name === togglingSkill.name
+        ? { ...item, enabled: togglingSkill.enabled }
+        : item
+    )),
+    [skillRows, togglingSkill],
   );
   const mcpExternal = externalForAgent(inventory, agentId, "mcp");
   const skillExternal = externalForAgent(inventory, agentId, "skill");
@@ -479,6 +491,22 @@ export function AgentView({
     }
   };
 
+  const toggleSkillEnabled = async (item: typeof skillRows[number], enabled: boolean) => {
+    if (!consumptionState || item.asset.domain !== "skill") return;
+    const name = item.asset.name;
+    setTogglingSkill({ name, enabled });
+    try {
+      const plan = await consumptionState.planSkillEnabled(agentId, name, enabled);
+      if (!requiresAgentReview(plan)) {
+        await commitPlan(undefined, plan, `${name} 已${enabled ? "启用" : "停用"}。`);
+      }
+    } catch (error) {
+      showToast({ kind: "error", msg: `${enabled ? "启用" : "停用"}失败：${formatError(error)}` });
+    } finally {
+      setTogglingSkill((current) => current?.name === name ? null : current);
+    }
+  };
+
   const setActiveModel = async (item: typeof modelRows[number]) => {
     if (!consumptionState || item.asset.domain !== "model" || item.desired_active) return;
     const profileId = item.asset.profile_id;
@@ -727,7 +755,7 @@ export function AgentView({
               title="Skills"
               description={`${skillRows.length} 项`}
               manageLabel="添加 Skill"
-              rows={skillRows}
+              rows={displayedSkillRows}
               columns={3}
               external={skillExternal}
               externalMode="cards"
@@ -747,6 +775,10 @@ export function AgentView({
               onManage={() => setPickerDomain("skill")}
               onOpenAsset={openAsset}
               manageDisabled={!runtimeSkillAgent || !consumptionState || preparingChange}
+              onEnabledChange={(item, enabled) => void toggleSkillEnabled(item, enabled)}
+              enabledChangeDisabled={(item) => !consumptionState
+                || togglingSkill?.name === (item.asset.domain === "skill" ? item.asset.name : "")
+                || item.status !== "synced"}
               onRemove={(asset) => void planRemoval(asset)}
               removeLabel={(name) => `从 ${agent.name} 移除 ${name}`}
               removeDisabled={preparingChange}

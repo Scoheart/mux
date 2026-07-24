@@ -7,9 +7,9 @@ use super::types::{
     CentralAssetChange, ConsumptionStatus, DomainPlan, ModelConsumptionRecord, ModelStateChange,
     ModelStateSnapshot, PlanEnsureAgentConsumptionRequest, PlanReapplyMcpRequest,
     PlanSetActiveModelRequest, PlanSetAgentConsumptionRequest, PlanSetAssetConsumersRequest,
-    PlanSetMcpEnabledRequest, PlanSetModelEnabledRequest, PlanUpdateAgentCapabilitiesRequest,
-    PlanUpdateAgentConfigurationRequest, PlanUpdateAssetConsumersRequest, RelationshipAction,
-    RelationshipChange,
+    PlanSetMcpEnabledRequest, PlanSetModelEnabledRequest, PlanSetSkillEnabledRequest,
+    PlanUpdateAgentCapabilitiesRequest, PlanUpdateAgentConfigurationRequest,
+    PlanUpdateAssetConsumersRequest, RelationshipAction, RelationshipChange,
 };
 use crate::agents::{
     builtin_agents, current_configuration_patch, load_agents, normalize_configuration,
@@ -72,6 +72,14 @@ pub(crate) enum LifecycleBinding {
     McpEnabled {
         agent_id: String,
         asset_key: String,
+        before: bool,
+        after: bool,
+    },
+    SkillEnabled {
+        agent_id: String,
+        name: String,
+        target_id: String,
+        affected_agent_ids: Vec<String>,
         before: bool,
         after: bool,
     },
@@ -342,6 +350,74 @@ pub fn plan_set_mcp_enabled(
             agent_id: request.agent_id,
             asset_key: request.asset_key,
             before: record.enabled,
+            after: request.enabled,
+        }),
+    )
+}
+
+/// Plan a managed Skill on/off transition without removing its desired
+/// assignment. A physical Skill target may be shared by several Agents, so the
+/// plan carries every affected Agent and commits the target once.
+pub fn plan_set_skill_enabled(
+    request: PlanSetSkillEnabledRequest,
+) -> Result<AssetOperationPlan, String> {
+    validate_agent_id(&request.agent_id)?;
+    let inventory = list_consumption_inventory()?;
+    let row = inventory
+        .consumptions
+        .iter()
+        .find(|item| {
+            item.agent_id == request.agent_id
+                && item.desired
+                && item.asset
+                    == (AssetRef::Skill {
+                        name: request.name.clone(),
+                    })
+        })
+        .ok_or_else(|| {
+            "skill_consumption_missing: Skill is not assigned to this Agent".to_string()
+        })?;
+    if row.status != ConsumptionStatus::Synced {
+        return Err(format!(
+            "skill_consumption_drift: {}",
+            row.reason.as_deref().unwrap_or("unresolved_drift")
+        ));
+    }
+    let before = row
+        .enabled
+        .ok_or_else(|| "skill_consumption_unmanaged: Skill cannot be toggled".to_string())?;
+    if before == request.enabled {
+        return Err("skill_enabled_unchanged: Skill already has the requested state".into());
+    }
+    let target = row
+        .target
+        .as_ref()
+        .ok_or_else(|| "skill_target_missing: Skill target is unavailable".to_string())?;
+    let mut affected_agent_ids = row.affected_agent_ids.clone();
+    if affected_agent_ids.is_empty() {
+        affected_agent_ids.push(request.agent_id.clone());
+    }
+    affected_agent_ids.sort();
+    affected_agent_ids.dedup();
+    let mut selections = BTreeMap::new();
+    for agent_id in &affected_agent_ids {
+        selections.insert(agent_id.clone(), current_skill_selection(agent_id)?);
+    }
+    let domain_plan = DomainPlan::Skill {
+        before: selections.clone(),
+        after: selections,
+    };
+    finalize_plan_with(
+        AssetOperationKind::SetConsumption,
+        domain_plan,
+        Vec::new(),
+        vec![format!("{}/{}", target.global_dir, request.name)],
+        Some(LifecycleBinding::SkillEnabled {
+            agent_id: request.agent_id,
+            name: request.name,
+            target_id: target.target_id.clone(),
+            affected_agent_ids,
+            before,
             after: request.enabled,
         }),
     )

@@ -146,6 +146,57 @@ it("opens a projection-only Skills Agent without a legacy MCP-shaped row", async
   expect(screen.queryByRole("button", { name: "添加 MCP" })).not.toBeInTheDocument();
 });
 
+it("toggles a managed Skill without routing through removal", async () => {
+  const planSkillEnabled = vi.fn().mockResolvedValue(assetOperationPlanFixture());
+  const commit = vi.fn().mockResolvedValue({
+    consumptions: [],
+    external: [],
+  });
+  const consumptionState = {
+    agents: [skillsOnlyProjection],
+    inventory: {
+      consumptions: [{
+        agent_id: skillsOnlyAgent.id,
+        asset: { domain: "skill", name: "review-changes" },
+        desired: true,
+        observed: true,
+        enabled: true,
+        status: "synced",
+        reason: null,
+        affected_agent_ids: [skillsOnlyAgent.id],
+        target: {
+          target_id: "cortex-user",
+          global_dir: skillsOnlyAgent.skills_global_dir!,
+        },
+      }],
+      external: [],
+    },
+    plan: null,
+    planSkillEnabled,
+    commit,
+  } as unknown as ConsumptionState;
+
+  render(
+    <AgentView
+      state={state}
+      skillsState={skillsState}
+      consumptionState={consumptionState}
+      agentId={skillsOnlyAgent.id}
+    />,
+  );
+
+  const toggle = await screen.findByRole("switch", { name: "停用 review-changes" });
+  await userEvent.click(toggle);
+  await waitFor(() => {
+    expect(planSkillEnabled).toHaveBeenCalledWith(
+      skillsOnlyAgent.id,
+      "review-changes",
+      false,
+    );
+    expect(commit).toHaveBeenCalled();
+  });
+});
+
 it("keeps meaningful Agent badges while leaving builtin headers clean", () => {
   const communityAgent: AgentInfo = {
     ...skillsOnlyAgent,

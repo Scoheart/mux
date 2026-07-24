@@ -174,6 +174,25 @@ it("owns MCP enabled-state plans through the central operation slot", async () =
   expect(result.current.plan?.candidate_hash).toBe("candidate");
 });
 
+it("owns Skill enabled-state plans through the central operation slot", async () => {
+  const { result } = renderHook(() => useConsumptionState());
+  await waitFor(() => expect(result.current.loading).toBe(false));
+
+  await act(async () => {
+    await result.current.planSkillEnabled("codex", "review-changes", false);
+  });
+
+  expect(api.planOperation).toHaveBeenCalledWith({
+    operation: "set_skill_enabled",
+    request: {
+      agent_id: "codex",
+      name: "review-changes",
+      enabled: false,
+    },
+  });
+  expect(result.current.plan?.candidate_hash).toBe("candidate");
+});
+
 it("owns Model enabled and active plans through the central operation slot", async () => {
   const { result } = renderHook(() => useConsumptionState());
   await waitFor(() => expect(result.current.loading).toBe(false));

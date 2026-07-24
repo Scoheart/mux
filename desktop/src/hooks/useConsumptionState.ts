@@ -33,6 +33,11 @@ export interface ConsumptionState {
     assetKey: string,
     enabled: boolean,
   ): Promise<AssetOperationPlan>;
+  planSkillEnabled(
+    agentId: string,
+    name: string,
+    enabled: boolean,
+  ): Promise<AssetOperationPlan>;
   planModelEnabled(
     agentId: string,
     profileId: string,
@@ -183,6 +188,25 @@ export function useConsumptionState(): ConsumptionState {
     [ownPlan],
   );
 
+  const planSkillEnabled = useCallback(
+    async (agentId: string, name: string, enabled: boolean) => {
+      if (planRef.current || planningRef.current) throw new Error("已有待确认的资产操作");
+      planningRef.current = true;
+      try {
+        return ownPlan(await planAsset({
+          operation: "set_skill_enabled",
+          request: { agent_id: agentId, name, enabled },
+        }));
+      } catch (cause) {
+        if (mounted.current) setError(commandError(cause));
+        throw cause;
+      } finally {
+        planningRef.current = false;
+      }
+    },
+    [ownPlan],
+  );
+
   const planModelEnabled = useCallback(
     async (agentId: string, profileId: string, enabled: boolean) => {
       if (planRef.current || planningRef.current) throw new Error("已有待确认的资产操作");
@@ -316,6 +340,7 @@ export function useConsumptionState(): ConsumptionState {
     refresh,
     planForAgent,
     planMcpEnabled,
+    planSkillEnabled,
     planModelEnabled,
     planActiveModel,
     planForAsset,

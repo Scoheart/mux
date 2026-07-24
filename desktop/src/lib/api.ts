@@ -80,6 +80,13 @@ export const planSetMcpEnabled = (
 ) => invoke<AssetOperationPlan>("plan_set_mcp_enabled", {
   request: { agent_id: agentId, asset_key: assetKey, enabled },
 });
+export const planSetSkillEnabled = (
+  agentId: string,
+  name: string,
+  enabled: boolean,
+) => invoke<AssetOperationPlan>("plan_set_skill_enabled", {
+  request: { agent_id: agentId, name, enabled },
+});
 export const planSetModelEnabled = (
   agentId: string,
   profileId: string,

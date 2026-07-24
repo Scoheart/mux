@@ -143,6 +143,13 @@ pub async fn plan_set_mcp_enabled(
 }
 
 #[tauri::command]
+pub async fn plan_set_skill_enabled(
+    request: mux_core::application::assets::PlanSetSkillEnabledRequest,
+) -> Result<AssetOperationPlan, AssetCommandError> {
+    asset_blocking(move || mux_core::application::assets::plan_set_skill_enabled(request)).await
+}
+
+#[tauri::command]
 pub async fn plan_set_model_enabled(
     request: mux_core::application::assets::PlanSetModelEnabledRequest,
 ) -> Result<AssetOperationPlan, AssetCommandError> {

@@ -370,13 +370,20 @@ fn project_skills(
         let target_ids = canonical_assignments.get(name).cloned().unwrap_or_default();
         for target_id in target_ids {
             desired_physical.insert((target_id.clone(), name.clone()));
+            let enabled = settings
+                .skill_consumptions
+                .as_ref()
+                .and_then(|skills| skills.get(name))
+                .and_then(|targets| targets.get(&target_id))
+                .map(|record| record.enabled)
+                .unwrap_or(true);
             let Some(target) = targets.get(target_id.as_str()) else {
                 inventory.consumptions.push(ConsumptionView {
                     agent_id: target_id.clone(),
                     asset: AssetRef::Skill { name: name.clone() },
                     desired: true,
                     observed: false,
-                    enabled: None,
+                    enabled: Some(enabled),
                     active: None,
                     desired_active: None,
                     status: ConsumptionStatus::Conflicted,
@@ -387,7 +394,7 @@ fn project_skills(
                 continue;
             };
             let physical = target_items.get(&(target_id.as_str(), name.as_str()));
-            let (observed, status, reason) = match physical {
+            let (physical_observed, physical_status, physical_reason) = match physical {
                 None => (
                     false,
                     ConsumptionStatus::Drifted,
@@ -415,6 +422,21 @@ fn project_skills(
                 ),
                 Some(_) => (true, ConsumptionStatus::Synced, None),
             };
+            let (observed, status, reason) = if enabled {
+                (physical_observed, physical_status, physical_reason)
+            } else if !physical_observed {
+                (false, ConsumptionStatus::Synced, None)
+            } else {
+                (
+                    true,
+                    if physical_status == ConsumptionStatus::Conflicted {
+                        ConsumptionStatus::Conflicted
+                    } else {
+                        ConsumptionStatus::Drifted
+                    },
+                    Some("skill_disabled_state_drift".into()),
+                )
+            };
             let agents = if target.affected_agent_ids.is_empty() {
                 target.primary_agent_ids.clone()
             } else {
@@ -426,7 +448,7 @@ fn project_skills(
                     asset: AssetRef::Skill { name: name.clone() },
                     desired: true,
                     observed,
-                    enabled: None,
+                    enabled: Some(enabled),
                     active: None,
                     desired_active: None,
                     status: status.clone(),

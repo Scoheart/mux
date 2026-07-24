@@ -646,6 +646,10 @@ export type PlanOperationRequest =
       request: { agent_id: string; asset_key: string; enabled: boolean };
     }
   | {
+      operation: "set_skill_enabled";
+      request: { agent_id: string; name: string; enabled: boolean };
+    }
+  | {
       operation: "reapply_mcp";
       request: { asset_key: string };
     }

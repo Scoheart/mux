@@ -97,6 +97,12 @@ struct StrictTransactionSpec {
 struct StrictSkillSettingsSnapshot {
     managed_skills: Option<std::collections::BTreeMap<String, StrictManagedSkillRecord>>,
     skill_assignments: Option<std::collections::BTreeMap<String, BTreeSet<String>>>,
+    skill_consumptions: Option<
+        std::collections::BTreeMap<
+            String,
+            std::collections::BTreeMap<String, crate::domain::assets::SkillConsumptionRecord>,
+        >,
+    >,
     skill_update_checked_at: Option<String>,
 }
 
@@ -1113,6 +1119,21 @@ fn validate_settings_snapshot(snapshot: &SkillSettingsSnapshot) -> Result<(), Sk
             }
         }
     }
+    if let Some(consumptions) = &snapshot.skill_consumptions {
+        for (name, records) in consumptions {
+            if !valid_skill_name(name)
+                || records.iter().any(|(target_id, record)| {
+                    !valid_identity(target_id)
+                        || record.name != *name
+                        || record.target_id != *target_id
+                })
+            {
+                return Err(SkillError::InvalidSource {
+                    message: "a Skills transaction contains invalid consumption settings".into(),
+                });
+            }
+        }
+    }
     Ok(())
 }
 
@@ -1590,6 +1611,7 @@ fn current_skill_settings(settings: &Settings) -> SkillSettingsSnapshot {
     SkillSettingsSnapshot {
         managed_skills: settings.managed_skills.clone(),
         skill_assignments: settings.skill_assignments.clone(),
+        skill_consumptions: settings.skill_consumptions.clone(),
         skill_update_checked_at: settings.skill_update_checked_at.clone(),
     }
 }
@@ -2616,6 +2638,7 @@ fn write_skill_settings(
         }
         settings.managed_skills = desired.managed_skills.clone();
         settings.skill_assignments = desired.skill_assignments.clone();
+        settings.skill_consumptions = desired.skill_consumptions.clone();
         settings.skill_update_checked_at = desired.skill_update_checked_at.clone();
         true
     })
@@ -2653,6 +2676,7 @@ fn restore_skill_settings(
         }
         settings.managed_skills = before.managed_skills.clone();
         settings.skill_assignments = before.skill_assignments.clone();
+        settings.skill_consumptions = before.skill_consumptions.clone();
         settings.skill_update_checked_at = before.skill_update_checked_at.clone();
         true
     })
@@ -4752,6 +4776,7 @@ mod tests {
         let settings = SkillSettingsSnapshot {
             managed_skills: None,
             skill_assignments: None,
+            skill_consumptions: None,
             skill_update_checked_at: None,
         };
         TransactionSpec {

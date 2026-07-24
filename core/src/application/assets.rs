@@ -81,6 +81,12 @@ pub fn plan_set_mcp_enabled(
     super::gate::read(|| crate::assets::plan_set_mcp_enabled(request))
 }
 
+pub fn plan_set_skill_enabled(
+    request: PlanSetSkillEnabledRequest,
+) -> Result<AssetOperationPlan, String> {
+    super::gate::read(|| crate::assets::plan_set_skill_enabled(request))
+}
+
 pub fn plan_reapply_mcp(request: PlanReapplyMcpRequest) -> Result<AssetOperationPlan, String> {
     super::gate::read(|| crate::assets::plan_reapply_mcp(request))
 }

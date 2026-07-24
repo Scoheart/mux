@@ -95,5 +95,7 @@ pub struct ManagedSkillRecord {
 pub struct SkillSettingsSnapshot {
     pub managed_skills: Option<BTreeMap<String, ManagedSkillRecord>>,
     pub skill_assignments: Option<BTreeMap<String, BTreeSet<String>>>,
+    pub skill_consumptions:
+        Option<BTreeMap<String, BTreeMap<String, crate::domain::assets::SkillConsumptionRecord>>>,
     pub skill_update_checked_at: Option<String>,
 }

@@ -8,7 +8,7 @@ use super::planner::{
 };
 use super::types::{
     AssetCommitRequest, AssetOperationPlan, AssetRef, ConsumptionInventory, ConsumptionStatus,
-    DomainPlan, McpConsumptionRecord, ModelAgentSelection,
+    DomainPlan, McpConsumptionRecord, ModelAgentSelection, SkillConsumptionRecord,
 };
 use crate::paths::settings_file;
 use crate::resources::mcp::ops;
@@ -442,6 +442,13 @@ fn apply_operation(persisted: &PersistedAssetOperation) -> Result<(), String> {
             after,
             ..
         } => apply_mcp_enabled(agent_id, asset_key, *after),
+        LifecycleBinding::SkillEnabled {
+            name,
+            target_id,
+            affected_agent_ids,
+            after,
+            ..
+        } => apply_skill_enabled(name, target_id, affected_agent_ids, *after),
         LifecycleBinding::McpReapply { key } => {
             reapply_mcp_consumers(&persisted.plan.domain_plan, key)
         }
@@ -692,6 +699,49 @@ fn verify_operation(persisted: &PersistedAssetOperation) -> Result<(), String> {
             });
             if desired != Some(*after) || observed.is_none_or(|item| item.enabled != *after) {
                 return Err("MCP enabled state did not match the reviewed change".into());
+            }
+            Ok(())
+        }
+        LifecycleBinding::SkillEnabled {
+            name,
+            target_id,
+            affected_agent_ids,
+            after,
+            ..
+        } => {
+            let settings = load_settings_strict().map_err(|error| error.to_string())?;
+            let desired = settings
+                .skill_assignments
+                .as_ref()
+                .and_then(|assignments| assignments.get(name))
+                .is_some_and(|targets| targets.contains(target_id));
+            let enabled = settings
+                .skill_consumptions
+                .as_ref()
+                .and_then(|skills| skills.get(name))
+                .and_then(|targets| targets.get(target_id))
+                .map(|record| record.enabled);
+            if !desired || enabled != Some(*after) {
+                return Err("Skill enabled state did not match the reviewed change".into());
+            }
+            let inventory = list_consumption_inventory()?;
+            for agent_id in affected_agent_ids {
+                let row = inventory.consumptions.iter().find(|item| {
+                    item.agent_id == *agent_id
+                        && item.asset == (AssetRef::Skill { name: name.clone() })
+                        && item
+                            .target
+                            .as_ref()
+                            .is_some_and(|target| target.target_id == *target_id)
+                });
+                if row.is_none_or(|item| {
+                    !item.desired
+                        || item.enabled != Some(*after)
+                        || item.observed != *after
+                        || item.status != ConsumptionStatus::Synced
+                }) {
+                    return Err("Skill physical state did not match the reviewed change".into());
+                }
             }
             Ok(())
         }
@@ -1245,6 +1295,55 @@ fn apply_mcp_enabled(agent_id: &str, asset_key: &str, enabled: bool) -> Result<(
     } else {
         Err("MCP consumption disappeared during enabled-state update".into())
     }
+}
+
+fn apply_skill_enabled(
+    name: &str,
+    target_id: &str,
+    affected_agent_ids: &[String],
+    enabled: bool,
+) -> Result<(), String> {
+    let plan = plan_assignment(PlanAssignmentRequest {
+        skill_name: name.to_string(),
+        agent_ids: affected_agent_ids.to_vec(),
+        enabled,
+    })
+    .map_err(|error| format!("{error:?}"))?;
+    if let Err(error) = commit_assignment(plan.confirmation()) {
+        let _ = cancel_skill_operation(&plan.operation_id);
+        return Err(format!("{error:?}"));
+    }
+    let central = crate::paths::mux_dir().join("skills").join(name);
+    for target in &plan.targets {
+        let target_path = expand_tilde_path(&target.global_dir).join(name);
+        if enabled {
+            record_transaction_symlink(&target_path, &central)?;
+        } else {
+            record_transaction_removal(&target_path)?;
+        }
+    }
+    mutate_settings(|settings| {
+        settings
+            .skill_assignments
+            .get_or_insert_default()
+            .entry(name.to_string())
+            .or_default()
+            .insert(target_id.to_string());
+        settings
+            .skill_consumptions
+            .get_or_insert_default()
+            .entry(name.to_string())
+            .or_default()
+            .insert(
+                target_id.to_string(),
+                SkillConsumptionRecord {
+                    name: name.to_string(),
+                    target_id: target_id.to_string(),
+                    enabled,
+                },
+            );
+    })
+    .map_err(|error| error.to_string())
 }
 
 fn apply_model(

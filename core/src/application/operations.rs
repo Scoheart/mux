@@ -5,7 +5,7 @@ use crate::domain::assets::{
     AssetCommitRequest, AssetOperationPlan, ConsumptionInventory, PlanDeleteCentralAssetRequest,
     PlanEnsureAgentConsumptionRequest, PlanReapplyMcpRequest, PlanSetActiveModelRequest,
     PlanSetAgentConsumptionRequest, PlanSetAssetConsumersRequest, PlanSetMcpEnabledRequest,
-    PlanSetModelEnabledRequest, PlanUpdateAgentCapabilitiesRequest,
+    PlanSetModelEnabledRequest, PlanSetSkillEnabledRequest, PlanUpdateAgentCapabilitiesRequest,
     PlanUpdateAgentConfigurationRequest, PlanUpdateAssetConsumersRequest,
     PlanUpdateCentralAssetRequest,
 };
@@ -28,6 +28,7 @@ pub enum PlanOperationRequest {
     SetAssetConsumers(PlanSetAssetConsumersRequest),
     UpdateAssetConsumers(PlanUpdateAssetConsumersRequest),
     SetMcpEnabled(PlanSetMcpEnabledRequest),
+    SetSkillEnabled(PlanSetSkillEnabledRequest),
     ReapplyMcp(PlanReapplyMcpRequest),
     SetModelEnabled(PlanSetModelEnabledRequest),
     SetActiveModel(PlanSetActiveModelRequest),
@@ -121,6 +122,12 @@ pub fn plan(request: PlanOperationRequest) -> CoreResult<OperationPlan> {
         SetMcpEnabled(request) => OperationPlan::Asset {
             plan: Box::new(
                 super::assets::plan_set_mcp_enabled(request).map_err(super::error::from_legacy)?,
+            ),
+        },
+        SetSkillEnabled(request) => OperationPlan::Asset {
+            plan: Box::new(
+                super::assets::plan_set_skill_enabled(request)
+                    .map_err(super::error::from_legacy)?,
             ),
         },
         ReapplyMcp(request) => OperationPlan::Asset {

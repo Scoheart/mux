@@ -49,6 +49,7 @@ pub fn run() {
             commands::plan_model_adoption,
             commands::plan_set_agent_consumption,
             commands::plan_set_mcp_enabled,
+            commands::plan_set_skill_enabled,
             commands::plan_set_model_enabled,
             commands::plan_set_active_model,
             commands::plan_set_asset_consumers,

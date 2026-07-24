@@ -106,6 +106,11 @@ pub struct Settings {
     pub managed_skills: Option<BTreeMap<String, ManagedSkillRecord>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub skill_assignments: Option<BTreeMap<String, BTreeSet<String>>>,
+    /// Enabled state for desired managed Skill targets. Missing records from
+    /// older settings default to enabled and are materialized on mutation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub skill_consumptions:
+        Option<BTreeMap<String, BTreeMap<String, crate::domain::assets::SkillConsumptionRecord>>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub skill_update_checked_at: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -425,6 +430,15 @@ mod tests {
         let json = r#"{
           "managed_skills": {},
           "skill_assignments": {"review-changes":["claude-user"]},
+          "skill_consumptions": {
+            "review-changes": {
+              "claude-user": {
+                "name": "review-changes",
+                "target_id": "claude-user",
+                "enabled": false
+              }
+            }
+          },
           "skill_update_checked_at": "2026-07-16T08:00:00Z",
           "future_section": {"keep": true}
         }"#;
@@ -432,6 +446,9 @@ mod tests {
         assert!(settings.managed_skills.as_ref().unwrap().is_empty());
         assert!(
             settings.skill_assignments.as_ref().unwrap()["review-changes"].contains("claude-user")
+        );
+        assert!(
+            !settings.skill_consumptions.as_ref().unwrap()["review-changes"]["claude-user"].enabled
         );
         assert_eq!(
             settings.skill_update_checked_at.as_deref(),
@@ -441,6 +458,10 @@ mod tests {
         assert_eq!(
             encoded["skill_assignments"]["review-changes"][0],
             "claude-user"
+        );
+        assert_eq!(
+            encoded["skill_consumptions"]["review-changes"]["claude-user"]["enabled"],
+            false
         );
         assert_eq!(encoded["future_section"]["keep"], true);
     }

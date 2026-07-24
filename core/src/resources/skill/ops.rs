@@ -1036,6 +1036,15 @@ fn build_target_repair_plan(
     if !assigned {
         return conflict_result("only an assigned managed Skill target can be repaired");
     }
+    if settings
+        .skill_consumptions
+        .as_ref()
+        .and_then(|skills| skills.get(&request.skill_name))
+        .and_then(|targets| targets.get(target_id))
+        .is_some_and(|record| !record.enabled)
+    {
+        return conflict_result("a disabled managed Skill target does not require repair");
+    }
     let central = paths.central_skill(&request.skill_name);
     let validated = validate_candidate(&central)
         .map_err(|_| conflict_error("the managed central Skill cannot authorize target repair"))?;
@@ -1508,7 +1517,7 @@ fn transaction_spec(
             install_settings_after(paths, persisted, &mut settings_after)?;
         }
         PersistedPlanInput::Assignment { request } => {
-            assignment_settings_after(persisted, request, &mut settings_after);
+            assignment_settings_after(persisted, request, &mut settings_after)?;
         }
         PersistedPlanInput::Update { .. } => {
             replacement_settings_after(paths, persisted, &mut settings_after)?;
@@ -1528,6 +1537,7 @@ fn transaction_spec(
             }
         }
     }
+    reconcile_skill_consumptions(&mut settings_after);
 
     let mut directory_mutations = Vec::new();
     let replacement_operation = matches!(
@@ -1652,6 +1662,31 @@ fn transaction_spec(
     })
 }
 
+fn reconcile_skill_consumptions(settings: &mut SkillSettingsSnapshot) {
+    let assignments = settings.skill_assignments.clone().unwrap_or_default();
+    let mut consumptions = settings.skill_consumptions.take().unwrap_or_default();
+    consumptions.retain(|name, targets| {
+        let Some(assigned_targets) = assignments.get(name) else {
+            return false;
+        };
+        targets.retain(|target_id, _| assigned_targets.contains(target_id));
+        true
+    });
+    for (name, target_ids) in assignments {
+        let records = consumptions.entry(name.clone()).or_default();
+        for target_id in target_ids {
+            records.entry(target_id.clone()).or_insert_with(|| {
+                crate::domain::assets::SkillConsumptionRecord {
+                    name: name.clone(),
+                    target_id,
+                    enabled: true,
+                }
+            });
+        }
+    }
+    settings.skill_consumptions = (!consumptions.is_empty()).then_some(consumptions);
+}
+
 fn central_backup_path(
     paths: &SkillsPaths,
     operation_id: &str,
@@ -1678,6 +1713,7 @@ fn install_settings_after(
     let now = Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true);
     let records = settings.managed_skills.get_or_insert_default();
     let assignments = settings.skill_assignments.get_or_insert_default();
+    let mut enabled_targets = Vec::new();
     for skill in &persisted.plan.skills {
         let candidate = staged_candidates.open_directory(&skill.manifest.name)?;
         let validated = validate_staging_candidate(&candidate)?;
@@ -1714,11 +1750,15 @@ fn install_settings_after(
         if desired_target_ids.is_empty() {
             assignments.remove(&skill.manifest.name);
         } else {
-            assignments.insert(skill.manifest.name.clone(), desired_target_ids);
+            assignments.insert(skill.manifest.name.clone(), desired_target_ids.clone());
+            enabled_targets.push((skill.manifest.name.clone(), desired_target_ids));
         }
     }
     if assignments.is_empty() {
         settings.skill_assignments = None;
+    }
+    for (name, target_ids) in enabled_targets {
+        mark_skill_targets_enabled(settings, &name, &target_ids);
     }
     Ok(())
 }
@@ -1727,7 +1767,7 @@ fn assignment_settings_after(
     persisted: &PersistedPlan,
     request: &PlanAssignmentRequest,
     settings: &mut SkillSettingsSnapshot,
-) {
+) -> Result<(), SkillError> {
     let assignments = settings.skill_assignments.get_or_insert_default();
     let desired_target_ids = persisted
         .expected_links
@@ -1742,6 +1782,38 @@ fn assignment_settings_after(
     }
     if assignments.is_empty() {
         settings.skill_assignments = None;
+    }
+    if request.enabled {
+        let enabled_target_ids = normalize_agent_selection(&request.agent_ids)?
+            .into_iter()
+            .collect::<BTreeSet<_>>();
+        mark_skill_targets_enabled(settings, &request.skill_name, &enabled_target_ids);
+    }
+    Ok(())
+}
+
+fn mark_skill_targets_enabled(
+    settings: &mut SkillSettingsSnapshot,
+    name: &str,
+    target_ids: &BTreeSet<String>,
+) {
+    if target_ids.is_empty() {
+        return;
+    }
+    let records = settings
+        .skill_consumptions
+        .get_or_insert_default()
+        .entry(name.to_string())
+        .or_default();
+    for target_id in target_ids {
+        records.insert(
+            target_id.clone(),
+            crate::domain::assets::SkillConsumptionRecord {
+                name: name.to_string(),
+                target_id: target_id.clone(),
+                enabled: true,
+            },
+        );
     }
 }
 
@@ -2008,6 +2080,7 @@ fn snapshot_from_settings(settings: &Settings) -> SkillSettingsSnapshot {
     SkillSettingsSnapshot {
         managed_skills: settings.managed_skills.clone(),
         skill_assignments: settings.skill_assignments.clone(),
+        skill_consumptions: settings.skill_consumptions.clone(),
         skill_update_checked_at: settings.skill_update_checked_at.clone(),
     }
 }

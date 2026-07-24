@@ -100,8 +100,8 @@ pub struct ConsumptionView {
     pub asset: AssetRef,
     pub desired: bool,
     pub observed: bool,
-    /// Domain-specific enabled state. Present for MCP consumptions and external
-    /// MCP observations; Model and Skill relationships do not have an off state.
+    /// Domain-specific enabled state. Present for managed MCP and Skill
+    /// consumptions and for external MCP observations.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub enabled: Option<bool>,
     /// Whether this Model Profile is the Agent's current primary model.
@@ -138,6 +138,17 @@ pub struct McpConsumptionRecord {
     pub enabled: bool,
     #[serde(default)]
     pub overrides: OverridePatch,
+}
+
+/// Per-target lifecycle state for a desired managed Skill relationship.
+///
+/// The relationship itself remains in `skill_assignments` while disabled so
+/// turning a Skill off never becomes an implicit removal.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SkillConsumptionRecord {
+    pub name: String,
+    pub target_id: String,
+    pub enabled: bool,
 }
 
 /// One MUX-owned Model Profile installed for an Agent. Installation and the
@@ -391,6 +402,14 @@ pub struct PlanEnsureAgentConsumptionRequest {
 pub struct PlanSetMcpEnabledRequest {
     pub agent_id: String,
     pub asset_key: String,
+    pub enabled: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct PlanSetSkillEnabledRequest {
+    pub agent_id: String,
+    pub name: String,
     pub enabled: bool,
 }
 

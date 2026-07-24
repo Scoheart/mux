@@ -638,6 +638,7 @@ impl TransactionFixture {
                 name.to_owned(),
                 BTreeSet::from(["agents-user".to_owned()]),
             )])),
+            skill_consumptions: None,
             skill_update_checked_at: Some("2026-07-16T00:00:00Z".into()),
         };
         mutate_settings(|settings| {
@@ -683,6 +684,7 @@ impl TransactionFixture {
         let settings_after = SkillSettingsSnapshot {
             managed_skills: Some(BTreeMap::from([(name.to_owned(), after_record)])),
             skill_assignments: settings_before.skill_assignments.clone(),
+            skill_consumptions: settings_before.skill_consumptions.clone(),
             skill_update_checked_at: Some("2026-07-17T00:00:00Z".into()),
         };
         let backup = paths

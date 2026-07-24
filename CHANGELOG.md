@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.50](https://github.com/Scoheart/mux/compare/v1.8.49...v1.8.50) (2026-07-24)
+
+### Changes
+
+* fix(agents): remove MCP qualifier from Pi ([47cf3e0](https://github.com/Scoheart/mux/commit/47cf3e08eb9675b5a6a19daba6c9fe6daf3e4ad4))
+
 ## [1.8.49](https://github.com/Scoheart/mux/compare/v1.8.48...v1.8.49) (2026-07-24)
 
 ### Changes

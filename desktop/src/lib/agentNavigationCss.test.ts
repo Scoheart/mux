@@ -77,12 +77,19 @@ it("keeps topbar controls at their wide-layout sizes without compact overrides",
   expect(pixelValue(declarations(css, ".mux-icon-btn"), "width")).toBe(30);
   expect(pixelValue(declarations(css, ".mux-icon-btn"), "height")).toBe(30);
   const pickerAnchor = declarations(css, ".mux-agent-picker-anchor");
-  expect(pixelValue(pickerAnchor, "--mux-agent-picker-width")).toBe(220);
-  expect(pickerAnchor).toMatch(/width:\s*var\(--mux-agent-picker-width\)/);
+  expect(pixelValue(pickerAnchor, "width")).toBe(220);
+  expect(pickerAnchor).toMatch(/flex:\s*0\s+0\s+220px/);
   expect(declarations(css, ".mux-agent-picker-trigger")).toMatch(/width:\s*100%/);
+  const pickerCluster = declarations(css, ".mux-agent-picker-cluster");
+  expect(pickerCluster).toMatch(/position:\s*relative/);
+  expect(pickerCluster).toMatch(/max-width:\s*100%/);
+  expect(component).toMatch(
+    /className="mux-agent-picker-cluster"[\s\S]*className="mux-pinned-agent-bar"[\s\S]*className="mux-agent-picker-anchor"[\s\S]*className="mux-agent-picker"/,
+  );
   const picker = declarations(css, ".mux-agent-picker");
   expect(picker).toMatch(/right:\s*0/);
-  expect(picker).toMatch(/width:\s*var\(--mux-agent-picker-width\)/);
+  expect(picker).toMatch(/left:\s*0/);
+  expect(picker).toMatch(/width:\s*auto/);
   expect(pixelValue(declarations(css, ".mux-agent-picker-trigger"), "height")).toBe(40);
   expect(pixelValue(declarations(css, ".mux-pinned-agent"), "width")).toBe(34);
   expect(pixelValue(declarations(css, ".mux-pinned-agent"), "height")).toBe(34);
@@ -110,7 +117,7 @@ it("absorbs narrow widths in a horizontally scrollable pinned Agent lane", () =>
   expect(pinned).toMatch(/overflow-x:\s*auto/);
   expect(pinned).toMatch(/overscroll-behavior-inline:\s*contain/);
   expect(pinned).toMatch(/scroll-snap-type:\s*x\s+proximity/);
-  expect(declarations(css, ".mux-agent-picker-anchor")).toMatch(/flex:\s*0\s+0\s+auto/);
+  expect(declarations(css, ".mux-agent-picker-anchor")).toMatch(/flex:\s*0\s+0\s+220px/);
 });
 
 it("popup action focus rule includes the search clear button", () => {

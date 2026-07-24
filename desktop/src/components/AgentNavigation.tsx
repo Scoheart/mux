@@ -299,53 +299,55 @@ export function AgentNavigation({
       <span id={PIN_LIMIT_DESCRIPTION_ID} className="sr-only">
         最多可置顶六个 Agent，请先取消一个置顶后再添加。
       </span>
-      {sections.pinned.length > 0 && (
-        <nav className="mux-pinned-agent-bar" aria-label="置顶 Agent">
-          {sections.pinned.map((agent) => (
-            <button
-              type="button"
-              key={agent.id}
-              className="mux-pinned-agent"
-              data-active={selectedAgentId === agent.id ? "true" : undefined}
-              aria-current={selectedAgentId === agent.id ? "page" : undefined}
-              aria-label={agent.name}
-              title={agent.name}
-              onClick={() => onSelectAgent(agent.id)}
-            >
-              <span className="mux-pinned-agent-glyph">
-                <AgentGlyph id={agent.id} name={agent.name} size={30} />
-              </span>
-            </button>
-          ))}
-        </nav>
-      )}
+      <div className="mux-agent-picker-cluster" ref={anchorRef}>
+        {sections.pinned.length > 0 && (
+          <nav className="mux-pinned-agent-bar" aria-label="置顶 Agent">
+            {sections.pinned.map((agent) => (
+              <button
+                type="button"
+                key={agent.id}
+                className="mux-pinned-agent"
+                data-active={selectedAgentId === agent.id ? "true" : undefined}
+                aria-current={selectedAgentId === agent.id ? "page" : undefined}
+                aria-label={agent.name}
+                title={agent.name}
+                onClick={() => onSelectAgent(agent.id)}
+              >
+                <span className="mux-pinned-agent-glyph">
+                  <AgentGlyph id={agent.id} name={agent.name} size={30} />
+                </span>
+              </button>
+            ))}
+          </nav>
+        )}
 
-      <div className="mux-agent-picker-anchor" ref={anchorRef}>
-        <button
-          type="button"
-          className="mux-agent-picker-trigger"
-          data-active={selectedAgent ? "true" : undefined}
-          data-open={open ? "true" : undefined}
-          aria-haspopup="dialog"
-          aria-expanded={open}
-          title={selectedAgent?.name}
-          onClick={() => {
-            setOpen((wasOpen) => {
-              if (!wasOpen) setQuery("");
-              return !wasOpen;
-            });
-          }}
-        >
-          {selectedAgent ? (
-            <AgentGlyph id={selectedAgent.id} name={selectedAgent.name} size={24} />
-          ) : (
-            <PackageIcon className="w-5 h-5 flex-shrink-0" />
-          )}
-          <span className="mux-agent-picker-trigger-name">
-            {selectedAgent?.name ?? "选择 Agent"}
-          </span>
-          <ChevronDownIcon className="mux-agent-picker-chevron" />
-        </button>
+        <div className="mux-agent-picker-anchor">
+          <button
+            type="button"
+            className="mux-agent-picker-trigger"
+            data-active={selectedAgent ? "true" : undefined}
+            data-open={open ? "true" : undefined}
+            aria-haspopup="dialog"
+            aria-expanded={open}
+            title={selectedAgent?.name}
+            onClick={() => {
+              setOpen((wasOpen) => {
+                if (!wasOpen) setQuery("");
+                return !wasOpen;
+              });
+            }}
+          >
+            {selectedAgent ? (
+              <AgentGlyph id={selectedAgent.id} name={selectedAgent.name} size={24} />
+            ) : (
+              <PackageIcon className="w-5 h-5 flex-shrink-0" />
+            )}
+            <span className="mux-agent-picker-trigger-name">
+              {selectedAgent?.name ?? "选择 Agent"}
+            </span>
+            <ChevronDownIcon className="mux-agent-picker-chevron" />
+          </button>
+        </div>
 
         {open && (
           <section className="mux-agent-picker" role="dialog" aria-label="选择和置顶 Agent">

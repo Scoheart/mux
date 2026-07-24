@@ -87,6 +87,69 @@ it("uses neutral protocol classification without a card color rail", () => {
   expect(css).not.toMatch(/\.mux-model-card\[data-protocol=/);
 });
 
+it("uses protocol as the only sidebar classification and keeps its filtering behavior", async () => {
+  vi.mocked(api.listModelProfiles).mockResolvedValue([
+    {
+      id: "anthropic-model",
+      name: "Anthropic Model",
+      provider: "custom",
+      protocol: "anthropic-messages",
+      base_url: "https://anthropic.example.test",
+      model: "claude",
+      reasoning: false,
+      catalog_key: "custom/claude",
+      credential_saved: false,
+    },
+    {
+      id: "responses-model",
+      name: "Responses Model",
+      provider: "openai",
+      protocol: "openai-responses",
+      base_url: "https://api.openai.com/v1",
+      model: "gpt-responses",
+      reasoning: true,
+      catalog_key: "openai/gpt-responses",
+      credential_saved: true,
+    },
+    {
+      id: "completions-model",
+      name: "Completions Model",
+      provider: "openrouter",
+      protocol: "openai-completions",
+      base_url: "https://openrouter.ai/api/v1",
+      model: "openrouter/free",
+      reasoning: false,
+      catalog_key: "openrouter/free",
+      credential_saved: false,
+    },
+  ]);
+  const user = userEvent.setup();
+  const view = render(
+    <ToastProvider>
+      <ModelsView />
+    </ToastProvider>,
+  );
+
+  await screen.findByRole("button", { name: "打开模型 Completions Model 详情" });
+  const sidebarElement = view.container.querySelector(".mux-workspace-sidebar");
+  expect(sidebarElement).not.toBeNull();
+  const sidebar = within(sidebarElement as HTMLElement);
+
+  expect(sidebarElement?.querySelectorAll(".mux-sidebar-section")).toHaveLength(1);
+  expect(sidebar.getByText("协议")).toBeVisible();
+  expect(sidebar.queryByText("Provider")).not.toBeInTheDocument();
+  expect(sidebar.queryByText("全部 Provider")).not.toBeInTheDocument();
+
+  await user.click(sidebar.getByRole("button", { name: /OpenAI Chat Completions/ }));
+  expect(screen.getByRole("button", { name: "打开模型 Completions Model 详情" })).toBeVisible();
+  expect(screen.queryByRole("button", { name: "打开模型 Anthropic Model 详情" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "打开模型 Responses Model 详情" })).not.toBeInTheDocument();
+
+  await user.click(sidebar.getByRole("button", { name: /全部协议/ }));
+  expect(screen.getByRole("button", { name: "打开模型 Anthropic Model 详情" })).toBeVisible();
+  expect(screen.getByRole("button", { name: "打开模型 Responses Model 详情" })).toBeVisible();
+});
+
 it("keeps Keychain presence-only rendering in the Inspector", () => {
   expect(source).toMatch(/profile\.credential_saved \? "已保存到 Keychain" : "未保存"/);
   expect(source).not.toMatch(/credential_saved\s*\}\s*<code/);

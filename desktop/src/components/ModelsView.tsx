@@ -83,7 +83,6 @@ export function ModelsView({
   const [readError, setReadError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [assetFilter, setAssetFilter] = useState<ModelAssetFilter>("all");
-  const [providerFilter, setProviderFilter] = useState<string | null>(null);
   const [protocolFilter, setProtocolFilter] = useState<ModelProtocol | null>(null);
   const toast = useToast();
   const lastConsumedIntentId = useRef<number | null>(null);
@@ -121,33 +120,8 @@ export function ModelsView({
     [profiles],
   );
 
-  const providerOptions = useMemo(() => {
-    const known = new Map(providers.map((provider) => [provider.id, provider]));
-    for (const profile of profiles) {
-      if (!known.has(profile.provider)) {
-        known.set(profile.provider, {
-          id: profile.provider,
-          name: profile.provider,
-          default_base_url: null,
-        });
-      }
-    }
-    return [...known.values()].filter((provider) =>
-      profiles.some((profile) => profile.provider === provider.id)
-    );
-  }, [profiles, providers]);
-
-  const providerCounts = useMemo(
-    () => Object.fromEntries(providerOptions.map((provider) => [
-      provider.id,
-      profiles.filter((profile) => profile.provider === provider.id).length,
-    ])) as Record<string, number>,
-    [profiles, providerOptions],
-  );
-
   const assetCounts = useMemo(() => {
     const scoped = profiles.filter((profile) =>
-      (!providerFilter || profile.provider === providerFilter) &&
       (!protocolFilter || profile.protocol === protocolFilter)
     );
     return {
@@ -155,13 +129,12 @@ export function ModelsView({
       credential: scoped.filter((profile) => profile.credential_saved).length,
       reasoning: scoped.filter((profile) => profile.reasoning).length,
     };
-  }, [profiles, protocolFilter, providerFilter]);
+  }, [profiles, protocolFilter]);
 
   const filteredProfiles = useMemo(() => {
     const needle = query.trim().toLocaleLowerCase();
     return profiles.filter((profile) => {
       if (protocolFilter && profile.protocol !== protocolFilter) return false;
-      if (providerFilter && profile.provider !== providerFilter) return false;
       if (assetFilter === "credential" && !profile.credential_saved) return false;
       if (assetFilter === "reasoning" && !profile.reasoning) return false;
       if (!needle) return true;
@@ -179,7 +152,7 @@ export function ModelsView({
         .toLocaleLowerCase()
         .includes(needle);
     });
-  }, [assetFilter, profiles, protocolFilter, providerFilter, query]);
+  }, [assetFilter, profiles, protocolFilter, query]);
 
   const selectedProfile = profiles.find((profile) => profile.id === selectedProfileId) ?? null;
 
@@ -194,7 +167,6 @@ export function ModelsView({
     }
     const profile = profiles.find((candidate) => candidate.id === intent.profileId);
     setQuery("");
-    setProviderFilter(null);
     setProtocolFilter(null);
     setAssetFilter("all");
     setSelectedProfileId(profile?.id ?? null);
@@ -222,25 +194,6 @@ export function ModelsView({
         description="集中管理模型连接、协议与凭据引用"
         sidebar={
           <WorkspaceSidebar title="Models" count={profiles.length}>
-            <SidebarSection title="Provider">
-              <SidebarItem
-                active={providerFilter === null}
-                icon={<LayersIcon className="w-3.5 h-3.5" />}
-                label="全部 Provider"
-                count={profiles.length}
-                onClick={() => { clearSelection(); setProviderFilter(null); }}
-              />
-              {providerOptions.map((provider) => (
-                <SidebarItem
-                  key={provider.id}
-                  active={providerFilter === provider.id}
-                  icon={<LayersIcon className="w-3.5 h-3.5" />}
-                  label={provider.name}
-                  count={providerCounts[provider.id]}
-                  onClick={() => { clearSelection(); setProviderFilter(provider.id); }}
-                />
-              ))}
-            </SidebarSection>
             <SidebarSection title="协议">
               <SidebarItem
                 active={protocolFilter === null}
@@ -346,7 +299,6 @@ export function ModelsView({
             action={profiles.length === 0 ? undefined : (
               <button className="btn-secondary" type="button" onClick={() => {
                 setQuery("");
-                setProviderFilter(null);
                 setProtocolFilter(null);
                 setAssetFilter("all");
               }}>清除筛选</button>

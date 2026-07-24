@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.55](https://github.com/Scoheart/mux/compare/v1.8.54...v1.8.55) (2026-07-24)
+
+### Changes
+
+* fix(models): restore OpenRouter provider selection ([b9bf7c1](https://github.com/Scoheart/mux/commit/b9bf7c131630677376d494e8c62f26377c5d8a76))
+
 ## [1.8.54](https://github.com/Scoheart/mux/compare/v1.8.53...v1.8.54) (2026-07-24)
 
 ### Changes

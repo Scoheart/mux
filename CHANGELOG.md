@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.61](https://github.com/Scoheart/mux/compare/v1.8.60...v1.8.61) (2026-07-24)
+
+### Changes
+
+* feat(desktop): localize and flatten model profiles ([68cdabd](https://github.com/Scoheart/mux/commit/68cdabd516a0630517c9c28f5fc35949ba0698f4))
+
 ## [1.8.60](https://github.com/Scoheart/mux/compare/v1.8.59...v1.8.60) (2026-07-24)
 
 ### Changes

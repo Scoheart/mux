@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.59](https://github.com/Scoheart/mux/compare/v1.8.58...v1.8.59) (2026-07-24)
+
+### Changes
+
+* fix(desktop): align agent picker widths ([a8d3928](https://github.com/Scoheart/mux/commit/a8d39285e764dea77da390a1c9a9bd721d6b626a))
+
 ## [1.8.58](https://github.com/Scoheart/mux/compare/v1.8.57...v1.8.58) (2026-07-24)
 
 ### Changes

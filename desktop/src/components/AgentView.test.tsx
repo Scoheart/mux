@@ -225,6 +225,12 @@ it("offers only targeted MUX adoption for an external MCP card", async () => {
   };
   const mcpState = {
     ...state,
+    entries: [{
+      name: "computer-use",
+      description: "",
+      tags: [],
+      config: { stdio: { command: "computer-use" } },
+    }],
     agents: [mcpAgent],
     refreshAgents: vi.fn().mockResolvedValue([mcpAgent]),
   } as unknown as InstallState;
@@ -265,6 +271,8 @@ it("offers only targeted MUX adoption for an external MCP card", async () => {
 
   const card = screen.getByText("computer-use").closest<HTMLElement>("li");
   expect(card).not.toBeNull();
+  expect(within(card!).queryByText("computer-use::stdio")).not.toBeInTheDocument();
+  expect(card!.querySelector(".mux-consumption-copy small")).toBeNull();
   expect(card).toHaveAttribute("data-enabled", "false");
   expect(within(card!).queryByRole("switch")).not.toBeInTheDocument();
   expect(within(card!).queryByRole("button", { name: /查看|移除/ })).not.toBeInTheDocument();

@@ -631,7 +631,7 @@ export function AgentView({
                 const entry = entries.find((candidate) => keyOf(candidate) === key);
                 return {
                   name: entry?.name ?? key.replace(/::(?:stdio|http)$/, ""),
-                  description: entry?.description || key,
+                  description: entry?.description?.trim() || undefined,
                   icon: <Avatar seed={entry?.name ?? key} kind="mcp" size={28} />,
                   meta: <TransportMark transport={entry ? transportOf(entry) : key.split("::").at(-1) ?? ""} />,
                 };

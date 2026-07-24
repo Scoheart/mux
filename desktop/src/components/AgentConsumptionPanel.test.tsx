@@ -49,11 +49,31 @@ describe("AgentConsumptionPanel", () => {
 
     expect(screen.getByRole("list")).toHaveAttribute("data-columns", "3");
     expect(screen.getByRole("button", { name: "添加 MCP" })).toBeVisible();
+    expect(screen.getByText("GitHub tools")).toBeVisible();
     expect(screen.queryByText("已同步")).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole("switch", { name: "停用 GitHub" }));
     expect(onEnabledChange).toHaveBeenCalledWith(syncedRow, false);
     await userEvent.click(screen.getByRole("button", { name: "从 Codex 移除 GitHub" }));
     expect(onRemove).toHaveBeenCalledWith(syncedRow.asset);
+  });
+
+  it("does not expose an asset identity when the card has no description", () => {
+    render(
+      <AgentConsumptionPanel
+        domain="mcp"
+        title="MCP"
+        manageLabel="添加 MCP"
+        rows={[syncedRow]}
+        external={[]}
+        present={() => ({ name: "GitHub" })}
+        onManage={vi.fn()}
+      />,
+    );
+
+    const card = screen.getByText("GitHub").closest<HTMLElement>("li");
+    expect(card).not.toBeNull();
+    expect(within(card!).queryByText("github::stdio")).not.toBeInTheDocument();
+    expect(card!.querySelector(".mux-consumption-copy small")).toBeNull();
   });
 
   it("uses asset-specific empty copy", () => {

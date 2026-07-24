@@ -124,6 +124,7 @@ export function AgentConsumptionPanel({
         <ul className="mux-consumption-list" data-columns={columns}>
           {items.map(({ item, external: isExternal }) => {
             const presentation = present(item.asset);
+            const presentationDescription = presentation.description?.trim();
             const enabled = typeof item.enabled === "boolean" ? item.enabled : null;
             const toggleDisabled = typeof enabledChangeDisabled === "function"
               ? enabledChangeDisabled(item)
@@ -143,7 +144,7 @@ export function AgentConsumptionPanel({
                       <span className="mux-consumption-meta">{presentation.meta}</span>
                     )}
                   </span>
-                  <small>{presentation.description ?? assetIdentity(item.asset)}</small>
+                  {presentationDescription && <small>{presentationDescription}</small>}
                 </span>
                 {(isExternal || item.status !== "synced") && (
                   <ConsumptionStatus status={item.status} reason={item.reason} />

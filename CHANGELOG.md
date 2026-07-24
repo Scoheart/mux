@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.56](https://github.com/Scoheart/mux/compare/v1.8.55...v1.8.56) (2026-07-24)
+
+### Changes
+
+* fix(models): simplify sidebar classification ([1fe6cfd](https://github.com/Scoheart/mux/commit/1fe6cfdb96fa3b3e08bba236bae1092c970a006d))
+
 ## [1.8.55](https://github.com/Scoheart/mux/compare/v1.8.54...v1.8.55) (2026-07-24)
 
 ### Changes

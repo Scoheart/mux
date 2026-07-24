@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.51](https://github.com/Scoheart/mux/compare/v1.8.50...v1.8.51) (2026-07-24)
+
+### Changes
+
+* fix(models): make current Model switch exclusive ([e62f6e8](https://github.com/Scoheart/mux/commit/e62f6e861ef96dfda2dc4aa1dd5db468e0d0933a))
+
 ## [1.8.50](https://github.com/Scoheart/mux/compare/v1.8.49...v1.8.50) (2026-07-24)
 
 ### Changes

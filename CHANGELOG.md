@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.48](https://github.com/Scoheart/mux/compare/v1.8.47...v1.8.48) (2026-07-24)
+
+### Changes
+
+* fix(agents): hide MCP asset identities ([2338713](https://github.com/Scoheart/mux/commit/2338713c87727e51e6f81fb3c141573529967359))
+
 ## [1.8.47](https://github.com/Scoheart/mux/compare/v1.8.46...v1.8.47) (2026-07-24)
 
 ### Changes

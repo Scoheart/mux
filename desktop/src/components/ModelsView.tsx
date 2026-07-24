@@ -533,6 +533,7 @@ function ModelProfileDialog({
   const [busy, setBusy] = useState(false);
   const baseUrlAutoManaged = useRef(initial === null);
   const providerInferenceSequence = useRef(0);
+  const initialProviderInferenceStarted = useRef(false);
   const toast = useToast();
   const initialProvider = initial?.provider.trim() ?? "";
   const initialProviderIsKnown = providers.some(
@@ -575,11 +576,20 @@ function ModelProfileDialog({
     setDraft((current) => ({ ...current, provider: customId }));
   };
 
+  useEffect(() => {
+    const baseUrl = initial?.base_url.trim();
+    if (
+      initialProviderInferenceStarted.current
+      || initialProviderIsKnown
+      || !baseUrl
+    ) return;
+
+    initialProviderInferenceStarted.current = true;
+    void inferProviderFromBaseUrl(baseUrl);
+  }, [initial, initialProviderIsKnown]);
+
   const selectProvider = (provider: string) => {
-    if (!baseUrlAutoManaged.current && draft.base_url.trim()) {
-      void inferProviderFromBaseUrl(draft.base_url.trim());
-      return;
-    }
+    providerInferenceSequence.current += 1;
     setProviderSelection(provider);
     updateProvider(provider === CUSTOM_PROVIDER_OPTION ? customProvider : provider);
   };

@@ -224,7 +224,8 @@ it("fills and switches a known Provider default until the Base URL is edited", a
   await user.type(baseUrl, "https://gateway.example.test/v1");
   await chooseFormSelect(user, "Provider", "OpenRouter");
   expect(baseUrl).toHaveValue("https://gateway.example.test/v1");
-  expect(provider).toHaveTextContent("Custom Provider…");
+  expect(provider).toHaveTextContent("OpenRouter");
+  expect(screen.queryByLabelText("自定义 Provider ID")).not.toBeInTheDocument();
 });
 
 it("does not overwrite a Base URL that was entered before the Provider", async () => {
@@ -246,11 +247,11 @@ it("does not overwrite a Base URL that was entered before the Provider", async (
   await chooseFormSelect(user, "Provider", "OpenRouter");
 
   expect(baseUrl).toHaveValue("https://gateway.example.test/v1");
-  expect(screen.getByRole("combobox", { name: "Provider" })).toHaveTextContent("Custom Provider…");
-  expect(screen.getByLabelText("自定义 Provider ID")).toHaveValue("custom");
+  expect(screen.getByRole("combobox", { name: "Provider" })).toHaveTextContent("OpenRouter");
+  expect(screen.queryByLabelText("自定义 Provider ID")).not.toBeInTheDocument();
 });
 
-it("infers a known Provider from Base URL and gives URL detection precedence", async () => {
+it("infers a known Provider from Base URL while keeping later manual selection authoritative", async () => {
   const user = userEvent.setup();
   const consumptionState = { plan: null, planUpdate: vi.fn() } as unknown as ConsumptionState;
 
@@ -275,8 +276,46 @@ it("infers a known Provider from Base URL and gives URL detection precedence", a
   expect(api.inferModelProvider).toHaveBeenLastCalledWith("https://openrouter.ai/api/v1");
 
   await chooseFormSelect(user, "Provider", "OpenAI");
-  await waitFor(() => expect(provider).toHaveTextContent("OpenRouter"));
+  expect(provider).toHaveTextContent("OpenAI");
   expect(baseUrl).toHaveValue("https://openrouter.ai/api/v1");
+});
+
+it("infers OpenRouter when editing a historical profile with only its Base URL", async () => {
+  vi.mocked(api.listModelProfiles).mockResolvedValue([{
+    id: "historical-openrouter",
+    name: "Historical OpenRouter",
+    provider: "",
+    protocol: "openai-completions",
+    base_url: "https://openrouter.ai/api/v1",
+    model: "openrouter/free",
+    reasoning: false,
+    catalog_key: "openrouter/free",
+    credential_saved: false,
+  }]);
+  const user = userEvent.setup();
+  const consumptionState = { plan: null, planUpdate: vi.fn() } as unknown as ConsumptionState;
+
+  render(
+    <ToastProvider>
+      <ModelsView consumptionState={consumptionState} />
+    </ToastProvider>,
+  );
+
+  await user.click(await screen.findByRole("button", { name: "打开模型 Historical OpenRouter 详情" }));
+  await user.click(screen.getByRole("button", { name: "编辑" }));
+
+  const provider = await screen.findByRole("combobox", { name: "Provider" });
+  await waitFor(() => expect(provider).toHaveTextContent("OpenRouter"));
+  expect(api.inferModelProvider).toHaveBeenCalledWith("https://openrouter.ai/api/v1");
+  expect(screen.queryByLabelText("自定义 Provider ID")).not.toBeInTheDocument();
+
+  await user.click(screen.getByRole("button", { name: "保存" }));
+  await waitFor(() => expect(consumptionState.planUpdate).toHaveBeenCalledWith(
+    expect.objectContaining({
+      existing_id: "historical-openrouter",
+      profile: expect.objectContaining({ provider: "openrouter" }),
+    }),
+  ));
 });
 
 it("does not overwrite the Base URL of an existing model", async () => {
@@ -317,6 +356,8 @@ it("does not overwrite the Base URL of an existing model", async () => {
   await chooseFormSelect(user, "Provider", "OpenRouter");
 
   expect(screen.getByLabelText("Base URL")).toHaveValue("https://gateway.example.test/v1");
+  expect(provider).toHaveTextContent("OpenRouter");
+  expect(screen.queryByLabelText("自定义 Provider ID")).not.toBeInTheDocument();
 });
 
 it("submits an arbitrary Provider ID through the central asset plan", async () => {

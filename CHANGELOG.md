@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.47](https://github.com/Scoheart/mux/compare/v1.8.46...v1.8.47) (2026-07-24)
+
+### Changes
+
+* fix(models): streamline model details ([a09186a](https://github.com/Scoheart/mux/commit/a09186a7f412826b3f91eca1dab796651dc2519a))
+
 ## [1.8.46](https://github.com/Scoheart/mux/compare/v1.8.45...v1.8.46) (2026-07-24)
 
 ### Changes

@@ -3,8 +3,8 @@ layout: home
 
 hero:
   name: "MUX"
-  text: "Manage MCP servers in one place"
-  tagline: One catalog for MCP across every AI coding Agent.
+  text: "Manage Agent resources in one place"
+  tagline: One asset library for Models, MCPs, and Skills across every AI coding Agent.
   actions:
     - theme: brand
       text: Get started

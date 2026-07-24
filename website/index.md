@@ -3,8 +3,8 @@ layout: home
 
 hero:
   name: "MUX"
-  text: "统一管理 MCP 服务器"
-  tagline: 一份目录，管理所有 AI 编码 Agent 的 MCP。
+  text: "统一管理 Agent 资源"
+  tagline: 一份资产库，连接 Models、MCPs、Skills 与所有 AI 编码 Agent。
   actions:
     - theme: brand
       text: 快速开始

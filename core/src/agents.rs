@@ -1250,6 +1250,18 @@ mod tests {
     }
 
     #[test]
+    fn pi_primary_name_does_not_expose_its_mcp_adapter_implementation() {
+        assert_eq!(
+            audited_agents()["pi"].name.as_deref(),
+            Some("Pi Coding Agent")
+        );
+        assert!(audited_agents()["pi"]
+            .note
+            .as_deref()
+            .is_some_and(|note| note.contains("pi-mcp-adapter")));
+    }
+
+    #[test]
     fn amazon_q_ide_and_cli_remain_distinct_catalog_surfaces() {
         let agents = builtin_agents();
         let ide = &agents["amazon-q"];

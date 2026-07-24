@@ -100,6 +100,8 @@ pub fn run() {
             commands::list_agents,
             commands::get_pinned_agents,
             commands::set_pinned_agents,
+            commands::get_ui_locale,
+            commands::set_ui_locale,
             commands::get_proxy_settings,
             commands::set_proxy_settings,
             commands::add_agent,

@@ -104,7 +104,6 @@ it("enriches an OpenRouter card without overriding user token limits", async () 
     model: "qwen/qwen3",
     context_window: 200_000,
     max_output_tokens: 16_000,
-    reasoning: false,
     catalog_key: "openrouter/qwen/qwen3",
     credential_saved: true,
   }]);
@@ -137,7 +136,7 @@ it("enriches an OpenRouter card without overriding user token limits", async () 
   expect(within(card).getByText("$0.2/M 输入")).toBeVisible();
   expect(within(card).getByText("推理")).toBeVisible();
   expect(within(card).getByText("Tools")).toBeVisible();
-  expect(within(card).getByText("参考 models.dev")).toBeVisible();
+  expect(within(card).queryByText(/models\.dev/)).not.toBeInTheDocument();
 });
 
 it("uses neutral protocol classification without a card color rail", () => {
@@ -210,7 +209,7 @@ it("uses protocol as the only sidebar classification and keeps its filtering beh
 });
 
 it("keeps Keychain presence-only rendering in the Inspector", () => {
-  expect(source).toMatch(/profile\.credential_saved \? "已保存到 Keychain" : "未保存"/);
+  expect(source).toMatch(/profile\.credential_saved \? t\("models\.keychainSaved"\) : t\("models\.keychainNotSaved"\)/);
   expect(source).not.toMatch(/credential_saved\s*\}\s*<code/);
 });
 
@@ -241,24 +240,24 @@ it("renders model details as one continuous field list without section cards", a
   const inspector = screen.getByRole("complementary", { name: "Qwen3 7 Plus 详情" });
   const fields = within(inspector).getByRole("region", { name: "模型详情字段" });
   expect(fields).toHaveClass("mux-model-inspector-fields");
-  expect(fields.querySelectorAll(".mux-inspector-field")).toHaveLength(10);
+  expect(fields.querySelectorAll(".mux-inspector-field")).toHaveLength(7);
   expect(fields.querySelectorAll(".mux-inspector-section")).toHaveLength(0);
   for (const label of [
-    "Provider",
-    "模型开发商",
+    "模型提供商",
     "协议",
     "推理",
     "模型 ID",
     "Base URL",
     "环境变量",
     "API Key",
-    "Profile ID",
-    "Catalog Key",
   ]) {
     expect(within(fields).getByText(label)).toBeVisible();
   }
   expect(within(fields).getByText("已保存到 Keychain")).toBeVisible();
-  expect(within(fields).getByRole("button", { name: "复制 Profile ID" })).toBeVisible();
+  for (const removed of ["模型开发商", "目录来源", "Profile ID", "Catalog Key"]) {
+    expect(within(fields).queryByText(removed)).not.toBeInTheDocument();
+  }
+  expect(within(fields).queryByText(/models\.dev/)).not.toBeInTheDocument();
   expect(within(inspector).queryByRole("heading", { name: "资产信息" })).not.toBeInTheDocument();
   expect(within(inspector).queryByRole("heading", { name: "接口" })).not.toBeInTheDocument();
   expect(within(inspector).queryByRole("heading", { name: "技术详情" })).not.toBeInTheDocument();
@@ -267,43 +266,44 @@ it("renders model details as one continuous field list without section cards", a
 });
 
 it("supports env-only Agent metadata without storing a secret value", () => {
-  expect(source).toMatch(/API Key 环境变量/);
+  expect(source).toMatch(/t\("models\.apiKeyEnv"\)/);
   expect(source).toMatch(/env_key: draft\.env_key\?\.trim\(\) \|\| undefined/);
-  expect(source).toMatch(/变量值由启动环境提供，不从 Keychain 导出/);
+  expect(source).toMatch(/t\("models\.apiKeyEnvHelp"\)/);
   expect(agentSource).toMatch(/modelAgent\.credential_mode === "environment-reference"/);
   expect(agentSource).toMatch(/ENV · \$\{profile\.env_key\}/);
   expect(agentSource).toMatch(/需要 ENV/);
 });
 
-it("uses the unified Provider select with a conditional custom ID field", () => {
+it("uses the unified model provider select with a conditional custom ID field", () => {
   const providerField = source.slice(
-    source.indexOf("<span>Provider</span>"),
-    source.indexOf("<span>名称（可选）</span>"),
+    source.indexOf('<span>{t("models.provider")}</span>'),
+    source.indexOf('<span>{t("models.protocol")}</span>'),
   );
-  expect(providerField).toMatch(/<FormSelect\s+[\s\S]*?ariaLabel="Provider"/);
+  expect(providerField).toMatch(/<FormSelect\s+[\s\S]*?ariaLabel=\{t\("models\.provider"\)\}/);
   expect(providerField).not.toMatch(/自动识别/);
-  expect(providerField).toMatch(/placeholder="根据 Base URL 识别"/);
-  expect(providerField).toMatch(/\{ value: CUSTOM_PROVIDER_OPTION, label: "Custom Provider…" \}/);
+  expect(providerField).toMatch(/placeholder=\{t\("models\.providerPlaceholder"\)\}/);
+  expect(providerField).toMatch(/\{ value: CUSTOM_PROVIDER_OPTION, label: t\("models\.customProvider"\) \}/);
   expect(providerField).toMatch(/providerSelection === CUSTOM_PROVIDER_OPTION/);
-  expect(providerField).toMatch(/aria-label="自定义 Provider ID"/);
+  expect(providerField).toMatch(/aria-label=\{t\("models\.customProviderId"\)\}/);
   expect(providerField).not.toMatch(/<select|datalist/);
   expect(providerField).not.toMatch(/<small>/);
   const protocolField = source.slice(
-    source.indexOf("<span>协议</span>"),
-    source.indexOf("<span>Base URL</span>"),
+    source.indexOf('<span>{t("models.protocol")}</span>'),
+    source.indexOf('<span>{t("models.baseUrl")}</span>'),
   );
   const baseUrlField = source.slice(
-    source.indexOf("<span>Base URL</span>"),
-    source.indexOf("<span>模型 ID</span>"),
+    source.indexOf('<span>{t("models.baseUrl")}</span>'),
+    source.indexOf('<span>{t("models.modelId")}</span>'),
   );
   expect(protocolField).not.toMatch(/<small>/);
   expect(baseUrlField).not.toMatch(/<small>/);
   expect(source).toMatch(/provider: draft\.provider\.trim\(\)/);
 });
 
-it("uses one custom select surface for Provider and protocol", () => {
-  expect(source).toMatch(/<FormSelect\s+[\s\S]*?ariaLabel="Provider"/);
-  expect(source).toMatch(/<FormSelect\s+[\s\S]*?ariaLabel="协议"/);
+it("uses one custom select surface for model provider, protocol, and reasoning", () => {
+  expect(source).toMatch(/<FormSelect\s+[\s\S]*?ariaLabel=\{t\("models\.provider"\)\}/);
+  expect(source).toMatch(/<FormSelect\s+[\s\S]*?ariaLabel=\{t\("models\.protocol"\)\}/);
+  expect(source).toMatch(/<FormSelect\s+[\s\S]*?ariaLabel=\{t\("models\.reasoningMode"\)\}/);
   expect(source).not.toMatch(/<select/);
   expect(css).toMatch(/\.mux-form-select-menu/);
   expect(css).toMatch(/background: var\(--surface-popover\)/);
@@ -322,32 +322,32 @@ it("fills and switches a known Provider default until the Base URL is edited", a
   await waitFor(() => expect(screen.getByRole("button", { name: "新建模型" })).toBeEnabled());
   await user.click(screen.getByRole("button", { name: "新建模型" }));
   await waitFor(() => expect(screen.getByRole("heading", { name: "新建模型" })).toHaveFocus());
-  const provider = screen.getByRole("combobox", { name: "Provider" });
+  const provider = screen.getByRole("combobox", { name: "模型提供商" });
   const baseUrl = screen.getByLabelText("Base URL");
 
-  await chooseFormSelect(user, "Provider", "OpenRouter");
+  await chooseFormSelect(user, "模型提供商", "OpenRouter");
   expect(baseUrl).toHaveValue("https://openrouter.ai/api/v1");
 
-  await chooseFormSelect(user, "Provider", "OpenAI");
+  await chooseFormSelect(user, "模型提供商", "OpenAI");
   expect(baseUrl).toHaveValue("https://api.openai.com/v1");
 
-  await chooseFormSelect(user, "Provider", "Custom Provider…");
+  await chooseFormSelect(user, "模型提供商", "自定义模型提供商…");
   expect(baseUrl).toHaveValue("");
-  await user.type(screen.getByLabelText("自定义 Provider ID"), "my-gateway");
+  await user.type(screen.getByLabelText("自定义模型提供商 ID"), "my-gateway");
 
-  await chooseFormSelect(user, "Provider", "OpenRouter");
+  await chooseFormSelect(user, "模型提供商", "OpenRouter");
   expect(baseUrl).toHaveValue("https://openrouter.ai/api/v1");
-  expect(screen.queryByLabelText("自定义 Provider ID")).not.toBeInTheDocument();
+  expect(screen.queryByLabelText("自定义模型提供商 ID")).not.toBeInTheDocument();
 
   await user.clear(baseUrl);
-  await chooseFormSelect(user, "Provider", "OpenAI");
+  await chooseFormSelect(user, "模型提供商", "OpenAI");
   expect(baseUrl).toHaveValue("");
 
   await user.type(baseUrl, "https://gateway.example.test/v1");
-  await chooseFormSelect(user, "Provider", "OpenRouter");
+  await chooseFormSelect(user, "模型提供商", "OpenRouter");
   expect(baseUrl).toHaveValue("https://gateway.example.test/v1");
   expect(provider).toHaveTextContent("OpenRouter");
-  expect(screen.queryByLabelText("自定义 Provider ID")).not.toBeInTheDocument();
+  expect(screen.queryByLabelText("自定义模型提供商 ID")).not.toBeInTheDocument();
 });
 
 it("does not overwrite a Base URL that was entered before the Provider", async () => {
@@ -366,11 +366,11 @@ it("does not overwrite a Base URL that was entered before the Provider", async (
   const baseUrl = screen.getByLabelText("Base URL");
 
   await user.type(baseUrl, "https://gateway.example.test/v1");
-  await chooseFormSelect(user, "Provider", "OpenRouter");
+  await chooseFormSelect(user, "模型提供商", "OpenRouter");
 
   expect(baseUrl).toHaveValue("https://gateway.example.test/v1");
-  expect(screen.getByRole("combobox", { name: "Provider" })).toHaveTextContent("OpenRouter");
-  expect(screen.queryByLabelText("自定义 Provider ID")).not.toBeInTheDocument();
+  expect(screen.getByRole("combobox", { name: "模型提供商" })).toHaveTextContent("OpenRouter");
+  expect(screen.queryByLabelText("自定义模型提供商 ID")).not.toBeInTheDocument();
 });
 
 it("infers a known Provider from Base URL while keeping later manual selection authoritative", async () => {
@@ -386,18 +386,18 @@ it("infers a known Provider from Base URL while keeping later manual selection a
   await waitFor(() => expect(screen.getByRole("button", { name: "新建模型" })).toBeEnabled());
   await user.click(screen.getByRole("button", { name: "新建模型" }));
   await waitFor(() => expect(screen.getByRole("heading", { name: "新建模型" })).toHaveFocus());
-  const provider = screen.getByRole("combobox", { name: "Provider" });
+  const provider = screen.getByRole("combobox", { name: "模型提供商" });
   const baseUrl = screen.getByLabelText("Base URL");
 
   expect(provider).toHaveTextContent("根据 Base URL 识别");
-  await chooseFormSelect(user, "Provider", "OpenAI");
+  await chooseFormSelect(user, "模型提供商", "OpenAI");
   await user.clear(baseUrl);
   await user.type(baseUrl, "https://openrouter.ai/api/v1");
 
   await waitFor(() => expect(provider).toHaveTextContent("OpenRouter"));
   expect(api.inferModelProvider).toHaveBeenLastCalledWith("https://openrouter.ai/api/v1");
 
-  await chooseFormSelect(user, "Provider", "OpenAI");
+  await chooseFormSelect(user, "模型提供商", "OpenAI");
   expect(provider).toHaveTextContent("OpenAI");
   expect(baseUrl).toHaveValue("https://openrouter.ai/api/v1");
 });
@@ -426,10 +426,10 @@ it("infers OpenRouter when editing a historical profile with only its Base URL",
   await user.click(await screen.findByRole("button", { name: "打开模型 Historical OpenRouter 详情" }));
   await user.click(screen.getByRole("button", { name: "编辑" }));
 
-  const provider = await screen.findByRole("combobox", { name: "Provider" });
+  const provider = await screen.findByRole("combobox", { name: "模型提供商" });
   await waitFor(() => expect(provider).toHaveTextContent("OpenRouter"));
   expect(api.inferModelProvider).toHaveBeenCalledWith("https://openrouter.ai/api/v1");
-  expect(screen.queryByLabelText("自定义 Provider ID")).not.toBeInTheDocument();
+  expect(screen.queryByLabelText("自定义模型提供商 ID")).not.toBeInTheDocument();
 
   await user.click(screen.getByRole("button", { name: "保存" }));
   await waitFor(() => expect(consumptionState.planUpdate).toHaveBeenCalledWith(
@@ -463,7 +463,7 @@ it("does not overwrite the Base URL of an existing model", async () => {
 
   await user.click(await screen.findByRole("button", { name: "打开模型 Existing Model 详情" }));
   await user.click(screen.getByRole("button", { name: "编辑" }));
-  await waitFor(() => expect(screen.getByRole("combobox", { name: "Provider" })).toBeVisible());
+  await waitFor(() => expect(screen.getByRole("combobox", { name: "模型提供商" })).toBeVisible());
   expect(screen.getAllByRole("dialog")).toHaveLength(1);
   const editor = screen.getByRole("complementary", { name: "编辑模型 详情" });
   expect(editor).toBeVisible();
@@ -472,14 +472,14 @@ it("does not overwrite the Base URL of an existing model", async () => {
   expect(within(editor).queryByText("编辑 · OpenAI Responses")).not.toBeInTheDocument();
   expect(screen.queryByRole("dialog", { name: "编辑模型" })).not.toBeInTheDocument();
 
-  const provider = screen.getByRole("combobox", { name: "Provider" });
-  expect(provider).toHaveTextContent("Custom Provider…");
-  expect(screen.getByLabelText("自定义 Provider ID")).toHaveValue("custom");
-  await chooseFormSelect(user, "Provider", "OpenRouter");
+  const provider = screen.getByRole("combobox", { name: "模型提供商" });
+  expect(provider).toHaveTextContent("自定义模型提供商…");
+  expect(screen.getByLabelText("自定义模型提供商 ID")).toHaveValue("custom");
+  await chooseFormSelect(user, "模型提供商", "OpenRouter");
 
   expect(screen.getByLabelText("Base URL")).toHaveValue("https://gateway.example.test/v1");
   expect(provider).toHaveTextContent("OpenRouter");
-  expect(screen.queryByLabelText("自定义 Provider ID")).not.toBeInTheDocument();
+  expect(screen.queryByLabelText("自定义模型提供商 ID")).not.toBeInTheDocument();
 });
 
 it("submits an arbitrary Provider ID through the central asset plan", async () => {
@@ -496,8 +496,8 @@ it("submits an arbitrary Provider ID through the central asset plan", async () =
   await waitFor(() => expect(screen.getByRole("button", { name: "新建模型" })).toBeEnabled());
   await user.click(screen.getByRole("button", { name: "新建模型" }));
   await waitFor(() => expect(screen.getByRole("heading", { name: "新建模型" })).toHaveFocus());
-  await chooseFormSelect(user, "Provider", "Custom Provider…");
-  await user.type(screen.getByLabelText("自定义 Provider ID"), "my-gateway");
+  await chooseFormSelect(user, "模型提供商", "自定义模型提供商…");
+  await user.type(screen.getByLabelText("自定义模型提供商 ID"), "my-gateway");
   await user.type(screen.getByPlaceholderText("https://api.example.com/v1"), "https://models.example.test/v1/");
   await user.type(screen.getByPlaceholderText("model-name"), "custom-model");
   await user.click(screen.getByRole("button", { name: "保存" }));
@@ -511,6 +511,37 @@ it("submits an arbitrary Provider ID through the central asset plan", async () =
       model: "custom-model",
     }),
   }));
+  expect(planUpdate.mock.calls[0][0].profile.reasoning).toBeUndefined();
+});
+
+it("shows every supported profile field directly and writes explicit reasoning overrides", async () => {
+  const user = userEvent.setup();
+  const planUpdate = vi.fn().mockResolvedValue({ operation_id: "model-plan" });
+  const consumptionState = { plan: null, planUpdate } as unknown as ConsumptionState;
+
+  render(
+    <ToastProvider>
+      <ModelsView consumptionState={consumptionState} />
+    </ToastProvider>,
+  );
+
+  await user.click(await screen.findByRole("button", { name: "新建模型" }));
+  expect(screen.queryByText("高级设置")).not.toBeInTheDocument();
+  expect(screen.getByLabelText("上下文窗口")).toHaveValue(null);
+  expect(screen.getByLabelText("最大输出")).toHaveValue(null);
+  expect(screen.getByPlaceholderText("MY_API_KEY")).toHaveValue("");
+  expect(screen.getByRole("combobox", { name: "推理" })).toHaveTextContent("自动");
+
+  await chooseFormSelect(user, "模型提供商", "OpenRouter");
+  await chooseFormSelect(user, "推理", "关闭");
+  await user.type(screen.getByPlaceholderText("model-name"), "explicit-reasoning-off");
+  await user.click(screen.getByRole("button", { name: "保存" }));
+
+  await waitFor(() => expect(planUpdate).toHaveBeenCalledTimes(1));
+  const submitted = planUpdate.mock.calls[0][0].profile;
+  expect(submitted).toEqual(expect.objectContaining({ reasoning: false, env_key: undefined }));
+  expect(submitted).not.toHaveProperty("context_window");
+  expect(submitted).not.toHaveProperty("max_output_tokens");
 });
 
 it("routes profile lifecycle through central asset plans", () => {
@@ -520,8 +551,8 @@ it("routes profile lifecycle through central asset plans", () => {
 });
 
 it("keeps the top-level Models workspace asset-only", () => {
-  expect(source).toMatch(/searchPlaceholder="搜索模型资产"/);
-  expect(source).toMatch(/label="模型资产"/);
+  expect(source).toMatch(/searchPlaceholder=\{t\("models\.search"\)\}/);
+  expect(source).toMatch(/label=\{t\("models\.asset"\)\}/);
   expect(source).not.toMatch(/listModelAgents|planForAgent|planForAsset/);
   expect(source).not.toMatch(/AssetConsumerDialog|管理 Agent|Agent 模型|使用中|未使用/);
   expect(css).not.toMatch(/\.mux-model-agent-grid/);

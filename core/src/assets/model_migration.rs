@@ -100,7 +100,7 @@ struct ExtractedModel {
     env_key: Option<String>,
     context_window: Option<u64>,
     max_output_tokens: Option<u64>,
-    reasoning: bool,
+    reasoning: Option<bool>,
     active: bool,
     credential: ExtractedCredential,
     target_paths: Vec<PathBuf>,
@@ -187,6 +187,11 @@ impl ExtractedModel {
             protocol_name(&profile.protocol).as_bytes(),
             normalized_url(&profile.base_url).as_bytes(),
             profile.model.as_bytes(),
+            match profile.reasoning {
+                None => b"reasoning:auto".as_slice(),
+                Some(true) => b"reasoning:on".as_slice(),
+                Some(false) => b"reasoning:off".as_slice(),
+            },
             self.credential_identity().as_bytes(),
         ])
     }
@@ -517,7 +522,7 @@ fn invalid_candidate(agent_id: &str, reason: String, target_paths: Vec<PathBuf>)
         env_key: None,
         context_window: None,
         max_output_tokens: None,
-        reasoning: false,
+        reasoning: None,
         active: false,
         credential: ExtractedCredential::Invalid(reason),
         target_paths,
@@ -552,7 +557,7 @@ fn extract_claude(path: &Path) -> Result<Vec<ExtractedModel>, String> {
         env_key: None,
         context_window: None,
         max_output_tokens: None,
-        reasoning: true,
+        reasoning: None,
         active: true,
         credential,
         target_paths: vec![path.into()],
@@ -622,7 +627,7 @@ fn extract_codex(path: &Path) -> Result<Vec<ExtractedModel>, String> {
         env_key,
         context_window: None,
         max_output_tokens: None,
-        reasoning: true,
+        reasoning: None,
         active: true,
         credential,
         target_paths: vec![path.into()],
@@ -685,7 +690,7 @@ fn extract_grok(path: &Path) -> Result<Vec<ExtractedModel>, String> {
                 .get("max_completion_tokens")
                 .and_then(toml::Value::as_integer)
                 .and_then(|v| u64::try_from(v).ok()),
-            reasoning: true,
+            reasoning: None,
             active: active.as_deref() == Some(native_id.as_str()),
             credential,
             target_paths: vec![path.into()],
@@ -741,10 +746,7 @@ fn extract_pi(models_path: &Path, settings_path: &Path) -> Result<Vec<ExtractedM
                 env_key: None,
                 context_window: model_value.get("contextWindow").and_then(Value::as_u64),
                 max_output_tokens: model_value.get("maxTokens").and_then(Value::as_u64),
-                reasoning: model_value
-                    .get("reasoning")
-                    .and_then(Value::as_bool)
-                    .unwrap_or(false),
+                reasoning: model_value.get("reasoning").and_then(Value::as_bool),
                 active: active_provider.as_deref() == Some(native_id.as_str())
                     && active_model.as_deref().is_none_or(|active| active == model),
                 credential: credential.clone(),
@@ -807,10 +809,7 @@ fn extract_open_code(agent_id: &str, path: &Path) -> Result<Vec<ExtractedModel>,
                     .pointer("/limit/context")
                     .and_then(Value::as_u64),
                 max_output_tokens: model_value.pointer("/limit/output").and_then(Value::as_u64),
-                reasoning: model_value
-                    .get("reasoning")
-                    .and_then(Value::as_bool)
-                    .unwrap_or(false),
+                reasoning: model_value.get("reasoning").and_then(Value::as_bool),
                 active: active.as_deref() == Some(format!("{native_id}/{model}").as_str()),
                 credential: credential.clone(),
                 target_paths: vec![path.into()],
@@ -868,7 +867,7 @@ fn extract_qwen(path: &Path) -> Result<Vec<ExtractedModel>, String> {
                     .pointer("/generationConfig/contextWindowSize")
                     .and_then(Value::as_u64),
                 max_output_tokens: None,
-                reasoning: false,
+                reasoning: None,
                 active: active_auth.as_deref() == Some(auth.as_str())
                     && active_model.as_deref() == Some(model),
                 target_paths: vec![path.into()],
@@ -957,7 +956,7 @@ fn extract_crush(path: &Path) -> Result<Vec<ExtractedModel>, String> {
                 env_key: env_key.clone(),
                 context_window: None,
                 max_output_tokens: None,
-                reasoning: false,
+                reasoning: None,
                 active: active_provider.as_deref() == Some(native_id.as_str())
                     && active_model.as_deref() == Some(model),
                 credential: credential.clone(),
@@ -1022,7 +1021,7 @@ fn extract_vibe(path: &Path) -> Result<Vec<ExtractedModel>, String> {
             env_key: env_key.clone(),
             context_window: None,
             max_output_tokens: None,
-            reasoning: false,
+            reasoning: None,
             active: active.as_deref() == Some(alias),
             credential: env_key
                 .map(ExtractedCredential::Env)
@@ -1075,7 +1074,7 @@ fn extract_hermes(path: &Path) -> Result<Vec<ExtractedModel>, String> {
             env_key: env_key.clone(),
             context_window: None,
             max_output_tokens: None,
-            reasoning: false,
+            reasoning: None,
             active: active_provider.as_deref() == Some(native_id.as_str())
                 && active_model.as_deref().is_none_or(|active| active == model),
             credential: env_key
@@ -1133,7 +1132,7 @@ fn extract_factory(path: &Path) -> Result<Vec<ExtractedModel>, String> {
             env_key,
             context_window: None,
             max_output_tokens: value.get("maxOutputTokens").and_then(Value::as_u64),
-            reasoning: false,
+            reasoning: None,
             active: active.as_deref() == Some(model),
             credential,
             target_paths: vec![path.into()],
@@ -1166,7 +1165,7 @@ fn extract_goose(path: &Path) -> Result<Vec<ExtractedModel>, String> {
                 env_key: None,
                 context_window: None,
                 max_output_tokens: None,
-                reasoning: false,
+                reasoning: None,
                 active: active.as_deref() == Some(native_id.as_str()),
                 credential: ExtractedCredential::Invalid(
                     "Goose provider identity 不能安全映射到 custom_providers 文件名".into(),
@@ -1219,10 +1218,7 @@ fn extract_goose(path: &Path) -> Result<Vec<ExtractedModel>, String> {
                 env_key: env_key.clone(),
                 context_window: value.get("context_limit").and_then(Value::as_u64),
                 max_output_tokens: None,
-                reasoning: provider
-                    .get("preserves_thinking")
-                    .and_then(Value::as_bool)
-                    .unwrap_or(false),
+                reasoning: provider.get("preserves_thinking").and_then(Value::as_bool),
                 active: active.as_deref() == Some(native_id.as_str())
                     && state
                         .get("model")

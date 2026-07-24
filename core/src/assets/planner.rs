@@ -2238,7 +2238,7 @@ mod tests {
             env_key: None,
             context_window: None,
             max_output_tokens: None,
-            reasoning: false,
+            reasoning: Some(false),
         };
         mutate_settings(|settings| {
             settings.model_profiles.get_or_insert_default().extend([
@@ -2288,7 +2288,7 @@ mod tests {
             env_key: None,
             context_window: None,
             max_output_tokens: None,
-            reasoning: false,
+            reasoning: Some(false),
         };
         mutate_settings(|settings| {
             settings.model_profiles.get_or_insert_default().extend([
@@ -2327,7 +2327,7 @@ mod tests {
             env_key: None,
             context_window: None,
             max_output_tokens: None,
-            reasoning: false,
+            reasoning: Some(false),
         };
         mutate_settings(|settings| {
             settings.model_profiles.get_or_insert_default().extend([
@@ -2408,7 +2408,7 @@ mod tests {
             env_key: None,
             context_window: None,
             max_output_tokens: None,
-            reasoning: false,
+            reasoning: Some(false),
         };
         mutate_settings(|settings| {
             settings
@@ -2457,7 +2457,7 @@ mod tests {
             env_key: None,
             context_window: None,
             max_output_tokens: None,
-            reasoning: false,
+            reasoning: Some(false),
         };
         mutate_settings(|settings| {
             settings.model_profiles.get_or_insert_default().extend([

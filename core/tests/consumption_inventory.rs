@@ -118,7 +118,7 @@ fn model_assignment_remains_visible_when_target_is_missing() {
                 env_key: None,
                 context_window: None,
                 max_output_tokens: None,
-                reasoning: false,
+                reasoning: Some(false),
             },
         )]));
         settings.model_assignments = Some(BTreeMap::from([(
@@ -153,7 +153,7 @@ fn model_profile() -> ModelProfile {
         env_key: None,
         context_window: None,
         max_output_tokens: None,
-        reasoning: false,
+        reasoning: Some(false),
     }
 }
 

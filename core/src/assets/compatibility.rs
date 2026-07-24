@@ -230,7 +230,7 @@ mod tests {
                     env_key: None,
                     context_window: None,
                     max_output_tokens: None,
-                    reasoning: false,
+                    reasoning: Some(false),
                 },
             );
         })

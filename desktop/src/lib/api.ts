@@ -156,6 +156,10 @@ export const getPinnedAgents = () =>
   invoke<string[]>("get_pinned_agents");
 export const setPinnedAgents = (agentIds: string[]) =>
   invoke<string[]>("set_pinned_agents", { agentIds });
+export const getUiLocale = () =>
+  invoke<"zh-CN" | "en-US" | null>("get_ui_locale");
+export const setUiLocale = (locale: "zh-CN" | "en-US" | null) =>
+  invoke<"zh-CN" | "en-US" | null>("set_ui_locale", { locale });
 export const getProxySettings = () =>
   invoke<ProxySettings>("get_proxy_settings");
 export const setProxySettings = (proxyUrl: string | null) =>

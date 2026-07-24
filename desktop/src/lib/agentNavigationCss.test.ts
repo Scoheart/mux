@@ -100,7 +100,7 @@ it("keeps topbar controls at their wide-layout sizes without compact overrides",
   expect(css.match(/\.mux-pinned-agent-glyph\s*\{/g) ?? []).toHaveLength(1);
   expect(css).not.toMatch(/@media \(max-width: (?:980|840)px\)/);
   expect(layout).toMatch(/className="mux-update-check-label"/);
-  expect(layout).toMatch(/aria-label=\{version \? `检查更新，当前版本/);
+  expect(layout).toMatch(/aria-label=\{version \? t\("layout\.checkUpdateVersion"/);
   expect(layout.match(/className="mux-resource-label"/g) ?? []).toHaveLength(3);
 });
 

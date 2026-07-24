@@ -380,7 +380,7 @@ fn model(model: &str) -> ModelProfile {
         env_key: None,
         context_window: Some(128_000),
         max_output_tokens: Some(8_192),
-        reasoning: true,
+        reasoning: Some(true),
     }
 }
 

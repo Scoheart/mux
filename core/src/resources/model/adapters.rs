@@ -400,8 +400,10 @@ fn open_code_provider(profile: &ModelProfile) -> Value {
     let mut model = Map::from_iter([
         ("id".into(), Value::String(profile.model.clone())),
         ("name".into(), Value::String(profile.name.clone())),
-        ("reasoning".into(), Value::Bool(profile.reasoning)),
     ]);
+    if let Some(value) = profile.reasoning {
+        model.insert("reasoning".into(), Value::Bool(value));
+    }
     if profile.context_window.is_some() || profile.max_output_tokens.is_some() {
         let mut limit = Map::new();
         if let Some(value) = profile.context_window {
@@ -914,7 +916,7 @@ fn prepare_goose(
         "openai"
     };
     let context = profile.context_window.unwrap_or(128_000);
-    let provider = json!({
+    let mut provider = json!({
         "name": provider_id_for("goose", profile), "engine": engine, "display_name": profile.name,
         "description": format!("MUX managed {} provider", profile.name),
         "api_key_env": profile.env_key.clone().unwrap_or_default(), "base_url": profile.base_url,
@@ -922,9 +924,14 @@ fn prepare_goose(
             "output_token_cost": null, "currency": null, "supports_cache_control": null}],
         "headers": null, "timeout_seconds": null, "supports_streaming": true,
         "requires_auth": profile.env_key.is_some(), "dynamic_models": false,
-        "skip_canonical_filtering": true, "setup_steps": [],
-        "preserves_thinking": profile.reasoning
+        "skip_canonical_filtering": true, "setup_steps": []
     });
+    if let Some(value) = profile.reasoning {
+        provider
+            .as_object_mut()
+            .expect("provider literal must be an object")
+            .insert("preserves_thinking".into(), Value::Bool(value));
+    }
     let content =
         serde_json::to_string_pretty(&provider).map_err(|error| error.to_string())? + "\n";
     Ok(vec![
@@ -1612,7 +1619,7 @@ mod tests {
             env_key: Some("WORK_API_KEY".into()),
             context_window: Some(128_000),
             max_output_tokens: Some(8_192),
-            reasoning: true,
+            reasoning: Some(true),
         }
     }
 

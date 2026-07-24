@@ -107,7 +107,8 @@ export interface ModelProfile {
   env_key?: string;
   context_window?: number;
   max_output_tokens?: number;
-  reasoning: boolean;
+  /** Missing means the Agent/provider decides; booleans are explicit overrides. */
+  reasoning?: boolean;
 }
 
 export interface ModelProfileView extends ModelProfile {

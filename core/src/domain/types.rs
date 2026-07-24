@@ -41,8 +41,10 @@ pub struct ModelProfile {
     pub context_window: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_output_tokens: Option<u64>,
-    #[serde(default)]
-    pub reasoning: bool,
+    /// Missing means the Agent/provider decides. Explicit booleans preserve a
+    /// user's on/off override and remain wire-compatible with older settings.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -324,6 +326,7 @@ fn is_false(value: &bool) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
     #[test]
     fn registry_entry_roundtrips_stdio() {
         let json = r#"{"name":"git","description":"d","tags":["builtin"],
@@ -331,5 +334,34 @@ mod tests {
         let e: RegistryEntry = serde_json::from_str(json).unwrap();
         assert_eq!(e.name, "git");
         assert_eq!(e.config.stdio.as_ref().unwrap().command, "npx");
+    }
+
+    #[test]
+    fn model_reasoning_preserves_legacy_booleans_and_omits_auto() {
+        let missing: ModelProfile = serde_json::from_value(serde_json::json!({
+            "id": "auto",
+            "name": "Auto",
+            "provider": "openrouter",
+            "protocol": "openai-responses",
+            "base_url": "https://openrouter.ai/api/v1",
+            "model": "example/auto"
+        }))
+        .unwrap();
+        assert_eq!(missing.reasoning, None);
+        assert!(serde_json::to_value(&missing)
+            .unwrap()
+            .get("reasoning")
+            .is_none());
+
+        for (wire, expected) in [(true, Some(true)), (false, Some(false))] {
+            let mut value = serde_json::to_value(&missing).unwrap();
+            value["reasoning"] = serde_json::Value::Bool(wire);
+            let profile: ModelProfile = serde_json::from_value(value).unwrap();
+            assert_eq!(profile.reasoning, expected);
+            assert_eq!(
+                serde_json::to_value(profile).unwrap()["reasoning"],
+                serde_json::Value::Bool(wire)
+            );
+        }
     }
 }

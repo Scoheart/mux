@@ -673,6 +673,16 @@ pub fn set_pinned_agents(agent_ids: Vec<String>) -> Result<Vec<String>, String> 
     mux_core::application::ui::set_pinned_agents(agent_ids)
 }
 
+#[tauri::command]
+pub fn get_ui_locale() -> Result<Option<String>, String> {
+    mux_core::application::ui::get_ui_locale()
+}
+
+#[tauri::command]
+pub fn set_ui_locale(locale: Option<String>) -> Result<Option<String>, String> {
+    mux_core::application::ui::set_ui_locale(locale)
+}
+
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct ProxySettingsView {
     pub proxy_url: Option<String>,

@@ -1,9 +1,11 @@
 import { ReactNode, useEffect, useRef, useState } from "react";
 import { getVersion } from "@tauri-apps/api/app";
+import { useTranslation } from "react-i18next";
 import type { AgentInfo, ProxySettings, View } from "../lib/types";
 import {
   DownloadIcon,
   ChevronDownIcon,
+  LanguageIcon,
   LayersIcon,
   MoonIcon,
   NetworkIcon,
@@ -13,6 +15,9 @@ import {
   SunIcon,
 } from "./icons";
 import { applyTheme, getInitialTheme, type Theme } from "../lib/theme";
+import { formatError } from "../lib/format";
+import { useLocale } from "../i18n/LocaleProvider";
+import type { LocalePreference } from "../i18n";
 import { useToast } from "./Toast";
 import type { UpdaterState } from "../hooks/useUpdater";
 import { AgentNavigation } from "./AgentNavigation";
@@ -58,8 +63,12 @@ export function Layout({
   const [version, setVersion] = useState("");
   const [proxySettingsOpen, setProxySettingsOpen] = useState(false);
   const [scanMenuOpen, setScanMenuOpen] = useState(false);
+  const [languageMenuOpen, setLanguageMenuOpen] = useState(false);
   const scanMenuRef = useRef<HTMLDivElement>(null);
+  const languageMenuRef = useRef<HTMLDivElement>(null);
   const toast = useToast();
+  const { t } = useTranslation();
+  const localeState = useLocale();
 
   useEffect(() => {
     getVersion().then(setVersion).catch(() => {});
@@ -74,19 +83,40 @@ export function Layout({
     return () => window.removeEventListener("pointerdown", close);
   }, [scanMenuOpen]);
 
+  useEffect(() => {
+    if (!languageMenuOpen) return;
+    const close = (event: PointerEvent) => {
+      if (!languageMenuRef.current?.contains(event.target as Node)) setLanguageMenuOpen(false);
+    };
+    window.addEventListener("pointerdown", close);
+    return () => window.removeEventListener("pointerdown", close);
+  }, [languageMenuOpen]);
+
   const checkingUpdate = updater?.phase.kind === "checking";
   const handleCheckUpdate = async () => {
     if (!updater || checkingUpdate) return;
     const result = await updater.checkNow({ manual: true });
     // "available"/"error" both surface via the UpdateBanner; only the quiet
     // outcome needs feedback here.
-    if (result === "latest") toast.show({ kind: "success", msg: "已是最新版本" });
+    if (result === "latest") toast.show({ kind: "success", msg: t("layout.latest") });
   };
 
   const toggleTheme = () => {
     const next: Theme = theme === "dark" ? "light" : "dark";
     setTheme(next);
     applyTheme(next);
+  };
+
+  const selectLocale = async (preference: LocalePreference) => {
+    setLanguageMenuOpen(false);
+    try {
+      await localeState.setPreference(preference);
+    } catch (error) {
+      toast.show({
+        kind: "error",
+        msg: t("layout.languageSaveFailed", { error: formatError(error) }),
+      });
+    }
   };
 
   const handleRescan = async () => {
@@ -169,8 +199,8 @@ export function Layout({
           type="button"
           className="mux-icon-btn mux-network-button flex-shrink-0"
           data-active={proxyUrl ? "true" : undefined}
-          title={proxyUrl ? `网络代理 · ${proxyUrl}` : "网络代理"}
-          aria-label={proxyUrl ? "配置网络代理，当前已启用" : "配置网络代理"}
+          title={proxyUrl ? `${t("layout.networkProxy")} · ${proxyUrl}` : t("layout.networkProxy")}
+          aria-label={proxyUrl ? t("layout.networkProxyEnabled") : t("layout.configureNetworkProxy")}
           disabled={proxySettingsLoading}
           onClick={() => setProxySettingsOpen(true)}
         >
@@ -181,20 +211,55 @@ export function Layout({
         <button
           type="button"
           className="mux-icon-btn flex-shrink-0"
-          title={theme === "dark" ? "切换到浅色" : "切换到深色"}
-          aria-label="切换主题"
+          title={theme === "dark" ? t("layout.lightTheme") : t("layout.darkTheme")}
+          aria-label={t("layout.switchTheme")}
           onClick={toggleTheme}
         >
           {theme === "dark" ? <SunIcon className="w-4 h-4" /> : <MoonIcon className="w-4 h-4" />}
         </button>
+
+        <div className="mux-language-menu-wrap flex-shrink-0" ref={languageMenuRef}>
+          <button
+            type="button"
+            className="mux-icon-btn"
+            title={t("layout.language")}
+            aria-label={t("layout.languageMenu")}
+            aria-expanded={languageMenuOpen}
+            onClick={() => setLanguageMenuOpen((open) => !open)}
+          >
+            <LanguageIcon className="w-4 h-4" />
+          </button>
+          {languageMenuOpen && (
+            <div className="mux-language-menu" role="menu" aria-label={t("layout.languageMenu")}>
+              {([
+                [null, t("layout.followSystem")],
+                ["zh-CN", t("layout.simplifiedChinese")],
+                ["en-US", t("layout.english")],
+              ] as Array<[LocalePreference, string]>).map(([value, label]) => (
+                <button
+                  type="button"
+                  role="menuitemradio"
+                  aria-checked={localeState.preference === value}
+                  data-active={localeState.preference === value ? "true" : undefined}
+                  disabled={localeState.saving}
+                  key={value ?? "system"}
+                  onClick={() => void selectLocale(value)}
+                >
+                  <span>{label}</span>
+                  {localeState.preference === value && <span aria-hidden="true">✓</span>}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
 
         {onRescan && (
           <div className="mux-scan-menu-wrap flex-shrink-0" ref={scanMenuRef}>
             <button
               type="button"
               className="mux-icon-btn mux-scan-menu-trigger"
-              title="扫描与迁移"
-              aria-label="扫描与迁移"
+              title={t("layout.scanAndMigrate")}
+              aria-label={t("layout.scanAndMigrate")}
               aria-expanded={scanMenuOpen}
               onClick={() => setScanMenuOpen((open) => !open)}
             >
@@ -217,7 +282,7 @@ export function Layout({
                   }}
                 >
                   <RefreshIcon className="w-4 h-4" />
-                  <span><strong>{rescanning ? "扫描中…" : "重新扫描"}</strong><small>重新读取 Agent 配置</small></span>
+                  <span><strong>{rescanning ? t("layout.scanning") : t("layout.rescan")}</strong><small>{t("layout.rescanDetail")}</small></span>
                 </button>
                 {onOpenMigration && (
                   <button
@@ -229,7 +294,7 @@ export function Layout({
                     }}
                   >
                     <PackageIcon className="w-4 h-4" />
-                    <span><strong>迁移历史配置</strong><small>{migrationCount > 0 ? `${migrationCount} 项待处理` : "没有待迁移配置"}</small></span>
+                    <span><strong>{t("layout.migrateHistory")}</strong><small>{migrationCount > 0 ? t("layout.pendingCount", { count: migrationCount }) : t("layout.noMigration")}</small></span>
                   </button>
                 )}
               </div>
@@ -242,8 +307,8 @@ export function Layout({
         <button
           type="button"
           className="mux-update-check flex-shrink-0"
-          title={version ? `当前版本 v${version}，点击检查更新` : "检查更新"}
-          aria-label={version ? `检查更新，当前版本 v${version}` : "检查更新"}
+          title={version ? t("layout.currentVersion", { version }) : t("layout.checkUpdate")}
+          aria-label={version ? t("layout.checkUpdateVersion", { version }) : t("layout.checkUpdate")}
           disabled={checkingUpdate}
           onClick={() => void handleCheckUpdate()}
         >
@@ -256,7 +321,7 @@ export function Layout({
               ? <RefreshIcon className="w-full h-full" />
               : <DownloadIcon className="w-full h-full" />}
           </span>
-          <span className="mux-update-check-label">{checkingUpdate ? "检查中…" : "检查更新"}</span>
+          <span className="mux-update-check-label">{checkingUpdate ? t("layout.checking") : t("layout.checkUpdate")}</span>
           {version && <span className="mux-update-version">v{version}</span>}
         </button>
       </header>

@@ -825,7 +825,7 @@ mod tests {
             env_key: None,
             context_window: None,
             max_output_tokens: None,
-            reasoning: false,
+            reasoning: Some(false),
         };
         mutate_settings(|settings| {
             settings
@@ -926,7 +926,7 @@ mod tests {
             env_key: None,
             context_window: None,
             max_output_tokens: None,
-            reasoning: false,
+            reasoning: Some(false),
         };
         mutate_settings(|settings| {
             settings
@@ -998,7 +998,7 @@ mod tests {
             env_key: None,
             context_window: None,
             max_output_tokens: None,
-            reasoning: false,
+            reasoning: Some(false),
         };
         mutate_settings(|settings| {
             settings.version = Some(1);
@@ -1044,7 +1044,7 @@ mod tests {
             env_key: Some("OPENROUTER_API_KEY".into()),
             context_window: None,
             max_output_tokens: None,
-            reasoning: false,
+            reasoning: Some(false),
         };
         mutate_settings(|settings| {
             settings.version = Some(1);

@@ -31,6 +31,9 @@ pub const SETTINGS_VERSION: u32 = 2;
 pub struct UiSettings {
     #[serde(default)]
     pub pinned_agents: Vec<String>,
+    /// Desktop language override. Missing means follow the operating system.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub locale: Option<String>,
     #[serde(flatten)]
     pub extra: BTreeMap<String, Value>,
 }
@@ -593,7 +596,7 @@ mod tests {
     #[test]
     fn ui_section_and_unknown_fields_survive_settings_roundtrip() {
         let json = r#"{
-      "ui": {"pinned_agents": ["claude-code", "codex"]},
+      "ui": {"pinned_agents": ["claude-code", "codex"], "locale": "en-US"},
       "future_section": {"keep": true}
     }"#;
         let settings: Settings = serde_json::from_str(json).unwrap();
@@ -601,8 +604,13 @@ mod tests {
             settings.ui.as_ref().unwrap().pinned_agents,
             vec!["claude-code", "codex"]
         );
+        assert_eq!(
+            settings.ui.as_ref().unwrap().locale.as_deref(),
+            Some("en-US")
+        );
         let encoded = serde_json::to_value(settings).unwrap();
         assert_eq!(encoded["ui"]["pinned_agents"][0], "claude-code");
+        assert_eq!(encoded["ui"]["locale"], "en-US");
         assert_eq!(encoded["future_section"]["keep"], true);
     }
 

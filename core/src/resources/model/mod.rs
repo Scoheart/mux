@@ -978,7 +978,7 @@ fn validate_profile_id(profile_id: &str) -> Result<(), String> {
         env_key: None,
         context_window: None,
         max_output_tokens: None,
-        reasoning: false,
+        reasoning: None,
     };
     validate_profile(&dummy)
 }
@@ -2326,12 +2326,14 @@ fn pi_provider_value(profile: &ModelProfile, has_credential: bool) -> Value {
     let mut model = serde_json::Map::from_iter([
         ("id".into(), Value::String(profile.model.clone())),
         ("name".into(), Value::String(profile.name.clone())),
-        ("reasoning".into(), Value::Bool(profile.reasoning)),
         (
             "input".into(),
             Value::Array(vec![Value::String("text".into())]),
         ),
     ]);
+    if let Some(value) = profile.reasoning {
+        model.insert("reasoning".into(), Value::Bool(value));
+    }
     if let Some(value) = profile.context_window {
         model.insert("contextWindow".into(), Value::Number(value.into()));
     }
@@ -2701,7 +2703,7 @@ mod tests {
             env_key: None,
             context_window: Some(200_000),
             max_output_tokens: Some(16_384),
-            reasoning: true,
+            reasoning: Some(true),
         }
     }
 
@@ -2718,7 +2720,7 @@ mod tests {
             env_key: None,
             context_window: Some(128_000),
             max_output_tokens: Some(16_000),
-            reasoning: true,
+            reasoning: Some(true),
         }
     }
 

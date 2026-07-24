@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.45](https://github.com/Scoheart/mux/compare/v1.8.44...v1.8.45) (2026-07-24)
+
+### Changes
+
+* feat(assets): clarify model setup and review copy ([5e87610](https://github.com/Scoheart/mux/commit/5e87610c6bb0e5923d2b10babc55458729b24ef4))
+
 ## [1.8.44](https://github.com/Scoheart/mux/compare/v1.8.43...v1.8.44) (2026-07-23)
 
 ### Changes

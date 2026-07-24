@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.46](https://github.com/Scoheart/mux/compare/v1.8.45...v1.8.46) (2026-07-24)
+
+### Changes
+
+* fix(ci): simplify registry test case type ([f69565e](https://github.com/Scoheart/mux/commit/f69565e07d4a2701d6a81877f8bc9f5b7f588cc0))
+
 ## [1.8.45](https://github.com/Scoheart/mux/compare/v1.8.44...v1.8.45) (2026-07-24)
 
 ### Changes

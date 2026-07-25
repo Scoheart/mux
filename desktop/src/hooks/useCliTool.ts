@@ -11,10 +11,11 @@ const PATH_HINT_KEY = "mux-cli-path-hint-notified";
  * 软链指向包内 → App 自动更新后 CLI 同步更新，且断链（App 挪位置）会在下次
  * 启动时自动修复。只在首次安装成功 / PATH 缺失时各提示一次。
  */
-export function useCliTool() {
+export function useCliTool({ start = true }: { start?: boolean } = {}) {
   const toast = useToast();
 
   useEffect(() => {
+    if (!start) return;
     const t = setTimeout(async () => {
       try {
         const status = await cliStatus();
@@ -38,8 +39,8 @@ export function useCliTool() {
       } catch {
         // 静默失败：CLI 安装是锦上添花，不该打断启动。
       }
-    }, 3500);
+    }, 1000);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [start]);
 }

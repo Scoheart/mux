@@ -312,6 +312,27 @@ body {
   background: var(--color-green); box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-green) 14%, transparent);
 }
 
+.mux-startup-sync {
+  display: flex; min-height: 28px; flex: 0 0 auto; align-items: center; gap: 7px;
+  padding: 0 16px; border-top: 1px solid var(--border-hairline);
+  border-bottom: 1px solid var(--border-hairline);
+  background: color-mix(in srgb, var(--surface-section) 78%, transparent);
+  color: var(--text-secondary); font-size: 10px;
+}
+.mux-startup-sync strong { color: var(--text-primary); font-size: 10px; }
+.mux-startup-sync-icon { width: 12px; height: 12px; flex: 0 0 12px; }
+.mux-startup-sync-icon[data-spinning="true"] { animation: spin .8s linear infinite; }
+.mux-startup-sync-detail { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mux-startup-sync-count { margin-left: auto; font-variant-numeric: tabular-nums; }
+.mux-startup-sync-retry {
+  min-height: 22px; padding: 0 8px; border: 0; border-radius: 6px;
+  background: var(--surface-selected); color: var(--color-blue);
+  font: 600 10px/1 var(--font-sans); cursor: pointer;
+}
+.mux-startup-sync-retry:disabled { opacity: .45; cursor: default; }
+.mux-startup-sync[data-slow="true"] { color: var(--color-brand-gold); }
+.mux-startup-sync[data-settled="true"] { color: var(--color-green); }
+
 /* A visible command replaces the old bare version label. The fixed height and
    compact version lane keep the top bar stable while update state changes. */
 .mux-update-check {

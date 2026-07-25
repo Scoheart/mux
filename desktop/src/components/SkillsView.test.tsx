@@ -770,17 +770,16 @@ describe("SkillsView", () => {
 });
 
 describe("App Skills routing", () => {
-  it("opens Skills before the MCP loading gate with one app-owned state", async () => {
+  it("keeps navigation usable while fresh MCP state is still loading", async () => {
     render(<App />);
-    expect(screen.getByText("加载中…")).toBeVisible();
+    expect(screen.getByText("registry-view")).toBeVisible();
     expect(screen.getByRole("button", { name: "MCPs" })).toBeVisible();
     expect(screen.getByRole("button", { name: /Models/ })).toBeVisible();
     expect(screen.getByRole("navigation", { name: "置顶 Agent" })).toBeVisible();
-    expect(appMocks.useSkillsState).toHaveBeenCalledOnce();
+    expect(appMocks.useSkillsState).toHaveBeenCalled();
 
     await userEvent.click(screen.getByRole("button", { name: "Skills" }));
     expect(screen.getByRole("heading", { name: "review-changes" })).toBeVisible();
-    expect(screen.queryByText("加载中…")).not.toBeInTheDocument();
     expect(appMocks.useSkillsState.mock.calls.length).toBeGreaterThanOrEqual(2);
   });
 

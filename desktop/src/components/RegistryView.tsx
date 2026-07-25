@@ -45,6 +45,8 @@ interface RegistryViewProps {
   onCreate: () => void;
   migrationCount?: number;
   onOpenMigration?(): void;
+  onRetryLoad?(): Promise<void>;
+  retryLoadDisabled?: boolean;
 }
 
 /** Origin buckets — still used to decide which entries are user-deletable. */
@@ -143,9 +145,10 @@ function originLabel(origin: RegistryOrigin | undefined, sourceName: (id: string
   return label || (origin.kind === "remote" ? "订阅" : "本地");
 }
 
-export function RegistryView({ state, consumptionState, intent, onIntentConsumed, onCreate, migrationCount = 0, onOpenMigration }: RegistryViewProps) {
+export function RegistryView({ state, consumptionState, intent, onIntentConsumed, onCreate, migrationCount = 0, onOpenMigration, onRetryLoad, retryLoadDisabled = false }: RegistryViewProps) {
   const { catalog, entries, agentsForServer, sources } = state;
   const toast = useToast();
+  const [minimumSkeleton, setMinimumSkeleton] = useState(state.loading);
 
   const [q, setQ] = useState("");
   // Source and status are separate filters: the sidebar owns provenance, while
@@ -156,6 +159,12 @@ export function RegistryView({ state, consumptionState, intent, onIntentConsumed
   const [editingDetail, setEditingDetail] = useState(false);
   const [pasteOpen, setPasteOpen] = useState(false);
   const lastConsumedIntentId = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (!minimumSkeleton) return;
+    const timer = setTimeout(() => setMinimumSkeleton(false), 420);
+    return () => clearTimeout(timer);
+  }, [minimumSkeleton]);
 
   const sourceName = useCallback(
     (id: string) => sources.find((s) => s.id === id)?.name ?? id,
@@ -391,7 +400,26 @@ export function RegistryView({ state, consumptionState, intent, onIntentConsumed
       }
       onInspectorClose={closeDetail}
     >
-      {filtered.length === 0 ? (
+      {state.loading || minimumSkeleton ? (
+        <ResourceState kind="loading" title="正在读取 MCP…" />
+      ) : state.registryError && catalog.length === 0 ? (
+        <ResourceState
+          kind="read-error"
+          icon={<PackageIcon className="w-6 h-6" />}
+          title="读取 MCP 失败"
+          detail={state.registryError}
+          action={(
+            <button
+              type="button"
+              className="btn-secondary"
+              disabled={retryLoadDisabled}
+              onClick={() => void (onRetryLoad?.() ?? state.refreshRegistry()).catch(() => undefined)}
+            >
+              重试
+            </button>
+          )}
+        />
+      ) : filtered.length === 0 ? (
         <ResourceState
           kind={catalog.length === 0 ? "empty" : "no-match"}
           icon={<PackageIcon className="w-6 h-6" />}

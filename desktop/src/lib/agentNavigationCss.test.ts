@@ -55,19 +55,14 @@ it("keeps Models, MCPs, Skills order before Agent navigation", () => {
   expect(css).not.toMatch(/mux-seg-beta/);
 });
 
-it("routes the single app-owned Skills state before the MCP loading gate", () => {
-  expect(app.match(/\buseSkillsState\(\)/g) ?? []).toHaveLength(1);
+it("routes every workspace without a whole-app MCP loading gate", () => {
+  expect(app.match(/\buseSkillsState\(\{ autoLoad: false \}\)/g) ?? []).toHaveLength(1);
   expect(app).toMatch(/onSelectSkills=\{\(\) => setView\(\{ kind: "skills" \}\)\}/);
   expect(app).toMatch(/<SkillsView\s+state=\{skillsState\}/);
   expect(app).toMatch(/intent=\{view\.intent\}/);
   expect(app).toMatch(/onIntentConsumed=\{consumeResourceIntent\}/);
-
-  const skillsRoute = app.indexOf('view.kind === "skills"');
-  const loadingGate = app.indexOf("state.loading");
-  const agentBranch = app.indexOf('view.kind === "agent"', loadingGate);
-  expect(skillsRoute, "expected an explicit Skills route").not.toBe(-1);
-  expect(skillsRoute).toBeLessThan(loadingGate);
-  expect(agentBranch, "expected an explicit Agent route").toBeGreaterThan(loadingGate);
+  expect(app).not.toMatch(/state\.loading\s*\?\s*\(/);
+  expect(app).toMatch(/startupSync=\{startupSync\}/);
 });
 
 it("keeps topbar controls at their wide-layout sizes without compact overrides", () => {

@@ -22,6 +22,8 @@ import { useToast } from "./Toast";
 import type { UpdaterState } from "../hooks/useUpdater";
 import { AgentNavigation } from "./AgentNavigation";
 import { ProxySettingsDialog } from "./ProxySettingsDialog";
+import { StartupSyncBar } from "./StartupSyncBar";
+import type { StartupSyncState } from "../hooks/useStartupSync";
 
 interface LayoutProps {
   children: ReactNode;
@@ -39,6 +41,7 @@ interface LayoutProps {
   proxyUrl: string | null;
   proxySettingsLoading: boolean;
   onSaveProxy: (proxyUrl: string | null) => Promise<ProxySettings>;
+  startupSync?: StartupSyncState;
 }
 
 export function Layout({
@@ -57,6 +60,7 @@ export function Layout({
   proxyUrl,
   proxySettingsLoading,
   onSaveProxy,
+  startupSync,
 }: LayoutProps) {
   const [rescanning, setRescanning] = useState(false);
   const [theme, setTheme] = useState<Theme>(getInitialTheme);
@@ -325,6 +329,8 @@ export function Layout({
           {version && <span className="mux-update-version">v{version}</span>}
         </button>
       </header>
+
+      {startupSync && <StartupSyncBar state={startupSync} />}
 
       {/* Content — transparent so the body's tinted backdrop shows through the
           glass surfaces. min-h-0 is critical for overflow to work. */}

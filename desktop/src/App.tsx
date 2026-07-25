@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { Layout } from "./components/Layout";
 import { RegistryView } from "./components/RegistryView";
 import { RegistryEditPage } from "./components/RegistryEditPage";
@@ -30,6 +30,7 @@ import {
   viewForResourceIntent,
 } from "./lib/resourceNavigation";
 import { mergeAgentInfos } from "./lib/agentCapabilities";
+import { useStartupSync, type StartupTask } from "./hooks/useStartupSync";
 
 const MIGRATION_IGNORED_KEY = "mux:migration-ignored:v2";
 
@@ -53,14 +54,11 @@ function App() {
   const [modelMigrationCandidates, setModelMigrationCandidates] = useState<ModelAdoptionCandidate[]>([]);
   const [ignoredMigrations, setIgnoredMigrations] = useState(loadIgnoredMigrations);
   const nextResourceNavigationId = useRef(0);
-  const state = useInstallState();
-  const skillsState = useSkillsState();
-  const consumptionState = useConsumptionState();
+  const state = useInstallState({ autoLoad: false });
+  const skillsState = useSkillsState({ autoLoad: false });
+  const consumptionState = useConsumptionState({ autoLoad: false });
   const networkSettings = useNetworkSettings();
-  const updater = useUpdater(networkSettings.settings.proxy_url);
-  // 启动后静默安装/修复 ~/.local/bin/mux 软链（装 App 即带 CLI）。
-  useCliTool();
-
+  const updater = useUpdater(networkSettings.settings.proxy_url, { autoCheck: false });
   const agents = useMemo(
     () => mergeAgentInfos(state.agents, consumptionState.agents),
     [consumptionState.agents, state.agents],
@@ -92,20 +90,70 @@ function App() {
     openMigration(mcpMigrationCandidateId(assetKey));
   }, [openMigration]);
 
-  const refreshMigrations = useCallback(async () => {
-    const [mcps, skills, models] = await Promise.all([
-      listMcpAdoptionCandidates(),
-      listSkillMigrationCandidates(),
-      listModelAdoptionCandidates(),
-    ]);
-    setMcpMigrationCandidates(mcps);
-    setSkillMigrationCandidates(skills);
-    setModelMigrationCandidates(models);
+  const refreshMcpMigrations = useCallback(async () => {
+    setMcpMigrationCandidates(await listMcpAdoptionCandidates());
   }, []);
 
-  useEffect(() => {
-    void refreshMigrations().catch(() => undefined);
-  }, [refreshMigrations]);
+  const refreshSkillMigrations = useCallback(async () => {
+    setSkillMigrationCandidates(await listSkillMigrationCandidates());
+  }, []);
+
+  const refreshModelMigrations = useCallback(async () => {
+    setModelMigrationCandidates(await listModelAdoptionCandidates());
+  }, []);
+
+  const refreshMigrations = useCallback(async () => {
+    await Promise.all([
+      refreshMcpMigrations(),
+      refreshSkillMigrations(),
+      refreshModelMigrations(),
+    ]);
+  }, [refreshMcpMigrations, refreshModelMigrations, refreshSkillMigrations]);
+
+  const foregroundStartupTasks = useMemo<StartupTask[]>(() => [
+    { id: "registry", label: "registry", run: state.refreshRegistry },
+    { id: "agents", label: "agents", run: state.refreshAgents },
+    { id: "sources", label: "sources", run: state.refreshSources },
+    { id: "workspace", label: "workspace", run: consumptionState.refresh },
+    { id: "skills", label: "skills", run: skillsState.refresh },
+    { id: "installed", label: "installed", run: state.rescan },
+  ], [
+    consumptionState.refresh,
+    skillsState.refresh,
+    state.refreshAgents,
+    state.refreshRegistry,
+    state.refreshSources,
+    state.rescan,
+  ]);
+
+  const deferredStartupTasks = useMemo<StartupTask[]>(() => [
+    { id: "migration-mcp", label: "migration-mcp", run: refreshMcpMigrations },
+    { id: "migration-skills", label: "migration-skills", run: refreshSkillMigrations },
+    { id: "migration-models", label: "migration-models", run: refreshModelMigrations },
+    {
+      id: "updates",
+      label: "updates",
+      run: async () => {
+        if (await updater.checkNow() === "error") {
+          throw new Error("update_check_failed");
+        }
+      },
+    },
+  ], [
+    refreshMcpMigrations,
+    refreshModelMigrations,
+    refreshSkillMigrations,
+    updater.checkNow,
+  ]);
+
+  const startupSync = useStartupSync({
+    foreground: foregroundStartupTasks,
+    deferred: deferredStartupTasks,
+    foregroundConcurrency: 2,
+  });
+  // CLI link repair is useful but irrelevant to the first interaction. Run it
+  // only after all fresh read-only startup work has settled.
+  useCliTool({ start: startupSync.settled });
 
   const refreshEverything = useCallback(async () => {
     await Promise.all([
@@ -150,6 +198,7 @@ function App() {
       onRescan={refreshEverything}
       onOpenMigration={() => openMigration()}
       migrationCount={migrationCandidateCounts.all}
+      startupSync={startupSync}
     >
       {view.kind === "skills" ? (
         <SkillsView
@@ -159,13 +208,6 @@ function App() {
           migrationCount={migrationCandidateCounts.skill}
           onOpenMigration={() => openMigration()}
         />
-      ) : state.loading ? (
-        <div
-          className="flex items-center justify-center h-full text-sm"
-          style={{ color: "var(--text-secondary)" }}
-        >
-          加载中…
-        </div>
       ) : view.kind === "models" ? (
         <ModelsView
           consumptionState={consumptionState}
@@ -194,6 +236,8 @@ function App() {
           onCreate={() => setMcpEditorOpen(true)}
           migrationCount={migrationCandidateCounts.mcp}
           onOpenMigration={() => openMigration()}
+          onRetryLoad={startupSync.retryFailed}
+          retryLoadDisabled={startupSync.syncing}
         />
       )}
 

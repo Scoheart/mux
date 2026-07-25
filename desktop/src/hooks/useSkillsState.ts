@@ -75,7 +75,7 @@ export function normalizeSkillCommandError(value: unknown): SkillCommandError {
   return normalized;
 }
 
-export function useSkillsState(): SkillsState {
+export function useSkillsState({ autoLoad = true }: { autoLoad?: boolean } = {}): SkillsState {
   const [inventory, setInventory] = useState<SkillsInventory | null>(null);
   const [loading, setLoading] = useState(true);
   const [pendingOperation, setPendingOperation] = useState<string | null>(null);
@@ -135,8 +135,9 @@ export function useSkillsState(): SkillsState {
   }, [loadInventory]);
 
   useEffect(() => {
+    if (!autoLoad) return;
     void refresh().catch(() => undefined);
-  }, [refresh]);
+  }, [autoLoad, refresh]);
 
   const plan = useCallback(
     async (request: SkillPlanOperationRequest): Promise<OperationPlan> => {

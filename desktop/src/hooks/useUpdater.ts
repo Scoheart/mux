@@ -34,7 +34,10 @@ export interface UpdaterState {
   later: () => void;
 }
 
-export function useUpdater(proxyUrl: string | null = null): UpdaterState {
+export function useUpdater(
+  proxyUrl: string | null = null,
+  { autoCheck = true }: { autoCheck?: boolean } = {},
+): UpdaterState {
   const [phase, setPhase] = useState<UpdatePhase>({ kind: "idle" });
   const updateRef = useRef<Update | null>(null);
   const proxyUrlRef = useRef(proxyUrl);
@@ -144,9 +147,10 @@ export function useUpdater(proxyUrl: string | null = null): UpdaterState {
   // Silent check shortly after launch — delayed so it never competes with the
   // startup scan, and any failure is swallowed by checkNow itself.
   useEffect(() => {
+    if (!autoCheck) return;
     const t = setTimeout(() => void checkNow(), 2500);
     return () => clearTimeout(t);
-  }, [checkNow]);
+  }, [autoCheck, checkNow]);
 
   return { phase, checkNow, download, restart, dismiss, later };
 }

@@ -77,7 +77,7 @@ async function planAsset(request: PlanOperationRequest): Promise<AssetOperationP
   return result.plan;
 }
 
-export function useConsumptionState(): ConsumptionState {
+export function useConsumptionState({ autoLoad = true }: { autoLoad?: boolean } = {}): ConsumptionState {
   const [agents, setAgents] = useState<AgentCapabilityView[]>([]);
   const [inventory, setInventory] = useState<ConsumptionInventory | null>(null);
   const [loading, setLoading] = useState(true);
@@ -112,16 +112,15 @@ export function useConsumptionState(): ConsumptionState {
       const nextError = commandError(cause);
       if (mounted.current && ownGeneration === generation.current) setError(nextError);
       throw cause;
+    } finally {
+      if (mounted.current && ownGeneration === generation.current) setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    refresh()
-      .catch(() => undefined)
-      .finally(() => {
-        if (mounted.current) setLoading(false);
-      });
-  }, [refresh]);
+    if (!autoLoad) return;
+    refresh().catch(() => undefined);
+  }, [autoLoad, refresh]);
 
   const ownPlan = useCallback((next: AssetOperationPlan) => {
     planRef.current = next;

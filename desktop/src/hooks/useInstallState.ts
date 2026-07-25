@@ -33,6 +33,7 @@ export interface InstallState {
   agents: AgentInfo[];
   installed: InstalledMcp[];
   loading: boolean;
+  registryError: string | null;
   agentsForServer(serverKey: string): string[];
   customKeys: Set<string>;
   rescan(): Promise<InstalledMcp[]>;
@@ -50,12 +51,13 @@ export interface InstallState {
   importPaste(text: string): Promise<string[]>;
 }
 
-export function useInstallState(): InstallState {
+export function useInstallState({ autoLoad = true }: { autoLoad?: boolean } = {}): InstallState {
   const [entries, setEntries] = useState<RegistryEntry[]>([]);
   const [catalog, setCatalog] = useState<CatalogItem[]>([]);
   const [agents, setAgents] = useState<AgentInfo[]>([]);
   const [installed, setInstalled] = useState<InstalledMcp[]>([]);
   const [loading, setLoading] = useState(true);
+  const [registryError, setRegistryError] = useState<string | null>(null);
   const [customKeys, setCustomKeys] = useState<Set<string>>(new Set());
   const [sources, setSources] = useState<SourceView[]>([]);
 
@@ -72,13 +74,22 @@ export function useInstallState(): InstallState {
   }, []);
 
   const refreshRegistry = useCallback(async () => {
-    const next = await listRegistry();
-    setEntries(next);
-    await Promise.all([
-      listRegistryAll().then(setCatalog),
-      listCustomRegistryKeys().then((keys) => setCustomKeys(new Set(keys))),
-    ]);
-    return next;
+    setRegistryError(null);
+    try {
+      // Keep these reads sequential. Each command walks the same source files,
+      // so parallel calls only add disk contention during the critical first
+      // interaction without making any individual result fresher.
+      const next = await listRegistry();
+      setEntries(next);
+      setCatalog(await listRegistryAll());
+      setCustomKeys(new Set(await listCustomRegistryKeys()));
+      return next;
+    } catch (error) {
+      setRegistryError(String(error));
+      throw error;
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   const refreshSources = useCallback(async () => {
@@ -96,13 +107,14 @@ export function useInstallState(): InstallState {
   }, [refreshRegistry, refreshSources, rescan]);
 
   useEffect(() => {
+    if (!autoLoad) return;
     Promise.all([
       refreshRegistry().catch(console.error),
       refreshSources().catch(console.error),
       refreshAgents().catch(console.error),
       rescan().catch(console.error),
-    ]).finally(() => setLoading(false));
-  }, [refreshAgents, refreshRegistry, refreshSources, rescan]);
+    ]).catch(() => undefined);
+  }, [autoLoad, refreshAgents, refreshRegistry, refreshSources, rescan]);
 
   const serverToAgents = useMemo(() => {
     const result = new Map<string, string[]>();
@@ -166,6 +178,7 @@ export function useInstallState(): InstallState {
     agents,
     installed,
     loading,
+    registryError,
     agentsForServer,
     customKeys,
     rescan,

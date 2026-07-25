@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.62](https://github.com/Scoheart/mux/compare/v1.8.61...v1.8.62) (2026-07-25)
+
+### Changes
+
+* perf(desktop): make startup scans progressive ([ce519fa](https://github.com/Scoheart/mux/commit/ce519fa58315d04860aec06b901c53c14c48605d))
+
 ## [1.8.61](https://github.com/Scoheart/mux/compare/v1.8.60...v1.8.61) (2026-07-24)
 
 ### Changes

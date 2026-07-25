@@ -275,13 +275,13 @@ fn plan_mcp_upsert(
                 .ok_or_else(|| {
                     "asset_operation_stale: central MCP asset no longer exists".to_string()
                 })?;
-            if !is_user_owned(existing) {
-                return Err(
-                    "asset_read_only: source-owned MCP assets must be edited at their source"
-                        .into(),
-                );
+            if is_user_owned(existing) {
+                CentralAssetAction::Update
+            } else {
+                // Remote/local sources remain immutable. Editing one creates a
+                // higher-priority manual entry with the same composite key.
+                CentralAssetAction::Create
             }
-            CentralAssetAction::Update
         }
         None => {
             if effective.iter().any(|candidate| candidate.key() == key) {

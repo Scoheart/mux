@@ -6,7 +6,7 @@ import { keyOf, type Transport } from "../lib/mcp";
 import { EnvEditor } from "./EnvEditor";
 import { DialogShell } from "./DialogShell";
 import { ResourceInspector } from "./ResourceWorkspace";
-import { SaveIcon } from "./icons";
+import { LayersIcon, SaveIcon } from "./icons";
 import { useToast } from "./Toast";
 import { Avatar } from "./ui";
 
@@ -60,7 +60,12 @@ export function RegistryEditPage({
         : null),
     [entries, entry, name, editTransport]
   );
-  const isCustom = existing ? customKeys.has(keyOf(existing)) : false;
+  const isCustom = existing
+    ? (existing.origin?.kind === "manual" || existing.origin?.kind === "discovered") &&
+      customKeys.has(keyOf(existing))
+    : false;
+  const createsLocalOverride =
+    existing?.origin?.kind === "remote" || existing?.origin?.kind === "local";
 
   const [serverName, setServerName] = useState(existing?.name ?? "");
   const [description, setDescription] = useState(existing?.description ?? "");
@@ -95,8 +100,10 @@ export function RegistryEditPage({
             },
           }
         : { http: { type: httpType.trim() || "http", url: url.trim(), headers: compact(headers) } },
-    // Preserve a recorded origin across edits; brand-new entries are manual.
-    origin: existing?.origin ?? { kind: "manual" },
+    // Central edits always write the user's highest-priority manual layer.
+    // Normalizing the draft keeps the review payload truthful for source-owned
+    // entries whose subscription cache remains untouched.
+    origin: { kind: "manual", source: "manual" },
     repo: repo.trim() || undefined,
   });
 
@@ -108,9 +115,9 @@ export function RegistryEditPage({
     if (!valid || saving) return;
     const draft = buildEntry();
     const draftKey = keyOf(draft);
-    // Block a name+transport collision with a *different* entry (same name with
-    // another transport is allowed — that's the whole point of composite keys).
-    if (entries.some((e) => keyOf(e) === draftKey && e !== existing)) {
+    // Existing identities are locked, so a same-key catalog copy is the edit
+    // target (including a subscribed copy that becomes a manual override).
+    if (isNew && entries.some((e) => keyOf(e) === draftKey)) {
       toast.show({ kind: "error", msg: `已存在同名同传输方式的 MCP: ${draft.name} (${transport})` });
       return;
     }
@@ -150,6 +157,17 @@ export function RegistryEditPage({
 
   const form = (
     <div className="mux-mcp-form">
+            {createsLocalOverride && (
+              <div className="mux-mcp-override-note" role="note">
+                <LayersIcon className="w-4 h-4 flex-shrink-0" />
+                <div className="min-w-0">
+                  <div className="text-xs font-semibold">创建本地覆盖</div>
+                  <div className="text-[11px] mt-0.5 leading-relaxed">
+                    保存后使用你的本地配置；订阅内容和后续更新不会被修改。
+                  </div>
+                </div>
+              </div>
+            )}
             {/* Name + description */}
             <div className="flex gap-4 mb-4">
               <div className="flex-1 min-w-0">
@@ -276,7 +294,7 @@ export function RegistryEditPage({
       <button onClick={onBack} disabled={saving} className="btn-ghost">取消</button>
       <button onClick={handleSave} disabled={!valid || saving} className="btn-primary">
         <SaveIcon className="w-4 h-4" />
-        {saving ? "保存中…" : "保存"}
+        {saving ? "保存中…" : createsLocalOverride ? "创建本地覆盖" : "保存"}
       </button>
     </>
   );

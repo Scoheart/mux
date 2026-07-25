@@ -2043,13 +2043,14 @@ mod tests {
     use super::*;
     use crate::assets::{
         plan_set_agent_consumption, plan_set_mcp_enabled, plan_update_central_asset,
-        AgentConsumptionSelection, CentralAssetDraft, PlanSetAgentConsumptionRequest,
-        PlanSetMcpEnabledRequest, PlanUpdateCentralAssetRequest,
+        AgentConsumptionSelection, CentralAssetAction, CentralAssetDraft,
+        PlanSetAgentConsumptionRequest, PlanSetMcpEnabledRequest, PlanUpdateCentralAssetRequest,
     };
     use crate::domain::types::{
-        ModelProfile, ModelProtocol, RegistryConfig, RegistryEntry, StdioConfig,
+        ModelProfile, ModelProtocol, RegistryConfig, RegistryEntry, SourceDef, StdioConfig,
     };
-    use crate::resources::mcp::registry::write_manual_entry;
+    use crate::resources::mcp::registry::{read_registry_all, write_manual_entry};
+    use crate::resources::mcp::sources::cached_path;
     use crate::resources::model::save_profile;
     use crate::testenv::TestHome;
 
@@ -2226,6 +2227,86 @@ mod tests {
                     })
                 && item.status == ConsumptionStatus::Synced
         }));
+    }
+
+    #[test]
+    fn subscribed_mcp_edit_creates_manual_override_without_mutating_source_cache() {
+        let _home = TestHome::new("consume-subscription-override");
+        let source = SourceDef::new_remote(
+            "team-catalog".into(),
+            "Team catalog".into(),
+            "https://example.invalid/mcp.json".into(),
+            "json".into(),
+            "2026-07-25T00:00:00Z".into(),
+        );
+        mutate_settings(|settings| {
+            settings
+                .sources
+                .get_or_insert_default()
+                .push(source.clone());
+        })
+        .unwrap();
+        let source_path = cached_path(&source).unwrap();
+        fs::create_dir_all(source_path.parent().unwrap()).unwrap();
+        let subscribed = r#"{"mcpServers":{"shared":{"command":"npx","args":["shared-mcp"]}}}"#;
+        fs::write(&source_path, subscribed).unwrap();
+
+        let plan = plan_update_central_asset(PlanUpdateCentralAssetRequest {
+            draft: CentralAssetDraft::Mcp {
+                existing_key: Some("shared::stdio".into()),
+                entry: Box::new(RegistryEntry {
+                    name: "shared".into(),
+                    description: "Personal credentials".into(),
+                    tags: Vec::new(),
+                    config: RegistryConfig {
+                        stdio: Some(StdioConfig {
+                            command: "npx".into(),
+                            args: Some(vec!["shared-mcp".into()]),
+                            env: Some(HashMap::from([(
+                                "SHARED_API_KEY".into(),
+                                "user-secret".into(),
+                            )])),
+                            cwd: None,
+                        }),
+                        http: None,
+                    },
+                    origin: None,
+                    repo: None,
+                }),
+            },
+        })
+        .unwrap();
+        assert_eq!(plan.central_changes[0].action, CentralAssetAction::Create);
+
+        commit_asset_operation(AssetCommitRequest {
+            operation_id: plan.operation_id,
+            candidate_hash: plan.candidate_hash,
+            conflict_confirmation: None,
+        })
+        .unwrap();
+
+        assert_eq!(fs::read_to_string(source_path).unwrap(), subscribed);
+        let copies = read_registry_all()
+            .into_iter()
+            .filter(|item| item.entry.key() == "shared::stdio")
+            .collect::<Vec<_>>();
+        assert_eq!(copies.len(), 2);
+        let effective = copies.iter().find(|item| item.in_effect).unwrap();
+        assert_eq!(effective.entry.origin.as_ref().unwrap().kind, "manual");
+        assert_eq!(
+            effective
+                .entry
+                .config
+                .stdio
+                .as_ref()
+                .unwrap()
+                .env
+                .as_ref()
+                .unwrap()
+                .get("SHARED_API_KEY")
+                .map(String::as_str),
+            Some("user-secret"),
+        );
     }
 
     #[test]

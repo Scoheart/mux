@@ -36,3 +36,10 @@ it("routes deletion through the central lifecycle planner", () => {
   expect(source).toMatch(/consumptionState\.planDelete/);
   expect(source).not.toMatch(/forgetEntry|deleteMcp|uninstall/);
 });
+
+it("offers editing for source-owned MCPs while keeping deletion user-owned", () => {
+  expect(source).toMatch(/Every catalog copy can be edited/);
+  expect(source).toMatch(/onEdit=\{\s*consumptionState/);
+  expect(source).toMatch(/const deletable = useCallback\(\(entry: RegistryEntry\) => isUserOwned\(entry\)/);
+  expect(source).not.toMatch(/const editable = useCallback/);
+});

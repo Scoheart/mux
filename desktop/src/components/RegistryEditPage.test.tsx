@@ -29,7 +29,7 @@ it("hides manual tag editing while preserving existing asset tags", () => {
   expect(source).toMatch(/tags: existing\?\.tags \?\? \[\]/);
 });
 
-it("keeps imported tags when an existing MCP edit is planned", async () => {
+it("creates a manual override with custom env for a subscribed MCP", async () => {
   const user = userEvent.setup();
   const existing: RegistryEntry = {
     name: "source-backed-mcp",
@@ -57,11 +57,26 @@ it("keeps imported tags when an existing MCP edit is planned", async () => {
     </ToastProvider>,
   );
 
-  await user.click(screen.getByRole("button", { name: "保存" }));
+  expect(screen.getByRole("note")).toHaveTextContent("订阅内容和后续更新不会被修改");
+  expect(screen.queryByRole("button", { name: "恢复默认" })).not.toBeInTheDocument();
+  const addVariable = screen.getByRole("button", { name: "添加变量" });
+  await user.click(addVariable);
+  const inputs = screen.getAllByRole("textbox");
+  await user.type(inputs.at(-2)!, "SOURCE_BACKED_API_KEY");
+  await user.type(inputs.at(-1)!, "user-secret");
+  await user.click(screen.getByRole("button", { name: "创建本地覆盖" }));
   await waitFor(() => expect(planUpdate).toHaveBeenCalledTimes(1));
   expect(planUpdate).toHaveBeenCalledWith(expect.objectContaining({
     domain: "mcp",
-    entry: expect.objectContaining({ tags: ["official", "catalog"] }),
+    entry: expect.objectContaining({
+      tags: ["official", "catalog"],
+      origin: { kind: "manual", source: "manual" },
+      config: expect.objectContaining({
+        stdio: expect.objectContaining({
+          env: { SOURCE_BACKED_API_KEY: "user-secret" },
+        }),
+      }),
+    }),
   }));
 });
 

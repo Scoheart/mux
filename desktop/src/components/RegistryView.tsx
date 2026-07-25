@@ -63,9 +63,9 @@ function bucketOf(entry: RegistryEntry): OriginBucket {
   return "discovered";
 }
 
-/** User-owned entries (手动添加 / 自动探索) can be edited and deleted here.
- *  Remote/local subscription entries belong to a source and are read-only — edit
- *  them at their upstream, or override via a new manual entry. */
+/** User-owned entries (手动添加 / 自动探索) can be deleted here.
+ *  Source-owned entries can still be edited: saving creates a higher-priority
+ *  manual override while leaving the subscribed/local source untouched. */
 function isUserOwned(entry: RegistryEntry): boolean {
   const b = bucketOf(entry);
   return b === "manual" || b === "discovered";
@@ -287,10 +287,10 @@ export function RegistryView({ state, consumptionState, intent, onIntentConsumed
     }
   }, [entries.length, toast]);
 
-  // Only user-owned entries (手动添加 / 探索) can be edited/deleted; subscription/
-  // local entries belong to a source and are managed on the 来源 page.
+  // Every catalog copy can be edited. Source-owned edits are materialized as a
+  // manual override by the central lifecycle planner; deletion remains limited
+  // to user-owned copies.
   const deletable = useCallback((entry: RegistryEntry) => isUserOwned(entry), []);
-  const editable = useCallback((entry: RegistryEntry) => isUserOwned(entry), []);
 
   const deleteEntry = useCallback(
     async (entry: RegistryEntry) => {
@@ -390,7 +390,7 @@ export function RegistryView({ state, consumptionState, intent, onIntentConsumed
             onClose={closeDetail}
             onCopy={() => copyConfig(detail.entry)}
             onEdit={
-              editable(detail.entry) && consumptionState
+              consumptionState
                 ? () => setEditingDetail(true)
                 : undefined
             }

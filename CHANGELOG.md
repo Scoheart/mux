@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.63](https://github.com/Scoheart/mux/compare/v1.8.62...v1.8.63) (2026-07-25)
+
+### Changes
+
+* feat(mcp): edit subscribed configuration overrides ([5bb8929](https://github.com/Scoheart/mux/commit/5bb89292aaa0f4374174036bcc25a78fc443e14f))
+
 ## [1.8.62](https://github.com/Scoheart/mux/compare/v1.8.61...v1.8.62) (2026-07-25)
 
 ### Changes

@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.66](https://github.com/Scoheart/mux/compare/v1.8.65...v1.8.66) (2026-07-26)
+
+### Changes
+
+* fix(i18n): translate model adoption conflicts ([8b76dfe](https://github.com/Scoheart/mux/commit/8b76dfe17c352da00397f63ca5455558106d1fb1))
+
 ## [1.8.65](https://github.com/Scoheart/mux/compare/v1.8.64...v1.8.65) (2026-07-26)
 
 ### Changes

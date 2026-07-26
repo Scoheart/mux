@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.69](https://github.com/Scoheart/mux/compare/v1.8.68...v1.8.69) (2026-07-26)
+
+### Changes
+
+* fix(cli): keep version lookup read-only ([16bd89f](https://github.com/Scoheart/mux/commit/16bd89f73a83cbbb1507469b5a8f18c9b551184d))
+
 ## [1.8.68](https://github.com/Scoheart/mux/compare/v1.8.67...v1.8.68) (2026-07-26)
 
 ### Changes

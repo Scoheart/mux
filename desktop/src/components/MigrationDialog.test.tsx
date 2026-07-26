@@ -244,17 +244,37 @@ describe("MigrationDialog", () => {
 
   it("fully localizes the portaled dialog, dynamic details, and conflicts", async () => {
     await i18n.changeLanguage("en-US");
-    const conflict: MigrationCandidate = {
+    const mcpConflict: MigrationCandidate = {
       ...candidates[1],
       id: "mcp:conflict::stdio",
       name: "conflict",
       safe: false,
       conflict: { kind: "mcp_connection_mismatch" },
     };
+    const knownModelConflict: MigrationCandidate = {
+      ...candidates[0],
+      id: "model:literal-credential",
+      name: "literal-credential",
+      safe: false,
+      conflict: { kind: "model_literal_to_environment" },
+    };
+    const unknownModelConflict: MigrationCandidate = {
+      ...candidates[0],
+      id: "model:unknown-source-error",
+      name: "unknown-source-error",
+      safe: false,
+      conflict: { kind: "model_source", reason: "来源返回了新的中文错误" },
+    };
 
     render(
       <MigrationDialog
-        candidates={[candidates[0], conflict, candidates[2]]}
+        candidates={[
+          candidates[0],
+          mcpConflict,
+          candidates[2],
+          knownModelConflict,
+          unknownModelConflict,
+        ]}
         onClose={vi.fn()}
         onRefresh={vi.fn()}
       />,
@@ -262,17 +282,24 @@ describe("MigrationDialog", () => {
 
     expect(screen.getByRole("heading", { name: "Detected external configurations" })).toBeVisible();
     expect(screen.getByText(
-      "3 total · 2 available to manage individually · 1 need attention",
+      "5 total · 2 available to manage individually · 3 need attention",
     )).toBeVisible();
-    expect(screen.getByText(
+    expect(screen.getAllByText(
       "openrouter · tencent/hy3:free · 1 Agents · 1 currently in use",
-    )).toBeVisible();
+    )).toHaveLength(3);
     expect(screen.getByText(
       "MCPs with the same name have different connections. Align or rename them in the source Agent, then rescan.",
     )).toBeVisible();
     expect(screen.getByText(
       "1 Agents · 1 folders · merge into one central copy",
     )).toBeVisible();
+    expect(screen.getByText(
+      "This Agent only supports environment-variable references. Move the plaintext key to an environment variable first.",
+    )).toBeVisible();
+    expect(screen.getByText(
+      "The source Agent reported an unsupported or invalid model configuration. Resolve it in the Agent and rescan.",
+    )).toBeVisible();
+    expect(screen.getAllByRole("button", { name: "Close" })).toHaveLength(2);
     expect(document.body).not.toHaveTextContent(/[\u3400-\u9fff]/);
   });
 });

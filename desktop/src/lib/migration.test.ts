@@ -120,4 +120,39 @@ describe("migration candidates", () => {
       conflict: { kind: "model_source", reason: "需要安全 credential" },
     });
   });
+
+  it.each([
+    [
+      "检测到多个不同的明文 credential，不能安全合并",
+      "model_multiple_credentials",
+    ],
+    [
+      "外部 credential command 不会被执行；请先改为明文一次性导入或安全环境变量",
+      "model_external_credential_command",
+    ],
+    [
+      "该 Agent 的 MUX writer 使用 Keychain，不能无损接管外部环境变量引用",
+      "model_environment_to_keychain",
+    ],
+    [
+      "该 Agent 仅支持环境变量引用；请先把明文 Key 改为环境变量",
+      "model_literal_to_environment",
+    ],
+    [
+      "Agent-native provider identity 含有不安全字符，MUX 不会把它用于配置键或文件名",
+      "model_unsafe_native_identity",
+    ],
+    [
+      "多个 Model 共用同一个 Agent-native provider；请先在 Agent 中拆分 provider identity，MUX 不会覆盖兄弟模型",
+      "model_shared_native_provider",
+    ],
+  ] as const)("classifies the known Core Model conflict %s", (reason, kind) => {
+    expect(buildMigrationCandidates([], null, [{
+      ...model("grok-build", "needs-credential"),
+      reason,
+    }])[0]).toMatchObject({
+      safe: false,
+      conflict: { kind },
+    });
+  });
 });

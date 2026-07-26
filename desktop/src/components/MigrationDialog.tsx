@@ -154,6 +154,7 @@ export function MigrationDialog({
         size="md"
         title={t("externalConfigurations.reviewTitle", { name: review.candidate.name })}
         subtitle={t("externalConfigurations.reviewSubtitle")}
+        closeLabel={t("common.close")}
         busy={busy}
         onClose={requestClose}
         footerEnd={
@@ -211,6 +212,7 @@ export function MigrationDialog({
       size="lg"
       title={t("externalConfigurations.dialogTitle")}
       subtitle={t("externalConfigurations.dialogSubtitle", counts)}
+      closeLabel={t("common.close")}
       busy={busy}
       onClose={requestClose}
       footerStart={results.length > 0 ? (
@@ -255,6 +257,7 @@ export function MigrationDialog({
                     t,
                     candidate.conflict,
                     localizeSourceText,
+                    locale,
                   );
                   return (
                     <li key={candidate.id} data-conflict={!candidate.safe || undefined} data-result={result?.ok ? "success" : result ? "error" : undefined}>
@@ -422,13 +425,31 @@ function formatMigrationConflict(
   t: TFunction,
   conflict: MigrationConflict | null,
   localizeSourceText: (value: string) => string,
+  locale: SupportedLocale,
 ): string | null {
   if (!conflict) return null;
   switch (conflict.kind) {
     case "model_shared_provider_identity":
       return t("externalConfigurations.conflicts.modelSharedProvider");
+    case "model_multiple_credentials":
+      return t("externalConfigurations.conflicts.modelMultipleCredentials");
+    case "model_external_credential_command":
+      return t("externalConfigurations.conflicts.modelExternalCommand");
+    case "model_environment_to_keychain":
+      return t("externalConfigurations.conflicts.modelEnvironmentToKeychain");
+    case "model_literal_to_environment":
+      return t("externalConfigurations.conflicts.modelLiteralToEnvironment");
+    case "model_unsafe_native_identity":
+      return t("externalConfigurations.conflicts.modelUnsafeNativeIdentity");
+    case "model_shared_native_provider":
+      return t("externalConfigurations.conflicts.modelSharedNativeProvider");
     case "model_source":
-      return localizeSourceText(conflict.reason);
+      {
+        const localized = localizeSourceText(conflict.reason);
+        return locale === "en-US" && /[\u3400-\u9fff]/u.test(localized)
+          ? t("externalConfigurations.conflicts.modelSourceFallback")
+          : localized;
+      }
     case "model_credential_or_config":
       return t("externalConfigurations.conflicts.modelCredential");
     case "mcp_drifted":

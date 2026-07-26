@@ -110,8 +110,9 @@ TUI 的 discovered source 刷新现在只返回 `LoadAll`，状态文案明确�
 候选详情不再先拼接中文字符串后交给 DOM 翻译桥猜测，而是由
 `MigrationCandidateDetail` 的 Model / MCP / Skill 判别联合保存 provider、transport、
 Agent 数量、目录数量和状态等结构化值；已知冲突也使用 `MigrationConflict` 枚举。
-Desktop 在渲染边界通过类型化 i18n 生成中文或英文。Core 返回的未知动态错误仍保留原始内容，
-仅在显示时做兼容翻译，不改变候选 identity 或 plan 输入。
+Desktop 在渲染边界通过类型化 i18n 生成中文或英文。Core 已知的 Model credential /
+provider 冲突会先映射为稳定枚举；未知动态错误仍保留原始内容，显示时优先做兼容翻译，
+英文环境无法安全翻译时退化为准确的通用修复提示，不改变候选 identity 或 plan 输入。
 
 这也修复了 Portal 弹窗位于 `#root` 之外、无法被旧 `LegacyLocalizationBridge` 观察的问题：
 Banner 与 Dialog 现在都直接订阅当前语言，切换语言后包括动态计数、候选详情、冲突原因、

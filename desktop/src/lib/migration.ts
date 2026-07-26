@@ -29,6 +29,12 @@ export type MigrationCandidateDetail =
 
 export type MigrationConflict =
   | { kind: "model_shared_provider_identity" }
+  | { kind: "model_multiple_credentials" }
+  | { kind: "model_external_credential_command" }
+  | { kind: "model_environment_to_keychain" }
+  | { kind: "model_literal_to_environment" }
+  | { kind: "model_unsafe_native_identity" }
+  | { kind: "model_shared_native_provider" }
   | { kind: "model_source"; reason: string }
   | { kind: "model_credential_or_config" }
   | { kind: "mcp_drifted" }
@@ -116,10 +122,9 @@ function groupModels(items: ModelAdoptionCandidate[]): MigrationCandidate[] {
       : safe
       ? null
       : rows.find((row) => row.status !== "adoptable")?.reason
-        ? {
-          kind: "model_source",
-          reason: rows.find((row) => row.status !== "adoptable")!.reason!,
-        }
+        ? modelConflictFromReason(
+          rows.find((row) => row.status !== "adoptable")!.reason!,
+        )
         : { kind: "model_credential_or_config" };
     return {
       id: modelMigrationCandidateId(fingerprint),
@@ -144,6 +149,25 @@ function groupModels(items: ModelAdoptionCandidate[]): MigrationCandidate[] {
       },
     };
   });
+}
+
+function modelConflictFromReason(reason: string): MigrationConflict {
+  switch (reason) {
+    case "检测到多个不同的明文 credential，不能安全合并":
+      return { kind: "model_multiple_credentials" };
+    case "外部 credential command 不会被执行；请先改为明文一次性导入或安全环境变量":
+      return { kind: "model_external_credential_command" };
+    case "该 Agent 的 MUX writer 使用 Keychain，不能无损接管外部环境变量引用":
+      return { kind: "model_environment_to_keychain" };
+    case "该 Agent 仅支持环境变量引用；请先把明文 Key 改为环境变量":
+      return { kind: "model_literal_to_environment" };
+    case "Agent-native provider identity 含有不安全字符，MUX 不会把它用于配置键或文件名":
+      return { kind: "model_unsafe_native_identity" };
+    case "多个 Model 共用同一个 Agent-native provider；请先在 Agent 中拆分 provider identity，MUX 不会覆盖兄弟模型":
+      return { kind: "model_shared_native_provider" };
+    default:
+      return { kind: "model_source", reason };
+  }
 }
 
 function groupMcps(items: McpAdoptionCandidate[]): MigrationCandidate[] {

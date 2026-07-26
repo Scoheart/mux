@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.67](https://github.com/Scoheart/mux/compare/v1.8.66...v1.8.67) (2026-07-26)
+
+### Changes
+
+* feat(models): share provider configuration across models ([5953ff8](https://github.com/Scoheart/mux/commit/5953ff841781c374b16826dfc9d856b2e60ca886))
+
 ## [1.8.66](https://github.com/Scoheart/mux/compare/v1.8.65...v1.8.66) (2026-07-26)
 
 ### Changes

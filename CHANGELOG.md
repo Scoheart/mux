@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.70](https://github.com/Scoheart/mux/compare/v1.8.69...v1.8.70) (2026-07-26)
+
+### Changes
+
+* ci(release): make direct stable permanent ([6ad436e](https://github.com/Scoheart/mux/commit/6ad436ea83c3e67a49295896fbfd8a6a00ca306d))
+
 ## [1.8.69](https://github.com/Scoheart/mux/compare/v1.8.68...v1.8.69) (2026-07-26)
 
 ### Changes

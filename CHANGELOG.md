@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.64](https://github.com/Scoheart/mux/compare/v1.8.63...v1.8.64) (2026-07-26)
+
+### Changes
+
+* feat(adoption): require explicit per-item management ([e577484](https://github.com/Scoheart/mux/commit/e577484a97b34f2ceccfec86b432dcedb2c0994b))
+
 ## [1.8.63](https://github.com/Scoheart/mux/compare/v1.8.62...v1.8.63) (2026-07-25)
 
 ### Changes

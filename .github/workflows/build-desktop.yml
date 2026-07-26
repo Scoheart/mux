@@ -2,194 +2,69 @@ name: Build desktop (macOS dmg)
 
 on:
   push:
-    branches: [main]
     tags: ["v*"]
   workflow_dispatch:
     inputs:
-      mode:
-        description: Publication channel
-        required: true
-        default: prerelease
-        type: choice
-        options:
-          - prerelease
-          - stable-retry
       stable_tag:
-        description: Existing vX.Y.Z tag (required for stable-retry)
-        required: false
+        description: Existing vX.Y.Z tag to retry
+        required: true
         type: string
 
 permissions:
   contents: write
-  checks: read
 
-# Ordinary main builds intentionally have no cancelling concurrency group: every
-# accepted main commit gets its own package attempt.
+concurrency:
+  group: stable-desktop-${{ github.event_name == 'workflow_dispatch' && inputs.stable_tag || github.ref_name }}
+  cancel-in-progress: false
+
 jobs:
-  classify:
-    name: Classify publication
-    runs-on: ubuntu-latest
-    outputs:
-      mode: ${{ steps.classify.outputs.mode }}
-      tag: ${{ steps.classify.outputs.tag }}
-      source_ref: ${{ steps.classify.outputs.source_ref }}
-      skip_stable_quality_gate: ${{ steps.classify.outputs.skip_stable_quality_gate }}
-    steps:
-      - name: Checkout
-        # actions/checkout v5.0.0
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
-        with:
-          fetch-depth: 2
-
-      - name: Setup Node
-        # actions/setup-node v7.0.0
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
-        with:
-          node-version: 24
-
-      - name: Classify trigger
-        id: classify
-        shell: bash
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-          REF: ${{ github.ref }}
-          REF_NAME: ${{ github.ref_name }}
-          BEFORE_SHA: ${{ github.event.before }}
-          INPUT_MODE: ${{ inputs.mode }}
-          INPUT_STABLE_TAG: ${{ inputs.stable_tag }}
-          RUN_NUMBER: ${{ github.run_number }}
-          COMMIT_SHA: ${{ github.sha }}
-          FAST_LANE_UNTIL: ${{ vars.MUX_FAST_LANE_UNTIL }}
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          STABLE_TAG_REGEX='^v[0-9]+\.[0-9]+\.[0-9]+$'
-          PRERELEASE_TAG_REGEX='^v[0-9]+\.[0-9]+\.[0-9]+-build\.[0-9]+$'
-          version=$(tr -d '[:space:]' <version.txt)
-          mode=
-          tag=
-          source_ref=$COMMIT_SHA
-          configured_mode=$(jq -er '.mode' .github/fast-lane.json)
-          configured_end=$(jq -er '.ends_at' .github/fast-lane.json)
-          configured_quality_bypass=$(jq -r '.skip_stable_quality_gate // false' .github/fast-lane.json)
-          fast_lane_active=false
-          quality_bypass_active=false
-
-          if [[ "$configured_mode" == direct-main-stable &&
-                -n "$FAST_LANE_UNTIL" &&
-                "$FAST_LANE_UNTIL" == "$configured_end" ]]; then
-            until_epoch=$(date -u -d "$FAST_LANE_UNTIL" +%s)
-            now_epoch=$(date -u +%s)
-            if (( now_epoch < until_epoch )); then
-              fast_lane_active=true
-              if [[ "$configured_quality_bypass" == true ]]; then
-                quality_bypass_active=true
-              fi
-            fi
-          fi
-
-          if [[ "$EVENT_NAME" == push && "$REF" == refs/heads/main ]]; then
-            if [[ "$fast_lane_active" == true ]]; then
-              mode=skip
-            else
-              before_version=$version
-              if git cat-file -e "$BEFORE_SHA:version.txt" 2>/dev/null; then
-                before_version=$(git show "$BEFORE_SHA:version.txt" | tr -d '[:space:]')
-              fi
-              title=$(git log -1 --format=%s)
-              release_merge=$(node scripts/release-version.mjs is-release-merge \
-                --before "$before_version" --after "$version" --title "$title")
-              if [[ "$release_merge" == true ]]; then
-                mode=skip
-              else
-                mode=prerelease
-                tag="v${version}-build.$(printf '%05d' "$RUN_NUMBER")"
-              fi
-            fi
-          elif [[ "$EVENT_NAME" == push && "$REF" == refs/tags/* ]]; then
-            if [[ "$REF_NAME" =~ $STABLE_TAG_REGEX ]]; then
-              mode=stable
-              tag=$REF_NAME
-              source_ref=$REF_NAME
-            elif [[ "$REF_NAME" =~ $PRERELEASE_TAG_REGEX ]]; then
-              mode=skip
-            else
-              echo "refusing non-stable tag: $REF_NAME" >&2
-              exit 1
-            fi
-          elif [[ "$EVENT_NAME" == workflow_dispatch && "$INPUT_MODE" == stable-retry ]]; then
-            [[ "$INPUT_STABLE_TAG" =~ $STABLE_TAG_REGEX ]] || {
-              echo "stable-retry requires a vX.Y.Z tag" >&2
-              exit 1
-            }
-            [[ "$REF" == refs/heads/main ]] || {
-              echo "dispatch stable-retry from main" >&2
-              exit 1
-            }
-            mode=stable
-            tag=$INPUT_STABLE_TAG
-            source_ref=$INPUT_STABLE_TAG
-          elif [[ "$EVENT_NAME" == workflow_dispatch && "$INPUT_MODE" == prerelease ]]; then
-            [[ "$REF" == refs/heads/main ]] || {
-              echo "manual Pre-release must run from main" >&2
-              exit 1
-            }
-            mode=prerelease
-            tag="v${version}-build.$(printf '%05d' "$RUN_NUMBER")"
-          else
-            echo "unsupported publication trigger" >&2
-            exit 1
-          fi
-
-          skip_stable_quality_gate=false
-          if [[ "$EVENT_NAME" == push && "$REF" == refs/tags/* && "$mode" == stable && "$quality_bypass_active" == true ]]; then
-            expected_title="chore(main): release $version"
-            commit_title=$(git log -1 --format=%s)
-            main_relation=$(gh api "repos/$GITHUB_REPOSITORY/compare/$COMMIT_SHA...main" --jq '.status' 2>/dev/null || true)
-            releases=$(gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/releases?per_page=100" 2>/dev/null || printf '[]')
-            draft_matches=$(jq -r --arg tag "$tag" --arg sha "$COMMIT_SHA" '
-              [.[][] | select(
-                .tag_name == $tag and
-                .target_commitish == $sha and
-                .draft == true and
-                .prerelease == false
-              )] | length
-            ' <<<"$releases" 2>/dev/null || printf '0')
-            if [[ "$commit_title" == "$expected_title" &&
-                  ( "$main_relation" == identical || "$main_relation" == ahead ) &&
-                  "$draft_matches" == 1 ]]; then
-              skip_stable_quality_gate=true
-            else
-              echo "::notice::Stable tag lacks Fast Lane release provenance; exact-SHA Quality remains required."
-            fi
-          fi
-          echo "mode=$mode" >>"$GITHUB_OUTPUT"
-          echo "tag=$tag" >>"$GITHUB_OUTPUT"
-          echo "source_ref=$source_ref" >>"$GITHUB_OUTPUT"
-          echo "skip_stable_quality_gate=$skip_stable_quality_gate" >>"$GITHUB_OUTPUT"
-
   build-dmg:
     name: Build and publish
-    if: ${{ needs.classify.outputs.mode != 'skip' }}
-    needs: [classify]
     runs-on: macos-latest
     env:
-      PUBLICATION_MODE: ${{ needs.classify.outputs.mode }}
-      RELEASE_TAG: ${{ needs.classify.outputs.tag }}
+      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.stable_tag || github.ref_name }}
     steps:
-      - name: Checkout
-        id: checkout
+      - name: Validate stable release trigger
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+            echo "stable release requires a vX.Y.Z tag" >&2
+            exit 1
+          }
+
+      - name: Checkout release tag
         # actions/checkout v5.0.0
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with:
-          ref: ${{ needs.classify.outputs.source_ref }}
+          ref: ${{ env.RELEASE_TAG }}
 
-      - name: Resolve source commit
+      - name: Verify immutable tag and Draft provenance
         id: source
-        run: echo "sha=$(git rev-parse HEAD)" >>"$GITHUB_OUTPUT"
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_sha=$(git rev-parse HEAD)
+          tag_sha=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG" --jq '.object.sha')
+          test "$tag_sha" = "$source_sha"
+          expected_version=$(tr -d '[:space:]' <version.txt)
+          test "$RELEASE_TAG" = "v$expected_version"
+          releases=$(gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/releases?per_page=100")
+          draft_matches=$(jq -r --arg tag "$RELEASE_TAG" --arg sha "$source_sha" '
+            [.[][] | select(
+              .tag_name == $tag and
+              .target_commitish == $sha and
+              .draft == true and
+              .prerelease == false
+            )] | length
+          ' <<<"$releases")
+          test "$draft_matches" = 1
+          echo "sha=$source_sha" >>"$GITHUB_OUTPUT"
 
       - name: Checkout retry delivery helpers
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.mode == 'stable-retry' }}
+        if: ${{ github.event_name == 'workflow_dispatch' }}
         # actions/checkout v5.0.0
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with:
@@ -219,13 +94,7 @@ jobs:
           cache-on-failure: true
 
       - name: Check release version metadata
-        shell: bash
-        run: |
-          if [[ "$PUBLICATION_MODE" == stable ]]; then
-            node scripts/release-version.mjs check --tag "$RELEASE_TAG"
-          else
-            node scripts/release-version.mjs check
-          fi
+        run: node scripts/release-version.mjs check --tag "$RELEASE_TAG"
 
       - name: Install frontend dependencies
         working-directory: desktop
@@ -250,13 +119,10 @@ jobs:
           test -n "$DMG"
 
           EXPECTED=$(node -p "require('./desktop/src-tauri/tauri.conf.json').version")
-          if [[ "$PUBLICATION_MODE" == stable ]]; then
-            test "$RELEASE_TAG" = "v$EXPECTED"
-          fi
+          test "$RELEASE_TAG" = "v$EXPECTED"
 
           verify_app() {
-            local app=$1
-            local actual
+            local app=$1 actual
             test -d "$app"
             actual=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Contents/Info.plist")
             test "$actual" = "$EXPECTED"
@@ -280,7 +146,7 @@ jobs:
           cleanup
           trap - EXIT
 
-      - name: Build and package CLI
+      - name: Package CLI
         id: cli
         shell: bash
         run: |
@@ -312,51 +178,8 @@ jobs:
           DEST="desktop/src-tauri/target/release/bundle/dmg/MUX-Desktop-Installer-${RELEASE_TAG}-macOS-${ARCH_LABEL}.dmg"
           mv "$SRC" "$DEST"
           echo "path=$DEST" >>"$GITHUB_OUTPUT"
-          echo "arch_label=$ARCH_LABEL" >>"$GITHUB_OUTPUT"
 
-      - name: Wait for exact commit verification before Pre-release
-        if: ${{ needs.classify.outputs.mode == 'prerelease' }}
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: bash .github/scripts/wait-for-verify.sh "$GITHUB_REPOSITORY" "${{ steps.source.outputs.sha }}"
-
-      # PRE-RELEASE START
-      - name: Publish per-commit Pre-release
-        if: ${{ needs.classify.outputs.mode == 'prerelease' }}
-        env:
-          GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
-          INSTALLER: ${{ steps.installer.outputs.path }}
-          CLI_ARCHIVE: ${{ steps.cli.outputs.path }}
-          ARCH_LABEL: ${{ steps.installer.outputs.arch_label }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            echo "Pre-release already exists: $RELEASE_TAG" >&2
-            exit 1
-          fi
-          gh release create "$RELEASE_TAG" "$INSTALLER" "$CLI_ARCHIVE" \
-            --repo "$GITHUB_REPOSITORY" \
-            --target "${{ steps.source.outputs.sha }}" \
-            --title "$RELEASE_TAG" \
-            --prerelease \
-            --notes "Automatic package from main build #${GITHUB_RUN_NUMBER}. Commit: ${GITHUB_SHA}"
-
-          release="repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}"
-          label_asset() {
-            local name=$1 label=$2 id
-            id=$(gh api "$release" --jq ".assets[] | select(.name == \"$name\") | .id")
-            test -n "$id"
-            gh api --method PATCH "repos/${GITHUB_REPOSITORY}/releases/assets/$id" \
-              -f "label=$label" --silent
-          }
-          label_asset "$(basename "$INSTALLER")" "Desktop installer · ${ARCH_LABEL//-/ }"
-          label_asset "$(basename "$CLI_ARCHIVE")" "Command-line tool · ${ARCH_LABEL//-/ }"
-      # PRE-RELEASE END
-
-      # STABLE START
-      - name: Package stable updater payload and manifest
-        if: ${{ needs.classify.outputs.mode == 'stable' }}
+      - name: Package updater payload and manifest
         id: updater
         shell: bash
         run: |
@@ -390,38 +213,7 @@ jobs:
           jq -e . latest.json >/dev/null
           echo "asset=$ASSET" >>"$GITHUB_OUTPUT"
 
-      - name: Enforce the Stable Quality policy at publication time
-        if: ${{ needs.classify.outputs.mode == 'stable' }}
-        env:
-          GH_TOKEN: ${{ github.token }}
-          BYPASS_REQUESTED: ${{ needs.classify.outputs.skip_stable_quality_gate }}
-          FAST_LANE_UNTIL: ${{ vars.MUX_FAST_LANE_UNTIL }}
-          SOURCE_SHA: ${{ steps.source.outputs.sha }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [[ "$BYPASS_REQUESTED" != true ]]; then
-            bash .github/scripts/wait-for-verify.sh "$GITHUB_REPOSITORY" "$SOURCE_SHA"
-            exit 0
-          fi
-          configured_end=$(jq -er '.ends_at' .github/fast-lane.json)
-          configured_bypass=$(jq -r '.skip_stable_quality_gate // false' .github/fast-lane.json)
-          now_epoch=$(date -u +%s)
-          end_epoch=$(node -e '
-            const value = Date.parse(process.argv[1]);
-            if (!Number.isFinite(value)) process.exit(1);
-            console.log(Math.floor(value / 1000));
-          ' "$configured_end")
-          if [[ "$configured_bypass" == true &&
-                "$FAST_LANE_UNTIL" == "$configured_end" ]] &&
-             (( now_epoch < end_epoch )); then
-            echo "::notice::Fast Lane Stable publication is not waiting for the asynchronous Quality monitor."
-          else
-            bash .github/scripts/wait-for-verify.sh "$GITHUB_REPOSITORY" "$SOURCE_SHA"
-          fi
-
       - name: Complete and publish stable Draft
-        if: ${{ needs.classify.outputs.mode == 'stable' }}
         env:
           GH_TOKEN: ${{ github.token }}
           INSTALLER: ${{ steps.installer.outputs.path }}
@@ -434,4 +226,3 @@ jobs:
           fi
           bash "$PUBLISHER" \
             "$RELEASE_TAG" "$INSTALLER" "$CLI_ARCHIVE" "$UPDATER" latest.json
-      # STABLE END

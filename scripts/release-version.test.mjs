@@ -6,7 +6,6 @@ import test from "node:test";
 
 import {
   collectVersionMismatches,
-  isReleaseMerge,
   nextPatchVersion,
   updateCargoPackageVersion,
   updateCargoLockPackageVersions,
@@ -189,29 +188,6 @@ test("rejects a stable tag that does not match the version source", async () => 
   });
 
   assert.ok(mismatches.some((message) => message.includes("stable tag")));
-});
-
-test("classifies a Release Please merge only when both signals agree", () => {
-  assert.equal(
-    isReleaseMerge("1.2.18", "1.3.0", "chore(main): release 1.3.0"),
-    true,
-  );
-  assert.equal(
-    isReleaseMerge("1.2.18", "1.3.0", "chore(main): release 1.3.0 (#55)"),
-    true,
-  );
-  assert.equal(
-    isReleaseMerge("1.2.18", "1.3.0", "chore(main): release 1.3.0 (#0)"),
-    false,
-  );
-  assert.equal(
-    isReleaseMerge("1.2.18", "1.3.0", "feat: ship a feature"),
-    false,
-  );
-  assert.equal(
-    isReleaseMerge("1.3.0", "1.3.0", "chore(main): release 1.3.0"),
-    false,
-  );
 });
 
 test("rejects malformed version.txt values", async () => {

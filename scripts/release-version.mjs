@@ -254,18 +254,6 @@ export async function collectVersionMismatches(
   return mismatches;
 }
 
-export function isReleaseMerge(beforeVersion, afterVersion, commitTitle) {
-  const expectedTitle = `chore(main): release ${afterVersion}`;
-  const escapedTitle = expectedTitle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return (
-    SEMVER_PATTERN.test(beforeVersion) &&
-    SEMVER_PATTERN.test(afterVersion) &&
-    beforeVersion !== afterVersion &&
-    (commitTitle === expectedTitle ||
-      new RegExp(`^${escapedTitle} \\(#[1-9][0-9]*\\)$`).test(commitTitle))
-  );
-}
-
 function run(command, args, cwd, stdio = "inherit") {
   execFileSync(command, args, { cwd, stdio });
 }
@@ -521,15 +509,6 @@ export async function prepareDirectRelease(root, sourceSha) {
   }
   await writeFile(versionPath, `${version}\n`);
 
-  const manifestPath = join(root, ".release-please-manifest.json");
-  const manifest = updateJsonString(
-    await readFile(manifestPath, "utf8"),
-    ["."],
-    version,
-    ".release-please-manifest.json",
-  );
-  await writeFile(manifestPath, manifest);
-
   const changelogPath = join(root, "CHANGELOG.md");
   const changelog = await readFile(changelogPath, "utf8");
   const heading = "# Changelog\n";
@@ -561,9 +540,6 @@ function parseArguments(argv) {
   const [command, ...args] = argv;
   let root = REPOSITORY_ROOT;
   let stableTag;
-  let beforeVersion;
-  let afterVersion;
-  let commitTitle;
   let sourceSha;
 
   for (let index = 0; index < args.length; index += 1) {
@@ -571,49 +547,24 @@ function parseArguments(argv) {
       root = resolve(args[++index]);
     } else if (args[index] === "--tag" && args[index + 1]) {
       stableTag = args[++index];
-    } else if (args[index] === "--before" && args[index + 1]) {
-      beforeVersion = args[++index];
-    } else if (args[index] === "--after" && args[index + 1]) {
-      afterVersion = args[++index];
-    } else if (args[index] === "--title" && args[index + 1]) {
-      commitTitle = args[++index];
     } else if (args[index] === "--source" && args[index + 1]) {
       sourceSha = args[++index];
     } else {
       throw new Error(`unknown argument: ${args[index]}`);
     }
   }
-  return {
-    command,
-    root,
-    stableTag,
-    beforeVersion,
-    afterVersion,
-    commitTitle,
-    sourceSha,
-  };
+  return { command, root, stableTag, sourceSha };
 }
 
 async function main() {
-  const {
-    command,
-    root,
-    stableTag,
-    beforeVersion,
-    afterVersion,
-    commitTitle,
-    sourceSha,
-  } = parseArguments(process.argv.slice(2));
+  const { command, root, stableTag, sourceSha } = parseArguments(
+    process.argv.slice(2),
+  );
   if (command === "check") {
     await check(root, stableTag);
   } else if (command === "refresh-locks") {
     if (stableTag) throw new Error("refresh-locks does not accept --tag");
     await refreshLocks(root);
-  } else if (command === "is-release-merge") {
-    if (beforeVersion === undefined || afterVersion === undefined || commitTitle === undefined) {
-      throw new Error("is-release-merge requires --before, --after, and --title");
-    }
-    process.stdout.write(`${isReleaseMerge(beforeVersion, afterVersion, commitTitle)}\n`);
   } else if (command === "prepare-direct") {
     if (sourceSha === undefined) {
       throw new Error("prepare-direct requires --source");
@@ -621,7 +572,7 @@ async function main() {
     await prepareDirectRelease(root, sourceSha);
   } else {
     throw new Error(
-      "usage: node scripts/release-version.mjs <check|refresh-locks|is-release-merge|prepare-direct> [options]",
+      "usage: node scripts/release-version.mjs <check|refresh-locks|prepare-direct> [options]",
     );
   }
 }

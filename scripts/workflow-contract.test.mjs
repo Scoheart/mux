@@ -72,228 +72,78 @@ test("verify is the stable aggregate result", async () => {
   }
 });
 
-test("monitor owns the non-PR failure lifecycle", async () => {
+test("quality validates only stable tags, PRs, schedules, and manual runs", async () => {
   const workflow = await read(".github/workflows/quality-monitor.yml");
   const monitor = jobBlock(workflow, "monitor");
 
-  assert.match(monitor, /if:\s*\$\{\{ always\(\) \}\}/);
-  assert.match(monitor, /needs:\s*\[verify\]/);
+  assert.match(workflow, /push:\s*\n\s*tags:\s*\["v\*"\]/);
+  assert.doesNotMatch(workflow, /push:\s*\n\s*branches:\s*\[main\]/);
+  assert.match(workflow, /pull_request:\s*\n\s*branches:\s*\[main\]/);
+  assert.match(workflow, /cancel-in-progress:\s*true/);
   assert.match(monitor, /needs\.verify\.result == 'failure'/);
   assert.match(monitor, /github\.event_name != 'pull_request'/);
   assert.match(monitor, /needs\.verify\.result == 'success'/);
   assert.match(monitor, /secrets\.COPILOT_PAT/);
-  assert.match(workflow, /cancel-in-progress:\s*true/);
 });
 
-test("Release Please is one root component with generated locks", async () => {
-  const config = JSON.parse(await read("release-please-config.json"));
-  const manifest = JSON.parse(await read(".release-please-manifest.json"));
-  const version = (await read("version.txt")).trim();
-
-  assert.deepEqual(Object.keys(config.packages), ["."]);
-  assert.equal(config["release-type"], "simple");
-  assert.equal(config["include-component-in-tag"], false);
-  assert.equal(config["include-v-in-tag"], true);
-  assert.equal(config["separate-pull-requests"], false);
-  assert.equal(config.draft, true);
-  assert.equal(config["force-tag-creation"], true);
-  assert.equal(config["always-update"], true);
-  assert.equal(
-    config["pull-request-title-pattern"],
-    "chore${scope}: release ${version}",
-  );
-  assert.equal(
-    config["group-pull-request-title-pattern"],
-    "chore${scope}: release ${version}",
-  );
-  assert.deepEqual(manifest, { ".": version });
-
-  const extraFiles = config.packages["."]["extra-files"];
-  const paths = extraFiles.map((entry) => entry.path);
-  for (const path of [
-    "core/Cargo.toml",
-    "cli/Cargo.toml",
-    "desktop/package.json",
-    "desktop/src-tauri/Cargo.toml",
-    "desktop/src-tauri/tauri.conf.json",
-  ]) {
-    assert.ok(paths.includes(path), `missing release extra-file ${path}`);
-  }
-  assert.ok(paths.every((path) => !path.endsWith("lock.json")));
-  assert.ok(paths.every((path) => !path.endsWith("Cargo.lock")));
-});
-
-test("Release Please is gated off during direct stable mode", async () => {
-  const workflow = await read(".github/workflows/release-please.yml");
-
-  assert.match(workflow, /branches:\s*\[main\]/);
-  assert.match(workflow, /workflow_dispatch:/);
-  assert.match(workflow, /direct-main-stable/);
-  assert.match(workflow, /needs:\s*\[mode\]/);
-  assert.match(workflow, /if:\s*\$\{\{ needs\.mode\.outputs\.direct != 'true' \}\}/);
-  assert.match(workflow, /vars\.MUX_FAST_LANE_UNTIL/);
-  assert.match(workflow, /RELEASE_PLEASE_TOKEN:\s*\$\{\{ secrets\.RELEASE_PLEASE_TOKEN \}\}/);
-  assert.doesNotMatch(workflow, /token:\s*\$\{\{ github\.token \}\}/);
-  assert.match(workflow, /outputs\.prs_created == 'true'/);
-  assert.match(workflow, /fromJSON\(steps\.release\.outputs\.pr\)\.headBranchName/);
-  assert.doesNotMatch(
-    workflow,
-    /HEAD_BRANCH:\s*\$\{\{ fromJSON\(steps\.release\.outputs\.pr\)/,
-  );
-  assert.match(workflow, /RELEASE_PR:\s*\$\{\{ steps\.release\.outputs\.pr \}\}/);
-  assert.match(workflow, /jq -er '\.headBranchName'/);
-  assert.match(workflow, /node scripts\/release-version\.mjs refresh-locks/);
-  assert.match(workflow, /desktop\/package-lock\.json Cargo\.lock desktop\/src-tauri\/Cargo\.lock/);
-  assert.doesNotMatch(workflow, /wait-for-verify\.sh/);
-  assert.doesNotMatch(workflow, /gh pr merge/);
-
-  const actionReferences = [...workflow.matchAll(/uses:\s*[^@\s]+@([^\s#]+)/g)];
-  assert.ok(actionReferences.length > 0);
-  for (const [, reference] of actionReferences) {
-    assert.match(reference, /^[0-9a-f]{40}$/);
-  }
-});
-
-test("direct stable mode turns one current main push into one Draft release", async () => {
+test("one current main push creates one patch Draft and immutable tag", async () => {
   const workflow = await read(".github/workflows/direct-stable-release.yml");
 
   assert.match(workflow, /push:\s*\n\s*branches:\s*\[main\]/);
+  assert.match(workflow, /workflow_dispatch:/);
   assert.match(workflow, /cancel-in-progress:\s*false/);
-  assert.match(workflow, /direct-main-stable/);
-  assert.match(workflow, /vars\.MUX_FAST_LANE_UNTIL/);
+  assert.match(
+    workflow,
+    /!startsWith\(github\.event\.head_commit\.message, 'chore\(main\): release '/,
+  );
+  assert.doesNotMatch(workflow, /fast-lane|ends_at|MUX_FAST_LANE_UNTIL/i);
   assert.match(workflow, /secrets\.RELEASE_PLEASE_TOKEN/);
   assert.match(workflow, /git rev-parse origin\/main/);
   assert.match(workflow, /current.*SOURCE_SHA/);
+  assert.match(workflow, /commit_title.*chore\(main\): release/);
   assert.match(workflow, /release-version\.mjs prepare-direct --source "\$SOURCE_SHA"/);
   assert.match(workflow, /commit -m "chore\(main\): release \$version"/);
   assert.match(workflow, /git push origin HEAD:main/);
-  assert.match(workflow, /gh release create "\$RELEASE_TAG"/);
-  assert.match(workflow, /--target "\$RELEASE_SHA"/);
-  assert.match(workflow, /--draft/);
+  assert.match(
+    workflow,
+    /gh api --method POST "repos\/\$GITHUB_REPOSITORY\/releases"/,
+  );
+  assert.match(workflow, /-F draft=true/);
+  assert.match(workflow, /-F generate_release_notes=true/);
+  assert.match(workflow, /release_id=\$\(jq -er '\.id'/);
   assert.match(workflow, /git tag "\$RELEASE_TAG" "\$RELEASE_SHA"/);
   assert.match(workflow, /git push origin "refs\/tags\/\$RELEASE_TAG"/);
   assert.ok(
-    workflow.indexOf('gh release create "$RELEASE_TAG"') <
+    workflow.indexOf('gh api --method POST "repos/$GITHUB_REPOSITORY/releases"') <
       workflow.indexOf('git push origin "refs/tags/$RELEASE_TAG"'),
     "Draft must exist before its tag triggers the Stable workflow",
   );
   assert.match(workflow, /test "\$target" = "\$RELEASE_SHA"/);
-  assert.match(workflow, /for attempt in \{1\.\.10\}/);
-  assert.match(workflow, /--json databaseId,isDraft,tagName/);
-  assert.match(workflow, /Draft lookup did not converge/);
-  assert.match(workflow, /current_tag/);
-  assert.match(workflow, /-f "tag_name=\$RELEASE_TAG"/);
   assert.match(workflow, /test "\$\(jq -r '\.tag_name'/);
   assert.match(workflow, /test "\$\(jq -r '\.target_commitish'/);
+  assert.doesNotMatch(workflow, /release-please-manifest|fast-lane/i);
   assert.doesNotMatch(workflow, /git (?:push|tag)[^\n]*(?:--force|-f)/);
   assert.doesNotMatch(workflow, /--clobber/);
 });
 
-test("Fast Lane is exactly ten days and restores only main protection", async () => {
-  const config = JSON.parse(await read(".github/fast-lane.json"));
-  const expiry = await read(".github/workflows/fast-lane-expiry.yml");
-  const direct = await read(".github/workflows/direct-stable-release.yml");
-  const releasePlease = await read(".github/workflows/release-please.yml");
-
-  assert.equal(config.mode, "direct-main-stable");
-  assert.equal(config.skip_stable_quality_gate, true);
-  assert.equal(config.main_ruleset_id, 19114218);
-  assert.equal(
-    Date.parse(config.ends_at) - Date.parse(config.starts_at),
-    10 * 24 * 60 * 60 * 1000,
-  );
-  assert.match(expiry, /cron:\s*"17 1,13 \* \* \*"/);
-  assert.doesNotMatch(expiry, /cron:\s*"17 \* \* \* \*"/);
-  assert.match(expiry, /cron:\s*"27 8 30 7 \*"/);
-  assert.match(expiry, /secrets\.MUX_RULESET_ADMIN_TOKEN/);
-  assert.match(expiry, /vars\.MUX_MAIN_RULESET_ID/);
-  assert.match(expiry, /actions\/checkout@[0-9a-f]{40}/);
-  assert.match(expiry, /configured_until=.*\.ends_at/);
-  assert.match(expiry, /configured_ruleset_id=.*\.main_ruleset_id/);
-  assert.match(expiry, /MAIN_RULESET_ID=\$configured_ruleset_id.*GITHUB_ENV/);
-  assert.match(expiry, /date -u -d "\$configured_until"/);
-  assert.match(expiry, /retry_until_epoch="\$\(\(until_epoch \+ 24 \* 60 \* 60\)\)"/);
-  assert.match(expiry, /now_epoch[^\n]+-lt "\$retry_until_epoch"/);
-  assert.match(expiry, /enforcement:"active"/);
-  assert.match(expiry, /--method PUT/);
-  assert.match(expiry, /Fast Lane expired but main protection was not restored/);
-  assert.doesNotMatch(expiry, /MUX immutable stable tags/);
-  assert.doesNotMatch(expiry, /19114220/);
-  for (const workflow of [direct, releasePlease]) {
-    assert.match(workflow, /configured_end=.*\.ends_at/);
-    assert.match(workflow, /FAST_LANE_UNTIL" == "\$configured_end/);
-  }
-});
-
-test("desktop workflow classifies and gates both publication channels", async () => {
+test("desktop workflow builds only stable tags in one job", async () => {
   const workflow = await read(".github/workflows/build-desktop.yml");
 
+  assert.match(workflow, /push:\s*\n\s*tags:\s*\["v\*"\]/);
+  assert.doesNotMatch(workflow, /branches:\s*\[main\]/);
+  assert.doesNotMatch(workflow, /PRERELEASE_TAG_REGEX|mode=prerelease|-build\./);
+  assert.doesNotMatch(workflow, /\n  classify:/);
   assert.match(workflow, /node-version:\s*24/);
   assert.match(workflow, /cache-dependency-path:\s*desktop\/package-lock\.json/);
   assert.match(workflow, /npm ci --no-audit --no-fund/);
   assert.match(workflow, /\^v\[0-9\]\+\\\.\[0-9\]\+\\\.\[0-9\]\+\$/);
-  assert.match(workflow, /PRERELEASE_TAG_REGEX=.*-build/);
-  assert.match(workflow, /REF_NAME.*PRERELEASE_TAG_REGEX[\s\S]{0,80}mode=skip/);
-  assert.match(workflow, /release-version\.mjs is-release-merge/);
-  assert.match(workflow, /--before "\$before_version" --after "\$version" --title "\$title"/);
-  assert.match(workflow, /direct-main-stable/);
-  assert.match(workflow, /vars\.MUX_FAST_LANE_UNTIL/);
-  assert.match(workflow, /configured_quality_bypass/);
-  assert.match(workflow, /FAST_LANE_UNTIL.*configured_end/);
-  assert.match(workflow, /fast_lane_active[\s\S]{0,120}mode=skip/);
-  assert.match(
-    workflow,
-    /EVENT_NAME" == push && "\$REF" == refs\/tags\/\* && "\$mode" == stable && "\$quality_bypass_active" == true/,
-  );
-  assert.match(workflow, /expected_title="chore\(main\): release \$version"/);
-  assert.match(workflow, /compare\/\$COMMIT_SHA\.\.\.main/);
   assert.match(workflow, /\.target_commitish == \$sha/);
-  assert.match(workflow, /"\$draft_matches" == 1/);
-  const setupNodeReferences = [
-    ...workflow.matchAll(/actions\/setup-node@([0-9a-f]{40})/g),
-  ].map((match) => match[1]);
-  assert.ok(setupNodeReferences.length >= 2);
-  assert.equal(new Set(setupNodeReferences).size, 1);
-  assert.match(workflow, /wait-for-verify\.sh/);
-  assert.match(
-    workflow,
-    /Enforce the Stable Quality policy at publication time[\s\S]*BYPASS_REQUESTED[\s\S]*FAST_LANE_UNTIL[\s\S]*configured_end[\s\S]*now_epoch[\s\S]*wait-for-verify\.sh/,
-  );
-  const stablePolicy = workflow.match(
-    /- name: Enforce the Stable Quality policy at publication time([\s\S]*?)- name: Complete and publish stable Draft/,
-  );
-  assert.ok(stablePolicy);
-  assert.match(stablePolicy[1], /BYPASS_REQUESTED" != true/);
-  assert.ok(
-    stablePolicy[1].indexOf('BYPASS_REQUESTED" != true') <
-      stablePolicy[1].indexOf("configured_end=$(jq"),
-  );
-  assert.match(stablePolicy[1], /Date\.parse\(process\.argv\[1\]\)/);
-  assert.doesNotMatch(stablePolicy[1], /date -u -d/);
-  assert.ok(
-    workflow.indexOf("Enforce the Stable Quality policy at publication time") <
-      workflow.indexOf("Complete and publish stable Draft"),
-  );
+  assert.match(workflow, /"\$draft_matches" = 1/);
   assert.match(workflow, /publish-release-assets\.sh/);
-  assert.match(workflow, /gh release create/);
-  assert.match(workflow, /source_ref:\s*\$\{\{ steps\.classify\.outputs\.source_ref \}\}/);
-  assert.match(workflow, /ref:\s*\$\{\{ needs\.classify\.outputs\.source_ref \}\}/);
-  assert.match(workflow, /dispatch stable-retry from main/);
   assert.match(workflow, /path:\s*\.delivery/);
   assert.match(workflow, /\.delivery\/\.github\/scripts\/publish-release-assets\.sh/);
   assert.match(workflow, /steps\.source\.outputs\.sha/);
   assert.doesNotMatch(workflow, /cancel-in-progress:\s*true/);
-
-  const prerelease = workflow.match(/# PRE-RELEASE START([\s\S]*?)# PRE-RELEASE END/);
-  assert.ok(prerelease, "missing bounded Pre-release section");
-  assert.match(prerelease[1], /GH_TOKEN:\s*\$\{\{ secrets\.RELEASE_PLEASE_TOKEN \}\}/);
-  assert.doesNotMatch(prerelease[1], /latest\.json/);
-  assert.doesNotMatch(prerelease[1], /publish-release-assets\.sh/);
-
-  const stable = workflow.match(/# STABLE START([\s\S]*?)# STABLE END/);
-  assert.ok(stable, "missing bounded Stable section");
-  assert.match(stable[1], /publish-release-assets\.sh/);
-  assert.doesNotMatch(stable[1], /gh release create/);
 });
 
 test("desktop release packaging reuses the CLI already built for the sidecar", async () => {
@@ -345,33 +195,6 @@ function ruleByType(ruleset, type) {
   assert.ok(rule, `${ruleset.name}: missing ${type} rule`);
   return rule;
 }
-
-test("main Ruleset requires current verified squash PRs", async () => {
-  const ruleset = JSON.parse(await read(".github/rulesets/main.json"));
-  const runbook = await read(".github/rulesets/README.md");
-
-  assert.equal(ruleset.target, "branch");
-  assert.equal(ruleset.enforcement, "evaluate");
-  assert.deepEqual(ruleset.bypass_actors, []);
-  assert.deepEqual(ruleset.conditions.ref_name.include, ["~DEFAULT_BRANCH"]);
-  for (const type of ["deletion", "non_fast_forward", "required_linear_history"]) {
-    ruleByType(ruleset, type);
-  }
-
-  const pullRequest = ruleByType(ruleset, "pull_request").parameters;
-  assert.equal(pullRequest.required_approving_review_count, 0);
-  assert.equal(pullRequest.required_review_thread_resolution, true);
-  assert.deepEqual(pullRequest.allowed_merge_methods, ["squash"]);
-
-  const checks = ruleByType(ruleset, "required_status_checks").parameters;
-  assert.equal(checks.strict_required_status_checks_policy, true);
-  assert.equal(checks.do_not_enforce_on_create, false);
-  assert.deepEqual(checks.required_status_checks, [
-    { context: "verify", integration_id: 15368 },
-  ]);
-  assert.match(runbook, /squash_merge_commit_title=PR_TITLE/);
-  assert.match(runbook, /squash_merge_commit_message=PR_BODY/);
-});
 
 test("stable tag Ruleset allows creation but blocks mutation", async () => {
   const ruleset = JSON.parse(await read(".github/rulesets/tags.json"));

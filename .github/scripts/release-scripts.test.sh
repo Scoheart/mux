@@ -10,32 +10,6 @@ cat >"$TMP/bin/gh" <<'FAKE_GH'
 #!/usr/bin/env bash
 set -euo pipefail
 
-checks() {
-  case "$FAKE_SCENARIO" in
-    verify-success)
-      echo '{"check_runs":[{"name":"verify","head_sha":"abc123","status":"completed","conclusion":"success","app":{"slug":"github-actions"}}]}'
-      ;;
-    verify-pending)
-      count=0
-      [[ -f "$FAKE_STATE/count" ]] && count=$(cat "$FAKE_STATE/count")
-      count=$((count + 1))
-      echo "$count" >"$FAKE_STATE/count"
-      if [[ "$count" -eq 1 ]]; then
-        echo '{"check_runs":[{"name":"verify","head_sha":"abc123","status":"in_progress","conclusion":null,"app":{"slug":"github-actions"}}]}'
-      else
-        echo '{"check_runs":[{"name":"verify","head_sha":"abc123","status":"completed","conclusion":"success","app":{"slug":"github-actions"}}]}'
-      fi
-      ;;
-    verify-failure)
-      echo '{"check_runs":[{"name":"verify","head_sha":"abc123","status":"completed","conclusion":"failure","app":{"slug":"github-actions"}}]}'
-      ;;
-    verify-wrong-app)
-      echo '{"check_runs":[{"name":"verify","head_sha":"abc123","status":"completed","conclusion":"success","app":{"slug":"external-ci"}}]}'
-      ;;
-    *) echo '{"check_runs":[]}' ;;
-  esac
-}
-
 asset_json() {
   jq -n \
     --arg n1 "$FAKE_ASSET_1" --arg n2 "$FAKE_ASSET_2" \
@@ -86,9 +60,7 @@ all_releases() {
   printf ']\n'
 }
 
-if [[ "$1" == api && "$2" == repos/*/commits/*/check-runs* ]]; then
-  checks
-elif [[ "$1" == api && "$2" == --paginate && "$3" == --slurp && "$4" == repos/*/releases\?per_page=100 ]]; then
+if [[ "$1" == api && "$2" == --paginate && "$3" == --slurp && "$4" == repos/*/releases\?per_page=100 ]]; then
   printf '[['
   all_releases | sed '1s/^\[//;$s/\]$//'
   printf ']]\n'
@@ -147,21 +119,6 @@ expect_failure() {
   fi
 }
 
-FAKE_SCENARIO=verify-success \
-  WAIT_FOR_VERIFY_ATTEMPTS=2 WAIT_FOR_VERIFY_INTERVAL=0 \
-  bash "$ROOT/.github/scripts/wait-for-verify.sh" "$GITHUB_REPOSITORY" abc123
-
-rm -f "$FAKE_STATE/count"
-FAKE_SCENARIO=verify-pending \
-  WAIT_FOR_VERIFY_ATTEMPTS=2 WAIT_FOR_VERIFY_INTERVAL=0 \
-  bash "$ROOT/.github/scripts/wait-for-verify.sh" "$GITHUB_REPOSITORY" abc123
-
-for scenario in verify-failure verify-missing verify-wrong-app; do
-  expect_failure env FAKE_SCENARIO="$scenario" \
-    WAIT_FOR_VERIFY_ATTEMPTS=2 WAIT_FOR_VERIFY_INTERVAL=0 \
-    bash "$ROOT/.github/scripts/wait-for-verify.sh" "$GITHUB_REPOSITORY" abc123
-done
-
 TAG=v1.2.18
 FAKE_ASSET_1="MUX-Desktop-Installer-$TAG-macOS-Apple-Silicon.dmg"
 FAKE_ASSET_2="mux_${TAG}_aarch64-apple-darwin.tar.gz"
@@ -210,4 +167,4 @@ for scenario in publish-different publish-no-draft publish-label-failure; do
   ! grep -q '^publish$' "$FAKE_STATE/log"
 done
 
-echo "Release helper tests passed."
+echo "Release publisher tests passed."

@@ -1,21 +1,43 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import i18n from "../i18n";
 import type { MigrationCandidate, MigrationDomain } from "../lib/migration";
 import { MigrationBanner } from "./MigrationBanner";
 
 afterEach(cleanup);
+
+beforeEach(async () => {
+  await i18n.changeLanguage("zh-CN");
+});
 
 function candidate(domain: MigrationDomain, index: number): MigrationCandidate {
   return {
     id: `${domain}:${index}`,
     domain,
     name: `${domain}-${index}`,
-    detail: "旧配置",
+    detail: {
+      kind: domain,
+      ...(domain === "mcp"
+        ? {
+          transport: "STDIO",
+          agentCount: 1,
+          disabledCount: 0,
+          centralExists: false,
+        }
+        : domain === "model"
+          ? {
+            provider: "openrouter",
+            model: "example/model",
+            agentCount: 1,
+            activeCount: 0,
+          }
+          : { agentCount: 1, folderCount: 1 }),
+    } as MigrationCandidate["detail"],
     agentIds: ["codex"],
     fingerprint: `${domain}:${index}:fingerprint`,
     safe: true,
-    conflictReason: null,
+    conflict: null,
   };
 }
 
@@ -59,4 +81,21 @@ it("omits empty domain counters", () => {
 
   expect(screen.getByText("Skill 1")).toBeVisible();
   expect(screen.queryByText(/MCP 0|Model 0/)).not.toBeInTheDocument();
+});
+
+it("localizes the dynamic banner count and actions", async () => {
+  await i18n.changeLanguage("en-US");
+  render(
+    <MigrationBanner
+      candidates={[candidate("mcp", 1), candidate("skill", 1)]}
+      onLater={vi.fn()}
+      onOpen={vi.fn()}
+    />,
+  );
+
+  expect(screen.getByRole("status", { name: "External configuration notice" })).toBeVisible();
+  expect(screen.getByText("2 external configurations found")).toBeVisible();
+  expect(screen.getByRole("button", { name: "Later" })).toBeVisible();
+  expect(screen.getByRole("button", { name: "Review" })).toBeVisible();
+  expect(document.body).not.toHaveTextContent(/[\u3400-\u9fff]/);
 });

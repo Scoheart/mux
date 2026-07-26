@@ -1,7 +1,8 @@
 import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as api from "../lib/api";
+import i18n from "../i18n";
 import type { MigrationCandidate } from "../lib/migration";
 import { MigrationDialog } from "./MigrationDialog";
 
@@ -14,6 +15,10 @@ vi.mock("../lib/api", () => ({
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+});
+
+beforeEach(async () => {
+  await i18n.changeLanguage("zh-CN");
 });
 
 const basePlan = {
@@ -36,11 +41,17 @@ const candidates: MigrationCandidate[] = [
     id: "model:same",
     domain: "model",
     name: "HY3",
-    detail: "openrouter · tencent/hy3:free · 1 个 Agent",
+    detail: {
+      kind: "model",
+      provider: "openrouter",
+      model: "tencent/hy3:free",
+      agentCount: 1,
+      activeCount: 1,
+    },
     agentIds: ["grok-build"],
     fingerprint: "model-fingerprint",
     safe: true,
-    conflictReason: null,
+    conflict: null,
     model: {
       candidateFingerprints: { "candidate-grok": "model-fingerprint" },
       provider: "openrouter",
@@ -52,11 +63,17 @@ const candidates: MigrationCandidate[] = [
     id: "mcp:github::stdio",
     domain: "mcp",
     name: "github",
-    detail: "STDIO · 1 个 Agent",
+    detail: {
+      kind: "mcp",
+      transport: "STDIO",
+      agentCount: 1,
+      disabledCount: 0,
+      centralExists: false,
+    },
     agentIds: ["claude-code"],
     fingerprint: "mcp-fingerprint",
     safe: true,
-    conflictReason: null,
+    conflict: null,
     mcp: {
       assetKey: "github::stdio",
       candidateFingerprints: { "claude-code": "candidate-fingerprint" },
@@ -66,11 +83,15 @@ const candidates: MigrationCandidate[] = [
     id: "skill:review",
     domain: "skill",
     name: "review",
-    detail: "1 个 Agent · 1 个目录",
+    detail: {
+      kind: "skill",
+      agentCount: 1,
+      folderCount: 1,
+    },
     agentIds: ["codex"],
     fingerprint: "skill-fingerprint",
     safe: true,
-    conflictReason: null,
+    conflict: null,
     skill: { identity: "target:agents-user:review" },
   },
 ];
@@ -173,7 +194,7 @@ describe("MigrationDialog", () => {
       id: "mcp:conflict::stdio",
       name: "conflict",
       safe: false,
-      conflictReason: "同名 MCP 的连接配置不一致",
+      conflict: { kind: "mcp_connection_mismatch" },
     };
     render(<MigrationDialog candidates={[conflict]} onClose={vi.fn()} onRefresh={vi.fn()} />);
     expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
@@ -219,5 +240,39 @@ describe("MigrationDialog", () => {
     }));
     expect(api.commitOperation).not.toHaveBeenCalled();
     expect(screen.getByText("Skill 风险状态已变化；请在 Skills 页面单独导入并确认风险。")).toBeVisible();
+  });
+
+  it("fully localizes the portaled dialog, dynamic details, and conflicts", async () => {
+    await i18n.changeLanguage("en-US");
+    const conflict: MigrationCandidate = {
+      ...candidates[1],
+      id: "mcp:conflict::stdio",
+      name: "conflict",
+      safe: false,
+      conflict: { kind: "mcp_connection_mismatch" },
+    };
+
+    render(
+      <MigrationDialog
+        candidates={[candidates[0], conflict, candidates[2]]}
+        onClose={vi.fn()}
+        onRefresh={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole("heading", { name: "Detected external configurations" })).toBeVisible();
+    expect(screen.getByText(
+      "3 total · 2 available to manage individually · 1 need attention",
+    )).toBeVisible();
+    expect(screen.getByText(
+      "openrouter · tencent/hy3:free · 1 Agents · 1 currently in use",
+    )).toBeVisible();
+    expect(screen.getByText(
+      "MCPs with the same name have different connections. Align or rename them in the source Agent, then rescan.",
+    )).toBeVisible();
+    expect(screen.getByText(
+      "1 Agents · 1 folders · merge into one central copy",
+    )).toBeVisible();
+    expect(document.body).not.toHaveTextContent(/[\u3400-\u9fff]/);
   });
 });

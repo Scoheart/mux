@@ -1,8 +1,16 @@
 import { useEffect, useRef, useState } from "react";
+import type { TFunction } from "i18next";
+import { useTranslation } from "react-i18next";
 import * as api from "../lib/api";
-import type { MigrationCandidate } from "../lib/migration";
+import type {
+  MigrationCandidate,
+  MigrationCandidateDetail,
+  MigrationConflict,
+} from "../lib/migration";
 import { migrationCounts } from "../lib/migration";
 import type { UnifiedOperationPlan } from "../lib/types";
+import type { SupportedLocale } from "../i18n";
+import { localizeLegacyText } from "../i18n/legacy";
 import { AgentGlyph, agentName } from "./brandIcons";
 import { CheckIcon, LayersIcon, PackageIcon, SparklesIcon } from "./icons";
 import { DialogShell } from "./DialogShell";
@@ -27,12 +35,19 @@ export function MigrationDialog({
   onClose(): void;
   onRefresh(): Promise<void>;
 }) {
+  const { t, i18n } = useTranslation();
   const [busyCandidateId, setBusyCandidateId] = useState<string | null>(null);
   const [review, setReview] = useState<CandidateReview | null>(null);
   const [results, setResults] = useState<MigrationResult[]>([]);
   const reviewRef = useRef<CandidateReview | null>(null);
   const counts = migrationCounts(candidates);
   const busy = busyCandidateId !== null;
+  const locale: SupportedLocale = i18n.resolvedLanguage === "zh-CN" ? "zh-CN" : "en-US";
+  const localizeSourceText = (value: string) => localizeLegacyText(value, locale);
+  const list = (values: string[]) => new Intl.ListFormat(locale, {
+    style: "short",
+    type: "conjunction",
+  }).format(values);
   const rows = (domain: "mcp" | "model" | "skill") =>
     candidates.filter((item) => item.domain === domain);
 
@@ -61,17 +76,20 @@ export function MigrationDialog({
     if (busy || review || !candidate.safe) return;
     setBusyCandidateId(candidate.id);
     try {
-      const operation = await planCandidate(candidate);
+      const operation = await planCandidate(
+        candidate,
+        t("externalConfigurations.missingSource"),
+      );
       if (operation.domain === "skill" && operation.plan.requires_risk_override) {
         await api.cancelOperation({
           domain: "skill",
           operation_id: operation.plan.operation_id,
         }).catch(() => undefined);
-        throw new Error("Skill 风险状态已变化；请在 Skills 页面单独导入并确认风险。");
+        throw new Error(t("externalConfigurations.riskChanged"));
       }
       setReview({ candidate, operation });
     } catch (reason) {
-      rememberResult(candidate, false, formatError(reason));
+      rememberResult(candidate, false, localizeSourceText(formatError(reason)));
     } finally {
       setBusyCandidateId(null);
     }
@@ -89,7 +107,7 @@ export function MigrationDialog({
       reviewRef.current = null;
       setReview(null);
     } catch (reason) {
-      rememberResult(pending.candidate, false, formatError(reason));
+      rememberResult(pending.candidate, false, localizeSourceText(formatError(reason)));
     } finally {
       setBusyCandidateId(null);
     }
@@ -103,7 +121,7 @@ export function MigrationDialog({
       await commitCandidate(pending.operation);
       reviewRef.current = null;
       setReview(null);
-      rememberResult(pending.candidate, true, "已由 MUX 管理");
+      rememberResult(pending.candidate, true, t("externalConfigurations.managed"));
       await onRefresh().catch(() => undefined);
     } catch (reason) {
       await api.cancelOperation({
@@ -112,7 +130,7 @@ export function MigrationDialog({
       }).catch(() => undefined);
       reviewRef.current = null;
       setReview(null);
-      rememberResult(pending.candidate, false, formatError(reason));
+      rememberResult(pending.candidate, false, localizeSourceText(formatError(reason)));
     } finally {
       setBusyCandidateId(null);
     }
@@ -129,18 +147,19 @@ export function MigrationDialog({
 
   if (review) {
     const impact = reviewImpact(review.operation);
+    const detail = formatCandidateDetail(t, review.candidate.detail);
     return (
       <DialogShell
         kind="review"
         size="md"
-        title={`确认让 MUX 管理 ${review.candidate.name}`}
-        subtitle="这里只处理当前这一项；MUX 不会顺带导入其它已识别配置。"
+        title={t("externalConfigurations.reviewTitle", { name: review.candidate.name })}
+        subtitle={t("externalConfigurations.reviewSubtitle")}
         busy={busy}
         onClose={requestClose}
         footerEnd={
           <>
             <button type="button" className="btn-ghost" disabled={busy} onClick={() => void cancelReview()}>
-              返回
+              {t("externalConfigurations.back")}
             </button>
             <button
               type="button"
@@ -148,27 +167,37 @@ export function MigrationDialog({
               disabled={busy || !canCommit(review.operation)}
               onClick={() => void commitReview()}
             >
-              {busy ? "正在处理…" : "确认让 MUX 管理"}
+              {busy
+                ? t("externalConfigurations.managing")
+                : t("externalConfigurations.confirmManage")}
             </button>
           </>
         }
       >
         <div className="mux-migration-review">
           <dl>
-            <div><dt>类型</dt><dd>{domainLabel(review.candidate.domain)}</dd></div>
-            <div><dt>识别结果</dt><dd>{review.candidate.detail}</dd></div>
-            <div><dt>影响 Agent</dt><dd>{impact.agents || "无"}</dd></div>
-            <div><dt>目标位置</dt><dd>{impact.targets || "仅更新 MUX 中央配置"}</dd></div>
+            <div><dt>{t("externalConfigurations.type")}</dt><dd>{domainLabel(review.candidate.domain)}</dd></div>
+            <div><dt>{t("externalConfigurations.detectionResult")}</dt><dd>{detail}</dd></div>
+            <div>
+              <dt>{t("externalConfigurations.affectedAgents")}</dt>
+              <dd>{impact.agents.length > 0 ? list(impact.agents) : t("externalConfigurations.none")}</dd>
+            </div>
+            <div>
+              <dt>{t("externalConfigurations.targetLocations")}</dt>
+              <dd>{impact.targets.length > 0 ? list(impact.targets) : t("externalConfigurations.centralOnly")}</dd>
+            </div>
           </dl>
           {impact.warnings.length > 0 && (
             <div className="mux-migration-review-warnings" role="alert">
-              <strong>需要注意</strong>
-              <ul>{impact.warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul>
+              <strong>{t("externalConfigurations.warning")}</strong>
+              <ul>{impact.warnings.map((warning) => (
+                <li key={warning}>{localizeSourceText(warning)}</li>
+              ))}</ul>
             </div>
           )}
           {!canCommit(review.operation) && (
             <p className="mux-migration-review-blocked" role="alert">
-              当前配置已经变化或存在冲突，不能直接纳管。请返回修复后重新扫描。
+              {t("externalConfigurations.blocked")}
             </p>
           )}
         </div>
@@ -180,20 +209,27 @@ export function MigrationDialog({
     <DialogShell
       kind="review"
       size="lg"
-      title="已识别的外部配置"
-      subtitle={`共 ${counts.all} 项 · ${counts.safe} 项可逐项管理 · ${counts.conflicts} 项需先处理`}
+      title={t("externalConfigurations.dialogTitle")}
+      subtitle={t("externalConfigurations.dialogSubtitle", counts)}
       busy={busy}
       onClose={requestClose}
       footerStart={results.length > 0 ? (
         <span className="mux-migration-summary">
-          已管理 {results.filter((item) => item.ok).length} 项，失败 {results.filter((item) => !item.ok).length} 项
+          {t("externalConfigurations.dialogSummary", {
+            managed: results.filter((item) => item.ok).length,
+            failed: results.filter((item) => !item.ok).length,
+          })}
         </span>
       ) : null}
-      footerEnd={<button type="button" className="btn-ghost" disabled={busy} onClick={requestClose}>关闭</button>}
+      footerEnd={(
+        <button type="button" className="btn-ghost" disabled={busy} onClick={requestClose}>
+          {t("common.close")}
+        </button>
+      )}
     >
       <div className="mux-migration-content">
         <p className="mux-migration-intro">
-          MUX 只识别这些 Agent 配置，不会自动导入。请检查每一项，并单独决定是否交给 MUX 管理。
+          {t("externalConfigurations.dialogIntro")}
         </p>
         {(["mcp", "model", "skill"] as const).map((domain) => {
           const domainRows = rows(domain);
@@ -203,7 +239,7 @@ export function MigrationDialog({
             <section
               key={domain}
               className="mux-migration-section"
-              aria-label={`${label} 外部配置`}
+              aria-label={t("externalConfigurations.domainSection", { domain: label })}
             >
               <header>
                 {domain === "mcp" ? <PackageIcon className="w-4 h-4" /> : domain === "model" ? <LayersIcon className="w-4 h-4" /> : <SparklesIcon className="w-4 h-4" />}
@@ -214,15 +250,26 @@ export function MigrationDialog({
                 {domainRows.map((candidate) => {
                   const result = results.find((item) => item.id === candidate.id);
                   const itemBusy = busyCandidateId === candidate.id;
+                  const detail = formatCandidateDetail(t, candidate.detail);
+                  const conflict = formatMigrationConflict(
+                    t,
+                    candidate.conflict,
+                    localizeSourceText,
+                  );
                   return (
                     <li key={candidate.id} data-conflict={!candidate.safe || undefined} data-result={result?.ok ? "success" : result ? "error" : undefined}>
                       <span className="mux-migration-copy">
                         <strong>{candidate.name}</strong>
-                        <small title={candidate.detail}>{candidate.detail}</small>
-                        {candidate.conflictReason && <em>{candidate.conflictReason}</em>}
+                        <small title={detail}>{detail}</small>
+                        {conflict && <em>{conflict}</em>}
                         {result && <em data-result={result.ok ? "success" : "error"}>{result.message}</em>}
                       </span>
-                      <span className="mux-migration-agents" aria-label={`${candidate.agentIds.length} 个 Agent`}>
+                      <span
+                        className="mux-migration-agents"
+                        aria-label={t("externalConfigurations.agentCount", {
+                          count: candidate.agentIds.length,
+                        })}
+                      >
                         {candidate.agentIds.slice(0, 3).map((agentId) => (
                           <span key={agentId} title={agentName(agentId)}><AgentGlyph id={agentId} size={18} /></span>
                         ))}
@@ -237,7 +284,11 @@ export function MigrationDialog({
                           disabled={busy || !candidate.safe}
                           onClick={() => void prepare(candidate)}
                         >
-                          {itemBusy ? "正在检查…" : candidate.safe ? "让 MUX 管理" : "需先处理"}
+                          {itemBusy
+                            ? t("externalConfigurations.checking")
+                            : candidate.safe
+                              ? t("externalConfigurations.manage")
+                              : t("externalConfigurations.needsAttention")}
                         </button>
                       )}
                     </li>
@@ -250,8 +301,8 @@ export function MigrationDialog({
         {candidates.length === 0 && (
           <div className="mux-migration-empty">
             <CheckIcon className="w-6 h-6" />
-            <strong>没有已识别的外部配置</strong>
-            <span>当前支持的 MCP、Models 与用户级 Skills 已由 MUX 管理，或尚未在 Agent 中配置。</span>
+            <strong>{t("externalConfigurations.emptyTitle")}</strong>
+            <span>{t("externalConfigurations.emptyDescription")}</span>
           </div>
         )}
       </div>
@@ -259,7 +310,10 @@ export function MigrationDialog({
   );
 }
 
-async function planCandidate(candidate: MigrationCandidate): Promise<UnifiedOperationPlan> {
+async function planCandidate(
+  candidate: MigrationCandidate,
+  missingSourceMessage: string,
+): Promise<UnifiedOperationPlan> {
   if (candidate.domain === "mcp" && candidate.mcp) {
     return api.planOperation({
       operation: "adopt_mcp",
@@ -288,7 +342,7 @@ async function planCandidate(candidate: MigrationCandidate): Promise<UnifiedOper
       },
     });
   }
-  throw new Error("识别结果缺少可管理的来源。");
+  throw new Error(missingSourceMessage);
 }
 
 async function commitCandidate(operation: UnifiedOperationPlan) {
@@ -322,17 +376,76 @@ function canCommit(operation: UnifiedOperationPlan): boolean {
 function reviewImpact(operation: UnifiedOperationPlan) {
   if (operation.domain === "asset") {
     return {
-      agents: operation.plan.affected_agent_ids.map((id) => agentName(id)).join("、"),
-      targets: operation.plan.target_files.join("、"),
+      agents: operation.plan.affected_agent_ids.map((id) => agentName(id)),
+      targets: operation.plan.target_files,
       warnings: operation.plan.warnings,
     };
   }
   const agentIds = new Set(operation.plan.targets.flatMap((target) => target.affected_agent_ids));
   return {
-    agents: [...agentIds].map((id) => agentName(id)).join("、"),
-    targets: operation.plan.targets.map((target) => target.global_dir).join("、"),
+    agents: [...agentIds].map((id) => agentName(id)),
+    targets: operation.plan.targets.map((target) => target.global_dir),
     warnings: operation.plan.warnings,
   };
+}
+
+function formatCandidateDetail(t: TFunction, detail: MigrationCandidateDetail): string {
+  if (detail.kind === "model") {
+    return t("externalConfigurations.details.model", {
+      provider: detail.provider,
+      model: detail.model,
+      agentCount: detail.agentCount,
+      active: detail.activeCount > 0
+        ? t("externalConfigurations.details.active", { count: detail.activeCount })
+        : "",
+    });
+  }
+  if (detail.kind === "mcp") {
+    return t("externalConfigurations.details.mcp", {
+      transport: detail.transport,
+      agentCount: detail.agentCount,
+      disabled: detail.disabledCount > 0
+        ? t("externalConfigurations.details.disabled", { count: detail.disabledCount })
+        : "",
+      mode: t(detail.centralExists
+        ? "externalConfigurations.details.inPlace"
+        : "externalConfigurations.details.centralCopy"),
+    });
+  }
+  return t("externalConfigurations.details.skill", {
+    agentCount: detail.agentCount,
+    folderCount: detail.folderCount,
+  });
+}
+
+function formatMigrationConflict(
+  t: TFunction,
+  conflict: MigrationConflict | null,
+  localizeSourceText: (value: string) => string,
+): string | null {
+  if (!conflict) return null;
+  switch (conflict.kind) {
+    case "model_shared_provider_identity":
+      return t("externalConfigurations.conflicts.modelSharedProvider");
+    case "model_source":
+      return localizeSourceText(conflict.reason);
+    case "model_credential_or_config":
+      return t("externalConfigurations.conflicts.modelCredential");
+    case "mcp_drifted":
+      return t("externalConfigurations.conflicts.mcpDrifted");
+    case "mcp_connection_mismatch":
+      return t("externalConfigurations.conflicts.mcpConnection");
+    case "skill_central_conflict":
+      return t("externalConfigurations.conflicts.skillCentral");
+    case "skill_high_risk":
+      return t("externalConfigurations.conflicts.skillHighRisk");
+    case "skill_missing_audit":
+      return t("externalConfigurations.conflicts.skillMissingAudit");
+    case "skill_content_mismatch":
+      return t("externalConfigurations.conflicts.skillContent");
+    case "skill_invalid":
+      return t("externalConfigurations.conflicts.skillInvalid");
+  }
 }
 
 function domainLabel(domain: MigrationCandidate["domain"]) {

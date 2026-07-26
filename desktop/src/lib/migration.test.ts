@@ -89,7 +89,7 @@ describe("migration candidates", () => {
     });
     expect(buildMigrationCandidates([mcp("a", "one"), mcp("b", "two")], null)[0]).toMatchObject({
       safe: false,
-      conflictReason: "同名 MCP 的连接配置不一致；请先在原 Agent 中统一或重命名后重新扫描",
+      conflict: { kind: "mcp_connection_mismatch" },
     });
   });
 
@@ -100,11 +100,11 @@ describe("migration candidates", () => {
     });
     expect(buildMigrationCandidates([], skills(["one", "two"]))[0]).toMatchObject({
       safe: false,
-      conflictReason: "同名 Skill 的内容不一致；请先统一内容或重命名来源目录后重新扫描",
+      conflict: { kind: "skill_content_mismatch" },
     });
     expect(buildMigrationCandidates([], skills(["same"], "high"))[0]).toMatchObject({
       safe: false,
-      conflictReason: "Skill 包含高风险内容；请在 Skills 页面单独导入并确认风险",
+      conflict: { kind: "skill_high_risk" },
     });
   });
 
@@ -117,7 +117,7 @@ describe("migration candidates", () => {
     });
     expect(buildMigrationCandidates([], null, [model("grok-build", "needs-credential")])[0]).toMatchObject({
       safe: false,
-      conflictReason: "需要安全 credential",
+      conflict: { kind: "model_source", reason: "需要安全 credential" },
     });
   });
 });

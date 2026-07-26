@@ -6,6 +6,39 @@ import type {
 
 export type MigrationDomain = "mcp" | "model" | "skill";
 
+export type MigrationCandidateDetail =
+  | {
+    kind: "model";
+    provider: string;
+    model: string;
+    agentCount: number;
+    activeCount: number;
+  }
+  | {
+    kind: "mcp";
+    transport: string;
+    agentCount: number;
+    disabledCount: number;
+    centralExists: boolean;
+  }
+  | {
+    kind: "skill";
+    agentCount: number;
+    folderCount: number;
+  };
+
+export type MigrationConflict =
+  | { kind: "model_shared_provider_identity" }
+  | { kind: "model_source"; reason: string }
+  | { kind: "model_credential_or_config" }
+  | { kind: "mcp_drifted" }
+  | { kind: "mcp_connection_mismatch" }
+  | { kind: "skill_central_conflict" }
+  | { kind: "skill_high_risk" }
+  | { kind: "skill_missing_audit" }
+  | { kind: "skill_content_mismatch" }
+  | { kind: "skill_invalid" };
+
 export function mcpMigrationCandidateId(assetKey: string) {
   return `mcp:${assetKey}`;
 }
@@ -22,11 +55,11 @@ export interface MigrationCandidate {
   id: string;
   domain: MigrationDomain;
   name: string;
-  detail: string;
+  detail: MigrationCandidateDetail;
   agentIds: string[];
   fingerprint: string;
   safe: boolean;
-  conflictReason: string | null;
+  conflict: MigrationConflict | null;
   mcp?: {
     assetKey: string;
     candidateFingerprints: Record<string, string>;
@@ -78,21 +111,31 @@ function groupModels(items: ModelAdoptionCandidate[]): MigrationCandidate[] {
     const safe = uniqueAgents && rows.every((row) => row.status === "adoptable");
     const primary = rows[0];
     const activeCount = rows.filter((row) => row.active).length;
-    const conflictReason = !uniqueAgents
-      ? "同一 Agent 中多个模型共用 native provider identity；请先拆分 provider 后再导入"
+    const conflict: MigrationConflict | null = !uniqueAgents
+      ? { kind: "model_shared_provider_identity" }
       : safe
       ? null
       : rows.find((row) => row.status !== "adoptable")?.reason
-        ?? "该模型需要先处理 credential 或配置冲突";
+        ? {
+          kind: "model_source",
+          reason: rows.find((row) => row.status !== "adoptable")!.reason!,
+        }
+        : { kind: "model_credential_or_config" };
     return {
       id: modelMigrationCandidateId(fingerprint),
       domain: "model",
       name: primary.name || primary.model,
-      detail: `${primary.provider} · ${primary.model} · ${rows.length} 个 Agent${activeCount ? ` · ${activeCount} 个当前使用` : ""}`,
+      detail: {
+        kind: "model",
+        provider: primary.provider,
+        model: primary.model,
+        agentCount: rows.length,
+        activeCount,
+      },
       agentIds: rows.map((row) => row.agent_id),
       fingerprint: `model:${fingerprint}:${rows.map((row) => row.candidate_hash).join(":")}`,
       safe,
-      conflictReason,
+      conflict,
       model: {
         candidateFingerprints: Object.fromEntries(rows.map((row) => [row.candidate_id, row.fingerprint])),
         provider: primary.provider,
@@ -119,20 +162,26 @@ function groupMcps(items: McpAdoptionCandidate[]): MigrationCandidate[] {
     const [name, transport] = splitAssetKey(assetKey);
     const disabled = rows.filter((row) => !row.enabled).length;
     const centralExists = rows.every((row) => row.status === "adoptable");
-    const conflictReason = safe
+    const conflict: MigrationConflict | null = safe
       ? null
       : drifted
-        ? "外部配置与 MUX 中的配置不一致；请先在 MUX 或原 Agent 中统一后重新扫描"
-        : "同名 MCP 的连接配置不一致；请先在原 Agent 中统一或重命名后重新扫描";
+        ? { kind: "mcp_drifted" }
+        : { kind: "mcp_connection_mismatch" };
     return {
       id: mcpMigrationCandidateId(assetKey),
       domain: "mcp",
       name,
-      detail: `${transport.toUpperCase()} · ${rows.length} 个 Agent${disabled > 0 ? ` · ${disabled} 个停用` : ""}${centralExists ? " · 原地认领" : " · 创建中央副本"}`,
+      detail: {
+        kind: "mcp",
+        transport: transport.toUpperCase(),
+        agentCount: rows.length,
+        disabledCount: disabled,
+        centralExists,
+      },
       agentIds: rows.map((row) => row.agent_id),
       fingerprint: `mcp:${assetKey}:${rows.map((row) => row.fingerprint).join(":")}`,
       safe,
-      conflictReason,
+      conflict,
       mcp: {
         assetKey,
         candidateFingerprints: Object.fromEntries(
@@ -175,28 +224,32 @@ function groupSkills(items: SkillInventoryItem[] | null): MigrationCandidate[] {
     const highRisk = rows.some((row) => row.risk?.level === "high");
     const missingAudit = rows.some((row) => row.risk === null);
     const safe = !invalid && !centralConflict && !highRisk && !missingAudit && hashes.size === 1;
-    let conflictReason: string | null = null;
+    let conflict: MigrationConflict | null = null;
     if (centralConflict) {
-      conflictReason = "MUX 已存在同名 Skill；请先重命名来源目录或处理冲突后重新扫描";
+      conflict = { kind: "skill_central_conflict" };
     } else if (highRisk) {
-      conflictReason = "Skill 包含高风险内容；请在 Skills 页面单独导入并确认风险";
+      conflict = { kind: "skill_high_risk" };
     } else if (missingAudit) {
-      conflictReason = "Skill 风险检查未完成；请修复内容后重新扫描";
+      conflict = { kind: "skill_missing_audit" };
     } else if (hashes.size > 1) {
-      conflictReason = "同名 Skill 的内容不一致；请先统一内容或重命名来源目录后重新扫描";
+      conflict = { kind: "skill_content_mismatch" };
     } else if (!safe) {
-      conflictReason = "Skill 目录损坏或无法安全读取；请修复后重新扫描";
+      conflict = { kind: "skill_invalid" };
     }
     const hash = hashes.values().next().value ?? "unavailable";
     return {
       id: skillMigrationCandidateId(name),
       domain: "skill",
       name,
-      detail: `${agentIds.length} 个 Agent · ${rows.length} 个目录 · 合并为一份中央副本`,
+      detail: {
+        kind: "skill",
+        agentCount: agentIds.length,
+        folderCount: rows.length,
+      },
       agentIds,
       fingerprint: `skill:${name}:${hash}:${rows.map((row) => row.identity).join(":")}`,
       safe,
-      conflictReason,
+      conflict,
       skill: { identity: rows[0].identity },
     };
   });

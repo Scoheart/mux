@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.68](https://github.com/Scoheart/mux/compare/v1.8.67...v1.8.68) (2026-07-26)
+
+### Changes
+
+* feat(models): simplify provider catalog workflow ([7457a6e](https://github.com/Scoheart/mux/commit/7457a6e1013d5fad4f389b1a5e9db8d1e2c0f908))
+
 ## [1.8.67](https://github.com/Scoheart/mux/compare/v1.8.66...v1.8.67) (2026-07-26)
 
 ### Changes

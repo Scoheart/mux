@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.65](https://github.com/Scoheart/mux/compare/v1.8.64...v1.8.65) (2026-07-26)
+
+### Changes
+
+* fix(i18n): localize external management flow ([022fe88](https://github.com/Scoheart/mux/commit/022fe88c8b13998ce97474a9796f98d54dd73bf9))
+
 ## [1.8.64](https://github.com/Scoheart/mux/compare/v1.8.63...v1.8.64) (2026-07-26)
 
 ### Changes

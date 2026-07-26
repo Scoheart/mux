@@ -169,6 +169,10 @@ enum AgentsAction {
 }
 
 fn main() {
+    // Clap handles --help/--version by exiting during parsing. Parse first so
+    // read-only metadata requests never recover, migrate, or rewrite user data.
+    let cli = Cli::parse();
+
     let bootstrap = match mux_core::application::MuxCore::bootstrap(
         mux_core::application::bootstrap::Frontend::Cli,
     ) {
@@ -182,7 +186,6 @@ fn main() {
         eprintln!("MUX startup warning: {}", warning.message);
     }
 
-    let cli = Cli::parse();
     match cli.command {
         Some(Command::Clean { agent }) => cmd_clean(agent.as_deref()),
         Some(Command::Detected { json }) => cmd_detected(json),

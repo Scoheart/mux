@@ -770,7 +770,7 @@ Skill inventory 区分：
 CLI 顶层命令仍保留大量 MCP 兼容语义，同时已有跨资源入口：
 
 ```text
-mux import / add / remove / apply / clean / status
+mux detected / manage / add / remove / apply / clean / status
 mux agents
 mux workspace
 mux models

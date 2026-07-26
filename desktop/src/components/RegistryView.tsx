@@ -338,7 +338,7 @@ export function RegistryView({ state, consumptionState, intent, onIntentConsumed
         <>
           {migrationCount > 0 && onOpenMigration && (
             <button className="btn-secondary" type="button" onClick={onOpenMigration}>
-              历史配置 {migrationCount}
+              外部配置 {migrationCount}
             </button>
           )}
           <button

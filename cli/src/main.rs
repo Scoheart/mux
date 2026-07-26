@@ -12,8 +12,9 @@ use clap::{Parser, Subcommand};
 use mux_core::application::agents::load_agents;
 use mux_core::application::assets::{
     AgentConsumptionSelection, AssetCommitRequest, AssetOperationPlan, AssetRef, CentralAssetDraft,
-    McpAdoptionCandidate, PlanDeleteCentralAssetRequest, PlanEnsureAgentConsumptionRequest,
-    PlanMcpAdoptionRequest, PlanSetAgentConsumptionRequest, PlanUpdateCentralAssetRequest,
+    McpAdoptionStatus, ModelAdoptionStatus, PlanDeleteCentralAssetRequest,
+    PlanEnsureAgentConsumptionRequest, PlanMcpAdoptionRequest, PlanModelAdoptionRequest,
+    PlanSetAgentConsumptionRequest, PlanUpdateCentralAssetRequest,
 };
 use mux_core::application::mcp::catalog::read_registry;
 use mux_core::application::mcp::operations as ops;
@@ -21,6 +22,9 @@ use mux_core::application::mcp::scanning::scan_agents;
 use mux_core::application::operations::{
     CancelOperationRequest, CommitOperationRequest, OperationCommitResult, OperationPlan,
     PlanOperationRequest,
+};
+use mux_core::application::skills::{
+    InventoryState, PlanImportRequest, SkillCommitRequest, SkillLocation, SkillOperationKind,
 };
 use mux_core::application::MuxCore;
 use mux_core::domain::types::{RegistryConfig, RegistryEntry, StdioConfig};
@@ -80,8 +84,17 @@ enum Command {
         #[arg(long)]
         agent: Option<String>,
     },
-    /// Review-safe adoption of existing global MCP observations
-    Import,
+    /// Detect external MCP, Model, and Skill configurations without changing them
+    Detected {
+        /// Print the secret-free detection result as JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// Review and bring exactly one detected configuration under MUX management
+    Manage {
+        #[command(subcommand)]
+        resource: ManageResource,
+    },
     /// List all MCPs in registry
     List,
     /// Show currently active MCPs across all agents
@@ -124,6 +137,28 @@ enum Command {
 }
 
 #[derive(Subcommand)]
+enum ManageResource {
+    /// Manage one MCP observation from one Agent
+    Mcp {
+        /// Stable MCP asset key, for example github::stdio
+        key: String,
+        /// Agent that owns the detected configuration
+        #[arg(long)]
+        agent: String,
+    },
+    /// Manage one detected Agent-native Model candidate
+    Model {
+        /// Candidate id printed by `mux detected`
+        candidate_id: String,
+    },
+    /// Manage one detected Skill directory
+    Skill {
+        /// Skill identity printed by `mux detected`
+        identity: String,
+    },
+}
+
+#[derive(Subcommand)]
 enum AgentsAction {
     /// List all agents
     List,
@@ -150,7 +185,8 @@ fn main() {
     let cli = Cli::parse();
     match cli.command {
         Some(Command::Clean { agent }) => cmd_clean(agent.as_deref()),
-        Some(Command::Import) => cmd_import(),
+        Some(Command::Detected { json }) => cmd_detected(json),
+        Some(Command::Manage { resource }) => cmd_manage(resource),
         Some(Command::List) => cmd_list(),
         Some(Command::Status) => cmd_status(),
         Some(Command::Add { name }) => cmd_add(&name),
@@ -220,7 +256,7 @@ fn cmd_list() {
     if entries.is_empty() {
         println!(
             "{}",
-            dim("No MCPs registered. Run 'mux import' to scan existing configs.")
+            dim("No MCPs registered. Run 'mux detected' to inspect external configs.")
         );
         return;
     }
@@ -267,50 +303,318 @@ fn cmd_status() {
     }
 }
 
-fn cmd_import() {
-    println!("{}", bold("Scanning external MCP observations...\n"));
-    let candidates = match mux_core::application::assets::list_mcp_adoption_candidates() {
-        Ok(candidates) => candidates,
+fn cmd_detected(json: bool) {
+    let mcps = match mux_core::application::assets::list_mcp_adoption_candidates() {
+        Ok(value) => value,
         Err(error) => {
-            eprintln!("{}", red(&format!("import failed: {error}")));
+            eprintln!(
+                "{}",
+                red(&format!("failed to detect MCP configurations: {error}"))
+            );
             return;
         }
     };
-    let mut grouped = BTreeMap::<String, Vec<McpAdoptionCandidate>>::new();
-    for candidate in candidates {
-        grouped
-            .entry(candidate.asset_key.clone())
-            .or_default()
-            .push(candidate);
-    }
-    let mut imported = 0;
-    for (asset_key, candidates) in grouped {
-        let request = PlanMcpAdoptionRequest {
-            asset_key: asset_key.clone(),
-            agent_ids: candidates
-                .iter()
-                .map(|candidate| candidate.agent_id.clone())
-                .collect(),
-            candidate_fingerprints: candidates
-                .into_iter()
-                .map(|candidate| (candidate.agent_id, candidate.fingerprint))
-                .collect(),
-        };
-        match mux_core::application::assets::plan_mcp_adoption(request)
-            .and_then(commit_reviewed_asset_plan)
-        {
-            Ok(_) => imported += 1,
-            Err(error) => eprintln!("{}", red(&format!("  ✗ {asset_key}: {error}"))),
+    let models = match mux_core::application::assets::list_model_adoption_candidates() {
+        Ok(value) => value,
+        Err(error) => {
+            eprintln!(
+                "{}",
+                red(&format!("failed to detect Model configurations: {error}"))
+            );
+            return;
         }
+    };
+    let skills = match mux_core::application::skills::list_migration_candidates() {
+        Ok(value) => value
+            .into_iter()
+            .filter(is_external_skill)
+            .collect::<Vec<_>>(),
+        Err(error) => {
+            let parts = error.into_command_parts();
+            eprintln!(
+                "{}",
+                red(&format!(
+                    "failed to detect Skill configurations: {}",
+                    parts.message
+                ))
+            );
+            return;
+        }
+    };
+
+    if json {
+        let output = serde_json::json!({
+            "mcp": mcps,
+            "model": models,
+            "skill": skills,
+        });
+        match serde_json::to_string_pretty(&output) {
+            Ok(output) => println!("{output}"),
+            Err(error) => eprintln!("{}", red(&format!("failed to encode detections: {error}"))),
+        }
+        return;
     }
-    if imported == 0 {
-        println!("{}", dim("No safe MCP migration was available."));
-    } else {
+
+    println!("{}", bold("Detected external configurations"));
+    println!(
+        "{}",
+        dim("Read-only results. MUX changes nothing until you manage one exact item.")
+    );
+    println!("\n{}", bold(&format!("MCP ({})", mcps.len())));
+    for candidate in &mcps {
         println!(
-            "{}",
-            bold(&format!("\n{imported} central MCP asset(s) adopted."))
+            "  {}  {}  [{}]",
+            green(&candidate.asset_key),
+            dim(&format!("--agent {}", candidate.agent_id)),
+            mcp_status_label(&candidate.status),
         );
     }
+    println!("\n{}", bold(&format!("Models ({})", models.len())));
+    for candidate in &models {
+        println!(
+            "  {}  {} · {}  [{}]",
+            green(&candidate.candidate_id),
+            candidate.agent_id,
+            candidate.model,
+            model_status_label(&candidate.status),
+        );
+        if let Some(reason) = &candidate.reason {
+            println!("    {}", yellow(reason));
+        }
+    }
+    println!("\n{}", bold(&format!("Skills ({})", skills.len())));
+    for candidate in &skills {
+        println!(
+            "  {}  {}  {}",
+            green(&candidate.identity),
+            candidate.name,
+            dim(&format!("{} Agent(s)", candidate.affected_agent_ids.len())),
+        );
+    }
+    println!(
+        "\n{}",
+        dim("Manage one item: mux manage mcp <key> --agent <id> | model <candidate-id> | skill <identity>")
+    );
+}
+
+fn cmd_manage(resource: ManageResource) {
+    let plan = match plan_one_detected(resource) {
+        Ok(plan) => plan,
+        Err(error) => {
+            eprintln!("{}", red(&format!("cannot prepare item: {error}")));
+            return;
+        }
+    };
+
+    print_operation_review(&plan);
+    if let Some(reason) = blocked_management_reason(&plan) {
+        cancel_operation(&plan);
+        eprintln!("{}", yellow(reason));
+        println!("{}", dim("No changes made."));
+        return;
+    }
+    if !confirm_one_item() {
+        cancel_operation(&plan);
+        println!("{}", dim("No changes made."));
+        return;
+    }
+
+    match commit_reviewed_operation(plan) {
+        Ok(()) => println!("{}", green("✓ This item is now managed by MUX.")),
+        Err(error) => eprintln!("{}", red(&format!("failed to manage item: {error}"))),
+    }
+}
+
+fn blocked_management_reason(plan: &OperationPlan) -> Option<&'static str> {
+    match plan {
+        OperationPlan::Asset { plan } if !plan.can_commit => {
+            Some("This item has an unresolved conflict. Resolve it and detect again.")
+        }
+        OperationPlan::Asset { plan } if plan.requires_conflict_confirmation => {
+            Some("This item needs the richer Desktop conflict review.")
+        }
+        OperationPlan::Skill { plan } if plan.requires_risk_override => {
+            Some("This Skill needs the dedicated Desktop risk review.")
+        }
+        _ => None,
+    }
+}
+
+fn plan_one_detected(resource: ManageResource) -> Result<OperationPlan, String> {
+    match resource {
+        ManageResource::Mcp { key, agent } => {
+            let candidate = mux_core::application::assets::list_mcp_adoption_candidates()?
+                .into_iter()
+                .find(|candidate| candidate.asset_key == key && candidate.agent_id == agent)
+                .ok_or_else(|| {
+                    format!(
+                        "no current MCP detection matches {key} for {agent}; run `mux detected` again"
+                    )
+                })?;
+            MuxCore::plan(PlanOperationRequest::AdoptMcp(PlanMcpAdoptionRequest {
+                asset_key: candidate.asset_key,
+                agent_ids: vec![candidate.agent_id.clone()],
+                candidate_fingerprints: BTreeMap::from([(
+                    candidate.agent_id,
+                    candidate.fingerprint,
+                )]),
+            }))
+            .map_err(|error| error.to_string())
+        }
+        ManageResource::Model { candidate_id } => {
+            let candidate = mux_core::application::assets::list_model_adoption_candidates()?
+                .into_iter()
+                .find(|candidate| candidate.candidate_id == candidate_id)
+                .ok_or_else(|| {
+                    format!(
+                        "no current Model detection matches {candidate_id}; run `mux detected` again"
+                    )
+                })?;
+            MuxCore::plan(PlanOperationRequest::AdoptModel(PlanModelAdoptionRequest {
+                candidate_fingerprints: BTreeMap::from([(
+                    candidate.candidate_id,
+                    candidate.fingerprint,
+                )]),
+            }))
+            .map_err(|error| error.to_string())
+        }
+        ManageResource::Skill { identity } => {
+            let candidate = mux_core::application::skills::list_migration_candidates()
+                .map_err(|error| error.into_command_parts().message)?
+                .into_iter()
+                .filter(is_external_skill)
+                .find(|candidate| candidate.identity == identity)
+                .ok_or_else(|| {
+                    format!(
+                        "no current Skill detection matches {identity}; run `mux detected` again"
+                    )
+                })?;
+            MuxCore::plan(PlanOperationRequest::AdoptSkill(PlanImportRequest {
+                identity: candidate.identity,
+                agent_ids: candidate.affected_agent_ids,
+                replace_conflicts: false,
+            }))
+            .map_err(|error| error.to_string())
+        }
+    }
+}
+
+fn print_operation_review(plan: &OperationPlan) {
+    println!("\n{}", bold("Review one detected item"));
+    match plan {
+        OperationPlan::Asset { plan } => {
+            let domain = match &plan.domain_plan {
+                mux_core::application::assets::DomainPlan::Mcp { .. } => "MCP",
+                mux_core::application::assets::DomainPlan::Model { .. } => "Model",
+                mux_core::application::assets::DomainPlan::Skill { .. } => "Skill",
+                mux_core::application::assets::DomainPlan::AgentConfiguration { .. }
+                | mux_core::application::assets::DomainPlan::AgentCapabilities { .. } => {
+                    "Agent configuration"
+                }
+            };
+            println!("  domain:  {domain}");
+            println!("  Agents:  {}", plan.affected_agent_ids.join(", "));
+            println!("  targets: {}", plan.target_files.join(", "));
+            println!("  central changes: {}", plan.central_changes.len());
+            println!(
+                "  relationship changes: {}",
+                plan.relationship_changes.len()
+            );
+            for warning in &plan.warnings {
+                println!("  {}", yellow(&format!("warning: {warning}")));
+            }
+        }
+        OperationPlan::Skill { plan } => {
+            let agents = plan
+                .targets
+                .iter()
+                .flat_map(|target| target.affected_agent_ids.iter().cloned())
+                .collect::<BTreeSet<_>>();
+            println!("  domain:  Skill");
+            println!("  Skills:  {}", plan.skills.len());
+            println!(
+                "  Agents:  {}",
+                agents.into_iter().collect::<Vec<_>>().join(", ")
+            );
+            println!(
+                "  targets: {}",
+                plan.targets
+                    .iter()
+                    .map(|target| target.global_dir.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            );
+            for warning in &plan.warnings {
+                println!("  {}", yellow(&format!("warning: {warning}")));
+            }
+        }
+    }
+}
+
+fn confirm_one_item() -> bool {
+    matches!(
+        prompt("\nManage only this item with MUX? [y/N] ")
+            .to_ascii_lowercase()
+            .as_str(),
+        "y" | "yes"
+    )
+}
+
+fn commit_reviewed_operation(plan: OperationPlan) -> Result<(), String> {
+    match plan {
+        OperationPlan::Asset { plan } => commit_reviewed_asset_plan(*plan).map(|_| ()),
+        OperationPlan::Skill { plan } => {
+            match MuxCore::commit(CommitOperationRequest::Skill {
+                kind: SkillOperationKind::Import,
+                request: SkillCommitRequest {
+                    operation_id: plan.operation_id,
+                    candidate_hash: plan.candidate_hash,
+                    findings_confirmation: None,
+                },
+            })
+            .map_err(|error| error.to_string())?
+            {
+                OperationCommitResult::Skill { .. } => Ok(()),
+                OperationCommitResult::Asset { .. } => {
+                    Err("Core returned an asset result for a Skill commit".into())
+                }
+            }
+        }
+    }
+}
+
+fn cancel_operation(plan: &OperationPlan) {
+    let request = match plan {
+        OperationPlan::Asset { plan } => CancelOperationRequest::Asset {
+            operation_id: plan.operation_id.clone(),
+        },
+        OperationPlan::Skill { plan } => CancelOperationRequest::Skill {
+            operation_id: plan.operation_id.clone(),
+        },
+    };
+    let _ = MuxCore::cancel(request);
+}
+
+fn mcp_status_label(status: &McpAdoptionStatus) -> &'static str {
+    match status {
+        McpAdoptionStatus::Adoptable => "adoptable",
+        McpAdoptionStatus::Drifted => "drifted",
+        McpAdoptionStatus::External => "external",
+    }
+}
+
+fn model_status_label(status: &ModelAdoptionStatus) -> &'static str {
+    match status {
+        ModelAdoptionStatus::Adoptable => "adoptable",
+        ModelAdoptionStatus::NeedsCredential => "needs credential",
+        ModelAdoptionStatus::Unsupported => "unsupported",
+        ModelAdoptionStatus::Conflicted => "conflicted",
+    }
+}
+
+fn is_external_skill(candidate: &mux_core::application::skills::SkillInventoryItem) -> bool {
+    matches!(candidate.location, SkillLocation::AgentTarget { .. })
+        && candidate.states.contains(&InventoryState::External)
 }
 
 fn cmd_add(name: &str) {
@@ -706,5 +1010,39 @@ fn cmd_agents_set(name: &str, enabled: bool) {
             println!("{}", green(&format!("✓ {name} {verb}")));
         }
         Err(e) => eprintln!("{}", red(&format!("failed to save agents: {e}"))),
+    }
+}
+
+#[cfg(test)]
+mod command_tests {
+    use super::*;
+    use clap::Parser;
+
+    #[test]
+    fn bulk_import_command_is_removed() {
+        assert!(Cli::try_parse_from(["mux", "import"]).is_err());
+    }
+
+    #[test]
+    fn detected_covers_all_domains_and_supports_json() {
+        let cli = Cli::try_parse_from(["mux", "detected", "--json"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Some(Command::Detected { json: true })
+        ));
+    }
+
+    #[test]
+    fn manage_requires_one_exact_resource_identity() {
+        let cli =
+            Cli::try_parse_from(["mux", "manage", "mcp", "github::stdio", "--agent", "codex"])
+                .unwrap();
+        assert!(matches!(
+            cli.command,
+            Some(Command::Manage {
+                resource: ManageResource::Mcp { key, agent },
+            }) if key == "github::stdio" && agent == "codex"
+        ));
+        assert!(Cli::try_parse_from(["mux", "manage", "mcp"]).is_err());
     }
 }

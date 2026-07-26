@@ -2,15 +2,15 @@
 //! executes each on its own thread (so a slow network fetch never blocks input
 //! or other effects) and posts a result `Msg` back onto the loop's channel.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 use std::sync::mpsc::Sender;
 use std::thread;
 
 use mux_core::application::agents::list_infos;
 use mux_core::application::assets::{
     AssetCommitRequest, AssetOperationPlan, AssetRef, CentralAssetDraft, ConsumptionInventory,
-    PlanDeleteCentralAssetRequest, PlanMcpAdoptionRequest, PlanReapplyMcpRequest,
-    PlanSetMcpEnabledRequest, PlanUpdateAssetConsumersRequest, PlanUpdateCentralAssetRequest,
+    PlanDeleteCentralAssetRequest, PlanReapplyMcpRequest, PlanSetMcpEnabledRequest,
+    PlanUpdateAssetConsumersRequest, PlanUpdateCentralAssetRequest,
 };
 use mux_core::application::mcp::catalog::{read_registry, read_registry_all, user_override_keys};
 use mux_core::application::mcp::operations::{parse_pasted_entries, scan_installed, ResyncOutcome};
@@ -73,8 +73,6 @@ pub enum Effect {
     SetSourceEnabled { id: String, on: bool },
     /// Remove a source and its cache.
     RemoveSource { id: String },
-    /// Re-scan agents and register newly discovered servers.
-    ImportDiscovered,
     /// Create or edit an agent definition.
     PutAgent {
         id: String,
@@ -205,34 +203,6 @@ fn delete_entry_source(name: &str, transport: &str, source_id: &str) -> Result<(
             source_id: Some(source_id.to_string()),
         })?;
     commit_plan(plan, false).map(|_| ())
-}
-
-fn import_discovered() -> Result<usize, String> {
-    let candidates = mux_core::application::assets::list_mcp_adoption_candidates()?;
-    let mut grouped = BTreeMap::new();
-    for candidate in candidates {
-        grouped
-            .entry(candidate.asset_key.clone())
-            .or_insert_with(Vec::new)
-            .push(candidate);
-    }
-    let mut imported = 0;
-    for (asset_key, candidates) in grouped {
-        let plan = mux_core::application::assets::plan_mcp_adoption(PlanMcpAdoptionRequest {
-            asset_key,
-            agent_ids: candidates
-                .iter()
-                .map(|candidate| candidate.agent_id.clone())
-                .collect(),
-            candidate_fingerprints: candidates
-                .into_iter()
-                .map(|candidate| (candidate.agent_id, candidate.fingerprint))
-                .collect(),
-        })?;
-        commit_plan(plan, false)?;
-        imported += 1;
-    }
-    Ok(imported)
 }
 
 fn forget_entry(name: &str, transport: &str) -> Result<(), String> {
@@ -390,16 +360,6 @@ fn run_effect(eff: Effect) -> Msg {
         Effect::RemoveSource { id } => Msg::Mutated {
             label: "删除来源".into(),
             result: sources::remove(id),
-        },
-        Effect::ImportDiscovered => match import_discovered() {
-            Ok(n) => Msg::Mutated {
-                label: format!("探索到 {n} 个新 server"),
-                result: Ok(()),
-            },
-            Err(e) => Msg::Mutated {
-                label: "探索".into(),
-                result: Err(e),
-            },
         },
         Effect::PutAgent { id, def, overwrite } => Msg::Mutated {
             label: format!("保存 agent {id}"),

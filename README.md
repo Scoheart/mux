@@ -27,9 +27,12 @@ MUX ships as **two front-ends that share the same data** (`~/.mux/`):
   plus scriptable subcommands.
 
 Both frontends enter through the same revisioned workspace, capability graph,
-startup recovery, and plan/commit/cancel application boundary. Legacy CLI/TUI
-editing screens remain MCP-focused for compatibility, while `mux workspace`,
-`mux models`, `mux skills`, and `mux agents` expose the complete resource model.
+startup recovery, and plan/commit/cancel application boundary. External MCP,
+Model, and Skill detection and adoption now use the same explicit per-item
+contract in both frontends: `mux detected` is read-only, while `mux manage`
+reviews and confirms one exact candidate. Legacy CLI/TUI catalog editing screens
+remain MCP-focused for compatibility; Desktop remains the richer visual editor
+for central Model and Skill lifecycle operations.
 
 ---
 
@@ -42,9 +45,9 @@ MUX doesn't bundle a fixed server list. Its central MCP catalog is assembled fro
 | **订阅 (Subscribe)** | A **URL** to an MCP config file. MUX fetches + caches it; refresh re-pulls upstream. |
 | **本地 (Local)** | A config file **imported from disk** — copied into MUX; refresh re-reads the original. |
 | **手动添加 (Manual)** | Servers you create by hand or **paste** in — stored as a managed local source. |
-| **外部发现 (External)** | Servers already present in Agent files, scanned as read-only observed state. MUX detects them automatically and offers an explicit migration into central management. |
+| **外部发现 (External)** | Servers already present in Agent files, scanned as read-only observed state. MUX detects them automatically and offers explicit per-item management. |
 
-A one-click **Mux 精选 (curated collection)** subscribes you to a curated set. Managed sources can be toggled on/off; the Registry shows their effective union, while external observations remain read-only until an explicit import.
+A one-click **Mux 精选 (curated collection)** subscribes you to a curated source. Managed sources can be toggled on/off; the Registry shows their effective union, while external Agent observations remain read-only until the user reviews and manages one exact item. MUX never bulk-adopts detected Agent configurations.
 
 ## Features
 
@@ -53,7 +56,7 @@ A one-click **Mux 精选 (curated collection)** subscribes you to a curated set.
 - **Transport-aware** — `stdio` / `http` / `sse`, plus a **custom `type`** (e.g. `streamable-http`). Same-named stdio and http variants are tracked separately.
 - **Paste a config** — drop a `{"mcpServers": {…}}` block and MUX recognizes the servers and adds them.
 - **Desired vs. observed state** — Agent files and Skill links are scanned for `synced`, `pending`, `drifted`, `conflicted`, `unsupported`, and read-only `external` states; scans never silently create ownership.
-- **Historical configuration migration** — newly detected global MCPs, Model Profiles, and user-level Skills appear in a non-blocking migration inbox. Exact copies are deduplicated, original Agent relationships and disabled MCP state are preserved, and divergent same-name copies remain blocked for review.
+- **External configuration inbox** — newly detected global MCPs, Model Profiles, and user-level Skills appear in a non-blocking, read-only inbox. Every item has its own review and confirmation; there is no select-all or bulk adoption. Exact copies are deduplicated, original Agent relationships and disabled MCP state are preserved, and divergent same-name copies remain blocked for review.
 - **Reviewed propagation** — editing or deleting a central MCP or Model plans the central change together with every consumer. Drift replacement requires explicit confirmation, and unresolved conflicts prevent partial commits.
 - **Safe, local writes** — MUX reads and edits only fields it owns. Existing files are backed up, prepared, and verified as one recoverable transaction; unrelated keys, comments, formatting, policy fields, permissions, and symlinks are preserved.
 - **Unified Agent consumption center** — each Agent page shows only desired central assets under MCPs, Model, and Skills, with a central picker for relationship changes and a separate read-only external section.
@@ -127,7 +130,10 @@ paste catalog entries, and manage sources and agents. Press `?` for the keymap,
 Or drive it non-interactively with subcommands:
 
 ```bash
-mux import          # safely adopt compatible external MCP observations
+mux detected [--json] # read-only MCP / Model / Skill detection
+mux manage mcp <key> --agent <id>  # review and manage one MCP observation
+mux manage model <candidate-id>    # review and manage one Model observation
+mux manage skill <identity>        # review and manage one Skill observation
 mux list            # list catalog entries
 mux apply <names…>  # add central MCPs to Agent desired state (--agent)
 mux add <name>      # add a server to the manual source
@@ -179,10 +185,10 @@ Model API keys are not stored under `~/.mux/`; they remain in macOS Keychain.
 2. **Choose consumers** — from an Agent page, select compatible assets. MCPs and Skills are sets; supported multi-model Agents also keep a Model Profile set plus one independent current pointer.
 3. **Review one impact plan** — MUX shows central changes, relationship changes, target files, shared Skill-directory impact, drift, and conflicts before commit.
 4. **Commit and verify** — settings, Agent targets, and central lifecycle changes are applied as a recoverable transaction and rescanned before reporting success.
-5. **Migrate historical state explicitly** — MUX detects unmanaged global MCPs, Model Profiles, and user-level Skills without taking ownership. After one confirmation, each selected asset is imported and its original Agent relationships are adopted in one recoverable per-asset transaction.
+5. **Manage historical state explicitly, one item at a time** — MUX detects unmanaged global MCPs, Model Profiles, and user-level Skills without taking ownership. There is no select-all or automatic import: each item gets its own impact review and confirmation before one recoverable transaction.
 6. **Propagate central lifecycle changes** — updates reach every desired consumer; deletion clears all managed targets and relationships instead of leaving implicit orphan copies.
 
-Skills in this version are user-level only. Project-level Skills, private repositories, and Skill editing are not supported. The CLI can inspect managed Skills; lifecycle editing remains in Desktop while the compatibility TUI is MCP-focused.
+Skills in this version are user-level only. Project-level Skills, private repositories, and Skill editing are not supported. The CLI can inspect all resource domains and explicitly adopt one detected MCP, Model, or Skill at a time; central Model and Skill authoring remains in Desktop while the compatibility TUI is MCP-focused.
 
 ## Development
 

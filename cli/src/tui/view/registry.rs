@@ -59,7 +59,7 @@ fn render_catalog(model: &Model, f: &mut Frame, area: Rect) {
 
     if entries.is_empty() {
         let msg = if model.data.registry.is_empty() {
-            "目录为空。到「来源」订阅或导入，或用 mux import 探索现有配置。"
+            "目录为空。到「来源」订阅或导入；用 mux detected 查看外部配置。"
         } else {
             "没有匹配的条目。"
         };

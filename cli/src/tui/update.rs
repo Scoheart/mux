@@ -413,14 +413,16 @@ fn toggle_source(model: &mut Model) -> Vec<Effect> {
     }]
 }
 
-/// `r`: refresh a remote/local source, or re-scan for the managed discovered one.
+/// `r`: refresh a remote/local source, or re-scan the managed discovered source
+/// without importing anything.
 fn refresh_source(model: &mut Model) -> Vec<Effect> {
     let Some(s) = current_source(model) else {
         return vec![];
     };
     if s.managed {
         if s.id == "discovered" {
-            return vec![Effect::ImportDiscovered];
+            model.status = Some("已重新识别外部配置；未自动导入".into());
+            return vec![Effect::LoadAll];
         }
         model.status = Some("手动来源无需刷新".into());
         return vec![];
@@ -1385,7 +1387,7 @@ mod tests {
     }
 
     #[test]
-    fn discovered_refresh_triggers_import() {
+    fn discovered_refresh_only_reloads_detection() {
         let mut m = Model::new();
         m.screen = Screen::Sources;
         update(
@@ -1393,7 +1395,8 @@ mod tests {
             loaded_sources(vec![source("discovered", true, true)]),
         );
         let eff = update(&mut m, key('r'));
-        assert!(matches!(&eff[0], Effect::ImportDiscovered));
+        assert!(matches!(&eff[0], Effect::LoadAll));
+        assert_eq!(m.status.as_deref(), Some("已重新识别外部配置；未自动导入"));
     }
 
     #[test]

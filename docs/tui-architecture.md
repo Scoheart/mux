@@ -182,7 +182,6 @@ enum Effect {
     UpsertEntry(RegistryEntry),
     DeleteEntry { name: String, transport: String },
     ImportPaste(String),
-    ImportDiscovered,
     Install(InstallRequest), Uninstall(InstallRequest),
     Enable(InstallRequest), Disable(InstallRequest), Delete(InstallRequest),
     PutAgent { id: String, def: AgentDefinition, overwrite: bool },
@@ -325,12 +324,12 @@ editor, and a modal stack. Every desktop capability maps to one of these.
   remote → local → managed(manual/discovered). Each: name, kind badge, server
   count, enabled indicator, location (url/path/description), error line.
 - **Keys**: `↑↓` move · `Space`/`Enter` toggle enabled (`SetSourceEnabled`) ·
-  `r` refresh (`RefreshSource`, or `ImportDiscovered` for the discovered managed
-  source; manual has none) · `d` → Confirm(remove) for non-managed
+  `r` refresh (`RefreshSource`, or read-only `LoadAll` re-detection for the
+  discovered managed source; manual has none) · `d` → Confirm(remove) for non-managed
   (`RemoveSource`) · `s` → Subscribe modal · `l` → AddLocal modal · `o` subscribe
   official (Subscribe prefilled with the GitHub raw URL).
 - **Managed rules**: `manual`/`discovered` hide delete; `manual` hides refresh;
-  `discovered` refresh = re-scan.
+  `discovered` refresh = re-scan only. It never adopts detected Agent state.
 
 ### 8.3 Agents (`3`) — per-agent install manager
 

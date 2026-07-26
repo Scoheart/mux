@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import * as api from "../lib/api";
@@ -76,7 +76,7 @@ const candidates: MigrationCandidate[] = [
 ];
 
 describe("MigrationDialog", () => {
-  it("imports each selected asset through the unified transaction wire", async () => {
+  it("reviews and commits MCP, Model, and Skill candidates one at a time", async () => {
     const modelPlan = {
       ...basePlan,
       operation_id: "model-operation",
@@ -108,9 +108,31 @@ describe("MigrationDialog", () => {
     const onRefresh = vi.fn().mockResolvedValue(undefined);
 
     render(<MigrationDialog candidates={candidates} onClose={vi.fn()} onRefresh={onRefresh} />);
-    await userEvent.click(screen.getByRole("button", { name: "导入 3 项" }));
+    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+    expect(screen.queryByText(/导入 3 项|全选/)).not.toBeInTheDocument();
 
-    await waitFor(() => expect(onRefresh).toHaveBeenCalledOnce());
+    await userEvent.click(within(
+      screen.getByRole("region", { name: "Model 外部配置" }),
+    ).getByRole("button", { name: "让 MUX 管理" }));
+    expect(await screen.findByRole("heading", { name: "确认让 MUX 管理 HY3" })).toBeVisible();
+    expect(api.commitOperation).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole("button", { name: "确认让 MUX 管理" }));
+
+    await waitFor(() => expect(onRefresh).toHaveBeenCalledTimes(1));
+    await userEvent.click(within(
+      screen.getByRole("region", { name: "MCP 外部配置" }),
+    ).getByRole("button", { name: "让 MUX 管理" }));
+    expect(await screen.findByRole("heading", { name: "确认让 MUX 管理 github" })).toBeVisible();
+    await userEvent.click(screen.getByRole("button", { name: "确认让 MUX 管理" }));
+
+    await waitFor(() => expect(onRefresh).toHaveBeenCalledTimes(2));
+    await userEvent.click(within(
+      screen.getByRole("region", { name: "Skill 外部配置" }),
+    ).getByRole("button", { name: "让 MUX 管理" }));
+    expect(await screen.findByRole("heading", { name: "确认让 MUX 管理 review" })).toBeVisible();
+    await userEvent.click(screen.getByRole("button", { name: "确认让 MUX 管理" }));
+
+    await waitFor(() => expect(onRefresh).toHaveBeenCalledTimes(3));
     expect(api.planOperation).toHaveBeenCalledWith({
       operation: "adopt_mcp",
       request: {
@@ -142,11 +164,10 @@ describe("MigrationDialog", () => {
         findings_confirmation: null,
       },
     });
-    expect(screen.getByText("成功 3 项，失败 0 项")).toBeVisible();
-    expect(screen.getByRole("button", { name: "导入 0 项" })).toBeDisabled();
+    expect(screen.getByText("已管理 3 项，失败 0 项")).toBeVisible();
   });
 
-  it("keeps conflicts disabled and unselected", () => {
+  it("keeps conflicts visible but unavailable for management", () => {
     const conflict: MigrationCandidate = {
       ...candidates[0],
       id: "mcp:conflict::stdio",
@@ -155,27 +176,21 @@ describe("MigrationDialog", () => {
       conflictReason: "同名 MCP 的连接配置不一致",
     };
     render(<MigrationDialog candidates={[conflict]} onClose={vi.fn()} onRefresh={vi.fn()} />);
-    expect(screen.getByRole("checkbox")).toBeDisabled();
-    expect(screen.getByRole("button", { name: "导入 0 项" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "全选 Model" })).toBeDisabled();
+    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "需先处理" })).toBeDisabled();
   });
 
-  it("supports selecting and clearing each safe domain as a group", async () => {
+  it("explains read-only detection and has no bulk selection affordance", () => {
     render(<MigrationDialog candidates={candidates} onClose={vi.fn()} onRefresh={vi.fn()} />);
 
-    expect(screen.getByRole("heading", { name: "导入旧配置" })).toBeVisible();
-    expect(screen.getByText("共 3 项 · 3 项可导入 · 0 项需先处理")).toBeVisible();
+    expect(screen.getByRole("heading", { name: "已识别的外部配置" })).toBeVisible();
+    expect(screen.getByText("共 3 项 · 3 项可逐项管理 · 0 项需先处理")).toBeVisible();
     expect(screen.getByText(
-      "选择要整理到 MUX 的旧配置；原 Agent 的权限和登录状态不会改变。",
+      "MUX 只识别这些 Agent 配置，不会自动导入。请检查每一项，并单独决定是否交给 MUX 管理。",
     )).toBeVisible();
-    expect(screen.getByRole("button", { name: "关闭" })).toBeEnabled();
-
-    await userEvent.click(screen.getByRole("button", { name: "取消全选 MCP" }));
-    expect(screen.getByRole("button", { name: "导入 2 项" })).toBeEnabled();
-    expect(screen.getByRole("button", { name: "全选 MCP" })).toBeEnabled();
-
-    await userEvent.click(screen.getByRole("button", { name: "全选 MCP" }));
-    expect(screen.getByRole("button", { name: "导入 3 项" })).toBeEnabled();
+    expect(screen.getAllByRole("button", { name: "关闭" })).toHaveLength(2);
+    expect(screen.getAllByRole("button", { name: "让 MUX 管理" })).toHaveLength(3);
+    expect(screen.queryByText(/全选|导入 3 项/)).not.toBeInTheDocument();
   });
 
   it("stops and cancels when a Skill becomes high risk after review", async () => {
@@ -196,7 +211,7 @@ describe("MigrationDialog", () => {
     vi.mocked(api.cancelOperation).mockResolvedValue(undefined);
 
     render(<MigrationDialog candidates={[candidates[2]]} onClose={vi.fn()} onRefresh={vi.fn().mockResolvedValue(undefined)} />);
-    await userEvent.click(screen.getByRole("button", { name: "导入 1 项" }));
+    await userEvent.click(screen.getByRole("button", { name: "让 MUX 管理" }));
 
     await waitFor(() => expect(api.cancelOperation).toHaveBeenCalledWith({
       domain: "skill",

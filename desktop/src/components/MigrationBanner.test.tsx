@@ -35,10 +35,10 @@ it("shows readable copy, domain counts, and clear primary and secondary actions"
     />,
   );
 
-  expect(screen.getByRole("status", { name: "旧配置导入提醒" })).toBeVisible();
-  expect(screen.getByText("发现 4 项可导入的旧配置")).toBeVisible();
-  expect(screen.getByText("整理到 MUX，后续可以统一查看和管理。")).toBeVisible();
-  expect(screen.getByRole("list", { name: "待导入配置分类" })).toHaveTextContent(
+  expect(screen.getByRole("status", { name: "外部配置识别提醒" })).toBeVisible();
+  expect(screen.getByText("发现 4 项外部配置")).toBeVisible();
+  expect(screen.getByText("MUX 只负责识别；请逐项确认是否交给 MUX 管理。")).toBeVisible();
+  expect(screen.getByRole("list", { name: "外部配置分类" })).toHaveTextContent(
     "MCP 2Model 1Skill 1",
   );
 

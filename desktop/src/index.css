@@ -1599,20 +1599,11 @@ body {
 }
 .mux-migration-section > header strong { color: var(--text-primary); font-size: 11px; }
 .mux-migration-section > header span { display: inline-flex; min-width: 18px; height: 18px; align-items: center; justify-content: center; padding: 0 5px; border-radius: 9px; background: var(--surface-control); font-size: 9px; }
-.mux-migration-section > header button {
-  margin-left: auto; padding: 5px 7px; border: 0; border-radius: 6px; background: transparent;
-  color: var(--color-blue); font: 600 9px/1 var(--font-sans); cursor: pointer;
-}
-.mux-migration-section > header button:hover:not(:disabled) { background: color-mix(in srgb, var(--color-blue) 9%, transparent); }
-.mux-migration-section > header button:disabled { color: var(--text-tertiary); cursor: default; }
 .mux-migration-section > ul { display: grid; margin: 0; padding: 0; gap: 6px; list-style: none; }
 .mux-migration-section > ul > li { display: grid; min-width: 0; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 10px; padding: 10px 12px; border: 0; border-radius: var(--radius-row); background: var(--surface-item); }
 .mux-migration-section > ul > li[data-conflict="true"] { background: var(--surface-attention); opacity: .82; }
 .mux-migration-section > ul > li[data-result="success"] { background: var(--surface-success); }
 .mux-migration-section > ul > li[data-result="error"] { background: color-mix(in srgb, var(--color-red) 9%, var(--surface-raised)); }
-.mux-migration-section label { display: flex; min-width: 0; align-items: flex-start; gap: 9px; cursor: pointer; }
-.mux-migration-section label:has(input:disabled) { cursor: default; }
-.mux-migration-section input { margin-top: 3px; accent-color: var(--color-blue); }
 .mux-migration-copy { display: block; min-width: 0; }
 .mux-migration-copy strong,
 .mux-migration-copy small,
@@ -1627,7 +1618,18 @@ body {
 .mux-migration-agents > span:first-child { margin-left: 0; }
 .mux-migration-agents > small { margin-left: 4px; color: var(--text-secondary); font-size: 9px; }
 .mux-migration-check { color: #34c759; }
+.mux-migration-manage { min-width: 92px; white-space: nowrap; }
 .mux-migration-summary { color: var(--text-secondary); font-size: 10px; }
+.mux-migration-review { display: grid; gap: 12px; }
+.mux-migration-review dl { display: grid; margin: 0; border-radius: var(--radius-row); background: var(--surface-section); }
+.mux-migration-review dl > div { display: grid; grid-template-columns: 90px minmax(0, 1fr); gap: 12px; padding: 10px 12px; border-bottom: 1px solid var(--border-subtle); }
+.mux-migration-review dl > div:last-child { border-bottom: 0; }
+.mux-migration-review dt { color: var(--text-secondary); font-size: 9px; }
+.mux-migration-review dd { min-width: 0; margin: 0; overflow-wrap: anywhere; color: var(--text-primary); font-size: 10px; line-height: 1.45; }
+.mux-migration-review-warnings,
+.mux-migration-review-blocked { margin: 0; padding: 10px 12px; border-radius: var(--radius-row); background: var(--surface-attention); color: var(--color-brand-gold); font-size: 10px; line-height: 1.5; }
+.mux-migration-review-warnings strong { color: var(--text-primary); }
+.mux-migration-review-warnings ul { margin: 6px 0 0; padding-left: 18px; }
 .mux-migration-empty { display: grid; min-height: 170px; place-content: center; justify-items: center; gap: 7px; color: #34c759; text-align: center; }
 .mux-migration-empty strong { color: var(--text-primary); font-size: 12px; }
 .mux-migration-empty span { color: var(--text-secondary); font-size: 10px; }

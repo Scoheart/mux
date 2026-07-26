@@ -1,11 +1,11 @@
 //! Managed Skill use cases.
 
 pub use crate::resources::skill::{
-    GithubEndpoints, OperationPlan, PlanAssignmentRequest, PlanImportRequest, PlanRemoveRequest,
-    PlanRepairRequest, PlanSkillAssetImportRequest, PlanSkillAssetInstallRequest,
-    PlanUpdateRequest, SkillAgentView, SkillCommitRequest, SkillDetail, SkillError,
-    SkillInventoryItem, SkillLocation, SkillOperationKind, SkillSourceInput, SkillSourceResolution,
-    SkillsInventory, UpdateCheckOutcome,
+    GithubEndpoints, InventoryState, OperationPlan, PlanAssignmentRequest, PlanImportRequest,
+    PlanRemoveRequest, PlanRepairRequest, PlanSkillAssetImportRequest,
+    PlanSkillAssetInstallRequest, PlanUpdateRequest, SkillAgentView, SkillCommitRequest,
+    SkillDetail, SkillError, SkillInventoryItem, SkillLocation, SkillOperationKind,
+    SkillSourceInput, SkillSourceResolution, SkillsInventory, UpdateCheckOutcome,
 };
 
 pub fn list_inventory() -> Result<SkillsInventory, SkillError> {

@@ -51,7 +51,7 @@ TUI 有三个屏幕，顶部用数字键切换：
 | 键 | 作用 |
 |---|---|
 | `Space`/`Enter` | 启停选中来源 |
-| `r` | 刷新来源 |
+| `r` | 刷新来源；“外部发现”只重新识别，不自动导入 |
 | `s` | 订阅一个 URL |
 | `l` | 导入本地文件 |
 | `o` | 添加 Mux 精选 |
@@ -73,7 +73,10 @@ TUI 有三个屏幕，顶部用数字键切换：
 在脚本里用时，设 `MUX_NO_TUI=1` 让无参数运行时打印帮助而不进 TUI。
 
 ```bash
-mux import                       # 扫描各 agent，导入探测到的 server
+mux detected [--json]            # 只读识别 MCP、Model、Skill 外部配置
+mux manage mcp <key> --agent <id> # 审查并纳管一个 MCP
+mux manage model <候选ID>         # 审查并纳管一个 Model
+mux manage skill <identity>       # 审查并纳管一个 Skill
 mux list                         # 列出目录里的条目
 mux status                       # 各 agent 当前生效的 MCP
 mux add <名字>                   # 交互式添加一个 server 到手动来源
@@ -84,8 +87,13 @@ mux clean [--agent <名字>]       # 清空（已启用）agent 的 MCP
 mux agents                       # 列出所有 agent
 mux agents enable <名字>         # 启用一个 agent
 mux agents disable <名字>        # 停用一个 agent
+mux workspace [--json]           # 查看统一 MCP / Model / Skill 工作区
+mux models                       # 列出中央 Model Profiles
+mux skills                       # 列出中央 Skills
 mux upgrade                      # 升级独立安装的 CLI
 ```
+
+`mux detected` 永远只读。`mux manage` 必须指定一个准确候选，显示影响范围并再次确认；CLI 不提供批量接管外部 Agent 配置的命令。
 
 ### `mux apply` 的参数
 

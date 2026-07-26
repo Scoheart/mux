@@ -51,7 +51,7 @@ The TUI has three screens, switched with number keys at the top:
 | Key | Action |
 |---|---|
 | `Space`/`Enter` | Enable/disable the selected source |
-| `r` | Refresh a source |
+| `r` | Refresh a source; External discovery only re-detects and never imports |
 | `s` | Subscribe to a URL |
 | `l` | Import a local file |
 | `o` | Add the Mux curated collection |
@@ -73,7 +73,10 @@ The TUI has three screens, switched with number keys at the top:
 When used in scripts, set `MUX_NO_TUI=1` so running with no arguments prints help instead of entering the TUI.
 
 ```bash
-mux import                       # scan each agent and import detected servers
+mux detected [--json]            # read-only MCP, Model, and Skill detection
+mux manage mcp <key> --agent <id> # review and manage one MCP
+mux manage model <candidate-id>   # review and manage one Model
+mux manage skill <identity>       # review and manage one Skill
 mux list                         # list the entries in the catalog
 mux status                       # the MCP servers currently active per agent
 mux add <name>                   # interactively add a server to the manual source
@@ -84,8 +87,13 @@ mux clean [--agent <name>]       # clear the MCP servers of (enabled) agents
 mux agents                       # list all agents
 mux agents enable <name>         # enable an agent
 mux agents disable <name>        # disable an agent
+mux workspace [--json]           # inspect the unified MCP / Model / Skill workspace
+mux models                       # list central Model Profiles
+mux skills                       # list central Skills
 mux upgrade                      # upgrade a standalone CLI install
 ```
+
+`mux detected` is always read-only. `mux manage` requires one exact candidate, prints its impact, and asks for confirmation; the CLI has no bulk-adoption command for external Agent configurations.
 
 ### Arguments for `mux apply`
 

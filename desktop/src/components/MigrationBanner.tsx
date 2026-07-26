@@ -23,15 +23,15 @@ export function MigrationBanner({
     <aside
       className="mux-migration-banner"
       role="status"
-      aria-label="旧配置导入提醒"
+      aria-label="外部配置识别提醒"
     >
       <span className="mux-migration-banner-icon" aria-hidden="true">
         <LayersIcon className="w-4 h-4" />
       </span>
       <div className="mux-migration-banner-content">
-        <strong>发现 {candidates.length} 项可导入的旧配置</strong>
-        <p>整理到 MUX，后续可以统一查看和管理。</p>
-        <ul aria-label="待导入配置分类">
+        <strong>发现 {candidates.length} 项外部配置</strong>
+        <p>MUX 只负责识别；请逐项确认是否交给 MUX 管理。</p>
+        <ul aria-label="外部配置分类">
           {domains
             .filter(([, count]) => count > 0)
             .map(([label, count]) => (

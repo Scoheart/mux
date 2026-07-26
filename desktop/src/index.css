@@ -678,7 +678,6 @@ body {
 .mux-resource-card-fact {
   min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-secondary);
 }
-.mux-model-card { min-height: 158px; align-content: start; }
 .mux-model-provider-banner {
   display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 12px;
   margin: 0 6px 10px; padding: 2px 2px 10px; border-bottom: 1px solid var(--border-subtle);
@@ -691,43 +690,50 @@ body {
   min-width: 0; overflow: hidden; color: var(--text-primary); font-size: 13px;
   text-overflow: ellipsis; white-space: nowrap;
 }
-.mux-model-card-subtitle {
-  display: flex; min-width: 0; align-items: center; gap: 6px; margin-top: 5px;
+.mux-model-list {
+  width: min(100%, 1280px); margin: 6px auto; overflow: hidden;
+  border-radius: var(--radius-region); background: var(--surface-section);
 }
-.mux-model-card-subtitle .mux-resource-card-code { min-width: 0; flex: 1; margin-top: 0; }
-.mux-model-card-provider,
-.mux-model-card-protocol,
-.mux-model-card-source,
-.mux-model-card-metric,
-.mux-model-card-capability {
-  display: inline-flex; min-width: 0; align-items: center; border-radius: 999px;
-  white-space: nowrap;
+.mux-model-list-header,
+.mux-model-list-row {
+  display: grid; min-width: 0;
+  grid-template-columns: minmax(220px, 2.1fr) minmax(120px, 1fr) minmax(142px, .9fr) minmax(76px, .55fr) minmax(108px, .7fr);
+  align-items: center; gap: 10px;
 }
-.mux-model-card-provider {
-  max-width: 44%; flex: 0 1 auto; padding: 2px 6px; overflow: hidden;
-  background: var(--color-gray-150); color: var(--text-secondary);
-  font-size: 8px; line-height: 1.2; text-overflow: ellipsis;
+.mux-model-list-header {
+  min-height: 38px; padding: 0 13px; color: var(--text-tertiary);
+  font-size: 9px; font-weight: 680; text-transform: uppercase;
 }
-.mux-model-card-description {
-  display: -webkit-box; margin: 0; overflow: hidden; color: var(--text-secondary);
-  font-size: 9px; line-height: 1.45; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
+.mux-model-list > [role="listitem"] { margin: 0 6px 6px; }
+.mux-model-list-row {
+  width: 100%; min-height: 62px; padding: 8px 7px; border: 0; border-radius: var(--radius-row);
+  background: var(--surface-asset); color: var(--text-primary); font: 10px/1.3 var(--font-sans);
+  text-align: left; cursor: pointer; transition: background-color .12s ease;
 }
-.mux-model-card-metric,
-.mux-model-card-capability {
-  padding: 3px 6px; background: var(--color-gray-150); color: var(--text-secondary);
-  font-size: 8px; line-height: 1.2;
+.mux-model-list-row:hover { background: color-mix(in srgb, var(--surface-selected) 38%, var(--surface-asset)); }
+.mux-model-list-row[data-selected="true"] { background: var(--surface-selected); }
+.mux-model-list-row:focus-visible { outline: 2px solid color-mix(in srgb, var(--color-blue) 58%, transparent); outline-offset: 1px; }
+.mux-model-list-identity { display: flex; min-width: 0; align-items: center; gap: 9px; }
+.mux-model-list-identity > span:last-child { display: block; min-width: 0; }
+.mux-model-list-identity strong,
+.mux-model-list-identity code { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mux-model-list-identity strong { color: var(--text-primary); font-size: 12px; font-weight: 690; }
+.mux-model-list-identity code { margin-top: 4px; color: var(--text-secondary); font: 9px/1.25 var(--font-mono); }
+.mux-model-list-provider { min-width: 0; overflow: hidden; color: var(--text-primary); font-weight: 640; text-overflow: ellipsis; white-space: nowrap; }
+.mux-model-list-protocol {
+  display: inline-flex; width: fit-content; max-width: 100%; min-width: 0; align-items: center;
+  padding: 4px 7px; overflow: hidden; border-radius: 5px; background: var(--surface-control);
+  color: var(--text-secondary); font-size: 8px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap;
 }
-.mux-model-card-capability {
-  background: color-mix(in srgb, var(--color-blue) 9%, var(--surface-raised)); color: var(--color-blue);
+.mux-model-list-context { color: var(--text-secondary); font: 9px/1.2 var(--font-mono); }
+@container resource-stage (max-width: 780px) {
+  .mux-model-list-header,
+  .mux-model-list-row { grid-template-columns: minmax(210px, 2fr) minmax(120px, 1fr) minmax(132px, .9fr); }
+  .mux-model-list-header > :nth-child(4),
+  .mux-model-list-header > :nth-child(5),
+  .mux-model-list-context,
+  .mux-model-list-row > :nth-child(5) { display: none; }
 }
-.mux-model-card-footer-line {
-  display: flex; width: 100%; min-width: 0; align-items: center; justify-content: space-between; gap: 7px;
-}
-.mux-model-card-protocol {
-  min-width: 0; padding: 3px 7px; overflow: hidden; background: var(--color-gray-150);
-  color: var(--text-secondary); font-size: 8px; line-height: 1.2; text-overflow: ellipsis;
-}
-.mux-model-card-source { flex: 0 0 auto; color: var(--text-secondary); font-size: 8px; line-height: 1.2; }
 .mux-resource-card-footer {
   display: flex; align-items: center; justify-content: space-between; gap: 8px;
   min-height: 35px; margin-top: auto; padding-top: 9px; border: 0;
@@ -1256,6 +1262,36 @@ body {
 }
 
 /* Models */
+.mux-provider-catalog { display: grid; min-height: 0; padding: 2px; overflow-y: auto; gap: 13px; }
+.mux-provider-catalog-categories { display: flex; flex-wrap: wrap; gap: 5px; }
+.mux-provider-catalog-categories > button {
+  min-height: 28px; padding: 0 9px; border: 1px solid var(--border-hairline); border-radius: 6px;
+  background: var(--surface-raised); color: var(--text-secondary); font: 650 9px/1 var(--font-sans); cursor: pointer;
+}
+.mux-provider-catalog-categories > button[data-active="true"] { border-color: color-mix(in srgb, var(--color-blue) 42%, var(--border-hairline)); background: var(--surface-selected); color: var(--color-blue); }
+.mux-provider-catalog-categories > button:focus-visible { outline: 2px solid color-mix(in srgb, var(--color-blue) 52%, transparent); outline-offset: 1px; }
+.mux-provider-catalog-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.mux-provider-catalog-item {
+  position: relative; display: grid; min-width: 0; min-height: 90px;
+  grid-template-columns: 30px minmax(0, 1fr); align-items: start; gap: 9px; padding: 11px;
+  border: 1px solid var(--border-hairline); border-radius: var(--radius-row);
+  background: var(--surface-raised); color: var(--text-primary); text-align: left; cursor: pointer;
+}
+.mux-provider-catalog-item:hover { background: color-mix(in srgb, var(--surface-selected) 35%, var(--surface-raised)); }
+.mux-provider-catalog-item[data-selected="true"] { border-color: var(--color-blue); background: color-mix(in srgb, var(--surface-selected) 58%, var(--surface-raised)); box-shadow: inset 0 0 0 1px var(--color-blue); }
+.mux-provider-catalog-item:focus-visible { outline: 2px solid color-mix(in srgb, var(--color-blue) 58%, transparent); outline-offset: 1px; }
+.mux-provider-catalog-icon { display: inline-flex; width: 30px; height: 30px; align-items: center; justify-content: center; border-radius: 7px; background: var(--surface-control); color: var(--color-blue); }
+.mux-provider-catalog-copy { display: block; min-width: 0; }
+.mux-provider-catalog-copy strong,
+.mux-provider-catalog-copy small,
+.mux-provider-catalog-copy code { display: block; min-width: 0; }
+.mux-provider-catalog-copy strong { overflow: hidden; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.mux-provider-catalog-copy small { margin-top: 2px; color: var(--text-secondary); font-size: 8px; }
+.mux-provider-catalog-copy code { margin-top: 11px; overflow: hidden; color: var(--text-secondary); font: 8px/1.25 var(--font-mono); text-overflow: ellipsis; white-space: nowrap; }
+.mux-provider-catalog-check { position: absolute; top: 8px; right: 8px; display: none; width: 17px; height: 17px; align-items: center; justify-content: center; border-radius: 50%; background: var(--color-blue); color: white; font-size: 9px; }
+.mux-provider-catalog-item[data-selected="true"] .mux-provider-catalog-check { display: inline-flex; }
+.mux-provider-catalog-empty { display: grid; min-height: 150px; place-content: center; color: var(--text-secondary); font-size: 10px; }
+@media (max-width: 700px) { .mux-provider-catalog-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .mux-model-protocol-dot { width: 9px; height: 9px; flex: 0 0 auto; border-radius: 50%; background: #8E8E93; }
 .mux-model-protocol-dot[data-protocol="anthropic-messages"] { background: #D97757; }
 .mux-model-protocol-dot[data-protocol="openai-responses"] { background: #10A37F; }

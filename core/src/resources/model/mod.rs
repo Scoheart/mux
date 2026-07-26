@@ -66,6 +66,7 @@ pub struct ModelProviderView {
     pub id: &'static str,
     pub name: &'static str,
     pub default_base_url: Option<&'static str>,
+    pub category: &'static str,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -81,66 +82,121 @@ const MODEL_PROVIDERS: &[ModelProviderView] = &[
         id: "openrouter",
         name: "OpenRouter",
         default_base_url: Some("https://openrouter.ai/api/v1"),
+        category: "gateway",
     },
     ModelProviderView {
         id: "anthropic",
         name: "Anthropic",
         default_base_url: Some("https://api.anthropic.com"),
+        category: "official",
     },
     ModelProviderView {
         id: "openai",
         name: "OpenAI",
         default_base_url: Some("https://api.openai.com/v1"),
+        category: "official",
     },
     ModelProviderView {
         id: "google",
-        name: "Google",
+        name: "Google AI Studio",
         default_base_url: Some("https://generativelanguage.googleapis.com/v1beta/openai"),
+        category: "official",
     },
     ModelProviderView {
         id: "xai",
         name: "xAI",
         default_base_url: Some("https://api.x.ai/v1"),
+        category: "official",
     },
     ModelProviderView {
         id: "mistral",
         name: "Mistral AI",
         default_base_url: Some("https://api.mistral.ai/v1"),
+        category: "official",
     },
     ModelProviderView {
         id: "cohere",
         name: "Cohere",
         default_base_url: Some("https://api.cohere.ai/compatibility/v1"),
+        category: "official",
     },
     ModelProviderView {
         id: "deepseek",
         name: "DeepSeek",
         default_base_url: Some("https://api.deepseek.com"),
+        category: "official",
     },
     ModelProviderView {
         id: "groq",
         name: "Groq",
         default_base_url: Some("https://api.groq.com/openai/v1"),
+        category: "official",
     },
     ModelProviderView {
         id: "alibaba",
         name: "Alibaba Cloud",
         default_base_url: Some("https://dashscope.aliyuncs.com/compatible-mode/v1"),
+        category: "official",
     },
     ModelProviderView {
         id: "xiaomi",
         name: "Xiaomi MiMo",
         default_base_url: Some("https://api.xiaomimimo.com/v1"),
+        category: "official",
+    },
+    ModelProviderView {
+        id: "siliconflow",
+        name: "SiliconFlow",
+        default_base_url: Some("https://api.siliconflow.com/v1"),
+        category: "gateway",
+    },
+    ModelProviderView {
+        id: "together",
+        name: "Together AI",
+        default_base_url: Some("https://api.together.xyz/v1"),
+        category: "gateway",
+    },
+    ModelProviderView {
+        id: "fireworks",
+        name: "Fireworks AI",
+        default_base_url: Some("https://api.fireworks.ai/inference/v1"),
+        category: "gateway",
+    },
+    ModelProviderView {
+        id: "cerebras",
+        name: "Cerebras",
+        default_base_url: Some("https://api.cerebras.ai/v1"),
+        category: "official",
+    },
+    ModelProviderView {
+        id: "ollama",
+        name: "Ollama",
+        default_base_url: Some("http://localhost:11434/v1"),
+        category: "local",
+    },
+    ModelProviderView {
+        id: "lm-studio",
+        name: "LM Studio",
+        default_base_url: Some("http://localhost:1234/v1"),
+        category: "local",
+    },
+    ModelProviderView {
+        id: "vllm",
+        name: "vLLM",
+        default_base_url: Some("http://localhost:8000/v1"),
+        category: "local",
     },
     ModelProviderView {
         id: "local",
-        name: "Local",
+        name: "Local endpoint",
         default_base_url: None,
+        category: "local",
     },
     ModelProviderView {
         id: "custom",
         name: "Custom Provider",
         default_base_url: None,
+        category: "custom",
     },
 ];
 
@@ -254,12 +310,24 @@ pub fn infer_provider(base_url: &str) -> String {
         "api.cohere.ai" => "cohere",
         "api.deepseek.com" => "deepseek",
         "api.groq.com" => "groq",
+        "api.siliconflow.cn" | "api.siliconflow.com" => "siliconflow",
+        "api.together.xyz" => "together",
+        "api.fireworks.ai" => "fireworks",
+        "api.cerebras.ai" => "cerebras",
         "dashscope.aliyuncs.com" => "alibaba",
         "api.xiaomimimo.com"
         | "token-plan-cn.xiaomimimo.com"
         | "token-plan-sgp.xiaomimimo.com"
         | "token-plan-ams.xiaomimimo.com" => "xiaomi",
-        "localhost" | "127.0.0.1" | "::1" => "local",
+        "localhost" | "127.0.0.1" | "::1" => match url::Url::parse(base_url)
+            .ok()
+            .and_then(|url| url.port_or_known_default())
+        {
+            Some(11434) => "ollama",
+            Some(1234) => "lm-studio",
+            Some(8000) => "vllm",
+            _ => "local",
+        },
         _ => "custom",
     }
     .to_string()
@@ -337,7 +405,8 @@ pub fn migrate_model_providers_v3_if_needed() -> Result<bool, String> {
     let _settings_guard = mutation_lock()?;
     let settings = crate::settings::load_settings_strict().map_err(|error| error.to_string())?;
     if settings.version.unwrap_or_default() >= crate::settings::SETTINGS_VERSION {
-        return consolidate_provider_credentials();
+        let repaired = repair_missing_provider_references(&settings)?;
+        return consolidate_provider_credentials().map(|consolidated| repaired || consolidated);
     }
     if settings.version.unwrap_or_default() < 2 {
         return Err("model_schema_v2_required: migrate Model Profiles before Providers".into());
@@ -427,6 +496,65 @@ pub fn migrate_model_providers_v3_if_needed() -> Result<bool, String> {
     })
     .map_err(|error| error.to_string())?;
     consolidate_provider_credentials()?;
+    Ok(true)
+}
+
+fn repair_missing_provider_references(
+    settings: &crate::settings::Settings,
+) -> Result<bool, String> {
+    let providers = settings.model_providers.clone().unwrap_or_default();
+    let profiles = settings.model_profiles.clone().unwrap_or_default();
+    let repairs = profiles
+        .iter()
+        .filter(|(_, profile)| {
+            profile
+                .provider_id
+                .as_deref()
+                .is_none_or(|provider_id| !providers.contains_key(provider_id))
+        })
+        .filter_map(|(profile_id, profile)| {
+            let candidates = providers
+                .values()
+                .filter(|provider| {
+                    provider.provider == profile.provider
+                        && provider.env_key == profile.env_key
+                        && provider
+                            .endpoints
+                            .get(&profile.protocol)
+                            .is_some_and(|endpoint| {
+                                endpoint.trim_end_matches('/')
+                                    == profile.base_url.trim_end_matches('/')
+                            })
+                })
+                .map(|provider| provider.id.clone())
+                .collect::<Vec<_>>();
+            (candidates.len() == 1).then(|| (profile_id.clone(), candidates[0].clone()))
+        })
+        .collect::<BTreeMap<_, _>>();
+    if repairs.is_empty() {
+        return Ok(false);
+    }
+
+    crate::settings::mutate_settings_checked(|current| {
+        if current.model_profiles != settings.model_profiles
+            || current.model_providers != settings.model_providers
+        {
+            return Err(std::io::Error::other(
+                "asset_operation_stale: Model settings changed during Provider repair",
+            ));
+        }
+        let current_profiles = current.model_profiles.get_or_insert_default();
+        for (profile_id, provider_id) in &repairs {
+            let profile = current_profiles.get_mut(profile_id).ok_or_else(|| {
+                std::io::Error::other(
+                    "asset_operation_stale: Model Profile disappeared during Provider repair",
+                )
+            })?;
+            profile.provider_id = Some(provider_id.clone());
+        }
+        Ok(())
+    })
+    .map_err(|error| error.to_string())?;
     Ok(true)
 }
 
@@ -3204,10 +3332,19 @@ mod tests {
             let parsed = url::Url::parse(default_base_url).unwrap_or_else(|error| {
                 panic!("invalid provider default {default_base_url}: {error}")
             });
-            assert_eq!(parsed.scheme(), "https");
+            let expected_scheme = if provider.category == "local" {
+                "http"
+            } else {
+                "https"
+            };
+            assert_eq!(parsed.scheme(), expected_scheme);
             assert_eq!(infer_provider(default_base_url), provider.id);
         }
 
+        assert!(list_providers().iter().all(|provider| matches!(
+            provider.category,
+            "official" | "gateway" | "local" | "custom"
+        )));
         assert_eq!(
             list_providers()
                 .iter()
@@ -3308,6 +3445,62 @@ mod tests {
         );
         assert!(read_credential_service(&legacy_keychain_service(&anthropic.id)).is_none());
         assert!(read_credential_service(&legacy_keychain_service(&responses.id)).is_none());
+    }
+
+    #[test]
+    fn v3_repair_restores_only_unique_provider_references() {
+        let _home = TestHome::new("model-provider-v3-reference-repair");
+        let primary = ModelProviderConfig {
+            id: "primary-provider".into(),
+            name: "Primary".into(),
+            provider: "custom".into(),
+            endpoints: BTreeMap::from([
+                (
+                    ModelProtocol::OpenaiResponses,
+                    "https://gateway.example.test/v1".into(),
+                ),
+                (
+                    ModelProtocol::AnthropicMessages,
+                    "https://gateway.example.test/anthropic".into(),
+                ),
+            ]),
+            env_key: None,
+        };
+        let secure = ModelProviderConfig {
+            id: "secure-provider".into(),
+            name: "Secure".into(),
+            provider: "custom".into(),
+            endpoints: BTreeMap::from([(
+                ModelProtocol::AnthropicMessages,
+                "https://gateway.example.test/anthropic".into(),
+            )]),
+            env_key: None,
+        };
+        let responses = responses_profile();
+        let anthropic = anthropic_profile();
+        crate::settings::save_settings(&crate::settings::Settings {
+            version: Some(3),
+            model_providers: Some(BTreeMap::from([
+                (primary.id.clone(), primary),
+                (secure.id.clone(), secure),
+            ])),
+            model_profiles: Some(BTreeMap::from([
+                (responses.id.clone(), responses.clone()),
+                (anthropic.id.clone(), anthropic.clone()),
+            ])),
+            ..Default::default()
+        })
+        .unwrap();
+
+        assert!(migrate_model_providers_v3_if_needed().unwrap());
+        let settings = crate::settings::load_settings_strict().unwrap();
+        let profiles = settings.model_profiles.unwrap();
+        assert_eq!(
+            profiles[&responses.id].provider_id.as_deref(),
+            Some("primary-provider")
+        );
+        assert_eq!(profiles[&anthropic.id].provider_id, None);
+        assert!(!migrate_model_providers_v3_if_needed().unwrap());
     }
 
     #[test]

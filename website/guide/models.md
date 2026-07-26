@@ -41,14 +41,15 @@ Claude Code 只接收 Anthropic Messages，Codex 只接收 Responses；其余自
 
 ## 新建中央 Profile 并选择消费者
 
-1. 打开顶部 **Models**。
-2. 新建模型接口；选择已知 Provider 时，MUX 会填入常用的官方 Base URL 建议，你仍可按地区、套餐或代理地址手动修改。协议保持独立选择，再填写模型 ID；Grok Build 需要认证时，在高级设置填写 API Key 环境变量名，本地无鉴权端点可留空。
-3. Profile 保存到中央资产库后，进入对应 Agent 页的 Model 标签，查看当前状态并选择一个兼容 Profile。
-4. 审阅关系变化、目标文件与异常状态后提交。MUX 备份、写入并重新读取验证；成功后重启对应 Agent 会话。
+1. 打开顶部 **Models**，点击 **添加 Provider**。
+2. 在居中的 Provider Catalog 中选择模板。Catalog 内置 OpenRouter、Anthropic、OpenAI、Google AI Studio、DeepSeek、Groq、SiliconFlow、Together AI、Fireworks AI、Cerebras、Ollama、LM Studio、vLLM 等常用入口，并按 Official、Gateway 与 Local 分类；模板本身不会创建空 Provider。
+3. 选择模板后，MUX 会预填 Core 下发的 Base URL 建议。填写首个 Model ID 并保存后，这个连接实例才会进入左侧 **My Providers**；你仍可按地区、套餐或代理地址修改 Endpoint。Grok Build 需要认证时填写 API Key 环境变量名，本地无鉴权端点可留空。
+4. Profile 保存到中央资产库后，进入对应 Agent 页的 Model 标签，查看当前状态并选择一个兼容 Profile。
+5. 审阅关系变化、目标文件与异常状态后提交。MUX 备份、写入并重新读取验证；成功后重启对应 Agent 会话。
 
 同一个 Profile 可以被多个 Agent 消费，但协议必须兼容；同一个 Agent 同时只能消费一个 Profile。两个入口修改的是同一份 desired relationship，MUX 会在修改磁盘前拒绝不兼容或多选组合。
 
-模型卡片只用于选择，不常驻编辑或删除按钮；资产编辑和删除集中在右侧详情面板，Agent 关系只在 Agent 页修改。新建、编辑、关系变更和删除都先生成计划：编辑会保留关系并传播到全部消费者，删除会级联清理全部受管 Agent 配置和关系。Agent 页会区分已同步、配置缺失、漂移、冲突和外部配置；接管外部配置或重新同步 drift 必须单独审阅并明确确认。写入进行中时不能意外关闭，失败后可在原位置检查原因并重试。
+Models 左侧只显示“全部模型”和已配置的 My Providers，不再把协议作为一级导航；主区使用紧凑列表，协议保留为每个 Model 的技术属性。资产编辑和删除集中在居中的详情界面，Agent 关系只在 Agent 页修改。新建、编辑、关系变更和删除都先生成计划：编辑会保留关系并传播到全部消费者，删除会级联清理全部受管 Agent 配置和关系。Agent 页会区分已同步、配置缺失、漂移、冲突和外部配置；接管外部配置或重新同步 drift 必须单独审阅并明确确认。写入进行中时不能意外关闭，失败后可在原位置检查原因并重试。
 
 Agent 配置中心会同时列出 Agent/模型配置文件和 MCP 配置文件。Codex 等产品可能把两类设置放在同一文件；Qoder Desktop、Pi 等产品则使用独立 MCP 文件。这里展示的是核验后的配置目标，不会读取或返回完整文件内容。
 

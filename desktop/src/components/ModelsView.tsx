@@ -23,7 +23,7 @@ import {
   type ModelsDevMetadata,
 } from "../lib/modelsDev";
 import { Avatar, Badge } from "./ui";
-import { ResourceCard, ResourceKindIcon } from "./ResourceCard";
+import { ResourceKindIcon } from "./ResourceCard";
 import { ResourceState } from "./ResourceState";
 import { DialogShell } from "./DialogShell";
 import { AssetOperationReviewDialog } from "./AssetOperationReviewDialog";
@@ -38,9 +38,7 @@ import {
 import { useToast } from "./Toast";
 import {
   InspectorField,
-  ResourceGrid,
   ResourceInspector,
-  ResourceTabs,
   ResourceWorkspace,
   SidebarItem,
   SidebarSection,
@@ -54,8 +52,6 @@ const PROTOCOLS: Array<{ id: ModelProtocol; label: string }> = [
 ];
 
 const CUSTOM_PROVIDER_OPTION = "__custom__";
-
-type ModelAssetFilter = "all" | "credential" | "reasoning";
 
 const emptyProfile = (): ModelProfile => ({
   id: "",
@@ -125,15 +121,15 @@ export function ModelsView({
   const [providers, setProviders] = useState<ModelProviderView[]>([]);
   const [providerInstances, setProviderInstances] = useState<ModelProviderInstanceView[]>([]);
   const [providerFilter, setProviderFilter] = useState<string | null>(null);
+  const [providerCatalogOpen, setProviderCatalogOpen] = useState(false);
   const [creatingForProviderId, setCreatingForProviderId] = useState<string | null>(null);
+  const [creatingProviderTemplate, setCreatingProviderTemplate] = useState<ModelProviderView | null>(null);
   const [editingProvider, setEditingProvider] = useState<ModelProviderInstanceView | null>(null);
   const [selectedProfileId, setSelectedProfileId] = useState<string | null>(null);
   const [editing, setEditing] = useState<ModelProfileView | null | undefined>(undefined);
   const [loading, setLoading] = useState(true);
   const [readError, setReadError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
-  const [assetFilter, setAssetFilter] = useState<ModelAssetFilter>("all");
-  const [protocolFilter, setProtocolFilter] = useState<ModelProtocol | null>(null);
   const [modelsDevByProfileId, setModelsDevByProfileId] = useState<Record<string, ModelsDevMetadata>>({});
   const toast = useToast();
   const { t } = useTranslation();
@@ -178,39 +174,10 @@ export function ModelsView({
     return () => { active = false; };
   }, [profiles]);
 
-  const protocolCounts = useMemo(
-    () => Object.fromEntries(
-      PROTOCOLS.map((protocol) => [
-        protocol.id,
-        profiles.filter((profile) => profile.protocol === protocol.id).length,
-      ])
-    ) as Record<ModelProtocol, number>,
-    [profiles],
-  );
-
-  const assetCounts = useMemo(() => {
-    const scoped = profiles.filter((profile) =>
-      (!protocolFilter || profile.protocol === protocolFilter)
-    );
-    return {
-      all: scoped.length,
-      credential: scoped.filter((profile) => profile.credential_saved).length,
-      reasoning: scoped.filter((profile) =>
-        profile.reasoning ?? modelsDevByProfileId[profile.id]?.reasoning ?? false
-      ).length,
-    };
-  }, [modelsDevByProfileId, profiles, protocolFilter]);
-
   const filteredProfiles = useMemo(() => {
     const needle = query.trim().toLocaleLowerCase();
     return profiles.filter((profile) => {
       if (providerFilter && profile.provider_id !== providerFilter) return false;
-      if (protocolFilter && profile.protocol !== protocolFilter) return false;
-      if (assetFilter === "credential" && !profile.credential_saved) return false;
-      if (
-        assetFilter === "reasoning"
-        && !(profile.reasoning ?? modelsDevByProfileId[profile.id]?.reasoning ?? false)
-      ) return false;
       if (!needle) return true;
       return [
         profile.name,
@@ -225,7 +192,7 @@ export function ModelsView({
         .toLocaleLowerCase()
         .includes(needle);
     });
-  }, [assetFilter, modelsDevByProfileId, profiles, protocolFilter, providerFilter, query]);
+  }, [profiles, providerFilter, query]);
 
   const selectedProfile = profiles.find((profile) => profile.id === selectedProfileId) ?? null;
   const selectedProvider = providerInstances.find((provider) => provider.id === providerFilter) ?? null;
@@ -235,14 +202,13 @@ export function ModelsView({
     lastConsumedIntentId.current = intent.id;
     if (intent.kind === "create") {
       setSelectedProfileId(null);
-      setEditing(null);
+      setProviderCatalogOpen(true);
       onIntentConsumed?.(intent.id);
       return;
     }
     const profile = profiles.find((candidate) => candidate.id === intent.profileId);
     setQuery("");
-    setProtocolFilter(null);
-    setAssetFilter("all");
+    setProviderFilter(null);
     setSelectedProfileId(profile?.id ?? null);
     if (!profile) toast.show({ kind: "error", msg: t("models.notFound", { id: intent.profileId }) });
     onIntentConsumed?.(intent.id);
@@ -252,6 +218,7 @@ export function ModelsView({
     setSelectedProfileId(null);
     setEditing(undefined);
     setCreatingForProviderId(null);
+    setCreatingProviderTemplate(null);
   }, []);
   const planProfileDelete = async (profile: ModelProfileView) => {
     if (!consumptionState) return;
@@ -269,61 +236,34 @@ export function ModelsView({
         description={t("models.description")}
         sidebar={
           <WorkspaceSidebar title={t("models.title")} count={profiles.length}>
-            <SidebarSection title={t("models.providers") }>
+            <SidebarSection title={t("models.library")}>
               <SidebarItem
                 active={providerFilter === null}
-                icon={<NetworkIcon className="w-3.5 h-3.5" />}
-                label={t("models.allProviders")}
+                icon={<LayersIcon className="w-3.5 h-3.5" />}
+                label={t("models.allModels")}
                 count={profiles.length}
                 onClick={() => { clearSelection(); setProviderFilter(null); }}
               />
-              {providerInstances.map((provider) => (
-                <SidebarItem
-                  key={provider.id}
-                  active={providerFilter === provider.id}
-                  icon={<NetworkIcon className="w-3.5 h-3.5" />}
-                  label={provider.name}
-                  count={provider.model_count}
-                  onClick={() => { clearSelection(); setProviderFilter(provider.id); }}
-                />
-              ))}
             </SidebarSection>
-            <SidebarSection title={t("models.protocol")}>
-              <SidebarItem
-                active={protocolFilter === null}
-                icon={<LayersIcon className="w-3.5 h-3.5" />}
-                label={t("models.allProtocols")}
-                count={profiles.length}
-                onClick={() => { clearSelection(); setProtocolFilter(null); }}
-              />
-              {PROTOCOLS.map((protocol) => (
-                <SidebarItem
-                  key={protocol.id}
-                  active={protocolFilter === protocol.id}
-                  icon={<LayersIcon className="w-3.5 h-3.5" />}
-                  label={protocol.label}
-                  count={protocolCounts[protocol.id]}
-                  onClick={() => { clearSelection(); setProtocolFilter(protocol.id); }}
-                />
-              ))}
-            </SidebarSection>
+            {providerInstances.some((provider) => provider.model_count > 0) && (
+              <SidebarSection title={t("models.myProviders")}>
+                {providerInstances.filter((provider) => provider.model_count > 0).map((provider) => (
+                  <SidebarItem
+                    key={provider.id}
+                    active={providerFilter === provider.id}
+                    icon={<NetworkIcon className="w-3.5 h-3.5" />}
+                    label={provider.name}
+                    count={provider.model_count}
+                    onClick={() => { clearSelection(); setProviderFilter(provider.id); }}
+                  />
+                ))}
+              </SidebarSection>
+            )}
           </WorkspaceSidebar>
         }
         query={query}
         onQueryChange={(value) => { clearSelection(); setQuery(value); }}
         searchPlaceholder={t("models.search")}
-        filters={
-          <ResourceTabs
-            label={t("models.asset")}
-            value={assetFilter}
-            options={[
-              { value: "all", label: t("models.all"), count: assetCounts.all },
-              { value: "credential", label: t("models.credential"), count: assetCounts.credential },
-              { value: "reasoning", label: t("models.reasoningModels"), count: assetCounts.reasoning },
-            ]}
-            onChange={(value) => { clearSelection(); setAssetFilter(value); }}
-          />
-        }
         toolbarActions={
           <>
             {migrationCount > 0 && onOpenMigration && (
@@ -331,14 +271,23 @@ export function ModelsView({
                 {t("models.history", { count: migrationCount })}
               </button>
             )}
-            <button className="btn-primary" type="button" disabled={!consumptionState} onClick={() => {
+            <button className="btn-secondary" type="button" disabled={!consumptionState} onClick={() => {
               clearSelection();
-              setCreatingForProviderId(providerFilter);
-              setEditing(null);
+              setProviderCatalogOpen(true);
             }}>
               <PlusIcon className="w-4 h-4" />
-              {providerFilter ? t("models.addModel") : t("models.createProvider")}
+              {t("models.addProvider")}
             </button>
+            {providerFilter && (
+              <button className="btn-primary" type="button" disabled={!consumptionState} onClick={() => {
+                clearSelection();
+                setCreatingForProviderId(providerFilter);
+                setEditing(null);
+              }}>
+                <PlusIcon className="w-4 h-4" />
+                {t("models.addModel")}
+              </button>
+            )}
           </>
         }
         inspector={selectedProfile && editing?.id === selectedProfile.id ? (
@@ -402,36 +351,47 @@ export function ModelsView({
             action={profiles.length === 0 ? undefined : (
               <button className="btn-secondary" type="button" onClick={() => {
                 setQuery("");
-                setProtocolFilter(null);
-                setAssetFilter("all");
+                setProviderFilter(null);
               }}>{t("models.clearFilters")}</button>
             )}
           />
         ) : (
-          <ResourceGrid>
-            {filteredProfiles.map((profile) => (
-              <ModelCard
-                key={profile.id}
-                profile={profile}
-                providerName={profileProviderName(profile, providerInstances, providers)}
-                metadata={modelsDevByProfileId[profile.id]}
-                selected={profile.id === selectedProfileId}
-                onOpen={() => {
-                  setEditing(undefined);
-                  setSelectedProfileId(profile.id);
-                }}
-              />
-            ))}
-          </ResourceGrid>
+          <ModelList
+            profiles={filteredProfiles}
+            providerInstances={providerInstances}
+            providers={providers}
+            metadata={modelsDevByProfileId}
+            selectedProfileId={selectedProfileId}
+            onOpen={(profileId) => {
+              setEditing(undefined);
+              setSelectedProfileId(profileId);
+            }}
+          />
         )}
       </ResourceWorkspace>
+
+      {providerCatalogOpen && (
+        <ProviderCatalogDialog
+          providers={providers}
+          onClose={() => setProviderCatalogOpen(false)}
+          onUse={(provider) => {
+            setProviderCatalogOpen(false);
+            setCreatingProviderTemplate(provider);
+            setEditing(null);
+          }}
+        />
+      )}
 
       {editing === null && (
         <ModelProfileDialog
           initial={editing}
           providers={providers}
           providerInstance={providerInstances.find((provider) => provider.id === creatingForProviderId) ?? null}
-          onClose={() => setEditing(undefined)}
+          providerTemplate={creatingProviderTemplate}
+          onClose={() => {
+            setEditing(undefined);
+            setCreatingProviderTemplate(null);
+          }}
           onReview={async (profile, credential) => {
             if (!consumptionState) throw new Error(t("models.saveUnavailable"));
             await consumptionState.planUpdate({
@@ -442,6 +402,7 @@ export function ModelsView({
             });
             setEditing(undefined);
             setCreatingForProviderId(null);
+            setCreatingProviderTemplate(null);
           }}
         />
       )}
@@ -513,73 +474,65 @@ function ProviderBanner({
   );
 }
 
-function ModelCard({
-  profile,
-  providerName,
+function ModelList({
+  profiles,
+  providerInstances,
+  providers,
   metadata,
-  selected,
+  selectedProfileId,
   onOpen,
 }: {
-  profile: ModelProfileView;
-  providerName: string;
-  metadata?: ModelsDevMetadata;
-  selected: boolean;
-  onOpen: () => void;
+  profiles: ModelProfileView[];
+  providerInstances: ModelProviderInstanceView[];
+  providers: ModelProviderView[];
+  metadata: Record<string, ModelsDevMetadata>;
+  selectedProfileId: string | null;
+  onOpen: (profileId: string) => void;
 }) {
   const { t } = useTranslation();
-  const displayName = readableModelName(profile, providerName, metadata);
-  const contextWindow = profile.context_window ?? metadata?.contextWindow;
-  const maxOutputTokens = profile.max_output_tokens ?? metadata?.maxOutputTokens;
-  const capabilities = [
-    (profile.reasoning ?? metadata?.reasoning ?? false) && t("models.reasoning"),
-    metadata?.toolCall && t("models.tools"),
-    metadata?.structuredOutput && t("models.structured"),
-    metadata?.modalities?.some((modality) => modality !== "text") && t("models.multimodal"),
-  ].filter((item): item is string => Boolean(item)).slice(0, 3);
   return (
-    <ResourceCard
-      className="mux-model-card"
-      selected={selected}
-      ariaLabel={t("models.openDetails", { name: profile.name })}
-      onOpen={onOpen}
-      identity={
-        <>
-          <ResourceKindIcon kind="model" seed={displayName} />
-          <div className="mux-resource-card-copy">
-            <div className="mux-resource-card-heading">
-              <strong title={displayName}>{displayName}</strong>
-            </div>
-            <div className="mux-model-card-subtitle">
-              <code className="mux-resource-card-code" title={profile.model}>{profile.model}</code>
-              <span className="mux-model-card-provider">{providerName}</span>
-            </div>
+    <div className="mux-model-list" role="list" aria-label={t("models.asset")}>
+      <div className="mux-model-list-header" aria-hidden="true">
+        <span>{t("models.modelColumn")}</span>
+        <span>{t("models.providerColumn")}</span>
+        <span>{t("models.protocol")}</span>
+        <span>{t("models.context")}</span>
+        <span>{t("models.credentialColumn")}</span>
+      </div>
+      {profiles.map((profile) => {
+        const providerName = profileProviderName(profile, providerInstances, providers);
+        const profileMetadata = metadata[profile.id];
+        const displayName = readableModelName(profile, providerName, profileMetadata);
+        const contextWindow = profile.context_window ?? profileMetadata?.contextWindow;
+        return (
+          <div role="listitem" key={profile.id}>
+            <button
+              type="button"
+              className="mux-model-list-row"
+              data-selected={profile.id === selectedProfileId ? "true" : undefined}
+              aria-label={t("models.openDetails", { name: profile.name })}
+              onClick={() => onOpen(profile.id)}
+            >
+              <span className="mux-model-list-identity">
+                <ResourceKindIcon kind="model" seed={displayName} />
+                <span>
+                  <strong title={displayName}>{displayName}</strong>
+                  <code title={profile.model}>{profile.model}</code>
+                </span>
+              </span>
+              <span className="mux-model-list-provider" title={providerName}>{providerName}</span>
+              <span className="mux-model-list-protocol">{protocolLabel(profile.protocol)}</span>
+              <span className="mux-model-list-context">
+                {contextWindow ? formatTokens(contextWindow) : t("common.notSet")}
+              </span>
+              <span className={profile.credential_saved ? "mux-status-ok" : "mux-status-muted"}>
+                {profile.credential_saved ? t("models.keychainSaved") : t("models.keychainNotSaved")}
+              </span>
+            </button>
           </div>
-        </>
-      }
-      configuration={metadata?.description ? (
-        <p className="mux-model-card-description" title={metadata.description}>{metadata.description}</p>
-      ) : undefined}
-      state={(contextWindow || maxOutputTokens || metadata?.inputCost != null || metadata?.outputCost != null || capabilities.length > 0) ? (
-        <>
-          {contextWindow && <span className="mux-model-card-metric">{t("models.contextMetric", { value: formatTokens(contextWindow) })}</span>}
-          {maxOutputTokens && <span className="mux-model-card-metric">{t("models.outputMetric", { value: formatTokens(maxOutputTokens) })}</span>}
-          {metadata?.inputCost != null && (
-            <span className="mux-model-card-metric">{t("models.inputMetric", { value: formatCatalogCost(metadata.inputCost) })}</span>
-          )}
-          {metadata?.outputCost != null && (
-            <span className="mux-model-card-metric">{t("models.outputPriceMetric", { value: formatCatalogCost(metadata.outputCost) })}</span>
-          )}
-          {capabilities.map((capability) => (
-            <span className="mux-model-card-capability" key={capability}>{capability}</span>
-          ))}
-        </>
-      ) : undefined}
-      impact={
-        <div className="mux-model-card-footer-line">
-          <span className="mux-model-card-protocol">{protocolLabel(profile.protocol)}</span>
-        </div>
-      }
-    />
+        );
+      })}
+    </div>
   );
 }
 
@@ -665,10 +618,113 @@ function ModelInspector({
   );
 }
 
+function ProviderCatalogDialog({
+  providers,
+  onClose,
+  onUse,
+}: {
+  providers: ModelProviderView[];
+  onClose: () => void;
+  onUse: (provider: ModelProviderView) => void;
+}) {
+  const { t } = useTranslation();
+  const [query, setQuery] = useState("");
+  const [category, setCategory] = useState<ModelProviderView["category"] | "all">("all");
+  const [selectedId, setSelectedId] = useState(
+    providers.find((provider) => provider.id === "openrouter")?.id ?? providers[0]?.id ?? "",
+  );
+  const categories = ["all", "official", "gateway", "local"] as const;
+  const visibleProviders = providers.filter((provider) => {
+    if (category !== "all" && provider.category !== category) return false;
+    const needle = query.trim().toLocaleLowerCase();
+    return !needle || [provider.name, provider.id, provider.default_base_url ?? ""]
+      .join(" ")
+      .toLocaleLowerCase()
+      .includes(needle);
+  });
+  const selected = visibleProviders.find((provider) => provider.id === selectedId) ?? null;
+
+  return (
+    <DialogShell
+      kind="picker"
+      size="lg"
+      title={t("models.providerCatalogTitle")}
+      subtitle={t("models.providerCatalogSubtitle")}
+      onClose={onClose}
+      footerStart={selected ? t("models.providerSelected", { name: selected.name }) : undefined}
+      footerEnd={(
+        <>
+          <button type="button" className="btn-ghost" onClick={onClose}>{t("common.cancel")}</button>
+          <button
+            type="button"
+            className="btn-primary"
+            disabled={!selected}
+            onClick={() => selected && onUse(selected)}
+          >
+            {t("models.useProviderTemplate")}
+          </button>
+        </>
+      )}
+    >
+      <div className="mux-provider-catalog">
+        <input
+          autoFocus
+          type="search"
+          className="mux-model-field"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder={t("models.searchProviders")}
+          aria-label={t("models.searchProviders")}
+        />
+        <div className="mux-provider-catalog-categories" aria-label={t("models.providerCategories") }>
+          {categories.map((value) => (
+            <button
+              type="button"
+              key={value}
+              aria-pressed={category === value}
+              data-active={category === value ? "true" : undefined}
+              onClick={() => setCategory(value)}
+            >
+              {t(`models.providerCategory.${value}`)}
+            </button>
+          ))}
+        </div>
+        <div className="mux-provider-catalog-grid" role="radiogroup" aria-label={t("models.providerCatalogTitle")}>
+          {visibleProviders.map((provider) => (
+            <button
+              type="button"
+              role="radio"
+              aria-checked={provider.id === selectedId}
+              data-selected={provider.id === selectedId ? "true" : undefined}
+              className="mux-provider-catalog-item"
+              key={provider.id}
+              onClick={() => setSelectedId(provider.id)}
+            >
+              <span className="mux-provider-catalog-icon">
+                <NetworkIcon className="w-4 h-4" />
+              </span>
+              <span className="mux-provider-catalog-copy">
+                <strong>{provider.name}</strong>
+                <small>{t(`models.providerCategory.${provider.category}`)}</small>
+                <code>{provider.default_base_url ?? t("models.providerEndpointRequired")}</code>
+              </span>
+              <span className="mux-provider-catalog-check" aria-hidden="true">✓</span>
+            </button>
+          ))}
+        </div>
+        {visibleProviders.length === 0 && (
+          <div className="mux-provider-catalog-empty">{t("models.noProviderMatches")}</div>
+        )}
+      </div>
+    </DialogShell>
+  );
+}
+
 function ModelProfileDialog({
   initial,
   providers,
   providerInstance,
+  providerTemplate = null,
   onClose,
   onReview,
   presentation = "dialog",
@@ -676,6 +732,7 @@ function ModelProfileDialog({
   initial: ModelProfileView | null;
   providers: ModelProviderView[];
   providerInstance: ModelProviderInstanceView | null;
+  providerTemplate?: ModelProviderView | null;
   onClose: () => void;
   onReview: (profile: ModelProfile, credential?: string) => Promise<void>;
   presentation?: "dialog" | "inspector";
@@ -684,14 +741,23 @@ function ModelProfileDialog({
   const providerProtocol = providerInstance
     ? PROTOCOLS.find((protocol) => providerInstance.endpoints[protocol.id])?.id
       ?? "openai-responses"
-    : null;
+    : providerTemplate?.id === "anthropic"
+      ? "anthropic-messages"
+      : providerTemplate?.id === "openai"
+        ? "openai-responses"
+        : "openai-completions";
   const [draft, setDraft] = useState<ModelProfile>(() => initial ?? (providerInstance ? {
     ...emptyProfile(),
     provider_id: providerInstance.id,
     provider: providerInstance.provider,
-    protocol: providerProtocol ?? "openai-responses",
-    base_url: providerInstance.endpoints[providerProtocol ?? "openai-responses"] ?? "",
+    protocol: providerProtocol,
+    base_url: providerInstance.endpoints[providerProtocol] ?? "",
     env_key: providerInstance.env_key,
+  } : providerTemplate ? {
+    ...emptyProfile(),
+    provider: providerTemplate.id === "custom" ? "" : providerTemplate.id,
+    protocol: providerProtocol,
+    base_url: providerTemplate.default_base_url ?? "",
   } : emptyProfile()));
   const sharedProvider = providerInstance !== null;
   const availableProtocols = sharedProvider
@@ -704,12 +770,18 @@ function ModelProfileDialog({
   const providerInferenceSequence = useRef(0);
   const initialProviderInferenceStarted = useRef(false);
   const toast = useToast();
-  const initialProvider = initial?.provider.trim() ?? "";
+  const initialProvider = initial?.provider.trim()
+    ?? (providerTemplate?.id === "custom" ? "" : providerTemplate?.id)
+    ?? "";
   const initialProviderIsKnown = providers.some(
     (provider) => provider.id !== "custom" && provider.id === initialProvider,
   );
   const [providerSelection, setProviderSelection] = useState(
-    initialProvider && !initialProviderIsKnown ? CUSTOM_PROVIDER_OPTION : initialProvider,
+    providerTemplate?.id === "custom"
+      ? CUSTOM_PROVIDER_OPTION
+      : initialProvider && !initialProviderIsKnown
+        ? CUSTOM_PROVIDER_OPTION
+        : initialProvider,
   );
   const [customProvider, setCustomProvider] = useState(
     initialProvider && !initialProviderIsKnown ? initialProvider : "",

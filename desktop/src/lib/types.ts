@@ -136,6 +136,7 @@ export interface ModelProviderView {
   id: string;
   name: string;
   default_base_url: string | null;
+  category: "official" | "gateway" | "local" | "custom";
 }
 
 export interface ModelAgentView {

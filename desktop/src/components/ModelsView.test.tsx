@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
@@ -15,6 +15,7 @@ vi.mock("../lib/api", async () => {
     ...actual,
     listModelProfiles: vi.fn(),
     listModelProviders: vi.fn(),
+    listModelProviderInstances: vi.fn(),
     inferModelProvider: vi.fn(),
   };
 });
@@ -47,6 +48,7 @@ beforeEach(() => {
     },
     { id: "custom", name: "Custom Provider", default_base_url: null },
   ]);
+  vi.mocked(api.listModelProviderInstances).mockResolvedValue([]);
   vi.mocked(api.inferModelProvider).mockImplementation(async (baseUrl) => {
     const host = (() => {
       try {
@@ -145,7 +147,7 @@ it("uses neutral protocol classification without a card color rail", () => {
   expect(css).not.toMatch(/\.mux-model-card\[data-protocol=/);
 });
 
-it("uses protocol as the only sidebar classification and keeps its filtering behavior", async () => {
+it("uses Provider and protocol sidebar classification and keeps protocol filtering behavior", async () => {
   vi.mocked(api.listModelProfiles).mockResolvedValue([
     {
       id: "anthropic-model",
@@ -193,10 +195,10 @@ it("uses protocol as the only sidebar classification and keeps its filtering beh
   expect(sidebarElement).not.toBeNull();
   const sidebar = within(sidebarElement as HTMLElement);
 
-  expect(sidebarElement?.querySelectorAll(".mux-sidebar-section")).toHaveLength(1);
+  expect(sidebarElement?.querySelectorAll(".mux-sidebar-section")).toHaveLength(2);
   expect(sidebar.getByText("协议")).toBeVisible();
-  expect(sidebar.queryByText("Provider")).not.toBeInTheDocument();
-  expect(sidebar.queryByText("全部 Provider")).not.toBeInTheDocument();
+  expect(sidebar.getByText("Provider")).toBeVisible();
+  expect(sidebar.getByText("全部 Provider")).toBeVisible();
 
   await user.click(sidebar.getByRole("button", { name: /OpenAI Chat Completions/ }));
   expect(screen.getByRole("button", { name: "打开模型 Completions Model 详情" })).toBeVisible();
@@ -319,8 +321,8 @@ it("fills and switches a known Provider default until the Base URL is edited", a
     </ToastProvider>,
   );
 
-  await waitFor(() => expect(screen.getByRole("button", { name: "新建模型" })).toBeEnabled());
-  await user.click(screen.getByRole("button", { name: "新建模型" }));
+  await waitFor(() => expect(screen.getByRole("button", { name: "新建 Provider" })).toBeEnabled());
+  await user.click(screen.getByRole("button", { name: "新建 Provider" }));
   await waitFor(() => expect(screen.getByRole("heading", { name: "新建模型" })).toHaveFocus());
   const provider = screen.getByRole("combobox", { name: "模型提供商" });
   const baseUrl = screen.getByLabelText("Base URL");
@@ -360,8 +362,8 @@ it("does not overwrite a Base URL that was entered before the Provider", async (
     </ToastProvider>,
   );
 
-  await waitFor(() => expect(screen.getByRole("button", { name: "新建模型" })).toBeEnabled());
-  await user.click(screen.getByRole("button", { name: "新建模型" }));
+  await waitFor(() => expect(screen.getByRole("button", { name: "新建 Provider" })).toBeEnabled());
+  await user.click(screen.getByRole("button", { name: "新建 Provider" }));
   await waitFor(() => expect(screen.getByRole("heading", { name: "新建模型" })).toHaveFocus());
   const baseUrl = screen.getByLabelText("Base URL");
 
@@ -383,8 +385,8 @@ it("infers a known Provider from Base URL while keeping later manual selection a
     </ToastProvider>,
   );
 
-  await waitFor(() => expect(screen.getByRole("button", { name: "新建模型" })).toBeEnabled());
-  await user.click(screen.getByRole("button", { name: "新建模型" }));
+  await waitFor(() => expect(screen.getByRole("button", { name: "新建 Provider" })).toBeEnabled());
+  await user.click(screen.getByRole("button", { name: "新建 Provider" }));
   await waitFor(() => expect(screen.getByRole("heading", { name: "新建模型" })).toHaveFocus());
   const provider = screen.getByRole("combobox", { name: "模型提供商" });
   const baseUrl = screen.getByLabelText("Base URL");
@@ -493,8 +495,8 @@ it("submits an arbitrary Provider ID through the central asset plan", async () =
     </ToastProvider>,
   );
 
-  await waitFor(() => expect(screen.getByRole("button", { name: "新建模型" })).toBeEnabled());
-  await user.click(screen.getByRole("button", { name: "新建模型" }));
+  await waitFor(() => expect(screen.getByRole("button", { name: "新建 Provider" })).toBeEnabled());
+  await user.click(screen.getByRole("button", { name: "新建 Provider" }));
   await waitFor(() => expect(screen.getByRole("heading", { name: "新建模型" })).toHaveFocus());
   await chooseFormSelect(user, "模型提供商", "自定义模型提供商…");
   await user.type(screen.getByLabelText("自定义模型提供商 ID"), "my-gateway");
@@ -525,7 +527,7 @@ it("shows every supported profile field directly and writes explicit reasoning o
     </ToastProvider>,
   );
 
-  await user.click(await screen.findByRole("button", { name: "新建模型" }));
+  await user.click(await screen.findByRole("button", { name: "新建 Provider" }));
   expect(screen.queryByText("高级设置")).not.toBeInTheDocument();
   expect(screen.getByLabelText("上下文窗口")).toHaveValue(null);
   expect(screen.getByLabelText("最大输出")).toHaveValue(null);
@@ -542,6 +544,113 @@ it("shows every supported profile field directly and writes explicit reasoning o
   expect(submitted).toEqual(expect.objectContaining({ reasoning: false, env_key: undefined }));
   expect(submitted).not.toHaveProperty("context_window");
   expect(submitted).not.toHaveProperty("max_output_tokens");
+});
+
+it("adds another Model to an existing Provider without repeating shared connection fields", async () => {
+  vi.mocked(api.listModelProviderInstances).mockResolvedValue([{
+    id: "openrouter-team-a",
+    name: "OpenRouter Team",
+    provider: "openrouter",
+    endpoints: {
+      "openai-completions": "https://openrouter.ai/api/v1",
+    },
+    credential_saved: true,
+    model_count: 1,
+  }]);
+  vi.mocked(api.listModelProfiles).mockResolvedValue([{
+    id: "existing-openrouter-model",
+    name: "Existing OpenRouter Model",
+    provider_id: "openrouter-team-a",
+    provider: "openrouter",
+    protocol: "openai-completions",
+    base_url: "https://openrouter.ai/api/v1",
+    model: "openrouter/free",
+    catalog_key: "openrouter/openrouter/free",
+    credential_saved: true,
+  }]);
+  const user = userEvent.setup();
+  const planUpdate = vi.fn().mockResolvedValue({ operation_id: "model-plan" });
+  const consumptionState = { plan: null, planUpdate } as unknown as ConsumptionState;
+
+  const view = render(
+    <ToastProvider>
+      <ModelsView consumptionState={consumptionState} />
+    </ToastProvider>,
+  );
+
+  const sidebar = within(view.container.querySelector(".mux-workspace-sidebar") as HTMLElement);
+  await user.click(await sidebar.findByTitle("OpenRouter Team"));
+  await user.click(screen.getByRole("button", { name: "添加模型" }));
+
+  expect(screen.getByRole("heading", { name: "新建模型" })).toBeVisible();
+  expect(screen.queryByRole("combobox", { name: "模型提供商" })).not.toBeInTheDocument();
+  expect(screen.queryByLabelText("Base URL")).not.toBeInTheDocument();
+  expect(screen.queryByText("API Key")).not.toBeInTheDocument();
+  expect(screen.queryByText("API Key 环境变量")).not.toBeInTheDocument();
+
+  fireEvent.change(screen.getByPlaceholderText("model-name"), {
+    target: { value: "anthropic/claude-sonnet-4" },
+  });
+  await user.click(screen.getByRole("button", { name: "保存" }));
+  await waitFor(() => expect(planUpdate).toHaveBeenCalledWith(expect.objectContaining({
+    domain: "model",
+    profile: expect.objectContaining({
+      provider_id: "openrouter-team-a",
+      provider: "openrouter",
+      protocol: "openai-completions",
+      base_url: "https://openrouter.ai/api/v1",
+      model: "anthropic/claude-sonnet-4",
+    }),
+    credential: undefined,
+  })));
+});
+
+it("edits one Provider configuration through a single central asset plan", async () => {
+  vi.mocked(api.listModelProviderInstances).mockResolvedValue([{
+    id: "openrouter-team-a",
+    name: "OpenRouter Team",
+    provider: "openrouter",
+    endpoints: {
+      "openai-completions": "https://openrouter.ai/api/v1",
+      "anthropic-messages": "https://openrouter.ai/api",
+    },
+    env_key: "OPENROUTER_API_KEY",
+    credential_saved: true,
+    model_count: 3,
+  }]);
+  const user = userEvent.setup();
+  const planUpdate = vi.fn().mockResolvedValue({ operation_id: "provider-plan" });
+  const consumptionState = { plan: null, planUpdate } as unknown as ConsumptionState;
+
+  const view = render(
+    <ToastProvider>
+      <ModelsView consumptionState={consumptionState} />
+    </ToastProvider>,
+  );
+  const sidebar = within(view.container.querySelector(".mux-workspace-sidebar") as HTMLElement);
+  await user.click(await sidebar.findByTitle("OpenRouter Team"));
+  await user.click(screen.getByRole("button", { name: "编辑 Provider" }));
+
+  const completionsEndpoint = screen.getByLabelText("OpenAI Chat Completions Endpoint");
+  fireEvent.change(completionsEndpoint, {
+    target: { value: "https://gateway.example.test/v1/" },
+  });
+  await user.click(screen.getByRole("button", { name: "保存" }));
+
+  await waitFor(() => expect(planUpdate).toHaveBeenCalledWith({
+    domain: "model-provider",
+    provider: expect.objectContaining({
+      id: "openrouter-team-a",
+      name: "OpenRouter Team",
+      provider: "openrouter",
+      endpoints: expect.objectContaining({
+        "openai-completions": "https://gateway.example.test/v1",
+        "anthropic-messages": "https://openrouter.ai/api",
+      }),
+      env_key: "OPENROUTER_API_KEY",
+    }),
+    credential: undefined,
+  }));
 });
 
 it("routes profile lifecycle through central asset plans", () => {

@@ -89,6 +89,14 @@ Crush, Mistral Vibe, Hermes Agent, Factory Droid, and Goose. MiniMax Code and
 Qoder are the two guided targets because their available
 configuration surfaces do not provide a safe equivalent writer for this flow.
 
+Models use a shared Provider architecture: one Provider owns its protocol
+endpoints, environment reference, and single Keychain credential, while any
+number of Models reference it by stable `providerId`. Editing a Provider
+reapplies every affected Agent transactionally; deleting its last Model also
+removes the now-empty Provider. Existing Profile-local settings are migrated
+conservatively by provider type, endpoint origin, environment reference, and
+credential identity so distinct accounts are never merged implicitly.
+
 See the [complete audited matrix](website/guide/agents.md) and [catalog methodology](docs/agent-catalog.md). Every writable target's global path remains editable; paths inside the home directory are normalized to the portable `~/…` form.
 
 Skill consumption supports **45 separately verified user-level Agent capabilities** across CLI, IDE, and desktop products. Only capabilities detected on the current machine appear, and Agents sharing one physical compatibility directory are selected and reviewed as an inseparable impact group. Managed links expose one live central copy, so consumer-side edits are detected as central drift rather than isolated copies. See the [Skills guide](website/guide/skills.md).

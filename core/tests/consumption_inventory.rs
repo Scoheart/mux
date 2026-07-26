@@ -108,6 +108,7 @@ fn model_assignment_remains_visible_when_target_is_missing() {
             "inventory-profile".into(),
             ModelProfile {
                 id: "inventory-profile".into(),
+                provider_id: None,
                 name: "Inventory".into(),
                 provider: "custom".into(),
                 model_vendor: None,
@@ -143,6 +144,7 @@ fn model_assignment_remains_visible_when_target_is_missing() {
 fn model_profile() -> ModelProfile {
     ModelProfile {
         id: "inventory-profile".into(),
+        provider_id: None,
         name: "Inventory".into(),
         provider: "custom".into(),
         model_vendor: None,

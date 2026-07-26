@@ -5,7 +5,7 @@ use std::collections::{BTreeMap, HashMap};
 
 /// Wire protocol used by a reusable model endpoint profile. These values match
 /// the provider identifiers supported by the first managed Agent set.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 #[serde(rename_all = "kebab-case")]
 pub enum ModelProtocol {
     AnthropicMessages,
@@ -14,9 +14,28 @@ pub enum ModelProtocol {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ModelProviderConfig {
+    /// Stable MUX identity for one account/endpoint configuration. The
+    /// provider kind (for example `openrouter`) is intentionally not unique.
+    pub id: String,
+    pub name: String,
+    /// API/billing channel such as `openrouter`, `anthropic`, or `custom`.
+    pub provider: String,
+    /// One Provider may expose different base paths for different protocols.
+    pub endpoints: BTreeMap<ModelProtocol, String>,
+    /// Non-secret environment variable shared by every Model on this Provider.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub env_key: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ModelProfile {
     pub id: String,
     pub name: String,
+    /// Stable reference to the shared Provider configuration. Missing only in
+    /// pre-v3 settings and transient import drafts.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_id: Option<String>,
     /// API/计费渠道，例如 `openrouter`、`anthropic` 或 `custom`。
     /// v1 Profile 没有该字段；v2 migration 会在接管前补齐。
     #[serde(default)]

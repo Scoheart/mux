@@ -166,6 +166,7 @@ impl ExtractedModel {
         let provider = infer_provider(&self.base_url);
         ModelProfile {
             id: String::new(),
+            provider_id: None,
             name: self.name.clone(),
             model_vendor: infer_model_vendor(&provider, &self.model),
             provider,

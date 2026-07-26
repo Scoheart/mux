@@ -370,6 +370,7 @@ fn mcp_reapply_rejects_a_catalog_change_after_review() {
 fn model(model: &str) -> ModelProfile {
     ModelProfile {
         id: "work".into(),
+        provider_id: None,
         name: "Work".into(),
         provider: "custom".into(),
         model_vendor: None,

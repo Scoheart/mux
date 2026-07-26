@@ -79,8 +79,22 @@ fn bootstrap_unlocked(frontend: Frontend) -> Result<BootstrapReport, BootstrapEr
         crate::assets::recover_pending_asset_operations().map(|_| ()),
         &mut warnings,
     )?;
-    let model_migration_ok = if asset_recovery_ok {
+    let model_profile_migration_ok = if asset_recovery_ok {
         match crate::assets::migrate_model_profiles_v2_if_needed() {
+            Ok(_) => true,
+            Err(message) => {
+                warnings.push(BootstrapWarning {
+                    stage: BootstrapStage::ModelMigration,
+                    message,
+                });
+                false
+            }
+        }
+    } else {
+        false
+    };
+    let model_migration_ok = if model_profile_migration_ok {
+        match crate::resources::model::migrate_model_providers_v3_if_needed() {
             Ok(_) => true,
             Err(message) => {
                 warnings.push(BootstrapWarning {

@@ -1,4 +1,5 @@
-//! Reusable model endpoint profiles and safe per-Agent configuration writers.
+//! Shared Provider connections, reusable Model records, and safe per-Agent
+//! configuration writers.
 //!
 //! Managed Agents are written only through documented user-level configuration
 //! surfaces. Multi-model Agents keep MUX provider entries independently from
@@ -7,7 +8,7 @@
 
 pub(crate) mod adapters;
 
-use crate::domain::types::{ModelProfile, ModelProtocol};
+use crate::domain::types::{ModelProfile, ModelProtocol, ModelProviderConfig};
 use crate::paths::{backup_timestamp, backups_dir, settings_file};
 use crate::resources::mcp::applier::backup;
 use crate::resources::mcp::scanner::{collapse_home, expand_tilde};
@@ -19,6 +20,7 @@ use jsonc_parser::cst::{CstInputValue, CstNode, CstObject, CstRootNode};
 use jsonc_parser::ParseOptions;
 use serde::Serialize;
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::io::ErrorKind;
@@ -44,9 +46,9 @@ fn mutation_lock() -> Result<SettingsLock, String> {
 static TEST_CREDENTIALS: LazyLock<Mutex<BTreeMap<String, Vec<u8>>>> =
     LazyLock::new(|| Mutex::new(BTreeMap::new()));
 
-fn test_credential_key(profile_id: &str) -> String {
+fn test_credential_key(service: &str) -> String {
     format!(
-        "{}::{profile_id}",
+        "{}::{service}",
         std::env::var("MUX_TEST_PROBE_ROOT").unwrap_or_default()
     )
 }
@@ -64,6 +66,14 @@ pub struct ModelProviderView {
     pub id: &'static str,
     pub name: &'static str,
     pub default_base_url: Option<&'static str>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ModelProviderInstanceView {
+    #[serde(flatten)]
+    pub provider: ModelProviderConfig,
+    pub credential_saved: bool,
+    pub model_count: usize,
 }
 
 const MODEL_PROVIDERS: &[ModelProviderView] = &[
@@ -136,6 +146,76 @@ const MODEL_PROVIDERS: &[ModelProviderView] = &[
 
 pub fn list_providers() -> &'static [ModelProviderView] {
     MODEL_PROVIDERS
+}
+
+fn provider_display_name(provider: &str) -> String {
+    MODEL_PROVIDERS
+        .iter()
+        .find(|candidate| candidate.id == provider)
+        .map(|candidate| candidate.name.to_string())
+        .unwrap_or_else(|| {
+            provider
+                .split(['-', '_'])
+                .filter(|part| !part.is_empty())
+                .map(|part| {
+                    let mut chars = part.chars();
+                    chars
+                        .next()
+                        .map(|first| first.to_uppercase().collect::<String>() + chars.as_str())
+                        .unwrap_or_default()
+                })
+                .collect::<Vec<_>>()
+                .join(" ")
+        })
+}
+
+fn unique_provider_name(settings: &crate::settings::Settings, provider: &str) -> String {
+    let base_name = provider_display_name(provider);
+    let used = settings
+        .model_providers
+        .iter()
+        .flatten()
+        .map(|(_, provider)| provider.name.to_lowercase())
+        .collect::<BTreeSet<_>>();
+    if !used.contains(&base_name.to_lowercase()) {
+        return base_name;
+    }
+    for suffix in 2.. {
+        let candidate = format!("{base_name} {suffix}");
+        if !used.contains(&candidate.to_lowercase()) {
+            return candidate;
+        }
+    }
+    unreachable!()
+}
+
+pub fn list_provider_instances() -> Vec<ModelProviderInstanceView> {
+    let settings = load_settings();
+    let profiles = settings.model_profiles.unwrap_or_default();
+    let mut providers = settings
+        .model_providers
+        .unwrap_or_default()
+        .into_values()
+        .map(|provider| {
+            let linked = profiles
+                .values()
+                .filter(|profile| profile.provider_id.as_deref() == Some(provider.id.as_str()))
+                .collect::<Vec<_>>();
+            ModelProviderInstanceView {
+                credential_saved: linked.iter().any(|profile| credential_exists(&profile.id)),
+                model_count: linked.len(),
+                provider,
+            }
+        })
+        .collect::<Vec<_>>();
+    providers.sort_by(|left, right| {
+        left.provider
+            .name
+            .to_lowercase()
+            .cmp(&right.provider.name.to_lowercase())
+            .then_with(|| left.provider.id.cmp(&right.provider.id))
+    });
+    providers
 }
 
 pub fn catalog_key(profile: &ModelProfile) -> String {
@@ -211,6 +291,185 @@ fn generated_profile_id(provider: &str, model: &str, existing: &BTreeSet<String>
     }
 }
 
+fn generated_provider_id(provider: &str, existing: &BTreeSet<String>) -> String {
+    let prefix = normalize_slug(provider);
+    let prefix = if prefix.is_empty() {
+        "provider"
+    } else {
+        &prefix
+    };
+    loop {
+        let suffix = &Uuid::new_v4().simple().to_string()[..8];
+        let id = format!("{prefix}-{suffix}");
+        if !existing.contains(&id) {
+            return id;
+        }
+    }
+}
+
+fn normalized_endpoint_origin(base_url: &str) -> String {
+    url::Url::parse(base_url)
+        .ok()
+        .and_then(|url| {
+            let host = url.host_str()?;
+            let port = url
+                .port()
+                .map(|port| format!(":{port}"))
+                .unwrap_or_default();
+            Some(format!("{}://{host}{port}", url.scheme()))
+        })
+        .unwrap_or_else(|| base_url.trim_end_matches('/').to_ascii_lowercase())
+}
+
+fn credential_fingerprint(profile_id: &str) -> Option<String> {
+    read_credential(profile_id).map(|credential| {
+        Sha256::digest(credential)
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect()
+    })
+}
+
+/// Upgrade v2 Profile-local connection metadata into shared Provider
+/// instances. This migration only adds central metadata and references; Agent
+/// files and existing per-Profile Keychain items remain byte-for-byte stable.
+pub fn migrate_model_providers_v3_if_needed() -> Result<bool, String> {
+    let _settings_guard = mutation_lock()?;
+    let settings = crate::settings::load_settings_strict().map_err(|error| error.to_string())?;
+    if settings.version.unwrap_or_default() >= crate::settings::SETTINGS_VERSION {
+        return consolidate_provider_credentials();
+    }
+    if settings.version.unwrap_or_default() < 2 {
+        return Err("model_schema_v2_required: migrate Model Profiles before Providers".into());
+    }
+
+    #[derive(Clone, PartialEq, Eq)]
+    struct GroupIdentity {
+        provider: String,
+        origin: String,
+        env_key: Option<String>,
+        credential: Option<String>,
+    }
+
+    let mut profiles = settings.model_profiles.clone().unwrap_or_default();
+    let mut providers = BTreeMap::<String, ModelProviderConfig>::new();
+    let mut groups = Vec::<(GroupIdentity, String)>::new();
+    let mut used_ids = BTreeSet::new();
+    let mut used_names = BTreeSet::new();
+
+    for profile in profiles.values_mut() {
+        let identity = GroupIdentity {
+            provider: profile.provider.clone(),
+            origin: normalized_endpoint_origin(&profile.base_url),
+            env_key: profile.env_key.clone(),
+            credential: credential_fingerprint(&profile.id),
+        };
+        let existing_provider_id = groups.iter().find_map(|(candidate, provider_id)| {
+            if candidate != &identity {
+                return None;
+            }
+            let provider = providers.get(provider_id)?;
+            provider
+                .endpoints
+                .get(&profile.protocol)
+                .is_none_or(|endpoint| {
+                    endpoint.trim_end_matches('/') == profile.base_url.trim_end_matches('/')
+                })
+                .then_some(provider_id.clone())
+        });
+        let provider_id = match existing_provider_id {
+            Some(provider_id) => provider_id,
+            None => {
+                let provider_id = generated_provider_id(&profile.provider, &used_ids);
+                used_ids.insert(provider_id.clone());
+                let base_name = provider_display_name(&profile.provider);
+                let mut name = base_name.clone();
+                for suffix in 2.. {
+                    if !used_names.contains(&name.to_lowercase()) {
+                        break;
+                    }
+                    name = format!("{base_name} {suffix}");
+                }
+                used_names.insert(name.to_lowercase());
+                providers.insert(
+                    provider_id.clone(),
+                    ModelProviderConfig {
+                        id: provider_id.clone(),
+                        name,
+                        provider: profile.provider.clone(),
+                        endpoints: BTreeMap::new(),
+                        env_key: profile.env_key.clone(),
+                    },
+                );
+                groups.push((identity, provider_id.clone()));
+                provider_id
+            }
+        };
+        providers
+            .get_mut(&provider_id)
+            .expect("new Provider is present")
+            .endpoints
+            .insert(profile.protocol.clone(), profile.base_url.clone());
+        profile.provider_id = Some(provider_id);
+    }
+
+    crate::settings::mutate_settings_checked(|current| {
+        if current.version != settings.version || current.model_profiles != settings.model_profiles
+        {
+            return Err(std::io::Error::other(
+                "asset_operation_stale: Model settings changed during Provider migration",
+            ));
+        }
+        current.model_profiles = (!profiles.is_empty()).then_some(profiles.clone());
+        current.model_providers = (!providers.is_empty()).then_some(providers.clone());
+        current.version = Some(crate::settings::SETTINGS_VERSION);
+        Ok(())
+    })
+    .map_err(|error| error.to_string())?;
+    consolidate_provider_credentials()?;
+    Ok(true)
+}
+
+fn consolidate_provider_credentials() -> Result<bool, String> {
+    let settings = crate::settings::load_settings_strict().map_err(|error| error.to_string())?;
+    let profiles = settings.model_profiles.unwrap_or_default();
+    let mut changed = false;
+    for provider in settings.model_providers.unwrap_or_default().into_values() {
+        let profile_ids = profiles
+            .iter()
+            .filter(|(_, profile)| profile.provider_id.as_deref() == Some(provider.id.as_str()))
+            .map(|(profile_id, _)| profile_id)
+            .collect::<Vec<_>>();
+        let provider_service = provider_keychain_service(&provider.id);
+        if !credential_service_exists(&provider_service) {
+            let legacy_credentials = profile_ids
+                .iter()
+                .filter_map(|profile_id| {
+                    read_credential_service(&legacy_keychain_service(profile_id))
+                })
+                .collect::<BTreeSet<_>>();
+            if legacy_credentials.len() > 1 {
+                return Err(format!(
+                    "model_provider_credential_drift: Provider '{}' has conflicting legacy API Keys",
+                    provider.name
+                ));
+            }
+            if let Some(credential) = legacy_credentials.iter().next() {
+                set_credential_service(&provider_service, credential)?;
+                changed = true;
+            }
+        }
+        for profile_id in profile_ids {
+            let legacy_service = legacy_keychain_service(profile_id);
+            if credential_service_exists(&legacy_service) {
+                delete_credential_service(&legacy_service)?;
+                changed = true;
+            }
+        }
+    }
+    Ok(changed)
+}
+
 fn default_profile_name(model: &str) -> String {
     let leaf = model.rsplit('/').next().unwrap_or(model);
     let name = leaf
@@ -257,11 +516,53 @@ fn unique_profile_name(
     unreachable!()
 }
 
+fn validate_provider_model_identity(
+    settings: &crate::settings::Settings,
+    profile: &ModelProfile,
+    excluding_id: Option<&str>,
+) -> Result<(), String> {
+    let Some(provider_id) = profile.provider_id.as_deref() else {
+        return Ok(());
+    };
+    let duplicate = settings
+        .model_profiles
+        .iter()
+        .flatten()
+        .any(|(id, candidate)| {
+            Some(id.as_str()) != excluding_id
+                && candidate.provider_id.as_deref() == Some(provider_id)
+                && candidate.model == profile.model
+        });
+    if duplicate {
+        return Err(format!(
+            "asset_identity_conflict: Model '{}' already exists in this Provider",
+            profile.model
+        ));
+    }
+    Ok(())
+}
+
 pub(crate) fn prepare_profile_draft(
     settings: &crate::settings::Settings,
     existing_id: Option<&str>,
     mut profile: ModelProfile,
 ) -> Result<ModelProfile, String> {
+    if existing_id.is_none() {
+        if let Some(provider_id) = profile.provider_id.as_deref() {
+            let provider = settings
+                .model_providers
+                .as_ref()
+                .and_then(|providers| providers.get(provider_id))
+                .ok_or_else(|| {
+                    "asset_operation_stale: Model Provider no longer exists".to_string()
+                })?;
+            profile.provider = provider.provider.clone();
+            profile.env_key = provider.env_key.clone();
+            if let Some(endpoint) = provider.endpoints.get(&profile.protocol) {
+                profile.base_url = endpoint.clone();
+            }
+        }
+    }
     profile.provider = if profile.provider.trim().is_empty() {
         infer_provider(&profile.base_url)
     } else {
@@ -291,6 +592,21 @@ pub(crate) fn prepare_profile_draft(
                 .ok_or_else(|| {
                     "asset_operation_stale: Model Profile no longer exists".to_string()
                 })?;
+            profile.provider_id = existing.provider_id.clone();
+            if let Some(provider_id) = profile.provider_id.as_deref() {
+                let provider = settings
+                    .model_providers
+                    .as_ref()
+                    .and_then(|providers| providers.get(provider_id))
+                    .ok_or_else(|| {
+                        "asset_operation_stale: Model Provider no longer exists".to_string()
+                    })?;
+                profile.provider = provider.provider.clone();
+                profile.env_key = provider.env_key.clone();
+                if let Some(endpoint) = provider.endpoints.get(&profile.protocol) {
+                    profile.base_url = endpoint.clone();
+                }
+            }
             // Agent-native identities are evidence created only by the explicit
             // adoption flow. Ordinary metadata edits cannot redirect a writer
             // to a different provider key.
@@ -312,6 +628,18 @@ pub(crate) fn prepare_profile_draft(
                 .map(|(id, _)| id.clone())
                 .collect();
             profile.id = generated_profile_id(&profile.provider, &profile.model, &existing);
+            if profile.provider_id.is_none() {
+                let existing_provider_ids = settings
+                    .model_providers
+                    .iter()
+                    .flatten()
+                    .map(|(id, _)| id.clone())
+                    .collect();
+                profile.provider_id = Some(generated_provider_id(
+                    &profile.provider,
+                    &existing_provider_ids,
+                ));
+            }
         }
     }
     let requested_name = if profile.name.trim().is_empty() {
@@ -321,6 +649,7 @@ pub(crate) fn prepare_profile_draft(
     };
     profile.name = unique_profile_name(settings, &profile.provider, &requested_name, existing_id);
     validate_profile(&profile)?;
+    validate_provider_model_identity(settings, &profile, existing_id)?;
     Ok(profile)
 }
 
@@ -509,8 +838,22 @@ fn path_view(settings: &crate::settings::Settings, agent_id: &str) -> (String, V
     (paths.join(" + "), paths)
 }
 
-fn keychain_service(profile_id: &str) -> String {
+fn legacy_keychain_service(profile_id: &str) -> String {
     format!("com.scoheart.mux.model-profile.{profile_id}")
+}
+
+fn provider_keychain_service(provider_id: &str) -> String {
+    format!("com.scoheart.mux.model-provider.{provider_id}")
+}
+
+fn keychain_service(profile_id: &str) -> String {
+    load_settings()
+        .model_profiles
+        .as_ref()
+        .and_then(|profiles| profiles.get(profile_id))
+        .and_then(|profile| profile.provider_id.as_deref())
+        .map(provider_keychain_service)
+        .unwrap_or_else(|| legacy_keychain_service(profile_id))
 }
 
 fn security_command(profile_id: &str) -> Vec<String> {
@@ -530,12 +873,12 @@ fn security_shell_command(profile_id: &str) -> String {
 }
 
 #[cfg(target_os = "macos")]
-fn read_credential(profile_id: &str) -> Option<Vec<u8>> {
+fn read_credential_service(service: &str) -> Option<Vec<u8>> {
     if std::env::var_os("MUX_TEST_PROBE_ROOT").is_some() {
         return TEST_CREDENTIALS
             .lock()
             .unwrap_or_else(|error| error.into_inner())
-            .get(&test_credential_key(profile_id))
+            .get(&test_credential_key(service))
             .cloned();
     }
     let output = Command::new("/usr/bin/security")
@@ -543,7 +886,7 @@ fn read_credential(profile_id: &str) -> Option<Vec<u8>> {
             "find-generic-password",
             "-w",
             "-s",
-            &keychain_service(profile_id),
+            service,
             "-a",
             KEYCHAIN_ACCOUNT,
         ])
@@ -564,28 +907,25 @@ fn read_credential(profile_id: &str) -> Option<Vec<u8>> {
 }
 
 #[cfg(not(target_os = "macos"))]
-fn read_credential(_profile_id: &str) -> Option<Vec<u8>> {
+fn read_credential_service(service: &str) -> Option<Vec<u8>> {
     if std::env::var_os("MUX_TEST_PROBE_ROOT").is_some() {
         return TEST_CREDENTIALS
             .lock()
             .unwrap_or_else(|error| error.into_inner())
-            .get(&test_credential_key(_profile_id))
+            .get(&test_credential_key(service))
             .cloned();
     }
     None
 }
 
-fn credential_exists(profile_id: &str) -> bool {
+fn credential_service_exists(service: &str) -> bool {
     // TestHome sets this marker specifically to isolate probes from the real
     // machine. Never consult the user's Keychain from a test process.
     if std::env::var_os("MUX_TEST_PROBE_ROOT").is_some() {
         return TEST_CREDENTIALS
             .lock()
             .unwrap_or_else(|error| error.into_inner())
-            .contains_key(&test_credential_key(profile_id))
-            || std::env::var("MUX_TEST_MODEL_CREDENTIAL_PROFILES")
-                .ok()
-                .is_some_and(|profiles| profiles.split(',').any(|item| item == profile_id));
+            .contains_key(&test_credential_key(service));
     }
     #[cfg(target_os = "macos")]
     {
@@ -593,7 +933,7 @@ fn credential_exists(profile_id: &str) -> bool {
             .args([
                 "find-generic-password",
                 "-s",
-                &keychain_service(profile_id),
+                service,
                 "-a",
                 KEYCHAIN_ACCOUNT,
             ])
@@ -607,12 +947,12 @@ fn credential_exists(profile_id: &str) -> bool {
 }
 
 #[cfg(target_os = "macos")]
-fn set_credential(profile_id: &str, credential: &[u8]) -> Result<(), String> {
+fn set_credential_service(service: &str, credential: &[u8]) -> Result<(), String> {
     if std::env::var_os("MUX_TEST_PROBE_ROOT").is_some() {
         TEST_CREDENTIALS
             .lock()
             .unwrap_or_else(|error| error.into_inner())
-            .insert(test_credential_key(profile_id), credential.to_vec());
+            .insert(test_credential_key(service), credential.to_vec());
         return Ok(());
     }
     if credential.contains(&b'\n') || credential.contains(&b'\r') {
@@ -622,7 +962,7 @@ fn set_credential(profile_id: &str, credential: &[u8]) -> Result<(), String> {
         .args([
             "add-generic-password",
             "-s",
-            &keychain_service(profile_id),
+            service,
             "-a",
             KEYCHAIN_ACCOUNT,
             "-T",
@@ -661,34 +1001,34 @@ fn set_credential(profile_id: &str, credential: &[u8]) -> Result<(), String> {
 }
 
 #[cfg(not(target_os = "macos"))]
-fn set_credential(_profile_id: &str, _credential: &[u8]) -> Result<(), String> {
+fn set_credential_service(service: &str, credential: &[u8]) -> Result<(), String> {
     if std::env::var_os("MUX_TEST_PROBE_ROOT").is_some() {
         TEST_CREDENTIALS
             .lock()
             .unwrap_or_else(|error| error.into_inner())
-            .insert(test_credential_key(_profile_id), _credential.to_vec());
+            .insert(test_credential_key(service), credential.to_vec());
         return Ok(());
     }
     Err("secure model credentials are currently supported on macOS only".into())
 }
 
 #[cfg(target_os = "macos")]
-fn delete_credential(profile_id: &str) -> Result<(), String> {
+fn delete_credential_service(service: &str) -> Result<(), String> {
     if std::env::var_os("MUX_TEST_PROBE_ROOT").is_some() {
         TEST_CREDENTIALS
             .lock()
             .unwrap_or_else(|error| error.into_inner())
-            .remove(&test_credential_key(profile_id));
+            .remove(&test_credential_key(service));
         return Ok(());
     }
-    if !credential_exists(profile_id) {
+    if !credential_service_exists(service) {
         return Ok(());
     }
     let output = Command::new("/usr/bin/security")
         .args([
             "delete-generic-password",
             "-s",
-            &keychain_service(profile_id),
+            service,
             "-a",
             KEYCHAIN_ACCOUNT,
         ])
@@ -707,12 +1047,46 @@ fn delete_credential(profile_id: &str) -> Result<(), String> {
 }
 
 #[cfg(not(target_os = "macos"))]
-fn delete_credential(_profile_id: &str) -> Result<(), String> {
+fn delete_credential_service(service: &str) -> Result<(), String> {
     if std::env::var_os("MUX_TEST_PROBE_ROOT").is_some() {
         TEST_CREDENTIALS
             .lock()
             .unwrap_or_else(|error| error.into_inner())
-            .remove(&test_credential_key(_profile_id));
+            .remove(&test_credential_key(service));
+    }
+    Ok(())
+}
+
+fn read_credential(profile_id: &str) -> Option<Vec<u8>> {
+    let service = keychain_service(profile_id);
+    read_credential_service(&service).or_else(|| {
+        let legacy = legacy_keychain_service(profile_id);
+        (legacy != service)
+            .then(|| read_credential_service(&legacy))
+            .flatten()
+    })
+}
+
+fn credential_exists(profile_id: &str) -> bool {
+    let service = keychain_service(profile_id);
+    credential_service_exists(&service)
+        || (service != legacy_keychain_service(profile_id)
+            && credential_service_exists(&legacy_keychain_service(profile_id)))
+        || std::env::var("MUX_TEST_MODEL_CREDENTIAL_PROFILES")
+            .ok()
+            .is_some_and(|profiles| profiles.split(',').any(|item| item == profile_id))
+}
+
+fn set_credential(profile_id: &str, credential: &[u8]) -> Result<(), String> {
+    set_credential_service(&keychain_service(profile_id), credential)
+}
+
+fn delete_credential(profile_id: &str) -> Result<(), String> {
+    let service = keychain_service(profile_id);
+    delete_credential_service(&service)?;
+    let legacy = legacy_keychain_service(profile_id);
+    if legacy != service {
+        delete_credential_service(&legacy)?;
     }
     Ok(())
 }
@@ -760,6 +1134,99 @@ fn validate_profile(profile: &ModelProfile) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+pub(crate) fn validate_provider_config(provider: &ModelProviderConfig) -> Result<(), String> {
+    let valid_id = !provider.id.is_empty()
+        && provider.id.len() <= 64
+        && provider.id.bytes().enumerate().all(|(index, byte)| {
+            byte.is_ascii_lowercase()
+                || byte.is_ascii_digit()
+                || (index > 0 && matches!(byte, b'-' | b'_' | b'.'))
+        });
+    if !valid_id {
+        return Err("Provider id must be a stable lowercase identifier".into());
+    }
+    if provider.name.trim().is_empty() {
+        return Err("Provider name is required".into());
+    }
+    if provider.provider.is_empty() || normalize_slug(&provider.provider) != provider.provider {
+        return Err("Provider type must be a lowercase identifier".into());
+    }
+    if provider.endpoints.is_empty() {
+        return Err("Provider must define at least one protocol endpoint".into());
+    }
+    for endpoint in provider.endpoints.values() {
+        let endpoint = endpoint.trim();
+        if !(endpoint.starts_with("https://") || endpoint.starts_with("http://"))
+            || endpoint.chars().any(char::is_whitespace)
+        {
+            return Err("Provider endpoint must be an http(s) URL without whitespace".into());
+        }
+    }
+    if let Some(env_key) = provider.env_key.as_deref() {
+        let mut bytes = env_key.bytes();
+        let valid = bytes
+            .next()
+            .is_some_and(|byte| byte.is_ascii_alphabetic() || byte == b'_')
+            && bytes.all(|byte| byte.is_ascii_alphanumeric() || byte == b'_');
+        if !valid {
+            return Err(
+                "environment variable name must start with a letter or '_' and contain only letters, digits, or '_'"
+                    .into(),
+            );
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn provider_profiles(
+    settings: &crate::settings::Settings,
+    provider: &ModelProviderConfig,
+) -> Result<BTreeMap<String, ModelProfile>, String> {
+    validate_provider_config(provider)?;
+    let profiles = settings
+        .model_profiles
+        .iter()
+        .flatten()
+        .filter(|(_, profile)| profile.provider_id.as_deref() == Some(provider.id.as_str()))
+        .map(|(id, profile)| {
+            let endpoint = provider.endpoints.get(&profile.protocol).ok_or_else(|| {
+                format!(
+                    "model_provider_endpoint_missing: {} requires {:?}",
+                    profile.name, profile.protocol
+                )
+            })?;
+            let mut profile = profile.clone();
+            profile.provider = provider.provider.clone();
+            profile.base_url = endpoint.trim_end_matches('/').to_string();
+            profile.env_key = provider.env_key.clone();
+            validate_profile(&profile)?;
+            Ok((id.clone(), profile))
+        })
+        .collect::<Result<BTreeMap<_, _>, String>>()?;
+    if profiles.is_empty() {
+        return Err("asset_operation_stale: Model Provider has no Models".into());
+    }
+    Ok(profiles)
+}
+
+pub(crate) fn save_provider_bundle(
+    provider: ModelProviderConfig,
+    profiles: BTreeMap<String, ModelProfile>,
+) -> Result<(), String> {
+    validate_provider_config(&provider)?;
+    mutate_settings(|settings| {
+        settings
+            .model_providers
+            .get_or_insert_default()
+            .insert(provider.id.clone(), provider);
+        settings
+            .model_profiles
+            .get_or_insert_default()
+            .extend(profiles);
+    })
+    .map_err(|error| error.to_string())
 }
 
 pub(crate) fn credential_snapshot(profile_id: &str) -> Option<Vec<u8>> {
@@ -848,17 +1315,44 @@ pub fn list_profiles() -> Vec<ModelProfileView> {
 pub fn save_profile(profile: ModelProfile, credential: Option<String>) -> Result<(), String> {
     let _settings_guard = mutation_lock()?;
     validate_profile(&profile)?;
-    let previous_credential = credential.as_ref().map(|_| read_credential(&profile.id));
+    let settings = crate::settings::load_settings_strict().map_err(|error| error.to_string())?;
+    validate_provider_model_identity(&settings, &profile, Some(profile.id.as_str()))?;
+    let credential_service = profile
+        .provider_id
+        .as_deref()
+        .map(provider_keychain_service)
+        .unwrap_or_else(|| legacy_keychain_service(&profile.id));
+    let provider_name = unique_provider_name(&settings, &profile.provider);
+    let previous_credential = credential
+        .as_ref()
+        .map(|_| read_credential_service(&credential_service));
     if let Some(value) = credential.as_deref() {
         if value.is_empty() {
-            delete_credential(&profile.id)?;
+            delete_credential_service(&credential_service)?;
         } else {
-            set_credential(&profile.id, value.as_bytes())?;
+            set_credential_service(&credential_service, value.as_bytes())?;
         }
     }
 
     let profile_id = profile.id.clone();
     if let Err(error) = mutate_settings(|settings| {
+        if let Some(provider_id) = profile.provider_id.as_deref() {
+            let providers = settings.model_providers.get_or_insert_default();
+            let provider =
+                providers
+                    .entry(provider_id.to_string())
+                    .or_insert_with(|| ModelProviderConfig {
+                        id: provider_id.to_string(),
+                        name: provider_name.clone(),
+                        provider: profile.provider.clone(),
+                        endpoints: BTreeMap::new(),
+                        env_key: profile.env_key.clone(),
+                    });
+            provider
+                .endpoints
+                .entry(profile.protocol.clone())
+                .or_insert_with(|| profile.base_url.clone());
+        }
         settings
             .model_profiles
             .get_or_insert_with(BTreeMap::new)
@@ -867,10 +1361,10 @@ pub fn save_profile(profile: ModelProfile, credential: Option<String>) -> Result
         if let Some(previous) = previous_credential {
             match previous {
                 Some(value) => {
-                    let _ = set_credential(&profile_id, &value);
+                    let _ = set_credential_service(&credential_service, &value);
                 }
                 None => {
-                    let _ = delete_credential(&profile_id);
+                    let _ = delete_credential_service(&credential_service);
                 }
             }
         }
@@ -882,13 +1376,35 @@ pub fn save_profile(profile: ModelProfile, credential: Option<String>) -> Result
 pub fn delete_profile(profile_id: &str) -> Result<(), String> {
     let _settings_guard = mutation_lock()?;
     validate_profile_id(profile_id)?;
-    let previous_credential = read_credential(profile_id);
-    if credential_exists(profile_id) {
-        delete_credential(profile_id)?;
+    let settings = crate::settings::load_settings_strict().map_err(|error| error.to_string())?;
+    let provider_id = settings
+        .model_profiles
+        .as_ref()
+        .and_then(|profiles| profiles.get(profile_id))
+        .and_then(|profile| profile.provider_id.clone());
+    let removes_provider = provider_id.as_deref().is_none_or(|provider_id| {
+        settings
+            .model_profiles
+            .iter()
+            .flatten()
+            .filter(|(_, profile)| profile.provider_id.as_deref() == Some(provider_id))
+            .count()
+            <= 1
+    });
+    let credential_service = provider_id
+        .as_deref()
+        .map(provider_keychain_service)
+        .unwrap_or_else(|| legacy_keychain_service(profile_id));
+    let previous_credential = removes_provider
+        .then(|| read_credential(profile_id))
+        .flatten();
+    if removes_provider {
+        delete_credential_service(&credential_service)?;
     }
+    delete_credential_service(&legacy_keychain_service(profile_id))?;
     if let Err(error) = delete_profile_metadata(profile_id) {
         if let Some(credential) = previous_credential {
-            let _ = set_credential(profile_id, &credential);
+            let _ = set_credential_service(&credential_service, &credential);
         }
         return Err(error);
     }
@@ -898,8 +1414,25 @@ pub fn delete_profile(profile_id: &str) -> Result<(), String> {
 pub(crate) fn delete_profile_metadata(profile_id: &str) -> Result<(), String> {
     validate_profile_id(profile_id)?;
     mutate_settings(|settings| {
+        let provider_id = settings
+            .model_profiles
+            .as_ref()
+            .and_then(|profiles| profiles.get(profile_id))
+            .and_then(|profile| profile.provider_id.clone());
         if let Some(profiles) = settings.model_profiles.as_mut() {
             profiles.remove(profile_id);
+        }
+        if let Some(provider_id) = provider_id {
+            let still_used = settings
+                .model_profiles
+                .iter()
+                .flatten()
+                .any(|(_, profile)| profile.provider_id.as_deref() == Some(provider_id.as_str()));
+            if !still_used {
+                if let Some(providers) = settings.model_providers.as_mut() {
+                    providers.remove(&provider_id);
+                }
+            }
         }
         if let Some(assignments) = settings.model_assignments.as_mut() {
             assignments.retain(|_, assigned| assigned != profile_id);
@@ -968,6 +1501,7 @@ pub(crate) fn apply_credential_update(
 fn validate_profile_id(profile_id: &str) -> Result<(), String> {
     let dummy = ModelProfile {
         id: profile_id.into(),
+        provider_id: None,
         name: "x".into(),
         provider: "custom".into(),
         model_vendor: None,
@@ -2693,6 +3227,7 @@ mod tests {
     fn anthropic_profile() -> ModelProfile {
         ModelProfile {
             id: "team-anthropic".into(),
+            provider_id: None,
             name: "Team Anthropic".into(),
             provider: "custom".into(),
             model_vendor: Some("anthropic".into()),
@@ -2710,6 +3245,7 @@ mod tests {
     fn responses_profile() -> ModelProfile {
         ModelProfile {
             id: "team-openai".into(),
+            provider_id: None,
             name: "Team OpenAI".into(),
             provider: "custom".into(),
             model_vendor: Some("openai".into()),
@@ -2722,6 +3258,191 @@ mod tests {
             max_output_tokens: Some(16_000),
             reasoning: Some(true),
         }
+    }
+
+    #[test]
+    fn v3_migration_groups_matching_credentials_and_keeps_protocol_endpoints() {
+        let _home = TestHome::new("model-provider-v3-migration");
+        let anthropic = anthropic_profile();
+        let responses = responses_profile();
+        set_credential(&anthropic.id, b"shared-secret").unwrap();
+        set_credential(&responses.id, b"shared-secret").unwrap();
+        crate::settings::save_settings(&crate::settings::Settings {
+            version: Some(2),
+            model_profiles: Some(BTreeMap::from([
+                (anthropic.id.clone(), anthropic.clone()),
+                (responses.id.clone(), responses.clone()),
+            ])),
+            ..Default::default()
+        })
+        .unwrap();
+
+        assert!(migrate_model_providers_v3_if_needed().unwrap());
+        assert!(!migrate_model_providers_v3_if_needed().unwrap());
+        let settings = crate::settings::load_settings_strict().unwrap();
+        assert_eq!(settings.version, Some(3));
+        let providers = settings.model_providers.unwrap();
+        assert_eq!(providers.len(), 1);
+        let provider = providers.values().next().unwrap();
+        assert_eq!(provider.endpoints.len(), 2);
+        assert_eq!(
+            provider.endpoints[&ModelProtocol::AnthropicMessages],
+            anthropic.base_url
+        );
+        assert_eq!(
+            provider.endpoints[&ModelProtocol::OpenaiResponses],
+            responses.base_url
+        );
+        let profiles = settings.model_profiles.unwrap();
+        assert_eq!(
+            profiles[&anthropic.id].provider_id,
+            profiles[&responses.id].provider_id
+        );
+        let instances = list_provider_instances();
+        assert_eq!(instances.len(), 1);
+        assert_eq!(instances[0].model_count, 2);
+        assert!(instances[0].credential_saved);
+        assert_eq!(
+            read_credential_service(&provider_keychain_service(&provider.id)).unwrap(),
+            b"shared-secret"
+        );
+        assert!(read_credential_service(&legacy_keychain_service(&anthropic.id)).is_none());
+        assert!(read_credential_service(&legacy_keychain_service(&responses.id)).is_none());
+    }
+
+    #[test]
+    fn v3_migration_does_not_merge_distinct_provider_credentials() {
+        let _home = TestHome::new("model-provider-v3-distinct-credentials");
+        let anthropic = anthropic_profile();
+        let responses = responses_profile();
+        set_credential(&anthropic.id, b"personal-secret").unwrap();
+        set_credential(&responses.id, b"team-secret").unwrap();
+        crate::settings::save_settings(&crate::settings::Settings {
+            version: Some(2),
+            model_profiles: Some(BTreeMap::from([
+                (anthropic.id.clone(), anthropic),
+                (responses.id.clone(), responses),
+            ])),
+            ..Default::default()
+        })
+        .unwrap();
+
+        migrate_model_providers_v3_if_needed().unwrap();
+        let settings = crate::settings::load_settings_strict().unwrap();
+        assert_eq!(settings.model_providers.unwrap().len(), 2);
+    }
+
+    #[test]
+    fn v3_credential_consolidation_rejects_conflicting_legacy_keys() {
+        let _home = TestHome::new("model-provider-v3-legacy-credential-drift");
+        let provider = ModelProviderConfig {
+            id: "team-provider".into(),
+            name: "Team Provider".into(),
+            provider: "custom".into(),
+            endpoints: BTreeMap::from([
+                (
+                    ModelProtocol::OpenaiResponses,
+                    "https://gateway.example.test/v1".into(),
+                ),
+                (
+                    ModelProtocol::AnthropicMessages,
+                    "https://gateway.example.test/anthropic".into(),
+                ),
+            ]),
+            env_key: None,
+        };
+        let mut first = responses_profile();
+        first.provider_id = Some(provider.id.clone());
+        let mut second = anthropic_profile();
+        second.provider_id = Some(provider.id.clone());
+        crate::settings::save_settings(&crate::settings::Settings {
+            version: Some(3),
+            model_providers: Some(BTreeMap::from([(provider.id.clone(), provider)])),
+            model_profiles: Some(BTreeMap::from([
+                (first.id.clone(), first.clone()),
+                (second.id.clone(), second.clone()),
+            ])),
+            ..Default::default()
+        })
+        .unwrap();
+        set_credential_service(&legacy_keychain_service(&first.id), b"first-secret").unwrap();
+        set_credential_service(&legacy_keychain_service(&second.id), b"second-secret").unwrap();
+
+        let error = migrate_model_providers_v3_if_needed().unwrap_err();
+        assert!(
+            error.starts_with("model_provider_credential_drift:"),
+            "{error}"
+        );
+        assert!(read_credential_service(&provider_keychain_service("team-provider")).is_none());
+    }
+
+    #[test]
+    fn provider_models_share_one_permanent_keychain_item() {
+        let _home = TestHome::new("model-provider-one-keychain-item");
+        let provider = ModelProviderConfig {
+            id: "team-provider".into(),
+            name: "Team Provider".into(),
+            provider: "custom".into(),
+            endpoints: BTreeMap::from([
+                (
+                    ModelProtocol::OpenaiResponses,
+                    "https://gateway.example.test/v1".into(),
+                ),
+                (
+                    ModelProtocol::AnthropicMessages,
+                    "https://gateway.example.test/anthropic".into(),
+                ),
+            ]),
+            env_key: None,
+        };
+        let mut first = responses_profile();
+        first.provider_id = Some(provider.id.clone());
+        let mut second = anthropic_profile();
+        second.provider_id = Some(provider.id.clone());
+
+        save_profile(first.clone(), Some("shared-secret".into())).unwrap();
+        save_profile(second.clone(), None).unwrap();
+        let provider_service = provider_keychain_service(&provider.id);
+        assert_eq!(
+            read_credential_service(&provider_service).unwrap(),
+            b"shared-secret"
+        );
+        assert!(read_credential_service(&legacy_keychain_service(&first.id)).is_none());
+        assert!(read_credential_service(&legacy_keychain_service(&second.id)).is_none());
+        assert_eq!(security_command(&first.id), security_command(&second.id));
+
+        delete_profile(&first.id).unwrap();
+        assert_eq!(credential_snapshot(&second.id).unwrap(), b"shared-secret");
+        delete_profile(&second.id).unwrap();
+        assert!(read_credential_service(&provider_service).is_none());
+    }
+
+    #[test]
+    fn one_provider_rejects_duplicate_model_ids() {
+        let provider = ModelProviderConfig {
+            id: "team-provider".into(),
+            name: "Team Provider".into(),
+            provider: "custom".into(),
+            endpoints: BTreeMap::from([(
+                ModelProtocol::OpenaiResponses,
+                "https://gateway.example.test/v1".into(),
+            )]),
+            env_key: None,
+        };
+        let mut existing = responses_profile();
+        existing.provider_id = Some(provider.id.clone());
+        let settings = crate::settings::Settings {
+            version: Some(3),
+            model_providers: Some(BTreeMap::from([(provider.id.clone(), provider)])),
+            model_profiles: Some(BTreeMap::from([(existing.id.clone(), existing.clone())])),
+            ..Default::default()
+        };
+        let mut duplicate = existing;
+        duplicate.id.clear();
+        duplicate.name = "Another Display Name".into();
+
+        let error = prepare_profile_draft(&settings, None, duplicate).unwrap_err();
+        assert!(error.starts_with("asset_identity_conflict:"), "{error}");
     }
 
     #[test]

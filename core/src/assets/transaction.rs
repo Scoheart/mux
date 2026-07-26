@@ -21,8 +21,8 @@ use crate::resources::model::{
     apply_credential_update, apply_profile, apply_profile_consumption,
     apply_profile_consumption_with_credential_presence, clear_credential_rollback,
     clear_profile_consumption, credential_present, credential_rollback_snapshot,
-    credential_snapshot, delete_profile_metadata, persist_credential_rollback,
-    restore_credential_snapshot, save_profile,
+    credential_snapshot, delete_profile, persist_credential_rollback, restore_credential_snapshot,
+    save_profile, save_provider_bundle,
 };
 use crate::resources::skill::{
     cancel_operation as cancel_skill_operation, commit_assignment, plan_assignment,
@@ -351,6 +351,9 @@ fn lifecycle_profile_ids(lifecycle: Option<&LifecycleBinding>) -> Vec<String> {
         Some(LifecycleBinding::ModelUpsert { profile_id, .. })
         | Some(LifecycleBinding::ModelAdopt { profile_id, .. })
         | Some(LifecycleBinding::ModelDelete { profile_id }) => vec![profile_id.clone()],
+        Some(LifecycleBinding::ModelProviderUpsert { profile_ids, .. }) => {
+            profile_ids.iter().cloned().collect()
+        }
         Some(LifecycleBinding::ModelSchemaV2 { id_map, .. }) => id_map
             .iter()
             .flat_map(|(old_id, new_id)| [old_id.clone(), new_id.clone()])
@@ -487,6 +490,48 @@ fn apply_operation(persisted: &PersistedAssetOperation) -> Result<(), String> {
             // a crash after it has a fully verifiable committed state.
             apply_credential_update(profile_id, credential.as_deref().map(String::as_str))
         }
+        LifecycleBinding::ModelProviderUpsert {
+            provider_id,
+            profile_ids,
+            draft_hash,
+            credential_action,
+        } => {
+            let PendingAssetPayload::ModelProviderUpsert {
+                provider,
+                profiles,
+                credential,
+            } = require_pending_payload(&persisted.plan.operation_id)?
+            else {
+                return Err("asset_operation_expired: Model Provider draft or credential is unavailable; reopen the editor".into());
+            };
+            verify_payload_hash(&(provider.as_ref(), &profiles), draft_hash)?;
+            if provider.id != *provider_id
+                || profiles.keys().cloned().collect::<BTreeSet<_>>() != *profile_ids
+                || credential_action_for(&credential) != *credential_action
+            {
+                return Err(
+                    "asset_operation_stale: Model Provider draft no longer matches the reviewed plan"
+                        .into(),
+                );
+            }
+            let desired_credential_present = match credential_action {
+                CredentialAction::Keep => profile_ids.iter().any(|id| credential_present(id)),
+                CredentialAction::Set => true,
+                CredentialAction::Clear => false,
+            };
+            save_provider_bundle(*provider, profiles)?;
+            for profile_id in profile_ids {
+                reapply_model_consumers(
+                    &persisted.plan.domain_plan,
+                    profile_id,
+                    desired_credential_present,
+                )?;
+            }
+            for profile_id in profile_ids {
+                apply_credential_update(profile_id, credential.as_deref().map(String::as_str))?;
+            }
+            Ok(())
+        }
         LifecycleBinding::ModelAdopt {
             profile_id,
             draft_hash,
@@ -527,8 +572,7 @@ fn apply_operation(persisted: &PersistedAssetOperation) -> Result<(), String> {
                 &persisted.plan.domain_plan,
                 persisted.plan.requires_conflict_confirmation,
             )?;
-            delete_profile_metadata(profile_id)?;
-            apply_credential_update(profile_id, Some(""))
+            delete_profile(profile_id)
         }
         LifecycleBinding::ModelSchemaV2 {
             id_map,
@@ -570,7 +614,7 @@ fn apply_operation(persisted: &PersistedAssetOperation) -> Result<(), String> {
             )?;
             mutate_settings(|settings| {
                 settings.model_profiles = Some(profiles.clone());
-                settings.version = Some(crate::settings::SETTINGS_VERSION);
+                settings.version = Some(2);
                 if let DomainPlan::Model { after, .. } = &persisted.plan.domain_plan {
                     for (agent_id, selection) in after {
                         settings.set_model_selection(agent_id, selection.clone());
@@ -769,6 +813,45 @@ fn verify_operation(persisted: &PersistedAssetOperation) -> Result<(), String> {
             }
             Ok(())
         }
+        LifecycleBinding::ModelProviderUpsert {
+            provider_id,
+            profile_ids,
+            draft_hash,
+            credential_action,
+        } => {
+            let settings = load_settings_strict().map_err(|error| error.to_string())?;
+            let provider = settings
+                .model_providers
+                .as_ref()
+                .and_then(|providers| providers.get(provider_id))
+                .ok_or_else(|| "Model Provider missing after commit".to_string())?;
+            let profiles = profile_ids
+                .iter()
+                .map(|profile_id| {
+                    settings
+                        .model_profiles
+                        .as_ref()
+                        .and_then(|profiles| profiles.get(profile_id))
+                        .cloned()
+                        .map(|profile| (profile_id.clone(), profile))
+                        .ok_or_else(|| "Provider child Model missing after commit".to_string())
+                })
+                .collect::<Result<BTreeMap<_, _>, String>>()?;
+            verify_payload_hash(&(provider, &profiles), draft_hash)?;
+            for profile_id in profile_ids {
+                match credential_action {
+                    CredentialAction::Keep => {}
+                    CredentialAction::Set if !credential_present(profile_id) => {
+                        return Err("Provider credential was not saved for every Model".into())
+                    }
+                    CredentialAction::Clear if credential_present(profile_id) => {
+                        return Err("Provider credential was not cleared from every Model".into())
+                    }
+                    CredentialAction::Set | CredentialAction::Clear => {}
+                }
+            }
+            Ok(())
+        }
         LifecycleBinding::ModelAdopt {
             profile_id,
             draft_hash,
@@ -819,7 +902,7 @@ fn verify_operation(persisted: &PersistedAssetOperation) -> Result<(), String> {
             credential_profile_ids,
         } => {
             let settings = load_settings_strict().map_err(|error| error.to_string())?;
-            if settings.version != Some(crate::settings::SETTINGS_VERSION) {
+            if settings.version != Some(2) {
                 return Err("Model schema version was not updated".into());
             }
             let profiles = settings.model_profiles.unwrap_or_default();
@@ -2047,7 +2130,8 @@ mod tests {
         PlanSetAgentConsumptionRequest, PlanSetMcpEnabledRequest, PlanUpdateCentralAssetRequest,
     };
     use crate::domain::types::{
-        ModelProfile, ModelProtocol, RegistryConfig, RegistryEntry, SourceDef, StdioConfig,
+        ModelProfile, ModelProtocol, ModelProviderConfig, RegistryConfig, RegistryEntry, SourceDef,
+        StdioConfig,
     };
     use crate::resources::mcp::registry::{read_registry_all, write_manual_entry};
     use crate::resources::mcp::sources::cached_path;
@@ -2057,6 +2141,7 @@ mod tests {
     fn model(model: &str) -> ModelProfile {
         ModelProfile {
             id: "work".into(),
+            provider_id: None,
             name: "Work".into(),
             provider: "custom".into(),
             model_vendor: None,
@@ -2069,6 +2154,58 @@ mod tests {
             max_output_tokens: None,
             reasoning: Some(false),
         }
+    }
+
+    fn shared_provider_models() -> (ModelProviderConfig, ModelProfile, ModelProfile) {
+        let provider = ModelProviderConfig {
+            id: "shared-provider".into(),
+            name: "Shared Provider".into(),
+            provider: "custom".into(),
+            endpoints: BTreeMap::from([
+                (
+                    ModelProtocol::OpenaiResponses,
+                    "https://old.example.test/v1".into(),
+                ),
+                (
+                    ModelProtocol::AnthropicMessages,
+                    "https://old.example.test/anthropic".into(),
+                ),
+            ]),
+            env_key: None,
+        };
+        let first = ModelProfile {
+            id: "shared-openai".into(),
+            provider_id: Some(provider.id.clone()),
+            name: "Shared OpenAI".into(),
+            provider: provider.provider.clone(),
+            model_vendor: Some("openai".into()),
+            native_ids: Default::default(),
+            protocol: ModelProtocol::OpenaiResponses,
+            base_url: provider.endpoints[&ModelProtocol::OpenaiResponses].clone(),
+            model: "gpt-shared".into(),
+            env_key: None,
+            context_window: None,
+            max_output_tokens: None,
+            reasoning: Some(true),
+        };
+        let second = ModelProfile {
+            id: "shared-anthropic".into(),
+            provider_id: Some(provider.id.clone()),
+            name: "Shared Anthropic".into(),
+            model_vendor: Some("anthropic".into()),
+            protocol: ModelProtocol::AnthropicMessages,
+            base_url: provider.endpoints[&ModelProtocol::AnthropicMessages].clone(),
+            model: "claude-shared".into(),
+            ..first.clone()
+        };
+        (provider, first, second)
+    }
+
+    fn install_shared_provider_models() -> (ModelProviderConfig, ModelProfile, ModelProfile) {
+        let (provider, first, second) = shared_provider_models();
+        save_profile(first.clone(), Some("old-secret".into())).unwrap();
+        save_profile(second.clone(), Some("old-secret".into())).unwrap();
+        (provider, first, second)
     }
 
     #[test]
@@ -2572,6 +2709,89 @@ mod tests {
         recover_pending_asset_operations().unwrap();
         assert_eq!(fs::read(settings_file()).unwrap(), settings_before);
         assert_eq!(credential_snapshot("work").unwrap(), b"old-secret");
+        assert!(!operation_root(&plan.operation_id).exists());
+    }
+
+    #[test]
+    fn provider_commit_updates_every_child_model_and_credential() {
+        let _home = TestHome::new("consume-provider-commit");
+        let (mut provider, first, second) = install_shared_provider_models();
+        provider.endpoints.insert(
+            ModelProtocol::OpenaiResponses,
+            "https://new.example.test/v1/".into(),
+        );
+        provider.endpoints.insert(
+            ModelProtocol::AnthropicMessages,
+            "https://new.example.test/anthropic/".into(),
+        );
+        let plan = plan_update_central_asset(PlanUpdateCentralAssetRequest {
+            draft: CentralAssetDraft::ModelProvider {
+                provider: Box::new(provider),
+                credential: Some("new-secret".into()),
+            },
+        })
+        .unwrap();
+
+        commit_asset_operation(AssetCommitRequest {
+            operation_id: plan.operation_id,
+            candidate_hash: plan.candidate_hash,
+            conflict_confirmation: None,
+        })
+        .unwrap();
+
+        let settings = load_settings_strict().unwrap();
+        let profiles = settings.model_profiles.unwrap();
+        assert_eq!(profiles[&first.id].base_url, "https://new.example.test/v1");
+        assert_eq!(
+            profiles[&second.id].base_url,
+            "https://new.example.test/anthropic"
+        );
+        assert_eq!(credential_snapshot(&first.id).unwrap(), b"new-secret");
+        assert_eq!(credential_snapshot(&second.id).unwrap(), b"new-secret");
+    }
+
+    #[test]
+    fn provider_recovery_rolls_back_every_child_model_and_credential() {
+        let _home = TestHome::new("consume-provider-keychain-rollback");
+        let (mut provider, first, second) = install_shared_provider_models();
+        let settings_before = fs::read(settings_file()).unwrap();
+        provider.endpoints.insert(
+            ModelProtocol::OpenaiResponses,
+            "https://new.example.test/v1".into(),
+        );
+        provider.endpoints.insert(
+            ModelProtocol::AnthropicMessages,
+            "https://new.example.test/anthropic".into(),
+        );
+        let plan = plan_update_central_asset(PlanUpdateCentralAssetRequest {
+            draft: CentralAssetDraft::ModelProvider {
+                provider: Box::new(provider),
+                credential: Some("new-secret".into()),
+            },
+        })
+        .unwrap();
+        let persisted = load_operation(&plan.operation_id).unwrap();
+        let snapshots = vec![PathSnapshot::capture(&settings_file()).unwrap()];
+        for profile_id in [&first.id, &second.id] {
+            let old_credential = credential_snapshot(profile_id);
+            persist_credential_rollback(&plan.operation_id, profile_id, old_credential.as_deref())
+                .unwrap();
+        }
+        persist_rollback_snapshots(&plan.operation_id, &snapshots).unwrap();
+        let tracker = begin_transaction_write_tracking(
+            &transaction_write_evidence_dir(&plan.operation_id),
+            &[settings_file()],
+        )
+        .unwrap();
+        apply_operation(&persisted).unwrap();
+        drop(tracker);
+        assert_eq!(credential_snapshot(&first.id).unwrap(), b"new-secret");
+        assert_eq!(credential_snapshot(&second.id).unwrap(), b"new-secret");
+
+        recover_pending_asset_operations().unwrap();
+        assert_eq!(fs::read(settings_file()).unwrap(), settings_before);
+        assert_eq!(credential_snapshot(&first.id).unwrap(), b"old-secret");
+        assert_eq!(credential_snapshot(&second.id).unwrap(), b"old-secret");
         assert!(!operation_root(&plan.operation_id).exists());
     }
 

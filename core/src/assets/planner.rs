@@ -91,6 +91,12 @@ pub(crate) enum LifecycleBinding {
         draft_hash: String,
         credential_action: CredentialAction,
     },
+    ModelProviderUpsert {
+        provider_id: String,
+        profile_ids: BTreeSet<String>,
+        draft_hash: String,
+        credential_action: CredentialAction,
+    },
     ModelAdopt {
         profile_id: String,
         draft_hash: String,
@@ -2228,6 +2234,7 @@ mod tests {
         let _home = TestHome::new("consume-model-single-profile");
         let profile = |id: &str| ModelProfile {
             id: id.into(),
+            provider_id: None,
             name: id.into(),
             provider: "custom".into(),
             model_vendor: None,
@@ -2278,6 +2285,7 @@ mod tests {
         let _home = TestHome::new("consume-model-qwen-identity");
         let profile = |id: &str| ModelProfile {
             id: id.into(),
+            provider_id: None,
             name: id.into(),
             provider: "custom".into(),
             model_vendor: None,
@@ -2317,6 +2325,7 @@ mod tests {
         let home = TestHome::new("consume-model-pi-backup");
         let profile = |id: &str, model: &str| ModelProfile {
             id: id.into(),
+            provider_id: None,
             name: id.into(),
             provider: "custom".into(),
             model_vendor: None,
@@ -2398,6 +2407,7 @@ mod tests {
         let _home = TestHome::new("consume-model-current-required");
         let profile = ModelProfile {
             id: "current".into(),
+            provider_id: None,
             name: "Current".into(),
             provider: "custom".into(),
             model_vendor: None,
@@ -2447,6 +2457,7 @@ mod tests {
         let home = TestHome::new("consume-model-pi-switch-backup");
         let profile = |id: &str, model: &str| ModelProfile {
             id: id.into(),
+            provider_id: None,
             name: id.into(),
             provider: "custom".into(),
             model_vendor: None,

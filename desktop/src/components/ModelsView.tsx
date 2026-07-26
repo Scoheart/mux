@@ -1,10 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { inferModelProvider, listModelProfiles, listModelProviders } from "../lib/api";
+import {
+  inferModelProvider,
+  listModelProfiles,
+  listModelProviderInstances,
+  listModelProviders,
+} from "../lib/api";
 import type { ConsumptionState } from "../hooks/useConsumptionState";
 import type {
   ModelProfile,
   ModelProfileView,
+  ModelProviderConfig,
+  ModelProviderInstanceView,
   ModelProviderView,
   ModelProtocol,
   ResourceNavigationIntent,
@@ -24,6 +31,7 @@ import { FormSelect } from "./FormSelect";
 import {
   EditIcon,
   LayersIcon,
+  NetworkIcon,
   PlusIcon,
   TrashIcon,
 } from "./icons";
@@ -66,6 +74,15 @@ function providerLabel(providers: ModelProviderView[], provider: string) {
   return providers.find((item) => item.id === provider)?.name ?? (provider || "Custom Provider");
 }
 
+function profileProviderName(
+  profile: ModelProfileView,
+  instances: ModelProviderInstanceView[],
+  providers: ModelProviderView[],
+) {
+  return instances.find((item) => item.id === profile.provider_id)?.name
+    ?? providerLabel(providers, profile.provider);
+}
+
 function formatTokens(value: number) {
   if (value >= 1_000_000) {
     return `${Number((value / 1_000_000).toFixed(value % 1_000_000 === 0 ? 0 : 2))}M`;
@@ -106,6 +123,10 @@ export function ModelsView({
 } = {}) {
   const [profiles, setProfiles] = useState<ModelProfileView[]>([]);
   const [providers, setProviders] = useState<ModelProviderView[]>([]);
+  const [providerInstances, setProviderInstances] = useState<ModelProviderInstanceView[]>([]);
+  const [providerFilter, setProviderFilter] = useState<string | null>(null);
+  const [creatingForProviderId, setCreatingForProviderId] = useState<string | null>(null);
+  const [editingProvider, setEditingProvider] = useState<ModelProviderInstanceView | null>(null);
   const [selectedProfileId, setSelectedProfileId] = useState<string | null>(null);
   const [editing, setEditing] = useState<ModelProfileView | null | undefined>(undefined);
   const [loading, setLoading] = useState(true);
@@ -119,12 +140,17 @@ export function ModelsView({
   const lastConsumedIntentId = useRef<number | null>(null);
 
   const refresh = useCallback(async () => {
-    const [nextProfiles, nextProviders] = await Promise.all([
+    const [nextProfiles, nextProviders, nextProviderInstances] = await Promise.all([
       listModelProfiles(),
       listModelProviders(),
+      listModelProviderInstances(),
     ]);
     setProfiles(nextProfiles);
     setProviders(nextProviders);
+    setProviderInstances(nextProviderInstances);
+    setProviderFilter((current) =>
+      current && nextProviderInstances.some((provider) => provider.id === current) ? current : null
+    );
     setSelectedProfileId((current) =>
       current && nextProfiles.some((profile) => profile.id === current) ? current : null
     );
@@ -178,6 +204,7 @@ export function ModelsView({
   const filteredProfiles = useMemo(() => {
     const needle = query.trim().toLocaleLowerCase();
     return profiles.filter((profile) => {
+      if (providerFilter && profile.provider_id !== providerFilter) return false;
       if (protocolFilter && profile.protocol !== protocolFilter) return false;
       if (assetFilter === "credential" && !profile.credential_saved) return false;
       if (
@@ -198,9 +225,10 @@ export function ModelsView({
         .toLocaleLowerCase()
         .includes(needle);
     });
-  }, [assetFilter, modelsDevByProfileId, profiles, protocolFilter, query]);
+  }, [assetFilter, modelsDevByProfileId, profiles, protocolFilter, providerFilter, query]);
 
   const selectedProfile = profiles.find((profile) => profile.id === selectedProfileId) ?? null;
+  const selectedProvider = providerInstances.find((provider) => provider.id === providerFilter) ?? null;
 
   useEffect(() => {
     if (!intent || loading || lastConsumedIntentId.current === intent.id) return;
@@ -223,6 +251,7 @@ export function ModelsView({
   const clearSelection = useCallback(() => {
     setSelectedProfileId(null);
     setEditing(undefined);
+    setCreatingForProviderId(null);
   }, []);
   const planProfileDelete = async (profile: ModelProfileView) => {
     if (!consumptionState) return;
@@ -240,6 +269,25 @@ export function ModelsView({
         description={t("models.description")}
         sidebar={
           <WorkspaceSidebar title={t("models.title")} count={profiles.length}>
+            <SidebarSection title={t("models.providers") }>
+              <SidebarItem
+                active={providerFilter === null}
+                icon={<NetworkIcon className="w-3.5 h-3.5" />}
+                label={t("models.allProviders")}
+                count={profiles.length}
+                onClick={() => { clearSelection(); setProviderFilter(null); }}
+              />
+              {providerInstances.map((provider) => (
+                <SidebarItem
+                  key={provider.id}
+                  active={providerFilter === provider.id}
+                  icon={<NetworkIcon className="w-3.5 h-3.5" />}
+                  label={provider.name}
+                  count={provider.model_count}
+                  onClick={() => { clearSelection(); setProviderFilter(provider.id); }}
+                />
+              ))}
+            </SidebarSection>
             <SidebarSection title={t("models.protocol")}>
               <SidebarItem
                 active={protocolFilter === null}
@@ -285,10 +333,11 @@ export function ModelsView({
             )}
             <button className="btn-primary" type="button" disabled={!consumptionState} onClick={() => {
               clearSelection();
+              setCreatingForProviderId(providerFilter);
               setEditing(null);
             }}>
               <PlusIcon className="w-4 h-4" />
-              {t("models.create")}
+              {providerFilter ? t("models.addModel") : t("models.createProvider")}
             </button>
           </>
         }
@@ -296,6 +345,7 @@ export function ModelsView({
           <ModelProfileDialog
             initial={editing}
             providers={providers}
+            providerInstance={providerInstances.find((provider) => provider.id === editing.provider_id) ?? null}
             presentation="inspector"
             onClose={clearSelection}
             onReview={async (profile, credential) => {
@@ -312,7 +362,7 @@ export function ModelsView({
         ) : selectedProfile ? (
           <ModelInspector
             profile={selectedProfile}
-            providerName={providerLabel(providers, selectedProfile.provider)}
+            providerName={profileProviderName(selectedProfile, providerInstances, providers)}
             metadata={modelsDevByProfileId[selectedProfile.id]}
             onClose={clearSelection}
             onEdit={consumptionState ? () => setEditing(selectedProfile) : undefined}
@@ -321,6 +371,12 @@ export function ModelsView({
         ) : undefined}
         onInspectorClose={clearSelection}
       >
+        {selectedProvider && (
+          <ProviderBanner
+            provider={selectedProvider}
+            onEdit={consumptionState ? () => setEditingProvider(selectedProvider) : undefined}
+          />
+        )}
         {loading ? (
           <ResourceState kind="loading" title={t("models.loading")} />
         ) : readError ? (
@@ -357,7 +413,7 @@ export function ModelsView({
               <ModelCard
                 key={profile.id}
                 profile={profile}
-                providerName={providerLabel(providers, profile.provider)}
+                providerName={profileProviderName(profile, providerInstances, providers)}
                 metadata={modelsDevByProfileId[profile.id]}
                 selected={profile.id === selectedProfileId}
                 onOpen={() => {
@@ -374,6 +430,7 @@ export function ModelsView({
         <ModelProfileDialog
           initial={editing}
           providers={providers}
+          providerInstance={providerInstances.find((provider) => provider.id === creatingForProviderId) ?? null}
           onClose={() => setEditing(undefined)}
           onReview={async (profile, credential) => {
             if (!consumptionState) throw new Error(t("models.saveUnavailable"));
@@ -384,6 +441,24 @@ export function ModelsView({
               credential,
             });
             setEditing(undefined);
+            setCreatingForProviderId(null);
+          }}
+        />
+      )}
+
+      {editingProvider && (
+        <ModelProviderDialog
+          initial={editingProvider}
+          providers={providers}
+          onClose={() => setEditingProvider(null)}
+          onReview={async (provider, credential) => {
+            if (!consumptionState) throw new Error(t("models.saveUnavailable"));
+            await consumptionState.planUpdate({
+              domain: "model-provider",
+              provider,
+              credential,
+            });
+            setEditingProvider(null);
           }}
         />
       )}
@@ -410,6 +485,31 @@ export function ModelsView({
         />
       )}
     </>
+  );
+}
+
+function ProviderBanner({
+  provider,
+  onEdit,
+}: {
+  provider: ModelProviderInstanceView;
+  onEdit?: () => void;
+}) {
+  const { t } = useTranslation();
+  return (
+    <div className="mux-model-provider-banner">
+      <div className="mux-model-provider-banner-copy">
+        <strong>{provider.name}</strong>
+        <span>{t("models.providerModelCount", { count: provider.model_count })}</span>
+        <Badge tone={provider.credential_saved ? "success" : "neutral"}>
+          {provider.credential_saved ? t("models.keychainSaved") : t("models.keychainNotSaved")}
+        </Badge>
+      </div>
+      <button className="btn-secondary" type="button" disabled={!onEdit} onClick={onEdit}>
+        <EditIcon className="w-4 h-4" />
+        {t("models.editProvider")}
+      </button>
+    </div>
   );
 }
 
@@ -568,18 +668,35 @@ function ModelInspector({
 function ModelProfileDialog({
   initial,
   providers,
+  providerInstance,
   onClose,
   onReview,
   presentation = "dialog",
 }: {
   initial: ModelProfileView | null;
   providers: ModelProviderView[];
+  providerInstance: ModelProviderInstanceView | null;
   onClose: () => void;
   onReview: (profile: ModelProfile, credential?: string) => Promise<void>;
   presentation?: "dialog" | "inspector";
 }) {
   const { t } = useTranslation();
-  const [draft, setDraft] = useState<ModelProfile>(initial ?? emptyProfile());
+  const providerProtocol = providerInstance
+    ? PROTOCOLS.find((protocol) => providerInstance.endpoints[protocol.id])?.id
+      ?? "openai-responses"
+    : null;
+  const [draft, setDraft] = useState<ModelProfile>(() => initial ?? (providerInstance ? {
+    ...emptyProfile(),
+    provider_id: providerInstance.id,
+    provider: providerInstance.provider,
+    protocol: providerProtocol ?? "openai-responses",
+    base_url: providerInstance.endpoints[providerProtocol ?? "openai-responses"] ?? "",
+    env_key: providerInstance.env_key,
+  } : emptyProfile()));
+  const sharedProvider = providerInstance !== null;
+  const availableProtocols = sharedProvider
+    ? PROTOCOLS.filter((protocol) => Boolean(providerInstance.endpoints[protocol.id]))
+    : PROTOCOLS;
   const [credential, setCredential] = useState("");
   const [clearCredential, setClearCredential] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -654,7 +771,7 @@ function ModelProfileDialog({
   const updateBaseUrl = (baseUrl: string) => {
     baseUrlAutoManaged.current = false;
     setDraft((current) => ({ ...current, base_url: baseUrl }));
-    if (baseUrl.trim()) {
+    if (baseUrl.trim() && !sharedProvider) {
       void inferProviderFromBaseUrl(baseUrl.trim());
     } else {
       providerInferenceSequence.current += 1;
@@ -662,7 +779,7 @@ function ModelProfileDialog({
   };
 
   const valid = Boolean(
-    draft.base_url.trim()
+    (sharedProvider ? providerInstance.endpoints[draft.protocol] : draft.base_url.trim())
       && draft.model.trim()
       && (providerSelection !== CUSTOM_PROVIDER_OPTION || draft.provider.trim())
       && !busy,
@@ -711,7 +828,7 @@ function ModelProfileDialog({
             placeholder={t("models.generatedName")}
           />
         </label>
-        <div className="mux-model-form-field">
+        {!sharedProvider && <div className="mux-model-form-field">
           <span>{t("models.provider")}</span>
           <FormSelect
             ariaLabel={t("models.provider")}
@@ -735,7 +852,7 @@ function ModelProfileDialog({
               spellCheck={false}
             />
           )}
-        </div>
+        </div>}
       </div>
 
       <div className="mux-model-form-grid">
@@ -744,8 +861,15 @@ function ModelProfileDialog({
           <FormSelect
             ariaLabel={t("models.protocol")}
             value={draft.protocol}
-            options={PROTOCOLS.map((protocol) => ({ value: protocol.id, label: protocol.label }))}
-            onChange={(protocol) => setDraft({ ...draft, protocol: protocol as ModelProtocol })}
+            options={availableProtocols.map((protocol) => ({ value: protocol.id, label: protocol.label }))}
+            onChange={(protocol) => {
+              const nextProtocol = protocol as ModelProtocol;
+              setDraft({
+                ...draft,
+                protocol: nextProtocol,
+                base_url: providerInstance?.endpoints[nextProtocol] ?? draft.base_url,
+              });
+            }}
           />
         </div>
         <div className="mux-model-form-field">
@@ -767,7 +891,7 @@ function ModelProfileDialog({
       </div>
 
       <div className="mux-model-form-grid">
-        <label>
+        {(!sharedProvider || !providerInstance?.endpoints[draft.protocol]) && <label>
           <span>{t("models.baseUrl")}</span>
           <input
             aria-label={t("models.baseUrl")}
@@ -777,14 +901,17 @@ function ModelProfileDialog({
             placeholder="https://api.example.com/v1"
             spellCheck={false}
           />
-        </label>
+        </label>}
 
         <label>
           <span>{t("models.modelId")}</span>
           <input
             className="mux-model-field"
             value={draft.model}
-            onChange={(event) => setDraft({ ...draft, model: event.target.value })}
+            onChange={(event) => {
+              const model = event.currentTarget.value;
+              setDraft((current) => ({ ...current, model }));
+            }}
             placeholder="model-name"
             spellCheck={false}
           />
@@ -820,7 +947,7 @@ function ModelProfileDialog({
         </label>
       </div>
 
-      <div className="mux-model-form-grid">
+      {!sharedProvider && <div className="mux-model-form-grid">
         <label>
           <span>{t("models.apiKey")}</span>
           <input
@@ -844,7 +971,7 @@ function ModelProfileDialog({
           />
           <small>{t("models.apiKeyEnvHelp")}</small>
         </label>
-      </div>
+      </div>}
 
       {initial?.credential_saved && (
         <label className="mux-model-check">
@@ -889,6 +1016,186 @@ function ModelProfileDialog({
       footerEnd={footer}
     >
       {form}
+    </DialogShell>
+  );
+}
+
+function ModelProviderDialog({
+  initial,
+  providers,
+  onClose,
+  onReview,
+}: {
+  initial: ModelProviderInstanceView;
+  providers: ModelProviderView[];
+  onClose: () => void;
+  onReview: (provider: ModelProviderConfig, credential?: string) => Promise<void>;
+}) {
+  const { t } = useTranslation();
+  const toast = useToast();
+  const knownProvider = providers.some(
+    (provider) => provider.id !== "custom" && provider.id === initial.provider,
+  );
+  const [draft, setDraft] = useState<ModelProviderConfig>({
+    id: initial.id,
+    name: initial.name,
+    provider: initial.provider,
+    endpoints: { ...initial.endpoints },
+    env_key: initial.env_key,
+  });
+  const [providerSelection, setProviderSelection] = useState(
+    knownProvider ? initial.provider : CUSTOM_PROVIDER_OPTION,
+  );
+  const [credential, setCredential] = useState("");
+  const [clearCredential, setClearCredential] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const endpointCount = Object.values(draft.endpoints).filter((value) => value?.trim()).length;
+  const valid = Boolean(
+    draft.name.trim()
+      && draft.provider.trim()
+      && endpointCount > 0
+      && !busy,
+  );
+
+  const save = async () => {
+    if (!valid) return;
+    setBusy(true);
+    try {
+      const endpoints = Object.fromEntries(
+        Object.entries(draft.endpoints)
+          .filter(([, endpoint]) => endpoint?.trim())
+          .map(([protocol, endpoint]) => [protocol, endpoint!.trim().replace(/\/$/, "")]),
+      ) as ModelProviderConfig["endpoints"];
+      await onReview({
+        ...draft,
+        name: draft.name.trim(),
+        provider: draft.provider.trim(),
+        endpoints,
+        env_key: draft.env_key?.trim() || undefined,
+      }, clearCredential ? "" : credential || undefined);
+    } catch (error) {
+      toast.show({ kind: "error", msg: t("models.saveFailed", { error: formatError(error) }) });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <DialogShell
+      kind="editor"
+      size="md"
+      title={t("models.editProvider")}
+      subtitle={t("models.providerSharedSubtitle", { count: initial.model_count })}
+      busy={busy}
+      onClose={onClose}
+      footerEnd={(
+        <>
+          <button type="button" className="btn-ghost" disabled={busy} onClick={onClose}>
+            {t("common.cancel")}
+          </button>
+          <button type="button" className="btn-primary" disabled={!valid} onClick={() => void save()}>
+            {busy ? t("common.saving") : t("common.save")}
+          </button>
+        </>
+      )}
+    >
+      <div className="mux-model-form">
+        <div className="mux-model-form-grid">
+          <label>
+            <span>{t("models.providerName")}</span>
+            <input
+              autoFocus
+              className="mux-model-field"
+              value={draft.name}
+              onChange={(event) => setDraft({ ...draft, name: event.target.value })}
+            />
+          </label>
+          <div className="mux-model-form-field">
+            <span>{t("models.providerType")}</span>
+            <FormSelect
+              ariaLabel={t("models.providerType")}
+              value={providerSelection}
+              options={[
+                ...providers
+                  .filter((provider) => provider.id !== "custom")
+                  .map((provider) => ({ value: provider.id, label: provider.name })),
+                { value: CUSTOM_PROVIDER_OPTION, label: t("models.customProvider") },
+              ]}
+              onChange={(value) => {
+                setProviderSelection(value);
+                if (value !== CUSTOM_PROVIDER_OPTION) {
+                  setDraft({ ...draft, provider: value });
+                }
+              }}
+            />
+            {providerSelection === CUSTOM_PROVIDER_OPTION && (
+              <input
+                aria-label={t("models.customProviderId")}
+                className="mux-model-field mux-model-custom-provider"
+                value={draft.provider}
+                onChange={(event) => setDraft({ ...draft, provider: event.target.value })}
+                spellCheck={false}
+              />
+            )}
+          </div>
+        </div>
+
+        {PROTOCOLS.map((protocol) => (
+          <label key={protocol.id}>
+            <span>{t("models.providerEndpoint", { protocol: protocol.label })}</span>
+            <input
+              aria-label={t("models.providerEndpoint", { protocol: protocol.label })}
+              className="mux-model-field"
+              value={draft.endpoints[protocol.id] ?? ""}
+              onChange={(event) => {
+                const endpoint = event.currentTarget.value;
+                setDraft((current) => ({
+                  ...current,
+                  endpoints: { ...current.endpoints, [protocol.id]: endpoint },
+                }));
+              }}
+              placeholder="https://api.example.com/v1"
+              spellCheck={false}
+            />
+          </label>
+        ))}
+
+        <div className="mux-model-form-grid">
+          <label>
+            <span>{t("models.apiKey")}</span>
+            <input
+              type="password"
+              autoComplete="new-password"
+              className="mux-model-field"
+              value={credential}
+              disabled={clearCredential}
+              onChange={(event) => setCredential(event.target.value)}
+              placeholder={initial.credential_saved ? t("models.keepCredential") : t("models.optionalCredential")}
+            />
+          </label>
+          <label>
+            <span>{t("models.apiKeyEnv")}</span>
+            <input
+              className="mux-model-field"
+              value={draft.env_key ?? ""}
+              onChange={(event) => setDraft({ ...draft, env_key: event.target.value || undefined })}
+              placeholder="MY_API_KEY"
+              spellCheck={false}
+            />
+          </label>
+        </div>
+
+        {initial.credential_saved && (
+          <label className="mux-model-check">
+            <input
+              type="checkbox"
+              checked={clearCredential}
+              onChange={(event) => setClearCredential(event.target.checked)}
+            />
+            {t("models.clearCredential")}
+          </label>
+        )}
+      </div>
     </DialogShell>
   );
 }

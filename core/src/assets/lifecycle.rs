@@ -6,12 +6,12 @@ use super::types::{
     CentralAssetChange, CentralAssetDraft, DomainPlan, ModelAgentSelection, ModelConsumptionRecord,
     PlanDeleteCentralAssetRequest, PlanUpdateCentralAssetRequest,
 };
-use crate::domain::types::{ModelProfile, RegistryEntry};
+use crate::domain::types::{ModelProfile, ModelProviderConfig, RegistryEntry};
 use crate::paths::local_sources_dir;
 use crate::resources::mcp::registry::{read_registry, read_registry_all};
 use crate::resources::model::{
     credential_present, migrated_profiles_v2, model_agent_capability, prepare_profile_draft,
-    profile_credential_issue,
+    profile_credential_issue, provider_profiles,
 };
 use crate::settings::{load_settings_strict, Settings};
 use sha2::{Digest, Sha256};
@@ -31,6 +31,11 @@ pub(crate) enum PendingAssetPayload {
     },
     ModelSchemaV2 {
         profiles: BTreeMap<String, ModelProfile>,
+    },
+    ModelProviderUpsert {
+        provider: Box<ModelProviderConfig>,
+        profiles: BTreeMap<String, ModelProfile>,
+        credential: Option<Zeroizing<String>>,
     },
 }
 
@@ -128,7 +133,7 @@ fn remap_model_selection(
 
 pub fn plan_model_schema_v2_migration() -> Result<Option<AssetOperationPlan>, String> {
     let settings = load_settings_strict().map_err(|error| error.to_string())?;
-    if settings.version.unwrap_or_default() >= crate::settings::SETTINGS_VERSION {
+    if settings.version.unwrap_or_default() >= 2 {
         return Ok(None);
     }
     let (id_map, profiles) = migrated_profiles_v2(&settings)?;
@@ -227,6 +232,10 @@ pub fn plan_update_central_asset(
             profile,
             credential,
         } => plan_model_upsert(existing_id, *profile, credential),
+        CentralAssetDraft::ModelProvider {
+            provider,
+            credential,
+        } => plan_model_provider_upsert(*provider, credential),
     }
 }
 
@@ -325,6 +334,49 @@ fn plan_model_upsert(
 ) -> Result<AssetOperationPlan, String> {
     let settings = load_settings_strict().map_err(|error| error.to_string())?;
     let profile = prepare_profile_draft(&settings, existing_id.as_deref(), profile)?;
+    let mut credential = credential;
+    if existing_id.is_none() {
+        if let Some(provider_id) = profile.provider_id.as_deref() {
+            let credential_snapshots = settings
+                .model_profiles
+                .iter()
+                .flatten()
+                .filter(|(_, candidate)| candidate.provider_id.as_deref() == Some(provider_id))
+                .map(|(profile_id, _)| crate::resources::model::credential_snapshot(profile_id))
+                .collect::<BTreeSet<_>>();
+            if credential_snapshots.len() > 1 {
+                return Err(
+                    "model_provider_credential_drift: child Models no longer share one credential; edit the Provider and set a new API Key before adding a Model"
+                        .into(),
+                );
+            }
+            if let Some(shared_credential) = credential_snapshots.iter().next() {
+                match credential.as_deref() {
+                    None => {
+                        credential = shared_credential
+                            .as_deref()
+                            .map(|value| {
+                                String::from_utf8(value.to_vec()).map_err(|_| {
+                                    "model_provider_credential_invalid: stored API Key is not UTF-8"
+                                        .to_string()
+                                })
+                            })
+                            .transpose()?;
+                    }
+                    Some(value)
+                        if shared_credential.as_deref()
+                            != (!value.is_empty()).then_some(value.as_bytes()) =>
+                    {
+                        return Err(
+                            "model_provider_credential_change_requires_provider_update: edit the Provider to change its shared API Key"
+                                .into(),
+                        );
+                    }
+                    Some(_) => {}
+                }
+            }
+        }
+    }
     let existing = settings
         .model_profiles
         .as_ref()
@@ -379,6 +431,100 @@ fn plan_model_upsert(
         Some(lifecycle),
     )?;
     store_pending_model_profile(&plan.operation_id, profile, credential);
+    Ok(plan)
+}
+
+fn plan_model_provider_upsert(
+    provider: ModelProviderConfig,
+    credential: Option<String>,
+) -> Result<AssetOperationPlan, String> {
+    let settings = load_settings_strict().map_err(|error| error.to_string())?;
+    let existing = settings
+        .model_providers
+        .as_ref()
+        .and_then(|providers| providers.get(&provider.id))
+        .ok_or_else(|| "asset_operation_stale: Model Provider no longer exists".to_string())?;
+    if existing.id != provider.id {
+        return Err("asset_identity_change: Model Provider id cannot change".into());
+    }
+    if existing.provider != provider.provider {
+        return Err("asset_identity_change: Model Provider type cannot change".into());
+    }
+    if settings
+        .model_providers
+        .iter()
+        .flatten()
+        .any(|(id, candidate)| {
+            id != &provider.id && candidate.name.eq_ignore_ascii_case(provider.name.trim())
+        })
+    {
+        return Err("asset_identity_conflict: Model Provider name already exists".into());
+    }
+    let profiles = provider_profiles(&settings, &provider)?;
+    let profile_ids = profiles.keys().cloned().collect::<BTreeSet<_>>();
+    let credential_action = match credential.as_deref() {
+        None => CredentialAction::Keep,
+        Some("") => CredentialAction::Clear,
+        Some(_) => CredentialAction::Set,
+    };
+    let credential_snapshots = profile_ids
+        .iter()
+        .map(|id| crate::resources::model::credential_snapshot(id))
+        .collect::<BTreeSet<_>>();
+    if credential_action == CredentialAction::Keep && credential_snapshots.len() > 1 {
+        return Err(
+            "model_provider_credential_drift: child Models no longer share one credential; set a new Provider API Key to repair them"
+                .into(),
+        );
+    }
+    let desired_credential_present = match credential_action {
+        CredentialAction::Keep => credential_snapshots
+            .iter()
+            .next()
+            .is_some_and(Option::is_some),
+        CredentialAction::Set => true,
+        CredentialAction::Clear => false,
+    };
+    let domain_plan =
+        model_bundle_unchanged_consumers(&settings, &profiles, desired_credential_present)?;
+    let consumer_count = domain_agent_count(&domain_plan);
+    let draft_hash = hash_serializable(&(provider.clone(), profiles.clone()))?;
+    let lifecycle = LifecycleBinding::ModelProviderUpsert {
+        provider_id: provider.id.clone(),
+        profile_ids: profile_ids.clone(),
+        draft_hash,
+        credential_action: credential_action.clone(),
+    };
+    let summary =
+        model_provider_upsert_summary(profile_ids.len(), &credential_action, consumer_count);
+    let central_changes = profile_ids
+        .iter()
+        .map(|profile_id| CentralAssetChange {
+            asset: AssetRef::Model {
+                profile_id: profile_id.clone(),
+            },
+            action: CentralAssetAction::Update,
+            summary: summary.clone(),
+        })
+        .collect();
+    let plan = finalize_plan_with(
+        AssetOperationKind::UpdateAsset,
+        domain_plan,
+        central_changes,
+        Vec::new(),
+        Some(lifecycle),
+    )?;
+    PENDING_PAYLOADS
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .insert(
+            plan.operation_id.clone(),
+            PendingAssetPayload::ModelProviderUpsert {
+                provider: Box::new(provider),
+                profiles,
+                credential: credential.map(Zeroizing::new),
+            },
+        );
     Ok(plan)
 }
 
@@ -439,13 +585,20 @@ fn plan_mcp_delete(key: String, source_id: Option<String>) -> Result<AssetOperat
 
 fn plan_model_delete(profile_id: String) -> Result<AssetOperationPlan, String> {
     let settings = load_settings_strict().map_err(|error| error.to_string())?;
-    if !settings
+    let profile = settings
         .model_profiles
         .as_ref()
-        .is_some_and(|profiles| profiles.contains_key(&profile_id))
-    {
-        return Err("asset_operation_stale: Model Profile no longer exists".into());
-    }
+        .and_then(|profiles| profiles.get(&profile_id))
+        .ok_or_else(|| "asset_operation_stale: Model Profile no longer exists".to_string())?;
+    let removes_provider = profile.provider_id.as_deref().is_some_and(|provider_id| {
+        settings
+            .model_profiles
+            .iter()
+            .flatten()
+            .filter(|(_, candidate)| candidate.provider_id.as_deref() == Some(provider_id))
+            .count()
+            == 1
+    });
     let mut before = BTreeMap::new();
     let mut after = BTreeMap::new();
     let agent_ids: BTreeSet<String> = settings
@@ -474,7 +627,7 @@ fn plan_model_delete(profile_id: String) -> Result<AssetOperationPlan, String> {
     }
     let domain_plan = DomainPlan::Model { before, after };
     let consumer_count = domain_agent_count(&domain_plan);
-    let summary = model_delete_summary(consumer_count);
+    let summary = model_delete_summary(consumer_count, removes_provider);
     finalize_plan_with(
         AssetOperationKind::DeleteAsset,
         domain_plan,
@@ -615,6 +768,69 @@ fn model_unchanged_consumers(
     Ok(DomainPlan::Model { before, after })
 }
 
+fn model_bundle_unchanged_consumers(
+    settings: &Settings,
+    profiles: &BTreeMap<String, ModelProfile>,
+    desired_credential_present: bool,
+) -> Result<DomainPlan, String> {
+    let mut candidate_settings = settings.clone();
+    candidate_settings
+        .model_profiles
+        .get_or_insert_default()
+        .extend(profiles.clone());
+    let mut before = BTreeMap::new();
+    let mut after = BTreeMap::new();
+    let agent_ids: BTreeSet<String> = settings
+        .model_consumptions
+        .iter()
+        .flatten()
+        .map(|(agent_id, _)| agent_id.clone())
+        .chain(
+            settings
+                .model_assignments
+                .iter()
+                .flatten()
+                .map(|(id, _)| id.clone()),
+        )
+        .collect();
+    for agent_id in agent_ids {
+        let selection = settings.model_selection(&agent_id);
+        let affected = selection
+            .profiles
+            .keys()
+            .filter_map(|profile_id| profiles.get(profile_id))
+            .collect::<Vec<_>>();
+        if affected.is_empty() {
+            continue;
+        }
+        let capability = model_agent_capability(&agent_id).ok_or_else(|| {
+            format!("model_agent_unsupported: {agent_id} has no managed Model writer")
+        })?;
+        for profile in affected {
+            if capability.mode != "managed"
+                || !capability.supported_protocols.contains(&profile.protocol)
+            {
+                return Err(format!(
+                    "model_protocol_unsupported: the edited Provider is incompatible with {agent_id}"
+                ));
+            }
+            if let Some((code, message)) =
+                profile_credential_issue(&agent_id, profile, desired_credential_present)
+            {
+                return Err(format!("{code}: {message}"));
+            }
+        }
+        super::planner::validate_model_selection_contract(
+            &candidate_settings,
+            &agent_id,
+            &selection,
+        )?;
+        before.insert(agent_id.clone(), selection.clone());
+        after.insert(agent_id, selection);
+    }
+    Ok(DomainPlan::Model { before, after })
+}
+
 fn domain_agent_count(plan: &DomainPlan) -> usize {
     match plan {
         DomainPlan::Mcp { before, after } | DomainPlan::Skill { before, after } => before
@@ -687,6 +903,23 @@ fn model_upsert_summary(
     summary
 }
 
+fn model_provider_upsert_summary(
+    model_count: usize,
+    credential_action: &CredentialAction,
+    consumer_count: usize,
+) -> Vec<String> {
+    let mut summary = vec![format!("更新共享 Provider 及其 {model_count} 个 Model")];
+    if let Some(credential_summary) = match credential_action {
+        CredentialAction::Keep => None,
+        CredentialAction::Set => Some("统一更新 Provider API Key"),
+        CredentialAction::Clear => Some("清除 Provider API Key"),
+    } {
+        summary.push(credential_summary.into());
+    }
+    summary.push(agent_sync_summary(consumer_count));
+    summary
+}
+
 fn model_schema_migration_summary(consumer_count: usize, credential_present: bool) -> Vec<String> {
     let mut summary = vec!["升级模型配置".into()];
     if credential_present {
@@ -696,11 +929,14 @@ fn model_schema_migration_summary(consumer_count: usize, credential_present: boo
     summary
 }
 
-fn model_delete_summary(consumer_count: usize) -> Vec<String> {
+fn model_delete_summary(consumer_count: usize, removes_provider: bool) -> Vec<String> {
     let mut summary = vec![
         "删除中央模型配置".into(),
         "同时清理钥匙串中的 API Key（如有）".into(),
     ];
+    if removes_provider {
+        summary.push("这是该 Provider 的最后一个 Model；空 Provider 也会一并删除".into());
+    }
     summary.push(if consumer_count == 0 {
         "当前没有已关联的 Agent，只删除中央配置".into()
     } else {
@@ -762,7 +998,7 @@ fn display_path(path: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::types::{ModelProtocol, RegistryConfig, StdioConfig};
+    use crate::domain::types::{ModelProtocol, ModelProviderConfig, RegistryConfig, StdioConfig};
     use crate::resources::mcp::registry::write_manual_entry;
     use crate::settings::mutate_settings;
     use crate::testenv::TestHome;
@@ -784,6 +1020,52 @@ mod tests {
             origin: None,
             repo: None,
         }
+    }
+
+    fn shared_provider_models() -> (ModelProviderConfig, ModelProfile, ModelProfile) {
+        let provider = ModelProviderConfig {
+            id: "team-gateway".into(),
+            name: "Team Gateway".into(),
+            provider: "custom".into(),
+            endpoints: BTreeMap::from([
+                (
+                    ModelProtocol::OpenaiResponses,
+                    "https://old.example.test/v1".into(),
+                ),
+                (
+                    ModelProtocol::AnthropicMessages,
+                    "https://old.example.test/anthropic".into(),
+                ),
+            ]),
+            env_key: None,
+        };
+        let mut first = ModelProfile {
+            id: "team-openai".into(),
+            provider_id: Some(provider.id.clone()),
+            name: "Team OpenAI".into(),
+            provider: "custom".into(),
+            model_vendor: Some("openai".into()),
+            native_ids: Default::default(),
+            protocol: ModelProtocol::OpenaiResponses,
+            base_url: provider.endpoints[&ModelProtocol::OpenaiResponses].clone(),
+            model: "gpt-team".into(),
+            env_key: None,
+            context_window: None,
+            max_output_tokens: None,
+            reasoning: Some(true),
+        };
+        let second = ModelProfile {
+            id: "team-anthropic".into(),
+            provider_id: Some(provider.id.clone()),
+            name: "Team Anthropic".into(),
+            protocol: ModelProtocol::AnthropicMessages,
+            base_url: provider.endpoints[&ModelProtocol::AnthropicMessages].clone(),
+            model: "claude-team".into(),
+            model_vendor: Some("anthropic".into()),
+            ..first.clone()
+        };
+        first.native_ids.clear();
+        (provider, first, second)
     }
 
     #[test]
@@ -815,6 +1097,7 @@ mod tests {
         let _home = TestHome::new("lifecycle-model-consumers");
         let profile = ModelProfile {
             id: "work".into(),
+            provider_id: None,
             name: "Work".into(),
             provider: "custom".into(),
             model_vendor: None,
@@ -858,6 +1141,142 @@ mod tests {
     }
 
     #[test]
+    fn provider_edit_plans_every_child_model_and_consumer() {
+        let _home = TestHome::new("lifecycle-model-provider-consumers");
+        let (provider, first, second) = shared_provider_models();
+        mutate_settings(|settings| {
+            settings.version = Some(3);
+            settings
+                .model_providers
+                .get_or_insert_default()
+                .insert(provider.id.clone(), provider.clone());
+            settings.model_profiles = Some(BTreeMap::from([
+                (first.id.clone(), first.clone()),
+                (second.id.clone(), second.clone()),
+            ]));
+            settings
+                .model_assignments
+                .get_or_insert_default()
+                .insert("codex".into(), first.id.clone());
+            settings
+                .model_assignments
+                .get_or_insert_default()
+                .insert("claude-code".into(), second.id.clone());
+        })
+        .unwrap();
+
+        let mut edited = provider;
+        edited.endpoints.insert(
+            ModelProtocol::OpenaiResponses,
+            "https://new.example.test/v1".into(),
+        );
+        let plan = plan_update_central_asset(PlanUpdateCentralAssetRequest {
+            draft: CentralAssetDraft::ModelProvider {
+                provider: Box::new(edited),
+                credential: None,
+            },
+        })
+        .unwrap();
+
+        assert_eq!(plan.affected_agent_ids, vec!["claude-code", "codex"]);
+        assert_eq!(plan.central_changes.len(), 2);
+        assert!(plan.relationship_changes.is_empty());
+        for change in plan.central_changes {
+            assert_eq!(change.action, CentralAssetAction::Update);
+            assert_eq!(
+                change.summary,
+                vec![
+                    "更新共享 Provider 及其 2 个 Model",
+                    "将同步到 2 个已关联 Agent",
+                ]
+            );
+        }
+    }
+
+    #[test]
+    fn provider_edit_can_keep_or_replace_one_shared_credential() {
+        let _home = TestHome::new("lifecycle-model-provider-shared-credential");
+        let (provider, first, second) = shared_provider_models();
+        mutate_settings(|settings| {
+            settings.version = Some(3);
+            settings
+                .model_providers
+                .get_or_insert_default()
+                .insert(provider.id.clone(), provider.clone());
+            settings.model_profiles = Some(BTreeMap::from([
+                (first.id.clone(), first.clone()),
+                (second.id.clone(), second.clone()),
+            ]));
+        })
+        .unwrap();
+        crate::resources::model::apply_credential_update(&first.id, Some("shared-secret")).unwrap();
+
+        let keep = plan_update_central_asset(PlanUpdateCentralAssetRequest {
+            draft: CentralAssetDraft::ModelProvider {
+                provider: Box::new(provider.clone()),
+                credential: None,
+            },
+        })
+        .unwrap();
+        assert!(keep.can_commit);
+
+        let replace = plan_update_central_asset(PlanUpdateCentralAssetRequest {
+            draft: CentralAssetDraft::ModelProvider {
+                provider: Box::new(provider),
+                credential: Some("new-shared-secret".into()),
+            },
+        })
+        .unwrap();
+        assert!(replace.can_commit);
+    }
+
+    #[test]
+    fn adding_a_provider_model_inherits_the_shared_credential_and_cannot_change_it() {
+        let _home = TestHome::new("lifecycle-add-provider-model-shared-credential");
+        let (provider, first, second) = shared_provider_models();
+        mutate_settings(|settings| {
+            settings.version = Some(3);
+            settings
+                .model_providers
+                .get_or_insert_default()
+                .insert(provider.id.clone(), provider.clone());
+            settings.model_profiles = Some(BTreeMap::from([
+                (first.id.clone(), first.clone()),
+                (second.id.clone(), second.clone()),
+            ]));
+        })
+        .unwrap();
+        let mut third = first.clone();
+        third.id.clear();
+        third.name = "Third Model".into();
+        third.model = "gpt-third".into();
+        crate::resources::model::apply_credential_update(&first.id, Some("shared-secret")).unwrap();
+
+        let inherited = plan_update_central_asset(PlanUpdateCentralAssetRequest {
+            draft: CentralAssetDraft::Model {
+                existing_id: None,
+                profile: Box::new(third.clone()),
+                credential: None,
+            },
+        })
+        .unwrap();
+        assert!(inherited.can_commit);
+
+        let change_error = plan_update_central_asset(PlanUpdateCentralAssetRequest {
+            draft: CentralAssetDraft::Model {
+                existing_id: None,
+                profile: Box::new(third),
+                credential: Some("different-secret".into()),
+            },
+        })
+        .unwrap_err();
+        assert!(
+            change_error.starts_with("model_provider_credential_change_requires_provider_update:"),
+            "{change_error}"
+        );
+    }
+
+    #[test]
     fn model_review_copy_explains_credentials_and_zero_agent_scope() {
         assert_eq!(
             model_upsert_summary(&CentralAssetAction::Create, &CredentialAction::Set, 0),
@@ -876,11 +1295,20 @@ mod tests {
             ]
         );
         assert_eq!(
-            model_delete_summary(0),
+            model_delete_summary(0, false),
             vec![
                 "删除中央模型配置",
                 "同时清理钥匙串中的 API Key（如有）",
                 "当前没有已关联的 Agent，只删除中央配置",
+            ]
+        );
+        assert_eq!(
+            model_delete_summary(1, true),
+            vec![
+                "删除中央模型配置",
+                "同时清理钥匙串中的 API Key（如有）",
+                "这是该 Provider 的最后一个 Model；空 Provider 也会一并删除",
+                "将从 1 个已关联 Agent 移除",
             ]
         );
     }
@@ -916,6 +1344,7 @@ mod tests {
         let _home = TestHome::new("lifecycle-grok-model-credential");
         let profile = ModelProfile {
             id: "work".into(),
+            provider_id: None,
             name: "Work".into(),
             provider: "openrouter".into(),
             model_vendor: Some("provider".into()),
@@ -988,6 +1417,7 @@ mod tests {
         let _home = TestHome::new("model-schema-v2-central");
         let legacy = ModelProfile {
             id: "openrouter-free".into(),
+            provider_id: None,
             name: "OpenRouter Free".into(),
             provider: String::new(),
             model_vendor: None,
@@ -1016,7 +1446,7 @@ mod tests {
         assert!(migrate_model_profiles_v2_if_needed().unwrap());
 
         let settings = load_settings_strict().unwrap();
-        assert_eq!(settings.version, Some(crate::settings::SETTINGS_VERSION));
+        assert_eq!(settings.version, Some(2));
         assert_eq!(settings.extra["future"]["keep"], true);
         let profiles = settings.model_profiles.unwrap();
         assert_eq!(profiles.len(), 1);
@@ -1034,6 +1464,7 @@ mod tests {
         let _home = TestHome::new("model-schema-v2-consumer");
         let legacy = ModelProfile {
             id: "legacy-router".into(),
+            provider_id: None,
             name: "Legacy Router".into(),
             provider: String::new(),
             model_vendor: None,

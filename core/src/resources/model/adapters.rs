@@ -1609,6 +1609,7 @@ mod tests {
     fn profile(protocol: ModelProtocol) -> ModelProfile {
         ModelProfile {
             id: "work".into(),
+            provider_id: None,
             name: "Work Model".into(),
             provider: "custom".into(),
             model_vendor: Some("vendor".into()),

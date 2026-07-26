@@ -20,6 +20,7 @@ import type {
   ModelAgentView,
   ModelProviderView,
   ModelProfileView,
+  ModelProviderInstanceView,
   OperationPlan,
   OperationCommitResult,
   PlanOperationRequest,
@@ -133,6 +134,8 @@ export const listModelProfiles = () =>
   invoke<ModelProfileView[]>("list_model_profiles");
 export const listModelProviders = () =>
   invoke<ModelProviderView[]>("list_model_providers");
+export const listModelProviderInstances = () =>
+  invoke<ModelProviderInstanceView[]>("list_model_provider_instances");
 export const inferModelProvider = (baseUrl: string) =>
   invoke<string>("infer_model_provider", { baseUrl });
 export const listModelAgents = () =>

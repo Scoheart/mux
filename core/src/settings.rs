@@ -14,7 +14,9 @@
 use crate::domain::assets::{McpConsumptionRecord, ModelConsumptionRecord};
 use crate::domain::mcp::DisabledEntry;
 use crate::domain::skill::ManagedSkillRecord;
-use crate::domain::types::{AgentDefinition, ModelProfile, RegistryEntry, SourceDef};
+use crate::domain::types::{
+    AgentDefinition, ModelProfile, ModelProviderConfig, RegistryEntry, SourceDef,
+};
 use crate::paths::{backups_dir, mux_dir, registry_dir, settings_file, user_agents_file};
 use crate::safe_write::{acquire_settings_lock, write_private_if_unchanged};
 use serde::{Deserialize, Serialize};
@@ -25,7 +27,7 @@ use std::io::{Error, ErrorKind};
 use std::path::Path;
 use std::sync::Mutex;
 
-pub const SETTINGS_VERSION: u32 = 2;
+pub const SETTINGS_VERSION: u32 = 3;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
 pub struct UiSettings {
@@ -88,10 +90,13 @@ pub struct Settings {
     /// Disable snapshots, keyed by agent id.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub disabled: Option<BTreeMap<String, Vec<DisabledEntry>>>,
-    /// Reusable model endpoints. API keys are intentionally excluded and live
-    /// only in the macOS Keychain.
+    /// Reusable Models that reference shared Provider connection records.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model_profiles: Option<BTreeMap<String, ModelProfile>>,
+    /// Shared Provider connection/configuration instances referenced by Model
+    /// Profiles. Credentials remain outside settings.json in Keychain.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_providers: Option<BTreeMap<String, ModelProviderConfig>>,
     /// Current/active managed Model Profile per Agent. This legacy-compatible
     /// pointer is retained so older MUX builds do not lose the current model.
     #[serde(default, skip_serializing_if = "Option::is_none")]

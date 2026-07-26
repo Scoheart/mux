@@ -83,6 +83,7 @@ pub fn run() {
             commands::list_registry,
             commands::list_model_profiles,
             commands::list_model_providers,
+            commands::list_model_provider_instances,
             commands::infer_model_provider,
             commands::list_model_agents,
             commands::list_registry_all,

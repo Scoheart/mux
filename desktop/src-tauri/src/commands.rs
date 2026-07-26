@@ -479,6 +479,12 @@ pub fn list_model_providers() -> &'static [mux_core::application::models::ModelP
 }
 
 #[tauri::command]
+pub fn list_model_provider_instances(
+) -> Vec<mux_core::application::models::ModelProviderInstanceView> {
+    mux_core::application::models::list_provider_instances()
+}
+
+#[tauri::command]
 pub fn infer_model_provider(base_url: String) -> String {
     mux_core::application::models::infer_provider(&base_url)
 }

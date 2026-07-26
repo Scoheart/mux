@@ -220,6 +220,7 @@ mod tests {
                 "work".into(),
                 ModelProfile {
                     id: "work".into(),
+                    provider_id: None,
                     name: "Work".into(),
                     provider: "custom".into(),
                     model_vendor: None,

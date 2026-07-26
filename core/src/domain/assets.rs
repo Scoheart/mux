@@ -2,7 +2,7 @@
 
 use crate::domain::agents::{AgentConfigurationInput, AgentConfigurationPatch};
 use crate::domain::mcp::OverridePatch;
-use crate::domain::types::{ModelProfile, RegistryEntry};
+use crate::domain::types::{ModelProfile, ModelProviderConfig, RegistryEntry};
 use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
@@ -360,6 +360,13 @@ pub enum CentralAssetDraft {
         profile: Box<ModelProfile>,
         /// `None` keeps an existing credential, `Some("")` clears it, and a
         /// non-empty value replaces it. The value is never persisted.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        credential: Option<String>,
+    },
+    ModelProvider {
+        provider: Box<ModelProviderConfig>,
+        /// `None` keeps the shared credential, `Some("")` clears every child
+        /// Profile credential, and a non-empty value replaces all of them.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         credential: Option<String>,
     },

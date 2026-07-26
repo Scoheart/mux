@@ -1,7 +1,9 @@
 //! Model Profile use cases.
 
 pub use crate::domain::types::{ModelProfile, ModelProtocol};
-pub use crate::resources::model::{ModelAgentView, ModelProfileView, ModelProviderView};
+pub use crate::resources::model::{
+    ModelAgentView, ModelProfileView, ModelProviderInstanceView, ModelProviderView,
+};
 
 pub fn list_profiles() -> Vec<ModelProfileView> {
     super::gate::read(crate::resources::model::list_profiles)
@@ -9,6 +11,10 @@ pub fn list_profiles() -> Vec<ModelProfileView> {
 
 pub fn list_providers() -> &'static [ModelProviderView] {
     crate::resources::model::list_providers()
+}
+
+pub fn list_provider_instances() -> Vec<ModelProviderInstanceView> {
+    super::gate::read(crate::resources::model::list_provider_instances)
 }
 
 pub fn infer_provider(base_url: &str) -> String {

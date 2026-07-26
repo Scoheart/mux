@@ -94,6 +94,8 @@ export type ModelProtocol =
 export interface ModelProfile {
   id: string;
   name: string;
+  /** Stable reference to one shared Provider instance. */
+  provider_id?: string;
   /** Actual API/billing channel, such as openrouter or anthropic. */
   provider: string;
   /** Model creator; independent from the API provider. */
@@ -109,6 +111,20 @@ export interface ModelProfile {
   max_output_tokens?: number;
   /** Missing means the Agent/provider decides; booleans are explicit overrides. */
   reasoning?: boolean;
+}
+
+export interface ModelProviderConfig {
+  id: string;
+  name: string;
+  provider: string;
+  endpoints: Partial<Record<ModelProtocol, string>>;
+  /** Non-secret environment variable shared by this Provider. */
+  env_key?: string;
+}
+
+export interface ModelProviderInstanceView extends ModelProviderConfig {
+  credential_saved: boolean;
+  model_count: number;
 }
 
 export interface ModelProfileView extends ModelProfile {
@@ -508,6 +524,12 @@ export type CentralAssetDraft =
       domain: "model";
       existing_id?: string;
       profile: ModelProfile;
+      /** undefined keeps, empty string clears, non-empty replaces. */
+      credential?: string;
+    }
+  | {
+      domain: "model-provider";
+      provider: ModelProviderConfig;
       /** undefined keeps, empty string clears, non-empty replaces. */
       credential?: string;
     };

@@ -41,13 +41,14 @@ it("uses regions and row islands instead of structural divider lines", () => {
   const fullWidthShell = declarations('.mux-workspace[data-sidebar="false"]');
   const sidebar = declarations(".mux-workspace-sidebar");
   const toolbar = declarations(".mux-workspace-toolbar");
+  const filters = declarations(".mux-workspace-filters");
   const row = declarations(".mux-resource-card");
 
   expect(shell).toMatch(/gap:\s*14px/);
   expect(shell).toMatch(/padding:\s*14px/);
   expect(fullWidthShell).toMatch(/grid-template-columns:\s*minmax\(0,\s*1fr\)/);
   expect(fullWidthShell).toMatch(/gap:\s*0/);
-  for (const region of [sidebar, toolbar, row]) {
+  for (const region of [sidebar, toolbar, filters, row]) {
     expect(region).toMatch(/border:\s*0/);
   }
   expect(row).toMatch(/border-radius:\s*var\(--radius-row\)/);
@@ -89,7 +90,7 @@ it("keeps passive metadata labels compact without shrinking interactive controls
   }
   expect(badge).toMatch(/font-size:\s*10px/);
   expect(transport).toMatch(/font:\s*650 9px\/1 var\(--font-mono\)/);
-  expect(css).not.toMatch(/\.mux-workspace-filters|\.mux-resource-tabs|\.mux-resource-tab/);
+  expect(declarations(".mux-resource-tab")).toMatch(/height:\s*32px/);
   expect(declarations(".mux-icon-btn")).toMatch(/width:\s*30px; height:\s*30px/);
 });
 

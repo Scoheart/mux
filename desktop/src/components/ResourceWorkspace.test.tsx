@@ -3,6 +3,7 @@ import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   ResourceInspector,
+  ResourceTabs,
   ResourceWorkspace,
   WorkspaceSidebar,
 } from "./ResourceWorkspace";
@@ -15,6 +16,7 @@ beforeEach(() => {
 });
 
 function WorkspaceHarness({ onInspectorClose = vi.fn() }: { onInspectorClose?: () => void }) {
+  const [tab, setTab] = useState<"all" | "used" | "unused">("all");
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
   const closeInspector = () => {
@@ -29,6 +31,18 @@ function WorkspaceHarness({ onInspectorClose = vi.fn() }: { onInspectorClose?: (
       onQueryChange={() => undefined}
       searchPlaceholder="搜索资源"
       toolbarActions={<button type="button">新增</button>}
+      filters={
+        <ResourceTabs
+          label="资源状态"
+          value={tab}
+          onChange={setTab}
+          options={[
+            { value: "all", label: "全部", count: 3 },
+            { value: "used", label: "使用中", count: 2 },
+            { value: "unused", label: "未使用", count: 1 },
+          ]}
+        />
+      }
       inspector={
         inspectorOpen ? (
           <ResourceInspector title="资源 A" avatar={<span>A</span>} onClose={closeInspector}>
@@ -49,10 +63,18 @@ function WorkspaceHarness({ onInspectorClose = vi.fn() }: { onInspectorClose?: (
 }
 
 describe("ResourceWorkspace", () => {
-  it("labels the resource content as a searchable region", () => {
+  it("links tabs to the panel and supports roving focus", () => {
     render(<WorkspaceHarness />);
-    expect(screen.getByRole("region", { name: "搜索资源" })).toBeVisible();
-    expect(screen.queryByRole("tablist")).not.toBeInTheDocument();
+    const all = screen.getByRole("tab", { name: /全部/ });
+    const panel = screen.getByRole("tabpanel", { name: /全部/ });
+    expect(all).toHaveAttribute("aria-controls", panel.id);
+    expect(panel).toHaveAttribute("aria-labelledby", all.id);
+
+    fireEvent.keyDown(all, { key: "End" });
+    expect(screen.getByRole("tab", { name: /未使用/ })).toHaveFocus();
+    expect(screen.getByRole("tab", { name: /未使用/ })).toHaveAttribute("aria-selected", "true");
+    fireEvent.keyDown(screen.getByRole("tab", { name: /未使用/ }), { key: "Home" });
+    expect(all).toHaveFocus();
   });
 
   it("persists keyboard sidebar resizing within its contract", () => {
@@ -98,10 +120,7 @@ describe("ResourceWorkspace", () => {
     opener.focus();
     fireEvent.click(opener);
 
-    const panel = document.querySelector(
-      '.mux-workspace-scroll[role="region"][aria-label="搜索资源"]',
-    );
-    expect(panel).not.toBeNull();
+    const panel = screen.getByRole("tabpanel", { hidden: true });
     expect(panel).toHaveAttribute("inert");
     expect(panel).toHaveAttribute("aria-hidden", "true");
     const dialog = await screen.findByRole("dialog", { name: "资源详情" });

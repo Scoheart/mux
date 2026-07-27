@@ -8,6 +8,7 @@ import {
   useContext,
   useEffect,
   useId,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -36,7 +37,96 @@ interface WorkspaceResizeContextValue {
   onKeyDown: (event: ReactKeyboardEvent<HTMLDivElement>) => void;
 }
 
+interface ResourcePanelContextValue {
+  panelId: string;
+  setActiveTabId: (tabId: string | undefined) => void;
+}
+
 const WorkspaceResizeContext = createContext<WorkspaceResizeContextValue | null>(null);
+const ResourcePanelContext = createContext<ResourcePanelContextValue | null>(null);
+
+export interface ResourceTabOption<T extends string> {
+  value: T;
+  label: string;
+  count: number;
+}
+
+export function ResourceTabs<T extends string>({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  value: T;
+  options: ResourceTabOption<T>[];
+  onChange: (value: T) => void;
+}) {
+  const tabListId = useId();
+  const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const panel = useContext(ResourcePanelContext);
+  const selectedIndex = Math.max(0, options.findIndex((option) => option.value === value));
+  const selectedTabId = `${tabListId}-${selectedIndex}`;
+
+  useEffect(() => {
+    panel?.setActiveTabId(selectedTabId);
+  }, [panel, selectedTabId]);
+
+  useEffect(() => () => panel?.setActiveTabId(undefined), [panel]);
+
+  const moveFocus = (index: number) => {
+    const option = options[index];
+    if (!option) return;
+    onChange(option.value);
+    tabRefs.current[index]?.focus();
+  };
+
+  return (
+    <div className="mux-resource-tabs" role="tablist" aria-label={label}>
+      {options.map((option, index) => {
+        const tabId = `${tabListId}-${index}`;
+        return (
+          <button
+            key={option.value}
+            ref={(element) => {
+              tabRefs.current[index] = element;
+            }}
+            type="button"
+            className="mux-resource-tab"
+            role="tab"
+            id={tabId}
+            aria-controls={panel?.panelId}
+            aria-selected={option.value === value}
+            tabIndex={option.value === value ? 0 : -1}
+            data-active={option.value === value ? "true" : undefined}
+            onClick={() => onChange(option.value)}
+            onKeyDown={(event) => {
+              if (options.length === 0) return;
+
+              let nextIndex: number | null = null;
+              if (event.key === "ArrowLeft") {
+                nextIndex = (selectedIndex - 1 + options.length) % options.length;
+              } else if (event.key === "ArrowRight") {
+                nextIndex = (selectedIndex + 1) % options.length;
+              } else if (event.key === "Home") {
+                nextIndex = 0;
+              } else if (event.key === "End") {
+                nextIndex = options.length - 1;
+              }
+
+              if (nextIndex === null) return;
+              event.preventDefault();
+              moveFocus(nextIndex);
+            }}
+          >
+            <span>{option.label}</span>
+            <span className="mux-resource-tab-count">{option.count}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
 
 export function ResourceWorkspace({
   sidebar,
@@ -47,6 +137,7 @@ export function ResourceWorkspace({
   searchPlaceholder,
   toolbarActions,
   children,
+  filters,
   inspector,
   onInspectorClose,
 }: {
@@ -58,6 +149,7 @@ export function ResourceWorkspace({
   searchPlaceholder: string;
   toolbarActions: ReactNode;
   children: ReactNode;
+  filters?: ReactNode;
   inspector?: ReactNode;
   onInspectorClose?: () => void;
 }) {
@@ -72,6 +164,11 @@ export function ResourceWorkspace({
   const [isResizing, setIsResizing] = useState(false);
   const workspaceId = useId();
   const panelId = `mux-resource-workspace-panel-${workspaceId}`;
+  const [activeTabId, setActiveTabId] = useState<string>();
+  const resourcePanelContext = useMemo(
+    () => ({ panelId, setActiveTabId }),
+    [panelId],
+  );
   const isInspectorOpen = Boolean(inspector);
 
   const persistSidebarWidth = useCallback((width: number) => {
@@ -153,67 +250,71 @@ export function ResourceWorkspace({
   useEffect(() => () => finishSidebarResize(true), [finishSidebarResize]);
 
   return (
-    <WorkspaceResizeContext.Provider
-      value={
-        hasSidebar
-          ? {
-              isResizing,
-              sidebarWidth,
-              onPointerDown: onResizePointerDown,
-              onKeyDown: onResizeKeyDown,
-            }
-          : null
-      }
-    >
-      <div
-        className="mux-workspace"
-        data-sidebar={hasSidebar ? "true" : "false"}
-        style={
+    <ResourcePanelContext.Provider value={resourcePanelContext}>
+      <WorkspaceResizeContext.Provider
+        value={
           hasSidebar
-            ? ({ "--mux-workspace-sidebar-width": `${sidebarWidth}px` } as CSSProperties)
-            : undefined
+            ? {
+                isResizing,
+                sidebarWidth,
+                onPointerDown: onResizePointerDown,
+                onKeyDown: onResizeKeyDown,
+              }
+            : null
         }
       >
-        {sidebar}
-        <section className="mux-workspace-stage">
-          {title && (
-            <header className="mux-workspace-intro">
-              <div>
-                <h1>{title}</h1>
-                {description && <p>{description}</p>}
-              </div>
-            </header>
-          )}
-          <div className="mux-workspace-toolbar">
-            <SearchBar value={query} onChange={onQueryChange} placeholder={searchPlaceholder} />
-            <div className="mux-workspace-actions">{toolbarActions}</div>
-          </div>
-          <div className="mux-workspace-content">
-            <div
-              id={panelId}
-              className="mux-workspace-scroll"
-              role="region"
-              aria-label={searchPlaceholder}
-              aria-hidden={isInspectorOpen || undefined}
-              inert={isInspectorOpen || undefined}
-            >
-              {children}
-            </div>
-            {inspector && (
-              <Modal
-                width="min(720px, calc(100vw - 32px))"
-                maxHeight="calc(100vh - 32px)"
-                ariaLabel="资源详情"
-                layer="detail"
-                onClose={() => onInspectorClose?.()}
-              >
-                <div className="mux-workspace-inspector-surface">{inspector}</div>
-              </Modal>
+        <div
+          className="mux-workspace"
+          data-sidebar={hasSidebar ? "true" : "false"}
+          style={
+            hasSidebar
+              ? ({ "--mux-workspace-sidebar-width": `${sidebarWidth}px` } as CSSProperties)
+              : undefined
+          }
+        >
+          {sidebar}
+          <section className="mux-workspace-stage">
+            {title && (
+              <header className="mux-workspace-intro">
+                <div>
+                  <h1>{title}</h1>
+                  {description && <p>{description}</p>}
+                </div>
+              </header>
             )}
-          </div>
-        </section>
-      </div>
-    </WorkspaceResizeContext.Provider>
+            <div className="mux-workspace-toolbar">
+              <SearchBar value={query} onChange={onQueryChange} placeholder={searchPlaceholder} />
+              <div className="mux-workspace-actions">{toolbarActions}</div>
+            </div>
+            {filters && <div className="mux-workspace-filters">{filters}</div>}
+            <div className="mux-workspace-content">
+              <div
+                id={panelId}
+                className="mux-workspace-scroll"
+                role={activeTabId ? "tabpanel" : "region"}
+                aria-label={searchPlaceholder}
+                aria-labelledby={activeTabId}
+                aria-hidden={isInspectorOpen || undefined}
+                inert={isInspectorOpen || undefined}
+              >
+                {children}
+              </div>
+              {inspector && (
+                <Modal
+                  width="min(720px, calc(100vw - 32px))"
+                  maxHeight="calc(100vh - 32px)"
+                  ariaLabel="资源详情"
+                  layer="detail"
+                  onClose={() => onInspectorClose?.()}
+                >
+                  <div className="mux-workspace-inspector-surface">{inspector}</div>
+                </Modal>
+              )}
+            </div>
+          </section>
+        </div>
+      </WorkspaceResizeContext.Provider>
+    </ResourcePanelContext.Provider>
   );
 }
 

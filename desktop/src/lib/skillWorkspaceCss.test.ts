@@ -64,6 +64,7 @@ it("uses one shared Soft Workbench geometry for every resource domain", () => {
 
   const sharedSidebar = declarations(css, ".mux-workspace-sidebar");
   const sharedToolbar = declarations(css, ".mux-workspace-toolbar");
+  const sharedFilters = declarations(css, ".mux-workspace-filters");
   const fullWidthWorkspace = declarations(
     css,
     '.mux-workspace[data-sidebar="false"]',
@@ -72,13 +73,15 @@ it("uses one shared Soft Workbench geometry for every resource domain", () => {
   expect(sharedSidebar).toMatch(/border-radius:\s*var\(--radius-canvas\)/);
   expect(sharedToolbar).toMatch(/border:\s*0/);
   expect(sharedToolbar).toMatch(/border-radius:\s*var\(--radius-row\)/);
+  expect(sharedFilters).toMatch(/border:\s*0/);
+  expect(sharedFilters).toMatch(/border-radius:\s*var\(--radius-row\)/);
   expect(fullWidthWorkspace).toMatch(/grid-template-columns:\s*minmax\(0,\s*1fr\)/);
   expect(fullWidthWorkspace).toMatch(/gap:\s*0/);
 
   expect(css).not.toMatch(/\.mux-skill-workspace\s+\.mux-workspace-(?:sidebar|toolbar|scroll)/);
   expect(css).not.toMatch(/\.mux-skill-workspace\s+\.mux-resource-(?:grid|tabs|tab)/);
   expect(sharedToolbar).toMatch(/min-height:\s*52px/);
-  expect(css).not.toMatch(/\.mux-workspace-filters|\.mux-resource-tabs|\.mux-resource-tab/);
+  expect(sharedFilters).toMatch(/height:\s*42px/);
 
   const content = declarations(css, ".mux-workspace-content");
   const grid = declarations(css, ".mux-resource-grid");

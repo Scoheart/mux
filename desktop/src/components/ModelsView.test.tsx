@@ -449,9 +449,11 @@ it("fills a standalone Provider form from the selected catalog template", async 
   await openProviderTemplate(user, "OpenRouter");
   expect(screen.getByRole("heading", { name: "新建 Provider" })).toBeVisible();
   expect(screen.getByRole("combobox", { name: "Provider 类型" })).toHaveTextContent("OpenRouter");
+  expect(screen.getByRole("combobox", { name: "协议" })).toHaveTextContent("OpenAI Responses");
   expect(screen.getByLabelText("Base URL")).toHaveValue(
     "https://openrouter.ai/api/v1",
   );
+  expect(screen.getAllByLabelText("Base URL")).toHaveLength(1);
   expect(screen.queryByLabelText("Anthropic Messages Endpoint")).not.toBeInTheDocument();
   expect(screen.queryByLabelText("OpenAI Responses Endpoint")).not.toBeInTheDocument();
   expect(screen.queryByLabelText("OpenAI Chat Completions Endpoint")).not.toBeInTheDocument();
@@ -478,6 +480,36 @@ it("keeps an explicitly entered Provider endpoint while changing its type", asyn
   expect(endpoint).toHaveValue("https://gateway.example.test/v1");
   expect(screen.getByRole("combobox", { name: "Provider 类型" })).toHaveTextContent("OpenRouter");
   expect(screen.queryByLabelText("自定义模型提供商 ID")).not.toBeInTheDocument();
+});
+
+it("switches the Provider protocol through one select without adding another URL row", async () => {
+  const user = userEvent.setup();
+  const planUpdate = vi.fn().mockResolvedValue({ operation_id: "provider-plan" });
+  const consumptionState = { plan: null, planUpdate } as unknown as ConsumptionState;
+
+  render(
+    <ToastProvider>
+      <ModelsView consumptionState={consumptionState} />
+    </ToastProvider>,
+  );
+
+  await openProviderTemplate(user, "OpenRouter");
+  await chooseFormSelect(user, "协议", "Anthropic Messages");
+
+  expect(screen.getByRole("combobox", { name: "协议" })).toHaveTextContent("Anthropic Messages");
+  expect(screen.getAllByLabelText("Base URL")).toHaveLength(1);
+  expect(screen.getByLabelText("Base URL")).toHaveValue("https://openrouter.ai/api/v1");
+  expect(screen.queryByLabelText("Anthropic Messages Endpoint")).not.toBeInTheDocument();
+  await user.click(screen.getByRole("button", { name: "保存" }));
+
+  await waitFor(() => expect(planUpdate).toHaveBeenCalledWith(expect.objectContaining({
+    domain: "model-provider",
+    provider: expect.objectContaining({
+      endpoints: {
+        "anthropic-messages": "https://openrouter.ai/api/v1",
+      },
+    }),
+  })));
 });
 
 it("switches an existing Model to another persisted Provider relationship", async () => {
@@ -708,7 +740,11 @@ it("edits one Provider configuration through a single central asset plan", async
   await user.click(await sidebar.findByTitle("OpenRouter Team"));
   await user.click(screen.getByRole("button", { name: "编辑 Provider" }));
 
+  expect(screen.getByRole("combobox", { name: "协议" })).toHaveTextContent("Anthropic Messages");
   const endpoint = screen.getByLabelText("Base URL");
+  expect(endpoint).toHaveValue("https://openrouter.ai/api");
+  await chooseFormSelect(user, "协议", "OpenAI Chat Completions");
+  expect(endpoint).toHaveValue("https://openrouter.ai/api/v1");
   fireEvent.change(endpoint, {
     target: { value: "https://gateway.example.test/v1/" },
   });
@@ -723,7 +759,7 @@ it("edits one Provider configuration through a single central asset plan", async
       provider: "openrouter",
       endpoints: expect.objectContaining({
         "openai-completions": "https://gateway.example.test/v1",
-        "anthropic-messages": "https://gateway.example.test/v1",
+        "anthropic-messages": "https://openrouter.ai/api",
       }),
       env_key: "OPENROUTER_API_KEY",
     }),

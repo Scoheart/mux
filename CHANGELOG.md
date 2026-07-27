@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.84](https://github.com/Scoheart/mux/compare/v1.8.83...v1.8.84) (2026-07-27)
+
+### Changes
+
+* fix(desktop): keep Provider protocol menu visible ([d6d6cc8](https://github.com/Scoheart/mux/commit/d6d6cc8d745be46f539e7adb019c98f8919e513f))
+
 ## [1.8.83](https://github.com/Scoheart/mux/compare/v1.8.82...v1.8.83) (2026-07-27)
 
 ### Changes

@@ -33,7 +33,6 @@ import {
   InspectorField,
   InspectorSection,
   ResourceInspector,
-  ResourceTabs,
   ResourceWorkspace,
 } from "./ResourceWorkspace";
 
@@ -49,8 +48,6 @@ interface RegistryViewProps {
 
 /** Origin buckets — still used to decide which entries are user-deletable. */
 type OriginBucket = "remote" | "local" | "manual" | "discovered";
-type McpStatusFilter = "all" | "effective" | "shadowed";
-type McpStatusCounts = Record<McpStatusFilter, number>;
 /** Classify an entry's origin into a bucket. Entries with no origin, or a
  *  legacy/unknown kind, fall into "discovered" (scanned-from-machine). */
 function bucketOf(entry: RegistryEntry): OriginBucket {
@@ -151,7 +148,6 @@ export function RegistryView({ state, consumptionState, intent, onIntentConsumed
 
   const [q, setQ] = useState("");
   const [selectedSource, setSelectedSource] = useState<string | null>(null);
-  const [statusFilter, setStatusFilter] = useState<McpStatusFilter>("all");
   const [detail, setDetail] = useState<CatalogItem | null>(null);
   const [editingDetail, setEditingDetail] = useState(false);
   const [pasteOpen, setPasteOpen] = useState(false);
@@ -183,16 +179,6 @@ export function RegistryView({ state, consumptionState, intent, onIntentConsumed
     return catalog.filter((item) => inSource(item.entry, selectedSource));
   }, [catalog, selectedSource]);
 
-  const statusCounts = useMemo<McpStatusCounts>(() => {
-    let effective = 0;
-    let shadowed = 0;
-    for (const item of sourceScoped) {
-      if (!item.in_effect) shadowed += 1;
-      else effective += 1;
-    }
-    return { all: sourceScoped.length, effective, shadowed };
-  }, [sourceScoped]);
-
   const scoped = useMemo(() => {
     const s = q.trim().toLowerCase();
     let list = sourceScoped;
@@ -209,11 +195,7 @@ export function RegistryView({ state, consumptionState, intent, onIntentConsumed
     );
   }, [q, sourceScoped]);
 
-  const filtered = useMemo(() => {
-    if (statusFilter === "shadowed") return scoped.filter((item) => !item.in_effect);
-    if (statusFilter === "effective") return scoped.filter((item) => item.in_effect);
-    return scoped;
-  }, [scoped, statusFilter]);
+  const filtered = scoped;
 
   useEffect(() => {
     if (!intent || state.loading || lastConsumedIntentId.current === intent.id) return;
@@ -235,7 +217,6 @@ export function RegistryView({ state, consumptionState, intent, onIntentConsumed
     );
     setQ("");
     setSelectedSource(null);
-    setStatusFilter("all");
     setDetail(item ?? null);
     setEditingDetail(false);
     if (!item) toast.show({ kind: "error", msg: `未找到 MCP“${intent.name}”。` });
@@ -252,12 +233,6 @@ export function RegistryView({ state, consumptionState, intent, onIntentConsumed
     setDetail(null);
     setEditingDetail(false);
     setSelectedSource(sourceId);
-  };
-
-  const changeStatus = (status: McpStatusFilter) => {
-    setDetail(null);
-    setEditingDetail(false);
-    setStatusFilter(status);
   };
 
   const closeDetail = useCallback(() => {
@@ -320,18 +295,6 @@ export function RegistryView({ state, consumptionState, intent, onIntentConsumed
       query={q}
       onQueryChange={changeQuery}
       searchPlaceholder="搜索 MCP"
-      filters={
-        <ResourceTabs
-          label="MCP 状态"
-          value={statusFilter}
-          options={[
-            { value: "all", label: "全部", count: statusCounts.all },
-            { value: "effective", label: "生效", count: statusCounts.effective },
-            { value: "shadowed", label: "被覆盖", count: statusCounts.shadowed },
-          ]}
-          onChange={changeStatus}
-        />
-      }
       toolbarActions={
         <>
           <button
@@ -417,12 +380,11 @@ export function RegistryView({ state, consumptionState, intent, onIntentConsumed
           kind={catalog.length === 0 ? "empty" : "no-match"}
           icon={<PackageIcon className="w-6 h-6" />}
           title={catalog.length === 0 ? "暂无 MCP" : "没有匹配项"}
-          detail={catalog.length === 0 ? "添加订阅、导入配置或新建 MCP" : "调整搜索、来源或状态筛选后重试。"}
+          detail={catalog.length === 0 ? "添加订阅、导入配置或新建 MCP" : "调整搜索或来源筛选后重试。"}
           action={catalog.length === 0 ? undefined : (
             <button type="button" className="btn-secondary" onClick={() => {
               setQ("");
               setSelectedSource(null);
-              setStatusFilter("all");
             }}>清除筛选</button>
           )}
         />

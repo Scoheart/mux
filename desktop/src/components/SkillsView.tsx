@@ -16,7 +16,6 @@ import {
   aggregateSkillsByName,
   filterSkills,
   type SkillSourceFilter,
-  type SkillStatusFilter,
 } from "../lib/skills";
 import type {
   OperationPlan,
@@ -43,19 +42,11 @@ import {
 import { SkillReviewDialog } from "./SkillReviewDialog";
 import { useToast } from "./Toast";
 import {
-  ResourceTabs,
   ResourceWorkspace,
   SidebarItem,
   SidebarSection,
   WorkspaceSidebar,
 } from "./ResourceWorkspace";
-
-const statusOptions: Array<{ value: SkillStatusFilter; label: string }> = [
-  { value: "all", label: "全部" },
-  { value: "updates", label: "有更新" },
-  { value: "needs_attention", label: "需处理" },
-  { value: "external", label: "外部" },
-];
 
 const sourceOptions: Array<{
   value: SkillSourceFilter;
@@ -85,7 +76,6 @@ export function SkillsView({
   const { t } = useTranslation();
   const toast = useToast();
   const [query, setQuery] = useState("");
-  const [status, setStatus] = useState<SkillStatusFilter>("all");
   const [source, setSource] = useState<SkillSourceFilter>("all");
   const [checking, setChecking] = useState(false);
   const [selectedIdentity, setSelectedIdentity] = useState<string | null>(null);
@@ -119,17 +109,16 @@ export function SkillsView({
     () => aggregateSkillsByName(state.inventory?.items ?? []),
     [state.inventory?.items],
   );
-  const filters = { status, source, query };
+  const filters = { status: "all" as const, source, query };
   const filtered = useMemo(
     () => filterSkills(items, filters),
-    [items, query, source, status],
+    [items, query, source],
   );
   const selected = selectedIdentity
     ? items.find((item) => item.identity === selectedIdentity) ?? null
     : null;
   const countWith = (
     override: Partial<{
-      status: SkillStatusFilter;
       source: SkillSourceFilter;
     }>,
   ) => filterSkills(items, { ...filters, ...override }).length;
@@ -370,11 +359,6 @@ export function SkillsView({
     setQuery(value);
   };
 
-  const changeStatus = (value: SkillStatusFilter) => {
-    closeInspector();
-    setStatus(value);
-  };
-
   const changeSource = (value: SkillSourceFilter) => {
     closeInspector();
     setSource(value);
@@ -413,7 +397,6 @@ export function SkillsView({
       );
       if (item) {
         setQuery("");
-        setStatus("all");
         setSource("all");
         setSelectedIdentity(item.identity);
       } else {
@@ -559,17 +542,6 @@ export function SkillsView({
             </button>
           </>
         }
-        filters={
-          <ResourceTabs
-            label="Skill 状态"
-            value={status}
-            options={statusOptions.map((option) => ({
-              ...option,
-              count: countWith({ status: option.value }),
-            }))}
-            onChange={changeStatus}
-          />
-        }
         inspector={
           selected ? (
             <SkillInspector
@@ -617,12 +589,11 @@ export function SkillsView({
               kind={items.length === 0 ? "empty" : "no-match"}
               icon={<PackageIcon className="w-6 h-6" />}
               title={items.length === 0 ? "暂无 Skills" : "没有匹配项"}
-              detail={items.length === 0 ? "从 GitHub、本地文件夹或压缩包添加。" : "调整搜索或筛选条件后重试。"}
+              detail={items.length === 0 ? "从 GitHub、本地文件夹或压缩包添加。" : "调整搜索或来源筛选后重试。"}
               action={items.length === 0 ? undefined : (
                 <button className="btn-secondary" type="button" onClick={() => {
                   setQuery("");
                   setSource("all");
-                  setStatus("all");
                 }}>清除筛选</button>
               )}
             />

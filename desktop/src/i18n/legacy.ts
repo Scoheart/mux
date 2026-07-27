@@ -493,7 +493,7 @@ const english: Record<string, string> = {
   "读取中…": "Loading…",
   "读取模型配置失败：": "Could not load model configuration:",
   "调整侧边栏宽度": "Resize sidebar",
-  "调整搜索、来源或状态筛选后重试。": "Adjust search, source, or state filters and try again.",
+  "调整搜索或来源筛选后重试。": "Adjust search or source filters and try again.",
   "资源变化": "Resource changes",
   "资源详情": "Resource details",
   "路径未知": "Unknown path",

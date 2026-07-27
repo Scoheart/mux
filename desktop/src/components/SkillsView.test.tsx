@@ -268,7 +268,7 @@ describe("SkillsView", () => {
     expect(
       screen.getByRole("heading", { name: "review-changes" }),
     ).toBeVisible();
-    expect(screen.getByRole("tablist", { name: "Skill 状态" })).toBeVisible();
+    expect(screen.queryByRole("tablist", { name: "Skill 状态" })).not.toBeInTheDocument();
     expect(screen.getByRole("separator", { name: "调整侧边栏宽度" })).toBeVisible();
     expect(screen.getByRole("list", { name: "Skill 资产" })).toHaveClass("mux-asset-list", "mux-skill-list");
     expect(screen.getByText("名称与说明")).toBeVisible();
@@ -289,7 +289,7 @@ describe("SkillsView", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("combines filters and recomputes each axis count in the active context", async () => {
+  it("combines source and query filters while keeping all status rows", async () => {
     const user = userEvent.setup();
     const inventory = skillsInventoryFixture();
     inventory.items.push(importedItem());
@@ -299,7 +299,7 @@ describe("SkillsView", () => {
     expect(screen.getByRole("heading", { name: "unassigned-skill" })).toBeVisible();
     expect(screen.getByRole("heading", { name: "imported-legacy" })).toBeVisible();
     expect(screen.queryByRole("heading", { name: "review-changes" })).not.toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: /全部\s*2/ })).toBeVisible();
+    expect(screen.queryByRole("tablist", { name: "Skill 状态" })).not.toBeInTheDocument();
 
     await user.type(screen.getByPlaceholderText("搜索 Skills"), "review");
     expect(screen.getByRole("button", { name: /GitHub\s*1/ })).toBeVisible();
@@ -437,7 +437,7 @@ describe("SkillsView", () => {
         state={stateWith(null, { loading: true, error: null, refresh })}
       />,
     );
-    expect(screen.getByRole("tablist", { name: "Skill 状态" })).toBeVisible();
+    expect(screen.queryByRole("tablist", { name: "Skill 状态" })).not.toBeInTheDocument();
     expect(screen.getByText("正在读取 Skills…")).toBeVisible();
     expect(screen.getByRole("button", { name: "检查更新" })).toBeDisabled();
 
@@ -604,7 +604,7 @@ describe("SkillsView", () => {
     rerender(<SkillsView state={skillsStateFixture()} />);
     await userEvent.type(screen.getByPlaceholderText("搜索 Skills"), "no-such-skill");
     expect(screen.getByText("没有匹配项")).toBeVisible();
-    expect(screen.getByText("调整搜索或筛选条件后重试。")).toBeVisible();
+    expect(screen.getByText("调整搜索或来源筛选后重试。")).toBeVisible();
     await userEvent.click(screen.getByRole("button", { name: "清除筛选" }));
     expect(screen.getByRole("heading", { name: "review-changes" })).toBeVisible();
   });

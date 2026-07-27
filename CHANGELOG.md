@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.73](https://github.com/Scoheart/mux/compare/v1.8.72...v1.8.73) (2026-07-27)
+
+### Changes
+
+* feat(mcp): support atomic registry renames ([523d3c4](https://github.com/Scoheart/mux/commit/523d3c41be2affdc74f6c44ac990467d43a6235a))
+
 ## [1.8.72](https://github.com/Scoheart/mux/compare/v1.8.71...v1.8.72) (2026-07-27)
 
 ### Changes

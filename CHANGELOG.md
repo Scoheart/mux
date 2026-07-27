@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.72](https://github.com/Scoheart/mux/compare/v1.8.71...v1.8.72) (2026-07-27)
+
+### Changes
+
+* feat(desktop): compact provider catalog ([409fdf3](https://github.com/Scoheart/mux/commit/409fdf3cb0b2672353d387ecd19063b5f8068d0b))
+
 ## [1.8.71](https://github.com/Scoheart/mux/compare/v1.8.70...v1.8.71) (2026-07-27)
 
 ### Changes

@@ -62,7 +62,7 @@ export function FormSelect({
   };
 
   return (
-    <div className="mux-form-select" ref={rootRef}>
+    <div className="mux-form-select" data-open={open ? "true" : undefined} ref={rootRef}>
       <button
         ref={triggerRef}
         type="button"

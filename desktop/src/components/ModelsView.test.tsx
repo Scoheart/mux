@@ -433,6 +433,7 @@ it("uses one custom select surface for model provider, protocol, and reasoning",
   expect(source).toMatch(/<FormSelect\s+[\s\S]*?ariaLabel=\{t\("models\.reasoningMode"\)\}/);
   expect(source).not.toMatch(/<select/);
   expect(css).toMatch(/\.mux-form-select-menu/);
+  expect(css).toMatch(/\.mux-form-select\[data-open="true"\]\s*\{\s*z-index: 621/);
   expect(css).toMatch(/background: var\(--surface-popover\)/);
 });
 

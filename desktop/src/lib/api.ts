@@ -15,7 +15,6 @@ import type {
   CommitOperationRequest,
   CancelOperationRequest,
   InstalledMcp,
-  McpAdoptionCandidate,
   ModelAdoptionCandidate,
   ModelAgentView,
   ModelProviderView,
@@ -26,8 +25,6 @@ import type {
   PlanOperationRequest,
   PlanRemoveRequest,
   PlanImportRequest,
-  PlanMcpAdoptionRequest,
-  PlanModelAdoptionRequest,
   PlanRepairRequest,
   PlanSkillAssetImportRequest,
   PlanSkillAssetInstallRequest,
@@ -37,7 +34,6 @@ import type {
   SkillAgentView,
   SkillCommitRequest,
   SkillDetail,
-  SkillInventoryItem,
   SkillSourceResolution,
   SkillsInventory,
   SourceView,
@@ -59,14 +55,8 @@ export const cancelOperation = (request: CancelOperationRequest) =>
 
 export const listConsumptionInventory = () =>
   invoke<ConsumptionInventory>("list_consumption_inventory");
-export const listMcpAdoptionCandidates = () =>
-  invoke<McpAdoptionCandidate[]>("list_mcp_adoption_candidates");
-export const planMcpAdoption = (request: PlanMcpAdoptionRequest) =>
-  invoke<AssetOperationPlan>("plan_mcp_adoption", { request });
 export const listModelAdoptionCandidates = () =>
   invoke<ModelAdoptionCandidate[]>("list_model_adoption_candidates");
-export const planModelAdoption = (request: PlanModelAdoptionRequest) =>
-  invoke<AssetOperationPlan>("plan_model_adoption", { request });
 export const planSetAgentConsumption = (
   agentId: string,
   selection: AgentConsumptionSelection,
@@ -218,8 +208,6 @@ export const cellKey = (serverKey: string, agentId: string) =>
 
 export const listSkillsInventory = () =>
   invoke<SkillsInventory>("list_skills_inventory");
-export const listSkillMigrationCandidates = () =>
-  invoke<SkillInventoryItem[]>("list_skill_migration_candidates");
 export const listSkillAgents = () =>
   invoke<SkillAgentView[]>("list_skill_agents");
 export const getSkillDetail = (identity: string) =>

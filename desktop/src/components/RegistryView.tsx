@@ -41,8 +41,6 @@ interface RegistryViewProps {
   intent?: Extract<ResourceNavigationIntent, { domain: "mcp" }>;
   onIntentConsumed?(id: number): void;
   onCreate: () => void;
-  migrationCount?: number;
-  onOpenMigration?(): void;
   onRetryLoad?(): Promise<void>;
   retryLoadDisabled?: boolean;
 }
@@ -133,7 +131,7 @@ function originLabel(origin: RegistryOrigin | undefined, sourceName: (id: string
   return label || (origin.kind === "remote" ? "订阅" : "本地");
 }
 
-export function RegistryView({ state, consumptionState, intent, onIntentConsumed, onCreate, migrationCount = 0, onOpenMigration, onRetryLoad, retryLoadDisabled = false }: RegistryViewProps) {
+export function RegistryView({ state, consumptionState, intent, onIntentConsumed, onCreate, onRetryLoad, retryLoadDisabled = false }: RegistryViewProps) {
   const { t } = useTranslation();
   const { catalog, entries, agentsForServer, sources } = state;
   const toast = useToast();
@@ -268,11 +266,6 @@ export function RegistryView({ state, consumptionState, intent, onIntentConsumed
       searchPlaceholder="搜索 MCP"
       toolbarActions={
         <>
-          {migrationCount > 0 && onOpenMigration && (
-            <button className="btn-secondary" type="button" onClick={onOpenMigration}>
-              外部配置 {migrationCount}
-            </button>
-          )}
           <button
             onClick={() => {
               closeDetail();

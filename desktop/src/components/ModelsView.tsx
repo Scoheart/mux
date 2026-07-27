@@ -107,14 +107,10 @@ export function ModelsView({
   consumptionState,
   intent,
   onIntentConsumed,
-  migrationCount = 0,
-  onOpenMigration,
 }: {
   consumptionState?: ConsumptionState;
   intent?: Extract<ResourceNavigationIntent, { domain: "model" }>;
   onIntentConsumed?(id: number): void;
-  migrationCount?: number;
-  onOpenMigration?(): void;
 } = {}) {
   const [profiles, setProfiles] = useState<ModelProfileView[]>([]);
   const [providers, setProviders] = useState<ModelProviderView[]>([]);
@@ -267,11 +263,6 @@ export function ModelsView({
         searchPlaceholder={t("models.search")}
         toolbarActions={
           <>
-            {migrationCount > 0 && onOpenMigration && (
-              <button className="btn-secondary" type="button" onClick={onOpenMigration}>
-                {t("models.history", { count: migrationCount })}
-              </button>
-            )}
             <button className="btn-secondary" type="button" disabled={!consumptionState} onClick={() => {
               clearSelection();
               setProviderCatalogOpen(true);

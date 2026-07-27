@@ -317,7 +317,7 @@ it("keeps a Model-only Agent in the full resource workspace", async () => {
   expect(screen.queryByText(/未提供可写的用户级全局配置/)).not.toBeInTheDocument();
 });
 
-it("offers only targeted MUX adoption for an external MCP card", async () => {
+it("keeps an external MCP card read-only", async () => {
   const mcpAgent: AgentInfo = {
     ...skillsOnlyAgent,
     id: "codex",
@@ -356,15 +356,12 @@ it("offers only targeted MUX adoption for an external MCP card", async () => {
       }],
     },
   } as unknown as ConsumptionState;
-  const onManageExternalMcp = vi.fn();
-
   render(
     <AgentView
       state={mcpState}
       skillsState={skillsState}
       consumptionState={consumptionState}
       agentId="codex"
-      onManageExternalMcp={onManageExternalMcp}
     />,
   );
 
@@ -383,12 +380,10 @@ it("offers only targeted MUX adoption for an external MCP card", async () => {
   expect(card).toHaveAttribute("data-enabled", "false");
   expect(within(card!).queryByRole("switch")).not.toBeInTheDocument();
   expect(within(card!).queryByRole("button", { name: /查看|移除/ })).not.toBeInTheDocument();
-
-  await userEvent.click(within(card!).getByRole("button", { name: "让 MUX 管理" }));
-  expect(onManageExternalMcp).toHaveBeenCalledWith("computer-use::stdio");
+  expect(within(card!).queryByRole("button", { name: "让 MUX 管理" })).not.toBeInTheDocument();
 });
 
-it("renders every external Model as its own disabled adoption card", async () => {
+it("renders every external Model as its own read-only card", async () => {
   const modelAgentInfo: AgentInfo = {
     ...skillsOnlyAgent,
     id: "opencode",
@@ -437,16 +432,13 @@ it("renders every external Model as its own disabled adoption card", async () =>
     candidate_hash: "candidate",
   };
   apiMocks.listModelAgents.mockResolvedValueOnce([modelAgent]);
-  const onOpenMigration = vi.fn();
-
   render(
     <AgentView
       state={{ ...state, agents: [modelAgentInfo] } as unknown as InstallState}
       skillsState={skillsState}
       consumptionState={{ inventory: { consumptions: [], external: [] } } as unknown as ConsumptionState}
       agentId="opencode"
-      modelMigrationCandidates={[candidate]}
-      onOpenMigration={onOpenMigration}
+      externalModelCandidates={[candidate]}
     />,
   );
 
@@ -457,12 +449,10 @@ it("renders every external Model as its own disabled adoption card", async () =>
   expect(within(card!).getByText("Agent 当前")).toBeVisible();
   expect(within(card!).queryByRole("switch")).not.toBeInTheDocument();
   expect(within(card!).queryByRole("button", { name: /查看|移除/ })).not.toBeInTheDocument();
-
-  await userEvent.click(within(card!).getByRole("button", { name: "让 MUX 管理" }));
-  expect(onOpenMigration).toHaveBeenCalledWith("model:same-model");
+  expect(within(card!).queryByRole("button", { name: "让 MUX 管理" })).not.toBeInTheDocument();
 });
 
-it("renders external Skills as disabled cards with targeted adoption", async () => {
+it("renders external Skills as read-only cards", async () => {
   const externalSkill = {
     identity: "target:cortex-user:review",
     name: "review",
@@ -498,15 +488,12 @@ it("renders external Skills as disabled cards with targeted adoption", async () 
       }],
     },
   } as unknown as ConsumptionState;
-  const onOpenMigration = vi.fn();
-
   render(
     <AgentView
       state={state}
       skillsState={externalSkillsState}
       consumptionState={consumptionState}
       agentId={skillsOnlyAgent.id}
-      onOpenMigration={onOpenMigration}
     />,
   );
 
@@ -515,9 +502,7 @@ it("renders external Skills as disabled cards with targeted adoption", async () 
   expect(card).toHaveAttribute("data-enabled", "false");
   expect(within(card!).getByText("Review changes")).toBeVisible();
   expect(within(card!).queryByRole("button", { name: /查看|移除/ })).not.toBeInTheDocument();
-
-  await userEvent.click(within(card!).getByRole("button", { name: "让 MUX 管理" }));
-  expect(onOpenMigration).toHaveBeenCalledWith("skill:review");
+  expect(within(card!).queryByRole("button", { name: "让 MUX 管理" })).not.toBeInTheDocument();
 });
 
 it("uses one current-Model switch and activates a disabled backup atomically", async () => {

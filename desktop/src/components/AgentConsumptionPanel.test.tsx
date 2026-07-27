@@ -117,8 +117,7 @@ describe("AgentConsumptionPanel", () => {
     expect(onActivate).toHaveBeenCalledOnce();
   });
 
-  it("renders every external asset as a disabled card with only its adoption action", async () => {
-    const onAdopt = vi.fn();
+  it("renders every external asset as a read-only disabled card", () => {
     const onEnabledChange = vi.fn();
     const onOpenAsset = vi.fn();
     const onRemove = vi.fn();
@@ -135,9 +134,6 @@ describe("AgentConsumptionPanel", () => {
         onEnabledChange={onEnabledChange}
         onOpenAsset={onOpenAsset}
         onRemove={onRemove}
-        renderExternalAction={(item) => (
-          <button type="button" onClick={() => onAdopt(item)}>让 MUX 管理</button>
-        )}
       />,
     );
 
@@ -147,10 +143,7 @@ describe("AgentConsumptionPanel", () => {
     expect(cards[1]).toHaveAttribute("data-enabled", "false");
     expect(within(cards[1]).getByText("外部配置")).toBeVisible();
     expect(within(cards[1]).queryByRole("switch")).not.toBeInTheDocument();
-    expect(within(cards[1]).queryByRole("button", { name: /查看|移除/ })).not.toBeInTheDocument();
-
-    await userEvent.click(within(cards[1]).getByRole("button", { name: "让 MUX 管理" }));
-    expect(onAdopt).toHaveBeenCalledWith(externalRow);
+    expect(within(cards[1]).queryByRole("button")).not.toBeInTheDocument();
     expect(onEnabledChange).not.toHaveBeenCalled();
     expect(onOpenAsset).not.toHaveBeenCalled();
     expect(onRemove).not.toHaveBeenCalled();

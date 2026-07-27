@@ -22,7 +22,6 @@ export function AgentConsumptionPanel({
   externalMode = "summary",
   externalTitle = "外部配置",
   externalDescription = "尚未由 MUX 管理",
-  externalAction,
   present,
   onManage,
   manageIcon = <PlusIcon className="w-3.5 h-3.5" />,
@@ -31,7 +30,6 @@ export function AgentConsumptionPanel({
   enabledChangeDisabled,
   toggleKind = "enabled",
   renderAction,
-  renderExternalAction,
   onRemove,
   removeLabel,
   manageDisabled = false,
@@ -50,7 +48,6 @@ export function AgentConsumptionPanel({
   externalMode?: "summary" | "cards";
   externalTitle?: string;
   externalDescription?: string;
-  externalAction?: ReactNode;
   present(asset: AssetRef): ConsumptionAssetPresentation;
   onManage(): void;
   manageIcon?: ReactNode;
@@ -59,7 +56,6 @@ export function AgentConsumptionPanel({
   enabledChangeDisabled?: boolean | ((item: ConsumptionView) => boolean);
   toggleKind?: "enabled" | "current";
   renderAction?(item: ConsumptionView): ReactNode;
-  renderExternalAction?(item: ConsumptionView): ReactNode;
   onRemove?(asset: AssetRef): void;
   removeLabel?(name: string): string;
   manageDisabled?: boolean;
@@ -99,7 +95,6 @@ export function AgentConsumptionPanel({
           <div>
             <strong>{externalTitle} {domainExternal.length}</strong>
             <span>{externalDescription}</span>
-            {externalAction}
           </div>
           <ul>
             {domainExternal.slice(0, 3).map((item) => {
@@ -138,7 +133,6 @@ export function AgentConsumptionPanel({
               : enabled
                 ? `停用 ${presentation.name}`
                 : `启用 ${presentation.name}`;
-            const externalActionNode = isExternal ? renderExternalAction?.(item) : null;
             return (
               <li
                 key={`${item.agent_id}:${item.asset.domain}:${assetIdentity(item.asset)}`}
@@ -158,11 +152,7 @@ export function AgentConsumptionPanel({
                 {(isExternal || item.status !== "synced") && (
                   <ConsumptionStatus status={item.status} reason={item.reason} />
                 )}
-                {isExternal ? externalActionNode && (
-                  <span className="mux-consumption-actions">
-                    {externalActionNode}
-                  </span>
-                ) : (renderAction || onEnabledChange && enabled !== null || onOpenAsset || onRemove) && (
+                {!isExternal && (renderAction || onEnabledChange && enabled !== null || onOpenAsset || onRemove) && (
                   <span className="mux-consumption-actions">
                     {renderAction?.(item)}
                     {onEnabledChange && enabled !== null && (

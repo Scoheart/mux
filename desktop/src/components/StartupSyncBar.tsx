@@ -27,9 +27,7 @@ export function StartupSyncBar({ state }: { state: StartupSyncState }) {
       case "workspace": return t("startup.tasks.workspace");
       case "skills": return t("startup.tasks.skills");
       case "installed": return t("startup.tasks.installed");
-      case "migration-mcp": return t("startup.tasks.mcpMigration");
-      case "migration-skills": return t("startup.tasks.skillMigration");
-      case "migration-models": return t("startup.tasks.modelMigration");
+      case "external-models": return t("startup.tasks.externalModels");
       case "updates": return t("startup.tasks.updates");
       default: return null;
     }

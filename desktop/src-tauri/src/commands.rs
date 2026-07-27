@@ -1,7 +1,6 @@
 use mux_core::application::assets::{
-    AssetCommitRequest, AssetOperationPlan, ConsumptionInventory, McpAdoptionCandidate,
-    ModelAdoptionCandidate, PlanDeleteCentralAssetRequest, PlanMcpAdoptionRequest,
-    PlanModelAdoptionRequest, PlanSetAgentConsumptionRequest, PlanSetAssetConsumersRequest,
+    AssetCommitRequest, AssetOperationPlan, ConsumptionInventory, ModelAdoptionCandidate,
+    PlanDeleteCentralAssetRequest, PlanSetAgentConsumptionRequest, PlanSetAssetConsumersRequest,
     PlanUpdateAgentCapabilitiesRequest, PlanUpdateAgentConfigurationRequest,
     PlanUpdateCentralAssetRequest,
 };
@@ -15,8 +14,8 @@ use mux_core::application::operations::{
 use mux_core::application::skills::{
     GithubEndpoints, OperationPlan, PlanImportRequest, PlanRemoveRequest, PlanRepairRequest,
     PlanSkillAssetImportRequest, PlanSkillAssetInstallRequest, PlanUpdateRequest, SkillAgentView,
-    SkillCommitRequest, SkillDetail, SkillError, SkillInventoryItem, SkillSourceInput,
-    SkillSourceResolution, SkillsInventory, UpdateCheckOutcome,
+    SkillCommitRequest, SkillDetail, SkillError, SkillSourceInput, SkillSourceResolution,
+    SkillsInventory, UpdateCheckOutcome,
 };
 use mux_core::domain::error::{CoreError, CoreResult};
 use mux_core::domain::types::RegistryEntry;
@@ -103,29 +102,9 @@ pub async fn list_consumption_inventory() -> Result<ConsumptionInventory, AssetC
 }
 
 #[tauri::command]
-pub async fn list_mcp_adoption_candidates() -> Result<Vec<McpAdoptionCandidate>, AssetCommandError>
-{
-    asset_blocking(mux_core::application::assets::list_mcp_adoption_candidates).await
-}
-
-#[tauri::command]
-pub async fn plan_mcp_adoption(
-    request: PlanMcpAdoptionRequest,
-) -> Result<AssetOperationPlan, AssetCommandError> {
-    asset_blocking(move || mux_core::application::assets::plan_mcp_adoption(request)).await
-}
-
-#[tauri::command]
 pub async fn list_model_adoption_candidates(
 ) -> Result<Vec<ModelAdoptionCandidate>, AssetCommandError> {
     asset_blocking(mux_core::application::assets::list_model_adoption_candidates).await
-}
-
-#[tauri::command]
-pub async fn plan_model_adoption(
-    request: PlanModelAdoptionRequest,
-) -> Result<AssetOperationPlan, AssetCommandError> {
-    asset_blocking(move || mux_core::application::assets::plan_model_adoption(request)).await
 }
 
 #[tauri::command]
@@ -269,12 +248,6 @@ where
 #[tauri::command]
 pub async fn list_skills_inventory() -> Result<SkillsInventory, SkillCommandError> {
     skill_blocking(mux_core::application::skills::list_inventory).await
-}
-
-#[tauri::command]
-pub async fn list_skill_migration_candidates() -> Result<Vec<SkillInventoryItem>, SkillCommandError>
-{
-    skill_blocking(mux_core::application::skills::list_migration_candidates).await
 }
 
 #[tauri::command]

@@ -4,7 +4,6 @@ import { useTranslation } from "react-i18next";
 import type { AgentInfo, ProxySettings, View } from "../lib/types";
 import {
   DownloadIcon,
-  ChevronDownIcon,
   LanguageIcon,
   LayersIcon,
   MoonIcon,
@@ -35,8 +34,6 @@ interface LayoutProps {
   onSelectAgent: (id: string) => void;
   onAddAgent?: () => void;
   onRescan?: () => Promise<unknown> | void;
-  onOpenMigration?: () => void;
-  migrationCount?: number;
   updater?: UpdaterState;
   proxyUrl: string | null;
   proxySettingsLoading: boolean;
@@ -54,8 +51,6 @@ export function Layout({
   onSelectAgent,
   onAddAgent,
   onRescan,
-  onOpenMigration,
-  migrationCount = 0,
   updater,
   proxyUrl,
   proxySettingsLoading,
@@ -66,9 +61,7 @@ export function Layout({
   const [theme, setTheme] = useState<Theme>(getInitialTheme);
   const [version, setVersion] = useState("");
   const [proxySettingsOpen, setProxySettingsOpen] = useState(false);
-  const [scanMenuOpen, setScanMenuOpen] = useState(false);
   const [languageMenuOpen, setLanguageMenuOpen] = useState(false);
-  const scanMenuRef = useRef<HTMLDivElement>(null);
   const languageMenuRef = useRef<HTMLDivElement>(null);
   const toast = useToast();
   const { t } = useTranslation();
@@ -77,15 +70,6 @@ export function Layout({
   useEffect(() => {
     getVersion().then(setVersion).catch(() => {});
   }, []);
-
-  useEffect(() => {
-    if (!scanMenuOpen) return;
-    const close = (event: PointerEvent) => {
-      if (!scanMenuRef.current?.contains(event.target as Node)) setScanMenuOpen(false);
-    };
-    window.addEventListener("pointerdown", close);
-    return () => window.removeEventListener("pointerdown", close);
-  }, [scanMenuOpen]);
 
   useEffect(() => {
     if (!languageMenuOpen) return;
@@ -258,52 +242,19 @@ export function Layout({
         </div>
 
         {onRescan && (
-          <div className="mux-scan-menu-wrap flex-shrink-0" ref={scanMenuRef}>
-            <button
-              type="button"
-              className="mux-icon-btn mux-scan-menu-trigger"
-              title={t("layout.scanAndMigrate")}
-              aria-label={t("layout.scanAndMigrate")}
-              aria-expanded={scanMenuOpen}
-              onClick={() => setScanMenuOpen((open) => !open)}
-            >
-              <RefreshIcon
-                className="w-4 h-4"
-                style={rescanning ? { animation: "spin 0.8s linear infinite" } : undefined}
-              />
-              <ChevronDownIcon className="mux-scan-menu-chevron" />
-              {migrationCount > 0 && <span className="mux-scan-menu-dot" aria-hidden="true" />}
-            </button>
-            {scanMenuOpen && (
-              <div className="mux-scan-menu" role="menu">
-                <button
-                  type="button"
-                  role="menuitem"
-                  disabled={rescanning}
-                  onClick={() => {
-                    setScanMenuOpen(false);
-                    void handleRescan();
-                  }}
-                >
-                  <RefreshIcon className="w-4 h-4" />
-                  <span><strong>{rescanning ? t("layout.scanning") : t("layout.rescan")}</strong><small>{t("layout.rescanDetail")}</small></span>
-                </button>
-                {onOpenMigration && (
-                  <button
-                    type="button"
-                    role="menuitem"
-                    onClick={() => {
-                      setScanMenuOpen(false);
-                      onOpenMigration();
-                    }}
-                  >
-                    <PackageIcon className="w-4 h-4" />
-                    <span><strong>{t("layout.migrateHistory")}</strong><small>{migrationCount > 0 ? t("layout.pendingCount", { count: migrationCount }) : t("layout.noMigration")}</small></span>
-                  </button>
-                )}
-              </div>
-            )}
-          </div>
+          <button
+            type="button"
+            className="mux-icon-btn flex-shrink-0"
+            title={rescanning ? t("layout.scanning") : t("layout.rescan")}
+            aria-label={rescanning ? t("layout.scanning") : t("layout.rescan")}
+            disabled={rescanning}
+            onClick={() => void handleRescan()}
+          >
+            <RefreshIcon
+              className="w-4 h-4"
+              style={rescanning ? { animation: "spin 0.8s linear infinite" } : undefined}
+            />
+          </button>
         )}
 
         {/* Explicit update action: keep the installed version visible without

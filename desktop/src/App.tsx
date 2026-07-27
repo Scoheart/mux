@@ -13,15 +13,10 @@ import { useUpdater } from "./hooks/useUpdater";
 import { useCliTool } from "./hooks/useCliTool";
 import { useNetworkSettings } from "./hooks/useNetworkSettings";
 import { UpdateBanner } from "./components/UpdateBanner";
-import { MigrationDialog } from "./components/MigrationDialog";
-import { MigrationBanner } from "./components/MigrationBanner";
-import { buildMigrationCandidates, mcpMigrationCandidateId, migrationCounts } from "./lib/migration";
-import { listMcpAdoptionCandidates, listModelAdoptionCandidates, listSkillMigrationCandidates } from "./lib/api";
+import { listModelAdoptionCandidates } from "./lib/api";
 import type {
-  McpAdoptionCandidate,
   ModelAdoptionCandidate,
   ResourceNavigationRequest,
-  SkillInventoryItem,
   View,
 } from "./lib/types";
 import {
@@ -32,27 +27,11 @@ import {
 import { mergeAgentInfos } from "./lib/agentCapabilities";
 import { useStartupSync, type StartupTask } from "./hooks/useStartupSync";
 
-const MIGRATION_IGNORED_KEY = "mux:migration-ignored:v2";
-
-function loadIgnoredMigrations(): Set<string> {
-  try {
-    const value = JSON.parse(localStorage.getItem(MIGRATION_IGNORED_KEY) ?? "[]");
-    return new Set(Array.isArray(value) ? value.filter((item) => typeof item === "string") : []);
-  } catch {
-    return new Set();
-  }
-}
-
 function App() {
   const [view, setView] = useState<View>({ kind: "registry" });
   const [addAgentOpen, setAddAgentOpen] = useState(false);
   const [mcpEditorOpen, setMcpEditorOpen] = useState(false);
-  const [migrationOpen, setMigrationOpen] = useState(false);
-  const [migrationFocusId, setMigrationFocusId] = useState<string | null>(null);
-  const [mcpMigrationCandidates, setMcpMigrationCandidates] = useState<McpAdoptionCandidate[]>([]);
-  const [skillMigrationCandidates, setSkillMigrationCandidates] = useState<SkillInventoryItem[]>([]);
-  const [modelMigrationCandidates, setModelMigrationCandidates] = useState<ModelAdoptionCandidate[]>([]);
-  const [ignoredMigrations, setIgnoredMigrations] = useState(loadIgnoredMigrations);
+  const [externalModelCandidates, setExternalModelCandidates] = useState<ModelAdoptionCandidate[]>([]);
   const nextResourceNavigationId = useRef(0);
   const state = useInstallState({ autoLoad: false });
   const skillsState = useSkillsState({ autoLoad: false });
@@ -63,52 +42,9 @@ function App() {
     () => mergeAgentInfos(state.agents, consumptionState.agents),
     [consumptionState.agents, state.agents],
   );
-  const migrationCandidates = useMemo(
-    () => buildMigrationCandidates(mcpMigrationCandidates, skillMigrationCandidates, modelMigrationCandidates),
-    [mcpMigrationCandidates, modelMigrationCandidates, skillMigrationCandidates],
-  );
-  const newMigrationCandidates = useMemo(
-    () => migrationCandidates.filter((candidate) => !ignoredMigrations.has(candidate.fingerprint)),
-    [ignoredMigrations, migrationCandidates],
-  );
-  const migrationCandidateCounts = migrationCounts(migrationCandidates);
-  const visibleMigrationCandidates = migrationFocusId
-    ? migrationCandidates.filter((candidate) => candidate.id === migrationFocusId)
-    : migrationCandidates;
-
-  const openMigration = useCallback((focusId: string | null = null) => {
-    setMigrationFocusId(focusId);
-    setMigrationOpen(true);
+  const refreshExternalModels = useCallback(async () => {
+    setExternalModelCandidates(await listModelAdoptionCandidates());
   }, []);
-
-  const closeMigration = useCallback(() => {
-    setMigrationOpen(false);
-    setMigrationFocusId(null);
-  }, []);
-
-  const manageExternalMcp = useCallback((assetKey: string) => {
-    openMigration(mcpMigrationCandidateId(assetKey));
-  }, [openMigration]);
-
-  const refreshMcpMigrations = useCallback(async () => {
-    setMcpMigrationCandidates(await listMcpAdoptionCandidates());
-  }, []);
-
-  const refreshSkillMigrations = useCallback(async () => {
-    setSkillMigrationCandidates(await listSkillMigrationCandidates());
-  }, []);
-
-  const refreshModelMigrations = useCallback(async () => {
-    setModelMigrationCandidates(await listModelAdoptionCandidates());
-  }, []);
-
-  const refreshMigrations = useCallback(async () => {
-    await Promise.all([
-      refreshMcpMigrations(),
-      refreshSkillMigrations(),
-      refreshModelMigrations(),
-    ]);
-  }, [refreshMcpMigrations, refreshModelMigrations, refreshSkillMigrations]);
 
   const foregroundStartupTasks = useMemo<StartupTask[]>(() => [
     { id: "registry", label: "registry", run: state.refreshRegistry },
@@ -127,9 +63,7 @@ function App() {
   ]);
 
   const deferredStartupTasks = useMemo<StartupTask[]>(() => [
-    { id: "migration-mcp", label: "migration-mcp", run: refreshMcpMigrations },
-    { id: "migration-skills", label: "migration-skills", run: refreshSkillMigrations },
-    { id: "migration-models", label: "migration-models", run: refreshModelMigrations },
+    { id: "external-models", label: "external-models", run: refreshExternalModels },
     {
       id: "updates",
       label: "updates",
@@ -140,9 +74,7 @@ function App() {
       },
     },
   ], [
-    refreshMcpMigrations,
-    refreshModelMigrations,
-    refreshSkillMigrations,
+    refreshExternalModels,
     updater.checkNow,
   ]);
 
@@ -160,18 +92,9 @@ function App() {
       state.refreshAll(),
       skillsState.refresh(),
       consumptionState.refresh(),
-      refreshMigrations(),
+      refreshExternalModels(),
     ]);
-  }, [consumptionState.refresh, refreshMigrations, skillsState.refresh, state.refreshAll]);
-
-  const ignoreCurrentMigrations = useCallback(() => {
-    setIgnoredMigrations((current) => {
-      const next = new Set(current);
-      for (const candidate of newMigrationCandidates) next.add(candidate.fingerprint);
-      localStorage.setItem(MIGRATION_IGNORED_KEY, JSON.stringify([...next]));
-      return next;
-    });
-  }, [newMigrationCandidates]);
+  }, [consumptionState.refresh, refreshExternalModels, skillsState.refresh, state.refreshAll]);
 
   const openResource = useCallback((request: ResourceNavigationRequest) => {
     const id = ++nextResourceNavigationId.current;
@@ -196,8 +119,6 @@ function App() {
       onSelectAgent={(id) => setView({ kind: "agent", id })}
       onAddAgent={() => setAddAgentOpen(true)}
       onRescan={refreshEverything}
-      onOpenMigration={() => openMigration()}
-      migrationCount={migrationCandidateCounts.all}
       startupSync={startupSync}
     >
       {view.kind === "skills" ? (
@@ -205,16 +126,12 @@ function App() {
           state={skillsState}
           intent={view.intent}
           onIntentConsumed={consumeResourceIntent}
-          migrationCount={migrationCandidateCounts.skill}
-          onOpenMigration={() => openMigration()}
         />
       ) : view.kind === "models" ? (
         <ModelsView
           consumptionState={consumptionState}
           intent={view.intent}
           onIntentConsumed={consumeResourceIntent}
-          migrationCount={migrationCandidateCounts.model}
-          onOpenMigration={() => openMigration()}
         />
       ) : view.kind === "agent" ? (
         <AgentView
@@ -222,10 +139,8 @@ function App() {
           skillsState={skillsState}
           consumptionState={consumptionState}
           agentId={view.id}
-          modelMigrationCandidates={modelMigrationCandidates}
+          externalModelCandidates={externalModelCandidates}
           onOpenResource={openResource}
-          onOpenMigration={(focusId) => openMigration(focusId ?? null)}
-          onManageExternalMcp={manageExternalMcp}
         />
       ) : (
         <RegistryView
@@ -234,8 +149,6 @@ function App() {
           intent={view.intent}
           onIntentConsumed={consumeResourceIntent}
           onCreate={() => setMcpEditorOpen(true)}
-          migrationCount={migrationCandidateCounts.mcp}
-          onOpenMigration={() => openMigration()}
           onRetryLoad={startupSync.retryFailed}
           retryLoadDisabled={startupSync.syncing}
         />
@@ -262,25 +175,6 @@ function App() {
           <strong>资源更改需要恢复</strong>
           <span>{consumptionState.error.message}</span>
         </div>
-      )}
-
-      {!migrationOpen &&
-        consumptionState.error?.code !== "recovery_required" &&
-        skillsState.error?.code !== "recovery_required" &&
-        newMigrationCandidates.length > 0 && (
-        <MigrationBanner
-          candidates={newMigrationCandidates}
-          onLater={ignoreCurrentMigrations}
-          onOpen={() => openMigration()}
-        />
-      )}
-
-      {migrationOpen && (
-        <MigrationDialog
-          candidates={visibleMigrationCandidates}
-          onClose={closeMigration}
-          onRefresh={refreshEverything}
-        />
       )}
 
       <UpdateBanner updater={updater} />

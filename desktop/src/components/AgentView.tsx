@@ -29,7 +29,6 @@ import {
   type ConsumptionPickerOption,
 } from "./ConsumptionPickerDialog";
 import { AssetOperationReviewDialog } from "./AssetOperationReviewDialog";
-import { modelMigrationCandidateId, skillMigrationCandidateId } from "../lib/migration";
 import { mergeAgentInfos } from "../lib/agentCapabilities";
 
 type PickerDomain = "mcp" | "model" | "skill";
@@ -54,13 +53,11 @@ interface AgentViewProps {
   skillsState: SkillsState;
   consumptionState?: ConsumptionState;
   agentId: string;
-  modelMigrationCandidates?: ModelAdoptionCandidate[];
+  externalModelCandidates?: ModelAdoptionCandidate[];
   onOpenResource?(request: ResourceNavigationRequest): void;
   /** Transitional test adapters. */
   onOpenModels?: () => void;
   onOpenSkills?: (request: Extract<ResourceNavigationRequest, { domain: "skill" }>) => void;
-  onOpenMigration?: (focusId?: string | null) => void;
-  onManageExternalMcp?: (assetKey: string) => void;
 }
 
 function fallbackInventory(
@@ -134,12 +131,10 @@ export function AgentView({
   skillsState,
   consumptionState,
   agentId,
-  modelMigrationCandidates = [],
+  externalModelCandidates = [],
   onOpenResource,
   onOpenModels,
   onOpenSkills,
-  onOpenMigration,
-  onManageExternalMcp,
 }: AgentViewProps) {
   const { entries, refreshAgents, rescan } = state;
   const { show: showToast } = useToast();
@@ -238,11 +233,11 @@ export function AgentView({
   const mcpExternal = externalForAgent(inventory, agentId, "mcp");
   const skillExternal = externalForAgent(inventory, agentId, "skill");
   const agentModelMigrationCandidates = useMemo(
-    () => modelMigrationCandidates
+    () => externalModelCandidates
       .filter((candidate) => candidate.agent_id === agentId)
       .sort((left, right) => Number(right.active) - Number(left.active)
         || (left.name || left.model).localeCompare(right.name || right.model)),
-    [agentId, modelMigrationCandidates],
+    [agentId, externalModelCandidates],
   );
   const externalModelCandidateByProfileId = useMemo(
     () => new Map(agentModelMigrationCandidates.map((candidate) => [
@@ -616,19 +611,6 @@ export function AgentView({
               columns={3}
               external={mcpExternal}
               externalMode="cards"
-              renderExternalAction={(item) => {
-                if (item.asset.domain !== "mcp" || !onManageExternalMcp) return null;
-                const assetKey = item.asset.key;
-                return (
-                  <button
-                    type="button"
-                    className="mux-consumption-adopt"
-                    onClick={() => onManageExternalMcp(assetKey)}
-                  >
-                    让 MUX 管理
-                  </button>
-                );
-              }}
               onManage={() => setPickerDomain("mcp")}
               manageDisabled={!agent.has_global || !consumptionState || preparingChange}
               onEnabledChange={(item, enabled) => void toggleMcpEnabled(item, enabled)}
@@ -677,20 +659,6 @@ export function AgentView({
                   columns={3}
                   external={modelExternalCards}
                   externalMode="cards"
-                  renderExternalAction={(item) => {
-                    if (item.asset.domain !== "model" || !onOpenMigration) return null;
-                    const candidate = externalModelCandidateByProfileId.get(item.asset.profile_id);
-                    if (!candidate) return null;
-                    return (
-                      <button
-                        type="button"
-                        className="mux-consumption-adopt"
-                        onClick={() => onOpenMigration(modelMigrationCandidateId(candidate.fingerprint))}
-                      >
-                        让 MUX 管理
-                      </button>
-                    );
-                  }}
                   onManage={() => setPickerDomain("model")}
                   manageDisabled={!consumptionState || preparingChange || compatibleProfiles.length === 0}
                   onOpenAsset={openAsset}
@@ -760,19 +728,6 @@ export function AgentView({
               columns={3}
               external={skillExternal}
               externalMode="cards"
-              renderExternalAction={(item) => {
-                if (item.asset.domain !== "skill" || !onOpenMigration) return null;
-                const skillName = item.asset.name;
-                return (
-                  <button
-                    type="button"
-                    className="mux-consumption-adopt"
-                    onClick={() => onOpenMigration(skillMigrationCandidateId(skillName))}
-                  >
-                    让 MUX 管理
-                  </button>
-                );
-              }}
               onManage={() => setPickerDomain("skill")}
               onOpenAsset={openAsset}
               manageDisabled={!runtimeSkillAgent || !consumptionState || preparingChange}

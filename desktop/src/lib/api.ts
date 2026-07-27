@@ -121,7 +121,17 @@ export type { AssetCommandError };
 
 export const listRegistry = () => invoke<RegistryEntry[]>("list_registry");
 export const listModelProfiles = () =>
-  invoke<ModelProfileView[]>("list_model_profiles");
+  invoke<Array<ModelProfileView & { provider?: string; base_url?: string }>>(
+    "list_model_profiles",
+  ).then((profiles) =>
+    profiles.map((profile) => ({
+      ...profile,
+      // Rust omits empty strings from the flattened wire payload. Restore the
+      // required desktop invariant for legacy Profiles without a Provider.
+      provider: profile.provider ?? "",
+      base_url: profile.base_url ?? "",
+    }))
+  );
 export const listModelProviders = () =>
   invoke<ModelProviderView[]>("list_model_providers");
 export const listModelProviderInstances = () =>

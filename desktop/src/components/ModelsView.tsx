@@ -630,13 +630,10 @@ function ProviderCatalogDialog({
 }) {
   const { t } = useTranslation();
   const [query, setQuery] = useState("");
-  const [category, setCategory] = useState<ModelProviderView["category"] | "all">("all");
   const [selectedId, setSelectedId] = useState(
     providers.find((provider) => provider.id === "openrouter")?.id ?? providers[0]?.id ?? "",
   );
-  const categories = ["all", "official", "gateway", "local"] as const;
   const visibleProviders = providers.filter((provider) => {
-    if (category !== "all" && provider.category !== category) return false;
     const needle = query.trim().toLocaleLowerCase();
     return !needle || [provider.name, provider.id, provider.default_base_url ?? ""]
       .join(" ")
@@ -677,19 +674,6 @@ function ProviderCatalogDialog({
           placeholder={t("models.searchProviders")}
           aria-label={t("models.searchProviders")}
         />
-        <div className="mux-provider-catalog-categories" aria-label={t("models.providerCategories") }>
-          {categories.map((value) => (
-            <button
-              type="button"
-              key={value}
-              aria-pressed={category === value}
-              data-active={category === value ? "true" : undefined}
-              onClick={() => setCategory(value)}
-            >
-              {t(`models.providerCategory.${value}`)}
-            </button>
-          ))}
-        </div>
         <div className="mux-provider-catalog-grid" role="radiogroup" aria-label={t("models.providerCatalogTitle")}>
           {visibleProviders.map((provider) => (
             <button

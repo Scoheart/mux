@@ -288,7 +288,7 @@ it("keeps the sidebar limited to the model library and configured Providers", as
   expect(screen.getByRole("button", { name: "打开模型 Completions Model 详情" })).toBeVisible();
 });
 
-it("opens the built-in Provider Catalog as a centered picker dialog", async () => {
+it("keeps the built-in Provider Catalog unfiltered, searchable, and keyboard-selectable", async () => {
   const user = userEvent.setup();
   const consumptionState = { plan: null, planUpdate: vi.fn() } as unknown as ConsumptionState;
 
@@ -304,8 +304,36 @@ it("opens the built-in Provider Catalog as a centered picker dialog", async () =
   expect(within(catalog).getByRole("radio", { name: /OpenRouter/ })).toHaveAttribute("aria-checked", "true");
   expect(within(catalog).getByRole("radio", { name: /OpenAI/ })).toBeVisible();
   expect(within(catalog).getByRole("radio", { name: /Custom Provider/ })).toBeVisible();
+  expect(catalog.querySelector(".mux-provider-catalog-categories")).not.toBeInTheDocument();
+  expect(within(catalog).queryByRole("button", { name: "全部" })).not.toBeInTheDocument();
+  expect(within(catalog).queryByRole("button", { name: "Official" })).not.toBeInTheDocument();
+
+  const search = within(catalog).getByRole("searchbox", { name: "搜索 Provider" });
+  await user.type(search, "api.openai.com");
+  expect(within(catalog).getAllByRole("radio")).toHaveLength(1);
+  expect(within(catalog).getByRole("radio", { name: /OpenAI/ })).toBeVisible();
+  expect(within(catalog).getByRole("button", { name: "使用此模板" })).toBeDisabled();
+
+  await user.clear(search);
+  expect(within(catalog).getAllByRole("radio")).toHaveLength(3);
+  const openAi = within(catalog).getByRole("radio", { name: /OpenAI/ });
+  openAi.focus();
+  await user.keyboard("{Enter}");
+  expect(openAi).toHaveAttribute("aria-checked", "true");
+  expect(within(catalog).getByText("已选择 OpenAI")).toBeVisible();
+
+  await user.click(within(catalog).getByRole("button", { name: "使用此模板" }));
+  await waitFor(() => expect(screen.getByRole("heading", { name: "新建模型" })).toHaveFocus());
   expect(source).toMatch(/<DialogShell\s+[\s\S]*?kind="picker"/);
   expect(source).not.toMatch(/ProviderCatalogDrawer|provider-catalog-drawer/);
+});
+
+it("uses compact Provider cards without sacrificing a dedicated selection column", () => {
+  expect(css).toMatch(/\.mux-provider-catalog-item\s*\{[\s\S]*?min-height: 68px/);
+  expect(css).toMatch(/grid-template-columns: 26px minmax\(0, 1fr\) 15px/);
+  expect(css).toMatch(/\.mux-provider-catalog-grid\s*\{[\s\S]*?row-gap: 6px/);
+  expect(css).toMatch(/\.mux-provider-catalog-copy code\s*\{[\s\S]*?text-overflow: ellipsis; white-space: nowrap/);
+  expect(css).not.toMatch(/\.mux-provider-catalog-categories/);
 });
 
 it("keeps Keychain presence-only rendering in the Inspector", () => {

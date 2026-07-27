@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.75](https://github.com/Scoheart/mux/compare/v1.8.74...v1.8.75) (2026-07-27)
+
+### Changes
+
+* feat(models): make providers independent assets ([ee36b62](https://github.com/Scoheart/mux/commit/ee36b6232cb482b6433684ad47e6babe971d7f1d))
+
 ## [1.8.74](https://github.com/Scoheart/mux/compare/v1.8.73...v1.8.74) (2026-07-27)
 
 ### Changes

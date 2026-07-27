@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.82](https://github.com/Scoheart/mux/compare/v1.8.81...v1.8.82) (2026-07-27)
+
+### Changes
+
+* fix(desktop): select one Provider protocol ([64c2913](https://github.com/Scoheart/mux/commit/64c2913181aa2cf20d716c7922b3ab5aa054aa7d))
+
 ## [1.8.81](https://github.com/Scoheart/mux/compare/v1.8.80...v1.8.81) (2026-07-27)
 
 ### Changes

@@ -56,6 +56,10 @@ pub(crate) enum LifecycleBinding {
     McpUpsert {
         key: String,
         draft_hash: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        previous_key: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        previous_source_id: Option<String>,
     },
     McpAdopt {
         key: String,

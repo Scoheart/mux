@@ -15,7 +15,9 @@ use mux_core::models::{apply_profile, list_profiles, reconcile_active_models, sa
 use mux_core::registry::{read_registry, write_manual_entry};
 use mux_core::settings::load_settings;
 use mux_core::testenv::TestHome;
-use mux_core::types::{ModelProfile, ModelProtocol, RegistryConfig, RegistryEntry, StdioConfig};
+use mux_core::types::{
+    HttpConfig, ModelProfile, ModelProtocol, RegistryConfig, RegistryEntry, StdioConfig,
+};
 use std::fs;
 use support::skills::SkillsFixture;
 
@@ -152,6 +154,199 @@ fn mcp_central_update_propagates_and_delete_cascades() {
         .unwrap_or_default()
         .contains_key("claude-code"));
     assert!(!fs::read_to_string(target).unwrap().contains("local"));
+}
+
+#[test]
+fn mcp_rename_atomically_migrates_identity_consumers_and_enabled_state() {
+    let home = TestHome::new("central-mcp-rename");
+    write_manual_entry(&named_mcp("old-name", "rename-server")).unwrap();
+    commit(
+        plan_set_agent_consumption(PlanSetAgentConsumptionRequest {
+            agent_id: "claude-code".into(),
+            selection: AgentConsumptionSelection::Mcp {
+                asset_keys: vec!["old-name::stdio".into()],
+            },
+        })
+        .unwrap(),
+    );
+    commit(
+        plan_set_mcp_enabled(PlanSetMcpEnabledRequest {
+            agent_id: "claude-code".into(),
+            asset_key: "old-name::stdio".into(),
+            enabled: false,
+        })
+        .unwrap(),
+    );
+
+    let plan = plan_update_central_asset(PlanUpdateCentralAssetRequest {
+        draft: CentralAssetDraft::Mcp {
+            existing_key: Some("old-name::stdio".into()),
+            entry: Box::new(named_mcp("new-name", "rename-server")),
+        },
+    })
+    .unwrap();
+    assert_eq!(plan.central_changes.len(), 2);
+    assert!(plan.relationship_changes.iter().any(|change| {
+        change.asset
+            == (AssetRef::Mcp {
+                key: "old-name::stdio".into(),
+            })
+    }));
+    assert!(plan.relationship_changes.iter().any(|change| {
+        change.asset
+            == (AssetRef::Mcp {
+                key: "new-name::stdio".into(),
+            })
+    }));
+    commit(plan);
+
+    let registry = read_registry();
+    assert!(!registry
+        .iter()
+        .any(|entry| entry.key() == "old-name::stdio"));
+    assert!(registry
+        .iter()
+        .any(|entry| entry.key() == "new-name::stdio"));
+    let settings = load_settings();
+    let records = &settings.mcp_consumptions.unwrap()["claude-code"];
+    assert!(!records.contains_key("old-name::stdio"));
+    assert_eq!(records["new-name::stdio"].asset_key, "new-name::stdio");
+    assert!(!records["new-name::stdio"].enabled);
+    let target = fs::read_to_string(home.home.join(".claude.json")).unwrap_or_default();
+    assert!(!target.contains("old-name"));
+    assert!(!target.contains("new-name"));
+}
+
+#[test]
+fn mcp_rename_conflict_fails_without_mutating_existing_identity() {
+    let _home = TestHome::new("central-mcp-rename-conflict");
+    write_manual_entry(&named_mcp("old-name", "old-server")).unwrap();
+    write_manual_entry(&named_mcp("taken-name", "taken-server")).unwrap();
+
+    let error = plan_update_central_asset(PlanUpdateCentralAssetRequest {
+        draft: CentralAssetDraft::Mcp {
+            existing_key: Some("old-name::stdio".into()),
+            entry: Box::new(named_mcp("taken-name", "replacement-server")),
+        },
+    })
+    .unwrap_err();
+
+    assert!(error.starts_with("asset_identity_conflict:"));
+    let registry = read_registry();
+    assert_eq!(
+        registry
+            .iter()
+            .find(|entry| entry.key() == "old-name::stdio")
+            .unwrap()
+            .config
+            .stdio
+            .as_ref()
+            .unwrap()
+            .command,
+        "old-server"
+    );
+    assert_eq!(
+        registry
+            .iter()
+            .find(|entry| entry.key() == "taken-name::stdio")
+            .unwrap()
+            .config
+            .stdio
+            .as_ref()
+            .unwrap()
+            .command,
+        "taken-server"
+    );
+}
+
+#[test]
+fn mcp_rename_rejects_empty_names_and_transport_changes() {
+    let _home = TestHome::new("central-mcp-rename-invalid");
+    write_manual_entry(&named_mcp("old-name", "old-server")).unwrap();
+
+    let mut empty = named_mcp(" ", "replacement-server");
+    empty.name = " ".into();
+    let empty_error = plan_update_central_asset(PlanUpdateCentralAssetRequest {
+        draft: CentralAssetDraft::Mcp {
+            existing_key: Some("old-name::stdio".into()),
+            entry: Box::new(empty),
+        },
+    })
+    .unwrap_err();
+    assert!(empty_error.starts_with("invalid_asset: MCP name is required"));
+
+    let transport_error = plan_update_central_asset(PlanUpdateCentralAssetRequest {
+        draft: CentralAssetDraft::Mcp {
+            existing_key: Some("old-name::stdio".into()),
+            entry: Box::new(RegistryEntry {
+                name: "new-name".into(),
+                description: "Transport change".into(),
+                tags: vec![],
+                config: RegistryConfig {
+                    stdio: None,
+                    http: Some(HttpConfig {
+                        kind: "http".into(),
+                        url: "https://example.com/mcp".into(),
+                        headers: None,
+                    }),
+                },
+                origin: None,
+                repo: None,
+            }),
+        },
+    })
+    .unwrap_err();
+    assert!(transport_error.starts_with("asset_transport_change:"));
+    assert!(read_registry()
+        .iter()
+        .any(|entry| entry.key() == "old-name::stdio"));
+    assert!(!read_registry()
+        .iter()
+        .any(|entry| entry.key() == "new-name::http"));
+}
+
+#[test]
+fn mcp_rename_rejects_a_stale_catalog_without_partial_migration() {
+    let home = TestHome::new("central-mcp-rename-stale");
+    write_manual_entry(&named_mcp("old-name", "old-server")).unwrap();
+    commit(
+        plan_set_agent_consumption(PlanSetAgentConsumptionRequest {
+            agent_id: "claude-code".into(),
+            selection: AgentConsumptionSelection::Mcp {
+                asset_keys: vec!["old-name::stdio".into()],
+            },
+        })
+        .unwrap(),
+    );
+    let target = home.home.join(".claude.json");
+    let before = fs::read_to_string(&target).unwrap();
+    let plan = plan_update_central_asset(PlanUpdateCentralAssetRequest {
+        draft: CentralAssetDraft::Mcp {
+            existing_key: Some("old-name::stdio".into()),
+            entry: Box::new(named_mcp("new-name", "new-server")),
+        },
+    })
+    .unwrap();
+
+    write_manual_entry(&named_mcp("concurrent-name", "concurrent-server")).unwrap();
+    let error = commit_asset_operation(AssetCommitRequest {
+        operation_id: plan.operation_id,
+        candidate_hash: plan.candidate_hash,
+        conflict_confirmation: None,
+    })
+    .unwrap_err();
+
+    assert!(error.starts_with("asset_operation_stale:"));
+    assert!(read_registry()
+        .iter()
+        .any(|entry| entry.key() == "old-name::stdio"));
+    assert!(!read_registry()
+        .iter()
+        .any(|entry| entry.key() == "new-name::stdio"));
+    let records = &load_settings().mcp_consumptions.unwrap()["claude-code"];
+    assert!(records.contains_key("old-name::stdio"));
+    assert!(!records.contains_key("new-name::stdio"));
+    assert_eq!(fs::read_to_string(target).unwrap(), before);
 }
 
 #[test]

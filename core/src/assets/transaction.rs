@@ -382,7 +382,12 @@ fn apply_operation(persisted: &PersistedAssetOperation) -> Result<(), String> {
         );
     };
     match lifecycle {
-        LifecycleBinding::McpUpsert { key, draft_hash } => {
+        LifecycleBinding::McpUpsert {
+            key,
+            draft_hash,
+            previous_key,
+            previous_source_id,
+        } => {
             let PendingAssetPayload::McpUpsert { entry } =
                 require_pending_payload(&persisted.plan.operation_id)?
             else {
@@ -396,7 +401,19 @@ fn apply_operation(persisted: &PersistedAssetOperation) -> Result<(), String> {
                 return Err("asset_operation_stale: MCP draft identity changed".into());
             }
             write_manual_entry(&entry).map_err(|error| error.to_string())?;
-            reapply_mcp_consumers(&persisted.plan.domain_plan, key)
+            if let Some(previous_key) = previous_key {
+                let previous_source_id = previous_source_id.as_deref().ok_or_else(|| {
+                    "asset_operation_stale: MCP rename source is unavailable".to_string()
+                })?;
+                migrate_mcp_consumption_records(previous_key, key)?;
+                apply_domain_plan(
+                    &persisted.plan.domain_plan,
+                    persisted.plan.requires_conflict_confirmation,
+                )?;
+                delete_mcp_source_copy(previous_key, previous_source_id)
+            } else {
+                reapply_mcp_consumers(&persisted.plan.domain_plan, key)
+            }
         }
         LifecycleBinding::McpAdopt {
             key,
@@ -666,7 +683,12 @@ fn verify_operation(persisted: &PersistedAssetOperation) -> Result<(), String> {
         return Ok(());
     };
     match lifecycle {
-        LifecycleBinding::McpUpsert { key, draft_hash } => {
+        LifecycleBinding::McpUpsert {
+            key,
+            draft_hash,
+            previous_key,
+            previous_source_id,
+        } => {
             let entry = read_registry()
                 .into_iter()
                 .find(|entry| entry.key() == *key)
@@ -675,7 +697,35 @@ fn verify_operation(persisted: &PersistedAssetOperation) -> Result<(), String> {
             // the reviewed draft hash.
             let mut entry = entry;
             entry.origin = None;
-            verify_payload_hash(&entry, draft_hash)
+            verify_payload_hash(&entry, draft_hash)?;
+            if let Some(previous_key) = previous_key {
+                let previous_source_id = previous_source_id
+                    .as_deref()
+                    .ok_or_else(|| "MCP rename source verification is unavailable".to_string())?;
+                if mcp_source_copy_exists(previous_key, previous_source_id)
+                    || read_registry()
+                        .iter()
+                        .any(|entry| entry.key() == *previous_key)
+                {
+                    return Err("old MCP identity still exists after rename".into());
+                }
+                let settings = load_settings_strict().map_err(|error| error.to_string())?;
+                if settings
+                    .mcp_consumptions
+                    .iter()
+                    .flatten()
+                    .map(|(_, records)| records)
+                    .any(|records| {
+                        records.contains_key(previous_key)
+                            || records
+                                .get(key)
+                                .is_some_and(|record| record.asset_key != *key)
+                    })
+                {
+                    return Err("old MCP consumption identity still exists after rename".into());
+                }
+            }
+            Ok(())
         }
         LifecycleBinding::McpAdopt {
             key,
@@ -1049,6 +1099,31 @@ fn reapply_mcp_consumers(plan: &DomainPlan, key: &str) -> Result<(), String> {
     Ok(())
 }
 
+fn migrate_mcp_consumption_records(old_key: &str, new_key: &str) -> Result<(), String> {
+    mutate_settings(|settings| {
+        for records in settings
+            .mcp_consumptions
+            .iter_mut()
+            .flatten()
+            .map(|(_, records)| records)
+        {
+            if records.contains_key(new_key) {
+                return Err(format!(
+                    "asset_identity_conflict: MCP consumption already contains {new_key}"
+                ));
+            }
+            let Some(mut record) = records.remove(old_key) else {
+                continue;
+            };
+            record.asset_key = new_key.to_string();
+            records.insert(new_key.to_string(), record);
+        }
+        Ok(())
+    })
+    .map_err(|error| error.to_string())??;
+    Ok(())
+}
+
 /// Adopt exact observed MCP copies without rewriting Agent files. The planner
 /// already bound every target byte and verified that all copies match one
 /// central config. Disabled observations remain in the existing snapshot store
@@ -1324,6 +1399,22 @@ fn apply_mcp(
                 &HashMap::from([(agent_id.clone(), patch)]),
             )
             .map_err(|errors| errors.join("; "))?;
+            let enabled = settings
+                .mcp_consumptions
+                .as_ref()
+                .and_then(|records| records.get(agent_id))
+                .and_then(|records| records.get(key))
+                .is_none_or(|record| record.enabled);
+            if !enabled {
+                ops::disable(
+                    name,
+                    transport,
+                    "global",
+                    std::slice::from_ref(agent_id),
+                    None,
+                )
+                .map_err(|errors| errors.join("; "))?;
+            }
         }
     }
 

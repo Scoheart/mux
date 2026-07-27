@@ -115,9 +115,11 @@ export function RegistryEditPage({
     if (!valid || saving) return;
     const draft = buildEntry();
     const draftKey = keyOf(draft);
-    // Existing identities are locked, so a same-key catalog copy is the edit
-    // target (including a subscribed copy that becomes a manual override).
-    if (isNew && entries.some((e) => keyOf(e) === draftKey)) {
+    const existingKey = existing ? keyOf(existing) : undefined;
+    // The original composite key is the edit target. A rename may keep the
+    // display name used by another transport, but may never replace an
+    // existing name + transport identity.
+    if (draftKey !== existingKey && entries.some((e) => keyOf(e) === draftKey)) {
       toast.show({ kind: "error", msg: `已存在同名同传输方式的 MCP: ${draft.name} (${transport})` });
       return;
     }
@@ -173,9 +175,9 @@ export function RegistryEditPage({
               <div className="flex-1 min-w-0">
                 <label className={labelCls} style={labelStyle}>名称</label>
                 <input
+                  aria-label="名称"
                   style={{ ...inputStyle, fontFamily: "var(--font-mono)" }}
                   value={serverName}
-                  disabled={!isNew}
                   onChange={(e) => setServerName(e.target.value)}
                   placeholder="server-name"
                 />

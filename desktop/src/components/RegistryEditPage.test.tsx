@@ -80,6 +80,107 @@ it("creates a manual override with custom env for a subscribed MCP", async () =>
   }));
 });
 
+it("renames an existing MCP through the shared plan while keeping its transport fixed", async () => {
+  const user = userEvent.setup();
+  const existing: RegistryEntry = {
+    name: "old-name",
+    description: "Rename me",
+    tags: [],
+    origin: { kind: "manual", source: "manual" },
+    config: { stdio: { command: "rename-server" } },
+  };
+  const planUpdate = vi.fn().mockResolvedValue({ operation_id: "rename-plan" });
+  const onBack = vi.fn();
+  const state = {
+    entries: [
+      existing,
+      {
+        name: "new-name",
+        description: "Same display name, another transport",
+        tags: [],
+        origin: { kind: "manual", source: "manual" },
+        config: { http: { type: "http", url: "https://example.com/mcp" } },
+      },
+    ],
+    customKeys: new Set(["old-name::stdio"]),
+  } as unknown as InstallState;
+
+  render(
+    <ToastProvider>
+      <RegistryEditPage
+        state={state}
+        consumptionState={{ planUpdate } as unknown as ConsumptionState}
+        name={existing.name}
+        transport="stdio"
+        onBack={onBack}
+      />
+    </ToastProvider>,
+  );
+
+  const nameInput = screen.getByRole("textbox", { name: "名称" });
+  expect(nameInput).toBeEnabled();
+  expect(screen.getByRole("button", { name: "http / sse" })).toBeDisabled();
+  await user.clear(nameInput);
+  expect(screen.getByRole("button", { name: "保存" })).toBeDisabled();
+  await user.type(nameInput, "new-name");
+  await user.click(screen.getByRole("button", { name: "保存" }));
+
+  await waitFor(() => expect(planUpdate).toHaveBeenCalledTimes(1));
+  expect(planUpdate).toHaveBeenCalledWith({
+    domain: "mcp",
+    existing_key: "old-name::stdio",
+    entry: expect.objectContaining({
+      name: "new-name",
+      config: { stdio: expect.objectContaining({ command: "rename-server" }) },
+    }),
+  });
+  expect(onBack).toHaveBeenCalledTimes(1);
+});
+
+it("rejects a rename collision and cancellation leaves the plan untouched", async () => {
+  const user = userEvent.setup();
+  const existing: RegistryEntry = {
+    name: "old-name",
+    description: "",
+    tags: [],
+    origin: { kind: "manual", source: "manual" },
+    config: { stdio: { command: "rename-server" } },
+  };
+  const collision: RegistryEntry = {
+    ...existing,
+    name: "taken-name",
+  };
+  const planUpdate = vi.fn();
+  const onBack = vi.fn();
+  const state = {
+    entries: [existing, collision],
+    customKeys: new Set(["old-name::stdio", "taken-name::stdio"]),
+  } as unknown as InstallState;
+
+  render(
+    <ToastProvider>
+      <RegistryEditPage
+        state={state}
+        consumptionState={{ planUpdate } as unknown as ConsumptionState}
+        name={existing.name}
+        transport="stdio"
+        onBack={onBack}
+      />
+    </ToastProvider>,
+  );
+
+  const nameInput = screen.getByRole("textbox", { name: "名称" });
+  await user.clear(nameInput);
+  await user.type(nameInput, "taken-name");
+  await user.click(screen.getByRole("button", { name: "保存" }));
+  expect(await screen.findByText("已存在同名同传输方式的 MCP: taken-name (stdio)")).toBeVisible();
+  expect(planUpdate).not.toHaveBeenCalled();
+
+  await user.click(screen.getByRole("button", { name: "取消" }));
+  expect(onBack).toHaveBeenCalledTimes(1);
+  expect(planUpdate).not.toHaveBeenCalled();
+});
+
 it("renders an existing MCP editor inside one resource dialog", () => {
   const existing: RegistryEntry = {
     name: "single-shell-mcp",

@@ -270,14 +270,10 @@ fn plan_mcp_upsert(
     validate_mcp_entry(&entry)?;
     let key = entry.key();
     let effective = read_registry();
-    let action = match existing_key {
-        Some(existing_key) => {
-            if existing_key != key {
-                return Err(
-                    "asset_identity_change: MCP name and transport cannot change during an edit; create a new asset instead"
-                        .into(),
-                );
-            }
+    let mut previous_key = None;
+    let mut previous_source_id = None;
+    let action = match existing_key.as_deref() {
+        Some(existing_key) if existing_key == key => {
             let existing = effective
                 .iter()
                 .find(|candidate| candidate.key() == key)
@@ -292,6 +288,56 @@ fn plan_mcp_upsert(
                 CentralAssetAction::Create
             }
         }
+        Some(existing_key) => {
+            let existing_transport = existing_key
+                .rsplit_once("::")
+                .map(|(_, transport)| transport)
+                .ok_or_else(|| "invalid_asset: MCP identity is malformed".to_string())?;
+            let new_transport = key
+                .rsplit_once("::")
+                .map(|(_, transport)| transport)
+                .ok_or_else(|| "invalid_asset: MCP identity is malformed".to_string())?;
+            if existing_transport != new_transport {
+                return Err(
+                    "asset_transport_change: MCP transport cannot change during a rename".into(),
+                );
+            }
+            let existing = effective
+                .iter()
+                .find(|candidate| candidate.key() == existing_key)
+                .ok_or_else(|| {
+                    "asset_operation_stale: central MCP asset no longer exists".to_string()
+                })?;
+            if effective.iter().any(|candidate| candidate.key() == key) {
+                return Err(
+                    "asset_identity_conflict: a central MCP with this name and transport already exists"
+                        .into(),
+                );
+            }
+            if !is_user_owned(existing) {
+                return Err(
+                    "asset_read_only: source-backed MCPs cannot be renamed; create a manual MCP instead"
+                        .into(),
+                );
+            }
+            let copies = read_registry_all()
+                .into_iter()
+                .filter(|item| item.entry.key() == existing_key)
+                .collect::<Vec<_>>();
+            if copies.len() != 1 {
+                return Err(
+                    "asset_identity_rename_conflict: the old MCP identity has another source copy; remove the fallback before renaming"
+                        .into(),
+                );
+            }
+            let source_id = source_id_for(existing);
+            if !matches!(source_id.as_str(), "manual" | "discovered") {
+                return Err("asset_read_only: MCP source copy is not user-owned".into());
+            }
+            previous_key = Some(existing_key.to_string());
+            previous_source_id = Some(source_id);
+            CentralAssetAction::Create
+        }
         None => {
             if effective.iter().any(|candidate| candidate.key() == key) {
                 return Err("asset_identity_conflict: a central MCP with this name and transport already exists".into());
@@ -304,23 +350,52 @@ fn plan_mcp_upsert(
     entry.origin = None;
 
     let settings = load_settings_strict().map_err(|error| error.to_string())?;
-    let domain_plan = mcp_unchanged_consumers(&settings, &key);
+    let domain_plan = previous_key
+        .as_deref()
+        .map(|old_key| mcp_renamed_consumers(&settings, old_key, &key))
+        .unwrap_or_else(|| mcp_unchanged_consumers(&settings, &key));
     let consumer_count = domain_agent_count(&domain_plan);
     let draft_hash = hash_serializable(&entry)?;
     let lifecycle = LifecycleBinding::McpUpsert {
         key: key.clone(),
         draft_hash,
+        previous_key: previous_key.clone(),
+        previous_source_id: previous_source_id.clone(),
     };
-    let summary = central_upsert_summary("中央 MCP 配置", &action, consumer_count);
+    let central_changes = if let Some(old_key) = previous_key.as_ref() {
+        vec![
+            CentralAssetChange {
+                asset: AssetRef::Mcp {
+                    key: old_key.clone(),
+                },
+                action: CentralAssetAction::Delete,
+                summary: vec![format!("将 MCP 重命名为 {key}")],
+            },
+            CentralAssetChange {
+                asset: AssetRef::Mcp { key: key.clone() },
+                action: CentralAssetAction::Create,
+                summary: vec![
+                    format!("从 {old_key} 重命名"),
+                    agent_sync_summary(consumer_count),
+                ],
+            },
+        ]
+    } else {
+        vec![CentralAssetChange {
+            asset: AssetRef::Mcp { key: key.clone() },
+            action: action.clone(),
+            summary: central_upsert_summary("中央 MCP 配置", &action, consumer_count),
+        }]
+    };
+    let mut target_files = vec![display_path(&local_sources_dir().join("manual.json"))];
+    if previous_source_id.as_deref() == Some("discovered") {
+        target_files.push(display_path(&local_sources_dir().join("discovered.json")));
+    }
     let plan = finalize_plan_with(
         AssetOperationKind::UpdateAsset,
         domain_plan,
-        vec![CentralAssetChange {
-            asset: AssetRef::Mcp { key },
-            action,
-            summary,
-        }],
-        vec![display_path(&local_sources_dir().join("manual.json"))],
+        central_changes,
+        target_files,
         Some(lifecycle),
     )?;
     store_pending_mcp_entry(&plan.operation_id, entry);
@@ -685,6 +760,30 @@ fn mcp_unchanged_consumers(settings: &Settings, key: &str) -> DomainPlan {
             before.insert(agent_id.clone(), selection.clone());
             after.insert(agent_id.clone(), selection);
         }
+    }
+    DomainPlan::Mcp { before, after }
+}
+
+fn mcp_renamed_consumers(settings: &Settings, old_key: &str, new_key: &str) -> DomainPlan {
+    let mut before = BTreeMap::new();
+    let mut after = BTreeMap::new();
+    for (agent_id, records) in settings.mcp_consumptions.iter().flatten() {
+        if !records.contains_key(old_key) {
+            continue;
+        }
+        let selection: Vec<String> = records.keys().cloned().collect();
+        let desired = selection
+            .iter()
+            .map(|candidate| {
+                if candidate == old_key {
+                    new_key.to_string()
+                } else {
+                    candidate.clone()
+                }
+            })
+            .collect();
+        before.insert(agent_id.clone(), selection);
+        after.insert(agent_id.clone(), desired);
     }
     DomainPlan::Mcp { before, after }
 }

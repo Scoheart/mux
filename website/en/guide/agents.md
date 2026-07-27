@@ -55,7 +55,7 @@ The table focuses on MCP contracts: it lists the 46 writable targets and retains
 | [OpenCode](https://opencode.ai/docs/mcp-servers/) | JSON | `mcp` | `~/.config/opencode/opencode.json` | stdio / http |
 | [OpenHands CLI](https://docs.openhands.dev/openhands/usage/cli/mcp-servers) | JSON | `mcpServers` | `~/.openhands/mcp.json` | stdio / http |
 | [Pi Coding Agent](https://github.com/nicobailon/pi-mcp-adapter) | JSON | `mcpServers` | `~/.pi/agent/mcp.json` | stdio / http |
-| [Qoder Desktop](https://docs.qoder.com/user-guide/chat/model-context-protocol) | JSON | `mcpServers` | `~/Library/Application Support/Qoder/SharedClientCache/mcp.json` | stdio / http |
+| [Qoder Desktop](https://docs.qoder.com/user-guide/chat/model-context-protocol) | JSON | `mcpServers` | `~/.qoder/mcp.json` | stdio / http |
 | [Qoder CLI](https://docs.qoder.com/en/cli/mcp-servers) | JSON | `mcpServers` | `~/.qoder/settings.json` | stdio / http |
 | [QoderWork](https://docs.qoder.com/qoderwork/connectors) | JSON | `mcpServers` | `~/.qoderwork/mcp.json` | stdio / http |
 | [Qwen Code](https://qwenlm.github.io/qwen-code-docs/en/users/features/mcp/) | JSON | `mcpServers` | `~/.qwen/settings.json` | stdio / http |
@@ -72,7 +72,7 @@ The table focuses on MCP contracts: it lists the 46 writable targets and retains
 ### Targets that need special distinction
 
 - **Pi**: Pi's core does not include MCP. MUX's definition applies only to environments with the community `pi-mcp-adapter` installed, so the UI clearly labels it a community extension.
-- **Qoder Desktop / Qoder CLI**: these are separate Agents. Qoder Desktop edits `SharedClientCache/mcp.json`, while Qoder CLI's user scope uses `~/.qoder/settings.json`; MUX scans and writes them independently.
+- **Qoder Desktop / Qoder CLI**: these are separate Agents. Qoder Desktop edits `~/.qoder/mcp.json`, while Qoder CLI's user scope uses `~/.qoder/settings.json`; MUX scans and writes them independently and never silently merges the two MCP lists. `SharedClientCache/mcp.json` may still contain a runtime mirror, but it is not the user-editable source of truth.
 - **Devin**: the product supports MCP, but no stable user-level global file contract was verified, so it can only be viewed for discovery and not written to.
 - **QoderWork**: user-defined MCP servers live in `~/.qoderwork/mcp.json`; MUX does not modify the client's built-in MCP data.
 - **Claude Desktop / BoltAI**: the local files listed natively support stdio only. Remote MCP is managed by Claude Connectors or BoltAI's `mcp-remote` approach, respectively.

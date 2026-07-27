@@ -365,6 +365,18 @@ fn migrated_builtin_global(
     let stale = matches!(
         (id, saved.global.as_deref()),
         ("qoder", Some("~/.qoder/settings.json"))
+            | (
+                "qoder",
+                Some("~/Library/Application Support/Qoder/SharedClientCache/mcp.json")
+            )
+            | (
+                "qoder",
+                Some("%APPDATA%/Qoder/SharedClientCache/mcp.json")
+            )
+            | (
+                "qoder",
+                Some(r"%APPDATA%\Qoder\SharedClientCache\mcp.json")
+            )
             | ("amazon-q", Some("~/.aws/amazonq/mcp.json"))
             | (
                 "cline",
@@ -2052,10 +2064,7 @@ mod tests {
 
         let merged = merge_builtin_updates(stored);
 
-        assert_eq!(
-            merged["qoder"].global.as_deref(),
-            Some("~/Library/Application Support/Qoder/SharedClientCache/mcp.json")
-        );
+        assert_eq!(merged["qoder"].global.as_deref(), Some("~/.qoder/mcp.json"));
         assert_eq!(
             merged["amazon-q"].global.as_deref(),
             Some("~/.aws/amazonq/default.json")
@@ -2082,16 +2091,22 @@ mod tests {
     }
 
     #[test]
-    fn stale_qoder_ide_definition_migrates_from_cli_path() {
-        let mut stored = builtin_agents();
-        stored.get_mut("qoder").unwrap().global = Some("~/.qoder/settings.json".into());
+    fn stale_qoder_desktop_paths_migrate_without_touching_custom_paths() {
+        for stale in [
+            "~/.qoder/settings.json",
+            "~/Library/Application Support/Qoder/SharedClientCache/mcp.json",
+            "%APPDATA%/Qoder/SharedClientCache/mcp.json",
+            r"%APPDATA%\Qoder\SharedClientCache\mcp.json",
+        ] {
+            let mut stored = builtin_agents();
+            stored.get_mut("qoder").unwrap().global = Some(stale.into());
 
-        let merged = merge_builtin_updates(stored);
-
-        assert_eq!(
-            merged["qoder"].global.as_deref(),
-            Some("~/Library/Application Support/Qoder/SharedClientCache/mcp.json")
-        );
+            assert_eq!(
+                merge_builtin_updates(stored)["qoder"].global.as_deref(),
+                Some("~/.qoder/mcp.json"),
+                "stale Qoder Desktop path should migrate: {stale}",
+            );
+        }
 
         let mut customized = builtin_agents();
         customized.get_mut("qoder").unwrap().global = Some("~/.custom/qoder-mcp.json".into());

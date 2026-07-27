@@ -514,10 +514,7 @@ fn builtin_global_paths_match_current_product_docs() {
         ("opencode", "~/.config/opencode/opencode.json"),
         ("openhands", "~/.openhands/mcp.json"),
         ("pi", "~/.pi/agent/mcp.json"),
-        (
-            "qoder",
-            "~/Library/Application Support/Qoder/SharedClientCache/mcp.json",
-        ),
+        ("qoder", "~/.qoder/mcp.json"),
         ("qoder-cli", "~/.qoder/settings.json"),
         ("qoderwork", "~/.qoderwork/mcp.json"),
         ("qwen-code", "~/.qwen/settings.json"),

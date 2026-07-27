@@ -714,7 +714,6 @@ function ProviderCatalogDialog({
               </span>
               <span className="mux-provider-catalog-copy">
                 <strong>{provider.name}</strong>
-                <small>{t(`models.providerCategory.${provider.category}`)}</small>
                 <code>{provider.default_base_url ?? t("models.providerEndpointRequired")}</code>
               </span>
               <span className="mux-provider-catalog-check" aria-hidden="true">✓</span>

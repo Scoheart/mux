@@ -1350,10 +1350,8 @@ body {
 .mux-provider-catalog-icon { display: inline-flex; width: 26px; height: 26px; align-items: center; justify-content: center; border-radius: 6px; background: var(--surface-control); color: var(--color-blue); }
 .mux-provider-catalog-copy { display: block; min-width: 0; }
 .mux-provider-catalog-copy strong,
-.mux-provider-catalog-copy small,
 .mux-provider-catalog-copy code { display: block; min-width: 0; }
 .mux-provider-catalog-copy strong { overflow: hidden; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
-.mux-provider-catalog-copy small { margin-top: 1px; color: var(--text-secondary); font-size: 8px; }
 .mux-provider-catalog-copy code { margin-top: 5px; overflow: hidden; color: var(--text-secondary); font: 8px/1.25 var(--font-mono); text-overflow: ellipsis; white-space: nowrap; }
 .mux-provider-catalog-check { display: inline-flex; width: 15px; height: 15px; align-items: center; justify-content: center; border-radius: 50%; visibility: hidden; background: var(--color-blue); color: white; font-size: 8px; }
 .mux-provider-catalog-item[data-selected="true"] .mux-provider-catalog-check { visibility: visible; }

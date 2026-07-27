@@ -187,12 +187,6 @@ const MODEL_PROVIDERS: &[ModelProviderView] = &[
         category: "local",
     },
     ModelProviderView {
-        id: "local",
-        name: "Local endpoint",
-        default_base_url: None,
-        category: "local",
-    },
-    ModelProviderView {
         id: "custom",
         name: "Custom Provider",
         default_base_url: None,
@@ -3405,20 +3399,15 @@ mod tests {
             provider.category,
             "official" | "gateway" | "local" | "custom"
         )));
-        assert_eq!(
-            list_providers()
-                .iter()
-                .find(|provider| provider.id == "local")
-                .and_then(|provider| provider.default_base_url),
-            None
-        );
-        assert_eq!(
-            list_providers()
-                .iter()
-                .find(|provider| provider.id == "custom")
-                .and_then(|provider| provider.default_base_url),
-            None
-        );
+        assert!(list_providers()
+            .iter()
+            .all(|provider| provider.id != "local" && provider.name != "Local endpoint"));
+        let endpointless = list_providers()
+            .iter()
+            .filter(|provider| provider.default_base_url.is_none())
+            .collect::<Vec<_>>();
+        assert_eq!(endpointless.len(), 1);
+        assert_eq!(endpointless[0].id, "custom");
     }
 
     fn anthropic_profile() -> ModelProfile {

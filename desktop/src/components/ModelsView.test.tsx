@@ -48,6 +48,12 @@ beforeEach(() => {
       default_base_url: "https://api.openai.com/v1",
       category: "official",
     },
+    {
+      id: "ollama",
+      name: "Ollama",
+      default_base_url: "http://localhost:11434/v1",
+      category: "local",
+    },
     { id: "custom", name: "Custom Provider", default_base_url: null, category: "custom" },
   ]);
   vi.mocked(api.listModelProviderInstances).mockResolvedValue([]);
@@ -305,10 +311,14 @@ it("keeps the built-in Provider Catalog unfiltered, searchable, and keyboard-sel
   expect(catalog).toBeVisible();
   expect(within(catalog).getByRole("radio", { name: /OpenRouter/ })).toHaveAttribute("aria-checked", "true");
   expect(within(catalog).getByRole("radio", { name: /OpenAI/ })).toBeVisible();
+  expect(within(catalog).getByRole("radio", { name: /Ollama/ })).toBeVisible();
   expect(within(catalog).getByRole("radio", { name: /Custom Provider/ })).toBeVisible();
+  expect(within(catalog).queryByText("Local endpoint")).not.toBeInTheDocument();
+  for (const label of ["Official", "Gateway", "Local", "Custom"]) {
+    expect(within(catalog).queryByText(label)).not.toBeInTheDocument();
+  }
   expect(catalog.querySelector(".mux-provider-catalog-categories")).not.toBeInTheDocument();
   expect(within(catalog).queryByRole("button", { name: "全部" })).not.toBeInTheDocument();
-  expect(within(catalog).queryByRole("button", { name: "Official" })).not.toBeInTheDocument();
 
   const search = within(catalog).getByRole("searchbox", { name: "搜索 Provider" });
   await user.type(search, "api.openai.com");
@@ -317,7 +327,7 @@ it("keeps the built-in Provider Catalog unfiltered, searchable, and keyboard-sel
   expect(within(catalog).getByRole("button", { name: "使用此模板" })).toBeDisabled();
 
   await user.clear(search);
-  expect(within(catalog).getAllByRole("radio")).toHaveLength(3);
+  expect(within(catalog).getAllByRole("radio")).toHaveLength(4);
   const openAi = within(catalog).getByRole("radio", { name: /OpenAI/ });
   openAi.focus();
   await user.keyboard("{Enter}");

@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.85](https://github.com/Scoheart/mux/compare/v1.8.84...v1.8.85) (2026-07-27)
+
+### Changes
+
+* fix(models): simplify provider catalog metadata ([ac12d74](https://github.com/Scoheart/mux/commit/ac12d743e388e6fe9bcf6941ff0484567e23822a))
+
 ## [1.8.84](https://github.com/Scoheart/mux/compare/v1.8.83...v1.8.84) (2026-07-27)
 
 ### Changes

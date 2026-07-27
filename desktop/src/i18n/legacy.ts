@@ -95,6 +95,7 @@ const english: Record<string, string> = {
   "读取失败": "Could not load",
   "没有匹配项": "No matches",
   "调整搜索或筛选条件后重试。": "Adjust the search or filters and try again.",
+  "调整搜索后重试。": "Adjust the search and try again.",
   "暂无数据": "No data",
   "暂无 Skills": "No Skills",
   "暂无 MCP": "No MCPs",

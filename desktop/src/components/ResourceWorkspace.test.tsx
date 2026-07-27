@@ -3,7 +3,6 @@ import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   ResourceInspector,
-  ResourceTabs,
   ResourceWorkspace,
   WorkspaceSidebar,
 } from "./ResourceWorkspace";
@@ -16,7 +15,6 @@ beforeEach(() => {
 });
 
 function WorkspaceHarness({ onInspectorClose = vi.fn() }: { onInspectorClose?: () => void }) {
-  const [tab, setTab] = useState<"all" | "used" | "unused">("all");
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
   const closeInspector = () => {
@@ -31,18 +29,6 @@ function WorkspaceHarness({ onInspectorClose = vi.fn() }: { onInspectorClose?: (
       onQueryChange={() => undefined}
       searchPlaceholder="搜索资源"
       toolbarActions={<button type="button">新增</button>}
-      filters={
-        <ResourceTabs
-          label="资源状态"
-          value={tab}
-          onChange={setTab}
-          options={[
-            { value: "all", label: "全部", count: 3 },
-            { value: "used", label: "使用中", count: 2 },
-            { value: "unused", label: "未使用", count: 1 },
-          ]}
-        />
-      }
       inspector={
         inspectorOpen ? (
           <ResourceInspector title="资源 A" avatar={<span>A</span>} onClose={closeInspector}>
@@ -63,18 +49,10 @@ function WorkspaceHarness({ onInspectorClose = vi.fn() }: { onInspectorClose?: (
 }
 
 describe("ResourceWorkspace", () => {
-  it("links tabs to the panel and supports roving focus", () => {
+  it("labels the resource content as a searchable region", () => {
     render(<WorkspaceHarness />);
-    const all = screen.getByRole("tab", { name: /全部/ });
-    const panel = screen.getByRole("tabpanel", { name: /全部/ });
-    expect(all).toHaveAttribute("aria-controls", panel.id);
-    expect(panel).toHaveAttribute("aria-labelledby", all.id);
-
-    fireEvent.keyDown(all, { key: "End" });
-    expect(screen.getByRole("tab", { name: /未使用/ })).toHaveFocus();
-    expect(screen.getByRole("tab", { name: /未使用/ })).toHaveAttribute("aria-selected", "true");
-    fireEvent.keyDown(screen.getByRole("tab", { name: /未使用/ }), { key: "Home" });
-    expect(all).toHaveFocus();
+    expect(screen.getByRole("region", { name: "搜索资源" })).toBeVisible();
+    expect(screen.queryByRole("tablist")).not.toBeInTheDocument();
   });
 
   it("persists keyboard sidebar resizing within its contract", () => {
@@ -88,13 +66,42 @@ describe("ResourceWorkspace", () => {
     expect(separator).toHaveAttribute("aria-valuenow", "184");
   });
 
+  it("fills the workspace and skips sidebar persistence when no sidebar is provided", () => {
+    const getItem = vi.spyOn(Storage.prototype, "getItem");
+    const setItem = vi.spyOn(Storage.prototype, "setItem");
+    const { container } = render(
+      <ResourceWorkspace
+        query=""
+        onQueryChange={() => undefined}
+        searchPlaceholder="搜索无侧栏资源"
+        toolbarActions={<button type="button">新增</button>}
+      >
+        <div>全部资源</div>
+      </ResourceWorkspace>,
+    );
+
+    expect(container.querySelector(".mux-workspace")).toHaveAttribute("data-sidebar", "false");
+    expect(screen.getByRole("region", { name: "搜索无侧栏资源" })).toBeVisible();
+    expect(screen.queryByRole("separator", { name: "调整侧边栏宽度" })).not.toBeInTheDocument();
+    expect(getItem).not.toHaveBeenCalledWith("mux.resourceWorkspace.sidebarWidth");
+    expect(setItem).not.toHaveBeenCalledWith(
+      "mux.resourceWorkspace.sidebarWidth",
+      expect.any(String),
+    );
+    getItem.mockRestore();
+    setItem.mockRestore();
+  });
+
   it("opens the Inspector as a centered modal and restores focus after close", async () => {
     render(<WorkspaceHarness />);
     const opener = screen.getByRole("button", { name: "打开资源 A" });
     opener.focus();
     fireEvent.click(opener);
 
-    const panel = screen.getByRole("tabpanel", { hidden: true });
+    const panel = document.querySelector(
+      '.mux-workspace-scroll[role="region"][aria-label="搜索资源"]',
+    );
+    expect(panel).not.toBeNull();
     expect(panel).toHaveAttribute("inert");
     expect(panel).toHaveAttribute("aria-hidden", "true");
     const dialog = await screen.findByRole("dialog", { name: "资源详情" });

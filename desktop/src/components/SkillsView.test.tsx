@@ -213,7 +213,7 @@ describe("SkillsView", () => {
     expect(screen.queryByRole("complementary", { name: "review-changes 详情" })).not.toBeInTheDocument();
   });
 
-  it("shows one card and one source count for duplicate target rows with the same name", () => {
+  it("shows one card for duplicate target rows without source filters", () => {
     const inventory = skillsInventoryFixture();
     const base = inventory.items[1];
     const duplicateRows: SkillInventoryItem[] = [
@@ -258,8 +258,8 @@ describe("SkillsView", () => {
     );
 
     expect(screen.getAllByRole("heading", { name: "dws" })).toHaveLength(1);
-    expect(screen.getByRole("button", { name: /全部来源.*1/ })).toBeVisible();
-    expect(screen.getByRole("button", { name: /本地.*1/ })).toBeVisible();
+    expect(screen.queryByText("全部来源")).not.toBeInTheDocument();
+    expect(screen.queryByRole("tablist", { name: "Skill 状态" })).not.toBeInTheDocument();
   });
 
   it("renders the app-owned inventory inside the Skills workspace", () => {
@@ -268,7 +268,9 @@ describe("SkillsView", () => {
     expect(
       screen.getByRole("heading", { name: "review-changes" }),
     ).toBeVisible();
-    expect(screen.getByRole("tablist", { name: "Skill 状态" })).toBeVisible();
+    expect(screen.getByRole("heading", { name: "unassigned-skill" })).toBeVisible();
+    expect(screen.queryByRole("tablist", { name: "Skill 状态" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("separator", { name: "调整侧边栏宽度" })).not.toBeInTheDocument();
     expect(screen.getByRole("list", { name: "Skill 资产" })).toHaveClass("mux-asset-list", "mux-skill-list");
     expect(screen.getByText("名称与说明")).toBeVisible();
     expect(screen.getByText("来源与版本")).toBeVisible();
@@ -280,28 +282,30 @@ describe("SkillsView", () => {
     render(<SkillsView state={skillsStateFixture()} />);
 
     expect(screen.queryByText("内容类型")).not.toBeInTheDocument();
-    expect(screen.getByText("来源")).toBeVisible();
+    expect(screen.queryByText("全部来源")).not.toBeInTheDocument();
+    expect(screen.getByText("来源与版本")).toBeVisible();
     expect(
       screen.queryByRole("button", { name: /说明型/ }),
     ).not.toBeInTheDocument();
   });
 
-  it("combines filters and recomputes each axis count in the active context", async () => {
+  it("uses search as the only list filter and restores every source and status", async () => {
     const user = userEvent.setup();
     const inventory = skillsInventoryFixture();
     inventory.items.push(importedItem());
     render(<SkillsView state={stateWith(inventory)} />);
 
-    await user.click(screen.getByRole("button", { name: /本地\s*2/ }));
+    expect(screen.getByRole("heading", { name: "review-changes" })).toBeVisible();
     expect(screen.getByRole("heading", { name: "unassigned-skill" })).toBeVisible();
     expect(screen.getByRole("heading", { name: "imported-legacy" })).toBeVisible();
-    expect(screen.queryByRole("heading", { name: "review-changes" })).not.toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: /全部\s*2/ })).toBeVisible();
 
     await user.type(screen.getByPlaceholderText("搜索 Skills"), "review");
-    expect(screen.getByRole("button", { name: /GitHub\s*1/ })).toBeVisible();
-    expect(screen.getByRole("button", { name: /本地\s*0/ })).toBeVisible();
-    expect(screen.getByText("没有匹配项")).toBeVisible();
+    expect(screen.getByRole("heading", { name: "review-changes" })).toBeVisible();
+    expect(screen.queryByRole("heading", { name: "unassigned-skill" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "imported-legacy" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "清除搜索" }));
+    expect(screen.getByRole("heading", { name: "unassigned-skill" })).toBeVisible();
+    expect(screen.getByRole("heading", { name: "imported-legacy" })).toBeVisible();
   });
 
   it("opens a selected card from the keyboard and loads detail only for the inspector", async () => {
@@ -434,7 +438,7 @@ describe("SkillsView", () => {
         state={stateWith(null, { loading: true, error: null, refresh })}
       />,
     );
-    expect(screen.getByRole("tablist", { name: "Skill 状态" })).toBeVisible();
+    expect(screen.queryByRole("tablist", { name: "Skill 状态" })).not.toBeInTheDocument();
     expect(screen.getByText("正在读取 Skills…")).toBeVisible();
     expect(screen.getByRole("button", { name: "检查更新" })).toBeDisabled();
 
@@ -591,7 +595,7 @@ describe("SkillsView", () => {
     errorSpy.mockRestore();
   });
 
-  it("distinguishes an empty inventory from filters with no matches", async () => {
+  it("distinguishes an empty inventory from a search with no matches", async () => {
     const empty = skillsInventoryFixture();
     empty.items = [];
     const { rerender } = render(<SkillsView state={stateWith(empty)} />);
@@ -601,6 +605,9 @@ describe("SkillsView", () => {
     rerender(<SkillsView state={skillsStateFixture()} />);
     await userEvent.type(screen.getByPlaceholderText("搜索 Skills"), "no-such-skill");
     expect(screen.getByText("没有匹配项")).toBeVisible();
+    expect(screen.getByText("调整搜索后重试。")).toBeVisible();
+    await userEvent.click(screen.getByRole("button", { name: "清除搜索" }));
+    expect(screen.getByRole("heading", { name: "review-changes" })).toBeVisible();
   });
 
   it("waits for inventory, consumes a detail intent once, and opens only a managed central Skill", async () => {

@@ -556,6 +556,10 @@ body {
   display: grid; grid-template-columns: var(--mux-workspace-sidebar-width) minmax(0, 1fr);
   width: 100%; height: 100%; min-height: 0; gap: 14px; padding: 14px; background: var(--surface-frame);
 }
+.mux-workspace[data-sidebar="false"] {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0;
+}
 .mux-workspace-sidebar {
   position: relative; display: flex; min-height: 0; flex-direction: column;
   overflow: hidden; border: 0; border-radius: var(--radius-canvas); background: var(--surface-navigation);
@@ -613,20 +617,6 @@ body {
   border: 0; border-radius: var(--radius-row); background: var(--surface-section);
 }
 .mux-workspace-actions { display: flex; align-items: center; justify-content: flex-end; gap: 5px; }
-.mux-workspace-filters {
-  display: flex; align-items: center; height: 42px; min-height: 42px; padding: 4px 6px;
-  overflow-x: auto; border: 0; border-radius: var(--radius-row); background: var(--surface-section);
-}
-.mux-resource-tabs { display: flex; align-items: center; align-self: stretch; gap: 4px; }
-.mux-resource-tab {
-  display: inline-flex; height: 32px; align-items: center; gap: 6px; min-width: 0; padding: 0 11px;
-  border: 0; border-radius: var(--radius-control); background: transparent; color: var(--text-secondary);
-  font: 600 11px/1 var(--font-sans); cursor: pointer;
-}
-.mux-resource-tab:hover { color: var(--text-primary); background: color-mix(in srgb, var(--text-primary) 4%, transparent); }
-.mux-resource-tab[data-active="true"] { background: var(--surface-control); color: var(--color-blue); box-shadow: var(--shadow-card); }
-.mux-resource-tab:focus-visible { outline: 2px solid color-mix(in srgb, var(--color-blue) 52%, transparent); outline-offset: -2px; }
-.mux-resource-tab-count { min-width: 2ch; color: currentColor; font-variant-numeric: tabular-nums; text-align: right; }
 .mux-workspace-content {
   position: relative; display: flex; flex: 1; min-width: 0; min-height: 0;
   container: resource-stage / inline-size;
@@ -1300,9 +1290,6 @@ body {
 
 @media (max-width: 920px) {
   .mux-workspace-toolbar { grid-template-columns: minmax(0, 1fr) auto; gap: 8px; padding-right: 12px; padding-left: 12px; }
-  .mux-workspace-filters { padding-right: 10px; padding-left: 10px; overflow-x: auto; }
-  .mux-resource-tabs { min-width: max-content; }
-  .mux-resource-tab { padding-right: 7px; padding-left: 7px; }
   .mux-workspace-actions { flex: 0 0 auto; }
   .mux-skill-dialog-header,
   .mux-skill-review-header { padding: 12px 14px 11px; }

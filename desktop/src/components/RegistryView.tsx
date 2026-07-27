@@ -8,7 +8,6 @@ import { exportEffectiveDialog } from "../lib/api";
 import { formatError } from "../lib/format";
 import { redactSensitiveConfig } from "../lib/resourceWorkspace";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { SourcesSidebar } from "./SourcesSidebar";
 import { AgentGlyph, agentName } from "./brandIcons";
 import {
   CopyIcon,
@@ -33,7 +32,6 @@ import {
   InspectorField,
   InspectorSection,
   ResourceInspector,
-  ResourceTabs,
   ResourceWorkspace,
 } from "./ResourceWorkspace";
 
@@ -51,8 +49,6 @@ interface RegistryViewProps {
 
 /** Origin buckets — still used to decide which entries are user-deletable. */
 type OriginBucket = "remote" | "local" | "manual" | "discovered";
-type McpStatusFilter = "all" | "effective" | "shadowed";
-type McpStatusCounts = Record<McpStatusFilter, number>;
 /** Classify an entry's origin into a bucket. Entries with no origin, or a
  *  legacy/unknown kind, fall into "discovered" (scanned-from-machine). */
 function bucketOf(entry: RegistryEntry): OriginBucket {
@@ -69,14 +65,6 @@ function bucketOf(entry: RegistryEntry): OriginBucket {
 function isUserOwned(entry: RegistryEntry): boolean {
   const b = bucketOf(entry);
   return b === "manual" || b === "discovered";
-}
-
-/** Does `entry` belong to the sidebar-selected source? Managed sources match by
- *  origin kind ("manual" / "discovered"); remote/local match by origin.source id. */
-function inSource(entry: RegistryEntry, sourceId: string): boolean {
-  if (sourceId === "manual") return entry.origin?.kind === "manual";
-  if (sourceId === "discovered") return entry.origin?.kind === "discovered";
-  return entry.origin?.source === sourceId;
 }
 
 function endpointOf(entry: RegistryEntry): { text: string; link: boolean } {
@@ -152,10 +140,6 @@ export function RegistryView({ state, consumptionState, intent, onIntentConsumed
   const [minimumSkeleton, setMinimumSkeleton] = useState(state.loading);
 
   const [q, setQ] = useState("");
-  // Source and status are separate filters: the sidebar owns provenance, while
-  // status stays visible above the grid.
-  const [selectedSource, setSelectedSource] = useState<string | null>(null);
-  const [statusFilter, setStatusFilter] = useState<McpStatusFilter>("all");
   const [detail, setDetail] = useState<CatalogItem | null>(null);
   const [editingDetail, setEditingDetail] = useState(false);
   const [pasteOpen, setPasteOpen] = useState(false);
@@ -182,24 +166,9 @@ export function RegistryView({ state, consumptionState, intent, onIntentConsumed
     return m;
   }, [catalog]);
 
-  const sourceScoped = useMemo(() => {
-    if (selectedSource === null) return catalog;
-    return catalog.filter((item) => inSource(item.entry, selectedSource));
-  }, [catalog, selectedSource]);
-
-  const statusCounts = useMemo<McpStatusCounts>(() => {
-    let effective = 0;
-    let shadowed = 0;
-    for (const item of sourceScoped) {
-      if (!item.in_effect) shadowed += 1;
-      else effective += 1;
-    }
-    return { all: sourceScoped.length, effective, shadowed };
-  }, [sourceScoped]);
-
-  const scoped = useMemo(() => {
+  const filtered = useMemo(() => {
     const s = q.trim().toLowerCase();
-    let list = sourceScoped;
+    let list = catalog;
     if (s)
       list = list.filter(
         (it) => it.entry.name.toLowerCase().includes(s) || it.entry.description.toLowerCase().includes(s)
@@ -211,13 +180,7 @@ export function RegistryView({ state, consumptionState, intent, onIntentConsumed
         transportOf(a.entry).localeCompare(transportOf(b.entry)) ||
         Number(b.in_effect) - Number(a.in_effect)
     );
-  }, [q, sourceScoped]);
-
-  const filtered = useMemo(() => {
-    if (statusFilter === "shadowed") return scoped.filter((item) => !item.in_effect);
-    if (statusFilter === "effective") return scoped.filter((item) => item.in_effect);
-    return scoped;
-  }, [scoped, statusFilter]);
+  }, [catalog, q]);
 
   useEffect(() => {
     if (!intent || state.loading || lastConsumedIntentId.current === intent.id) return;
@@ -238,8 +201,6 @@ export function RegistryView({ state, consumptionState, intent, onIntentConsumed
       (candidate) => candidate.entry.name === intent.name && transportOf(candidate.entry) === intent.transport,
     );
     setQ("");
-    setSelectedSource(null);
-    setStatusFilter("all");
     setDetail(item ?? null);
     setEditingDetail(false);
     if (!item) toast.show({ kind: "error", msg: `未找到 MCP“${intent.name}”。` });
@@ -250,18 +211,6 @@ export function RegistryView({ state, consumptionState, intent, onIntentConsumed
     setDetail(null);
     setEditingDetail(false);
     setQ(value);
-  };
-
-  const changeSource = (sourceId: string | null) => {
-    setDetail(null);
-    setEditingDetail(false);
-    setSelectedSource(sourceId);
-  };
-
-  const changeStatus = (status: McpStatusFilter) => {
-    setDetail(null);
-    setEditingDetail(false);
-    setStatusFilter(status);
   };
 
   const closeDetail = useCallback(() => {
@@ -314,28 +263,9 @@ export function RegistryView({ state, consumptionState, intent, onIntentConsumed
       <ResourceWorkspace
       title="MCPs"
       description="集中管理可复用的 MCP 连接、来源与配置"
-      sidebar={
-        <SourcesSidebar
-          state={state}
-          selectedId={selectedSource}
-          onSelect={changeSource}
-        />
-      }
       query={q}
       onQueryChange={changeQuery}
       searchPlaceholder="搜索 MCP"
-      filters={
-        <ResourceTabs
-          label="MCP 状态"
-          value={statusFilter}
-          options={[
-            { value: "all", label: "全部", count: statusCounts.all },
-            { value: "effective", label: "生效", count: statusCounts.effective },
-            { value: "shadowed", label: "被覆盖", count: statusCounts.shadowed },
-          ]}
-          onChange={changeStatus}
-        />
-      }
       toolbarActions={
         <>
           {migrationCount > 0 && onOpenMigration && (
@@ -426,14 +356,7 @@ export function RegistryView({ state, consumptionState, intent, onIntentConsumed
           kind={catalog.length === 0 ? "empty" : "no-match"}
           icon={<PackageIcon className="w-6 h-6" />}
           title={catalog.length === 0 ? "暂无 MCP" : "没有匹配项"}
-          detail={catalog.length === 0 ? "添加订阅、导入配置或新建 MCP" : "调整搜索、来源或状态筛选后重试。"}
-          action={catalog.length === 0 ? undefined : (
-            <button type="button" className="btn-secondary" onClick={() => {
-              setQ("");
-              setSelectedSource(null);
-              setStatusFilter("all");
-            }}>清除筛选</button>
-          )}
+          detail={catalog.length === 0 ? "添加订阅、导入配置或新建 MCP" : "调整搜索后重试。"}
         />
       ) : (
         <div

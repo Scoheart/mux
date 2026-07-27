@@ -86,16 +86,17 @@ it("renders effective and shadowed MCP rows and opens the existing Inspector", a
   expect(screen.getByRole("button", { name: "粘贴配置" })).toBeVisible();
   expect(screen.getByRole("button", { name: "导出生效配置" })).toBeVisible();
   expect(screen.getByRole("button", { name: "新建 MCP" })).toBeVisible();
-
-  await user.click(screen.getByRole("tab", { name: /被覆盖\s*1/ }));
+  expect(screen.queryByRole("tablist", { name: "MCP 状态" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("separator", { name: "调整侧边栏宽度" })).not.toBeInTheDocument();
   expect(screen.getByRole("button", { name: "打开 MCP filesystem-old 详情" })).toBeVisible();
-  expect(screen.queryByRole("button", { name: "打开 MCP brave-search 详情" })).not.toBeInTheDocument();
-  await user.click(screen.getByRole("tab", { name: /全部\s*2/ }));
+  expect(screen.getByRole("button", { name: "打开 MCP brave-search 详情" })).toBeVisible();
 
   await user.type(screen.getByPlaceholderText("搜索 MCP"), "not-present");
   expect(screen.getByText("没有匹配项")).toBeVisible();
-  await user.click(screen.getByRole("button", { name: "清除筛选" }));
+  expect(screen.getByText("调整搜索后重试。")).toBeVisible();
+  await user.click(screen.getByRole("button", { name: "清除搜索" }));
   expect(screen.getByRole("button", { name: "打开 MCP brave-search 详情" })).toBeVisible();
+  expect(screen.getByRole("button", { name: "打开 MCP filesystem-old 详情" })).toBeVisible();
   await user.click(screen.getByRole("button", { name: "打开 MCP brave-search 详情" }));
   const inspector = await screen.findByRole("complementary", { name: "brave-search 详情" });
   expect(within(inspector).getByText("Web search")).toBeVisible();
@@ -156,6 +157,12 @@ it("switches an editable MCP to the shared form inside the same Inspector shell"
 it("routes deletion through the central lifecycle planner", () => {
   expect(source).toMatch(/consumptionState\.planDelete/);
   expect(source).not.toMatch(/forgetEntry|deleteMcp|uninstall/);
+});
+
+it("keeps search as the only MCP list filter", () => {
+  expect(source).not.toMatch(/<SourcesSidebar|<ResourceTabs/);
+  expect(source).not.toMatch(/selectedSource|statusFilter|sourceScoped|statusCounts/);
+  expect(source).not.toMatch(/调整搜索、来源或状态筛选|清除筛选/);
 });
 
 it("offers editing for source-owned MCPs while keeping deletion user-owned", () => {

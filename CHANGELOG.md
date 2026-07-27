@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.79](https://github.com/Scoheart/mux/compare/v1.8.78...v1.8.79) (2026-07-27)
+
+### Changes
+
+* fix(desktop): remove MCP and Skills status tabs ([504ece8](https://github.com/Scoheart/mux/commit/504ece83de0687e1dd6f4b2098fe4dd21ef303f9))
+
 ## [1.8.78](https://github.com/Scoheart/mux/compare/v1.8.77...v1.8.78) (2026-07-27)
 
 ### Changes

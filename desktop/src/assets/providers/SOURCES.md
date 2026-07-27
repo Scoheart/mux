@@ -24,4 +24,4 @@ the artwork. All trademarks remain the property of their respective owners.
 | `cerebras.png` | <https://cdn.sanity.io/images/e4qjo92p/production/e7a55ae5ab7e2c4fdfd4e66a51f628d1f2f44207-967x967.png?w=512&h=512&fit=max&auto=format> (icon linked by <https://www.cerebras.ai/>) |
 | `ollama.png` | <https://ollama.com/public/ollama.png> |
 | `lm-studio.png` | <https://lmstudio.ai/assets/marketing/logo-192x192.png> (reused from the Agent asset set) |
-| `vllm.png` | <https://docs.vllm.ai/favicon.ico> |
+| `vllm.svg` | <https://github.com/vllm-project/media-kit/blob/main/vLLM-Logo.svg> |

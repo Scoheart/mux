@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.71](https://github.com/Scoheart/mux/compare/v1.8.70...v1.8.71) (2026-07-27)
+
+### Changes
+
+* feat(desktop): streamline central asset pages ([68a02e3](https://github.com/Scoheart/mux/commit/68a02e37be8ad2c84b3a198fdff14c540889cd74))
+
 ## [1.8.70](https://github.com/Scoheart/mux/compare/v1.8.69...v1.8.70) (2026-07-26)
 
 ### Changes

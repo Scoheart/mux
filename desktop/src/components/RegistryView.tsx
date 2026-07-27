@@ -1,4 +1,5 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from "react";
+import { useTranslation } from "react-i18next";
 import type { InstallState } from "../hooks/useInstallState";
 import type { ConsumptionState } from "../hooks/useConsumptionState";
 import type { RegistryEntry, RegistryOrigin, CatalogItem, ResourceNavigationIntent } from "../lib/types";
@@ -22,7 +23,7 @@ import {
   TrashIcon,
 } from "./icons";
 import { Avatar, Badge, IconButton, TransportPill } from "./ui";
-import { ResourceCard, ResourceKindIcon } from "./ResourceCard";
+import { ResourceKindIcon } from "./ResourceCard";
 import { ResourceState } from "./ResourceState";
 import { useToast } from "./Toast";
 import { PasteConfigDialog } from "./PasteConfigDialog";
@@ -31,7 +32,6 @@ import { RegistryEditPage } from "./RegistryEditPage";
 import {
   InspectorField,
   InspectorSection,
-  ResourceGrid,
   ResourceInspector,
   ResourceTabs,
   ResourceWorkspace,
@@ -146,6 +146,7 @@ function originLabel(origin: RegistryOrigin | undefined, sourceName: (id: string
 }
 
 export function RegistryView({ state, consumptionState, intent, onIntentConsumed, onCreate, migrationCount = 0, onOpenMigration, onRetryLoad, retryLoadDisabled = false }: RegistryViewProps) {
+  const { t } = useTranslation();
   const { catalog, entries, agentsForServer, sources } = state;
   const toast = useToast();
   const [minimumSkeleton, setMinimumSkeleton] = useState(state.loading);
@@ -309,7 +310,8 @@ export function RegistryView({ state, consumptionState, intent, onIntentConsumed
   );
 
   return (
-    <ResourceWorkspace
+    <div className="mux-registry-workspace">
+      <ResourceWorkspace
       title="MCPs"
       description="集中管理可复用的 MCP 连接、来源与配置"
       sidebar={
@@ -434,21 +436,35 @@ export function RegistryView({ state, consumptionState, intent, onIntentConsumed
           )}
         />
       ) : (
-        <ResourceGrid>
+        <div
+          className="mux-asset-list mux-mcp-list"
+          role="list"
+          aria-label={t("centralAssets.mcpList")}
+        >
+          <div className="mux-asset-list-header mux-mcp-list-header" aria-hidden="true">
+            <span>{t("centralAssets.mcpIdentity")}</span>
+            <span>{t("centralAssets.transport")}</span>
+            <span>{t("centralAssets.source")}</span>
+            <span>{t("centralAssets.status")}</span>
+          </div>
           {filtered.map((item) => (
-            <RegistryCard
+            <div
+              role="listitem"
               key={`${keyOf(item.entry)}@${item.entry.origin?.source ?? item.entry.origin?.kind ?? ""}`}
-              item={item}
-              selected={detail === item}
-              installedAgents={agentsForServer(keyOf(item.entry))}
-              sourceName={sourceName}
-              onOpen={() => {
-                setEditingDetail(false);
-                setDetail(item);
-              }}
-            />
+            >
+              <RegistryCard
+                item={item}
+                selected={detail === item}
+                installedAgents={agentsForServer(keyOf(item.entry))}
+                sourceName={sourceName}
+                onOpen={() => {
+                  setEditingDetail(false);
+                  setDetail(item);
+                }}
+              />
+            </div>
           ))}
-        </ResourceGrid>
+        </div>
       )}
 
       {pasteOpen && <PasteConfigDialog state={state} onClose={() => setPasteOpen(false)} />}
@@ -470,7 +486,8 @@ export function RegistryView({ state, consumptionState, intent, onIntentConsumed
           }}
         />
       )}
-    </ResourceWorkspace>
+      </ResourceWorkspace>
+    </div>
   );
 }
 
@@ -487,6 +504,7 @@ function RegistryCard({
   sourceName: (id: string) => string;
   onOpen: () => void;
 }) {
+  const { t } = useTranslation();
   const { entry } = item;
   const ep = endpointOf(entry);
   const transport = transportOf(entry).toUpperCase();
@@ -496,29 +514,32 @@ function RegistryCard({
     : originLabel(entry.origin, sourceName);
 
   return (
-    <ResourceCard
-      selected={selected}
-      ariaLabel={`打开 MCP ${entry.name} 详情`}
-      onOpen={onOpen}
-      identity={
-        <>
-          <ResourceKindIcon kind="mcp" seed={entry.name} />
-          <div className="mux-resource-card-copy">
-            <div className="mux-resource-card-heading">
-              <strong title={entry.name}>{entry.name}</strong>
-            </div>
-            <code className="mux-resource-card-code" title={ep.text}>{ep.text}</code>
-          </div>
-        </>
-      }
-      configuration={
-        <div className="mux-resource-card-facts">
-          <span className="mux-resource-card-fact" title={`${transport} · ${source}`}>
-            {transport} · {source}
-          </span>
-        </div>
-      }
-    />
+    <button
+      type="button"
+      className="mux-asset-list-row mux-mcp-list-row"
+      data-selected={selected ? "true" : undefined}
+      data-attention={item.in_effect ? undefined : "shadowed"}
+      aria-label={t("centralAssets.openMcpDetails", { name: entry.name })}
+      aria-pressed={selected}
+      onClick={onOpen}
+    >
+      <span className="mux-asset-list-identity">
+        <ResourceKindIcon kind="mcp" seed={entry.name} />
+        <span className="mux-asset-list-copy">
+          <strong title={entry.name}>{entry.name}</strong>
+          <code title={ep.text}>{ep.text}</code>
+        </span>
+      </span>
+      <span className="mux-asset-list-transport">{transport}</span>
+      <span className="mux-asset-list-source" title={source}>{source}</span>
+      <span className="mux-asset-list-status">
+        <Badge tone={item.in_effect ? "success" : "info"}>
+          {item.in_effect
+            ? t("centralAssets.effective")
+            : t("centralAssets.shadowed")}
+        </Badge>
+      </span>
+    </button>
   );
 }
 

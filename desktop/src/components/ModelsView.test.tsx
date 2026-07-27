@@ -97,15 +97,72 @@ async function openProviderTemplate(
 
 it("maps Models to one compact, scannable list", () => {
   const list = source.slice(source.indexOf("function ModelList"), source.indexOf("function ModelInspector"));
-  expect(list).toMatch(/className="mux-model-list" role="list"/);
+  expect(list).toMatch(/className="mux-asset-list mux-model-list" role="list"/);
   expect(list).toMatch(/role="listitem"/);
-  expect(list).toMatch(/className="mux-model-list-row"/);
+  expect(list).toMatch(/className="mux-asset-list-row mux-model-list-row"/);
   expect(list).toMatch(/<strong title=\{displayName\}>\{displayName\}<\/strong>/);
   expect(list).toMatch(/title=\{profile\.model\}>\{profile\.model\}<\/code>/);
   expect(list).toMatch(/protocolLabel\(profile\.protocol\)/);
   expect(list).toMatch(/profile\.credential_saved/);
   expect(list).not.toMatch(/<ResourceCard/);
+  expect(source).toMatch(/className="mux-models-workspace"/);
   expect(source).not.toMatch(/<ResourceTabs/);
+});
+
+it("keeps the Models workspace visible through loading, error recovery, and empty states", async () => {
+  vi.mocked(api.listModelProfiles).mockReturnValueOnce(new Promise<never>(() => undefined));
+  const loadingView = render(
+    <ToastProvider>
+      <ModelsView />
+    </ToastProvider>,
+  );
+
+  expect(screen.getByRole("status", { name: "正在读取模型资产" })).toBeVisible();
+  expect(screen.getByRole("button", { name: "添加 Provider" })).toBeVisible();
+  loadingView.unmount();
+
+  vi.mocked(api.listModelProfiles)
+    .mockRejectedValueOnce(new Error("model registry unavailable"))
+    .mockResolvedValueOnce([]);
+  const user = userEvent.setup();
+  const errorView = render(
+    <ToastProvider>
+      <ModelsView />
+    </ToastProvider>,
+  );
+
+  expect(await screen.findByText("读取模型资产失败")).toBeVisible();
+  expect(screen.getByRole("alert")).toHaveTextContent("model registry unavailable");
+  await user.click(screen.getByRole("button", { name: "重试" }));
+  expect(await screen.findByText("暂无模型资产")).toBeVisible();
+  expect(screen.getByText("新建一个可复用的模型配置。")).toBeVisible();
+  errorView.unmount();
+});
+
+it("recovers a no-match Models search without losing the compact index", async () => {
+  vi.mocked(api.listModelProfiles).mockResolvedValue([{
+    id: "qwen-profile",
+    name: "Qwen Profile",
+    provider: "openrouter",
+    protocol: "openai-completions",
+    base_url: "https://openrouter.ai/api/v1",
+    model: "qwen/qwen3",
+    catalog_key: "openrouter/qwen/qwen3",
+    credential_saved: true,
+  }]);
+  const user = userEvent.setup();
+
+  render(
+    <ToastProvider>
+      <ModelsView />
+    </ToastProvider>,
+  );
+
+  expect(await screen.findByRole("list", { name: "模型资产" })).toBeVisible();
+  await user.type(screen.getByPlaceholderText("搜索名称、Model ID 或 Provider"), "not-present");
+  expect(screen.getByText("没有匹配项")).toBeVisible();
+  await user.click(screen.getByRole("button", { name: "清除筛选" }));
+  expect(screen.getByRole("button", { name: "打开模型 Qwen Profile 详情" })).toBeVisible();
 });
 
 it("enriches an OpenRouter list row without overriding user token limits", async () => {

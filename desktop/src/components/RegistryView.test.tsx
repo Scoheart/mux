@@ -1,21 +1,142 @@
+import { cleanup, render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import { expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
+import type { InstallState } from "../hooks/useInstallState";
+import type { RegistryEntry } from "../lib/types";
+import { RegistryView } from "./RegistryView";
+import { ToastProvider } from "./Toast";
 
 const source = await readFile(resolve(process.cwd(), "src/components/RegistryView.tsx"), "utf8");
 
-it("maps MCP cards to the shared resource interface", () => {
-  const card = source.slice(source.indexOf("function RegistryCard"), source.indexOf("function RegistryDetail"));
-  expect(card).toMatch(/<ResourceCard/);
-  expect(card).toMatch(/identity=/);
-  expect(card).toMatch(/configuration=/);
-  expect(card).not.toMatch(/state=/);
-  expect(card).not.toMatch(/impact=/);
-  expect(card).not.toMatch(/被覆盖|生效中/);
-  expect(card).toMatch(/transportOf\(entry\)\.toUpperCase\(\)/);
-  expect(card).toMatch(/<ResourceKindIcon kind="mcp" seed=\{entry\.name\} \/>/);
-  expect(card).not.toMatch(/LinkIcon|TerminalIcon/);
-  expect(card).not.toMatch(/<IconButton/);
+afterEach(cleanup);
+
+function registryState(overrides: Record<string, unknown> = {}) {
+  return {
+    entries: [],
+    catalog: [],
+    agents: [],
+    installed: [],
+    loading: false,
+    registryError: null,
+    agentsForServer: () => [],
+    customKeys: new Set<string>(),
+    sources: [],
+    refreshRegistry: vi.fn().mockResolvedValue(undefined),
+    rescan: vi.fn().mockResolvedValue(undefined),
+    ...overrides,
+  } as unknown as InstallState;
+}
+
+it("maps MCP assets to the compact central index", () => {
+  expect(source).toMatch(/className="mux-registry-workspace"/);
+  expect(source).toMatch(/className="mux-asset-list mux-mcp-list"[\s\S]*?role="list"/);
+  const row = source.slice(source.indexOf("function RegistryCard"), source.indexOf("function RegistryDetail"));
+  expect(row).toMatch(/className="mux-asset-list-row mux-mcp-list-row"/);
+  expect(row).toMatch(/mux-asset-list-identity/);
+  expect(row).toMatch(/mux-asset-list-transport/);
+  expect(row).toMatch(/mux-asset-list-source/);
+  expect(row).toMatch(/mux-asset-list-status/);
+  expect(row).toMatch(/transportOf\(entry\)\.toUpperCase\(\)/);
+  expect(row).toMatch(/<ResourceKindIcon kind="mcp" seed=\{entry\.name\} \/>/);
+  expect(row).toMatch(/centralAssets\.effective/);
+  expect(row).toMatch(/centralAssets\.shadowed/);
+  expect(row).not.toMatch(/<IconButton|<ResourceCard/);
+});
+
+it("renders effective and shadowed MCP rows and opens the existing Inspector", async () => {
+  const effective: RegistryEntry = {
+    name: "brave-search",
+    description: "Web search",
+    tags: ["search"],
+    config: { http: { type: "http", url: "https://mcp.example.test/search" } },
+    origin: { kind: "manual" },
+  };
+  const shadowed: RegistryEntry = {
+    name: "filesystem-old",
+    description: "Older subscribed copy",
+    tags: [],
+    config: { stdio: { command: "npx", args: ["filesystem"] } },
+    origin: { kind: "remote", source: "team-catalog" },
+  };
+  const state = registryState({
+    entries: [effective],
+    catalog: [
+      { entry: effective, in_effect: true },
+      { entry: shadowed, in_effect: false },
+    ],
+  });
+  const user = userEvent.setup();
+
+  render(
+    <ToastProvider>
+      <RegistryView state={state} onCreate={vi.fn()} />
+    </ToastProvider>,
+  );
+
+  const list = screen.getByRole("list", { name: "MCP 资产" });
+  expect(list).toHaveClass("mux-asset-list", "mux-mcp-list");
+  expect(within(list).getByText("名称与连接")).toBeVisible();
+  expect(within(list).getByText("传输")).toBeVisible();
+  expect(within(list).getByText("来源")).toBeVisible();
+  expect(within(list).getByText("状态")).toBeVisible();
+  expect(within(list).getByText("生效")).toBeVisible();
+  expect(within(list).getByText("被覆盖")).toBeVisible();
+  expect(screen.getByRole("button", { name: "粘贴配置" })).toBeVisible();
+  expect(screen.getByRole("button", { name: "导出生效配置" })).toBeVisible();
+  expect(screen.getByRole("button", { name: "新建 MCP" })).toBeVisible();
+
+  await user.click(screen.getByRole("tab", { name: /被覆盖\s*1/ }));
+  expect(screen.getByRole("button", { name: "打开 MCP filesystem-old 详情" })).toBeVisible();
+  expect(screen.queryByRole("button", { name: "打开 MCP brave-search 详情" })).not.toBeInTheDocument();
+  await user.click(screen.getByRole("tab", { name: /全部\s*2/ }));
+
+  await user.type(screen.getByPlaceholderText("搜索 MCP"), "not-present");
+  expect(screen.getByText("没有匹配项")).toBeVisible();
+  await user.click(screen.getByRole("button", { name: "清除筛选" }));
+  expect(screen.getByRole("button", { name: "打开 MCP brave-search 详情" })).toBeVisible();
+  await user.click(screen.getByRole("button", { name: "打开 MCP brave-search 详情" }));
+  const inspector = await screen.findByRole("complementary", { name: "brave-search 详情" });
+  expect(within(inspector).getByText("Web search")).toBeVisible();
+  expect(within(inspector).getByText("https://mcp.example.test/search")).toBeVisible();
+});
+
+it("keeps MCP workspace actions visible through loading, error retry, and empty states", async () => {
+  const user = userEvent.setup();
+  const retry = vi.fn().mockResolvedValue(undefined);
+  const loadingView = render(
+    <ToastProvider>
+      <RegistryView state={registryState({ loading: true })} onCreate={vi.fn()} />
+    </ToastProvider>,
+  );
+
+  expect(screen.getByRole("status", { name: "正在读取 MCP…" })).toBeVisible();
+  expect(screen.getByRole("button", { name: "新建 MCP" })).toBeVisible();
+  loadingView.unmount();
+
+  const errorView = render(
+    <ToastProvider>
+      <RegistryView
+        state={registryState({ registryError: "registry unavailable" })}
+        onCreate={vi.fn()}
+        onRetryLoad={retry}
+      />
+    </ToastProvider>,
+  );
+  expect(screen.getByRole("alert")).toHaveTextContent("读取 MCP 失败");
+  expect(screen.getByRole("alert")).toHaveTextContent("registry unavailable");
+  await user.click(screen.getByRole("button", { name: "重试" }));
+  expect(retry).toHaveBeenCalledTimes(1);
+  errorView.unmount();
+
+  render(
+    <ToastProvider>
+      <RegistryView state={registryState()} onCreate={vi.fn()} />
+    </ToastProvider>,
+  );
+  expect(screen.getByText("暂无 MCP")).toBeVisible();
+  expect(screen.getByText("添加订阅、导入配置或新建 MCP")).toBeVisible();
 });
 
 it("keeps mutations and redacted configuration in the Inspector", () => {

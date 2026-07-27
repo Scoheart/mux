@@ -3,7 +3,8 @@ import type {
   SkillInventoryItem,
   SkillSource,
 } from "../lib/types";
-import { ResourceCard, ResourceKindIcon } from "./ResourceCard";
+import { useTranslation } from "react-i18next";
+import { ResourceKindIcon } from "./ResourceCard";
 import { Badge } from "./ui";
 
 function appendSubpath(base: string, subpath: string) {
@@ -48,6 +49,32 @@ export function SkillRiskBadge({
   );
 }
 
+const attentionStates = new Set([
+  "locally_modified",
+  "broken_link",
+  "conflicting_link",
+  "missing",
+]);
+
+function skillAssetState(item: SkillInventoryItem) {
+  if (
+    item.update.available ||
+    item.risk?.level === "high" ||
+    item.states.some((state) => attentionStates.has(state))
+  ) {
+    return { labelKey: "needsAttention" as const, tone: "warning" as const };
+  }
+  if (item.states.includes("external")) return { labelKey: "external" as const, tone: "info" as const };
+  return { labelKey: "normal" as const, tone: "success" as const };
+}
+
+function skillUpdateState(item: SkillInventoryItem) {
+  if (item.update.available) return { labelKey: "updateAvailable" as const, tone: "info" as const };
+  if (item.update.error) return { labelKey: "updateFailed" as const, tone: "warning" as const };
+  if (item.update.checked_at) return { labelKey: "upToDate" as const, tone: "success" as const };
+  return { labelKey: "notChecked" as const, tone: "neutral" as const };
+}
+
 export function SkillCard({
   item,
   selected,
@@ -57,26 +84,50 @@ export function SkillCard({
   selected: boolean;
   onOpen: () => void;
 }) {
+  const { t } = useTranslation();
+  const source = skillSourceText(item.source);
+  const assetState = skillAssetState(item);
+  const updateState = skillUpdateState(item);
+
   return (
-    <ResourceCard
-      className="mux-skill-card"
-      selected={selected}
-      ariaLabel={`打开 Skill ${item.name} 详情`}
-      onOpen={onOpen}
-      identity={
-        <>
-          <ResourceKindIcon kind="skill" seed={item.name} />
-          <div className="mux-resource-card-copy">
-            <div className="mux-resource-card-heading">
-              <h2 title={item.name}>{item.name}</h2>
-              {item.update.available && <Badge tone="info">有更新</Badge>}
-            </div>
-            <span className="mux-resource-card-code" title={skillSourceText(item.source)}>
-              {skillSourceText(item.source)}
-            </span>
-          </div>
-        </>
-      }
-    />
+    <button
+      type="button"
+      className="mux-asset-list-row mux-skill-list-row"
+      data-selected={selected ? "true" : undefined}
+      data-attention={assetState.labelKey === "needsAttention" ? "warning" : undefined}
+      aria-label={t("centralAssets.openSkillDetails", { name: item.name })}
+      aria-pressed={selected}
+      onClick={onOpen}
+    >
+      <span className="mux-asset-list-identity">
+        <ResourceKindIcon kind="skill" seed={item.name} />
+        <span className="mux-asset-list-copy">
+          <h2 title={item.name}>{item.name}</h2>
+          <span className="mux-skill-list-description" title={item.description}>
+            {item.description || t("centralAssets.noDescription")}
+          </span>
+        </span>
+      </span>
+      <span className="mux-asset-list-stack mux-asset-list-source" title={source}>
+        <span>{source}</span>
+        {item.resolved_revision && <code>rev {item.resolved_revision.slice(0, 10)}</code>}
+      </span>
+      <span className="mux-skill-list-risk">
+        <SkillRiskBadge
+          level={item.risk?.level ?? null}
+          label={item.risk?.level === "low" ? t("centralAssets.lowRisk") : undefined}
+        />
+      </span>
+      <span className="mux-skill-list-update">
+        <Badge tone={updateState.tone}>
+          {t(`centralAssets.${updateState.labelKey}`)}
+        </Badge>
+      </span>
+      <span className="mux-asset-list-status">
+        <Badge tone={assetState.tone}>
+          {t(`centralAssets.${assetState.labelKey}`)}
+        </Badge>
+      </span>
+    </button>
   );
 }

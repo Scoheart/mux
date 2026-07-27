@@ -1,7 +1,6 @@
 import {
   act,
   cleanup,
-  fireEvent,
   render,
   screen,
   waitFor,
@@ -270,6 +269,10 @@ describe("SkillsView", () => {
       screen.getByRole("heading", { name: "review-changes" }),
     ).toBeVisible();
     expect(screen.getByRole("tablist", { name: "Skill 状态" })).toBeVisible();
+    expect(screen.getByRole("list", { name: "Skill 资产" })).toHaveClass("mux-asset-list", "mux-skill-list");
+    expect(screen.getByText("名称与说明")).toBeVisible();
+    expect(screen.getByText("来源与版本")).toBeVisible();
+    expect(screen.getByText("风险")).toBeVisible();
     expect(screen.getByPlaceholderText("搜索 Skills")).toBeVisible();
   });
 
@@ -302,12 +305,14 @@ describe("SkillsView", () => {
   });
 
   it("opens a selected card from the keyboard and loads detail only for the inspector", async () => {
+    const user = userEvent.setup();
     render(<SkillsView state={skillsStateFixture()} />);
     expect(api.getSkillDetail).not.toHaveBeenCalled();
 
     const card = screen.getByRole("button", { name: /review-changes/ });
     expect(card).toHaveAttribute("aria-pressed", "false");
-    fireEvent.keyDown(card, { key: " " });
+    card.focus();
+    await user.keyboard(" ");
 
     expect(card).toHaveAttribute("aria-pressed", "true");
     expect(await screen.findByLabelText("review-changes 详情")).toBeVisible();

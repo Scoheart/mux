@@ -545,7 +545,12 @@ body {
 .mux-noscroll { scrollbar-width: none; }
 .mux-noscroll::-webkit-scrollbar { display: none; }
 
-/* Shared MCP / Model workspace */
+/* The three central asset views own this dense index treatment. */
+:is(.mux-registry-workspace, .mux-models-workspace, .mux-skill-workspace) {
+  width: 100%; height: 100%; min-width: 0; min-height: 0;
+}
+
+/* Shared MCP / Model / Skill workspace */
 .mux-workspace {
   --mux-workspace-sidebar-width: 224px;
   display: grid; grid-template-columns: var(--mux-workspace-sidebar-width) minmax(0, 1fr);
@@ -690,35 +695,62 @@ body {
   min-width: 0; overflow: hidden; color: var(--text-primary); font-size: 13px;
   text-overflow: ellipsis; white-space: nowrap;
 }
-.mux-model-list {
+:where(.mux-registry-workspace, .mux-models-workspace, .mux-skill-workspace) .mux-asset-list {
   width: min(100%, 1280px); margin: 6px auto; overflow: hidden;
   border-radius: var(--radius-region); background: var(--surface-section);
 }
-.mux-model-list-header,
-.mux-model-list-row {
-  display: grid; min-width: 0;
-  grid-template-columns: minmax(220px, 2.1fr) minmax(120px, 1fr) minmax(142px, .9fr) minmax(76px, .55fr) minmax(108px, .7fr);
-  align-items: center; gap: 10px;
+:where(.mux-registry-workspace, .mux-models-workspace, .mux-skill-workspace) :is(.mux-asset-list-header, .mux-asset-list-row) {
+  display: grid; min-width: 0; align-items: center; gap: 10px;
 }
-.mux-model-list-header {
-  min-height: 38px; padding: 0 13px; color: var(--text-tertiary);
-  font-size: 9px; font-weight: 680; text-transform: uppercase;
+:where(.mux-registry-workspace, .mux-models-workspace, .mux-skill-workspace) .mux-asset-list-header {
+  position: sticky; z-index: 2; top: 0; min-height: 36px; padding: 0 13px;
+  background: var(--surface-section); color: var(--text-tertiary);
+  font-size: 9px; font-weight: 680;
 }
-.mux-model-list > [role="listitem"] { margin: 0 6px 6px; }
-.mux-model-list-row {
-  width: 100%; min-height: 62px; padding: 8px 7px; border: 0; border-radius: var(--radius-row);
+:where(.mux-registry-workspace, .mux-models-workspace, .mux-skill-workspace) .mux-asset-list > [role="listitem"] { margin: 0 6px 6px; }
+:where(.mux-registry-workspace, .mux-models-workspace, .mux-skill-workspace) .mux-asset-list-row {
+  width: 100%; min-height: 62px; padding: 8px 9px; border: 0; border-radius: var(--radius-row);
   background: var(--surface-asset); color: var(--text-primary); font: 10px/1.3 var(--font-sans);
   text-align: left; cursor: pointer; transition: background-color .12s ease;
 }
-.mux-model-list-row:hover { background: color-mix(in srgb, var(--surface-selected) 38%, var(--surface-asset)); }
-.mux-model-list-row[data-selected="true"] { background: var(--surface-selected); }
-.mux-model-list-row:focus-visible { outline: 2px solid color-mix(in srgb, var(--color-blue) 58%, transparent); outline-offset: 1px; }
-.mux-model-list-identity { display: flex; min-width: 0; align-items: center; gap: 9px; }
-.mux-model-list-identity > span:last-child { display: block; min-width: 0; }
-.mux-model-list-identity strong,
-.mux-model-list-identity code { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.mux-model-list-identity strong { color: var(--text-primary); font-size: 12px; font-weight: 690; }
-.mux-model-list-identity code { margin-top: 4px; color: var(--text-secondary); font: 9px/1.25 var(--font-mono); }
+:where(.mux-registry-workspace, .mux-models-workspace, .mux-skill-workspace) .mux-asset-list-row:hover { background: color-mix(in srgb, var(--surface-selected) 38%, var(--surface-asset)); }
+:where(.mux-registry-workspace, .mux-models-workspace, .mux-skill-workspace) .mux-asset-list-row[data-selected="true"] { background: var(--surface-selected); }
+:where(.mux-registry-workspace, .mux-models-workspace, .mux-skill-workspace) .mux-asset-list-row[data-attention="shadowed"] { box-shadow: inset 2px 0 color-mix(in srgb, var(--color-blue) 55%, var(--surface-asset)); }
+:where(.mux-registry-workspace, .mux-models-workspace, .mux-skill-workspace) .mux-asset-list-row[data-attention="warning"] { box-shadow: inset 2px 0 var(--color-brand-gold); }
+:where(.mux-registry-workspace, .mux-models-workspace, .mux-skill-workspace) .mux-asset-list-row:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--color-blue) 58%, transparent); outline-offset: 1px;
+}
+:where(.mux-registry-workspace, .mux-models-workspace, .mux-skill-workspace) .mux-asset-list-identity { display: flex; min-width: 0; align-items: center; gap: 9px; }
+:where(.mux-registry-workspace, .mux-models-workspace, .mux-skill-workspace) .mux-asset-list-copy { display: block; min-width: 0; }
+:where(.mux-registry-workspace, .mux-models-workspace, .mux-skill-workspace) .mux-asset-list-copy > :is(strong, h2, span, code) {
+  display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+:where(.mux-registry-workspace, .mux-models-workspace, .mux-skill-workspace) .mux-asset-list-copy > :is(strong, h2) { margin: 0; color: var(--text-primary); font-size: 12px; font-weight: 690; }
+:where(.mux-registry-workspace, .mux-models-workspace, .mux-skill-workspace) .mux-asset-list-copy > :is(span, code) { margin-top: 4px; color: var(--text-secondary); font: 9px/1.25 var(--font-mono); }
+:where(.mux-registry-workspace, .mux-models-workspace, .mux-skill-workspace) .mux-asset-list-stack { display: block; min-width: 0; }
+:where(.mux-registry-workspace, .mux-models-workspace, .mux-skill-workspace) .mux-asset-list-stack > :is(span, code) {
+  display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+:where(.mux-registry-workspace, .mux-models-workspace, .mux-skill-workspace) .mux-asset-list-stack > span { color: var(--text-primary); font-size: 10px; }
+:where(.mux-registry-workspace, .mux-models-workspace, .mux-skill-workspace) .mux-asset-list-stack > code { margin-top: 4px; color: var(--text-secondary); font: 9px/1.25 var(--font-mono); }
+:where(.mux-registry-workspace, .mux-models-workspace, .mux-skill-workspace) .mux-asset-list-source {
+  min-width: 0; overflow: hidden; color: var(--text-secondary); text-overflow: ellipsis; white-space: nowrap;
+}
+:where(.mux-registry-workspace, .mux-models-workspace, .mux-skill-workspace) .mux-asset-list-transport {
+  display: inline-flex; width: fit-content; max-width: 100%; min-width: 0; align-items: center;
+  padding: 4px 7px; overflow: hidden; border-radius: 5px; background: var(--surface-control);
+  color: var(--text-secondary); font-size: 8px; font-weight: 680; text-overflow: ellipsis; white-space: nowrap;
+}
+:where(.mux-registry-workspace, .mux-models-workspace, .mux-skill-workspace) .mux-asset-list-status { display: flex; min-width: 0; align-items: center; }
+.mux-registry-workspace :is(.mux-mcp-list-header, .mux-mcp-list-row) {
+  grid-template-columns: minmax(220px, 2.2fr) 74px minmax(112px, 1fr) 82px;
+}
+.mux-skill-workspace :is(.mux-skill-list-header, .mux-skill-list-row) {
+  grid-template-columns: minmax(220px, 1.8fr) minmax(180px, 1.4fr) 92px 92px 78px;
+}
+.mux-models-workspace :is(.mux-model-list-header, .mux-model-list-row) {
+  grid-template-columns: minmax(220px, 2.1fr) minmax(120px, 1fr) minmax(142px, .9fr) minmax(76px, .55fr) minmax(108px, .7fr);
+}
 .mux-model-list-provider { min-width: 0; overflow: hidden; color: var(--text-primary); font-weight: 640; text-overflow: ellipsis; white-space: nowrap; }
 .mux-model-list-protocol {
   display: inline-flex; width: fit-content; max-width: 100%; min-width: 0; align-items: center;
@@ -726,13 +758,49 @@ body {
   color: var(--text-secondary); font-size: 8px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap;
 }
 .mux-model-list-context { color: var(--text-secondary); font: 9px/1.2 var(--font-mono); }
+.mux-skill-workspace .mux-asset-list-copy > .mux-skill-list-description { font-family: var(--font-sans); line-height: 1.3; }
+.mux-skill-workspace :is(.mux-skill-list-risk, .mux-skill-list-update) { display: flex; min-width: 0; align-items: center; }
 @container resource-stage (max-width: 780px) {
-  .mux-model-list-header,
-  .mux-model-list-row { grid-template-columns: minmax(210px, 2fr) minmax(120px, 1fr) minmax(132px, .9fr); }
-  .mux-model-list-header > :nth-child(4),
-  .mux-model-list-header > :nth-child(5),
+  .mux-models-workspace :is(.mux-model-list-header, .mux-model-list-row) {
+    grid-template-columns: minmax(210px, 2fr) minmax(120px, 1fr) minmax(132px, .9fr);
+  }
+  .mux-models-workspace .mux-model-list-header > :nth-child(4),
+  .mux-models-workspace .mux-model-list-header > :nth-child(5),
   .mux-model-list-context,
-  .mux-model-list-row > :nth-child(5) { display: none; }
+  .mux-models-workspace .mux-model-list-row > :nth-child(5) { display: none; }
+
+  .mux-registry-workspace :is(.mux-mcp-list-header, .mux-mcp-list-row) {
+    grid-template-columns: minmax(220px, 2fr) minmax(100px, 1fr) 82px;
+  }
+  .mux-registry-workspace .mux-mcp-list-header > :nth-child(2),
+  .mux-registry-workspace .mux-mcp-list-row > :nth-child(2) { display: none; }
+
+  .mux-skill-workspace :is(.mux-skill-list-header, .mux-skill-list-row) {
+    grid-template-columns: minmax(210px, 1.8fr) minmax(150px, 1.2fr) 92px;
+  }
+  .mux-skill-workspace .mux-skill-list-header > :nth-child(3),
+  .mux-skill-workspace .mux-skill-list-header > :nth-child(4),
+  .mux-skill-workspace .mux-skill-list-row > :nth-child(3),
+  .mux-skill-workspace .mux-skill-list-row > :nth-child(4) { display: none; }
+}
+@container resource-stage (max-width: 520px) {
+  .mux-registry-workspace :is(.mux-mcp-list-header, .mux-mcp-list-row) {
+    grid-template-columns: minmax(220px, 1fr) 82px;
+  }
+  .mux-registry-workspace .mux-mcp-list-header > :nth-child(3),
+  .mux-registry-workspace .mux-mcp-list-row > :nth-child(3) { display: none; }
+
+  .mux-skill-workspace :is(.mux-skill-list-header, .mux-skill-list-row) {
+    grid-template-columns: minmax(220px, 1fr) 92px;
+  }
+  .mux-skill-workspace .mux-skill-list-header > :nth-child(2),
+  .mux-skill-workspace .mux-skill-list-row > :nth-child(2) { display: none; }
+}
+:is(.mux-registry-workspace, .mux-models-workspace, .mux-skill-workspace) .mux-resource-skeleton {
+  grid-template-columns: minmax(0, 1fr);
+}
+:is(.mux-registry-workspace, .mux-models-workspace, .mux-skill-workspace) .mux-resource-skeleton > span {
+  min-height: 62px;
 }
 .mux-resource-card-footer {
   display: flex; align-items: center; justify-content: space-between; gap: 8px;

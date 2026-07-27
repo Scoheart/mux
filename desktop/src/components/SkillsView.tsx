@@ -6,6 +6,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { useTranslation } from "react-i18next";
 import {
   normalizeSkillCommandError,
   type SkillsState,
@@ -29,6 +30,7 @@ import {
   LayersIcon,
   LinkIcon,
   PackageIcon,
+  PlusIcon,
   RefreshIcon,
 } from "./icons";
 import { SkillCard } from "./SkillCard";
@@ -41,7 +43,6 @@ import {
 import { SkillReviewDialog } from "./SkillReviewDialog";
 import { useToast } from "./Toast";
 import {
-  ResourceGrid,
   ResourceTabs,
   ResourceWorkspace,
   SidebarItem,
@@ -85,6 +86,7 @@ export function SkillsView({
   migrationCount = 0,
   onOpenMigration,
 }: SkillsViewProps) {
+  const { t } = useTranslation();
   const toast = useToast();
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState<SkillStatusFilter>("all");
@@ -561,6 +563,7 @@ export function SkillsView({
                 setInstallOpen(true);
               }}
             >
+              <PlusIcon className="w-4 h-4" />
               添加 Skill
             </button>
           </>
@@ -636,16 +639,28 @@ export function SkillsView({
         ) : (
           <>
             {inventoryNotice}
-            <ResourceGrid>
+            <div
+              className="mux-asset-list mux-skill-list"
+              role="list"
+              aria-label={t("centralAssets.skillList")}
+            >
+              <div className="mux-asset-list-header mux-skill-list-header" aria-hidden="true">
+                <span>{t("centralAssets.skillIdentity")}</span>
+                <span>{t("centralAssets.sourceRevision")}</span>
+                <span>{t("centralAssets.risk")}</span>
+                <span>{t("centralAssets.update")}</span>
+                <span>{t("centralAssets.status")}</span>
+              </div>
               {filtered.map((item) => (
-                <SkillCard
-                  key={item.identity}
-                  item={item}
-                  selected={item.identity === selectedIdentity}
-                  onOpen={() => openSkill(item.identity)}
-                />
+                <div role="listitem" key={item.identity}>
+                  <SkillCard
+                    item={item}
+                    selected={item.identity === selectedIdentity}
+                    onOpen={() => openSkill(item.identity)}
+                  />
+                </div>
               ))}
-            </ResourceGrid>
+            </div>
           </>
         )}
       </ResourceWorkspace>

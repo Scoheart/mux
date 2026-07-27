@@ -132,6 +132,7 @@ export function ModelsView({
   const [query, setQuery] = useState("");
   const [modelsDevByProfileId, setModelsDevByProfileId] = useState<Record<string, ModelsDevMetadata>>({});
   const toast = useToast();
+  const showToast = toast.show;
   const { t } = useTranslation();
   const lastConsumedIntentId = useRef<number | null>(null);
 
@@ -158,10 +159,10 @@ export function ModelsView({
       .catch((error) => {
         const message = formatError(error);
         setReadError(message);
-        toast.show({ kind: "error", msg: t("models.readFailed", { error: message }) });
+        showToast({ kind: "error", msg: t("models.readFailed", { error: message }) });
       })
       .finally(() => setLoading(false));
-  }, [refresh, toast]);
+  }, [refresh, showToast, t]);
 
   useEffect(() => {
     let active = true;
@@ -230,7 +231,7 @@ export function ModelsView({
   };
 
   return (
-    <>
+    <div className="mux-models-workspace">
       <ResourceWorkspace
         title={t("models.title")}
         description={t("models.description")}
@@ -445,7 +446,7 @@ export function ModelsView({
           }}
         />
       )}
-    </>
+    </div>
   );
 }
 
@@ -491,8 +492,8 @@ function ModelList({
 }) {
   const { t } = useTranslation();
   return (
-    <div className="mux-model-list" role="list" aria-label={t("models.asset")}>
-      <div className="mux-model-list-header" aria-hidden="true">
+    <div className="mux-asset-list mux-model-list" role="list" aria-label={t("models.asset")}>
+      <div className="mux-asset-list-header mux-model-list-header" aria-hidden="true">
         <span>{t("models.modelColumn")}</span>
         <span>{t("models.providerColumn")}</span>
         <span>{t("models.protocol")}</span>
@@ -508,14 +509,14 @@ function ModelList({
           <div role="listitem" key={profile.id}>
             <button
               type="button"
-              className="mux-model-list-row"
+              className="mux-asset-list-row mux-model-list-row"
               data-selected={profile.id === selectedProfileId ? "true" : undefined}
               aria-label={t("models.openDetails", { name: profile.name })}
               onClick={() => onOpen(profile.id)}
             >
-              <span className="mux-model-list-identity">
+              <span className="mux-asset-list-identity mux-model-list-identity">
                 <ResourceKindIcon kind="model" seed={displayName} />
-                <span>
+                <span className="mux-asset-list-copy">
                   <strong title={displayName}>{displayName}</strong>
                   <code title={profile.model}>{profile.model}</code>
                 </span>

@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.86](https://github.com/Scoheart/mux/compare/v1.8.85...v1.8.86) (2026-07-27)
+
+### Changes
+
+* feat(models): add Provider brand icons ([0fb0b7b](https://github.com/Scoheart/mux/commit/0fb0b7b5f3932be2b38d5052b4cb956b6b7591d5))
+
 ## [1.8.85](https://github.com/Scoheart/mux/compare/v1.8.84...v1.8.85) (2026-07-27)
 
 ### Changes

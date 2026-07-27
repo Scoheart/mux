@@ -1696,6 +1696,7 @@ body {
 .mux-form-select-chevron { width: 14px; height: 14px; flex: 0 0 14px; color: var(--text-secondary); transition: transform .14s ease, color .14s ease; }
 .mux-form-select-trigger[data-open="true"] .mux-form-select-chevron { color: var(--color-blue); transform: rotate(180deg); }
 .mux-form-select-menu { position: absolute; z-index: 620; top: calc(100% + 5px); right: 0; left: 0; max-height: 220px; padding: 4px; overflow-y: auto; border: 1px solid var(--border-hairline); border-radius: 9px; background: var(--surface-popover); box-shadow: var(--shadow-sheet); animation: mux-form-select-in .12s ease-out; }
+.mux-provider-endpoint-row .mux-form-select-menu { position: static; margin-top: 5px; }
 @keyframes mux-form-select-in { from { opacity: 0; transform: translateY(-3px) scale(.995); } to { opacity: 1; transform: translateY(0) scale(1); } }
 .mux-form-select-option { display: flex; width: 100%; min-height: 32px; align-items: center; justify-content: space-between; gap: 8px; padding: 0 8px; border: 0; border-radius: 6px; background: transparent; color: var(--text-primary); font: 12px/1.25 var(--font-sans); text-align: left; cursor: pointer; }
 .mux-form-select-option[data-active="true"] { background: var(--surface-selected); }

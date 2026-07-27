@@ -1130,7 +1130,7 @@ function ModelProviderDialog({
           </div>
         </div>
 
-        <div className="mux-model-form-grid">
+        <div className="mux-model-form-grid mux-provider-endpoint-row">
           <div className="mux-model-form-field">
             <span>{t("models.protocol")}</span>
             <FormSelect

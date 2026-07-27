@@ -326,7 +326,7 @@ it("keeps the built-in Provider Catalog unfiltered, searchable, and keyboard-sel
 
   await user.click(within(catalog).getByRole("button", { name: "使用此模板" }));
   await waitFor(() => expect(screen.getByRole("heading", { name: "新建 Provider" })).toHaveFocus());
-  expect(screen.getByLabelText("OpenAI Responses Endpoint")).toHaveValue("https://api.openai.com/v1");
+  expect(screen.getByLabelText("Base URL")).toHaveValue("https://api.openai.com/v1");
   expect(screen.getByText("API Key")).toBeVisible();
   expect(source).toMatch(/<DialogShell\s+[\s\S]*?kind="picker"/);
   expect(source).not.toMatch(/ProviderCatalogDrawer|provider-catalog-drawer/);
@@ -449,9 +449,12 @@ it("fills a standalone Provider form from the selected catalog template", async 
   await openProviderTemplate(user, "OpenRouter");
   expect(screen.getByRole("heading", { name: "新建 Provider" })).toBeVisible();
   expect(screen.getByRole("combobox", { name: "Provider 类型" })).toHaveTextContent("OpenRouter");
-  expect(screen.getByLabelText("OpenAI Responses Endpoint")).toHaveValue(
+  expect(screen.getByLabelText("Base URL")).toHaveValue(
     "https://openrouter.ai/api/v1",
   );
+  expect(screen.queryByLabelText("Anthropic Messages Endpoint")).not.toBeInTheDocument();
+  expect(screen.queryByLabelText("OpenAI Responses Endpoint")).not.toBeInTheDocument();
+  expect(screen.queryByLabelText("OpenAI Chat Completions Endpoint")).not.toBeInTheDocument();
   expect(screen.getByText("API Key")).toBeVisible();
   expect(screen.getByText("API Key 环境变量")).toBeVisible();
 });
@@ -467,7 +470,7 @@ it("keeps an explicitly entered Provider endpoint while changing its type", asyn
   );
 
   await openProviderTemplate(user, "Custom Provider");
-  const endpoint = screen.getByLabelText("OpenAI Responses Endpoint");
+  const endpoint = screen.getByLabelText("Base URL");
 
   await user.type(endpoint, "https://gateway.example.test/v1");
   await chooseFormSelect(user, "Provider 类型", "OpenRouter");
@@ -558,7 +561,7 @@ it("submits an independent custom Provider through the central asset plan", asyn
   await openProviderTemplate(user, "Custom Provider");
   await user.type(screen.getByLabelText("自定义模型提供商 ID"), "my-gateway");
   await user.type(
-    screen.getByLabelText("OpenAI Responses Endpoint"),
+    screen.getByLabelText("Base URL"),
     "https://models.example.test/v1/",
   );
   await user.click(screen.getByRole("button", { name: "保存" }));
@@ -705,8 +708,8 @@ it("edits one Provider configuration through a single central asset plan", async
   await user.click(await sidebar.findByTitle("OpenRouter Team"));
   await user.click(screen.getByRole("button", { name: "编辑 Provider" }));
 
-  const completionsEndpoint = screen.getByLabelText("OpenAI Chat Completions Endpoint");
-  fireEvent.change(completionsEndpoint, {
+  const endpoint = screen.getByLabelText("Base URL");
+  fireEvent.change(endpoint, {
     target: { value: "https://gateway.example.test/v1/" },
   });
   await user.click(screen.getByRole("button", { name: "保存" }));
@@ -720,7 +723,7 @@ it("edits one Provider configuration through a single central asset plan", async
       provider: "openrouter",
       endpoints: expect.objectContaining({
         "openai-completions": "https://gateway.example.test/v1",
-        "anthropic-messages": "https://openrouter.ai/api",
+        "anthropic-messages": "https://gateway.example.test/v1",
       }),
       env_key: "OPENROUTER_API_KEY",
     }),

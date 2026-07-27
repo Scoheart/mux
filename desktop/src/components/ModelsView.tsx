@@ -999,28 +999,26 @@ function ModelProviderDialog({
     id: initial?.id ?? "",
     name: initial?.name ?? providerTemplate?.name ?? "",
     provider: initialProviderType,
-    endpoints: initial
-      ? { ...initial.endpoints }
-      : providerTemplate?.default_base_url
-        ? {
-            [providerTemplate.id === "anthropic"
-              ? "anthropic-messages"
-              : "openai-responses"]: providerTemplate.default_base_url,
-          }
-        : {},
+    endpoints: initial ? { ...initial.endpoints } : {},
     env_key: initial?.env_key,
   });
+  const [endpoint, setEndpoint] = useState(
+    initial
+      ? PROTOCOLS
+          .map((protocol) => initial.endpoints[protocol.id]?.trim())
+          .find((value): value is string => Boolean(value)) ?? ""
+      : providerTemplate?.default_base_url ?? "",
+  );
   const [providerSelection, setProviderSelection] = useState(
     knownProvider ? initialProviderType : CUSTOM_PROVIDER_OPTION,
   );
   const [credential, setCredential] = useState("");
   const [clearCredential, setClearCredential] = useState(false);
   const [busy, setBusy] = useState(false);
-  const endpointCount = Object.values(draft.endpoints).filter((value) => value?.trim()).length;
   const valid = Boolean(
     draft.name.trim()
       && draft.provider.trim()
-      && endpointCount > 0
+      && endpoint.trim()
       && !busy,
   );
 
@@ -1028,10 +1026,17 @@ function ModelProviderDialog({
     if (!valid) return;
     setBusy(true);
     try {
+      const normalizedEndpoint = endpoint.trim().replace(/\/$/, "");
+      const existingProtocols = initial
+        ? PROTOCOLS
+            .map((protocol) => protocol.id)
+            .filter((protocol) => initial.endpoints[protocol]?.trim())
+        : [];
+      const protocols = existingProtocols.length > 0
+        ? existingProtocols
+        : [draft.provider === "anthropic" ? "anthropic-messages" : "openai-responses"];
       const endpoints = Object.fromEntries(
-        Object.entries(draft.endpoints)
-          .filter(([, endpoint]) => endpoint?.trim())
-          .map(([protocol, endpoint]) => [protocol, endpoint!.trim().replace(/\/$/, "")]),
+        protocols.map((protocol) => [protocol, normalizedEndpoint]),
       ) as ModelProviderConfig["endpoints"];
       await onReview({
         ...draft,
@@ -1100,6 +1105,17 @@ function ModelProviderDialog({
               onChange={(value) => {
                 setProviderSelection(value);
                 if (value !== CUSTOM_PROVIDER_OPTION) {
+                  const previousDefault = providers.find(
+                    (provider) => provider.id === draft.provider,
+                  )?.default_base_url;
+                  const nextDefault = providers.find(
+                    (provider) => provider.id === value,
+                  )?.default_base_url;
+                  setEndpoint((current) =>
+                    !current.trim() || current === previousDefault
+                      ? nextDefault ?? ""
+                      : current
+                  );
                   setDraft({ ...draft, provider: value });
                 }
               }}
@@ -1116,25 +1132,17 @@ function ModelProviderDialog({
           </div>
         </div>
 
-        {PROTOCOLS.map((protocol) => (
-          <label key={protocol.id}>
-            <span>{t("models.providerEndpoint", { protocol: protocol.label })}</span>
-            <input
-              aria-label={t("models.providerEndpoint", { protocol: protocol.label })}
-              className="mux-model-field"
-              value={draft.endpoints[protocol.id] ?? ""}
-              onChange={(event) => {
-                const endpoint = event.currentTarget.value;
-                setDraft((current) => ({
-                  ...current,
-                  endpoints: { ...current.endpoints, [protocol.id]: endpoint },
-                }));
-              }}
-              placeholder="https://api.example.com/v1"
-              spellCheck={false}
-            />
-          </label>
-        ))}
+        <label>
+          <span>{t("models.baseUrl")}</span>
+          <input
+            aria-label={t("models.baseUrl")}
+            className="mux-model-field"
+            value={endpoint}
+            onChange={(event) => setEndpoint(event.currentTarget.value)}
+            placeholder="https://api.example.com/v1"
+            spellCheck={false}
+          />
+        </label>
 
         <div className="mux-model-form-grid">
           <label>

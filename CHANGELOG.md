@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.83](https://github.com/Scoheart/mux/compare/v1.8.82...v1.8.83) (2026-07-27)
+
+### Changes
+
+* fix(desktop): raise open form selects ([fdc9019](https://github.com/Scoheart/mux/commit/fdc9019c73b3d5f123389f667d5bf8cab8eda1cd))
+
 ## [1.8.82](https://github.com/Scoheart/mux/compare/v1.8.81...v1.8.82) (2026-07-27)
 
 ### Changes

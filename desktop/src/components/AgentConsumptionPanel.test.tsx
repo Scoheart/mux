@@ -177,7 +177,13 @@ describe("AgentConsumptionPanel", () => {
         rows={[modelRow, skillRow]}
         external={[]}
         present={(asset) => ({
-          name: asset.domain === "model" ? asset.profile_id : asset.domain === "skill" ? asset.name : asset.key,
+          name: asset.domain === "model"
+            ? asset.profile_id
+            : asset.domain === "model-provider"
+              ? asset.provider_id
+              : asset.domain === "skill"
+                ? asset.name
+                : asset.key,
         })}
         onManage={vi.fn()}
       />,

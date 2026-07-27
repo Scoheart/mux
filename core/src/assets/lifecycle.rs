@@ -11,7 +11,8 @@ use crate::paths::local_sources_dir;
 use crate::resources::mcp::registry::{read_registry, read_registry_all};
 use crate::resources::model::{
     credential_present, migrated_profiles_v2, model_agent_capability, prepare_profile_draft,
-    profile_credential_issue, provider_profiles,
+    prepare_provider_draft, profile_credential_issue, provider_credential_present,
+    provider_profiles,
 };
 use crate::settings::{load_settings_strict, Settings};
 use sha2::{Digest, Sha256};
@@ -233,9 +234,10 @@ pub fn plan_update_central_asset(
             credential,
         } => plan_model_upsert(existing_id, *profile, credential),
         CentralAssetDraft::ModelProvider {
+            existing_id,
             provider,
             credential,
-        } => plan_model_provider_upsert(*provider, credential),
+        } => plan_model_provider_upsert(existing_id, *provider, credential),
     }
 }
 
@@ -255,6 +257,15 @@ pub fn plan_delete_central_asset(
                 );
             }
             plan_model_delete(profile_id)
+        }
+        AssetRef::ModelProvider { provider_id } => {
+            if request.source_id.is_some() {
+                return Err(
+                    "invalid_asset_source: Model Provider assets do not have Registry sources"
+                        .into(),
+                );
+            }
+            plan_model_provider_delete(provider_id)
         }
         AssetRef::Skill { .. } => Err(
             "unsupported_asset_lifecycle: Skills use the verified Skill update/remove transaction"
@@ -408,50 +419,15 @@ fn plan_model_upsert(
     credential: Option<String>,
 ) -> Result<AssetOperationPlan, String> {
     let settings = load_settings_strict().map_err(|error| error.to_string())?;
-    let profile = prepare_profile_draft(&settings, existing_id.as_deref(), profile)?;
-    let mut credential = credential;
-    if existing_id.is_none() {
-        if let Some(provider_id) = profile.provider_id.as_deref() {
-            let credential_snapshots = settings
-                .model_profiles
-                .iter()
-                .flatten()
-                .filter(|(_, candidate)| candidate.provider_id.as_deref() == Some(provider_id))
-                .map(|(profile_id, _)| crate::resources::model::credential_snapshot(profile_id))
-                .collect::<BTreeSet<_>>();
-            if credential_snapshots.len() > 1 {
-                return Err(
-                    "model_provider_credential_drift: child Models no longer share one credential; edit the Provider and set a new API Key before adding a Model"
-                        .into(),
-                );
-            }
-            if let Some(shared_credential) = credential_snapshots.iter().next() {
-                match credential.as_deref() {
-                    None => {
-                        credential = shared_credential
-                            .as_deref()
-                            .map(|value| {
-                                String::from_utf8(value.to_vec()).map_err(|_| {
-                                    "model_provider_credential_invalid: stored API Key is not UTF-8"
-                                        .to_string()
-                                })
-                            })
-                            .transpose()?;
-                    }
-                    Some(value)
-                        if shared_credential.as_deref()
-                            != (!value.is_empty()).then_some(value.as_bytes()) =>
-                    {
-                        return Err(
-                            "model_provider_credential_change_requires_provider_update: edit the Provider to change its shared API Key"
-                                .into(),
-                        );
-                    }
-                    Some(_) => {}
-                }
-            }
-        }
+    if profile.provider_id.as_deref().is_none_or(str::is_empty) {
+        return Err("model_provider_required: create a Provider before adding a Model".into());
     }
+    if credential.is_some() {
+        return Err(
+            "model_credential_owned_by_provider: edit the Provider to change its API Key".into(),
+        );
+    }
+    let profile = prepare_profile_draft(&settings, existing_id.as_deref(), profile)?;
     let existing = settings
         .model_profiles
         .as_ref()
@@ -473,16 +449,11 @@ fn plan_model_upsert(
         }
     };
 
-    let credential_action = match credential.as_deref() {
-        None => CredentialAction::Keep,
-        Some("") => CredentialAction::Clear,
-        Some(_) => CredentialAction::Set,
-    };
-    let desired_credential_present = match credential_action {
-        CredentialAction::Keep => credential_present(&profile.id),
-        CredentialAction::Set => true,
-        CredentialAction::Clear => false,
-    };
+    let credential_action = CredentialAction::Keep;
+    let desired_credential_present = profile
+        .provider_id
+        .as_deref()
+        .is_some_and(provider_credential_present);
     let domain_plan = model_unchanged_consumers(&settings, &profile, desired_credential_present)?;
     let consumer_count = domain_agent_count(&domain_plan);
     let draft_hash = hash_serializable(&profile)?;
@@ -510,31 +481,17 @@ fn plan_model_upsert(
 }
 
 fn plan_model_provider_upsert(
+    existing_id: Option<String>,
     provider: ModelProviderConfig,
     credential: Option<String>,
 ) -> Result<AssetOperationPlan, String> {
     let settings = load_settings_strict().map_err(|error| error.to_string())?;
-    let existing = settings
-        .model_providers
-        .as_ref()
-        .and_then(|providers| providers.get(&provider.id))
-        .ok_or_else(|| "asset_operation_stale: Model Provider no longer exists".to_string())?;
-    if existing.id != provider.id {
-        return Err("asset_identity_change: Model Provider id cannot change".into());
-    }
-    if existing.provider != provider.provider {
-        return Err("asset_identity_change: Model Provider type cannot change".into());
-    }
-    if settings
-        .model_providers
-        .iter()
-        .flatten()
-        .any(|(id, candidate)| {
-            id != &provider.id && candidate.name.eq_ignore_ascii_case(provider.name.trim())
-        })
-    {
-        return Err("asset_identity_conflict: Model Provider name already exists".into());
-    }
+    let provider = prepare_provider_draft(&settings, existing_id.as_deref(), provider)?;
+    let action = if existing_id.is_some() {
+        CentralAssetAction::Update
+    } else {
+        CentralAssetAction::Create
+    };
     let profiles = provider_profiles(&settings, &provider)?;
     let profile_ids = profiles.keys().cloned().collect::<BTreeSet<_>>();
     let credential_action = match credential.as_deref() {
@@ -542,21 +499,8 @@ fn plan_model_provider_upsert(
         Some("") => CredentialAction::Clear,
         Some(_) => CredentialAction::Set,
     };
-    let credential_snapshots = profile_ids
-        .iter()
-        .map(|id| crate::resources::model::credential_snapshot(id))
-        .collect::<BTreeSet<_>>();
-    if credential_action == CredentialAction::Keep && credential_snapshots.len() > 1 {
-        return Err(
-            "model_provider_credential_drift: child Models no longer share one credential; set a new Provider API Key to repair them"
-                .into(),
-        );
-    }
     let desired_credential_present = match credential_action {
-        CredentialAction::Keep => credential_snapshots
-            .iter()
-            .next()
-            .is_some_and(Option::is_some),
+        CredentialAction::Keep => provider_credential_present(&provider.id),
         CredentialAction::Set => true,
         CredentialAction::Clear => false,
     };
@@ -572,16 +516,13 @@ fn plan_model_provider_upsert(
     };
     let summary =
         model_provider_upsert_summary(profile_ids.len(), &credential_action, consumer_count);
-    let central_changes = profile_ids
-        .iter()
-        .map(|profile_id| CentralAssetChange {
-            asset: AssetRef::Model {
-                profile_id: profile_id.clone(),
-            },
-            action: CentralAssetAction::Update,
-            summary: summary.clone(),
-        })
-        .collect();
+    let central_changes = vec![CentralAssetChange {
+        asset: AssetRef::ModelProvider {
+            provider_id: provider.id.clone(),
+        },
+        action,
+        summary,
+    }];
     let plan = finalize_plan_with(
         AssetOperationKind::UpdateAsset,
         domain_plan,
@@ -601,6 +542,44 @@ fn plan_model_provider_upsert(
             },
         );
     Ok(plan)
+}
+
+fn plan_model_provider_delete(provider_id: String) -> Result<AssetOperationPlan, String> {
+    let settings = load_settings_strict().map_err(|error| error.to_string())?;
+    let provider = settings
+        .model_providers
+        .as_ref()
+        .and_then(|providers| providers.get(&provider_id))
+        .ok_or_else(|| "asset_operation_stale: Model Provider no longer exists".to_string())?;
+    let referenced = settings
+        .model_profiles
+        .iter()
+        .flatten()
+        .filter(|(_, profile)| profile.provider_id.as_deref() == Some(provider_id.as_str()))
+        .map(|(_, profile)| profile.name.clone())
+        .collect::<Vec<_>>();
+    if !referenced.is_empty() {
+        return Err(format!(
+            "model_provider_in_use: delete or switch these Models first: {}",
+            referenced.join(", ")
+        ));
+    }
+    finalize_plan_with(
+        AssetOperationKind::DeleteAsset,
+        DomainPlan::Model {
+            before: BTreeMap::new(),
+            after: BTreeMap::new(),
+        },
+        vec![CentralAssetChange {
+            asset: AssetRef::ModelProvider {
+                provider_id: provider_id.clone(),
+            },
+            action: CentralAssetAction::Delete,
+            summary: vec![format!("删除 Provider「{}」", provider.name)],
+        }],
+        Vec::new(),
+        Some(LifecycleBinding::ModelProviderDelete { provider_id }),
+    )
 }
 
 fn plan_mcp_delete(key: String, source_id: Option<String>) -> Result<AssetOperationPlan, String> {
@@ -660,20 +639,13 @@ fn plan_mcp_delete(key: String, source_id: Option<String>) -> Result<AssetOperat
 
 fn plan_model_delete(profile_id: String) -> Result<AssetOperationPlan, String> {
     let settings = load_settings_strict().map_err(|error| error.to_string())?;
-    let profile = settings
+    if !settings
         .model_profiles
         .as_ref()
-        .and_then(|profiles| profiles.get(&profile_id))
-        .ok_or_else(|| "asset_operation_stale: Model Profile no longer exists".to_string())?;
-    let removes_provider = profile.provider_id.as_deref().is_some_and(|provider_id| {
-        settings
-            .model_profiles
-            .iter()
-            .flatten()
-            .filter(|(_, candidate)| candidate.provider_id.as_deref() == Some(provider_id))
-            .count()
-            == 1
-    });
+        .is_some_and(|profiles| profiles.contains_key(&profile_id))
+    {
+        return Err("asset_operation_stale: Model Profile no longer exists".into());
+    }
     let mut before = BTreeMap::new();
     let mut after = BTreeMap::new();
     let agent_ids: BTreeSet<String> = settings
@@ -702,7 +674,7 @@ fn plan_model_delete(profile_id: String) -> Result<AssetOperationPlan, String> {
     }
     let domain_plan = DomainPlan::Model { before, after };
     let consumer_count = domain_agent_count(&domain_plan);
-    let summary = model_delete_summary(consumer_count, removes_provider);
+    let summary = model_delete_summary(consumer_count, false);
     finalize_plan_with(
         AssetOperationKind::DeleteAsset,
         domain_plan,
@@ -1028,14 +1000,11 @@ fn model_schema_migration_summary(consumer_count: usize, credential_present: boo
     summary
 }
 
-fn model_delete_summary(consumer_count: usize, removes_provider: bool) -> Vec<String> {
+fn model_delete_summary(consumer_count: usize, _removes_provider: bool) -> Vec<String> {
     let mut summary = vec![
         "删除中央模型配置".into(),
-        "同时清理钥匙串中的 API Key（如有）".into(),
+        "保留关联的 Provider 与 API Key".into(),
     ];
-    if removes_provider {
-        summary.push("这是该 Provider 的最后一个 Model；空 Provider 也会一并删除".into());
-    }
     summary.push(if consumer_count == 0 {
         "当前没有已关联的 Agent，只删除中央配置".into()
     } else {
@@ -1196,7 +1165,7 @@ mod tests {
         let _home = TestHome::new("lifecycle-model-consumers");
         let profile = ModelProfile {
             id: "work".into(),
-            provider_id: None,
+            provider_id: Some("custom-provider".into()),
             name: "Work".into(),
             provider: "custom".into(),
             model_vendor: None,
@@ -1209,11 +1178,8 @@ mod tests {
             max_output_tokens: None,
             reasoning: Some(false),
         };
+        crate::resources::model::save_profile(profile.clone(), None).unwrap();
         mutate_settings(|settings| {
-            settings
-                .model_profiles
-                .get_or_insert_default()
-                .insert(profile.id.clone(), profile.clone());
             settings
                 .model_assignments
                 .get_or_insert_default()
@@ -1271,6 +1237,7 @@ mod tests {
         );
         let plan = plan_update_central_asset(PlanUpdateCentralAssetRequest {
             draft: CentralAssetDraft::ModelProvider {
+                existing_id: Some(edited.id.clone()),
                 provider: Box::new(edited),
                 credential: None,
             },
@@ -1278,18 +1245,22 @@ mod tests {
         .unwrap();
 
         assert_eq!(plan.affected_agent_ids, vec!["claude-code", "codex"]);
-        assert_eq!(plan.central_changes.len(), 2);
+        assert_eq!(plan.central_changes.len(), 1);
         assert!(plan.relationship_changes.is_empty());
-        for change in plan.central_changes {
-            assert_eq!(change.action, CentralAssetAction::Update);
-            assert_eq!(
-                change.summary,
-                vec![
-                    "更新共享 Provider 及其 2 个 Model",
-                    "将同步到 2 个已关联 Agent",
-                ]
-            );
-        }
+        assert_eq!(plan.central_changes[0].action, CentralAssetAction::Update);
+        assert_eq!(
+            plan.central_changes[0].asset,
+            AssetRef::ModelProvider {
+                provider_id: "team-gateway".into(),
+            }
+        );
+        assert_eq!(
+            plan.central_changes[0].summary,
+            vec![
+                "更新共享 Provider 及其 2 个 Model",
+                "将同步到 2 个已关联 Agent",
+            ]
+        );
     }
 
     #[test]
@@ -1312,6 +1283,7 @@ mod tests {
 
         let keep = plan_update_central_asset(PlanUpdateCentralAssetRequest {
             draft: CentralAssetDraft::ModelProvider {
+                existing_id: Some(provider.id.clone()),
                 provider: Box::new(provider.clone()),
                 credential: None,
             },
@@ -1321,12 +1293,93 @@ mod tests {
 
         let replace = plan_update_central_asset(PlanUpdateCentralAssetRequest {
             draft: CentralAssetDraft::ModelProvider {
+                existing_id: Some(provider.id.clone()),
                 provider: Box::new(provider),
                 credential: Some("new-shared-secret".into()),
             },
         })
         .unwrap();
         assert!(replace.can_commit);
+    }
+
+    #[test]
+    fn provider_can_exist_without_models_and_is_deleted_explicitly() {
+        let _home = TestHome::new("lifecycle-independent-provider");
+        let create = plan_update_central_asset(PlanUpdateCentralAssetRequest {
+            draft: CentralAssetDraft::ModelProvider {
+                existing_id: None,
+                provider: Box::new(ModelProviderConfig {
+                    id: String::new(),
+                    name: "Independent Gateway".into(),
+                    provider: "custom".into(),
+                    endpoints: BTreeMap::from([(
+                        ModelProtocol::OpenaiResponses,
+                        "https://gateway.example.test/v1".into(),
+                    )]),
+                    env_key: Some("TEAM_GATEWAY_KEY".into()),
+                }),
+                credential: Some("provider-secret".into()),
+            },
+        })
+        .unwrap();
+        let AssetRef::ModelProvider { provider_id } = &create.central_changes[0].asset else {
+            panic!("expected Provider central asset");
+        };
+        let provider_id = provider_id.clone();
+        crate::assets::commit_asset_operation(AssetCommitRequest {
+            operation_id: create.operation_id,
+            candidate_hash: create.candidate_hash,
+            conflict_confirmation: None,
+        })
+        .unwrap();
+
+        let settings = load_settings_strict().unwrap();
+        assert!(settings
+            .model_providers
+            .as_ref()
+            .unwrap()
+            .contains_key(&provider_id));
+        assert!(settings
+            .model_profiles
+            .as_ref()
+            .is_none_or(BTreeMap::is_empty));
+        assert!(provider_credential_present(&provider_id));
+
+        let delete = plan_delete_central_asset(PlanDeleteCentralAssetRequest {
+            asset: AssetRef::ModelProvider {
+                provider_id: provider_id.clone(),
+            },
+            source_id: None,
+        })
+        .unwrap();
+        crate::assets::commit_asset_operation(AssetCommitRequest {
+            operation_id: delete.operation_id,
+            candidate_hash: delete.candidate_hash,
+            conflict_confirmation: None,
+        })
+        .unwrap();
+        assert!(!load_settings_strict()
+            .unwrap()
+            .model_providers
+            .as_ref()
+            .is_some_and(|providers| providers.contains_key(&provider_id)));
+        assert!(!provider_credential_present(&provider_id));
+    }
+
+    #[test]
+    fn provider_delete_is_blocked_while_a_model_references_it() {
+        let _home = TestHome::new("lifecycle-provider-delete-blocked");
+        let (provider, first, _) = shared_provider_models();
+        crate::resources::model::save_profile(first.clone(), None).unwrap();
+        let error = plan_delete_central_asset(PlanDeleteCentralAssetRequest {
+            asset: AssetRef::ModelProvider {
+                provider_id: provider.id,
+            },
+            source_id: None,
+        })
+        .unwrap_err();
+        assert!(error.contains(&first.name), "{error}");
+        assert!(error.starts_with("model_provider_in_use:"), "{error}");
     }
 
     #[test]
@@ -1369,9 +1422,9 @@ mod tests {
             },
         })
         .unwrap_err();
-        assert!(
-            change_error.starts_with("model_provider_credential_change_requires_provider_update:"),
-            "{change_error}"
+        assert_eq!(
+            change_error,
+            "model_credential_owned_by_provider: edit the Provider to change its API Key"
         );
     }
 
@@ -1397,7 +1450,7 @@ mod tests {
             model_delete_summary(0, false),
             vec![
                 "删除中央模型配置",
-                "同时清理钥匙串中的 API Key（如有）",
+                "保留关联的 Provider 与 API Key",
                 "当前没有已关联的 Agent，只删除中央配置",
             ]
         );
@@ -1405,8 +1458,7 @@ mod tests {
             model_delete_summary(1, true),
             vec![
                 "删除中央模型配置",
-                "同时清理钥匙串中的 API Key（如有）",
-                "这是该 Provider 的最后一个 Model；空 Provider 也会一并删除",
+                "保留关联的 Provider 与 API Key",
                 "将从 1 个已关联 Agent 移除",
             ]
         );
@@ -1439,11 +1491,11 @@ mod tests {
     }
 
     #[test]
-    fn grok_model_edit_rejects_a_new_credential_without_env_key() {
+    fn model_edit_rejects_a_credential_owned_by_its_provider() {
         let _home = TestHome::new("lifecycle-grok-model-credential");
         let profile = ModelProfile {
             id: "work".into(),
-            provider_id: None,
+            provider_id: Some("openrouter-provider".into()),
             name: "Work".into(),
             provider: "openrouter".into(),
             model_vendor: Some("provider".into()),
@@ -1456,11 +1508,8 @@ mod tests {
             max_output_tokens: None,
             reasoning: Some(false),
         };
+        crate::resources::model::save_profile(profile.clone(), None).unwrap();
         mutate_settings(|settings| {
-            settings
-                .model_profiles
-                .get_or_insert_default()
-                .insert(profile.id.clone(), profile.clone());
             settings
                 .model_assignments
                 .get_or_insert_default()
@@ -1477,7 +1526,10 @@ mod tests {
         })
         .unwrap_err();
 
-        assert!(error.starts_with("grok_build_env_key_required:"));
+        assert_eq!(
+            error,
+            "model_credential_owned_by_provider: edit the Provider to change its API Key"
+        );
     }
 
     #[test]

@@ -38,7 +38,7 @@ pub struct ModelProfile {
     pub provider_id: Option<String>,
     /// API/计费渠道，例如 `openrouter`、`anthropic` 或 `custom`。
     /// v1 Profile 没有该字段；v2 migration 会在接管前补齐。
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub provider: String,
     /// 模型开发商。它与访问渠道正交，例如通过 OpenRouter 使用 Claude
     /// 时 provider 是 `openrouter`，model_vendor 是 `anthropic`。
@@ -49,6 +49,7 @@ pub struct ModelProfile {
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub native_ids: BTreeMap<String, String>,
     pub protocol: ModelProtocol,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub base_url: String,
     pub model: String,
     /// Optional environment variable name used by Agents such as Grok Build

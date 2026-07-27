@@ -92,7 +92,9 @@ async function openProviderTemplate(
   expect(catalog).toBeVisible();
   await user.click(within(catalog).getByRole("radio", { name: new RegExp(provider) }));
   await user.click(within(catalog).getByRole("button", { name: "使用此模板" }));
-  await waitFor(() => expect(screen.getByRole("heading", { name: "新建模型" })).toHaveFocus());
+  await waitFor(() =>
+    expect(screen.getByRole("heading", { name: "新建 Provider" })).toHaveFocus()
+  );
 }
 
 it("maps Models to one compact, scannable list", () => {
@@ -323,7 +325,9 @@ it("keeps the built-in Provider Catalog unfiltered, searchable, and keyboard-sel
   expect(within(catalog).getByText("已选择 OpenAI")).toBeVisible();
 
   await user.click(within(catalog).getByRole("button", { name: "使用此模板" }));
-  await waitFor(() => expect(screen.getByRole("heading", { name: "新建模型" })).toHaveFocus());
+  await waitFor(() => expect(screen.getByRole("heading", { name: "新建 Provider" })).toHaveFocus());
+  expect(screen.getByLabelText("OpenAI Responses Endpoint")).toHaveValue("https://api.openai.com/v1");
+  expect(screen.getByText("API Key")).toBeVisible();
   expect(source).toMatch(/<DialogShell\s+[\s\S]*?kind="picker"/);
   expect(source).not.toMatch(/ProviderCatalogDrawer|provider-catalog-drawer/);
 });
@@ -393,16 +397,21 @@ it("renders model details as one continuous field list without section cards", a
   expect(within(inspector).getByRole("button", { name: "编辑" })).toBeVisible();
 });
 
-it("supports env-only Agent metadata without storing a secret value", () => {
-  expect(source).toMatch(/t\("models\.apiKeyEnv"\)/);
-  expect(source).toMatch(/env_key: draft\.env_key\?\.trim\(\) \|\| undefined/);
-  expect(source).toMatch(/t\("models\.apiKeyEnvHelp"\)/);
+it("keeps environment and credential metadata on Provider rather than Model forms", () => {
+  const modelDialog = source.slice(
+    source.indexOf("function ModelProfileDialog"),
+    source.indexOf("function ModelProviderDialog"),
+  );
+  const providerDialog = source.slice(source.indexOf("function ModelProviderDialog"));
+  expect(modelDialog).not.toMatch(/models\.apiKeyEnv|models\.apiKey"\)/);
+  expect(providerDialog).toMatch(/t\("models\.apiKeyEnv"\)/);
+  expect(providerDialog).toMatch(/env_key: draft\.env_key\?\.trim\(\) \|\| undefined/);
   expect(agentSource).toMatch(/modelAgent\.credential_mode === "environment-reference"/);
   expect(agentSource).toMatch(/ENV · \$\{profile\.env_key\}/);
   expect(agentSource).toMatch(/需要 ENV/);
 });
 
-it("uses the unified model provider select with a conditional custom ID field", () => {
+it("requires Model forms to select a persisted Provider relationship", () => {
   const profileDialog = source.indexOf("function ModelProfileDialog");
   const providerField = source.slice(
     source.indexOf('<span>{t("models.provider")}</span>', profileDialog),
@@ -411,22 +420,11 @@ it("uses the unified model provider select with a conditional custom ID field", 
   expect(providerField).toMatch(/<FormSelect\s+[\s\S]*?ariaLabel=\{t\("models\.provider"\)\}/);
   expect(providerField).not.toMatch(/自动识别/);
   expect(providerField).toMatch(/placeholder=\{t\("models\.providerPlaceholder"\)\}/);
-  expect(providerField).toMatch(/\{ value: CUSTOM_PROVIDER_OPTION, label: t\("models\.customProvider"\) \}/);
-  expect(providerField).toMatch(/providerSelection === CUSTOM_PROVIDER_OPTION/);
-  expect(providerField).toMatch(/aria-label=\{t\("models\.customProviderId"\)\}/);
+  expect(providerField).toMatch(/options=\{providerInstances\.map/);
+  expect(providerField).not.toMatch(/CUSTOM_PROVIDER_OPTION|customProviderId/);
   expect(providerField).not.toMatch(/<select|datalist/);
-  expect(providerField).not.toMatch(/<small>/);
-  const protocolField = source.slice(
-    source.indexOf('<span>{t("models.protocol")}</span>', profileDialog),
-    source.indexOf('<span>{t("models.baseUrl")}</span>', profileDialog),
-  );
-  const baseUrlField = source.slice(
-    source.indexOf('<span>{t("models.baseUrl")}</span>', profileDialog),
-    source.indexOf('<span>{t("models.modelId")}</span>', profileDialog),
-  );
-  expect(protocolField).not.toMatch(/<small>/);
-  expect(baseUrlField).not.toMatch(/<small>/);
-  expect(source).toMatch(/provider: draft\.provider\.trim\(\)/);
+  expect(providerField).toMatch(/models\.providerRequired/);
+  expect(source).toMatch(/provider_id: provider\.id/);
 });
 
 it("uses one custom select surface for model provider, protocol, and reasoning", () => {
@@ -438,7 +436,7 @@ it("uses one custom select surface for model provider, protocol, and reasoning",
   expect(css).toMatch(/background: var\(--surface-popover\)/);
 });
 
-it("fills and switches a known Provider default until the Base URL is edited", async () => {
+it("fills a standalone Provider form from the selected catalog template", async () => {
   const user = userEvent.setup();
   const consumptionState = { plan: null, planUpdate: vi.fn() } as unknown as ConsumptionState;
 
@@ -449,35 +447,16 @@ it("fills and switches a known Provider default until the Base URL is edited", a
   );
 
   await openProviderTemplate(user, "OpenRouter");
-  const provider = screen.getByRole("combobox", { name: "模型提供商" });
-  const baseUrl = screen.getByLabelText("Base URL");
-
-  await chooseFormSelect(user, "模型提供商", "OpenRouter");
-  expect(baseUrl).toHaveValue("https://openrouter.ai/api/v1");
-
-  await chooseFormSelect(user, "模型提供商", "OpenAI");
-  expect(baseUrl).toHaveValue("https://api.openai.com/v1");
-
-  await chooseFormSelect(user, "模型提供商", "自定义模型提供商…");
-  expect(baseUrl).toHaveValue("");
-  await user.type(screen.getByLabelText("自定义模型提供商 ID"), "my-gateway");
-
-  await chooseFormSelect(user, "模型提供商", "OpenRouter");
-  expect(baseUrl).toHaveValue("https://openrouter.ai/api/v1");
-  expect(screen.queryByLabelText("自定义模型提供商 ID")).not.toBeInTheDocument();
-
-  await user.clear(baseUrl);
-  await chooseFormSelect(user, "模型提供商", "OpenAI");
-  expect(baseUrl).toHaveValue("");
-
-  await user.type(baseUrl, "https://gateway.example.test/v1");
-  await chooseFormSelect(user, "模型提供商", "OpenRouter");
-  expect(baseUrl).toHaveValue("https://gateway.example.test/v1");
-  expect(provider).toHaveTextContent("OpenRouter");
-  expect(screen.queryByLabelText("自定义模型提供商 ID")).not.toBeInTheDocument();
+  expect(screen.getByRole("heading", { name: "新建 Provider" })).toBeVisible();
+  expect(screen.getByRole("combobox", { name: "Provider 类型" })).toHaveTextContent("OpenRouter");
+  expect(screen.getByLabelText("OpenAI Responses Endpoint")).toHaveValue(
+    "https://openrouter.ai/api/v1",
+  );
+  expect(screen.getByText("API Key")).toBeVisible();
+  expect(screen.getByText("API Key 环境变量")).toBeVisible();
 });
 
-it("does not overwrite a Base URL that was entered before the Provider", async () => {
+it("keeps an explicitly entered Provider endpoint while changing its type", async () => {
   const user = userEvent.setup();
   const consumptionState = { plan: null, planUpdate: vi.fn() } as unknown as ConsumptionState;
 
@@ -488,85 +467,39 @@ it("does not overwrite a Base URL that was entered before the Provider", async (
   );
 
   await openProviderTemplate(user, "Custom Provider");
-  const baseUrl = screen.getByLabelText("Base URL");
+  const endpoint = screen.getByLabelText("OpenAI Responses Endpoint");
 
-  await user.type(baseUrl, "https://gateway.example.test/v1");
-  await chooseFormSelect(user, "模型提供商", "OpenRouter");
+  await user.type(endpoint, "https://gateway.example.test/v1");
+  await chooseFormSelect(user, "Provider 类型", "OpenRouter");
 
-  expect(baseUrl).toHaveValue("https://gateway.example.test/v1");
-  expect(screen.getByRole("combobox", { name: "模型提供商" })).toHaveTextContent("OpenRouter");
+  expect(endpoint).toHaveValue("https://gateway.example.test/v1");
+  expect(screen.getByRole("combobox", { name: "Provider 类型" })).toHaveTextContent("OpenRouter");
   expect(screen.queryByLabelText("自定义模型提供商 ID")).not.toBeInTheDocument();
 });
 
-it("infers a known Provider from Base URL while keeping later manual selection authoritative", async () => {
-  const user = userEvent.setup();
-  const consumptionState = { plan: null, planUpdate: vi.fn() } as unknown as ConsumptionState;
-
-  render(
-    <ToastProvider>
-      <ModelsView consumptionState={consumptionState} />
-    </ToastProvider>,
-  );
-
-  await openProviderTemplate(user, "Custom Provider");
-  const provider = screen.getByRole("combobox", { name: "模型提供商" });
-  const baseUrl = screen.getByLabelText("Base URL");
-
-  expect(provider).toHaveTextContent("自定义模型提供商…");
-  await chooseFormSelect(user, "模型提供商", "OpenAI");
-  await user.clear(baseUrl);
-  await user.type(baseUrl, "https://openrouter.ai/api/v1");
-
-  await waitFor(() => expect(provider).toHaveTextContent("OpenRouter"));
-  expect(api.inferModelProvider).toHaveBeenLastCalledWith("https://openrouter.ai/api/v1");
-
-  await chooseFormSelect(user, "模型提供商", "OpenAI");
-  expect(provider).toHaveTextContent("OpenAI");
-  expect(baseUrl).toHaveValue("https://openrouter.ai/api/v1");
-});
-
-it("infers OpenRouter when editing a historical profile with only its Base URL", async () => {
-  vi.mocked(api.listModelProfiles).mockResolvedValue([{
-    id: "historical-openrouter",
-    name: "Historical OpenRouter",
-    provider: "",
-    protocol: "openai-completions",
-    base_url: "https://openrouter.ai/api/v1",
-    model: "openrouter/free",
-    reasoning: false,
-    catalog_key: "openrouter/free",
-    credential_saved: false,
-  }]);
-  const user = userEvent.setup();
-  const consumptionState = { plan: null, planUpdate: vi.fn() } as unknown as ConsumptionState;
-
-  render(
-    <ToastProvider>
-      <ModelsView consumptionState={consumptionState} />
-    </ToastProvider>,
-  );
-
-  await user.click(await screen.findByRole("button", { name: "打开模型 Historical OpenRouter 详情" }));
-  await user.click(screen.getByRole("button", { name: "编辑" }));
-
-  const provider = await screen.findByRole("combobox", { name: "模型提供商" });
-  await waitFor(() => expect(provider).toHaveTextContent("OpenRouter"));
-  expect(api.inferModelProvider).toHaveBeenCalledWith("https://openrouter.ai/api/v1");
-  expect(screen.queryByLabelText("自定义模型提供商 ID")).not.toBeInTheDocument();
-
-  await user.click(screen.getByRole("button", { name: "保存" }));
-  await waitFor(() => expect(consumptionState.planUpdate).toHaveBeenCalledWith(
-    expect.objectContaining({
-      existing_id: "historical-openrouter",
-      profile: expect.objectContaining({ provider: "openrouter" }),
-    }),
-  ));
-});
-
-it("does not overwrite the Base URL of an existing model", async () => {
+it("switches an existing Model to another persisted Provider relationship", async () => {
+  vi.mocked(api.listModelProviderInstances).mockResolvedValue([
+    {
+      id: "custom-provider",
+      name: "Custom Team",
+      provider: "custom",
+      endpoints: { "openai-responses": "https://gateway.example.test/v1" },
+      credential_saved: false,
+      model_count: 1,
+    },
+    {
+      id: "openrouter-provider",
+      name: "OpenRouter Team",
+      provider: "openrouter",
+      endpoints: { "openai-responses": "https://openrouter.ai/api/v1" },
+      credential_saved: true,
+      model_count: 0,
+    },
+  ]);
   vi.mocked(api.listModelProfiles).mockResolvedValue([{
     id: "existing-model",
     name: "Existing Model",
+    provider_id: "custom-provider",
     provider: "custom",
     protocol: "openai-responses",
     base_url: "https://gateway.example.test/v1",
@@ -591,21 +524,27 @@ it("does not overwrite the Base URL of an existing model", async () => {
   const editor = screen.getByRole("complementary", { name: "编辑模型 详情" });
   expect(editor).toBeVisible();
   expect(within(editor).getByRole("heading", { name: "编辑模型" })).toBeVisible();
-  expect(within(editor).getByText("API Key 保存在 macOS Keychain。")).toBeVisible();
+  expect(within(editor).getByText("模型必须引用一个 Provider；连接与凭据由 Provider 统一管理。")).toBeVisible();
   expect(within(editor).queryByText("编辑 · OpenAI Responses")).not.toBeInTheDocument();
   expect(screen.queryByRole("dialog", { name: "编辑模型" })).not.toBeInTheDocument();
 
   const provider = screen.getByRole("combobox", { name: "模型提供商" });
-  expect(provider).toHaveTextContent("自定义模型提供商…");
-  expect(screen.getByLabelText("自定义模型提供商 ID")).toHaveValue("custom");
-  await chooseFormSelect(user, "模型提供商", "OpenRouter");
-
-  expect(screen.getByLabelText("Base URL")).toHaveValue("https://gateway.example.test/v1");
-  expect(provider).toHaveTextContent("OpenRouter");
-  expect(screen.queryByLabelText("自定义模型提供商 ID")).not.toBeInTheDocument();
+  expect(provider).toHaveTextContent("Custom Team");
+  await chooseFormSelect(user, "模型提供商", "OpenRouter Team");
+  expect(provider).toHaveTextContent("OpenRouter Team");
+  expect(screen.getByLabelText("Provider Endpoint（只读）")).toHaveValue(
+    "https://openrouter.ai/api/v1",
+  );
+  await user.click(screen.getByRole("button", { name: "保存" }));
+  await waitFor(() => expect(consumptionState.planUpdate).toHaveBeenCalledWith(
+    expect.objectContaining({
+      existing_id: "existing-model",
+      profile: expect.objectContaining({ provider_id: "openrouter-provider" }),
+    }),
+  ));
 });
 
-it("submits an arbitrary Provider ID through the central asset plan", async () => {
+it("submits an independent custom Provider through the central asset plan", async () => {
   const user = userEvent.setup();
   const planUpdate = vi.fn().mockResolvedValue({ operation_id: "model-plan" });
   const consumptionState = { plan: null, planUpdate } as unknown as ConsumptionState;
@@ -618,23 +557,36 @@ it("submits an arbitrary Provider ID through the central asset plan", async () =
 
   await openProviderTemplate(user, "Custom Provider");
   await user.type(screen.getByLabelText("自定义模型提供商 ID"), "my-gateway");
-  await user.type(screen.getByPlaceholderText("https://api.example.com/v1"), "https://models.example.test/v1/");
-  await user.type(screen.getByPlaceholderText("model-name"), "custom-model");
+  await user.type(
+    screen.getByLabelText("OpenAI Responses Endpoint"),
+    "https://models.example.test/v1/",
+  );
   await user.click(screen.getByRole("button", { name: "保存" }));
 
   await waitFor(() => expect(planUpdate).toHaveBeenCalledTimes(1));
-  expect(planUpdate).toHaveBeenCalledWith(expect.objectContaining({
-    domain: "model",
-    profile: expect.objectContaining({
+  expect(planUpdate).toHaveBeenCalledWith({
+    domain: "model-provider",
+    existing_id: undefined,
+    provider: expect.objectContaining({
+      id: "",
       provider: "my-gateway",
-      base_url: "https://models.example.test/v1",
-      model: "custom-model",
+      endpoints: expect.objectContaining({
+        "openai-responses": "https://models.example.test/v1",
+      }),
     }),
-  }));
-  expect(planUpdate.mock.calls[0][0].profile.reasoning).toBeUndefined();
+    credential: undefined,
+  });
 });
 
-it("shows every supported profile field directly and writes explicit reasoning overrides", async () => {
+it("keeps Model fields local while writing an explicit Provider reference", async () => {
+  vi.mocked(api.listModelProviderInstances).mockResolvedValue([{
+    id: "openrouter-team-a",
+    name: "OpenRouter Team",
+    provider: "openrouter",
+    endpoints: { "openai-responses": "https://openrouter.ai/api/v1" },
+    credential_saved: true,
+    model_count: 0,
+  }]);
   const user = userEvent.setup();
   const planUpdate = vi.fn().mockResolvedValue({ operation_id: "model-plan" });
   const consumptionState = { plan: null, planUpdate } as unknown as ConsumptionState;
@@ -645,11 +597,12 @@ it("shows every supported profile field directly and writes explicit reasoning o
     </ToastProvider>,
   );
 
-  await openProviderTemplate(user, "OpenRouter");
+  await user.click(await screen.findByRole("button", { name: "添加模型" }));
   expect(screen.queryByText("高级设置")).not.toBeInTheDocument();
   expect(screen.getByLabelText("上下文窗口")).toHaveValue(null);
   expect(screen.getByLabelText("最大输出")).toHaveValue(null);
-  expect(screen.getByPlaceholderText("MY_API_KEY")).toHaveValue("");
+  expect(screen.queryByPlaceholderText("MY_API_KEY")).not.toBeInTheDocument();
+  expect(screen.queryByText("API Key")).not.toBeInTheDocument();
   expect(screen.getByRole("combobox", { name: "推理" })).toHaveTextContent("自动");
 
   await chooseFormSelect(user, "推理", "关闭");
@@ -658,7 +611,10 @@ it("shows every supported profile field directly and writes explicit reasoning o
 
   await waitFor(() => expect(planUpdate).toHaveBeenCalledTimes(1));
   const submitted = planUpdate.mock.calls[0][0].profile;
-  expect(submitted).toEqual(expect.objectContaining({ reasoning: false, env_key: undefined }));
+  expect(submitted).toEqual(expect.objectContaining({
+    provider_id: "openrouter-team-a",
+    reasoning: false,
+  }));
   expect(submitted).not.toHaveProperty("context_window");
   expect(submitted).not.toHaveProperty("max_output_tokens");
 });
@@ -700,7 +656,9 @@ it("adds another Model to an existing Provider without repeating shared connecti
   await user.click(screen.getByRole("button", { name: "添加模型" }));
 
   expect(screen.getByRole("heading", { name: "新建模型" })).toBeVisible();
-  expect(screen.queryByRole("combobox", { name: "模型提供商" })).not.toBeInTheDocument();
+  expect(screen.getByRole("combobox", { name: "模型提供商" })).toHaveTextContent(
+    "OpenRouter Team",
+  );
   expect(screen.queryByLabelText("Base URL")).not.toBeInTheDocument();
   expect(screen.queryByText("API Key")).not.toBeInTheDocument();
   expect(screen.queryByText("API Key 环境变量")).not.toBeInTheDocument();
@@ -718,7 +676,6 @@ it("adds another Model to an existing Provider without repeating shared connecti
       base_url: "https://openrouter.ai/api/v1",
       model: "anthropic/claude-sonnet-4",
     }),
-    credential: undefined,
   })));
 });
 
@@ -756,6 +713,7 @@ it("edits one Provider configuration through a single central asset plan", async
 
   await waitFor(() => expect(planUpdate).toHaveBeenCalledWith({
     domain: "model-provider",
+    existing_id: "openrouter-team-a",
     provider: expect.objectContaining({
       id: "openrouter-team-a",
       name: "OpenRouter Team",

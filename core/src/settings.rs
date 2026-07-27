@@ -27,7 +27,7 @@ use std::io::{Error, ErrorKind};
 use std::path::Path;
 use std::sync::Mutex;
 
-pub const SETTINGS_VERSION: u32 = 3;
+pub const SETTINGS_VERSION: u32 = 4;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
 pub struct UiSettings {
@@ -139,6 +139,35 @@ pub struct Settings {
 }
 
 impl Settings {
+    /// Hydrate Provider-owned connection fields for runtime consumers while
+    /// keeping them out of persisted Model records.
+    fn hydrate_model_provider_fields(&mut self) {
+        let Some(providers) = self.model_providers.as_ref() else {
+            return;
+        };
+        for profile in self
+            .model_profiles
+            .iter_mut()
+            .flatten()
+            .map(|(_, profile)| profile)
+        {
+            let Some(provider) = profile
+                .provider_id
+                .as_deref()
+                .and_then(|provider_id| providers.get(provider_id))
+            else {
+                continue;
+            };
+            profile.provider = provider.provider.clone();
+            profile.base_url = provider
+                .endpoints
+                .get(&profile.protocol)
+                .cloned()
+                .unwrap_or_default();
+            profile.env_key = provider.env_key.clone();
+        }
+    }
+
     /// Return the canonical Model state while transparently projecting legacy
     /// `model_assignments` into an enabled installed relationship.
     pub fn model_selection(&self, agent_id: &str) -> crate::domain::assets::ModelAgentSelection {
@@ -215,7 +244,7 @@ fn read_optional(path: &Path) -> std::io::Result<Option<String>> {
 
 fn parse_for_update(path: &Path) -> std::io::Result<(Settings, Option<String>)> {
     let original = read_optional(path)?;
-    let settings = match original.as_deref() {
+    let mut settings = match original.as_deref() {
         Some(content) => serde_json::from_str(content).map_err(|error| {
             Error::new(
                 ErrorKind::InvalidData,
@@ -228,6 +257,7 @@ fn parse_for_update(path: &Path) -> std::io::Result<(Settings, Option<String>)> 
         })?,
         None => Settings::default(),
     };
+    settings.hydrate_model_provider_fields();
     Ok((settings, original))
 }
 
@@ -242,6 +272,18 @@ fn save_with_expected(
 ) -> std::io::Result<()> {
     let mut settings = settings.clone();
     settings.version.get_or_insert(SETTINGS_VERSION);
+    if settings.version.unwrap_or_default() >= 4 {
+        for profile in settings
+            .model_profiles
+            .iter_mut()
+            .flatten()
+            .map(|(_, profile)| profile)
+        {
+            profile.provider.clear();
+            profile.base_url.clear();
+            profile.env_key = None;
+        }
+    }
     let json = serde_json::to_string_pretty(&settings)
         .map_err(|error| Error::new(ErrorKind::InvalidData, error))?;
     write_private_if_unchanged(path, original, &json).map_err(Error::other)
@@ -407,8 +449,11 @@ pub fn migrate_if_needed() {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::types::{RegistryConfig, StdioConfig};
+    use crate::domain::types::{
+        ModelProfile, ModelProtocol, ModelProviderConfig, RegistryConfig, StdioConfig,
+    };
     use crate::safe_write::acquire_settings_lock;
+    use crate::testenv::TestHome;
     use std::sync::mpsc;
     use std::time::Duration;
 
@@ -431,6 +476,61 @@ mod tests {
         assert!(back.contains("futureThing"));
         assert!(back.contains("\"active\""));
         assert!(back.contains("2026-01-02T03:04:05"));
+    }
+
+    #[test]
+    fn v4_persists_provider_connection_only_once_and_hydrates_models_on_read() {
+        let _home = TestHome::new("settings-model-provider-v4");
+        let provider = ModelProviderConfig {
+            id: "team-provider".into(),
+            name: "Team Provider".into(),
+            provider: "custom".into(),
+            endpoints: BTreeMap::from([(
+                ModelProtocol::OpenaiResponses,
+                "https://gateway.example.test/v1".into(),
+            )]),
+            env_key: Some("TEAM_API_KEY".into()),
+        };
+        let profile = ModelProfile {
+            id: "team-model".into(),
+            name: "Team Model".into(),
+            provider_id: Some(provider.id.clone()),
+            provider: provider.provider.clone(),
+            model_vendor: None,
+            native_ids: BTreeMap::new(),
+            protocol: ModelProtocol::OpenaiResponses,
+            base_url: provider.endpoints[&ModelProtocol::OpenaiResponses].clone(),
+            model: "model-id".into(),
+            env_key: provider.env_key.clone(),
+            context_window: None,
+            max_output_tokens: None,
+            reasoning: None,
+        };
+        save_settings(&Settings {
+            version: Some(SETTINGS_VERSION),
+            model_providers: Some(BTreeMap::from([(provider.id.clone(), provider.clone())])),
+            model_profiles: Some(BTreeMap::from([(profile.id.clone(), profile)])),
+            ..Default::default()
+        })
+        .unwrap();
+
+        let raw: Value = serde_json::from_str(
+            &fs::read_to_string(settings_file()).expect("settings should exist"),
+        )
+        .unwrap();
+        let persisted = &raw["model_profiles"]["team-model"];
+        assert!(persisted.get("provider").is_none());
+        assert!(persisted.get("base_url").is_none());
+        assert!(persisted.get("env_key").is_none());
+        assert_eq!(persisted["provider_id"], provider.id);
+
+        let hydrated = load_settings_strict().unwrap().model_profiles.unwrap();
+        assert_eq!(hydrated["team-model"].provider, provider.provider);
+        assert_eq!(
+            hydrated["team-model"].base_url,
+            provider.endpoints[&ModelProtocol::OpenaiResponses]
+        );
+        assert_eq!(hydrated["team-model"].env_key, provider.env_key);
     }
 
     #[test]

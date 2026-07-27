@@ -3,6 +3,7 @@ import type { AssetRef, ConsumptionInventory, ConsumptionView } from "./types";
 export function assetIdentity(asset: AssetRef): string {
   if (asset.domain === "mcp") return asset.key;
   if (asset.domain === "model") return asset.profile_id;
+  if (asset.domain === "model-provider") return asset.provider_id;
   return asset.name;
 }
 

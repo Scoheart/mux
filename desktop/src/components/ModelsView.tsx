@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
-  inferModelProvider,
   listModelProfiles,
   listModelProviderInstances,
   listModelProviders,
@@ -124,7 +123,7 @@ export function ModelsView({
   const [providerCatalogOpen, setProviderCatalogOpen] = useState(false);
   const [creatingForProviderId, setCreatingForProviderId] = useState<string | null>(null);
   const [creatingProviderTemplate, setCreatingProviderTemplate] = useState<ModelProviderView | null>(null);
-  const [editingProvider, setEditingProvider] = useState<ModelProviderInstanceView | null>(null);
+  const [editingProvider, setEditingProvider] = useState<ModelProviderInstanceView | null | undefined>(undefined);
   const [selectedProfileId, setSelectedProfileId] = useState<string | null>(null);
   const [editing, setEditing] = useState<ModelProfileView | null | undefined>(undefined);
   const [loading, setLoading] = useState(true);
@@ -186,6 +185,7 @@ export function ModelsView({
         profile.model,
         profile.base_url,
         profile.provider,
+        profileProviderName(profile, providerInstances, providers),
         profile.catalog_key,
         protocolLabel(profile.protocol),
       ]
@@ -193,7 +193,7 @@ export function ModelsView({
         .toLocaleLowerCase()
         .includes(needle);
     });
-  }, [profiles, providerFilter, query]);
+  }, [profiles, providerFilter, providerInstances, providers, query]);
 
   const selectedProfile = profiles.find((profile) => profile.id === selectedProfileId) ?? null;
   const selectedProvider = providerInstances.find((provider) => provider.id === providerFilter) ?? null;
@@ -246,9 +246,9 @@ export function ModelsView({
                 onClick={() => { clearSelection(); setProviderFilter(null); }}
               />
             </SidebarSection>
-            {providerInstances.some((provider) => provider.model_count > 0) && (
+            {providerInstances.length > 0 && (
               <SidebarSection title={t("models.myProviders")}>
-                {providerInstances.filter((provider) => provider.model_count > 0).map((provider) => (
+                {providerInstances.map((provider) => (
                   <SidebarItem
                     key={provider.id}
                     active={providerFilter === provider.id}
@@ -279,32 +279,34 @@ export function ModelsView({
               <PlusIcon className="w-4 h-4" />
               {t("models.addProvider")}
             </button>
-            {providerFilter && (
-              <button className="btn-primary" type="button" disabled={!consumptionState} onClick={() => {
+            <button className="btn-primary" type="button" disabled={!consumptionState} onClick={() => {
+              if (providerInstances.length === 0) {
+                setProviderCatalogOpen(true);
+                toast.show({ kind: "error", msg: t("models.providerRequired") });
+                return;
+              }
                 clearSelection();
-                setCreatingForProviderId(providerFilter);
+                setCreatingForProviderId(providerFilter ?? providerInstances[0].id);
                 setEditing(null);
               }}>
                 <PlusIcon className="w-4 h-4" />
                 {t("models.addModel")}
               </button>
-            )}
           </>
         }
         inspector={selectedProfile && editing?.id === selectedProfile.id ? (
           <ModelProfileDialog
             initial={editing}
-            providers={providers}
-            providerInstance={providerInstances.find((provider) => provider.id === editing.provider_id) ?? null}
+            providerInstances={providerInstances}
+            preferredProviderId={editing.provider_id}
             presentation="inspector"
             onClose={clearSelection}
-            onReview={async (profile, credential) => {
+            onReview={async (profile) => {
               if (!consumptionState) throw new Error(t("models.saveUnavailable"));
               await consumptionState.planUpdate({
                 domain: "model",
                 existing_id: editing.id,
                 profile,
-                credential,
               });
               clearSelection();
             }}
@@ -325,6 +327,19 @@ export function ModelsView({
           <ProviderBanner
             provider={selectedProvider}
             onEdit={consumptionState ? () => setEditingProvider(selectedProvider) : undefined}
+            onDelete={consumptionState ? async () => {
+              try {
+                await consumptionState.planDelete({
+                  domain: "model-provider",
+                  provider_id: selectedProvider.id,
+                });
+              } catch (error) {
+                toast.show({
+                  kind: "error",
+                  msg: t("models.cannotDeleteProvider", { error: formatError(error) }),
+                });
+              }
+            } : undefined}
           />
         )}
         {loading ? (
@@ -378,7 +393,7 @@ export function ModelsView({
           onUse={(provider) => {
             setProviderCatalogOpen(false);
             setCreatingProviderTemplate(provider);
-            setEditing(null);
+            setEditingProvider(null);
           }}
         />
       )}
@@ -386,20 +401,18 @@ export function ModelsView({
       {editing === null && (
         <ModelProfileDialog
           initial={editing}
-          providers={providers}
-          providerInstance={providerInstances.find((provider) => provider.id === creatingForProviderId) ?? null}
-          providerTemplate={creatingProviderTemplate}
+          providerInstances={providerInstances}
+          preferredProviderId={creatingForProviderId}
           onClose={() => {
             setEditing(undefined);
             setCreatingProviderTemplate(null);
           }}
-          onReview={async (profile, credential) => {
+          onReview={async (profile) => {
             if (!consumptionState) throw new Error(t("models.saveUnavailable"));
             await consumptionState.planUpdate({
               domain: "model",
               existing_id: undefined,
               profile,
-              credential,
             });
             setEditing(undefined);
             setCreatingForProviderId(null);
@@ -408,19 +421,25 @@ export function ModelsView({
         />
       )}
 
-      {editingProvider && (
+      {editingProvider !== undefined && (
         <ModelProviderDialog
           initial={editingProvider}
+          providerTemplate={creatingProviderTemplate}
           providers={providers}
-          onClose={() => setEditingProvider(null)}
+          onClose={() => {
+            setEditingProvider(undefined);
+            setCreatingProviderTemplate(null);
+          }}
           onReview={async (provider, credential) => {
             if (!consumptionState) throw new Error(t("models.saveUnavailable"));
             await consumptionState.planUpdate({
               domain: "model-provider",
+              existing_id: editingProvider?.id,
               provider,
               credential,
             });
-            setEditingProvider(null);
+            setEditingProvider(undefined);
+            setCreatingProviderTemplate(null);
           }}
         />
       )}
@@ -431,7 +450,13 @@ export function ModelsView({
           busy={consumptionState.committing}
           error={consumptionState.error}
           assetDisplayNames={Object.fromEntries(
-            profiles.map((profile) => [`model:${profile.id}`, profile.name]),
+            [
+              ...profiles.map((profile) => [`model:${profile.id}`, profile.name] as const),
+              ...providerInstances.map((provider) => [
+                `model-provider:${provider.id}`,
+                provider.name,
+              ] as const),
+            ],
           )}
           onCancel={consumptionState.cancel}
           onCommit={async (conflictConfirmation) => {
@@ -453,9 +478,11 @@ export function ModelsView({
 function ProviderBanner({
   provider,
   onEdit,
+  onDelete,
 }: {
   provider: ModelProviderInstanceView;
   onEdit?: () => void;
+  onDelete?: () => void;
 }) {
   const { t } = useTranslation();
   return (
@@ -467,10 +494,16 @@ function ProviderBanner({
           {provider.credential_saved ? t("models.keychainSaved") : t("models.keychainNotSaved")}
         </Badge>
       </div>
-      <button className="btn-secondary" type="button" disabled={!onEdit} onClick={onEdit}>
-        <EditIcon className="w-4 h-4" />
-        {t("models.editProvider")}
-      </button>
+      <div className="flex items-center gap-2">
+        <button className="btn-danger" type="button" disabled={!onDelete} onClick={onDelete}>
+          <TrashIcon className="w-4 h-4" />
+          {t("common.delete")}
+        </button>
+        <button className="btn-secondary" type="button" disabled={!onEdit} onClick={onEdit}>
+          <EditIcon className="w-4 h-4" />
+          {t("models.editProvider")}
+        </button>
+      </div>
     </div>
   );
 }
@@ -707,138 +740,65 @@ function ProviderCatalogDialog({
 
 function ModelProfileDialog({
   initial,
-  providers,
-  providerInstance,
-  providerTemplate = null,
+  providerInstances,
+  preferredProviderId,
   onClose,
   onReview,
   presentation = "dialog",
 }: {
   initial: ModelProfileView | null;
-  providers: ModelProviderView[];
-  providerInstance: ModelProviderInstanceView | null;
-  providerTemplate?: ModelProviderView | null;
+  providerInstances: ModelProviderInstanceView[];
+  preferredProviderId?: string | null;
   onClose: () => void;
-  onReview: (profile: ModelProfile, credential?: string) => Promise<void>;
+  onReview: (profile: ModelProfile) => Promise<void>;
   presentation?: "dialog" | "inspector";
 }) {
   const { t } = useTranslation();
-  const providerProtocol = providerInstance
-    ? PROTOCOLS.find((protocol) => providerInstance.endpoints[protocol.id])?.id
+  const preferredProvider = providerInstances.find((provider) =>
+    provider.id === (initial?.provider_id ?? preferredProviderId),
+  ) ?? providerInstances[0] ?? null;
+  const preferredProtocol = preferredProvider
+    ? PROTOCOLS.find((protocol) => preferredProvider.endpoints[protocol.id])?.id
       ?? "openai-responses"
-    : providerTemplate?.id === "anthropic"
-      ? "anthropic-messages"
-      : providerTemplate?.id === "openai"
-        ? "openai-responses"
-        : "openai-completions";
-  const [draft, setDraft] = useState<ModelProfile>(() => initial ?? (providerInstance ? {
+    : "openai-responses";
+  const [draft, setDraft] = useState<ModelProfile>(() => initial ?? {
     ...emptyProfile(),
-    provider_id: providerInstance.id,
-    provider: providerInstance.provider,
-    protocol: providerProtocol,
-    base_url: providerInstance.endpoints[providerProtocol] ?? "",
-    env_key: providerInstance.env_key,
-  } : providerTemplate ? {
-    ...emptyProfile(),
-    provider: providerTemplate.id === "custom" ? "" : providerTemplate.id,
-    protocol: providerProtocol,
-    base_url: providerTemplate.default_base_url ?? "",
-  } : emptyProfile()));
-  const sharedProvider = providerInstance !== null;
-  const availableProtocols = sharedProvider
-    ? PROTOCOLS.filter((protocol) => Boolean(providerInstance.endpoints[protocol.id]))
-    : PROTOCOLS;
-  const [credential, setCredential] = useState("");
-  const [clearCredential, setClearCredential] = useState(false);
+    provider_id: preferredProvider?.id,
+    provider: preferredProvider?.provider ?? "",
+    protocol: preferredProtocol,
+    base_url: preferredProvider?.endpoints[preferredProtocol] ?? "",
+    env_key: preferredProvider?.env_key,
+  });
   const [busy, setBusy] = useState(false);
-  const baseUrlAutoManaged = useRef(initial === null);
-  const providerInferenceSequence = useRef(0);
-  const initialProviderInferenceStarted = useRef(false);
   const toast = useToast();
-  const initialProvider = initial?.provider.trim()
-    ?? (providerTemplate?.id === "custom" ? "" : providerTemplate?.id)
-    ?? "";
-  const initialProviderIsKnown = providers.some(
-    (provider) => provider.id !== "custom" && provider.id === initialProvider,
-  );
-  const [providerSelection, setProviderSelection] = useState(
-    providerTemplate?.id === "custom"
-      ? CUSTOM_PROVIDER_OPTION
-      : initialProvider && !initialProviderIsKnown
-        ? CUSTOM_PROVIDER_OPTION
-        : initialProvider,
-  );
-  const [customProvider, setCustomProvider] = useState(
-    initialProvider && !initialProviderIsKnown ? initialProvider : "",
-  );
+  const providerInstance = providerInstances.find(
+    (provider) => provider.id === draft.provider_id,
+  ) ?? null;
+  const availableProtocols = providerInstance
+    ? PROTOCOLS.filter((protocol) => Boolean(providerInstance.endpoints[protocol.id]))
+    : [];
 
-  const updateProvider = (provider: string) => {
+  const selectProvider = (providerId: string) => {
+    const provider = providerInstances.find((candidate) => candidate.id === providerId);
+    if (!provider) return;
+    const protocol = provider.endpoints[draft.protocol]
+      ? draft.protocol
+      : PROTOCOLS.find((candidate) => provider.endpoints[candidate.id])?.id
+        ?? draft.protocol;
     setDraft((current) => ({
       ...current,
-      provider,
-      base_url: baseUrlAutoManaged.current
-        ? providers.find((candidate) => candidate.id === provider.trim())?.default_base_url ?? ""
-        : current.base_url,
+      provider_id: provider.id,
+      provider: provider.provider,
+      protocol,
+      base_url: provider.endpoints[protocol] ?? "",
+      env_key: provider.env_key,
     }));
   };
 
-  const inferProviderFromBaseUrl = async (baseUrl: string) => {
-    const sequence = ++providerInferenceSequence.current;
-    const inferred = await inferModelProvider(baseUrl);
-    if (sequence !== providerInferenceSequence.current) return;
-
-    const known = providers.some(
-      (provider) => provider.id !== "custom" && provider.id === inferred,
-    );
-    if (known) {
-      setProviderSelection(inferred);
-      setDraft((current) => ({ ...current, provider: inferred }));
-      return;
-    }
-
-    const customId = customProvider.trim() || "custom";
-    setCustomProvider(customId);
-    setProviderSelection(CUSTOM_PROVIDER_OPTION);
-    setDraft((current) => ({ ...current, provider: customId }));
-  };
-
-  useEffect(() => {
-    const baseUrl = initial?.base_url.trim();
-    if (
-      initialProviderInferenceStarted.current
-      || initialProviderIsKnown
-      || !baseUrl
-    ) return;
-
-    initialProviderInferenceStarted.current = true;
-    void inferProviderFromBaseUrl(baseUrl);
-  }, [initial, initialProviderIsKnown]);
-
-  const selectProvider = (provider: string) => {
-    providerInferenceSequence.current += 1;
-    setProviderSelection(provider);
-    updateProvider(provider === CUSTOM_PROVIDER_OPTION ? customProvider : provider);
-  };
-
-  const updateCustomProvider = (provider: string) => {
-    setCustomProvider(provider);
-    updateProvider(provider);
-  };
-
-  const updateBaseUrl = (baseUrl: string) => {
-    baseUrlAutoManaged.current = false;
-    setDraft((current) => ({ ...current, base_url: baseUrl }));
-    if (baseUrl.trim() && !sharedProvider) {
-      void inferProviderFromBaseUrl(baseUrl.trim());
-    } else {
-      providerInferenceSequence.current += 1;
-    }
-  };
-
   const valid = Boolean(
-    (sharedProvider ? providerInstance.endpoints[draft.protocol] : draft.base_url.trim())
+    providerInstance
+      && providerInstance.endpoints[draft.protocol]
       && draft.model.trim()
-      && (providerSelection !== CUSTOM_PROVIDER_OPTION || draft.provider.trim())
       && !busy,
   );
 
@@ -846,17 +806,12 @@ function ModelProfileDialog({
     if (!valid) return;
     setBusy(true);
     try {
-      const credentialUpdate = clearCredential ? "" : credential || undefined;
       await onReview({
         ...draft,
         id: initial?.id ?? "",
         name: draft.name.trim(),
-        provider: draft.provider.trim(),
-        base_url: draft.base_url.trim().replace(/\/$/, ""),
         model: draft.model.trim(),
-        env_key: draft.env_key?.trim() || undefined,
-      }, credentialUpdate);
-      setCredential("");
+      });
     } catch (error) {
       toast.show({ kind: "error", msg: t("models.saveFailed", { error: formatError(error) }) });
     } finally {
@@ -885,31 +840,20 @@ function ModelProfileDialog({
             placeholder={t("models.generatedName")}
           />
         </label>
-        {!sharedProvider && <div className="mux-model-form-field">
+        <div className="mux-model-form-field">
           <span>{t("models.provider")}</span>
           <FormSelect
             ariaLabel={t("models.provider")}
-            value={providerSelection}
+            value={draft.provider_id ?? ""}
             placeholder={t("models.providerPlaceholder")}
-            options={[
-              ...providers
-                .filter((provider) => provider.id !== "custom")
-                .map((provider) => ({ value: provider.id, label: provider.name })),
-              { value: CUSTOM_PROVIDER_OPTION, label: t("models.customProvider") },
-            ]}
+            options={providerInstances.map((provider) => ({
+              value: provider.id,
+              label: provider.name,
+            }))}
             onChange={selectProvider}
           />
-          {providerSelection === CUSTOM_PROVIDER_OPTION && (
-            <input
-              aria-label={t("models.customProviderId")}
-              className="mux-model-field mux-model-custom-provider"
-              value={customProvider}
-              onChange={(event) => updateCustomProvider(event.target.value)}
-              placeholder={t("models.customProviderExample")}
-              spellCheck={false}
-            />
-          )}
-        </div>}
+          {providerInstances.length === 0 && <small>{t("models.providerRequired")}</small>}
+        </div>
       </div>
 
       <div className="mux-model-form-grid">
@@ -924,7 +868,7 @@ function ModelProfileDialog({
               setDraft({
                 ...draft,
                 protocol: nextProtocol,
-                base_url: providerInstance?.endpoints[nextProtocol] ?? draft.base_url,
+                base_url: providerInstance?.endpoints[nextProtocol] ?? "",
               });
             }}
           />
@@ -948,18 +892,6 @@ function ModelProfileDialog({
       </div>
 
       <div className="mux-model-form-grid">
-        {(!sharedProvider || !providerInstance?.endpoints[draft.protocol]) && <label>
-          <span>{t("models.baseUrl")}</span>
-          <input
-            aria-label={t("models.baseUrl")}
-            className="mux-model-field"
-            value={draft.base_url}
-            onChange={(event) => updateBaseUrl(event.target.value)}
-            placeholder="https://api.example.com/v1"
-            spellCheck={false}
-          />
-        </label>}
-
         <label>
           <span>{t("models.modelId")}</span>
           <input
@@ -971,6 +903,15 @@ function ModelProfileDialog({
             }}
             placeholder="model-name"
             spellCheck={false}
+          />
+        </label>
+        <label>
+          <span>{t("models.providerEndpointLabel")}</span>
+          <input
+            className="mux-model-field"
+            value={providerInstance?.endpoints[draft.protocol] ?? ""}
+            disabled
+            readOnly
           />
         </label>
       </div>
@@ -1004,42 +945,7 @@ function ModelProfileDialog({
         </label>
       </div>
 
-      {!sharedProvider && <div className="mux-model-form-grid">
-        <label>
-          <span>{t("models.apiKey")}</span>
-          <input
-            type="password"
-            autoComplete="new-password"
-            className="mux-model-field"
-            value={credential}
-            disabled={clearCredential}
-            onChange={(event) => setCredential(event.target.value)}
-            placeholder={initial?.credential_saved ? t("models.keepCredential") : t("models.optionalCredential")}
-          />
-        </label>
-        <label>
-          <span>{t("models.apiKeyEnv")}</span>
-          <input
-            className="mux-model-field"
-            value={draft.env_key ?? ""}
-            onChange={(event) => setDraft({ ...draft, env_key: event.target.value || undefined })}
-            placeholder="MY_API_KEY"
-            spellCheck={false}
-          />
-          <small>{t("models.apiKeyEnvHelp")}</small>
-        </label>
-      </div>}
-
-      {initial?.credential_saved && (
-        <label className="mux-model-check">
-          <input
-            type="checkbox"
-            checked={clearCredential}
-            onChange={(event) => setClearCredential(event.target.checked)}
-          />
-          {t("models.clearCredential")}
-        </label>
-      )}
+      <small>{t("models.modelUsesProviderConnection")}</small>
     </div>
   );
 
@@ -1048,7 +954,7 @@ function ModelProfileDialog({
       <ResourceInspector
         title={t("models.editTitle")}
         avatar={<Avatar seed={initial.name} kind="model" size={40} />}
-        subtitle={t("models.keychainSubtitle")}
+        subtitle={t("models.modelRelationshipSubtitle")}
         onClose={onClose}
         footer={
           <>
@@ -1067,7 +973,7 @@ function ModelProfileDialog({
       kind="editor"
       size="md"
       title={initial ? t("models.editTitle") : t("models.createTitle")}
-      subtitle={t("models.keychainSubtitle")}
+      subtitle={t("models.modelRelationshipSubtitle")}
       busy={busy}
       onClose={onClose}
       footerEnd={footer}
@@ -1079,29 +985,42 @@ function ModelProfileDialog({
 
 function ModelProviderDialog({
   initial,
+  providerTemplate,
   providers,
   onClose,
   onReview,
 }: {
-  initial: ModelProviderInstanceView;
+  initial: ModelProviderInstanceView | null;
+  providerTemplate: ModelProviderView | null;
   providers: ModelProviderView[];
   onClose: () => void;
   onReview: (provider: ModelProviderConfig, credential?: string) => Promise<void>;
 }) {
   const { t } = useTranslation();
   const toast = useToast();
+  const initialProviderType = initial?.provider
+    ?? (providerTemplate?.id === "custom" ? "" : providerTemplate?.id)
+    ?? "";
   const knownProvider = providers.some(
-    (provider) => provider.id !== "custom" && provider.id === initial.provider,
+    (provider) => provider.id !== "custom" && provider.id === initialProviderType,
   );
   const [draft, setDraft] = useState<ModelProviderConfig>({
-    id: initial.id,
-    name: initial.name,
-    provider: initial.provider,
-    endpoints: { ...initial.endpoints },
-    env_key: initial.env_key,
+    id: initial?.id ?? "",
+    name: initial?.name ?? providerTemplate?.name ?? "",
+    provider: initialProviderType,
+    endpoints: initial
+      ? { ...initial.endpoints }
+      : providerTemplate?.default_base_url
+        ? {
+            [providerTemplate.id === "anthropic"
+              ? "anthropic-messages"
+              : "openai-responses"]: providerTemplate.default_base_url,
+          }
+        : {},
+    env_key: initial?.env_key,
   });
   const [providerSelection, setProviderSelection] = useState(
-    knownProvider ? initial.provider : CUSTOM_PROVIDER_OPTION,
+    knownProvider ? initialProviderType : CUSTOM_PROVIDER_OPTION,
   );
   const [credential, setCredential] = useState("");
   const [clearCredential, setClearCredential] = useState(false);
@@ -1141,8 +1060,10 @@ function ModelProviderDialog({
     <DialogShell
       kind="editor"
       size="md"
-      title={t("models.editProvider")}
-      subtitle={t("models.providerSharedSubtitle", { count: initial.model_count })}
+      title={initial ? t("models.editProvider") : t("models.createProvider")}
+      subtitle={initial
+        ? t("models.providerSharedSubtitle", { count: initial.model_count })
+        : t("models.providerCreateSubtitle")}
       busy={busy}
       onClose={onClose}
       footerEnd={(
@@ -1172,12 +1093,19 @@ function ModelProviderDialog({
             <FormSelect
               ariaLabel={t("models.providerType")}
               value={providerSelection}
-              options={[
-                ...providers
-                  .filter((provider) => provider.id !== "custom")
-                  .map((provider) => ({ value: provider.id, label: provider.name })),
-                { value: CUSTOM_PROVIDER_OPTION, label: t("models.customProvider") },
-              ]}
+              options={initial
+                ? [{
+                    value: knownProvider ? initial.provider : CUSTOM_PROVIDER_OPTION,
+                    label: knownProvider
+                      ? providerLabel(providers, initial.provider)
+                      : t("models.customProvider"),
+                  }]
+                : [
+                    ...providers
+                      .filter((provider) => provider.id !== "custom")
+                      .map((provider) => ({ value: provider.id, label: provider.name })),
+                    { value: CUSTOM_PROVIDER_OPTION, label: t("models.customProvider") },
+                  ]}
               onChange={(value) => {
                 setProviderSelection(value);
                 if (value !== CUSTOM_PROVIDER_OPTION) {
@@ -1227,7 +1155,7 @@ function ModelProviderDialog({
               value={credential}
               disabled={clearCredential}
               onChange={(event) => setCredential(event.target.value)}
-              placeholder={initial.credential_saved ? t("models.keepCredential") : t("models.optionalCredential")}
+              placeholder={initial?.credential_saved ? t("models.keepCredential") : t("models.optionalCredential")}
             />
           </label>
           <label>
@@ -1242,7 +1170,7 @@ function ModelProviderDialog({
           </label>
         </div>
 
-        {initial.credential_saved && (
+        {initial?.credential_saved && (
           <label className="mux-model-check">
             <input
               type="checkbox"

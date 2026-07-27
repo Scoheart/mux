@@ -101,6 +101,9 @@ pub(crate) enum LifecycleBinding {
         draft_hash: String,
         credential_action: CredentialAction,
     },
+    ModelProviderDelete {
+        provider_id: String,
+    },
     ModelAdopt {
         profile_id: String,
         draft_hash: String,
@@ -938,6 +941,12 @@ pub fn plan_set_asset_consumers(
                 after.insert(agent_id, desired);
             }
             DomainPlan::Model { before, after }
+        }
+        AssetRef::ModelProvider { .. } => {
+            return Err(
+                "unsupported_asset_consumption: Providers are referenced by Models, not Agents"
+                    .into(),
+            )
         }
         AssetRef::Skill { name } => {
             validate_closed_skill_consumers(name, &selected)?;

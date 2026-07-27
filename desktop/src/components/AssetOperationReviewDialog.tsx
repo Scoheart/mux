@@ -32,7 +32,13 @@ function displayAgentName(
 }
 
 function assetLabel(asset: AssetRef, names: Record<string, string>) {
-  const domain = asset.domain === "mcp" ? "MCP" : asset.domain === "model" ? "Model" : "Skill";
+  const domain = asset.domain === "mcp"
+    ? "MCP"
+    : asset.domain === "model"
+      ? "Model"
+      : asset.domain === "model-provider"
+        ? "Provider"
+        : "Skill";
   return `${domain} · ${displayAssetName(asset, names)}`;
 }
 

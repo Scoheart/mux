@@ -331,7 +331,7 @@ export function AgentView({
     ...centralSkills.map((skill) => [`skill:${skill.name}`, skill.name] as const),
   ]);
 
-  const currentIds = (domain: AssetRef["domain"]): string[] => {
+  const currentIds = (domain: PickerDomain): string[] => {
     if (domain === "mcp") {
       return mcpRows.flatMap((item) => item.asset.domain === "mcp" ? [item.asset.key] : []);
     }
@@ -407,14 +407,14 @@ export function AgentView({
     };
   }
 
-  const createSelection = (domain: AssetRef["domain"], ids: string[]): AgentConsumptionSelection => {
+  const createSelection = (domain: PickerDomain, ids: string[]): AgentConsumptionSelection => {
     if (domain === "mcp") return { domain, asset_keys: ids };
     if (domain === "model") return { domain, profile_ids: ids };
     return { domain, names: ids };
   };
 
   const planSelection = async (
-    domain: AssetRef["domain"],
+    domain: PickerDomain,
     ids: string[],
     commitWhenSafe: boolean,
   ) => {
@@ -441,6 +441,7 @@ export function AgentView({
   };
 
   const planRemoval = (asset: AssetRef) => {
+    if (asset.domain === "model-provider") return;
     const id = asset.domain === "mcp" ? asset.key : asset.domain === "model" ? asset.profile_id : asset.name;
     return planSelection(
       asset.domain,
@@ -540,7 +541,7 @@ export function AgentView({
       });
     } else if (asset.domain === "model") {
       navigateResource({ domain: "model", kind: "detail", profileId: asset.profile_id });
-    } else {
+    } else if (asset.domain === "skill") {
       navigateResource({ domain: "skill", kind: "detail", skillName: asset.name });
     }
   };

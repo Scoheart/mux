@@ -21,7 +21,8 @@ use crate::resources::model::{
     apply_credential_update, apply_profile, apply_profile_consumption,
     apply_profile_consumption_with_credential_presence, clear_credential_rollback,
     clear_profile_consumption, credential_present, credential_rollback_snapshot,
-    credential_snapshot, delete_profile, persist_credential_rollback, restore_credential_snapshot,
+    credential_snapshot, delete_profile, delete_provider, persist_credential_rollback,
+    provider_credential_present, provider_credential_subject, restore_credential_snapshot,
     save_profile, save_provider_bundle,
 };
 use crate::resources::skill::{
@@ -351,8 +352,9 @@ fn lifecycle_profile_ids(lifecycle: Option<&LifecycleBinding>) -> Vec<String> {
         Some(LifecycleBinding::ModelUpsert { profile_id, .. })
         | Some(LifecycleBinding::ModelAdopt { profile_id, .. })
         | Some(LifecycleBinding::ModelDelete { profile_id }) => vec![profile_id.clone()],
-        Some(LifecycleBinding::ModelProviderUpsert { profile_ids, .. }) => {
-            profile_ids.iter().cloned().collect()
+        Some(LifecycleBinding::ModelProviderUpsert { provider_id, .. })
+        | Some(LifecycleBinding::ModelProviderDelete { provider_id }) => {
+            vec![provider_credential_subject(provider_id)]
         }
         Some(LifecycleBinding::ModelSchemaV2 { id_map, .. }) => id_map
             .iter()
@@ -532,7 +534,7 @@ fn apply_operation(persisted: &PersistedAssetOperation) -> Result<(), String> {
                 );
             }
             let desired_credential_present = match credential_action {
-                CredentialAction::Keep => profile_ids.iter().any(|id| credential_present(id)),
+                CredentialAction::Keep => provider_credential_present(provider_id),
                 CredentialAction::Set => true,
                 CredentialAction::Clear => false,
             };
@@ -544,11 +546,12 @@ fn apply_operation(persisted: &PersistedAssetOperation) -> Result<(), String> {
                     desired_credential_present,
                 )?;
             }
-            for profile_id in profile_ids {
-                apply_credential_update(profile_id, credential.as_deref().map(String::as_str))?;
-            }
-            Ok(())
+            apply_credential_update(
+                &provider_credential_subject(provider_id),
+                credential.as_deref().map(String::as_str),
+            )
         }
+        LifecycleBinding::ModelProviderDelete { provider_id } => delete_provider(provider_id),
         LifecycleBinding::ModelAdopt {
             profile_id,
             draft_hash,
@@ -888,17 +891,29 @@ fn verify_operation(persisted: &PersistedAssetOperation) -> Result<(), String> {
                 })
                 .collect::<Result<BTreeMap<_, _>, String>>()?;
             verify_payload_hash(&(provider, &profiles), draft_hash)?;
-            for profile_id in profile_ids {
-                match credential_action {
-                    CredentialAction::Keep => {}
-                    CredentialAction::Set if !credential_present(profile_id) => {
-                        return Err("Provider credential was not saved for every Model".into())
-                    }
-                    CredentialAction::Clear if credential_present(profile_id) => {
-                        return Err("Provider credential was not cleared from every Model".into())
-                    }
-                    CredentialAction::Set | CredentialAction::Clear => {}
+            match credential_action {
+                CredentialAction::Keep => {}
+                CredentialAction::Set if !provider_credential_present(provider_id) => {
+                    return Err("Provider credential was not saved after commit".into())
                 }
+                CredentialAction::Clear if provider_credential_present(provider_id) => {
+                    return Err("Provider credential was not cleared after commit".into())
+                }
+                CredentialAction::Set | CredentialAction::Clear => {}
+            }
+            Ok(())
+        }
+        LifecycleBinding::ModelProviderDelete { provider_id } => {
+            let settings = load_settings_strict().map_err(|error| error.to_string())?;
+            if settings
+                .model_providers
+                .as_ref()
+                .is_some_and(|providers| providers.contains_key(provider_id))
+            {
+                return Err("Model Provider deletion postcondition failed".into());
+            }
+            if provider_credential_present(provider_id) {
+                return Err("Model Provider credential still exists after deletion".into());
             }
             Ok(())
         }
@@ -2232,7 +2247,7 @@ mod tests {
     fn model(model: &str) -> ModelProfile {
         ModelProfile {
             id: "work".into(),
-            provider_id: None,
+            provider_id: Some("custom-provider".into()),
             name: "Work".into(),
             provider: "custom".into(),
             model_vendor: None,
@@ -2767,7 +2782,7 @@ mod tests {
     }
 
     #[test]
-    fn model_recovery_restores_the_old_keychain_value_before_commit_marker() {
+    fn model_recovery_preserves_the_provider_keychain_value_before_commit_marker() {
         let _home = TestHome::new("consume-model-keychain-rollback");
         save_profile(model("old-model"), Some("old-secret".into())).unwrap();
         let settings_before = fs::read(settings_file()).unwrap();
@@ -2775,7 +2790,7 @@ mod tests {
             draft: CentralAssetDraft::Model {
                 existing_id: Some("work".into()),
                 profile: Box::new(model("new-model")),
-                credential: Some("new-secret".into()),
+                credential: None,
             },
         })
         .unwrap();
@@ -2795,7 +2810,7 @@ mod tests {
         .unwrap();
         apply_operation(&persisted).unwrap();
         drop(tracker);
-        assert_eq!(credential_snapshot("work").unwrap(), b"new-secret");
+        assert_eq!(credential_snapshot("work").unwrap(), b"old-secret");
 
         recover_pending_asset_operations().unwrap();
         assert_eq!(fs::read(settings_file()).unwrap(), settings_before);
@@ -2817,7 +2832,8 @@ mod tests {
         );
         let plan = plan_update_central_asset(PlanUpdateCentralAssetRequest {
             draft: CentralAssetDraft::ModelProvider {
-                provider: Box::new(provider),
+                existing_id: Some(provider.id.clone()),
+                provider: Box::new(provider.clone()),
                 credential: Some("new-secret".into()),
             },
         })
@@ -2856,18 +2872,18 @@ mod tests {
         );
         let plan = plan_update_central_asset(PlanUpdateCentralAssetRequest {
             draft: CentralAssetDraft::ModelProvider {
-                provider: Box::new(provider),
+                existing_id: Some(provider.id.clone()),
+                provider: Box::new(provider.clone()),
                 credential: Some("new-secret".into()),
             },
         })
         .unwrap();
         let persisted = load_operation(&plan.operation_id).unwrap();
         let snapshots = vec![PathSnapshot::capture(&settings_file()).unwrap()];
-        for profile_id in [&first.id, &second.id] {
-            let old_credential = credential_snapshot(profile_id);
-            persist_credential_rollback(&plan.operation_id, profile_id, old_credential.as_deref())
-                .unwrap();
-        }
+        let subject = provider_credential_subject(&provider.id);
+        let old_credential = credential_snapshot(&subject);
+        persist_credential_rollback(&plan.operation_id, &subject, old_credential.as_deref())
+            .unwrap();
         persist_rollback_snapshots(&plan.operation_id, &snapshots).unwrap();
         let tracker = begin_transaction_write_tracking(
             &transaction_write_evidence_dir(&plan.operation_id),
@@ -2887,14 +2903,14 @@ mod tests {
     }
 
     #[test]
-    fn model_recovery_finalizes_only_after_the_durable_commit_marker() {
+    fn model_recovery_finalizes_metadata_without_mutating_provider_credential() {
         let _home = TestHome::new("consume-model-keychain-finalize");
         save_profile(model("old-model"), Some("old-secret".into())).unwrap();
         let plan = plan_update_central_asset(PlanUpdateCentralAssetRequest {
             draft: CentralAssetDraft::Model {
                 existing_id: Some("work".into()),
                 profile: Box::new(model("new-model")),
-                credential: Some("new-secret".into()),
+                credential: None,
             },
         })
         .unwrap();
@@ -2908,7 +2924,7 @@ mod tests {
         mark_operation_committed(&plan.operation_id).unwrap();
 
         recover_pending_asset_operations().unwrap();
-        assert_eq!(credential_snapshot("work").unwrap(), b"new-secret");
+        assert_eq!(credential_snapshot("work").unwrap(), b"old-secret");
         assert_eq!(
             load_settings_strict().unwrap().model_profiles.unwrap()["work"].model,
             "new-model"

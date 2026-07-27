@@ -15,6 +15,7 @@ use std::fmt;
 pub enum AssetRef {
     Mcp { key: String },
     Model { profile_id: String },
+    ModelProvider { provider_id: String },
     Skill { name: String },
 }
 
@@ -23,6 +24,7 @@ pub enum AssetRef {
 enum UncheckedAssetRef {
     Mcp { key: String },
     Model { profile_id: String },
+    ModelProvider { provider_id: String },
     Skill { name: String },
 }
 
@@ -31,6 +33,7 @@ impl AssetRef {
         match self {
             Self::Mcp { key } => validate_mcp_asset_key(key),
             Self::Model { profile_id } => validate_nonempty("profile_id", profile_id),
+            Self::ModelProvider { provider_id } => validate_nonempty("provider_id", provider_id),
             Self::Skill { name } => validate_nonempty("name", name),
         }
     }
@@ -45,6 +48,7 @@ impl<'de> Deserialize<'de> for AssetRef {
         let asset = match unchecked {
             UncheckedAssetRef::Mcp { key } => Self::Mcp { key },
             UncheckedAssetRef::Model { profile_id } => Self::Model { profile_id },
+            UncheckedAssetRef::ModelProvider { provider_id } => Self::ModelProvider { provider_id },
             UncheckedAssetRef::Skill { name } => Self::Skill { name },
         };
         asset.validate().map_err(serde::de::Error::custom)?;
@@ -364,6 +368,8 @@ pub enum CentralAssetDraft {
         credential: Option<String>,
     },
     ModelProvider {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        existing_id: Option<String>,
         provider: Box<ModelProviderConfig>,
         /// `None` keeps the shared credential, `Some("")` clears every child
         /// Profile credential, and a non-empty value replaces all of them.

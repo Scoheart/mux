@@ -470,6 +470,7 @@ export interface SkillsInventory {
 export type AssetRef =
   | { domain: "mcp"; key: string }
   | { domain: "model"; profile_id: string }
+  | { domain: "model-provider"; provider_id: string }
   | { domain: "skill"; name: string };
 
 export type ConsumptionStatus =
@@ -530,6 +531,7 @@ export type CentralAssetDraft =
     }
   | {
       domain: "model-provider";
+      existing_id?: string;
       provider: ModelProviderConfig;
       /** undefined keeps, empty string clears, non-empty replaces. */
       credential?: string;

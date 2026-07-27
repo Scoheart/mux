@@ -56,6 +56,10 @@ pub fn compatibility_for(agent_id: &str, asset: &AssetRef) -> Result<Compatibili
     match asset {
         AssetRef::Mcp { key } => mcp_compatibility(agent_id, key),
         AssetRef::Model { profile_id } => model_compatibility(agent_id, profile_id),
+        AssetRef::ModelProvider { .. } => Ok(CompatibilityView::unsupported(
+            "asset_not_consumable",
+            "Provider 由 Model 引用，不能直接关联 Agent。",
+        )),
         AssetRef::Skill { name } => skill_compatibility(agent_id, name),
     }
 }
@@ -215,26 +219,24 @@ mod tests {
     }
 
     fn add_profile(protocol: ModelProtocol) {
-        mutate_settings(|settings| {
-            settings.model_profiles.get_or_insert_default().insert(
-                "work".into(),
-                ModelProfile {
-                    id: "work".into(),
-                    provider_id: None,
-                    name: "Work".into(),
-                    provider: "custom".into(),
-                    model_vendor: None,
-                    native_ids: Default::default(),
-                    protocol,
-                    base_url: "https://example.invalid".into(),
-                    model: "model".into(),
-                    env_key: None,
-                    context_window: None,
-                    max_output_tokens: None,
-                    reasoning: Some(false),
-                },
-            );
-        })
+        crate::resources::model::save_profile(
+            ModelProfile {
+                id: "work".into(),
+                provider_id: Some("custom-provider".into()),
+                name: "Work".into(),
+                provider: "custom".into(),
+                model_vendor: None,
+                native_ids: Default::default(),
+                protocol,
+                base_url: "https://example.invalid".into(),
+                model: "model".into(),
+                env_key: None,
+                context_window: None,
+                max_output_tokens: None,
+                reasoning: Some(false),
+            },
+            None,
+        )
         .unwrap();
     }
 
@@ -354,10 +356,10 @@ mod tests {
 
         mutate_settings(|settings| {
             settings
-                .model_profiles
+                .model_providers
                 .as_mut()
                 .unwrap()
-                .get_mut("work")
+                .get_mut("custom-provider")
                 .unwrap()
                 .env_key = Some("OPENROUTER_API_KEY".into());
         })

@@ -565,7 +565,7 @@ fn mcp_reapply_rejects_a_catalog_change_after_review() {
 fn model(model: &str) -> ModelProfile {
     ModelProfile {
         id: "work".into(),
-        provider_id: None,
+        provider_id: Some("work-provider".into()),
         name: "Work".into(),
         provider: "custom".into(),
         model_vendor: None,
@@ -627,9 +627,11 @@ fn grok_build_consumes_and_switches_central_profiles() {
     let home = TestHome::new("central-model-grok-build");
     let mut responses = model("gpt-custom");
     responses.id = "openai-work".into();
+    responses.provider_id = Some("openai-provider".into());
     responses.env_key = Some("OPENAI_WORK_API_KEY".into());
     let mut messages = model("claude-custom");
     messages.id = "anthropic-work".into();
+    messages.provider_id = Some("anthropic-provider".into());
     messages.protocol = ModelProtocol::AnthropicMessages;
     messages.env_key = Some("ANTHROPIC_WORK_API_KEY".into());
     save_profile(responses.clone(), None).unwrap();
@@ -681,6 +683,7 @@ fn grok_build_delete_preserves_an_unmanaged_model_without_failing_verification()
 
     let mut profile = model("delete-me");
     profile.id = "a".into();
+    profile.provider_id = Some("delete-provider".into());
     profile.env_key = Some("DELETE_ME_API_KEY".into());
     save_profile(profile.clone(), None).unwrap();
     apply_profile("grok-build", &profile.id).unwrap();
@@ -707,9 +710,11 @@ fn grok_build_keeps_multiple_profiles_and_falls_back_when_current_is_disabled() 
     let home = TestHome::new("central-model-grok-build-multiple");
     let mut first = model("first-model");
     first.id = "first".into();
+    first.provider_id = Some("first-provider".into());
     first.env_key = Some("FIRST_API_KEY".into());
     let mut second = model("second-model");
     second.id = "second".into();
+    second.provider_id = Some("second-provider".into());
     second.env_key = Some("SECOND_API_KEY".into());
     save_profile(first.clone(), None).unwrap();
     save_profile(second.clone(), None).unwrap();

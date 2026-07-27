@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.76](https://github.com/Scoheart/mux/compare/v1.8.75...v1.8.76) (2026-07-27)
+
+### Changes
+
+* feat(desktop): remove external migration workflow ([c11b53d](https://github.com/Scoheart/mux/commit/c11b53d1e865800da045046170cdbb826808ec90))
+
 ## [1.8.75](https://github.com/Scoheart/mux/compare/v1.8.74...v1.8.75) (2026-07-27)
 
 ### Changes

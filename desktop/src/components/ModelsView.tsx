@@ -27,10 +27,10 @@ import { ResourceState } from "./ResourceState";
 import { DialogShell } from "./DialogShell";
 import { AssetOperationReviewDialog } from "./AssetOperationReviewDialog";
 import { FormSelect } from "./FormSelect";
+import { ProviderGlyph } from "./providerIcons";
 import {
   EditIcon,
   LayersIcon,
-  NetworkIcon,
   PlusIcon,
   TrashIcon,
 } from "./icons";
@@ -248,7 +248,7 @@ export function ModelsView({
                   <SidebarItem
                     key={provider.id}
                     active={providerFilter === provider.id}
-                    icon={<NetworkIcon className="w-3.5 h-3.5" />}
+                    icon={<ProviderGlyph id={provider.provider} name={provider.name} size={18} />}
                     label={provider.name}
                     count={provider.model_count}
                     onClick={() => { clearSelection(); setProviderFilter(provider.id); }}
@@ -478,12 +478,15 @@ function ProviderBanner({
   const { t } = useTranslation();
   return (
     <div className="mux-model-provider-banner">
-      <div className="mux-model-provider-banner-copy">
-        <strong>{provider.name}</strong>
-        <span>{t("models.providerModelCount", { count: provider.model_count })}</span>
-        <Badge tone={provider.credential_saved ? "success" : "neutral"}>
-          {provider.credential_saved ? t("models.keychainSaved") : t("models.keychainNotSaved")}
-        </Badge>
+      <div className="mux-model-provider-banner-identity">
+        <ProviderGlyph id={provider.provider} name={provider.name} size={30} />
+        <div className="mux-model-provider-banner-copy">
+          <strong>{provider.name}</strong>
+          <span>{t("models.providerModelCount", { count: provider.model_count })}</span>
+          <Badge tone={provider.credential_saved ? "success" : "neutral"}>
+            {provider.credential_saved ? t("models.keychainSaved") : t("models.keychainNotSaved")}
+          </Badge>
+        </div>
       </div>
       <div className="flex items-center gap-2">
         <button className="btn-danger" type="button" disabled={!onDelete} onClick={onDelete}>
@@ -710,7 +713,7 @@ function ProviderCatalogDialog({
               onClick={() => setSelectedId(provider.id)}
             >
               <span className="mux-provider-catalog-icon">
-                <NetworkIcon className="w-4 h-4" />
+                <ProviderGlyph id={provider.id} name={provider.name} size={26} />
               </span>
               <span className="mux-provider-catalog-copy">
                 <strong>{provider.name}</strong>

@@ -691,6 +691,9 @@ body {
   display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 12px;
   margin: 0 6px 10px; padding: 2px 2px 10px; border-bottom: 1px solid var(--border-subtle);
 }
+.mux-model-provider-banner-identity {
+  display: flex; min-width: 0; align-items: center; gap: 9px;
+}
 .mux-model-provider-banner-copy {
   display: flex; min-width: 0; align-items: center; gap: 8px;
   color: var(--text-secondary); font-size: 10px;
@@ -1347,7 +1350,18 @@ body {
 .mux-provider-catalog-item:hover { background: color-mix(in srgb, var(--surface-selected) 35%, var(--surface-raised)); }
 .mux-provider-catalog-item[data-selected="true"] { border-color: var(--color-blue); background: color-mix(in srgb, var(--surface-selected) 58%, var(--surface-raised)); box-shadow: inset 0 0 0 1px var(--color-blue); }
 .mux-provider-catalog-item:focus-visible { outline: 2px solid color-mix(in srgb, var(--color-blue) 58%, transparent); outline-offset: 1px; }
-.mux-provider-catalog-icon { display: inline-flex; width: 26px; height: 26px; align-items: center; justify-content: center; border-radius: 6px; background: var(--surface-control); color: var(--color-blue); }
+.mux-provider-glyph {
+  position: relative; display: inline-flex; flex: 0 0 auto; align-items: center; justify-content: center;
+  overflow: hidden; border: 1px solid var(--border-hairline);
+}
+.mux-provider-glyph-fallback {
+  position: absolute; inset: 0; display: grid; place-content: center;
+  color: white; font-weight: 700; line-height: 1;
+}
+.mux-provider-glyph img {
+  position: relative; z-index: 1; display: block; width: 74%; height: 74%; object-fit: contain;
+}
+.mux-provider-catalog-icon { display: inline-flex; width: 26px; height: 26px; align-items: center; justify-content: center; }
 .mux-provider-catalog-copy { display: block; min-width: 0; }
 .mux-provider-catalog-copy strong,
 .mux-provider-catalog-copy code { display: block; min-width: 0; }

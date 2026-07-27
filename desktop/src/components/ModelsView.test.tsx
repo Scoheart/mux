@@ -287,9 +287,14 @@ it("keeps the sidebar limited to the model library and configured Providers", as
   expect(sidebar.queryByText("协议")).not.toBeInTheDocument();
   expect(sidebar.queryByText("全部协议")).not.toBeInTheDocument();
 
-  await user.click(sidebar.getByRole("button", { name: /OpenAI Personal/ }));
+  const openAiProvider = sidebar.getByRole("button", { name: /OpenAI Personal/ });
+  expect(openAiProvider.querySelector('[data-provider-icon="openai"]')).toBeInTheDocument();
+  await user.click(openAiProvider);
   expect(screen.getByRole("button", { name: "打开模型 Responses Model 详情" })).toBeVisible();
   expect(screen.queryByRole("button", { name: "打开模型 Completions Model 详情" })).not.toBeInTheDocument();
+  expect(view.container.querySelector(
+    '.mux-model-provider-banner [data-provider-icon="openai"]',
+  )).toBeInTheDocument();
 
   await user.click(sidebar.getByRole("button", { name: /全部模型/ }));
   expect(screen.getByRole("button", { name: "打开模型 Responses Model 详情" })).toBeVisible();
@@ -313,6 +318,10 @@ it("keeps the built-in Provider Catalog unfiltered, searchable, and keyboard-sel
   expect(within(catalog).getByRole("radio", { name: /OpenAI/ })).toBeVisible();
   expect(within(catalog).getByRole("radio", { name: /Ollama/ })).toBeVisible();
   expect(within(catalog).getByRole("radio", { name: /Custom Provider/ })).toBeVisible();
+  expect(within(catalog).getByRole("radio", { name: /OpenAI/ })
+    .querySelector('[data-provider-icon="openai"]')).toBeInTheDocument();
+  expect(within(catalog).getByRole("radio", { name: /Custom Provider/ })
+    .querySelector('[data-provider-icon="fallback"]')).toBeInTheDocument();
   expect(within(catalog).queryByText("Local endpoint")).not.toBeInTheDocument();
   for (const label of ["Official", "Gateway", "Local", "Custom"]) {
     expect(within(catalog).queryByText(label)).not.toBeInTheDocument();

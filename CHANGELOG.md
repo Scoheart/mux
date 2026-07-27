@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.87](https://github.com/Scoheart/mux/compare/v1.8.86...v1.8.87) (2026-07-27)
+
+### Changes
+
+* fix(models): use the official vLLM logo ([1c64824](https://github.com/Scoheart/mux/commit/1c64824176304cbe9c3a101a6e74dd570aff7864))
+
 ## [1.8.86](https://github.com/Scoheart/mux/compare/v1.8.85...v1.8.86) (2026-07-27)
 
 ### Changes

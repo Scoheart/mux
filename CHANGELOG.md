@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.81](https://github.com/Scoheart/mux/compare/v1.8.80...v1.8.81) (2026-07-27)
+
+### Changes
+
+* fix(desktop): normalize legacy Model Profiles ([7e86330](https://github.com/Scoheart/mux/commit/7e863304c90297895567d8f9554643ab0268a410))
+
 ## [1.8.80](https://github.com/Scoheart/mux/compare/v1.8.79...v1.8.80) (2026-07-27)
 
 ### Changes

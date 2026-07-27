@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.74](https://github.com/Scoheart/mux/compare/v1.8.73...v1.8.74) (2026-07-27)
+
+### Changes
+
+* feat(desktop): streamline MCP and Skills workspaces ([796d9fc](https://github.com/Scoheart/mux/commit/796d9fcca6f3e755bf7f92b79090a0f7ddf1c125))
+
 ## [1.8.73](https://github.com/Scoheart/mux/compare/v1.8.72...v1.8.73) (2026-07-27)
 
 ### Changes

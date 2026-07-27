@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.78](https://github.com/Scoheart/mux/compare/v1.8.77...v1.8.78) (2026-07-27)
+
+### Changes
+
+* fix(desktop): restore MCP and Skills filters ([a93b97e](https://github.com/Scoheart/mux/commit/a93b97e6d24008cbd507f7f1983d493e8420451d))
+
 ## [1.8.77](https://github.com/Scoheart/mux/compare/v1.8.76...v1.8.77) (2026-07-27)
 
 ### Changes

@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.80](https://github.com/Scoheart/mux/compare/v1.8.79...v1.8.80) (2026-07-27)
+
+### Changes
+
+* fix(desktop): simplify Provider endpoint form ([f148cfd](https://github.com/Scoheart/mux/commit/f148cfd39444a84de7376a7d5cc29c50453cff82))
+
 ## [1.8.79](https://github.com/Scoheart/mux/compare/v1.8.78...v1.8.79) (2026-07-27)
 
 ### Changes

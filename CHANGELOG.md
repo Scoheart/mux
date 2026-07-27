@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.77](https://github.com/Scoheart/mux/compare/v1.8.76...v1.8.77) (2026-07-27)
+
+### Changes
+
+* fix(agents): use Qoder Desktop user MCP path ([cdeb6da](https://github.com/Scoheart/mux/commit/cdeb6da5909a3ad080825a2fe37d6d3f19fae93f))
+
 ## [1.8.76](https://github.com/Scoheart/mux/compare/v1.8.75...v1.8.76) (2026-07-27)
 
 ### Changes

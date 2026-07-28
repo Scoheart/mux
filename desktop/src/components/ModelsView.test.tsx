@@ -530,8 +530,37 @@ it("fills a standalone Provider form from the selected catalog template", async 
     "/responses",
   );
   expect(screen.getByDisplayValue("https://openrouter.ai/api/v1/responses")).toBeVisible();
+  const protocolList = screen.getByRole("region", { name: "支持的协议" })
+    .querySelector(".mux-provider-protocol-list");
+  expect(protocolList).not.toBeNull();
+  expect(within(protocolList as HTMLElement).getByText("/v1/messages")).toBeVisible();
+  expect(within(protocolList as HTMLElement).getByText("/responses")).toBeVisible();
+  expect(within(protocolList as HTMLElement).getByText("/chat/completions")).toBeVisible();
+  expect(screen.getByText("已启用 1 个")).toBeVisible();
   expect(screen.getByText("API Key")).toBeVisible();
   expect(screen.getByText("API Key 环境变量")).toBeVisible();
+});
+
+it("keeps the empty protocol requirement inside the compact section header", async () => {
+  const user = userEvent.setup();
+  const consumptionState = { plan: null, planUpdate: vi.fn() } as unknown as ConsumptionState;
+
+  render(
+    <ToastProvider>
+      <ModelsView consumptionState={consumptionState} />
+    </ToastProvider>,
+  );
+
+  await openProviderTemplate(user, "OpenRouter");
+  await user.click(screen.getByRole("checkbox", { name: /OpenAI Responses/ }));
+
+  const protocols = screen.getByRole("region", { name: "支持的协议" });
+  const header = protocols.querySelector(".mux-provider-protocols-head");
+  expect(header).not.toBeNull();
+  expect(within(header as HTMLElement).getByRole("status")).toHaveTextContent("至少启用一种协议。");
+  expect(within(header as HTMLElement).getByText("已启用 0 个")).toBeVisible();
+  expect(protocols.querySelector(".mux-provider-protocol-list + .mux-provider-protocol-error"))
+    .not.toBeInTheDocument();
 });
 
 it("keeps plan-specific protocols under one Base URL", async () => {
@@ -666,6 +695,8 @@ it("rejects absolute, fragmented, and traversal Endpoint Paths in the Provider f
   await user.type(screen.getByLabelText("自定义模型提供商 ID"), "safe-gateway");
   await user.type(screen.getByLabelText("Base URL"), "https://gateway.example.test");
   const path = screen.getByLabelText("OpenAI Responses Endpoint Path");
+  const protocolCard = path.closest(".mux-provider-protocol");
+  expect(protocolCard).not.toBeNull();
   const save = screen.getByRole("button", { name: "保存" });
 
   for (const invalid of [
@@ -677,6 +708,8 @@ it("rejects absolute, fragmented, and traversal Endpoint Paths in the Provider f
     await user.clear(path);
     await user.type(path, invalid);
     expect(screen.getByText(/请输入相对路径/)).toBeVisible();
+    expect(within(protocolCard as HTMLElement).getByText("—")).toBeVisible();
+    expect(within(protocolCard as HTMLElement).queryByText(invalid)).not.toBeInTheDocument();
     expect(save).toBeDisabled();
   }
 });

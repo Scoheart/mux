@@ -1331,18 +1331,38 @@ function ModelProviderDialog({
             <div>
               <strong>{t("models.supportedProtocols")}</strong>
               <small>{t("models.supportedProtocolsHelp")}</small>
+              {enabledProtocols.length === 0 && (
+                <small className="mux-provider-protocol-error" role="status">
+                  {t("models.protocolRequired")}
+                </small>
+              )}
             </div>
-            <Badge tone={enabledProtocols.length > 0 ? "neutral" : "warning"}>
-              {t("models.protocolCount", { count: enabledProtocols.length })}
-            </Badge>
+            <div
+              className="mux-provider-protocol-summary"
+              data-empty={enabledProtocols.length === 0 ? "true" : undefined}
+              aria-live="polite"
+            >
+              <span className="mux-provider-protocol-meter" aria-hidden="true">
+                {PROTOCOLS.map((protocol) => (
+                  <i
+                    data-enabled={draft.protocols[protocol.id] ? "true" : undefined}
+                    key={protocol.id}
+                  />
+                ))}
+              </span>
+              <span>{t("models.protocolCount", { count: enabledProtocols.length })}</span>
+            </div>
           </div>
           <div className="mux-provider-protocol-list">
             {PROTOCOLS.map((protocol) => {
               const config = draft.protocols[protocol.id];
               const enabled = Boolean(config);
               const path = config?.endpoint_path ?? "";
-              const preview = enabled ? fullRequestUrl(draft.base_url, path) : "";
               const template = providers.find((provider) => provider.id === draft.provider);
+              const pathSummary = enabled
+                ? normalizeEndpointPath(path) ?? "—"
+                : providerTemplatePath(template, protocol.id);
+              const preview = enabled ? fullRequestUrl(draft.base_url, path) : "";
               return (
                 <article
                   className="mux-provider-protocol"
@@ -1369,6 +1389,9 @@ function ModelProviderDialog({
                     />
                     <span className="mux-model-protocol-dot" data-protocol={protocol.id} />
                     <strong>{protocol.label}</strong>
+                    <code className="mux-provider-protocol-path" title={pathSummary}>
+                      {pathSummary}
+                    </code>
                   </label>
                   {enabled && (
                     <div className="mux-provider-protocol-fields">
@@ -1425,9 +1448,6 @@ function ModelProviderDialog({
               );
             })}
           </div>
-          {enabledProtocols.length === 0 && (
-            <small className="mux-provider-protocol-error">{t("models.protocolRequired")}</small>
-          )}
         </section>
       </div>
     </DialogShell>

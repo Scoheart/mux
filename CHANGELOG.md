@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.94](https://github.com/Scoheart/mux/compare/v1.8.93...v1.8.94) (2026-07-28)
+
+### Changes
+
+* style(models): render provider request URL as text ([3623e37](https://github.com/Scoheart/mux/commit/3623e373772a4051be0766922f8e5c0f71a26b93))
+
 ## [1.8.93](https://github.com/Scoheart/mux/compare/v1.8.92...v1.8.93) (2026-07-28)
 
 ### Changes

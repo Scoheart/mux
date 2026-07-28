@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.92](https://github.com/Scoheart/mux/compare/v1.8.91...v1.8.92) (2026-07-28)
+
+### Changes
+
+* style(models): compact provider protocol list ([19d6096](https://github.com/Scoheart/mux/commit/19d6096f77fce1cb9c7c92a0703e0cd2c352ba21))
+
 ## [1.8.91](https://github.com/Scoheart/mux/compare/v1.8.90...v1.8.91) (2026-07-28)
 
 ### Changes

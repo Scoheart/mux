@@ -381,6 +381,33 @@ mod tests {
     );
 
     #[test]
+    fn curated_everything_test_matches_official_stdio_config() {
+        let entries = builtin_registry();
+        let entry = builtin_entry(&entries, "everything-test", "stdio");
+        let stdio = entry.config.stdio.as_ref().unwrap();
+
+        assert_eq!(stdio.command, "npx");
+        assert_eq!(
+            stdio.args.as_deref().unwrap(),
+            ["-y", "@modelcontextprotocol/server-everything"]
+        );
+        assert!(
+            stdio.env.is_none(),
+            "everything-test requires no credentials"
+        );
+        assert_eq!(
+            entry.repo.as_deref(),
+            Some("https://github.com/modelcontextprotocol/servers/tree/main/src/everything")
+        );
+        assert!(
+            ["development", "testing", "official"]
+                .iter()
+                .all(|tag| entry.tags.iter().any(|value| value == tag)),
+            "everything-test required tags drifted"
+        );
+    }
+
+    #[test]
     fn curated_web_research_entries_match_verified_configs() {
         let entries = builtin_registry();
         let stdio_cases: [StdioRegistryCase<'_>; 6] = [

@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.98](https://github.com/Scoheart/mux/compare/v1.8.97...v1.8.98) (2026-07-28)
+
+### Changes
+
+* fix(navigation): collapse Agent picker with its label ([d33d385](https://github.com/Scoheart/mux/commit/d33d385a58d5c7c216bf7ffadba435198b9bae72))
+
 ## [1.8.97](https://github.com/Scoheart/mux/compare/v1.8.96...v1.8.97) (2026-07-28)
 
 ### Changes

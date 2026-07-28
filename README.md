@@ -60,7 +60,7 @@ A one-click **Mux 精选 (curated collection)** subscribes you to a curated sour
 - **Reviewed propagation** — editing or deleting a central MCP or Model plans the central change together with every consumer. Drift replacement requires explicit confirmation, and unresolved conflicts prevent partial commits.
 - **Safe, local writes** — MUX reads and edits only fields it owns. Existing files are backed up, prepared, and verified as one recoverable transaction; unrelated keys, comments, formatting, policy fields, permissions, and symlinks are preserved.
 - **Unified Agent consumption center** — each Agent page shows only desired central assets under MCPs, Model, and Skills, with a central picker for relationship changes and a separate read-only external section.
-- **Reusable model endpoints (preview)** — define a protocol, Base URL, model ID, and optional token limits once, then add compatible Profiles to any number of Agents. Native multi-model Agents can keep several Profiles installed, enable or disable each one, and choose exactly one current primary model; Claude Code and Codex retain their single-Profile contract.
+- **Reusable model connections (preview)** — define one Provider Base URL, shared credential, and an editable Endpoint Path for every enabled protocol; Models then reference that connection with only their model ID and optional token limits. Native multi-model Agents can keep several Profiles installed, enable or disable each one, and choose exactly one current primary model; Claude Code and Codex retain their single-Profile contract.
 - **User-level Skills in Desktop** — download a public GitHub repository or directly import a local folder or `.zip` / `.tar.gz` / `.tgz` / `.tar` archive without Git, Node.js, or `npx`; assign the central copy to Agents in a separate step.
 - **One proxy for MUX networking** — configure HTTP, SOCKS4/SOCKS4A, or SOCKS5 once for GitHub Skills, remote sources, CLI updates, and signed Desktop update checks; credentials are never stored in `settings.json`.
 - **CLI ⇄ Desktop on one application core** — both use the same bootstrap, Agent capability graph, revisioned MCP/Model/Skill snapshot, typed errors, and recoverable operation coordinator.
@@ -89,13 +89,16 @@ Crush, Mistral Vibe, Hermes Agent, Factory Droid, and Goose. MiniMax Code and
 Qoder are the two guided targets because their available
 configuration surfaces do not provide a safe equivalent writer for this flow.
 
-Models use a shared Provider architecture: one Provider owns its protocol
-endpoints, environment reference, and single Keychain credential, while any
-number of Models reference it by stable `providerId`. Editing a Provider
-reapplies every affected Agent transactionally; deleting its last Model also
-removes the now-empty Provider. Existing Profile-local settings are migrated
-conservatively by provider type, endpoint origin, environment reference, and
-credential identity so distinct accounts are never merged implicitly.
+Models use a shared Provider architecture: one Provider owns its name, type,
+single Base URL, enabled protocol Endpoint Paths, environment reference, and
+single Keychain credential, while any number of Models reference it by stable
+`providerId`. Editing a Provider reapplies every affected Agent transactionally.
+MUX refuses to disable a protocol while a named Model still uses it. Existing
+same-origin protocol endpoints migrate to Base URL + Endpoint Path without
+changing request targets; a legacy Provider with multiple origins is left
+untouched and must be split explicitly. If an Agent's native schema can only
+represent a client Base URL, MUX also blocks custom paths it cannot preserve
+exactly instead of silently ignoring them.
 
 See the [complete audited matrix](website/guide/agents.md) and [catalog methodology](docs/agent-catalog.md). Every writable target's global path remains editable; paths inside the home directory are normalized to the portable `~/…` form.
 

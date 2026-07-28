@@ -1616,6 +1616,7 @@ mod tests {
             native_ids: Default::default(),
             protocol,
             base_url: "https://gateway.example/v1".into(),
+            endpoint_path: String::new(),
             model: "vendor/model".into(),
             env_key: Some("WORK_API_KEY".into()),
             context_window: Some(128_000),

@@ -173,6 +173,7 @@ impl ExtractedModel {
             native_ids: BTreeMap::from([(self.agent_id.clone(), self.native_id.clone())]),
             protocol: self.protocol.clone(),
             base_url: self.base_url.clone(),
+            endpoint_path: String::new(),
             model: self.model.clone(),
             env_key: self.env_key.clone(),
             context_window: self.context_window,

@@ -117,7 +117,10 @@ export interface ModelProviderConfig {
   id: string;
   name: string;
   provider: string;
-  endpoints: Partial<Record<ModelProtocol, string>>;
+  base_url: string;
+  protocols: Partial<Record<ModelProtocol, {
+    endpoint_path: string;
+  }>>;
   /** Non-secret environment variable shared by this Provider. */
   env_key?: string;
 }
@@ -141,6 +144,11 @@ export interface ModelProviderView {
     protocol: ModelProtocol;
     base_url: string;
   }>;
+  /** Shared connection root and protocol paths prepared by core. */
+  base_url: string | null;
+  protocols: Partial<Record<ModelProtocol, {
+    endpoint_path: string;
+  }>>;
   category: "official" | "gateway" | "local" | "custom";
 }
 

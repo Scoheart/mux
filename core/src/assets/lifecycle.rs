@@ -11,8 +11,8 @@ use crate::paths::local_sources_dir;
 use crate::resources::mcp::registry::{read_registry, read_registry_all};
 use crate::resources::model::{
     credential_present, migrated_profiles_v2, model_agent_capability, prepare_profile_draft,
-    prepare_provider_draft, profile_credential_issue, provider_credential_present,
-    provider_profiles,
+    prepare_provider_draft, profile_credential_issue, profile_endpoint_compatibility_issue,
+    provider_credential_present, provider_profiles,
 };
 use crate::settings::{load_settings_strict, Settings};
 use sha2::{Digest, Sha256};
@@ -823,6 +823,9 @@ fn model_unchanged_consumers(
                 "model_protocol_unsupported: the edited Profile is incompatible with {agent_id}"
             ));
         }
+        if let Some((code, message)) = profile_endpoint_compatibility_issue(&agent_id, profile) {
+            return Err(format!("{code}: {message}"));
+        }
         if let Some((code, message)) =
             profile_credential_issue(&agent_id, profile, desired_credential_present)
         {
@@ -884,6 +887,10 @@ fn model_bundle_unchanged_consumers(
                 return Err(format!(
                     "model_protocol_unsupported: the edited Provider is incompatible with {agent_id}"
                 ));
+            }
+            if let Some((code, message)) = profile_endpoint_compatibility_issue(&agent_id, profile)
+            {
+                return Err(format!("{code}: {message}"));
             }
             if let Some((code, message)) =
                 profile_credential_issue(&agent_id, profile, desired_credential_present)
@@ -1066,7 +1073,10 @@ fn display_path(path: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::types::{ModelProtocol, ModelProviderConfig, RegistryConfig, StdioConfig};
+    use crate::domain::types::{
+        ModelProtocol, ModelProviderConfig, ModelProviderProtocolConfig, RegistryConfig,
+        StdioConfig,
+    };
     use crate::resources::mcp::registry::write_manual_entry;
     use crate::settings::mutate_settings;
     use crate::testenv::TestHome;
@@ -1095,14 +1105,19 @@ mod tests {
             id: "team-gateway".into(),
             name: "Team Gateway".into(),
             provider: "custom".into(),
-            endpoints: BTreeMap::from([
+            base_url: "https://old.example.test".into(),
+            protocols: BTreeMap::from([
                 (
                     ModelProtocol::OpenaiResponses,
-                    "https://old.example.test/v1".into(),
+                    ModelProviderProtocolConfig {
+                        endpoint_path: "/v1/responses".into(),
+                    },
                 ),
                 (
                     ModelProtocol::AnthropicMessages,
-                    "https://old.example.test/anthropic".into(),
+                    ModelProviderProtocolConfig {
+                        endpoint_path: "/anthropic/v1/messages".into(),
+                    },
                 ),
             ]),
             env_key: None,
@@ -1115,7 +1130,10 @@ mod tests {
             model_vendor: Some("openai".into()),
             native_ids: Default::default(),
             protocol: ModelProtocol::OpenaiResponses,
-            base_url: provider.endpoints[&ModelProtocol::OpenaiResponses].clone(),
+            base_url: provider.base_url.clone(),
+            endpoint_path: provider.protocols[&ModelProtocol::OpenaiResponses]
+                .endpoint_path
+                .clone(),
             model: "gpt-team".into(),
             env_key: None,
             context_window: None,
@@ -1127,7 +1145,9 @@ mod tests {
             provider_id: Some(provider.id.clone()),
             name: "Team Anthropic".into(),
             protocol: ModelProtocol::AnthropicMessages,
-            base_url: provider.endpoints[&ModelProtocol::AnthropicMessages].clone(),
+            endpoint_path: provider.protocols[&ModelProtocol::AnthropicMessages]
+                .endpoint_path
+                .clone(),
             model: "claude-team".into(),
             model_vendor: Some("anthropic".into()),
             ..first.clone()
@@ -1172,6 +1192,7 @@ mod tests {
             native_ids: Default::default(),
             protocol: ModelProtocol::OpenaiResponses,
             base_url: "https://old.invalid".into(),
+            endpoint_path: String::new(),
             model: "old".into(),
             env_key: None,
             context_window: None,
@@ -1231,10 +1252,7 @@ mod tests {
         .unwrap();
 
         let mut edited = provider;
-        edited.endpoints.insert(
-            ModelProtocol::OpenaiResponses,
-            "https://new.example.test/v1".into(),
-        );
+        edited.base_url = "https://new.example.test".into();
         let plan = plan_update_central_asset(PlanUpdateCentralAssetRequest {
             draft: CentralAssetDraft::ModelProvider {
                 existing_id: Some(edited.id.clone()),
@@ -1260,6 +1278,56 @@ mod tests {
                 "更新共享 Provider 及其 2 个 Model",
                 "将同步到 2 个已关联 Agent",
             ]
+        );
+    }
+
+    #[test]
+    fn provider_edit_blocks_an_unrepresentable_endpoint_path_before_touching_agent_files() {
+        let home = TestHome::new("lifecycle-provider-path-block");
+        let (provider, first, second) = shared_provider_models();
+        mutate_settings(|settings| {
+            settings.version = Some(crate::settings::SETTINGS_VERSION);
+            settings
+                .model_providers
+                .get_or_insert_default()
+                .insert(provider.id.clone(), provider.clone());
+            settings.model_profiles = Some(BTreeMap::from([
+                (first.id.clone(), first.clone()),
+                (second.id.clone(), second),
+            ]));
+            settings
+                .model_assignments
+                .get_or_insert_default()
+                .insert("codex".into(), first.id.clone());
+        })
+        .unwrap();
+        let target = home.home.join(".codex/config.toml");
+        std::fs::create_dir_all(target.parent().unwrap()).unwrap();
+        std::fs::write(&target, "sentinel = \"unchanged\"\n").unwrap();
+
+        let mut edited = provider;
+        edited.protocols.insert(
+            ModelProtocol::OpenaiResponses,
+            ModelProviderProtocolConfig {
+                endpoint_path: "/custom/invoke".into(),
+            },
+        );
+        let error = plan_update_central_asset(PlanUpdateCentralAssetRequest {
+            draft: CentralAssetDraft::ModelProvider {
+                existing_id: Some(edited.id.clone()),
+                provider: Box::new(edited),
+                credential: None,
+            },
+        })
+        .unwrap_err();
+
+        assert!(
+            error.starts_with("model_endpoint_path_unsupported:"),
+            "{error}"
+        );
+        assert_eq!(
+            std::fs::read_to_string(target).unwrap(),
+            "sentinel = \"unchanged\"\n"
         );
     }
 
@@ -1312,9 +1380,12 @@ mod tests {
                     id: String::new(),
                     name: "Independent Gateway".into(),
                     provider: "custom".into(),
-                    endpoints: BTreeMap::from([(
+                    base_url: "https://gateway.example.test".into(),
+                    protocols: BTreeMap::from([(
                         ModelProtocol::OpenaiResponses,
-                        "https://gateway.example.test/v1".into(),
+                        ModelProviderProtocolConfig {
+                            endpoint_path: "/v1/responses".into(),
+                        },
                     )]),
                     env_key: Some("TEAM_GATEWAY_KEY".into()),
                 }),
@@ -1502,6 +1573,7 @@ mod tests {
             native_ids: Default::default(),
             protocol: ModelProtocol::OpenaiCompletions,
             base_url: "https://openrouter.ai/api/v1".into(),
+            endpoint_path: String::new(),
             model: "provider/model".into(),
             env_key: None,
             context_window: None,
@@ -1575,6 +1647,7 @@ mod tests {
             native_ids: Default::default(),
             protocol: ModelProtocol::OpenaiCompletions,
             base_url: "https://openrouter.ai/api/v1".into(),
+            endpoint_path: String::new(),
             model: "openrouter/free".into(),
             env_key: None,
             context_window: None,
@@ -1622,6 +1695,7 @@ mod tests {
             native_ids: Default::default(),
             protocol: ModelProtocol::OpenaiCompletions,
             base_url: "https://openrouter.ai/api/v1".into(),
+            endpoint_path: String::new(),
             model: "openrouter/free".into(),
             env_key: Some("OPENROUTER_API_KEY".into()),
             context_window: None,

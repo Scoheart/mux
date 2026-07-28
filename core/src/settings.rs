@@ -27,7 +27,7 @@ use std::io::{Error, ErrorKind};
 use std::path::Path;
 use std::sync::Mutex;
 
-pub const SETTINGS_VERSION: u32 = 4;
+pub const SETTINGS_VERSION: u32 = 5;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
 pub struct UiSettings {
@@ -159,10 +159,11 @@ impl Settings {
                 continue;
             };
             profile.provider = provider.provider.clone();
-            profile.base_url = provider
-                .endpoints
+            profile.base_url = provider.base_url.clone();
+            profile.endpoint_path = provider
+                .protocols
                 .get(&profile.protocol)
-                .cloned()
+                .map(|protocol| protocol.endpoint_path.clone())
                 .unwrap_or_default();
             profile.env_key = provider.env_key.clone();
         }
@@ -281,6 +282,7 @@ fn save_with_expected(
         {
             profile.provider.clear();
             profile.base_url.clear();
+            profile.endpoint_path.clear();
             profile.env_key = None;
         }
     }
@@ -450,7 +452,8 @@ pub fn migrate_if_needed() {
 mod tests {
     use super::*;
     use crate::domain::types::{
-        ModelProfile, ModelProtocol, ModelProviderConfig, RegistryConfig, StdioConfig,
+        ModelProfile, ModelProtocol, ModelProviderConfig, ModelProviderProtocolConfig,
+        RegistryConfig, StdioConfig,
     };
     use crate::safe_write::acquire_settings_lock;
     use crate::testenv::TestHome;
@@ -479,15 +482,18 @@ mod tests {
     }
 
     #[test]
-    fn v4_persists_provider_connection_only_once_and_hydrates_models_on_read() {
-        let _home = TestHome::new("settings-model-provider-v4");
+    fn v5_persists_provider_connection_only_once_and_hydrates_models_on_read() {
+        let _home = TestHome::new("settings-model-provider-v5");
         let provider = ModelProviderConfig {
             id: "team-provider".into(),
             name: "Team Provider".into(),
             provider: "custom".into(),
-            endpoints: BTreeMap::from([(
+            base_url: "https://gateway.example.test".into(),
+            protocols: BTreeMap::from([(
                 ModelProtocol::OpenaiResponses,
-                "https://gateway.example.test/v1".into(),
+                ModelProviderProtocolConfig {
+                    endpoint_path: "/v1/responses".into(),
+                },
             )]),
             env_key: Some("TEAM_API_KEY".into()),
         };
@@ -499,7 +505,10 @@ mod tests {
             model_vendor: None,
             native_ids: BTreeMap::new(),
             protocol: ModelProtocol::OpenaiResponses,
-            base_url: provider.endpoints[&ModelProtocol::OpenaiResponses].clone(),
+            base_url: provider.base_url.clone(),
+            endpoint_path: provider.protocols[&ModelProtocol::OpenaiResponses]
+                .endpoint_path
+                .clone(),
             model: "model-id".into(),
             env_key: provider.env_key.clone(),
             context_window: None,
@@ -521,14 +530,16 @@ mod tests {
         let persisted = &raw["model_profiles"]["team-model"];
         assert!(persisted.get("provider").is_none());
         assert!(persisted.get("base_url").is_none());
+        assert!(persisted.get("endpoint_path").is_none());
         assert!(persisted.get("env_key").is_none());
         assert_eq!(persisted["provider_id"], provider.id);
 
         let hydrated = load_settings_strict().unwrap().model_profiles.unwrap();
         assert_eq!(hydrated["team-model"].provider, provider.provider);
+        assert_eq!(hydrated["team-model"].base_url, provider.base_url);
         assert_eq!(
-            hydrated["team-model"].base_url,
-            provider.endpoints[&ModelProtocol::OpenaiResponses]
+            hydrated["team-model"].endpoint_path,
+            provider.protocols[&ModelProtocol::OpenaiResponses].endpoint_path
         );
         assert_eq!(hydrated["team-model"].env_key, provider.env_key);
     }

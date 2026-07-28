@@ -4,9 +4,11 @@ MUX 桌面端把模型端点保存为中央 Model Profile，再由多个兼容 A
 
 ## Profile、Provider 与状态
 
-`provider` 表示真实 API/计费渠道（如 OpenRouter、Anthropic、OpenAI），`model_vendor` 表示模型开发商；例如通过 OpenRouter 使用 Claude 时，两者分别是 `openrouter` 与 `anthropic`。`provider/model` 只用于分类，同一组合可以有多个不同 endpoint 或 credential 的 Profile。
+`Provider` 表示一套真实 API/计费连接（如 OpenRouter、Anthropic、OpenAI）。它统一保存名称、类型、一个 Base URL、API Key / 环境变量，以及已启用协议各自的 Endpoint Path。完整请求地址始终按 `Base URL + Endpoint Path` 计算，例如 `https://gateway.example.com/api/v2/` 与 `/responses` 会规范为 `https://gateway.example.com/api/v2/responses`。
 
-MUX 创建不可编辑的内部 `profile_id`，格式为可读的 `provider-model-random`。普通表单不展示它，详情页“技术详情”可以复制。显示名称在同一 Provider 内自动保持唯一。
+`Model` 只保存显示名称、Provider 引用、协议、Model ID、上下文窗口、最大输出与 reasoning；连接和凭据不在 Model 表单中重复。切换 Provider 后，协议下拉框只展示该 Provider 已启用的协议，并只读预览最终请求 URL。MUX 创建不可编辑的内部 `profile_id`，显示名称在同一 Provider 内自动保持唯一。
+
+同一个 Provider 的协议可以使用不同 Endpoint Path，但必须共享同一个 Base URL。若两套服务使用不同域名或端口，应创建两个 Provider。仍有 Model 使用某协议时，MUX 会列出这些 Model 并阻止停用该协议。
 
 Agent 中的一个 Profile 有四种消费状态：未添加、已添加但停用、已启用但非当前、已启用且当前。同步健康度（Synced / Drifted / Conflicted 等）与这四种状态分开；停用或移除当前 Profile 时，审阅页会明确展示确定性的 fallback。
 
@@ -42,10 +44,11 @@ Claude Code 只接收 Anthropic Messages，Codex 只接收 Responses；其余自
 ## 新建中央 Profile 并选择消费者
 
 1. 打开顶部 **Models**，点击 **添加 Provider**。
-2. 在居中的 Provider Catalog 中选择模板。Catalog 内置 OpenRouter、Anthropic、OpenAI、Google AI Studio、DeepSeek、Groq、SiliconFlow、Together AI、Fireworks AI、Cerebras、Ollama、LM Studio、vLLM 等常用入口，并按 Official、Gateway 与 Local 分类；模板本身不会创建空 Provider。
-3. 选择模板后，MUX 会预填 Core 下发的 Base URL 建议。填写首个 Model ID 并保存后，这个连接实例才会进入左侧 **My Providers**；你仍可按地区、套餐或代理地址修改 Endpoint。Grok Build 需要认证时填写 API Key 环境变量名，本地无鉴权端点可留空。
-4. Profile 保存到中央资产库后，进入对应 Agent 页的 Model 标签，查看当前状态并选择一个兼容 Profile。
-5. 审阅关系变化、目标文件与异常状态后提交。MUX 备份、写入并重新读取验证；成功后重启对应 Agent 会话。
+2. 在居中的 Provider Catalog 中选择模板。Catalog 内置 OpenRouter、Anthropic、OpenAI、Google AI Studio、DeepSeek、Groq、SiliconFlow、Together AI、Fireworks AI、Cerebras、Ollama、LM Studio、vLLM 等常用入口；模板本身不会立刻写入配置。
+3. Provider 表单按顺序填写名称、类型、唯一 Base URL、API Key / 环境变量，再启用协议并编辑各自 Endpoint Path。每行会实时预览完整请求 URL，也可单独恢复模板默认 Path。保存后连接实例进入左侧 **My Providers**。
+4. 点击 **添加模型**，选择已保存的 Provider、协议与 Model ID；Model 表单只读显示最终请求 URL，不再重复输入 Base URL 或凭据。
+5. Model 保存到中央资产库后，进入对应 Agent 页的 Model 标签，查看当前状态并选择一个兼容 Profile。
+6. 审阅关系变化、目标文件与异常状态后提交。MUX 备份、写入并重新读取验证；成功后重启对应 Agent 会话。
 
 同一个 Profile 可以被多个 Agent 消费，但协议必须兼容；同一个 Agent 同时只能消费一个 Profile。两个入口修改的是同一份 desired relationship，MUX 会在修改磁盘前拒绝不兼容或多选组合。
 
@@ -61,6 +64,8 @@ Agent 配置中心会同时列出 Agent/模型配置文件和 MCP 配置文件�
 - 修改已有 Agent 文件前创建 `~/.mux/backups/` 备份；备份失败则不写。
 - JSONC 注释、TOML 表、MCP 配置和其他无关字段保持不变。
 - 文件在准备写入后发生变化时，MUX 拒绝覆盖。
+- 旧版同源协议 Endpoint 会无损迁移为一个 Base URL 与多个 Endpoint Path；多域名旧 Provider 不会猜测合并，也不会改写原文件，必须先拆分为多个 Provider。
+- 若 Agent 原生格式只能表达客户端 Base URL，而自定义 Endpoint Path 无法保持相同请求目标，绑定或更新会以 `model_endpoint_path_unsupported` 阻止，不会忽略 Path。
 - Pi 两个配置文件按事务处理；第二个文件失败时回滚第一个文件。
 - Profile metadata、全部消费者文件和 desired relationship 属于同一事务；Keychain 变更最后执行。App 重启后会验证完整提交，否则用持久化快照回滚。
 - 消费目标存在漂移时，中央更新不会静默覆盖；必须审阅目标并用当前候选哈希显式确认。冲突或并发变化会阻止整个提交。

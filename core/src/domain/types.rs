@@ -1,6 +1,6 @@
 //! Persisted and wire-safe value objects shared by all resource domains.
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::{BTreeMap, HashMap};
 
 /// Wire protocol used by a reusable model endpoint profile. These values match
@@ -13,7 +13,23 @@ pub enum ModelProtocol {
     OpenaiCompletions,
 }
 
+impl ModelProtocol {
+    /// The request path appended by the protocol clients managed by MUX.
+    pub fn default_endpoint_path(&self) -> &'static str {
+        match self {
+            Self::AnthropicMessages => "/v1/messages",
+            Self::OpenaiResponses => "/responses",
+            Self::OpenaiCompletions => "/chat/completions",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ModelProviderProtocolConfig {
+    pub endpoint_path: String,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct ModelProviderConfig {
     /// Stable MUX identity for one account/endpoint configuration. The
     /// provider kind (for example `openrouter`) is intentionally not unique.
@@ -21,11 +37,126 @@ pub struct ModelProviderConfig {
     pub name: String,
     /// API/billing channel such as `openrouter`, `anthropic`, or `custom`.
     pub provider: String,
-    /// One Provider may expose different base paths for different protocols.
-    pub endpoints: BTreeMap<ModelProtocol, String>,
+    /// Shared connection root. Protocol-specific request paths live below.
+    pub base_url: String,
+    /// Enabled protocols and their editable relative request paths.
+    pub protocols: BTreeMap<ModelProtocol, ModelProviderProtocolConfig>,
     /// Non-secret environment variable shared by every Model on this Provider.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub env_key: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct ModelProviderConfigWire {
+    id: String,
+    name: String,
+    provider: String,
+    #[serde(default)]
+    base_url: String,
+    #[serde(default)]
+    protocols: BTreeMap<ModelProtocol, ModelProviderProtocolConfig>,
+    /// Settings v3/v4 stored one protocol-client base URL per protocol.
+    #[serde(default)]
+    endpoints: BTreeMap<ModelProtocol, String>,
+    #[serde(default)]
+    env_key: Option<String>,
+}
+
+impl<'de> Deserialize<'de> for ModelProviderConfig {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let wire = ModelProviderConfigWire::deserialize(deserializer)?;
+        if !wire.endpoints.is_empty()
+            && (!wire.base_url.trim().is_empty() || !wire.protocols.is_empty())
+        {
+            return Err(serde::de::Error::custom(format!(
+                "model_provider_schema_conflict: Provider '{}' mixes legacy endpoints with Base URL / Endpoint Path fields",
+                wire.name
+            )));
+        }
+        let (base_url, protocols) = if wire.endpoints.is_empty() {
+            (wire.base_url, wire.protocols)
+        } else {
+            migrate_legacy_provider_endpoints(&wire.name, &wire.endpoints)
+                .map_err(serde::de::Error::custom)?
+        };
+        Ok(Self {
+            id: wire.id,
+            name: wire.name,
+            provider: wire.provider,
+            base_url,
+            protocols,
+            env_key: wire.env_key,
+        })
+    }
+}
+
+pub(crate) fn migrate_legacy_provider_endpoints(
+    provider_name: &str,
+    endpoints: &BTreeMap<ModelProtocol, String>,
+) -> Result<(String, BTreeMap<ModelProtocol, ModelProviderProtocolConfig>), String> {
+    let mut shared_origin = None::<String>;
+    let mut parsed_endpoints = Vec::new();
+    for (protocol, endpoint) in endpoints {
+        let endpoint = endpoint.trim().trim_end_matches('/');
+        let parsed = url::Url::parse(endpoint).map_err(|error| {
+            format!(
+                "model_provider_endpoint_migration_blocked: Provider '{provider_name}' has an invalid legacy endpoint: {error}"
+            )
+        })?;
+        if !matches!(parsed.scheme(), "http" | "https")
+            || parsed.host_str().is_none()
+            || !parsed.username().is_empty()
+            || parsed.password().is_some()
+            || parsed.query().is_some()
+            || parsed.fragment().is_some()
+        {
+            return Err(format!(
+                "model_provider_endpoint_migration_blocked: Provider '{provider_name}' has a legacy endpoint that cannot be represented safely"
+            ));
+        }
+        let mut origin_url = parsed.clone();
+        origin_url.set_path("");
+        origin_url.set_query(None);
+        origin_url.set_fragment(None);
+        let endpoint_origin = origin_url.as_str().trim_end_matches('/').to_string();
+        if shared_origin
+            .as_ref()
+            .is_some_and(|existing| !existing.eq_ignore_ascii_case(&endpoint_origin))
+        {
+            return Err(format!(
+                "model_provider_endpoint_migration_blocked: Provider '{provider_name}' uses multiple legacy endpoint origins; split it into separate Providers before upgrading"
+            ));
+        }
+        shared_origin.get_or_insert(endpoint_origin);
+        parsed_endpoints.push((protocol.clone(), endpoint.to_string(), parsed));
+    }
+    let shared_legacy_base = parsed_endpoints
+        .first()
+        .map(|(_, endpoint, _)| endpoint.clone())
+        .filter(|first| {
+            parsed_endpoints
+                .iter()
+                .all(|(_, endpoint, _)| endpoint == first)
+        });
+    let base_url = shared_legacy_base
+        .clone()
+        .unwrap_or_else(|| shared_origin.unwrap_or_default());
+    let protocols = parsed_endpoints
+        .into_iter()
+        .map(|(protocol, _, parsed)| {
+            let prefix = if shared_legacy_base.is_some() {
+                ""
+            } else {
+                parsed.path().trim_end_matches('/')
+            };
+            let endpoint_path = format!("{prefix}{}", protocol.default_endpoint_path());
+            (protocol, ModelProviderProtocolConfig { endpoint_path })
+        })
+        .collect();
+    Ok((base_url, protocols))
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -49,8 +180,12 @@ pub struct ModelProfile {
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub native_ids: BTreeMap<String, String>,
     pub protocol: ModelProtocol,
+    /// Provider-owned runtime field. Settings v5 strips it before persistence.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub base_url: String,
+    /// Provider-owned runtime field. Settings v5 strips it before persistence.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub endpoint_path: String,
     pub model: String,
     /// Optional environment variable name used by Agents such as Grok Build
     /// that natively resolve per-model credentials from the process environment.

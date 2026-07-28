@@ -1695,11 +1695,15 @@ body {
 .mux-mcp-override-note { display: flex; align-items: flex-start; gap: 9px; padding: 10px 12px; border: 1px solid color-mix(in srgb, var(--color-blue) 22%, var(--border-hairline)); border-radius: 8px; background: color-mix(in srgb, var(--color-blue) 7%, var(--surface-raised)); color: var(--text-primary); }
 .mux-mcp-override-note > svg { color: var(--color-blue); }
 .mux-model-form-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
+.mux-model-form-wide { min-width: 0; }
 .mux-model-form :where(label, .mux-model-form-field) > span { display: block; margin-bottom: 6px; color: var(--text-secondary); font-size: 11px; font-weight: 600; }
 .mux-model-form :where(label, .mux-model-form-field) > small { display: block; margin-top: 5px; color: var(--text-secondary); font-size: 9px; line-height: 1.45; }
 .mux-model-field { box-sizing: border-box; width: 100%; height: 36px; min-width: 0; padding: 0 10px; border: 1px solid var(--border-hairline); border-radius: 6px; outline: 0; appearance: none; background: var(--surface-raised); color: var(--text-primary); font: 12px/1 var(--font-sans); }
 .mux-model-field:focus { border-color: color-mix(in srgb, var(--color-blue) 62%, var(--border-hairline)); box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-blue) 10%, transparent); }
 .mux-model-field:disabled { opacity: .55; cursor: not-allowed; }
+.mux-model-url-preview { background: color-mix(in srgb, var(--surface-control) 74%, var(--surface-raised)); color: var(--text-secondary); font: 10px/1 var(--font-mono); }
+.mux-model-provider-required { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 7px; }
+.mux-model-provider-required small { color: var(--color-red); font-size: 9px; line-height: 1.4; }
 .mux-form-select { position: relative; width: 100%; }
 .mux-form-select[data-open="true"] { z-index: 621; }
 .mux-form-select-trigger { display: flex; align-items: center; justify-content: space-between; gap: 10px; text-align: left; cursor: pointer; }
@@ -1708,7 +1712,6 @@ body {
 .mux-form-select-chevron { width: 14px; height: 14px; flex: 0 0 14px; color: var(--text-secondary); transition: transform .14s ease, color .14s ease; }
 .mux-form-select-trigger[data-open="true"] .mux-form-select-chevron { color: var(--color-blue); transform: rotate(180deg); }
 .mux-form-select-menu { position: absolute; z-index: 620; top: calc(100% + 5px); right: 0; left: 0; max-height: 220px; padding: 4px; overflow-y: auto; border: 1px solid var(--border-hairline); border-radius: 9px; background: var(--surface-popover); box-shadow: var(--shadow-sheet); animation: mux-form-select-in .12s ease-out; }
-.mux-provider-endpoint-row .mux-form-select-menu { position: static; margin-top: 5px; }
 @keyframes mux-form-select-in { from { opacity: 0; transform: translateY(-3px) scale(.995); } to { opacity: 1; transform: translateY(0) scale(1); } }
 .mux-form-select-option { display: flex; width: 100%; min-height: 32px; align-items: center; justify-content: space-between; gap: 8px; padding: 0 8px; border: 0; border-radius: 6px; background: transparent; color: var(--text-primary); font: 12px/1.25 var(--font-sans); text-align: left; cursor: pointer; }
 .mux-form-select-option[data-active="true"] { background: var(--surface-selected); }
@@ -1721,7 +1724,41 @@ body {
 .mux-model-custom-provider { margin-top: 6px; }
 .mux-model-check { display: inline-flex; align-items: center; gap: 7px; color: var(--text-secondary); font-size: 11px; }
 .mux-model-check input { accent-color: var(--color-blue); }
+.mux-provider-protocols { display: grid; min-width: 0; gap: 9px; padding-top: 2px; }
+.mux-provider-protocols-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; }
+.mux-provider-protocols-head > div { display: grid; min-width: 0; gap: 3px; }
+.mux-provider-protocols-head strong { color: var(--text-primary); font-size: 11px; font-weight: 680; }
+.mux-provider-protocols-head small { color: var(--text-secondary); font-size: 9px; line-height: 1.4; }
+.mux-provider-protocol-list { display: grid; gap: 7px; }
+.mux-provider-protocol {
+  position: relative; display: grid; min-width: 0; gap: 10px; padding: 10px 11px;
+  overflow: hidden; border: 1px solid var(--border-hairline); border-radius: var(--radius-row);
+  background: color-mix(in srgb, var(--surface-control) 72%, var(--surface-section));
+}
+.mux-provider-protocol::before {
+  position: absolute; top: 0; bottom: 0; left: 0; width: 2px;
+  background: var(--border-hairline); content: "";
+}
+.mux-provider-protocol[data-enabled="true"]::before { background: var(--color-blue); }
+.mux-provider-protocol-toggle { display: inline-flex; width: fit-content; min-width: 0; align-items: center; gap: 8px; cursor: pointer; }
+.mux-provider-protocol-toggle input { margin: 0; accent-color: var(--color-blue); }
+.mux-provider-protocol-toggle strong { overflow: hidden; color: var(--text-secondary); font-size: 10px; font-weight: 620; text-overflow: ellipsis; white-space: nowrap; }
+.mux-provider-protocol[data-enabled="true"] .mux-provider-protocol-toggle strong { color: var(--text-primary); }
+.mux-provider-protocol-fields {
+  display: grid; min-width: 0; grid-template-columns: minmax(0, .82fr) minmax(0, 1.18fr) auto;
+  align-items: end; gap: 8px;
+}
+.mux-provider-protocol-fields > label { min-width: 0; }
+.mux-provider-protocol-fields .mux-model-field { height: 32px; }
+.mux-provider-path-reset { height: 32px; padding-right: 9px; padding-left: 9px; white-space: nowrap; }
+.mux-provider-protocol-error { color: var(--color-red); font-size: 9px; line-height: 1.4; }
 .mux-model-form-footer { display: flex; align-items: center; justify-content: flex-end; gap: 5px; min-height: 56px; padding: 10px 18px; border: 0; border-radius: var(--radius-row); background: var(--surface-section); }
+
+@media (max-width: 620px) {
+  .mux-model-form-grid,
+  .mux-provider-protocol-fields { grid-template-columns: minmax(0, 1fr); }
+  .mux-provider-path-reset { justify-self: start; }
+}
 
 @media (max-width: 1080px) {
   .mux-agent-shell { padding-right: 20px; padding-left: 20px; }

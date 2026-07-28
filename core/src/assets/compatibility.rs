@@ -5,6 +5,7 @@ use crate::agents::load_agents;
 use crate::resources::mcp::registry::read_registry;
 use crate::resources::model::{
     credential_present, model_agent_capability, profile_credential_issue,
+    profile_endpoint_compatibility_issue,
 };
 use crate::resources::skill::skill_agent_capability;
 use crate::settings::load_settings_strict;
@@ -132,6 +133,9 @@ fn model_compatibility(agent_id: &str, profile_id: &str) -> Result<Compatibility
             "此 Agent 不支持该 Profile 的 protocol。",
         ));
     }
+    if let Some((code, message)) = profile_endpoint_compatibility_issue(agent_id, profile) {
+        return Ok(CompatibilityView::unsupported(&code, message));
+    }
     if let Some((code, message)) =
         profile_credential_issue(agent_id, profile, credential_present(profile_id))
     {
@@ -229,6 +233,7 @@ mod tests {
                 native_ids: Default::default(),
                 protocol,
                 base_url: "https://example.invalid".into(),
+                endpoint_path: String::new(),
                 model: "model".into(),
                 env_key: None,
                 context_window: None,

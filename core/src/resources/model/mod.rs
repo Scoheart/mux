@@ -8,7 +8,10 @@
 
 pub(crate) mod adapters;
 
-use crate::domain::types::{ModelProfile, ModelProtocol, ModelProviderConfig};
+use crate::domain::types::{
+    migrate_legacy_provider_endpoints, ModelProfile, ModelProtocol, ModelProviderConfig,
+    ModelProviderProtocolConfig,
+};
 use crate::paths::{backup_timestamp, backups_dir, settings_file};
 use crate::resources::mcp::applier::backup;
 use crate::resources::mcp::scanner::{collapse_home, expand_tilde};
@@ -90,7 +93,9 @@ impl Serialize for ModelProviderView {
     where
         S: Serializer,
     {
-        let mut view = serializer.serialize_struct("ModelProviderView", 6)?;
+        let (base_url, protocols) =
+            provider_template_connection(self).map_err(serde::ser::Error::custom)?;
+        let mut view = serializer.serialize_struct("ModelProviderView", 8)?;
         view.serialize_field("id", self.id)?;
         view.serialize_field("name", self.name)?;
         view.serialize_field("default_base_url", &self.default_base_url)?;
@@ -99,9 +104,44 @@ impl Serialize for ModelProviderView {
             "additional_endpoints",
             provider_additional_endpoints(self.id),
         )?;
+        view.serialize_field("base_url", &base_url)?;
+        view.serialize_field("protocols", &protocols)?;
         view.serialize_field("category", self.category)?;
         view.end()
     }
+}
+
+fn provider_template_connection(
+    provider: &ModelProviderView,
+) -> Result<
+    (
+        Option<String>,
+        BTreeMap<ModelProtocol, ModelProviderProtocolConfig>,
+    ),
+    String,
+> {
+    let Some(default_base_url) = provider.default_base_url else {
+        return Ok((
+            None,
+            BTreeMap::from([(
+                provider.default_protocol.clone(),
+                ModelProviderProtocolConfig {
+                    endpoint_path: provider.default_protocol.default_endpoint_path().into(),
+                },
+            )]),
+        ));
+    };
+    let mut legacy = BTreeMap::from([(
+        provider.default_protocol.clone(),
+        default_base_url.to_string(),
+    )]);
+    legacy.extend(
+        provider_additional_endpoints(provider.id)
+            .iter()
+            .map(|endpoint| (endpoint.protocol.clone(), endpoint.base_url.to_string())),
+    );
+    let (base_url, protocols) = migrate_legacy_provider_endpoints(provider.name, &legacy)?;
+    Ok((Some(base_url), protocols))
 }
 
 pub fn provider_additional_endpoints(id: &str) -> &'static [ModelProviderEndpointView] {
@@ -762,6 +802,131 @@ fn normalized_endpoint_origin(base_url: &str) -> String {
         .unwrap_or_else(|| base_url.trim_end_matches('/').to_ascii_lowercase())
 }
 
+pub fn normalize_provider_base_url(base_url: &str) -> Result<String, String> {
+    let base_url = base_url.trim().trim_end_matches('/');
+    if base_url.is_empty() || base_url.chars().any(char::is_whitespace) {
+        return Err("Provider Base URL is required and cannot contain whitespace".into());
+    }
+    let parsed = url::Url::parse(base_url)
+        .map_err(|error| format!("Provider Base URL must be a valid http(s) URL: {error}"))?;
+    if !matches!(parsed.scheme(), "http" | "https")
+        || parsed.host_str().is_none()
+        || !parsed.username().is_empty()
+        || parsed.password().is_some()
+        || parsed.query().is_some()
+        || parsed.fragment().is_some()
+    {
+        return Err(
+            "Provider Base URL must be an http(s) URL without credentials, query, or fragment"
+                .into(),
+        );
+    }
+    Ok(base_url.to_string())
+}
+
+pub fn normalize_endpoint_path(endpoint_path: &str) -> Result<String, String> {
+    let endpoint_path = endpoint_path.trim();
+    if endpoint_path.is_empty() {
+        return Err("Endpoint Path is required".into());
+    }
+    if endpoint_path.chars().any(char::is_whitespace)
+        || endpoint_path.contains('#')
+        || endpoint_path.contains('?')
+        || endpoint_path.contains("://")
+        || endpoint_path.starts_with("//")
+        || endpoint_path.contains('\\')
+    {
+        return Err(
+            "Endpoint Path must be a relative path without a host, query, fragment, whitespace, or backslash"
+                .into(),
+        );
+    }
+    let normalized = format!("/{}", endpoint_path.trim_start_matches('/'));
+    for segment in normalized.split('/') {
+        let segment = segment.to_ascii_lowercase();
+        let decoded_dots = segment.replace("%2e", ".");
+        if matches!(decoded_dots.as_str(), "." | "..")
+            || segment.contains("%2f")
+            || segment.contains("%5c")
+        {
+            return Err("Endpoint Path cannot contain path traversal segments".into());
+        }
+    }
+    let first = normalized
+        .trim_start_matches('/')
+        .split('/')
+        .next()
+        .unwrap_or_default();
+    if !endpoint_path.starts_with('/') && (first.contains('.') || first.contains(':')) {
+        return Err("Endpoint Path cannot contain a domain or URI scheme".into());
+    }
+    Ok(normalized)
+}
+
+pub fn full_request_url(base_url: &str, endpoint_path: &str) -> Result<String, String> {
+    Ok(format!(
+        "{}{}",
+        normalize_provider_base_url(base_url)?,
+        normalize_endpoint_path(endpoint_path)?
+    ))
+}
+
+fn protocol_client_base_url(
+    base_url: &str,
+    protocol: &ModelProtocol,
+    endpoint_path: &str,
+) -> Result<String, String> {
+    let base_url = normalize_provider_base_url(base_url)?;
+    let endpoint_path = normalize_endpoint_path(endpoint_path)?;
+    let suffix = protocol.default_endpoint_path();
+    let Some(prefix) = endpoint_path.strip_suffix(suffix) else {
+        return Err(format!(
+            "Endpoint Path '{endpoint_path}' must end with the protocol path '{suffix}'"
+        ));
+    };
+    Ok(format!("{base_url}{prefix}")
+        .trim_end_matches('/')
+        .to_string())
+}
+
+pub(crate) fn profile_endpoint_compatibility_issue(
+    agent_id: &str,
+    profile: &ModelProfile,
+) -> Option<(String, String)> {
+    if profile.endpoint_path.is_empty() {
+        return None;
+    }
+    protocol_client_base_url(&profile.base_url, &profile.protocol, &profile.endpoint_path)
+        .err()
+        .map(|error| {
+            (
+                "model_endpoint_path_unsupported".into(),
+                format!(
+                    "{agent_id} cannot express this custom Endpoint Path without changing the request target: {error}"
+                ),
+            )
+        })
+}
+
+fn materialize_profile_for_agent(
+    agent_id: &str,
+    profile: &ModelProfile,
+) -> Result<ModelProfile, String> {
+    if profile.endpoint_path.is_empty() {
+        return Ok(profile.clone());
+    }
+    let mut materialized = profile.clone();
+    materialized.base_url =
+        protocol_client_base_url(&profile.base_url, &profile.protocol, &profile.endpoint_path)
+            .map_err(|error| {
+                format!(
+                    "model_endpoint_path_unsupported: {agent_id} cannot express this custom Endpoint Path without changing the request target: {error}"
+                )
+            })?;
+    materialized.endpoint_path.clear();
+    Ok(materialized)
+}
+
 fn credential_fingerprint(profile_id: &str) -> Option<String> {
     read_credential(profile_id).map(|credential| {
         Sha256::digest(credential)
@@ -804,6 +969,7 @@ pub fn migrate_model_providers_v3_if_needed() -> Result<bool, String> {
 
     let mut profiles = settings.model_profiles.clone().unwrap_or_default();
     let mut providers = BTreeMap::<String, ModelProviderConfig>::new();
+    let mut legacy_endpoints = BTreeMap::<String, BTreeMap<ModelProtocol, String>>::new();
     let mut groups = Vec::<(GroupIdentity, String)>::new();
     let mut used_ids = BTreeSet::new();
     let mut used_names = BTreeSet::new();
@@ -819,10 +985,9 @@ pub fn migrate_model_providers_v3_if_needed() -> Result<bool, String> {
             if candidate != &identity {
                 return None;
             }
-            let provider = providers.get(provider_id)?;
-            provider
-                .endpoints
-                .get(&profile.protocol)
+            legacy_endpoints
+                .get(provider_id)
+                .and_then(|endpoints| endpoints.get(&profile.protocol))
                 .is_none_or(|endpoint| {
                     endpoint.trim_end_matches('/') == profile.base_url.trim_end_matches('/')
                 })
@@ -848,7 +1013,8 @@ pub fn migrate_model_providers_v3_if_needed() -> Result<bool, String> {
                         id: provider_id.clone(),
                         name,
                         provider: profile.provider.clone(),
-                        endpoints: BTreeMap::new(),
+                        base_url: String::new(),
+                        protocols: BTreeMap::new(),
                         env_key: profile.env_key.clone(),
                     },
                 );
@@ -856,12 +1022,19 @@ pub fn migrate_model_providers_v3_if_needed() -> Result<bool, String> {
                 provider_id
             }
         };
-        providers
-            .get_mut(&provider_id)
-            .expect("new Provider is present")
-            .endpoints
+        legacy_endpoints
+            .entry(provider_id.clone())
+            .or_default()
             .insert(profile.protocol.clone(), profile.base_url.clone());
         profile.provider_id = Some(provider_id);
+    }
+    for (provider_id, endpoints) in legacy_endpoints {
+        let provider = providers
+            .get_mut(&provider_id)
+            .expect("grouped Provider is present");
+        let (base_url, protocols) = migrate_legacy_provider_endpoints(&provider.name, &endpoints)?;
+        provider.base_url = base_url;
+        provider.protocols = protocols;
     }
 
     crate::settings::mutate_settings_checked(|current| {
@@ -901,11 +1074,18 @@ fn repair_missing_provider_references(
                     provider.provider == profile.provider
                         && provider.env_key == profile.env_key
                         && provider
-                            .endpoints
+                            .protocols
                             .get(&profile.protocol)
-                            .is_some_and(|endpoint| {
-                                endpoint.trim_end_matches('/')
-                                    == profile.base_url.trim_end_matches('/')
+                            .is_some_and(|protocol| {
+                                protocol_client_base_url(
+                                    &provider.base_url,
+                                    &profile.protocol,
+                                    &protocol.endpoint_path,
+                                )
+                                .is_ok_and(|endpoint| {
+                                    endpoint.trim_end_matches('/')
+                                        == profile.base_url.trim_end_matches('/')
+                                })
                             })
                 })
                 .map(|provider| provider.id.clone())
@@ -1065,8 +1245,9 @@ pub(crate) fn prepare_profile_draft(
             .ok_or_else(|| "asset_operation_stale: Model Provider no longer exists".to_string())?;
         profile.provider = provider.provider.clone();
         profile.env_key = provider.env_key.clone();
-        profile.base_url = provider
-            .endpoints
+        profile.base_url = provider.base_url.clone();
+        profile.endpoint_path = provider
+            .protocols
             .get(&profile.protocol)
             .ok_or_else(|| {
                 format!(
@@ -1074,6 +1255,7 @@ pub(crate) fn prepare_profile_draft(
                     provider.name, profile.protocol
                 )
             })?
+            .endpoint_path
             .clone();
     }
     profile.provider = if profile.provider.trim().is_empty() {
@@ -1139,6 +1321,9 @@ pub(crate) fn prepare_profile_draft(
                 ));
             }
         }
+    }
+    if profile.endpoint_path.is_empty() {
+        profile.endpoint_path = profile.protocol.default_endpoint_path().into();
     }
     let requested_name = if profile.name.trim().is_empty() {
         default_profile_name(&profile.model)
@@ -1618,11 +1803,9 @@ fn validate_profile(profile: &ModelProfile) -> Result<(), String> {
     if profile.model.trim().is_empty() {
         return Err("model id is required".into());
     }
-    let base_url = profile.base_url.trim();
-    if !(base_url.starts_with("https://") || base_url.starts_with("http://"))
-        || base_url.chars().any(char::is_whitespace)
-    {
-        return Err("base URL must be an http(s) URL without whitespace".into());
+    normalize_provider_base_url(&profile.base_url)?;
+    if !profile.endpoint_path.is_empty() {
+        full_request_url(&profile.base_url, &profile.endpoint_path)?;
     }
     if profile.context_window == Some(0) || profile.max_output_tokens == Some(0) {
         return Err("token limits must be greater than zero".into());
@@ -1660,16 +1843,12 @@ pub(crate) fn validate_provider_config(provider: &ModelProviderConfig) -> Result
     if provider.provider.is_empty() || normalize_slug(&provider.provider) != provider.provider {
         return Err("Provider type must be a lowercase identifier".into());
     }
-    if provider.endpoints.is_empty() {
-        return Err("Provider must define at least one protocol endpoint".into());
+    normalize_provider_base_url(&provider.base_url)?;
+    if provider.protocols.is_empty() {
+        return Err("Provider must enable at least one protocol".into());
     }
-    for endpoint in provider.endpoints.values() {
-        let endpoint = endpoint.trim();
-        if !(endpoint.starts_with("https://") || endpoint.starts_with("http://"))
-            || endpoint.chars().any(char::is_whitespace)
-        {
-            return Err("Provider endpoint must be an http(s) URL without whitespace".into());
-        }
+    for protocol in provider.protocols.values() {
+        full_request_url(&provider.base_url, &protocol.endpoint_path)?;
     }
     if let Some(env_key) = provider.env_key.as_deref() {
         let mut bytes = env_key.bytes();
@@ -1692,21 +1871,34 @@ pub(crate) fn provider_profiles(
     provider: &ModelProviderConfig,
 ) -> Result<BTreeMap<String, ModelProfile>, String> {
     validate_provider_config(provider)?;
-    let profiles = settings
+    let linked = settings
         .model_profiles
         .iter()
         .flatten()
         .filter(|(_, profile)| profile.provider_id.as_deref() == Some(provider.id.as_str()))
+        .collect::<Vec<_>>();
+    let missing = linked
+        .iter()
+        .filter(|(_, profile)| !provider.protocols.contains_key(&profile.protocol))
+        .map(|(_, profile)| profile.name.clone())
+        .collect::<Vec<_>>();
+    if !missing.is_empty() {
+        return Err(format!(
+            "model_provider_protocol_in_use: cannot disable protocols used by Models: {}",
+            missing.join(", ")
+        ));
+    }
+    let profiles = linked
+        .into_iter()
         .map(|(id, profile)| {
-            let endpoint = provider.endpoints.get(&profile.protocol).ok_or_else(|| {
-                format!(
-                    "model_provider_endpoint_missing: {} requires {:?}",
-                    profile.name, profile.protocol
-                )
-            })?;
+            let protocol = provider
+                .protocols
+                .get(&profile.protocol)
+                .expect("missing protocol was checked");
             let mut profile = profile.clone();
             profile.provider = provider.provider.clone();
-            profile.base_url = endpoint.trim_end_matches('/').to_string();
+            profile.base_url = provider.base_url.clone();
+            profile.endpoint_path = protocol.endpoint_path.clone();
             profile.env_key = provider.env_key.clone();
             validate_profile(&profile)?;
             Ok((id.clone(), profile))
@@ -1722,11 +1914,15 @@ pub(crate) fn prepare_provider_draft(
 ) -> Result<ModelProviderConfig, String> {
     provider.name = provider.name.trim().to_string();
     provider.provider = normalize_slug(&provider.provider);
-    provider.endpoints = provider
-        .endpoints
+    provider.base_url = normalize_provider_base_url(&provider.base_url)?;
+    provider.protocols = provider
+        .protocols
         .into_iter()
-        .map(|(protocol, endpoint)| (protocol, endpoint.trim().trim_end_matches('/').to_string()))
-        .collect();
+        .map(|(protocol, config)| {
+            normalize_endpoint_path(&config.endpoint_path)
+                .map(|endpoint_path| (protocol, ModelProviderProtocolConfig { endpoint_path }))
+        })
+        .collect::<Result<_, _>>()?;
     provider.env_key = provider
         .env_key
         .map(|value| value.trim().to_string())
@@ -1911,13 +2107,20 @@ pub fn save_profile(profile: ModelProfile, credential: Option<String>) -> Result
                         id: provider_id.to_string(),
                         name: provider_name.clone(),
                         provider: profile.provider.clone(),
-                        endpoints: BTreeMap::new(),
+                        base_url: profile.base_url.clone(),
+                        protocols: BTreeMap::new(),
                         env_key: profile.env_key.clone(),
                     });
             provider
-                .endpoints
+                .protocols
                 .entry(profile.protocol.clone())
-                .or_insert_with(|| profile.base_url.clone());
+                .or_insert_with(|| ModelProviderProtocolConfig {
+                    endpoint_path: if profile.endpoint_path.is_empty() {
+                        profile.protocol.default_endpoint_path().into()
+                    } else {
+                        profile.endpoint_path.clone()
+                    },
+                });
         }
         settings
             .model_profiles
@@ -2069,6 +2272,7 @@ fn validate_profile_id(profile_id: &str) -> Result<(), String> {
         native_ids: Default::default(),
         protocol: ModelProtocol::OpenaiResponses,
         base_url: "http://localhost".into(),
+        endpoint_path: String::new(),
         model: "x".into(),
         env_key: None,
         context_window: None,
@@ -2454,21 +2658,22 @@ pub fn observe_profile(
     agent_id: &str,
     profile: &ModelProfile,
 ) -> Result<ModelObservedState, String> {
+    let profile = materialize_profile_for_agent(agent_id, profile)?;
     let has_credential = credential_exists(&profile.id);
     let paths =
         configured_paths(agent_id).ok_or_else(|| format!("unsupported model Agent: {agent_id}"))?;
     let observed = match agent_id {
-        "claude-code" => observe_prepared(prepare_claude(&paths[0], profile, has_credential)),
-        "codex" => observe_prepared(prepare_codex(&paths[0], profile, has_credential)),
-        "grok-build" => observe_prepared(prepare_grok_build(&paths[0], profile)),
+        "claude-code" => observe_prepared(prepare_claude(&paths[0], &profile, has_credential)),
+        "codex" => observe_prepared(prepare_codex(&paths[0], &profile, has_credential)),
+        "grok-build" => observe_prepared(prepare_grok_build(&paths[0], &profile)),
         "pi" => {
-            let models = observe_prepared(prepare_pi_models(&paths[0], profile, has_credential));
-            let settings = observe_prepared(prepare_pi_settings(&paths[1], profile));
+            let models = observe_prepared(prepare_pi_models(&paths[0], &profile, has_credential));
+            let settings = observe_prepared(prepare_pi_settings(&paths[1], &profile));
             combine_observed(models, settings)
         }
         "opencode" | "kilo-code" | "qwen-code" | "crush" | "mistral-vibe" | "hermes"
         | "factory-droid" | "goose" => Ok(adapters::observe_prepared_files(
-            adapters::prepare_apply(agent_id, &paths, profile, true),
+            adapters::prepare_apply(agent_id, &paths, &profile, true),
         )),
         _ => Ok(ModelObservedState::Conflicted),
     }?;
@@ -2489,15 +2694,16 @@ pub fn observe_profile_consumption(
     if active || matches!(agent_id, "claude-code" | "codex") {
         return observe_profile(agent_id, profile);
     }
+    let profile = materialize_profile_for_agent(agent_id, profile)?;
     let has_credential = credential_exists(&profile.id);
     let paths =
         configured_paths(agent_id).ok_or_else(|| format!("unsupported model Agent: {agent_id}"))?;
     let absent = match agent_id {
-        "grok-build" => cleared_toml_profile_absent(prepare_clear_grok_build(&paths[0], profile)),
-        "pi" => cleared_toml_profile_absent(prepare_clear_pi_models(&paths[0], profile)),
+        "grok-build" => cleared_toml_profile_absent(prepare_clear_grok_build(&paths[0], &profile)),
+        "pi" => cleared_toml_profile_absent(prepare_clear_pi_models(&paths[0], &profile)),
         "opencode" | "kilo-code" | "qwen-code" | "crush" | "mistral-vibe" | "hermes"
         | "factory-droid" | "goose" => {
-            adapters::cleared_profile_absent(adapters::prepare_clear(agent_id, &paths, profile))
+            adapters::cleared_profile_absent(adapters::prepare_clear(agent_id, &paths, &profile))
         }
         _ => Ok(false),
     };
@@ -2507,13 +2713,13 @@ pub fn observe_profile_consumption(
         Err(_) => return Ok(ModelObservedState::Conflicted),
     }
     match agent_id {
-        "grok-build" => observe_prepared(prepare_grok_model(&paths[0], profile)),
-        "pi" => observe_prepared(prepare_pi_models(&paths[0], profile, has_credential)),
+        "grok-build" => observe_prepared(prepare_grok_model(&paths[0], &profile)),
+        "pi" => observe_prepared(prepare_pi_models(&paths[0], &profile, has_credential)),
         "opencode" | "kilo-code" | "qwen-code" | "crush" | "mistral-vibe" | "hermes"
         | "factory-droid" | "goose" => Ok(adapters::observe_prepared_files(
-            adapters::prepare_apply(agent_id, &paths, profile, false),
+            adapters::prepare_apply(agent_id, &paths, &profile, false),
         )),
-        _ => observe_profile(agent_id, profile),
+        _ => observe_profile(agent_id, &profile),
     }
 }
 
@@ -2788,6 +2994,7 @@ pub(crate) fn apply_profile_consumption_with_credential_presence(
 ) -> Result<ModelApplyResult, String> {
     let profile = profile_for_apply(profile_id)?;
     ensure_supported(agent_id, &profile.protocol)?;
+    let profile = materialize_profile_for_agent(agent_id, &profile)?;
     if let Some((code, message)) = profile_credential_issue(agent_id, &profile, has_credential) {
         return Err(format!("{code}: {message}"));
     }
@@ -2838,6 +3045,7 @@ pub(crate) fn clear_profile_consumption(
     let _settings_guard = mutation_lock()?;
     let profile = profile_for_apply(profile_id)?;
     ensure_supported(agent_id, &profile.protocol)?;
+    let profile = materialize_profile_for_agent(agent_id, &profile)?;
     match observe_profile_consumption(agent_id, &profile, false)? {
         ModelObservedState::Synced => {}
         ModelObservedState::Missing => {}
@@ -3746,6 +3954,131 @@ mod tests {
     use std::thread;
     use std::time::Duration;
 
+    fn protocol(endpoint_path: &str) -> ModelProviderProtocolConfig {
+        ModelProviderProtocolConfig {
+            endpoint_path: endpoint_path.into(),
+        }
+    }
+
+    #[test]
+    fn provider_base_url_and_endpoint_path_join_without_double_slashes() {
+        assert_eq!(
+            full_request_url(" https://gateway.example.com/api/v2/ ", "responses").unwrap(),
+            "https://gateway.example.com/api/v2/responses"
+        );
+        assert_eq!(
+            full_request_url("https://gateway.example.com/api/v2", "/tenant/v1/messages").unwrap(),
+            "https://gateway.example.com/api/v2/tenant/v1/messages"
+        );
+    }
+
+    #[test]
+    fn endpoint_path_validation_rejects_absolute_and_traversal_inputs() {
+        for invalid in [
+            "",
+            "https://other.example/v1/messages",
+            "//other.example/v1/messages",
+            "/v1/with space/messages",
+            "/v1/messages#fragment",
+            "/v1/messages?mode=fast",
+            "/v1/../messages",
+            "/v1/%2e%2e/messages",
+            "/v1/%2e%2e%2fmessages",
+            r"\v1\messages",
+        ] {
+            assert!(
+                normalize_endpoint_path(invalid).is_err(),
+                "accepted invalid Endpoint Path: {invalid}"
+            );
+        }
+        assert_eq!(
+            normalize_endpoint_path("tenant/v1/responses").unwrap(),
+            "/tenant/v1/responses"
+        );
+    }
+
+    #[test]
+    fn agent_materialization_preserves_compatible_request_targets_and_blocks_others() {
+        let mut profile = responses_profile();
+        profile.base_url = "https://gateway.example.test".into();
+        profile.endpoint_path = "/tenant/v1/responses".into();
+
+        let materialized = materialize_profile_for_agent("codex", &profile).unwrap();
+        assert_eq!(
+            materialized.base_url,
+            "https://gateway.example.test/tenant/v1"
+        );
+        assert!(materialized.endpoint_path.is_empty());
+        assert_eq!(
+            format!(
+                "{}{}",
+                materialized.base_url,
+                profile.protocol.default_endpoint_path()
+            ),
+            full_request_url(&profile.base_url, &profile.endpoint_path).unwrap()
+        );
+
+        profile.endpoint_path = "/tenant/invoke".into();
+        let error = materialize_profile_for_agent("codex", &profile).unwrap_err();
+        assert!(
+            error.starts_with("model_endpoint_path_unsupported:"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn provider_cannot_disable_a_protocol_used_by_a_named_model() {
+        let provider = ModelProviderConfig {
+            id: "team-provider".into(),
+            name: "Team Provider".into(),
+            provider: "custom".into(),
+            base_url: "https://gateway.example.test".into(),
+            protocols: BTreeMap::from([(
+                ModelProtocol::OpenaiResponses,
+                protocol("/v1/responses"),
+            )]),
+            env_key: None,
+        };
+        let mut profile = anthropic_profile();
+        profile.provider_id = Some(provider.id.clone());
+        let settings = crate::settings::Settings {
+            model_profiles: Some(BTreeMap::from([(profile.id.clone(), profile)])),
+            ..Default::default()
+        };
+
+        let error = provider_profiles(&settings, &provider).unwrap_err();
+        assert_eq!(
+            error,
+            "model_provider_protocol_in_use: cannot disable protocols used by Models: Team Anthropic"
+        );
+    }
+
+    #[test]
+    fn provider_allows_multiple_protocols_to_share_one_endpoint_path() {
+        let provider = ModelProviderConfig {
+            id: "shared-path-provider".into(),
+            name: "Shared Path Provider".into(),
+            provider: "custom".into(),
+            base_url: "https://gateway.example.test/api/v2/".into(),
+            protocols: BTreeMap::from([
+                (
+                    ModelProtocol::AnthropicMessages,
+                    protocol("/unified/invoke"),
+                ),
+                (ModelProtocol::OpenaiResponses, protocol("/unified/invoke")),
+            ]),
+            env_key: None,
+        };
+
+        validate_provider_config(&provider).unwrap();
+        for protocol in provider.protocols.values() {
+            assert_eq!(
+                full_request_url(&provider.base_url, &protocol.endpoint_path).unwrap(),
+                "https://gateway.example.test/api/v2/unified/invoke"
+            );
+        }
+    }
+
     #[test]
     fn provider_default_base_urls_are_unique_valid_and_inferable() {
         let mut ids = BTreeSet::new();
@@ -3812,6 +4145,16 @@ mod tests {
         assert_eq!(endpointless.len(), 1);
         assert_eq!(endpointless[0].id, "custom");
         assert_eq!(list_providers().len(), 51);
+        let openrouter = list_providers()
+            .iter()
+            .find(|provider| provider.id == "openrouter")
+            .unwrap();
+        let serialized = serde_json::to_value(openrouter).unwrap();
+        assert_eq!(serialized["base_url"], "https://openrouter.ai/api/v1");
+        assert_eq!(
+            serialized["protocols"]["openai-responses"]["endpoint_path"],
+            "/responses"
+        );
 
         let plan_ids = [
             "zai-coding-plan",
@@ -3847,6 +4190,18 @@ mod tests {
         assert_eq!(
             serialized["additional_endpoints"][0]["base_url"],
             "https://token-plan.ap-southeast-1.maas.aliyuncs.com/apps/anthropic"
+        );
+        assert_eq!(
+            serialized["base_url"],
+            "https://token-plan.ap-southeast-1.maas.aliyuncs.com"
+        );
+        assert_eq!(
+            serialized["protocols"]["openai-completions"]["endpoint_path"],
+            "/compatible-mode/v1/chat/completions"
+        );
+        assert_eq!(
+            serialized["protocols"]["anthropic-messages"]["endpoint_path"],
+            "/apps/anthropic/v1/messages"
         );
 
         for id in ["poe", "huggingface", "nebius", "requesty"] {
@@ -3893,6 +4248,7 @@ mod tests {
             native_ids: Default::default(),
             protocol: ModelProtocol::AnthropicMessages,
             base_url: "https://gateway.example.test/anthropic".into(),
+            endpoint_path: String::new(),
             model: "claude-sonnet-custom".into(),
             env_key: None,
             context_window: Some(200_000),
@@ -3911,6 +4267,7 @@ mod tests {
             native_ids: Default::default(),
             protocol: ModelProtocol::OpenaiResponses,
             base_url: "https://gateway.example.test/v1".into(),
+            endpoint_path: String::new(),
             model: "gpt-custom".into(),
             env_key: None,
             context_window: Some(128_000),
@@ -3920,7 +4277,7 @@ mod tests {
     }
 
     #[test]
-    fn v3_migration_groups_matching_credentials_and_keeps_protocol_endpoints() {
+    fn provider_migration_groups_matching_credentials_and_preserves_request_targets() {
         let _home = TestHome::new("model-provider-v3-migration");
         let anthropic = anthropic_profile();
         let responses = responses_profile();
@@ -3943,14 +4300,25 @@ mod tests {
         let providers = settings.model_providers.unwrap();
         assert_eq!(providers.len(), 1);
         let provider = providers.values().next().unwrap();
-        assert_eq!(provider.endpoints.len(), 2);
+        assert_eq!(provider.base_url, "https://gateway.example.test");
+        assert_eq!(provider.protocols.len(), 2);
         assert_eq!(
-            provider.endpoints[&ModelProtocol::AnthropicMessages],
-            anthropic.base_url
+            protocol_client_base_url(
+                &provider.base_url,
+                &ModelProtocol::AnthropicMessages,
+                &provider.protocols[&ModelProtocol::AnthropicMessages].endpoint_path,
+            )
+            .unwrap(),
+            anthropic.base_url,
         );
         assert_eq!(
-            provider.endpoints[&ModelProtocol::OpenaiResponses],
-            responses.base_url
+            protocol_client_base_url(
+                &provider.base_url,
+                &ModelProtocol::OpenaiResponses,
+                &provider.protocols[&ModelProtocol::OpenaiResponses].endpoint_path,
+            )
+            .unwrap(),
+            responses.base_url,
         );
         let profiles = settings.model_profiles.unwrap();
         assert_eq!(
@@ -3970,20 +4338,111 @@ mod tests {
     }
 
     #[test]
+    fn v4_provider_endpoints_migrate_idempotently_without_changing_request_targets() {
+        let _home = TestHome::new("settings-provider-v4-migration");
+        let path = settings_file();
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(
+            &path,
+            r#"{
+              "version": 4,
+              "model_providers": {
+                "team-provider": {
+                  "id": "team-provider",
+                  "name": "Team Provider",
+                  "provider": "custom",
+                  "endpoints": {
+                    "openai-responses": "https://gateway.example.test/api/v2",
+                    "anthropic-messages": "https://gateway.example.test/anthropic"
+                  }
+                },
+                "shared-provider": {
+                  "id": "shared-provider",
+                  "name": "Shared Provider",
+                  "provider": "custom",
+                  "endpoints": {
+                    "openai-responses": "https://shared.example.test/api/v2",
+                    "anthropic-messages": "https://shared.example.test/api/v2"
+                  }
+                }
+              }
+            }"#,
+        )
+        .unwrap();
+
+        assert!(migrate_model_providers_v3_if_needed().unwrap());
+        assert!(!migrate_model_providers_v3_if_needed().unwrap());
+
+        let raw: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(raw["version"], crate::settings::SETTINGS_VERSION);
+        let provider = &raw["model_providers"]["team-provider"];
+        assert!(provider.get("endpoints").is_none());
+        assert_eq!(provider["base_url"], "https://gateway.example.test");
+        assert_eq!(
+            provider["protocols"]["openai-responses"]["endpoint_path"],
+            "/api/v2/responses"
+        );
+        assert_eq!(
+            provider["protocols"]["anthropic-messages"]["endpoint_path"],
+            "/anthropic/v1/messages"
+        );
+        let shared = &raw["model_providers"]["shared-provider"];
+        assert_eq!(shared["base_url"], "https://shared.example.test/api/v2");
+        assert_eq!(
+            shared["protocols"]["openai-responses"]["endpoint_path"],
+            "/responses"
+        );
+        assert_eq!(
+            shared["protocols"]["anthropic-messages"]["endpoint_path"],
+            "/v1/messages"
+        );
+    }
+
+    #[test]
+    fn v4_multi_origin_provider_migration_is_blocked_without_rewriting_settings() {
+        let _home = TestHome::new("settings-provider-v4-blocked");
+        let path = settings_file();
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let original = r#"{
+          "version": 4,
+          "model_providers": {
+            "mixed-provider": {
+              "id": "mixed-provider",
+              "name": "Mixed Provider",
+              "provider": "custom",
+              "endpoints": {
+                "openai-responses": "https://first.example.test/v1",
+                "anthropic-messages": "https://second.example.test/anthropic"
+              }
+            }
+          }
+        }"#;
+        fs::write(&path, original).unwrap();
+
+        let error = crate::settings::load_settings_strict()
+            .unwrap_err()
+            .to_string();
+        assert!(
+            error.contains("model_provider_endpoint_migration_blocked")
+                && error.contains("split it into separate Providers"),
+            "{error}"
+        );
+        assert_eq!(fs::read_to_string(path).unwrap(), original);
+    }
+
+    #[test]
     fn v3_repair_restores_only_unique_provider_references() {
         let _home = TestHome::new("model-provider-v3-reference-repair");
         let primary = ModelProviderConfig {
             id: "primary-provider".into(),
             name: "Primary".into(),
             provider: "custom".into(),
-            endpoints: BTreeMap::from([
-                (
-                    ModelProtocol::OpenaiResponses,
-                    "https://gateway.example.test/v1".into(),
-                ),
+            base_url: "https://gateway.example.test".into(),
+            protocols: BTreeMap::from([
+                (ModelProtocol::OpenaiResponses, protocol("/v1/responses")),
                 (
                     ModelProtocol::AnthropicMessages,
-                    "https://gateway.example.test/anthropic".into(),
+                    protocol("/anthropic/v1/messages"),
                 ),
             ]),
             env_key: None,
@@ -3992,9 +4451,10 @@ mod tests {
             id: "secure-provider".into(),
             name: "Secure".into(),
             provider: "custom".into(),
-            endpoints: BTreeMap::from([(
+            base_url: "https://gateway.example.test".into(),
+            protocols: BTreeMap::from([(
                 ModelProtocol::AnthropicMessages,
-                "https://gateway.example.test/anthropic".into(),
+                protocol("/anthropic/v1/messages"),
             )]),
             env_key: None,
         };
@@ -4054,14 +4514,12 @@ mod tests {
             id: "team-provider".into(),
             name: "Team Provider".into(),
             provider: "custom".into(),
-            endpoints: BTreeMap::from([
-                (
-                    ModelProtocol::OpenaiResponses,
-                    "https://gateway.example.test/v1".into(),
-                ),
+            base_url: "https://gateway.example.test".into(),
+            protocols: BTreeMap::from([
+                (ModelProtocol::OpenaiResponses, protocol("/v1/responses")),
                 (
                     ModelProtocol::AnthropicMessages,
-                    "https://gateway.example.test/anthropic".into(),
+                    protocol("/anthropic/v1/messages"),
                 ),
             ]),
             env_key: None,
@@ -4098,14 +4556,12 @@ mod tests {
             id: "team-provider".into(),
             name: "Team Provider".into(),
             provider: "custom".into(),
-            endpoints: BTreeMap::from([
-                (
-                    ModelProtocol::OpenaiResponses,
-                    "https://gateway.example.test/v1".into(),
-                ),
+            base_url: "https://gateway.example.test".into(),
+            protocols: BTreeMap::from([
+                (ModelProtocol::OpenaiResponses, protocol("/v1/responses")),
                 (
                     ModelProtocol::AnthropicMessages,
-                    "https://gateway.example.test/anthropic".into(),
+                    protocol("/anthropic/v1/messages"),
                 ),
             ]),
             env_key: None,
@@ -4147,9 +4603,10 @@ mod tests {
             id: "team-provider".into(),
             name: "Team Provider".into(),
             provider: "custom".into(),
-            endpoints: BTreeMap::from([(
+            base_url: "https://gateway.example.test".into(),
+            protocols: BTreeMap::from([(
                 ModelProtocol::OpenaiResponses,
-                "https://gateway.example.test/v1".into(),
+                protocol("/v1/responses"),
             )]),
             env_key: None,
         };
@@ -4176,9 +4633,10 @@ mod tests {
             id: "first-provider".into(),
             name: "First Provider".into(),
             provider: "custom".into(),
-            endpoints: BTreeMap::from([(
+            base_url: "https://first.example.test".into(),
+            protocols: BTreeMap::from([(
                 ModelProtocol::OpenaiResponses,
-                "https://first.example.test/v1".into(),
+                protocol("/v1/responses"),
             )]),
             env_key: Some("FIRST_KEY".into()),
         };
@@ -4186,9 +4644,10 @@ mod tests {
             id: "second-provider".into(),
             name: "Second Provider".into(),
             provider: "openrouter".into(),
-            endpoints: BTreeMap::from([(
+            base_url: "https://second.example.test".into(),
+            protocols: BTreeMap::from([(
                 ModelProtocol::OpenaiResponses,
-                "https://second.example.test/v1".into(),
+                protocol("/v1/responses"),
             )]),
             env_key: Some("SECOND_KEY".into()),
         };
@@ -4206,9 +4665,10 @@ mod tests {
             Some(second_provider.id.as_str())
         );
         assert_eq!(switched.provider, second_provider.provider);
+        assert_eq!(switched.base_url, second_provider.base_url);
         assert_eq!(
-            switched.base_url,
-            second_provider.endpoints[&ModelProtocol::OpenaiResponses]
+            switched.endpoint_path,
+            second_provider.protocols[&ModelProtocol::OpenaiResponses].endpoint_path
         );
         assert_eq!(switched.env_key, second_provider.env_key);
     }

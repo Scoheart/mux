@@ -39,6 +39,10 @@ beforeEach(() => {
     {
       id: "openrouter",
       name: "OpenRouter",
+      base_url: "https://openrouter.ai/api/v1",
+      protocols: {
+        "openai-responses": { endpoint_path: "/responses" },
+      },
       default_base_url: "https://openrouter.ai/api/v1",
       default_protocol: "openai-responses",
       additional_endpoints: [],
@@ -47,6 +51,10 @@ beforeEach(() => {
     {
       id: "openai",
       name: "OpenAI",
+      base_url: "https://api.openai.com/v1",
+      protocols: {
+        "openai-responses": { endpoint_path: "/responses" },
+      },
       default_base_url: "https://api.openai.com/v1",
       default_protocol: "openai-responses",
       additional_endpoints: [],
@@ -55,6 +63,11 @@ beforeEach(() => {
     {
       id: "alibaba-coding-plan",
       name: "Alibaba Coding Plan (Global)",
+      base_url: "https://coding-intl.dashscope.aliyuncs.com",
+      protocols: {
+        "anthropic-messages": { endpoint_path: "/apps/anthropic/v1/messages" },
+        "openai-completions": { endpoint_path: "/v1/chat/completions" },
+      },
       default_base_url: "https://coding-intl.dashscope.aliyuncs.com/v1",
       default_protocol: "openai-completions",
       additional_endpoints: [{
@@ -66,6 +79,10 @@ beforeEach(() => {
     {
       id: "ollama",
       name: "Ollama",
+      base_url: "http://localhost:11434/v1",
+      protocols: {
+        "openai-completions": { endpoint_path: "/chat/completions" },
+      },
       default_base_url: "http://localhost:11434/v1",
       default_protocol: "openai-completions",
       additional_endpoints: [],
@@ -74,6 +91,10 @@ beforeEach(() => {
     {
       id: "custom",
       name: "Custom Provider",
+      base_url: "",
+      protocols: {
+        "openai-responses": { endpoint_path: "/responses" },
+      },
       default_base_url: null,
       default_protocol: "openai-responses",
       additional_endpoints: [],
@@ -253,7 +274,8 @@ it("keeps the sidebar limited to the model library and configured Providers", as
       id: "openai-personal",
       name: "OpenAI Personal",
       provider: "openai",
-      endpoints: { "openai-responses": "https://api.openai.com/v1" },
+      base_url: "https://api.openai.com",
+      protocols: { "openai-responses": { endpoint_path: "/v1/responses" } },
       credential_saved: true,
       model_count: 1,
     },
@@ -261,7 +283,8 @@ it("keeps the sidebar limited to the model library and configured Providers", as
       id: "openrouter-personal",
       name: "OpenRouter Personal",
       provider: "openrouter",
-      endpoints: { "openai-completions": "https://openrouter.ai/api/v1" },
+      base_url: "https://openrouter.ai",
+      protocols: { "openai-completions": { endpoint_path: "/api/v1/chat/completions" } },
       credential_saved: false,
       model_count: 1,
     },
@@ -428,7 +451,7 @@ it("renders model details as one continuous field list without section cards", a
     "协议",
     "推理",
     "模型 ID",
-    "Base URL",
+    "完整请求 URL",
     "环境变量",
     "API Key",
   ]) {
@@ -483,7 +506,6 @@ it("uses one custom select surface for model provider, protocol, and reasoning",
   expect(source).not.toMatch(/<select/);
   expect(css).toMatch(/\.mux-form-select-menu/);
   expect(css).toMatch(/\.mux-form-select\[data-open="true"\]\s*\{\s*z-index: 621/);
-  expect(css).toMatch(/\.mux-provider-endpoint-row \.mux-form-select-menu\s*\{\s*position: static/);
   expect(css).toMatch(/background: var\(--surface-popover\)/);
 });
 
@@ -500,19 +522,19 @@ it("fills a standalone Provider form from the selected catalog template", async 
   await openProviderTemplate(user, "OpenRouter");
   expect(screen.getByRole("heading", { name: "新建 Provider" })).toBeVisible();
   expect(screen.getByRole("combobox", { name: "Provider 类型" })).toHaveTextContent("OpenRouter");
-  expect(screen.getByRole("combobox", { name: "协议" })).toHaveTextContent("OpenAI Responses");
-  expect(screen.getByLabelText("Base URL")).toHaveValue(
-    "https://openrouter.ai/api/v1",
-  );
+  expect(screen.getByLabelText("Base URL")).toHaveValue("https://openrouter.ai/api/v1");
   expect(screen.getAllByLabelText("Base URL")).toHaveLength(1);
-  expect(screen.queryByLabelText("Anthropic Messages Endpoint")).not.toBeInTheDocument();
-  expect(screen.queryByLabelText("OpenAI Responses Endpoint")).not.toBeInTheDocument();
-  expect(screen.queryByLabelText("OpenAI Chat Completions Endpoint")).not.toBeInTheDocument();
+  expect(screen.getByRole("checkbox", { name: /OpenAI Responses/ })).toBeChecked();
+  expect(screen.getByRole("checkbox", { name: /Anthropic Messages/ })).not.toBeChecked();
+  expect(screen.getByLabelText("OpenAI Responses Endpoint Path")).toHaveValue(
+    "/responses",
+  );
+  expect(screen.getByDisplayValue("https://openrouter.ai/api/v1/responses")).toBeVisible();
   expect(screen.getByText("API Key")).toBeVisible();
   expect(screen.getByText("API Key 环境变量")).toBeVisible();
 });
 
-it("keeps plan-specific OpenAI and Anthropic endpoints together", async () => {
+it("keeps plan-specific protocols under one Base URL", async () => {
   const user = userEvent.setup();
   const planUpdate = vi.fn().mockResolvedValue({ operation_id: "provider-plan" });
   const consumptionState = { plan: null, planUpdate } as unknown as ConsumptionState;
@@ -524,16 +546,16 @@ it("keeps plan-specific OpenAI and Anthropic endpoints together", async () => {
   );
 
   await openProviderTemplate(user, "Alibaba Coding Plan");
-  expect(screen.getByRole("combobox", { name: "协议" })).toHaveTextContent(
-    "OpenAI Chat Completions",
-  );
   expect(screen.getByLabelText("Base URL")).toHaveValue(
-    "https://coding-intl.dashscope.aliyuncs.com/v1",
+    "https://coding-intl.dashscope.aliyuncs.com",
   );
-
-  await chooseFormSelect(user, "协议", "Anthropic Messages");
-  expect(screen.getByLabelText("Base URL")).toHaveValue(
-    "https://coding-intl.dashscope.aliyuncs.com/apps/anthropic",
+  expect(screen.getByRole("checkbox", { name: /Anthropic Messages/ })).toBeChecked();
+  expect(screen.getByRole("checkbox", { name: /OpenAI Chat Completions/ })).toBeChecked();
+  expect(screen.getByLabelText("Anthropic Messages Endpoint Path")).toHaveValue(
+    "/apps/anthropic/v1/messages",
+  );
+  expect(screen.getByLabelText("OpenAI Chat Completions Endpoint Path")).toHaveValue(
+    "/v1/chat/completions",
   );
   await user.click(screen.getByRole("button", { name: "保存" }));
 
@@ -541,9 +563,10 @@ it("keeps plan-specific OpenAI and Anthropic endpoints together", async () => {
     domain: "model-provider",
     provider: expect.objectContaining({
       provider: "alibaba-coding-plan",
-      endpoints: {
-        "anthropic-messages": "https://coding-intl.dashscope.aliyuncs.com/apps/anthropic",
-        "openai-completions": "https://coding-intl.dashscope.aliyuncs.com/v1",
+      base_url: "https://coding-intl.dashscope.aliyuncs.com",
+      protocols: {
+        "anthropic-messages": { endpoint_path: "/apps/anthropic/v1/messages" },
+        "openai-completions": { endpoint_path: "/v1/chat/completions" },
       },
     }),
   })));
@@ -570,7 +593,7 @@ it("keeps an explicitly entered Provider endpoint while changing its type", asyn
   expect(screen.queryByLabelText("自定义模型提供商 ID")).not.toBeInTheDocument();
 });
 
-it("uses each Provider template's declared default protocol", async () => {
+it("replaces an untouched template connection when the Provider type changes", async () => {
   const user = userEvent.setup();
   const consumptionState = { plan: null, planUpdate: vi.fn() } as unknown as ConsumptionState;
 
@@ -581,17 +604,16 @@ it("uses each Provider template's declared default protocol", async () => {
   );
 
   await openProviderTemplate(user, "Ollama");
-  expect(screen.getByRole("combobox", { name: "协议" })).toHaveTextContent(
-    "OpenAI Chat Completions",
-  );
+  expect(screen.getByRole("checkbox", { name: /OpenAI Chat Completions/ })).toBeChecked();
   expect(screen.getByLabelText("Base URL")).toHaveValue("http://localhost:11434/v1");
 
   await chooseFormSelect(user, "Provider 类型", "OpenRouter");
-  expect(screen.getByRole("combobox", { name: "协议" })).toHaveTextContent("OpenAI Responses");
+  expect(screen.getByRole("checkbox", { name: /OpenAI Responses/ })).toBeChecked();
+  expect(screen.getByRole("checkbox", { name: /OpenAI Chat Completions/ })).not.toBeChecked();
   expect(screen.getByLabelText("Base URL")).toHaveValue("https://openrouter.ai/api/v1");
 });
 
-it("switches the Provider protocol through one select without adding another URL row", async () => {
+it("enables, previews, resets, and submits protocol Endpoint Paths", async () => {
   const user = userEvent.setup();
   const planUpdate = vi.fn().mockResolvedValue({ operation_id: "provider-plan" });
   const consumptionState = { plan: null, planUpdate } as unknown as ConsumptionState;
@@ -603,22 +625,118 @@ it("switches the Provider protocol through one select without adding another URL
   );
 
   await openProviderTemplate(user, "OpenRouter");
-  await chooseFormSelect(user, "协议", "Anthropic Messages");
-
-  expect(screen.getByRole("combobox", { name: "协议" })).toHaveTextContent("Anthropic Messages");
+  await user.click(screen.getByRole("checkbox", { name: /Anthropic Messages/ }));
   expect(screen.getAllByLabelText("Base URL")).toHaveLength(1);
   expect(screen.getByLabelText("Base URL")).toHaveValue("https://openrouter.ai/api/v1");
-  expect(screen.queryByLabelText("Anthropic Messages Endpoint")).not.toBeInTheDocument();
+  const path = screen.getByLabelText("Anthropic Messages Endpoint Path");
+  expect(path).toHaveValue("/v1/messages");
+  await user.clear(path);
+  await user.type(path, "custom/messages");
+  expect(path).toHaveValue("custom/messages");
+  expect(screen.getByDisplayValue("https://openrouter.ai/api/v1/custom/messages")).toBeVisible();
+  const protocolCard = path.closest(".mux-provider-protocol");
+  expect(protocolCard).not.toBeNull();
+  await user.click(within(protocolCard as HTMLElement).getByRole("button", { name: "恢复默认" }));
+  expect(path).toHaveValue("/v1/messages");
   await user.click(screen.getByRole("button", { name: "保存" }));
 
   await waitFor(() => expect(planUpdate).toHaveBeenCalledWith(expect.objectContaining({
     domain: "model-provider",
     provider: expect.objectContaining({
-      endpoints: expect.objectContaining({
-        "anthropic-messages": "https://openrouter.ai/api/v1",
+      base_url: "https://openrouter.ai/api/v1",
+      protocols: expect.objectContaining({
+        "anthropic-messages": { endpoint_path: "/v1/messages" },
+        "openai-responses": { endpoint_path: "/responses" },
       }),
     }),
   })));
+});
+
+it("rejects absolute, fragmented, and traversal Endpoint Paths in the Provider form", async () => {
+  const user = userEvent.setup();
+  const consumptionState = { plan: null, planUpdate: vi.fn() } as unknown as ConsumptionState;
+
+  render(
+    <ToastProvider>
+      <ModelsView consumptionState={consumptionState} />
+    </ToastProvider>,
+  );
+
+  await openProviderTemplate(user, "Custom Provider");
+  await user.type(screen.getByLabelText("自定义模型提供商 ID"), "safe-gateway");
+  await user.type(screen.getByLabelText("Base URL"), "https://gateway.example.test");
+  const path = screen.getByLabelText("OpenAI Responses Endpoint Path");
+  const save = screen.getByRole("button", { name: "保存" });
+
+  for (const invalid of [
+    "https://other.example/responses",
+    "/v1/responses#fragment",
+    "/v1/responses?mode=fast",
+    "/v1/%2e%2e/responses",
+  ]) {
+    await user.clear(path);
+    await user.type(path, invalid);
+    expect(screen.getByText(/请输入相对路径/)).toBeVisible();
+    expect(save).toBeDisabled();
+  }
+});
+
+it("filters Model protocols by Provider and previews the selected request URL", async () => {
+  vi.mocked(api.listModelProviderInstances).mockResolvedValue([
+    {
+      id: "multi-provider",
+      name: "Multi Provider",
+      provider: "custom",
+      base_url: "https://multi.example.test/api",
+      protocols: {
+        "anthropic-messages": { endpoint_path: "/anthropic/v1/messages" },
+        "openai-responses": { endpoint_path: "/openai/responses" },
+      },
+      credential_saved: false,
+      model_count: 0,
+    },
+    {
+      id: "chat-provider",
+      name: "Chat Provider",
+      provider: "custom",
+      base_url: "https://chat.example.test",
+      protocols: {
+        "openai-completions": { endpoint_path: "/v2/chat/completions" },
+      },
+      credential_saved: false,
+      model_count: 0,
+    },
+  ]);
+  const user = userEvent.setup();
+  const consumptionState = { plan: null, planUpdate: vi.fn() } as unknown as ConsumptionState;
+
+  render(
+    <ToastProvider>
+      <ModelsView consumptionState={consumptionState} />
+    </ToastProvider>,
+  );
+
+  await user.click(await screen.findByRole("button", { name: "添加模型" }));
+  const protocol = screen.getByRole("combobox", { name: "协议" });
+  expect(protocol).toHaveTextContent("Anthropic Messages");
+  expect(screen.getByLabelText("完整请求 URL")).toHaveValue(
+    "https://multi.example.test/api/anthropic/v1/messages",
+  );
+
+  await user.click(protocol);
+  expect(screen.getByRole("option", { name: "Anthropic Messages" })).toBeVisible();
+  expect(screen.getByRole("option", { name: "OpenAI Responses" })).toBeVisible();
+  expect(screen.queryByRole("option", { name: "OpenAI Chat Completions" })).not.toBeInTheDocument();
+  await user.click(screen.getByRole("option", { name: "OpenAI Responses" }));
+  expect(screen.getByLabelText("完整请求 URL")).toHaveValue(
+    "https://multi.example.test/api/openai/responses",
+  );
+
+  await chooseFormSelect(user, "模型提供商", "Chat Provider");
+  expect(protocol).toHaveTextContent("OpenAI Chat Completions");
+  expect(screen.getByLabelText("完整请求 URL")).toHaveValue(
+    "https://chat.example.test/v2/chat/completions",
+  );
 });
 
 it("switches an existing Model to another persisted Provider relationship", async () => {
@@ -627,7 +745,8 @@ it("switches an existing Model to another persisted Provider relationship", asyn
       id: "custom-provider",
       name: "Custom Team",
       provider: "custom",
-      endpoints: { "openai-responses": "https://gateway.example.test/v1" },
+      base_url: "https://gateway.example.test",
+      protocols: { "openai-responses": { endpoint_path: "/v1/responses" } },
       credential_saved: false,
       model_count: 1,
     },
@@ -635,7 +754,8 @@ it("switches an existing Model to another persisted Provider relationship", asyn
       id: "openrouter-provider",
       name: "OpenRouter Team",
       provider: "openrouter",
-      endpoints: { "openai-responses": "https://openrouter.ai/api/v1" },
+      base_url: "https://openrouter.ai",
+      protocols: { "openai-responses": { endpoint_path: "/api/v1/responses" } },
       credential_saved: true,
       model_count: 0,
     },
@@ -676,8 +796,8 @@ it("switches an existing Model to another persisted Provider relationship", asyn
   expect(provider).toHaveTextContent("Custom Team");
   await chooseFormSelect(user, "模型提供商", "OpenRouter Team");
   expect(provider).toHaveTextContent("OpenRouter Team");
-  expect(screen.getByLabelText("Provider Endpoint（只读）")).toHaveValue(
-    "https://openrouter.ai/api/v1",
+  expect(screen.getByLabelText("完整请求 URL")).toHaveValue(
+    "https://openrouter.ai/api/v1/responses",
   );
   await user.click(screen.getByRole("button", { name: "保存" }));
   await waitFor(() => expect(consumptionState.planUpdate).toHaveBeenCalledWith(
@@ -714,8 +834,9 @@ it("submits an independent custom Provider through the central asset plan", asyn
     provider: expect.objectContaining({
       id: "",
       provider: "my-gateway",
-      endpoints: expect.objectContaining({
-        "openai-responses": "https://models.example.test/v1",
+      base_url: "https://models.example.test/v1",
+      protocols: expect.objectContaining({
+        "openai-responses": { endpoint_path: "/responses" },
       }),
     }),
     credential: undefined,
@@ -727,7 +848,8 @@ it("keeps Model fields local while writing an explicit Provider reference", asyn
     id: "openrouter-team-a",
     name: "OpenRouter Team",
     provider: "openrouter",
-    endpoints: { "openai-responses": "https://openrouter.ai/api/v1" },
+    base_url: "https://openrouter.ai",
+    protocols: { "openai-responses": { endpoint_path: "/api/v1/responses" } },
     credential_saved: true,
     model_count: 0,
   }]);
@@ -768,8 +890,9 @@ it("adds another Model to an existing Provider without repeating shared connecti
     id: "openrouter-team-a",
     name: "OpenRouter Team",
     provider: "openrouter",
-    endpoints: {
-      "openai-completions": "https://openrouter.ai/api/v1",
+    base_url: "https://openrouter.ai",
+    protocols: {
+      "openai-completions": { endpoint_path: "/api/v1/chat/completions" },
     },
     credential_saved: true,
     model_count: 1,
@@ -817,7 +940,7 @@ it("adds another Model to an existing Provider without repeating shared connecti
       provider_id: "openrouter-team-a",
       provider: "openrouter",
       protocol: "openai-completions",
-      base_url: "https://openrouter.ai/api/v1",
+      base_url: "https://openrouter.ai",
       model: "anthropic/claude-sonnet-4",
     }),
   })));
@@ -828,9 +951,10 @@ it("edits one Provider configuration through a single central asset plan", async
     id: "openrouter-team-a",
     name: "OpenRouter Team",
     provider: "openrouter",
-    endpoints: {
-      "openai-completions": "https://openrouter.ai/api/v1",
-      "anthropic-messages": "https://openrouter.ai/api",
+    base_url: "https://openrouter.ai",
+    protocols: {
+      "openai-completions": { endpoint_path: "/api/v1/chat/completions" },
+      "anthropic-messages": { endpoint_path: "/api/v1/messages" },
     },
     env_key: "OPENROUTER_API_KEY",
     credential_saved: true,
@@ -849,13 +973,15 @@ it("edits one Provider configuration through a single central asset plan", async
   await user.click(await sidebar.findByTitle("OpenRouter Team"));
   await user.click(screen.getByRole("button", { name: "编辑 Provider" }));
 
-  expect(screen.getByRole("combobox", { name: "协议" })).toHaveTextContent("Anthropic Messages");
-  const endpoint = screen.getByLabelText("Base URL");
-  expect(endpoint).toHaveValue("https://openrouter.ai/api");
-  await chooseFormSelect(user, "协议", "OpenAI Chat Completions");
-  expect(endpoint).toHaveValue("https://openrouter.ai/api/v1");
-  fireEvent.change(endpoint, {
-    target: { value: "https://gateway.example.test/v1/" },
+  expect(screen.getByRole("checkbox", { name: /Anthropic Messages/ })).toBeChecked();
+  expect(screen.getByRole("checkbox", { name: /OpenAI Chat Completions/ })).toBeChecked();
+  const baseUrl = screen.getByLabelText("Base URL");
+  expect(baseUrl).toHaveValue("https://openrouter.ai");
+  fireEvent.change(baseUrl, {
+    target: { value: "https://gateway.example.test/v2/" },
+  });
+  fireEvent.change(screen.getByLabelText("Anthropic Messages Endpoint Path"), {
+    target: { value: "/anthropic/v1/messages" },
   });
   await user.click(screen.getByRole("button", { name: "保存" }));
 
@@ -866,9 +992,10 @@ it("edits one Provider configuration through a single central asset plan", async
       id: "openrouter-team-a",
       name: "OpenRouter Team",
       provider: "openrouter",
-      endpoints: expect.objectContaining({
-        "openai-completions": "https://gateway.example.test/v1",
-        "anthropic-messages": "https://openrouter.ai/api",
+      base_url: "https://gateway.example.test/v2",
+      protocols: expect.objectContaining({
+        "openai-completions": { endpoint_path: "/api/v1/chat/completions" },
+        "anthropic-messages": { endpoint_path: "/anthropic/v1/messages" },
       }),
       env_key: "OPENROUTER_API_KEY",
     }),

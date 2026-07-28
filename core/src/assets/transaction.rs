@@ -2236,8 +2236,8 @@ mod tests {
         PlanSetAgentConsumptionRequest, PlanSetMcpEnabledRequest, PlanUpdateCentralAssetRequest,
     };
     use crate::domain::types::{
-        ModelProfile, ModelProtocol, ModelProviderConfig, RegistryConfig, RegistryEntry, SourceDef,
-        StdioConfig,
+        ModelProfile, ModelProtocol, ModelProviderConfig, ModelProviderProtocolConfig,
+        RegistryConfig, RegistryEntry, SourceDef, StdioConfig,
     };
     use crate::resources::mcp::registry::{read_registry_all, write_manual_entry};
     use crate::resources::mcp::sources::cached_path;
@@ -2254,6 +2254,7 @@ mod tests {
             native_ids: Default::default(),
             protocol: ModelProtocol::OpenaiResponses,
             base_url: "https://example.invalid/v1".into(),
+            endpoint_path: String::new(),
             model: model.into(),
             env_key: None,
             context_window: None,
@@ -2267,14 +2268,19 @@ mod tests {
             id: "shared-provider".into(),
             name: "Shared Provider".into(),
             provider: "custom".into(),
-            endpoints: BTreeMap::from([
+            base_url: "https://old.example.test".into(),
+            protocols: BTreeMap::from([
                 (
                     ModelProtocol::OpenaiResponses,
-                    "https://old.example.test/v1".into(),
+                    ModelProviderProtocolConfig {
+                        endpoint_path: "/v1/responses".into(),
+                    },
                 ),
                 (
                     ModelProtocol::AnthropicMessages,
-                    "https://old.example.test/anthropic".into(),
+                    ModelProviderProtocolConfig {
+                        endpoint_path: "/anthropic/v1/messages".into(),
+                    },
                 ),
             ]),
             env_key: None,
@@ -2287,7 +2293,10 @@ mod tests {
             model_vendor: Some("openai".into()),
             native_ids: Default::default(),
             protocol: ModelProtocol::OpenaiResponses,
-            base_url: provider.endpoints[&ModelProtocol::OpenaiResponses].clone(),
+            base_url: provider.base_url.clone(),
+            endpoint_path: provider.protocols[&ModelProtocol::OpenaiResponses]
+                .endpoint_path
+                .clone(),
             model: "gpt-shared".into(),
             env_key: None,
             context_window: None,
@@ -2300,7 +2309,9 @@ mod tests {
             name: "Shared Anthropic".into(),
             model_vendor: Some("anthropic".into()),
             protocol: ModelProtocol::AnthropicMessages,
-            base_url: provider.endpoints[&ModelProtocol::AnthropicMessages].clone(),
+            endpoint_path: provider.protocols[&ModelProtocol::AnthropicMessages]
+                .endpoint_path
+                .clone(),
             model: "claude-shared".into(),
             ..first.clone()
         };
@@ -2822,14 +2833,7 @@ mod tests {
     fn provider_commit_updates_every_child_model_and_credential() {
         let _home = TestHome::new("consume-provider-commit");
         let (mut provider, first, second) = install_shared_provider_models();
-        provider.endpoints.insert(
-            ModelProtocol::OpenaiResponses,
-            "https://new.example.test/v1/".into(),
-        );
-        provider.endpoints.insert(
-            ModelProtocol::AnthropicMessages,
-            "https://new.example.test/anthropic/".into(),
-        );
+        provider.base_url = "https://new.example.test/".into();
         let plan = plan_update_central_asset(PlanUpdateCentralAssetRequest {
             draft: CentralAssetDraft::ModelProvider {
                 existing_id: Some(provider.id.clone()),
@@ -2848,11 +2852,10 @@ mod tests {
 
         let settings = load_settings_strict().unwrap();
         let profiles = settings.model_profiles.unwrap();
-        assert_eq!(profiles[&first.id].base_url, "https://new.example.test/v1");
-        assert_eq!(
-            profiles[&second.id].base_url,
-            "https://new.example.test/anthropic"
-        );
+        assert_eq!(profiles[&first.id].base_url, "https://new.example.test");
+        assert_eq!(profiles[&first.id].endpoint_path, "/v1/responses");
+        assert_eq!(profiles[&second.id].base_url, "https://new.example.test");
+        assert_eq!(profiles[&second.id].endpoint_path, "/anthropic/v1/messages");
         assert_eq!(credential_snapshot(&first.id).unwrap(), b"new-secret");
         assert_eq!(credential_snapshot(&second.id).unwrap(), b"new-secret");
     }
@@ -2862,14 +2865,7 @@ mod tests {
         let _home = TestHome::new("consume-provider-keychain-rollback");
         let (mut provider, first, second) = install_shared_provider_models();
         let settings_before = fs::read(settings_file()).unwrap();
-        provider.endpoints.insert(
-            ModelProtocol::OpenaiResponses,
-            "https://new.example.test/v1".into(),
-        );
-        provider.endpoints.insert(
-            ModelProtocol::AnthropicMessages,
-            "https://new.example.test/anthropic".into(),
-        );
+        provider.base_url = "https://new.example.test".into();
         let plan = plan_update_central_asset(PlanUpdateCentralAssetRequest {
             draft: CentralAssetDraft::ModelProvider {
                 existing_id: Some(provider.id.clone()),

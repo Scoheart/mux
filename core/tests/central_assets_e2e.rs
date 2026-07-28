@@ -572,6 +572,7 @@ fn model(model: &str) -> ModelProfile {
         native_ids: Default::default(),
         protocol: ModelProtocol::OpenaiResponses,
         base_url: "https://example.invalid/v1".into(),
+        endpoint_path: String::new(),
         model: model.into(),
         env_key: None,
         context_window: Some(128_000),

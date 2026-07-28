@@ -50,6 +50,12 @@ const PROTOCOLS: Array<{ id: ModelProtocol; label: string }> = [
   { id: "openai-completions", label: "OpenAI Chat Completions" },
 ];
 
+const DEFAULT_ENDPOINT_PATHS: Record<ModelProtocol, string> = {
+  "anthropic-messages": "/v1/messages",
+  "openai-responses": "/responses",
+  "openai-completions": "/chat/completions",
+};
+
 const CUSTOM_PROVIDER_OPTION = "__custom__";
 
 const emptyProfile = (): ModelProfile => ({
@@ -69,21 +75,73 @@ function providerLabel(providers: ModelProviderView[], provider: string) {
   return providers.find((item) => item.id === provider)?.name ?? (provider || "Custom Provider");
 }
 
-function providerTemplateEndpoints(provider: ModelProviderView | null | undefined) {
-  if (!provider) return {} as ModelProviderConfig["endpoints"];
-  return Object.fromEntries([
-    ...provider.additional_endpoints.map(({ protocol, base_url }) => [protocol, base_url]),
-    ...(provider.default_base_url
-      ? [[provider.default_protocol, provider.default_base_url]]
-      : []),
-  ]) as ModelProviderConfig["endpoints"];
+function providerTemplateConnection(provider: ModelProviderView | null | undefined) {
+  return {
+    base_url: provider?.base_url ?? "",
+    protocols: provider
+      ? Object.fromEntries(
+          Object.entries(provider.protocols)
+            .map(([protocol, config]) => [protocol, { ...config! }]),
+        ) as ModelProviderConfig["protocols"]
+      : {},
+  };
 }
 
-function providerTemplateEndpoint(
+function providerTemplatePath(
   provider: ModelProviderView | null | undefined,
   protocol: ModelProtocol,
 ) {
-  return providerTemplateEndpoints(provider)[protocol] ?? provider?.default_base_url ?? "";
+  return provider?.protocols[protocol]?.endpoint_path ?? DEFAULT_ENDPOINT_PATHS[protocol];
+}
+
+function normalizeBaseUrl(value: string) {
+  const normalized = value.trim().replace(/\/+$/, "");
+  if (!normalized || /\s/.test(normalized)) return null;
+  try {
+    const url = new URL(normalized);
+    if (
+      !["http:", "https:"].includes(url.protocol)
+      || !url.hostname
+      || url.username
+      || url.password
+      || url.search
+      || url.hash
+    ) return null;
+    return normalized;
+  } catch {
+    return null;
+  }
+}
+
+function normalizeEndpointPath(value: string) {
+  const trimmed = value.trim();
+  if (
+    !trimmed
+    || /\s/.test(trimmed)
+    || trimmed.includes("#")
+    || trimmed.includes("?")
+    || trimmed.includes("://")
+    || trimmed.startsWith("//")
+    || trimmed.includes("\\")
+  ) return null;
+  const normalized = `/${trimmed.replace(/^\/+/, "")}`;
+  if (normalized.split("/").some((segment) => {
+    const lower = segment.toLocaleLowerCase();
+    const decodedDots = lower.replaceAll("%2e", ".");
+    return decodedDots === "." || decodedDots === ".."
+      || lower.includes("%2f") || lower.includes("%5c");
+  })) {
+    return null;
+  }
+  const first = normalized.replace(/^\/+/, "").split("/", 1)[0];
+  if (!trimmed.startsWith("/") && (first.includes(".") || first.includes(":"))) return null;
+  return normalized;
+}
+
+function fullRequestUrl(baseUrl: string, endpointPath: string) {
+  const base = normalizeBaseUrl(baseUrl);
+  const path = normalizeEndpointPath(endpointPath);
+  return base && path ? `${base}${path}` : "";
 }
 
 function profileProviderName(
@@ -323,6 +381,7 @@ export function ModelsView({
           <ModelInspector
             profile={selectedProfile}
             providerName={profileProviderName(selectedProfile, providerInstances, providers)}
+            provider={providerInstances.find((provider) => provider.id === selectedProfile.provider_id) ?? null}
             metadata={modelsDevByProfileId[selectedProfile.id]}
             onClose={clearSelection}
             onEdit={consumptionState ? () => setEditing(selectedProfile) : undefined}
@@ -414,6 +473,11 @@ export function ModelsView({
           onClose={() => {
             setEditing(undefined);
             setCreatingProviderTemplate(null);
+          }}
+          onAddProvider={() => {
+            setEditing(undefined);
+            setCreatingForProviderId(null);
+            setProviderCatalogOpen(true);
           }}
           onReview={async (profile) => {
             if (!consumptionState) throw new Error(t("models.saveUnavailable"));
@@ -584,6 +648,7 @@ function ModelList({
 function ModelInspector({
   profile,
   providerName,
+  provider,
   metadata,
   onClose,
   onEdit,
@@ -591,6 +656,7 @@ function ModelInspector({
 }: {
   profile: ModelProfileView;
   providerName: string;
+  provider: ModelProviderInstanceView | null;
   metadata?: ModelsDevMetadata;
   onClose: () => void;
   onEdit?: () => void;
@@ -605,6 +671,12 @@ function ModelInspector({
     metadata?.modalities?.some((modality) => modality !== "text") && t("models.multimodal"),
   ].filter((item): item is string => Boolean(item));
   const showReasoning = profile.reasoning !== undefined || metadata?.reasoning === true;
+  const requestUrl = provider
+    ? fullRequestUrl(
+        provider.base_url,
+        provider.protocols[profile.protocol]?.endpoint_path ?? "",
+      )
+    : "";
   return (
     <ResourceInspector
       title={readableModelName(profile, providerName, metadata)}
@@ -651,7 +723,7 @@ function ModelInspector({
         {capabilities.length > 0 && <InspectorField label={t("models.capabilities")}>{capabilities.join(" · ")}</InspectorField>}
         {metadata?.releaseDate && <InspectorField label={t("models.releaseDate")}>{metadata.releaseDate}</InspectorField>}
         <InspectorField label={t("models.modelId")} mono>{profile.model}</InspectorField>
-        <InspectorField label={t("models.baseUrl")} mono>{profile.base_url}</InspectorField>
+        <InspectorField label={t("models.fullRequestUrl")} mono>{requestUrl || t("common.notSet")}</InspectorField>
         {profile.env_key && <InspectorField label={t("models.environmentVariable")} mono>{profile.env_key}</InspectorField>}
         <InspectorField label={t("models.apiKey")}>
           <span className={profile.credential_saved ? "mux-status-ok" : "mux-status-muted"}>
@@ -682,6 +754,11 @@ function ProviderCatalogDialog({
     return !needle || [
       provider.name,
       provider.id,
+      provider.base_url ?? "",
+      ...Object.values(provider.protocols).flatMap((config) => [
+        config?.endpoint_path ?? "",
+        fullRequestUrl(provider.base_url ?? "", config?.endpoint_path ?? ""),
+      ]),
       provider.default_base_url ?? "",
       ...provider.additional_endpoints.map(({ base_url }) => base_url),
     ]
@@ -739,7 +816,15 @@ function ProviderCatalogDialog({
               </span>
               <span className="mux-provider-catalog-copy">
                 <strong>{provider.name}</strong>
-                <code>{provider.default_base_url ?? t("models.providerEndpointRequired")}</code>
+                <code>
+                  {provider.base_url
+                    ? fullRequestUrl(
+                        provider.base_url,
+                        provider.protocols[provider.default_protocol]?.endpoint_path
+                          ?? DEFAULT_ENDPOINT_PATHS[provider.default_protocol],
+                      )
+                    : t("models.providerEndpointRequired")}
+                </code>
               </span>
               <span className="mux-provider-catalog-check" aria-hidden="true">✓</span>
             </button>
@@ -759,6 +844,7 @@ function ModelProfileDialog({
   preferredProviderId,
   onClose,
   onReview,
+  onAddProvider,
   presentation = "dialog",
 }: {
   initial: ModelProfileView | null;
@@ -766,6 +852,7 @@ function ModelProfileDialog({
   preferredProviderId?: string | null;
   onClose: () => void;
   onReview: (profile: ModelProfile) => Promise<void>;
+  onAddProvider?: () => void;
   presentation?: "dialog" | "inspector";
 }) {
   const { t } = useTranslation();
@@ -773,7 +860,7 @@ function ModelProfileDialog({
     provider.id === (initial?.provider_id ?? preferredProviderId),
   ) ?? providerInstances[0] ?? null;
   const preferredProtocol = preferredProvider
-    ? PROTOCOLS.find((protocol) => preferredProvider.endpoints[protocol.id])?.id
+    ? PROTOCOLS.find((protocol) => preferredProvider.protocols[protocol.id])?.id
       ?? "openai-responses"
     : "openai-responses";
   const [draft, setDraft] = useState<ModelProfile>(() => initial ?? {
@@ -781,7 +868,7 @@ function ModelProfileDialog({
     provider_id: preferredProvider?.id,
     provider: preferredProvider?.provider ?? "",
     protocol: preferredProtocol,
-    base_url: preferredProvider?.endpoints[preferredProtocol] ?? "",
+    base_url: preferredProvider?.base_url ?? "",
     env_key: preferredProvider?.env_key,
   });
   const [busy, setBusy] = useState(false);
@@ -790,29 +877,36 @@ function ModelProfileDialog({
     (provider) => provider.id === draft.provider_id,
   ) ?? null;
   const availableProtocols = providerInstance
-    ? PROTOCOLS.filter((protocol) => Boolean(providerInstance.endpoints[protocol.id]))
+    ? PROTOCOLS.filter((protocol) => Boolean(providerInstance.protocols[protocol.id]))
     : [];
+  const requestUrl = providerInstance
+    ? fullRequestUrl(
+        providerInstance.base_url,
+        providerInstance.protocols[draft.protocol]?.endpoint_path ?? "",
+      )
+    : "";
 
   const selectProvider = (providerId: string) => {
     const provider = providerInstances.find((candidate) => candidate.id === providerId);
     if (!provider) return;
-    const protocol = provider.endpoints[draft.protocol]
+    const protocol = provider.protocols[draft.protocol]
       ? draft.protocol
-      : PROTOCOLS.find((candidate) => provider.endpoints[candidate.id])?.id
+      : PROTOCOLS.find((candidate) => provider.protocols[candidate.id])?.id
         ?? draft.protocol;
     setDraft((current) => ({
       ...current,
       provider_id: provider.id,
       provider: provider.provider,
       protocol,
-      base_url: provider.endpoints[protocol] ?? "",
+      base_url: provider.base_url,
       env_key: provider.env_key,
     }));
   };
 
   const valid = Boolean(
     providerInstance
-      && providerInstance.endpoints[draft.protocol]
+      && providerInstance.protocols[draft.protocol]
+      && requestUrl
       && draft.model.trim()
       && !busy,
   );
@@ -867,7 +961,17 @@ function ModelProfileDialog({
             }))}
             onChange={selectProvider}
           />
-          {providerInstances.length === 0 && <small>{t("models.providerRequired")}</small>}
+          {providerInstances.length === 0 && (
+            <div className="mux-model-provider-required">
+              <small>{t("models.providerRequired")}</small>
+              {onAddProvider && (
+                <button type="button" className="btn-secondary" onClick={onAddProvider}>
+                  <PlusIcon className="w-3.5 h-3.5" />
+                  {t("models.addProvider")}
+                </button>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
@@ -883,30 +987,11 @@ function ModelProfileDialog({
               setDraft({
                 ...draft,
                 protocol: nextProtocol,
-                base_url: providerInstance?.endpoints[nextProtocol] ?? "",
+                base_url: providerInstance?.base_url ?? "",
               });
             }}
           />
         </div>
-        <div className="mux-model-form-field">
-          <span>{t("models.reasoningMode")}</span>
-          <FormSelect
-            ariaLabel={t("models.reasoningMode")}
-            value={draft.reasoning === undefined ? "auto" : draft.reasoning ? "on" : "off"}
-            options={[
-              { value: "auto", label: t("models.reasoningAuto") },
-              { value: "on", label: t("models.reasoningOn") },
-              { value: "off", label: t("models.reasoningOff") },
-            ]}
-            onChange={(value) => setDraft({
-              ...draft,
-              reasoning: value === "auto" ? undefined : value === "on",
-            })}
-          />
-        </div>
-      </div>
-
-      <div className="mux-model-form-grid">
         <label>
           <span>{t("models.modelId")}</span>
           <input
@@ -920,16 +1005,17 @@ function ModelProfileDialog({
             spellCheck={false}
           />
         </label>
-        <label>
-          <span>{t("models.providerEndpointLabel")}</span>
-          <input
-            className="mux-model-field"
-            value={providerInstance?.endpoints[draft.protocol] ?? ""}
-            disabled
-            readOnly
-          />
-        </label>
       </div>
+
+      <label className="mux-model-form-wide">
+        <span>{t("models.fullRequestUrl")}</span>
+        <input
+          className="mux-model-field mux-model-url-preview"
+          value={requestUrl}
+          placeholder={t("models.fullRequestUrlUnavailable")}
+          readOnly
+        />
+      </label>
 
       <div className="mux-model-form-grid">
         <label>
@@ -958,6 +1044,23 @@ function ModelProfileDialog({
             })}
           />
         </label>
+      </div>
+
+      <div className="mux-model-form-field mux-model-form-wide">
+        <span>{t("models.reasoningMode")}</span>
+        <FormSelect
+          ariaLabel={t("models.reasoningMode")}
+          value={draft.reasoning === undefined ? "auto" : draft.reasoning ? "on" : "off"}
+          options={[
+            { value: "auto", label: t("models.reasoningAuto") },
+            { value: "on", label: t("models.reasoningOn") },
+            { value: "off", label: t("models.reasoningOff") },
+          ]}
+          onChange={(value) => setDraft({
+            ...draft,
+            reasoning: value === "auto" ? undefined : value === "on",
+          })}
+        />
       </div>
 
       <small>{t("models.modelUsesProviderConnection")}</small>
@@ -1019,32 +1122,38 @@ function ModelProviderDialog({
   const knownProvider = providers.some(
     (provider) => provider.id !== "custom" && provider.id === initialProviderType,
   );
-  const templateEndpoints = providerTemplateEndpoints(providerTemplate);
-  const initialProtocol = initial
-    ? PROTOCOLS.find((protocol) => initial.endpoints[protocol.id]?.trim())?.id
-      ?? (initial.provider === "anthropic" ? "anthropic-messages" : "openai-responses")
-    : providerTemplate?.default_protocol ?? "openai-responses";
+  const templateConnection = providerTemplateConnection(providerTemplate);
   const [draft, setDraft] = useState<ModelProviderConfig>({
     id: initial?.id ?? "",
     name: initial?.name ?? providerTemplate?.name ?? "",
     provider: initialProviderType,
-    endpoints: initial ? { ...initial.endpoints } : templateEndpoints,
+    base_url: initial?.base_url ?? templateConnection.base_url,
+    protocols: initial
+      ? Object.fromEntries(
+          Object.entries(initial.protocols)
+            .map(([protocol, config]) => [protocol, { ...config! }]),
+        )
+      : templateConnection.protocols,
     env_key: initial?.env_key,
   });
-  const [selectedProtocol, setSelectedProtocol] = useState<ModelProtocol>(initialProtocol);
-  const [endpoint, setEndpoint] = useState(
-    initial?.endpoints[initialProtocol]?.trim() ?? templateEndpoints[initialProtocol] ?? "",
-  );
   const [providerSelection, setProviderSelection] = useState(
     knownProvider ? initialProviderType : CUSTOM_PROVIDER_OPTION,
   );
   const [credential, setCredential] = useState("");
   const [clearCredential, setClearCredential] = useState(false);
   const [busy, setBusy] = useState(false);
+  const enabledProtocols = PROTOCOLS.filter(({ id }) => Boolean(draft.protocols[id]));
+  const normalizedBaseUrl = normalizeBaseUrl(draft.base_url);
+  const protocolsValid = enabledProtocols.length > 0
+    && enabledProtocols.every(({ id }) => {
+      const path = draft.protocols[id]?.endpoint_path ?? "";
+      return Boolean(normalizeEndpointPath(path) && fullRequestUrl(draft.base_url, path));
+    });
   const valid = Boolean(
     draft.name.trim()
       && draft.provider.trim()
-      && endpoint.trim()
+      && normalizedBaseUrl
+      && protocolsValid
       && !busy,
   );
 
@@ -1052,18 +1161,20 @@ function ModelProviderDialog({
     if (!valid) return;
     setBusy(true);
     try {
-      const normalizedEndpoint = endpoint.trim().replace(/\/$/, "");
-      const endpoints = Object.fromEntries([
-        ...Object.entries(draft.endpoints)
-          .filter(([, value]) => value?.trim())
-          .map(([protocol, value]) => [protocol, value!.trim().replace(/\/$/, "")]),
-        [selectedProtocol, normalizedEndpoint],
-      ]) as ModelProviderConfig["endpoints"];
+      const protocols = Object.fromEntries(
+        Object.entries(draft.protocols)
+          .filter(([, config]) => config?.endpoint_path.trim())
+          .map(([protocol, config]) => [
+            protocol,
+            { endpoint_path: normalizeEndpointPath(config!.endpoint_path)! },
+          ]),
+      ) as ModelProviderConfig["protocols"];
       await onReview({
         ...draft,
         name: draft.name.trim(),
         provider: draft.provider.trim(),
-        endpoints,
+        base_url: normalizedBaseUrl!,
+        protocols,
         env_key: draft.env_key?.trim() || undefined,
       }, clearCredential ? "" : credential || undefined);
     } catch (error) {
@@ -1122,7 +1233,7 @@ function ModelProviderDialog({
                       .filter((provider) => provider.id !== "custom")
                       .map((provider) => ({ value: provider.id, label: provider.name })),
                     { value: CUSTOM_PROVIDER_OPTION, label: t("models.customProvider") },
-                  ]}
+              ]}
               onChange={(value) => {
                 setProviderSelection(value);
                 if (value !== CUSTOM_PROVIDER_OPTION) {
@@ -1132,23 +1243,25 @@ function ModelProviderDialog({
                   const nextProvider = providers.find(
                     (provider) => provider.id === value,
                   );
-                  const previousTemplateEndpoint = providerTemplateEndpoint(
-                    previousProvider,
-                    selectedProtocol,
+                  const previousConnection = providerTemplateConnection(previousProvider);
+                  const usesTemplateConnection = (
+                    !draft.base_url.trim()
+                    || (
+                      normalizeBaseUrl(draft.base_url) === normalizeBaseUrl(previousConnection.base_url)
+                      && PROTOCOLS.every(({ id }) =>
+                        (draft.protocols[id]?.endpoint_path ?? "")
+                          === (previousConnection.protocols[id]?.endpoint_path ?? "")
+                      )
+                    )
                   );
-                  if (!endpoint.trim() || endpoint === previousTemplateEndpoint) {
-                    const nextProtocol = nextProvider?.default_protocol ?? "openai-responses";
-                    const nextEndpoints = providerTemplateEndpoints(nextProvider);
-                    setEndpoint(nextEndpoints[nextProtocol] ?? "");
-                    setSelectedProtocol(nextProtocol);
-                    setDraft({ ...draft, provider: value, endpoints: nextEndpoints });
-                  } else {
-                    setDraft({
-                      ...draft,
-                      provider: value,
-                      endpoints: { [selectedProtocol]: endpoint },
-                    });
-                  }
+                  const nextConnection = providerTemplateConnection(nextProvider);
+                  setDraft({
+                    ...draft,
+                    provider: value,
+                    ...(usesTemplateConnection ? nextConnection : {}),
+                  });
+                } else if (!initial) {
+                  setDraft((current) => ({ ...current, provider: "" }));
                 }
               }}
             />
@@ -1164,48 +1277,18 @@ function ModelProviderDialog({
           </div>
         </div>
 
-        <div className="mux-model-form-grid mux-provider-endpoint-row">
-          <div className="mux-model-form-field">
-            <span>{t("models.protocol")}</span>
-            <FormSelect
-              ariaLabel={t("models.protocol")}
-              value={selectedProtocol}
-              options={PROTOCOLS.map((protocol) => ({
-                value: protocol.id,
-                label: protocol.label,
-              }))}
-              onChange={(value) => {
-                const nextProtocol = value as ModelProtocol;
-                const nextEndpoint = draft.endpoints[nextProtocol]?.trim()
-                  || providerTemplateEndpoint(
-                    providers.find((provider) => provider.id === draft.provider),
-                    nextProtocol,
-                  )
-                  || "";
-                setDraft((current) => ({
-                  ...current,
-                  endpoints: {
-                    ...current.endpoints,
-                    [selectedProtocol]: endpoint,
-                  },
-                }));
-                setSelectedProtocol(nextProtocol);
-                setEndpoint(nextEndpoint);
-              }}
-            />
-          </div>
-          <label>
-            <span>{t("models.baseUrl")}</span>
-            <input
-              aria-label={t("models.baseUrl")}
-              className="mux-model-field"
-              value={endpoint}
-              onChange={(event) => setEndpoint(event.currentTarget.value)}
-              placeholder="https://api.example.com/v1"
-              spellCheck={false}
-            />
-          </label>
-        </div>
+        <label className="mux-model-form-wide">
+          <span>{t("models.baseUrl")}</span>
+          <input
+            aria-label={t("models.baseUrl")}
+            className="mux-model-field"
+            value={draft.base_url}
+            onChange={(event) => setDraft({ ...draft, base_url: event.currentTarget.value })}
+            placeholder="https://gateway.example.com/api/v2"
+            spellCheck={false}
+          />
+          {draft.base_url && !normalizedBaseUrl && <small>{t("models.invalidBaseUrl")}</small>}
+        </label>
 
         <div className="mux-model-form-grid">
           <label>
@@ -1242,6 +1325,110 @@ function ModelProviderDialog({
             {t("models.clearCredential")}
           </label>
         )}
+
+        <section className="mux-provider-protocols" aria-label={t("models.supportedProtocols")}>
+          <div className="mux-provider-protocols-head">
+            <div>
+              <strong>{t("models.supportedProtocols")}</strong>
+              <small>{t("models.supportedProtocolsHelp")}</small>
+            </div>
+            <Badge tone={enabledProtocols.length > 0 ? "neutral" : "warning"}>
+              {t("models.protocolCount", { count: enabledProtocols.length })}
+            </Badge>
+          </div>
+          <div className="mux-provider-protocol-list">
+            {PROTOCOLS.map((protocol) => {
+              const config = draft.protocols[protocol.id];
+              const enabled = Boolean(config);
+              const path = config?.endpoint_path ?? "";
+              const preview = enabled ? fullRequestUrl(draft.base_url, path) : "";
+              const template = providers.find((provider) => provider.id === draft.provider);
+              return (
+                <article
+                  className="mux-provider-protocol"
+                  data-enabled={enabled ? "true" : undefined}
+                  key={protocol.id}
+                >
+                  <label className="mux-provider-protocol-toggle">
+                    <input
+                      type="checkbox"
+                      checked={enabled}
+                      onChange={(event) => {
+                        setDraft((current) => {
+                          const protocols = { ...current.protocols };
+                          if (event.target.checked) {
+                            protocols[protocol.id] = {
+                              endpoint_path: providerTemplatePath(template, protocol.id),
+                            };
+                          } else {
+                            delete protocols[protocol.id];
+                          }
+                          return { ...current, protocols };
+                        });
+                      }}
+                    />
+                    <span className="mux-model-protocol-dot" data-protocol={protocol.id} />
+                    <strong>{protocol.label}</strong>
+                  </label>
+                  {enabled && (
+                    <div className="mux-provider-protocol-fields">
+                      <label>
+                        <span>{t("models.endpointPath")}</span>
+                        <input
+                          aria-label={`${protocol.label} ${t("models.endpointPath")}`}
+                          className="mux-model-field"
+                          value={path}
+                          onChange={(event) => {
+                            const endpointPath = event.currentTarget.value;
+                            setDraft((current) => ({
+                              ...current,
+                              protocols: {
+                                ...current.protocols,
+                                [protocol.id]: { endpoint_path: endpointPath },
+                              },
+                            }));
+                          }}
+                          placeholder={DEFAULT_ENDPOINT_PATHS[protocol.id]}
+                          spellCheck={false}
+                        />
+                        {path && !normalizeEndpointPath(path) && (
+                          <small>{t("models.invalidEndpointPath")}</small>
+                        )}
+                      </label>
+                      <label>
+                        <span>{t("models.fullRequestUrl")}</span>
+                        <input
+                          className="mux-model-field mux-model-url-preview"
+                          value={preview}
+                          placeholder={t("models.fullRequestUrlUnavailable")}
+                          readOnly
+                        />
+                      </label>
+                      <button
+                        type="button"
+                        className="btn-ghost mux-provider-path-reset"
+                        onClick={() => setDraft((current) => ({
+                          ...current,
+                          protocols: {
+                            ...current.protocols,
+                            [protocol.id]: {
+                              endpoint_path: providerTemplatePath(template, protocol.id),
+                            },
+                          },
+                        }))}
+                      >
+                        {t("models.restoreDefaultPath")}
+                      </button>
+                    </div>
+                  )}
+                </article>
+              );
+            })}
+          </div>
+          {enabledProtocols.length === 0 && (
+            <small className="mux-provider-protocol-error">{t("models.protocolRequired")}</small>
+          )}
+        </section>
       </div>
     </DialogShell>
   );

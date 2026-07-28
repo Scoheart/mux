@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.100](https://github.com/Scoheart/mux/compare/v1.8.99...v1.8.100) (2026-07-28)
+
+### Changes
+
+* fix(mcp): refresh bundled curated source ([ab769e1](https://github.com/Scoheart/mux/commit/ab769e1eca8c29258211ddac3a591669c4466da5))
+
 ## [1.8.99](https://github.com/Scoheart/mux/compare/v1.8.98...v1.8.99) (2026-07-28)
 
 ### Changes

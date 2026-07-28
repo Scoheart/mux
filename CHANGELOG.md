@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.97](https://github.com/Scoheart/mux/compare/v1.8.96...v1.8.97) (2026-07-28)
+
+### Changes
+
+* fix(navigation): keep Agent picker at icon width ([a39d8e9](https://github.com/Scoheart/mux/commit/a39d8e9b4ae6bb38cd136bf7a8350260eac5c31c))
+
 ## [1.8.96](https://github.com/Scoheart/mux/compare/v1.8.95...v1.8.96) (2026-07-28)
 
 ### Changes

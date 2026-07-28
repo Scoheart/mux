@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.93](https://github.com/Scoheart/mux/compare/v1.8.92...v1.8.93) (2026-07-28)
+
+### Changes
+
+* style(models): move protocol switches to row end ([f188e4f](https://github.com/Scoheart/mux/commit/f188e4f8480aefa8bc4c16b92757b2fe4204de45))
+
 ## [1.8.92](https://github.com/Scoheart/mux/compare/v1.8.91...v1.8.92) (2026-07-28)
 
 ### Changes

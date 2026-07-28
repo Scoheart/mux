@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.88](https://github.com/Scoheart/mux/compare/v1.8.87...v1.8.88) (2026-07-28)
+
+### Changes
+
+* feat(models): expand provider catalog ([0bd9f4e](https://github.com/Scoheart/mux/commit/0bd9f4e3c8c123ba535317ba594a6027426d8f26))
+
 ## [1.8.87](https://github.com/Scoheart/mux/compare/v1.8.86...v1.8.87) (2026-07-27)
 
 ### Changes

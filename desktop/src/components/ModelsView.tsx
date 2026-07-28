@@ -1370,8 +1370,16 @@ function ModelProviderDialog({
                   key={protocol.id}
                 >
                   <label className="mux-provider-protocol-toggle">
+                    <span className="mux-model-protocol-dot" data-protocol={protocol.id} />
+                    <strong>{protocol.label}</strong>
+                    <code className="mux-provider-protocol-path" title={pathSummary}>
+                      {pathSummary}
+                    </code>
                     <input
+                      aria-label={protocol.label}
+                      className="mux-provider-protocol-switch-input"
                       type="checkbox"
+                      role="switch"
                       checked={enabled}
                       onChange={(event) => {
                         setDraft((current) => {
@@ -1387,11 +1395,7 @@ function ModelProviderDialog({
                         });
                       }}
                     />
-                    <span className="mux-model-protocol-dot" data-protocol={protocol.id} />
-                    <strong>{protocol.label}</strong>
-                    <code className="mux-provider-protocol-path" title={pathSummary}>
-                      {pathSummary}
-                    </code>
+                    <span className="mux-provider-protocol-switch" aria-hidden="true" />
                   </label>
                   {enabled && (
                     <div className="mux-provider-protocol-fields">

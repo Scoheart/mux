@@ -524,8 +524,8 @@ it("fills a standalone Provider form from the selected catalog template", async 
   expect(screen.getByRole("combobox", { name: "Provider 类型" })).toHaveTextContent("OpenRouter");
   expect(screen.getByLabelText("Base URL")).toHaveValue("https://openrouter.ai/api/v1");
   expect(screen.getAllByLabelText("Base URL")).toHaveLength(1);
-  expect(screen.getByRole("checkbox", { name: /OpenAI Responses/ })).toBeChecked();
-  expect(screen.getByRole("checkbox", { name: /Anthropic Messages/ })).not.toBeChecked();
+  expect(screen.getByRole("switch", { name: /OpenAI Responses/ })).toBeChecked();
+  expect(screen.getByRole("switch", { name: /Anthropic Messages/ })).not.toBeChecked();
   expect(screen.getByLabelText("OpenAI Responses Endpoint Path")).toHaveValue(
     "/responses",
   );
@@ -536,6 +536,13 @@ it("fills a standalone Provider form from the selected catalog template", async 
   expect(within(protocolList as HTMLElement).getByText("/v1/messages")).toBeVisible();
   expect(within(protocolList as HTMLElement).getByText("/responses")).toBeVisible();
   expect(within(protocolList as HTMLElement).getByText("/chat/completions")).toBeVisible();
+  const responseSwitch = screen.getByRole("switch", { name: "OpenAI Responses" });
+  const responseRow = responseSwitch.closest(".mux-provider-protocol-toggle");
+  const responsePath = within(responseRow as HTMLElement).getByText("/responses");
+  const visualSwitch = responseRow?.querySelector(".mux-provider-protocol-switch");
+  expect(visualSwitch).not.toBeNull();
+  expect(responsePath.compareDocumentPosition(visualSwitch as Node) & Node.DOCUMENT_POSITION_FOLLOWING)
+    .toBeTruthy();
   expect(screen.getByText("已启用 1 个")).toBeVisible();
   expect(screen.getByText("API Key")).toBeVisible();
   expect(screen.getByText("API Key 环境变量")).toBeVisible();
@@ -552,7 +559,7 @@ it("keeps the empty protocol requirement inside the compact section header", asy
   );
 
   await openProviderTemplate(user, "OpenRouter");
-  await user.click(screen.getByRole("checkbox", { name: /OpenAI Responses/ }));
+  await user.click(screen.getByRole("switch", { name: /OpenAI Responses/ }));
 
   const protocols = screen.getByRole("region", { name: "支持的协议" });
   const header = protocols.querySelector(".mux-provider-protocols-head");
@@ -578,8 +585,8 @@ it("keeps plan-specific protocols under one Base URL", async () => {
   expect(screen.getByLabelText("Base URL")).toHaveValue(
     "https://coding-intl.dashscope.aliyuncs.com",
   );
-  expect(screen.getByRole("checkbox", { name: /Anthropic Messages/ })).toBeChecked();
-  expect(screen.getByRole("checkbox", { name: /OpenAI Chat Completions/ })).toBeChecked();
+  expect(screen.getByRole("switch", { name: /Anthropic Messages/ })).toBeChecked();
+  expect(screen.getByRole("switch", { name: /OpenAI Chat Completions/ })).toBeChecked();
   expect(screen.getByLabelText("Anthropic Messages Endpoint Path")).toHaveValue(
     "/apps/anthropic/v1/messages",
   );
@@ -633,12 +640,12 @@ it("replaces an untouched template connection when the Provider type changes", a
   );
 
   await openProviderTemplate(user, "Ollama");
-  expect(screen.getByRole("checkbox", { name: /OpenAI Chat Completions/ })).toBeChecked();
+  expect(screen.getByRole("switch", { name: /OpenAI Chat Completions/ })).toBeChecked();
   expect(screen.getByLabelText("Base URL")).toHaveValue("http://localhost:11434/v1");
 
   await chooseFormSelect(user, "Provider 类型", "OpenRouter");
-  expect(screen.getByRole("checkbox", { name: /OpenAI Responses/ })).toBeChecked();
-  expect(screen.getByRole("checkbox", { name: /OpenAI Chat Completions/ })).not.toBeChecked();
+  expect(screen.getByRole("switch", { name: /OpenAI Responses/ })).toBeChecked();
+  expect(screen.getByRole("switch", { name: /OpenAI Chat Completions/ })).not.toBeChecked();
   expect(screen.getByLabelText("Base URL")).toHaveValue("https://openrouter.ai/api/v1");
 });
 
@@ -654,7 +661,7 @@ it("enables, previews, resets, and submits protocol Endpoint Paths", async () =>
   );
 
   await openProviderTemplate(user, "OpenRouter");
-  await user.click(screen.getByRole("checkbox", { name: /Anthropic Messages/ }));
+  await user.click(screen.getByRole("switch", { name: /Anthropic Messages/ }));
   expect(screen.getAllByLabelText("Base URL")).toHaveLength(1);
   expect(screen.getByLabelText("Base URL")).toHaveValue("https://openrouter.ai/api/v1");
   const path = screen.getByLabelText("Anthropic Messages Endpoint Path");
@@ -1006,8 +1013,8 @@ it("edits one Provider configuration through a single central asset plan", async
   await user.click(await sidebar.findByTitle("OpenRouter Team"));
   await user.click(screen.getByRole("button", { name: "编辑 Provider" }));
 
-  expect(screen.getByRole("checkbox", { name: /Anthropic Messages/ })).toBeChecked();
-  expect(screen.getByRole("checkbox", { name: /OpenAI Chat Completions/ })).toBeChecked();
+  expect(screen.getByRole("switch", { name: /Anthropic Messages/ })).toBeChecked();
+  expect(screen.getByRole("switch", { name: /OpenAI Chat Completions/ })).toBeChecked();
   const baseUrl = screen.getByLabelText("Base URL");
   expect(baseUrl).toHaveValue("https://openrouter.ai");
   fireEvent.change(baseUrl, {

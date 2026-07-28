@@ -1766,14 +1766,41 @@ body {
 .mux-provider-protocol[data-enabled="true"]::before { background: var(--color-blue); }
 .mux-provider-protocol-toggle {
   display: grid; width: 100%; min-width: 0; min-height: 42px;
-  grid-template-columns: auto auto minmax(0, 1fr) minmax(72px, auto);
+  grid-template-columns: auto minmax(0, 1fr) minmax(72px, auto) auto;
   align-items: center; gap: 8px; padding: 0 12px 0 13px; cursor: pointer;
 }
-.mux-provider-protocol-toggle input { margin: 0; accent-color: var(--color-blue); }
+.mux-provider-protocol-switch-input {
+  position: absolute; width: 1px; height: 1px; overflow: hidden; margin: -1px; padding: 0;
+  border: 0; opacity: 0; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap;
+}
+.mux-provider-protocol-switch {
+  position: relative; width: 28px; height: 16px; flex: 0 0 auto;
+  border: 1px solid color-mix(in srgb, var(--text-tertiary) 38%, var(--border-hairline));
+  border-radius: 999px; background: color-mix(in srgb, var(--text-tertiary) 20%, var(--surface-control));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--surface-raised) 38%, transparent);
+  transition: border-color .14s ease, background .14s ease;
+}
+.mux-provider-protocol-switch::after {
+  position: absolute; top: 2px; left: 2px; width: 10px; height: 10px;
+  border-radius: 50%; background: var(--surface-raised);
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--text-primary) 28%, transparent);
+  content: ""; transition: transform .14s ease;
+}
+.mux-provider-protocol-switch-input:checked + .mux-provider-protocol-switch {
+  border-color: color-mix(in srgb, var(--color-blue) 76%, var(--border-hairline));
+  background: var(--color-blue);
+}
+.mux-provider-protocol-switch-input:checked + .mux-provider-protocol-switch::after {
+  transform: translateX(12px);
+}
+.mux-provider-protocol-switch-input:focus-visible + .mux-provider-protocol-switch {
+  outline: 2px solid color-mix(in srgb, var(--color-blue) 74%, transparent);
+  outline-offset: 2px;
+}
 .mux-provider-protocol-toggle strong { overflow: hidden; color: var(--text-secondary); font-size: 10px; font-weight: 620; text-overflow: ellipsis; white-space: nowrap; }
 .mux-provider-protocol[data-enabled="true"] .mux-provider-protocol-toggle strong { color: var(--text-primary); }
 .mux-provider-protocol-path {
-  max-width: 220px; overflow: hidden; padding: 3px 6px; border-radius: 5px;
+  max-width: 220px; justify-self: end; overflow: hidden; padding: 3px 6px; border-radius: 5px;
   background: var(--surface-control); color: var(--text-tertiary);
   font: 8px/1.2 var(--font-mono); text-overflow: ellipsis; white-space: nowrap;
 }
@@ -1802,7 +1829,9 @@ body {
 
 @media (prefers-reduced-motion: reduce) {
   .mux-provider-protocol,
-  .mux-provider-protocol-meter > i { transition: none; }
+  .mux-provider-protocol-meter > i,
+  .mux-provider-protocol-switch,
+  .mux-provider-protocol-switch::after { transition: none; }
 }
 
 @media (max-width: 1080px) {

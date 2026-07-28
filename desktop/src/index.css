@@ -292,7 +292,10 @@ body {
   width: 100%; min-width: 0; max-width: 100%; gap: 8px; padding-right: 16px; padding-left: 16px;
   background: var(--surface-workspace);
 }
-.mux-topbar-navigation-lane { display: flex; min-width: 0; flex: 1 1 auto; justify-content: flex-end; }
+.mux-topbar-navigation-lane {
+  display: flex; min-width: 0; flex: 1 1 auto; justify-content: flex-end;
+  container-name: mux-agent-lane; container-type: inline-size;
+}
 .mux-icon-btn {
   display: inline-flex; align-items: center; justify-content: center;
   width: 30px; height: 30px; border: 0; border-radius: 8px;
@@ -407,13 +410,12 @@ body {
 .mux-agent-navigation { display: flex; width: 100%; min-width: 0; flex: 1 1 auto; align-items: center; justify-content: flex-end; gap: 8px; }
 .mux-agent-picker-cluster { position: relative; display: flex; max-width: 100%; min-width: 0; flex: 0 1 auto; align-items: center; gap: 8px; }
 .mux-pinned-agent-bar {
-  display: flex; min-width: 0; height: 40px; flex: 0 1 auto; align-items: center; gap: 3px; padding: 3px 5px;
-  overflow-x: auto; overflow-y: hidden; overscroll-behavior-inline: contain; scroll-snap-type: x proximity;
+  display: flex; min-width: 0; height: 40px; flex: 0 0 auto; align-items: center; gap: 3px; padding: 3px 5px;
+  overflow: hidden;
   border: 0; border-radius: 14px; background: var(--surface-section); box-shadow: none; scrollbar-width: none;
 }
 .mux-pinned-agent-bar::-webkit-scrollbar { display: none; }
 .mux-pinned-agent { position: relative; display: inline-flex; width: 34px; height: 34px; flex: 0 0 34px; align-items: center; justify-content: center; padding: 0; border: 1px solid transparent; border-radius: 7px; background: transparent; cursor: pointer; }
-.mux-pinned-agent { scroll-snap-align: center; }
 .mux-pinned-agent-glyph { display: inline-flex; width: 30px; height: 30px; flex: 0 0 auto; }
 .mux-pinned-agent-glyph > * { width: 100% !important; height: 100% !important; }
 .mux-pinned-agent:hover { background: color-mix(in srgb, var(--text-primary) 7%, transparent); }
@@ -428,6 +430,29 @@ body {
 .mux-agent-picker-chevron { width: 14px; height: 14px; flex: 0 0 auto; color: var(--text-secondary); transition: transform .14s ease, color .14s ease; }
 .mux-agent-picker-trigger[data-open="true"] .mux-agent-picker-chevron { color: var(--color-blue); transform: rotate(180deg); }
 .mux-agent-picker { position: absolute; z-index: 520; top: calc(100% + 7px); right: 0; left: 0; display: flex; width: auto; max-height: min(590px, calc(100vh - 70px)); flex-direction: column; overflow: hidden; border: 0; border-radius: 16px; background: var(--surface-popover); box-shadow: var(--shadow-sheet); animation: mux-agent-picker-in .14s ease-out; }
+
+/* The fixed picker consumes 220px; the shortcut strip consumes 44px for its
+   first icon and 37px for every additional icon. Step the visible shortcuts
+   down before the lane reaches each exact boundary so no icon is ever clipped. */
+@container mux-agent-lane (max-width: 457px) {
+  .mux-pinned-agent:nth-child(n + 6) { display: none; }
+}
+@container mux-agent-lane (max-width: 420px) {
+  .mux-pinned-agent:nth-child(n + 5) { display: none; }
+}
+@container mux-agent-lane (max-width: 383px) {
+  .mux-pinned-agent:nth-child(n + 4) { display: none; }
+}
+@container mux-agent-lane (max-width: 346px) {
+  .mux-pinned-agent:nth-child(n + 3) { display: none; }
+}
+@container mux-agent-lane (max-width: 309px) {
+  .mux-pinned-agent:nth-child(n + 2) { display: none; }
+}
+@container mux-agent-lane (max-width: 272px) {
+  .mux-pinned-agent-bar { display: none; }
+}
+
 @keyframes mux-agent-picker-in { from { opacity: 0; transform: translateY(-5px) scale(.992); } to { opacity: 1; transform: translateY(0) scale(1); } }
 .mux-agent-picker-search { display: flex; height: 38px; margin: 10px 10px 8px; align-items: center; gap: 9px; padding: 0 6px 0 10px; border: 1px solid transparent; border-radius: 8px; background: var(--surface-control); color: var(--text-secondary); box-shadow: inset 0 0 0 1px var(--border-hairline); }
 .mux-agent-picker-search:focus-within { background: var(--surface-raised); color: var(--color-blue); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-blue) 42%, var(--border-hairline)), 0 0 0 2px color-mix(in srgb, var(--color-blue) 8%, transparent); }

@@ -171,8 +171,8 @@ export function Layout({
           </button>
         </div>
 
-        {/* The middle lane absorbs narrow widths. Pinned Agents scroll inside
-            this lane while every control keeps its normal hit target. */}
+        {/* The middle lane absorbs narrow widths. Pinned Agents disappear one
+            whole shortcut at a time while every control keeps its hit target. */}
         <div className="mux-topbar-navigation-lane">
           <AgentNavigation
             agents={agents}

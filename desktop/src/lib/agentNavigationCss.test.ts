@@ -99,20 +99,44 @@ it("keeps topbar controls at their wide-layout sizes without compact overrides",
   expect(layout.match(/className="mux-resource-label"/g) ?? []).toHaveLength(3);
 });
 
-it("absorbs narrow widths in a horizontally scrollable pinned Agent lane", () => {
+it("absorbs narrow widths in whole pinned Agent increments", () => {
   expect(layout).toMatch(/className="mux-topbar-navigation-lane"/);
   const lane = declarations(css, ".mux-topbar-navigation-lane");
   expect(lane).toMatch(/min-width:\s*0/);
   expect(lane).toMatch(/flex:\s*1\s+1\s+auto/);
+  expect(lane).toMatch(/container-name:\s*mux-agent-lane/);
+  expect(lane).toMatch(/container-type:\s*inline-size/);
 
   const navigation = declarations(css, ".mux-agent-navigation");
   expect(navigation).toMatch(/width:\s*100%/);
   expect(navigation).toMatch(/min-width:\s*0/);
   const pinned = declarations(css, ".mux-pinned-agent-bar");
-  expect(pinned).toMatch(/overflow-x:\s*auto/);
-  expect(pinned).toMatch(/overscroll-behavior-inline:\s*contain/);
-  expect(pinned).toMatch(/scroll-snap-type:\s*x\s+proximity/);
+  expect(pinned).toMatch(/flex:\s*0\s+0\s+auto/);
+  expect(pinned).toMatch(/overflow:\s*hidden/);
+  expect(pinned).not.toMatch(/overflow-x:\s*auto/);
+  expect(css).not.toMatch(/scroll-snap-(?:align|type)/);
+  for (const [laneWidth, firstHidden] of [
+    [457, 6],
+    [420, 5],
+    [383, 4],
+    [346, 3],
+    [309, 2],
+  ]) {
+    expect(css).toMatch(
+      new RegExp(
+        `@container mux-agent-lane \\(max-width: ${laneWidth}px\\)\\s*\\{[\\s\\S]*?` +
+        `\\.mux-pinned-agent:nth-child\\(n \\+ ${firstHidden}\\)\\s*\\{\\s*display:\\s*none`,
+      ),
+    );
+  }
+  expect(css).toMatch(
+    /@container mux-agent-lane \(max-width: 272px\)\s*\{[\s\S]*?\.mux-pinned-agent-bar\s*\{\s*display:\s*none/,
+  );
+  expect(
+    css.match(/@container mux-agent-lane \(max-width: \d+px\)/g) ?? [],
+  ).toHaveLength(6);
   expect(declarations(css, ".mux-agent-picker-anchor")).toMatch(/flex:\s*0\s+0\s+220px/);
+  expect(layout).toMatch(/disappear one\s+whole shortcut at a time/);
 });
 
 it("popup action focus rule includes the search clear button", () => {

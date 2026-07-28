@@ -360,9 +360,10 @@ it("keeps the built-in Provider Catalog unfiltered, searchable, and keyboard-sel
   expect(source).not.toMatch(/ProviderCatalogDrawer|provider-catalog-drawer/);
 });
 
-it("uses compact Provider cards without sacrificing a dedicated selection column", () => {
-  expect(css).toMatch(/\.mux-provider-catalog-item\s*\{[\s\S]*?min-height: 68px/);
-  expect(css).toMatch(/grid-template-columns: 26px minmax\(0, 1fr\) 15px/);
+it("centers compact Provider cards without sacrificing a dedicated selection column", () => {
+  expect(css).toMatch(/\.mux-provider-catalog-item\s*\{[\s\S]*?min-height: 56px/);
+  expect(css).toMatch(/grid-template-columns: 26px minmax\(0, 1fr\) 15px; align-items: center/);
+  expect(css).toMatch(/\.mux-provider-catalog-copy\s*\{[\s\S]*?align-content: center; gap: 3px/);
   expect(css).toMatch(/\.mux-provider-catalog-grid\s*\{[\s\S]*?row-gap: 6px/);
   expect(css).toMatch(/\.mux-provider-catalog-copy code\s*\{[\s\S]*?text-overflow: ellipsis; white-space: nowrap/);
   expect(css).not.toMatch(/\.mux-provider-catalog-categories/);

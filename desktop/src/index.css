@@ -1342,8 +1342,8 @@ body {
   display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); column-gap: 8px; row-gap: 6px;
 }
 .mux-provider-catalog-item {
-  display: grid; min-width: 0; min-height: 68px;
-  grid-template-columns: 26px minmax(0, 1fr) 15px; align-items: start; gap: 7px; padding: 8px 9px;
+  display: grid; min-width: 0; min-height: 56px;
+  grid-template-columns: 26px minmax(0, 1fr) 15px; align-items: center; gap: 7px; padding: 6px 8px;
   border: 1px solid var(--border-hairline); border-radius: var(--radius-row);
   background: var(--surface-raised); color: var(--text-primary); text-align: left; cursor: pointer;
 }
@@ -1362,11 +1362,11 @@ body {
   position: relative; z-index: 1; display: block; width: 74%; height: 74%; object-fit: contain;
 }
 .mux-provider-catalog-icon { display: inline-flex; width: 26px; height: 26px; align-items: center; justify-content: center; }
-.mux-provider-catalog-copy { display: block; min-width: 0; }
+.mux-provider-catalog-copy { display: grid; min-width: 0; align-content: center; gap: 3px; }
 .mux-provider-catalog-copy strong,
 .mux-provider-catalog-copy code { display: block; min-width: 0; }
 .mux-provider-catalog-copy strong { overflow: hidden; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
-.mux-provider-catalog-copy code { margin-top: 5px; overflow: hidden; color: var(--text-secondary); font: 8px/1.25 var(--font-mono); text-overflow: ellipsis; white-space: nowrap; }
+.mux-provider-catalog-copy code { overflow: hidden; color: var(--text-secondary); font: 8px/1.25 var(--font-mono); text-overflow: ellipsis; white-space: nowrap; }
 .mux-provider-catalog-check { display: inline-flex; width: 15px; height: 15px; align-items: center; justify-content: center; border-radius: 50%; visibility: hidden; background: var(--color-blue); color: white; font-size: 8px; }
 .mux-provider-catalog-item[data-selected="true"] .mux-provider-catalog-check { visibility: visible; }
 .mux-provider-catalog-empty { display: grid; min-height: 150px; place-content: center; color: var(--text-secondary); font-size: 10px; }

@@ -137,6 +137,10 @@ export interface ModelProviderView {
   name: string;
   default_base_url: string | null;
   default_protocol: ModelProtocol;
+  additional_endpoints: Array<{
+    protocol: ModelProtocol;
+    base_url: string;
+  }>;
   category: "official" | "gateway" | "local" | "custom";
 }
 

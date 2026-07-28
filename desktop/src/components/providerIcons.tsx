@@ -1,8 +1,34 @@
+import minimaxIconUrl from "../assets/agents/minimax-code.png";
+
 const providerIconModules = import.meta.glob("../assets/providers/*.{png,svg,webp}", {
   eager: true,
   query: "?url",
   import: "default",
 }) as Record<string, string>;
+
+const EXTRA_PROVIDER_LOGOS: Record<string, string> = {
+  minimax: minimaxIconUrl,
+};
+
+const PROVIDER_ICON_ALIASES: Record<string, string> = {
+  "alibaba-coding-plan-cn": "alibaba",
+  "alibaba-coding-plan": "alibaba",
+  "alibaba-token-plan-cn": "alibaba",
+  "alibaba-token-plan": "alibaba",
+  "xiaomi-token-plan-cn": "xiaomi",
+  "xiaomi-token-plan-sgp": "xiaomi",
+  "xiaomi-token-plan-ams": "xiaomi",
+  "kimi-for-coding": "moonshotai",
+  "zai-coding-plan": "zai",
+  "zhipuai-coding-plan": "zai",
+  "minimax-coding-plan": "minimax",
+  "minimax-cn-coding-plan": "minimax",
+  "stepfun-step-plan": "stepfun",
+  "stepfun-ai-step-plan": "stepfun",
+  "tencent-coding-plan": "tencent",
+  "tencent-token-plan": "tencent",
+  "tencent-token-plan-global": "tencent",
+};
 
 const PROVIDER_LOGOS = Object.fromEntries(
   Object.entries(providerIconModules).map(([path, url]) => [
@@ -56,7 +82,8 @@ function fallbackColor(id: string) {
 }
 
 export function providerIconUrl(id: string): string | undefined {
-  return PROVIDER_LOGOS[id];
+  const iconId = PROVIDER_ICON_ALIASES[id] ?? id;
+  return PROVIDER_LOGOS[iconId] ?? EXTRA_PROVIDER_LOGOS[iconId];
 }
 
 export function ProviderGlyph({
@@ -68,6 +95,7 @@ export function ProviderGlyph({
   name?: string;
   size?: number;
 }) {
+  const iconId = PROVIDER_ICON_ALIASES[id] ?? id;
   const logo = providerIconUrl(id);
   const label = (name || id).trim()[0]?.toUpperCase() ?? "?";
   const radius = Math.round(size * 0.28);
@@ -75,7 +103,7 @@ export function ProviderGlyph({
   return (
     <span
       aria-hidden="true"
-      data-provider-icon={logo ? id : "fallback"}
+      data-provider-icon={logo ? iconId : "fallback"}
       className="mux-provider-glyph"
       style={{
         width: size,

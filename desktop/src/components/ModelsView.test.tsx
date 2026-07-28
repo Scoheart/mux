@@ -41,6 +41,7 @@ beforeEach(() => {
       name: "OpenRouter",
       default_base_url: "https://openrouter.ai/api/v1",
       default_protocol: "openai-responses",
+      additional_endpoints: [],
       category: "gateway",
     },
     {
@@ -48,6 +49,18 @@ beforeEach(() => {
       name: "OpenAI",
       default_base_url: "https://api.openai.com/v1",
       default_protocol: "openai-responses",
+      additional_endpoints: [],
+      category: "official",
+    },
+    {
+      id: "alibaba-coding-plan",
+      name: "Alibaba Coding Plan (Global)",
+      default_base_url: "https://coding-intl.dashscope.aliyuncs.com/v1",
+      default_protocol: "openai-completions",
+      additional_endpoints: [{
+        protocol: "anthropic-messages",
+        base_url: "https://coding-intl.dashscope.aliyuncs.com/apps/anthropic",
+      }],
       category: "official",
     },
     {
@@ -55,6 +68,7 @@ beforeEach(() => {
       name: "Ollama",
       default_base_url: "http://localhost:11434/v1",
       default_protocol: "openai-completions",
+      additional_endpoints: [],
       category: "local",
     },
     {
@@ -62,6 +76,7 @@ beforeEach(() => {
       name: "Custom Provider",
       default_base_url: null,
       default_protocol: "openai-responses",
+      additional_endpoints: [],
       category: "custom",
     },
   ]);
@@ -339,13 +354,18 @@ it("keeps the built-in Provider Catalog unfiltered, searchable, and keyboard-sel
   expect(within(catalog).queryByRole("button", { name: "全部" })).not.toBeInTheDocument();
 
   const search = within(catalog).getByRole("searchbox", { name: "搜索 Provider" });
+  await user.type(search, "apps/anthropic");
+  expect(within(catalog).getAllByRole("radio")).toHaveLength(1);
+  expect(within(catalog).getByRole("radio", { name: /Alibaba Coding Plan/ })).toBeVisible();
+
+  await user.clear(search);
   await user.type(search, "api.openai.com");
   expect(within(catalog).getAllByRole("radio")).toHaveLength(1);
   expect(within(catalog).getByRole("radio", { name: /OpenAI/ })).toBeVisible();
   expect(within(catalog).getByRole("button", { name: "使用此模板" })).toBeDisabled();
 
   await user.clear(search);
-  expect(within(catalog).getAllByRole("radio")).toHaveLength(4);
+  expect(within(catalog).getAllByRole("radio")).toHaveLength(5);
   const openAi = within(catalog).getByRole("radio", { name: /OpenAI/ });
   openAi.focus();
   await user.keyboard("{Enter}");
@@ -492,6 +512,43 @@ it("fills a standalone Provider form from the selected catalog template", async 
   expect(screen.getByText("API Key 环境变量")).toBeVisible();
 });
 
+it("keeps plan-specific OpenAI and Anthropic endpoints together", async () => {
+  const user = userEvent.setup();
+  const planUpdate = vi.fn().mockResolvedValue({ operation_id: "provider-plan" });
+  const consumptionState = { plan: null, planUpdate } as unknown as ConsumptionState;
+
+  render(
+    <ToastProvider>
+      <ModelsView consumptionState={consumptionState} />
+    </ToastProvider>,
+  );
+
+  await openProviderTemplate(user, "Alibaba Coding Plan");
+  expect(screen.getByRole("combobox", { name: "协议" })).toHaveTextContent(
+    "OpenAI Chat Completions",
+  );
+  expect(screen.getByLabelText("Base URL")).toHaveValue(
+    "https://coding-intl.dashscope.aliyuncs.com/v1",
+  );
+
+  await chooseFormSelect(user, "协议", "Anthropic Messages");
+  expect(screen.getByLabelText("Base URL")).toHaveValue(
+    "https://coding-intl.dashscope.aliyuncs.com/apps/anthropic",
+  );
+  await user.click(screen.getByRole("button", { name: "保存" }));
+
+  await waitFor(() => expect(planUpdate).toHaveBeenCalledWith(expect.objectContaining({
+    domain: "model-provider",
+    provider: expect.objectContaining({
+      provider: "alibaba-coding-plan",
+      endpoints: {
+        "anthropic-messages": "https://coding-intl.dashscope.aliyuncs.com/apps/anthropic",
+        "openai-completions": "https://coding-intl.dashscope.aliyuncs.com/v1",
+      },
+    }),
+  })));
+});
+
 it("keeps an explicitly entered Provider endpoint while changing its type", async () => {
   const user = userEvent.setup();
   const consumptionState = { plan: null, planUpdate: vi.fn() } as unknown as ConsumptionState;
@@ -557,9 +614,9 @@ it("switches the Provider protocol through one select without adding another URL
   await waitFor(() => expect(planUpdate).toHaveBeenCalledWith(expect.objectContaining({
     domain: "model-provider",
     provider: expect.objectContaining({
-      endpoints: {
+      endpoints: expect.objectContaining({
         "anthropic-messages": "https://openrouter.ai/api/v1",
-      },
+      }),
     }),
   })));
 });

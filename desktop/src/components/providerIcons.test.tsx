@@ -34,3 +34,16 @@ it("uses a monogram for Custom Providers and retains it behind failed images", (
   expect(image).toHaveStyle({ display: "none" });
   expect(branded.container.querySelector(".mux-provider-glyph-fallback")).toHaveTextContent("O");
 });
+
+it("reuses vendor artwork for plan-specific Provider templates", () => {
+  expect(providerIconUrl("alibaba-token-plan")).toBe(providerIconUrl("alibaba"));
+  expect(providerIconUrl("zai-coding-plan")).toBe(providerIconUrl("zai"));
+  expect(providerIconUrl("kimi-for-coding")).toBe(providerIconUrl("moonshotai"));
+  expect(providerIconUrl("minimax-coding-plan")).toBeTruthy();
+
+  const minimax = render(
+    <ProviderGlyph id="minimax-coding-plan" name="MiniMax Token Plan" />,
+  );
+  expect(minimax.container.querySelector('[data-provider-icon="minimax"] img'))
+    .toBeInTheDocument();
+});

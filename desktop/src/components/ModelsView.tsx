@@ -69,6 +69,23 @@ function providerLabel(providers: ModelProviderView[], provider: string) {
   return providers.find((item) => item.id === provider)?.name ?? (provider || "Custom Provider");
 }
 
+function providerTemplateEndpoints(provider: ModelProviderView | null | undefined) {
+  if (!provider) return {} as ModelProviderConfig["endpoints"];
+  return Object.fromEntries([
+    ...provider.additional_endpoints.map(({ protocol, base_url }) => [protocol, base_url]),
+    ...(provider.default_base_url
+      ? [[provider.default_protocol, provider.default_base_url]]
+      : []),
+  ]) as ModelProviderConfig["endpoints"];
+}
+
+function providerTemplateEndpoint(
+  provider: ModelProviderView | null | undefined,
+  protocol: ModelProtocol,
+) {
+  return providerTemplateEndpoints(provider)[protocol] ?? provider?.default_base_url ?? "";
+}
+
 function profileProviderName(
   profile: ModelProfileView,
   instances: ModelProviderInstanceView[],
@@ -662,7 +679,12 @@ function ProviderCatalogDialog({
   );
   const visibleProviders = providers.filter((provider) => {
     const needle = query.trim().toLocaleLowerCase();
-    return !needle || [provider.name, provider.id, provider.default_base_url ?? ""]
+    return !needle || [
+      provider.name,
+      provider.id,
+      provider.default_base_url ?? "",
+      ...provider.additional_endpoints.map(({ base_url }) => base_url),
+    ]
       .join(" ")
       .toLocaleLowerCase()
       .includes(needle);
@@ -997,6 +1019,7 @@ function ModelProviderDialog({
   const knownProvider = providers.some(
     (provider) => provider.id !== "custom" && provider.id === initialProviderType,
   );
+  const templateEndpoints = providerTemplateEndpoints(providerTemplate);
   const initialProtocol = initial
     ? PROTOCOLS.find((protocol) => initial.endpoints[protocol.id]?.trim())?.id
       ?? (initial.provider === "anthropic" ? "anthropic-messages" : "openai-responses")
@@ -1005,12 +1028,12 @@ function ModelProviderDialog({
     id: initial?.id ?? "",
     name: initial?.name ?? providerTemplate?.name ?? "",
     provider: initialProviderType,
-    endpoints: initial ? { ...initial.endpoints } : {},
+    endpoints: initial ? { ...initial.endpoints } : templateEndpoints,
     env_key: initial?.env_key,
   });
   const [selectedProtocol, setSelectedProtocol] = useState<ModelProtocol>(initialProtocol);
   const [endpoint, setEndpoint] = useState(
-    initial?.endpoints[initialProtocol]?.trim() ?? providerTemplate?.default_base_url ?? "",
+    initial?.endpoints[initialProtocol]?.trim() ?? templateEndpoints[initialProtocol] ?? "",
   );
   const [providerSelection, setProviderSelection] = useState(
     knownProvider ? initialProviderType : CUSTOM_PROVIDER_OPTION,
@@ -1031,7 +1054,7 @@ function ModelProviderDialog({
     try {
       const normalizedEndpoint = endpoint.trim().replace(/\/$/, "");
       const endpoints = Object.fromEntries([
-        ...Object.entries(initial ? draft.endpoints : {})
+        ...Object.entries(draft.endpoints)
           .filter(([, value]) => value?.trim())
           .map(([protocol, value]) => [protocol, value!.trim().replace(/\/$/, "")]),
         [selectedProtocol, normalizedEndpoint],
@@ -1109,11 +1132,23 @@ function ModelProviderDialog({
                   const nextProvider = providers.find(
                     (provider) => provider.id === value,
                   );
-                  if (!endpoint.trim() || endpoint === previousProvider?.default_base_url) {
-                    setEndpoint(nextProvider?.default_base_url ?? "");
-                    setSelectedProtocol(nextProvider?.default_protocol ?? "openai-responses");
+                  const previousTemplateEndpoint = providerTemplateEndpoint(
+                    previousProvider,
+                    selectedProtocol,
+                  );
+                  if (!endpoint.trim() || endpoint === previousTemplateEndpoint) {
+                    const nextProtocol = nextProvider?.default_protocol ?? "openai-responses";
+                    const nextEndpoints = providerTemplateEndpoints(nextProvider);
+                    setEndpoint(nextEndpoints[nextProtocol] ?? "");
+                    setSelectedProtocol(nextProtocol);
+                    setDraft({ ...draft, provider: value, endpoints: nextEndpoints });
+                  } else {
+                    setDraft({
+                      ...draft,
+                      provider: value,
+                      endpoints: { [selectedProtocol]: endpoint },
+                    });
                   }
-                  setDraft({ ...draft, provider: value });
                 }
               }}
             />
@@ -1142,7 +1177,10 @@ function ModelProviderDialog({
               onChange={(value) => {
                 const nextProtocol = value as ModelProtocol;
                 const nextEndpoint = draft.endpoints[nextProtocol]?.trim()
-                  || providers.find((provider) => provider.id === draft.provider)?.default_base_url
+                  || providerTemplateEndpoint(
+                    providers.find((provider) => provider.id === draft.provider),
+                    nextProtocol,
+                  )
                   || "";
                 setDraft((current) => ({
                   ...current,

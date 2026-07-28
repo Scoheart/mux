@@ -18,7 +18,8 @@ use crate::safe_write::{
 use crate::settings::{load_settings, mutate_settings};
 use jsonc_parser::cst::{CstInputValue, CstNode, CstObject, CstRootNode};
 use jsonc_parser::ParseOptions;
-use serde::Serialize;
+use serde::ser::SerializeStruct;
+use serde::{Serialize, Serializer};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
@@ -61,7 +62,7 @@ pub struct ModelProfileView {
     pub credential_saved: bool,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone)]
 pub struct ModelProviderView {
     pub id: &'static str,
     pub name: &'static str,
@@ -78,6 +79,109 @@ pub struct ModelProviderInstanceView {
     pub model_count: usize,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct ModelProviderEndpointView {
+    pub protocol: ModelProtocol,
+    pub base_url: &'static str,
+}
+
+impl Serialize for ModelProviderView {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut view = serializer.serialize_struct("ModelProviderView", 6)?;
+        view.serialize_field("id", self.id)?;
+        view.serialize_field("name", self.name)?;
+        view.serialize_field("default_base_url", &self.default_base_url)?;
+        view.serialize_field("default_protocol", &self.default_protocol)?;
+        view.serialize_field(
+            "additional_endpoints",
+            provider_additional_endpoints(self.id),
+        )?;
+        view.serialize_field("category", self.category)?;
+        view.end()
+    }
+}
+
+pub fn provider_additional_endpoints(id: &str) -> &'static [ModelProviderEndpointView] {
+    use ModelProtocol::AnthropicMessages;
+
+    match id {
+        "zai-coding-plan" => &[ModelProviderEndpointView {
+            protocol: AnthropicMessages,
+            base_url: "https://api.z.ai/api/anthropic",
+        }],
+        "zhipuai-coding-plan" => &[ModelProviderEndpointView {
+            protocol: AnthropicMessages,
+            base_url: "https://open.bigmodel.cn/api/anthropic",
+        }],
+        "alibaba-coding-plan-cn" => &[ModelProviderEndpointView {
+            protocol: AnthropicMessages,
+            base_url: "https://coding.dashscope.aliyuncs.com/apps/anthropic",
+        }],
+        "alibaba-coding-plan" => &[ModelProviderEndpointView {
+            protocol: AnthropicMessages,
+            base_url: "https://coding-intl.dashscope.aliyuncs.com/apps/anthropic",
+        }],
+        "alibaba-token-plan-cn" => &[ModelProviderEndpointView {
+            protocol: AnthropicMessages,
+            base_url: "https://token-plan.cn-beijing.maas.aliyuncs.com/apps/anthropic",
+        }],
+        "alibaba-token-plan" => &[ModelProviderEndpointView {
+            protocol: AnthropicMessages,
+            base_url: "https://token-plan.ap-southeast-1.maas.aliyuncs.com/apps/anthropic",
+        }],
+        "xiaomi-token-plan-cn" => &[ModelProviderEndpointView {
+            protocol: AnthropicMessages,
+            base_url: "https://token-plan-cn.xiaomimimo.com/anthropic",
+        }],
+        "xiaomi-token-plan-sgp" => &[ModelProviderEndpointView {
+            protocol: AnthropicMessages,
+            base_url: "https://token-plan-sgp.xiaomimimo.com/anthropic",
+        }],
+        "xiaomi-token-plan-ams" => &[ModelProviderEndpointView {
+            protocol: AnthropicMessages,
+            base_url: "https://token-plan-ams.xiaomimimo.com/anthropic",
+        }],
+        "kimi-for-coding" => &[ModelProviderEndpointView {
+            protocol: AnthropicMessages,
+            base_url: "https://api.kimi.com/coding",
+        }],
+        "minimax-coding-plan" => &[ModelProviderEndpointView {
+            protocol: AnthropicMessages,
+            base_url: "https://api.minimax.io/anthropic",
+        }],
+        "minimax-cn-coding-plan" => &[ModelProviderEndpointView {
+            protocol: AnthropicMessages,
+            base_url: "https://api.minimaxi.com/anthropic",
+        }],
+        "stepfun-step-plan" => &[ModelProviderEndpointView {
+            protocol: AnthropicMessages,
+            base_url: "https://api.stepfun.com/step_plan",
+        }],
+        "stepfun-ai-step-plan" => &[ModelProviderEndpointView {
+            protocol: AnthropicMessages,
+            base_url: "https://api.stepfun.ai/step_plan",
+        }],
+        "tencent-coding-plan" => &[ModelProviderEndpointView {
+            protocol: AnthropicMessages,
+            base_url: "https://api.lkeap.cloud.tencent.com/coding/anthropic",
+        }],
+        "tencent-token-plan" => &[ModelProviderEndpointView {
+            protocol: AnthropicMessages,
+            base_url: "https://api.lkeap.cloud.tencent.com/plan/anthropic",
+        }],
+        "tencent-token-plan-global" => &[ModelProviderEndpointView {
+            protocol: AnthropicMessages,
+            base_url: "https://tokenhub-intl.tencentcloudmaas.com/plan/anthropic",
+        }],
+        _ => &[],
+    }
+}
+
+// Plan-specific endpoints and their official references are audited in
+// `core/src/resources/model/PROVIDER_SOURCES.md`.
 const MODEL_PROVIDERS: &[ModelProviderView] = &[
     ModelProviderView {
         id: "openrouter",
@@ -150,9 +254,62 @@ const MODEL_PROVIDERS: &[ModelProviderView] = &[
         category: "official",
     },
     ModelProviderView {
+        id: "alibaba-coding-plan-cn",
+        name: "Alibaba Coding Plan (China)",
+        default_base_url: Some("https://coding.dashscope.aliyuncs.com/v1"),
+        default_protocol: ModelProtocol::OpenaiCompletions,
+        category: "official",
+    },
+    ModelProviderView {
+        id: "alibaba-coding-plan",
+        name: "Alibaba Coding Plan (Global)",
+        default_base_url: Some("https://coding-intl.dashscope.aliyuncs.com/v1"),
+        default_protocol: ModelProtocol::OpenaiCompletions,
+        category: "official",
+    },
+    ModelProviderView {
+        id: "alibaba-token-plan-cn",
+        name: "Alibaba Token Plan (China)",
+        default_base_url: Some(
+            "https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1",
+        ),
+        default_protocol: ModelProtocol::OpenaiCompletions,
+        category: "official",
+    },
+    ModelProviderView {
+        id: "alibaba-token-plan",
+        name: "Alibaba Token Plan (Global)",
+        default_base_url: Some(
+            "https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1",
+        ),
+        default_protocol: ModelProtocol::OpenaiCompletions,
+        category: "official",
+    },
+    ModelProviderView {
         id: "xiaomi",
         name: "Xiaomi MiMo",
         default_base_url: Some("https://api.xiaomimimo.com/v1"),
+        default_protocol: ModelProtocol::OpenaiCompletions,
+        category: "official",
+    },
+    ModelProviderView {
+        id: "xiaomi-token-plan-cn",
+        name: "Xiaomi MiMo Token Plan (China)",
+        default_base_url: Some("https://token-plan-cn.xiaomimimo.com/v1"),
+        default_protocol: ModelProtocol::OpenaiCompletions,
+        category: "official",
+    },
+    ModelProviderView {
+        id: "xiaomi-token-plan-sgp",
+        name: "Xiaomi MiMo Token Plan (Singapore)",
+        default_base_url: Some("https://token-plan-sgp.xiaomimimo.com/v1"),
+        default_protocol: ModelProtocol::OpenaiCompletions,
+        category: "official",
+    },
+    ModelProviderView {
+        id: "xiaomi-token-plan-ams",
+        name: "Xiaomi MiMo Token Plan (Europe)",
+        default_base_url: Some("https://token-plan-ams.xiaomimimo.com/v1"),
         default_protocol: ModelProtocol::OpenaiCompletions,
         category: "official",
     },
@@ -164,9 +321,79 @@ const MODEL_PROVIDERS: &[ModelProviderView] = &[
         category: "official",
     },
     ModelProviderView {
+        id: "kimi-for-coding",
+        name: "Kimi Code Membership",
+        default_base_url: Some("https://api.kimi.com/coding/v1"),
+        default_protocol: ModelProtocol::OpenaiCompletions,
+        category: "official",
+    },
+    ModelProviderView {
         id: "zai",
         name: "Z.AI",
         default_base_url: Some("https://api.z.ai/api/paas/v4"),
+        default_protocol: ModelProtocol::OpenaiCompletions,
+        category: "official",
+    },
+    ModelProviderView {
+        id: "zai-coding-plan",
+        name: "Z.AI Coding Plan",
+        default_base_url: Some("https://api.z.ai/api/coding/paas/v4"),
+        default_protocol: ModelProtocol::OpenaiCompletions,
+        category: "official",
+    },
+    ModelProviderView {
+        id: "zhipuai-coding-plan",
+        name: "Zhipu AI Coding Plan (China)",
+        default_base_url: Some("https://open.bigmodel.cn/api/coding/paas/v4"),
+        default_protocol: ModelProtocol::OpenaiCompletions,
+        category: "official",
+    },
+    ModelProviderView {
+        id: "minimax-coding-plan",
+        name: "MiniMax Token Plan (Global)",
+        default_base_url: Some("https://api.minimax.io/v1"),
+        default_protocol: ModelProtocol::OpenaiCompletions,
+        category: "official",
+    },
+    ModelProviderView {
+        id: "minimax-cn-coding-plan",
+        name: "MiniMax Token Plan (China)",
+        default_base_url: Some("https://api.minimaxi.com/v1"),
+        default_protocol: ModelProtocol::OpenaiCompletions,
+        category: "official",
+    },
+    ModelProviderView {
+        id: "stepfun-step-plan",
+        name: "StepFun Step Plan (China)",
+        default_base_url: Some("https://api.stepfun.com/step_plan/v1"),
+        default_protocol: ModelProtocol::OpenaiCompletions,
+        category: "official",
+    },
+    ModelProviderView {
+        id: "stepfun-ai-step-plan",
+        name: "StepFun Step Plan (Global)",
+        default_base_url: Some("https://api.stepfun.ai/step_plan/v1"),
+        default_protocol: ModelProtocol::OpenaiCompletions,
+        category: "official",
+    },
+    ModelProviderView {
+        id: "tencent-coding-plan",
+        name: "Tencent Cloud Coding Plan (China)",
+        default_base_url: Some("https://api.lkeap.cloud.tencent.com/coding/v3"),
+        default_protocol: ModelProtocol::OpenaiCompletions,
+        category: "official",
+    },
+    ModelProviderView {
+        id: "tencent-token-plan",
+        name: "Tencent Cloud Token Plan (China)",
+        default_base_url: Some("https://api.lkeap.cloud.tencent.com/plan/v3"),
+        default_protocol: ModelProtocol::OpenaiCompletions,
+        category: "official",
+    },
+    ModelProviderView {
+        id: "tencent-token-plan-global",
+        name: "Tencent Cloud Token Plan (Global)",
+        default_base_url: Some("https://tokenhub-intl.tencentcloudmaas.com/plan/v3"),
         default_protocol: ModelProtocol::OpenaiCompletions,
         category: "official",
     },
@@ -415,6 +642,18 @@ fn normalize_slug(value: &str) -> String {
 }
 
 pub fn infer_provider(base_url: &str) -> String {
+    let normalized = base_url.trim().trim_end_matches('/');
+    if let Some(provider) = MODEL_PROVIDERS.iter().find(|provider| {
+        provider
+            .default_base_url
+            .is_some_and(|endpoint| endpoint.eq_ignore_ascii_case(normalized))
+            || provider_additional_endpoints(provider.id)
+                .iter()
+                .any(|endpoint| endpoint.base_url.eq_ignore_ascii_case(normalized))
+    }) {
+        return provider.id.to_string();
+    }
+
     let host = url::Url::parse(base_url)
         .ok()
         .and_then(|url| url.host_str().map(str::to_ascii_lowercase))
@@ -3510,6 +3749,7 @@ mod tests {
     #[test]
     fn provider_default_base_urls_are_unique_valid_and_inferable() {
         let mut ids = BTreeSet::new();
+        let mut endpoints = BTreeSet::new();
         for provider in list_providers() {
             assert!(
                 ids.insert(provider.id),
@@ -3519,6 +3759,10 @@ mod tests {
             let Some(default_base_url) = provider.default_base_url else {
                 continue;
             };
+            assert!(
+                endpoints.insert(default_base_url),
+                "duplicate provider endpoint: {default_base_url}"
+            );
             assert!(
                 !default_base_url.ends_with('/'),
                 "provider default must not end with a slash: {default_base_url}"
@@ -3533,6 +3777,25 @@ mod tests {
             };
             assert_eq!(parsed.scheme(), expected_scheme);
             assert_eq!(infer_provider(default_base_url), provider.id);
+
+            for endpoint in provider_additional_endpoints(provider.id) {
+                assert_ne!(endpoint.protocol, provider.default_protocol);
+                assert!(
+                    endpoints.insert(endpoint.base_url),
+                    "duplicate provider endpoint: {}",
+                    endpoint.base_url
+                );
+                assert!(
+                    !endpoint.base_url.ends_with('/'),
+                    "provider endpoint must not end with a slash: {}",
+                    endpoint.base_url
+                );
+                let parsed = url::Url::parse(endpoint.base_url).unwrap_or_else(|error| {
+                    panic!("invalid provider endpoint {}: {error}", endpoint.base_url)
+                });
+                assert_eq!(parsed.scheme(), expected_scheme);
+                assert_eq!(infer_provider(endpoint.base_url), provider.id);
+            }
         }
 
         assert!(list_providers().iter().all(|provider| matches!(
@@ -3548,7 +3811,43 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(endpointless.len(), 1);
         assert_eq!(endpointless[0].id, "custom");
-        assert_eq!(list_providers().len(), 34);
+        assert_eq!(list_providers().len(), 51);
+
+        let plan_ids = [
+            "zai-coding-plan",
+            "zhipuai-coding-plan",
+            "alibaba-coding-plan-cn",
+            "alibaba-coding-plan",
+            "alibaba-token-plan-cn",
+            "alibaba-token-plan",
+            "xiaomi-token-plan-cn",
+            "xiaomi-token-plan-sgp",
+            "xiaomi-token-plan-ams",
+            "kimi-for-coding",
+            "minimax-coding-plan",
+            "minimax-cn-coding-plan",
+            "stepfun-step-plan",
+            "stepfun-ai-step-plan",
+            "tencent-coding-plan",
+            "tencent-token-plan",
+            "tencent-token-plan-global",
+        ];
+        for id in plan_ids {
+            assert_eq!(
+                provider_additional_endpoints(id).len(),
+                1,
+                "{id} should include its Anthropic-compatible endpoint"
+            );
+        }
+        let alibaba_plan = list_providers()
+            .iter()
+            .find(|provider| provider.id == "alibaba-token-plan")
+            .unwrap();
+        let serialized = serde_json::to_value(alibaba_plan).unwrap();
+        assert_eq!(
+            serialized["additional_endpoints"][0]["base_url"],
+            "https://token-plan.ap-southeast-1.maas.aliyuncs.com/apps/anthropic"
+        );
 
         for id in ["poe", "huggingface", "nebius", "requesty"] {
             assert_eq!(

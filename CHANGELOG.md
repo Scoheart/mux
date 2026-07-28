@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.96](https://github.com/Scoheart/mux/compare/v1.8.95...v1.8.96) (2026-07-28)
+
+### Changes
+
+* fix(navigation): collapse Agent picker to icon ([6349889](https://github.com/Scoheart/mux/commit/634988949ef0dc7bc21a8b0abb41c06ab4cddb5f))
+
 ## [1.8.95](https://github.com/Scoheart/mux/compare/v1.8.94...v1.8.95) (2026-07-28)
 
 ### Changes

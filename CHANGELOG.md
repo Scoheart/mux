@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.89](https://github.com/Scoheart/mux/compare/v1.8.88...v1.8.89) (2026-07-28)
+
+### Changes
+
+* fix(models): tighten provider catalog cards ([a1c6a96](https://github.com/Scoheart/mux/commit/a1c6a96c8d32b2dfb32a9d123b05de23e35417f0))
+
 ## [1.8.88](https://github.com/Scoheart/mux/compare/v1.8.87...v1.8.88) (2026-07-28)
 
 ### Changes

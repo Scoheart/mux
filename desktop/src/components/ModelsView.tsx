@@ -1422,15 +1422,17 @@ function ModelProviderDialog({
                           <small>{t("models.invalidEndpointPath")}</small>
                         )}
                       </label>
-                      <label>
+                      <div className="mux-model-form-field mux-provider-url-field">
                         <span>{t("models.fullRequestUrl")}</span>
-                        <input
-                          className="mux-model-field mux-model-url-preview"
-                          value={preview}
-                          placeholder={t("models.fullRequestUrlUnavailable")}
-                          readOnly
-                        />
-                      </label>
+                        <output
+                          aria-label={t("models.fullRequestUrl")}
+                          className="mux-provider-url-output"
+                          data-empty={preview ? undefined : "true"}
+                          title={preview || undefined}
+                        >
+                          {preview || t("models.fullRequestUrlUnavailable")}
+                        </output>
+                      </div>
                       <button
                         type="button"
                         className="btn-ghost mux-provider-path-reset"

@@ -529,7 +529,10 @@ it("fills a standalone Provider form from the selected catalog template", async 
   expect(screen.getByLabelText("OpenAI Responses Endpoint Path")).toHaveValue(
     "/responses",
   );
-  expect(screen.getByDisplayValue("https://openrouter.ai/api/v1/responses")).toBeVisible();
+  const requestUrl = screen.getByLabelText("完整请求 URL");
+  expect(requestUrl.tagName).toBe("OUTPUT");
+  expect(requestUrl).toHaveTextContent("https://openrouter.ai/api/v1/responses");
+  expect(requestUrl).not.toHaveClass("mux-model-field");
   const protocolList = screen.getByRole("region", { name: "支持的协议" })
     .querySelector(".mux-provider-protocol-list");
   expect(protocolList).not.toBeNull();
@@ -669,9 +672,10 @@ it("enables, previews, resets, and submits protocol Endpoint Paths", async () =>
   await user.clear(path);
   await user.type(path, "custom/messages");
   expect(path).toHaveValue("custom/messages");
-  expect(screen.getByDisplayValue("https://openrouter.ai/api/v1/custom/messages")).toBeVisible();
   const protocolCard = path.closest(".mux-provider-protocol");
   expect(protocolCard).not.toBeNull();
+  expect(within(protocolCard as HTMLElement).getByLabelText("完整请求 URL"))
+    .toHaveTextContent("https://openrouter.ai/api/v1/custom/messages");
   await user.click(within(protocolCard as HTMLElement).getByRole("button", { name: "恢复默认" }));
   expect(path).toHaveValue("/v1/messages");
   await user.click(screen.getByRole("button", { name: "保存" }));

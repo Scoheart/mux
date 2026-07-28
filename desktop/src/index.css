@@ -422,35 +422,44 @@ body {
 .mux-pinned-agent[data-active="true"] { border-color: transparent; background: var(--surface-selected); }
 .mux-pinned-agent[data-active="true"]::after { content: none; }
 .mux-pinned-agent:focus-visible { outline: 2px solid color-mix(in srgb, var(--color-blue) 56%, transparent); outline-offset: 1px; }
-.mux-agent-picker-anchor { width: 220px; flex: 0 0 220px; }
+.mux-agent-picker-anchor {
+  width: 220px; min-width: 40px; flex: 0 1 220px;
+  container-name: mux-agent-picker-anchor; container-type: inline-size;
+}
 .mux-agent-picker-trigger { display: inline-flex; width: 100%; height: 40px; align-items: center; gap: 7px; padding: 0 10px; border: 0; border-radius: 12px; background: var(--surface-section); color: var(--text-primary); box-shadow: none; cursor: pointer; }
 .mux-agent-picker-trigger:hover, .mux-agent-picker-trigger[data-active="true"] { background: var(--surface-selected); }
 .mux-agent-picker-trigger[data-open="true"] { background: var(--surface-raised); box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-blue) 16%, transparent); }
 .mux-agent-picker-trigger-name { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; font: 650 12px/1 var(--font-sans); }
 .mux-agent-picker-chevron { width: 14px; height: 14px; flex: 0 0 auto; color: var(--text-secondary); transition: transform .14s ease, color .14s ease; }
 .mux-agent-picker-trigger[data-open="true"] .mux-agent-picker-chevron { color: var(--color-blue); transform: rotate(180deg); }
-.mux-agent-picker { position: absolute; z-index: 520; top: calc(100% + 7px); right: 0; left: 0; display: flex; width: auto; max-height: min(590px, calc(100vh - 70px)); flex-direction: column; overflow: hidden; border: 0; border-radius: 16px; background: var(--surface-popover); box-shadow: var(--shadow-sheet); animation: mux-agent-picker-in .14s ease-out; }
+.mux-agent-picker { position: absolute; z-index: 520; top: calc(100% + 7px); right: 0; left: auto; display: flex; width: 100%; min-width: 220px; max-height: min(590px, calc(100vh - 70px)); flex-direction: column; overflow: hidden; border: 0; border-radius: 16px; background: var(--surface-popover); box-shadow: var(--shadow-sheet); animation: mux-agent-picker-in .14s ease-out; }
 
-/* The fixed picker consumes 220px; the shortcut strip consumes 44px for its
-   first icon and 37px for every additional icon. Step the visible shortcuts
-   down before the lane reaches each exact boundary so no icon is ever clipped. */
-@container mux-agent-lane (max-width: 457px) {
+/* The picker shrinks from 220px to one 40px icon before pinned shortcuts are
+   removed. The strip consumes 44px for its first icon and 37px for every
+   additional icon; step it down before each minimum-width boundary. */
+@container mux-agent-lane (max-width: 277px) {
   .mux-pinned-agent:nth-child(n + 6) { display: none; }
 }
-@container mux-agent-lane (max-width: 420px) {
+@container mux-agent-lane (max-width: 240px) {
   .mux-pinned-agent:nth-child(n + 5) { display: none; }
 }
-@container mux-agent-lane (max-width: 383px) {
+@container mux-agent-lane (max-width: 203px) {
   .mux-pinned-agent:nth-child(n + 4) { display: none; }
 }
-@container mux-agent-lane (max-width: 346px) {
+@container mux-agent-lane (max-width: 166px) {
   .mux-pinned-agent:nth-child(n + 3) { display: none; }
 }
-@container mux-agent-lane (max-width: 309px) {
+@container mux-agent-lane (max-width: 129px) {
   .mux-pinned-agent:nth-child(n + 2) { display: none; }
 }
-@container mux-agent-lane (max-width: 272px) {
+@container mux-agent-lane (max-width: 92px) {
   .mux-pinned-agent-bar { display: none; }
+}
+
+@container mux-agent-picker-anchor (max-width: 96px) {
+  .mux-agent-picker-trigger { justify-content: center; gap: 0; padding: 0; }
+  .mux-agent-picker-trigger-name,
+  .mux-agent-picker-chevron { display: none; }
 }
 
 @keyframes mux-agent-picker-in { from { opacity: 0; transform: translateY(-5px) scale(.992); } to { opacity: 1; transform: translateY(0) scale(1); } }

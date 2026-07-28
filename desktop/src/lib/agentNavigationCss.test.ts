@@ -73,8 +73,12 @@ it("keeps topbar controls at their wide-layout sizes without compact overrides",
   expect(pixelValue(declarations(css, ".mux-icon-btn"), "height")).toBe(30);
   const pickerAnchor = declarations(css, ".mux-agent-picker-anchor");
   expect(pixelValue(pickerAnchor, "width")).toBe(220);
-  expect(pickerAnchor).toMatch(/flex:\s*0\s+0\s+220px/);
+  expect(pixelValue(pickerAnchor, "min-width")).toBe(40);
+  expect(pickerAnchor).toMatch(/flex:\s*0\s+1\s+220px/);
+  expect(pickerAnchor).toMatch(/container-name:\s*mux-agent-picker-anchor/);
+  expect(pickerAnchor).toMatch(/container-type:\s*inline-size/);
   expect(declarations(css, ".mux-agent-picker-trigger")).toMatch(/width:\s*100%/);
+  expect(component).toMatch(/aria-label=\{selectedAgent\?\.name \?\? "选择 Agent"\}/);
   const pickerCluster = declarations(css, ".mux-agent-picker-cluster");
   expect(pickerCluster).toMatch(/position:\s*relative/);
   expect(pickerCluster).toMatch(/max-width:\s*100%/);
@@ -83,15 +87,16 @@ it("keeps topbar controls at their wide-layout sizes without compact overrides",
   );
   const picker = declarations(css, ".mux-agent-picker");
   expect(picker).toMatch(/right:\s*0/);
-  expect(picker).toMatch(/left:\s*0/);
-  expect(picker).toMatch(/width:\s*auto/);
+  expect(picker).toMatch(/left:\s*auto/);
+  expect(picker).toMatch(/width:\s*100%/);
+  expect(pixelValue(picker, "min-width")).toBe(220);
   expect(pixelValue(declarations(css, ".mux-agent-picker-trigger"), "height")).toBe(40);
   expect(pixelValue(declarations(css, ".mux-pinned-agent"), "width")).toBe(34);
   expect(pixelValue(declarations(css, ".mux-pinned-agent"), "height")).toBe(34);
   expect(pixelValue(declarations(css, ".mux-update-check"), "height")).toBe(32);
 
   expect(css).not.toMatch(/\.mux-topbar \.mux-(?:wordmark|seg|skill-seg|seg-item|icon-btn|update-check)/);
-  expect(css.match(/\.mux-agent-picker-trigger\s*\{/g) ?? []).toHaveLength(1);
+  expect(css.match(/\.mux-agent-picker-trigger\s*\{/g) ?? []).toHaveLength(2);
   expect(css.match(/\.mux-pinned-agent-glyph\s*\{/g) ?? []).toHaveLength(1);
   expect(css).not.toMatch(/@media \(max-width: (?:980|840)px\)/);
   expect(layout).toMatch(/className="mux-update-check-label"/);
@@ -116,11 +121,11 @@ it("absorbs narrow widths in whole pinned Agent increments", () => {
   expect(pinned).not.toMatch(/overflow-x:\s*auto/);
   expect(css).not.toMatch(/scroll-snap-(?:align|type)/);
   for (const [laneWidth, firstHidden] of [
-    [457, 6],
-    [420, 5],
-    [383, 4],
-    [346, 3],
-    [309, 2],
+    [277, 6],
+    [240, 5],
+    [203, 4],
+    [166, 3],
+    [129, 2],
   ]) {
     expect(css).toMatch(
       new RegExp(
@@ -130,13 +135,26 @@ it("absorbs narrow widths in whole pinned Agent increments", () => {
     );
   }
   expect(css).toMatch(
-    /@container mux-agent-lane \(max-width: 272px\)\s*\{[\s\S]*?\.mux-pinned-agent-bar\s*\{\s*display:\s*none/,
+    /@container mux-agent-lane \(max-width: 92px\)\s*\{[\s\S]*?\.mux-pinned-agent-bar\s*\{\s*display:\s*none/,
   );
   expect(
     css.match(/@container mux-agent-lane \(max-width: \d+px\)/g) ?? [],
   ).toHaveLength(6);
-  expect(declarations(css, ".mux-agent-picker-anchor")).toMatch(/flex:\s*0\s+0\s+220px/);
-  expect(layout).toMatch(/disappear one\s+whole shortcut at a time/);
+  expect(declarations(css, ".mux-agent-picker-anchor")).toMatch(/flex:\s*0\s+1\s+220px/);
+  expect(layout).toMatch(/shrinks to one icon before pinned Agents disappear one\s+whole shortcut/);
+});
+
+it("collapses the Agent picker to an accessible icon without shrinking its popup", () => {
+  expect(css).toMatch(
+    /@container mux-agent-picker-anchor \(max-width: 96px\)\s*\{[\s\S]*?\.mux-agent-picker-trigger\s*\{[^}]*justify-content:\s*center[^}]*gap:\s*0[^}]*padding:\s*0/,
+  );
+  expect(css).toMatch(
+    /\.mux-agent-picker-trigger-name,\s*\.mux-agent-picker-chevron\s*\{\s*display:\s*none/,
+  );
+  const picker = declarations(css, ".mux-agent-picker");
+  expect(pixelValue(picker, "min-width")).toBe(220);
+  expect(picker).toMatch(/right:\s*0/);
+  expect(component).toMatch(/aria-label=\{selectedAgent\?\.name \?\? "选择 Agent"\}/);
 });
 
 it("popup action focus rule includes the search clear button", () => {

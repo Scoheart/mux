@@ -329,7 +329,8 @@ export function AgentNavigation({
             data-open={open ? "true" : undefined}
             aria-haspopup="dialog"
             aria-expanded={open}
-            title={selectedAgent?.name}
+            aria-label={selectedAgent?.name ?? "选择 Agent"}
+            title={selectedAgent?.name ?? "选择 Agent"}
             onClick={() => {
               setOpen((wasOpen) => {
                 if (!wasOpen) setQuery("");

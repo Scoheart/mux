@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.90](https://github.com/Scoheart/mux/compare/v1.8.89...v1.8.90) (2026-07-28)
+
+### Changes
+
+* feat(models): add subscription plan providers ([85c25c7](https://github.com/Scoheart/mux/commit/85c25c78f45a72cf5671b8d1d3a5fec4fa95d6f8))
+
 ## [1.8.89](https://github.com/Scoheart/mux/compare/v1.8.88...v1.8.89) (2026-07-28)
 
 ### Changes

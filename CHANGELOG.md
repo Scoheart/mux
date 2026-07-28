@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.95](https://github.com/Scoheart/mux/compare/v1.8.94...v1.8.95) (2026-07-28)
+
+### Changes
+
+* fix(navigation): keep pinned Agent icons whole ([6aa8a78](https://github.com/Scoheart/mux/commit/6aa8a7834efd2dcae9dbdde09362476e215ac3ff))
+
 ## [1.8.94](https://github.com/Scoheart/mux/compare/v1.8.93...v1.8.94) (2026-07-28)
 
 ### Changes

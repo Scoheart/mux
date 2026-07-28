@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.99](https://github.com/Scoheart/mux/compare/v1.8.98...v1.8.99) (2026-07-28)
+
+### Changes
+
+* feat(mcp): add everything test to curated registry ([f1ab9bd](https://github.com/Scoheart/mux/commit/f1ab9bd606a22a387d54ebf78496278626ae59da))
+
 ## [1.8.98](https://github.com/Scoheart/mux/compare/v1.8.97...v1.8.98) (2026-07-28)
 
 ### Changes

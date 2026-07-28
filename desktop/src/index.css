@@ -434,10 +434,11 @@ body {
 .mux-agent-picker-trigger[data-open="true"] .mux-agent-picker-chevron { color: var(--color-blue); transform: rotate(180deg); }
 .mux-agent-picker { position: absolute; z-index: 520; top: calc(100% + 7px); right: 0; left: auto; display: flex; width: 100%; min-width: 220px; max-height: min(590px, calc(100vh - 70px)); flex-direction: column; overflow: hidden; border: 0; border-radius: 16px; background: var(--surface-popover); box-shadow: var(--shadow-sheet); animation: mux-agent-picker-in .14s ease-out; }
 
-/* The picker shrinks from 220px to one 40px icon before pinned shortcuts are
-   removed. The strip consumes 44px for its first icon and 37px for every
-   additional icon; step it down before each minimum-width boundary. */
+/* Once the picker reaches its compact state, keep it at one 40px icon instead
+   of letting it grow after every shortcut disappears. The pinned strip then
+   yields one whole icon at a time and finally collapses to no UI at all. */
 @container mux-agent-lane (max-width: 277px) {
+  .mux-agent-picker-anchor { width: 40px; flex: 0 0 40px; }
   .mux-pinned-agent:nth-child(n + 6) { display: none; }
 }
 @container mux-agent-lane (max-width: 240px) {

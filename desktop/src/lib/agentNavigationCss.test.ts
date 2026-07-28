@@ -140,8 +140,13 @@ it("absorbs narrow widths in whole pinned Agent increments", () => {
   expect(
     css.match(/@container mux-agent-lane \(max-width: \d+px\)/g) ?? [],
   ).toHaveLength(6);
+  expect(css).toMatch(
+    /@container mux-agent-lane \(max-width: 277px\)\s*\{[\s\S]*?\.mux-agent-picker-anchor\s*\{[^}]*width:\s*40px[^}]*flex:\s*0\s+0\s+40px/,
+  );
   expect(declarations(css, ".mux-agent-picker-anchor")).toMatch(/flex:\s*0\s+1\s+220px/);
-  expect(layout).toMatch(/shrinks to one icon before pinned Agents disappear one\s+whole shortcut/);
+  expect(layout).toMatch(
+    /picker settles at one icon, then pinned Agents disappear one\s+whole shortcut at a time until their strip has no footprint/,
+  );
 });
 
 it("collapses the Agent picker to an accessible icon without shrinking its popup", () => {

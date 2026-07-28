@@ -171,8 +171,8 @@ export function Layout({
           </button>
         </div>
 
-        {/* The picker shrinks to one icon before pinned Agents disappear one
-            whole shortcut at a time; every control keeps its hit target. */}
+        {/* The picker settles at one icon, then pinned Agents disappear one
+            whole shortcut at a time until their strip has no footprint. */}
         <div className="mux-topbar-navigation-lane">
           <AgentNavigation
             agents={agents}

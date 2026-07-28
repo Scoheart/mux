@@ -139,9 +139,9 @@ it("absorbs narrow widths in whole pinned Agent increments", () => {
   );
   expect(
     css.match(/@container mux-agent-lane \(max-width: \d+px\)/g) ?? [],
-  ).toHaveLength(6);
+  ).toHaveLength(7);
   expect(css).toMatch(
-    /@container mux-agent-lane \(max-width: 277px\)\s*\{[\s\S]*?\.mux-agent-picker-anchor\s*\{[^}]*width:\s*40px[^}]*flex:\s*0\s+0\s+40px/,
+    /@container mux-agent-lane \(max-width: 333px\)\s*\{[\s\S]*?\.mux-agent-picker-anchor\s*\{[^}]*width:\s*40px[^}]*flex:\s*0\s+0\s+40px/,
   );
   expect(declarations(css, ".mux-agent-picker-anchor")).toMatch(/flex:\s*0\s+1\s+220px/);
   expect(layout).toMatch(

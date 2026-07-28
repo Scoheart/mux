@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.91](https://github.com/Scoheart/mux/compare/v1.8.90...v1.8.91) (2026-07-28)
+
+### Changes
+
+* feat(models): separate provider endpoints ([8143cf7](https://github.com/Scoheart/mux/commit/8143cf743f666cd94cd8b5ae00d9b2274572bbaa))
+
 ## [1.8.90](https://github.com/Scoheart/mux/compare/v1.8.89...v1.8.90) (2026-07-28)
 
 ### Changes

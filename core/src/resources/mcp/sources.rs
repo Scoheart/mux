@@ -321,6 +321,19 @@ use serde::Serialize;
 const CURATED_SOURCE_NAME: &str = "Mux 精选";
 const LEGACY_CURATED_SOURCE_NAME: &str = "官方精选合集";
 
+fn is_curated_source(def: &SourceDef) -> bool {
+    def.kind == "local"
+        && def.path.is_none()
+        && matches!(
+            def.name.as_str(),
+            CURATED_SOURCE_NAME | LEGACY_CURATED_SOURCE_NAME
+        )
+}
+
+fn curated_collection_content() -> Result<String, String> {
+    serde_json::to_string_pretty(&builtin_registry()).map_err(|error| error.to_string())
+}
+
 /// A source as shown in a UI: its stored definition plus a live server count.
 #[derive(Debug, Serialize)]
 pub struct SourceView {
@@ -589,8 +602,7 @@ pub fn add_local(path: String, name: Option<String>) -> Result<SourceView, Strin
 /// Add the bundled curated collection as an opt-in *local* source (not part of
 /// the default catalog). Serializes the embedded `data/registry.json`.
 pub fn add_official() -> Result<SourceView, String> {
-    let entries = builtin_registry();
-    let content = serde_json::to_string_pretty(&entries).map_err(|e| e.to_string())?;
+    let content = curated_collection_content()?;
     let now = now_iso();
     let mut def = SourceDef::new_local(
         gen_id("local", "curated"),
@@ -618,6 +630,7 @@ pub fn refresh(id: String) -> Result<SourceView, String> {
     else {
         return Err("source 不存在".into());
     };
+    let curated = is_curated_source(&original);
     let fetched: Result<String, String> = match original.kind.as_str() {
         "remote" => {
             let url = original.url.clone().ok_or("该来源缺少 URL")?;
@@ -628,6 +641,7 @@ pub fn refresh(id: String) -> Result<SourceView, String> {
                 let src = expand_tilde(p);
                 fs::read_to_string(&src).map_err(|e| format!("读取原文件失败: {e}"))
             }
+            None if curated => curated_collection_content(),
             None => Err("该本地来源没有可刷新的原文件".into()),
         },
         _ => Err("不支持刷新该来源".into()),
@@ -669,7 +683,9 @@ pub fn refresh(id: String) -> Result<SourceView, String> {
     };
 
     validate_parseable(&body, &original.format)?;
-    let cached_body = if original.kind == "local" {
+    let cached_body = if curated {
+        body
+    } else if original.kind == "local" {
         let source = original
             .path
             .as_deref()
@@ -982,6 +998,40 @@ args = ["-y", "github-mcp"]
         };
 
         assert_eq!(to_view(def, 0).name, CURATED_SOURCE_NAME);
+    }
+
+    #[test]
+    fn curated_source_refreshes_from_the_current_embedded_collection() {
+        let _home = TestHome::new("curated-refresh");
+        let view = add_official().unwrap();
+        let source = load_settings()
+            .sources
+            .unwrap()
+            .into_iter()
+            .find(|source| source.id == view.id)
+            .unwrap();
+        let cache = cached_path(&source).unwrap();
+        fs::write(&cache, "[]").unwrap();
+
+        let refreshed = refresh(view.id).unwrap();
+        assert_eq!(refreshed.server_count, builtin_registry().len() as u32);
+
+        let current = load_settings()
+            .sources
+            .unwrap()
+            .into_iter()
+            .find(|source| source.id == refreshed.id)
+            .unwrap();
+        let everything = source_entries(&current)
+            .into_iter()
+            .find(|entry| entry.name == "everything-test")
+            .expect("refreshed Mux 精选 must include everything-test");
+        let stdio = everything.config.stdio.unwrap();
+        assert_eq!(stdio.command, "npx");
+        assert_eq!(
+            stdio.args.unwrap(),
+            ["-y", "@modelcontextprotocol/server-everything"]
+        );
     }
 
     #[test]

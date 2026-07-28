@@ -2,7 +2,7 @@
 
 These assets identify third-party model providers inside MUX. They were retrieved
 from official product sites, official brand packages, or verified official GitHub
-organizations on 2026-07-27. ICO assets were converted to PNG without altering
+organizations on 2026-07-27 and 2026-07-28. ICO assets were converted to PNG without altering
 the artwork. All trademarks remain the property of their respective owners.
 
 | Asset | Official source |
@@ -18,6 +18,21 @@ the artwork. All trademarks remain the property of their respective owners.
 | `groq.png` | <https://groq.com/favicon.ico> |
 | `alibaba.png` | <https://github.com/aliyun> (avatar of Alibaba Cloud's verified GitHub organization) |
 | `xiaomi.png` | <https://github.com/XiaomiMiMo> (official Xiaomi MiMo organization avatar) |
+| `moonshotai.png` | <https://platform.kimi.ai/favicon.ico?v=3> |
+| `zai.svg` | <https://z-cdn.chatglm.cn/z-ai/static/logo.svg> |
+| `nvidia.png` | <https://www.nvidia.com/favicon.ico> |
+| `poe.png` | <https://poe.com/favicon.ico> |
+| `huggingface.svg` | <https://huggingface.co/front/assets/huggingface_logo-noborder.svg> |
+| `github-models.svg` | <https://github.githubassets.com/favicons/favicon.svg> |
+| `novita-ai.png` | <https://novita.ai/favicon.ico> |
+| `qiniu-ai.png` | <https://static.qiniu.com/favicon.ico> |
+| `digitalocean.png` | <https://www.digitalocean.com/_next/static/media/android-chrome-192x192.f09059d8.png> |
+| `modelscope.png` | <https://g.alicdn.com/sail-web/maas/2.13.111/favicon/128.ico> |
+| `scaleway.svg` | <https://www.scaleway.com/favicon/website/favicon.svg> |
+| `nebius.svg` | <https://nebius.com/favicon/favicon.svg> |
+| `requesty.png` | <https://www.requesty.ai/icon.png> |
+| `baseten.png` | <https://www.baseten.co/favicon.ico> |
+| `wandb.png` | <https://site.wandb.ai/wp-content/uploads/2024/07/cropped-favicon-3.png?w=192> |
 | `siliconflow.png` | <https://framerusercontent.com/images/bFE5gkPwrI76ftGXfAEDMfKyC9Q.png> (apple-touch icon linked by <https://www.siliconflow.com/>) |
 | `together.png` | <https://cdn.prod.website-files.com/69654e88dce9154b5f1206dd/699e382b218f39bfa0a115d9_favicon.png> (favicon linked by <https://www.together.ai/>) |
 | `fireworks.png` | <https://fireworks.ai/favicon.ico> |

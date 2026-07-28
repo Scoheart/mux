@@ -1000,9 +1000,7 @@ function ModelProviderDialog({
   const initialProtocol = initial
     ? PROTOCOLS.find((protocol) => initial.endpoints[protocol.id]?.trim())?.id
       ?? (initial.provider === "anthropic" ? "anthropic-messages" : "openai-responses")
-    : initialProviderType === "anthropic"
-      ? "anthropic-messages"
-      : "openai-responses";
+    : providerTemplate?.default_protocol ?? "openai-responses";
   const [draft, setDraft] = useState<ModelProviderConfig>({
     id: initial?.id ?? "",
     name: initial?.name ?? providerTemplate?.name ?? "",
@@ -1105,17 +1103,16 @@ function ModelProviderDialog({
               onChange={(value) => {
                 setProviderSelection(value);
                 if (value !== CUSTOM_PROVIDER_OPTION) {
-                  const previousDefault = providers.find(
+                  const previousProvider = providers.find(
                     (provider) => provider.id === draft.provider,
-                  )?.default_base_url;
-                  const nextDefault = providers.find(
-                    (provider) => provider.id === value,
-                  )?.default_base_url;
-                  setEndpoint((current) =>
-                    !current.trim() || current === previousDefault
-                      ? nextDefault ?? ""
-                      : current
                   );
+                  const nextProvider = providers.find(
+                    (provider) => provider.id === value,
+                  );
+                  if (!endpoint.trim() || endpoint === previousProvider?.default_base_url) {
+                    setEndpoint(nextProvider?.default_base_url ?? "");
+                    setSelectedProtocol(nextProvider?.default_protocol ?? "openai-responses");
+                  }
                   setDraft({ ...draft, provider: value });
                 }
               }}

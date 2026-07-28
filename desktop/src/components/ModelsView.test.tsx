@@ -40,21 +40,30 @@ beforeEach(() => {
       id: "openrouter",
       name: "OpenRouter",
       default_base_url: "https://openrouter.ai/api/v1",
+      default_protocol: "openai-responses",
       category: "gateway",
     },
     {
       id: "openai",
       name: "OpenAI",
       default_base_url: "https://api.openai.com/v1",
+      default_protocol: "openai-responses",
       category: "official",
     },
     {
       id: "ollama",
       name: "Ollama",
       default_base_url: "http://localhost:11434/v1",
+      default_protocol: "openai-completions",
       category: "local",
     },
-    { id: "custom", name: "Custom Provider", default_base_url: null, category: "custom" },
+    {
+      id: "custom",
+      name: "Custom Provider",
+      default_base_url: null,
+      default_protocol: "openai-responses",
+      category: "custom",
+    },
   ]);
   vi.mocked(api.listModelProviderInstances).mockResolvedValue([]);
   vi.mocked(api.inferModelProvider).mockImplementation(async (baseUrl) => {
@@ -501,6 +510,27 @@ it("keeps an explicitly entered Provider endpoint while changing its type", asyn
   expect(endpoint).toHaveValue("https://gateway.example.test/v1");
   expect(screen.getByRole("combobox", { name: "Provider 类型" })).toHaveTextContent("OpenRouter");
   expect(screen.queryByLabelText("自定义模型提供商 ID")).not.toBeInTheDocument();
+});
+
+it("uses each Provider template's declared default protocol", async () => {
+  const user = userEvent.setup();
+  const consumptionState = { plan: null, planUpdate: vi.fn() } as unknown as ConsumptionState;
+
+  render(
+    <ToastProvider>
+      <ModelsView consumptionState={consumptionState} />
+    </ToastProvider>,
+  );
+
+  await openProviderTemplate(user, "Ollama");
+  expect(screen.getByRole("combobox", { name: "协议" })).toHaveTextContent(
+    "OpenAI Chat Completions",
+  );
+  expect(screen.getByLabelText("Base URL")).toHaveValue("http://localhost:11434/v1");
+
+  await chooseFormSelect(user, "Provider 类型", "OpenRouter");
+  expect(screen.getByRole("combobox", { name: "协议" })).toHaveTextContent("OpenAI Responses");
+  expect(screen.getByLabelText("Base URL")).toHaveValue("https://openrouter.ai/api/v1");
 });
 
 it("switches the Provider protocol through one select without adding another URL row", async () => {

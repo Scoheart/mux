@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { AgentInfo } from "../lib/types";
@@ -177,8 +177,7 @@ it("submits a Model-only Agent without inventing MCP configuration", async () =>
 
   expect(screen.getByLabelText("MCP")).toBeDisabled();
   const model = screen.getByLabelText("Model");
-  await userEvent.clear(model);
-  await userEvent.type(model, "/tmp/grok-build/custom.json");
+  fireEvent.change(model, { target: { value: "/tmp/grok-build/custom.json" } });
   await userEvent.click(screen.getByRole("button", { name: "继续" }));
 
   await waitFor(() => {

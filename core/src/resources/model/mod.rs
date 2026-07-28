@@ -66,6 +66,7 @@ pub struct ModelProviderView {
     pub id: &'static str,
     pub name: &'static str,
     pub default_base_url: Option<&'static str>,
+    pub default_protocol: ModelProtocol,
     pub category: &'static str,
 }
 
@@ -82,114 +83,238 @@ const MODEL_PROVIDERS: &[ModelProviderView] = &[
         id: "openrouter",
         name: "OpenRouter",
         default_base_url: Some("https://openrouter.ai/api/v1"),
+        default_protocol: ModelProtocol::OpenaiResponses,
         category: "gateway",
     },
     ModelProviderView {
         id: "anthropic",
         name: "Anthropic",
         default_base_url: Some("https://api.anthropic.com"),
+        default_protocol: ModelProtocol::AnthropicMessages,
         category: "official",
     },
     ModelProviderView {
         id: "openai",
         name: "OpenAI",
         default_base_url: Some("https://api.openai.com/v1"),
+        default_protocol: ModelProtocol::OpenaiResponses,
         category: "official",
     },
     ModelProviderView {
         id: "google",
         name: "Google AI Studio",
         default_base_url: Some("https://generativelanguage.googleapis.com/v1beta/openai"),
+        default_protocol: ModelProtocol::OpenaiCompletions,
         category: "official",
     },
     ModelProviderView {
         id: "xai",
         name: "xAI",
         default_base_url: Some("https://api.x.ai/v1"),
+        default_protocol: ModelProtocol::OpenaiResponses,
         category: "official",
     },
     ModelProviderView {
         id: "mistral",
         name: "Mistral AI",
         default_base_url: Some("https://api.mistral.ai/v1"),
+        default_protocol: ModelProtocol::OpenaiCompletions,
         category: "official",
     },
     ModelProviderView {
         id: "cohere",
         name: "Cohere",
         default_base_url: Some("https://api.cohere.ai/compatibility/v1"),
+        default_protocol: ModelProtocol::OpenaiCompletions,
         category: "official",
     },
     ModelProviderView {
         id: "deepseek",
         name: "DeepSeek",
         default_base_url: Some("https://api.deepseek.com"),
+        default_protocol: ModelProtocol::OpenaiCompletions,
         category: "official",
     },
     ModelProviderView {
         id: "groq",
         name: "Groq",
         default_base_url: Some("https://api.groq.com/openai/v1"),
+        default_protocol: ModelProtocol::OpenaiCompletions,
         category: "official",
     },
     ModelProviderView {
         id: "alibaba",
         name: "Alibaba Cloud",
         default_base_url: Some("https://dashscope.aliyuncs.com/compatible-mode/v1"),
+        default_protocol: ModelProtocol::OpenaiCompletions,
         category: "official",
     },
     ModelProviderView {
         id: "xiaomi",
         name: "Xiaomi MiMo",
         default_base_url: Some("https://api.xiaomimimo.com/v1"),
+        default_protocol: ModelProtocol::OpenaiCompletions,
+        category: "official",
+    },
+    ModelProviderView {
+        id: "moonshotai",
+        name: "Moonshot AI",
+        default_base_url: Some("https://api.moonshot.ai/v1"),
+        default_protocol: ModelProtocol::OpenaiCompletions,
+        category: "official",
+    },
+    ModelProviderView {
+        id: "zai",
+        name: "Z.AI",
+        default_base_url: Some("https://api.z.ai/api/paas/v4"),
+        default_protocol: ModelProtocol::OpenaiCompletions,
+        category: "official",
+    },
+    ModelProviderView {
+        id: "nvidia",
+        name: "NVIDIA NIM",
+        default_base_url: Some("https://integrate.api.nvidia.com/v1"),
+        default_protocol: ModelProtocol::OpenaiCompletions,
+        category: "official",
+    },
+    ModelProviderView {
+        id: "cerebras",
+        name: "Cerebras",
+        default_base_url: Some("https://api.cerebras.ai/v1"),
+        default_protocol: ModelProtocol::OpenaiCompletions,
         category: "official",
     },
     ModelProviderView {
         id: "siliconflow",
         name: "SiliconFlow",
         default_base_url: Some("https://api.siliconflow.com/v1"),
+        default_protocol: ModelProtocol::OpenaiCompletions,
         category: "gateway",
     },
     ModelProviderView {
         id: "together",
         name: "Together AI",
         default_base_url: Some("https://api.together.xyz/v1"),
+        default_protocol: ModelProtocol::OpenaiCompletions,
         category: "gateway",
     },
     ModelProviderView {
         id: "fireworks",
         name: "Fireworks AI",
         default_base_url: Some("https://api.fireworks.ai/inference/v1"),
+        default_protocol: ModelProtocol::OpenaiCompletions,
         category: "gateway",
     },
     ModelProviderView {
-        id: "cerebras",
-        name: "Cerebras",
-        default_base_url: Some("https://api.cerebras.ai/v1"),
-        category: "official",
+        id: "poe",
+        name: "Poe",
+        default_base_url: Some("https://api.poe.com/v1"),
+        default_protocol: ModelProtocol::OpenaiResponses,
+        category: "gateway",
+    },
+    ModelProviderView {
+        id: "huggingface",
+        name: "Hugging Face",
+        default_base_url: Some("https://router.huggingface.co/v1"),
+        default_protocol: ModelProtocol::OpenaiResponses,
+        category: "gateway",
+    },
+    ModelProviderView {
+        id: "github-models",
+        name: "GitHub Models",
+        default_base_url: Some("https://models.github.ai/inference"),
+        default_protocol: ModelProtocol::OpenaiCompletions,
+        category: "gateway",
+    },
+    ModelProviderView {
+        id: "novita-ai",
+        name: "Novita AI",
+        default_base_url: Some("https://api.novita.ai/openai"),
+        default_protocol: ModelProtocol::OpenaiCompletions,
+        category: "gateway",
+    },
+    ModelProviderView {
+        id: "qiniu-ai",
+        name: "Qiniu AI",
+        default_base_url: Some("https://api.qnaigc.com/v1"),
+        default_protocol: ModelProtocol::OpenaiCompletions,
+        category: "gateway",
+    },
+    ModelProviderView {
+        id: "digitalocean",
+        name: "DigitalOcean Gradient AI",
+        default_base_url: Some("https://inference.do-ai.run/v1"),
+        default_protocol: ModelProtocol::OpenaiCompletions,
+        category: "gateway",
+    },
+    ModelProviderView {
+        id: "modelscope",
+        name: "ModelScope",
+        default_base_url: Some("https://api-inference.modelscope.cn/v1"),
+        default_protocol: ModelProtocol::OpenaiCompletions,
+        category: "gateway",
+    },
+    ModelProviderView {
+        id: "scaleway",
+        name: "Scaleway Generative APIs",
+        default_base_url: Some("https://api.scaleway.ai/v1"),
+        default_protocol: ModelProtocol::OpenaiCompletions,
+        category: "gateway",
+    },
+    ModelProviderView {
+        id: "nebius",
+        name: "Nebius Token Factory",
+        default_base_url: Some("https://api.tokenfactory.nebius.com/v1"),
+        default_protocol: ModelProtocol::OpenaiResponses,
+        category: "gateway",
+    },
+    ModelProviderView {
+        id: "requesty",
+        name: "Requesty",
+        default_base_url: Some("https://router.requesty.ai/v1"),
+        default_protocol: ModelProtocol::OpenaiResponses,
+        category: "gateway",
+    },
+    ModelProviderView {
+        id: "baseten",
+        name: "Baseten",
+        default_base_url: Some("https://inference.baseten.co/v1"),
+        default_protocol: ModelProtocol::OpenaiCompletions,
+        category: "gateway",
+    },
+    ModelProviderView {
+        id: "wandb",
+        name: "Weights & Biases",
+        default_base_url: Some("https://api.inference.wandb.ai/v1"),
+        default_protocol: ModelProtocol::OpenaiCompletions,
+        category: "gateway",
     },
     ModelProviderView {
         id: "ollama",
         name: "Ollama",
         default_base_url: Some("http://localhost:11434/v1"),
+        default_protocol: ModelProtocol::OpenaiCompletions,
         category: "local",
     },
     ModelProviderView {
         id: "lm-studio",
         name: "LM Studio",
         default_base_url: Some("http://localhost:1234/v1"),
+        default_protocol: ModelProtocol::OpenaiCompletions,
         category: "local",
     },
     ModelProviderView {
         id: "vllm",
         name: "vLLM",
         default_base_url: Some("http://localhost:8000/v1"),
+        default_protocol: ModelProtocol::OpenaiCompletions,
         category: "local",
     },
     ModelProviderView {
         id: "custom",
         name: "Custom Provider",
         default_base_url: None,
+        default_protocol: ModelProtocol::OpenaiResponses,
         category: "custom",
     },
 ];
@@ -304,6 +429,21 @@ pub fn infer_provider(base_url: &str) -> String {
         "api.cohere.ai" => "cohere",
         "api.deepseek.com" => "deepseek",
         "api.groq.com" => "groq",
+        "api.poe.com" => "poe",
+        "api.novita.ai" => "novita-ai",
+        "api.qnaigc.com" => "qiniu-ai",
+        "integrate.api.nvidia.com" => "nvidia",
+        "inference.do-ai.run" => "digitalocean",
+        "models.github.ai" => "github-models",
+        "router.huggingface.co" => "huggingface",
+        "api.moonshot.ai" => "moonshotai",
+        "api.z.ai" => "zai",
+        "api-inference.modelscope.cn" => "modelscope",
+        "api.scaleway.ai" => "scaleway",
+        "api.tokenfactory.nebius.com" => "nebius",
+        "router.requesty.ai" => "requesty",
+        "inference.baseten.co" => "baseten",
+        "api.inference.wandb.ai" => "wandb",
         "api.siliconflow.cn" | "api.siliconflow.com" => "siliconflow",
         "api.together.xyz" => "together",
         "api.fireworks.ai" => "fireworks",
@@ -3408,6 +3548,40 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(endpointless.len(), 1);
         assert_eq!(endpointless[0].id, "custom");
+        assert_eq!(list_providers().len(), 34);
+
+        for id in ["poe", "huggingface", "nebius", "requesty"] {
+            assert_eq!(
+                list_providers()
+                    .iter()
+                    .find(|provider| provider.id == id)
+                    .map(|provider| &provider.default_protocol),
+                Some(&ModelProtocol::OpenaiResponses),
+                "{id} should start with its documented Responses API"
+            );
+        }
+        for id in [
+            "novita-ai",
+            "qiniu-ai",
+            "nvidia",
+            "digitalocean",
+            "github-models",
+            "moonshotai",
+            "zai",
+            "modelscope",
+            "scaleway",
+            "baseten",
+            "wandb",
+        ] {
+            assert_eq!(
+                list_providers()
+                    .iter()
+                    .find(|provider| provider.id == id)
+                    .map(|provider| &provider.default_protocol),
+                Some(&ModelProtocol::OpenaiCompletions),
+                "{id} should start with its documented Chat Completions API"
+            );
+        }
     }
 
     fn anthropic_profile() -> ModelProfile {

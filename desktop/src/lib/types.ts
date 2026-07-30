@@ -176,15 +176,41 @@ export interface ModelApplyResult {
   restart_required: boolean;
   message: string;
 }
-/** Payload for creating a custom agent (mirrors Rust AgentDefinition). */
+export type AgentInstallProbeInput =
+  | { kind: "path"; path: string }
+  | { kind: "command"; name: string }
+  | { kind: "mac-bundle"; bundle_id: string };
+
+export interface AgentSkillsCapabilityInput {
+  target_id: string;
+  global_dir: string;
+  aliases: Array<{
+    target_id: string;
+    global_dir: string;
+  }>;
+  docs: string;
+  evidence: "official" | "official-source";
+  verified_at: string;
+  probes: AgentInstallProbeInput[];
+}
+
+/** Payload for creating a custom Agent identity and its supported writers
+ * (mirrors the public fields of Rust AgentDefinition). */
 export interface AgentDefinitionInput {
   global: string | null;
   /** Legacy metadata retained when editing an existing definition. */
   project: string | null;
-  format: "json" | "toml" | "yaml";
+  format: "" | "json" | "toml" | "yaml";
   key: string;
   enabled: boolean;
   builtin?: boolean;
+  name?: string | null;
+  docs?: string | null;
+  note?: string | null;
+  category?: string | null;
+  evidence?: string | null;
+  verified_at?: string | null;
+  skills?: AgentSkillsCapabilityInput | null;
 }
 export interface AgentConfigurationInput {
   mcp_path: string;

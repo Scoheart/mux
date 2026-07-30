@@ -1,9 +1,12 @@
-import { useState } from "react";
-import { addAgent, updateAgent } from "../lib/api";
-import type { AgentDefinitionInput, AgentInfo } from "../lib/types";
-import { useToast } from "./Toast";
-import { DialogShell } from "./DialogShell";
+import { useState, type ReactNode } from "react";
+import { useTranslation } from "react-i18next";
+import { addAgent } from "../lib/api";
+import type { AgentDefinitionInput } from "../lib/types";
 import { formatError } from "../lib/format";
+import { AgentGlyph } from "./brandIcons";
+import { DialogShell } from "./DialogShell";
+import { CheckIcon, LayersIcon, PackageIcon, SparklesIcon } from "./icons";
+import { useToast } from "./Toast";
 
 const FORMATS = [
   { value: "json", label: "JSON" },
@@ -11,170 +14,400 @@ const FORMATS = [
   { value: "yaml", label: "YAML" },
 ] as const;
 
-/** Register a custom global target or edit one already known to MUX. Built-in
- *  schemas are locked, so their edit mode exposes only the global path. */
+const CATEGORIES = [
+  { value: "coding-agent", labelKey: "agents.categoryCoding" },
+  { value: "cli", labelKey: "agents.categoryCli" },
+  { value: "ide", labelKey: "agents.categoryIde" },
+  { value: "desktop", labelKey: "agents.categoryDesktop" },
+] as const;
+
+const AGENT_ID_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+
+function isSkillsDirectory(value: string) {
+  if (!value.startsWith("~/") || !value.endsWith("/skills")) return false;
+  const parts = value.slice(2).split("/");
+  return !parts.some((part) => !part || part === "." || part === "..")
+    && parts[0] !== ".mux";
+}
+
+function isHttpUrl(value: string) {
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+/** Create an Agent identity first, then declare the resource writers MUX may
+ * manage for it. Custom Model writers are intentionally not exposed yet. */
 export function AddAgentDialog({
   onClose,
   onAdded,
-  existing,
 }: {
   onClose: () => void;
   onAdded: () => Promise<unknown> | void;
-  existing?: AgentInfo;
 }) {
-  const isEdit = !!existing;
-  const schemaLocked = existing?.builtin ?? false;
-  const [id, setId] = useState(existing?.id ?? "");
-  const [format, setFormat] = useState<"json" | "toml" | "yaml">(
-    existing?.format === "toml" || existing?.format === "yaml" ? existing.format : "json"
-  );
-  const [key, setKey] = useState(existing?.key ?? "mcpServers");
-  const [global, setGlobal] = useState(existing?.global ?? "");
+  const { t } = useTranslation();
+  const [name, setName] = useState("");
+  const [id, setId] = useState("");
+  const [category, setCategory] = useState("coding-agent");
+  const [mcpEnabled, setMcpEnabled] = useState(true);
+  const [skillsEnabled, setSkillsEnabled] = useState(false);
+  const [format, setFormat] = useState<"json" | "toml" | "yaml">("json");
+  const [key, setKey] = useState("mcpServers");
+  const [global, setGlobal] = useState("");
+  const [skillsDir, setSkillsDir] = useState("");
+  const [skillsDocs, setSkillsDocs] = useState("");
   const [busy, setBusy] = useState(false);
   const toast = useToast();
 
+  const trimmedName = name.trim();
   const trimmedId = id.trim();
-  const canSubmit =
-    trimmedId.length > 0 &&
-    key.trim().length > 0 &&
-    global.trim().length > 0 &&
-    !busy;
+  const trimmedGlobal = global.trim();
+  const trimmedKey = key.trim();
+  const trimmedSkillsDir = skillsDir.trim();
+  const trimmedSkillsDocs = skillsDocs.trim();
+  const skillsTargetId = `${trimmedId}-skills`;
+  const idValid = AGENT_ID_PATTERN.test(trimmedId)
+    && trimmedId.length <= (skillsEnabled ? 57 : 64);
+  const skillsDirValid = isSkillsDirectory(trimmedSkillsDir);
+  const skillsDocsValid = isHttpUrl(trimmedSkillsDocs);
+  const mcpValid = !mcpEnabled || (trimmedGlobal.length > 0 && trimmedKey.length > 0);
+  const skillsValid = !skillsEnabled || (skillsDirValid && skillsDocsValid);
+  const hasCapability = mcpEnabled || skillsEnabled;
+  const canSubmit = trimmedName.length > 0
+    && idValid
+    && hasCapability
+    && mcpValid
+    && skillsValid
+    && !busy;
+  const selectedCapabilities = [
+    mcpEnabled ? "MCP" : null,
+    skillsEnabled ? "Skills" : null,
+  ].filter(Boolean).join(" + ");
+  const displayName = trimmedName || trimmedId || t("agents.newAgent");
 
   const submit = async () => {
     if (!canSubmit) return;
     setBusy(true);
-    const def: AgentDefinitionInput = {
-      global: global.trim() || null,
-      // Preserve legacy metadata when editing, but project scope is no longer
-      // exposed by the product.
-      project: existing?.project ?? null,
-      format,
-      key: key.trim(),
-      enabled: existing?.enabled ?? true,
-      builtin: existing?.builtin ?? false,
+    const definition: AgentDefinitionInput = {
+      global: mcpEnabled ? trimmedGlobal : null,
+      project: null,
+      format: mcpEnabled ? format : "",
+      key: mcpEnabled ? trimmedKey : "",
+      enabled: true,
+      builtin: false,
+      name: trimmedName,
+      category,
+      evidence: "custom",
+      verified_at: null,
+      docs: skillsEnabled ? trimmedSkillsDocs : null,
+      skills: skillsEnabled ? {
+        target_id: skillsTargetId,
+        global_dir: trimmedSkillsDir,
+        aliases: [],
+        docs: trimmedSkillsDocs,
+        evidence: "official",
+        verified_at: new Date().toISOString().slice(0, 10),
+        probes: [{ kind: "path", path: trimmedSkillsDir }],
+      } : null,
     };
     try {
-      if (isEdit) {
-        await updateAgent(trimmedId, def);
-        toast.show({ kind: "success", msg: `已更新 agent：${trimmedId}` });
-      } else {
-        await addAgent(trimmedId, def);
-        toast.show({ kind: "success", msg: `已添加 agent：${trimmedId}` });
-      }
+      await addAgent(trimmedId, definition);
+      toast.show({
+        kind: "success",
+        msg: t("agents.addedToast", { name: trimmedName }),
+      });
       await onAdded();
       onClose();
-    } catch (e) {
-      const verb = isEdit ? "更新" : "添加";
-      toast.show({ kind: "error", msg: `${verb}失败：` + formatError(e) });
+    } catch (error) {
+      toast.show({
+        kind: "error",
+        msg: t("agents.addFailed", { error: formatError(error) }),
+      });
     } finally {
       setBusy(false);
     }
   };
 
-  const fieldStyle = {
-    background: "var(--surface-app)",
-    border: "1px solid var(--border-hairline)",
-    color: "var(--text-primary)",
-  } as const;
-
   return (
     <DialogShell
-        kind="editor"
-        size="md"
-        title={schemaLocked ? "编辑全局路径" : isEdit ? "编辑 Agent" : "添加 Agent"}
-        subtitle={existing?.name ?? "自定义 Agent"}
-        busy={busy}
-        onClose={onClose}
-        footerEnd={
-          <>
-            <button onClick={onClose} disabled={busy} className="btn-ghost">取消</button>
-            <button disabled={!canSubmit} onClick={submit} className="btn-primary">
-              {busy ? (isEdit ? "保存中…" : "添加中…") : isEdit ? "保存" : "添加"}
+      kind="editor"
+      size="lg"
+      title={t("agents.addTitle")}
+      subtitle={t("agents.addSubtitle")}
+      busy={busy}
+      onClose={onClose}
+      footerStart={(
+        <span className="mux-agent-create-summary" data-empty={!hasCapability || undefined}>
+          <span />
+          {hasCapability
+            ? t("agents.capabilitySummary", { capabilities: selectedCapabilities })
+            : t("agents.capabilityRequired")}
+        </span>
+      )}
+      footerEnd={(
+        <>
+          <button type="button" onClick={onClose} disabled={busy} className="btn-ghost">
+            {t("common.cancel")}
+          </button>
+          <button
+            type="button"
+            disabled={!canSubmit}
+            onClick={() => void submit()}
+            className="btn-primary"
+          >
+            {busy ? t("agents.adding") : t("agents.addAction")}
+          </button>
+        </>
+      )}
+    >
+      <div className="mux-agent-create">
+        <section className="mux-agent-create-section" aria-labelledby="agent-identity-title">
+          <div className="mux-agent-create-section-head">
+            <div>
+              <h3 id="agent-identity-title">{t("agents.identityTitle")}</h3>
+              <p>{t("agents.identityHelp")}</p>
+            </div>
+          </div>
+
+          <div className="mux-agent-identity-card">
+            <div className="mux-agent-identity-preview" aria-label={t("agents.identityPreview")}>
+              <AgentGlyph id={trimmedId || "new-agent"} name={displayName} size={46} />
+              <span>
+                <strong>{displayName}</strong>
+                <code>{trimmedId || "agent-id"}</code>
+              </span>
+            </div>
+
+            <div className="mux-agent-identity-fields">
+              <label className="mux-agent-create-field">
+                <span>{t("agents.nameLabel")} <i>*</i></span>
+                <input
+                  autoFocus
+                  className="mux-model-field"
+                  value={name}
+                  placeholder={t("agents.namePlaceholder")}
+                  onChange={(event) => setName(event.target.value)}
+                />
+              </label>
+              <label className="mux-agent-create-field">
+                <span>{t("agents.idLabel")} <i>*</i></span>
+                <input
+                  className="mux-model-field"
+                  value={id}
+                  spellCheck={false}
+                  aria-invalid={id.length > 0 && !idValid}
+                  placeholder={t("agents.idPlaceholder")}
+                  onChange={(event) => setId(event.target.value)}
+                />
+                <small data-error={id.length > 0 && !idValid || undefined}>
+                  {id.length > 0 && !idValid
+                    ? t(skillsEnabled ? "agents.idInvalidWithSkills" : "agents.idInvalid")
+                    : t("agents.idHelp")}
+                </small>
+              </label>
+              <label className="mux-agent-create-field" data-wide>
+                <span>{t("agents.categoryLabel")}</span>
+                <select
+                  className="mux-model-field"
+                  value={category}
+                  onChange={(event) => setCategory(event.target.value)}
+                >
+                  {CATEGORIES.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {t(option.labelKey)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+          </div>
+        </section>
+
+        <section className="mux-agent-create-section" aria-labelledby="agent-capabilities-title">
+          <div className="mux-agent-create-section-head">
+            <div>
+              <h3 id="agent-capabilities-title">{t("agents.capabilitiesTitle")}</h3>
+              <p>{t("agents.capabilitiesHelp")}</p>
+            </div>
+          </div>
+
+          <div className="mux-agent-capability-grid">
+            <CapabilityButton
+              title="MCP"
+              description={t("agents.mcpCapability")}
+              icon={<PackageIcon className="w-4 h-4" />}
+              selected={mcpEnabled}
+              onClick={() => setMcpEnabled((current) => !current)}
+              label={t("agents.toggleMcp")}
+            />
+            <CapabilityButton
+              title="Skills"
+              description={t("agents.skillsCapability")}
+              icon={<SparklesIcon className="w-4 h-4" />}
+              selected={skillsEnabled}
+              onClick={() => setSkillsEnabled((current) => !current)}
+              label={t("agents.toggleSkills")}
+            />
+            <button
+              type="button"
+              className="mux-agent-capability"
+              data-unavailable
+              disabled
+              aria-label={t("agents.modelsUnavailable")}
+            >
+              <span className="mux-agent-capability-icon">
+                <LayersIcon className="w-4 h-4" />
+              </span>
+              <span className="mux-agent-capability-copy">
+                <strong>Models</strong>
+                <small>{t("agents.modelsCapability")}</small>
+              </span>
+              <span className="mux-agent-capability-state">{t("agents.unavailable")}</span>
             </button>
-          </>
-        }
-      >
-
-      {/* Body */}
-      <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
-          {/* id */}
-          <div>
-            <label className="text-xs font-medium block mb-1.5" style={{ color: "var(--text-secondary)" }}>
-              Agent ID <span style={{ color: "#FF375F" }}>*</span>
-            </label>
-            <input
-              autoFocus={!isEdit}
-              disabled={isEdit}
-              className="w-full px-3 py-2 text-sm rounded-mac outline-none"
-              style={{ ...fieldStyle, opacity: isEdit ? 0.6 : 1, cursor: isEdit ? "not-allowed" : "text" }}
-              placeholder="例如：my-tool"
-              value={id}
-              onChange={(e) => setId(e.target.value)}
-            />
           </div>
 
-          {/* format + key */}
-          <div className="flex gap-3">
-            <div className="flex-shrink-0">
-              <label className="text-xs font-medium block mb-1.5" style={{ color: "var(--text-secondary)" }}>
-                格式
-              </label>
-              <div className="inline-flex p-0.5 rounded-mac" style={{ background: "var(--surface-app)" }}>
-                {FORMATS.map((f) => (
-                  <button
-                    key={f.value}
-                    disabled={schemaLocked}
-                    onClick={() => setFormat(f.value)}
-                    className="px-3 py-1.5 text-sm rounded-[8px] border-0 cursor-pointer transition-all font-medium"
-                    style={{
-                      background: format === f.value ? "var(--surface-raised)" : "transparent",
-                      color: format === f.value ? "var(--text-primary)" : "var(--text-secondary)",
-                      boxShadow: format === f.value ? "var(--shadow-card)" : "none",
-                      cursor: schemaLocked ? "default" : "pointer",
-                      opacity: schemaLocked && format !== f.value ? 0.35 : 1,
-                    }}
-                  >
-                    {f.label}
-                  </button>
-                ))}
+          {mcpEnabled && (
+            <section className="mux-agent-capability-detail" aria-labelledby="agent-mcp-config-title">
+              <div className="mux-agent-capability-detail-head">
+                <span><PackageIcon className="w-4 h-4" /></span>
+                <div>
+                  <h4 id="agent-mcp-config-title">{t("agents.mcpConfigTitle")}</h4>
+                  <p>{t("agents.mcpConfigHelp")}</p>
+                </div>
               </div>
-            </div>
-            <div className="flex-1 min-w-0">
-              <label className="text-xs font-medium block mb-1.5" style={{ color: "var(--text-secondary)" }}>
-                配置 Key <span style={{ color: "#FF375F" }}>*</span>
-              </label>
-              <input
-                disabled={schemaLocked}
-                className="w-full px-3 py-2 text-sm rounded-mac outline-none"
-                style={{
-                  ...fieldStyle,
-                  fontFamily: "var(--font-mono)",
-                  opacity: schemaLocked ? 0.6 : 1,
-                  cursor: schemaLocked ? "not-allowed" : "text",
-                }}
-                placeholder="mcpServers"
-                value={key}
-                onChange={(e) => setKey(e.target.value)}
-              />
-            </div>
-          </div>
+              <div className="mux-agent-detail-fields">
+                <label className="mux-agent-create-field" data-wide>
+                  <span>{t("agents.mcpPathLabel")} <i>*</i></span>
+                  <input
+                    className="mux-model-field"
+                    value={global}
+                    spellCheck={false}
+                    placeholder={trimmedId
+                      ? `~/.${trimmedId}/mcp.json`
+                      : t("agents.mcpPathPlaceholder")}
+                    onChange={(event) => setGlobal(event.target.value)}
+                  />
+                </label>
+                <div className="mux-agent-create-field">
+                  <span>{t("agents.formatLabel")}</span>
+                  <div className="mux-agent-format-picker" role="group" aria-label={t("agents.formatLabel")}>
+                    {FORMATS.map((candidate) => (
+                      <button
+                        type="button"
+                        key={candidate.value}
+                        aria-pressed={format === candidate.value}
+                        onClick={() => setFormat(candidate.value)}
+                      >
+                        {candidate.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <label className="mux-agent-create-field">
+                  <span>{t("agents.mcpKeyLabel")} <i>*</i></span>
+                  <input
+                    className="mux-model-field"
+                    value={key}
+                    spellCheck={false}
+                    placeholder="mcpServers"
+                    onChange={(event) => setKey(event.target.value)}
+                  />
+                  <small>{t("agents.mcpKeyHelp")}</small>
+                </label>
+              </div>
+            </section>
+          )}
 
-          {/* global path */}
-          <div>
-            <label className="text-xs font-medium block mb-1.5" style={{ color: "var(--text-secondary)" }}>
-              全局配置路径 <span style={{ color: "#FF375F" }}>*</span>
-            </label>
-            <input
-              className="w-full px-3 py-2 text-sm rounded-mac outline-none"
-              style={{ ...fieldStyle, fontFamily: "var(--font-mono)" }}
-              placeholder="~/.mytool/mcp.json"
-              value={global}
-              onChange={(e) => setGlobal(e.target.value)}
-            />
-          </div>
-
+          {skillsEnabled && (
+            <section className="mux-agent-capability-detail" aria-labelledby="agent-skills-config-title">
+              <div className="mux-agent-capability-detail-head">
+                <span><SparklesIcon className="w-4 h-4" /></span>
+                <div>
+                  <h4 id="agent-skills-config-title">{t("agents.skillsConfigTitle")}</h4>
+                  <p>{t("agents.skillsConfigHelp")}</p>
+                </div>
+              </div>
+              <div className="mux-agent-detail-fields">
+                <label className="mux-agent-create-field">
+                  <span>{t("agents.skillsPathLabel")} <i>*</i></span>
+                  <input
+                    className="mux-model-field"
+                    value={skillsDir}
+                    spellCheck={false}
+                    aria-invalid={skillsDir.length > 0 && !skillsDirValid}
+                    placeholder={trimmedId
+                      ? `~/.${trimmedId}/skills`
+                      : t("agents.skillsPathPlaceholder")}
+                    onChange={(event) => setSkillsDir(event.target.value)}
+                  />
+                  <small data-error={skillsDir.length > 0 && !skillsDirValid || undefined}>
+                    {skillsDir.length > 0 && !skillsDirValid
+                      ? t("agents.skillsPathInvalid")
+                      : t("agents.skillsPathHelp")}
+                  </small>
+                </label>
+                <label className="mux-agent-create-field">
+                  <span>{t("agents.skillsDocsLabel")} <i>*</i></span>
+                  <input
+                    className="mux-model-field"
+                    value={skillsDocs}
+                    type="url"
+                    spellCheck={false}
+                    aria-invalid={skillsDocs.length > 0 && !skillsDocsValid}
+                    placeholder="https://docs.example.com/skills"
+                    onChange={(event) => setSkillsDocs(event.target.value)}
+                  />
+                  <small data-error={skillsDocs.length > 0 && !skillsDocsValid || undefined}>
+                    {skillsDocs.length > 0 && !skillsDocsValid
+                      ? t("agents.skillsDocsInvalid")
+                      : t("agents.skillsDocsHelp")}
+                  </small>
+                </label>
+              </div>
+            </section>
+          )}
+        </section>
       </div>
-
     </DialogShell>
+  );
+}
+
+function CapabilityButton({
+  title,
+  description,
+  icon,
+  selected,
+  onClick,
+  label,
+}: {
+  title: string;
+  description: string;
+  icon: ReactNode;
+  selected: boolean;
+  onClick: () => void;
+  label: string;
+}) {
+  return (
+    <button
+      type="button"
+      className="mux-agent-capability"
+      role="switch"
+      aria-checked={selected}
+      aria-label={label}
+      data-selected={selected || undefined}
+      onClick={onClick}
+    >
+      <span className="mux-agent-capability-icon">{icon}</span>
+      <span className="mux-agent-capability-copy">
+        <strong>{title}</strong>
+        <small>{description}</small>
+      </span>
+      <span className="mux-agent-capability-check" aria-hidden="true">
+        {selected && <CheckIcon className="w-3 h-3" />}
+      </span>
+    </button>
   );
 }

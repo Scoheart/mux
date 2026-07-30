@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.101](https://github.com/Scoheart/mux/compare/v1.8.100...v1.8.101) (2026-07-30)
+
+### Changes
+
+* feat(agent): make custom Agent creation capability-first ([c71fe1e](https://github.com/Scoheart/mux/commit/c71fe1eebf932d927e9270430db498553da6b89d))
+
 ## [1.8.100](https://github.com/Scoheart/mux/compare/v1.8.99...v1.8.100) (2026-07-28)
 
 ### Changes

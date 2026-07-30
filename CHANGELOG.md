@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.103](https://github.com/Scoheart/mux/compare/v1.8.102...v1.8.103) (2026-07-30)
+
+### Changes
+
+* perf(release): reduce CLI build optimization work ([00ceed8](https://github.com/Scoheart/mux/commit/00ceed8e4d72778d97628af93264fedfda2b915c))
+
 ## [1.8.102](https://github.com/Scoheart/mux/compare/v1.8.101...v1.8.102) (2026-07-30)
 
 ### Changes

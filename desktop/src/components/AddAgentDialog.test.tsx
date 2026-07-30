@@ -25,7 +25,7 @@ afterEach(() => {
 });
 
 describe("AddAgentDialog", () => {
-  it("starts from Agent identity and presents MCP, Skills, and Model capabilities separately", () => {
+  it("starts from Agent identity and switches capability panels with tabs", async () => {
     render(<AddAgentDialog onClose={vi.fn()} onAdded={vi.fn()} />);
 
     const identity = screen.getByRole("heading", { name: "Agent 身份" });
@@ -35,9 +35,21 @@ describe("AddAgentDialog", () => {
 
     expect(screen.getByLabelText(/Agent 名称/)).toBeVisible();
     expect(screen.getByLabelText(/Agent ID/)).toBeVisible();
+    const mcpTab = screen.getByRole("tab", { name: /MCP/ });
+    const skillsTab = screen.getByRole("tab", { name: /Skills/ });
+    expect(mcpTab).toHaveAttribute("aria-selected", "true");
+    expect(skillsTab).toHaveAttribute("aria-selected", "false");
     expect(screen.getByRole("switch", { name: "启用 MCP 能力" })).toBeChecked();
+    expect(screen.queryByRole("switch", { name: "启用 Skills 能力" })).not.toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Models：自定义 Agent 暂不可用" })).toBeDisabled();
+
+    await waitFor(() => expect(screen.getByRole("heading", { name: "添加 Agent" })).toHaveFocus());
+    mcpTab.focus();
+    await userEvent.keyboard("{ArrowRight}");
+    expect(skillsTab).toHaveFocus();
+    expect(skillsTab).toHaveAttribute("aria-selected", "true");
     expect(screen.getByRole("switch", { name: "启用 Skills 能力" })).not.toBeChecked();
-    expect(screen.getByRole("button", { name: "Models：自定义 Agent 暂不可用" })).toBeDisabled();
+    expect(screen.getByRole("textbox", { name: /^Skills 目录/ })).toBeDisabled();
     expect(screen.getByRole("button", { name: "添加 Agent" })).toBeDisabled();
   });
 
@@ -46,6 +58,7 @@ describe("AddAgentDialog", () => {
     const onClose = vi.fn();
     render(<AddAgentDialog onClose={onClose} onAdded={onAdded} />);
 
+    await waitFor(() => expect(screen.getByRole("heading", { name: "添加 Agent" })).toHaveFocus());
     await userEvent.type(screen.getByLabelText(/Agent 名称/), "Acme Code");
     await userEvent.type(screen.getByLabelText(/Agent ID/), "acme-code");
     await userEvent.type(screen.getByLabelText(/配置文件/), "~/.acme/mcp.json");
@@ -74,8 +87,12 @@ describe("AddAgentDialog", () => {
   it("creates a Skills-only Agent without inventing an MCP writer", async () => {
     render(<AddAgentDialog onClose={vi.fn()} onAdded={vi.fn()} />);
 
-    await userEvent.click(screen.getByRole("switch", { name: "启用 MCP 能力" }));
+    await waitFor(() => expect(screen.getByRole("heading", { name: "添加 Agent" })).toHaveFocus());
+    await userEvent.click(screen.getByRole("tab", { name: /Skills/ }));
     await userEvent.click(screen.getByRole("switch", { name: "启用 Skills 能力" }));
+    await userEvent.click(screen.getByRole("tab", { name: /MCP/ }));
+    await userEvent.click(screen.getByRole("switch", { name: "启用 MCP 能力" }));
+    await userEvent.click(screen.getByRole("tab", { name: /Skills/ }));
     expect(screen.queryByLabelText(/配置文件/)).not.toBeInTheDocument();
 
     await userEvent.type(screen.getByLabelText(/Agent 名称/), "Acme Skills");

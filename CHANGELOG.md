@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.102](https://github.com/Scoheart/mux/compare/v1.8.101...v1.8.102) (2026-07-30)
+
+### Changes
+
+* feat(agent): switch capability setup to tabs ([81717a6](https://github.com/Scoheart/mux/commit/81717a6ff4e48137a5dedb1ecf51bd233fc95301))
+
 ## [1.8.101](https://github.com/Scoheart/mux/compare/v1.8.100...v1.8.101) (2026-07-30)
 
 ### Changes

@@ -164,6 +164,18 @@ test("desktop release packaging reuses the CLI already built for the sidecar", a
   assert.match(publisher, /sort_by\(\.tag_name/);
 });
 
+test("CLI and desktop use the same fast release profile", async () => {
+  const cliManifest = await read("Cargo.toml");
+  const desktopManifest = await read("desktop/src-tauri/Cargo.toml");
+
+  for (const manifest of [cliManifest, desktopManifest]) {
+    assert.match(manifest, /\[profile\.release\]/);
+    assert.match(manifest, /codegen-units\s*=\s*256/);
+    assert.match(manifest, /opt-level\s*=\s*2/);
+    assert.match(manifest, /strip\s*=\s*true/);
+  }
+});
+
 test("every repository Action uses an immutable commit", async () => {
   const workflowDirectory = join(root, ".github", "workflows");
   const workflowNames = (await readdir(workflowDirectory)).filter((name) =>

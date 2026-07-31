@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.8.104](https://github.com/Scoheart/mux/compare/v1.8.103...v1.8.104) (2026-07-31)
+
+### Changes
+
+* perf(release): reuse stable build cache ([905c5e8](https://github.com/Scoheart/mux/commit/905c5e83afd0af0208adc175bba7b9c6a01a34af))
+* fix(desktop): align custom agent setup semantics ([875b077](https://github.com/Scoheart/mux/commit/875b0772c9063ce340b8ee0c49a6b0e1d90425f1))
+
 ## [1.8.103](https://github.com/Scoheart/mux/compare/v1.8.102...v1.8.103) (2026-07-30)
 
 ### Changes

@@ -9,9 +9,8 @@ import type { AgentDefinitionInput } from "../lib/types";
 import { formatError } from "../lib/format";
 import { AgentGlyph } from "./brandIcons";
 import { DialogShell } from "./DialogShell";
-import { LayersIcon, PackageIcon, SparklesIcon } from "./icons";
+import { PackageIcon, SparklesIcon } from "./icons";
 import { useToast } from "./Toast";
-import { Switch } from "./ui";
 
 const FORMATS = [
   { value: "json", label: "JSON" },
@@ -28,6 +27,7 @@ const CATEGORIES = [
 
 const AGENT_ID_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 type CapabilityTab = "mcp" | "skills";
+type CapabilityState = "optional" | "incomplete" | "configured";
 
 function isSkillsDirectory(value: string) {
   if (!value.startsWith("~/") || !value.endsWith("/skills")) return false;
@@ -46,7 +46,9 @@ function isHttpUrl(value: string) {
 }
 
 /** Create an Agent identity first, then declare the resource writers MUX may
- * manage for it. Custom Model writers are intentionally not exposed yet. */
+ * manage for it. A completed location includes that writer; an empty location
+ * omits it. Custom Model writers require a dedicated safe adapter and are not
+ * represented as a generic path-only capability. */
 export function AddAgentDialog({
   onClose,
   onAdded,
@@ -58,8 +60,6 @@ export function AddAgentDialog({
   const [name, setName] = useState("");
   const [id, setId] = useState("");
   const [category, setCategory] = useState("coding-agent");
-  const [mcpEnabled, setMcpEnabled] = useState(true);
-  const [skillsEnabled, setSkillsEnabled] = useState(false);
   const [activeCapability, setActiveCapability] = useState<CapabilityTab>("mcp");
   const [format, setFormat] = useState<"json" | "toml" | "yaml">("json");
   const [key, setKey] = useState("mcpServers");
@@ -78,22 +78,33 @@ export function AddAgentDialog({
   const trimmedSkillsDir = skillsDir.trim();
   const trimmedSkillsDocs = skillsDocs.trim();
   const skillsTargetId = `${trimmedId}-skills`;
+  const mcpStarted = trimmedGlobal.length > 0;
+  const skillsStarted = trimmedSkillsDir.length > 0 || trimmedSkillsDocs.length > 0;
   const idValid = AGENT_ID_PATTERN.test(trimmedId)
-    && trimmedId.length <= (skillsEnabled ? 57 : 64);
+    && trimmedId.length <= (skillsStarted ? 57 : 64);
   const skillsDirValid = isSkillsDirectory(trimmedSkillsDir);
   const skillsDocsValid = isHttpUrl(trimmedSkillsDocs);
-  const mcpValid = !mcpEnabled || (trimmedGlobal.length > 0 && trimmedKey.length > 0);
-  const skillsValid = !skillsEnabled || (skillsDirValid && skillsDocsValid);
-  const hasCapability = mcpEnabled || skillsEnabled;
+  const mcpConfigured = mcpStarted && trimmedKey.length > 0;
+  const skillsConfigured = skillsDirValid && skillsDocsValid;
+  const mcpState: CapabilityState = mcpConfigured
+    ? "configured"
+    : mcpStarted ? "incomplete" : "optional";
+  const skillsState: CapabilityState = skillsConfigured
+    ? "configured"
+    : skillsStarted ? "incomplete" : "optional";
+  const incompleteCapabilities = [
+    mcpState === "incomplete" ? "MCP" : null,
+    skillsState === "incomplete" ? "Skills" : null,
+  ].filter(Boolean).join(" + ");
+  const hasCapability = mcpConfigured || skillsConfigured;
   const canSubmit = trimmedName.length > 0
     && idValid
     && hasCapability
-    && mcpValid
-    && skillsValid
+    && !incompleteCapabilities
     && !busy;
   const selectedCapabilities = [
-    mcpEnabled ? "MCP" : null,
-    skillsEnabled ? "Skills" : null,
+    mcpConfigured ? "MCP" : null,
+    skillsConfigured ? "Skills" : null,
   ].filter(Boolean).join(" + ");
   const displayName = trimmedName || trimmedId || t("agents.newAgent");
   const handleCapabilityTabKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
@@ -110,18 +121,18 @@ export function AddAgentDialog({
     if (!canSubmit) return;
     setBusy(true);
     const definition: AgentDefinitionInput = {
-      global: mcpEnabled ? trimmedGlobal : null,
+      global: mcpConfigured ? trimmedGlobal : null,
       project: null,
-      format: mcpEnabled ? format : "",
-      key: mcpEnabled ? trimmedKey : "",
+      format: mcpConfigured ? format : "",
+      key: mcpConfigured ? trimmedKey : "",
       enabled: true,
       builtin: false,
       name: trimmedName,
       category,
       evidence: "custom",
       verified_at: null,
-      docs: skillsEnabled ? trimmedSkillsDocs : null,
-      skills: skillsEnabled ? {
+      docs: skillsConfigured ? trimmedSkillsDocs : null,
+      skills: skillsConfigured ? {
         target_id: skillsTargetId,
         global_dir: trimmedSkillsDir,
         aliases: [],
@@ -158,9 +169,19 @@ export function AddAgentDialog({
       busy={busy}
       onClose={onClose}
       footerStart={(
-        <span className="mux-agent-create-summary" data-empty={!hasCapability || undefined}>
+        <span
+          className="mux-agent-create-summary"
+          data-state={incompleteCapabilities
+            ? "incomplete"
+            : hasCapability ? "ready" : "empty"}
+          aria-live="polite"
+        >
           <span />
-          {hasCapability
+          {incompleteCapabilities
+            ? t("agents.capabilityIncompleteSummary", {
+                capabilities: incompleteCapabilities,
+              })
+            : hasCapability
             ? t("agents.capabilitySummary", { capabilities: selectedCapabilities })
             : t("agents.capabilityRequired")}
         </span>
@@ -222,7 +243,7 @@ export function AddAgentDialog({
                 />
                 <small data-error={id.length > 0 && !idValid || undefined}>
                   {id.length > 0 && !idValid
-                    ? t(skillsEnabled ? "agents.idInvalidWithSkills" : "agents.idInvalid")
+                    ? t(skillsStarted ? "agents.idInvalidWithSkills" : "agents.idInvalid")
                     : t("agents.idHelp")}
                 </small>
               </label>
@@ -268,7 +289,7 @@ export function AddAgentDialog({
               tabIndex={activeCapability === "mcp" ? 0 : -1}
               className="mux-agent-capability-tab"
               data-active={activeCapability === "mcp" || undefined}
-              data-enabled={mcpEnabled || undefined}
+              data-state={mcpState}
               onClick={() => setActiveCapability("mcp")}
             >
               <span className="mux-agent-capability-tab-icon">
@@ -276,7 +297,7 @@ export function AddAgentDialog({
               </span>
               <span className="mux-agent-capability-tab-copy">
                 <strong>MCP</strong>
-                <small>{t(mcpEnabled ? "agents.capabilityEnabled" : "agents.capabilityDisabled")}</small>
+                <small>{t(`agents.capabilityState.${mcpState}`)}</small>
               </span>
               <i aria-hidden="true" />
             </button>
@@ -290,7 +311,7 @@ export function AddAgentDialog({
               tabIndex={activeCapability === "skills" ? 0 : -1}
               className="mux-agent-capability-tab"
               data-active={activeCapability === "skills" || undefined}
-              data-enabled={skillsEnabled || undefined}
+              data-state={skillsState}
               onClick={() => setActiveCapability("skills")}
             >
               <span className="mux-agent-capability-tab-icon">
@@ -298,26 +319,7 @@ export function AddAgentDialog({
               </span>
               <span className="mux-agent-capability-tab-copy">
                 <strong>Skills</strong>
-                <small>{t(skillsEnabled ? "agents.capabilityEnabled" : "agents.capabilityDisabled")}</small>
-              </span>
-              <i aria-hidden="true" />
-            </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={false}
-              tabIndex={-1}
-              className="mux-agent-capability-tab"
-              data-unavailable
-              disabled
-              aria-label={t("agents.modelsUnavailable")}
-            >
-              <span className="mux-agent-capability-tab-icon">
-                <LayersIcon className="w-4 h-4" />
-              </span>
-              <span className="mux-agent-capability-tab-copy">
-                <strong>Models</strong>
-                <small>{t("agents.unavailable")}</small>
+                <small>{t(`agents.capabilityState.${skillsState}`)}</small>
               </span>
               <i aria-hidden="true" />
             </button>
@@ -329,22 +331,12 @@ export function AddAgentDialog({
               role="tabpanel"
               aria-labelledby="agent-capability-tab-mcp"
               className="mux-agent-capability-detail"
-              data-enabled={mcpEnabled || undefined}
             >
               <div className="mux-agent-capability-detail-head">
                 <span><PackageIcon className="w-4 h-4" /></span>
                 <div>
                   <h4 id="agent-mcp-config-title">{t("agents.mcpConfigTitle")}</h4>
                   <p>{t("agents.mcpConfigHelp")}</p>
-                </div>
-                <div className="mux-agent-capability-toggle">
-                  <small>{t(mcpEnabled ? "agents.capabilityEnabled" : "agents.capabilityDisabled")}</small>
-                  <Switch
-                    checked={mcpEnabled}
-                    onChange={setMcpEnabled}
-                    compact
-                    ariaLabel={t("agents.toggleMcp")}
-                  />
                 </div>
               </div>
               <div className="mux-agent-detail-fields">
@@ -354,7 +346,6 @@ export function AddAgentDialog({
                     className="mux-model-field"
                     value={global}
                     spellCheck={false}
-                    disabled={!mcpEnabled}
                     placeholder={trimmedId
                       ? `~/.${trimmedId}/mcp.json`
                       : t("agents.mcpPathPlaceholder")}
@@ -369,7 +360,6 @@ export function AddAgentDialog({
                         type="button"
                         key={candidate.value}
                         aria-pressed={format === candidate.value}
-                        disabled={!mcpEnabled}
                         onClick={() => setFormat(candidate.value)}
                       >
                         {candidate.label}
@@ -383,7 +373,6 @@ export function AddAgentDialog({
                     className="mux-model-field"
                     value={key}
                     spellCheck={false}
-                    disabled={!mcpEnabled}
                     placeholder="mcpServers"
                     onChange={(event) => setKey(event.target.value)}
                   />
@@ -397,22 +386,12 @@ export function AddAgentDialog({
               role="tabpanel"
               aria-labelledby="agent-capability-tab-skills"
               className="mux-agent-capability-detail"
-              data-enabled={skillsEnabled || undefined}
             >
               <div className="mux-agent-capability-detail-head">
                 <span><SparklesIcon className="w-4 h-4" /></span>
                 <div>
                   <h4 id="agent-skills-config-title">{t("agents.skillsConfigTitle")}</h4>
                   <p>{t("agents.skillsConfigHelp")}</p>
-                </div>
-                <div className="mux-agent-capability-toggle">
-                  <small>{t(skillsEnabled ? "agents.capabilityEnabled" : "agents.capabilityDisabled")}</small>
-                  <Switch
-                    checked={skillsEnabled}
-                    onChange={setSkillsEnabled}
-                    compact
-                    ariaLabel={t("agents.toggleSkills")}
-                  />
                 </div>
               </div>
               <div className="mux-agent-detail-fields">
@@ -423,7 +402,6 @@ export function AddAgentDialog({
                     value={skillsDir}
                     spellCheck={false}
                     aria-invalid={skillsDir.length > 0 && !skillsDirValid}
-                    disabled={!skillsEnabled}
                     placeholder={trimmedId
                       ? `~/.${trimmedId}/skills`
                       : t("agents.skillsPathPlaceholder")}
@@ -443,7 +421,6 @@ export function AddAgentDialog({
                     type="url"
                     spellCheck={false}
                     aria-invalid={skillsDocs.length > 0 && !skillsDocsValid}
-                    disabled={!skillsEnabled}
                     placeholder="https://docs.example.com/skills"
                     onChange={(event) => setSkillsDocs(event.target.value)}
                   />

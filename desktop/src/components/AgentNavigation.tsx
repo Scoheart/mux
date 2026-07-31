@@ -407,18 +407,17 @@ export function AgentNavigation({
             </div>
 
             {onAddAgent && (
-              <div className="mux-agent-picker-footer">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setOpen(false);
-                    onAddAgent();
-                  }}
-                >
-                  <PlusIcon className="w-4 h-4" />
-                  添加自定义 Agent
-                </button>
-              </div>
+              <button
+                type="button"
+                className="mux-agent-picker-footer"
+                onClick={() => {
+                  setOpen(false);
+                  onAddAgent();
+                }}
+              >
+                <PlusIcon className="w-4 h-4" />
+                添加自定义 Agent
+              </button>
             )}
           </section>
         )}

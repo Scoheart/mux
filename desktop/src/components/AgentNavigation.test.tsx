@@ -140,6 +140,29 @@ it("uses a dedicated crossed pin for unpinning and keeps the action wired", asyn
   expect(screen.getByText("Claude Code 已取消置顶")).toHaveAttribute("aria-live", "polite");
 });
 
+it("uses the entire custom Agent footer as one native action", () => {
+  const onAddAgent = vi.fn();
+  const { container } = render(
+    <AgentNavigation
+      agents={agents}
+      selectedAgentId="codex"
+      onSelectAgent={vi.fn()}
+      onAddAgent={onAddAgent}
+    />,
+  );
+
+  fireEvent.click(container.querySelector<HTMLButtonElement>(".mux-agent-picker-trigger")!);
+
+  const addAgent = screen.getByRole("button", { name: "添加自定义 Agent" });
+  expect(addAgent).toHaveClass("mux-agent-picker-footer");
+  expect(addAgent.querySelector("button")).toBeNull();
+  fireEvent.click(addAgent);
+  expect(onAddAgent).toHaveBeenCalledOnce();
+  expect(
+    screen.queryByRole("dialog", { name: "选择和置顶 Agent" }),
+  ).not.toBeInTheDocument();
+});
+
 it("lists and opens a projection-only Model Agent", () => {
   const projection: AgentCapabilityView = {
     identity: {

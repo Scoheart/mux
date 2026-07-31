@@ -163,9 +163,8 @@ export function AddAgentDialog({
   return (
     <DialogShell
       kind="editor"
-      size="lg"
+      size="md"
       title={t("agents.addTitle")}
-      subtitle={t("agents.addSubtitle")}
       busy={busy}
       onClose={onClose}
       footerStart={(
@@ -205,19 +204,12 @@ export function AddAgentDialog({
       <div className="mux-agent-create">
         <section className="mux-agent-create-section" aria-labelledby="agent-identity-title">
           <div className="mux-agent-create-section-head">
-            <div>
-              <h3 id="agent-identity-title">{t("agents.identityTitle")}</h3>
-              <p>{t("agents.identityHelp")}</p>
-            </div>
+            <h3 id="agent-identity-title">{t("agents.identityTitle")}</h3>
           </div>
 
           <div className="mux-agent-identity-card">
             <div className="mux-agent-identity-preview" aria-label={t("agents.identityPreview")}>
-              <AgentGlyph id={trimmedId || "new-agent"} name={displayName} size={46} />
-              <span>
-                <strong>{displayName}</strong>
-                <code>{trimmedId || "agent-id"}</code>
-              </span>
+              <AgentGlyph id={trimmedId || "new-agent"} name={displayName} size={42} />
             </div>
 
             <div className="mux-agent-identity-fields">
@@ -241,11 +233,11 @@ export function AddAgentDialog({
                   placeholder={t("agents.idPlaceholder")}
                   onChange={(event) => setId(event.target.value)}
                 />
-                <small data-error={id.length > 0 && !idValid || undefined}>
-                  {id.length > 0 && !idValid
-                    ? t(skillsStarted ? "agents.idInvalidWithSkills" : "agents.idInvalid")
-                    : t("agents.idHelp")}
-                </small>
+                {id.length > 0 && !idValid && (
+                  <small data-error="true">
+                    {t(skillsStarted ? "agents.idInvalidWithSkills" : "agents.idInvalid")}
+                  </small>
+                )}
               </label>
               <label className="mux-agent-create-field" data-wide>
                 <span>{t("agents.categoryLabel")}</span>
@@ -267,10 +259,7 @@ export function AddAgentDialog({
 
         <section className="mux-agent-create-section" aria-labelledby="agent-capabilities-title">
           <div className="mux-agent-create-section-head">
-            <div>
-              <h3 id="agent-capabilities-title">{t("agents.capabilitiesTitle")}</h3>
-              <p>{t("agents.capabilitiesHelp")}</p>
-            </div>
+            <h3 id="agent-capabilities-title">{t("agents.capabilitiesTitle")}</h3>
           </div>
 
           <div
@@ -332,13 +321,6 @@ export function AddAgentDialog({
               aria-labelledby="agent-capability-tab-mcp"
               className="mux-agent-capability-detail"
             >
-              <div className="mux-agent-capability-detail-head">
-                <span><PackageIcon className="w-4 h-4" /></span>
-                <div>
-                  <h4 id="agent-mcp-config-title">{t("agents.mcpConfigTitle")}</h4>
-                  <p>{t("agents.mcpConfigHelp")}</p>
-                </div>
-              </div>
               <div className="mux-agent-detail-fields">
                 <label className="mux-agent-create-field" data-wide>
                   <span>{t("agents.mcpPathLabel")} <i>*</i></span>
@@ -376,7 +358,6 @@ export function AddAgentDialog({
                     placeholder="mcpServers"
                     onChange={(event) => setKey(event.target.value)}
                   />
-                  <small>{t("agents.mcpKeyHelp")}</small>
                 </label>
               </div>
             </section>
@@ -387,13 +368,6 @@ export function AddAgentDialog({
               aria-labelledby="agent-capability-tab-skills"
               className="mux-agent-capability-detail"
             >
-              <div className="mux-agent-capability-detail-head">
-                <span><SparklesIcon className="w-4 h-4" /></span>
-                <div>
-                  <h4 id="agent-skills-config-title">{t("agents.skillsConfigTitle")}</h4>
-                  <p>{t("agents.skillsConfigHelp")}</p>
-                </div>
-              </div>
               <div className="mux-agent-detail-fields">
                 <label className="mux-agent-create-field">
                   <span>{t("agents.skillsPathLabel")} <i>*</i></span>
@@ -407,11 +381,9 @@ export function AddAgentDialog({
                       : t("agents.skillsPathPlaceholder")}
                     onChange={(event) => setSkillsDir(event.target.value)}
                   />
-                  <small data-error={skillsDir.length > 0 && !skillsDirValid || undefined}>
-                    {skillsDir.length > 0 && !skillsDirValid
-                      ? t("agents.skillsPathInvalid")
-                      : t("agents.skillsPathHelp")}
-                  </small>
+                  {skillsDir.length > 0 && !skillsDirValid && (
+                    <small data-error="true">{t("agents.skillsPathInvalid")}</small>
+                  )}
                 </label>
                 <label className="mux-agent-create-field">
                   <span>{t("agents.skillsDocsLabel")} <i>*</i></span>
@@ -424,11 +396,9 @@ export function AddAgentDialog({
                     placeholder="https://docs.example.com/skills"
                     onChange={(event) => setSkillsDocs(event.target.value)}
                   />
-                  <small data-error={skillsDocs.length > 0 && !skillsDocsValid || undefined}>
-                    {skillsDocs.length > 0 && !skillsDocsValid
-                      ? t("agents.skillsDocsInvalid")
-                      : t("agents.skillsDocsHelp")}
-                  </small>
+                  {skillsDocs.length > 0 && !skillsDocsValid && (
+                    <small data-error="true">{t("agents.skillsDocsInvalid")}</small>
+                  )}
                 </label>
               </div>
             </section>

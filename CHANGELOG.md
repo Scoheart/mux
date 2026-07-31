@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.105](https://github.com/Scoheart/mux/compare/v1.8.104...v1.8.105) (2026-07-31)
+
+### Changes
+
+* style(desktop): simplify add agent dialog ([b3b8c63](https://github.com/Scoheart/mux/commit/b3b8c6380a4e0612e920c154e9b84e902d44c5ee))
+
 ## [1.8.104](https://github.com/Scoheart/mux/compare/v1.8.103...v1.8.104) (2026-07-31)
 
 ### Changes

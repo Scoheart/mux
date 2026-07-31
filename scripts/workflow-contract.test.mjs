@@ -86,11 +86,12 @@ test("quality validates only stable tags, PRs, schedules, and manual runs", asyn
   assert.match(monitor, /secrets\.COPILOT_PAT/);
 });
 
-test("one current main push creates one patch Draft and immutable tag", async () => {
+test("one current main push creates one patch Draft and dispatches one main-scoped build", async () => {
   const workflow = await read(".github/workflows/direct-stable-release.yml");
 
   assert.match(workflow, /push:\s*\n\s*branches:\s*\[main\]/);
   assert.match(workflow, /workflow_dispatch:/);
+  assert.match(workflow, /actions:\s*write/);
   assert.match(workflow, /cancel-in-progress:\s*false/);
   assert.match(
     workflow,
@@ -113,10 +114,23 @@ test("one current main push creates one patch Draft and immutable tag", async ()
   assert.match(workflow, /release_id=\$\(jq -er '\.id'/);
   assert.match(workflow, /git tag "\$RELEASE_TAG" "\$RELEASE_SHA"/);
   assert.match(workflow, /git push origin "refs\/tags\/\$RELEASE_TAG"/);
+  assert.match(workflow, /gh workflow run build-desktop\.yml/);
+  assert.match(workflow, /--ref main/);
+  assert.match(workflow, /-f "stable_tag=\$RELEASE_TAG"/);
+  assert.equal(
+    workflow.match(/gh workflow run build-desktop\.yml/g)?.length,
+    1,
+    "Direct Stable must dispatch exactly one desktop build",
+  );
   assert.ok(
     workflow.indexOf('gh api --method POST "repos/$GITHUB_REPOSITORY/releases"') <
       workflow.indexOf('git push origin "refs/tags/$RELEASE_TAG"'),
-    "Draft must exist before its tag triggers the Stable workflow",
+    "Draft must exist before its immutable tag is pushed",
+  );
+  assert.ok(
+    workflow.indexOf('git push origin "refs/tags/$RELEASE_TAG"') <
+      workflow.indexOf("gh workflow run build-desktop.yml"),
+    "tag and Draft provenance must exist before the desktop build is dispatched",
   );
   assert.match(workflow, /test "\$target" = "\$RELEASE_SHA"/);
   assert.match(workflow, /test "\$\(jq -r '\.tag_name'/);
@@ -126,11 +140,14 @@ test("one current main push creates one patch Draft and immutable tag", async ()
   assert.doesNotMatch(workflow, /--clobber/);
 });
 
-test("desktop workflow builds only stable tags in one job", async () => {
+test("desktop workflow builds stable tags only from the reusable main cache scope", async () => {
   const workflow = await read(".github/workflows/build-desktop.yml");
 
-  assert.match(workflow, /push:\s*\n\s*tags:\s*\["v\*"\]/);
-  assert.doesNotMatch(workflow, /branches:\s*\[main\]/);
+  assert.doesNotMatch(workflow, /push:\s*\n\s*tags:\s*\["v\*"\]/);
+  assert.match(workflow, /workflow_dispatch:[\s\S]*stable_tag:/);
+  assert.match(workflow, /test "\$GITHUB_REF" = "refs\/heads\/main"/);
+  assert.match(workflow, /group:\s*stable-desktop-\$\{\{ inputs\.stable_tag \}\}/);
+  assert.match(workflow, /RELEASE_TAG:\s*\$\{\{ inputs\.stable_tag \}\}/);
   assert.doesNotMatch(workflow, /PRERELEASE_TAG_REGEX|mode=prerelease|-build\./);
   assert.doesNotMatch(workflow, /\n  classify:/);
   assert.match(workflow, /node-version:\s*24/);
@@ -140,10 +157,25 @@ test("desktop workflow builds only stable tags in one job", async () => {
   assert.match(workflow, /\.target_commitish == \$sha/);
   assert.match(workflow, /"\$draft_matches" = 1/);
   assert.match(workflow, /publish-release-assets\.sh/);
+  assert.match(workflow, /shared-key:\s*stable-desktop/);
+  assert.match(workflow, /save-if:\s*\$\{\{ github\.ref == 'refs\/heads\/main' \}\}/);
   assert.match(workflow, /path:\s*\.delivery/);
   assert.match(workflow, /\.delivery\/\.github\/scripts\/publish-release-assets\.sh/);
   assert.match(workflow, /steps\.source\.outputs\.sha/);
   assert.doesNotMatch(workflow, /cancel-in-progress:\s*true/);
+});
+
+test("quality restores release caches on tags and only writes reusable main caches", async () => {
+  const workflow = await read(".github/workflows/quality-monitor.yml");
+  const rust = jobBlock(workflow, "rust", "tauri");
+  const tauri = jobBlock(workflow, "tauri", "desktop");
+  const reusableWrite =
+    /save-if:\s*\$\{\{ github\.ref == 'refs\/heads\/main' && \(github\.event_name == 'schedule' \|\| github\.event_name == 'workflow_dispatch'\) \}\}/;
+
+  assert.match(rust, reusableWrite);
+  assert.match(tauri, reusableWrite);
+  assert.match(tauri, /shared-key:\s*stable-desktop/);
+  assert.doesNotMatch(workflow, /save-if:[^\n]*github\.event_name == 'push'/);
 });
 
 test("desktop release packaging reuses the CLI already built for the sidecar", async () => {

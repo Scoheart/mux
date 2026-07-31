@@ -1,12 +1,10 @@
 name: Build desktop (macOS dmg)
 
 on:
-  push:
-    tags: ["v*"]
   workflow_dispatch:
     inputs:
       stable_tag:
-        description: Existing vX.Y.Z tag to retry
+        description: Existing vX.Y.Z tag to build or retry
         required: true
         type: string
 
@@ -14,7 +12,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: stable-desktop-${{ github.event_name == 'workflow_dispatch' && inputs.stable_tag || github.ref_name }}
+  group: stable-desktop-${{ inputs.stable_tag }}
   cancel-in-progress: false
 
 jobs:
@@ -22,12 +20,16 @@ jobs:
     name: Build and publish
     runs-on: macos-latest
     env:
-      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.stable_tag || github.ref_name }}
+      RELEASE_TAG: ${{ inputs.stable_tag }}
     steps:
       - name: Validate stable release trigger
         shell: bash
         run: |
           set -euo pipefail
+          test "$GITHUB_REF" = "refs/heads/main" || {
+            echo "stable desktop builds must be dispatched from main" >&2
+            exit 1
+          }
           [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
             echo "stable release requires a vX.Y.Z tag" >&2
             exit 1
@@ -63,8 +65,7 @@ jobs:
           test "$draft_matches" = 1
           echo "sha=$source_sha" >>"$GITHUB_OUTPUT"
 
-      - name: Checkout retry delivery helpers
-        if: ${{ github.event_name == 'workflow_dispatch' }}
+      - name: Checkout current delivery helpers
         # actions/checkout v5.0.0
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with:
@@ -88,10 +89,12 @@ jobs:
         # Swatinem/rust-cache v2
         uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
         with:
+          shared-key: stable-desktop
           workspaces: |
             desktop/src-tauri -> target
             . -> target
           cache-on-failure: true
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Check release version metadata
         run: node scripts/release-version.mjs check --tag "$RELEASE_TAG"

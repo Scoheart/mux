@@ -6,6 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
+  actions: write
   contents: write
 
 concurrency:
@@ -134,3 +135,15 @@ jobs:
           test "$(jq -r '.draft' <<<"$release")" = true
           test "$(jq -r '.tag_name' <<<"$release")" = "$RELEASE_TAG"
           test "$(jq -r '.target_commitish' <<<"$release")" = "$RELEASE_SHA"
+
+      - name: Dispatch the main-scoped desktop build
+        if: ${{ steps.head.outputs.ready == 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          set -euo pipefail
+          gh workflow run build-desktop.yml \
+            --repo "$GITHUB_REPOSITORY" \
+            --ref main \
+            -f "stable_tag=$RELEASE_TAG"

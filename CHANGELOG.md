@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.106](https://github.com/Scoheart/mux/compare/v1.8.105...v1.8.106) (2026-08-01)
+
+### Changes
+
+* perf(agent): streamline asset synchronization ([9dd08ed](https://github.com/Scoheart/mux/commit/9dd08ed6a33391a7623e472b9f0c4e80dc7ee406))
+
 ## [1.8.105](https://github.com/Scoheart/mux/compare/v1.8.104...v1.8.105) (2026-07-31)
 
 ### Changes

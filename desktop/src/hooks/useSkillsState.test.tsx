@@ -161,6 +161,17 @@ describe("useSkillsState", () => {
     expect(api.listSkillsInventory).toHaveBeenCalledOnce();
   });
 
+  it("hydrates from the shared workspace snapshot without another Skill scan", () => {
+    const snapshotInventory = inventoryNamed("workspace");
+    const { result } = renderHook(() => useSkillsState({ autoLoad: false }));
+
+    act(() => result.current.hydrate(snapshotInventory));
+
+    expect(result.current.inventory).toBe(snapshotInventory);
+    expect(result.current.loading).toBe(false);
+    expect(api.listSkillsInventory).not.toHaveBeenCalled();
+  });
+
   it.each(skillPlanRequests)(
     "plans $request.operation through the exact unified request envelope",
     async ({ request, kind }) => {

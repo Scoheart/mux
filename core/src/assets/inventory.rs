@@ -1,11 +1,10 @@
 //! Desired/observed central asset inventory.
 
-use super::compatibility::compatibility_for;
+use super::compatibility::{compatibility_for, McpCompatibilityResolver};
 use super::types::{
     AssetRef, ConsumptionInventory, ConsumptionStatus, ConsumptionTarget, ConsumptionView,
 };
 use crate::resources::mcp::ops::scan_installed;
-use crate::resources::mcp::registry::read_registry;
 use crate::resources::model::{
     list_agents as list_model_agents, observe_active_model_for_settings, observe_external_model,
     observe_profile_consumption, ExternalModelObservedState, ModelObservedState,
@@ -45,11 +44,8 @@ fn project_mcps(
     settings: &crate::settings::Settings,
     inventory: &mut ConsumptionInventory,
 ) -> Result<(), String> {
-    let central: BTreeSet<String> = read_registry()
-        .into_iter()
-        .map(|entry| entry.key())
-        .collect();
     let observed = scan_installed(None);
+    let mcp_compatibility = McpCompatibilityResolver::load();
     let mut consumed_observations = BTreeSet::new();
 
     for (agent_id, records) in settings.mcp_consumptions.iter().flatten() {
@@ -57,7 +53,7 @@ fn project_mcps(
             let asset = AssetRef::Mcp {
                 key: record.asset_key.clone(),
             };
-            let compatibility = compatibility_for(agent_id, &asset)?;
+            let compatibility = mcp_compatibility.resolve(agent_id, &record.asset_key)?;
             let identity_matches = map_key == &record.asset_key;
             let match_index = observed.iter().position(|item| {
                 item.agent == *agent_id
@@ -71,7 +67,7 @@ fn project_mcps(
                     Some("mcp_record_identity_mismatch".into()),
                     matching.is_some(),
                 )
-            } else if !central.contains(&record.asset_key) {
+            } else if !mcp_compatibility.contains_asset(&record.asset_key) {
                 (
                     ConsumptionStatus::Conflicted,
                     Some("mcp_asset_missing".into()),
@@ -141,9 +137,9 @@ fn project_mcps(
             desired_active: None,
             status: ConsumptionStatus::External,
             reason: Some(
-                if central.contains(&key) && !item.customized {
+                if mcp_compatibility.contains_asset(&key) && !item.customized {
                     "mcp_adoptable"
-                } else if central.contains(&key) {
+                } else if mcp_compatibility.contains_asset(&key) {
                     "mcp_external_customized"
                 } else {
                     "mcp_external_unmanaged"

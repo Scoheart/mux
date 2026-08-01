@@ -790,7 +790,9 @@ describe("App Skills routing", () => {
     expect(appMocks.useSkillsState).toHaveBeenCalled();
 
     await userEvent.click(screen.getByRole("button", { name: "Skills" }));
-    expect(screen.getByRole("heading", { name: "review-changes" })).toBeVisible();
+    expect(
+      await screen.findByRole("heading", { name: "review-changes" }),
+    ).toBeVisible();
     expect(appMocks.useSkillsState.mock.calls.length).toBeGreaterThanOrEqual(2);
   });
 
@@ -801,13 +803,15 @@ describe("App Skills routing", () => {
 
     expect(screen.getByText("registry-view")).toBeVisible();
     await user.click(screen.getByRole("button", { name: /Models/ }));
-    expect(screen.getByText("models-view")).toBeVisible();
+    expect(await screen.findByText("models-view")).toBeVisible();
     await user.click(screen.getByRole("button", { name: "MCPs" }));
     expect(screen.getByText("registry-view")).toBeVisible();
     await user.click(screen.getByRole("button", { name: "Agent 1" }));
-    expect(screen.getByText("agent-view:agent-1")).toBeVisible();
+    expect(await screen.findByText("agent-view:agent-1")).toBeVisible();
     await user.click(screen.getByRole("button", { name: "Skills" }));
-    expect(screen.getByRole("heading", { name: "review-changes" })).toBeVisible();
+    expect(
+      await screen.findByRole("heading", { name: "review-changes" }),
+    ).toBeVisible();
   });
 
   it("uses two Escape presses to close an Agent picker above a Skill inspector", async () => {
@@ -837,6 +841,7 @@ describe("App Skills routing", () => {
     render(<App />);
 
     await user.click(screen.getByRole("button", { name: "Agent 1" }));
+    expect(await screen.findByText("agent-view:agent-1")).toBeVisible();
     expect(appMocks.agentViewProps).toHaveBeenLastCalledWith(
       expect.objectContaining({
         agentId: "agent-1",

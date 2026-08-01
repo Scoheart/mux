@@ -1,5 +1,6 @@
 import { useMemo, useState, type ReactNode } from "react";
 import { DialogShell } from "./DialogShell";
+import { RefreshIcon } from "./icons";
 import { SearchBar } from "./ui";
 
 export interface ResourcePickerOption {
@@ -54,12 +55,19 @@ export function ResourcePickerDialog({
       title={title}
       subtitle={subtitle}
       busy={busy}
+      status={busy ? (
+        <span className="mux-operation-progress" role="status">
+          <RefreshIcon data-spinning="true" />
+          正在检查并添加…
+        </span>
+      ) : undefined}
       onClose={onClose}
       footerStart={<span className="mux-picker-count">{filtered.length} 个可选项</span>}
       footerEnd={
         <>
           <button type="button" className="btn-ghost" disabled={busy} onClick={onClose}>取消</button>
           <button type="button" className="btn-primary" disabled={!selected || selected.disabled || busy} onClick={() => void add()}>
+            {busy && <RefreshIcon className="mux-button-progress-icon" data-spinning="true" />}
             {busy ? "添加中…" : addLabel}
           </button>
         </>

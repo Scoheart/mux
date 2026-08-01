@@ -194,8 +194,8 @@ Model API keys are not stored under `~/.mux/`; they remain in macOS Keychain.
 
 1. **Build the central libraries** — subscribe or import MCP sources, create Model Profiles, and directly download or import Skills. No Agent target is changed during central intake.
 2. **Choose consumers** — from an Agent page, select compatible assets. MCPs and Skills are sets; supported multi-model Agents also keep a Model Profile set plus one independent current pointer.
-3. **Review one impact plan** — MUX shows central changes, relationship changes, target files, shared Skill-directory impact, drift, and conflicts before commit.
-4. **Commit and verify** — settings, Agent targets, and central lifecycle changes are applied as a recoverable transaction and rescanned before reporting success.
+3. **Review only meaningful risk** — routine reversible Agent relationship changes sync directly with inline progress; conflicts, removals from shared Skill directories, and disruptive Model changes still show their exact impact before commit.
+4. **Commit and verify** — settings, Agent targets, and central lifecycle changes are applied as a recoverable transaction and return their verified inventory before reporting success.
 5. **Manage historical state explicitly, one item at a time** — MUX detects unmanaged global MCPs, Model Profiles, and user-level Skills without taking ownership. There is no select-all or automatic import: each item gets its own impact review and confirmation before one recoverable transaction.
 6. **Propagate central lifecycle changes** — updates reach every desired consumer; deletion clears all managed targets and relationships instead of leaving implicit orphan copies.
 

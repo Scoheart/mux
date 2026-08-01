@@ -4,6 +4,7 @@ import {
   consumptionsForAgent,
   consumersForAsset,
   externalForAgent,
+  observedAgentIdsForAsset,
 } from "./consumption";
 
 describe("consumption selectors", () => {
@@ -41,5 +42,13 @@ describe("consumption selectors", () => {
     expect(consumers.map((item) => [item.agent_id, item.status])).toEqual([
       ["codex", "drifted"],
     ]);
+  });
+
+  it("derives installed Agent badges from the authoritative relationship inventory", () => {
+    const inventory = consumptionInventoryFixture();
+    expect(observedAgentIdsForAsset(inventory, {
+      domain: "mcp",
+      key: "github::stdio",
+    })).toEqual(["claude-code"]);
   });
 });

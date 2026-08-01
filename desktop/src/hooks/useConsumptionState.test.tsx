@@ -108,6 +108,29 @@ it("loads inventory and owns one reviewed operation", async () => {
   expect(result.current.plan).toBeNull();
 });
 
+it("plans Agent additions as an atomic delta instead of replacing a stale selection", async () => {
+  const { result } = renderHook(() => useConsumptionState());
+  await waitFor(() => expect(result.current.loading).toBe(false));
+
+  await act(async () => {
+    await result.current.planAdditionsForAgent("codex", {
+      domain: "mcp",
+      asset_keys: ["github::stdio"],
+    });
+  });
+
+  expect(api.planOperation).toHaveBeenCalledWith({
+    operation: "ensure_agent_consumption",
+    request: {
+      agent_id: "codex",
+      selection: {
+        domain: "mcp",
+        asset_keys: ["github::stdio"],
+      },
+    },
+  });
+});
+
 it("retains the unified Agent projection from the workspace snapshot", async () => {
   vi.mocked(api.getWorkspaceSnapshot).mockResolvedValueOnce({
     revision: "agent-projection",

@@ -10,6 +10,7 @@ use crate::resources::model::{
 use crate::resources::skill::skill_agent_capability;
 use crate::settings::load_settings_strict;
 use serde::{Deserialize, Serialize};
+use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct CompatibilityReason {
@@ -66,41 +67,86 @@ pub fn compatibility_for(agent_id: &str, asset: &AssetRef) -> Result<Compatibili
 }
 
 fn mcp_compatibility(agent_id: &str, key: &str) -> Result<CompatibilityView, String> {
-    validate_mcp_asset_key(key).map_err(|error| error.to_string())?;
-    if !read_registry().iter().any(|entry| entry.key() == key) {
-        return Ok(CompatibilityView::unsupported(
-            "asset_missing",
-            "中央 MCP 资产不存在；请先导入资产库。",
-        ));
+    McpCompatibilityResolver::load().resolve(agent_id, key)
+}
+
+/// Validate a complete MCP selection with one registry and Agent-catalog read.
+/// Applying an MCP relationship rewrites the Agent-owned MCP section, so every
+/// selected asset must remain compatible even when only one key was added.
+pub(crate) fn require_mcp_selection_compatible(
+    agent_id: &str,
+    keys: &[String],
+) -> Result<(), String> {
+    if keys.is_empty() {
+        return Ok(());
     }
-    let Some(agent) = load_agents().remove(agent_id) else {
-        return Ok(CompatibilityView::unsupported(
-            "agent_unknown",
-            "Agent 不在当前中央目录中。",
-        ));
-    };
-    if !agent.enabled {
-        return Ok(CompatibilityView::unsupported(
-            "agent_disabled",
-            "Agent 已在 MUX 中停用。",
-        ));
+    let resolver = McpCompatibilityResolver::load();
+    for key in keys {
+        let view = resolver.resolve(agent_id, key)?;
+        if let Some(reason) = view.reason {
+            return Err(format!("{}: {}", reason.code, reason.message));
+        }
     }
-    let transport = key
-        .rsplit_once("::")
-        .map(|(_, transport)| transport)
-        .expect("validated MCP key");
-    let compatible = agent
-        .transports
-        .as_ref()
-        .map(|transports| transports.iter().any(|item| item == transport))
-        .unwrap_or_else(|| matches!(transport, "stdio" | "http"));
-    if !compatible {
-        return Ok(CompatibilityView::unsupported(
-            "mcp_transport_unsupported",
-            format!("此 Agent 不支持 {transport} MCP transport。"),
-        ));
+    Ok(())
+}
+
+pub(crate) struct McpCompatibilityResolver {
+    central: BTreeSet<String>,
+    agents: BTreeMap<String, crate::domain::types::AgentDefinition>,
+}
+
+impl McpCompatibilityResolver {
+    pub(crate) fn load() -> Self {
+        Self {
+            central: read_registry()
+                .into_iter()
+                .map(|entry| entry.key())
+                .collect(),
+            agents: load_agents(),
+        }
     }
-    Ok(CompatibilityView::supported(vec![agent_id.to_string()]))
+
+    pub(crate) fn resolve(&self, agent_id: &str, key: &str) -> Result<CompatibilityView, String> {
+        validate_mcp_asset_key(key).map_err(|error| error.to_string())?;
+        if !self.central.contains(key) {
+            return Ok(CompatibilityView::unsupported(
+                "asset_missing",
+                "中央 MCP 资产不存在；请先导入资产库。",
+            ));
+        }
+        let Some(agent) = self.agents.get(agent_id) else {
+            return Ok(CompatibilityView::unsupported(
+                "agent_unknown",
+                "Agent 不在当前中央目录中。",
+            ));
+        };
+        if !agent.enabled {
+            return Ok(CompatibilityView::unsupported(
+                "agent_disabled",
+                "Agent 已在 MUX 中停用。",
+            ));
+        }
+        let transport = key
+            .rsplit_once("::")
+            .map(|(_, transport)| transport)
+            .expect("validated MCP key");
+        let compatible = agent
+            .transports
+            .as_ref()
+            .map(|transports| transports.iter().any(|item| item == transport))
+            .unwrap_or_else(|| matches!(transport, "stdio" | "http"));
+        if !compatible {
+            return Ok(CompatibilityView::unsupported(
+                "mcp_transport_unsupported",
+                format!("此 Agent 不支持 {transport} MCP transport。"),
+            ));
+        }
+        Ok(CompatibilityView::supported(vec![agent_id.to_string()]))
+    }
+
+    pub(crate) fn contains_asset(&self, key: &str) -> bool {
+        self.central.contains(key)
+    }
 }
 
 fn model_compatibility(agent_id: &str, profile_id: &str) -> Result<CompatibilityView, String> {

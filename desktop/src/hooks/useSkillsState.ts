@@ -27,6 +27,7 @@ export interface SkillsState {
   loading: boolean;
   pendingOperation: string | null;
   error: SkillCommandError | null;
+  hydrate(inventory: SkillsInventory): void;
   refresh(): Promise<SkillsInventory>;
   plan(request: SkillPlanOperationRequest): Promise<OperationPlan>;
   commit(
@@ -133,6 +134,15 @@ export function useSkillsState({ autoLoad = true }: { autoLoad?: boolean } = {})
     const generation = ++cacheGeneration.current;
     return loadInventory(generation, true);
   }, [loadInventory]);
+
+  const hydrate = useCallback((next: SkillsInventory) => {
+    ++cacheGeneration.current;
+    ++loadingGeneration.current;
+    if (!mounted.current) return;
+    setInventory(next);
+    setLoading(false);
+    setError(null);
+  }, []);
 
   useEffect(() => {
     if (!autoLoad) return;
@@ -253,6 +263,7 @@ export function useSkillsState({ autoLoad = true }: { autoLoad?: boolean } = {})
     loading,
     pendingOperation,
     error,
+    hydrate,
     refresh,
     plan,
     commit,

@@ -383,6 +383,89 @@ it("keeps an external MCP card read-only", async () => {
   expect(within(card!).queryByRole("button", { name: "让 MUX 管理" })).not.toBeInTheDocument();
 });
 
+it("adds an Agent asset as a delta with inline progress and no routine review dialog", async () => {
+  const mcpAgent: AgentInfo = {
+    ...skillsOnlyAgent,
+    id: "codex",
+    name: "Codex",
+    format: "toml",
+    key: "mcp_servers",
+    has_global: true,
+    global: "~/.codex/config.toml",
+    supported_transports: ["stdio", "http"],
+    skills_global_dir: "~/.agents/skills",
+  };
+  const mcpState = {
+    ...state,
+    entries: [{
+      name: "github",
+      description: "GitHub tools",
+      tags: [],
+      config: { stdio: { command: "github-mcp" } },
+    }],
+    agents: [mcpAgent],
+  } as unknown as InstallState;
+  const operation = assetOperationPlanFixture();
+  operation.warnings = [];
+  operation.can_commit = true;
+  operation.requires_conflict_confirmation = false;
+  operation.affected_agent_ids = ["claude-code", "codex"];
+  operation.relationship_changes = [
+    {
+      agent_id: "codex",
+      asset: { domain: "mcp", key: "github::stdio" },
+      action: "add",
+    },
+    {
+      agent_id: "claude-code",
+      asset: { domain: "mcp", key: "github::stdio" },
+      action: "add",
+    },
+  ];
+  const planAdditionsForAgent = vi.fn().mockResolvedValue(operation);
+  let finishCommit!: () => void;
+  const commit = vi.fn().mockImplementation(() => new Promise((resolve) => {
+    finishCommit = () => resolve({ consumptions: [], external: [] });
+  }));
+  const consumptionState = {
+    agents: [],
+    inventory: { consumptions: [], external: [] },
+    plan: null,
+    committing: false,
+    planAdditionsForAgent,
+    commit,
+  } as unknown as ConsumptionState;
+
+  render(
+    <ToastProvider>
+      <AgentView
+        state={mcpState}
+        skillsState={skillsState}
+        consumptionState={consumptionState}
+        agentId="codex"
+      />
+    </ToastProvider>,
+  );
+
+  await userEvent.click(screen.getByRole("button", { name: "添加 MCP" }));
+  const picker = screen.getByRole("dialog", { name: "添加 MCP" });
+  await userEvent.click(within(picker).getByRole("button", { name: /github/ }));
+  await userEvent.click(within(picker).getByRole("button", { name: "添加 MCP" }));
+
+  await waitFor(() => {
+    expect(planAdditionsForAgent).toHaveBeenCalledWith("codex", {
+      domain: "mcp",
+      asset_keys: ["github::stdio"],
+    });
+    expect(commit).toHaveBeenCalledOnce();
+  });
+  expect(screen.queryByRole("dialog", { name: /确认添加/ })).not.toBeInTheDocument();
+  expect(screen.getByRole("status")).toHaveTextContent("正在检查并同步 Codex 的资产");
+
+  finishCommit();
+  expect(await screen.findByText("MCP 已添加到 Codex。")).toBeVisible();
+});
+
 it("renders every external Model as its own read-only card", async () => {
   const modelAgentInfo: AgentInfo = {
     ...skillsOnlyAgent,

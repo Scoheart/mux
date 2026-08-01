@@ -1,15 +1,16 @@
 //! Cross-domain asset planning.
 
-use super::compatibility::compatibility_for;
+use super::compatibility::{compatibility_for, require_mcp_selection_compatible};
 use super::inventory::list_consumption_inventory;
 use super::types::{
     AgentConsumptionSelection, AssetOperationKind, AssetOperationPlan, AssetRef,
-    CentralAssetChange, ConsumptionStatus, DomainPlan, ModelConsumptionRecord, ModelStateChange,
-    ModelStateSnapshot, PlanEnsureAgentConsumptionRequest, PlanReapplyMcpRequest,
-    PlanSetActiveModelRequest, PlanSetAgentConsumptionRequest, PlanSetAssetConsumersRequest,
-    PlanSetMcpEnabledRequest, PlanSetModelEnabledRequest, PlanSetSkillEnabledRequest,
-    PlanUpdateAgentCapabilitiesRequest, PlanUpdateAgentConfigurationRequest,
-    PlanUpdateAssetConsumersRequest, RelationshipAction, RelationshipChange,
+    CentralAssetChange, ConsumptionInventory, ConsumptionStatus, DomainPlan,
+    ModelConsumptionRecord, ModelStateChange, ModelStateSnapshot,
+    PlanEnsureAgentConsumptionRequest, PlanReapplyMcpRequest, PlanSetActiveModelRequest,
+    PlanSetAgentConsumptionRequest, PlanSetAssetConsumersRequest, PlanSetMcpEnabledRequest,
+    PlanSetModelEnabledRequest, PlanSetSkillEnabledRequest, PlanUpdateAgentCapabilitiesRequest,
+    PlanUpdateAgentConfigurationRequest, PlanUpdateAssetConsumersRequest, RelationshipAction,
+    RelationshipChange,
 };
 use crate::agents::{
     builtin_agents, current_configuration_patch, load_agents, normalize_configuration,
@@ -161,28 +162,38 @@ pub fn plan_set_agent_consumption(
         .normalize()
         .map_err(|error| error.to_string())?;
     let settings = load_settings_strict().map_err(|error| error.to_string())?;
+    plan_agent_consumption(request.agent_id, selection, &settings, None)
+}
+
+fn plan_agent_consumption(
+    agent_id: String,
+    selection: AgentConsumptionSelection,
+    settings: &Settings,
+    skill_inventory: Option<ConsumptionInventory>,
+) -> Result<AssetOperationPlan, String> {
     let domain_plan = match selection {
         AgentConsumptionSelection::Mcp { asset_keys } => {
             validate_unique_mcp_names(&asset_keys)?;
-            for key in &asset_keys {
-                require_compatible(&request.agent_id, &AssetRef::Mcp { key: key.clone() })?;
-            }
-            let before = current_mcp_selection(&settings, &request.agent_id);
+            let before = current_mcp_selection(settings, &agent_id);
+            require_mcp_selection_compatible(&agent_id, &asset_keys)?;
             DomainPlan::Mcp {
-                before: BTreeMap::from([(request.agent_id.clone(), before)]),
-                after: BTreeMap::from([(request.agent_id, asset_keys)]),
+                before: BTreeMap::from([(agent_id.clone(), before)]),
+                after: BTreeMap::from([(agent_id, asset_keys)]),
             }
         }
         AgentConsumptionSelection::Model { profile_ids } => {
-            for profile_id in &profile_ids {
+            let before = settings.model_selection(&agent_id);
+            for profile_id in profile_ids
+                .iter()
+                .filter(|profile_id| !before.profiles.contains_key(*profile_id))
+            {
                 require_compatible(
-                    &request.agent_id,
+                    &agent_id,
                     &AssetRef::Model {
                         profile_id: profile_id.clone(),
                     },
                 )?;
             }
-            let before = settings.model_selection(&request.agent_id);
             let desired: BTreeSet<_> = profile_ids.into_iter().collect();
             let mut after = before.clone();
             after
@@ -199,18 +210,27 @@ pub fn plan_set_agent_consumption(
                     });
             }
             after.normalize_active();
-            validate_model_selection_contract(&settings, &request.agent_id, &after)?;
+            validate_model_selection_contract(settings, &agent_id, &after)?;
             DomainPlan::Model {
-                before: BTreeMap::from([(request.agent_id.clone(), before)]),
-                after: BTreeMap::from([(request.agent_id, after)]),
+                before: BTreeMap::from([(agent_id.clone(), before)]),
+                after: BTreeMap::from([(agent_id, after)]),
             }
         }
         AgentConsumptionSelection::Skill { names } => {
-            for name in &names {
-                require_compatible(&request.agent_id, &AssetRef::Skill { name: name.clone() })?;
-            }
-            let before = current_skill_selection(&request.agent_id)?;
-            skill_plan_for_agent(&request.agent_id, before, names)?
+            let inventory = match skill_inventory {
+                Some(inventory) => inventory,
+                None => list_consumption_inventory()?,
+            };
+            let before = skill_selection_from_inventory(&inventory, &agent_id);
+            let domain_plan = skill_plan_for_agent(&inventory, &agent_id, before, names)?;
+            return finalize_plan_with_inventory(
+                AssetOperationKind::SetConsumption,
+                domain_plan,
+                Vec::new(),
+                Vec::new(),
+                None,
+                &inventory,
+            );
         }
     };
     finalize_plan(domain_plan)
@@ -225,6 +245,7 @@ pub fn plan_ensure_agent_consumption(
         .normalize()
         .map_err(|error| error.to_string())?;
     let settings = load_settings_strict().map_err(|error| error.to_string())?;
+    let mut skill_inventory = None;
     let selection = match requested {
         AgentConsumptionSelection::Mcp { asset_keys } => {
             let mut desired: BTreeSet<String> = current_mcp_selection(&settings, &request.agent_id)
@@ -247,19 +268,19 @@ pub fn plan_ensure_agent_consumption(
             }
         }
         AgentConsumptionSelection::Skill { names } => {
-            let mut desired: BTreeSet<String> = current_skill_selection(&request.agent_id)?
-                .into_iter()
-                .collect();
+            let inventory = list_consumption_inventory()?;
+            let mut desired: BTreeSet<String> =
+                skill_selection_from_inventory(&inventory, &request.agent_id)
+                    .into_iter()
+                    .collect();
             desired.extend(names);
+            skill_inventory = Some(inventory);
             AgentConsumptionSelection::Skill {
                 names: desired.into_iter().collect(),
             }
         }
     };
-    plan_set_agent_consumption(PlanSetAgentConsumptionRequest {
-        agent_id: request.agent_id,
-        selection,
-    })
+    plan_agent_consumption(request.agent_id, selection, &settings, skill_inventory)
 }
 
 pub fn plan_set_model_enabled(
@@ -406,6 +427,8 @@ pub fn plan_set_skill_enabled(
         .target
         .as_ref()
         .ok_or_else(|| "skill_target_missing: Skill target is unavailable".to_string())?;
+    let target_file = format!("{}/{}", target.global_dir, request.name);
+    let target_id = target.target_id.clone();
     let mut affected_agent_ids = row.affected_agent_ids.clone();
     if affected_agent_ids.is_empty() {
         affected_agent_ids.push(request.agent_id.clone());
@@ -414,25 +437,29 @@ pub fn plan_set_skill_enabled(
     affected_agent_ids.dedup();
     let mut selections = BTreeMap::new();
     for agent_id in &affected_agent_ids {
-        selections.insert(agent_id.clone(), current_skill_selection(agent_id)?);
+        selections.insert(
+            agent_id.clone(),
+            skill_selection_from_inventory(&inventory, agent_id),
+        );
     }
     let domain_plan = DomainPlan::Skill {
         before: selections.clone(),
         after: selections,
     };
-    finalize_plan_with(
+    finalize_plan_with_inventory(
         AssetOperationKind::SetConsumption,
         domain_plan,
         Vec::new(),
-        vec![format!("{}/{}", target.global_dir, request.name)],
+        vec![target_file],
         Some(LifecycleBinding::SkillEnabled {
             agent_id: request.agent_id,
             name: request.name,
-            target_id: target.target_id.clone(),
+            target_id,
             affected_agent_ids,
             before,
             after: request.enabled,
         }),
+        &inventory,
     )
 }
 
@@ -880,6 +907,14 @@ fn projected_skill_relationships(
 pub fn plan_set_asset_consumers(
     request: PlanSetAssetConsumersRequest,
 ) -> Result<AssetOperationPlan, String> {
+    let inventory = list_consumption_inventory()?;
+    plan_asset_consumers(request, inventory)
+}
+
+fn plan_asset_consumers(
+    request: PlanSetAssetConsumersRequest,
+    inventory: ConsumptionInventory,
+) -> Result<AssetOperationPlan, String> {
     request
         .asset
         .validate()
@@ -890,7 +925,6 @@ pub fn plan_set_asset_consumers(
         require_compatible(agent_id, &request.asset)?;
     }
     let settings = load_settings_strict().map_err(|error| error.to_string())?;
-    let inventory = list_consumption_inventory()?;
     let current: BTreeSet<String> = inventory
         .consumptions
         .iter()
@@ -953,7 +987,7 @@ pub fn plan_set_asset_consumers(
             let mut before = BTreeMap::new();
             let mut after = BTreeMap::new();
             for agent_id in affected {
-                let existing = current_skill_selection(&agent_id)?;
+                let existing = skill_selection_from_inventory(&inventory, &agent_id);
                 let mut desired: BTreeSet<String> = existing.iter().cloned().collect();
                 if selected.contains(&agent_id) {
                     desired.insert(name.clone());
@@ -966,7 +1000,14 @@ pub fn plan_set_asset_consumers(
             DomainPlan::Skill { before, after }
         }
     };
-    finalize_plan(domain_plan)
+    finalize_plan_with_inventory(
+        AssetOperationKind::SetConsumption,
+        domain_plan,
+        Vec::new(),
+        Vec::new(),
+        None,
+        &inventory,
+    )
 }
 
 /// Plan an additive/removal consumer change from the current authoritative
@@ -1005,10 +1046,13 @@ pub fn plan_update_asset_consumers(
     for agent_id in removals {
         selected.remove(&agent_id);
     }
-    plan_set_asset_consumers(PlanSetAssetConsumersRequest {
-        asset: request.asset,
-        agent_ids: selected.into_iter().collect(),
-    })
+    plan_asset_consumers(
+        PlanSetAssetConsumersRequest {
+            asset: request.asset,
+            agent_ids: selected.into_iter().collect(),
+        },
+        inventory,
+    )
 }
 
 pub(crate) fn validate_model_selection_contract(
@@ -1072,6 +1116,7 @@ fn validate_unique_mcp_names(keys: &[String]) -> Result<(), String> {
 }
 
 fn skill_plan_for_agent(
+    inventory: &ConsumptionInventory,
     agent_id: &str,
     current: Vec<String>,
     desired: Vec<String>,
@@ -1090,7 +1135,7 @@ fn skill_plan_for_agent(
     let mut before = BTreeMap::new();
     let mut after = BTreeMap::new();
     for affected_agent in affected {
-        let existing = current_skill_selection(&affected_agent)?;
+        let existing = skill_selection_from_inventory(inventory, &affected_agent);
         let mut next: BTreeSet<String> = existing.iter().cloned().collect();
         for name in &changed {
             if desired_set.contains(name) {
@@ -1154,16 +1199,18 @@ fn current_mcp_selection(settings: &Settings, agent_id: &str) -> Vec<String> {
         .unwrap_or_default()
 }
 
-fn current_skill_selection(agent_id: &str) -> Result<Vec<String>, String> {
-    let names: BTreeSet<String> = list_consumption_inventory()?
+fn skill_selection_from_inventory(inventory: &ConsumptionInventory, agent_id: &str) -> Vec<String> {
+    let names: BTreeSet<String> = inventory
         .consumptions
-        .into_iter()
-        .filter_map(|item| match item.asset {
-            AssetRef::Skill { name } if item.agent_id == agent_id && item.desired => Some(name),
+        .iter()
+        .filter_map(|item| match &item.asset {
+            AssetRef::Skill { name } if item.agent_id == agent_id && item.desired => {
+                Some(name.clone())
+            }
             _ => None,
         })
         .collect();
-    Ok(names.iter().cloned().collect())
+    names.into_iter().collect()
 }
 
 fn finalize_plan(domain_plan: DomainPlan) -> Result<AssetOperationPlan, String> {
@@ -1183,6 +1230,25 @@ pub(crate) fn finalize_plan_with(
     extra_target_files: Vec<String>,
     lifecycle: Option<LifecycleBinding>,
 ) -> Result<AssetOperationPlan, String> {
+    let current_inventory = list_consumption_inventory()?;
+    finalize_plan_with_inventory(
+        kind,
+        domain_plan,
+        central_changes,
+        extra_target_files,
+        lifecycle,
+        &current_inventory,
+    )
+}
+
+fn finalize_plan_with_inventory(
+    kind: AssetOperationKind,
+    domain_plan: DomainPlan,
+    central_changes: Vec<CentralAssetChange>,
+    extra_target_files: Vec<String>,
+    lifecycle: Option<LifecycleBinding>,
+    current_inventory: &ConsumptionInventory,
+) -> Result<AssetOperationPlan, String> {
     if let Some(error) = super::transaction::pending_recovery_error() {
         return Err(format!("recovery_required: {error}"));
     }
@@ -1194,7 +1260,6 @@ pub(crate) fn finalize_plan_with(
     target_files.sort();
     target_files.dedup();
     validate_transaction_targets(&domain_plan, &target_files)?;
-    let current_inventory = list_consumption_inventory()?;
     let effects = effect_assets(&domain_plan, &central_changes, &relationship_changes);
     let mut blocked: Vec<_> = current_inventory
         .consumptions

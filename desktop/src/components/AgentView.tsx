@@ -16,8 +16,17 @@ import type {
 import { formatError } from "../lib/format";
 import { keyOf, transportOf } from "../lib/mcp";
 import { consumptionsForAgent, externalForAgent } from "../lib/consumption";
+import { requiresAgentReview } from "../lib/agentOperation";
 import { listModelAgents, listModelProfiles } from "../lib/api";
-import { EditIcon, LayersIcon, LinkIcon, PackageIcon, PlusIcon, SparklesIcon } from "./icons";
+import {
+  EditIcon,
+  LayersIcon,
+  LinkIcon,
+  PackageIcon,
+  PlusIcon,
+  RefreshIcon,
+  SparklesIcon,
+} from "./icons";
 import { Avatar, Badge, IconButton } from "./ui";
 import { AgentGlyph } from "./brandIcons";
 import { AgentConfigurationDialog } from "./AgentConfigurationDialog";
@@ -114,16 +123,6 @@ function completedMessage(plan: AssetOperationPlan, agentName: string) {
     return `${agentName} 的当前 Model 已更新。`;
   }
   return `${agentName} 的 ${asset} 已更新。`;
-}
-
-function requiresAgentReview(plan: AssetOperationPlan) {
-  return !plan.can_commit
-    || plan.requires_conflict_confirmation
-    || plan.warnings.length > 0
-    || plan.affected_agent_ids.length > 1
-    || plan.model_state_changes.some((change) =>
-      change.before.active && !change.after.active && (!change.after.enabled || !change.after.added)
-    );
 }
 
 export function AgentView({
@@ -378,13 +377,14 @@ export function AgentView({
           .map((profile) => {
             const reason = modelCompatibilityReason(profile, modelAgent);
             return {
-            id: profile.id,
-            name: profile.name,
-            description: profile.model,
-            meta: <TransportMark transport={modelProtocolLabel(profile.protocol)} />,
-            disabled: reason !== null,
-            reason: reason ?? undefined,
-          };}),
+              id: profile.id,
+              name: profile.name,
+              description: profile.model,
+              meta: <TransportMark transport={modelProtocolLabel(profile.protocol)} />,
+              disabled: reason !== null,
+              reason: reason ?? undefined,
+            };
+          }),
       };
     }
     return {
@@ -411,14 +411,16 @@ export function AgentView({
   const planSelection = async (
     domain: PickerDomain,
     ids: string[],
-    commitWhenSafe: boolean,
+    mode: "add" | "replace" | "remove",
   ) => {
     if (!consumptionState) return;
     setPreparingChange(true);
     try {
-      const plan = await consumptionState.planForAgent(agentId, createSelection(domain, ids));
+      const plan = mode === "add"
+        ? await consumptionState.planAdditionsForAgent(agentId, createSelection(domain, ids))
+        : await consumptionState.planForAgent(agentId, createSelection(domain, ids));
       setPickerDomain(null);
-      if (commitWhenSafe && !requiresAgentReview(plan)) {
+      if (!requiresAgentReview(plan)) {
         await commitPlan(undefined, plan);
       }
     } catch (error) {
@@ -429,10 +431,8 @@ export function AgentView({
   };
 
   const planAdditions = (domain: PickerDomain, ids: string[]) => {
-    const next = domain === "model" && modelAgent?.supports_multiple === false
-      ? ids
-      : [...new Set([...currentIds(domain), ...ids])].sort();
-    return planSelection(domain, next, true);
+    const replacesSingleModel = domain === "model" && modelAgent?.supports_multiple === false;
+    return planSelection(domain, ids, replacesSingleModel ? "replace" : "add");
   };
 
   const planRemoval = (asset: AssetRef) => {
@@ -441,7 +441,7 @@ export function AgentView({
     return planSelection(
       asset.domain,
       currentIds(asset.domain).filter((candidate) => candidate !== id),
-      false,
+      "remove",
     );
   };
 
@@ -454,11 +454,6 @@ export function AgentView({
     const activePlan = preparedPlan ?? consumptionState.plan;
     try {
       await consumptionState.commit(conflictConfirmation);
-      await Promise.all([
-        rescan().catch(() => undefined),
-        skillsState.refresh().catch(() => undefined),
-        refreshModels().catch(() => undefined),
-      ]);
       showToast({
         kind: "success",
         msg: successMessage
@@ -599,6 +594,12 @@ export function AgentView({
             skills: skillRows.length + skillExternal.length,
           }}
         >
+          {preparingChange && (
+            <div className="mux-agent-operation-progress" role="status" aria-live="polite">
+              <RefreshIcon data-spinning="true" />
+              <span>正在检查并同步 {agent.name} 的资产…</span>
+            </div>
+          )}
           {resourceTab === "mcps" ? !agent.has_global ? (
             <div className="mux-agent-inline-state">此 Agent 未接入 MCP。</div>
           ) : (
@@ -800,11 +801,18 @@ export function AgentView({
           modelAgent={modelAgent}
           onClose={() => setEditingAgent(false)}
           onSaved={async () => {
-            await refreshAgents();
-            await rescan();
-            await refreshModels();
-            await skillsState.refresh();
-            await consumptionState?.refresh();
+            await Promise.all([
+              refreshAgents(),
+              refreshModels(),
+              (async () => {
+                if (!consumptionState) {
+                  await Promise.all([rescan(), skillsState.refresh()]);
+                  return;
+                }
+                const snapshot = await consumptionState.refreshWorkspace();
+                skillsState.hydrate(snapshot.assets.skills);
+              })(),
+            ]);
           }}
         />
       )}

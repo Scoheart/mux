@@ -1,5 +1,6 @@
 import { useMemo, useState, type ReactNode } from "react";
 import { DialogShell } from "./DialogShell";
+import { RefreshIcon } from "./icons";
 import { SearchBar } from "./ui";
 
 export interface ConsumptionPickerOption {
@@ -70,6 +71,12 @@ export function ConsumptionPickerDialog({
       title={title}
       subtitle={subtitle}
       busy={busy}
+      status={busy ? (
+        <span className="mux-operation-progress" role="status">
+          <RefreshIcon data-spinning="true" />
+          正在检查兼容性并同步到 Agent…
+        </span>
+      ) : undefined}
       onClose={onClose}
       footerStart={
         <span className="mux-picker-count">
@@ -80,6 +87,7 @@ export function ConsumptionPickerDialog({
         <>
           <button type="button" className="btn-ghost" disabled={busy} onClick={onClose}>取消</button>
           <button type="button" className="btn-primary" disabled={selectedIds.size === 0 || busy} onClick={() => void apply()}>
+            {busy && <RefreshIcon className="mux-button-progress-icon" data-spinning="true" />}
             {busy
               ? (busyLabel ?? `${actionLabel}中…`)
               : mode === "multiple" && selectedIds.size > 1

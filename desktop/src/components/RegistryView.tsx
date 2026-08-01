@@ -4,6 +4,7 @@ import type { InstallState } from "../hooks/useInstallState";
 import type { ConsumptionState } from "../hooks/useConsumptionState";
 import type { RegistryEntry, RegistryOrigin, CatalogItem, ResourceNavigationIntent } from "../lib/types";
 import { keyOf, transportOf } from "../lib/mcp";
+import { observedAgentIdsForAsset } from "../lib/consumption";
 import { exportEffectiveDialog } from "../lib/api";
 import { formatError } from "../lib/format";
 import { redactSensitiveConfig } from "../lib/resourceWorkspace";
@@ -142,7 +143,7 @@ function originLabel(origin: RegistryOrigin | undefined, sourceName: (id: string
 
 export function RegistryView({ state, consumptionState, intent, onIntentConsumed, onCreate, onRetryLoad, retryLoadDisabled = false }: RegistryViewProps) {
   const { t } = useTranslation();
-  const { catalog, entries, agentsForServer, sources } = state;
+  const { catalog, entries, sources } = state;
   const toast = useToast();
   const [minimumSkeleton, setMinimumSkeleton] = useState(state.loading);
 
@@ -152,6 +153,13 @@ export function RegistryView({ state, consumptionState, intent, onIntentConsumed
   const [editingDetail, setEditingDetail] = useState(false);
   const [pasteOpen, setPasteOpen] = useState(false);
   const lastConsumedIntentId = useRef<number | null>(null);
+  const agentsForServer = useCallback(
+    (key: string) => observedAgentIdsForAsset(
+      consumptionState?.inventory ?? null,
+      { domain: "mcp", key },
+    ),
+    [consumptionState?.inventory],
+  );
 
   useEffect(() => {
     if (!minimumSkeleton) return;
@@ -430,7 +438,7 @@ export function RegistryView({ state, consumptionState, intent, onIntentConsumed
           onCommit={async (conflictConfirmation) => {
             const kind = consumptionState.plan?.kind;
             await consumptionState.commit(conflictConfirmation);
-            await Promise.all([state.refreshRegistry(), state.rescan()]);
+            await state.refreshRegistry();
             if (kind === "delete-asset") setDetail(null);
             toast.show({
               kind: "success",

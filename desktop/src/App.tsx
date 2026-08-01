@@ -1,11 +1,8 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useMemo, useRef, useState } from "react";
 import { Layout } from "./components/Layout";
 import { RegistryView } from "./components/RegistryView";
 import { RegistryEditPage } from "./components/RegistryEditPage";
-import { AgentView } from "./components/AgentView";
 import { AddAgentDialog } from "./components/AddAgentDialog";
-import { ModelsView } from "./components/ModelsView";
-import { SkillsView } from "./components/SkillsView";
 import { useInstallState } from "./hooks/useInstallState";
 import { useSkillsState } from "./hooks/useSkillsState";
 import { useConsumptionState } from "./hooks/useConsumptionState";
@@ -26,6 +23,32 @@ import {
 } from "./lib/resourceNavigation";
 import { mergeAgentInfos } from "./lib/agentCapabilities";
 import { useStartupSync, type StartupTask } from "./hooks/useStartupSync";
+import { RefreshIcon } from "./components/icons";
+
+const AgentView = lazy(() =>
+  import("./components/AgentView").then((module) => ({
+    default: module.AgentView,
+  })),
+);
+const ModelsView = lazy(() =>
+  import("./components/ModelsView").then((module) => ({
+    default: module.ModelsView,
+  })),
+);
+const SkillsView = lazy(() =>
+  import("./components/SkillsView").then((module) => ({
+    default: module.SkillsView,
+  })),
+);
+
+function ViewLoading() {
+  return (
+    <div className="mux-view-loading" role="status">
+      <RefreshIcon data-spinning="true" />
+      正在打开视图…
+    </div>
+  );
+}
 
 function App() {
   const [view, setView] = useState<View>({ kind: "registry" });
@@ -45,38 +68,36 @@ function App() {
   const refreshExternalModels = useCallback(async () => {
     setExternalModelCandidates(await listModelAdoptionCandidates());
   }, []);
+  const refreshWorkspace = useCallback(async () => {
+    const snapshot = await consumptionState.refreshWorkspace();
+    skillsState.hydrate(snapshot.assets.skills);
+    return snapshot;
+  }, [consumptionState.refreshWorkspace, skillsState.hydrate]);
 
-  const foregroundStartupTasks = useMemo<StartupTask[]>(() => [
-    { id: "registry", label: "registry", run: state.refreshRegistry },
-    { id: "agents", label: "agents", run: state.refreshAgents },
-    { id: "sources", label: "sources", run: state.refreshSources },
-    { id: "workspace", label: "workspace", run: consumptionState.refresh },
-    { id: "skills", label: "skills", run: skillsState.refresh },
-    { id: "installed", label: "installed", run: state.rescan },
-  ], [
-    consumptionState.refresh,
-    skillsState.refresh,
-    state.refreshAgents,
-    state.refreshRegistry,
-    state.refreshSources,
-    state.rescan,
-  ]);
+  const foregroundStartupTasks = useMemo<StartupTask[]>(
+    () => [
+      { id: "workspace", label: "workspace", run: refreshWorkspace },
+      { id: "registry", label: "registry", run: state.refreshRegistry },
+      { id: "sources", label: "sources", run: state.refreshSources },
+    ],
+    [refreshWorkspace, state.refreshRegistry, state.refreshSources],
+  );
 
-  const deferredStartupTasks = useMemo<StartupTask[]>(() => [
-    { id: "external-models", label: "external-models", run: refreshExternalModels },
-    {
-      id: "updates",
-      label: "updates",
-      run: async () => {
-        if (await updater.checkNow() === "error") {
-          throw new Error("update_check_failed");
-        }
+  const deferredStartupTasks = useMemo<StartupTask[]>(
+    () => [
+      { id: "external-models", label: "external-models", run: refreshExternalModels },
+      {
+        id: "updates",
+        label: "updates",
+        run: async () => {
+          if (await updater.checkNow() === "error") {
+            throw new Error("update_check_failed");
+          }
+        },
       },
-    },
-  ], [
-    refreshExternalModels,
-    updater.checkNow,
-  ]);
+    ],
+    [refreshExternalModels, updater.checkNow],
+  );
 
   const startupSync = useStartupSync({
     foreground: foregroundStartupTasks,
@@ -89,12 +110,12 @@ function App() {
 
   const refreshEverything = useCallback(async () => {
     await Promise.all([
-      state.refreshAll(),
-      skillsState.refresh(),
-      consumptionState.refresh(),
+      state.refreshRegistry(),
+      state.refreshSources(),
+      refreshWorkspace(),
       refreshExternalModels(),
     ]);
-  }, [consumptionState.refresh, refreshExternalModels, skillsState.refresh, state.refreshAll]);
+  }, [refreshExternalModels, refreshWorkspace, state.refreshRegistry, state.refreshSources]);
 
   const openResource = useCallback((request: ResourceNavigationRequest) => {
     const id = ++nextResourceNavigationId.current;
@@ -121,43 +142,47 @@ function App() {
       onRescan={refreshEverything}
       startupSync={startupSync}
     >
-      {view.kind === "skills" ? (
-        <SkillsView
-          state={skillsState}
-          intent={view.intent}
-          onIntentConsumed={consumeResourceIntent}
-        />
-      ) : view.kind === "models" ? (
-        <ModelsView
-          consumptionState={consumptionState}
-          intent={view.intent}
-          onIntentConsumed={consumeResourceIntent}
-        />
-      ) : view.kind === "agent" ? (
-        <AgentView
-          state={state}
-          skillsState={skillsState}
-          consumptionState={consumptionState}
-          agentId={view.id}
-          externalModelCandidates={externalModelCandidates}
-          onOpenResource={openResource}
-        />
-      ) : (
-        <RegistryView
-          state={state}
-          consumptionState={consumptionState}
-          intent={view.intent}
-          onIntentConsumed={consumeResourceIntent}
-          onCreate={() => setMcpEditorOpen(true)}
-          onRetryLoad={startupSync.retryFailed}
-          retryLoadDisabled={startupSync.syncing}
-        />
-      )}
+      <Suspense fallback={<ViewLoading />}>
+        {view.kind === "skills" ? (
+          <SkillsView
+            state={skillsState}
+            intent={view.intent}
+            onIntentConsumed={consumeResourceIntent}
+          />
+        ) : view.kind === "models" ? (
+          <ModelsView
+            consumptionState={consumptionState}
+            intent={view.intent}
+            onIntentConsumed={consumeResourceIntent}
+          />
+        ) : view.kind === "agent" ? (
+          <AgentView
+            state={state}
+            skillsState={skillsState}
+            consumptionState={consumptionState}
+            agentId={view.id}
+            externalModelCandidates={externalModelCandidates}
+            onOpenResource={openResource}
+          />
+        ) : (
+          <RegistryView
+            state={state}
+            consumptionState={consumptionState}
+            intent={view.intent}
+            onIntentConsumed={consumeResourceIntent}
+            onCreate={() => setMcpEditorOpen(true)}
+            onRetryLoad={startupSync.retryFailed}
+            retryLoadDisabled={startupSync.syncing}
+          />
+        )}
+      </Suspense>
 
       {addAgentOpen && (
         <AddAgentDialog
           onClose={() => setAddAgentOpen(false)}
-          onAdded={state.refreshAgents}
+          onAdded={async () => {
+            await Promise.all([state.refreshAgents(), refreshWorkspace()]);
+          }}
         />
       )}
 

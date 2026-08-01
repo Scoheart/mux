@@ -14,6 +14,7 @@ import type {
   CentralAssetDraft,
   ConsumptionInventory,
   PlanOperationRequest,
+  WorkspaceSnapshot,
 } from "../lib/types";
 
 export interface ConsumptionState {
@@ -24,7 +25,12 @@ export interface ConsumptionState {
   plan: AssetOperationPlan | null;
   committing: boolean;
   refresh(): Promise<ConsumptionInventory>;
+  refreshWorkspace(): Promise<WorkspaceSnapshot>;
   planForAgent(
+    agentId: string,
+    selection: AgentConsumptionSelection,
+  ): Promise<AssetOperationPlan>;
+  planAdditionsForAgent(
     agentId: string,
     selection: AgentConsumptionSelection,
   ): Promise<AssetOperationPlan>;
@@ -95,7 +101,7 @@ export function useConsumptionState({ autoLoad = true }: { autoLoad?: boolean } 
     mounted.current = false;
   }, []);
 
-  const refresh = useCallback(async () => {
+  const refreshWorkspace = useCallback(async () => {
     const ownGeneration = ++generation.current;
     try {
       const snapshot = await getWorkspaceSnapshot();
@@ -107,7 +113,7 @@ export function useConsumptionState({ autoLoad = true }: { autoLoad?: boolean } 
           ? { code: "recovery_required", message: next.recovery_error }
           : null);
       }
-      return next;
+      return snapshot;
     } catch (cause) {
       const nextError = commandError(cause);
       if (mounted.current && ownGeneration === generation.current) setError(nextError);
@@ -116,6 +122,11 @@ export function useConsumptionState({ autoLoad = true }: { autoLoad?: boolean } 
       if (mounted.current && ownGeneration === generation.current) setLoading(false);
     }
   }, []);
+
+  const refresh = useCallback(async () => {
+    const snapshot = await refreshWorkspace();
+    return snapshot.relationships;
+  }, [refreshWorkspace]);
 
   useEffect(() => {
     if (!autoLoad) return;
@@ -130,156 +141,89 @@ export function useConsumptionState({ autoLoad = true }: { autoLoad?: boolean } 
     return next;
   }, []);
 
+  const startPlan = useCallback(async (request: PlanOperationRequest) => {
+    if (planRef.current || planningRef.current) throw new Error("已有待确认的资产操作");
+    planningRef.current = true;
+    try {
+      return ownPlan(await planAsset(request));
+    } catch (cause) {
+      if (mounted.current) setError(commandError(cause));
+      throw cause;
+    } finally {
+      planningRef.current = false;
+    }
+  }, [ownPlan]);
+
   const planForAgent = useCallback(
-    async (agentId: string, selection: AgentConsumptionSelection) => {
-      if (planRef.current || planningRef.current) throw new Error("已有待确认的资产操作");
-      planningRef.current = true;
-      try {
-        return ownPlan(await planAsset({
-          operation: "set_agent_consumption",
-          request: { agent_id: agentId, selection },
-        }));
-      } catch (cause) {
-        if (mounted.current) setError(commandError(cause));
-        throw cause;
-      } finally {
-        planningRef.current = false;
-      }
-    },
-    [ownPlan],
+    (agentId: string, selection: AgentConsumptionSelection) => startPlan({
+      operation: "set_agent_consumption",
+      request: { agent_id: agentId, selection },
+    }),
+    [startPlan],
+  );
+
+  const planAdditionsForAgent = useCallback(
+    (agentId: string, selection: AgentConsumptionSelection) => startPlan({
+      operation: "ensure_agent_consumption",
+      request: { agent_id: agentId, selection },
+    }),
+    [startPlan],
   );
 
   const planForAsset = useCallback(
-    async (asset: AssetRef, agentIds: string[]) => {
-      if (planRef.current || planningRef.current) throw new Error("已有待确认的资产操作");
-      planningRef.current = true;
-      try {
-        return ownPlan(await planAsset({
-          operation: "set_asset_consumers",
-          request: { asset, agent_ids: agentIds },
-        }));
-      } catch (cause) {
-        if (mounted.current) setError(commandError(cause));
-        throw cause;
-      } finally {
-        planningRef.current = false;
-      }
-    },
-    [ownPlan],
+    (asset: AssetRef, agentIds: string[]) => startPlan({
+      operation: "set_asset_consumers",
+      request: { asset, agent_ids: agentIds },
+    }),
+    [startPlan],
   );
 
   const planMcpEnabled = useCallback(
-    async (agentId: string, assetKey: string, enabled: boolean) => {
-      if (planRef.current || planningRef.current) throw new Error("已有待确认的资产操作");
-      planningRef.current = true;
-      try {
-        return ownPlan(await planAsset({
-          operation: "set_mcp_enabled",
-          request: { agent_id: agentId, asset_key: assetKey, enabled },
-        }));
-      } catch (cause) {
-        if (mounted.current) setError(commandError(cause));
-        throw cause;
-      } finally {
-        planningRef.current = false;
-      }
-    },
-    [ownPlan],
+    (agentId: string, assetKey: string, enabled: boolean) => startPlan({
+      operation: "set_mcp_enabled",
+      request: { agent_id: agentId, asset_key: assetKey, enabled },
+    }),
+    [startPlan],
   );
 
   const planSkillEnabled = useCallback(
-    async (agentId: string, name: string, enabled: boolean) => {
-      if (planRef.current || planningRef.current) throw new Error("已有待确认的资产操作");
-      planningRef.current = true;
-      try {
-        return ownPlan(await planAsset({
-          operation: "set_skill_enabled",
-          request: { agent_id: agentId, name, enabled },
-        }));
-      } catch (cause) {
-        if (mounted.current) setError(commandError(cause));
-        throw cause;
-      } finally {
-        planningRef.current = false;
-      }
-    },
-    [ownPlan],
+    (agentId: string, name: string, enabled: boolean) => startPlan({
+      operation: "set_skill_enabled",
+      request: { agent_id: agentId, name, enabled },
+    }),
+    [startPlan],
   );
 
   const planModelEnabled = useCallback(
-    async (agentId: string, profileId: string, enabled: boolean) => {
-      if (planRef.current || planningRef.current) throw new Error("已有待确认的资产操作");
-      planningRef.current = true;
-      try {
-        return ownPlan(await planAsset({
-          operation: "set_model_enabled",
-          request: { agent_id: agentId, profile_id: profileId, enabled },
-        }));
-      } catch (cause) {
-        if (mounted.current) setError(commandError(cause));
-        throw cause;
-      } finally {
-        planningRef.current = false;
-      }
-    },
-    [ownPlan],
+    (agentId: string, profileId: string, enabled: boolean) => startPlan({
+      operation: "set_model_enabled",
+      request: { agent_id: agentId, profile_id: profileId, enabled },
+    }),
+    [startPlan],
   );
 
   const planActiveModel = useCallback(
-    async (agentId: string, profileId: string) => {
-      if (planRef.current || planningRef.current) throw new Error("已有待确认的资产操作");
-      planningRef.current = true;
-      try {
-        return ownPlan(await planAsset({
-          operation: "set_active_model",
-          request: { agent_id: agentId, profile_id: profileId },
-        }));
-      } catch (cause) {
-        if (mounted.current) setError(commandError(cause));
-        throw cause;
-      } finally {
-        planningRef.current = false;
-      }
-    },
-    [ownPlan],
+    (agentId: string, profileId: string) => startPlan({
+      operation: "set_active_model",
+      request: { agent_id: agentId, profile_id: profileId },
+    }),
+    [startPlan],
   );
 
   const planUpdate = useCallback(
-    async (draft: CentralAssetDraft) => {
-      if (planRef.current || planningRef.current) throw new Error("已有待确认的资产操作");
-      planningRef.current = true;
-      try {
-        return ownPlan(await planAsset({
-          operation: "update_central_asset",
-          request: { draft },
-        }));
-      } catch (cause) {
-        if (mounted.current) setError(commandError(cause));
-        throw cause;
-      } finally {
-        planningRef.current = false;
-      }
-    },
-    [ownPlan],
+    (draft: CentralAssetDraft) => startPlan({
+      operation: "update_central_asset",
+      request: { draft },
+    }),
+    [startPlan],
   );
 
   const planDelete = useCallback(
-    async (asset: AssetRef, sourceId?: string) => {
-      if (planRef.current || planningRef.current) throw new Error("已有待确认的资产操作");
-      planningRef.current = true;
-      try {
-        return ownPlan(await planAsset({
-          operation: "delete_central_asset",
-          request: { asset, source_id: sourceId },
-        }));
-      } catch (cause) {
-        if (mounted.current) setError(commandError(cause));
-        throw cause;
-      } finally {
-        planningRef.current = false;
-      }
-    },
-    [ownPlan],
+    (asset: AssetRef, sourceId?: string) => startPlan({
+      operation: "delete_central_asset",
+      request: { asset, source_id: sourceId },
+    }),
+    [startPlan],
   );
 
   const commit = useCallback(async (conflictConfirmation?: string) => {
@@ -337,7 +281,9 @@ export function useConsumptionState({ autoLoad = true }: { autoLoad?: boolean } 
     plan,
     committing,
     refresh,
+    refreshWorkspace,
     planForAgent,
+    planAdditionsForAgent,
     planMcpEnabled,
     planSkillEnabled,
     planModelEnabled,

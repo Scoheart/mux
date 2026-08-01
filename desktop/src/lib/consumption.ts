@@ -51,6 +51,25 @@ export function consumersForAsset(
   );
 }
 
+export function observedAgentIdsForAsset(
+  inventory: ConsumptionInventory | null,
+  asset: AssetRef,
+): string[] {
+  const identity = assetIdentity(asset);
+  return [...new Set([
+    ...(inventory?.consumptions ?? []),
+    ...(inventory?.external ?? []),
+  ]
+    .filter((item) =>
+      item.asset.domain === asset.domain
+      && assetIdentity(item.asset) === identity
+      && item.observed
+      && item.enabled !== false
+    )
+    .map((item) => item.agent_id))]
+    .sort((left, right) => left.localeCompare(right));
+}
+
 function stable(items: ConsumptionView[]): ConsumptionView[] {
   return [...items].sort(
     (left, right) =>

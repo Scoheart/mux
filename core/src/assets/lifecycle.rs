@@ -523,21 +523,16 @@ fn plan_model_provider_upsert(
         action,
         summary,
     }];
-    central_changes.extend(
-        profile_ids
-            .iter()
-            .cloned()
-            .map(|profile_id| CentralAssetChange {
-                asset: AssetRef::Model {
-                    profile_id: profile_id.clone(),
-                },
-                action: CentralAssetAction::Update,
-                summary: vec![format!(
-                    "随共享 Provider「{}」更新 Model Profile「{profile_id}」",
-                    provider.name
-                )],
-            }),
-    );
+    central_changes.extend(profile_ids.iter().map(|profile_id| CentralAssetChange {
+        asset: AssetRef::Model {
+            profile_id: profile_id.clone(),
+        },
+        action: CentralAssetAction::Update,
+        summary: vec![format!(
+            "随共享 Provider「{}」更新 Model Profile「{profile_id}」",
+            provider.name
+        )],
+    }));
     let plan = finalize_plan_with(
         AssetOperationKind::UpdateAsset,
         domain_plan,

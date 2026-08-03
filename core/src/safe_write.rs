@@ -3316,25 +3316,26 @@ fn write_regular_file_anchored(
             let guard_path = sibling_path(parent_snapshot, &guard);
             let target_after_claim = read_path_state_from_parent(path, &parent)?;
             let guard_after_claim = read_path_state_from_parent(&guard_path, &parent)?;
-            if claim.is_err()
-                && !(matches!(target_after_claim, AnchoredPathState::Missing)
+            if let Err(claim_error) = claim {
+                if !(matches!(target_after_claim, AnchoredPathState::Missing)
                     && anchored_states_match(&authoritative, &guard_after_claim))
-            {
-                if matches!(guard_after_claim, AnchoredPathState::Missing)
-                    && anchored_states_match(&authoritative, &target_after_claim)
                 {
-                    cleanup_active_mutation_temp(intent.as_ref(), parent_snapshot, &parent)?;
-                    complete_mutation_intent(intent.as_ref())?;
+                    if matches!(guard_after_claim, AnchoredPathState::Missing)
+                        && anchored_states_match(&authoritative, &target_after_claim)
+                    {
+                        cleanup_active_mutation_temp(intent.as_ref(), parent_snapshot, &parent)?;
+                        complete_mutation_intent(intent.as_ref())?;
+                        return Err(format!(
+                            "refusing to claim {} for replacement: {}",
+                            path.display(),
+                            claim_error
+                        ));
+                    }
                     return Err(format!(
-                        "refusing to claim {} for replacement: {}",
-                        path.display(),
-                        claim.unwrap_err()
+                        "recovery_required: exclusive claim of {} had an ambiguous result",
+                        path.display()
                     ));
                 }
-                return Err(format!(
-                    "recovery_required: exclusive claim of {} had an ambiguous result",
-                    path.display()
-                ));
             }
             if !anchored_states_match(&authoritative, &guard_after_claim) {
                 if rename_entry_noreplace(&parent, &guard, name).is_ok() {
@@ -3455,24 +3456,25 @@ fn remove_regular_file_anchored(
     let guard_path = sibling_path(parent_snapshot, &guard);
     let target_after_claim = read_path_state_from_parent(path, &parent)?;
     let guard_after_claim = read_path_state_from_parent(&guard_path, &parent)?;
-    if claim.is_err()
-        && !(matches!(target_after_claim, AnchoredPathState::Missing)
+    if let Err(claim_error) = claim {
+        if !(matches!(target_after_claim, AnchoredPathState::Missing)
             && anchored_states_match(&authoritative, &guard_after_claim))
-    {
-        if matches!(guard_after_claim, AnchoredPathState::Missing)
-            && anchored_states_match(&authoritative, &target_after_claim)
         {
-            complete_mutation_intent(intent.as_ref())?;
+            if matches!(guard_after_claim, AnchoredPathState::Missing)
+                && anchored_states_match(&authoritative, &target_after_claim)
+            {
+                complete_mutation_intent(intent.as_ref())?;
+                return Err(format!(
+                    "refusing to claim {} for removal: {}",
+                    path.display(),
+                    claim_error
+                ));
+            }
             return Err(format!(
-                "refusing to claim {} for removal: {}",
-                path.display(),
-                claim.unwrap_err()
+                "recovery_required: exclusive removal claim of {} had an ambiguous result",
+                path.display()
             ));
         }
-        return Err(format!(
-            "recovery_required: exclusive removal claim of {} had an ambiguous result",
-            path.display()
-        ));
     }
     if !anchored_states_match(&authoritative, &guard_after_claim) {
         if rename_entry_noreplace(&parent, &guard, name).is_ok() {
@@ -3562,24 +3564,25 @@ fn remove_symlink_anchored(
     let guard_path = sibling_path(parent_snapshot, &guard);
     let target_after_claim = read_path_state_from_parent(path, &parent)?;
     let guard_after_claim = read_path_state_from_parent(&guard_path, &parent)?;
-    if claim.is_err()
-        && !(matches!(target_after_claim, AnchoredPathState::Missing)
+    if let Err(claim_error) = claim {
+        if !(matches!(target_after_claim, AnchoredPathState::Missing)
             && anchored_states_match(&authoritative, &guard_after_claim))
-    {
-        if matches!(guard_after_claim, AnchoredPathState::Missing)
-            && anchored_states_match(&authoritative, &target_after_claim)
         {
-            complete_mutation_intent(intent.as_ref())?;
+            if matches!(guard_after_claim, AnchoredPathState::Missing)
+                && anchored_states_match(&authoritative, &target_after_claim)
+            {
+                complete_mutation_intent(intent.as_ref())?;
+                return Err(format!(
+                    "refusing to claim symlink {} for removal: {}",
+                    path.display(),
+                    claim_error
+                ));
+            }
             return Err(format!(
-                "refusing to claim symlink {} for removal: {}",
-                path.display(),
-                claim.unwrap_err()
+                "recovery_required: exclusive symlink removal claim of {} had an ambiguous result",
+                path.display()
             ));
         }
-        return Err(format!(
-            "recovery_required: exclusive symlink removal claim of {} had an ambiguous result",
-            path.display()
-        ));
     }
     if !anchored_states_match(&authoritative, &guard_after_claim) {
         if rename_entry_noreplace(&parent, &guard, name).is_ok() {
@@ -3729,25 +3732,26 @@ fn write_symlink_anchored(
         let guard_path = sibling_path(parent_snapshot, &guard);
         let target_after_claim = read_path_state_from_parent(path, &parent)?;
         let guard_after_claim = read_path_state_from_parent(&guard_path, &parent)?;
-        if claim.is_err()
-            && !(matches!(target_after_claim, AnchoredPathState::Missing)
+        if let Err(claim_error) = claim {
+            if !(matches!(target_after_claim, AnchoredPathState::Missing)
                 && anchored_states_match(&authoritative, &guard_after_claim))
-        {
-            if matches!(guard_after_claim, AnchoredPathState::Missing)
-                && anchored_states_match(&authoritative, &target_after_claim)
             {
-                cleanup_active_mutation_temp(intent.as_ref(), parent_snapshot, &parent)?;
-                complete_mutation_intent(intent.as_ref())?;
+                if matches!(guard_after_claim, AnchoredPathState::Missing)
+                    && anchored_states_match(&authoritative, &target_after_claim)
+                {
+                    cleanup_active_mutation_temp(intent.as_ref(), parent_snapshot, &parent)?;
+                    complete_mutation_intent(intent.as_ref())?;
+                    return Err(format!(
+                        "refusing to claim symlink {} for replacement: {}",
+                        path.display(),
+                        claim_error
+                    ));
+                }
                 return Err(format!(
-                    "refusing to claim symlink {} for replacement: {}",
-                    path.display(),
-                    claim.unwrap_err()
+                    "recovery_required: exclusive symlink claim of {} had an ambiguous result",
+                    path.display()
                 ));
             }
-            return Err(format!(
-                "recovery_required: exclusive symlink claim of {} had an ambiguous result",
-                path.display()
-            ));
         }
         if !anchored_states_match(&authoritative, &guard_after_claim) {
             if rename_entry_noreplace(&parent, &guard, name).is_ok() {

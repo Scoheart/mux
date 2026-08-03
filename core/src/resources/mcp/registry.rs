@@ -4,7 +4,7 @@ use crate::domain::types::{RegistryEntry, RegistryOrigin, SourceDef};
 use crate::paths::settings_file;
 use crate::resources::mcp::sources::{cached_path, source_entries};
 use crate::safe_write::{acquire_settings_lock, write_private_if_unchanged, SettingsLock};
-use crate::settings::{load_settings, mutate_settings, Settings};
+use crate::settings::{load_settings, load_settings_strict, mutate_settings, Settings};
 use serde::Serialize;
 use std::fs;
 use std::path::Path;
@@ -238,12 +238,10 @@ pub fn delete_discovered_entry(name: &str, transport: &str) -> std::io::Result<(
 /// One-time migration: fold any legacy `settings.registry` entries into the
 /// managed source files (discovered→discovered, everything else→manual), then
 /// clear `settings.registry`. Idempotent (no-op once the section is empty).
-pub fn migrate_registry_to_sources() {
-    let Ok(_settings_guard) = mutation_lock() else {
-        return;
-    };
-    let Some(entries) = load_settings().registry.filter(|r| !r.is_empty()) else {
-        return;
+pub fn migrate_registry_to_sources() -> std::io::Result<bool> {
+    let _settings_guard = mutation_lock()?;
+    let Some(entries) = load_settings_strict()?.registry.filter(|r| !r.is_empty()) else {
+        return Ok(false);
     };
     for e in entries {
         let discovered = e
@@ -252,12 +250,13 @@ pub fn migrate_registry_to_sources() {
             .map(|o| o.kind == "discovered")
             .unwrap_or(false);
         if discovered {
-            let _ = write_discovered_entry(&e);
+            write_discovered_entry(&e)?;
         } else {
-            let _ = write_manual_entry(&e);
+            write_manual_entry(&e)?;
         }
     }
-    let _ = mutate_settings(|s| s.registry = None);
+    mutate_settings(|s| s.registry = None)?;
+    Ok(true)
 }
 
 #[cfg(test)]

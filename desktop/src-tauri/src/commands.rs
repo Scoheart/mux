@@ -17,30 +17,61 @@ use mux_core::application::skills::{
     SkillCommitRequest, SkillDetail, SkillError, SkillSourceInput, SkillSourceResolution,
     SkillsInventory, UpdateCheckOutcome,
 };
+use mux_core::application::{BackendStatus, MuxCore};
 use mux_core::domain::error::{CoreError, CoreResult};
 use mux_core::domain::types::RegistryEntry;
+use serde_json::Value;
+use std::collections::BTreeMap;
 
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct AssetCommandError {
     pub code: String,
     pub message: String,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub details: BTreeMap<String, Value>,
 }
 
 impl From<String> for AssetCommandError {
     fn from(error: String) -> Self {
-        let (code, message) = error
-            .split_once(':')
-            .filter(|(code, _)| {
-                code.chars()
-                    .all(|character| character.is_ascii_lowercase() || character == '_')
-            })
-            .map(|(code, message)| (code.trim(), message.trim()))
-            .unwrap_or(("asset_operation_failed", error.as_str()));
+        let error = core_error_from_legacy(error, "asset_operation_failed");
         Self {
-            code: code.into(),
-            message: message.into(),
+            code: error.code,
+            message: error.message,
+            details: error.details,
         }
     }
+}
+
+fn core_error_from_legacy(error: String, fallback_code: &str) -> CoreError {
+    let (code, message) = error
+        .split_once(':')
+        .filter(|(code, _)| {
+            !code.is_empty()
+                && code
+                    .chars()
+                    .all(|character| character.is_ascii_lowercase() || character == '_')
+        })
+        .map(|(code, message)| (code.trim(), message.trim()))
+        .unwrap_or((fallback_code, error.as_str()));
+    enrich_backend_error(CoreError::new(code, message))
+}
+
+fn enrich_backend_error(mut error: CoreError) -> CoreError {
+    match MuxCore::backend_status() {
+        BackendStatus::Starting if error.code == "backend_initializing" => {
+            error
+                .details
+                .insert("backend_state".into(), Value::String("starting".into()));
+        }
+        BackendStatus::ReadOnly { stage, .. } if error.code == "recovery_required" => {
+            error
+                .details
+                .insert("backend_state".into(), Value::String("read_only".into()));
+            error.details.insert("stage".into(), Value::String(stage));
+        }
+        _ => {}
+    }
+    error
 }
 
 async fn asset_blocking<T, F>(operation: F) -> Result<T, AssetCommandError>
@@ -53,6 +84,7 @@ where
         .map_err(|_| AssetCommandError {
             code: "worker_failed".into(),
             message: "后台任务失败，请重试。".into(),
+            details: BTreeMap::new(),
         })?
         .map_err(Into::into)
 }
@@ -71,6 +103,11 @@ where
 pub async fn get_workspace_snapshot(
 ) -> CoreResult<mux_core::application::workspace::WorkspaceSnapshot> {
     core_blocking(mux_core::application::MuxCore::snapshot).await
+}
+
+#[tauri::command]
+pub fn get_backend_status() -> BackendStatus {
+    MuxCore::backend_status()
 }
 
 #[tauri::command]
@@ -198,6 +235,8 @@ pub async fn cancel_asset_operation(operation_id: String) -> Result<(), AssetCom
 pub struct SkillCommandError {
     pub code: String,
     pub message: String,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub details: BTreeMap<String, Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub retry_at: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -206,10 +245,19 @@ pub struct SkillCommandError {
 
 impl From<SkillError> for SkillCommandError {
     fn from(error: SkillError) -> Self {
-        let parts = error.into_command_parts();
+        let mut parts = error.into_command_parts();
+        let embedded_gate_code = parts
+            .message
+            .split_once(':')
+            .filter(|(code, _)| matches!(*code, "backend_initializing" | "recovery_required"))
+            .map(|(code, message)| (code.to_string(), message.trim_start().to_string()));
+        let (code, message) = embedded_gate_code
+            .unwrap_or_else(|| (parts.code.to_string(), std::mem::take(&mut parts.message)));
+        let core = enrich_backend_error(CoreError::new(code, &message));
         Self {
-            code: parts.code.into(),
-            message: parts.message,
+            code: core.code,
+            message,
+            details: core.details,
             retry_at: parts.retry_at,
             findings_hash: parts.findings_hash,
         }
@@ -220,6 +268,7 @@ fn worker_error<T: std::fmt::Display>(_error: T) -> SkillCommandError {
     SkillCommandError {
         code: "worker_failed".into(),
         message: "后台任务失败，请重试。".into(),
+        details: BTreeMap::new(),
         retry_at: None,
         findings_hash: None,
     }
@@ -229,6 +278,7 @@ fn dialog_path_error<T: std::fmt::Display>(_error: T) -> SkillCommandError {
     SkillCommandError {
         code: "invalid_local_folder".into(),
         message: "无法读取所选本地文件夹。".into(),
+        details: BTreeMap::new(),
         retry_at: None,
         findings_hash: None,
     }
@@ -292,6 +342,7 @@ pub async fn resolve_local_skill_source_dialog(
         .ok_or_else(|| SkillCommandError {
             code: "invalid_local_folder".into(),
             message: "所选本地文件夹路径不是有效 UTF-8。".into(),
+            details: BTreeMap::new(),
             retry_at: None,
             findings_hash: None,
         })?
@@ -330,6 +381,7 @@ pub async fn resolve_archive_skill_source_dialog(
         .ok_or_else(|| SkillCommandError {
             code: "invalid_archive_file".into(),
             message: "所选压缩包路径不是有效 UTF-8。".into(),
+            details: BTreeMap::new(),
             retry_at: None,
             findings_hash: None,
         })?
@@ -492,8 +544,9 @@ pub fn list_custom_registry_keys() -> Vec<String> {
 /// Parse a pasted config blob (JSON or TOML) and add every MCP server it contains
 /// to the managed "manual" source. Returns the names that were added.
 #[tauri::command]
-pub fn import_pasted_config(text: String) -> Result<Vec<String>, String> {
-    let entries = mux_core::application::mcp::operations::parse_pasted_entries(&text)?;
+pub fn import_pasted_config(text: String) -> CoreResult<Vec<String>> {
+    let entries = mux_core::application::mcp::operations::parse_pasted_entries(&text)
+        .map_err(|error| core_error_from_legacy(error, "invalid_config"))?;
     let mut names = Vec::new();
     for entry in entries {
         let existing_key = read_registry()
@@ -507,10 +560,14 @@ pub fn import_pasted_config(text: String) -> Result<Vec<String>, String> {
                     entry: Box::new(entry),
                 },
             },
-        )?;
+        )
+        .map_err(|error| core_error_from_legacy(error, "asset_operation_failed"))?;
         if !plan.can_commit || plan.requires_conflict_confirmation {
             let _ = mux_core::application::assets::cancel_asset_operation(&plan.operation_id);
-            return Err("粘贴导入需要覆盖漂移配置；请在资源审查界面逐项处理".into());
+            return Err(CoreError::new(
+                "conflict_confirmation_required",
+                "粘贴导入需要覆盖漂移配置；请在资源审查界面逐项处理",
+            ));
         }
         names.extend(
             plan.central_changes
@@ -526,7 +583,8 @@ pub fn import_pasted_config(text: String) -> Result<Vec<String>, String> {
             operation_id: plan.operation_id,
             candidate_hash: plan.candidate_hash,
             conflict_confirmation: None,
-        })?;
+        })
+        .map_err(|error| core_error_from_legacy(error, "asset_operation_failed"))?;
     }
     names.sort();
     names.dedup();
@@ -544,14 +602,16 @@ pub fn list_sources() -> Vec<SourceView> {
 }
 
 #[tauri::command]
-pub fn subscribe_source(url: String, name: Option<String>) -> Result<SourceView, String> {
+pub fn subscribe_source(url: String, name: Option<String>) -> CoreResult<SourceView> {
     sources::subscribe(url, name)
+        .map_err(|error| core_error_from_legacy(error, "source_operation_failed"))
 }
 
 /// Add a local source from an explicit path.
 #[tauri::command]
-pub fn add_local_source(path: String, name: Option<String>) -> Result<SourceView, String> {
+pub fn add_local_source(path: String, name: Option<String>) -> CoreResult<SourceView> {
     sources::add_local(path, name)
+        .map_err(|error| core_error_from_legacy(error, "source_operation_failed"))
 }
 
 /// Open a native file picker and add the chosen file as a local source. Returns
@@ -564,7 +624,7 @@ pub fn add_local_source(path: String, name: Option<String>) -> Result<SourceView
 /// main thread) and the blocking pick is pushed onto a worker via
 /// `spawn_blocking`, leaving the main thread free to drive the panel.
 #[tauri::command]
-pub async fn add_local_source_dialog(app: tauri::AppHandle) -> Result<Option<SourceView>, String> {
+pub async fn add_local_source_dialog(app: tauri::AppHandle) -> CoreResult<Option<SourceView>> {
     use tauri_plugin_dialog::DialogExt;
     let picked = tauri::async_runtime::spawn_blocking(move || {
         app.dialog()
@@ -573,18 +633,21 @@ pub async fn add_local_source_dialog(app: tauri::AppHandle) -> Result<Option<Sou
             .blocking_pick_file()
     })
     .await
-    .map_err(|e| e.to_string())?;
+    .map_err(|_| CoreError::new("worker_failed", "后台任务失败，请重试。"))?;
     let Some(fp) = picked else { return Ok(None) };
-    sources::add_local(fp.to_string(), None).map(Some)
+    sources::add_local(fp.to_string(), None)
+        .map(Some)
+        .map_err(|error| core_error_from_legacy(error, "source_operation_failed"))
 }
 
 /// Export the complete effective catalog to a JSON file the user picks via a
 /// native save dialog. Returns the written path, or `None` if the user cancels.
 /// Async + `spawn_blocking` for the same main-thread reason as the picker above.
 #[tauri::command]
-pub async fn export_effective_dialog(app: tauri::AppHandle) -> Result<Option<String>, String> {
+pub async fn export_effective_dialog(app: tauri::AppHandle) -> CoreResult<Option<String>> {
     use tauri_plugin_dialog::DialogExt;
-    let content = mux_core::application::mcp::operations::export_effective()?;
+    let content = mux_core::application::mcp::operations::export_effective()
+        .map_err(|error| core_error_from_legacy(error, "export_failed"))?;
     let picked = tauri::async_runtime::spawn_blocking(move || {
         app.dialog()
             .file()
@@ -593,32 +656,39 @@ pub async fn export_effective_dialog(app: tauri::AppHandle) -> Result<Option<Str
             .blocking_save_file()
     })
     .await
-    .map_err(|e| e.to_string())?;
+    .map_err(|_| CoreError::new("worker_failed", "后台任务失败，请重试。"))?;
     let Some(fp) = picked else { return Ok(None) };
-    let path = fp.into_path().map_err(|e| e.to_string())?;
-    std::fs::write(&path, content).map_err(|e| e.to_string())?;
-    Ok(Some(path.display().to_string()))
+    let path = fp
+        .into_path()
+        .map_err(|error| CoreError::new("invalid_export_path", error.to_string()))?;
+    MuxCore::external_mutation("desktop_export", move || {
+        std::fs::write(&path, content)
+            .map_err(|error| CoreError::new("export_failed", error.to_string()))?;
+        Ok(Some(path.display().to_string()))
+    })
 }
 
 /// Add the bundled curated collection as an opt-in local source.
 #[tauri::command]
-pub fn add_builtin_collection() -> Result<SourceView, String> {
+pub fn add_builtin_collection() -> CoreResult<SourceView> {
     sources::add_official()
+        .map_err(|error| core_error_from_legacy(error, "source_operation_failed"))
 }
 
 #[tauri::command]
-pub fn refresh_source(id: String) -> Result<SourceView, String> {
-    sources::refresh(id)
+pub fn refresh_source(id: String) -> CoreResult<SourceView> {
+    sources::refresh(id).map_err(|error| core_error_from_legacy(error, "source_operation_failed"))
 }
 
 #[tauri::command]
-pub fn set_source_enabled(id: String, enabled: bool) -> Result<(), String> {
+pub fn set_source_enabled(id: String, enabled: bool) -> CoreResult<()> {
     sources::set_enabled(id, enabled)
+        .map_err(|error| core_error_from_legacy(error, "source_operation_failed"))
 }
 
 #[tauri::command]
-pub fn remove_source(id: String) -> Result<(), String> {
-    sources::remove(id)
+pub fn remove_source(id: String) -> CoreResult<()> {
+    sources::remove(id).map_err(|error| core_error_from_legacy(error, "source_operation_failed"))
 }
 
 use mux_core::application::agents::{load_agents, AgentInfo};
@@ -627,14 +697,16 @@ use mux_core::domain::types::AgentDefinition;
 /// 新增一个自定义 agent，持久化到 settings.agents（在内置/已有定义之上合并）。
 /// id 为空或已存在时报错，避免误覆盖内置 agent。
 #[tauri::command]
-pub fn add_agent(id: String, def: AgentDefinition) -> Result<(), String> {
+pub fn add_agent(id: String, def: AgentDefinition) -> CoreResult<()> {
     mux_core::application::agents::put(id, def, false)
+        .map_err(|error| core_error_from_legacy(error, "agent_operation_failed"))
 }
 
 /// 编辑一个已存在 agent 的配置（路径 / 格式 / key），覆盖写回 settings.agents。
 #[tauri::command]
-pub fn update_agent(id: String, def: AgentDefinition) -> Result<(), String> {
+pub fn update_agent(id: String, def: AgentDefinition) -> CoreResult<()> {
     mux_core::application::agents::put(id, def, true)
+        .map_err(|error| core_error_from_legacy(error, "agent_operation_failed"))
 }
 
 #[tauri::command]
@@ -648,8 +720,9 @@ pub fn get_pinned_agents() -> Result<Vec<String>, String> {
 }
 
 #[tauri::command]
-pub fn set_pinned_agents(agent_ids: Vec<String>) -> Result<Vec<String>, String> {
+pub fn set_pinned_agents(agent_ids: Vec<String>) -> CoreResult<Vec<String>> {
     mux_core::application::ui::set_pinned_agents(agent_ids)
+        .map_err(|error| core_error_from_legacy(error, "ui_preference_failed"))
 }
 
 #[tauri::command]
@@ -658,8 +731,9 @@ pub fn get_ui_locale() -> Result<Option<String>, String> {
 }
 
 #[tauri::command]
-pub fn set_ui_locale(locale: Option<String>) -> Result<Option<String>, String> {
+pub fn set_ui_locale(locale: Option<String>) -> CoreResult<Option<String>> {
     mux_core::application::ui::set_ui_locale(locale)
+        .map_err(|error| core_error_from_legacy(error, "ui_preference_failed"))
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -675,10 +749,12 @@ pub fn get_proxy_settings() -> Result<ProxySettingsView, String> {
 }
 
 #[tauri::command]
-pub fn set_proxy_settings(proxy_url: Option<String>) -> Result<ProxySettingsView, String> {
-    mux_core::application::network::set_proxy_url(proxy_url).map(|settings| ProxySettingsView {
-        proxy_url: settings.proxy_url,
-    })
+pub fn set_proxy_settings(proxy_url: Option<String>) -> CoreResult<ProxySettingsView> {
+    mux_core::application::network::set_proxy_url(proxy_url)
+        .map(|settings| ProxySettingsView {
+            proxy_url: settings.proxy_url,
+        })
+        .map_err(|error| core_error_from_legacy(error, "network_settings_failed"))
 }
 
 pub use mux_core::application::mcp::operations::InstalledMcp;

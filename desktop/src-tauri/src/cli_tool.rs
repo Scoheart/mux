@@ -6,6 +6,8 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use mux_core::application::MuxCore;
+use mux_core::domain::error::{CoreError, CoreResult};
 use serde::Serialize;
 
 /// `~/.local/bin/mux` — 免授权的用户级安装位置。
@@ -77,27 +79,44 @@ pub fn cli_status() -> CliStatus {
 /// 会被替换；是真实文件时拒绝覆盖（那是用户自己装的，比如 cargo install）。
 /// 返回安装后的状态。
 #[tauri::command]
-pub fn install_cli() -> Result<CliStatus, String> {
-    let cli = bundled_cli().ok_or("此构建未打包命令行工具（dev 模式？）")?;
-    let link = link_path().ok_or("无法定位 HOME 目录")?;
+pub fn install_cli() -> CoreResult<CliStatus> {
+    MuxCore::external_mutation("desktop_cli_install", install_cli_unlocked)
+}
+
+fn install_cli_unlocked() -> CoreResult<CliStatus> {
+    let cli = bundled_cli()
+        .ok_or_else(|| CoreError::new("cli_not_bundled", "此构建未打包命令行工具（dev 模式？）"))?;
+    let link =
+        link_path().ok_or_else(|| CoreError::new("home_unavailable", "无法定位 HOME 目录"))?;
     if let Some(dir) = link.parent() {
-        fs::create_dir_all(dir).map_err(|e| format!("创建 {} 失败: {}", dir.display(), e))?;
+        fs::create_dir_all(dir).map_err(|error| {
+            CoreError::new(
+                "cli_install_failed",
+                format!("创建 {} 失败: {}", dir.display(), error),
+            )
+        })?;
     }
     match fs::symlink_metadata(&link) {
         Ok(meta) if meta.file_type().is_symlink() => {
-            fs::remove_file(&link).map_err(|e| format!("移除旧软链失败: {e}"))?;
+            fs::remove_file(&link).map_err(|error| {
+                CoreError::new("cli_install_failed", format!("移除旧软链失败: {error}"))
+            })?;
         }
         Ok(_) => {
-            return Err(format!(
-                "{} 已存在且不是软链（可能是手动安装的 mux），不覆盖。可删除后重试。",
-                link.display()
+            return Err(CoreError::new(
+                "cli_install_conflict",
+                format!(
+                    "{} 已存在且不是软链（可能是手动安装的 mux），不覆盖。可删除后重试。",
+                    link.display()
+                ),
             ));
         }
         Err(_) => {}
     }
     #[cfg(unix)]
-    std::os::unix::fs::symlink(&cli, &link).map_err(|e| format!("创建软链失败: {e}"))?;
+    std::os::unix::fs::symlink(&cli, &link)
+        .map_err(|error| CoreError::new("cli_install_failed", format!("创建软链失败: {error}")))?;
     #[cfg(not(unix))]
-    return Err("仅支持 macOS/Linux".into());
+    return Err(CoreError::new("unsupported_platform", "仅支持 macOS/Linux"));
     Ok(cli_status())
 }

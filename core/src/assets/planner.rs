@@ -4,13 +4,14 @@ use super::compatibility::{compatibility_for, require_mcp_selection_compatible};
 use super::inventory::list_consumption_inventory;
 use super::types::{
     AgentConsumptionSelection, AssetOperationKind, AssetOperationPlan, AssetRef,
-    CentralAssetChange, ConsumptionInventory, ConsumptionStatus, DomainPlan,
-    ModelConsumptionRecord, ModelStateChange, ModelStateSnapshot,
-    PlanEnsureAgentConsumptionRequest, PlanReapplyMcpRequest, PlanSetActiveModelRequest,
-    PlanSetAgentConsumptionRequest, PlanSetAssetConsumersRequest, PlanSetMcpEnabledRequest,
-    PlanSetModelEnabledRequest, PlanSetSkillEnabledRequest, PlanUpdateAgentCapabilitiesRequest,
-    PlanUpdateAgentConfigurationRequest, PlanUpdateAssetConsumersRequest, RelationshipAction,
-    RelationshipChange,
+    CentralAssetChange, ConsumptionInventory, ConsumptionStateChange, ConsumptionStatus,
+    ConsumptionTarget, DomainPlan, McpReapplyScope, ModelConsumptionRecord, ModelStateChange,
+    ModelStateSnapshot, PlanEnsureAgentConsumptionRequest, PlanReapplyMcpRequest,
+    PlanReapplyModelRequest, PlanReapplySkillRequest, PlanRemoveAgentConsumptionRequest,
+    PlanSetActiveModelRequest, PlanSetAgentConsumptionRequest, PlanSetAssetConsumersRequest,
+    PlanSetMcpEnabledRequest, PlanSetModelEnabledRequest, PlanSetSkillEnabledRequest,
+    PlanUpdateAgentCapabilitiesRequest, PlanUpdateAgentConfigurationRequest,
+    PlanUpdateAssetConsumersRequest, RelationshipAction, RelationshipChange,
 };
 use crate::agents::{
     builtin_agents, current_configuration_patch, load_agents, normalize_configuration,
@@ -20,10 +21,13 @@ use crate::agents::{
 use crate::paths::{mux_dir, settings_file};
 use crate::resources::mcp::scanner::{collapse_home, expand_tilde};
 use crate::resources::skill::{
-    canonical_skill_assignments, canonical_skill_target_path, hash_tree,
-    list_inventory as list_skills_inventory, list_inventory_for_settings,
-    normalize_agent_selection, skill_agent_capability_for_settings, InventoryState, SkillLocation,
-    SkillsInventory,
+    assignment_reapply_state, canonical_skill_assignments, canonical_skill_target_path,
+    declared_targets_for_agents, hash_tree, list_inventory as list_skills_inventory,
+    list_inventory_for_settings, normalize_agent_selection, skill_agent_capability_for_settings,
+    AssignmentReapplyState, InventoryState, SkillLocation, SkillsInventory,
+};
+use crate::safe_write::{
+    capture_parent_directory, fingerprint_anchored_path_state, read_path_state_anchored,
 };
 use crate::settings::{load_settings_strict, AgentConfigPathOverride, Settings};
 use serde::{Deserialize, Serialize};
@@ -34,19 +38,26 @@ use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
-const OPERATION_SCHEMA_VERSION: u32 = 1;
+const OPERATION_SCHEMA_VERSION: u32 = 2;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub(crate) struct PersistedAssetOperation {
     pub schema_version: u32,
     pub plan: AssetOperationPlan,
     pub settings_hash: String,
+    pub settings_target_hash: String,
     pub target_hashes: BTreeMap<String, String>,
     /// Canonical effective/source catalog projection used by MCP plans. This
     /// binds consumer writes to the exact central configuration that was
     /// reviewed, even when a source cache changes outside settings.json.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mcp_catalog_hash: Option<String>,
+    /// Canonical physical Skill target graph observed during review. Skill
+    /// writers can affect every installed Agent sharing one target, so the
+    /// reviewed operation must become stale when probes change that sharing
+    /// graph even if settings and the target leaf itself are unchanged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub skill_target_graph_hash: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lifecycle: Option<LifecycleBinding>,
 }
@@ -90,6 +101,21 @@ pub(crate) enum LifecycleBinding {
     },
     McpReapply {
         key: String,
+        agent_ids: Vec<String>,
+    },
+    ModelReapply {
+        agent_id: String,
+        profile_id: String,
+        enabled: bool,
+        active: bool,
+        credential_present: bool,
+    },
+    SkillReapply {
+        agent_id: String,
+        name: String,
+        target_id: String,
+        affected_agent_ids: Vec<String>,
+        enabled: bool,
     },
     ModelUpsert {
         profile_id: String,
@@ -157,6 +183,7 @@ pub fn plan_set_agent_consumption(
     request: PlanSetAgentConsumptionRequest,
 ) -> Result<AssetOperationPlan, String> {
     validate_agent_id(&request.agent_id)?;
+    require_enabled_agent(&request.agent_id)?;
     let selection = request
         .selection
         .normalize()
@@ -221,8 +248,10 @@ fn plan_agent_consumption(
                 Some(inventory) => inventory,
                 None => list_consumption_inventory()?,
             };
-            let before = skill_selection_from_inventory(&inventory, &agent_id);
-            let domain_plan = skill_plan_for_agent(&inventory, &agent_id, before, names)?;
+            let before = skill_selection_from_settings(settings, &inventory, &agent_id)?;
+            let domain_plan = collapse_unchanged_consumption_plan(skill_plan_for_agent(
+                &inventory, settings, &agent_id, before, names,
+            )?);
             return finalize_plan_with_inventory(
                 AssetOperationKind::SetConsumption,
                 domain_plan,
@@ -233,13 +262,14 @@ fn plan_agent_consumption(
             );
         }
     };
-    finalize_plan(domain_plan)
+    finalize_plan(collapse_unchanged_consumption_plan(domain_plan))
 }
 
 pub fn plan_ensure_agent_consumption(
     request: PlanEnsureAgentConsumptionRequest,
 ) -> Result<AssetOperationPlan, String> {
     validate_agent_id(&request.agent_id)?;
+    require_enabled_agent(&request.agent_id)?;
     let requested = request
         .selection
         .normalize()
@@ -270,10 +300,76 @@ pub fn plan_ensure_agent_consumption(
         AgentConsumptionSelection::Skill { names } => {
             let inventory = list_consumption_inventory()?;
             let mut desired: BTreeSet<String> =
-                skill_selection_from_inventory(&inventory, &request.agent_id)
+                skill_selection_from_settings(&settings, &inventory, &request.agent_id)?
                     .into_iter()
                     .collect();
             desired.extend(names);
+            skill_inventory = Some(inventory);
+            AgentConsumptionSelection::Skill {
+                names: desired.into_iter().collect(),
+            }
+        }
+    };
+    plan_agent_consumption(request.agent_id, selection, &settings, skill_inventory)
+}
+
+/// Plan an Agent-scoped removal from the current authoritative relationship
+/// state. Keeping the read and subtraction inside core avoids a frontend
+/// replacing relationships that were added after its last snapshot.
+pub fn plan_remove_agent_consumption(
+    request: PlanRemoveAgentConsumptionRequest,
+) -> Result<AssetOperationPlan, String> {
+    validate_agent_id(&request.agent_id)?;
+    require_enabled_agent(&request.agent_id)?;
+    let requested = request
+        .selection
+        .normalize()
+        .map_err(|error| error.to_string())?;
+    let settings = load_settings_strict().map_err(|error| error.to_string())?;
+    let mut skill_inventory = None;
+    let selection = match requested {
+        AgentConsumptionSelection::Mcp { asset_keys } => {
+            let mut desired: BTreeSet<String> = current_mcp_selection(&settings, &request.agent_id)
+                .into_iter()
+                .collect();
+            for asset_key in asset_keys {
+                desired.remove(&asset_key);
+            }
+            AgentConsumptionSelection::Mcp {
+                asset_keys: desired.into_iter().collect(),
+            }
+        }
+        AgentConsumptionSelection::Model { profile_ids } => {
+            let current = settings.model_selection(&request.agent_id);
+            if !profile_ids
+                .iter()
+                .any(|profile_id| current.profiles.contains_key(profile_id))
+            {
+                // Removing an absent identity is a pure relationship no-op.
+                // Observed Model drift is repaired only through the explicit
+                // reapply lifecycle and must never enter this effect set.
+                return finalize_plan(DomainPlan::Model {
+                    before: BTreeMap::new(),
+                    after: BTreeMap::new(),
+                });
+            }
+            let mut desired: BTreeSet<String> = current.profiles.into_keys().collect();
+            for profile_id in profile_ids {
+                desired.remove(&profile_id);
+            }
+            AgentConsumptionSelection::Model {
+                profile_ids: desired.into_iter().collect(),
+            }
+        }
+        AgentConsumptionSelection::Skill { names } => {
+            let inventory = list_consumption_inventory()?;
+            let mut desired: BTreeSet<String> =
+                skill_selection_from_settings(&settings, &inventory, &request.agent_id)?
+                    .into_iter()
+                    .collect();
+            for name in names {
+                desired.remove(&name);
+            }
             skill_inventory = Some(inventory);
             AgentConsumptionSelection::Skill {
                 names: desired.into_iter().collect(),
@@ -287,6 +383,7 @@ pub fn plan_set_model_enabled(
     request: PlanSetModelEnabledRequest,
 ) -> Result<AssetOperationPlan, String> {
     validate_agent_id(&request.agent_id)?;
+    require_enabled_agent(&request.agent_id)?;
     let settings = load_settings_strict().map_err(|error| error.to_string())?;
     let before = settings.model_selection(&request.agent_id);
     let mut after = before.clone();
@@ -295,7 +392,18 @@ pub fn plan_set_model_enabled(
         .get_mut(&request.profile_id)
         .ok_or_else(|| "model_consumption_missing: Model is not added to this Agent".to_string())?;
     if record.enabled == request.enabled {
-        return Err("model_enabled_unchanged: Model already has the requested state".into());
+        return finalize_plan(DomainPlan::Model {
+            before: BTreeMap::new(),
+            after: BTreeMap::new(),
+        });
+    }
+    if request.enabled {
+        require_compatible(
+            &request.agent_id,
+            &AssetRef::Model {
+                profile_id: request.profile_id.clone(),
+            },
+        )?;
     }
     if !request.enabled
         && before.active_profile_id.as_deref() == Some(request.profile_id.as_str())
@@ -321,6 +429,7 @@ pub fn plan_set_active_model(
     request: PlanSetActiveModelRequest,
 ) -> Result<AssetOperationPlan, String> {
     validate_agent_id(&request.agent_id)?;
+    require_enabled_agent(&request.agent_id)?;
     let settings = load_settings_strict().map_err(|error| error.to_string())?;
     let before = settings.model_selection(&request.agent_id);
     let mut after = before.clone();
@@ -335,7 +444,10 @@ pub fn plan_set_active_model(
         },
     )?;
     if before.active_profile_id.as_deref() == Some(request.profile_id.as_str()) {
-        return Err("active_model_unchanged: Model is already current".into());
+        return finalize_plan(DomainPlan::Model {
+            before: BTreeMap::new(),
+            after: BTreeMap::new(),
+        });
     }
     after.active_profile_id = Some(request.profile_id.clone());
     if let Some(record) = after.profiles.get_mut(&request.profile_id) {
@@ -357,6 +469,7 @@ pub fn plan_set_mcp_enabled(
     request: PlanSetMcpEnabledRequest,
 ) -> Result<AssetOperationPlan, String> {
     validate_agent_id(&request.agent_id)?;
+    require_enabled_agent(&request.agent_id)?;
     super::types::validate_mcp_asset_key(&request.asset_key).map_err(|error| error.to_string())?;
     let settings = load_settings_strict().map_err(|error| error.to_string())?;
     let records = settings
@@ -368,7 +481,10 @@ pub fn plan_set_mcp_enabled(
         .get(&request.asset_key)
         .ok_or_else(|| "mcp_consumption_missing: MCP is not assigned to this Agent".to_string())?;
     if record.enabled == request.enabled {
-        return Err("mcp_enabled_unchanged: MCP already has the requested state".into());
+        return finalize_plan(DomainPlan::Mcp {
+            before: BTreeMap::new(),
+            after: BTreeMap::new(),
+        });
     }
     let selection: Vec<String> = records.keys().cloned().collect();
     let domain_plan = DomainPlan::Mcp {
@@ -396,6 +512,7 @@ pub fn plan_set_skill_enabled(
     request: PlanSetSkillEnabledRequest,
 ) -> Result<AssetOperationPlan, String> {
     validate_agent_id(&request.agent_id)?;
+    require_enabled_agent(&request.agent_id)?;
     let inventory = list_consumption_inventory()?;
     let row = inventory
         .consumptions
@@ -411,17 +528,27 @@ pub fn plan_set_skill_enabled(
         .ok_or_else(|| {
             "skill_consumption_missing: Skill is not assigned to this Agent".to_string()
         })?;
+    let before = row
+        .enabled
+        .ok_or_else(|| "skill_consumption_unmanaged: Skill cannot be toggled".to_string())?;
+    if before == request.enabled {
+        return finalize_plan_with_inventory(
+            AssetOperationKind::SetConsumption,
+            DomainPlan::Skill {
+                before: BTreeMap::new(),
+                after: BTreeMap::new(),
+            },
+            Vec::new(),
+            Vec::new(),
+            None,
+            &inventory,
+        );
+    }
     if row.status != ConsumptionStatus::Synced {
         return Err(format!(
             "skill_consumption_drift: {}",
             row.reason.as_deref().unwrap_or("unresolved_drift")
         ));
-    }
-    let before = row
-        .enabled
-        .ok_or_else(|| "skill_consumption_unmanaged: Skill cannot be toggled".to_string())?;
-    if before == request.enabled {
-        return Err("skill_enabled_unchanged: Skill already has the requested state".into());
     }
     let target = row
         .target
@@ -478,31 +605,79 @@ pub fn plan_reapply_mcp(request: PlanReapplyMcpRequest) -> Result<AssetOperation
         return Err("asset_operation_stale: central MCP asset no longer exists".into());
     }
     let settings = load_settings_strict().map_err(|error| error.to_string())?;
-    let (domain_plan, consumer_count) = {
-        let consumers = current_mcp_consumers(&settings, &request.asset_key);
-        let consumer_count = consumers.len();
-        (
-            DomainPlan::Mcp {
-                before: consumers.clone(),
-                after: consumers,
-            },
-            consumer_count,
-        )
+    let inventory = list_consumption_inventory()?;
+    let asset = AssetRef::Mcp {
+        key: request.asset_key.clone(),
     };
-    let summary = if consumer_count == 0 {
-        vec![
-            "重新同步 MCP 配置".into(),
-            "当前没有已关联的 Agent，无需同步".into(),
-            "中央配置保持不变".into(),
-        ]
-    } else {
-        vec![
-            "重新同步 MCP 配置".into(),
-            format!("将更新 {consumer_count} 个已关联 Agent"),
-            "中央配置保持不变".into(),
-        ]
+    let desired_rows = inventory
+        .consumptions
+        .iter()
+        .filter(|row| row.desired && row.asset == asset)
+        .collect::<Vec<_>>();
+    let agent_ids = match request.scope {
+        McpReapplyScope::Agent { agent_id } => {
+            validate_agent_id(&agent_id)?;
+            require_enabled_agent(&agent_id)?;
+            require_compatible(&agent_id, &asset)?;
+            let row = desired_rows
+                .iter()
+                .find(|row| row.agent_id == agent_id)
+                .ok_or_else(|| {
+                    "mcp_consumption_missing: MCP is not assigned to this Agent".to_string()
+                })?;
+            if row.status == ConsumptionStatus::Synced {
+                return finalize_plan_with_inventory(
+                    AssetOperationKind::UpdateAsset,
+                    DomainPlan::Mcp {
+                        before: BTreeMap::new(),
+                        after: BTreeMap::new(),
+                    },
+                    Vec::new(),
+                    Vec::new(),
+                    None,
+                    &inventory,
+                );
+            }
+            vec![agent_id]
+        }
+        McpReapplyScope::All => {
+            for row in &desired_rows {
+                require_enabled_agent(&row.agent_id)?;
+                require_compatible(&row.agent_id, &asset)?;
+            }
+            let mut agent_ids = desired_rows
+                .iter()
+                .filter(|row| row.status != ConsumptionStatus::Synced)
+                .map(|row| row.agent_id.clone())
+                .collect::<Vec<_>>();
+            agent_ids.sort();
+            agent_ids.dedup();
+            if agent_ids.is_empty() {
+                return finalize_plan_with_inventory(
+                    AssetOperationKind::UpdateAsset,
+                    DomainPlan::Mcp {
+                        before: BTreeMap::new(),
+                        after: BTreeMap::new(),
+                    },
+                    Vec::new(),
+                    Vec::new(),
+                    None,
+                    &inventory,
+                );
+            }
+            agent_ids
+        }
     };
-    finalize_plan_with(
+    let consumers = agent_ids
+        .iter()
+        .map(|agent_id| (agent_id.clone(), current_mcp_selection(&settings, agent_id)))
+        .collect::<BTreeMap<_, _>>();
+    let consumer_count = agent_ids.len();
+    let domain_plan = DomainPlan::Mcp {
+        before: consumers.clone(),
+        after: consumers,
+    };
+    finalize_plan_with_inventory(
         AssetOperationKind::UpdateAsset,
         domain_plan,
         vec![CentralAssetChange {
@@ -510,23 +685,245 @@ pub fn plan_reapply_mcp(request: PlanReapplyMcpRequest) -> Result<AssetOperation
                 key: request.asset_key.clone(),
             },
             action: crate::domain::assets::CentralAssetAction::Update,
-            summary,
+            summary: vec![
+                "重新同步 MCP 配置".into(),
+                format!("将更新 {consumer_count} 个已明确选择的 Agent"),
+                "中央配置保持不变".into(),
+            ],
         }],
         Vec::new(),
         Some(LifecycleBinding::McpReapply {
             key: request.asset_key,
+            agent_ids,
+        }),
+        &inventory,
+    )
+}
+
+pub fn plan_reapply_model(request: PlanReapplyModelRequest) -> Result<AssetOperationPlan, String> {
+    validate_agent_id(&request.agent_id)?;
+    require_enabled_agent(&request.agent_id)?;
+    AssetRef::Model {
+        profile_id: request.profile_id.clone(),
+    }
+    .validate()
+    .map_err(|error| error.to_string())?;
+    let settings = load_settings_strict().map_err(|error| error.to_string())?;
+    if !settings
+        .model_profiles
+        .as_ref()
+        .is_some_and(|profiles| profiles.contains_key(&request.profile_id))
+    {
+        return Err(format!("model_profile_missing: {}", request.profile_id));
+    }
+    let selection = settings.model_selection(&request.agent_id);
+    let record = selection
+        .profiles
+        .get(&request.profile_id)
+        .ok_or_else(|| "model_consumption_missing: Model is not added to this Agent".to_string())?;
+    let enabled = record.enabled;
+    if enabled {
+        require_compatible(
+            &request.agent_id,
+            &AssetRef::Model {
+                profile_id: request.profile_id.clone(),
+            },
+        )?;
+    }
+    let inventory = list_consumption_inventory()?;
+    let row = inventory
+        .consumptions
+        .iter()
+        .find(|row| {
+            row.agent_id == request.agent_id
+                && row.asset
+                    == (AssetRef::Model {
+                        profile_id: request.profile_id.clone(),
+                    })
+                && row.desired
+        })
+        .ok_or_else(|| "model_consumption_missing: Model is not added to this Agent".to_string())?;
+    if row.status == ConsumptionStatus::Synced {
+        return finalize_plan(DomainPlan::Model {
+            before: BTreeMap::new(),
+            after: BTreeMap::new(),
+        });
+    }
+    let active = selection.active_profile_id.as_deref() == Some(request.profile_id.as_str());
+    let credential_present = crate::resources::model::credential_present(&request.profile_id);
+    if row.active != row.desired_active && !active {
+        let desired = selection.active_profile_id.as_deref().unwrap_or("<none>");
+        return Err(format!(
+            "model_reapply_active_profile_required: {0} is not the desired current Profile; reapply {desired} for Agent {1} to repair the current pointer",
+            request.profile_id, request.agent_id
+        ));
+    }
+    if !enabled {
+        let profile = settings
+            .model_profiles
+            .as_ref()
+            .and_then(|profiles| profiles.get(&request.profile_id))
+            .expect("central Profile existence was checked");
+        match crate::resources::model::observe_profile_consumption(
+            &request.agent_id,
+            profile,
+            false,
+        )? {
+            crate::resources::model::ModelObservedState::Synced
+            | crate::resources::model::ModelObservedState::Missing => {}
+            crate::resources::model::ModelObservedState::Drifted
+            | crate::resources::model::ModelObservedState::Conflicted => {
+                return Err(
+                    "model_reapply_unsafe_clear: the disabled Profile contains customized or ambiguous fields; inspect it or unassign it to release MUX ownership without overwriting those fields"
+                        .into(),
+                )
+            }
+        }
+    }
+    let domain_plan = DomainPlan::Model {
+        before: BTreeMap::from([(request.agent_id.clone(), selection.clone())]),
+        after: BTreeMap::from([(request.agent_id.clone(), selection)]),
+    };
+    finalize_plan_with(
+        AssetOperationKind::UpdateAsset,
+        domain_plan,
+        vec![CentralAssetChange {
+            asset: AssetRef::Model {
+                profile_id: request.profile_id.clone(),
+            },
+            action: crate::domain::assets::CentralAssetAction::Update,
+            summary: if enabled {
+                vec![
+                    format!("重新同步 Model Profile 到 Agent {}", request.agent_id),
+                    "中央 Model Profile 保持不变".into(),
+                ]
+            } else {
+                vec![
+                    format!(
+                        "移除 Agent {} 上已禁用 Profile 的物理配置",
+                        request.agent_id
+                    ),
+                    "中央 Model Profile 与禁用关系保持不变".into(),
+                ]
+            },
+        }],
+        Vec::new(),
+        Some(LifecycleBinding::ModelReapply {
+            agent_id: request.agent_id,
+            profile_id: request.profile_id,
+            enabled,
+            active,
+            credential_present,
         }),
     )
 }
 
-fn current_mcp_consumers(settings: &Settings, asset_key: &str) -> BTreeMap<String, Vec<String>> {
-    settings
-        .mcp_consumptions
+pub fn plan_reapply_skill(request: PlanReapplySkillRequest) -> Result<AssetOperationPlan, String> {
+    validate_agent_id(&request.agent_id)?;
+    require_enabled_agent(&request.agent_id)?;
+    AssetRef::Skill {
+        name: request.name.clone(),
+    }
+    .validate()
+    .map_err(|error| error.to_string())?;
+    let inventory = list_consumption_inventory()?;
+    let row = inventory
+        .consumptions
         .iter()
-        .flatten()
-        .filter(|(_, records)| records.contains_key(asset_key))
-        .map(|(agent_id, _)| (agent_id.clone(), current_mcp_selection(settings, agent_id)))
-        .collect()
+        .find(|row| {
+            row.agent_id == request.agent_id
+                && row.desired
+                && row.asset
+                    == (AssetRef::Skill {
+                        name: request.name.clone(),
+                    })
+        })
+        .ok_or_else(|| {
+            "skill_consumption_missing: Skill is not assigned to this Agent".to_string()
+        })?;
+    if row.status == ConsumptionStatus::Synced {
+        return finalize_plan(DomainPlan::Skill {
+            before: BTreeMap::new(),
+            after: BTreeMap::new(),
+        });
+    }
+    let enabled = row
+        .enabled
+        .ok_or_else(|| "skill_consumption_unmanaged: Skill cannot be reapplied".to_string())?;
+    let target = row
+        .target
+        .as_ref()
+        .ok_or_else(|| "skill_target_missing: Skill target is unavailable".to_string())?;
+    let repairable_reason = matches!(
+        (enabled, row.reason.as_deref()),
+        (true, Some("skill_target_missing" | "skill_broken_link"))
+            | (false, Some("skill_disabled_state_drift"))
+    );
+    if !repairable_reason {
+        return Err(format!(
+            "skill_reapply_target_unsafe: {}",
+            row.reason.as_deref().unwrap_or("unresolved_drift")
+        ));
+    }
+    match assignment_reapply_state(&request.name, &target.target_id) {
+        Ok(AssignmentReapplyState::Synced) => {
+            return finalize_plan(DomainPlan::Skill {
+                before: BTreeMap::new(),
+                after: BTreeMap::new(),
+            });
+        }
+        Ok(AssignmentReapplyState::Repairable) => {}
+        Err(_) => {
+            return Err(
+                "skill_reapply_target_unsafe: refusing to replace an unverified Skill target"
+                    .into(),
+            );
+        }
+    }
+
+    let mut affected_agent_ids = row.affected_agent_ids.clone();
+    if affected_agent_ids.is_empty() {
+        affected_agent_ids.push(request.agent_id.clone());
+    }
+    affected_agent_ids.sort();
+    affected_agent_ids.dedup();
+    let selections = affected_agent_ids
+        .iter()
+        .map(|agent_id| {
+            (
+                agent_id.clone(),
+                skill_selection_from_inventory(&inventory, agent_id),
+            )
+        })
+        .collect::<BTreeMap<_, _>>();
+    let domain_plan = DomainPlan::Skill {
+        before: selections.clone(),
+        after: selections,
+    };
+    let target_file = format!("{}/{}", target.global_dir, request.name);
+    finalize_plan_with_inventory(
+        AssetOperationKind::UpdateAsset,
+        domain_plan,
+        vec![CentralAssetChange {
+            asset: AssetRef::Skill {
+                name: request.name.clone(),
+            },
+            action: crate::domain::assets::CentralAssetAction::Update,
+            summary: vec![
+                format!("重新同步 Skill 到 Agent {}", request.agent_id),
+                "中央 Skill 保持不变".into(),
+            ],
+        }],
+        vec![target_file],
+        Some(LifecycleBinding::SkillReapply {
+            agent_id: request.agent_id,
+            name: request.name,
+            target_id: target.target_id.clone(),
+            affected_agent_ids,
+            enabled,
+        }),
+        &inventory,
+    )
 }
 
 pub fn plan_update_agent_configuration(
@@ -1000,6 +1397,7 @@ fn plan_asset_consumers(
             DomainPlan::Skill { before, after }
         }
     };
+    let domain_plan = collapse_unchanged_consumption_plan(domain_plan);
     finalize_plan_with_inventory(
         AssetOperationKind::SetConsumption,
         domain_plan,
@@ -1008,6 +1406,24 @@ fn plan_asset_consumers(
         None,
         &inventory,
     )
+}
+
+fn collapse_unchanged_consumption_plan(plan: DomainPlan) -> DomainPlan {
+    match plan {
+        DomainPlan::Mcp { before, after } if before == after => DomainPlan::Mcp {
+            before: BTreeMap::new(),
+            after: BTreeMap::new(),
+        },
+        DomainPlan::Model { before, after } if before == after => DomainPlan::Model {
+            before: BTreeMap::new(),
+            after: BTreeMap::new(),
+        },
+        DomainPlan::Skill { before, after } if before == after => DomainPlan::Skill {
+            before: BTreeMap::new(),
+            after: BTreeMap::new(),
+        },
+        other => other,
+    }
 }
 
 /// Plan an additive/removal consumer change from the current authoritative
@@ -1117,6 +1533,7 @@ fn validate_unique_mcp_names(keys: &[String]) -> Result<(), String> {
 
 fn skill_plan_for_agent(
     inventory: &ConsumptionInventory,
+    settings: &Settings,
     agent_id: &str,
     current: Vec<String>,
     desired: Vec<String>,
@@ -1129,13 +1546,30 @@ fn skill_plan_for_agent(
         .collect();
     let mut affected = BTreeSet::from([agent_id.to_string()]);
     for name in &changed {
-        let compatibility = compatibility_for(agent_id, &AssetRef::Skill { name: name.clone() })?;
-        affected.extend(compatibility.affected_agent_ids);
+        if desired_set.contains(name) {
+            let compatibility =
+                compatibility_for(agent_id, &AssetRef::Skill { name: name.clone() })?;
+            if !compatibility.compatible {
+                let reason = compatibility
+                    .reason
+                    .expect("incompatible Skill view has reason");
+                return Err(format!("{}: {}", reason.code, reason.message));
+            }
+            affected.extend(compatibility.affected_agent_ids);
+        } else {
+            // Removal is authorized by the persisted relationship, not by
+            // current central content or an install probe. This keeps stale
+            // ownership releasable after either disappears while preserving
+            // the complete physical-target closure.
+            affected.extend(skill_removal_affected_agents(
+                inventory, settings, agent_id, name,
+            )?);
+        }
     }
     let mut before = BTreeMap::new();
     let mut after = BTreeMap::new();
     for affected_agent in affected {
-        let existing = skill_selection_from_inventory(inventory, &affected_agent);
+        let existing = skill_selection_from_settings(settings, inventory, &affected_agent)?;
         let mut next: BTreeSet<String> = existing.iter().cloned().collect();
         for name in &changed {
             if desired_set.contains(name) {
@@ -1148,6 +1582,47 @@ fn skill_plan_for_agent(
         after.insert(affected_agent, next.into_iter().collect());
     }
     Ok(DomainPlan::Skill { before, after })
+}
+
+fn skill_removal_affected_agents(
+    inventory: &ConsumptionInventory,
+    settings: &Settings,
+    agent_id: &str,
+    name: &str,
+) -> Result<BTreeSet<String>, String> {
+    let declared = declared_targets_for_agents(&[agent_id.to_string()])
+        .map_err(|error| format!("{error:?}"))?;
+    let assignments =
+        canonical_skill_assignments(settings).map_err(|error| format!("{error:?}"))?;
+    let assigned = assignments.get(name).cloned().unwrap_or_default();
+    let target_ids: BTreeSet<String> = declared.intersection(&assigned).cloned().collect();
+    let mut affected = BTreeSet::from([agent_id.to_string()]);
+
+    for item in inventory.consumptions.iter().filter(|item| {
+        item.desired
+            && item.asset == (AssetRef::Skill { name: name.into() })
+            && item
+                .target
+                .as_ref()
+                .is_some_and(|target| target_ids.contains(&target.target_id))
+    }) {
+        affected.insert(item.agent_id.clone());
+        affected.extend(item.affected_agent_ids.iter().cloned());
+    }
+
+    let skills = list_skills_inventory().map_err(|error| format!("{error:?}"))?;
+    for target in skills
+        .targets
+        .iter()
+        .filter(|target| target_ids.contains(&target.target_id))
+    {
+        if target.affected_agent_ids.is_empty() {
+            affected.extend(target.primary_agent_ids.iter().cloned());
+        } else {
+            affected.extend(target.affected_agent_ids.iter().cloned());
+        }
+    }
+    Ok(affected)
 }
 
 fn validate_closed_skill_consumers(name: &str, selected: &BTreeSet<String>) -> Result<(), String> {
@@ -1190,6 +1665,20 @@ fn validate_agent_id(agent_id: &str) -> Result<(), String> {
     Ok(())
 }
 
+fn require_enabled_agent(agent_id: &str) -> Result<(), String> {
+    let agents = load_agents();
+    let agent = agents
+        .get(agent_id)
+        .ok_or_else(|| format!("unknown Agent: {agent_id}"))?;
+    if agent.enabled {
+        Ok(())
+    } else {
+        Err(format!(
+            "agent_disabled: Agent {agent_id} is disabled in MUX"
+        ))
+    }
+}
+
 fn current_mcp_selection(settings: &Settings, agent_id: &str) -> Vec<String> {
     settings
         .mcp_consumptions
@@ -1211,6 +1700,36 @@ fn skill_selection_from_inventory(inventory: &ConsumptionInventory, agent_id: &s
         })
         .collect();
     names.into_iter().collect()
+}
+
+/// Resolve desired Skill ownership from the persisted physical-target graph.
+/// The consumption projection intentionally follows live install probes, but
+/// stale ownership must remain visible to an explicit unassign after an Agent
+/// is uninstalled.
+fn skill_selection_from_settings(
+    settings: &Settings,
+    inventory: &ConsumptionInventory,
+    agent_id: &str,
+) -> Result<Vec<String>, String> {
+    if skill_agent_capability_for_settings(settings, agent_id)
+        .map_err(|error| format!("{error:?}"))?
+        .is_none()
+    {
+        return Ok(skill_selection_from_inventory(inventory, agent_id));
+    }
+    let declared = declared_targets_for_agents(&[agent_id.to_string()])
+        .map_err(|error| format!("{error:?}"))?;
+    let assignments =
+        canonical_skill_assignments(settings).map_err(|error| format!("{error:?}"))?;
+    Ok(assignments
+        .into_iter()
+        .filter_map(|(name, target_ids)| {
+            target_ids
+                .iter()
+                .any(|target_id| declared.contains(target_id))
+                .then_some(name)
+        })
+        .collect())
 }
 
 fn finalize_plan(domain_plan: DomainPlan) -> Result<AssetOperationPlan, String> {
@@ -1254,13 +1773,48 @@ fn finalize_plan_with_inventory(
     }
     let relationship_changes = relationship_changes(&domain_plan);
     let model_state_changes = model_state_changes(&domain_plan);
+    let consumption_state_changes =
+        consumption_state_changes(&model_state_changes, lifecycle.as_ref(), current_inventory)?;
     let affected_agent_ids: Vec<String> = agents_for_plan(&domain_plan).into_iter().collect();
-    let mut target_files = target_files(&domain_plan)?;
+    let effects = effect_assets(
+        &domain_plan,
+        &central_changes,
+        &relationship_changes,
+        &consumption_state_changes,
+        lifecycle.as_ref(),
+    );
+    let mut target_files = target_files(&domain_plan, lifecycle.as_ref(), &effects)?;
     target_files.extend(extra_target_files);
     target_files.sort();
     target_files.dedup();
     validate_transaction_targets(&domain_plan, &target_files)?;
-    let effects = effect_assets(&domain_plan, &central_changes, &relationship_changes);
+    let safe_unsupported_release_warnings = current_inventory
+        .consumptions
+        .iter()
+        .filter(|item| {
+            effects.contains(&(item.agent_id.clone(), item.asset.clone()))
+                && item.status == ConsumptionStatus::Unsupported
+                && unsupported_effect_is_safe_model_release(
+                    &item.agent_id,
+                    &item.asset,
+                    &relationship_changes,
+                    &consumption_state_changes,
+                    lifecycle.as_ref(),
+                )
+        })
+        .map(consumption_warning)
+        .collect::<BTreeSet<_>>();
+    let has_blocking_unsupported_effect = current_inventory.consumptions.iter().any(|item| {
+        effects.contains(&(item.agent_id.clone(), item.asset.clone()))
+            && item.status == ConsumptionStatus::Unsupported
+            && !unsupported_effect_is_safe_model_release(
+                &item.agent_id,
+                &item.asset,
+                &relationship_changes,
+                &consumption_state_changes,
+                lifecycle.as_ref(),
+            )
+    });
     let mut blocked: Vec<_> = current_inventory
         .consumptions
         .iter()
@@ -1268,17 +1822,14 @@ fn finalize_plan_with_inventory(
             effects.contains(&(item.agent_id.clone(), item.asset.clone()))
                 && matches!(
                     item.status,
-                    ConsumptionStatus::Drifted | ConsumptionStatus::Conflicted
+                    ConsumptionStatus::Drifted
+                        | ConsumptionStatus::Conflicted
+                        | ConsumptionStatus::Unsupported
                 )
         })
-        .map(|item| {
-            format!(
-                "{}: {}",
-                item.agent_id,
-                item.reason.as_deref().unwrap_or("unresolved_drift")
-            )
-        })
+        .map(consumption_warning)
         .collect();
+    append_missing_skill_removal_warnings(&domain_plan, &effects, &mut blocked)?;
     for (agent_id, asset) in &effects {
         if !asset_desired_after(&domain_plan, agent_id, asset) {
             continue;
@@ -1296,92 +1847,188 @@ fn finalize_plan_with_inventory(
                 && external_blocks_selection(&domain_plan, agent_id, asset, item)
         }) {
             blocked.push(format!(
-                "{}: {}",
+                "{} / {}: {}",
                 item.agent_id,
+                warning_asset_identity(asset),
                 item.reason.as_deref().unwrap_or("external_asset_conflict")
             ));
         }
     }
     blocked.sort();
     blocked.dedup();
+    let reviewable_unsupported_release = !safe_unsupported_release_warnings.is_empty()
+        && blocked
+            .iter()
+            .all(|warning| safe_unsupported_release_warnings.contains(warning));
     let warnings = blocked.clone();
-    let replaceable_model_conflict = blocked.iter().all(|warning| {
-        [
-            "model_external_unmanaged",
-            "model_owned_fields_drift",
-            "model_target_missing",
-        ]
-        .iter()
-        .any(|reason| warning.ends_with(reason))
-    });
-    let model_replacement = !blocked.is_empty()
-        && replaceable_model_conflict
+    // Relationship replacement may explicitly take over a new Model target or
+    // release an exact removed relationship. Existing enabled payloads are
+    // never repaired by use/enable/disable; those require Model reapply first.
+    let model_relationship_replacement = !blocked.is_empty()
         && kind == AssetOperationKind::SetConsumption
+        && matches!(&domain_plan, DomainPlan::Model { .. })
+        && reviewable_model_relationship_conflicts(&blocked, &relationship_changes);
+    let model_update =
+        kind == AssetOperationKind::UpdateAsset && matches!(&domain_plan, DomainPlan::Model { .. });
+    let reviewable_model_update = model_update
+        && blocked.iter().all(|warning| {
+            let explicit_reapply = matches!(
+                lifecycle.as_ref(),
+                Some(LifecycleBinding::ModelReapply { .. })
+            );
+            ["model_owned_fields_drift", "model_target_missing"]
+                .iter()
+                .any(|reason| warning.ends_with(reason))
+                || (explicit_reapply
+                    && [
+                        "model_active_state_drift",
+                        "model_disabled_state_drift",
+                        "model_external_current",
+                    ]
+                    .iter()
+                    .any(|reason| warning.ends_with(reason)))
+        });
+    let reviewable_non_model_update = kind == AssetOperationKind::UpdateAsset && !model_update;
+    // Disabling a customized MCP snapshots and removes the exact observed
+    // entry without replacing its payload. Permit that reviewed drift only
+    // with the same candidate-bound confirmation used by other conflict
+    // operations. Missing targets, enabled-state drift, and identity conflicts
+    // remain hard blocked because the toggle cannot safely reconcile them.
+    let reviewable_mcp_toggle_drift = !blocked.is_empty()
         && matches!(
-            &domain_plan,
-            DomainPlan::Model { after, .. }
-                if after.values().all(|selection| selection.active_profile_id.is_some())
-        );
-    let requires_conflict_confirmation =
-        !blocked.is_empty() && (kind == AssetOperationKind::UpdateAsset || model_replacement);
+            lifecycle.as_ref(),
+            Some(LifecycleBinding::McpEnabled { .. })
+        )
+        && blocked
+            .iter()
+            .all(|warning| warning.ends_with("mcp_config_drift"));
+    // An explicit unassign may be the only way to clear a stale desired
+    // relationship, including when its central asset disappeared. Treat drift
+    // on removal as reviewable instead of making the orphan impossible to
+    // release. Commit remains bound to the reviewed target/settings hashes.
+    let relationship_removal = !blocked.is_empty()
+        && kind == AssetOperationKind::SetConsumption
+        && !relationship_changes.is_empty()
+        && relationship_changes
+            .iter()
+            .all(|change| change.action == RelationshipAction::Remove);
+    let requires_conflict_confirmation = !blocked.is_empty()
+        && !has_blocking_unsupported_effect
+        && (reviewable_non_model_update
+            || reviewable_model_update
+            || model_relationship_replacement
+            || relationship_removal
+            || reviewable_mcp_toggle_drift
+            || reviewable_unsupported_release);
     let can_commit = blocked.is_empty() || requires_conflict_confirmation;
+    // Planning already persists a candidate under the MUX staging directory.
+    // Materialize the stable MUX root before parent fingerprints are captured
+    // so that persisting this very plan cannot make its own target hash stale.
+    fs::create_dir_all(mux_dir()).map_err(|error| error.to_string())?;
     let settings_hash = hash_file(&settings_file());
+    let settings_target_hash = hash_target(&settings_file());
     let target_hashes = hash_targets(&target_files);
     let mcp_catalog_hash = if matches!(&domain_plan, DomainPlan::Mcp { .. }) {
         Some(hash_mcp_catalog()?)
     } else {
         None
     };
-    let operation_id = Uuid::new_v4().hyphenated().to_string();
-    let candidate_material = serde_json::to_vec(&(
-        &kind,
+    let skill_target_graph_hash = if matches!(
         &domain_plan,
-        &central_changes,
-        &relationship_changes,
-        &model_state_changes,
-        &target_files,
-        &affected_agent_ids,
-        &warnings,
-        can_commit,
-        requires_conflict_confirmation,
-        &settings_hash,
-        &target_hashes,
-        &mcp_catalog_hash,
-        &lifecycle,
-    ))
-    .map_err(|error| error.to_string())?;
-    let candidate_hash = hex::encode(Sha256::digest(candidate_material));
-    let plan = AssetOperationPlan {
-        operation_id,
-        kind,
-        domain_plan,
-        central_changes,
-        relationship_changes,
-        model_state_changes,
-        target_files,
-        affected_agent_ids,
-        warnings,
-        can_commit,
-        requires_conflict_confirmation,
-        candidate_hash,
+        DomainPlan::Skill { .. }
+            | DomainPlan::AgentConfiguration { .. }
+            | DomainPlan::AgentCapabilities { .. }
+    ) {
+        Some(hash_skill_target_graph()?)
+    } else {
+        None
     };
-    persist_operation(&PersistedAssetOperation {
+    let mut persisted = PersistedAssetOperation {
         schema_version: OPERATION_SCHEMA_VERSION,
-        plan: plan.clone(),
+        plan: AssetOperationPlan {
+            operation_id: Uuid::new_v4().hyphenated().to_string(),
+            kind,
+            domain_plan,
+            central_changes,
+            relationship_changes,
+            model_state_changes,
+            consumption_state_changes,
+            target_files,
+            affected_agent_ids,
+            warnings,
+            can_commit,
+            requires_conflict_confirmation,
+            candidate_hash: String::new(),
+        },
         settings_hash,
+        settings_target_hash,
         target_hashes,
         mcp_catalog_hash,
+        skill_target_graph_hash,
         lifecycle,
-    })?;
+    };
+    persisted.plan.candidate_hash = candidate_hash(&persisted)?;
+    let plan = persisted.plan.clone();
+    persist_operation(&persisted)?;
     Ok(plan)
+}
+
+fn append_missing_skill_removal_warnings(
+    plan: &DomainPlan,
+    effects: &BTreeSet<(String, AssetRef)>,
+    warnings: &mut Vec<String>,
+) -> Result<(), String> {
+    let missing_names: BTreeSet<String> = effects
+        .iter()
+        .filter_map(|(agent_id, asset)| match asset {
+            AssetRef::Skill { name } if !asset_desired_after(plan, agent_id, asset) => {
+                Some(name.clone())
+            }
+            _ => None,
+        })
+        .collect();
+    if missing_names.is_empty() {
+        return Ok(());
+    }
+    let settings = load_settings_strict().map_err(|error| error.to_string())?;
+    for (agent_id, asset) in effects {
+        let AssetRef::Skill { name } = asset else {
+            continue;
+        };
+        if missing_names.contains(name) && !managed_skill_is_available(&settings, name) {
+            warnings.push(format!(
+                "{agent_id} / {}: skill_asset_missing",
+                warning_asset_identity(asset)
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn managed_skill_is_available(settings: &Settings, name: &str) -> bool {
+    if !settings
+        .managed_skills
+        .as_ref()
+        .is_some_and(|skills| skills.contains_key(name))
+    {
+        return false;
+    }
+    fs::symlink_metadata(mux_dir().join("skills").join(name))
+        .is_ok_and(|metadata| metadata.is_dir() && !metadata.file_type().is_symlink())
 }
 
 fn validate_transaction_targets(plan: &DomainPlan, targets: &[String]) -> Result<(), String> {
     let skill_links_are_managed = matches!(plan, DomainPlan::Skill { .. });
+    let skill_removal_only = skill_domain_is_removal_only(plan);
     for target in targets {
         let path = expand_tilde(target);
+        capture_parent_directory(&path)?;
         match fs::symlink_metadata(&path) {
-            Ok(metadata) if metadata.is_dir() && !metadata.file_type().is_symlink() => {
+            Ok(metadata)
+                if metadata.is_dir()
+                    && !metadata.file_type().is_symlink()
+                    && !skill_removal_only =>
+            {
                 return Err(format!(
                     "asset_target_unsafe: refusing to use directory as a transaction file: {}",
                     path.display()
@@ -1404,6 +2051,27 @@ fn validate_transaction_targets(plan: &DomainPlan, targets: &[String]) -> Result
         }
     }
     Ok(())
+}
+
+fn skill_domain_is_removal_only(plan: &DomainPlan) -> bool {
+    let DomainPlan::Skill { before, after } = plan else {
+        return false;
+    };
+    let mut changed = false;
+    for agent_id in union_keys(before, after) {
+        let left: BTreeSet<_> = before
+            .get(agent_id)
+            .into_iter()
+            .flatten()
+            .cloned()
+            .collect();
+        let right: BTreeSet<_> = after.get(agent_id).into_iter().flatten().cloned().collect();
+        if !right.is_subset(&left) {
+            return false;
+        }
+        changed |= left != right;
+    }
+    changed
 }
 
 fn model_state_changes(plan: &DomainPlan) -> Vec<ModelStateChange> {
@@ -1467,6 +2135,93 @@ fn model_state_changes(plan: &DomainPlan) -> Vec<ModelStateChange> {
         }
     }
     changes
+}
+
+fn consumption_state_changes(
+    model_changes: &[ModelStateChange],
+    lifecycle: Option<&LifecycleBinding>,
+    inventory: &ConsumptionInventory,
+) -> Result<Vec<ConsumptionStateChange>, String> {
+    let mut changes = model_changes
+        .iter()
+        .filter(|change| {
+            change.before.added
+                && change.after.added
+                && change.before.enabled != change.after.enabled
+        })
+        .map(|change| ConsumptionStateChange {
+            agent_id: change.agent_id.clone(),
+            asset: AssetRef::Model {
+                profile_id: change.profile_id.clone(),
+            },
+            before_enabled: change.before.enabled,
+            after_enabled: change.after.enabled,
+            affected_agent_ids: vec![change.agent_id.clone()],
+            target: None,
+        })
+        .collect::<Vec<_>>();
+
+    match lifecycle {
+        Some(LifecycleBinding::McpEnabled {
+            agent_id,
+            asset_key,
+            before,
+            after,
+        }) => changes.push(ConsumptionStateChange {
+            agent_id: agent_id.clone(),
+            asset: AssetRef::Mcp {
+                key: asset_key.clone(),
+            },
+            before_enabled: *before,
+            after_enabled: *after,
+            affected_agent_ids: vec![agent_id.clone()],
+            target: None,
+        }),
+        Some(LifecycleBinding::SkillEnabled {
+            agent_id,
+            name,
+            target_id,
+            affected_agent_ids,
+            before,
+            after,
+        }) => {
+            let target = inventory
+                .consumptions
+                .iter()
+                .filter(|item| {
+                    item.asset == (AssetRef::Skill { name: name.clone() })
+                        && item
+                            .target
+                            .as_ref()
+                            .is_some_and(|target| target.target_id == *target_id)
+                })
+                .find_map(|item| item.target.clone())
+                .ok_or_else(|| {
+                    "skill_target_missing: reviewed Skill target is unavailable".to_string()
+                })?;
+            let mut affected = affected_agent_ids.clone();
+            affected.sort();
+            affected.dedup();
+            changes.push(ConsumptionStateChange {
+                agent_id: agent_id.clone(),
+                asset: AssetRef::Skill { name: name.clone() },
+                before_enabled: *before,
+                after_enabled: *after,
+                affected_agent_ids: affected,
+                target: Some(ConsumptionTarget {
+                    target_id: target.target_id,
+                    global_dir: target.global_dir,
+                }),
+            });
+        }
+        _ => {}
+    }
+    changes.sort_by(|left, right| {
+        left.agent_id
+            .cmp(&right.agent_id)
+            .then_with(|| left.asset.cmp(&right.asset))
+    });
+    Ok(changes)
 }
 
 fn relationship_changes(plan: &DomainPlan) -> Vec<RelationshipChange> {
@@ -1614,29 +2369,116 @@ fn domain_matches(plan: &DomainPlan, asset: &AssetRef) -> bool {
     )
 }
 
-fn effect_assets(
+fn warning_asset_identity(asset: &AssetRef) -> String {
+    match asset {
+        AssetRef::Mcp { key } => format!("mcp:{key}"),
+        AssetRef::Model { profile_id } => format!("model:{profile_id}"),
+        AssetRef::ModelProvider { provider_id } => format!("model-provider:{provider_id}"),
+        AssetRef::Skill { name } => format!("skill:{name}"),
+    }
+}
+
+fn consumption_warning(item: &super::types::ConsumptionView) -> String {
+    format!(
+        "{} / {}: {}",
+        item.agent_id,
+        warning_asset_identity(&item.asset),
+        item.reason.as_deref().unwrap_or("unresolved_drift")
+    )
+}
+
+fn unsupported_effect_is_safe_model_release(
+    agent_id: &str,
+    asset: &AssetRef,
+    relationship_changes: &[RelationshipChange],
+    state_changes: &[ConsumptionStateChange],
+    lifecycle: Option<&LifecycleBinding>,
+) -> bool {
+    let AssetRef::Model { profile_id } = asset else {
+        return false;
+    };
+    relationship_changes.iter().any(|change| {
+        change.agent_id == agent_id
+            && change.asset == *asset
+            && change.action == RelationshipAction::Remove
+    }) || state_changes.iter().any(|change| {
+        change.agent_id == agent_id
+            && change.asset == *asset
+            && change.before_enabled
+            && !change.after_enabled
+    }) || matches!(
+        lifecycle,
+        Some(LifecycleBinding::ModelReapply {
+            agent_id: lifecycle_agent_id,
+            profile_id: lifecycle_profile_id,
+            enabled: false,
+            ..
+        }) if lifecycle_agent_id == agent_id && lifecycle_profile_id == profile_id
+    )
+}
+
+fn reviewable_model_relationship_conflicts(
+    warnings: &[String],
+    relationship_changes: &[RelationshipChange],
+) -> bool {
+    !relationship_changes.is_empty()
+        && warnings.iter().all(|warning| {
+            relationship_changes.iter().any(|change| {
+                let prefix = format!(
+                    "{} / {}: ",
+                    change.agent_id,
+                    warning_asset_identity(&change.asset)
+                );
+                let Some(reason) = warning.strip_prefix(&prefix) else {
+                    return false;
+                };
+                match change.action {
+                    // A confirmed removal releases ownership and deliberately
+                    // preserves reviewed payload drift as external state.
+                    RelationshipAction::Remove => true,
+                    // Adding a Model may replace only an unambiguous target.
+                    // Ambiguous native structures cannot be made safe by a
+                    // confirmation because the adapter cannot identify the
+                    // exact fields it owns.
+                    RelationshipAction::Add => matches!(
+                        reason,
+                        "model_owned_fields_drift"
+                            | "model_target_missing"
+                            | "model_external_current"
+                            | "model_external_unmanaged"
+                    ),
+                }
+            })
+        })
+}
+
+pub(crate) fn effect_assets(
     plan: &DomainPlan,
     central_changes: &[CentralAssetChange],
     relationship_changes: &[RelationshipChange],
+    state_changes: &[ConsumptionStateChange],
+    lifecycle: Option<&LifecycleBinding>,
 ) -> BTreeSet<(String, AssetRef)> {
     let mut effects: BTreeSet<(String, AssetRef)> = relationship_changes
         .iter()
         .map(|change| (change.agent_id.clone(), change.asset.clone()))
         .collect();
+    for change in state_changes {
+        effects.extend(
+            change
+                .affected_agent_ids
+                .iter()
+                .cloned()
+                .map(|agent_id| (agent_id, change.asset.clone())),
+        );
+    }
     if let DomainPlan::Model { before, after } = plan {
         for agent_id in union_keys(before, after) {
             let left = before.get(agent_id).cloned().unwrap_or_default();
             let right = after.get(agent_id).cloned().unwrap_or_default();
             if left == right {
-                // Re-selecting an unchanged assignment is the Agent-scoped
-                // repair path, so every desired profile remains in scope.
-                effects.extend(
-                    right
-                        .profiles
-                        .keys()
-                        .cloned()
-                        .map(|profile_id| (agent_id.clone(), AssetRef::Model { profile_id })),
-                );
+                // Relationship commands are idempotent. Repairing observed
+                // Model state is a separate, explicit lifecycle operation.
                 continue;
             }
             let profile_ids: BTreeSet<String> = left
@@ -1648,10 +2490,12 @@ fn effect_assets(
             effects.extend(profile_ids.into_iter().filter_map(|profile_id| {
                 let left_record = left.profiles.get(&profile_id);
                 let right_record = right.profiles.get(&profile_id);
-                let active_changed = (left.active_profile_id.as_deref()
-                    == Some(profile_id.as_str()))
-                    != (right.active_profile_id.as_deref() == Some(profile_id.as_str()));
-                (left_record != right_record || active_changed)
+                let became_active = left.active_profile_id.as_deref() != Some(profile_id.as_str())
+                    && right.active_profile_id.as_deref() == Some(profile_id.as_str());
+                // Switching current writes the new current Profile and the
+                // shared pointer. The old current payload is not a physical
+                // effect unless its relationship/enabled record also changed.
+                (left_record != right_record || became_active)
                     .then(|| (agent_id.clone(), AssetRef::Model { profile_id }))
             }));
         }
@@ -1664,11 +2508,85 @@ fn effect_assets(
         effects.extend(
             agents
                 .iter()
+                .filter(|agent_id| {
+                    central_asset_is_consumed_before_or_after(plan, agent_id, &change.asset)
+                })
                 .cloned()
                 .map(|agent_id| (agent_id, change.asset.clone())),
         );
     }
+    if let Some(LifecycleBinding::ModelReapply {
+        agent_id,
+        profile_id,
+        ..
+    }) = lifecycle
+    {
+        // Disabled Model reapply intentionally clears a stray exact managed
+        // entry, so it remains a physical effect even though the relationship
+        // itself is disabled and ordinary central updates skip it.
+        effects.insert((
+            agent_id.clone(),
+            AssetRef::Model {
+                profile_id: profile_id.clone(),
+            },
+        ));
+    }
     effects
+}
+
+fn central_asset_is_consumed_before_or_after(
+    plan: &DomainPlan,
+    agent_id: &str,
+    asset: &AssetRef,
+) -> bool {
+    match (plan, asset) {
+        (DomainPlan::Mcp { before, after }, AssetRef::Mcp { key }) => {
+            before.get(agent_id).is_some_and(|keys| keys.contains(key))
+                || after.get(agent_id).is_some_and(|keys| keys.contains(key))
+        }
+        (DomainPlan::Model { before, after }, AssetRef::Model { profile_id }) => {
+            before
+                .get(agent_id)
+                .and_then(|selection| selection.profiles.get(profile_id))
+                .is_some_and(|record| record.enabled)
+                || after
+                    .get(agent_id)
+                    .and_then(|selection| selection.profiles.get(profile_id))
+                    .is_some_and(|record| record.enabled)
+        }
+        (DomainPlan::Skill { before, after }, AssetRef::Skill { name }) => {
+            before
+                .get(agent_id)
+                .is_some_and(|names| names.contains(name))
+                || after
+                    .get(agent_id)
+                    .is_some_and(|names| names.contains(name))
+        }
+        (
+            DomainPlan::AgentConfiguration {
+                skills_before,
+                skills_after,
+                ..
+            },
+            AssetRef::Skill { name },
+        )
+        | (
+            DomainPlan::AgentCapabilities {
+                skills_before,
+                skills_after,
+                ..
+            },
+            AssetRef::Skill { name },
+        ) => {
+            skills_before
+                .get(agent_id)
+                .is_some_and(|names| names.contains(name))
+                || skills_after
+                    .get(agent_id)
+                    .is_some_and(|names| names.contains(name))
+        }
+        _ => false,
+    }
 }
 
 fn asset_desired_after(plan: &DomainPlan, agent_id: &str, asset: &AssetRef) -> bool {
@@ -1728,7 +2646,32 @@ fn external_blocks_selection(
     }
 }
 
-fn target_files(plan: &DomainPlan) -> Result<Vec<String>, String> {
+fn target_files(
+    plan: &DomainPlan,
+    lifecycle: Option<&LifecycleBinding>,
+    effects: &BTreeSet<(String, AssetRef)>,
+) -> Result<Vec<String>, String> {
+    if let Some(LifecycleBinding::ModelReapply {
+        agent_id,
+        profile_id,
+        active,
+        ..
+    }) = lifecycle
+    {
+        let settings = load_settings_strict().map_err(|error| error.to_string())?;
+        let mut paths =
+            crate::resources::model::configured_path_strings_checked(&settings, agent_id)?
+                .ok_or_else(|| format!("unsupported model Agent: {agent_id}"))?;
+        if agent_id == "pi" && !active {
+            paths.truncate(1);
+        }
+        return Ok(crate::resources::model::adapters::target_files(
+            agent_id,
+            &paths,
+            std::slice::from_ref(profile_id),
+            settings.model_profiles.as_ref().unwrap_or(&BTreeMap::new()),
+        ));
+    }
     let mut files = BTreeSet::new();
     match plan {
         DomainPlan::Mcp { .. } => {
@@ -1742,6 +2685,18 @@ fn target_files(plan: &DomainPlan) -> Result<Vec<String>, String> {
         DomainPlan::Model { before, after } => {
             let settings = load_settings_strict().map_err(|error| error.to_string())?;
             for agent_id in agents_for_plan(plan) {
+                let profile_ids = effects
+                    .iter()
+                    .filter_map(|(effect_agent_id, asset)| match asset {
+                        AssetRef::Model { profile_id } if effect_agent_id == &agent_id => {
+                            Some(profile_id.clone())
+                        }
+                        _ => None,
+                    })
+                    .collect::<BTreeSet<_>>();
+                if profile_ids.is_empty() {
+                    continue;
+                }
                 let mut paths =
                     crate::resources::model::configured_path_strings_checked(&settings, &agent_id)?
                         .ok_or_else(|| format!("unsupported model Agent: {agent_id}"))?;
@@ -1753,12 +2708,6 @@ fn target_files(plan: &DomainPlan) -> Result<Vec<String>, String> {
                 {
                     paths.truncate(1);
                 }
-                let profile_ids: BTreeSet<String> = before
-                    .get(&agent_id)
-                    .into_iter()
-                    .chain(after.get(&agent_id))
-                    .flat_map(|selection| selection.profiles.keys().cloned())
-                    .collect();
                 for path in crate::resources::model::adapters::target_files(
                     &agent_id,
                     &paths,
@@ -1835,8 +2784,20 @@ fn changed_skill_names(
 pub(crate) fn hash_targets(targets: &[String]) -> BTreeMap<String, String> {
     targets
         .iter()
-        .map(|target| (target.clone(), hash_path(&expand_tilde(target))))
+        .map(|target| {
+            let path = expand_tilde(target);
+            (target.clone(), hash_target(&path))
+        })
         .collect()
+}
+
+pub(crate) fn hash_target(path: &Path) -> String {
+    capture_parent_directory(path)
+        .and_then(|parent| {
+            let state = read_path_state_anchored(path, &parent)?;
+            fingerprint_anchored_path_state(&state, &parent)
+        })
+        .unwrap_or_else(|error| hex::encode(Sha256::digest(format!("error:{error}").as_bytes())))
 }
 
 pub(crate) fn hash_file(path: &Path) -> String {
@@ -1856,17 +2817,25 @@ pub(crate) fn hash_mcp_catalog() -> Result<String, String> {
     Ok(hex::encode(Sha256::digest(bytes)))
 }
 
-fn hash_path(path: &Path) -> String {
-    match fs::symlink_metadata(path) {
-        Ok(metadata) if metadata.file_type().is_symlink() => fs::read_link(path)
-            .map(|target| hex::encode(Sha256::digest(target.as_os_str().as_encoded_bytes())))
-            .unwrap_or_else(|error| format!("error:{:?}", error.kind())),
-        Ok(metadata) if metadata.is_file() => hash_file(path),
-        Ok(metadata) if metadata.is_dir() => "directory".into(),
-        Ok(_) => "other".into(),
-        Err(error) if error.kind() == ErrorKind::NotFound => "missing".into(),
-        Err(error) => format!("error:{:?}", error.kind()),
-    }
+pub(crate) fn hash_skill_target_graph() -> Result<String, String> {
+    let inventory = list_skills_inventory().map_err(|error| format!("{error:?}"))?;
+    let mut targets = inventory
+        .targets
+        .into_iter()
+        .map(|target| {
+            (
+                target.target_id,
+                target.global_dir,
+                target
+                    .affected_agent_ids
+                    .into_iter()
+                    .collect::<BTreeSet<_>>(),
+            )
+        })
+        .collect::<Vec<_>>();
+    targets.sort();
+    let bytes = serde_json::to_vec(&targets).map_err(|error| error.to_string())?;
+    Ok(hex::encode(Sha256::digest(bytes)))
 }
 
 pub(crate) fn operation_root(operation_id: &str) -> PathBuf {
@@ -1883,7 +2852,7 @@ fn persist_operation(operation: &PersistedAssetOperation) -> Result<(), String> 
             .map_err(|error| error.to_string())?;
     }
     let path = root.join("plan.json");
-    let bytes = serde_json::to_vec_pretty(operation).map_err(|error| error.to_string())?;
+    let bytes = serde_json::to_vec(operation).map_err(|error| error.to_string())?;
     fs::write(&path, bytes).map_err(|error| error.to_string())?;
     #[cfg(unix)]
     {
@@ -1900,12 +2869,40 @@ pub(crate) fn load_operation(operation_id: &str) -> Result<PersistedAssetOperati
         .map_err(|_| "asset operation is unavailable or expired".to_string())?;
     let operation: PersistedAssetOperation = serde_json::from_slice(&bytes)
         .map_err(|_| "asset operation plan is invalid".to_string())?;
+    let canonical = serde_json::to_vec(&operation)
+        .map_err(|_| "asset operation plan is invalid".to_string())?;
     if operation.schema_version != OPERATION_SCHEMA_VERSION
         || operation.plan.operation_id != operation_id
+        || canonical != bytes
+        || candidate_hash(&operation)? != operation.plan.candidate_hash
     {
-        return Err("asset operation plan is incompatible".into());
+        return Err("asset_operation_stale: reviewed plan failed integrity validation".into());
     }
     Ok(operation)
+}
+
+fn candidate_hash(operation: &PersistedAssetOperation) -> Result<String, String> {
+    let plan = &operation.plan;
+    let material = serde_json::to_vec(&(
+        &plan.kind,
+        &plan.domain_plan,
+        &plan.central_changes,
+        &plan.relationship_changes,
+        &plan.model_state_changes,
+        &plan.consumption_state_changes,
+        &plan.target_files,
+        &plan.affected_agent_ids,
+        &plan.warnings,
+        plan.can_commit,
+        plan.requires_conflict_confirmation,
+        &operation.settings_hash,
+        &operation.target_hashes,
+        &operation.mcp_catalog_hash,
+        &operation.skill_target_graph_hash,
+        &operation.lifecycle,
+    ))
+    .map_err(|error| error.to_string())?;
+    Ok(hex::encode(Sha256::digest(material)))
 }
 
 #[cfg(test)]
@@ -2040,6 +3037,50 @@ mod tests {
         )
         .unwrap();
         assert!(!persisted.contains(home.home.to_string_lossy().as_ref()));
+    }
+
+    #[test]
+    fn persisted_asset_plan_rejects_semantic_tampering_with_the_reviewed_candidate() {
+        let _home = TestHome::new("consume-plan-integrity");
+        write_local_mcp_for_target_safety();
+        let plan = plan_set_agent_consumption(PlanSetAgentConsumptionRequest {
+            agent_id: "claude-code".into(),
+            selection: AgentConsumptionSelection::Mcp {
+                asset_keys: vec!["target-safety::stdio".into()],
+            },
+        })
+        .unwrap();
+        let path = operation_root(&plan.operation_id).join("plan.json");
+        let mut persisted: PersistedAssetOperation =
+            serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        let DomainPlan::Mcp { after, .. } = &mut persisted.plan.domain_plan else {
+            unreachable!();
+        };
+        after.get_mut("claude-code").unwrap().clear();
+        fs::write(&path, serde_json::to_vec(&persisted).unwrap()).unwrap();
+
+        let error = load_operation(&plan.operation_id).unwrap_err();
+        assert!(error.starts_with("asset_operation_stale:"), "{error}");
+    }
+
+    #[test]
+    fn persisted_asset_plan_rejects_noncanonical_bytes() {
+        let _home = TestHome::new("consume-plan-canonical");
+        write_local_mcp_for_target_safety();
+        let plan = plan_set_agent_consumption(PlanSetAgentConsumptionRequest {
+            agent_id: "claude-code".into(),
+            selection: AgentConsumptionSelection::Mcp {
+                asset_keys: vec!["target-safety::stdio".into()],
+            },
+        })
+        .unwrap();
+        let path = operation_root(&plan.operation_id).join("plan.json");
+        let mut bytes = fs::read(&path).unwrap();
+        bytes.push(b'\n');
+        fs::write(&path, bytes).unwrap();
+
+        let error = load_operation(&plan.operation_id).unwrap_err();
+        assert!(error.starts_with("asset_operation_stale:"), "{error}");
     }
 
     #[test]

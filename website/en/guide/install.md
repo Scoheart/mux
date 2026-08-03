@@ -36,7 +36,7 @@ This symlink is auto-repaired by the app; when the app updates, the CLI updates 
 
 ### Option 2: download the prebuilt binary separately
 
-In the stable Release, pick the asset labeled **Command-line tool · Apple Silicon**. For compatibility with older `mux upgrade`, the actual filename is still `mux_v<version>_aarch64-apple-darwin.tar.gz`:
+In the stable Release, pick the asset labeled **Command-line tool · Apple Silicon**. Its filename is `mux_v<version>_aarch64-apple-darwin.tar.gz`:
 
 ```bash
 # After downloading from Releases:
@@ -67,13 +67,16 @@ mux
 Or use subcommands for scripting (set `MUX_NO_TUI=1` to print help instead of entering the TUI when run with no arguments):
 
 ```bash
-mux list            # list the MCP servers in the catalog
-mux status          # show the MCP servers currently active per agent
-mux apply <names…>  # non-interactive install to global config (--agent)
-mux export --out mcp.json  # export the effective config
-mux agents list     # list all agents
-mux upgrade         # upgrade a standalone CLI install
+mux mcp list
+mux mcp assign github::stdio --agent claude-code --yes
+mux model use work --agent pi --yes
+mux skill assign review-changes --agent codex --yes
+mux mcp export --out mcp.json --yes
+mux agent list
+mux upgrade --yes
 ```
+
+Agent-relationship mutations require exact asset IDs and an explicit `--agent <id>`. Scripts can use the global `--json`, `--yes`, `--dry-run`, and `--no-color` options; `--yes` and `--dry-run` are mutually exclusive.
 
 See [CLI / TUI](/en/guide/cli) for details.
 

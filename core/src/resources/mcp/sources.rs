@@ -1155,7 +1155,11 @@ args = ["-y", "github-mcp"]
             .unwrap();
         let cache = cached_path(&def).unwrap();
         let cache_before = fs::read_to_string(&cache).unwrap();
-        write_local_source(&source, "v2");
+        fs::write(
+            &source,
+            r#"{"mcpServers":{"docs":{"command":"npx","args":["v2"]},"search":{"command":"npx","args":["search"]}}}"#,
+        )
+        .unwrap();
 
         let settings_path = settings_file();
         let settings_before = fs::read_to_string(&settings_path).unwrap();

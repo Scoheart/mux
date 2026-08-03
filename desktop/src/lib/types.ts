@@ -520,6 +520,11 @@ export type ConsumptionStatus =
   | "unsupported"
   | "external";
 
+export interface ConsumptionTarget {
+  target_id: string;
+  global_dir: string;
+}
+
 export interface ConsumptionView {
   agent_id: string;
   asset: AssetRef;
@@ -531,7 +536,7 @@ export interface ConsumptionView {
   status: ConsumptionStatus;
   reason: string | null;
   affected_agent_ids: string[];
-  target?: { target_id: string; global_dir: string } | null;
+  target?: ConsumptionTarget | null;
 }
 
 export interface ConsumptionInventory {
@@ -580,6 +585,15 @@ export interface RelationshipChange {
   agent_id: string;
   asset: AssetRef;
   action: RelationshipAction;
+}
+
+export interface ConsumptionStateChange {
+  agent_id: string;
+  asset: AssetRef;
+  before_enabled: boolean;
+  after_enabled: boolean;
+  affected_agent_ids: string[];
+  target?: ConsumptionTarget | null;
 }
 
 export interface ModelStateSnapshot {
@@ -651,6 +665,7 @@ export interface AssetOperationPlan {
   domain_plan: DomainPlan;
   central_changes: CentralAssetChange[];
   relationship_changes: RelationshipChange[];
+  consumption_state_changes?: ConsumptionStateChange[];
   model_state_changes: ModelStateChange[];
   target_files: string[];
   affected_agent_ids: string[];
@@ -695,6 +710,10 @@ export type PlanOperationRequest =
       request: { agent_id: string; selection: AgentConsumptionSelection };
     }
   | {
+      operation: "remove_agent_consumption";
+      request: { agent_id: string; selection: AgentConsumptionSelection };
+    }
+  | {
       operation: "set_asset_consumers";
       request: { asset: AssetRef; agent_ids: string[] };
     }
@@ -716,7 +735,18 @@ export type PlanOperationRequest =
     }
   | {
       operation: "reapply_mcp";
-      request: { asset_key: string };
+      request: {
+        asset_key: string;
+        scope: { kind: "agent"; agent_id: string } | { kind: "all" };
+      };
+    }
+  | {
+      operation: "reapply_model";
+      request: { agent_id: string; profile_id: string };
+    }
+  | {
+      operation: "reapply_skill";
+      request: { agent_id: string; name: string };
     }
   | {
       operation: "set_model_enabled";

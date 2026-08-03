@@ -7,7 +7,7 @@
 1. **识别永远只读**：MUX 可以扫描 Agent 中已有的 MCP、Model、Skill，但扫描结果不等于 MUX 已拥有这些配置。
 2. **一次只处理一个候选**：没有默认勾选、全选、批量循环提交，也没有“刷新即导入”。
 3. **写入必须经过同一个 Core plan / commit / cancel 边界**：前端只能选择候选、展示计划并让用户确认，不能自行拼接写文件。
-4. **MCP、Model、Skill 的领域覆盖一致**：Desktop 的外部配置收件箱和 CLI 的 `detected` / `manage` 都覆盖三个领域。
+4. **MCP、Model、Skill 的领域覆盖一致**：Desktop 的外部配置收件箱和 CLI 的 `discover` / `adopt` 都覆盖三个领域。
 
 Desktop 仍然是中央 Model / Skill 的富编辑器，兼容 TUI 的目录编辑仍以 MCP 为主；这是呈现层差异，不再改变“外部配置是否被 MUX 接管”的语义。
 
@@ -45,16 +45,16 @@ Desktop 仍然是中央 Model / Skill 的富编辑器，兼容 TUI 的目录编�
 
 | 能力 | Desktop App | CLI | 一致性约束 |
 |---|---|---|---|
-| 扫描 MCP 外部配置 | 启动后延迟扫描、手动重扫 | `mux detected` | 只读、无密钥 DTO |
-| 扫描 Model 外部配置 | 启动后延迟扫描、手动重扫 | `mux detected` | 只读，credential 只暴露类别/引用 |
-| 扫描 Skill 外部配置 | 延迟做内容 hash / risk audit | `mux detected` | 只显示 Agent target 的 `external` 项 |
-| 纳管一个 MCP | 每项“让 MUX 管理” | `mux manage mcp <key> --agent <id>` | plan → review → confirm → commit |
-| 纳管一个 Model | 每项“让 MUX 管理” | `mux manage model <candidate-id>` | plan → review → confirm → commit |
-| 纳管一个 Skill | 每项“让 MUX 管理” | `mux manage skill <identity>` | plan → risk gate → review → confirm → commit |
+| 扫描 MCP 外部配置 | 启动后延迟扫描、手动重扫 | `mux discover mcp` | 只读、无密钥 DTO |
+| 扫描 Model 外部配置 | 启动后延迟扫描、手动重扫 | `mux discover model` | 只读，credential 只暴露类别/引用 |
+| 扫描 Skill 外部配置 | 延迟做内容 hash / risk audit | `mux discover skill` | 只显示 Agent target 的 `external` 项 |
+| 纳管一个 MCP | 每项“让 MUX 管理” | `mux adopt mcp <key> --agent <id>` | plan → review → confirm → commit |
+| 纳管一个 Model | 每项“让 MUX 管理” | `mux adopt model <candidate-id>` | plan → review → confirm → commit |
+| 纳管一个 Skill | 每项“让 MUX 管理” | `mux adopt skill <identity>` | plan → risk gate → review → confirm → commit |
 | 批量接管 Agent 配置 | 已删除 | 已删除 | 不允许 |
-| 重新扫描 | 更新只读候选 | `mux detected` / TUI source refresh | 不产生 ownership |
-| 中央 MCP 编辑 | 完整 UI | 兼容命令 / TUI | 共享 Core，但交互形态不同 |
-| 中央 Model / Skill 富编辑 | 完整 UI | 列表、workspace、外部单项纳管 | 仍是已知的呈现层差异 |
+| 重新扫描 | 更新只读候选 | `mux discover` / TUI source refresh | 不产生 ownership |
+| 中央 MCP 编辑 | 完整 UI | `mux mcp` 生命周期命令 / TUI | 共享 Core，但交互形态不同 |
+| 中央 Model / Skill 富编辑 | 完整 UI | 关系管理、列表、workspace、外部单项纳管 | 仍是已知的呈现层差异 |
 
 最后两行不是外部配置所有权语义的一部分。本次没有用一个脆弱的通用 JSON 写入口假装 CLI 已拥有完整富编辑体验；相关新增能力应继续通过 typed Core operation 单独设计。
 
@@ -65,10 +65,10 @@ flowchart TD
     A[Agent 原生 MCP / Model / Skill 配置] --> B[Core 只读扫描]
     B --> C[无密钥 adoption candidates]
     C --> D1[Desktop 外部配置收件箱]
-    C --> D2[CLI mux detected]
+    C --> D2[CLI mux discover]
 
     D1 -->|点击单项| E[Core plan]
-    D2 -->|mux manage 指定单项| E
+    D2 -->|mux adopt 指定单项| E
     E --> F[展示 Agent / target files / warnings]
     F -->|用户确认| G[Core commit]
     F -->|返回或拒绝| H[Core cancel]
@@ -92,14 +92,14 @@ flowchart TD
 
 CLI 顶层命令现在明确区分：
 
-- `detected`：三个领域的无副作用扫描；
-- `manage`：指定一个精确候选。
+- `discover [mcp|model|skill]`：三个领域的无副作用扫描；
+- `adopt {mcp|model|skill}`：指定一个精确候选。
 
-命令契约见 [cli/src/main.rs](../cli/src/main.rs#L79-L159)，路由见 [cli/src/main.rs](../cli/src/main.rs#L185-L203)。
+命令契约与路由集中在 [cli/src/command.rs](../cli/src/command.rs)，进程入口只负责输出模式和退出码，见 [cli/src/main.rs](../cli/src/main.rs)。
 
-`cmd_detected` 分别读取 MCP、Model 和 Skill 候选；Skill 会过滤为 Agent target 的 `external` observation，避免把中央 Skill 错报为待接管项，见 [cli/src/main.rs](../cli/src/main.rs#L306-L398)。
+`discover` 分别读取 MCP、Model 和 Skill 候选；Skill 会过滤为 Agent target 的 `external` observation，避免把中央 Skill 错报为待接管项。
 
-`cmd_manage` 会重新读取候选并用 candidate id / fingerprint 绑定当前观测，防止用户拿旧列表覆盖新配置，见 [cli/src/main.rs](../cli/src/main.rs#L443-L500)；然后打印 plan 的 Agent、目标文件和 warning，最后要求 `y/yes` 确认，见 [cli/src/main.rs](../cli/src/main.rs#L502-L561)。不可提交、需要冲突确认或高风险审查的计划会先 cancel，不会进入确认提示；其余计划确认后仍通过统一 Core commit，见 [cli/src/main.rs](../cli/src/main.rs#L400-L441) 和 [cli/src/main.rs](../cli/src/main.rs#L563-L596)。
+`adopt` 会重新读取候选并用 candidate id / fingerprint 绑定当前观测，防止用户拿旧列表覆盖新配置；之后统一交给 [cli/src/review.rs](../cli/src/review.rs) 展示 Agent、目标文件、关系变化和 warning。`can_commit = false` 的计划会取消并阻断；可确认的冲突或风险计划则把 candidate/findings hash 带入 commit。交互终端要求显式确认，非交互写入要求 `--yes`，JSON 写入还必须显式提供 `--yes` 或 `--dry-run`。
 
 ### 4.3 TUI
 
@@ -154,8 +154,8 @@ Desktop 测试现在直接证明：
 
 CLI 单元测试还固定了三个契约：
 
-- `mux import` 无法解析；
-- `mux detected --json` 可用；
-- `mux manage` 缺少精确候选参数时无法解析。
+- 旧的批量导入入口无法解析；
+- `mux --json discover` 可用；
+- `mux adopt` 缺少精确候选参数时无法解析。
 
 这样以后即使新增第四种资源，也必须显式接入 detection / single-item management，而不能重新引入“扫到什么就全部写入”的捷径。

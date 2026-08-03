@@ -143,14 +143,17 @@ Source 管理还会对比变更前后的 effective catalog。只要变化的 MCP
 
 ### CLI
 
-CLI 的 Rust import 只进入 `application` 或 `domain`。产品描述与顶层命令已覆盖 MCP、Model、Skill，新增：
+CLI 的 Rust import 只进入 `application` 或 `domain`。当前命令树以资源域为第一层：
 
-- `mux workspace [--json]`
-- `mux models`
-- `mux skills`
-- unified Agent capabilities
+- `mux mcp {list,show,status,assign,unassign,enable,disable,reapply,add,delete,export}`
+- `mux model {list,show,status,assign,unassign,enable,disable,reapply,use}`
+- `mux skill {list,show,status,assign,unassign,enable,disable,reapply}`
+- `mux agent {list,enable,disable}`
+- `mux discover`、`mux adopt`、`mux workspace`、`mux upgrade`
 
-启动统一调用 `MuxCore::bootstrap`（[`cli/src/main.rs`](../cli/src/main.rs)）。脚本式 `import/add/remove/apply/clean` 已改为 reviewed central plan/commit；存在 drift、冲突或需确认的计划会取消并提示到 Desktop 审查。
+启动统一调用 `MuxCore::bootstrap`（[`cli/src/main.rs`](../cli/src/main.rs)）。MCP、Model、Skill 的 Agent 消费关系都使用同一套 reviewed plan/commit/cancel；只有不可提交的硬冲突会阻断，需覆盖漂移或接受 Skill 风险时，确认值与当前计划 hash 绑定。
+
+三个域都提供显式 `reapply`，但它不属于关系写入：`assign`、`unassign`、`enable`、`disable` 以及 Model 的 `use` 只改变 desired state，重复请求严格幂等，不会借观测漂移之机修复文件。`reapply` 才进入物理修复计划，并且三域默认都精确到一个 Agent/资产关系。MCP 额外提供显式 `--all` 批量形式，只纳入未同步的 desired consumers，不重写 clean Agent。Skill 只重建缺失或可证明受管的链接，外部目录、普通文件和异向链接不进入覆盖路径。
 
 无子命令 TUI 仍保留 MCP catalog 编辑界面，这是兼容 surface，不代表产品 Core 仍以 MCP 为边界。该界面的 install、enable、delete、import、forget、resync 等写操作也已迁移到统一 asset plan/commit；resync 使用专门的 reapply plan，在不修改中央资产的前提下修复 consumer drift。后续 TUI 若新增 Model/Skill lifecycle，应继续只调用统一 Application API。
 
@@ -166,7 +169,7 @@ Tauri 注册了 `get_workspace_snapshot`、`list_agent_capabilities`、`plan_ope
 
 ### MCP disabled reapply
 
-`plan_reapply_mcp` 会保持 desired relationship 的 enabled 状态。对已禁用的 MCP，commit 会先用中央定义刷新保存的 disabled snapshot，再恢复禁用状态；它不会因为 reapply 暂时安装中央定义就把该 relationship 意外启用（[`core/src/assets/transaction.rs`](../core/src/assets/transaction.rs)）。
+`plan_reapply_mcp` 会保持 desired relationship 的 enabled 状态。已禁用且物理状态正确时 reapply 是 no-op；如果检测到 disabled-state drift，commit 会先用中央定义刷新保存的 disabled snapshot，再恢复禁用状态，不会因为修复过程临时安装中央定义就把该 relationship 意外启用（[`core/src/assets/transaction.rs`](../core/src/assets/transaction.rs)）。
 
 对应回归测试同时固定三项行为：普通 drift 可修复且中央资产不变；禁用 relationship reapply 后仍禁用；审阅后 catalog fingerprint 变化时目标文件保持不动（[`core/tests/central_assets_e2e.rs`](../core/tests/central_assets_e2e.rs)）。
 

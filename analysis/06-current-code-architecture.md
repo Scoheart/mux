@@ -2,6 +2,8 @@
 
 > 分析基线：`d78de07e2b295a2648fde5194e3d7017b847ce00`，版本 `1.8.42`，2026-07-24。
 > 本文描述的是当前仓库中实际运行的架构，不是目标蓝图；已经完成的 Core 重构和仍保留的兼容边界会分开说明。
+>
+> **2026-08-04 更新：** 标题中的“当前”仅指上述历史基线。CLI 章节已更新到统一资源域命令树；旧顶层入口已彻底删除且没有兼容别名。
 
 ## 结论先行
 
@@ -767,22 +769,26 @@ Skill inventory 区分：
 
 ### 11.1 CLI
 
-CLI 顶层命令仍保留大量 MCP 兼容语义，同时已有跨资源入口：
+CLI 以资源域为第一层，三个资产域共享查询和消费关系动词：
 
 ```text
-mux detected / manage / add / remove / apply / clean / status
-mux agents
+mux mcp {list,show,status,assign,unassign,enable,disable,reapply,add,delete,export}
+mux model {list,show,status,assign,unassign,enable,disable,reapply,use}
+mux skill {list,show,status,assign,unassign,enable,disable,reapply}
+mux agent {list,enable,disable}
+mux discover [mcp|model|skill]
+mux adopt {mcp,model,skill}
 mux workspace
-mux models
-mux skills
 mux upgrade
 ```
 
-命令定义与 bootstrap dispatch 位于 `cli/src/main.rs:64-193`。
+命令定义与 dispatch 位于 `cli/src/command.rs`，启动、结构化错误和 bootstrap 位于 `cli/src/main.rs`。
 
-新的 mutation 路径已经使用统一 façade。例如 `apply` 构造 `EnsureAgentConsumption` plan，再通过共同的 reviewed commit/cancel helper 提交（`cli/src/main.rs:447-462,528-557`）。
+所有 MCP、Model、Skill 消费关系 mutation 都使用统一 façade：`assign` 构造 `EnsureAgentConsumption`，`unassign` 构造 `RemoveAgentConsumption`，随后通过共同的 review/commit/cancel helper 一次提交一个 Agent 的完整增量。
 
-需要注意：bulk import、remove、apply、clean 当前按 item 逐个 plan/commit。前面的 item 成功、后面的 item 失败时会产生部分成功，而不是一个覆盖整批 item 的原子事务。这是 CLI 批处理的产品语义，不是底层单项事务失去原子性。
+`reapply` 是三个域共同的显式物理修复动作，不复用关系 mutation。关系命令在 desired state 未变化时返回 no-op，即使 inventory 报 drift 也不会覆盖目标；修复必须单独生成、审阅并确认 hash-bound candidate。三域 reapply 默认都精确到 `asset + agent`；MCP 的批量形式只能通过显式 `--all` 触发，并只展开未同步的 desired consumers。
+
+CLI 不提供隐式 all-Agents 写入。一次关系命令可以包含同一域的多个准确资产 ID，但必须指定且只指定一个 `--agent`，因此整组资产在一个 Core plan 中原子提交，不会循环逐项产生部分成功。
 
 ### 11.2 TUI
 
@@ -962,13 +968,13 @@ React 仍以多个 domain hook 扇出查询；WorkspaceSnapshot 没成为所有�
 
 TUI mutation 已走统一安全路径，但产品信息架构仍只有 Registry/Sources/Agents，不呈现完整 Model 与 Skill 生命周期。
 
-### 16.5 Bulk 命令是逐项事务
+### 16.5 Cross-asset batch surface 仍有限
 
-CLI 的 import/remove/apply/clean、TUI 的 paste，以及 Desktop 的逐项 migration/paste 都可能部分成功。若未来需要“整批全有或全无”，必须新增 batch plan，而不是在 frontend 循环现有单项 transaction。
+`mcp reapply --all` 会把同一 MCP 的 drifted consumers 收进一个 reviewed plan；单个 Skill 命令也可以选择多个 Skill。跨资源类型、跨 asset 的任意 batch 尚无统一 wire contract。若未来需要这种“整批全有或全无”，应新增显式 batch plan，而不是在 frontend 循环单项 transaction。
 
-### 16.6 两类 writer 锁序不同
+### 16.6 全局 writer 锁序是必须守住的不变量
 
-cross-domain asset transaction 主要是 settings → Skills；Skill transaction 主要是 Skills → settings。Snapshot 已通过 try-lock + release/retry 避免自锁，但同时存在的 writer 可能因有界 timeout 失败，而非形成一条全局锁序。
+cross-domain asset 与 Skill writer 统一遵守 Skills → settings → safe-write WAL。Snapshot 通过 try-lock + release/retry 避免与 writer 自锁；新增 writer 若绕过这条顺序，仍可能重新引入跨进程恢复窗口或有界 timeout。
 
 ### 16.7 Asset plan staging 的耐久级别低于 Skill journal
 

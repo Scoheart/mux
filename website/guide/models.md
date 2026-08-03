@@ -47,10 +47,10 @@ Claude Code 只接收 Anthropic Messages，Codex 只接收 Responses；其余自
 2. 在居中的 Provider Catalog 中选择模板。Catalog 内置 OpenRouter、Anthropic、OpenAI、Google AI Studio、DeepSeek、Groq、SiliconFlow、Together AI、Fireworks AI、Cerebras、Ollama、LM Studio、vLLM 等常用入口；模板本身不会立刻写入配置。
 3. Provider 表单按顺序填写名称、类型、唯一 Base URL、API Key / 环境变量，再启用协议并编辑各自 Endpoint Path。每行会实时预览完整请求 URL，也可单独恢复模板默认 Path。保存后连接实例进入左侧 **My Providers**。
 4. 点击 **添加模型**，选择已保存的 Provider、协议与 Model ID；Model 表单只读显示最终请求 URL，不再重复输入 Base URL 或凭据。
-5. Model 保存到中央资产库后，进入对应 Agent 页的 Model 标签，查看当前状态并选择一个兼容 Profile。
+5. Model 保存到中央资产库后，进入对应 Agent 页的 Model 标签，或使用 `mux model assign` 增量分配兼容 Profile；需要切换 current 时单独使用 `mux model use`。若 desired 关系不变但物理配置漂移，使用 `mux model reapply <profile-id> --agent <agent-id>` 单独审阅并修复；重复 `assign` / `use` 不会隐式覆盖漂移。
 6. 审阅关系变化、目标文件与异常状态后提交。MUX 备份、写入并重新读取验证；成功后重启对应 Agent 会话。
 
-同一个 Profile 可以被多个 Agent 消费，但协议必须兼容；同一个 Agent 同时只能消费一个 Profile。两个入口修改的是同一份 desired relationship，MUX 会在修改磁盘前拒绝不兼容或多选组合。
+同一个 Profile 可以被多个 Agent 消费，但协议必须兼容。原生多模型 Agent 可以保留多个已分配 / 已启用 Profile，但最多一个 current；单模型 Agent 仍限制为最多一个。Desktop 与 CLI 修改的是同一份 desired relationship，MUX 会在修改磁盘前拒绝不兼容组合。
 
 Models 左侧只显示“全部模型”和已配置的 My Providers，不再把协议作为一级导航；主区使用紧凑列表，协议保留为每个 Model 的技术属性。资产编辑和删除集中在居中的详情界面，Agent 关系只在 Agent 页修改。新建、编辑、关系变更和删除都先生成计划：编辑会保留关系并传播到全部消费者，删除会级联清理全部受管 Agent 配置和关系。Agent 页会区分已同步、配置缺失、漂移、冲突和外部配置；接管外部配置或重新同步 drift 必须单独审阅并明确确认。写入进行中时不能意外关闭，失败后可在原位置检查原因并重试。
 

@@ -288,6 +288,9 @@ fn save_with_expected(
     }
     let json = serde_json::to_string_pretty(&settings)
         .map_err(|error| Error::new(ErrorKind::InvalidData, error))?;
+    if original == Some(json.as_str()) {
+        return Ok(());
+    }
     write_private_if_unchanged(path, original, &json).map_err(Error::other)
 }
 
@@ -334,22 +337,23 @@ where
     Ok(out)
 }
 
-/// Move `from` into `legacy_dir` (best-effort) if it exists.
-fn archive(from: &Path, legacy_dir: &Path, name: &str) {
+/// Move `from` into `legacy_dir` if it exists.
+fn archive(from: &Path, legacy_dir: &Path, name: &str) -> std::io::Result<()> {
     if from.exists() {
-        let _ = fs::create_dir_all(legacy_dir);
-        let _ = fs::rename(from, legacy_dir.join(name));
+        fs::create_dir_all(legacy_dir)?;
+        fs::rename(from, legacy_dir.join(name))?;
     }
+    Ok(())
 }
 
 /// One-time migration: if `settings.json` is absent but legacy files exist, fold
 /// them into a fresh `settings.json`, then move the old files aside into
 /// `~/.mux/backups/legacy-<ts>/` (reversible, not deleted). Idempotent: a no-op
 /// once `settings.json` exists.
-pub fn migrate_if_needed() {
+pub fn migrate_if_needed() -> std::io::Result<bool> {
     let settings_path = settings_file();
     if settings_path.exists() {
-        return;
+        return Ok(false);
     }
 
     let reg_dir = registry_dir();
@@ -369,18 +373,15 @@ pub fn migrate_if_needed() {
     // migrate. Once legacy state exists, serialize the complete check, write,
     // and archival decision with every other cooperating settings writer.
     if !has_legacy() {
-        return;
+        return Ok(false);
     }
 
-    let _filesystem_guard = match acquire_settings_lock(&settings_path) {
-        Ok(guard) => guard,
-        Err(_) => return,
-    };
+    let _filesystem_guard = acquire_settings_lock(&settings_path).map_err(Error::other)?;
     let _process_guard = LOCK.lock().unwrap_or_else(|error| error.into_inner());
     // Another process may have completed migration or created fresh settings
     // while this process was waiting for the filesystem lock.
     if settings_path.exists() || !has_legacy() {
-        return;
+        return Ok(false);
     }
 
     let mut s = Settings {
@@ -436,16 +437,15 @@ pub fn migrate_if_needed() {
     // Only archive the legacy files once the new file is safely written.
     // The caller already owns both locks, so use the internal CAS writer
     // directly instead of re-entering the non-reentrant process mutex.
-    if save_with_expected(&settings_path, &s, None).is_err() {
-        return;
-    }
+    save_with_expected(&settings_path, &s, None)?;
     let stamp = super::paths::backup_timestamp();
     let legacy_dir = backups_dir().join(format!("legacy-{stamp}"));
-    archive(&reg_dir, &legacy_dir, "registry");
-    archive(&agents_path, &legacy_dir, "agents.json");
-    archive(&disabled_path, &legacy_dir, "disabled.json");
-    archive(&state_path, &legacy_dir, "state.json");
-    archive(&imported_path, &legacy_dir, ".imported");
+    archive(&reg_dir, &legacy_dir, "registry")?;
+    archive(&agents_path, &legacy_dir, "agents.json")?;
+    archive(&disabled_path, &legacy_dir, "disabled.json")?;
+    archive(&state_path, &legacy_dir, "state.json")?;
+    archive(&imported_path, &legacy_dir, ".imported")?;
+    Ok(true)
 }
 
 #[cfg(test)]
@@ -847,7 +847,7 @@ mod tests {
         let (started_tx, started_rx) = mpsc::channel();
         let migration = std::thread::spawn(move || {
             started_tx.send(()).unwrap();
-            migrate_if_needed();
+            migrate_if_needed().unwrap();
         });
         started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
         std::thread::sleep(Duration::from_millis(100));
@@ -879,6 +879,26 @@ mod tests {
 
         assert!(result.is_err());
         assert_eq!(std::fs::read_to_string(path).unwrap(), original);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn semantic_noop_mutation_preserves_the_settings_inode() {
+        use std::os::unix::fs::MetadataExt;
+
+        let _home = crate::testenv::TestHome::new("settings-noop-inode");
+        mutate_settings(|settings| {
+            settings.ui.get_or_insert_with(UiSettings::default).locale = Some("en-US".into());
+        })
+        .unwrap();
+        let path = settings_file();
+        let before = fs::metadata(&path).unwrap();
+
+        mutate_settings(|_| ()).unwrap();
+
+        let after = fs::metadata(path).unwrap();
+        assert_eq!(before.dev(), after.dev());
+        assert_eq!(before.ino(), after.ino());
     }
 
     #[cfg(unix)]

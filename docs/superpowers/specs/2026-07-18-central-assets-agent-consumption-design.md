@@ -73,7 +73,7 @@ MUX 已经把 MCPs、Models、Skills 放在并列的顶层资源视图中，但�
 消费关系定义“哪个 Agent 应该使用哪个中央资产”。它是 MUX 持久化的 desired state，不由文件扫描临时推断。
 
 - MCP：每个 Agent 为 `0..N`，允许领域专属的 enabled state 和 override。
-- Model：每个 Agent 为 `0..1`。
+- Model：本历史设计当时限定为 `0..1`；当前实现已由多模型语义取代，支持的 Agent 为 `0..N` assigned、最多一个 current，单模型 Agent 仍由兼容性门禁限制为一个。
 - Skill：每个 Agent 为 `0..N`；写入时仍归一化为真实物理 target。
 
 ### 实际状态

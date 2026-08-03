@@ -52,10 +52,11 @@ The desktop Registry shows every copy from each source by default:
 
 ## Central assets and consumption relationships
 
-Central assets define what an item is; a consumption relationship defines which Agent should use it. The Desktop Agent page and asset Inspector edit the same desired state:
+Central assets define what an item is; a consumption relationship defines which Agent should use it. The Desktop Agent page and CLI operate on the same desired state; asset Inspectors keep lifecycle and impact separate:
 
 - **MCP / Skills**: an Agent can consume `0..N` central assets.
-- **Model**: an Agent can consume at most `0..1` Profile at a time.
+- **Model**: a native multi-model Agent may have `0..N` assigned Profiles and several enabled Profiles, but at most one current Profile; a single-model Agent is `0..1`.
+- **Relationship toggles**: `disable` retains the desired relationship and only makes its target inactive; `enable` restores it in place.
 - **Remove use**: delete the relationship and that Agent's managed target without deleting the central asset.
 - **Observed state**: Agent files and Skill links are reconciliation evidence only; external content, drift, and conflicts never write themselves back into desired state.
 

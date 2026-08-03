@@ -97,6 +97,86 @@ it("presents Agent assignment as a direct add action", () => {
   expect(screen.queryByText(/desired relationship/)).not.toBeInTheDocument();
 });
 
+it("shows an MCP enabled-state change separately from relationship changes", () => {
+  const plan = assetOperationPlanFixture();
+  plan.domain_plan = {
+    domain: "mcp",
+    before: { "claude-code": ["github::stdio"] },
+    after: { "claude-code": ["github::stdio"] },
+  };
+  plan.relationship_changes = [];
+  plan.consumption_state_changes = [{
+    agent_id: "claude-code",
+    asset: { domain: "mcp", key: "github::stdio" },
+    before_enabled: true,
+    after_enabled: false,
+    affected_agent_ids: ["claude-code"],
+    target: null,
+  }];
+
+  render(
+    <AssetOperationReviewDialog
+      plan={plan}
+      busy={false}
+      agentId="claude-code"
+      agentName="Claude Code"
+      assetDisplayNames={{ "mcp:github::stdio": "GitHub" }}
+      onCommit={vi.fn()}
+      onCancel={vi.fn()}
+    />,
+  );
+
+  expect(screen.getByRole("heading", { name: "启用状态变化" })).toBeVisible();
+  expect(screen.getByText("停用")).toHaveAttribute("data-action", "disable");
+  expect(screen.getByText("MCP · GitHub")).toBeVisible();
+  expect(screen.getByText("Claude Code：已启用 → 已停用")).toBeVisible();
+  expect(screen.queryByRole("heading", { name: "Agent 变更" })).not.toBeInTheDocument();
+  expect(screen.getByRole("heading", { name: "确认停用 MCP" })).toBeVisible();
+  expect(screen.getByRole("button", { name: "停用 MCP" })).toBeEnabled();
+});
+
+it("shows the physical target and all readers for a shared Skill state change", () => {
+  const plan = assetOperationPlanFixture();
+  plan.domain_plan = {
+    domain: "skill",
+    before: { codex: ["review-changes"], cursor: ["review-changes"] },
+    after: { codex: ["review-changes"], cursor: ["review-changes"] },
+  };
+  plan.relationship_changes = [];
+  plan.consumption_state_changes = [{
+    agent_id: "codex",
+    asset: { domain: "skill", name: "review-changes" },
+    before_enabled: false,
+    after_enabled: true,
+    affected_agent_ids: ["codex", "cursor"],
+    target: {
+      target_id: "agents-shared",
+      global_dir: "~/.agents/skills",
+    },
+  }];
+
+  render(
+    <AssetOperationReviewDialog
+      plan={plan}
+      busy={false}
+      agentId="codex"
+      agentName="Codex"
+      agentDisplayNames={{ cursor: "Cursor" }}
+      assetDisplayNames={{ "skill:review-changes": "Review Changes" }}
+      onCommit={vi.fn()}
+      onCancel={vi.fn()}
+    />,
+  );
+
+  expect(screen.getByText("启用")).toHaveAttribute("data-action", "enable");
+  expect(screen.getByText("Skill · Review Changes")).toBeVisible();
+  expect(screen.getByText("Codex：已停用 → 已启用")).toBeVisible();
+  expect(screen.getByText("同步影响 Codex、Cursor")).toBeVisible();
+  expect(screen.getByText("共享目标 ~/.agents/skills")).toBeVisible();
+  expect(screen.getByRole("heading", { name: "确认启用 Skill" })).toBeVisible();
+  expect(screen.getByRole("button", { name: "启用 Skill" })).toBeEnabled();
+});
+
 it("distinguishes adding a Model from switching the current Model", () => {
   const plan = assetOperationPlanFixture();
   plan.domain_plan = {
@@ -135,6 +215,58 @@ it("distinguishes adding a Model from switching the current Model", () => {
   expect(screen.getByRole("heading", { name: "确认添加当前 Model" })).toBeVisible();
   expect(screen.queryByRole("heading", { name: "确认切换 Model" })).not.toBeInTheDocument();
   expect(screen.getByText("未添加 → 已启用 · 当前")).toBeVisible();
+});
+
+it("keeps a Model enabled-state delta in the richer Model state review without duplication", () => {
+  const plan = assetOperationPlanFixture();
+  plan.domain_plan = {
+    domain: "model",
+    before: {
+      codex: {
+        profiles: { work: { profile_id: "work", enabled: false } },
+        active_profile_id: null,
+      },
+    },
+    after: {
+      codex: {
+        profiles: { work: { profile_id: "work", enabled: true } },
+        active_profile_id: null,
+      },
+    },
+  };
+  plan.relationship_changes = [];
+  plan.model_state_changes = [{
+    agent_id: "codex",
+    profile_id: "work",
+    before: { added: true, enabled: false, active: false },
+    after: { added: true, enabled: true, active: false },
+    fallback_profile_id: null,
+    reason: "model_enabled",
+  }];
+  plan.consumption_state_changes = [{
+    agent_id: "codex",
+    asset: { domain: "model", profile_id: "work" },
+    before_enabled: false,
+    after_enabled: true,
+    affected_agent_ids: ["codex"],
+    target: null,
+  }];
+
+  render(
+    <AssetOperationReviewDialog
+      plan={plan}
+      busy={false}
+      agentId="codex"
+      agentName="Codex"
+      onCommit={vi.fn()}
+      onCancel={vi.fn()}
+    />,
+  );
+
+  expect(screen.getByRole("heading", { name: "Model 状态变化" })).toBeVisible();
+  expect(screen.queryByRole("heading", { name: "启用状态变化" })).not.toBeInTheDocument();
+  expect(screen.getByText("已添加 · 已停用 → 已启用 · 非当前")).toBeVisible();
+  expect(screen.getByRole("heading", { name: "确认启用 Model" })).toBeVisible();
 });
 
 it("labels a non-current Model addition as a backup without raw conflict codes", () => {

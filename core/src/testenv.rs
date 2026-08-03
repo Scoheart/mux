@@ -34,6 +34,7 @@ pub struct TestHome {
     saved_mux_home: Option<OsString>,
     saved_path: Option<OsString>,
     saved_test_probe_root: Option<OsString>,
+    readiness: Option<crate::application::gate::TestReadyGuard>,
     _guard: MutexGuard<'static, ()>,
 }
 
@@ -69,12 +70,14 @@ impl TestHome {
         std::env::set_var("MUX_HOME", home.join(".mux"));
         std::env::set_var("PATH", &bin);
         std::env::set_var("MUX_TEST_PROBE_ROOT", &home);
+        let readiness = Some(crate::application::gate::TestReadyGuard::enter());
         TestHome {
             home,
             saved_home,
             saved_mux_home,
             saved_path,
             saved_test_probe_root,
+            readiness,
             _guard: guard,
         }
     }
@@ -82,6 +85,12 @@ impl TestHome {
 
 impl Drop for TestHome {
     fn drop(&mut self) {
+        // Restore lifecycle state while the same process-wide guard still owns
+        // HOME/MUX_HOME, so another isolated test cannot observe a mismatched
+        // workspace and backend readiness pair.
+        if let Some(readiness) = self.readiness.take() {
+            readiness.restore();
+        }
         // Restore, never remove-and-fall-back-to-real-home.
         match &self.saved_home {
             Some(v) => std::env::set_var("HOME", v),

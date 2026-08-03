@@ -48,7 +48,7 @@ MUX 目前是一个基于 Ink/React 的终端 TUI（`@scoheart/mux`），用于�
    ┌────────┴─────────┐          ┌─────────┴──────────┐
    │ 共享数据文件       │          │ 现有 npm 包 (CLI)   │
    │ registry.json     │          │ TS core 不变        │
-   │ agents.json       │          │ mux apply/status…  │
+   │ agents.json       │          │ mux mcp assign/status… │
    └───────────────────┘          └────────────────────┘
 ```
 

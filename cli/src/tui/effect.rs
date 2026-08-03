@@ -9,8 +9,8 @@ use std::thread;
 use mux_core::application::agents::list_infos;
 use mux_core::application::assets::{
     AssetCommitRequest, AssetOperationPlan, AssetRef, CentralAssetDraft, ConsumptionInventory,
-    PlanDeleteCentralAssetRequest, PlanReapplyMcpRequest, PlanSetMcpEnabledRequest,
-    PlanUpdateAssetConsumersRequest, PlanUpdateCentralAssetRequest,
+    McpReapplyScope, PlanDeleteCentralAssetRequest, PlanReapplyMcpRequest,
+    PlanSetMcpEnabledRequest, PlanUpdateAssetConsumersRequest, PlanUpdateCentralAssetRequest,
 };
 use mux_core::application::mcp::catalog::{read_registry, read_registry_all, user_override_keys};
 use mux_core::application::mcp::operations::{parse_pasted_entries, scan_installed, ResyncOutcome};
@@ -228,6 +228,7 @@ fn forget_entry(name: &str, transport: &str) -> Result<(), String> {
 fn resync_entry(name: &str, transport: &str, force: bool) -> Result<ResyncOutcome, String> {
     let plan = mux_core::application::assets::plan_reapply_mcp(PlanReapplyMcpRequest {
         asset_key: format!("{name}::{transport}"),
+        scope: McpReapplyScope::All,
     })?;
     if plan.requires_conflict_confirmation && !force {
         let skipped_customized = plan.affected_agent_ids.clone();

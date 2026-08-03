@@ -281,6 +281,21 @@ pub struct ModelStateChange {
     pub reason: String,
 }
 
+/// Cross-domain review projection for an enabled-state transition. The
+/// domain plans retain their authoritative shapes; this delta makes MCP,
+/// Model, and Skill toggles equally visible to every frontend.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ConsumptionStateChange {
+    pub agent_id: String,
+    pub asset: AssetRef,
+    pub before_enabled: bool,
+    pub after_enabled: bool,
+    #[serde(default)]
+    pub affected_agent_ids: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target: Option<ConsumptionTarget>,
+}
+
 /// Domain-specific desired sets remain typed. The common coordinator owns
 /// lifecycle and review, not MCP/Model/Skill payloads.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -335,6 +350,8 @@ pub struct AssetOperationPlan {
     pub relationship_changes: Vec<RelationshipChange>,
     #[serde(default)]
     pub model_state_changes: Vec<ModelStateChange>,
+    #[serde(default)]
+    pub consumption_state_changes: Vec<ConsumptionStateChange>,
     #[serde(default)]
     pub target_files: Vec<String>,
     #[serde(default)]
@@ -410,6 +427,15 @@ pub struct PlanEnsureAgentConsumptionRequest {
     pub selection: AgentConsumptionSelection,
 }
 
+/// Remove the listed assets from one Agent without replacing its other
+/// current relationships.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct PlanRemoveAgentConsumptionRequest {
+    pub agent_id: String,
+    pub selection: AgentConsumptionSelection,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct PlanSetMcpEnabledRequest {
@@ -430,6 +456,28 @@ pub struct PlanSetSkillEnabledRequest {
 #[serde(deny_unknown_fields)]
 pub struct PlanReapplyMcpRequest {
     pub asset_key: String,
+    pub scope: McpReapplyScope,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum McpReapplyScope {
+    Agent { agent_id: String },
+    All,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct PlanReapplyModelRequest {
+    pub agent_id: String,
+    pub profile_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct PlanReapplySkillRequest {
+    pub agent_id: String,
+    pub name: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

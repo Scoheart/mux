@@ -3,7 +3,8 @@
 use crate::assets::{PlanMcpAdoptionRequest, PlanModelAdoptionRequest};
 use crate::domain::assets::{
     AssetCommitRequest, AssetOperationPlan, ConsumptionInventory, PlanDeleteCentralAssetRequest,
-    PlanEnsureAgentConsumptionRequest, PlanReapplyMcpRequest, PlanSetActiveModelRequest,
+    PlanEnsureAgentConsumptionRequest, PlanReapplyMcpRequest, PlanReapplyModelRequest,
+    PlanReapplySkillRequest, PlanRemoveAgentConsumptionRequest, PlanSetActiveModelRequest,
     PlanSetAgentConsumptionRequest, PlanSetAssetConsumersRequest, PlanSetMcpEnabledRequest,
     PlanSetModelEnabledRequest, PlanSetSkillEnabledRequest, PlanUpdateAgentCapabilitiesRequest,
     PlanUpdateAgentConfigurationRequest, PlanUpdateAssetConsumersRequest,
@@ -25,11 +26,14 @@ pub enum PlanOperationRequest {
     DeleteCentralAsset(PlanDeleteCentralAssetRequest),
     SetAgentConsumption(PlanSetAgentConsumptionRequest),
     EnsureAgentConsumption(PlanEnsureAgentConsumptionRequest),
+    RemoveAgentConsumption(PlanRemoveAgentConsumptionRequest),
     SetAssetConsumers(PlanSetAssetConsumersRequest),
     UpdateAssetConsumers(PlanUpdateAssetConsumersRequest),
     SetMcpEnabled(PlanSetMcpEnabledRequest),
     SetSkillEnabled(PlanSetSkillEnabledRequest),
     ReapplyMcp(PlanReapplyMcpRequest),
+    ReapplyModel(PlanReapplyModelRequest),
+    ReapplySkill(PlanReapplySkillRequest),
     SetModelEnabled(PlanSetModelEnabledRequest),
     SetActiveModel(PlanSetActiveModelRequest),
     UpdateAgentCapabilities(PlanUpdateAgentCapabilitiesRequest),
@@ -107,6 +111,12 @@ pub fn plan(request: PlanOperationRequest) -> CoreResult<OperationPlan> {
                     .map_err(super::error::from_legacy)?,
             ),
         },
+        RemoveAgentConsumption(request) => OperationPlan::Asset {
+            plan: Box::new(
+                super::assets::plan_remove_agent_consumption(request)
+                    .map_err(super::error::from_legacy)?,
+            ),
+        },
         SetAssetConsumers(request) => OperationPlan::Asset {
             plan: Box::new(
                 super::assets::plan_set_asset_consumers(request)
@@ -133,6 +143,16 @@ pub fn plan(request: PlanOperationRequest) -> CoreResult<OperationPlan> {
         ReapplyMcp(request) => OperationPlan::Asset {
             plan: Box::new(
                 super::assets::plan_reapply_mcp(request).map_err(super::error::from_legacy)?,
+            ),
+        },
+        ReapplyModel(request) => OperationPlan::Asset {
+            plan: Box::new(
+                super::assets::plan_reapply_model(request).map_err(super::error::from_legacy)?,
+            ),
+        },
+        ReapplySkill(request) => OperationPlan::Asset {
+            plan: Box::new(
+                super::assets::plan_reapply_skill(request).map_err(super::error::from_legacy)?,
             ),
         },
         SetModelEnabled(request) => OperationPlan::Asset {

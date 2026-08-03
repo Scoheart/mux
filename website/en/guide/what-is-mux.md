@@ -14,7 +14,7 @@ If you use several AI coding tools at once (Claude Code, Cursor, VS Code, Codex,
 - write it out in that tool's own format (JSON / TOML / YAML), with its own key names and map/list layout;
 - and edit them all again just to change one server's parameters.
 
-MUX collects MCP servers into **one catalog (the Registry)** and applies the same product logic to Models and Skills: **configure centrally → choose consumers → review impact → transact and verify**. MCPs and Skills are `0..N` per Agent; Model is `0..1`.
+MUX collects MCP servers into **one catalog (the Registry)** and applies the same product logic to Models and Skills: **configure centrally → choose consumers → review impact → transact and verify**. MCPs and Skills are `0..N` per Agent. A native multi-model Agent may also have several assigned Model Profiles but at most one current Profile; a single-model Agent remains limited to one.
 
 ## Two front-ends, one set of data
 
@@ -23,7 +23,7 @@ MUX has two interfaces, and they **share the same data directory, `~/.mux/`**:
 | | Description |
 |---|---|
 | **Desktop app** | A macOS application (Tauri + React). Visual management, best for the mouse. |
-| **CLI / TUI** | The native Rust binary `mux`. Its subcommands are scriptable; with no arguments it drops into an interactive terminal UI (TUI). |
+| **CLI / TUI** | The native Rust binary `mux`. Its subcommands manage consumption across all three asset domains; with no arguments it opens the MCP-focused compatibility terminal manager. |
 
 Because both are built on the **same Rust core crate (`mux-core`)**, the data model exists in only one place. A change you make in the desktop app shows up in the CLI after a refresh, and vice versa.
 

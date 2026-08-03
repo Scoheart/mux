@@ -1,6 +1,6 @@
 # Desktop app
 
-The desktop app is MUX's visual front-end (macOS, Tauri + React) for maintaining central MCP, Model, and Skill assets and letting Agents consume them. Data lives under shared `~/.mux/`; Skills currently have a Desktop entry only.
+The desktop app is MUX's visual front-end (macOS, Tauri + React) for maintaining central MCP, Model, and Skill assets and letting Agents consume them. Data lives under shared `~/.mux/`; the CLI can also query and change Agent consumption across all three domains.
 
 > Not installed yet? Start with [Installation](/en/guide/install#desktop-app-macos).
 
@@ -43,16 +43,16 @@ Each card contains:
 | Endpoint | The stdio launch command or HTTP URL, truncated when too long. |
 | Usage status | A green dot means it's used by some agents; a gray dot means unused. |
 
-Cards select assets and show read-only consumer impact; lifecycle actions live in the Inspector. Agent relationships are edited only from the relevant Agent page. Only user-owned MCP source copies can be edited or deleted directly; subscriptions and imported files are managed by their source. External configurations observed only in Agent files are not Registry entries.
+Cards select assets and show read-only consumer impact; lifecycle actions live in the Inspector. Within Desktop, Agent relationships are edited from the relevant Agent page. Only user-owned MCP source copies can be edited or deleted directly; subscriptions and imported files are managed by their source. External configurations observed only in Agent files are not Registry entries.
 
 ## Let an Agent consume central assets
 
 1. Choose an agent from the selector in the top bar.
 2. Confirm the **Agent config file** and **MCP config file** in the agent configuration center. They may be the same file or two separate files; MUX labels the relationship explicitly.
-3. In MCPs, Model, or Skills, click **Manage** and set the Agent's complete desired selection from the central picker. MCPs and Skills allow multiple selections; Model allows at most one.
+3. In MCPs, Model, or Skills, click **Manage** and set the Agent's complete desired selection from the central picker. MCPs and Skills allow multiple selections. Multi-model Agents may also receive multiple Model Profiles, with at most one current Profile at a time; single-model Agents still accept one.
 4. Review relationship changes, target files, shared Skill targets, drift, and conflicts. MUX then backs up, writes in the Agent's native format, and rescans to verify the result.
 
-Consumption relationships are edited only from Agent pages; central asset Inspectors do not configure Agents. MUX currently manages only user-level global configuration.
+Within Desktop, consumption relationships are edited from Agent pages; central asset Inspectors do not configure Agents. The CLI manages the same relationships through the shared `assign` / `unassign` / `enable` / `disable` verbs. MUX currently manages only user-level global configuration.
 
 ## Relationship state and removal
 
@@ -65,7 +65,7 @@ Configurations found only in Agent files first appear as read-only external stat
 - **Edit**: modify a user-owned central entry. The plan retains relationships and includes every consumer, then commits the central asset and all targets together.
 - **Drift override**: manually customized targets are shown during review and require an explicit confirmation bound to the current candidate hash. Conflicts or concurrent changes block the entire commit.
 - **Paste config**: supports recognizable JSON, TOML, or YAML; once parsed it's added to "manual."
-- **Export the effective config**: the download icon in the toolbar exports the full, deduplicated catalog — not just manual entries; the CLI equivalent is `mux export`.
+- **Export the effective config**: the download icon in the toolbar exports the full, deduplicated catalog — not just manual entries; the CLI equivalent is `mux mcp export`.
 
 ## Source management
 
@@ -90,7 +90,7 @@ MUX currently has 56 audited Agent definitions, 46 writable MCP targets, 45 Skil
 
 ## Models (Beta)
 
-The top-level **Models** workspace creates central reusable Profiles without touching an Agent. Each Agent page then shows its observed current state and compatible switch targets, with at most one Profile per Agent. Editing propagates through every consumer and deletion cascades through relationships and managed targets. API keys remain in macOS Keychain and never enter settings, persisted plans, previews, or backups.
+The top-level **Models** workspace creates central reusable Profiles without touching an Agent. Each Agent page then shows assigned, enabled, and current state. A native multi-model Agent may retain several Profiles but has at most one current Profile; a single-model Agent remains limited to one. Editing propagates through every consumer and deletion cascades through relationships and managed targets. API keys remain in macOS Keychain and never enter settings, persisted plans, previews, or backups.
 
 Claude Code currently accepts Anthropic Messages profiles, Codex uses the Responses API, and Grok Build plus Pi support all three initial protocols. Grok Build reads authentication through its documented `env_key`; MUX never writes a Keychain secret into TOML. Qoder and MiniMax Code remain guided setup targets.
 
@@ -98,7 +98,7 @@ Claude Code currently accepts Anthropic Messages profiles, Codex uses the Respon
 
 The top-level **Skills** workspace downloads from public GitHub or directly imports a local folder or Skill archive into one central copy, without an installation review screen. A separate consumer operation from an Agent page links that copy into verified Agent directories. Agents sharing one physical target are selected as an inseparable group; Agent pages never resolve or install a Skill source.
 
-Skills do not require system Git, Node.js, or `npx`. This version does not support project-level content, private repositories, or CLI/TUI Skills commands. See [User-level Skills](/en/guide/skills) for installation, shared aliases, backups, and recovery.
+Skills do not require system Git, Node.js, or `npx`. This version does not support project-level content or private repositories. The CLI provides `skill list/show/status/assign/unassign/enable/disable/reapply`; the no-argument TUI remains MCP-focused. See [User-level Skills](/en/guide/skills) for installation, shared aliases, backups, and recovery.
 
 ## Auto-update and the CLI
 
@@ -119,4 +119,4 @@ The network icon in the top bar configures one global proxy for MUX. It accepts 
 - Other top-level keys, other servers, comments, indentation, and key order are preserved; writes are refused when the JSON, TOML, or YAML structure is invalid or ambiguous.
 - `~/.mux/settings.json` uses atomic writes via temp file plus rename.
 
-The command line manages MCPs, sources, and Agents; Skills currently have a Desktop entry only → [CLI / TUI](/en/guide/cli).
+The command line queries and manages Agent consumption for MCPs, Models, and Skills; the no-argument TUI focuses on MCP compatibility management → [CLI / TUI](/en/guide/cli).

@@ -516,13 +516,28 @@ fn plan_model_provider_upsert(
     };
     let summary =
         model_provider_upsert_summary(profile_ids.len(), &credential_action, consumer_count);
-    let central_changes = vec![CentralAssetChange {
+    let mut central_changes = vec![CentralAssetChange {
         asset: AssetRef::ModelProvider {
             provider_id: provider.id.clone(),
         },
         action,
         summary,
     }];
+    central_changes.extend(
+        profile_ids
+            .iter()
+            .cloned()
+            .map(|profile_id| CentralAssetChange {
+                asset: AssetRef::Model {
+                    profile_id: profile_id.clone(),
+                },
+                action: CentralAssetAction::Update,
+                summary: vec![format!(
+                    "随共享 Provider「{}」更新 Model Profile「{profile_id}」",
+                    provider.name
+                )],
+            }),
+    );
     let plan = finalize_plan_with(
         AssetOperationKind::UpdateAsset,
         domain_plan,
@@ -1263,7 +1278,7 @@ mod tests {
         .unwrap();
 
         assert_eq!(plan.affected_agent_ids, vec!["claude-code", "codex"]);
-        assert_eq!(plan.central_changes.len(), 1);
+        assert_eq!(plan.central_changes.len(), 3);
         assert!(plan.relationship_changes.is_empty());
         assert_eq!(plan.central_changes[0].action, CentralAssetAction::Update);
         assert_eq!(
@@ -1278,6 +1293,20 @@ mod tests {
                 "更新共享 Provider 及其 2 个 Model",
                 "将同步到 2 个已关联 Agent",
             ]
+        );
+        assert_eq!(
+            plan.central_changes[1..]
+                .iter()
+                .map(|change| change.asset.clone())
+                .collect::<BTreeSet<_>>(),
+            BTreeSet::from([
+                AssetRef::Model {
+                    profile_id: first.id,
+                },
+                AssetRef::Model {
+                    profile_id: second.id,
+                },
+            ])
         );
     }
 

@@ -15,7 +15,9 @@ fn temp_file(name: &str, extension: &str) -> PathBuf {
         std::process::id(),
         NEXT_TEMP_FILE.fetch_add(1, Ordering::Relaxed)
     );
-    std::env::temp_dir().join(format!("mux-agent-format-{name}-{token}.{extension}"))
+    std::fs::canonicalize(std::env::temp_dir())
+        .unwrap_or_else(|_| std::env::temp_dir())
+        .join(format!("mux-agent-format-{name}-{token}.{extension}"))
 }
 
 fn fixture(name: &str) -> &'static str {

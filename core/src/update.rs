@@ -1,8 +1,10 @@
 //! CLI 自更新：对着 GitHub 稳定 Release 通道(最新 vX.Y.Z)检查/替换 `mux` 二进制。
 //! 桌面端的自更新由 tauri-plugin-updater 走同一通道(latest.json)，不经过这里。
 
+use std::ffi::OsStr;
 use std::fs;
 use std::path::PathBuf;
+use std::process::Stdio;
 use std::time::Duration;
 
 use crate::paths::mux_dir;
@@ -121,16 +123,7 @@ pub fn upgrade_cli(current_version: &str) -> Result<Option<UpgradeOutcome>, Stri
     drop(file);
 
     // 解包(依赖系统 tar，macOS/Linux 都有，免拉压缩库依赖)。
-    let status = std::process::Command::new("tar")
-        .arg("-xzf")
-        .arg(&tarball)
-        .arg("-C")
-        .arg(&tmp_dir)
-        .status()
-        .map_err(|e| format!("调用 tar 失败: {e}"))?;
-    if !status.success() {
-        return Err("解包更新失败".into());
-    }
+    extract_tarball(OsStr::new("tar"), &tarball, &tmp_dir)?;
     let new_bin = tmp_dir.join("mux");
     if !new_bin.exists() {
         return Err("更新包里没有 mux 二进制".into());
@@ -159,6 +152,29 @@ pub fn upgrade_cli(current_version: &str) -> Result<Option<UpgradeOutcome>, Stri
         from: current_version.to_string(),
         to: latest,
     }))
+}
+
+fn extract_tarball(
+    program: &OsStr,
+    tarball: &std::path::Path,
+    destination: &std::path::Path,
+) -> Result<(), String> {
+    let status = std::process::Command::new(program)
+        .arg("-xzf")
+        .arg(tarball)
+        .arg("-C")
+        .arg(destination)
+        // Machine-output callers must remain the sole owners of stdout and
+        // stderr. Archive-tool diagnostics can contain private paths or
+        // archive-controlled text, so discard them and return a stable error.
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map_err(|e| format!("调用 tar 失败: {e}"))?;
+    if !status.success() {
+        return Err("解包更新失败".into());
+    }
+    Ok(())
 }
 
 /// 被动更新提醒：普通命令跑完后调用。每天最多联网查一次(结果缓存在
@@ -228,5 +244,30 @@ mod tests {
     fn triple_matches_ci_naming() {
         let t = target_triple();
         assert!(t.contains('-'));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn archive_tool_diagnostics_are_discarded_and_never_enter_the_error() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let home = crate::testenv::TestHome::new("update-tar-output");
+        let fake_tar = home.home.join("fake-tar");
+        fs::write(
+            &fake_tar,
+            "#!/bin/sh\nprintf 'STDOUT_SECRET_SENTINEL\\n'\nprintf 'STDERR_SECRET_SENTINEL\\n' >&2\nexit 7\n",
+        )
+        .unwrap();
+        fs::set_permissions(&fake_tar, fs::Permissions::from_mode(0o700)).unwrap();
+
+        let error = extract_tarball(
+            fake_tar.as_os_str(),
+            &home.home.join("private-archive.tar.gz"),
+            &home.home,
+        )
+        .unwrap_err();
+        assert_eq!(error, "解包更新失败");
+        assert!(!error.contains("SECRET_SENTINEL"));
+        assert!(!error.contains(home.home.to_string_lossy().as_ref()));
     }
 }

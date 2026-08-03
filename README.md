@@ -28,11 +28,11 @@ MUX ships as **two front-ends that share the same data** (`~/.mux/`):
 
 Both frontends enter through the same revisioned workspace, capability graph,
 startup recovery, and plan/commit/cancel application boundary. External MCP,
-Model, and Skill detection and adoption now use the same explicit per-item
-contract in both frontends: `mux detected` is read-only, while `mux manage`
-reviews and confirms one exact candidate. Legacy CLI/TUI catalog editing screens
-remain MCP-focused for compatibility; Desktop remains the richer visual editor
-for central Model and Skill lifecycle operations.
+Model, and Skill detection and adoption use the same explicit per-item contract:
+`mux discover` is read-only, while `mux adopt` reviews and confirms one exact
+candidate. The no-argument TUI is an MCP-focused compatibility terminal manager;
+Desktop remains the richer visual editor for central Model and Skill lifecycle
+operations.
 
 ---
 
@@ -132,32 +132,45 @@ cargo build --release -p mux-cli   # → target/release/mux
 
 Everything runs against `~/.mux/`, shared with the desktop app.
 
-Run `mux` with **no arguments** for the **interactive TUI** — a keyboard-driven
-terminal manager with three screens (Registry / 来源 / Agents): browse and search
-the catalog, install to agents (multi-select), enable / disable / delete, edit or
-paste catalog entries, and manage sources and agents. Press `?` for the keymap,
-`q` to quit. (Set `MUX_NO_TUI=1` to fall back to printing help in scripts.)
+Run `mux` with **no arguments** for the **interactive TUI** — an MCP-focused,
+keyboard-driven compatibility terminal manager with three screens (Registry /
+Sources / Agents). Browse and search the MCP catalog, install to Agents, enable,
+disable, or delete entries, and manage MCP sources and Agent targets. Press `?`
+for the keymap and `q` to quit. Set `MUX_NO_TUI=1` to print help instead when a
+script invokes `mux` without arguments.
 
 Or drive it non-interactively with subcommands:
 
-```bash
-mux detected [--json] # read-only MCP / Model / Skill detection
-mux manage mcp <key> --agent <id>  # review and manage one MCP observation
-mux manage model <candidate-id>    # review and manage one Model observation
-mux manage skill <identity>        # review and manage one Skill observation
-mux list            # list catalog entries
-mux apply <names…>  # add central MCPs to Agent desired state (--agent)
-mux add <name>      # add a server to the manual source
-mux remove <name>   # remove a manual entry
-mux status          # show what's active across agents
-mux export [--out <file>]  # export the effective catalog as JSON
-mux clean [--agent <name>]   # remove MUX-managed MCP relationships
-mux agents [list | enable <name> | disable <name>]
-mux workspace [--json]      # unified revisioned workspace
-mux models                  # list central Model Profiles
-mux skills                  # list centrally managed Skills
-mux upgrade         # upgrade a standalone CLI from the latest stable Release
+```text
+mux mcp {list,show,status,assign,unassign,enable,disable,reapply,add,delete,export}
+mux model {list,show,status,assign,unassign,enable,disable,reapply,use}
+mux skill {list,show,status,assign,unassign,enable,disable,reapply}
+mux agent {list,enable,disable}
+mux discover [mcp|model|skill]
+mux adopt {mcp,model,skill}
+mux workspace
+mux upgrade
 ```
+
+All Agent-relationship writes use exact stable asset IDs and exactly one explicit
+`--agent <id>`. `assign` adds only the named relationships; `unassign` removes
+only those relationships; `enable` and `disable` preserve the relationship.
+`mux model use <profile-id> --agent <id>` selects the current Model independently
+of assignment. `reapply` is the explicit physical-repair verb; repeating
+`assign`, `enable`, or `use` never repairs or overwrites drift as a side effect.
+Skill plans report every installed Agent affected by a shared
+physical Skills directory. MCP IDs always include transport, such as
+`github::stdio`; a same-named HTTP variant is a separate asset and is never
+selected implicitly. All three domains repair one exact relationship with
+`reapply <asset-id> --agent <id>`; MCP alone also supports an explicit
+`reapply <key> --all` batch, which repairs only out-of-sync desired consumers
+after reviewing their complete impact.
+
+The global `--json`, `--yes`, `--dry-run`, and `--no-color` options support
+machine output, reviewed automation, plan-only runs, and deterministic terminal
+output. Any command that writes—including `mux mcp export --out`—requires
+interactive confirmation or an explicit `--yes` / `--dry-run`. See the
+[complete CLI guide](website/guide/cli.md).
 
 ---
 
@@ -193,13 +206,13 @@ Model API keys are not stored under `~/.mux/`; they remain in macOS Keychain.
 ## How it works
 
 1. **Build the central libraries** — subscribe or import MCP sources, create Model Profiles, and directly download or import Skills. No Agent target is changed during central intake.
-2. **Choose consumers** — from an Agent page, select compatible assets. MCPs and Skills are sets; supported multi-model Agents also keep a Model Profile set plus one independent current pointer.
+2. **Choose consumers** — from an Agent page or the CLI, select compatible assets. MCPs and Skills are sets; supported multi-model Agents also keep a Model Profile set plus one independent current pointer.
 3. **Review only meaningful risk** — routine reversible Agent relationship changes sync directly with inline progress; conflicts, removals from shared Skill directories, and disruptive Model changes still show their exact impact before commit.
 4. **Commit and verify** — settings, Agent targets, and central lifecycle changes are applied as a recoverable transaction and return their verified inventory before reporting success.
 5. **Manage historical state explicitly, one item at a time** — MUX detects unmanaged global MCPs, Model Profiles, and user-level Skills without taking ownership. There is no select-all or automatic import: each item gets its own impact review and confirmation before one recoverable transaction.
 6. **Propagate central lifecycle changes** — updates reach every desired consumer; deletion clears all managed targets and relationships instead of leaving implicit orphan copies.
 
-Skills in this version are user-level only. Project-level Skills, private repositories, and Skill editing are not supported. The CLI can inspect all resource domains and explicitly adopt one detected MCP, Model, or Skill at a time; central Model and Skill authoring remains in Desktop while the compatibility TUI is MCP-focused.
+Skills in this version are user-level only. Project-level Skills, private repositories, and Skill editing are not supported. The CLI can query and manage Agent consumption for MCPs, Models, and Skills, and explicitly adopt one detected item at a time. Central Model and Skill authoring remains in Desktop, while the no-argument TUI is MCP-focused.
 
 ## Development
 

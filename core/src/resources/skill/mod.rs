@@ -14,8 +14,8 @@ mod update;
 pub use audit::*;
 pub use files::*;
 pub(crate) use inventory::{
-    canonical_skill_assignments, canonical_skill_target_path, list_inventory_for_settings,
-    skill_agent_capability_for_settings,
+    canonical_skill_assignments, canonical_skill_target_path, declared_targets_for_agents,
+    list_inventory_for_settings, skill_agent_capability_for_settings,
 };
 pub use inventory::{
     get_skill_detail, list_inventory, list_migration_candidates, list_skill_agent_capabilities,
@@ -23,10 +23,10 @@ pub use inventory::{
 };
 pub use manifest::*;
 pub use ops::*;
+pub(crate) use ops::{assignment_reapply_state, reapply_assignment_safely, AssignmentReapplyState};
 pub use paths::*;
 pub use source::{resolve_source, GithubEndpoints};
-#[cfg(test)]
-pub(crate) use transaction::acquire_skills_lock;
+pub(crate) use transaction::{acquire_skills_lock, SkillsOperationLock};
 pub use transaction::{
     crash_transaction_at_phase_for_test, crash_transaction_before_phase_for_test,
     execute_transaction, execute_transaction_with_failpoint, has_pending_recovery, recover_pending,

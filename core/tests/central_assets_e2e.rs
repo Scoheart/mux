@@ -6,10 +6,10 @@ use mux_core::consumption::{
     commit_asset_operation, plan_delete_central_asset, plan_reapply_mcp, plan_set_active_model,
     plan_set_agent_consumption, plan_set_mcp_enabled, plan_set_model_enabled,
     plan_set_skill_enabled, plan_update_central_asset, AgentConsumptionSelection,
-    AssetCommitRequest, AssetRef, CentralAssetDraft, PlanDeleteCentralAssetRequest,
-    PlanReapplyMcpRequest, PlanSetActiveModelRequest, PlanSetAgentConsumptionRequest,
-    PlanSetMcpEnabledRequest, PlanSetModelEnabledRequest, PlanSetSkillEnabledRequest,
-    PlanUpdateCentralAssetRequest,
+    AssetCommitRequest, AssetRef, CentralAssetDraft, McpReapplyScope,
+    PlanDeleteCentralAssetRequest, PlanReapplyMcpRequest, PlanSetActiveModelRequest,
+    PlanSetAgentConsumptionRequest, PlanSetMcpEnabledRequest, PlanSetModelEnabledRequest,
+    PlanSetSkillEnabledRequest, PlanUpdateCentralAssetRequest,
 };
 use mux_core::models::{apply_profile, list_profiles, reconcile_active_models, save_profile};
 use mux_core::registry::{read_registry, write_manual_entry};
@@ -169,14 +169,26 @@ fn mcp_rename_atomically_migrates_identity_consumers_and_enabled_state() {
         })
         .unwrap(),
     );
-    commit(
-        plan_set_mcp_enabled(PlanSetMcpEnabledRequest {
-            agent_id: "claude-code".into(),
-            asset_key: "old-name::stdio".into(),
-            enabled: false,
-        })
-        .unwrap(),
+    let disable = plan_set_mcp_enabled(PlanSetMcpEnabledRequest {
+        agent_id: "claude-code".into(),
+        asset_key: "old-name::stdio".into(),
+        enabled: false,
+    })
+    .unwrap();
+    assert_eq!(disable.consumption_state_changes.len(), 1);
+    let state = &disable.consumption_state_changes[0];
+    assert_eq!(state.agent_id, "claude-code");
+    assert_eq!(
+        state.asset,
+        AssetRef::Mcp {
+            key: "old-name::stdio".into()
+        }
     );
+    assert!(state.before_enabled);
+    assert!(!state.after_enabled);
+    assert_eq!(state.affected_agent_ids, vec!["claude-code"]);
+    assert!(state.target.is_none());
+    commit(disable);
 
     let plan = plan_update_central_asset(PlanUpdateCentralAssetRequest {
         draft: CentralAssetDraft::Mcp {
@@ -215,6 +227,111 @@ fn mcp_rename_atomically_migrates_identity_consumers_and_enabled_state() {
     let target = fs::read_to_string(home.home.join(".claude.json")).unwrap_or_default();
     assert!(!target.contains("old-name"));
     assert!(!target.contains("new-name"));
+}
+
+#[test]
+fn mcp_customized_toggle_requires_candidate_bound_confirmation_in_both_directions() {
+    let home = TestHome::new("central-mcp-toggle-drift");
+    write_manual_entry(&mcp("managed-server")).unwrap();
+    commit(
+        plan_set_agent_consumption(PlanSetAgentConsumptionRequest {
+            agent_id: "claude-code".into(),
+            selection: AgentConsumptionSelection::Mcp {
+                asset_keys: vec!["local::stdio".into()],
+            },
+        })
+        .unwrap(),
+    );
+    let target = home.home.join(".claude.json");
+    let customized = fs::read_to_string(&target)
+        .unwrap()
+        .replace("managed-server", "customized-server");
+    fs::write(&target, &customized).unwrap();
+
+    let disable = plan_set_mcp_enabled(PlanSetMcpEnabledRequest {
+        agent_id: "claude-code".into(),
+        asset_key: "local::stdio".into(),
+        enabled: false,
+    })
+    .unwrap();
+    assert!(disable.can_commit);
+    assert!(disable.requires_conflict_confirmation);
+    assert_eq!(
+        disable.warnings,
+        vec!["claude-code / mcp:local::stdio: mcp_config_drift"]
+    );
+    assert_eq!(disable.consumption_state_changes.len(), 1);
+    let rejected = commit_asset_operation(AssetCommitRequest {
+        operation_id: disable.operation_id.clone(),
+        candidate_hash: disable.candidate_hash.clone(),
+        conflict_confirmation: None,
+    })
+    .unwrap_err();
+    assert!(rejected.starts_with("confirmation_required:"), "{rejected}");
+    assert_eq!(fs::read_to_string(&target).unwrap(), customized);
+    commit_asset_operation(AssetCommitRequest {
+        operation_id: disable.operation_id,
+        candidate_hash: disable.candidate_hash.clone(),
+        conflict_confirmation: Some(disable.candidate_hash),
+    })
+    .unwrap();
+    assert!(!load_settings().mcp_consumptions.unwrap()["claude-code"]["local::stdio"].enabled);
+    assert!(!fs::read_to_string(&target)
+        .unwrap()
+        .contains("customized-server"));
+
+    let enable = plan_set_mcp_enabled(PlanSetMcpEnabledRequest {
+        agent_id: "claude-code".into(),
+        asset_key: "local::stdio".into(),
+        enabled: true,
+    })
+    .unwrap();
+    assert!(enable.can_commit);
+    assert!(enable.requires_conflict_confirmation);
+    assert_eq!(
+        enable.warnings,
+        vec!["claude-code / mcp:local::stdio: mcp_config_drift"]
+    );
+    assert_eq!(enable.consumption_state_changes.len(), 1);
+    commit_asset_operation(AssetCommitRequest {
+        operation_id: enable.operation_id,
+        candidate_hash: enable.candidate_hash.clone(),
+        conflict_confirmation: Some(enable.candidate_hash),
+    })
+    .unwrap();
+    assert!(fs::read_to_string(target)
+        .unwrap()
+        .contains("customized-server"));
+}
+
+#[test]
+fn mcp_missing_target_toggle_remains_hard_blocked() {
+    let home = TestHome::new("central-mcp-toggle-missing");
+    write_manual_entry(&mcp("managed-server")).unwrap();
+    commit(
+        plan_set_agent_consumption(PlanSetAgentConsumptionRequest {
+            agent_id: "claude-code".into(),
+            selection: AgentConsumptionSelection::Mcp {
+                asset_keys: vec!["local::stdio".into()],
+            },
+        })
+        .unwrap(),
+    );
+    fs::remove_file(home.home.join(".claude.json")).unwrap();
+
+    let plan = plan_set_mcp_enabled(PlanSetMcpEnabledRequest {
+        agent_id: "claude-code".into(),
+        asset_key: "local::stdio".into(),
+        enabled: false,
+    })
+    .unwrap();
+    assert!(!plan.can_commit);
+    assert!(!plan.requires_conflict_confirmation);
+    assert_eq!(
+        plan.warnings,
+        vec!["claude-code / mcp:local::stdio: mcp_target_missing"]
+    );
+    assert_eq!(plan.consumption_state_changes.len(), 1);
 }
 
 #[test]
@@ -446,6 +563,7 @@ fn mcp_reapply_repairs_drift_without_changing_the_central_asset() {
 
     let plan = plan_reapply_mcp(PlanReapplyMcpRequest {
         asset_key: "local::stdio".into(),
+        scope: McpReapplyScope::All,
     })
     .unwrap();
     assert!(plan.can_commit);
@@ -454,7 +572,7 @@ fn mcp_reapply_repairs_drift_without_changing_the_central_asset() {
         plan.central_changes[0].summary,
         vec![
             "重新同步 MCP 配置",
-            "将更新 1 个已关联 Agent",
+            "将更新 1 个已明确选择的 Agent",
             "中央配置保持不变",
         ]
     );
@@ -482,6 +600,180 @@ fn mcp_reapply_repairs_drift_without_changing_the_central_asset() {
 }
 
 #[test]
+fn mcp_reapply_is_exact_by_default_and_all_repairs_only_drifted_consumers() {
+    let home = TestHome::new("central-mcp-reapply-exact-scope");
+    write_manual_entry(&mcp("managed-server")).unwrap();
+    for agent_id in ["claude-code", "codex"] {
+        commit(
+            plan_set_agent_consumption(PlanSetAgentConsumptionRequest {
+                agent_id: agent_id.into(),
+                selection: AgentConsumptionSelection::Mcp {
+                    asset_keys: vec!["local::stdio".into()],
+                },
+            })
+            .unwrap(),
+        );
+    }
+    let claude = home.home.join(".claude.json");
+    let codex = home.home.join(".codex/config.toml");
+    fs::write(
+        &claude,
+        fs::read_to_string(&claude)
+            .unwrap()
+            .replace("managed-server", "claude-drift"),
+    )
+    .unwrap();
+    fs::write(
+        &codex,
+        fs::read_to_string(&codex)
+            .unwrap()
+            .replace("managed-server", "codex-drift"),
+    )
+    .unwrap();
+
+    let exact = plan_reapply_mcp(PlanReapplyMcpRequest {
+        asset_key: "local::stdio".into(),
+        scope: McpReapplyScope::Agent {
+            agent_id: "claude-code".into(),
+        },
+    })
+    .unwrap();
+    assert_eq!(exact.affected_agent_ids, vec!["claude-code"]);
+    commit_asset_operation(AssetCommitRequest {
+        operation_id: exact.operation_id,
+        candidate_hash: exact.candidate_hash.clone(),
+        conflict_confirmation: Some(exact.candidate_hash),
+    })
+    .unwrap();
+    assert!(fs::read_to_string(&claude)
+        .unwrap()
+        .contains("managed-server"));
+    assert!(fs::read_to_string(&codex).unwrap().contains("codex-drift"));
+
+    let clean_claude = fs::read(&claude).unwrap();
+    let all = plan_reapply_mcp(PlanReapplyMcpRequest {
+        asset_key: "local::stdio".into(),
+        scope: McpReapplyScope::All,
+    })
+    .unwrap();
+    assert_eq!(all.affected_agent_ids, vec!["codex"]);
+    commit_asset_operation(AssetCommitRequest {
+        operation_id: all.operation_id,
+        candidate_hash: all.candidate_hash.clone(),
+        conflict_confirmation: Some(all.candidate_hash),
+    })
+    .unwrap();
+    assert_eq!(fs::read(&claude).unwrap(), clean_claude);
+    assert!(fs::read_to_string(codex)
+        .unwrap()
+        .contains("managed-server"));
+}
+
+#[test]
+fn mcp_reapply_clean_and_empty_scopes_are_core_noops() {
+    let _home = TestHome::new("central-mcp-reapply-noop");
+    write_manual_entry(&mcp("managed-server")).unwrap();
+    let empty = plan_reapply_mcp(PlanReapplyMcpRequest {
+        asset_key: "local::stdio".into(),
+        scope: McpReapplyScope::All,
+    })
+    .unwrap();
+    assert!(empty.central_changes.is_empty());
+    assert!(empty.target_files.is_empty());
+    assert!(empty.affected_agent_ids.is_empty());
+
+    commit(
+        plan_set_agent_consumption(PlanSetAgentConsumptionRequest {
+            agent_id: "claude-code".into(),
+            selection: AgentConsumptionSelection::Mcp {
+                asset_keys: vec!["local::stdio".into()],
+            },
+        })
+        .unwrap(),
+    );
+    let clean = plan_reapply_mcp(PlanReapplyMcpRequest {
+        asset_key: "local::stdio".into(),
+        scope: McpReapplyScope::Agent {
+            agent_id: "claude-code".into(),
+        },
+    })
+    .unwrap();
+    assert!(clean.central_changes.is_empty());
+    assert!(clean.target_files.is_empty());
+    assert!(clean.affected_agent_ids.is_empty());
+}
+
+#[test]
+fn mcp_reapply_rejects_disabled_agents_in_exact_and_all_scopes_without_writing() {
+    let home = TestHome::new("central-mcp-reapply-agent-disabled");
+    write_manual_entry(&mcp("managed-server")).unwrap();
+    commit(
+        plan_set_agent_consumption(PlanSetAgentConsumptionRequest {
+            agent_id: "claude-code".into(),
+            selection: AgentConsumptionSelection::Mcp {
+                asset_keys: vec!["local::stdio".into()],
+            },
+        })
+        .unwrap(),
+    );
+    let target = home.home.join(".claude.json");
+    let drifted = fs::read_to_string(&target)
+        .unwrap()
+        .replace("managed-server", "disabled-agent-drift");
+    fs::write(&target, &drifted).unwrap();
+    mux_core::agents::set_enabled("claude-code", false).unwrap();
+
+    for scope in [
+        McpReapplyScope::Agent {
+            agent_id: "claude-code".into(),
+        },
+        McpReapplyScope::All,
+    ] {
+        let error = plan_reapply_mcp(PlanReapplyMcpRequest {
+            asset_key: "local::stdio".into(),
+            scope,
+        })
+        .unwrap_err();
+        assert!(error.starts_with("agent_disabled:"), "{error}");
+        assert_eq!(fs::read_to_string(&target).unwrap(), drifted);
+    }
+}
+
+#[test]
+fn repeated_mcp_enable_is_a_core_noop_even_with_physical_drift() {
+    let home = TestHome::new("central-mcp-enabled-core-noop");
+    write_manual_entry(&mcp("managed-server")).unwrap();
+    commit(
+        plan_set_agent_consumption(PlanSetAgentConsumptionRequest {
+            agent_id: "claude-code".into(),
+            selection: AgentConsumptionSelection::Mcp {
+                asset_keys: vec!["local::stdio".into()],
+            },
+        })
+        .unwrap(),
+    );
+    let target = home.home.join(".claude.json");
+    let drifted = fs::read_to_string(&target)
+        .unwrap()
+        .replace("managed-server", "preserved-drift");
+    fs::write(&target, &drifted).unwrap();
+
+    let plan = plan_set_mcp_enabled(PlanSetMcpEnabledRequest {
+        agent_id: "claude-code".into(),
+        asset_key: "local::stdio".into(),
+        enabled: true,
+    })
+    .unwrap();
+    assert!(plan.can_commit);
+    assert!(plan.central_changes.is_empty());
+    assert!(plan.relationship_changes.is_empty());
+    assert!(plan.consumption_state_changes.is_empty());
+    assert!(plan.target_files.is_empty());
+    commit(plan);
+    assert_eq!(fs::read_to_string(target).unwrap(), drifted);
+}
+
+#[test]
 fn mcp_reapply_preserves_a_disabled_desired_relationship() {
     let home = TestHome::new("central-mcp-reapply-disabled");
     write_manual_entry(&mcp("managed-server")).unwrap();
@@ -494,6 +786,8 @@ fn mcp_reapply_preserves_a_disabled_desired_relationship() {
         })
         .unwrap(),
     );
+    let target = home.home.join(".claude.json");
+    let managed = fs::read_to_string(&target).unwrap();
     commit(
         plan_set_mcp_enabled(PlanSetMcpEnabledRequest {
             agent_id: "claude-code".into(),
@@ -503,24 +797,41 @@ fn mcp_reapply_preserves_a_disabled_desired_relationship() {
         .unwrap(),
     );
 
-    let target = home.home.join(".claude.json");
     assert!(!fs::read_to_string(&target)
         .unwrap()
         .contains("managed-server"));
 
-    commit(
-        plan_reapply_mcp(PlanReapplyMcpRequest {
-            asset_key: "local::stdio".into(),
-        })
-        .unwrap(),
-    );
+    let clean = plan_reapply_mcp(PlanReapplyMcpRequest {
+        asset_key: "local::stdio".into(),
+        scope: McpReapplyScope::All,
+    })
+    .unwrap();
+    assert!(clean.central_changes.is_empty());
+    assert!(clean.target_files.is_empty());
+    commit(clean);
+
+    fs::write(&target, managed).unwrap();
+    let repair = plan_reapply_mcp(PlanReapplyMcpRequest {
+        asset_key: "local::stdio".into(),
+        scope: McpReapplyScope::Agent {
+            agent_id: "claude-code".into(),
+        },
+    })
+    .unwrap();
+    assert!(repair.requires_conflict_confirmation);
+    commit_asset_operation(AssetCommitRequest {
+        operation_id: repair.operation_id,
+        candidate_hash: repair.candidate_hash.clone(),
+        conflict_confirmation: Some(repair.candidate_hash),
+    })
+    .unwrap();
 
     assert!(!fs::read_to_string(target)
         .unwrap()
         .contains("managed-server"));
     assert!(
         !load_settings().mcp_consumptions.unwrap()["claude-code"]["local::stdio"].enabled,
-        "reapply must refresh the disabled snapshot without enabling the relationship"
+        "reapply must preserve the desired disabled state"
     );
 }
 
@@ -545,6 +856,7 @@ fn mcp_reapply_rejects_a_catalog_change_after_review() {
 
     let plan = plan_reapply_mcp(PlanReapplyMcpRequest {
         asset_key: "local::stdio".into(),
+        scope: McpReapplyScope::All,
     })
     .unwrap();
     write_manual_entry(&mcp("changed-after-review")).unwrap();
@@ -745,14 +1057,23 @@ fn grok_build_keeps_multiple_profiles_and_falls_back_when_current_is_disabled() 
         .unwrap(),
     );
 
-    commit(
-        plan_set_model_enabled(PlanSetModelEnabledRequest {
-            agent_id: "grok-build".into(),
-            profile_id: switched.clone(),
-            enabled: false,
-        })
-        .unwrap(),
-    );
+    let disable = plan_set_model_enabled(PlanSetModelEnabledRequest {
+        agent_id: "grok-build".into(),
+        profile_id: switched.clone(),
+        enabled: false,
+    })
+    .unwrap();
+    assert!(disable.consumption_state_changes.iter().any(|change| {
+        change.agent_id == "grok-build"
+            && change.asset
+                == (AssetRef::Model {
+                    profile_id: switched.clone(),
+                })
+            && change.before_enabled
+            && !change.after_enabled
+            && change.affected_agent_ids == ["grok-build"]
+    }));
+    commit(disable);
     let disabled = load_settings().model_selection("grok-build");
     assert_eq!(
         disabled.active_profile_id.as_deref(),
@@ -808,6 +1129,80 @@ fn grok_build_keeps_multiple_profiles_and_falls_back_when_current_is_disabled() 
 }
 
 #[test]
+fn model_switch_preserves_drifted_old_current_and_unrelated_third_profile() {
+    let home = TestHome::new("central-model-scoped-conflict-replacement");
+    let profiles = ["first", "second", "third"].map(|id| {
+        let mut profile = model(&format!("{id}-model"));
+        profile.id = id.into();
+        profile.provider_id = Some(format!("{id}-provider"));
+        profile
+    });
+    for profile in &profiles {
+        save_profile(profile.clone(), None).unwrap();
+    }
+
+    commit(
+        plan_set_agent_consumption(PlanSetAgentConsumptionRequest {
+            agent_id: "grok-build".into(),
+            selection: AgentConsumptionSelection::Model {
+                profile_ids: profiles.iter().map(|profile| profile.id.clone()).collect(),
+            },
+        })
+        .unwrap(),
+    );
+    let selection = load_settings().model_selection("grok-build");
+    assert_eq!(selection.active_profile_id.as_deref(), Some("first"));
+
+    let target = home.home.join(".grok/config.toml");
+    let drifted = fs::read_to_string(&target)
+        .unwrap()
+        .replace("first-model", "first-reviewed-drift")
+        .replace("third-model", "third-unreviewed-drift");
+    fs::write(&target, &drifted).unwrap();
+
+    let plan = plan_set_active_model(PlanSetActiveModelRequest {
+        agent_id: "grok-build".into(),
+        profile_id: "second".into(),
+    })
+    .unwrap();
+    assert!(plan.can_commit, "{:?}", plan.warnings);
+    assert!(!plan.requires_conflict_confirmation);
+    assert!(plan.warnings.is_empty());
+    assert!(plan
+        .model_state_changes
+        .iter()
+        .any(|change| change.profile_id == "first"));
+    assert!(plan
+        .model_state_changes
+        .iter()
+        .any(|change| change.profile_id == "second"));
+    assert!(!plan
+        .model_state_changes
+        .iter()
+        .any(|change| change.profile_id == "third"));
+
+    commit_asset_operation(AssetCommitRequest {
+        operation_id: plan.operation_id,
+        candidate_hash: plan.candidate_hash,
+        conflict_confirmation: None,
+    })
+    .unwrap();
+
+    let switched = fs::read_to_string(target).unwrap();
+    assert!(switched.contains("first-reviewed-drift"));
+    assert!(!switched.contains("first-model"));
+    assert!(switched.contains("third-unreviewed-drift"));
+    assert!(!switched.contains("third-model"));
+    assert_eq!(
+        load_settings()
+            .model_selection("grok-build")
+            .active_profile_id
+            .as_deref(),
+        Some("second")
+    );
+}
+
+#[test]
 fn shared_skill_target_expands_agent_intent_and_rejects_partial_asset_selection() {
     let _fixture = SkillsFixture::managed("review-changes");
     let plan = plan_set_agent_consumption(PlanSetAgentConsumptionRequest {
@@ -858,6 +1253,28 @@ fn shared_skill_toggle_preserves_assignment_and_changes_the_physical_target_once
     assert_eq!(
         disable.target_files,
         vec!["~/.agents/skills/review-changes"]
+    );
+    assert_eq!(disable.consumption_state_changes.len(), 1);
+    let state = &disable.consumption_state_changes[0];
+    assert_eq!(state.agent_id, "codex");
+    assert_eq!(
+        state.asset,
+        AssetRef::Skill {
+            name: "review-changes".into()
+        }
+    );
+    assert!(state.before_enabled);
+    assert!(!state.after_enabled);
+    assert_eq!(
+        state.affected_agent_ids,
+        vec!["codex", "copilot-cli", "cursor", "gemini", "opencode"]
+    );
+    assert_eq!(
+        state
+            .target
+            .as_ref()
+            .map(|target| (target.target_id.as_str(), target.global_dir.as_str())),
+        Some(("agents-user", "~/.agents/skills"))
     );
     commit(disable);
 

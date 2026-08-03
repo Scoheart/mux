@@ -96,6 +96,7 @@ function agentActionCopy(plan: AssetOperationPlan) {
   const asset = domain === "mcp" ? "MCP" : domain === "model" ? "Model" : "Skill";
   const hasAdd = plan.relationship_changes.some((change) => change.action === "add");
   const hasRemove = plan.relationship_changes.some((change) => change.action === "remove");
+  const stateChanges = plan.consumption_state_changes ?? [];
   if (domain === "model") {
     const states = plan.model_state_changes;
     if (states.some((change) => change.reason === "model_activated") && !hasAdd && !hasRemove) {
@@ -114,6 +115,14 @@ function agentActionCopy(plan: AssetOperationPlan) {
     }
     if (states.some((change) => change.reason === "model_enabled")) {
       return { title: "确认启用 Model", commit: "启用 Model", busy: "启用中…" };
+    }
+  }
+  if (!hasAdd && !hasRemove && stateChanges.length > 0) {
+    if (stateChanges.every((change) => change.after_enabled)) {
+      return { title: `确认启用 ${asset}`, commit: `启用 ${asset}`, busy: "启用中…" };
+    }
+    if (stateChanges.every((change) => !change.after_enabled)) {
+      return { title: `确认停用 ${asset}`, commit: `停用 ${asset}`, busy: "停用中…" };
     }
   }
   if (hasAdd && !hasRemove) {
@@ -142,6 +151,21 @@ function modelStateLabel(state: { added: boolean; enabled: boolean; active: bool
   if (!state.enabled) return "已添加 · 已停用";
   if (state.active) return "已启用 · 当前";
   return "已启用 · 非当前";
+}
+
+function enabledStateLabel(enabled: boolean) {
+  return enabled ? "已启用" : "已停用";
+}
+
+function affectedAgentsLabel(
+  agentIds: string[],
+  currentId: string | undefined,
+  currentName: string | undefined,
+  names: Record<string, string>,
+) {
+  return agentIds
+    .map((id) => displayAgentName(id, currentId, currentName, names))
+    .join("、");
 }
 
 interface ConfigurationValues {
@@ -276,6 +300,10 @@ export function AssetOperationReviewDialog({
       || configurationPlan.before.modelPaths.some(
         (path, index) => path !== configurationPlan.after.modelPaths[index],
       ));
+  const consumptionStateChanges = plan.consumption_state_changes ?? [];
+  const genericConsumptionStateChanges = consumptionStateChanges.filter(
+    (change) => change.asset.domain !== "model",
+  );
   const hasAdd = plan.relationship_changes.some((change) => change.action === "add");
   const hasRemove = plan.relationship_changes.some((change) => change.action === "remove");
   const isRemoveOnly = hasRemove && !hasAdd;
@@ -443,7 +471,53 @@ export function AssetOperationReviewDialog({
             </ul>
           </section>
         )}
-        {(!isConfiguration || plan.relationship_changes.length > 0) && <section>
+        {genericConsumptionStateChanges.length > 0 && (
+          <section>
+            <h3>启用状态变化</h3>
+            <ul>
+              {genericConsumptionStateChanges.map((change, index) => {
+                const affectedAgentIds = change.affected_agent_ids.length > 0
+                  ? change.affected_agent_ids
+                  : [change.agent_id];
+                return (
+                  <li
+                    className="mux-asset-review-relationship"
+                    key={`${change.agent_id}:${assetIdentity(change.asset)}:${index}`}
+                  >
+                    <span data-action={change.after_enabled ? "enable" : "disable"}>
+                      {change.after_enabled ? "启用" : "停用"}
+                    </span>
+                    <span className="mux-asset-review-relationship-copy">
+                      <strong>{assetLabel(change.asset, assetDisplayNames)}</strong>
+                      <small>
+                        {displayAgentName(
+                          change.agent_id,
+                          agentId,
+                          agentName,
+                          agentDisplayNames,
+                        )}：{enabledStateLabel(change.before_enabled)} → {enabledStateLabel(change.after_enabled)}
+                      </small>
+                      {affectedAgentIds.length > 1 && (
+                        <small>
+                          同步影响 {affectedAgentsLabel(
+                            affectedAgentIds,
+                            agentId,
+                            agentName,
+                            agentDisplayNames,
+                          )}
+                        </small>
+                      )}
+                      {change.target && <small>共享目标 {change.target.global_dir}</small>}
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+          </section>
+        )}
+        {(!isConfiguration || plan.relationship_changes.length > 0)
+          && (plan.relationship_changes.length > 0 || consumptionStateChanges.length === 0)
+          && <section>
           <h3>{isConfiguration ? "Skills 影响" : isAgentSkillPlan ? "生效范围" : agentName ? "Agent 变更" : "关系变化"}</h3>
           {isAgentSkillPlan && compatibleAgentCount > 0 && (
             <p className="mux-asset-review-note">

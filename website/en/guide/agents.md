@@ -7,7 +7,7 @@ MUX's agent data comes in two layers:
 
 For MCP capability, clients whose global file path, top-level key, and entry structure have not been confirmed never become writable MCP targets. Skills-only Agents appear only after their user-level directory contract is verified independently. This keeps expanding coverage without writing a generic JSON guess into an unknown product's config.
 
-MUX Desktop treats MCPs, Models, and Skills as central assets. Create, import, and maintain them in the top-level libraries first; an Agent page is the only place that chooses which compatible assets that Agent should consume. MCPs and Skills are `0..N` per Agent, while Model is `0..1`. Asset Inspectors own lifecycle actions and show impact without editing Agent relationships.
+MUX treats MCPs, Models, and Skills as central assets. Create, import, and maintain them in the top-level libraries first; an Agent page or the unified CLI then chooses which compatible assets that Agent should consume. MCPs and Skills are `0..N` per Agent. Native multi-model Agents may have several assigned Profiles but at most one current Profile; single-model Agents remain `0..1`. Asset Inspectors own lifecycle actions and show impact without editing Agent relationships.
 
 Agent files and Skill links are observed state, not an alternate asset database. MUX reconciles them as synced, pending, drifted, or conflicted. Scanning never silently takes ownership. When historical MCPs or Skills are detected, Desktop offers an explicit migration that imports the central asset and adopts its original Agent relationships as one recoverable per-asset transaction.
 

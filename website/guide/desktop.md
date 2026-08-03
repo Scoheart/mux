@@ -1,6 +1,6 @@
 # 桌面 App 指南
 
-桌面 App 是 MUX 的可视化前端（macOS，Tauri + React），用于统一维护 MCP、Model、Skill 中央资产，并让 Agent 消费这些资产。数据位于共享的 `~/.mux/`；Skills 当前只提供 Desktop 入口。
+桌面 App 是 MUX 的可视化前端（macOS，Tauri + React），用于统一维护 MCP、Model、Skill 中央资产，并让 Agent 消费这些资产。数据位于共享的 `~/.mux/`；CLI 也可以查询和修改三类资产的 Agent 消费关系。
 
 > 还没安装？请先看 [安装](/guide/install#桌面-app-macos)。
 
@@ -54,10 +54,10 @@ Registry 默认显示所有已启用来源中的**每一份副本**。同一个 
 
 1. 在顶部 Agent 选择器中选择一个 Agent。
 2. 在 Agent 配置中心确认 **Agent 配置文件**与 **MCP 配置文件**。两者可能是同一文件，也可能是两个独立文件；MUX 会明确标注。
-3. 在 MCPs、Model 或 Skills 标签点击“管理”，从中央资产选择器设置该 Agent 的完整 desired selection；MCPs 与 Skills 可多选，Model 最多一个。
+3. 在 MCPs、Model 或 Skills 标签点击“管理”，从中央资产选择器设置该 Agent 的完整 desired selection；MCPs 与 Skills 可多选，支持多模型的 Agent 也可分配多个 Model Profile，但任一时刻最多一个为 current。单模型 Agent 仍只接受一个 Profile。
 4. 审阅关系变化、目标文件、共享 Skill target 与异常状态后提交。MUX 备份、按 Agent 原生格式写入，并重新扫描验证。
 
-消费关系只从 Agent 页面修改；中央资产详情不反向配置 Agent。MUX 当前只管理 Agent 的用户级全局配置。
+Desktop 内的消费关系从 Agent 页面修改；中央资产详情不反向配置 Agent。CLI 也可用三类统一的 `assign` / `unassign` / `enable` / `disable` 命令管理同一关系。MUX 当前只管理 Agent 的用户级全局配置。
 
 ![在顶部搜索可配置 Agent](/img/agent-picker.png)
 
@@ -79,7 +79,7 @@ Agent 页面只显示已建立 desired relationship 的中央资产，即使目�
 - **编辑**：修改用户拥有的中央条目。计划会保留关系并包含所有消费者；一次确认后同步中央资产与全部目标。
 - **漂移覆盖**：发现手工定制时不会先写中央资产再补写 Agent；审阅对话框展示异常目标，并要求用当前候选哈希显式确认可覆盖的漂移。冲突或并发变化会阻止整个提交。
 - **粘贴配置**：支持可识别的 JSON、TOML 或 YAML，解析后加入“手动添加”。
-- **导出生效配置**：工具栏下载图标导出完整的去重后目录，不只导出手动条目；CLI 对应 `mux export`。
+- **导出生效配置**：工具栏下载图标导出完整的去重后目录，不只导出手动条目；CLI 对应 `mux mcp export`。
 
 新建、编辑和粘贴使用同一类固定头部与底部的编辑对话框；中央更新、删除和关系变更使用统一审阅对话框。提交期间不能通过遮罩或 `Escape` 意外关闭，失败信息保留在当前对话框中以便重试。
 
@@ -109,7 +109,7 @@ MUX 当前有 56 个核验定义、46 个 MCP 可写目标、45 个 Skills 目�
 
 ## Models（Beta）
 
-顶部 **Models** 页面与 MCPs 使用同一套筛选栏、搜索、资源卡片和右侧详情面板。创建 Profile 只保存中央资产；之后在 Agent 页查看当前状态并选择可切换 Profile，每个 Agent 同时最多一个兼容 Profile。编辑会传播到全部消费者，删除会级联清理关系和受管目标。API Key 只写入 macOS Keychain，不进入 `~/.mux/settings.json`、计划、Agent 配置预览或备份。
+顶部 **Models** 页面与 MCPs 使用同一套筛选栏、搜索、资源卡片和右侧详情面板。创建 Profile 只保存中央资产；之后在 Agent 页查看已分配、已启用和 current 状态。原生多模型 Agent 可以保留多个 Profile，但最多一个 current；单模型 Agent 仍限制为最多一个。编辑会传播到全部消费者，删除会级联清理关系和受管目标。API Key 只写入 macOS Keychain，不进入 `~/.mux/settings.json`、计划、Agent 配置预览或备份。
 
 Claude Code 目前只接收 Anthropic Messages 配置，Codex 使用 Responses API，Grok Build 与 Pi 支持三种首批协议。Grok Build 通过官方 `env_key` 使用外部环境变量，MUX 不把 Keychain 密钥明文写入 TOML；Qoder 和 MiniMax Code 仍显示安全设置入口。完整边界见 [模型接口](/guide/models)。
 
@@ -117,7 +117,7 @@ Claude Code 目前只接收 Anthropic Messages 配置，Codex 使用 Responses A
 
 顶部 **Skills** 工作区从公开 GitHub 直接下载，或从本地文件夹、Skill 压缩包直接导入，只写一份中央副本，不再弹出安装审核。然后从 Agent 页单独管理消费关系，把中央副本链接到已核验目录；共享一个物理 target 的 Agent 作为不可拆分组一起选择。Agent 页面不出现来源解析、安装或编辑流程。
 
-Skills 当前不依赖系统 Git、Node.js 或 `npx`，也不支持项目级内容、私有仓库或 CLI/TUI 命令。下载、导入、共享 alias 和备份恢复说明见 [用户级 Skills](/guide/skills)。
+Skills 当前不依赖系统 Git、Node.js 或 `npx`，也不支持项目级内容或私有仓库。CLI 提供 `skill list/show/status/assign/unassign/enable/disable/reapply`；无参数 TUI 仍聚焦 MCP。下载、导入、共享 alias 和备份恢复说明见 [用户级 Skills](/guide/skills)。
 
 ## 自动更新与 CLI
 
@@ -139,4 +139,4 @@ Skills 当前不依赖系统 Git、Node.js 或 `npx`，也不支持项目级内�
 - `~/.mux/settings.json` 使用临时文件加重命名的原子写入。
 - 模型接口同样只修改各 Agent 的受管模型字段；Pi 的两个文件作为事务写入，第二步失败会回滚第一步。
 
-命令行提供 MCP、来源和 Agent 管理能力；Skills 当前仅在 Desktop 提供入口 → [命令行 / TUI](/guide/cli)。
+命令行可统一查询并管理 MCP、Model、Skill 的 Agent 消费关系；无参数 TUI 聚焦 MCP 兼容性管理 → [命令行 / TUI](/guide/cli)。

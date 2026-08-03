@@ -1,12 +1,12 @@
 # MUX TUI — Architecture Design
 
-Status: **design** (not yet implemented). Target: a full-featured interactive
-terminal UI for `mux`, launched by the no-argument `mux` command, reaching
-feature parity with the desktop app on the current source-based data model.
+Status: **historical design, implemented and superseded**. This document records
+the original TUI design and is not a CLI reference. Use `mux --help`, the
+README, or `website/*/guide/cli.md` for the current command contract.
 
-The non-interactive subcommands (`list`/`status`/`apply`/`add`/`remove`/`clean`/
-`import`/`agents`) stay exactly as they are. The TUI is *only* the no-arg
-experience, wrapped around the same `mux-core`.
+The TUI remains the no-argument `mux` experience, wrapped around the same
+`mux-core`; non-interactive resource operations now live under `mux mcp`,
+`mux model`, and `mux skill`.
 
 ---
 

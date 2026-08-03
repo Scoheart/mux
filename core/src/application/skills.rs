@@ -28,73 +28,108 @@ pub fn resolve_source(
     input: SkillSourceInput,
     endpoints: GithubEndpoints,
 ) -> Result<SkillSourceResolution, SkillError> {
-    super::gate::read(|| crate::resources::skill::resolve_source(input, endpoints))
+    super::gate::prepare("skill_source_resolution", || {
+        crate::resources::skill::resolve_source(input, endpoints)
+    })
 }
 
 pub fn plan_asset_install(
     request: PlanSkillAssetInstallRequest,
 ) -> Result<OperationPlan, SkillError> {
-    super::gate::read(|| crate::resources::skill::plan_asset_install(request))
+    super::gate::prepare("skill_plan", || {
+        crate::resources::skill::plan_asset_install(request)
+    })
 }
 
 pub fn plan_import(request: PlanImportRequest) -> Result<OperationPlan, SkillError> {
-    super::gate::read(|| crate::resources::skill::plan_import(request))
+    super::gate::prepare("skill_plan", || {
+        crate::resources::skill::plan_import(request)
+    })
 }
 
 pub fn plan_asset_import(
     request: PlanSkillAssetImportRequest,
 ) -> Result<OperationPlan, SkillError> {
-    super::gate::read(|| crate::resources::skill::plan_asset_import(request))
+    super::gate::prepare("skill_plan", || {
+        crate::resources::skill::plan_asset_import(request)
+    })
 }
 
 pub fn plan_assignment(request: PlanAssignmentRequest) -> Result<OperationPlan, SkillError> {
-    super::gate::read(|| crate::resources::skill::plan_assignment(request))
+    super::gate::prepare("skill_plan", || {
+        crate::resources::skill::plan_assignment(request)
+    })
 }
 
 pub fn plan_update(request: PlanUpdateRequest) -> Result<OperationPlan, SkillError> {
-    super::gate::read(|| crate::resources::skill::plan_update(request))
+    super::gate::prepare("skill_plan", || {
+        crate::resources::skill::plan_update(request)
+    })
 }
 
 pub fn plan_remove(request: PlanRemoveRequest) -> Result<OperationPlan, SkillError> {
-    super::gate::read(|| crate::resources::skill::plan_remove(request))
+    super::gate::prepare("skill_plan", || {
+        crate::resources::skill::plan_remove(request)
+    })
 }
 
 pub fn plan_repair(request: PlanRepairRequest) -> Result<OperationPlan, SkillError> {
-    super::gate::read(|| crate::resources::skill::plan_repair(request))
+    super::gate::prepare("skill_plan", || {
+        crate::resources::skill::plan_repair(request)
+    })
 }
 
 pub fn commit_install(request: SkillCommitRequest) -> Result<SkillsInventory, SkillError> {
-    super::gate::write(|| crate::resources::skill::commit_install(request))
+    super::gate::mutate("skill_commit", || {
+        crate::resources::skill::commit_install(request)
+    })
 }
 
 pub fn commit_import(request: SkillCommitRequest) -> Result<SkillsInventory, SkillError> {
-    super::gate::write(|| crate::resources::skill::commit_import(request))
+    super::gate::mutate("skill_commit", || {
+        crate::resources::skill::commit_import(request)
+    })
 }
 
 pub fn commit_assignment(request: SkillCommitRequest) -> Result<SkillsInventory, SkillError> {
-    super::gate::write(|| crate::resources::skill::commit_assignment(request))
+    super::gate::mutate("skill_commit", || {
+        crate::resources::skill::commit_assignment(request)
+    })
 }
 
 pub fn commit_update(request: SkillCommitRequest) -> Result<SkillsInventory, SkillError> {
-    super::gate::write(|| crate::resources::skill::commit_update(request))
+    super::gate::mutate("skill_commit", || {
+        crate::resources::skill::commit_update(request)
+    })
 }
 
 pub fn commit_remove(request: SkillCommitRequest) -> Result<SkillsInventory, SkillError> {
-    super::gate::write(|| crate::resources::skill::commit_remove(request))
+    super::gate::mutate("skill_commit", || {
+        crate::resources::skill::commit_remove(request)
+    })
 }
 
 pub fn commit_repair(request: SkillCommitRequest) -> Result<SkillsInventory, SkillError> {
-    super::gate::write(|| crate::resources::skill::commit_repair(request))
+    super::gate::mutate("skill_commit", || {
+        crate::resources::skill::commit_repair(request)
+    })
 }
 
 pub fn cancel_operation(operation_id: &str) -> Result<(), SkillError> {
-    super::gate::write(|| crate::resources::skill::cancel_operation(operation_id))
+    super::gate::mutate("skill_cancel", || {
+        crate::resources::skill::cancel_operation(operation_id)
+    })
 }
 
 pub fn check_updates(manual: bool) -> Result<UpdateCheckOutcome, SkillError> {
-    super::gate::write(|| crate::resources::skill::check_updates(manual))
+    super::gate::mutate("skill_update_check", || {
+        crate::resources::skill::check_updates(manual)
+    })
 }
 
 pub fn check_updates_if_due() -> Result<UpdateCheckOutcome, SkillError> {
-    super::gate::write(crate::resources::skill::check_updates_if_due)
+    super::gate::mutate(
+        "skill_update_check",
+        crate::resources::skill::check_updates_if_due,
+    )
 }

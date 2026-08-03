@@ -207,7 +207,7 @@ fn project_models(
             let desired_active =
                 selection.active_profile_id.as_deref() == Some(profile_id.as_str());
             let observed_is_active = observed_active_profile == Some(profile_id);
-            let (observed, status, reason) = if !compatibility.compatible {
+            let (observed, status, reason) = if record.enabled && !compatibility.compatible {
                 (
                     false,
                     ConsumptionStatus::Unsupported,
@@ -410,6 +410,11 @@ fn project_skills(
                     true,
                     ConsumptionStatus::Drifted,
                     Some("skill_local_modification".into()),
+                ),
+                Some(item) if item.states.contains(&InventoryState::External) => (
+                    true,
+                    ConsumptionStatus::Conflicted,
+                    Some("skill_external_target".into()),
                 ),
                 Some(item) if item.states.contains(&InventoryState::Missing) => (
                     false,

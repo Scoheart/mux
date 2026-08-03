@@ -591,13 +591,29 @@ pub fn scan_installed(project_dir: Option<&str>) -> Vec<InstalledMcp> {
             )) {
                 continue;
             }
+            let key = format!("{}::{}", d.name, d.transport);
+            let customized = base_map
+                .get(&key)
+                .map(|base| {
+                    agents
+                        .get(&agent)
+                        .map(|definition| {
+                            normalize_with_codec(
+                                from_name(definition.codec.as_deref(), &agent),
+                                base,
+                            )
+                        })
+                        .unwrap_or_else(|| base.clone())
+                        != d.config
+                })
+                .unwrap_or(false);
             out.push(InstalledMcp {
                 name: d.name,
                 agent: agent.clone(),
                 scope: d.scope,
                 file_path: String::new(),
                 transport: d.transport,
-                customized: false,
+                customized,
                 enabled: false,
             });
         }

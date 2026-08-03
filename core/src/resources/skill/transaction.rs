@@ -851,6 +851,20 @@ pub fn execute_transaction_with_failpoint(
     let paths = SkillsPaths::resolve_from_env()?;
     paths.ensure_mux_root()?;
     let _lock = acquire_skills_lock(&paths)?;
+    // Preserve the global writer order (Skills -> settings/safe-write). A
+    // second, already-Ready process can otherwise pass its application gate,
+    // wait here while another process leaves a durable claim, and then commit
+    // against state that still requires recovery.
+    crate::safe_write::recover_global_mutation_intents().map_err(|_| {
+        SkillError::RecoveryRequired {
+            message: "a durable safe-write claim must be recovered before committing Skills".into(),
+        }
+    })?;
+    crate::assets::transaction::ensure_no_pending_asset_recovery().map_err(|_| {
+        SkillError::RecoveryRequired {
+            message: "a pending Asset operation must be recovered before committing Skills".into(),
+        }
+    })?;
     paths.ensure_transaction_roots()?;
     validate_transaction_roots(&paths, false)?;
     if has_pending_recovery_with_paths(&paths)? {
@@ -1443,7 +1457,7 @@ fn unsafe_transaction_path() -> SkillError {
     }
 }
 
-fn lexical_absolute(path: &Path) -> Result<PathBuf, SkillError> {
+pub(crate) fn lexical_absolute(path: &Path) -> Result<PathBuf, SkillError> {
     if !path.is_absolute() {
         return Err(unsafe_transaction_path());
     }
@@ -2626,7 +2640,7 @@ fn is_symlink_loop_error(_error: &std::io::Error) -> bool {
     false
 }
 
-fn write_skill_settings(
+pub(crate) fn write_skill_settings(
     paths: &SkillsPaths,
     expected: &SkillSettingsSnapshot,
     desired: &SkillSettingsSnapshot,
@@ -4805,6 +4819,45 @@ mod tests {
                 "accepted {invalid}"
             );
         }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn pending_global_claim_blocks_skill_commit_before_its_journal_is_created() {
+        let _home = TestHome::new("tx-global-claim");
+        let paths = SkillsPaths::from_env().unwrap();
+        let _claim = crate::safe_write::install_test_global_mutation_claim().unwrap();
+
+        let result = execute_transaction(empty_spec("10005000-0000-4000-8000-000000000006"));
+
+        assert!(matches!(result, Err(SkillError::RecoveryRequired { .. })));
+        assert!(
+            !journal_path(&paths, "10005000-0000-4000-8000-000000000006")
+                .unwrap()
+                .exists(),
+            "Skill journal creation must remain behind global claim recovery"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn foreign_asset_manifest_blocks_skill_commit_before_its_journal_is_created() {
+        let _home = TestHome::new("tx-asset-recovery");
+        let paths = SkillsPaths::from_env().unwrap();
+        let foreign_id = uuid::Uuid::new_v4().to_string();
+        let foreign_rollback = crate::assets::planner::operation_root(&foreign_id).join("rollback");
+        fs::create_dir_all(&foreign_rollback).unwrap();
+        fs::write(foreign_rollback.join("manifest.json"), b"{}").unwrap();
+        let operation_id = "10006000-0000-4000-8000-000000000006";
+
+        let result = execute_transaction(empty_spec(operation_id));
+
+        assert!(matches!(result, Err(SkillError::RecoveryRequired { .. })));
+        assert!(
+            !journal_path(&paths, operation_id).unwrap().exists(),
+            "Skill journal creation must remain behind Asset recovery"
+        );
+        assert!(foreign_rollback.join("manifest.json").is_file());
     }
 
     #[cfg(not(unix))]

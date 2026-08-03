@@ -45,7 +45,7 @@ mux --version
 
 ### 方式二：单独下载预编译二进制
 
-在正式版 Release 中选择标注为 **Command-line tool · Apple Silicon** 的资源。为兼容旧版 `mux upgrade`，实际文件名仍是 `mux_v<版本>_aarch64-apple-darwin.tar.gz`：
+在正式版 Release 中选择标注为 **Command-line tool · Apple Silicon** 的资源，文件名为 `mux_v<版本>_aarch64-apple-darwin.tar.gz`：
 
 ```bash
 # 到 Releases 下载后：
@@ -76,13 +76,16 @@ mux
 也可以用子命令脚本化（设 `MUX_NO_TUI=1` 让无参数时打印帮助而不进 TUI）：
 
 ```bash
-mux list            # 列出目录里的 MCP
-mux status          # 各 agent 当前生效的 MCP
-mux apply <名字…>   # 非交互安装到全局配置（--agent）
-mux export --out mcp.json  # 导出生效配置
-mux agents list     # 列出所有 agent
-mux upgrade         # 升级独立安装的 CLI
+mux mcp list
+mux mcp assign github::stdio --agent claude-code --yes
+mux model use work --agent pi --yes
+mux skill assign review-changes --agent codex --yes
+mux mcp export --out mcp.json --yes
+mux agent list
+mux upgrade --yes
 ```
+
+Agent 关系写操作必须使用准确资产 ID 和显式 `--agent <id>`。脚本可使用全局 `--json`、`--yes`、`--dry-run` 和 `--no-color`；`--yes` 与 `--dry-run` 互斥。
 
 详见 [命令行 / TUI](/guide/cli)。
 

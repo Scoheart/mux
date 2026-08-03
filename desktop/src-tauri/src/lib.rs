@@ -6,6 +6,18 @@ use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Bootstrap before constructing Tauri. A configured WebView can exist
+    // before the user setup hook runs, so setup is too late to be the IPC write
+    // boundary. Desktop failures publish a read-only backend and still return a
+    // diagnostic report; CLI failures remain fatal to their caller.
+    let bootstrap = mux_core::application::MuxCore::bootstrap(
+        mux_core::application::bootstrap::Frontend::Desktop,
+    )
+    .expect("Desktop bootstrap remains diagnostic");
+    for warning in &bootstrap.warnings {
+        eprintln!("MUX startup warning: {warning:?}");
+    }
+
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
@@ -14,14 +26,7 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         // Needed to relaunch the app after an update is installed.
         .plugin(tauri_plugin_process::init())
-        .setup(|app| {
-            let bootstrap = mux_core::application::MuxCore::bootstrap(
-                mux_core::application::bootstrap::Frontend::Desktop,
-            )
-            .expect("Desktop bootstrap remains diagnostic");
-            for warning in &bootstrap.warnings {
-                eprintln!("MUX startup warning: {warning:?}");
-            }
+        .setup(move |app| {
             if bootstrap.skill_updates_allowed {
                 std::thread::spawn(|| {
                     let _ = mux_core::application::skills::check_updates_if_due();
@@ -37,6 +42,7 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            commands::get_backend_status,
             commands::get_workspace_snapshot,
             commands::list_agent_capabilities,
             commands::plan_operation,

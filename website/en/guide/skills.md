@@ -1,8 +1,8 @@
 # User-level Skills
 
-MUX Desktop manages user-level Skills that follow the Agent Skills format as central assets. Add a Skill to the central library first, then separately choose which Agents consume it; an Agent page never resolves a source or reinstalls the same Skill. This version manages only global Skills under the user's home directory and neither reads nor writes project directories such as `.agents/skills` or `.claude/skills`.
+MUX manages user-level Skills that follow the Agent Skills format as central assets. Desktop adds and maintains central Skills; both Desktop and the CLI can separately choose which Agents consume them. An Agent page never resolves a source or reinstalls the same Skill. This version manages only global Skills under the user's home directory and neither reads nor writes project directories such as `.agents/skills` or `.claude/skills`.
 
-> Skills currently have a Desktop entry only. The CLI/TUI does not expose Skills commands yet.
+The CLI provides `mux skill list/show/status/assign/unassign/enable/disable/reapply`. The no-argument TUI is an MCP-focused compatibility terminal manager and does not provide a Skill lifecycle screen.
 
 ## Add to the central library
 
@@ -94,17 +94,20 @@ Before writing, MUX validates candidate structure and content locally. Escaping 
 - MUX does not run candidate scripts, and “no high-risk pattern found” is not a security certification.
 - `SKILL.md` is rendered as plain text; embedded HTML, scripts, and remote resources are not executed.
 
+Risk confirmation is bound to the exact `content_hash` that enters or replaces the central library. Assigning or enabling that same approved central version does not request the findings confirmation again; a changed content hash, managed record, or target still fails as stale or conflicted. Authority-reducing disable, unassign, and remove operations are never blocked by the high-risk gate.
+
 ## Lifecycle operations
 
 Download and import commit their internal plans directly from the user's action. Updates, removal, repair, and Agent assignment still show impact when applicable. If content or settings change after planning, MUX rejects the stale operation and asks the user to retry.
 
 | Operation | Result |
 |---|---|
-| Assign to an Agent | Choose the Skill from the relevant Agent page and review a separate relationship plan. The central copy itself does not change; all Agents sharing one target are shown and changed together. |
+| Assign to an Agent | Choose the Skill from the relevant Agent page or run `mux skill assign <skill-id> --agent <agent-id>`. The central copy itself does not change; all Agents sharing one target are shown and changed together. |
+| Unassign | `mux skill unassign <skill-id> --agent <agent-id>` removes the relationship without deleting the central Skill. MUX removes a target only when it is still the exact managed link to the central copy; an external directory, regular file, or foreign link is preserved while ownership is released. Unassign remains available after the central record or Agent installation probe disappears. |
 | Check / update | Background and manual checks read only a GitHub revision, local-folder hash, or archive hash and never change content. Choosing Update then stages the candidate, shows the diff, reruns the audit, and confirms replacement. Local modifications to the central copy require “back up and replace.” |
 | Import | An external copy in an Agent directory remains read-only first. A direct import or confirmed historical migration copies and validates it, backs up the original directory, and replaces it with a central link. Same-name directories with the same hash merge into one central copy; divergent content is never overwritten automatically. The original is not moved before success. |
 | Disable | Removes the managed target link while retaining the central copy and other assignments. Review lists every Agent that loses access through a shared directory. |
-| Repair | Rebuilds a broken link that still matches the managed record. If central content is missing, MUX resolves the recorded source or read-only import backup again and presents the full diff and risk review. |
+| Repair | `mux skill reapply <skill-id> --agent <agent-id>` rebuilds only a missing or broken managed link for an existing desired relationship and lists every Agent affected by a shared target; external directories, regular files, and foreign links are explicitly blocked. If central content is missing, Desktop's full repair flow can resolve the recorded source or read-only import backup again and present the complete diff and risk review. |
 | Remove | Removes all managed links, moves the central copy into timestamped `~/.mux/backups/skills/`, then removes its managed record. This version has no permanent backup purge action. |
 
 Candidates and internal transaction plans live in `~/.mux/staging/skills/`; commit progress lives in `~/.mux/journals/skills/`. If a commit fails or the app crashes, the journal safely rolls back or finishes the commit according to the persisted phase. If recovery cannot complete, the Skills workspace becomes read-only and refuses new writes.
@@ -115,7 +118,6 @@ This version does not support:
 
 - project-level Skills;
 - private repositories or authenticated Git sources;
-- creating or editing `SKILL.md` in MUX;
-- CLI/TUI Skills commands.
+- creating or editing `SKILL.md` in MUX.
 
 Return to the [Desktop app guide](/en/guide/desktop#skills) or see [Supported agents](/en/guide/agents#skills-capabilities).

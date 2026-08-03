@@ -1,11 +1,14 @@
 use super::files::validate_staging_candidate;
 use super::inventory::{
-    declared_targets_for_agents, normalize_agent_selection_with_required_target,
-    normalize_assignment_enable,
+    canonical_skill_assignments, declared_targets_for_agents,
+    normalize_agent_selection_with_required_target, normalize_assignment_enable,
 };
 use super::source::{load_staged_resolution, stage_private_candidate, stage_recorded_skill};
 use super::staging::StagingRoot;
-use super::transaction::{acquire_skills_lock, validate_operation_id};
+use super::transaction::{
+    acquire_skills_lock, lexical_absolute, validate_operation_id, write_skill_settings,
+    SkillsOperationLock,
+};
 use super::{
     audit_skill, diff_trees, execute_transaction, findings_digest, has_pending_recovery, hash_tree,
     io_error, list_inventory, normalize_agent_selection, validate_candidate, DirectoryMutation,
@@ -265,6 +268,306 @@ pub fn commit_assignment(request: SkillCommitRequest) -> Result<SkillsInventory,
     sanitize_result(commit_plan(request, SkillOperationKind::Assignment))
 }
 
+/// Commit a reviewed assignment as a child of the central Asset transaction.
+///
+/// The caller already owns the Skills lock and has installed an outer
+/// safe-write tracker covering every target. Link publication therefore uses
+/// the outer durable claim/evidence protocol directly; no nested Skills journal
+/// is created and there is no post-return ownership handoff window.
+pub(crate) fn commit_assignment_in_asset_transaction(
+    request: SkillCommitRequest,
+    _skills_lock: &SkillsOperationLock,
+) -> Result<Vec<PathBuf>, SkillError> {
+    validate_operation_id(&request.operation_id)?;
+    let paths = SkillsPaths::resolve_from_env()?;
+    let persisted = load_plan(&paths, &request.operation_id)?;
+    if persisted.plan.operation_id != request.operation_id
+        || persisted.plan.kind != SkillOperationKind::Assignment
+        || request.candidate_hash != persisted.plan.candidate_hash
+    {
+        return Err(stale_error(
+            "the reviewed Skills plan does not match this Asset commit",
+        ));
+    }
+    let rebuilt = rebuild_plan(&persisted).map_err(revalidation_error)?;
+    if rebuilt != persisted {
+        return Err(stale_error("the reviewed Skills plan is stale"));
+    }
+    let spec = transaction_spec(&paths, &rebuilt)?;
+    if !spec.directory_mutations.is_empty() {
+        return Err(invalid_source_error(
+            "an Asset assignment cannot mutate central Skill content",
+        ));
+    }
+    let changed = apply_asset_link_mutations(&spec.link_mutations)?;
+    write_skill_settings(&paths, &spec.settings_before, &spec.settings_after)?;
+    // This staging directory contains only a reviewed plan. The outer Asset
+    // journal is now the sole recovery authority, so a cleanup failure must not
+    // manufacture a second transaction owner.
+    let _ = remove_unjournaled_operation(&paths, &request.operation_id);
+    Ok(changed)
+}
+
+fn apply_asset_link_mutations(mutations: &[LinkMutation]) -> Result<Vec<PathBuf>, SkillError> {
+    let mut changed = Vec::new();
+    for mutation in mutations {
+        if mutation.backup.is_some() || matches!(mutation.expected, LinkState::Directory { .. }) {
+            return Err(invalid_source_error(
+                "an Asset relationship cannot replace a Skill directory",
+            ));
+        }
+        let did_change = crate::safe_write::set_transaction_symlink(
+            &mutation.path,
+            mutation.desired_target.as_deref(),
+        )
+        .map_err(|message| SkillError::Io {
+            message: super::capped_message(message),
+            path: None,
+        })?;
+        if did_change {
+            changed.push(mutation.path.clone());
+        }
+    }
+    Ok(changed)
+}
+
+/// Release reviewed physical-target ownership without deleting external data.
+/// The outer asset operation supplies hash-bound target ids. This transaction
+/// removes only a link that resolves to the exact central Skill path; all
+/// ordinary files/directories and other links remain untouched and become external after
+/// settings ownership is cleared. The same path handles clean and orphaned
+/// unassigns, so drift cannot turn a reviewable removal into a commit-time trap.
+pub(crate) fn release_assignment_safely(
+    skill_name: &str,
+    target_ids: &BTreeSet<String>,
+    skills_lock: &SkillsOperationLock,
+) -> Result<Vec<PathBuf>, SkillError> {
+    ensure_recovery_clear()?;
+    let paths = SkillsPaths::resolve_from_env()?;
+    let settings = load_settings_strict().map_err(|_| SkillError::Io {
+        message: "MUX settings could not be read safely".into(),
+        path: None,
+    })?;
+    let central = paths.central_skill(skill_name);
+    let canonical = canonical_skill_assignments(&settings)?;
+    let assigned = canonical.get(skill_name).cloned().unwrap_or_default();
+    let removed_target_ids: BTreeSet<String> = assigned.intersection(target_ids).cloned().collect();
+    if removed_target_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let inventory = list_inventory()?;
+    let targets = selected_target_views(
+        &inventory,
+        &removed_target_ids.iter().cloned().collect::<Vec<_>>(),
+    )?;
+    let mut link_mutations = Vec::new();
+    for target in &targets {
+        let path = target_path(&paths, target, skill_name)?;
+        let metadata = match fs::symlink_metadata(&path) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == ErrorKind::NotFound => continue,
+            Err(error) => return Err(io_error(&path, error)),
+        };
+        if !metadata.file_type().is_symlink() {
+            continue;
+        }
+        let raw_target = fs::read_link(&path).map_err(|error| io_error(&path, error))?;
+        let resolved = if raw_target.is_absolute() {
+            lexical_absolute(&raw_target)?
+        } else {
+            lexical_absolute(
+                &path
+                    .parent()
+                    .ok_or_else(|| invalid_source_error("a Skill link has no target parent"))?
+                    .join(&raw_target),
+            )?
+        };
+        if resolved != lexical_absolute(&central)? {
+            continue;
+        }
+        let expected = match fs::metadata(&path) {
+            Ok(_) => LinkState::ManagedSymlink { target: raw_target },
+            Err(error) if error.kind() == ErrorKind::NotFound || is_symlink_loop(&error) => {
+                LinkState::BrokenSymlink { target: raw_target }
+            }
+            Err(error) => return Err(io_error(&path, error)),
+        };
+        link_mutations.push(LinkMutation {
+            path,
+            expected,
+            desired_target: None,
+            backup: None,
+        });
+    }
+
+    let settings_before = snapshot_from_settings(&settings);
+    let mut settings_after = settings_before.clone();
+    let remaining: BTreeSet<String> = assigned.difference(&removed_target_ids).cloned().collect();
+    let assignments = settings_after.skill_assignments.get_or_insert_default();
+    if remaining.is_empty() {
+        assignments.remove(skill_name);
+    } else {
+        assignments.insert(skill_name.to_string(), remaining);
+    }
+    if assignments.is_empty() {
+        settings_after.skill_assignments = None;
+    }
+    reconcile_skill_consumptions(&mut settings_after);
+
+    let removed_paths: Vec<PathBuf> = link_mutations
+        .iter()
+        .map(|mutation| mutation.path.clone())
+        .collect();
+    let spec = TransactionSpec {
+        operation_id: Uuid::new_v4().hyphenated().to_string(),
+        order: TransactionOrder::LinksThenContent,
+        directory_mutations: Vec::new(),
+        link_mutations,
+        settings_before,
+        settings_after,
+    };
+    let _ = skills_lock;
+    let changed = apply_asset_link_mutations(&spec.link_mutations)?;
+    write_skill_settings(&paths, &spec.settings_before, &spec.settings_after)?;
+    debug_assert!(changed.iter().all(|path| removed_paths.contains(path)));
+    Ok(changed)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum AssignmentReapplyState {
+    Synced,
+    Repairable,
+}
+
+/// Inspect one already-desired, enabled Skill target without weakening link
+/// ownership. An enabled relationship may recreate an absent entry or an
+/// exact broken managed link; a disabled relationship may remove only the
+/// exact managed link. Directories, ordinary files, and links to any other
+/// destination remain foreign even when settings still declare the relation.
+pub(crate) fn assignment_reapply_state(
+    skill_name: &str,
+    target_id: &str,
+) -> Result<AssignmentReapplyState, SkillError> {
+    let (_, path, central, state, enabled) = assignment_reapply_context(skill_name, target_id)?;
+    match state {
+        LinkState::ManagedSymlink { .. } if enabled => Ok(AssignmentReapplyState::Synced),
+        LinkState::Missing if !enabled => Ok(AssignmentReapplyState::Synced),
+        LinkState::ManagedSymlink { .. } | LinkState::Missing => {
+            Ok(AssignmentReapplyState::Repairable)
+        }
+        LinkState::BrokenSymlink { ref target }
+            if broken_link_targets_central(target, &path, &central)? =>
+        {
+            Ok(AssignmentReapplyState::Repairable)
+        }
+        LinkState::BrokenSymlink { .. }
+        | LinkState::Directory { .. }
+        | LinkState::UnknownSymlink { .. } => {
+            conflict_result("reapply would replace a foreign Agent Skill target")
+        }
+    }
+}
+
+/// Recreate one reviewed Skill link while preserving foreign data. The outer
+/// asset transaction binds settings and target hashes; this inner Skills
+/// transaction rechecks the exact link state under the Skills lock.
+pub(crate) fn reapply_assignment_safely(
+    skill_name: &str,
+    target_id: &str,
+    skills_lock: &SkillsOperationLock,
+) -> Result<Vec<PathBuf>, SkillError> {
+    let (settings, path, central, state, enabled) =
+        assignment_reapply_context(skill_name, target_id)?;
+    let repairable = match &state {
+        LinkState::ManagedSymlink { .. } if enabled => return Ok(Vec::new()),
+        LinkState::Missing if !enabled => return Ok(Vec::new()),
+        LinkState::ManagedSymlink { .. } | LinkState::Missing => true,
+        LinkState::BrokenSymlink { target } => {
+            broken_link_targets_central(target, &path, &central)?
+        }
+        LinkState::Directory { .. } | LinkState::UnknownSymlink { .. } => false,
+    };
+    if !repairable {
+        return conflict_result("reapply would replace a foreign Agent Skill target");
+    }
+
+    let spec = TransactionSpec {
+        operation_id: Uuid::new_v4().hyphenated().to_string(),
+        order: TransactionOrder::ContentThenLinks,
+        directory_mutations: Vec::new(),
+        link_mutations: vec![LinkMutation {
+            path: path.clone(),
+            expected: state,
+            desired_target: enabled.then_some(central),
+            backup: None,
+        }],
+        settings_before: settings.clone(),
+        settings_after: settings,
+    };
+    let _ = skills_lock;
+    apply_asset_link_mutations(&spec.link_mutations)
+}
+
+fn assignment_reapply_context(
+    skill_name: &str,
+    target_id: &str,
+) -> Result<(SkillSettingsSnapshot, PathBuf, PathBuf, LinkState, bool), SkillError> {
+    ensure_recovery_clear()?;
+    let paths = SkillsPaths::resolve_from_env()?;
+    let settings = current_settings_snapshot()?;
+    let record = managed_record(&settings, skill_name)?;
+    let assigned = settings
+        .skill_assignments
+        .as_ref()
+        .and_then(|assignments| assignments.get(skill_name))
+        .is_some_and(|targets| targets.contains(target_id));
+    if !assigned {
+        return conflict_result("only an assigned managed Skill target can be reapplied");
+    }
+    let enabled = settings
+        .skill_consumptions
+        .as_ref()
+        .and_then(|skills| skills.get(skill_name))
+        .and_then(|targets| targets.get(target_id))
+        .map(|record| record.enabled)
+        .unwrap_or(true);
+    let central = paths.central_skill(skill_name);
+    if enabled {
+        let validated = validate_candidate(&central)
+            .map_err(|_| conflict_error("the managed central Skill cannot authorize reapply"))?;
+        if validated.manifest.name != skill_name || validated.content_hash != record.content_hash {
+            return conflict_result("the managed central Skill hash cannot authorize reapply");
+        }
+    }
+    let inventory = list_inventory()?;
+    let target = inventory
+        .targets
+        .iter()
+        .find(|target| target.target_id == target_id)
+        .ok_or_else(|| invalid_source_error("the assigned Skill target is unavailable"))?;
+    let path = target_path(&paths, target, skill_name)?;
+    let state = inspect_link(&path, &central, &paths)?;
+    Ok((settings, path, central, state, enabled))
+}
+
+fn broken_link_targets_central(
+    raw_target: &Path,
+    path: &Path,
+    central: &Path,
+) -> Result<bool, SkillError> {
+    let resolved = if raw_target.is_absolute() {
+        lexical_absolute(raw_target)?
+    } else {
+        lexical_absolute(
+            &path
+                .parent()
+                .ok_or_else(|| invalid_source_error("a Skill link has no target parent"))?
+                .join(raw_target),
+        )?
+    };
+    Ok(resolved == lexical_absolute(central)?)
+}
+
 pub fn plan_update(request: PlanUpdateRequest) -> Result<OperationPlan, SkillError> {
     sanitize_result(plan_update_inner(request))
 }
@@ -434,6 +737,19 @@ fn cancel_operation_inner(operation_id: &str) -> Result<(), SkillError> {
     validate_operation_id(operation_id)?;
     let paths = SkillsPaths::resolve_from_env()?;
     let _lock = acquire_skills_lock(&paths)?;
+    cancel_operation_under_lock(&paths, operation_id)
+}
+
+pub(crate) fn cancel_operation_in_asset_transaction(
+    operation_id: &str,
+    _skills_lock: &SkillsOperationLock,
+) -> Result<(), SkillError> {
+    validate_operation_id(operation_id)?;
+    let paths = SkillsPaths::resolve_from_env()?;
+    cancel_operation_under_lock(&paths, operation_id)
+}
+
+fn cancel_operation_under_lock(paths: &SkillsPaths, operation_id: &str) -> Result<(), SkillError> {
     let journal = paths
         .journals_skills_dir()
         .join(format!("{operation_id}.json"));
@@ -446,7 +762,7 @@ fn cancel_operation_inner(operation_id: &str) -> Result<(), SkillError> {
             })
         }
     }
-    StagingRoot::open(&paths)?
+    StagingRoot::open(paths)?
         .remove_operation_if_exists(operation_id)
         .map(|_| ())
 }
@@ -992,7 +1308,7 @@ fn build_remove_plan(
         replace_existing: central_hash.is_some() || !expected_links.is_empty(),
         content_hash,
     };
-    let mut plan = new_plan(
+    let plan = new_plan(
         operation_id,
         SkillOperationKind::Remove,
         vec![skill],
@@ -1000,7 +1316,6 @@ fn build_remove_plan(
         settings_hash(&settings)?,
         Vec::new(),
     )?;
-    plan.requires_risk_override = false;
     finalize_plan(PersistedPlan {
         schema_version: PLAN_SCHEMA_VERSION,
         plan,
@@ -1086,7 +1401,7 @@ fn build_target_repair_plan(
         replace_existing: false,
         content_hash: validated.content_hash,
     };
-    let mut plan = new_plan(
+    let plan = new_plan(
         operation_id,
         SkillOperationKind::Repair,
         vec![skill],
@@ -1094,7 +1409,6 @@ fn build_target_repair_plan(
         settings_hash(&settings)?,
         Vec::new(),
     )?;
-    plan.requires_risk_override = false;
     finalize_plan(PersistedPlan {
         schema_version: PLAN_SCHEMA_VERSION,
         plan,
@@ -1936,9 +2250,6 @@ fn new_plan(
     targets.sort_by(|left, right| left.target_id.cmp(&right.target_id));
     warnings.sort();
     let findings_hash = aggregate_findings_hash(&skills)?;
-    let requires_risk_override = skills
-        .iter()
-        .any(|skill| skill.risk.level == RiskLevel::High);
     Ok(OperationPlan {
         operation_id,
         kind,
@@ -1947,7 +2258,8 @@ fn new_plan(
         settings_hash,
         candidate_hash: String::new(),
         findings_hash,
-        requires_risk_override,
+        // Derived from the complete persisted operation in `finalize_plan`.
+        requires_risk_override: false,
         warnings,
     })
 }
@@ -1962,6 +2274,13 @@ fn finalize_plan(mut persisted: PersistedPlan) -> Result<PersistedPlan, SkillErr
     persisted.expected_target_roots =
         expected_target_roots(&SkillsPaths::resolve_from_env()?, &persisted.plan.targets)?;
     persisted.expected_target_roots.sort();
+    // Risk approval is a property of the complete operation, not of a builder
+    // that happens to contain a high-risk Skill. Derive it in the same place
+    // used by load-time integrity validation so creation and verification
+    // cannot drift apart. Only operations that introduce or replace central
+    // content require a findings token; assignment and authority-reducing
+    // operations reuse the exact central content version already approved.
+    persisted.plan.requires_risk_override = expected_risk_override(&persisted);
     persisted.plan.candidate_hash = candidate_hash(&persisted)?;
     Ok(persisted)
 }

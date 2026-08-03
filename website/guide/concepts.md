@@ -53,10 +53,11 @@ Agent 文件中的新发现不属于第五种来源，而是独立的只读 **ex
 
 ## 中央资产与消费关系
 
-中央资产定义“它是什么”，消费关系定义“哪个 Agent 应该使用它”。Desktop 的 Agent 页面和资产详情修改同一份 desired state：
+中央资产定义“它是什么”，消费关系定义“哪个 Agent 应该使用它”。Desktop 的 Agent 页面与 CLI 操作同一份 desired state；资产详情继续分离生命周期和影响展示：
 
 - **MCP / Skills**：一个 Agent 可消费 `0..N` 个中央资产。
-- **Model**：一个 Agent 同时最多消费 `0..1` 个 Profile。
+- **Model**：原生多模型 Agent 可分配 `0..N` 个 Profile、启用其中多个，但最多一个为 current；单模型 Agent 为 `0..1`。
+- **启停关系**：`disable` 保留 desired relationship，只暂停目标中的生效状态；`enable` 原位恢复。
 - **解除使用**：删除关系和该 Agent 的受管目标，不删除中央资产。
 - **observed state**：Agent 文件与 Skill link 只用于对账；外部内容、漂移和冲突不会自动反写 desired state。
 

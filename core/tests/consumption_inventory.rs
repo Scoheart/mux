@@ -3,9 +3,11 @@
 mod support;
 
 use mux_core::consumption::{
-    commit_asset_operation, list_consumption_inventory, plan_set_agent_consumption,
+    commit_asset_operation, list_consumption_inventory, plan_reapply_model,
+    plan_set_agent_consumption, plan_set_asset_consumers, plan_update_asset_consumers,
     AgentConsumptionSelection, AssetCommitRequest, AssetRef, ConsumptionStatus,
-    McpConsumptionRecord, PlanSetAgentConsumptionRequest,
+    McpConsumptionRecord, PlanReapplyModelRequest, PlanSetAgentConsumptionRequest,
+    PlanSetAssetConsumersRequest, PlanUpdateAssetConsumersRequest,
 };
 use mux_core::models::{apply_profile, save_profile};
 use mux_core::ops::install;
@@ -267,7 +269,7 @@ fn ambiguous_model_configuration_cannot_be_taken_over() {
 }
 
 #[test]
-fn drifted_model_can_be_explicitly_reapplied_from_the_agent_plan() {
+fn drifted_model_requires_explicit_reapply_while_relationship_assignment_is_a_noop() {
     let home = TestHome::new("consume-model-repair");
     save_profile(model_profile(), None).unwrap();
     apply_profile("codex", "inventory-profile").unwrap();
@@ -277,11 +279,22 @@ fn drifted_model_can_be_explicitly_reapplied_from_the_agent_plan() {
         .replace("model = \"example\"", "model = \"tampered\"");
     fs::write(&target, drifted).unwrap();
 
-    let plan = plan_set_agent_consumption(PlanSetAgentConsumptionRequest {
+    let relationship_plan = plan_set_agent_consumption(PlanSetAgentConsumptionRequest {
         agent_id: "codex".into(),
         selection: AgentConsumptionSelection::Model {
             profile_ids: vec!["inventory-profile".into()],
         },
+    })
+    .unwrap();
+    assert!(relationship_plan.target_files.is_empty());
+    assert!(relationship_plan.central_changes.is_empty());
+    assert!(relationship_plan.relationship_changes.is_empty());
+    assert!(!relationship_plan.requires_conflict_confirmation);
+    assert!(fs::read_to_string(&target).unwrap().contains("tampered"));
+
+    let plan = plan_reapply_model(PlanReapplyModelRequest {
+        agent_id: "codex".into(),
+        profile_id: "inventory-profile".into(),
     })
     .unwrap();
     assert!(plan.can_commit);
@@ -308,6 +321,79 @@ fn drifted_model_can_be_explicitly_reapplied_from_the_agent_plan() {
     let repaired = fs::read_to_string(target).unwrap();
     assert!(repaired.contains("model = \"example\""));
     assert!(!repaired.contains("tampered"));
+}
+
+#[test]
+fn idempotent_asset_consumer_edits_never_repair_unrelated_model_drift() {
+    let home = TestHome::new("consume-model-idempotent-assets");
+    save_profile(model_profile(), None).unwrap();
+    let assigned = plan_set_agent_consumption(PlanSetAgentConsumptionRequest {
+        agent_id: "codex".into(),
+        selection: AgentConsumptionSelection::Model {
+            profile_ids: vec!["inventory-profile".into()],
+        },
+    })
+    .unwrap();
+    commit_asset_operation(AssetCommitRequest {
+        operation_id: assigned.operation_id,
+        candidate_hash: assigned.candidate_hash,
+        conflict_confirmation: None,
+    })
+    .unwrap();
+
+    let target = home.home.join(".codex/config.toml");
+    let drifted = fs::read_to_string(&target)
+        .unwrap()
+        .replace("model = \"example\"", "model = \"unrelated-drift\"");
+    fs::write(&target, drifted.as_bytes()).unwrap();
+    let reviewed_bytes = fs::read(&target).unwrap();
+
+    let assert_noop = |plan: mux_core::consumption::AssetOperationPlan| {
+        assert!(plan.can_commit);
+        assert!(!plan.requires_conflict_confirmation);
+        assert!(plan.relationship_changes.is_empty());
+        assert!(plan.model_state_changes.is_empty());
+        assert!(plan.consumption_state_changes.is_empty());
+        assert!(plan.warnings.is_empty());
+        assert!(plan.target_files.is_empty());
+        commit_asset_operation(AssetCommitRequest {
+            operation_id: plan.operation_id,
+            candidate_hash: plan.candidate_hash,
+            conflict_confirmation: None,
+        })
+        .unwrap();
+        assert_eq!(fs::read(&target).unwrap(), reviewed_bytes);
+    };
+
+    assert_noop(
+        plan_set_asset_consumers(PlanSetAssetConsumersRequest {
+            asset: AssetRef::Model {
+                profile_id: "inventory-profile".into(),
+            },
+            agent_ids: vec!["codex".into()],
+        })
+        .unwrap(),
+    );
+    assert_noop(
+        plan_update_asset_consumers(PlanUpdateAssetConsumersRequest {
+            asset: AssetRef::Model {
+                profile_id: "inventory-profile".into(),
+            },
+            add_agent_ids: vec!["codex".into()],
+            remove_agent_ids: Vec::new(),
+        })
+        .unwrap(),
+    );
+    assert_noop(
+        plan_update_asset_consumers(PlanUpdateAssetConsumersRequest {
+            asset: AssetRef::Model {
+                profile_id: "inventory-profile".into(),
+            },
+            add_agent_ids: Vec::new(),
+            remove_agent_ids: vec!["claude-code".into()],
+        })
+        .unwrap(),
+    );
 }
 
 #[test]

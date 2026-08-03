@@ -55,6 +55,19 @@ impl CompatibilityView {
 /// inventory and must first be imported before this service can select them.
 pub fn compatibility_for(agent_id: &str, asset: &AssetRef) -> Result<CompatibilityView, String> {
     asset.validate().map_err(|error| error.to_string())?;
+    let agents = load_agents();
+    let Some(agent) = agents.get(agent_id) else {
+        return Ok(CompatibilityView::unsupported(
+            "agent_unknown",
+            "Agent 不在当前中央目录中。",
+        ));
+    };
+    if !agent.enabled {
+        return Ok(CompatibilityView::unsupported(
+            "agent_disabled",
+            "Agent 已在 MUX 中停用。",
+        ));
+    }
     match asset {
         AssetRef::Mcp { key } => mcp_compatibility(agent_id, key),
         AssetRef::Model { profile_id } => model_compatibility(agent_id, profile_id),

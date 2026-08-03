@@ -2,6 +2,8 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> **Historical plan:** The CLI/TUI exclusions below describe only the 2026-07-16 Desktop implementation slice. The current product provides `mux skill list/show/status/assign/unassign/enable/disable/reapply`; its no-argument TUI remains MCP-focused.
+
 **Goal:** Add a self-contained macOS Desktop workspace that safely installs, audits, updates, assigns, imports, repairs, and removes user-level Agent Skills from one MUX-managed copy.
 
 **Architecture:** `mux-core` owns every source, validation, audit, inventory, plan/commit, transaction, and recovery rule. Tauri commands only move typed requests onto worker threads, while React renders inventory and explicit confirmation flows. MUX stores one copy under `~/.mux/skills` and creates guarded symlinks in verified Agent user directories.
@@ -24,7 +26,7 @@
 - Model preferred directories separately from compatible aliases. A plan must show every installed Agent that observes a physical target and eliminate redundant links.
 - Preserve unknown `settings.json` fields and serialize Skill mutations through `mutate_settings`; do not overwrite stale settings snapshots.
 - Preview `SKILL.md` and diffs as plain text. Never execute embedded HTML, scripts, commands, or remote resources.
-- Do not add Skills commands to CLI/TUI in this version.
+- For this historical 2026-07-16 implementation slice, do not add Skills commands to CLI/TUI; this is not a current product limitation.
 - Desktop must remain fully usable at `1200×820` and `900×600`, with no horizontal overflow and Escape closing only the topmost dialog/inspector.
 - Tests always use isolated `TestHome`/`MUX_HOME`, mock HTTP, and disposable Agent directories. They must never touch real `~/.mux`, Agent paths, Keychain, or the live network.
 - Do not bump versions, tag, publish, or create a release as part of this feature.
@@ -3824,7 +3826,7 @@ Do not alter release triggers or version metadata.
 
 - [ ] **Step 2: Update product and contributor contracts**
 
-Update `AGENTS.md` so the Rust-core authority and UI contract explicitly include Skills, user-level-only paths, local audit privacy, plan/commit transactions, verified Agent capability data, and the prohibition on CLI/TUI Skills entry in this version.
+For this historical implementation slice, update `AGENTS.md` so the Rust-core authority and UI contract explicitly include Skills, user-level-only paths, local audit privacy, plan/commit transactions, verified Agent capability data, and the then-current exclusion of a CLI/TUI Skills entry. That exclusion has since been superseded by the unified CLI.
 
 Update README Features/Data layout/How it works with:
 

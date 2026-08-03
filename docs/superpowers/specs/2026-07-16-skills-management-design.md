@@ -1,8 +1,10 @@
 # MUX 用户级 Skills 管理 — 设计文档
 
+> **历史文档：** 本文记录 2026-07-16 的 Desktop 首版范围，其中关于 CLI/TUI 的限制仅描述当时实现。当前产品已由统一 CLI 提供 `mux skill list/show/status/assign/unassign/enable/disable/reapply`；无参数 TUI 仍聚焦 MCP。
+
 - 日期：2026-07-16
-- 状态：对话设计已确认，书面 spec 已完成自审
-- 范围：Rust core + macOS Desktop；CLI/TUI 暂不增加 Skills 入口
+- 状态：历史首版设计已完成；CLI 部分已被后续统一命令体系取代
+- 范围：当时的 Rust core + macOS Desktop 首版，不包含 CLI/TUI Skills 入口
 
 ## 1. 背景
 
@@ -38,7 +40,7 @@ Agent Skills 已形成以 `SKILL.md` 为核心的开放格式。现有 `vercel-l
 | 风险分析 | 完全本地，不上传内容、哈希或文件路径 |
 | 高风险 | 展示证据并二次确认；允许用户明确覆盖 |
 | Desktop 导航 | 新增与 MCPs、Models 并列的顶层 Skills 工作区 |
-| CLI/TUI | 首版不增加入口；core 接口保持可复用 |
+| CLI/TUI | 2026-07-16 首版不增加入口；core 接口保持可复用，供后续统一 CLI 使用 |
 
 ## 3. 目标与非目标
 
@@ -59,7 +61,7 @@ Agent Skills 已形成以 `SKILL.md` 为核心的开放格式。现有 `vercel-l
 - 不支持私有 GitHub 仓库、GitLab、任意压缩包 URL 或 SSH Git 来源。
 - 不运行、测试、编辑或自动修复 Skill 中的脚本和说明。
 - 不把静态风险分析包装成安全认证。
-- 不在首版增加 CLI/TUI Skills 命令。
+- 本文所述 2026-07-16 首版不增加 CLI/TUI Skills 命令；这不是当前产品限制。
 - 不在本功能内执行版本发布、签名、公证或 GitHub Release。
 
 ## 4. 架构
@@ -554,7 +556,7 @@ Escape 层级、横向 overflow、控制台错误和实际截图。
 7. 并发变化、失败或崩溃后不存在不可恢复的半安装状态。
 8. 既有独立副本在确认导入前保持原样。
 9. Desktop 在两种规定 viewport 中操作完整、无裁切、无层级冲突。
-10. 首版没有项目级 Skills、私有仓库、Skill 编辑器或 CLI/TUI 入口。
+10. 2026-07-16 首版没有项目级 Skills、私有仓库、Skill 编辑器或 CLI/TUI 入口；CLI 能力在后续版本补齐。
 
 ## 18. 实施边界
 
@@ -564,10 +566,10 @@ inventory/store/transaction ops → Tauri commands → Desktop 工作区与 Agen
 
 ## 19. 实施核验快照
 
-截至 2026-07-16 的功能分支实现遵守本设计的首版边界：只管理用户级 Skills，
+截至 2026-07-16 的功能分支实现遵守本历史设计的首版边界：只管理用户级 Skills，
 Rust core 负责来源解析、静态风险、inventory、plan/commit、事务与恢复；Desktop
-提供安装、导入、更新、分配、停用、修复和删除入口，CLI/TUI 没有新增 Skills
-命令。中央同名冲突与本地修改只能在显式选择后备份替换，真实目录、断链和未知
+提供安装、导入、更新、分配、停用、修复和删除入口；当时的 CLI/TUI 尚未新增
+Skills 命令，现已由统一 CLI 补齐。中央同名冲突与本地修改只能在显式选择后备份替换，真实目录、断链和未知
 链接仍拒绝覆盖；审阅计划绑定候选哈希，并区分现有来源与候选来源。
 
 在集成上游 `v1.2.15` 后，以下门禁已在功能分支通过：

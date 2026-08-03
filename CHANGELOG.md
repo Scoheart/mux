@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.107](https://github.com/Scoheart/mux/compare/v1.8.106...v1.8.107) (2026-08-03)
+
+### Changes
+
+* feat(cli): unify resource lifecycle commands ([3c143e7](https://github.com/Scoheart/mux/commit/3c143e7d47b5b7d18bedb22c4dbf04e1875f83e5))
+
 ## [1.8.106](https://github.com/Scoheart/mux/compare/v1.8.105...v1.8.106) (2026-08-01)
 
 ### Changes

@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.108](https://github.com/Scoheart/mux/compare/v1.8.107...v1.8.108) (2026-08-03)
+
+### Changes
+
+* fix(ci): satisfy current Rust lints ([d3a1b68](https://github.com/Scoheart/mux/commit/d3a1b686ed63cab8c42c4f7bf933bc0bc6a84a5b))
+
 ## [1.8.107](https://github.com/Scoheart/mux/compare/v1.8.106...v1.8.107) (2026-08-03)
 
 ### Changes

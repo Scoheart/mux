@@ -30,6 +30,13 @@ import { useStartupSync, type StartupTask } from "./hooks/useStartupSync";
 import { RefreshIcon } from "./components/icons";
 import { useTranslation } from "react-i18next";
 import { listen } from "@tauri-apps/api/event";
+import {
+  ALL_OBSERVATION_TASK_IDS,
+  focusRefreshDue,
+  taskIdsForObservation,
+  type ObservationChange,
+  type ObservationTaskId,
+} from "./lib/observationRefresh";
 
 const AgentView = lazy(() =>
   import("./components/AgentView").then((module) => ({
@@ -60,6 +67,22 @@ function capabilityLabel(capability: "mcp" | "model" | "skill") {
   if (capability === "mcp") return "MCP";
   if (capability === "model") return "Model";
   return "Skill";
+}
+
+async function runRefreshes(
+  refreshes: Array<() => Promise<unknown>>,
+  concurrency = 2,
+) {
+  let cursor = 0;
+  const worker = async () => {
+    while (cursor < refreshes.length) {
+      const refresh = refreshes[cursor++];
+      await refresh().catch(() => undefined);
+    }
+  };
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, refreshes.length) }, worker),
+  );
 }
 
 function App() {
@@ -131,53 +154,82 @@ function App() {
   // only after all fresh read-only startup work has settled.
   useCliTool({ start: startupSync.settled });
 
+  const observationTasks = useMemo<Record<ObservationTaskId, () => Promise<unknown>>>(
+    () => ({
+      agents: state.refreshAgents,
+      "agent-capabilities": consumptionState.refreshAgents,
+      relationships: consumptionState.refresh,
+      skills: skillsState.refreshSilently,
+      registry: state.refreshRegistry,
+      sources: state.refreshSources,
+      "external-models": refreshExternalModels,
+    }),
+    [
+      consumptionState.refresh,
+      consumptionState.refreshAgents,
+      refreshExternalModels,
+      skillsState.refreshSilently,
+      state.refreshAgents,
+      state.refreshRegistry,
+      state.refreshSources,
+    ],
+  );
+  const refreshObservedTasks = useCallback(
+    async (taskIds: readonly ObservationTaskId[]) => {
+      const selected = [...new Set(taskIds)].map((taskId) => observationTasks[taskId]);
+      await runRefreshes(selected);
+    },
+    [observationTasks],
+  );
+
   useEffect(() => {
+    if (!startupSync.settled) return;
     let disposed = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
     let refreshing = false;
-    let queued = false;
+    let lastFocusRefreshAt = Date.now();
+    const pending = new Set<ObservationTaskId>();
     const refreshObservedState = async () => {
-      if (disposed) return;
-      if (refreshing) {
-        queued = true;
-        return;
-      }
+      timer = null;
+      if (disposed || refreshing || pending.size === 0) return;
+      const selected = [...pending];
+      pending.clear();
       refreshing = true;
       try {
-        await startupSync.refreshTasks([
-          "agents",
-          "agent-capabilities",
-          "relationships",
-          "skills",
-          "registry",
-        ]);
+        await refreshObservedTasks(selected);
       } finally {
         refreshing = false;
-        if (queued && !disposed) {
-          queued = false;
-          void refreshObservedState();
+        if (pending.size > 0 && !disposed) {
+          schedule([]);
         }
       }
     };
-    const schedule = () => {
+    const schedule = (taskIds: readonly ObservationTaskId[]) => {
+      for (const taskId of taskIds) pending.add(taskId);
       if (timer) clearTimeout(timer);
       timer = setTimeout(() => void refreshObservedState(), 300);
     };
-    const unlisten = listen("asset-observation-changed", schedule).catch(() => undefined);
-    const onFocus = () => schedule();
-    const onVisibility = () => {
-      if (document.visibilityState === "visible") schedule();
+    const unlisten = listen<ObservationChange>(
+      "asset-observation-changed",
+      (event) => schedule(taskIdsForObservation(event.payload)),
+    ).catch(() => undefined);
+    const scheduleFocusFallback = () => {
+      if (document.visibilityState !== "visible") return;
+      const now = Date.now();
+      if (!focusRefreshDue(lastFocusRefreshAt, now)) return;
+      lastFocusRefreshAt = now;
+      schedule(ALL_OBSERVATION_TASK_IDS);
     };
-    window.addEventListener("focus", onFocus);
-    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("focus", scheduleFocusFallback);
+    document.addEventListener("visibilitychange", scheduleFocusFallback);
     return () => {
       disposed = true;
       if (timer) clearTimeout(timer);
-      window.removeEventListener("focus", onFocus);
-      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("focus", scheduleFocusFallback);
+      document.removeEventListener("visibilitychange", scheduleFocusFallback);
       void unlisten.then((dispose) => dispose?.());
     };
-  }, [startupSync.refreshTasks]);
+  }, [refreshObservedTasks, startupSync.settled]);
 
   const openResource = useCallback((request: ResourceNavigationRequest) => {
     const id = ++nextResourceNavigationId.current;
@@ -201,7 +253,7 @@ function App() {
       onSelectSkills={() => setView({ kind: "skills" })}
       onSelectAgent={(id) => setView({ kind: "agent", id })}
       onAddAgent={() => setAddAgentOpen(true)}
-      onRescan={startupSync.refreshAll}
+      onRescan={() => refreshObservedTasks(ALL_OBSERVATION_TASK_IDS)}
       startupSync={startupSync}
     >
       <Suspense fallback={<ViewLoading />}>

@@ -48,10 +48,15 @@ export function StartupSyncBar({ state }: { state: StartupSyncState }) {
         completed: state.completed,
       })
     : state.settled
-      ? t("startup.complete")
+      ? null
       : state.slow
         ? t("startup.slow")
         : activeLabel ?? t("startup.waiting");
+  const title = state.failed > 0
+    ? t("startup.partialTitle")
+    : state.settled
+      ? t("startup.complete")
+      : t("startup.title");
 
   return (
     <div
@@ -66,10 +71,8 @@ export function StartupSyncBar({ state }: { state: StartupSyncState }) {
         className="mux-startup-sync-icon"
         data-spinning={state.syncing ? "true" : undefined}
       />
-      <strong>{state.settled && state.failed > 0
-        ? t("startup.partialTitle")
-        : t("startup.title")}</strong>
-      <span className="mux-startup-sync-detail">{detail}</span>
+      <strong>{title}</strong>
+      {detail && <span className="mux-startup-sync-detail">{detail}</span>}
       <span className="mux-startup-sync-count">
         {state.completed}/{state.total}
       </span>

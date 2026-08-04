@@ -24,8 +24,6 @@ export interface StartupSyncState {
   syncing: boolean;
   slow: boolean;
   settled: boolean;
-  refreshTasks(taskIds: string[]): Promise<void>;
-  refreshAll(): Promise<void>;
   retryFailed(): Promise<void>;
 }
 
@@ -228,11 +226,6 @@ export function useStartupSync({
     }
   }, [foregroundConcurrency, runOne, slowAfterMs, taskById]);
 
-  const refreshAll = useCallback(
-    () => refreshTasks(allTasks.map((task) => task.id)),
-    [allTasks, refreshTasks],
-  );
-
   const retryFailed = useCallback(
     () => refreshTasks(
       Object.values(statuses)
@@ -271,8 +264,6 @@ export function useStartupSync({
     syncing,
     slow,
     settled,
-    refreshTasks,
-    refreshAll,
     retryFailed,
   };
 }

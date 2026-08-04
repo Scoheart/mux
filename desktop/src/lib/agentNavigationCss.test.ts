@@ -74,7 +74,10 @@ it("routes every workspace without a whole-app MCP loading gate", () => {
     expect(app).toContain(`id: "${task}"`);
   }
   expect(app).not.toMatch(/skillsState\.hydrate\(snapshot\.assets\.skills\)/);
-  expect(app).toMatch(/startupSync\.refreshTasks\(\[/);
+  expect(app).not.toMatch(/startupSync\.refreshTasks/);
+  expect(app).toContain("skillsState.refreshSilently");
+  expect(app).toContain("taskIdsForObservation(event.payload)");
+  expect(app).toContain("focusRefreshDue(lastFocusRefreshAt, now)");
 });
 
 it("keeps topbar controls at their wide-layout sizes without compact overrides", () => {

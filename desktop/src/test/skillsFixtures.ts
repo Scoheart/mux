@@ -232,6 +232,7 @@ const stateFrom = (inventory: SkillsInventory): SkillsState => ({
   error: null,
   hydrate: () => undefined,
   refresh: async () => inventory,
+  refreshSilently: async () => inventory,
   plan: async (request) => ({
     ...sharedTargetPlanFixture(),
     kind: ({

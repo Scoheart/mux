@@ -34,8 +34,6 @@ it("names the failed capability and makes successful startup work explicit", asy
     syncing: false,
     slow: false,
     settled: true,
-    refreshTasks: vi.fn(async () => undefined),
-    refreshAll: vi.fn(async () => undefined),
     retryFailed,
   };
 
@@ -50,4 +48,30 @@ it("names the failed capability and makes successful startup work explicit", asy
 
   await userEvent.click(screen.getByRole("button", { name: "仅重试失败项" }));
   expect(retryFailed).toHaveBeenCalledOnce();
+});
+
+it("labels the one-shot settled state as complete instead of still syncing", async () => {
+  const state: StartupSyncState = {
+    tasks: [{
+      id: "agents",
+      label: "agents",
+      status: "complete",
+      error: null,
+    }],
+    completed: 1,
+    total: 1,
+    activeLabel: null,
+    failed: 0,
+    syncing: false,
+    slow: false,
+    settled: true,
+    retryFailed: vi.fn(async () => undefined),
+  };
+
+  render(<StartupSyncBar state={state} />);
+
+  const status = await screen.findByRole("status");
+  expect(status).toHaveTextContent("最新配置已同步");
+  expect(status).not.toHaveTextContent("正在同步最新配置");
+  expect(status).toHaveTextContent("1/1");
 });

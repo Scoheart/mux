@@ -161,6 +161,31 @@ describe("useSkillsState", () => {
     expect(api.listSkillsInventory).toHaveBeenCalledOnce();
   });
 
+  it("refreshes observed Skill changes without returning the view to loading", async () => {
+    const initial = inventoryNamed("initial");
+    const changed = inventoryNamed("changed-externally");
+    const background = deferred<SkillsInventory>();
+    vi.mocked(api.listSkillsInventory)
+      .mockResolvedValueOnce(initial)
+      .mockReturnValueOnce(background.promise);
+    const { result } = renderHook(() => useSkillsState());
+    await waitFor(() => expect(result.current.inventory).toBe(initial));
+
+    let refreshing!: Promise<SkillsInventory>;
+    act(() => {
+      refreshing = result.current.refreshSilently();
+    });
+    expect(result.current.loading).toBe(false);
+    expect(result.current.inventory).toBe(initial);
+
+    background.resolve(changed);
+    await act(async () => {
+      await refreshing;
+    });
+    expect(result.current.inventory).toBe(changed);
+    expect(result.current.loading).toBe(false);
+  });
+
   it("hydrates from the shared workspace snapshot without another Skill scan", () => {
     const snapshotInventory = inventoryNamed("workspace");
     const { result } = renderHook(() => useSkillsState({ autoLoad: false }));

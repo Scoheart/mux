@@ -1,11 +1,18 @@
-use notify::{Config, RecommendedWatcher, RecursiveMode, Watcher};
-use std::collections::BTreeMap;
+use mux_core::assets::{ObservationDomain, ObservationWatchTarget};
+use notify::{Config, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
+use serde::Serialize;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::time::Duration;
 use tauri::{AppHandle, Emitter};
 
 const EVENT_NAME: &str = "asset-observation-changed";
+
+#[derive(Clone, Serialize)]
+struct ObservationChange {
+    domains: Vec<ObservationDomain>,
+}
 
 pub fn start(app: AppHandle) -> Result<(), String> {
     let (sender, receiver) = mpsc::channel();
@@ -27,15 +34,23 @@ pub fn start(app: AppHandle) -> Result<(), String> {
         .spawn(move || {
             // Keep the watcher owned by this thread. Coalesce editor temp-file
             // sequences and MUX's own atomic writes into one projection refresh.
-            while receiver.recv().is_ok() {
-                while receiver.recv_timeout(Duration::from_millis(250)).is_ok() {}
+            while let Ok(first) = receiver.recv() {
+                let mut events = vec![first];
+                while let Ok(event) = receiver.recv_timeout(Duration::from_millis(250)) {
+                    events.push(event);
+                }
+                let targets = mux_core::assets::observation_watch_targets();
+                let domains = affected_domains(&events, &targets);
+                if domains.is_empty() {
+                    continue;
+                }
                 // A target may not exist at startup. After its nearest watched
                 // ancestor changes, move the watch closer (and switch Skill
                 // directories to recursive mode) so later edits stay live.
                 // Agent capability paths are themselves mutable central state.
                 // Rebuild targets as well as roots so changing a configured
                 // path takes effect without restarting MUX.
-                let next = desired_roots(&mux_core::assets::observation_watch_targets());
+                let next = desired_roots(&targets);
                 if next != roots {
                     for root in roots.keys() {
                         let _ = watcher.unwatch(root);
@@ -47,11 +62,52 @@ pub fn start(app: AppHandle) -> Result<(), String> {
                         }
                     }
                 }
-                let _ = app.emit(EVENT_NAME, ());
+                let _ = app.emit(
+                    EVENT_NAME,
+                    ObservationChange {
+                        domains: domains.into_iter().collect(),
+                    },
+                );
             }
         })
         .map_err(|error| error.to_string())?;
     Ok(())
+}
+
+fn affected_domains(
+    events: &[notify::Result<Event>],
+    targets: &[ObservationWatchTarget],
+) -> BTreeSet<ObservationDomain> {
+    let mut domains = BTreeSet::new();
+    for event in events.iter().filter_map(|event| event.as_ref().ok()) {
+        // Reads and metadata probes must never create a refresh feedback loop.
+        if matches!(&event.kind, EventKind::Access(_)) {
+            continue;
+        }
+        for target in targets {
+            if event
+                .paths
+                .iter()
+                .any(|path| path_affects_target(path, target))
+            {
+                domains.insert(target.domain.clone());
+            }
+        }
+    }
+    domains
+}
+
+fn path_affects_target(path: &Path, target: &ObservationWatchTarget) -> bool {
+    if path == target.path {
+        return true;
+    }
+    if target.recursive && path.starts_with(&target.path) {
+        return true;
+    }
+    // Only an absent target needs ancestor events to follow directories as
+    // they are created. Once the target exists, a broad parent notification is
+    // not evidence that this specific Agent input changed.
+    !target.path.exists() && target.path.starts_with(path)
 }
 
 fn desired_roots(
@@ -92,6 +148,7 @@ fn watch_root(path: &Path, recursive: bool) -> Option<(PathBuf, RecursiveMode)> 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use notify::event::{AccessKind, CreateKind, DataChange, ModifyKind};
     use std::fs;
     use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -142,6 +199,88 @@ mod tests {
             watch_root(&skills, true),
             Some((skills, RecursiveMode::Recursive))
         );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn unrelated_sibling_changes_do_not_match_a_missing_target() {
+        let root = temporary_root("unrelated-sibling");
+        let target = ObservationWatchTarget {
+            domain: ObservationDomain::Model,
+            path: root.join("agent/config.json"),
+            recursive: false,
+        };
+        let event = Ok(
+            Event::new(EventKind::Modify(ModifyKind::Data(DataChange::Any)))
+                .add_path(root.join("other/cache.json")),
+        );
+
+        assert!(affected_domains(&[event], &[target]).is_empty());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn broad_parent_events_do_not_refresh_an_existing_file_target() {
+        let root = temporary_root("existing-file-parent");
+        let path = root.join("config.json");
+        fs::write(&path, b"{}").unwrap();
+        let target = ObservationWatchTarget {
+            domain: ObservationDomain::Model,
+            path: path.clone(),
+            recursive: false,
+        };
+        let parent_event =
+            Ok(Event::new(EventKind::Modify(ModifyKind::Any)).add_path(root.clone()));
+        assert!(affected_domains(&[parent_event], std::slice::from_ref(&target)).is_empty());
+
+        let target_event = Ok(Event::new(EventKind::Modify(ModifyKind::Any)).add_path(path));
+        assert_eq!(
+            affected_domains(&[target_event], &[target]),
+            BTreeSet::from([ObservationDomain::Model])
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn creating_a_missing_target_ancestor_moves_the_watch_forward() {
+        let root = temporary_root("target-ancestor");
+        let target = ObservationWatchTarget {
+            domain: ObservationDomain::Mcp,
+            path: root.join("agent/config/settings.json"),
+            recursive: false,
+        };
+        let created = root.join("agent");
+        let event = Ok(Event::new(EventKind::Create(CreateKind::Folder)).add_path(created));
+
+        assert_eq!(
+            affected_domains(&[event], &[target]),
+            BTreeSet::from([ObservationDomain::Mcp])
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn recursive_targets_match_descendants_but_ignore_access_events() {
+        let root = temporary_root("recursive-events");
+        let skills = root.join("skills");
+        fs::create_dir(&skills).unwrap();
+        let target = ObservationWatchTarget {
+            domain: ObservationDomain::Skill,
+            path: skills.clone(),
+            recursive: true,
+        };
+        let skill_file = skills.join("example/SKILL.md");
+        let modified = Ok(
+            Event::new(EventKind::Modify(ModifyKind::Data(DataChange::Any)))
+                .add_path(skill_file.clone()),
+        );
+        assert_eq!(
+            affected_domains(&[modified], std::slice::from_ref(&target)),
+            BTreeSet::from([ObservationDomain::Skill])
+        );
+
+        let accessed = Ok(Event::new(EventKind::Access(AccessKind::Any)).add_path(skill_file));
+        assert!(affected_domains(&[accessed], &[target]).is_empty());
         fs::remove_dir_all(root).unwrap();
     }
 }

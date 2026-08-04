@@ -29,6 +29,7 @@ export interface SkillsState {
   error: SkillCommandError | null;
   hydrate(inventory: SkillsInventory): void;
   refresh(): Promise<SkillsInventory>;
+  refreshSilently(): Promise<SkillsInventory>;
   plan(request: SkillPlanOperationRequest): Promise<OperationPlan>;
   commit(
     plan: OperationPlan,
@@ -94,11 +95,10 @@ export function useSkillsState({ autoLoad = true }: { autoLoad?: boolean } = {})
   }, []);
 
   const loadInventory = useCallback(
-    async (generation: number, clearError: boolean) => {
-      const loadingRequest = ++loadingGeneration.current;
+    async (generation: number, showLoading: boolean) => {
+      const loadingRequest = showLoading ? ++loadingGeneration.current : null;
       if (mounted.current) {
-        setLoading(true);
-        if (clearError) setError(null);
+        if (showLoading) setLoading(true);
       }
       try {
         const next = await api.listSkillsInventory();
@@ -107,6 +107,7 @@ export function useSkillsState({ autoLoad = true }: { autoLoad?: boolean } = {})
           cacheGeneration.current === generation
         ) {
           setInventory(next);
+          setError(null);
         }
         return next;
       } catch (reason) {
@@ -121,6 +122,7 @@ export function useSkillsState({ autoLoad = true }: { autoLoad?: boolean } = {})
       } finally {
         if (
           mounted.current &&
+          loadingRequest !== null &&
           loadingGeneration.current === loadingRequest
         ) {
           setLoading(false);
@@ -133,6 +135,11 @@ export function useSkillsState({ autoLoad = true }: { autoLoad?: boolean } = {})
   const refresh = useCallback(() => {
     const generation = ++cacheGeneration.current;
     return loadInventory(generation, true);
+  }, [loadInventory]);
+
+  const refreshSilently = useCallback(() => {
+    const generation = ++cacheGeneration.current;
+    return loadInventory(generation, false);
   }, [loadInventory]);
 
   const hydrate = useCallback((next: SkillsInventory) => {
@@ -265,6 +272,7 @@ export function useSkillsState({ autoLoad = true }: { autoLoad?: boolean } = {})
     error,
     hydrate,
     refresh,
+    refreshSilently,
     plan,
     commit,
     cancel,

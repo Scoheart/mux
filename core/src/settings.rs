@@ -11,7 +11,7 @@
 //! so a desktop write never clobbers data the CLI wrote, and vice versa. Every
 //! mutation is read-whole → modify one section → write-whole (atomically).
 
-use crate::domain::assets::{McpConsumptionRecord, ModelConsumptionRecord};
+use crate::domain::assets::{McpConsumptionRecord, ModelConsumptionRecord, TargetIncident};
 use crate::domain::mcp::DisabledEntry;
 use crate::domain::skill::ManagedSkillRecord;
 use crate::domain::types::{
@@ -119,6 +119,10 @@ pub struct Settings {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub skill_consumptions:
         Option<BTreeMap<String, BTreeMap<String, crate::domain::assets::SkillConsumptionRecord>>>,
+    /// Unresolved Agent projection writes keyed by a stable physical-target
+    /// identity. They are operational state, not a global recovery gate.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_incidents: Option<BTreeMap<String, TargetIncident>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub skill_update_checked_at: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

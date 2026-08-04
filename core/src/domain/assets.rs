@@ -109,7 +109,7 @@ pub enum ConvergenceAction {
     Detach,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 #[serde(rename_all = "kebab-case")]
 pub enum AssetCapability {
     Mcp,
@@ -118,11 +118,26 @@ pub enum AssetCapability {
 }
 
 /// A capability-local read failure. These diagnostics never imply global
-/// read-only mode; shared transaction damage remains in `recovery_error`.
+/// read-only mode.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct CapabilityDiagnostic {
     pub capability: AssetCapability,
     pub code: String,
+}
+
+/// One unresolved physical projection. Incidents are scoped to a capability
+/// and target rather than copied onto every asset stored in that target.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+pub struct TargetIncident {
+    pub id: String,
+    pub operation_id: String,
+    pub capability: AssetCapability,
+    pub target_id: String,
+    pub target_path: String,
+    #[serde(default)]
+    pub affected_agent_ids: Vec<String>,
+    pub code: String,
+    pub retryable: bool,
 }
 
 /// Physical destination behind a Skill relationship. Several Agents may read
@@ -190,8 +205,8 @@ pub struct ConsumptionInventory {
     pub external: Vec<ConsumptionView>,
     #[serde(default)]
     pub capability_errors: Vec<CapabilityDiagnostic>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub recovery_error: Option<String>,
+    #[serde(default)]
+    pub target_incidents: Vec<TargetIncident>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

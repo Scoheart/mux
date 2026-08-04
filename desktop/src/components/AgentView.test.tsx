@@ -110,6 +110,7 @@ const emptyConsumptionState = {
     observed_at: "2026-08-04T00:00:00Z",
     consumptions: [],
     external: [],
+    target_incidents: [],
   },
   plan: null,
 } as unknown as ConsumptionState;
@@ -155,6 +156,44 @@ it("opens a projection-only Skills Agent without a legacy MCP-shaped row", async
   await userEvent.click(screen.getByRole("tab", { name: /MCPs/ }));
   expect(screen.getByText("此 Agent 未接入 MCP。")).toBeVisible();
   expect(screen.queryByRole("button", { name: "添加 MCP" })).not.toBeInTheDocument();
+});
+
+it("shows one target-scoped incident only on its affected Agent capability", async () => {
+  const consumptionState = {
+    ...emptyConsumptionState,
+    agents: [skillsOnlyProjection],
+    inventory: {
+      ...emptyConsumptionState.inventory,
+      target_incidents: [{
+        id: "target-cortex-user",
+        operation_id: "operation-1",
+        capability: "skill",
+        target_id: "cortex-user",
+        target_path: "~/.snowflake/cortex/skills",
+        affected_agent_ids: [skillsOnlyAgent.id],
+        code: "target_recovery_required",
+        retryable: true,
+      }],
+    },
+  } as unknown as ConsumptionState;
+
+  render(
+    <AgentView
+      state={state}
+      skillsState={skillsState}
+      consumptionState={consumptionState}
+      agentId={skillsOnlyAgent.id}
+    />,
+  );
+
+  await waitFor(() => {
+    expect(screen.getByRole("tab", { name: /Skills/ })).toHaveAttribute("aria-selected", "true");
+  });
+  expect(screen.getAllByText("此配置位置待收敛")).toHaveLength(1);
+  expect(within(screen.getByRole("status")).getByText("~/.snowflake/cortex/skills")).toBeVisible();
+
+  await userEvent.click(screen.getByRole("tab", { name: /MCPs/ }));
+  expect(screen.queryByText("此配置位置待收敛")).not.toBeInTheDocument();
 });
 
 it("toggles a managed Skill without routing through removal", async () => {

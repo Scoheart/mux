@@ -1,4 +1,4 @@
-//! Recoverable cross-domain asset transactions.
+//! Recoverable central commits with target-scoped convergence incidents.
 
 use super::inventory::list_consumption_inventory;
 use super::lifecycle::{clear_pending_payload, pending_payload, PendingAssetPayload};
@@ -8,9 +8,9 @@ use super::planner::{
     SkillMigrationEntry,
 };
 use super::types::{
-    AssetCommitRequest, AssetOperationKind, AssetOperationPlan, AssetRef, ConsumptionInventory,
-    ConsumptionStatus, DomainPlan, McpConsumptionRecord, ModelAgentSelection, RelationshipAction,
-    SkillConsumptionRecord,
+    AssetCapability, AssetCommitRequest, AssetOperationKind, AssetOperationPlan, AssetRef,
+    ConsumptionInventory, DomainPlan, McpConsumptionRecord, ModelAgentSelection,
+    RelationshipAction, SkillConsumptionRecord, TargetIncident,
 };
 use crate::paths::settings_file;
 use crate::resources::mcp::ops;
@@ -29,8 +29,8 @@ use crate::resources::model::{
 };
 use crate::resources::skill::{
     acquire_skills_lock, cancel_operation_in_asset_transaction, canonical_skill_assignments,
-    commit_assignment_in_asset_transaction, declared_targets_for_agents, plan_assignment,
-    reapply_assignment_safely, release_assignment_safely, PlanAssignmentRequest,
+    commit_assignment_in_asset_transaction, declared_targets_for_agents, normalize_agent_selection,
+    plan_assignment, reapply_assignment_safely, release_assignment_safely, PlanAssignmentRequest,
     SkillsOperationLock, SkillsPaths,
 };
 use crate::safe_write::{
@@ -57,6 +57,177 @@ use zeroize::Zeroizing;
 
 static COMMIT_LOCK: Mutex<()> = Mutex::new(());
 const ROLLBACK_MANIFEST_VERSION: u32 = 2;
+const TARGET_INCIDENT_MARKER: &str = "target-incident";
+
+fn plan_capability(plan: &DomainPlan) -> AssetCapability {
+    match plan {
+        DomainPlan::Mcp { .. } => AssetCapability::Mcp,
+        DomainPlan::Model { .. } => AssetCapability::Model,
+        DomainPlan::Skill { .. } | DomainPlan::AgentCapabilities { .. } => AssetCapability::Skill,
+    }
+}
+
+fn incident_id(capability: AssetCapability, target_path: &str) -> String {
+    let material = format!("{capability:?}:{target_path}");
+    format!(
+        "target-{}",
+        hex::encode(Sha256::digest(material.as_bytes()))
+    )
+}
+
+fn target_paths_for_agent(plan: &AssetOperationPlan, agent_id: &str) -> Vec<String> {
+    if plan.affected_agent_ids.len() <= 1 {
+        return plan.target_files.clone();
+    }
+    let settings = load_settings_strict().ok();
+    let agents = crate::agents::load_agents();
+    let skill_targets = crate::resources::skill::list_inventory()
+        .ok()
+        .map(|inventory| inventory.targets)
+        .unwrap_or_default();
+    let mut matched = plan
+        .target_files
+        .iter()
+        .filter(|target| match &plan.domain_plan {
+            DomainPlan::Mcp { .. } => agents
+                .get(agent_id)
+                .and_then(|agent| agent.global.as_ref())
+                .is_some_and(|path| path == *target),
+            DomainPlan::Model { .. } => settings
+                .as_ref()
+                .and_then(|settings| {
+                    crate::resources::model::configured_path_strings_checked(settings, agent_id)
+                        .ok()
+                        .flatten()
+                })
+                .is_some_and(|configured| {
+                    let target = crate::resources::mcp::scanner::expand_tilde(target);
+                    configured.into_iter().any(|candidate| {
+                        let candidate = crate::resources::mcp::scanner::expand_tilde(&candidate);
+                        target == candidate || target.parent() == candidate.parent()
+                    })
+                }),
+            DomainPlan::Skill { .. } | DomainPlan::AgentCapabilities { .. } => {
+                skill_targets.iter().any(|skill_target| {
+                    skill_target
+                        .affected_agent_ids
+                        .iter()
+                        .any(|id| id == agent_id)
+                        && target.starts_with(&skill_target.global_dir)
+                })
+            }
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    if matched.is_empty() {
+        matched = plan.target_files.clone();
+    }
+    matched.sort();
+    matched.dedup();
+    matched
+}
+
+fn record_target_incident(
+    plan: &AssetOperationPlan,
+    agent_id: &str,
+    code: &str,
+) -> Result<(), String> {
+    let capability = plan_capability(&plan.domain_plan);
+    let targets = target_paths_for_agent(plan, agent_id);
+    mutate_settings(|settings| {
+        let incidents = settings.target_incidents.get_or_insert_default();
+        for target_path in &targets {
+            let id = incident_id(capability, target_path);
+            let mut affected_agent_ids = vec![agent_id.to_string()];
+            if let Some(existing) = incidents.get(&id) {
+                affected_agent_ids.extend(existing.affected_agent_ids.iter().cloned());
+            }
+            affected_agent_ids.sort();
+            affected_agent_ids.dedup();
+            incidents.insert(
+                id.clone(),
+                TargetIncident {
+                    id: id.clone(),
+                    operation_id: plan.operation_id.clone(),
+                    capability,
+                    target_id: id,
+                    target_path: target_path.clone(),
+                    affected_agent_ids,
+                    code: code.to_string(),
+                    retryable: true,
+                },
+            );
+        }
+    })
+    .map_err(|error| error.to_string())
+}
+
+fn clear_target_incidents(plan: &AssetOperationPlan, agent_id: &str) -> Result<(), String> {
+    let capability = plan_capability(&plan.domain_plan);
+    let target_ids = target_paths_for_agent(plan, agent_id)
+        .into_iter()
+        .map(|target| incident_id(capability, &target))
+        .collect::<BTreeSet<_>>();
+    mutate_settings(|settings| {
+        if let Some(incidents) = settings.target_incidents.as_mut() {
+            incidents.retain(|id, _| !target_ids.contains(id));
+            if incidents.is_empty() {
+                settings.target_incidents = None;
+            }
+        }
+    })
+    .map_err(|error| error.to_string())
+}
+
+fn incident_operation_ids_for_plan(plan: &AssetOperationPlan) -> BTreeSet<String> {
+    let capability = plan_capability(&plan.domain_plan);
+    let affected_agents = plan
+        .affected_agent_ids
+        .iter()
+        .cloned()
+        .collect::<BTreeSet<_>>();
+    load_settings_strict()
+        .ok()
+        .and_then(|settings| settings.target_incidents)
+        .into_iter()
+        .flat_map(|incidents| incidents.into_values())
+        .filter(|incident| {
+            incident.capability == capability
+                && incident
+                    .affected_agent_ids
+                    .iter()
+                    .any(|agent_id| affected_agents.contains(agent_id))
+        })
+        .map(|incident| incident.operation_id)
+        .collect()
+}
+
+fn cleanup_resolved_incident_operations(operation_ids: &BTreeSet<String>, current: &str) {
+    let still_referenced = load_settings_strict()
+        .ok()
+        .and_then(|settings| settings.target_incidents)
+        .into_iter()
+        .flat_map(|incidents| incidents.into_values())
+        .map(|incident| incident.operation_id)
+        .collect::<BTreeSet<_>>();
+    for operation_id in operation_ids {
+        if operation_id != current && !still_referenced.contains(operation_id) {
+            let canonical = uuid::Uuid::parse_str(operation_id)
+                .ok()
+                .map(|parsed| parsed.hyphenated().to_string());
+            if canonical.as_deref() != Some(operation_id.as_str()) {
+                continue;
+            }
+            let root = operation_root(operation_id);
+            if fs::symlink_metadata(&root).is_ok_and(|metadata| {
+                metadata.file_type().is_dir() && !metadata.file_type().is_symlink()
+            }) {
+                let _ = fs::remove_dir_all(&root);
+                clear_pending_payload(operation_id);
+            }
+        }
+    }
+}
 
 pub fn commit_asset_operation(request: AssetCommitRequest) -> Result<ConsumptionInventory, String> {
     commit_asset_operation_with_hook(request, || Ok(()))
@@ -82,7 +253,6 @@ where
     // writer TOCTOU; nested settings mutations are reentrant on this thread.
     let _filesystem_guard = acquire_settings_lock(&settings_file())?;
     recover_global_mutation_intents()?;
-    ensure_no_pending_asset_recovery()?;
     let persisted = load_operation(&request.operation_id)?;
     verify_request(&persisted, &request)?;
     if !persisted.plan.can_commit {
@@ -90,6 +260,7 @@ where
     }
     verify_preconditions(&persisted)?;
     after_preconditions()?;
+    let incident_operation_ids = incident_operation_ids_for_plan(&persisted.plan);
 
     let settings_path = settings_file();
     let target_paths = persisted
@@ -163,7 +334,13 @@ where
         &tracked_parent_snapshots,
         &reviewed_states,
     )?;
-    let applied = apply_operation(&persisted, &skills_guard)
+    let blocked_agents = blocked_incident_agents(&persisted.plan);
+    let blocked_agents = if resolves_target_incident(&persisted) {
+        BTreeSet::new()
+    } else {
+        blocked_agents
+    };
+    let applied = apply_operation(&persisted, &skills_guard, &blocked_agents)
         .and_then(|_| verify_operation(&persisted))
         .and_then(|_| mark_operation_committed(&request.operation_id));
     if let Err(error) = applied {
@@ -172,6 +349,11 @@ where
             &tracked_parent_snapshots,
         ) {
             drop(write_tracker);
+            if localize_runtime_recovery_failure(&persisted.plan) {
+                return Err(format!(
+                    "target_recovery_required: asset operation failed ({error}); target claim recovery failed: {recovery}"
+                ));
+            }
             return Err(format!(
                 "recovery_required: asset operation failed ({error}); claim recovery failed: {recovery}"
             ));
@@ -221,6 +403,12 @@ where
                 "asset operation failed and was rolled back: {error}"
             ));
         }
+        if localize_runtime_recovery_failure(&persisted.plan) {
+            return Err(format!(
+                "target_recovery_required: asset operation failed ({error}); target rollback failed: {}",
+                rollback_errors.join("; ")
+            ));
+        }
         return Err(format!(
             "recovery_required: asset operation failed ({error}); rollback failed: {}",
             rollback_errors.join("; ")
@@ -240,6 +428,7 @@ where
         format!("asset operation committed but staging cleanup failed: {error}")
     })?;
     clear_pending_payload(&request.operation_id);
+    cleanup_resolved_incident_operations(&incident_operation_ids, &request.operation_id);
     list_consumption_inventory()
 }
 
@@ -279,101 +468,31 @@ pub fn recover_pending_asset_operations() -> Result<Vec<String>, String> {
         let operation_id = entry.file_name().to_string_lossy().into_owned();
         let persisted =
             load_operation(&operation_id).map_err(|error| format!("recovery_required: {error}"))?;
-        let profile_ids = lifecycle_profile_ids(persisted.lifecycle.as_ref());
-        let Some(snapshots) = load_rollback_snapshots(&operation_id)? else {
-            ensure_no_transaction_mutation_intents(&transaction_mutation_intent_dir(
-                &operation_id,
-            ))?;
-            for profile_id in &profile_ids {
-                clear_credential_rollback(&operation_id, profile_id)
-                    .map_err(|error| format!("recovery_required: {error}"))?;
-            }
-            fs::remove_dir_all(entry.path())
-                .map_err(|error| format!("recovery_required: {error}"))?;
-            clear_pending_payload(&operation_id);
-            recovered.push(operation_id);
-            continue;
-        };
-
-        let parent_snapshots = snapshots
-            .iter()
-            .map(|snapshot| (snapshot.path.clone(), snapshot.parent.clone()))
-            .collect::<BTreeMap<_, _>>();
-        recover_transaction_mutation_intents(
-            &transaction_mutation_intent_dir(&operation_id),
-            &parent_snapshots,
-        )?;
-        ensure_no_transaction_mutation_intents(&transaction_mutation_intent_dir(&operation_id))?;
-
-        if operation_commit_marker(&operation_id).is_file() {
-            for profile_id in &profile_ids {
-                clear_credential_rollback(&operation_id, profile_id)
-                    .map_err(|error| format!("recovery_required: {error}"))?;
-            }
-            fs::remove_dir_all(entry.path())
-                .map_err(|error| format!("recovery_required: {error}"))?;
-            clear_pending_payload(&operation_id);
-            recovered.push(operation_id);
+        if target_incident_marker_exists(&operation_id)? {
+            record_recovery_incidents(&persisted.plan)?;
             continue;
         }
-
-        let written_states =
-            load_transaction_write_states(&transaction_write_evidence_dir(&operation_id))?;
-        // A Model operation cannot prove that a same-presence credential was
-        // replaced after a crash. Validate its Keychain rollback item before
-        // touching files, then conservatively restore the complete transaction.
-        let mut credential_backups = Vec::new();
-        for profile_id in &profile_ids {
-            let snapshot = credential_rollback_snapshot(&operation_id, profile_id)
-                .map_err(|error| format!("recovery_required: {error}"))?
-                .ok_or_else(|| {
-                    "recovery_required: Model credential rollback item is missing".to_string()
+        match recover_pending_asset_operation(&persisted, &entry.path()) {
+            Ok(()) => {
+                recovered.push(operation_id);
+            }
+            Err(error) if !persisted.plan.target_files.is_empty() => {
+                // A target that changed after MUX wrote it is a local convergence
+                // incident. Preserve the journal and rollback evidence, record
+                // the exact affected target(s), and continue recovering peers.
+                load_settings_strict().map_err(|settings_error| {
+                    format!(
+                        "recovery_required: target recovery failed ({error}); central settings are unavailable: {settings_error}"
+                    )
                 })?;
-            credential_backups.push((profile_id.clone(), snapshot.map(Zeroizing::new)));
-        }
-        let needs_rollback = !profile_ids.is_empty() || verify_operation(&persisted).is_err();
-        if needs_rollback {
-            let tracked_paths = snapshots
-                .iter()
-                .map(|snapshot| snapshot.path.clone())
-                .collect::<Vec<_>>();
-            let reviewed_states = snapshots
-                .iter()
-                .map(|snapshot| (snapshot.path.clone(), snapshot.anchored_state()))
-                .collect::<BTreeMap<_, _>>();
-            let write_tracker = resume_transaction_write_tracking(
-                &transaction_write_evidence_dir(&operation_id),
-                &tracked_paths,
-                &parent_snapshots,
-                &reviewed_states,
-                &written_states,
-            )?;
-            let mut rollback_errors = restore_snapshots_if_unchanged(&snapshots, &written_states);
-            if let Err(error) = ensure_no_transaction_mutation_intents(
-                &transaction_mutation_intent_dir(&operation_id),
-            ) {
-                rollback_errors.push(error);
+                record_recovery_incidents(&persisted.plan)?;
+                let _ = write_private_file(
+                    &operation_root(&persisted.plan.operation_id).join(TARGET_INCIDENT_MARKER),
+                    b"recorded\n",
+                );
             }
-            drop(write_tracker);
-            if !rollback_errors.is_empty() {
-                return Err(format!("recovery_required: {}", rollback_errors.join("; ")));
-            }
-            for (profile_id, credential) in &credential_backups {
-                restore_credential_snapshot(
-                    profile_id,
-                    credential.as_ref().map(|value| value.as_slice()),
-                )
-                .map_err(|error| format!("recovery_required: {error}"))?;
-            }
+            Err(error) => return Err(error),
         }
-        ensure_no_transaction_mutation_intents(&transaction_mutation_intent_dir(&operation_id))?;
-        for profile_id in &profile_ids {
-            clear_credential_rollback(&operation_id, profile_id)
-                .map_err(|error| format!("recovery_required: {error}"))?;
-        }
-        fs::remove_dir_all(entry.path()).map_err(|error| format!("recovery_required: {error}"))?;
-        clear_pending_payload(&operation_id);
-        recovered.push(operation_id);
     }
     let root_after = fs::symlink_metadata(&root).map_err(|error| {
         format!("recovery_required: failed to recheck Asset operations: {error}")
@@ -384,80 +503,156 @@ pub fn recover_pending_asset_operations() -> Result<Vec<String>, String> {
     Ok(recovered)
 }
 
+fn recover_pending_asset_operation(
+    persisted: &PersistedAssetOperation,
+    operation_path: &Path,
+) -> Result<(), String> {
+    let operation_id = &persisted.plan.operation_id;
+    let profile_ids = lifecycle_profile_ids(persisted.lifecycle.as_ref());
+    let Some(snapshots) = load_rollback_snapshots(operation_id)? else {
+        ensure_no_transaction_mutation_intents(&transaction_mutation_intent_dir(operation_id))?;
+        for profile_id in &profile_ids {
+            clear_credential_rollback(operation_id, profile_id)
+                .map_err(|error| format!("recovery_required: {error}"))?;
+        }
+        fs::remove_dir_all(operation_path)
+            .map_err(|error| format!("recovery_required: {error}"))?;
+        clear_pending_payload(operation_id);
+        return Ok(());
+    };
+
+    let parent_snapshots = snapshots
+        .iter()
+        .map(|snapshot| (snapshot.path.clone(), snapshot.parent.clone()))
+        .collect::<BTreeMap<_, _>>();
+    recover_transaction_mutation_intents(
+        &transaction_mutation_intent_dir(operation_id),
+        &parent_snapshots,
+    )?;
+    ensure_no_transaction_mutation_intents(&transaction_mutation_intent_dir(operation_id))?;
+
+    if operation_commit_marker_exists(operation_id)? {
+        for profile_id in &profile_ids {
+            clear_credential_rollback(operation_id, profile_id)
+                .map_err(|error| format!("recovery_required: {error}"))?;
+        }
+        fs::remove_dir_all(operation_path)
+            .map_err(|error| format!("recovery_required: {error}"))?;
+        clear_pending_payload(operation_id);
+        return Ok(());
+    }
+
+    let written_states =
+        load_transaction_write_states(&transaction_write_evidence_dir(operation_id))?;
+    let mut credential_backups = Vec::new();
+    for profile_id in &profile_ids {
+        let snapshot = credential_rollback_snapshot(operation_id, profile_id)
+            .map_err(|error| format!("recovery_required: {error}"))?
+            .ok_or_else(|| {
+                "recovery_required: Model credential rollback item is missing".to_string()
+            })?;
+        credential_backups.push((profile_id.clone(), snapshot.map(Zeroizing::new)));
+    }
+    // The commit marker is the only durable completion boundary. Desired-state
+    // verification alone cannot prove that every physical target was written,
+    // so every unmarked operation is rolled back when ownership still matches.
+    let tracked_paths = snapshots
+        .iter()
+        .map(|snapshot| snapshot.path.clone())
+        .collect::<Vec<_>>();
+    let reviewed_states = snapshots
+        .iter()
+        .map(|snapshot| (snapshot.path.clone(), snapshot.anchored_state()))
+        .collect::<BTreeMap<_, _>>();
+    let write_tracker = resume_transaction_write_tracking(
+        &transaction_write_evidence_dir(operation_id),
+        &tracked_paths,
+        &parent_snapshots,
+        &reviewed_states,
+        &written_states,
+    )?;
+    let mut rollback_errors = restore_snapshots_if_unchanged(&snapshots, &written_states);
+    if let Err(error) =
+        ensure_no_transaction_mutation_intents(&transaction_mutation_intent_dir(operation_id))
+    {
+        rollback_errors.push(error);
+    }
+    drop(write_tracker);
+    if !rollback_errors.is_empty() {
+        return Err(format!(
+            "target_recovery_required: {}",
+            rollback_errors.join("; ")
+        ));
+    }
+    for (profile_id, credential) in &credential_backups {
+        restore_credential_snapshot(
+            profile_id,
+            credential.as_ref().map(|value| value.as_slice()),
+        )
+        .map_err(|error| format!("target_recovery_required: {error}"))?;
+    }
+    ensure_no_transaction_mutation_intents(&transaction_mutation_intent_dir(operation_id))?;
+    for profile_id in &profile_ids {
+        clear_credential_rollback(operation_id, profile_id)
+            .map_err(|error| format!("target_recovery_required: {error}"))?;
+    }
+    fs::remove_dir_all(operation_path)
+        .map_err(|error| format!("target_recovery_required: {error}"))?;
+    clear_pending_payload(operation_id);
+    Ok(())
+}
+
+fn target_incident_marker_exists(operation_id: &str) -> Result<bool, String> {
+    let marker = operation_root(operation_id).join(TARGET_INCIDENT_MARKER);
+    match fs::symlink_metadata(&marker) {
+        Ok(metadata) if metadata.file_type().is_file() => Ok(true),
+        Ok(_) => Err("recovery_required: Asset target incident marker is unsafe".into()),
+        Err(error) if error.kind() == ErrorKind::NotFound => Ok(false),
+        Err(error) => Err(format!(
+            "recovery_required: failed to inspect Asset target incident marker: {error}"
+        )),
+    }
+}
+
+fn operation_commit_marker_exists(operation_id: &str) -> Result<bool, String> {
+    let marker = operation_commit_marker(operation_id);
+    match fs::symlink_metadata(&marker) {
+        Ok(metadata) if metadata.file_type().is_file() => Ok(true),
+        Ok(_) => Err("recovery_required: Asset commit marker is unsafe".into()),
+        Err(error) if error.kind() == ErrorKind::NotFound => Ok(false),
+        Err(error) => Err(format!(
+            "recovery_required: failed to inspect Asset commit marker: {error}"
+        )),
+    }
+}
+
+fn record_recovery_incidents(plan: &AssetOperationPlan) -> Result<(), String> {
+    for agent_id in &plan.affected_agent_ids {
+        record_target_incident(plan, agent_id, "target_recovery_required")?;
+    }
+    Ok(())
+}
+
+fn localize_runtime_recovery_failure(plan: &AssetOperationPlan) -> bool {
+    if plan.target_files.is_empty() || plan.affected_agent_ids.is_empty() {
+        return false;
+    }
+    if load_settings_strict().is_err() || record_recovery_incidents(plan).is_err() {
+        return false;
+    }
+    let _ = write_private_file(
+        &operation_root(&plan.operation_id).join(TARGET_INCIDENT_MARKER),
+        b"recorded\n",
+    );
+    true
+}
+
 fn acquire_asset_skills_lock() -> Result<SkillsOperationLock, String> {
     let paths = SkillsPaths::resolve_from_env().map_err(|error| format!("{error:?}"))?;
     paths
         .ensure_mux_root()
         .map_err(|error| format!("{error:?}"))?;
     acquire_skills_lock(&paths).map_err(|error| format!("{error:?}"))
-}
-
-pub(crate) fn pending_recovery_error() -> Option<String> {
-    if crate::safe_write::pending_global_mutation_error().is_some() {
-        return Some("检测到未完成的安全写入；MUX 将保持只读，直到启动恢复成功。".into());
-    }
-    ensure_no_pending_asset_recovery().err()
-}
-
-pub(crate) fn ensure_no_pending_asset_recovery() -> Result<(), String> {
-    let root = crate::paths::mux_dir().join("staging/consumption");
-    let root_before = match fs::symlink_metadata(&root) {
-        Ok(metadata) if metadata.file_type().is_dir() => metadata,
-        Ok(_) => return Err("recovery_required: the Asset operation root is unsafe".into()),
-        Err(error) if error.kind() == ErrorKind::NotFound => return Ok(()),
-        Err(error) => {
-            return Err(format!(
-                "recovery_required: failed to inspect the Asset operation root: {error}"
-            ));
-        }
-    };
-    let entries = match fs::read_dir(&root) {
-        Ok(entries) => entries,
-        Err(error) => {
-            return Err(format!(
-                "recovery_required: failed to inspect pending Asset operations: {error}"
-            ))
-        }
-    };
-    for entry in entries {
-        let entry = entry.map_err(|error| {
-            format!("recovery_required: failed to inspect an Asset operation: {error}")
-        })?;
-        let entry_type = entry.file_type().map_err(|error| {
-            format!("recovery_required: failed to inspect an Asset operation: {error}")
-        })?;
-        if entry_type.is_symlink() {
-            return Err("recovery_required: an Asset operation root is unsafe".into());
-        }
-        if !entry_type.is_dir() {
-            continue;
-        }
-        let manifest = entry.path().join("rollback/manifest.json");
-        match fs::symlink_metadata(&manifest) {
-            Err(error) if error.kind() == ErrorKind::NotFound => {}
-            Err(error) => {
-                return Err(format!(
-                    "recovery_required: failed to inspect Asset rollback evidence: {error}"
-                ));
-            }
-            Ok(metadata) if metadata.file_type().is_file() => {
-                return Err(
-                    "recovery_required: a pending Asset operation must be recovered before committing"
-                        .into(),
-                );
-            }
-            Ok(_) => {
-                return Err("recovery_required: Asset rollback evidence is unsafe".into());
-            }
-        }
-    }
-    let root_after = fs::symlink_metadata(&root).map_err(|error| {
-        format!("recovery_required: failed to recheck the Asset operation root: {error}")
-    })?;
-    if !root_after.file_type().is_dir() || !same_directory_identity(&root_before, &root_after) {
-        return Err("recovery_required: the Asset operation root changed during inspection".into());
-    }
-    Ok(())
 }
 
 #[cfg(unix)]
@@ -606,15 +801,44 @@ fn releases_relationship_ownership(plan: &AssetOperationPlan) -> bool {
             .all(|change| change.action == RelationshipAction::Remove)
 }
 
+fn resolves_target_incident(operation: &PersistedAssetOperation) -> bool {
+    operation.plan.kind == AssetOperationKind::Adopt
+        || releases_relationship_ownership(&operation.plan)
+        || matches!(
+            operation.lifecycle,
+            Some(
+                LifecycleBinding::McpReapply { .. }
+                    | LifecycleBinding::ModelReapply { .. }
+                    | LifecycleBinding::SkillReapply { .. }
+                    | LifecycleBinding::SkillAdoptObserved { .. }
+            )
+        )
+}
+
+fn blocked_incident_agents(plan: &AssetOperationPlan) -> BTreeSet<String> {
+    let capability = plan_capability(&plan.domain_plan);
+    load_settings_strict()
+        .ok()
+        .and_then(|settings| settings.target_incidents)
+        .into_iter()
+        .flat_map(|incidents| incidents.into_values())
+        .filter(|incident| incident.capability == capability)
+        .flat_map(|incident| incident.affected_agent_ids)
+        .filter(|agent_id| plan.affected_agent_ids.contains(agent_id))
+        .collect()
+}
+
 fn apply_operation(
     persisted: &PersistedAssetOperation,
     skills_lock: &SkillsOperationLock,
+    blocked_agents: &BTreeSet<String>,
 ) -> Result<(), String> {
     let Some(lifecycle) = &persisted.lifecycle else {
         return apply_domain_plan(
             &persisted.plan,
             releases_relationship_ownership(&persisted.plan),
             skills_lock,
+            blocked_agents,
         );
     };
     match lifecycle {
@@ -646,10 +870,11 @@ fn apply_operation(
                     &persisted.plan,
                     releases_relationship_ownership(&persisted.plan),
                     skills_lock,
+                    blocked_agents,
                 )?;
                 delete_mcp_source_copy(previous_key, previous_source_id)
             } else {
-                reapply_mcp_consumers(&persisted.plan.domain_plan, key)
+                reapply_mcp_consumers(&persisted.plan, key, blocked_agents)
             }
         }
         LifecycleBinding::McpAdopt {
@@ -672,7 +897,7 @@ fn apply_operation(
                 }
                 write_manual_entry(&entry).map_err(|error| error.to_string())?;
             }
-            apply_mcp_adoption(&persisted.plan.domain_plan, key, enabled)
+            apply_mcp_adoption(&persisted.plan, key, enabled)
         }
         LifecycleBinding::McpDelete {
             key,
@@ -685,12 +910,13 @@ fn apply_operation(
                 return Ok(());
             }
             if *fallback_exists {
-                reapply_mcp_consumers(&persisted.plan.domain_plan, key)
+                reapply_mcp_consumers(&persisted.plan, key, blocked_agents)
             } else {
                 apply_domain_plan(
                     &persisted.plan,
                     releases_relationship_ownership(&persisted.plan),
                     skills_lock,
+                    blocked_agents,
                 )
             }
         }
@@ -699,16 +925,24 @@ fn apply_operation(
             asset_key,
             after,
             ..
-        } => apply_mcp_enabled(agent_id, asset_key, *after),
+        } => apply_mcp_enabled(&persisted.plan, agent_id, asset_key, *after, blocked_agents),
         LifecycleBinding::SkillEnabled {
             name,
             target_id,
             affected_agent_ids,
             after,
             ..
-        } => apply_skill_enabled(name, target_id, affected_agent_ids, *after, skills_lock),
+        } => apply_skill_enabled(
+            &persisted.plan,
+            name,
+            target_id,
+            affected_agent_ids,
+            *after,
+            skills_lock,
+            blocked_agents,
+        ),
         LifecycleBinding::McpReapply { key, agent_ids } => {
-            reapply_mcp_consumers_for_agents(key, agent_ids)
+            reapply_mcp_consumers_for_agents(&persisted.plan, key, agent_ids, blocked_agents)
         }
         LifecycleBinding::ModelReapply {
             agent_id,
@@ -717,7 +951,10 @@ fn apply_operation(
             active,
             credential_present,
         } => {
-            if *enabled {
+            if blocked_agents.contains(agent_id) {
+                return Ok(());
+            }
+            let result = if *enabled {
                 apply_profile_consumption_with_credential_presence(
                     agent_id,
                     profile_id,
@@ -727,6 +964,12 @@ fn apply_operation(
                 .map(|_| ())
             } else {
                 clear_profile_consumption(agent_id, profile_id, *active)
+            };
+            match result {
+                Ok(()) => clear_target_incidents(&persisted.plan, agent_id),
+                Err(_) => {
+                    record_target_incident(&persisted.plan, agent_id, "target_convergence_failed")
+                }
             }
         }
         LifecycleBinding::SkillReapply {
@@ -736,8 +979,15 @@ fn apply_operation(
             ..
         } => {
             let _ = enabled;
-            reapply_assignment_safely(name, target_id, skills_lock)
-                .map_err(|error| format!("{error:?}"))?;
+            let result = reapply_assignment_safely(name, target_id, skills_lock)
+                .map_err(|error| format!("{error:?}"));
+            for agent_id in &persisted.plan.affected_agent_ids {
+                if result.is_ok() {
+                    clear_target_incidents(&persisted.plan, agent_id)?;
+                } else {
+                    record_target_incident(&persisted.plan, agent_id, "target_convergence_failed")?;
+                }
+            }
             Ok(())
         }
         LifecycleBinding::SkillAdoptObserved { name, record } => {
@@ -761,7 +1011,11 @@ fn apply_operation(
                     .get_or_insert_default()
                     .insert(name.clone(), record.as_ref().clone());
             })
-            .map_err(|error| error.to_string())
+            .map_err(|error| error.to_string())?;
+            for agent_id in &persisted.plan.affected_agent_ids {
+                clear_target_incidents(&persisted.plan, agent_id)?;
+            }
+            Ok(())
         }
         LifecycleBinding::ModelUpsert {
             profile_id,
@@ -789,9 +1043,10 @@ fn apply_operation(
             };
             save_profile(*profile, None)?;
             reapply_model_consumers(
-                &persisted.plan.domain_plan,
+                &persisted.plan,
                 profile_id,
                 desired_credential_present,
+                blocked_agents,
             )?;
             // Keychain mutation is deliberately last. A crash before this line
             // leaves the old credential intact and can roll files/settings back;
@@ -830,9 +1085,10 @@ fn apply_operation(
             save_provider_bundle(*provider, profiles)?;
             for profile_id in profile_ids {
                 reapply_model_consumers(
-                    &persisted.plan.domain_plan,
+                    &persisted.plan,
                     profile_id,
                     desired_credential_present,
+                    blocked_agents,
                 )?;
             }
             apply_credential_update(
@@ -871,13 +1127,18 @@ fn apply_operation(
                 }
             })
             .map_err(|error| error.to_string())?;
-            apply_credential_update(profile_id, credential.as_deref().map(String::as_str))
+            apply_credential_update(profile_id, credential.as_deref().map(String::as_str))?;
+            for agent_id in &persisted.plan.affected_agent_ids {
+                clear_target_incidents(&persisted.plan, agent_id)?;
+            }
+            Ok(())
         }
         LifecycleBinding::ModelDelete { profile_id } => {
             apply_domain_plan(
                 &persisted.plan,
                 releases_relationship_ownership(&persisted.plan),
                 skills_lock,
+                blocked_agents,
             )?;
             delete_profile(profile_id)
         }
@@ -1008,14 +1269,7 @@ fn verify_operation(persisted: &PersistedAssetOperation) -> Result<(), String> {
                 .and_then(|records| records.get(agent_id))
                 .and_then(|records| records.get(asset_key))
                 .map(|record| record.enabled);
-            let (name, transport) = split_mcp_key(asset_key)?;
-            let observed = ops::scan_installed(None).into_iter().find(|item| {
-                item.agent == *agent_id
-                    && item.scope == "global"
-                    && item.name == name
-                    && item.transport == transport
-            });
-            if desired != Some(*after) || observed.is_none_or(|item| item.enabled != *after) {
+            if desired != Some(*after) {
                 return Err("MCP enabled state did not match the reviewed change".into());
             }
             Ok(())
@@ -1042,30 +1296,11 @@ fn verify_operation(persisted: &PersistedAssetOperation) -> Result<(), String> {
             if !desired || enabled != Some(*after) {
                 return Err("Skill enabled state did not match the reviewed change".into());
             }
-            let inventory = list_consumption_inventory()?;
-            for agent_id in affected_agent_ids {
-                let row = inventory.consumptions.iter().find(|item| {
-                    item.agent_id == *agent_id
-                        && item.asset == (AssetRef::Skill { name: name.clone() })
-                        && item
-                            .target
-                            .as_ref()
-                            .is_some_and(|target| target.target_id == *target_id)
-                });
-                if row.is_none_or(|item| {
-                    !item.desired
-                        || item.enabled != Some(*after)
-                        || item.observed != *after
-                        || item.status != ConsumptionStatus::Synced
-                }) {
-                    return Err("Skill physical state did not match the reviewed change".into());
-                }
-            }
+            let _ = affected_agent_ids;
             Ok(())
         }
         LifecycleBinding::McpReapply { key, agent_ids } => {
             let settings = load_settings_strict().map_err(|error| error.to_string())?;
-            let inventory = list_consumption_inventory()?;
             for agent_id in agent_ids {
                 let record = settings
                     .mcp_consumptions
@@ -1076,16 +1311,7 @@ fn verify_operation(persisted: &PersistedAssetOperation) -> Result<(), String> {
                     .ok_or_else(|| {
                         "MCP reapply consumption identity verification failed".to_string()
                     })?;
-                let row = inventory.consumptions.iter().find(|item| {
-                    item.agent_id == *agent_id
-                        && item.asset == (AssetRef::Mcp { key: key.clone() })
-                        && item.desired
-                });
-                if row.is_none_or(|item| {
-                    item.enabled != Some(record.enabled) || item.status != ConsumptionStatus::Synced
-                }) {
-                    return Err("MCP physical state did not match the reviewed reapply".into());
-                }
+                let _ = record;
             }
             Ok(())
         }
@@ -1096,21 +1322,14 @@ fn verify_operation(persisted: &PersistedAssetOperation) -> Result<(), String> {
             active,
             ..
         } => {
-            let inventory = list_consumption_inventory()?;
-            let row = inventory.consumptions.iter().find(|item| {
-                item.agent_id == *agent_id
-                    && item.asset
-                        == (AssetRef::Model {
-                            profile_id: profile_id.clone(),
-                        })
-                    && item.desired
-            });
-            if row.is_none_or(|item| {
-                item.enabled != Some(*enabled)
-                    || item.active != Some(*active)
-                    || item.desired_active != Some(*active)
-                    || item.status != ConsumptionStatus::Synced
-            }) {
+            let settings = load_settings_strict().map_err(|error| error.to_string())?;
+            let selection = settings.model_selection(agent_id);
+            if selection
+                .profiles
+                .get(profile_id)
+                .is_none_or(|record| record.enabled != *enabled)
+                || (selection.active_profile_id.as_deref() == Some(profile_id)) != *active
+            {
                 return Err("Model physical state did not match the reviewed reapply".into());
             }
             Ok(())
@@ -1128,24 +1347,21 @@ fn verify_operation(persisted: &PersistedAssetOperation) -> Result<(), String> {
             {
                 return Err("Skill reapply omitted the selected Agent".into());
             }
-            let inventory = list_consumption_inventory()?;
-            for affected_agent_id in affected_agent_ids {
-                let row = inventory.consumptions.iter().find(|item| {
-                    item.agent_id == *affected_agent_id
-                        && item.asset == (AssetRef::Skill { name: name.clone() })
-                        && item.desired
-                        && item
-                            .target
-                            .as_ref()
-                            .is_some_and(|target| target.target_id == *target_id)
-                });
-                if row.is_none_or(|item| {
-                    item.enabled != Some(*enabled)
-                        || item.observed != *enabled
-                        || item.status != ConsumptionStatus::Synced
-                }) {
-                    return Err("Skill physical state did not match the reviewed reapply".into());
-                }
+            let settings = load_settings_strict().map_err(|error| error.to_string())?;
+            let assigned = settings
+                .skill_assignments
+                .as_ref()
+                .and_then(|assignments| assignments.get(name))
+                .is_some_and(|targets| targets.contains(target_id));
+            let desired_enabled = settings
+                .skill_consumptions
+                .as_ref()
+                .and_then(|skills| skills.get(name))
+                .and_then(|targets| targets.get(target_id))
+                .map(|record| record.enabled)
+                .unwrap_or(true);
+            if !assigned || desired_enabled != *enabled {
+                return Err("Skill desired state did not match the reviewed reapply".into());
             }
             Ok(())
         }
@@ -1366,8 +1582,12 @@ fn mcp_source_copy_exists(key: &str, source_id: &str) -> bool {
     })
 }
 
-fn reapply_mcp_consumers(plan: &DomainPlan, key: &str) -> Result<(), String> {
-    let DomainPlan::Mcp { after, .. } = plan else {
+fn reapply_mcp_consumers(
+    operation: &AssetOperationPlan,
+    key: &str,
+    blocked_agents: &BTreeSet<String>,
+) -> Result<(), String> {
+    let DomainPlan::Mcp { after, .. } = &operation.domain_plan else {
         return Err("asset operation domain mismatch".into());
     };
     let agent_ids = after
@@ -1375,13 +1595,21 @@ fn reapply_mcp_consumers(plan: &DomainPlan, key: &str) -> Result<(), String> {
         .filter(|(_, desired)| desired.iter().any(|candidate| candidate == key))
         .map(|(agent_id, _)| agent_id.clone())
         .collect::<Vec<_>>();
-    reapply_mcp_consumers_for_agents(key, &agent_ids)
+    reapply_mcp_consumers_for_agents(operation, key, &agent_ids, blocked_agents)
 }
 
-fn reapply_mcp_consumers_for_agents(key: &str, agent_ids: &[String]) -> Result<(), String> {
+fn reapply_mcp_consumers_for_agents(
+    operation: &AssetOperationPlan,
+    key: &str,
+    agent_ids: &[String],
+    blocked_agents: &BTreeSet<String>,
+) -> Result<(), String> {
     let settings = load_settings_strict().map_err(|error| error.to_string())?;
     let (name, transport) = split_mcp_key(key)?;
     for agent_id in agent_ids {
+        if blocked_agents.contains(agent_id) {
+            continue;
+        }
         let patch = settings
             .mcp_consumptions
             .as_ref()
@@ -1389,33 +1617,38 @@ fn reapply_mcp_consumers_for_agents(key: &str, agent_ids: &[String]) -> Result<(
             .and_then(|records| records.get(key))
             .map(|record| record.overrides.clone())
             .unwrap_or_default();
-        ops::install(
-            name,
-            transport,
-            "global",
-            std::slice::from_ref(agent_id),
-            None,
-            &HashMap::from([(agent_id.clone(), patch)]),
-        )
-        .map_err(|errors| errors.join("; "))?;
-        let enabled = settings
-            .mcp_consumptions
-            .as_ref()
-            .and_then(|records| records.get(agent_id))
-            .and_then(|records| records.get(key))
-            .is_none_or(|record| record.enabled);
-        if !enabled {
-            // Refresh the remembered snapshot from the reviewed central
-            // configuration, then return the Agent to its desired disabled
-            // state instead of accidentally enabling it.
-            ops::disable(
+        let result = (|| {
+            ops::install(
                 name,
                 transport,
                 "global",
                 std::slice::from_ref(agent_id),
                 None,
+                &HashMap::from([(agent_id.clone(), patch)]),
             )
             .map_err(|errors| errors.join("; "))?;
+            let enabled = settings
+                .mcp_consumptions
+                .as_ref()
+                .and_then(|records| records.get(agent_id))
+                .and_then(|records| records.get(key))
+                .is_none_or(|record| record.enabled);
+            if !enabled {
+                ops::disable(
+                    name,
+                    transport,
+                    "global",
+                    std::slice::from_ref(agent_id),
+                    None,
+                )
+                .map_err(|errors| errors.join("; "))?;
+            }
+            Ok::<_, String>(())
+        })();
+        if result.is_ok() {
+            clear_target_incidents(operation, agent_id)?;
+        } else {
+            record_target_incident(operation, agent_id, "target_convergence_failed")?;
         }
     }
     Ok(())
@@ -1451,11 +1684,11 @@ fn migrate_mcp_consumption_records(old_key: &str, new_key: &str) -> Result<(), S
 /// central config. Disabled observations remain in the existing snapshot store
 /// and are recorded as disabled desired relationships.
 fn apply_mcp_adoption(
-    plan: &DomainPlan,
+    operation: &AssetOperationPlan,
     key: &str,
     enabled: &BTreeMap<String, bool>,
 ) -> Result<(), String> {
-    let DomainPlan::Mcp { after, .. } = plan else {
+    let DomainPlan::Mcp { after, .. } = &operation.domain_plan else {
         return Err("asset operation domain mismatch".into());
     };
     mutate_settings(|settings| {
@@ -1474,29 +1707,42 @@ fn apply_mcp_adoption(
             records.insert(key.to_string(), record);
         }
     })
-    .map_err(|error| error.to_string())
+    .map_err(|error| error.to_string())?;
+    for agent_id in after.keys() {
+        clear_target_incidents(operation, agent_id)?;
+    }
+    Ok(())
 }
 
 fn reapply_model_consumers(
-    plan: &DomainPlan,
+    operation: &AssetOperationPlan,
     profile_id: &str,
     credential_present: bool,
+    blocked_agents: &BTreeSet<String>,
 ) -> Result<(), String> {
-    let DomainPlan::Model { after, .. } = plan else {
+    let DomainPlan::Model { after, .. } = &operation.domain_plan else {
         return Err("asset operation domain mismatch".into());
     };
     for (agent_id, desired) in after {
+        if blocked_agents.contains(agent_id) {
+            continue;
+        }
         if desired
             .profiles
             .get(profile_id)
             .is_some_and(|record| record.enabled)
         {
-            apply_profile_consumption_with_credential_presence(
+            let result = apply_profile_consumption_with_credential_presence(
                 agent_id,
                 profile_id,
                 credential_present,
                 desired.active_profile_id.as_deref() == Some(profile_id),
-            )?;
+            );
+            if result.is_ok() {
+                clear_target_incidents(operation, agent_id)?;
+            } else {
+                record_target_incident(operation, agent_id, "target_convergence_failed")?;
+            }
         }
     }
     Ok(())
@@ -1691,21 +1937,33 @@ fn apply_domain_plan(
     operation: &AssetOperationPlan,
     release_orphaned_relationships: bool,
     skills_lock: &SkillsOperationLock,
+    blocked_agents: &BTreeSet<String>,
 ) -> Result<(), String> {
     let plan = &operation.domain_plan;
     match plan {
-        DomainPlan::Mcp { before, after } => {
-            apply_mcp(before, after, release_orphaned_relationships)
-        }
+        DomainPlan::Mcp { before, after } => apply_mcp(
+            operation,
+            before,
+            after,
+            release_orphaned_relationships,
+            blocked_agents,
+        ),
         DomainPlan::Model { before, after } => apply_model(
+            operation,
             before,
             after,
             &model_relationship_releases(operation),
             &BTreeSet::new(),
+            blocked_agents,
         ),
-        DomainPlan::Skill { before, after } => {
-            apply_skill(before, after, release_orphaned_relationships, skills_lock)
-        }
+        DomainPlan::Skill { before, after } => apply_skill(
+            operation,
+            before,
+            after,
+            release_orphaned_relationships,
+            skills_lock,
+            blocked_agents,
+        ),
         DomainPlan::AgentCapabilities { .. } => {
             Err("asset operation requires a configuration lifecycle".into())
         }
@@ -1732,96 +1990,13 @@ fn model_relationship_releases(plan: &AssetOperationPlan) -> BTreeSet<(String, S
 }
 
 fn apply_mcp(
+    operation: &AssetOperationPlan,
     before: &BTreeMap<String, Vec<String>>,
     after: &BTreeMap<String, Vec<String>>,
     release_orphaned_relationships: bool,
+    blocked_agents: &BTreeSet<String>,
 ) -> Result<(), String> {
     let settings = load_settings_strict().map_err(|error| error.to_string())?;
-    let central_keys: BTreeSet<String> = read_registry()
-        .into_iter()
-        .map(|entry| entry.key())
-        .collect();
-    let exact_observed: BTreeSet<(String, String)> = ops::scan_installed(None)
-        .into_iter()
-        .filter(|item| item.scope == "global" && item.enabled && !item.customized)
-        .map(|item| (item.agent, format!("{}::{}", item.name, item.transport)))
-        .collect();
-    for agent_id in union_keys(before, after) {
-        let left: BTreeSet<String> = before
-            .get(agent_id)
-            .cloned()
-            .unwrap_or_default()
-            .into_iter()
-            .collect();
-        let right: BTreeSet<String> = after
-            .get(agent_id)
-            .cloned()
-            .unwrap_or_default()
-            .into_iter()
-            .collect();
-        for key in left.difference(&right) {
-            // Missing central authority or externally changed Agent bytes are
-            // not safe deletion targets. Release the relationship and keep the
-            // observation external. An exact synchronized entry is removable.
-            if release_orphaned_relationships
-                && (!central_keys.contains(key)
-                    || !exact_observed.contains(&(agent_id.clone(), key.clone())))
-            {
-                continue;
-            }
-            let (name, transport) = split_mcp_key(key)?;
-            ops::delete(
-                name,
-                transport,
-                "global",
-                std::slice::from_ref(agent_id),
-                None,
-            )
-            .map_err(|errors| errors.join("; "))?;
-        }
-        for key in right.difference(&left) {
-            // Adopting an exact external observation only records desired state;
-            // rewriting identical Agent bytes would turn discovery into an
-            // implicit mutation and needlessly disturb comments or formatting.
-            if exact_observed.contains(&(agent_id.clone(), key.clone())) {
-                continue;
-            }
-            let (name, transport) = split_mcp_key(key)?;
-            let patch = settings
-                .mcp_consumptions
-                .as_ref()
-                .and_then(|records| records.get(agent_id))
-                .and_then(|records| records.get(key))
-                .map(|record| record.overrides.clone())
-                .unwrap_or_default();
-            ops::install(
-                name,
-                transport,
-                "global",
-                std::slice::from_ref(agent_id),
-                None,
-                &HashMap::from([(agent_id.clone(), patch)]),
-            )
-            .map_err(|errors| errors.join("; "))?;
-            let enabled = settings
-                .mcp_consumptions
-                .as_ref()
-                .and_then(|records| records.get(agent_id))
-                .and_then(|records| records.get(key))
-                .is_none_or(|record| record.enabled);
-            if !enabled {
-                ops::disable(
-                    name,
-                    transport,
-                    "global",
-                    std::slice::from_ref(agent_id),
-                    None,
-                )
-                .map_err(|errors| errors.join("; "))?;
-            }
-        }
-    }
-
     mutate_settings(|settings| {
         let all = settings.mcp_consumptions.get_or_insert_default();
         for agent_id in union_keys(before, after) {
@@ -1842,19 +2017,106 @@ fn apply_mcp(
             }
         }
     })
-    .map_err(|error| error.to_string())
+    .map_err(|error| error.to_string())?;
+    let central_keys: BTreeSet<String> = read_registry()
+        .into_iter()
+        .map(|entry| entry.key())
+        .collect();
+    let exact_observed: BTreeSet<(String, String)> = ops::scan_installed(None)
+        .into_iter()
+        .filter(|item| item.scope == "global" && item.enabled && !item.customized)
+        .map(|item| (item.agent, format!("{}::{}", item.name, item.transport)))
+        .collect();
+    for agent_id in union_keys(before, after) {
+        if blocked_agents.contains(agent_id) {
+            continue;
+        }
+        let left: BTreeSet<String> = before
+            .get(agent_id)
+            .cloned()
+            .unwrap_or_default()
+            .into_iter()
+            .collect();
+        let right: BTreeSet<String> = after
+            .get(agent_id)
+            .cloned()
+            .unwrap_or_default()
+            .into_iter()
+            .collect();
+        let result = (|| {
+            for key in left.difference(&right) {
+                if release_orphaned_relationships
+                    && (!central_keys.contains(key)
+                        || !exact_observed.contains(&(agent_id.clone(), key.clone())))
+                {
+                    continue;
+                }
+                let (name, transport) = split_mcp_key(key)?;
+                ops::delete(
+                    name,
+                    transport,
+                    "global",
+                    std::slice::from_ref(agent_id),
+                    None,
+                )
+                .map_err(|errors| errors.join("; "))?;
+            }
+            for key in right.difference(&left) {
+                if exact_observed.contains(&(agent_id.clone(), key.clone())) {
+                    continue;
+                }
+                let (name, transport) = split_mcp_key(key)?;
+                let patch = settings
+                    .mcp_consumptions
+                    .as_ref()
+                    .and_then(|records| records.get(agent_id))
+                    .and_then(|records| records.get(key))
+                    .map(|record| record.overrides.clone())
+                    .unwrap_or_default();
+                ops::install(
+                    name,
+                    transport,
+                    "global",
+                    std::slice::from_ref(agent_id),
+                    None,
+                    &HashMap::from([(agent_id.clone(), patch)]),
+                )
+                .map_err(|errors| errors.join("; "))?;
+                let enabled = settings
+                    .mcp_consumptions
+                    .as_ref()
+                    .and_then(|records| records.get(agent_id))
+                    .and_then(|records| records.get(key))
+                    .is_none_or(|record| record.enabled);
+                if !enabled {
+                    ops::disable(
+                        name,
+                        transport,
+                        "global",
+                        std::slice::from_ref(agent_id),
+                        None,
+                    )
+                    .map_err(|errors| errors.join("; "))?;
+                }
+            }
+            Ok::<_, String>(())
+        })();
+        if result.is_ok() {
+            clear_target_incidents(operation, agent_id)?;
+        } else {
+            record_target_incident(operation, agent_id, "target_convergence_failed")?;
+        }
+    }
+    Ok(())
 }
 
-fn apply_mcp_enabled(agent_id: &str, asset_key: &str, enabled: bool) -> Result<(), String> {
-    let (name, transport) = split_mcp_key(asset_key)?;
-    let agents = [agent_id.to_string()];
-    if enabled {
-        ops::enable(name, transport, "global", &agents, None)
-    } else {
-        ops::disable(name, transport, "global", &agents, None)
-    }
-    .map_err(|errors| errors.join("; "))?;
-
+fn apply_mcp_enabled(
+    operation: &AssetOperationPlan,
+    agent_id: &str,
+    asset_key: &str,
+    enabled: bool,
+    blocked_agents: &BTreeSet<String>,
+) -> Result<(), String> {
     let updated = mutate_settings(|settings| {
         let Some(record) = settings
             .mcp_consumptions
@@ -1868,59 +2130,102 @@ fn apply_mcp_enabled(agent_id: &str, asset_key: &str, enabled: bool) -> Result<(
         true
     })
     .map_err(|error| error.to_string())?;
-    if updated {
-        Ok(())
+    if !updated {
+        return Err("MCP consumption disappeared during enabled-state update".into());
+    }
+    if blocked_agents.contains(agent_id) {
+        return Ok(());
+    }
+    let (name, transport) = split_mcp_key(asset_key)?;
+    let agents = [agent_id.to_string()];
+    let result = if enabled {
+        ops::enable(name, transport, "global", &agents, None)
     } else {
-        Err("MCP consumption disappeared during enabled-state update".into())
+        ops::disable(name, transport, "global", &agents, None)
+    };
+    if result.is_ok() {
+        clear_target_incidents(operation, agent_id)
+    } else {
+        record_target_incident(operation, agent_id, "target_convergence_failed")
     }
 }
 
 fn apply_skill_enabled(
+    operation: &AssetOperationPlan,
     name: &str,
     target_id: &str,
     affected_agent_ids: &[String],
     enabled: bool,
     skills_lock: &SkillsOperationLock,
+    blocked_agents: &BTreeSet<String>,
 ) -> Result<(), String> {
-    let plan = plan_assignment(PlanAssignmentRequest {
-        skill_name: name.to_string(),
-        agent_ids: affected_agent_ids.to_vec(),
-        enabled,
-    })
-    .map_err(|error| format!("{error:?}"))?;
-    if let Err(error) = commit_assignment_in_asset_transaction(plan.confirmation(), skills_lock) {
-        let _ = cancel_operation_in_asset_transaction(&plan.operation_id, skills_lock);
-        return Err(format!("{error:?}"));
+    let persist_desired = || {
+        mutate_settings(|settings| {
+            settings
+                .skill_assignments
+                .get_or_insert_default()
+                .entry(name.to_string())
+                .or_default()
+                .insert(target_id.to_string());
+            settings
+                .skill_consumptions
+                .get_or_insert_default()
+                .entry(name.to_string())
+                .or_default()
+                .insert(
+                    target_id.to_string(),
+                    SkillConsumptionRecord {
+                        name: name.to_string(),
+                        target_id: target_id.to_string(),
+                        enabled,
+                    },
+                );
+        })
+        .map_err(|error| error.to_string())
+    };
+    if affected_agent_ids
+        .iter()
+        .any(|agent_id| blocked_agents.contains(agent_id))
+    {
+        return persist_desired();
     }
-    mutate_settings(|settings| {
-        settings
-            .skill_assignments
-            .get_or_insert_default()
-            .entry(name.to_string())
-            .or_default()
-            .insert(target_id.to_string());
-        settings
-            .skill_consumptions
-            .get_or_insert_default()
-            .entry(name.to_string())
-            .or_default()
-            .insert(
-                target_id.to_string(),
-                SkillConsumptionRecord {
-                    name: name.to_string(),
-                    target_id: target_id.to_string(),
-                    enabled,
-                },
-            );
-    })
-    .map_err(|error| error.to_string())
+    let result = (|| {
+        let assignment_plan = plan_assignment(PlanAssignmentRequest {
+            skill_name: name.to_string(),
+            agent_ids: affected_agent_ids.to_vec(),
+            enabled,
+        })
+        .map_err(|error| format!("{error:?}"))?;
+        if let Err(error) =
+            commit_assignment_in_asset_transaction(assignment_plan.confirmation(), skills_lock)
+        {
+            let _ =
+                cancel_operation_in_asset_transaction(&assignment_plan.operation_id, skills_lock);
+            return Err(format!("{error:?}"));
+        }
+        Ok::<_, String>(())
+    })();
+    // The Skill link engine also updates assignment settings. Normalize the
+    // central desired record after that physical attempt so a failed target
+    // still becomes pending convergence rather than losing user intent.
+    persist_desired()?;
+    for agent_id in affected_agent_ids {
+        if result.is_ok() {
+            clear_target_incidents(operation, agent_id)?;
+        } else {
+            record_target_incident(operation, agent_id, "target_convergence_failed")?;
+        }
+    }
+    Ok(())
 }
 
 fn apply_model(
+    operation: &AssetOperationPlan,
     before: &BTreeMap<String, ModelAgentSelection>,
     after: &BTreeMap<String, ModelAgentSelection>,
     relationship_releases: &BTreeSet<(String, String)>,
     preserve_agent_targets: &BTreeSet<String>,
+    blocked_agents: &BTreeSet<String>,
 ) -> Result<(), String> {
     let settings = load_settings_strict().map_err(|error| error.to_string())?;
     let central_profile_ids: BTreeSet<String> = settings
@@ -1929,88 +2234,92 @@ fn apply_model(
         .flatten()
         .map(|(profile_id, _)| profile_id.clone())
         .collect();
-    for agent_id in union_keys(before, after) {
-        let left = before.get(agent_id).cloned().unwrap_or_default();
-        let right = after.get(agent_id).cloned().unwrap_or_default();
-        if preserve_agent_targets.contains(agent_id) {
-            continue;
-        }
-        let removed_or_disabled: Vec<String> = left
-            .profiles
-            .iter()
-            .filter(|(profile_id, record)| {
-                record.enabled
-                    && !right
-                        .profiles
-                        .get(*profile_id)
-                        .is_some_and(|next| next.enabled)
-            })
-            .map(|(profile_id, _)| profile_id.clone())
-            .collect();
-        for profile_id in removed_or_disabled {
-            let release_relationship =
-                relationship_releases.contains(&(agent_id.to_string(), profile_id.clone()));
-            // As with MCP, a missing central Profile no longer provides the
-            // schema needed to identify owned native fields. Preserve the
-            // observed configuration as external while clearing ownership.
-            if release_relationship && !central_profile_ids.contains(&profile_id) {
-                continue;
-            }
-            if let Err(error) = clear_profile_consumption(
-                agent_id,
-                &profile_id,
-                left.active_profile_id.as_deref() == Some(profile_id.as_str()),
-            ) {
-                // Relationship detachment releases ownership instead of
-                // replacing or deleting externally changed bytes. Keeping the
-                // decision here leaves the general-purpose Model clear API
-                // strict for every other caller.
-                let released_as_external = release_relationship
-                    && (error.starts_with("model_owned_fields_drift:")
-                        || error.starts_with("model_target_conflicted:"));
-                if !released_as_external {
-                    return Err(error);
-                }
-            }
-        }
-        for (profile_id, record) in &right.profiles {
-            let was_enabled = left
-                .profiles
-                .get(profile_id)
-                .is_some_and(|previous| previous.enabled);
-            if record.enabled && !was_enabled {
-                apply_profile_consumption(
-                    agent_id,
-                    profile_id,
-                    right.active_profile_id.as_deref() == Some(profile_id),
-                )?;
-            }
-        }
-        if left.active_profile_id != right.active_profile_id
-            && right.active_profile_id.as_ref().is_some_and(|profile_id| {
-                left.profiles
-                    .get(profile_id)
-                    .is_some_and(|record| record.enabled)
-            })
-        {
-            let profile_id = right.active_profile_id.as_deref().expect("checked above");
-            apply_profile(agent_id, profile_id)?;
-        }
-    }
     mutate_settings(|settings| {
         for agent_id in union_keys(before, after) {
             settings
                 .set_model_selection(agent_id, after.get(agent_id).cloned().unwrap_or_default());
         }
     })
-    .map_err(|error| error.to_string())
+    .map_err(|error| error.to_string())?;
+    for agent_id in union_keys(before, after) {
+        let left = before.get(agent_id).cloned().unwrap_or_default();
+        let right = after.get(agent_id).cloned().unwrap_or_default();
+        if preserve_agent_targets.contains(agent_id) || blocked_agents.contains(agent_id) {
+            continue;
+        }
+        let result = (|| {
+            let removed_or_disabled: Vec<String> = left
+                .profiles
+                .iter()
+                .filter(|(profile_id, record)| {
+                    record.enabled
+                        && !right
+                            .profiles
+                            .get(*profile_id)
+                            .is_some_and(|next| next.enabled)
+                })
+                .map(|(profile_id, _)| profile_id.clone())
+                .collect();
+            for profile_id in removed_or_disabled {
+                let release_relationship =
+                    relationship_releases.contains(&(agent_id.to_string(), profile_id.clone()));
+                if release_relationship && !central_profile_ids.contains(&profile_id) {
+                    continue;
+                }
+                if let Err(error) = clear_profile_consumption(
+                    agent_id,
+                    &profile_id,
+                    left.active_profile_id.as_deref() == Some(profile_id.as_str()),
+                ) {
+                    let released_as_external = release_relationship
+                        && (error.starts_with("model_owned_fields_drift:")
+                            || error.starts_with("model_target_conflicted:"));
+                    if !released_as_external {
+                        return Err(error);
+                    }
+                }
+            }
+            for (profile_id, record) in &right.profiles {
+                let was_enabled = left
+                    .profiles
+                    .get(profile_id)
+                    .is_some_and(|previous| previous.enabled);
+                if record.enabled && !was_enabled {
+                    apply_profile_consumption(
+                        agent_id,
+                        profile_id,
+                        right.active_profile_id.as_deref() == Some(profile_id),
+                    )?;
+                }
+            }
+            if left.active_profile_id != right.active_profile_id
+                && right.active_profile_id.as_ref().is_some_and(|profile_id| {
+                    left.profiles
+                        .get(profile_id)
+                        .is_some_and(|record| record.enabled)
+                })
+            {
+                let profile_id = right.active_profile_id.as_deref().expect("checked above");
+                apply_profile(agent_id, profile_id)?;
+            }
+            Ok::<_, String>(())
+        })();
+        if result.is_ok() {
+            clear_target_incidents(operation, agent_id)?;
+        } else {
+            record_target_incident(operation, agent_id, "target_convergence_failed")?;
+        }
+    }
+    Ok(())
 }
 
 fn apply_skill(
+    operation: &AssetOperationPlan,
     before: &BTreeMap<String, Vec<String>>,
     after: &BTreeMap<String, Vec<String>>,
     release_orphaned_relationships: bool,
     skills_lock: &SkillsOperationLock,
+    blocked_agents: &BTreeSet<String>,
 ) -> Result<(), String> {
     let mut removals = BTreeMap::<String, BTreeSet<String>>::new();
     let mut additions = BTreeMap::<String, BTreeSet<String>>::new();
@@ -2050,35 +2359,169 @@ fn apply_skill(
                 declared_targets_for_agents(&agent_ids.iter().cloned().collect::<Vec<_>>())
                     .map_err(|error| format!("{error:?}"))?;
             let target_ids: BTreeSet<String> = assigned.intersection(&declared).cloned().collect();
-            release_assignment_safely(&name, &target_ids, skills_lock)
-                .map_err(|error| format!("{error:?}"))?;
+            for target_id in target_ids {
+                let target_agents = skill_target_agents(&target_id, &agent_ids);
+                if target_agents
+                    .iter()
+                    .any(|agent_id| blocked_agents.contains(agent_id))
+                {
+                    continue;
+                }
+                let result =
+                    release_assignment_safely(&name, &BTreeSet::from([target_id]), skills_lock)
+                        .map_err(|error| format!("{error:?}"));
+                record_skill_target_result(operation, &target_agents, result.is_ok())?;
+            }
         } else {
-            apply_skill_assignment(&name, agent_ids, false, skills_lock)?;
+            apply_skill_assignment(
+                operation,
+                &name,
+                agent_ids,
+                false,
+                skills_lock,
+                blocked_agents,
+            )?;
         }
     }
     for (name, agent_ids) in additions {
-        apply_skill_assignment(&name, agent_ids, true, skills_lock)?;
+        apply_skill_assignment(
+            operation,
+            &name,
+            agent_ids,
+            true,
+            skills_lock,
+            blocked_agents,
+        )?;
     }
+    persist_skill_desired(before, after)?;
     Ok(())
 }
 
 fn apply_skill_assignment(
+    operation: &AssetOperationPlan,
     name: &str,
     agent_ids: BTreeSet<String>,
     enabled: bool,
     skills_lock: &SkillsOperationLock,
+    blocked_agents: &BTreeSet<String>,
 ) -> Result<(), String> {
-    let plan = plan_assignment(PlanAssignmentRequest {
-        skill_name: name.to_string(),
-        agent_ids: agent_ids.into_iter().collect(),
-        enabled,
-    })
-    .map_err(|error| format!("{error:?}"))?;
-    if let Err(error) = commit_assignment_in_asset_transaction(plan.confirmation(), skills_lock) {
-        let _ = cancel_operation_in_asset_transaction(&plan.operation_id, skills_lock);
-        return Err(format!("{error:?}"));
+    let target_ids = normalize_agent_selection(&agent_ids.iter().cloned().collect::<Vec<_>>())
+        .map_err(|error| format!("{error:?}"))?;
+    for target_id in target_ids {
+        let target_agents = skill_target_agents(&target_id, &agent_ids);
+        if target_agents
+            .iter()
+            .any(|agent_id| blocked_agents.contains(agent_id))
+        {
+            continue;
+        }
+        let result = (|| {
+            let plan = plan_assignment(PlanAssignmentRequest {
+                skill_name: name.to_string(),
+                agent_ids: target_agents.clone(),
+                enabled,
+            })
+            .map_err(|error| format!("{error:?}"))?;
+            if let Err(error) =
+                commit_assignment_in_asset_transaction(plan.confirmation(), skills_lock)
+            {
+                let _ = cancel_operation_in_asset_transaction(&plan.operation_id, skills_lock);
+                return Err(format!("{error:?}"));
+            }
+            Ok::<_, String>(())
+        })();
+        record_skill_target_result(operation, &target_agents, result.is_ok())?;
     }
     Ok(())
+}
+
+fn skill_target_agents(target_id: &str, fallback: &BTreeSet<String>) -> Vec<String> {
+    crate::resources::skill::list_inventory()
+        .ok()
+        .and_then(|inventory| {
+            inventory
+                .targets
+                .into_iter()
+                .find(|target| target.target_id == target_id)
+        })
+        .map(|target| {
+            if target.affected_agent_ids.is_empty() {
+                target.primary_agent_ids
+            } else {
+                target.affected_agent_ids
+            }
+        })
+        .filter(|agents| !agents.is_empty())
+        .unwrap_or_else(|| fallback.iter().cloned().collect())
+}
+
+fn record_skill_target_result(
+    operation: &AssetOperationPlan,
+    agent_ids: &[String],
+    success: bool,
+) -> Result<(), String> {
+    for agent_id in agent_ids {
+        if success {
+            clear_target_incidents(operation, agent_id)?;
+        } else {
+            record_target_incident(operation, agent_id, "target_convergence_failed")?;
+        }
+    }
+    Ok(())
+}
+
+fn persist_skill_desired(
+    before: &BTreeMap<String, Vec<String>>,
+    after: &BTreeMap<String, Vec<String>>,
+) -> Result<(), String> {
+    let touched = before
+        .values()
+        .flatten()
+        .cloned()
+        .chain(after.values().flatten().cloned())
+        .collect::<BTreeSet<_>>();
+    let mut desired = BTreeMap::new();
+    for name in touched {
+        let agents = after
+            .iter()
+            .filter(|(_, names)| names.contains(&name))
+            .map(|(agent_id, _)| agent_id.clone())
+            .collect::<Vec<_>>();
+        let target_ids = normalize_agent_selection(&agents)
+            .map_err(|error| format!("{error:?}"))?
+            .into_iter()
+            .collect::<BTreeSet<_>>();
+        desired.insert(name, target_ids);
+    }
+    mutate_settings(|settings| {
+        let assignments = settings.skill_assignments.get_or_insert_default();
+        let consumptions = settings.skill_consumptions.get_or_insert_default();
+        for (name, target_ids) in desired {
+            if target_ids.is_empty() {
+                assignments.remove(&name);
+                consumptions.remove(&name);
+                continue;
+            }
+            assignments.insert(name.clone(), target_ids.clone());
+            let existing = consumptions.remove(&name).unwrap_or_default();
+            let mut records = BTreeMap::new();
+            for target_id in target_ids {
+                records.insert(
+                    target_id.clone(),
+                    existing
+                        .get(&target_id)
+                        .cloned()
+                        .unwrap_or(SkillConsumptionRecord {
+                            name: name.clone(),
+                            target_id,
+                            enabled: true,
+                        }),
+                );
+            }
+            consumptions.insert(name, records);
+        }
+    })
+    .map_err(|error| error.to_string())
 }
 
 fn verify_postcondition(
@@ -2121,11 +2564,8 @@ fn verify_postcondition(
                     };
                     let expected_active =
                         expected.active_profile_id.as_deref() == Some(profile_id.as_str());
-                    let state_changed = plan.model_state_changes.iter().any(|change| {
-                        change.agent_id == *agent_id && change.profile_id == *profile_id
-                    });
                     let invalid = item.enabled != Some(record.enabled)
-                        || (state_changed && item.active != Some(expected_active));
+                        || item.desired_active != Some(expected_active);
                     if invalid {
                         return Err(format!(
                             "model post-commit verification failed: {profile_id} for {agent_id} is {:?} with enabled {:?} and active {:?}",
@@ -2169,58 +2609,16 @@ fn verify_postcondition(
             .iter()
             .find(|item| item.agent_id == agent_id && item.asset == asset && item.desired);
         if desired {
-            let confirmed_mcp_toggle_drift = matches!(
-                lifecycle,
-                Some(LifecycleBinding::McpEnabled {
-                    agent_id: expected_agent,
-                    asset_key,
-                    after,
-                    ..
-                }) if expected_agent == &agent_id
-                    && asset == (AssetRef::Mcp {
-                        key: asset_key.clone(),
-                    })
-                    && consumption.is_some_and(|item| {
-                        item.enabled == Some(*after)
-                            && item.observed
-                            && item.reason.as_deref() == Some("mcp_config_drift")
-                    })
-            );
-            if !confirmed_mcp_toggle_drift
-                && !consumption.is_some_and(|item| item.status == ConsumptionStatus::Synced)
-            {
-                return Err("asset post-commit verification failed".into());
+            if consumption.is_none() {
+                return Err(format!(
+                    "asset post-commit verification failed: missing desired {asset:?} for {agent_id}"
+                ));
             }
-        } else {
-            let external_remains = inventory
-                .external
-                .iter()
-                .any(|item| external_remains_after_removal(&agent_id, &asset, item));
-            if consumption.is_some()
-                || (external_remains && !released_external_is_expected(plan, &agent_id, &asset)?)
-            {
-                return Err("asset removal post-commit verification failed".into());
-            }
+        } else if consumption.is_some() {
+            return Err("asset removal post-commit verification failed".into());
         }
     }
     Ok(())
-}
-
-fn released_external_is_expected(
-    plan: &AssetOperationPlan,
-    agent_id: &str,
-    asset: &AssetRef,
-) -> Result<bool, String> {
-    if !releases_relationship_ownership(plan)
-        || !plan.relationship_changes.iter().any(|change| {
-            change.agent_id == agent_id
-                && change.asset == *asset
-                && change.action == RelationshipAction::Remove
-        })
-    {
-        return Ok(false);
-    }
-    Ok(!matches!(asset, AssetRef::ModelProvider { .. }))
 }
 
 fn verify_desired_many<'a, F>(
@@ -2240,7 +2638,9 @@ where
         .collect();
     let expected: BTreeSet<&str> = expected.iter().map(String::as_str).collect();
     if actual != expected {
-        return Err("asset post-commit verification failed".into());
+        return Err(format!(
+            "asset post-commit verification failed for {agent_id}: expected {expected:?}, observed {actual:?}"
+        ));
     }
     Ok(())
 }
@@ -2280,31 +2680,6 @@ fn asset_desired_after(plan: &DomainPlan, agent_id: &str, asset: &AssetRef) -> b
                 .get(agent_id)
                 .is_some_and(|names| names.contains(name))
         }
-        _ => false,
-    }
-}
-
-fn external_remains_after_removal(
-    agent_id: &str,
-    asset: &AssetRef,
-    external: &super::types::ConsumptionView,
-) -> bool {
-    if external.agent_id != agent_id {
-        return false;
-    }
-    match (asset, &external.asset) {
-        (AssetRef::Mcp { key }, AssetRef::Mcp { key: external_key }) => key == external_key,
-        // Model writers clear the exact Profile-owned fields before desired
-        // state is updated. The external projection is deliberately
-        // identity-free, so it may describe an unrelated native model that the
-        // clear correctly preserved and cannot prove that this Profile remains.
-        (AssetRef::Model { .. }, AssetRef::Model { .. }) => false,
-        (
-            AssetRef::Skill { name },
-            AssetRef::Skill {
-                name: external_name,
-            },
-        ) => name == external_name,
         _ => false,
     }
 }
@@ -2750,6 +3125,7 @@ mod tests {
         PlanSetAgentConsumptionRequest, PlanSetMcpEnabledRequest, PlanSetModelEnabledRequest,
         PlanUpdateCentralAssetRequest,
     };
+    use crate::domain::assets::ConsumptionStatus;
     use crate::domain::types::{
         ModelProfile, ModelProtocol, ModelProviderConfig, ModelProviderProtocolConfig,
         RegistryConfig, RegistryEntry, SourceDef, StdioConfig,
@@ -3144,7 +3520,7 @@ mod tests {
     }
 
     #[test]
-    fn foreign_rollback_manifest_blocks_asset_commit_before_any_target_write() {
+    fn foreign_rollback_manifest_does_not_block_unrelated_asset_commit() {
         let _home = TestHome::new("consume-foreign-recovery");
         let plan = plan_update_central_asset(PlanUpdateCentralAssetRequest {
             draft: CentralAssetDraft::Mcp {
@@ -3168,25 +3544,22 @@ mod tests {
             },
         })
         .unwrap();
-        let settings_before = fs::read(settings_file()).ok();
         let foreign_id = uuid::Uuid::new_v4().to_string();
         let foreign_rollback = operation_root(&foreign_id).join("rollback");
         fs::create_dir_all(&foreign_rollback).unwrap();
         fs::write(foreign_rollback.join("manifest.json"), b"{}").unwrap();
 
-        let error = commit_asset_operation(AssetCommitRequest {
+        commit_asset_operation(AssetCommitRequest {
             operation_id: plan.operation_id,
             candidate_hash: plan.candidate_hash,
         })
-        .unwrap_err();
+        .unwrap();
 
-        assert!(error.starts_with("recovery_required:"), "{error}");
-        assert_eq!(fs::read(settings_file()).ok(), settings_before);
         assert!(
             read_registry()
                 .into_iter()
-                .all(|entry| entry.name != "blocked-by-recovery"),
-            "the new central asset must not be written"
+                .any(|entry| entry.name == "blocked-by-recovery"),
+            "the unrelated central asset must remain writable"
         );
         assert!(foreign_rollback.join("manifest.json").is_file());
     }
@@ -3204,7 +3577,7 @@ mod tests {
         fs::write(&outside, b"must-not-be-read").unwrap();
         symlink(&outside, foreign_rollback.join("manifest.json")).unwrap();
 
-        let error = ensure_no_pending_asset_recovery().unwrap_err();
+        let error = recover_pending_asset_operations().unwrap_err();
 
         assert!(error.starts_with("recovery_required:"), "{error}");
         assert_eq!(fs::read(outside).unwrap(), b"must-not-be-read");
@@ -3222,7 +3595,7 @@ mod tests {
         fs::create_dir(&outside).unwrap();
         symlink(&outside, staging.join("consumption")).unwrap();
 
-        let error = ensure_no_pending_asset_recovery().unwrap_err();
+        let error = recover_pending_asset_operations().unwrap_err();
 
         assert!(error.starts_with("recovery_required:"), "{error}");
         assert!(outside.read_dir().unwrap().next().is_none());
@@ -3433,6 +3806,84 @@ mod tests {
     }
 
     #[test]
+    fn startup_recovery_localizes_an_externally_changed_target() {
+        let home = TestHome::new("consume-target-incident");
+        write_manual_entry(&RegistryEntry {
+            name: "local".into(),
+            description: String::new(),
+            tags: Vec::new(),
+            config: RegistryConfig {
+                stdio: Some(StdioConfig {
+                    command: "local-server".into(),
+                    args: None,
+                    env: None,
+                    cwd: None,
+                }),
+                http: None,
+            },
+            origin: None,
+            repo: None,
+        })
+        .unwrap();
+        let plan = plan_set_agent_consumption(PlanSetAgentConsumptionRequest {
+            agent_id: "claude-code".into(),
+            selection: AgentConsumptionSelection::Mcp {
+                asset_keys: vec!["local::stdio".into()],
+            },
+        })
+        .unwrap();
+        let target = home.home.join(".claude.json");
+        let snapshots = vec![
+            PathSnapshot::capture(&settings_file()).unwrap(),
+            PathSnapshot::capture(&target).unwrap(),
+        ];
+        persist_rollback_snapshots(&plan.operation_id, &snapshots).unwrap();
+        let tracked_paths = snapshots
+            .iter()
+            .map(|snapshot| snapshot.path.clone())
+            .collect::<Vec<_>>();
+        let tracker = begin_transaction_write_tracking(
+            &transaction_write_evidence_dir(&plan.operation_id),
+            &tracked_paths,
+            &parent_snapshots_for_snapshots(&snapshots),
+        )
+        .unwrap();
+        crate::safe_write::write_if_unchanged(&target, None, "partial mutation").unwrap();
+        mutate_settings(|settings| {
+            settings.mcp_consumptions.get_or_insert_default().insert(
+                "claude-code".into(),
+                BTreeMap::from([(
+                    "local::stdio".into(),
+                    McpConsumptionRecord {
+                        asset_key: "local::stdio".into(),
+                        enabled: true,
+                        overrides: Default::default(),
+                    },
+                )]),
+            );
+        })
+        .unwrap();
+        drop(tracker);
+        let external = r#"{"mcpServers":{"external":{"command":"must-survive"}}}"#;
+        fs::write(&target, external).unwrap();
+
+        assert!(recover_pending_asset_operations().unwrap().is_empty());
+
+        assert_eq!(fs::read_to_string(&target).unwrap(), external);
+        let settings = load_settings_strict().unwrap();
+        assert!(settings.mcp_consumptions.unwrap()["claude-code"].contains_key("local::stdio"));
+        let incidents = settings.target_incidents.unwrap();
+        assert_eq!(incidents.len(), 1);
+        let incident = incidents.values().next().unwrap();
+        assert_eq!(incident.capability, AssetCapability::Mcp);
+        assert_eq!(incident.affected_agent_ids, ["claude-code"]);
+        assert_eq!(incident.code, "target_recovery_required");
+        assert!(operation_root(&plan.operation_id)
+            .join(TARGET_INCIDENT_MARKER)
+            .is_file());
+    }
+
+    #[test]
     fn cancellation_preserves_started_transaction_recovery_evidence() {
         let _home = TestHome::new("consume-cancel-recovery-evidence");
         let plan = plan_update_central_asset(PlanUpdateCentralAssetRequest {
@@ -3481,8 +3932,6 @@ mod tests {
                 .is_some(),
             "post-write ownership evidence must remain available"
         );
-        assert!(pending_recovery_error().is_some());
-
         assert_eq!(
             recover_pending_asset_operations().unwrap(),
             vec![plan.operation_id]
@@ -3568,8 +4017,9 @@ mod tests {
         ];
         persist_rollback_snapshots(&plan.operation_id, &snapshots).unwrap();
         let skills_guard = acquire_asset_skills_lock().unwrap();
-        apply_operation(&persisted, &skills_guard).unwrap();
+        apply_operation(&persisted, &skills_guard, &BTreeSet::new()).unwrap();
         verify_operation(&persisted).unwrap();
+        mark_operation_committed(&plan.operation_id).unwrap();
         drop(skills_guard);
 
         recover_pending_asset_operations().unwrap();
@@ -3610,7 +4060,7 @@ mod tests {
         )
         .unwrap();
         let skills_guard = acquire_asset_skills_lock().unwrap();
-        apply_operation(&persisted, &skills_guard).unwrap();
+        apply_operation(&persisted, &skills_guard, &BTreeSet::new()).unwrap();
         drop(tracker);
         drop(skills_guard);
         assert_eq!(credential_snapshot("work").unwrap(), b"old-secret");
@@ -3860,7 +4310,7 @@ mod tests {
         )
         .unwrap();
         let skills_guard = acquire_asset_skills_lock().unwrap();
-        apply_operation(&persisted, &skills_guard).unwrap();
+        apply_operation(&persisted, &skills_guard, &BTreeSet::new()).unwrap();
         drop(tracker);
         drop(skills_guard);
         assert_eq!(credential_snapshot(&first.id).unwrap(), b"new-secret");
@@ -3891,7 +4341,7 @@ mod tests {
         persist_credential_rollback(&plan.operation_id, "work", old_credential.as_deref()).unwrap();
         persist_rollback_snapshots(&plan.operation_id, &snapshots).unwrap();
         let skills_guard = acquire_asset_skills_lock().unwrap();
-        apply_operation(&persisted, &skills_guard).unwrap();
+        apply_operation(&persisted, &skills_guard, &BTreeSet::new()).unwrap();
         verify_operation(&persisted).unwrap();
         mark_operation_committed(&plan.operation_id).unwrap();
         drop(skills_guard);

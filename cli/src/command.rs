@@ -742,7 +742,7 @@ fn status(
         })
         .cloned()
         .collect::<Vec<_>>();
-    let (managed, external, recovery_error) = status_projection(inventory, domain, agent);
+    let (managed, external, target_incidents) = status_projection(inventory, domain, agent);
     let command = match domain {
         AssetDomain::Mcp => "mcp.status",
         AssetDomain::Model => "model.status",
@@ -770,9 +770,12 @@ fn status(
         }
         lines
     };
-    if let Some(error) = &recovery_error {
+    for incident in &target_incidents {
         lines.push(String::new());
-        lines.push(palette.yellow(&format!("recovery warning: {error}")));
+        lines.push(palette.yellow(&format!(
+            "target warning: {} ({})",
+            incident.code, incident.target_path
+        )));
     }
     for diagnostic in &capability_errors {
         lines.push(String::new());
@@ -788,7 +791,7 @@ fn status(
             "managed": managed.iter().map(safe_consumption_view).collect::<Vec<_>>(),
             "external": external.iter().map(safe_consumption_view).collect::<Vec<_>>(),
             "capability_errors": capability_errors,
-            "recovery_error": recovery_error.as_ref().map(|_| "recovery_required"),
+            "target_incidents": target_incidents.iter().map(crate::projection::safe_target_incident).collect::<Vec<_>>(),
         }),
         human,
     ))
@@ -801,9 +804,21 @@ fn status_projection(
 ) -> (
     Vec<mux_core::application::assets::ConsumptionView>,
     Vec<mux_core::application::assets::ConsumptionView>,
-    Option<String>,
+    Vec<mux_core::application::assets::TargetIncident>,
 ) {
-    let recovery_error = inventory.recovery_error;
+    let capability = match domain {
+        AssetDomain::Mcp => mux_core::application::assets::AssetCapability::Mcp,
+        AssetDomain::Model => mux_core::application::assets::AssetCapability::Model,
+        AssetDomain::Skill => mux_core::application::assets::AssetCapability::Skill,
+    };
+    let mut target_incidents = inventory
+        .target_incidents
+        .into_iter()
+        .filter(|incident| incident.capability == capability)
+        .filter(|incident| {
+            agent.is_none_or(|agent| incident.affected_agent_ids.iter().any(|id| id == agent))
+        })
+        .collect::<Vec<_>>();
     let mut managed = inventory
         .consumptions
         .into_iter()
@@ -820,7 +835,8 @@ fn status_projection(
         .sort_by(|left, right| (&left.agent_id, &left.asset).cmp(&(&right.agent_id, &right.asset)));
     external
         .sort_by(|left, right| (&left.agent_id, &left.asset).cmp(&(&right.agent_id, &right.asset)));
-    (managed, external, recovery_error)
+    target_incidents.sort_by(|left, right| left.id.cmp(&right.id));
+    (managed, external, target_incidents)
 }
 
 fn converge(
@@ -2000,9 +2016,10 @@ mod tests {
     }
 
     #[test]
-    fn status_projection_is_sorted_and_preserves_recovery_error() {
+    fn status_projection_is_sorted_and_scopes_target_incidents() {
         use mux_core::application::assets::{
-            ConsumptionInventory, ConsumptionStatus, ConsumptionView,
+            AssetCapability, ConsumptionInventory, ConsumptionStatus, ConsumptionView,
+            TargetIncident,
         };
 
         let row = |agent: &str, key: &str| ConsumptionView {
@@ -2025,16 +2042,26 @@ mod tests {
         let inventory = ConsumptionInventory {
             consumptions: vec![row("z-agent", "z::stdio"), row("a-agent", "z::stdio")],
             external: vec![row("b-agent", "b::http"), row("a-agent", "a::stdio")],
-            recovery_error: Some("RECOVERY_SENTINEL".into()),
+            target_incidents: vec![TargetIncident {
+                id: "target-1".into(),
+                operation_id: "operation-1".into(),
+                capability: AssetCapability::Mcp,
+                target_id: "target-1".into(),
+                target_path: "~/.qoder/mcp.json".into(),
+                affected_agent_ids: vec!["a-agent".into()],
+                code: "target_recovery_required".into(),
+                retryable: true,
+            }],
             ..Default::default()
         };
-        let (managed, external, recovery_error) =
+        let (managed, external, target_incidents) =
             status_projection(inventory, AssetDomain::Mcp, None);
         assert_eq!(managed[0].agent_id, "a-agent");
         assert_eq!(managed[1].agent_id, "z-agent");
         assert_eq!(external[0].agent_id, "a-agent");
         assert_eq!(external[1].agent_id, "b-agent");
-        assert_eq!(recovery_error.as_deref(), Some("RECOVERY_SENTINEL"));
+        assert_eq!(target_incidents.len(), 1);
+        assert_eq!(target_incidents[0].affected_agent_ids, ["a-agent"]);
     }
 
     #[test]

@@ -44,7 +44,13 @@ fn list_consumption_inventory_inner(
 ) -> Result<ConsumptionInventory, String> {
     let settings = load_settings_strict().map_err(|error| error.to_string())?;
     let mut inventory = ConsumptionInventory {
-        recovery_error: super::transaction::pending_recovery_error(),
+        target_incidents: settings
+            .target_incidents
+            .as_ref()
+            .into_iter()
+            .flat_map(|incidents| incidents.values())
+            .cloned()
+            .collect(),
         ..Default::default()
     };
     project_capability(
@@ -804,6 +810,8 @@ fn sort_inventory(inventory: &mut ConsumptionInventory) {
     };
     sort(&mut inventory.consumptions);
     sort(&mut inventory.external);
+    inventory.target_incidents.sort();
+    inventory.target_incidents.dedup();
 }
 
 fn item_observation_id(
@@ -851,7 +859,7 @@ fn finalize_observation(inventory: &mut ConsumptionInventory) {
         &inventory.consumptions,
         &inventory.external,
         &inventory.capability_errors,
-        &inventory.recovery_error,
+        &inventory.target_incidents,
     ))
     .expect("observation projection serializes");
     inventory.revision = hex::encode(Sha256::digest(bytes));

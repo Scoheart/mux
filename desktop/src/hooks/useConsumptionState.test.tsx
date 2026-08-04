@@ -196,6 +196,35 @@ it("retains the last successful relationship snapshot across a failed refresh", 
   expect(result.current.error?.code).toBe("scan_failed");
 });
 
+it("refreshes and retries convergence once when the observation is stale", async () => {
+  const first = consumptionInventoryFixture();
+  const refreshed = { ...consumptionInventoryFixture(), revision: "refreshed-revision" };
+  vi.mocked(api.listConsumptionInventory)
+    .mockResolvedValueOnce(first)
+    .mockResolvedValueOnce(refreshed);
+  vi.mocked(api.planOperation)
+    .mockRejectedValueOnce({ code: "observation_stale", message: "changed" })
+    .mockResolvedValueOnce({ domain: "asset", plan: assetOperationPlanFixture() });
+  const { result } = renderHook(() => useConsumptionState());
+  await waitFor(() => expect(result.current.inventory?.revision).toBe("fixture-revision"));
+  const item = result.current.inventory!.consumptions[1];
+
+  await act(async () => {
+    await result.current.planConvergence(item, "restore-desired");
+  });
+
+  expect(api.planOperation).toHaveBeenNthCalledWith(1, {
+    operation: "converge_consumption",
+    request: expect.objectContaining({ observed_revision: "fixture-revision" }),
+  });
+  expect(api.planOperation).toHaveBeenNthCalledWith(2, {
+    operation: "converge_consumption",
+    request: expect.objectContaining({ observed_revision: "refreshed-revision" }),
+  });
+  expect(result.current.inventory?.revision).toBe("refreshed-revision");
+  expect(result.current.error).toBeNull();
+});
+
 it("owns MCP enabled-state plans through the central operation slot", async () => {
   const { result } = renderHook(() => useConsumptionState());
   await waitFor(() => expect(result.current.loading).toBe(false));

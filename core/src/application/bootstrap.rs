@@ -144,11 +144,14 @@ fn bootstrap_unlocked() -> Result<BootstrapProgress, BootstrapError> {
     let skill_updates_allowed =
         classify_skill_recovery(crate::resources::skill::recover_pending(), &mut warnings)?;
 
+    if let Err(message) = crate::assets::recover_pending_asset_operations() {
+        warnings.push(BootstrapWarning {
+            stage: BootstrapStage::AssetRecovery,
+            message,
+        });
+    }
+
     run_steps(vec![
-        (
-            BootstrapStage::AssetRecovery,
-            Box::new(|| crate::assets::recover_pending_asset_operations().map(|_| ())),
-        ),
         (
             BootstrapStage::SettingsMigration,
             Box::new(|| {
@@ -210,10 +213,13 @@ fn classify_skill_recovery(
             });
             Ok(false)
         }
-        Err(error) => Err(BootstrapError {
-            stage: BootstrapStage::SkillRecovery,
-            message: error.into_command_parts().message,
-        }),
+        Err(error) => {
+            warnings.push(BootstrapWarning {
+                stage: BootstrapStage::SkillRecovery,
+                message: error.into_command_parts().message,
+            });
+            Ok(false)
+        }
     }
 }
 
@@ -221,7 +227,6 @@ fn model_failure_requires_global_recovery(message: &str) -> bool {
     message == "recovery_required"
         || message.starts_with("recovery_required:")
         || message.contains("operation committed but")
-        || crate::assets::transaction::pending_recovery_error().is_some()
 }
 
 fn model_central_state_status(error: &BootstrapError) -> BackendStatus {

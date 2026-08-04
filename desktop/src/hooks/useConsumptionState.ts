@@ -7,6 +7,7 @@ import {
   planOperation,
 } from "../lib/api";
 import i18n from "../i18n";
+import { assetIdentity } from "../lib/consumption";
 import type {
   AgentConsumptionSelection,
   AgentCapabilityView,
@@ -118,9 +119,7 @@ export function useConsumptionState({ autoLoad = true }: { autoLoad?: boolean } 
       const next = await listConsumptionInventory();
       if (mounted.current && ownGeneration === inventoryGeneration.current) {
         setInventory(next);
-        setError(next.recovery_error
-          ? { code: "recovery_required", message: next.recovery_error }
-          : null);
+        setError(null);
       }
       return next;
     } catch (cause) {
@@ -241,15 +240,30 @@ export function useConsumptionState({ autoLoad = true }: { autoLoad?: boolean } 
     if (!observedRevision) throw new Error(i18n.t("observations.revisionUnavailable"));
     planningRef.current = true;
     try {
-      const result = await planOperation({
-        operation: "converge_consumption",
+      const planWithRevision = (revision: string) => planOperation({
+        operation: "converge_consumption" as const,
         request: {
           agent_id: item.agent_id,
           asset: item.asset,
           action,
-          observed_revision: observedRevision,
+          observed_revision: revision,
         },
       });
+      let result;
+      try {
+        result = await planWithRevision(observedRevision);
+      } catch (cause) {
+        if (commandError(cause).code !== "observation_stale") throw cause;
+        const next = await refresh();
+        const current = [...next.consumptions, ...next.external].find(
+          (candidate) => candidate.agent_id === item.agent_id
+            && candidate.asset.domain === item.asset.domain
+            && assetIdentity(candidate.asset) === assetIdentity(item.asset)
+            && candidate.available_actions.includes(action),
+        );
+        if (!current) throw cause;
+        result = await planWithRevision(next.revision);
+      }
       if (result.domain === "asset") ownPlan(result.plan);
       return result;
     } catch (cause) {
@@ -258,7 +272,7 @@ export function useConsumptionState({ autoLoad = true }: { autoLoad?: boolean } 
     } finally {
       planningRef.current = false;
     }
-  }, [inventory?.revision, ownPlan]);
+  }, [inventory?.revision, ownPlan, refresh]);
 
   const planUpdate = useCallback(
     (draft: CentralAssetDraft) => startPlan({
@@ -298,9 +312,7 @@ export function useConsumptionState({ autoLoad = true }: { autoLoad?: boolean } 
         setInventory(next);
         planRef.current = null;
         setPlan(null);
-        setError(next.recovery_error
-          ? { code: "recovery_required", message: next.recovery_error }
-          : null);
+        setError(null);
       }
       return next;
     } catch (cause) {

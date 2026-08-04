@@ -460,5 +460,5 @@ fn unavailable_skill_inventory_does_not_hide_or_block_mcp() {
         diagnostic.capability == AssetCapability::Skill
             && diagnostic.code == "skill_inventory_unavailable"
     }));
-    assert!(inventory.recovery_error.is_none());
+    assert!(inventory.target_incidents.is_empty());
 }

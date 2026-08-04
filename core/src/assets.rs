@@ -52,5 +52,5 @@ pub use types::{
     PlanSetAgentConsumptionRequest, PlanSetAssetConsumersRequest, PlanSetMcpEnabledRequest,
     PlanSetModelEnabledRequest, PlanSetSkillEnabledRequest, PlanUpdateAgentCapabilitiesRequest,
     PlanUpdateAssetConsumersRequest, PlanUpdateCentralAssetRequest, RelationshipAction,
-    RelationshipChange, SelectionError, SkillConsumptionRecord,
+    RelationshipChange, SelectionError, SkillConsumptionRecord, TargetIncident,
 };

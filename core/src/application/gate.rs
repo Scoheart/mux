@@ -95,8 +95,7 @@ pub(crate) fn write_for<R: GatedResult>(
 }
 
 /// A preference or host-integration write that does not consume MCP, Model,
-/// or Skill state. Capability-local blockers do not apply, but shared durable
-/// recovery evidence still promotes the whole backend to read-only.
+/// or Skill state. Target-scoped incidents never apply to this scope.
 pub(crate) fn write_independent<R: GatedResult>(operation: impl FnOnce() -> R) -> R {
     mutate_scoped(
         MutationScope::Independent,
@@ -235,7 +234,7 @@ fn mutation_blocker(scope: MutationScope) -> Option<CoreError> {
     if let Some(error) = blocker_for_status(&status, scope) {
         return Some(error);
     }
-    let pending = crate::assets::transaction::pending_recovery_error()?;
+    let pending = crate::safe_write::pending_global_mutation_error()?;
     latch_read_only("durable_recovery", pending);
     blocker_for_status(&current_status(), scope)
 }
@@ -413,8 +412,7 @@ impl<T> GatedResult for Result<T, String> {
         {
             return Some(message);
         }
-        crate::assets::transaction::pending_recovery_error()
-            .map(|pending| format!("{error}; {pending}"))
+        None
     }
 }
 
@@ -435,8 +433,7 @@ impl<T> GatedResult for Result<T, SkillError> {
     fn recovery_required(&self) -> Option<String> {
         match self {
             Err(SkillError::RecoveryRequired { message }) => Some(message.clone()),
-            Err(_) => crate::assets::transaction::pending_recovery_error(),
-            Ok(_) => None,
+            Err(_) | Ok(_) => None,
         }
     }
 }
@@ -585,7 +582,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn ordinary_skill_error_is_promoted_when_a_global_claim_appears() {
+    fn ordinary_skill_error_does_not_inherit_an_unrelated_global_claim() {
         let _home = crate::testenv::TestHome::new("gate-skill-claim");
         let _claim = crate::safe_write::install_test_global_mutation_claim().unwrap();
         let skill: Result<(), SkillError> = Err(SkillError::Conflict {
@@ -593,7 +590,7 @@ mod tests {
             path: String::new(),
         });
 
-        assert!(skill.recovery_required().is_some());
+        assert!(skill.recovery_required().is_none());
     }
 
     #[test]
@@ -717,7 +714,7 @@ mod tests {
     }
 
     #[test]
-    fn pending_asset_manifest_blocks_every_application_mutation() {
+    fn pending_asset_manifest_does_not_block_unrelated_application_mutation() {
         let _home = crate::testenv::TestHome::new("gate-asset-recovery");
         let foreign_id = uuid::Uuid::new_v4().to_string();
         let rollback = crate::assets::planner::operation_root(&foreign_id).join("rollback");
@@ -730,12 +727,9 @@ mod tests {
             Ok(())
         });
 
-        assert!(!called.get());
-        assert_eq!(result.unwrap_err().code, "recovery_required");
-        assert!(matches!(
-            status(),
-            BackendStatus::ReadOnly { ref stage, .. } if stage == "durable_recovery"
-        ));
+        assert!(called.get());
+        assert!(result.is_ok());
+        assert_eq!(status(), BackendStatus::Ready);
     }
 
     #[test]

@@ -115,6 +115,8 @@ const zhCN = {
     skillInventoryUnavailable: "Skill 资产扫描失败；MCP 与 Model 不受影响。",
     skillRecoveryRequired: "Skill 存在待恢复事务；MCP 与 Model 不受影响。",
     capabilityFallback: "该能力暂时不可用；其他能力仍可正常使用。",
+    targetIncidentTitle: "此配置位置待收敛",
+    targetIncidentMessage: "只影响当前 Agent 的这类资产，其他 Agent 和资产仍可正常使用。",
   },
   agents: {
     addTitle: "添加 Agent",
@@ -392,6 +394,8 @@ const enUS: TranslationShape<typeof zhCN> = {
     skillInventoryUnavailable: "Skill asset scanning failed. MCP and Model are unaffected.",
     skillRecoveryRequired: "A Skill transaction needs recovery. MCP and Model are unaffected.",
     capabilityFallback: "This capability is temporarily unavailable. Other capabilities remain available.",
+    targetIncidentTitle: "This configuration target needs convergence",
+    targetIncidentMessage: "Only this asset capability for the current Agent is affected. Other Agents and assets remain available.",
   },
   agents: {
     addTitle: "Add Agent",

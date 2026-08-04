@@ -314,14 +314,11 @@ function App() {
         />
       )}
 
-      {(
-        backendStatus?.state === "read_only"
-        || consumptionState.error?.code === "recovery_required"
-      ) && (
+      {backendStatus?.state === "read_only" && (
         <div className="mux-asset-recovery-banner" role="alert">
           <strong>{t("migration.recoveryTitle")}</strong>
           <span>{t("migration.recoveryMessage", {
-            stage: backendStatus?.state === "read_only" ? backendStatus.stage : "durable_recovery",
+            stage: backendStatus.stage,
           })}</span>
         </div>
       )}

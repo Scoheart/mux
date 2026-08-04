@@ -96,7 +96,20 @@ pub fn safe_consumption_inventory(inventory: &ConsumptionInventory) -> Value {
             "capability": diagnostic.capability,
             "code": diagnostic.code,
         })).collect::<Vec<_>>(),
-        "recovery_error": inventory.recovery_error.as_ref().map(|_| "recovery_required"),
+        "target_incidents": inventory.target_incidents.iter().map(safe_target_incident).collect::<Vec<_>>(),
+    })
+}
+
+pub fn safe_target_incident(incident: &mux_core::application::assets::TargetIncident) -> Value {
+    json!({
+        "id": incident.id,
+        "operation_id": incident.operation_id,
+        "capability": incident.capability,
+        "target_id": incident.target_id,
+        "target_path": safe_path(&incident.target_path),
+        "affected_agent_ids": incident.affected_agent_ids,
+        "code": incident.code,
+        "retryable": incident.retryable,
     })
 }
 
@@ -295,17 +308,24 @@ mod tests {
     }
 
     #[test]
-    fn recovery_diagnostics_are_generic_in_json() {
+    fn target_incidents_redact_paths_in_json() {
         let inventory = ConsumptionInventory {
-            recovery_error: Some(
-                "failed near SECRET_SENTINEL at /private/user/.mux/staging".into(),
-            ),
+            target_incidents: vec![mux_core::application::assets::TargetIncident {
+                id: "target-1".into(),
+                operation_id: "operation-1".into(),
+                capability: mux_core::application::assets::AssetCapability::Mcp,
+                target_id: "target-1".into(),
+                target_path: "/private/user/.qoder/mcp.json".into(),
+                affected_agent_ids: vec!["qoder".into()],
+                code: "target_recovery_required".into(),
+                retryable: true,
+            }],
             ..Default::default()
         };
         let encoded = safe_consumption_inventory(&inventory).to_string();
-        assert!(encoded.contains("recovery_required"));
-        assert!(!encoded.contains("SECRET_SENTINEL"));
+        assert!(encoded.contains("target_recovery_required"));
         assert!(!encoded.contains("/private/user"));
+        assert!(encoded.contains("<absolute-path-redacted>"));
     }
 
     #[test]

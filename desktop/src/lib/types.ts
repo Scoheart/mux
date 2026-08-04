@@ -543,7 +543,18 @@ export interface ConsumptionInventory {
     capability: "mcp" | "model" | "skill";
     code: string;
   }>;
-  recovery_error?: string | null;
+  target_incidents: TargetIncident[];
+}
+
+export interface TargetIncident {
+  id: string;
+  operation_id: string;
+  capability: "mcp" | "model" | "skill";
+  target_id: string;
+  target_path: string;
+  affected_agent_ids: string[];
+  code: string;
+  retryable: boolean;
 }
 
 export type AgentConsumptionSelection =

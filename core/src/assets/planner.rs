@@ -1808,9 +1808,6 @@ fn finalize_plan_with_inventory(
     lifecycle: Option<LifecycleBinding>,
     current_inventory: &ConsumptionInventory,
 ) -> Result<AssetOperationPlan, String> {
-    if let Some(error) = super::transaction::pending_recovery_error() {
-        return Err(format!("recovery_required: {error}"));
-    }
     let relationship_changes = relationship_changes(&domain_plan);
     let model_state_changes = model_state_changes(&domain_plan);
     let consumption_state_changes =

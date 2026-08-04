@@ -1477,6 +1477,12 @@ body {
   border-radius: var(--radius-control); background: var(--surface-selected); color: var(--color-blue); font-size: 10px; font-weight: 650;
 }
 .mux-agent-operation-progress svg { width: 13px; height: 13px; flex: 0 0 13px; animation: spin .8s linear infinite; }
+.mux-target-incident { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 10px 13px; border: 1px solid var(--border-hairline); border-radius: var(--radius-row); background: var(--surface-attention); color: var(--text-primary); }
+.mux-target-incident > div { min-width: 0; }
+.mux-target-incident strong, .mux-target-incident span { display: block; }
+.mux-target-incident strong { font-size: 11px; }
+.mux-target-incident span { margin-top: 3px; color: var(--text-secondary); font-size: 10px; }
+.mux-target-incident code { max-width: 42%; overflow: hidden; color: var(--text-secondary); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 .mux-agent-resource-content,
 .mux-agent-resource-panel-body > .mux-agent-skills { padding-top: 16px; padding-bottom: 0; border-top: 0; }
 .mux-agent-model-control { display: grid; grid-template-columns: minmax(250px, .8fr) minmax(390px, 1.2fr); overflow: visible; gap: 8px; border: 0; border-radius: 0; background: transparent; }

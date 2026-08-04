@@ -3,7 +3,7 @@ import type { AssetOperationPlan, ConsumptionInventory } from "../lib/types";
 export const consumptionInventoryFixture = (): ConsumptionInventory => ({
   revision: "fixture-revision",
   observed_at: "2026-08-04T00:00:00Z",
-  recovery_error: null,
+  target_incidents: [],
   consumptions: [
     {
       agent_id: "claude-code",

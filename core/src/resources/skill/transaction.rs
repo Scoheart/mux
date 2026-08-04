@@ -860,11 +860,6 @@ pub fn execute_transaction_with_failpoint(
             message: "a durable safe-write claim must be recovered before committing Skills".into(),
         }
     })?;
-    crate::assets::transaction::ensure_no_pending_asset_recovery().map_err(|_| {
-        SkillError::RecoveryRequired {
-            message: "a pending Asset operation must be recovered before committing Skills".into(),
-        }
-    })?;
     paths.ensure_transaction_roots()?;
     validate_transaction_roots(&paths, false)?;
     if has_pending_recovery_with_paths(&paths)? {
@@ -4843,7 +4838,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn foreign_asset_manifest_blocks_skill_commit_before_its_journal_is_created() {
+    fn foreign_asset_manifest_does_not_block_an_unrelated_skill_commit() {
         let _home = TestHome::new("tx-asset-recovery");
         let paths = SkillsPaths::from_env().unwrap();
         let foreign_id = uuid::Uuid::new_v4().to_string();
@@ -4854,10 +4849,10 @@ mod tests {
 
         let result = execute_transaction(empty_spec(operation_id));
 
-        assert!(matches!(result, Err(SkillError::RecoveryRequired { .. })));
+        assert!(result.is_ok());
         assert!(
             !journal_path(&paths, operation_id).unwrap().exists(),
-            "Skill journal creation must remain behind Asset recovery"
+            "a successful Skill transaction must clean its own journal"
         );
         assert!(foreign_rollback.join("manifest.json").is_file());
     }

@@ -47,10 +47,25 @@ fn list_consumption_inventory_inner(
         recovery_error: super::transaction::pending_recovery_error(),
         ..Default::default()
     };
-    project_mcps(&settings, &mut inventory)?;
-    project_models(&settings, &mut inventory)?;
+    project_capability(
+        &mut inventory,
+        AssetCapability::Mcp,
+        "mcp_observation_unavailable",
+        |projection| project_mcps(&settings, projection),
+    );
+    project_capability(
+        &mut inventory,
+        AssetCapability::Model,
+        "model_observation_unavailable",
+        |projection| project_models(&settings, projection),
+    );
     if let Some(skills) = skills {
-        project_skills(&settings, skills, &mut inventory)?;
+        project_capability(
+            &mut inventory,
+            AssetCapability::Skill,
+            "skill_observation_unavailable",
+            |projection| project_skills(&settings, skills, projection),
+        );
         if skills.recovery_error.is_some() {
             inventory.capability_errors.push(CapabilityDiagnostic {
                 capability: AssetCapability::Skill,
@@ -66,6 +81,32 @@ fn list_consumption_inventory_inner(
     sort_inventory(&mut inventory);
     finalize_observation(&mut inventory);
     Ok(inventory)
+}
+
+/// Build each capability in an isolated scratch projection. A reader is free
+/// to discover malformed or concurrently changing Agent state, but it cannot
+/// leave partial rows behind or prevent the other two capabilities from being
+/// observed.
+fn project_capability(
+    inventory: &mut ConsumptionInventory,
+    capability: AssetCapability,
+    error_code: &str,
+    project: impl FnOnce(&mut ConsumptionInventory) -> Result<(), String>,
+) {
+    let mut projection = ConsumptionInventory::default();
+    match project(&mut projection) {
+        Ok(()) => {
+            inventory.consumptions.extend(projection.consumptions);
+            inventory.external.extend(projection.external);
+            inventory
+                .capability_errors
+                .extend(projection.capability_errors);
+        }
+        Err(_) => inventory.capability_errors.push(CapabilityDiagnostic {
+            capability,
+            code: error_code.into(),
+        }),
+    }
 }
 
 fn project_mcps(
@@ -815,4 +856,53 @@ fn finalize_observation(inventory: &mut ConsumptionInventory) {
     .expect("observation projection serializes");
     inventory.revision = hex::encode(Sha256::digest(bytes));
     inventory.observed_at = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+}
+
+#[cfg(test)]
+mod projection_isolation_tests {
+    use super::*;
+
+    #[test]
+    fn a_failed_capability_discards_its_partial_projection_and_keeps_others() {
+        let mut inventory = ConsumptionInventory::default();
+
+        project_capability(
+            &mut inventory,
+            AssetCapability::Mcp,
+            "mcp_observation_unavailable",
+            |partial| {
+                partial.capability_errors.push(CapabilityDiagnostic {
+                    capability: AssetCapability::Skill,
+                    code: "must_not_leak".into(),
+                });
+                Err("one Agent file changed during the read".into())
+            },
+        );
+        project_capability(
+            &mut inventory,
+            AssetCapability::Model,
+            "model_observation_unavailable",
+            |partial| {
+                partial.capability_errors.push(CapabilityDiagnostic {
+                    capability: AssetCapability::Model,
+                    code: "model_local_diagnostic".into(),
+                });
+                Ok(())
+            },
+        );
+
+        assert_eq!(
+            inventory.capability_errors,
+            vec![
+                CapabilityDiagnostic {
+                    capability: AssetCapability::Mcp,
+                    code: "mcp_observation_unavailable".into(),
+                },
+                CapabilityDiagnostic {
+                    capability: AssetCapability::Model,
+                    code: "model_local_diagnostic".into(),
+                },
+            ]
+        );
+    }
 }

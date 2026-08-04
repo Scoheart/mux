@@ -24,6 +24,8 @@ export interface StartupSyncState {
   syncing: boolean;
   slow: boolean;
   settled: boolean;
+  refreshTasks(taskIds: string[]): Promise<void>;
+  refreshAll(): Promise<void>;
   retryFailed(): Promise<void>;
 }
 
@@ -91,9 +93,12 @@ export function useStartupSync({
       ]),
     ),
   );
+  const statusesRef = useRef(statuses);
+  statusesRef.current = statuses;
   const [slow, setSlow] = useState(false);
   const mounted = useRef(true);
   const started = useRef(false);
+  const refreshing = useRef(false);
   const runGeneration = useRef(0);
 
   useEffect(() => {
@@ -184,24 +189,58 @@ export function useStartupSync({
     // real unmount prevents deferred tasks from starting.
   }, [allTasks, runOne]);
 
-  const retryFailed = useCallback(async () => {
-    if (Object.values(statuses).some(
+  const refreshTasks = useCallback(async (taskIds: string[]) => {
+    if (refreshing.current || Object.values(statusesRef.current).some(
       (task) => task.status === "pending" || task.status === "running",
     )) return;
-    const failedTasks = Object.values(statuses)
-      .filter((task) => task.status === "error")
-      .map((task) => taskById.get(task.id))
+    const selected = [...new Set(taskIds)]
+      .map((id) => taskById.get(id))
       .filter((task): task is StartupTask => task != null);
-    if (failedTasks.length === 0) return;
-    const generation = runGeneration.current;
+    if (selected.length === 0) return;
+    refreshing.current = true;
+    const generation = ++runGeneration.current;
+    setStatuses((current) => {
+      const next = { ...current };
+      for (const task of selected) {
+        next[task.id] = {
+          id: task.id,
+          label: task.label,
+          status: "pending",
+          error: null,
+        };
+      }
+      return next;
+    });
     setSlow(false);
     const slowTimer = setTimeout(() => {
       if (mounted.current && generation === runGeneration.current) setSlow(true);
     }, slowAfterMs);
-    await runBounded(failedTasks, 1, (task) => runOne(task, generation));
-    clearTimeout(slowTimer);
-    if (mounted.current && generation === runGeneration.current) setSlow(false);
-  }, [runOne, slowAfterMs, statuses, taskById]);
+    try {
+      await runBounded(
+        selected,
+        Math.min(foregroundConcurrency, selected.length),
+        (task) => runOne(task, generation),
+      );
+    } finally {
+      clearTimeout(slowTimer);
+      refreshing.current = false;
+      if (mounted.current && generation === runGeneration.current) setSlow(false);
+    }
+  }, [foregroundConcurrency, runOne, slowAfterMs, taskById]);
+
+  const refreshAll = useCallback(
+    () => refreshTasks(allTasks.map((task) => task.id)),
+    [allTasks, refreshTasks],
+  );
+
+  const retryFailed = useCallback(
+    () => refreshTasks(
+      Object.values(statuses)
+        .filter((task) => task.status === "error")
+        .map((task) => task.id),
+    ),
+    [refreshTasks, statuses],
+  );
 
   const tasks = allTasks.map(
     (task) =>
@@ -232,6 +271,8 @@ export function useStartupSync({
     syncing,
     slow,
     settled,
+    refreshTasks,
+    refreshAll,
     retryFailed,
   };
 }

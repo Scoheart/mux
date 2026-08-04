@@ -4034,7 +4034,9 @@ pub fn recover_pending() -> Result<(), SkillError> {
     require_secure_transaction_platform()?;
     let paths = SkillsPaths::resolve_from_env()?;
     paths.ensure_mux_root().map_err(recovery_error)?;
-    let _lock = acquire_skills_lock(&paths).map_err(recovery_error)?;
+    // Lock contention is an active peer, not broken recovery evidence. Keep
+    // it retryable so startup can leave unrelated read capabilities online.
+    let _lock = acquire_skills_lock(&paths)?;
     paths.ensure_transaction_roots().map_err(recovery_error)?;
     validate_transaction_roots(&paths, true).map_err(recovery_error)?;
     recover_pending_locked(&paths).map_err(recovery_error)
@@ -4044,7 +4046,7 @@ pub fn recover_pending() -> Result<(), SkillError> {
 pub fn recover_pending_with_paths(paths: &SkillsPaths) -> Result<(), SkillError> {
     require_secure_transaction_platform()?;
     validate_transaction_roots(paths, true).map_err(recovery_error)?;
-    let _lock = acquire_skills_lock(paths).map_err(recovery_error)?;
+    let _lock = acquire_skills_lock(paths)?;
     validate_transaction_roots(paths, true).map_err(recovery_error)?;
     recover_pending_locked(paths).map_err(recovery_error)
 }

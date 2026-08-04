@@ -768,7 +768,7 @@ export function AgentView({
           onCommitted={async (next) => {
             skillsState.hydrate(next);
             setSkillConvergencePlan(null);
-            await consumptionState.refreshWorkspace();
+            await consumptionState.refresh();
           }}
           onRecoveryRequired={(message) => {
             showToast({ kind: "error", msg: message });
@@ -782,13 +782,12 @@ export function AgentView({
           modelAgent={modelAgent}
           onClose={() => setEditingAgent(false)}
           onSaved={async () => {
-            await Promise.all([
+            await Promise.allSettled([
               refreshAgents(),
               refreshModels(),
-              (async () => {
-                const snapshot = await consumptionState.refreshWorkspace();
-                skillsState.hydrate(snapshot.assets.skills);
-              })(),
+              consumptionState.refreshAgents(),
+              consumptionState.refresh(),
+              skillsState.refresh(),
             ]);
           }}
         />

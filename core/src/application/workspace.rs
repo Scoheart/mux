@@ -11,6 +11,11 @@ use sha2::{Digest, Sha256};
 use std::thread;
 use std::time::{Duration, Instant};
 
+#[cfg(test)]
+thread_local! {
+    static PROJECTION_CALLS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
 const WORKSPACE_LOCK_TIMEOUT: Duration = Duration::from_secs(10);
 const WORKSPACE_LOCK_POLL: Duration = Duration::from_millis(25);
 
@@ -36,6 +41,8 @@ fn projection() -> CoreResult<(
     WorkspaceAssets,
     ConsumptionInventory,
 )> {
+    #[cfg(test)]
+    PROJECTION_CALLS.with(|calls| calls.set(calls.get() + 1));
     let skills = crate::resources::skill::list_inventory().unwrap_or_else(|_| SkillsInventory {
         recovery_error: Some("skill_inventory_unavailable".into()),
         ..Default::default()
@@ -64,8 +71,8 @@ fn serialize_projection(
         crate::domain::error::CoreError::new("serialization", error.to_string())
     })?;
     // `observed_at` is presentation metadata, not content. Excluding it keeps
-    // the double-read consistency check and workspace revision stable while
-    // still returning the timestamp from the accepted projection.
+    // the workspace revision stable when only the observation timestamp
+    // changes.
     if let Some(relationships) = canonical
         .as_array_mut()
         .and_then(|values| values.get_mut(2))
@@ -97,8 +104,10 @@ pub fn snapshot() -> CoreResult<WorkspaceSnapshot> {
         // with non-blocking attempts and never wait while retaining either one;
         // this coordinates cooperating MUX processes without introducing a
         // reader/writer deadlock. External Agent files cannot participate in
-        // that protocol, so two identical consecutive canonical projections
-        // are still required; continuous external writes fail explicitly.
+        // that protocol and are intentionally accepted as one point-in-time
+        // observation. Requiring two whole-workspace reads to be byte-identical
+        // made an ordinary external edit invalidate every unrelated Agent and
+        // asset in the UI.
         let skills_paths = crate::resources::skill::SkillsPaths::resolve_from_env()
             .map_err(super::error::from_skill)?;
         let settings_path = crate::paths::settings_file();
@@ -141,13 +150,8 @@ pub fn snapshot() -> CoreResult<WorkspaceSnapshot> {
                 }
             };
 
-            let first = projection()?;
-            let first_content = serialize_projection(&first)?;
-            let second = projection()?;
-            let second_content = serialize_projection(&second)?;
-            if first_content != second_content {
-                continue;
-            }
+            let accepted = projection()?;
+            let accepted_content = serialize_projection(&accepted)?;
 
             // A pristine HOME has no lock files and reads must not create
             // ~/.mux. If a cooperating writer initialized either domain while
@@ -166,17 +170,17 @@ pub fn snapshot() -> CoreResult<WorkspaceSnapshot> {
                 continue 'attempts;
             }
 
-            let (agents, assets, relationships) = second;
+            let (agents, assets, relationships) = accepted;
             return Ok(WorkspaceSnapshot {
-                revision: hex::encode(Sha256::digest(second_content)),
+                revision: hex::encode(Sha256::digest(accepted_content)),
                 agents,
                 assets,
                 relationships,
             });
         }
         Err(crate::domain::error::CoreError::new(
-            "snapshot_unstable",
-            "MUX state changed repeatedly while building the workspace snapshot",
+            "snapshot_lock_raced",
+            "MUX central state locks changed repeatedly while building the workspace snapshot",
         ))
     })
 }
@@ -198,6 +202,16 @@ mod tests {
             !mux_home.exists(),
             "a read-only snapshot must not initialize ~/.mux"
         );
+    }
+
+    #[test]
+    fn snapshot_accepts_one_external_observation_without_global_double_read() {
+        let _home = crate::testenv::TestHome::new("snapshot-single-observation");
+        super::PROJECTION_CALLS.with(|calls| calls.set(0));
+
+        super::snapshot().unwrap();
+
+        super::PROJECTION_CALLS.with(|calls| assert_eq!(calls.get(), 1));
     }
 
     #[test]

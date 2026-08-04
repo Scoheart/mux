@@ -93,6 +93,35 @@ it("keeps a failed read non-blocking and retries only failed work", async () => 
   expect(result.current.completed).toBe(2);
 });
 
+it("tracks later observation failures without resetting healthy task state", async () => {
+  const agents = vi.fn(async () => undefined);
+  const relationships = vi
+    .fn<() => Promise<void>>()
+    .mockResolvedValueOnce(undefined)
+    .mockRejectedValueOnce(new Error("one Agent file changed"))
+    .mockResolvedValueOnce(undefined);
+  const foreground: StartupTask[] = [
+    { id: "agents", label: "agents", run: agents },
+    { id: "relationships", label: "relationships", run: relationships },
+  ];
+  const { result } = renderHook(() =>
+    useStartupSync({ foreground, deferred: [] }),
+  );
+  await waitFor(() => expect(result.current.settled).toBe(true));
+
+  await act(async () => result.current.refreshTasks(["relationships"]));
+  expect(agents).toHaveBeenCalledOnce();
+  expect(relationships).toHaveBeenCalledTimes(2);
+  expect(result.current.completed).toBe(1);
+  expect(result.current.failed).toBe(1);
+  expect(result.current.tasks.find(({ id }) => id === "agents")?.status).toBe("complete");
+
+  await act(async () => result.current.retryFailed());
+  expect(relationships).toHaveBeenCalledTimes(3);
+  expect(result.current.completed).toBe(2);
+  expect(result.current.failed).toBe(0);
+});
+
 it("surfaces a slow state without blocking completed data", async () => {
   const gate = deferred();
   const foreground: StartupTask[] = [

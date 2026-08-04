@@ -216,7 +216,7 @@ fn main_window_starts_hidden_without_changing_existing_window_contracts() {
 }
 
 #[test]
-fn startup_recovers_before_showing_and_checks_updates_only_after_success() {
+fn startup_degrades_before_showing_and_checks_skill_updates_only_when_allowed() {
     let source = include_str!("../src/lib.rs");
     let bootstrap = source
         .find("mux_core::application::MuxCore::bootstrap(")
@@ -237,16 +237,16 @@ fn startup_recovers_before_showing_and_checks_updates_only_after_success() {
 
     let bootstrap_source = include_str!("../../../core/src/application/bootstrap.rs");
     let skill_recovery = bootstrap_source
-        .find("BootstrapStage::SkillRecovery")
-        .expect("bootstrap must recover Skills");
+        .find("classify_skill_recovery(crate::resources::skill::recover_pending()")
+        .expect("bootstrap must classify Skills recovery without hiding other reads");
     let asset_recovery = bootstrap_source
-        .find("BootstrapStage::AssetRecovery")
-        .expect("bootstrap must recover asset operations");
+        .find("crate::assets::recover_pending_asset_operations()")
+        .expect("bootstrap must recover asset operations after Skills observation");
     let model_profile_migration = bootstrap_source
-        .find("BootstrapStage::ModelProfileMigration")
+        .find("crate::assets::migrate_model_profiles_v2_if_needed")
         .expect("bootstrap must migrate central Model Profiles after recovery");
     let model_provider_migration = bootstrap_source
-        .find("BootstrapStage::ModelProviderMigration")
+        .find("crate::resources::model::migrate_model_providers_v3_if_needed")
         .expect("bootstrap must migrate central Model Providers after Profiles");
     assert!(skill_recovery < asset_recovery);
     assert!(asset_recovery < model_profile_migration);

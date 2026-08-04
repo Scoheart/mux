@@ -10,11 +10,9 @@ pub fn run() {
     // Bootstrap before constructing Tauri. A configured WebView can exist
     // before the user setup hook runs, so setup is too late to be the IPC write
     // boundary. Desktop failures publish a read-only backend and still return a
-    // diagnostic report; CLI failures remain fatal to their caller.
-    let bootstrap = mux_core::application::MuxCore::bootstrap(
-        mux_core::application::bootstrap::Frontend::Desktop,
-    )
-    .expect("Desktop bootstrap remains diagnostic");
+    // diagnostic report. CLI read queries use the same degraded report while
+    // every mutation remains constrained by the published backend status.
+    let bootstrap = mux_core::application::MuxCore::bootstrap();
     for warning in &bootstrap.warnings {
         eprintln!("MUX startup warning: {warning:?}");
     }

@@ -24,10 +24,8 @@ pub use gate::{BackendStatus, CapabilityDomain};
 pub struct MuxCore;
 
 impl MuxCore {
-    pub fn bootstrap(
-        frontend: bootstrap::Frontend,
-    ) -> Result<bootstrap::BootstrapReport, bootstrap::BootstrapError> {
-        bootstrap::bootstrap(frontend)
+    pub fn bootstrap() -> bootstrap::BootstrapReport {
+        bootstrap::bootstrap()
     }
 
     pub fn snapshot() -> crate::domain::error::CoreResult<workspace::WorkspaceSnapshot> {

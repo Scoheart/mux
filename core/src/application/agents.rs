@@ -39,8 +39,12 @@ pub fn set_enabled(agent_id: &str, enabled: bool) -> Result<(), String> {
 /// need to join MCP-shaped Agent rows with separate Model and Skill catalogs.
 pub fn list_capabilities() -> CoreResult<Vec<AgentCapabilityView>> {
     super::gate::read(|| {
-        let skill_capabilities = crate::resources::skill::list_skill_agent_capabilities()
-            .map_err(super::error::from_skill)?;
+        // Agent identity and MCP/Model capabilities remain useful when the
+        // Skills directory is temporarily unreadable. The Skills inventory
+        // has its own query and diagnostic surface; do not turn that local
+        // failure into an empty global Agent picker.
+        let skill_capabilities =
+            crate::resources::skill::list_skill_agent_capabilities().unwrap_or_default();
         Ok(list_capabilities_with_skills(&skill_capabilities))
     })
 }

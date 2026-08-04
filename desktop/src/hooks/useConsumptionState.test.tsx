@@ -8,7 +8,8 @@ import {
 import { useConsumptionState } from "./useConsumptionState";
 
 vi.mock("../lib/api", () => ({
-  getWorkspaceSnapshot: vi.fn(),
+  listConsumptionInventory: vi.fn(),
+  listAgentCapabilities: vi.fn(),
   planOperation: vi.fn(),
   commitOperation: vi.fn(),
   cancelOperation: vi.fn(),
@@ -16,22 +17,8 @@ vi.mock("../lib/api", () => ({
 
 beforeEach(() => {
   vi.resetAllMocks();
-  vi.mocked(api.getWorkspaceSnapshot).mockResolvedValue({
-    revision: "revision",
-    agents: [],
-    assets: {
-      mcp: [],
-      models: [],
-      skills: {
-        items: [],
-        agents: [],
-        capabilities: [],
-        targets: [],
-        recovery_error: null,
-      },
-    },
-    relationships: consumptionInventoryFixture(),
-  });
+  vi.mocked(api.listConsumptionInventory).mockResolvedValue(consumptionInventoryFixture());
+  vi.mocked(api.listAgentCapabilities).mockResolvedValue([]);
   vi.mocked(api.planOperation).mockResolvedValue({
     domain: "asset",
     plan: assetOperationPlanFixture(),
@@ -130,10 +117,8 @@ it("plans Agent additions as an atomic delta instead of replacing a stale select
   });
 });
 
-it("retains the unified Agent projection from the workspace snapshot", async () => {
-  vi.mocked(api.getWorkspaceSnapshot).mockResolvedValueOnce({
-    revision: "agent-projection",
-    agents: [{
+it("loads the Agent capability projection independently from relationships", async () => {
+  vi.mocked(api.listAgentCapabilities).mockResolvedValueOnce([{
       identity: {
         id: "model-only",
         name: "Model Only",
@@ -155,26 +140,60 @@ it("retains the unified Agent projection from the workspace snapshot", async () 
           supported_protocols: ["openai-responses"],
         },
       },
-    }],
-    assets: {
-      mcp: [],
-      models: [],
-      skills: {
-        items: [],
-        agents: [],
-        capabilities: [],
-        targets: [],
-        recovery_error: null,
-      },
-    },
-    relationships: consumptionInventoryFixture(),
-  });
+    }]);
 
   const { result } = renderHook(() => useConsumptionState());
   await waitFor(() => expect(result.current.loading).toBe(false));
   expect(result.current.agents.map((agent) => agent.identity.id)).toEqual([
     "model-only",
   ]);
+});
+
+it("keeps Agent navigation available when relationship observation fails", async () => {
+  vi.mocked(api.listConsumptionInventory).mockRejectedValueOnce({
+    code: "model_observation_unavailable",
+    message: "one Model config changed during the read",
+  });
+  vi.mocked(api.listAgentCapabilities).mockResolvedValueOnce([{
+    identity: {
+      id: "codex",
+      name: "Codex",
+      enabled: true,
+      builtin: true,
+      category: "coding-agent",
+      evidence: "official",
+    },
+    installed: true,
+    capabilities: {},
+  }]);
+
+  const { result } = renderHook(() => useConsumptionState());
+  await waitFor(() => expect(result.current.loading).toBe(false));
+  await waitFor(() => expect(result.current.agents).toHaveLength(1));
+
+  expect(result.current.agents[0].identity.id).toBe("codex");
+  expect(result.current.inventory).toBeNull();
+  expect(result.current.error?.code).toBe("model_observation_unavailable");
+  expect(result.current.agentsError).toBeNull();
+});
+
+it("retains the last successful relationship snapshot across a failed refresh", async () => {
+  const first = consumptionInventoryFixture();
+  vi.mocked(api.listConsumptionInventory)
+    .mockResolvedValueOnce(first)
+    .mockRejectedValueOnce({ code: "scan_failed", message: "temporary failure" });
+
+  const { result } = renderHook(() => useConsumptionState());
+  await waitFor(() => expect(result.current.inventory).toEqual(first));
+  await act(async () => {
+    await expect(result.current.refresh()).rejects.toEqual({
+      code: "scan_failed",
+      message: "temporary failure",
+    });
+  });
+
+  expect(result.current.inventory).toEqual(first);
+  expect(result.current.error?.code).toBe("scan_failed");
 });
 
 it("owns MCP enabled-state plans through the central operation slot", async () => {

@@ -1,4 +1,4 @@
-//! One fail-closed startup path for every MUX frontend.
+//! One recovery-aware startup path for every MUX frontend.
 //!
 //! Startup recovers MUX-owned transactions and upgrades central metadata. It
 //! never treats Agent files as migration input and never rewrites them. Agent
@@ -7,12 +7,6 @@
 use super::gate::{BackendStatus, CapabilityDomain};
 use serde::{Deserialize, Serialize};
 use std::fmt;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Frontend {
-    Cli,
-    Desktop,
-}
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -68,14 +62,21 @@ impl fmt::Display for BootstrapError {
 impl std::error::Error for BootstrapError {}
 
 enum BootstrapProgress {
-    Ready,
-    ModelCentralStateUnavailable(BootstrapError),
+    Ready {
+        warnings: Vec<BootstrapWarning>,
+        skill_updates_allowed: bool,
+    },
+    ModelCentralStateUnavailable {
+        error: BootstrapError,
+        warnings: Vec<BootstrapWarning>,
+        skill_updates_allowed: bool,
+    },
 }
 
 /// Recover incomplete MUX writes and migrate only MUX-owned central metadata.
 /// External Agent edits are not errors and are deliberately absent from this
 /// path; they become relationship observations after bootstrap.
-pub fn bootstrap(frontend: Frontend) -> Result<BootstrapReport, BootstrapError> {
+pub fn bootstrap() -> BootstrapReport {
     let permit = super::gate::begin_bootstrap();
     let _cross_process_guard = match super::gate::acquire_cross_process_mutation_lock() {
         Ok(guard) => guard,
@@ -86,53 +87,64 @@ pub fn bootstrap(frontend: Frontend) -> Result<BootstrapReport, BootstrapError> 
             };
             let status = read_only_status(&error);
             permit.finish(status.clone());
-            return failure_outcome(frontend, error, status);
+            return degraded_report(error, status);
         }
     };
 
     match bootstrap_unlocked() {
-        Ok(BootstrapProgress::Ready) => {
+        Ok(BootstrapProgress::Ready {
+            warnings,
+            skill_updates_allowed,
+        }) => {
             let status = BackendStatus::Ready;
             permit.finish(status.clone());
-            Ok(BootstrapReport {
-                warnings: Vec::new(),
-                skill_updates_allowed: true,
+            BootstrapReport {
+                warnings,
+                skill_updates_allowed,
                 status,
-            })
+            }
         }
-        Ok(BootstrapProgress::ModelCentralStateUnavailable(error)) => {
+        Ok(BootstrapProgress::ModelCentralStateUnavailable {
+            error,
+            mut warnings,
+            skill_updates_allowed,
+        }) => {
             let status = model_central_state_status(&error);
             permit.finish(status.clone());
-            Ok(BootstrapReport {
-                warnings: vec![BootstrapWarning {
-                    stage: error.stage,
-                    message: error.message,
-                }],
-                skill_updates_allowed: true,
+            warnings.push(BootstrapWarning {
+                stage: error.stage,
+                message: error.message,
+            });
+            BootstrapReport {
+                warnings,
+                skill_updates_allowed,
                 status,
-            })
+            }
         }
         Err(error) => {
             let status = read_only_status(&error);
             permit.finish(status.clone());
-            failure_outcome(frontend, error, status)
+            // Bootstrap failures constrain writes through BackendStatus, but
+            // they must not prevent read-only Agent and asset queries from
+            // starting. This is especially important for a CLI process that
+            // races a live Desktop read lock: the command can still report all
+            // healthy capabilities and the exact degraded stage.
+            degraded_report(error, status)
         }
     }
 }
 
 fn bootstrap_unlocked() -> Result<BootstrapProgress, BootstrapError> {
+    run_steps(vec![(
+        BootstrapStage::GlobalWriteRecovery,
+        Box::new(crate::safe_write::recover_global_mutation_intents),
+    )])?;
+
+    let mut warnings = Vec::new();
+    let skill_updates_allowed =
+        classify_skill_recovery(crate::resources::skill::recover_pending(), &mut warnings)?;
+
     run_steps(vec![
-        (
-            BootstrapStage::GlobalWriteRecovery,
-            Box::new(crate::safe_write::recover_global_mutation_intents),
-        ),
-        (
-            BootstrapStage::SkillRecovery,
-            Box::new(|| {
-                crate::resources::skill::recover_pending()
-                    .map_err(|error| error.into_command_parts().message)
-            }),
-        ),
         (
             BootstrapStage::AssetRecovery,
             Box::new(|| crate::assets::recover_pending_asset_operations().map(|_| ())),
@@ -170,11 +182,39 @@ fn bootstrap_unlocked() -> Result<BootstrapProgress, BootstrapError> {
             return if model_failure_requires_global_recovery(&error.message) {
                 Err(error)
             } else {
-                Ok(BootstrapProgress::ModelCentralStateUnavailable(error))
+                Ok(BootstrapProgress::ModelCentralStateUnavailable {
+                    error,
+                    warnings,
+                    skill_updates_allowed,
+                })
             };
         }
     }
-    Ok(BootstrapProgress::Ready)
+    Ok(BootstrapProgress::Ready {
+        warnings,
+        skill_updates_allowed,
+    })
+}
+
+fn classify_skill_recovery(
+    result: Result<(), crate::resources::skill::SkillError>,
+    warnings: &mut Vec<BootstrapWarning>,
+) -> Result<bool, BootstrapError> {
+    match result {
+        Ok(()) => Ok(true),
+        Err(crate::resources::skill::SkillError::Conflict { .. }) => {
+            warnings.push(BootstrapWarning {
+                stage: BootstrapStage::SkillRecovery,
+                message: "another MUX process is reading or updating Skills; unrelated capabilities remain available"
+                    .into(),
+            });
+            Ok(false)
+        }
+        Err(error) => Err(BootstrapError {
+            stage: BootstrapStage::SkillRecovery,
+            message: error.into_command_parts().message,
+        }),
+    }
 }
 
 fn model_failure_requires_global_recovery(message: &str) -> bool {
@@ -210,21 +250,14 @@ fn run_steps(steps: Vec<BootstrapStep<'_>>) -> Result<(), BootstrapError> {
     Ok(())
 }
 
-fn failure_outcome(
-    frontend: Frontend,
-    error: BootstrapError,
-    status: BackendStatus,
-) -> Result<BootstrapReport, BootstrapError> {
-    match frontend {
-        Frontend::Cli => Err(error),
-        Frontend::Desktop => Ok(BootstrapReport {
-            warnings: vec![BootstrapWarning {
-                stage: error.stage,
-                message: error.message,
-            }],
-            skill_updates_allowed: false,
-            status,
-        }),
+fn degraded_report(error: BootstrapError, status: BackendStatus) -> BootstrapReport {
+    BootstrapReport {
+        warnings: vec![BootstrapWarning {
+            stage: error.stage,
+            message: error.message,
+        }],
+        skill_updates_allowed: false,
+        status,
     }
 }
 
@@ -265,34 +298,49 @@ mod tests {
     }
 
     #[test]
-    fn cli_recovery_fails_closed() {
+    fn cli_recovery_keeps_queries_available_and_publishes_a_write_blocker() {
         let error = failure(BootstrapStage::AssetRecovery);
-        let result = failure_outcome(
-            Frontend::Cli,
+        let report = degraded_report(
             error,
             BackendStatus::ReadOnly {
                 stage: "asset_recovery".into(),
                 message: "broken journal".into(),
             },
-        )
-        .unwrap_err();
-        assert_eq!(result.stage, BootstrapStage::AssetRecovery);
+        );
+        assert!(!report.skill_updates_allowed);
+        assert_eq!(report.warnings[0].stage, BootstrapStage::AssetRecovery);
+        assert!(matches!(report.status, BackendStatus::ReadOnly { .. }));
     }
 
     #[test]
     fn desktop_failure_is_diagnostic_but_read_only() {
         let error = failure(BootstrapStage::SkillRecovery);
-        let report = failure_outcome(
-            Frontend::Desktop,
+        let report = degraded_report(
             error,
             BackendStatus::ReadOnly {
                 stage: "skill_recovery".into(),
                 message: "broken journal".into(),
             },
-        )
-        .unwrap();
+        );
         assert!(!report.skill_updates_allowed);
         assert_eq!(report.warnings.len(), 1);
+    }
+
+    #[test]
+    fn skill_lock_contention_is_degraded_not_recovery_damage() {
+        let mut warnings = Vec::new();
+        let allowed = classify_skill_recovery(
+            Err(crate::resources::skill::SkillError::Conflict {
+                message: "another Skills operation is still running".into(),
+                path: String::new(),
+            }),
+            &mut warnings,
+        )
+        .unwrap();
+
+        assert!(!allowed);
+        assert_eq!(warnings.len(), 1);
+        assert_eq!(warnings[0].stage, BootstrapStage::SkillRecovery);
     }
 
     #[test]
@@ -356,7 +404,7 @@ mod tests {
         let external = b"[models]\ndefault = 'external'\n";
         fs::write(&target, external).unwrap();
 
-        let report = bootstrap(Frontend::Desktop).unwrap();
+        let report = bootstrap();
 
         assert!(matches!(report.status, BackendStatus::Ready));
         assert_eq!(fs::read(&target).unwrap(), external);

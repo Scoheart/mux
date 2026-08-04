@@ -142,13 +142,7 @@ fn run(cli: Cli) -> Result<(), CliError> {
 fn bootstrap(
     json_mode: bool,
 ) -> Result<mux_core::application::bootstrap::BootstrapReport, CliError> {
-    let outcome =
-        mux_core::application::MuxCore::bootstrap(mux_core::application::bootstrap::Frontend::Cli)
-            .map_err(|error| {
-                CliError::new("bootstrap_failed", "MUX startup failed")
-                    .with_detail("stage", error.stage.code())
-                    .with_detail("reviewable", false)
-            })?;
+    let outcome = mux_core::application::MuxCore::bootstrap();
     if !json_mode {
         for warning in &outcome.warnings {
             eprintln!("MUX startup warning: {}", warning.message);

@@ -63,6 +63,18 @@ it("routes every workspace without a whole-app MCP loading gate", () => {
   expect(app).toMatch(/onIntentConsumed=\{consumeResourceIntent\}/);
   expect(app).not.toMatch(/state\.loading\s*\?\s*\(/);
   expect(app).toMatch(/startupSync=\{startupSync\}/);
+  for (const task of [
+    "agents",
+    "agent-capabilities",
+    "relationships",
+    "skills",
+    "registry",
+    "sources",
+  ]) {
+    expect(app).toContain(`id: "${task}"`);
+  }
+  expect(app).not.toMatch(/skillsState\.hydrate\(snapshot\.assets\.skills\)/);
+  expect(app).toMatch(/startupSync\.refreshTasks\(\[/);
 });
 
 it("keeps topbar controls at their wide-layout sizes without compact overrides", () => {

@@ -87,19 +87,23 @@ function App() {
   const refreshExternalModels = useCallback(async () => {
     setExternalModelCandidates(await listModelAdoptionCandidates());
   }, []);
-  const refreshWorkspace = useCallback(async () => {
-    const snapshot = await consumptionState.refreshWorkspace();
-    skillsState.hydrate(snapshot.assets.skills);
-    return snapshot;
-  }, [consumptionState.refreshWorkspace, skillsState.hydrate]);
-
   const foregroundStartupTasks = useMemo<StartupTask[]>(
     () => [
-      { id: "workspace", label: "workspace", run: refreshWorkspace },
+      { id: "agents", label: "agents", run: state.refreshAgents },
+      { id: "agent-capabilities", label: "agent-capabilities", run: consumptionState.refreshAgents },
+      { id: "relationships", label: "relationships", run: consumptionState.refresh },
+      { id: "skills", label: "skills", run: skillsState.refresh },
       { id: "registry", label: "registry", run: state.refreshRegistry },
       { id: "sources", label: "sources", run: state.refreshSources },
     ],
-    [refreshWorkspace, state.refreshRegistry, state.refreshSources],
+    [
+      consumptionState.refresh,
+      consumptionState.refreshAgents,
+      skillsState.refresh,
+      state.refreshAgents,
+      state.refreshRegistry,
+      state.refreshSources,
+    ],
   );
 
   const deferredStartupTasks = useMemo<StartupTask[]>(
@@ -127,15 +131,6 @@ function App() {
   // only after all fresh read-only startup work has settled.
   useCliTool({ start: startupSync.settled });
 
-  const refreshEverything = useCallback(async () => {
-    await Promise.all([
-      state.refreshRegistry(),
-      state.refreshSources(),
-      refreshWorkspace(),
-      refreshExternalModels(),
-    ]);
-  }, [refreshExternalModels, refreshWorkspace, state.refreshRegistry, state.refreshSources]);
-
   useEffect(() => {
     let disposed = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
@@ -149,9 +144,13 @@ function App() {
       }
       refreshing = true;
       try {
-        await refreshEverything();
-      } catch {
-        // Existing domain error surfaces retain the last actionable failure.
+        await startupSync.refreshTasks([
+          "agents",
+          "agent-capabilities",
+          "relationships",
+          "skills",
+          "registry",
+        ]);
       } finally {
         refreshing = false;
         if (queued && !disposed) {
@@ -178,7 +177,7 @@ function App() {
       document.removeEventListener("visibilitychange", onVisibility);
       void unlisten.then((dispose) => dispose?.());
     };
-  }, [refreshEverything]);
+  }, [startupSync.refreshTasks]);
 
   const openResource = useCallback((request: ResourceNavigationRequest) => {
     const id = ++nextResourceNavigationId.current;
@@ -202,7 +201,7 @@ function App() {
       onSelectSkills={() => setView({ kind: "skills" })}
       onSelectAgent={(id) => setView({ kind: "agent", id })}
       onAddAgent={() => setAddAgentOpen(true)}
-      onRescan={refreshEverything}
+      onRescan={startupSync.refreshAll}
       startupSync={startupSync}
     >
       <Suspense fallback={<ViewLoading />}>
@@ -244,7 +243,12 @@ function App() {
         <AddAgentDialog
           onClose={() => setAddAgentOpen(false)}
           onAdded={async () => {
-            await Promise.all([state.refreshAgents(), refreshWorkspace()]);
+            await Promise.allSettled([
+              state.refreshAgents(),
+              consumptionState.refreshAgents(),
+              consumptionState.refresh(),
+              skillsState.refresh(),
+            ]);
           }}
         />
       )}

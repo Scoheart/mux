@@ -335,6 +335,10 @@ body {
 .mux-startup-sync-retry:disabled { opacity: .45; cursor: default; }
 .mux-startup-sync[data-slow="true"] { color: var(--color-brand-gold); }
 .mux-startup-sync[data-settled="true"] { color: var(--color-green); }
+.mux-startup-sync[data-failed="true"] {
+  background: color-mix(in srgb, var(--color-brand-gold) 6%, var(--surface-section));
+  color: var(--color-brand-gold);
+}
 
 /* A visible command replaces the old bare version label. The fixed height and
    compact version lane keep the top bar stable while update state changes. */

@@ -2,7 +2,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   cancelOperation,
   commitOperation,
-  getWorkspaceSnapshot,
+  listAgentCapabilities,
+  listConsumptionInventory,
   planOperation,
 } from "../lib/api";
 import i18n from "../i18n";
@@ -18,7 +19,6 @@ import type {
   ConvergenceAction,
   PlanOperationRequest,
   UnifiedOperationPlan,
-  WorkspaceSnapshot,
 } from "../lib/types";
 
 export interface ConsumptionState {
@@ -26,10 +26,11 @@ export interface ConsumptionState {
   inventory: ConsumptionInventory | null;
   loading: boolean;
   error: AssetCommandError | null;
+  agentsError: AssetCommandError | null;
   plan: AssetOperationPlan | null;
   committing: boolean;
   refresh(): Promise<ConsumptionInventory>;
-  refreshWorkspace(): Promise<WorkspaceSnapshot>;
+  refreshAgents(): Promise<AgentCapabilityView[]>;
   planForAgent(
     agentId: string,
     selection: AgentConsumptionSelection,
@@ -96,9 +97,11 @@ export function useConsumptionState({ autoLoad = true }: { autoLoad?: boolean } 
   const [inventory, setInventory] = useState<ConsumptionInventory | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<AssetCommandError | null>(null);
+  const [agentsError, setAgentsError] = useState<AssetCommandError | null>(null);
   const [plan, setPlan] = useState<AssetOperationPlan | null>(null);
   const [committing, setCommitting] = useState(false);
-  const generation = useRef(0);
+  const inventoryGeneration = useRef(0);
+  const agentsGeneration = useRef(0);
   const mounted = useRef(true);
   const planRef = useRef(plan);
   const planningRef = useRef(false);
@@ -109,37 +112,48 @@ export function useConsumptionState({ autoLoad = true }: { autoLoad?: boolean } 
     mounted.current = false;
   }, []);
 
-  const refreshWorkspace = useCallback(async () => {
-    const ownGeneration = ++generation.current;
+  const refresh = useCallback(async () => {
+    const ownGeneration = ++inventoryGeneration.current;
     try {
-      const snapshot = await getWorkspaceSnapshot();
-      const next = snapshot.relationships;
-      if (mounted.current && ownGeneration === generation.current) {
-        setAgents(snapshot.agents);
+      const next = await listConsumptionInventory();
+      if (mounted.current && ownGeneration === inventoryGeneration.current) {
         setInventory(next);
         setError(next.recovery_error
           ? { code: "recovery_required", message: next.recovery_error }
           : null);
       }
-      return snapshot;
+      return next;
     } catch (cause) {
       const nextError = commandError(cause);
-      if (mounted.current && ownGeneration === generation.current) setError(nextError);
+      if (mounted.current && ownGeneration === inventoryGeneration.current) setError(nextError);
       throw cause;
     } finally {
-      if (mounted.current && ownGeneration === generation.current) setLoading(false);
+      if (mounted.current && ownGeneration === inventoryGeneration.current) setLoading(false);
     }
   }, []);
 
-  const refresh = useCallback(async () => {
-    const snapshot = await refreshWorkspace();
-    return snapshot.relationships;
-  }, [refreshWorkspace]);
+  const refreshAgents = useCallback(async () => {
+    const ownGeneration = ++agentsGeneration.current;
+    try {
+      const next = await listAgentCapabilities();
+      if (mounted.current && ownGeneration === agentsGeneration.current) {
+        setAgents(next);
+        setAgentsError(null);
+      }
+      return next;
+    } catch (cause) {
+      const nextError = commandError(cause);
+      if (mounted.current && ownGeneration === agentsGeneration.current) {
+        setAgentsError(nextError);
+      }
+      throw cause;
+    }
+  }, []);
 
   useEffect(() => {
     if (!autoLoad) return;
-    refresh().catch(() => undefined);
-  }, [autoLoad, refresh]);
+    void Promise.allSettled([refresh(), refreshAgents()]);
+  }, [autoLoad, refresh, refreshAgents]);
 
   const ownPlan = useCallback((next: AssetOperationPlan) => {
     planRef.current = next;
@@ -279,7 +293,7 @@ export function useConsumptionState({ autoLoad = true }: { autoLoad?: boolean } 
         throw new Error("Core returned a Skill inventory for an asset commit");
       }
       const next = committed.inventory;
-      ++generation.current;
+      ++inventoryGeneration.current;
       if (mounted.current && planRef.current?.operation_id === active.operation_id) {
         setInventory(next);
         planRef.current = null;
@@ -313,10 +327,11 @@ export function useConsumptionState({ autoLoad = true }: { autoLoad?: boolean } 
     inventory,
     loading,
     error,
+    agentsError,
     plan,
     committing,
     refresh,
-    refreshWorkspace,
+    refreshAgents,
     planForAgent,
     planAdditionsForAgent,
     planMcpEnabled,

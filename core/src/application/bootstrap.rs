@@ -750,13 +750,7 @@ fn build_review(use_mux_plan: AssetOperationPlan) -> Result<MigrationReview, Boo
 
 fn model_sides(
     plan: &AssetOperationPlan,
-) -> Result<
-    (
-        &BTreeMap<String, crate::domain::assets::ModelAgentSelection>,
-        &BTreeMap<String, crate::domain::assets::ModelAgentSelection>,
-    ),
-    BootstrapError,
-> {
+) -> Result<(&ModelSelectionMap, &ModelSelectionMap), BootstrapError> {
     match &plan.domain_plan {
         DomainPlan::Model { before, after } => Ok((before, after)),
         _ => Err(BootstrapError {
@@ -765,6 +759,8 @@ fn model_sides(
         }),
     }
 }
+
+type ModelSelectionMap = BTreeMap<String, crate::domain::assets::ModelAgentSelection>;
 
 fn parse_model_warning(warning: &str) -> Option<(String, String, String)> {
     let (agent_id, remainder) = warning.split_once(" / model:")?;

@@ -243,8 +243,8 @@ fn startup_recovers_before_showing_and_checks_updates_only_after_success() {
         .find("BootstrapStage::AssetRecovery")
         .expect("bootstrap must recover asset operations");
     let model_migration = bootstrap_source
-        .find("migrate_model_profiles_v2_if_needed")
-        .expect("bootstrap must run Model migration after recovery");
+        .find("match model_profile_stage()?")
+        .expect("bootstrap must evaluate the reviewable Model migration after recovery");
     assert!(skill_recovery < asset_recovery);
     assert!(asset_recovery < model_migration);
 }

@@ -887,6 +887,44 @@ it("submits an independent custom Provider through the central asset plan", asyn
   });
 });
 
+it("configures a Gemini native GenerateContent endpoint on a custom Provider", async () => {
+  const user = userEvent.setup();
+  const planUpdate = vi.fn().mockResolvedValue({ operation_id: "gemini-provider-plan" });
+  const consumptionState = { plan: null, planUpdate } as unknown as ConsumptionState;
+
+  render(
+    <ToastProvider>
+      <ModelsView consumptionState={consumptionState} />
+    </ToastProvider>,
+  );
+
+  await openProviderTemplate(user, "Custom Provider");
+  await user.type(screen.getByLabelText("自定义模型提供商 ID"), "local-gemini");
+  fireEvent.change(screen.getByLabelText("Base URL"), {
+    target: { value: "http://127.0.0.1:18080/v1beta" },
+  });
+  const geminiSwitch = screen.getByRole("switch", { name: "Gemini GenerateContent" });
+  await user.click(geminiSwitch);
+  const protocolRow = geminiSwitch.closest("article") as HTMLElement;
+  expect(within(protocolRow).getByLabelText("完整请求 URL")).toHaveTextContent(
+    "http://127.0.0.1:18080/v1beta/models/{model}:generateContent",
+  );
+  await user.click(screen.getByRole("button", { name: "保存" }));
+
+  await waitFor(() => expect(planUpdate).toHaveBeenCalledWith(expect.objectContaining({
+    domain: "model-provider",
+    provider: expect.objectContaining({
+      provider: "local-gemini",
+      base_url: "http://127.0.0.1:18080/v1beta",
+      protocols: expect.objectContaining({
+        "gemini-generate-content": {
+          endpoint_path: "/models/{model}:generateContent",
+        },
+      }),
+    }),
+  })));
+});
+
 it("keeps Model fields local while writing an explicit Provider reference", async () => {
   vi.mocked(api.listModelProviderInstances).mockResolvedValue([{
     id: "openrouter-team-a",

@@ -80,7 +80,7 @@ pub fn cli_status() -> CliStatus {
 /// 返回安装后的状态。
 #[tauri::command]
 pub fn install_cli() -> CoreResult<CliStatus> {
-    MuxCore::external_mutation("desktop_cli_install", install_cli_unlocked)
+    MuxCore::independent_host_mutation("desktop_cli_install", install_cli_unlocked)
 }
 
 fn install_cli_unlocked() -> CoreResult<CliStatus> {

@@ -89,7 +89,8 @@ export interface AgentCapabilityView {
 export type ModelProtocol =
   | "anthropic-messages"
   | "openai-responses"
-  | "openai-completions";
+  | "openai-completions"
+  | "gemini-generate-content";
 
 export interface ModelProfile {
   id: string;
@@ -800,6 +801,82 @@ export type OperationCommitResult =
 export interface AssetCommandError {
   code: string;
   message: string;
+  details?: Record<string, unknown>;
+}
+
+export type BackendStatus =
+  | { state: "starting" }
+  | { state: "ready" }
+  | {
+      state: "migration_review_required";
+      stage: string;
+      review_hash: string;
+      message: string;
+      blocked_capabilities: Array<"mcp" | "model" | "skill">;
+    }
+  | {
+      state: "capability_unavailable";
+      capability: "mcp" | "model" | "skill";
+      stage: string;
+      code: string;
+      message: string;
+    }
+  | { state: "read_only"; stage: string; message: string };
+
+export type MigrationResolutionStrategy =
+  | "use_mux"
+  | "keep_agent"
+  | "recheck"
+  | "later";
+
+export interface ModelMigrationState {
+  profile_id: string;
+  enabled: boolean;
+  active: boolean;
+}
+
+export interface MigrationBlocker {
+  agent_id: string;
+  agent_name: string;
+  target_files: string[];
+  profile_id: string;
+  reason: string;
+  message: string;
+  before: ModelMigrationState;
+  after: ModelMigrationState;
+  keep_agent_fallback_profile_id?: string | null;
+  keep_agent_released_profile_ids: string[];
+  migrates_keychain_reference: boolean;
+  agent_restart_recommended: boolean;
+  mux_owned_field_categories: string[];
+}
+
+export interface MigrationActionPlan {
+  strategy: MigrationResolutionStrategy;
+  title: string;
+  consequence: string;
+  modifies_agent_targets: boolean;
+  preserves_agent_targets: boolean;
+  plan: AssetOperationPlan;
+}
+
+export interface MigrationReview {
+  stage: "model_profile_migration";
+  source_schema_version: number;
+  target_schema_version: number;
+  review_hash: string;
+  can_commit: boolean;
+  requires_conflict_confirmation: boolean;
+  blockers: MigrationBlocker[];
+  actions: MigrationActionPlan[];
+  supported_actions: MigrationResolutionStrategy[];
+}
+
+export interface MigrationResolutionOutcome {
+  changed: boolean;
+  status: BackendStatus;
+  review?: MigrationReview | null;
+  selected_plan?: AssetOperationPlan | null;
 }
 
 export interface SkillDetail {

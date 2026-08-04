@@ -17,7 +17,7 @@ pub mod ui;
 pub mod update;
 pub mod workspace;
 
-pub use gate::BackendStatus;
+pub use gate::{BackendStatus, CapabilityDomain};
 
 /// Stable service facade for non-Rust consumers and future frontends.
 pub struct MuxCore;
@@ -37,13 +37,24 @@ impl MuxCore {
         gate::status()
     }
 
-    /// Gate a frontend-specific mutation that cannot live in the shared domain
-    /// layer (for example, installing the Desktop-bundled CLI symlink).
-    pub fn external_mutation<T>(
+    pub fn migration_review() -> Option<bootstrap::MigrationReview> {
+        bootstrap::migration_review()
+    }
+
+    pub fn resolve_migration(
+        request: bootstrap::ResolveMigrationRequest,
+    ) -> crate::domain::error::CoreResult<bootstrap::MigrationResolutionOutcome> {
+        bootstrap::resolve_migration(request)
+    }
+
+    /// Gate a frontend-specific host write that does not read or mutate MCP,
+    /// Model, or Skill ownership (for example, a user-selected export path or
+    /// the Desktop-bundled CLI symlink).
+    pub fn independent_host_mutation<T>(
         stage: &'static str,
         operation: impl FnOnce() -> crate::domain::error::CoreResult<T>,
     ) -> crate::domain::error::CoreResult<T> {
-        gate::mutate_core(stage, operation)
+        gate::mutate_independent_core(stage, operation)
     }
 
     pub fn plan(

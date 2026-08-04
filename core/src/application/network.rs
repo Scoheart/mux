@@ -7,5 +7,5 @@ pub fn get_proxy_settings() -> Result<NetworkSettings, String> {
 }
 
 pub fn set_proxy_url(proxy_url: Option<String>) -> Result<NetworkSettings, String> {
-    super::gate::write(|| crate::network::set_proxy_url(proxy_url))
+    super::gate::write_independent(|| crate::network::set_proxy_url(proxy_url))
 }

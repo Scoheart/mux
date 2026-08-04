@@ -48,12 +48,14 @@ const PROTOCOLS: Array<{ id: ModelProtocol; label: string }> = [
   { id: "anthropic-messages", label: "Anthropic Messages" },
   { id: "openai-responses", label: "OpenAI Responses" },
   { id: "openai-completions", label: "OpenAI Chat Completions" },
+  { id: "gemini-generate-content", label: "Gemini GenerateContent" },
 ];
 
 const DEFAULT_ENDPOINT_PATHS: Record<ModelProtocol, string> = {
   "anthropic-messages": "/v1/messages",
   "openai-responses": "/responses",
   "openai-completions": "/chat/completions",
+  "gemini-generate-content": "/models/{model}:generateContent",
 };
 
 const CUSTOM_PROVIDER_OPTION = "__custom__";

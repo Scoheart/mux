@@ -11,6 +11,7 @@ pub enum ModelProtocol {
     AnthropicMessages,
     OpenaiResponses,
     OpenaiCompletions,
+    GeminiGenerateContent,
 }
 
 impl ModelProtocol {
@@ -20,6 +21,7 @@ impl ModelProtocol {
             Self::AnthropicMessages => "/v1/messages",
             Self::OpenaiResponses => "/responses",
             Self::OpenaiCompletions => "/chat/completions",
+            Self::GeminiGenerateContent => "/models/{model}:generateContent",
         }
     }
 }
@@ -518,5 +520,22 @@ mod tests {
                 serde_json::Value::Bool(wire)
             );
         }
+    }
+
+    #[test]
+    fn gemini_generate_content_has_a_stable_wire_name_and_dynamic_endpoint() {
+        let protocol = ModelProtocol::GeminiGenerateContent;
+        assert_eq!(
+            serde_json::to_string(&protocol).unwrap(),
+            "\"gemini-generate-content\""
+        );
+        assert_eq!(
+            protocol.default_endpoint_path(),
+            "/models/{model}:generateContent"
+        );
+        assert_eq!(
+            serde_json::from_str::<ModelProtocol>("\"gemini-generate-content\"").unwrap(),
+            protocol
+        );
     }
 }

@@ -43,6 +43,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::get_backend_status,
+            commands::get_migration_review,
+            commands::resolve_migration,
             commands::get_workspace_snapshot,
             commands::list_agent_capabilities,
             commands::plan_operation,

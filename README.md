@@ -148,6 +148,7 @@ mux skill {list,show,status,assign,unassign,enable,disable,reapply}
 mux agent {list,enable,disable}
 mux discover [mcp|model|skill]
 mux adopt {mcp,model,skill}
+mux migration {review,resolve}
 mux workspace
 mux upgrade
 ```
@@ -171,6 +172,14 @@ machine output, reviewed automation, plan-only runs, and deterministic terminal
 output. Any command that writes—including `mux mcp export --out`—requires
 interactive confirmation or an explicit `--yes` / `--dry-run`. See the
 [complete CLI guide](website/guide/cli.md).
+
+If startup finds a reviewable Model schema conflict, Model writes remain
+disabled while `mux migration review` exposes the same secret-free plan used by
+Desktop; MCP, Skill, and independent UI/network settings stay usable. Resolve it with `use-mux` or `keep-agent`;
+`--yes` also requires the selected `--candidate-hash` printed by the review.
+`recheck` regenerates the hash-bound candidates and `later` deliberately leaves
+the Model capability read-only. Only incomplete shared transactions or unsafe
+recovery evidence make the whole workspace read-only.
 
 ---
 

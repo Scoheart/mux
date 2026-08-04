@@ -45,6 +45,7 @@ type PickerDomain = "mcp" | "model" | "skill";
 function modelProtocolLabel(protocol: ModelProfileView["protocol"]) {
   if (protocol === "anthropic-messages") return "Anthropic Messages";
   if (protocol === "openai-responses") return "OpenAI Responses";
+  if (protocol === "gemini-generate-content") return "Gemini GenerateContent";
   return "OpenAI Chat Completions";
 }
 

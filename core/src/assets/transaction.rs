@@ -879,6 +879,8 @@ fn apply_operation(
             id_map,
             draft_hash,
             credential_profile_ids,
+            preserve_legacy_credential_ids,
+            preserve_agent_targets,
         } => {
             let PendingAssetPayload::ModelSchemaV2 { profiles } =
                 require_pending_payload(&persisted.plan.operation_id)?
@@ -909,10 +911,30 @@ fn apply_operation(
                     restore_credential_snapshot(new_id, Some(&credential))?;
                 }
             }
-            apply_domain_plan(
-                &persisted.plan,
-                releases_relationship_ownership(&persisted.plan),
-                skills_lock,
+            let DomainPlan::Model { before, after } = &persisted.plan.domain_plan else {
+                return Err("asset operation domain mismatch".into());
+            };
+            // This lifecycle is committed only through a candidate-bound
+            // bootstrap confirmation. Old identities must be cleared before
+            // their new identities are applied; reviewed drift may make the
+            // strict clear refuse, in which case the following new-identity
+            // write is the explicit replacement the user approved.
+            let reviewed_identity_replacements = persisted
+                .plan
+                .relationship_changes
+                .iter()
+                .filter_map(|change| match (&change.asset, &change.action) {
+                    (AssetRef::Model { profile_id }, RelationshipAction::Remove) => {
+                        Some((change.agent_id.clone(), profile_id.clone()))
+                    }
+                    _ => None,
+                })
+                .collect::<BTreeSet<_>>();
+            apply_model(
+                before,
+                after,
+                &reviewed_identity_replacements,
+                preserve_agent_targets,
             )?;
             mutate_settings(|settings| {
                 settings.model_profiles = Some(profiles.clone());
@@ -925,7 +947,9 @@ fn apply_operation(
             })
             .map_err(|error| error.to_string())?;
             for old_id in id_map.keys() {
-                apply_credential_update(old_id, Some(""))?;
+                if !preserve_legacy_credential_ids.contains(old_id) {
+                    apply_credential_update(old_id, Some(""))?;
+                }
             }
             Ok(())
         }
@@ -1332,6 +1356,8 @@ fn verify_operation(persisted: &PersistedAssetOperation) -> Result<(), String> {
             id_map,
             draft_hash,
             credential_profile_ids,
+            preserve_legacy_credential_ids,
+            ..
         } => {
             let settings = load_settings_strict().map_err(|error| error.to_string())?;
             if settings.version != Some(2) {
@@ -1343,7 +1369,9 @@ fn verify_operation(persisted: &PersistedAssetOperation) -> Result<(), String> {
                 if profiles.contains_key(old_id) || !profiles.contains_key(new_id) {
                     return Err("Model Profile identity migration postcondition failed".into());
                 }
-                if credential_present(old_id)
+                let legacy_credential_expected = credential_profile_ids.contains(old_id)
+                    && preserve_legacy_credential_ids.contains(old_id);
+                if credential_present(old_id) != legacy_credential_expected
                     || credential_present(new_id) != credential_profile_ids.contains(old_id)
                 {
                     return Err("Model credential migration postcondition failed".into());
@@ -1778,6 +1806,7 @@ fn apply_domain_plan(
             before,
             after,
             &confirmed_model_relationship_releases(operation),
+            &BTreeSet::new(),
         ),
         DomainPlan::Skill { before, after } => {
             apply_skill(before, after, release_orphaned_relationships, skills_lock)
@@ -1992,6 +2021,7 @@ fn apply_model(
     before: &BTreeMap<String, ModelAgentSelection>,
     after: &BTreeMap<String, ModelAgentSelection>,
     confirmed_relationship_releases: &BTreeSet<(String, String)>,
+    preserve_agent_targets: &BTreeSet<String>,
 ) -> Result<(), String> {
     let settings = load_settings_strict().map_err(|error| error.to_string())?;
     let central_profile_ids: BTreeSet<String> = settings
@@ -2003,6 +2033,9 @@ fn apply_model(
     for agent_id in union_keys(before, after) {
         let left = before.get(agent_id).cloned().unwrap_or_default();
         let right = after.get(agent_id).cloned().unwrap_or_default();
+        if preserve_agent_targets.contains(agent_id) {
+            continue;
+        }
         let removed_or_disabled: Vec<String> = left
             .profiles
             .iter()
@@ -2281,8 +2314,16 @@ fn verify_postcondition(
                 .external
                 .iter()
                 .any(|item| external_remains_after_removal(&agent_id, &asset, item));
+            let preserved_by_model_migration = matches!(
+                lifecycle,
+                Some(LifecycleBinding::ModelSchemaV2 {
+                    preserve_agent_targets,
+                    ..
+                }) if preserve_agent_targets.contains(&agent_id)
+            );
             if consumption.is_some()
                 || (external_remains
+                    && !preserved_by_model_migration
                     && !released_orphan_external_is_expected(plan, &agent_id, &asset)?)
             {
                 return Err("asset removal post-commit verification failed".into());

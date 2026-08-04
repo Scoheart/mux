@@ -145,9 +145,13 @@ fn provider_template_connection(
 }
 
 pub fn provider_additional_endpoints(id: &str) -> &'static [ModelProviderEndpointView] {
-    use ModelProtocol::AnthropicMessages;
+    use ModelProtocol::{AnthropicMessages, OpenaiCompletions};
 
     match id {
+        "google" => &[ModelProviderEndpointView {
+            protocol: OpenaiCompletions,
+            base_url: "https://generativelanguage.googleapis.com/v1beta/openai",
+        }],
         "zai-coding-plan" => &[ModelProviderEndpointView {
             protocol: AnthropicMessages,
             base_url: "https://api.z.ai/api/anthropic",
@@ -247,8 +251,8 @@ const MODEL_PROVIDERS: &[ModelProviderView] = &[
     ModelProviderView {
         id: "google",
         name: "Google AI Studio",
-        default_base_url: Some("https://generativelanguage.googleapis.com/v1beta/openai"),
-        default_protocol: ModelProtocol::OpenaiCompletions,
+        default_base_url: Some("https://generativelanguage.googleapis.com/v1beta"),
+        default_protocol: ModelProtocol::GeminiGenerateContent,
         category: "official",
     },
     ModelProviderView {
@@ -772,6 +776,32 @@ fn generated_profile_id(provider: &str, model: &str, existing: &BTreeSet<String>
     }
 }
 
+fn migrated_profile_id(
+    old_id: &str,
+    provider: &str,
+    model: &str,
+    existing: &BTreeSet<String>,
+) -> String {
+    let prefix = normalize_slug(&format!("{provider}-{model}"));
+    let prefix = if prefix.is_empty() { "model" } else { &prefix };
+    for discriminator in 0u32.. {
+        let material =
+            format!("mux-model-schema-v2\0{old_id}\0{provider}\0{model}\0{discriminator}");
+        let digest = hex::encode(Sha256::digest(material.as_bytes()));
+        let suffix = &digest[..8];
+        let max_prefix = 64usize.saturating_sub(suffix.len() + 1);
+        let mut compact = prefix.chars().take(max_prefix).collect::<String>();
+        while compact.ends_with('-') {
+            compact.pop();
+        }
+        let id = format!("{compact}-{suffix}");
+        if !existing.contains(&id) {
+            return id;
+        }
+    }
+    unreachable!()
+}
+
 fn generated_provider_id(provider: &str, existing: &BTreeSet<String>) -> String {
     let prefix = normalize_slug(provider);
     let prefix = if prefix.is_empty() {
@@ -949,6 +979,7 @@ pub fn migrate_model_providers_v3_if_needed() -> Result<bool, String> {
         let upgraded = version < crate::settings::SETTINGS_VERSION;
         if upgraded {
             crate::settings::mutate_settings(|settings| {
+                settings.model_provider_reapply_pending = Some(true);
                 settings.version = Some(crate::settings::SETTINGS_VERSION);
             })
             .map_err(|error| error.to_string())?;
@@ -1046,12 +1077,63 @@ pub fn migrate_model_providers_v3_if_needed() -> Result<bool, String> {
         }
         current.model_profiles = (!profiles.is_empty()).then_some(profiles.clone());
         current.model_providers = (!providers.is_empty()).then_some(providers.clone());
+        current.model_provider_reapply_pending = Some(true);
         current.version = Some(crate::settings::SETTINGS_VERSION);
         Ok(())
     })
     .map_err(|error| error.to_string())?;
     consolidate_provider_credentials()?;
     Ok(true)
+}
+
+pub(crate) fn model_provider_reapply_pending() -> Result<bool, String> {
+    crate::settings::load_settings_strict()
+        .map(|settings| settings.model_provider_reapply_pending == Some(true))
+        .map_err(|error| error.to_string())
+}
+
+fn mark_model_provider_reapply_pending() -> Result<(), String> {
+    crate::settings::mutate_settings(|settings| {
+        settings.model_provider_reapply_pending = Some(true);
+    })
+    .map_err(|error| error.to_string())
+}
+
+pub(crate) fn complete_model_provider_reapply() -> Result<(), String> {
+    crate::settings::mutate_settings(|settings| {
+        settings.model_provider_reapply_pending = None;
+    })
+    .map_err(|error| error.to_string())
+}
+
+/// Provider v3 moves credential ownership from each Profile to its shared
+/// Provider. Native Agent helpers embed the Keychain service name, so every
+/// enabled managed Profile must be re-stamped after that central migration,
+/// except Agent targets explicitly preserved by a Keep Agent review.
+/// Bootstrap holds the global cross-process mutation lock while this runs;
+/// each adapter still performs its own compare-and-swap write and rollback.
+pub(crate) fn reapply_managed_models_after_provider_migration(
+    preserved_agent_targets: &BTreeSet<String>,
+) -> Result<(), String> {
+    let settings = crate::settings::load_settings_strict().map_err(|error| error.to_string())?;
+    for (agent_id, selection) in settings.model_consumptions.iter().flatten() {
+        if preserved_agent_targets.contains(agent_id) {
+            continue;
+        }
+        let desired = settings.model_selection(agent_id);
+        for (profile_id, record) in selection {
+            if !record.enabled {
+                continue;
+            }
+            apply_profile_consumption_with_credential_presence(
+                agent_id,
+                profile_id,
+                credential_present(profile_id),
+                desired.active_profile_id.as_deref() == Some(profile_id.as_str()),
+            )?;
+        }
+    }
+    Ok(())
 }
 
 fn repair_missing_provider_references(
@@ -1114,6 +1196,7 @@ fn repair_missing_provider_references(
             })?;
             profile.provider_id = Some(provider_id.clone());
         }
+        current.model_provider_reapply_pending = Some(true);
         Ok(())
     })
     .map_err(|error| error.to_string())?;
@@ -1122,6 +1205,7 @@ fn repair_missing_provider_references(
 
 fn consolidate_provider_credentials() -> Result<bool, String> {
     let settings = crate::settings::load_settings_strict().map_err(|error| error.to_string())?;
+    let mut reapply_marked = settings.model_provider_reapply_pending == Some(true);
     let profiles = settings.model_profiles.unwrap_or_default();
     let mut changed = false;
     for provider in settings.model_providers.unwrap_or_default().into_values() {
@@ -1145,6 +1229,10 @@ fn consolidate_provider_credentials() -> Result<bool, String> {
                 ));
             }
             if let Some(credential) = legacy_credentials.iter().next() {
+                if !reapply_marked {
+                    mark_model_provider_reapply_pending()?;
+                    reapply_marked = true;
+                }
                 set_credential_service(&provider_service, credential)?;
                 changed = true;
             }
@@ -1152,6 +1240,10 @@ fn consolidate_provider_credentials() -> Result<bool, String> {
         for profile_id in profile_ids {
             let legacy_service = legacy_keychain_service(profile_id);
             if credential_service_exists(&legacy_service) {
+                if !reapply_marked {
+                    mark_model_provider_reapply_pending()?;
+                    reapply_marked = true;
+                }
                 delete_credential_service(&legacy_service)?;
                 changed = true;
             }
@@ -1361,7 +1453,7 @@ pub(crate) fn migrated_profiles_v2(
             .map(normalize_slug)
             .filter(|vendor| !vendor.is_empty())
             .or_else(|| infer_model_vendor(&profile.provider, &profile.model));
-        let new_id = generated_profile_id(&profile.provider, &profile.model, &used_ids);
+        let new_id = migrated_profile_id(&old_id, &profile.provider, &profile.model, &used_ids);
         used_ids.insert(new_id.clone());
         profile.id = new_id.clone();
         let requested_name = if profile.name.trim().is_empty() {
@@ -2509,6 +2601,12 @@ fn managed_agent_view(
         supports_multiple: true,
         credential_mode: "environment-reference".into(),
         supported_protocols: match id {
+            "opencode" | "kilo-code" => vec![
+                ModelProtocol::AnthropicMessages,
+                ModelProtocol::OpenaiResponses,
+                ModelProtocol::OpenaiCompletions,
+                ModelProtocol::GeminiGenerateContent,
+            ],
             "qwen-code" | "crush" | "hermes" | "goose" => vec![
                 ModelProtocol::AnthropicMessages,
                 ModelProtocol::OpenaiCompletions,
@@ -2923,11 +3021,15 @@ fn ensure_supported(agent_id: &str, protocol: &ModelProtocol) -> Result<(), Stri
     let supported = match agent_id {
         "claude-code" => matches!(protocol, ModelProtocol::AnthropicMessages),
         "codex" => matches!(protocol, ModelProtocol::OpenaiResponses),
-        "grok-build" | "pi" | "opencode" | "kilo-code" | "factory-droid" => true,
-        "qwen-code" => !matches!(protocol, ModelProtocol::OpenaiResponses),
-        "crush" | "mistral-vibe" | "hermes" | "goose" => {
-            !matches!(protocol, ModelProtocol::OpenaiResponses)
+        "opencode" | "kilo-code" => true,
+        "grok-build" | "pi" | "factory-droid" => {
+            !matches!(protocol, ModelProtocol::GeminiGenerateContent)
         }
+        "qwen-code" | "crush" | "hermes" | "goose" => matches!(
+            protocol,
+            ModelProtocol::AnthropicMessages | ModelProtocol::OpenaiCompletions
+        ),
+        "mistral-vibe" => matches!(protocol, ModelProtocol::OpenaiCompletions),
         "qoder" => {
             return Err(format!(
                 "Qoder custom models must currently be configured through /model; see {QODER_DOCS}"
@@ -2956,6 +3058,7 @@ fn protocol_name(protocol: &ModelProtocol) -> &'static str {
         ModelProtocol::AnthropicMessages => "anthropic-messages",
         ModelProtocol::OpenaiResponses => "openai-responses",
         ModelProtocol::OpenaiCompletions => "openai-completions",
+        ModelProtocol::GeminiGenerateContent => "gemini-generate-content",
     }
 }
 
@@ -3482,6 +3585,7 @@ fn grok_api_backend(protocol: &ModelProtocol) -> &'static str {
         ModelProtocol::AnthropicMessages => "messages",
         ModelProtocol::OpenaiResponses => "responses",
         ModelProtocol::OpenaiCompletions => "chat_completions",
+        ModelProtocol::GeminiGenerateContent => "gemini",
     }
 }
 
@@ -3970,6 +4074,14 @@ mod tests {
             full_request_url("https://gateway.example.com/api/v2", "/tenant/v1/messages").unwrap(),
             "https://gateway.example.com/api/v2/tenant/v1/messages"
         );
+        assert_eq!(
+            full_request_url(
+                "http://127.0.0.1:18080/v1beta",
+                "/models/{model}:generateContent"
+            )
+            .unwrap(),
+            "http://127.0.0.1:18080/v1beta/models/{model}:generateContent"
+        );
     }
 
     #[test]
@@ -4024,6 +4136,42 @@ mod tests {
             error.starts_with("model_endpoint_path_unsupported:"),
             "{error}"
         );
+    }
+
+    #[test]
+    fn gemini_native_profile_materializes_for_open_code_without_changing_its_target() {
+        let _home = TestHome::new("model-gemini-opencode");
+        let profile = ModelProfile {
+            id: "local-gemini".into(),
+            provider_id: Some("local-gemini-provider".into()),
+            name: "Local Gemini".into(),
+            provider: "custom".into(),
+            model_vendor: Some("google".into()),
+            native_ids: Default::default(),
+            protocol: ModelProtocol::GeminiGenerateContent,
+            base_url: "http://127.0.0.1:18080/v1beta".into(),
+            endpoint_path: "/models/{model}:generateContent".into(),
+            model: "gemini-2.5-pro".into(),
+            env_key: Some("GEMINI_API_KEY".into()),
+            context_window: None,
+            max_output_tokens: None,
+            reasoning: Some(true),
+        };
+        save_profile(profile.clone(), None).unwrap();
+
+        apply_profile("opencode", &profile.id).unwrap();
+
+        let stored = profile_for_apply(&profile.id).unwrap();
+        let materialized = materialize_profile_for_agent("opencode", &stored).unwrap();
+        assert_eq!(materialized.base_url, profile.base_url);
+        assert!(materialized.endpoint_path.is_empty());
+        assert_eq!(
+            observe_profile("opencode", &stored).unwrap(),
+            ModelObservedState::Synced
+        );
+        assert!(ensure_supported("opencode", &profile.protocol).is_ok());
+        assert!(ensure_supported("kilo-code", &profile.protocol).is_ok());
+        assert!(ensure_supported("pi", &profile.protocol).is_err());
     }
 
     #[test]
@@ -4154,6 +4302,27 @@ mod tests {
         assert_eq!(
             serialized["protocols"]["openai-responses"]["endpoint_path"],
             "/responses"
+        );
+        let google = list_providers()
+            .iter()
+            .find(|provider| provider.id == "google")
+            .unwrap();
+        let serialized = serde_json::to_value(google).unwrap();
+        assert_eq!(
+            google.default_protocol,
+            ModelProtocol::GeminiGenerateContent
+        );
+        assert_eq!(
+            serialized["base_url"],
+            "https://generativelanguage.googleapis.com"
+        );
+        assert_eq!(
+            serialized["protocols"]["gemini-generate-content"]["endpoint_path"],
+            "/v1beta/models/{model}:generateContent"
+        );
+        assert_eq!(
+            serialized["protocols"]["openai-completions"]["endpoint_path"],
+            "/v1beta/openai/chat/completions"
         );
 
         let plan_ids = [
@@ -4295,6 +4464,7 @@ mod tests {
 
         assert!(migrate_model_providers_v3_if_needed().unwrap());
         assert!(!migrate_model_providers_v3_if_needed().unwrap());
+        assert!(model_provider_reapply_pending().unwrap());
         let settings = crate::settings::load_settings_strict().unwrap();
         assert_eq!(settings.version, Some(crate::settings::SETTINGS_VERSION));
         let providers = settings.model_providers.unwrap();
@@ -4335,6 +4505,21 @@ mod tests {
         );
         assert!(read_credential_service(&legacy_keychain_service(&anthropic.id)).is_none());
         assert!(read_credential_service(&legacy_keychain_service(&responses.id)).is_none());
+    }
+
+    #[test]
+    fn provider_reapply_marker_clears_only_after_explicit_completion() {
+        let _home = TestHome::new("model-provider-reapply-marker");
+        crate::settings::save_settings(&crate::settings::Settings {
+            version: Some(2),
+            ..Default::default()
+        })
+        .unwrap();
+
+        assert!(migrate_model_providers_v3_if_needed().unwrap());
+        assert!(model_provider_reapply_pending().unwrap());
+        complete_model_provider_reapply().unwrap();
+        assert!(!model_provider_reapply_pending().unwrap());
     }
 
     #[test]

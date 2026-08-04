@@ -39,6 +39,11 @@ impl CoreError {
     pub fn internal(message: impl Into<String>) -> Self {
         Self::new("internal", message)
     }
+
+    pub fn with_detail(mut self, key: impl Into<String>, value: impl Into<Value>) -> Self {
+        self.details.insert(key.into(), value.into());
+        self
+    }
 }
 
 impl fmt::Display for CoreError {

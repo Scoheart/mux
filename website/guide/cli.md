@@ -81,6 +81,7 @@ mux skill {list,show,status,assign,unassign,enable,disable,reapply}
 mux agent {list,enable,disable}
 mux discover [mcp|model|skill]
 mux adopt {mcp,model,skill}
+mux migration {review,resolve}
 mux workspace
 mux upgrade
 ```
@@ -116,6 +117,25 @@ mux --yes --no-color model use work --agent pi
 ```
 
 `--yes` 和 `--dry-run` 互斥，且只适用于写操作；把它们传给 `list`、`show`、`status`、`discover`、`workspace` 或输出到 stdout 的 `mcp export` 会直接报错。`mcp export --out <path>` 会创建文件，因此同样必须交互确认，或显式使用 `--yes` / `--dry-run`。`mux --json --help` 与 `mux --json --version` 也返回 schema v1 成功 envelope；作为 `mcp add --arg --json` 值出现的字样不会误切换输出模式。
+
+## 启动迁移审核
+
+当旧 Model schema 可以安全生成计划、但 Agent 中的 MUX 管理字段已经变化时，CLI 对 Model 写入返回稳定的 `migration_review_required`；MCP、Skill 以及语言、网络代理、CLI 工具安装等独立设置继续可用。会同时改动多种能力路径的 Agent 配置仍按共享写入处理，避免绕过 Model 阻断。单个 Agent / Provider 的 Model 错误或已经完整回滚的 Model 提交只关闭 Model 能力；只有共享事务未完成、提交后清理未完成、回滚证据不安全或共享 settings 状态不确定时，才进入全局只读。审核与 Desktop 复用同一个 Core 契约：
+
+```bash
+mux migration review
+mux --json migration review
+
+# 使用 review 输出中对应策略的 candidate_hash
+mux migration resolve use-mux --yes --candidate-hash <hash>
+mux migration resolve keep-agent --yes --candidate-hash <hash>
+
+mux migration resolve use-mux --dry-run
+mux migration resolve recheck
+mux migration resolve later
+```
+
+`use-mux` 只替换已审核的 MUX-owned Model 字段，并在原子事务中迁移 Model ID、关系和 Keychain 引用；未知字段、注释、权限和非 MUX 内容继续保留。`keep-agent` 保持受影响 Agent 文件及其现有 Keychain 引用逐字节不变，将该 Agent 的全部 Model 管理关系解除为外部观察，其他 Agent 和中央 Profile 继续迁移。审核输出会列出所有被解除的 Profile。`recheck` 会取消旧候选并按最新 settings / target hash 重新生成；`later` 不写任何内容，Model 保持只读但 MCP 与 Skill 不受影响。`--dry-run` 只输出所选候选的影响，不提交、不替换当前审核状态。任何 candidate、settings 或目标文件变化都会返回 `migration_review_stale`，不能沿用旧确认。
 
 ## 稳定 ID 与 Agent 选择
 

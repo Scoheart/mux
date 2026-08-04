@@ -69,6 +69,33 @@ fn enrich_backend_error(mut error: CoreError) -> CoreError {
                 .insert("backend_state".into(), Value::String("read_only".into()));
             error.details.insert("stage".into(), Value::String(stage));
         }
+        BackendStatus::MigrationReviewRequired {
+            stage, review_hash, ..
+        } if error.code == "migration_review_required" => {
+            error.details.insert(
+                "backend_state".into(),
+                Value::String("migration_review_required".into()),
+            );
+            error.details.insert("stage".into(), Value::String(stage));
+            error
+                .details
+                .insert("review_hash".into(), Value::String(review_hash));
+        }
+        BackendStatus::CapabilityUnavailable {
+            capability,
+            stage,
+            code,
+            ..
+        } if error.code == code => {
+            error.details.insert(
+                "backend_state".into(),
+                Value::String("capability_unavailable".into()),
+            );
+            error
+                .details
+                .insert("capability".into(), serde_json::json!(capability));
+            error.details.insert("stage".into(), Value::String(stage));
+        }
         _ => {}
     }
     error
@@ -108,6 +135,18 @@ pub async fn get_workspace_snapshot(
 #[tauri::command]
 pub fn get_backend_status() -> BackendStatus {
     MuxCore::backend_status()
+}
+
+#[tauri::command]
+pub fn get_migration_review() -> Option<mux_core::application::bootstrap::MigrationReview> {
+    MuxCore::migration_review()
+}
+
+#[tauri::command]
+pub async fn resolve_migration(
+    request: mux_core::application::bootstrap::ResolveMigrationRequest,
+) -> CoreResult<mux_core::application::bootstrap::MigrationResolutionOutcome> {
+    core_blocking(move || MuxCore::resolve_migration(request)).await
 }
 
 #[tauri::command]
@@ -661,7 +700,7 @@ pub async fn export_effective_dialog(app: tauri::AppHandle) -> CoreResult<Option
     let path = fp
         .into_path()
         .map_err(|error| CoreError::new("invalid_export_path", error.to_string()))?;
-    MuxCore::external_mutation("desktop_export", move || {
+    MuxCore::independent_host_mutation("desktop_export", move || {
         std::fs::write(&path, content)
             .map_err(|error| CoreError::new("export_failed", error.to_string()))?;
         Ok(Some(path.display().to_string()))

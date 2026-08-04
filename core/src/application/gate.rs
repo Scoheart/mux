@@ -1,9 +1,9 @@
 //! Process-wide consistency and backend-readiness gate.
 //!
 //! Domain engines retain their own narrow locks for crash safety. This gate
-//! coordinates frontend-facing operations in one process and makes startup
-//! recovery a hard write boundary: queries remain available for diagnosis,
-//! while every staging or final mutation requires a fully ready backend.
+//! coordinates frontend-facing operations in one process. Shared recovery
+//! uncertainty remains a hard write boundary, while a capability-local Model,
+//! MCP, or Skill blocker disables only that domain.
 
 use crate::domain::error::{CoreError, CoreResult};
 use crate::resources::skill::SkillError;
@@ -13,12 +13,35 @@ use serde_json::Value;
 use std::collections::BTreeMap;
 use std::sync::{Mutex, MutexGuard, RwLock, RwLockWriteGuard};
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum CapabilityDomain {
+    Mcp,
+    Model,
+    Skill,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "state", rename_all = "snake_case")]
 pub enum BackendStatus {
     Starting,
     Ready,
-    ReadOnly { stage: String, message: String },
+    MigrationReviewRequired {
+        stage: String,
+        review_hash: String,
+        message: String,
+        blocked_capabilities: Vec<CapabilityDomain>,
+    },
+    CapabilityUnavailable {
+        capability: CapabilityDomain,
+        stage: String,
+        code: String,
+        message: String,
+    },
+    ReadOnly {
+        stage: String,
+        message: String,
+    },
 }
 
 impl BackendStatus {
@@ -44,32 +67,85 @@ pub(crate) fn read<T>(operation: impl FnOnce() -> T) -> T {
     query(operation)
 }
 
-/// A preparation may write private staging, so it is blocked unless startup
-/// completed successfully. It uses the exclusive process gate because a
-/// recovery-required result must be latched before another mutation starts.
+/// A shared preparation may write private staging across capability domains.
+/// Domain-specific callers should use [`prepare_for`] so a local blocker does
+/// not unnecessarily disable unrelated capabilities.
 pub(crate) fn prepare<R: GatedResult>(stage: &'static str, operation: impl FnOnce() -> R) -> R {
-    mutate(stage, operation)
+    mutate_scoped(MutationScope::Shared, stage, operation)
+}
+
+pub(crate) fn prepare_for<R: GatedResult>(
+    capability: CapabilityDomain,
+    stage: &'static str,
+    operation: impl FnOnce() -> R,
+) -> R {
+    mutate_scoped(MutationScope::Capability(capability), stage, operation)
 }
 
 /// Existing application writers enter through this compatibility name. The
 /// generic result adapter preserves their public error types while enforcing
 /// one readiness policy for all domains.
 pub(crate) fn write<R: GatedResult>(operation: impl FnOnce() -> R) -> R {
-    mutate("application_mutation", operation)
+    mutate_scoped(MutationScope::Shared, "application_mutation", operation)
+}
+
+pub(crate) fn write_for<R: GatedResult>(
+    capability: CapabilityDomain,
+    operation: impl FnOnce() -> R,
+) -> R {
+    mutate_scoped(
+        MutationScope::Capability(capability),
+        "application_mutation",
+        operation,
+    )
+}
+
+/// A preference or host-integration write that does not consume MCP, Model,
+/// or Skill state. Capability-local blockers do not apply, but shared durable
+/// recovery evidence still promotes the whole backend to read-only.
+pub(crate) fn write_independent<R: GatedResult>(operation: impl FnOnce() -> R) -> R {
+    mutate_scoped(
+        MutationScope::Independent,
+        "application_mutation",
+        operation,
+    )
 }
 
 pub(crate) fn mutate<R: GatedResult>(stage: &'static str, operation: impl FnOnce() -> R) -> R {
+    mutate_scoped(MutationScope::Shared, stage, operation)
+}
+
+pub(crate) fn mutate_for<R: GatedResult>(
+    capability: CapabilityDomain,
+    stage: &'static str,
+    operation: impl FnOnce() -> R,
+) -> R {
+    mutate_scoped(MutationScope::Capability(capability), stage, operation)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MutationScope {
+    Independent,
+    Shared,
+    Capability(CapabilityDomain),
+}
+
+fn mutate_scoped<R: GatedResult>(
+    scope: MutationScope,
+    stage: &'static str,
+    operation: impl FnOnce() -> R,
+) -> R {
     let _guard = WORKSPACE_GATE
         .write()
         .unwrap_or_else(|error| error.into_inner());
-    if let Some(error) = blocker_for_status(&current_status()) {
+    if let Some(error) = blocker_for_status(&current_status(), scope) {
         return R::blocked(error);
     }
     let _cross_process_guard = match acquire_cross_process_mutation_lock() {
         Ok(guard) => guard,
         Err(_) => return R::blocked(mutation_coordination_error()),
     };
-    if let Some(error) = mutation_blocker() {
+    if let Some(error) = mutation_blocker(scope) {
         return R::blocked(error);
     }
 
@@ -80,11 +156,19 @@ pub(crate) fn mutate<R: GatedResult>(stage: &'static str, operation: impl FnOnce
     result
 }
 
+#[cfg(test)]
 pub(crate) fn mutate_core<T>(
     stage: &'static str,
     operation: impl FnOnce() -> CoreResult<T>,
 ) -> CoreResult<T> {
     mutate(stage, operation)
+}
+
+pub(crate) fn mutate_independent_core<T>(
+    stage: &'static str,
+    operation: impl FnOnce() -> CoreResult<T>,
+) -> CoreResult<T> {
+    mutate_scoped(MutationScope::Independent, stage, operation)
 }
 
 pub fn status() -> BackendStatus {
@@ -106,6 +190,38 @@ pub(crate) fn begin_bootstrap() -> BootstrapPermit {
         _guard: guard,
         completed: false,
     }
+}
+
+/// The only privileged writer available while a reviewable bootstrap
+/// migration is pending. The reviewed group hash is checked before the status
+/// changes, so this cannot be used as a generic read-only bypass.
+pub(crate) fn begin_migration_resolution(
+    expected_review_hash: &str,
+) -> CoreResult<BootstrapPermit> {
+    let guard = WORKSPACE_GATE
+        .write()
+        .unwrap_or_else(|error| error.into_inner());
+    match current_status() {
+        BackendStatus::MigrationReviewRequired { review_hash, .. }
+            if review_hash == expected_review_hash => {}
+        BackendStatus::MigrationReviewRequired { .. } => {
+            return Err(CoreError::new(
+                "migration_review_stale",
+                "The Model migration review changed; reopen it before continuing",
+            ));
+        }
+        _ => {
+            return Err(CoreError::new(
+                "migration_review_unavailable",
+                "No Model migration review is currently pending",
+            ));
+        }
+    }
+    set_status(BackendStatus::Starting);
+    Ok(BootstrapPermit {
+        _guard: guard,
+        completed: false,
+    })
 }
 
 pub(crate) struct BootstrapPermit {
@@ -152,14 +268,14 @@ fn latch_read_only(stage: &str, message: String) {
     *status = latched_status(&status, stage, message);
 }
 
-fn mutation_blocker() -> Option<CoreError> {
+fn mutation_blocker(scope: MutationScope) -> Option<CoreError> {
     let status = current_status();
-    if let Some(error) = blocker_for_status(&status) {
+    if let Some(error) = blocker_for_status(&status, scope) {
         return Some(error);
     }
     let pending = crate::assets::transaction::pending_recovery_error()?;
     latch_read_only("durable_recovery", pending);
-    blocker_for_status(&current_status())
+    blocker_for_status(&current_status(), scope)
 }
 
 pub(crate) fn acquire_cross_process_mutation_lock() -> Result<SettingsLock, String> {
@@ -183,7 +299,10 @@ fn mutation_coordination_error() -> CoreError {
 fn latched_status(current: &BackendStatus, stage: &str, message: String) -> BackendStatus {
     match current {
         BackendStatus::ReadOnly { .. } => current.clone(),
-        BackendStatus::Starting | BackendStatus::Ready => BackendStatus::ReadOnly {
+        BackendStatus::Starting
+        | BackendStatus::Ready
+        | BackendStatus::MigrationReviewRequired { .. }
+        | BackendStatus::CapabilityUnavailable { .. } => BackendStatus::ReadOnly {
             stage: stage.into(),
             message,
         },
@@ -240,7 +359,7 @@ impl Drop for TestReadyGuard {
     }
 }
 
-fn blocker_for_status(status: &BackendStatus) -> Option<CoreError> {
+fn blocker_for_status(status: &BackendStatus, scope: MutationScope) -> Option<CoreError> {
     match status {
         BackendStatus::Starting => {
             let mut details = BTreeMap::new();
@@ -254,6 +373,50 @@ fn blocker_for_status(status: &BackendStatus) -> Option<CoreError> {
             })
         }
         BackendStatus::Ready => None,
+        BackendStatus::MigrationReviewRequired {
+            stage,
+            review_hash,
+            blocked_capabilities,
+            ..
+        } if scope_is_blocked(scope, blocked_capabilities) => {
+            let mut details = BTreeMap::new();
+            details.insert(
+                "backend_state".into(),
+                Value::String("migration_review_required".into()),
+            );
+            details.insert("stage".into(), Value::String(stage.clone()));
+            details.insert("review_hash".into(), Value::String(review_hash.clone()));
+            Some(CoreError {
+                code: "migration_review_required".into(),
+                message: "Model configuration upgrade needs confirmation".into(),
+                details,
+                retry_at: None,
+                confirmation: None,
+            })
+        }
+        BackendStatus::MigrationReviewRequired { .. } => None,
+        BackendStatus::CapabilityUnavailable {
+            capability,
+            stage,
+            code,
+            message,
+        } if scope_is_blocked(scope, &[*capability]) => {
+            let mut details = BTreeMap::new();
+            details.insert(
+                "backend_state".into(),
+                Value::String("capability_unavailable".into()),
+            );
+            details.insert("capability".into(), serde_json::json!(capability));
+            details.insert("stage".into(), Value::String(stage.clone()));
+            Some(CoreError {
+                code: code.clone(),
+                message: message.clone(),
+                details,
+                retry_at: None,
+                confirmation: None,
+            })
+        }
+        BackendStatus::CapabilityUnavailable { .. } => None,
         BackendStatus::ReadOnly { stage, message } => {
             let mut details = BTreeMap::new();
             details.insert("backend_state".into(), Value::String("read_only".into()));
@@ -266,6 +429,14 @@ fn blocker_for_status(status: &BackendStatus) -> Option<CoreError> {
                 confirmation: None,
             })
         }
+    }
+}
+
+fn scope_is_blocked(scope: MutationScope, blocked: &[CapabilityDomain]) -> bool {
+    match scope {
+        MutationScope::Independent => false,
+        MutationScope::Shared => true,
+        MutationScope::Capability(capability) => blocked.contains(&capability),
     }
 }
 
@@ -378,18 +549,105 @@ mod tests {
 
     #[test]
     fn starting_and_read_only_have_structured_blockers_but_ready_does_not() {
-        let starting = blocker_for_status(&BackendStatus::Starting).unwrap();
+        let starting = blocker_for_status(&BackendStatus::Starting, MutationScope::Shared).unwrap();
         assert_eq!(starting.code, "backend_initializing");
         assert_eq!(starting.details["backend_state"], "starting");
 
-        let read_only = blocker_for_status(&BackendStatus::ReadOnly {
-            stage: "skill_recovery".into(),
-            message: "unsafe journal".into(),
-        })
+        let read_only = blocker_for_status(
+            &BackendStatus::ReadOnly {
+                stage: "skill_recovery".into(),
+                message: "unsafe journal".into(),
+            },
+            MutationScope::Shared,
+        )
         .unwrap();
         assert_eq!(read_only.code, "recovery_required");
         assert_eq!(read_only.details["stage"], "skill_recovery");
-        assert!(blocker_for_status(&BackendStatus::Ready).is_none());
+        assert!(blocker_for_status(&BackendStatus::Ready, MutationScope::Shared).is_none());
+    }
+
+    #[test]
+    fn model_blockers_do_not_disable_mcp_or_skill_mutations() {
+        let review = BackendStatus::MigrationReviewRequired {
+            stage: "model_profile_migration".into(),
+            review_hash: "review".into(),
+            message: "review".into(),
+            blocked_capabilities: vec![CapabilityDomain::Model],
+        };
+        assert!(
+            blocker_for_status(&review, MutationScope::Capability(CapabilityDomain::Model))
+                .is_some()
+        );
+        assert!(
+            blocker_for_status(&review, MutationScope::Capability(CapabilityDomain::Mcp)).is_none()
+        );
+        assert!(
+            blocker_for_status(&review, MutationScope::Capability(CapabilityDomain::Skill))
+                .is_none()
+        );
+        assert!(blocker_for_status(&review, MutationScope::Independent).is_none());
+        assert!(blocker_for_status(&review, MutationScope::Shared).is_some());
+
+        let unavailable = BackendStatus::CapabilityUnavailable {
+            capability: CapabilityDomain::Model,
+            stage: "model_profile_migration".into(),
+            code: "migration_hard_blocked".into(),
+            message: "repair Model target".into(),
+        };
+        assert!(blocker_for_status(
+            &unavailable,
+            MutationScope::Capability(CapabilityDomain::Model)
+        )
+        .is_some());
+        assert!(blocker_for_status(
+            &unavailable,
+            MutationScope::Capability(CapabilityDomain::Mcp)
+        )
+        .is_none());
+        assert!(blocker_for_status(&unavailable, MutationScope::Independent).is_none());
+    }
+
+    #[test]
+    fn capability_status_executes_only_unrelated_and_unblocked_domain_writes() {
+        let _home = crate::testenv::TestHome::new("gate-capability-isolation");
+        set_status(BackendStatus::MigrationReviewRequired {
+            stage: "model_profile_migration".into(),
+            review_hash: "review".into(),
+            message: "review".into(),
+            blocked_capabilities: vec![CapabilityDomain::Model],
+        });
+
+        let independent_called = Cell::new(false);
+        let independent: Result<(), String> = write_independent(|| {
+            independent_called.set(true);
+            Ok(())
+        });
+        assert!(independent.is_ok());
+        assert!(independent_called.get());
+
+        let mcp_called = Cell::new(false);
+        let mcp: Result<(), String> = write_for(CapabilityDomain::Mcp, || {
+            mcp_called.set(true);
+            Ok(())
+        });
+        assert!(mcp.is_ok());
+        assert!(mcp_called.get());
+
+        let model_called = Cell::new(false);
+        let model: Result<(), String> = write_for(CapabilityDomain::Model, || {
+            model_called.set(true);
+            Ok(())
+        });
+        assert!(model.is_err());
+        assert!(!model_called.get());
+
+        let shared_called = Cell::new(false);
+        let shared: Result<(), String> = write(|| {
+            shared_called.set(true);
+            Ok(())
+        });
+        assert!(shared.is_err());
+        assert!(!shared_called.get());
     }
 
     #[test]
@@ -440,6 +698,23 @@ mod tests {
     }
 
     #[test]
+    fn shared_recovery_supersedes_a_capability_only_blocker() {
+        let review = BackendStatus::MigrationReviewRequired {
+            stage: "model_profile_migration".into(),
+            review_hash: "review".into(),
+            message: "review".into(),
+            blocked_capabilities: vec![CapabilityDomain::Model],
+        };
+        assert_eq!(
+            latched_status(&review, "asset_commit", "rollback failed".into()),
+            BackendStatus::ReadOnly {
+                stage: "asset_commit".into(),
+                message: "rollback failed".into(),
+            }
+        );
+    }
+
+    #[test]
     fn skill_mutation_contention_remains_retryable_not_recovery_required() {
         let blocked =
             <Result<(), SkillError> as GatedResult>::blocked(mutation_coordination_error());
@@ -474,6 +749,16 @@ mod tests {
         });
         assert!(!mutation_called.get());
         assert_eq!(mutation_result.unwrap_err().code, "recovery_required");
+
+        let independent_called = Cell::new(false);
+        let independent_result: Result<(), String> = write_independent(|| {
+            independent_called.set(true);
+            Ok(())
+        });
+        assert!(!independent_called.get());
+        assert!(independent_result
+            .unwrap_err()
+            .starts_with("recovery_required:"));
     }
 
     #[test]

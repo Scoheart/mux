@@ -8,13 +8,15 @@ MUX 桌面端把模型端点保存为中央 Model Profile，再由多个兼容 A
 
 `Model` 只保存显示名称、Provider 引用、协议、Model ID、上下文窗口、最大输出与 reasoning；连接和凭据不在 Model 表单中重复。切换 Provider 后，协议下拉框只展示该 Provider 已启用的协议，并只读预览最终请求 URL。MUX 创建不可编辑的内部 `profile_id`，显示名称在同一 Provider 内自动保持唯一。
 
-同一个 Provider 的协议可以使用不同 Endpoint Path，但必须共享同一个 Base URL。若两套服务使用不同域名或端口，应创建两个 Provider。仍有 Model 使用某协议时，MUX 会列出这些 Model 并阻止停用该协议。
+同一个 Provider 的协议可以使用不同 Endpoint Path，但必须共享同一个 Base URL。MUX 支持 Anthropic Messages、OpenAI Responses、OpenAI Chat Completions，以及 Gemini 原生 GenerateContent；后者默认使用 `/models/{model}:generateContent`，例如 Base URL `http://127.0.0.1:18080/v1beta` 对应 `POST http://127.0.0.1:18080/v1beta/models/{model}:generateContent`。若两套服务使用不同域名或端口，应创建两个 Provider。仍有 Model 使用某协议时，MUX 会列出这些 Model 并阻止停用该协议。
 
 Agent 中的一个 Profile 有四种消费状态：未添加、已添加但停用、已启用但非当前、已启用且当前。同步健康度（Synced / Drifted / Conflicted 等）与这四种状态分开；停用或移除当前 Profile 时，审阅页会明确展示确定性的 fallback。
 
 ## 导入历史配置
 
 MUX 会只读扫描受支持 Agent 的历史自定义模型配置，在“历史配置”中预览后才接管。它会优先列出当前模型，并把相同 endpoint、protocol、model 与 credential identity 的条目合并为一份中央 Profile，同时保留每个 Agent 的 native provider identity。
+
+旧版 Profile 凭据迁移到共享 Provider 时，MUX 会先持久化“Agent 目标待重写”标记，再更新 Keychain 引用；只有全部仍受管目标都成功写入后才清除标记。单个目标失败会在下次启动继续重试，并只暂停 Model 写入；MCP、Skill 和独立设置仍可使用。无法证明回滚或存在未完成共享事务时才升级为全局只读。
 
 预览和持久化计划不包含 credential 正文。Keychain-capable Agent 的明文 Key 可在显式导入时转存 Keychain；环境变量型 Agent 只接管环境变量引用。任意 credential command 不会被执行，明文 Key、共享 native provider 下的兄弟模型和无法解析的配置会保持“需处理”，不会静默覆盖。
 
@@ -37,7 +39,7 @@ MUX 会只读扫描受支持 Agent 的历史自定义模型配置，在“历史
 | MiniMax Code | 安全引导 | `~/.mavis/config.yaml`（MUX 自动管理独立的 `~/.mavis/mcp.json`） | 不自动写 Model；当前 provider 流程会保存明文 `options.apiKey` |
 | Qoder | 官方引导 | `~/.qoder/settings.json`（MUX 不写） | 在 Qoder 的 `/model` 中选择 |
 
-Claude Code 只接收 Anthropic Messages，Codex 只接收 Responses；其余自动目标按各自能力接受一种或多种 Anthropic Messages、OpenAI Responses、OpenAI Chat Completions。Grok Build、OpenCode/Kilo、Qwen、Crush、Vibe、Hermes、Factory 与 Goose 使用环境变量引用，不导出 Keychain 密钥正文。Qwen 当前 stable 0.20.0 的发布包仍要求 `modelProviders.<auth>` 是数组；MUX 会把自己旧版写出的精确 `{ protocol, models }` wrapper 安全迁移为数组，带未知字段的 wrapper 则拒绝覆盖。Qoder 没有公开安全的非交互凭据写入接口；MiniMax Code 当前自定义 provider 会把 `options.apiKey` 作为字面量保存，因此两者仍由自身界面管理。
+Claude Code 只接收 Anthropic Messages，Codex 只接收 Responses；其余自动目标按各自能力接受一种或多种 Anthropic Messages、OpenAI Responses、OpenAI Chat Completions。OpenCode 与 Kilo 还可通过 `@ai-sdk/google` 使用 Gemini 原生 GenerateContent；不支持该协议的 Agent 会在建立关系前被局部拒绝，不影响 MCP、Skill 或其他 Model。Grok Build、OpenCode/Kilo、Qwen、Crush、Vibe、Hermes、Factory 与 Goose 使用环境变量引用，不导出 Keychain 密钥正文。Qwen 当前 stable 0.20.0 的发布包仍要求 `modelProviders.<auth>` 是数组；MUX 会把自己旧版写出的精确 `{ protocol, models }` wrapper 安全迁移为数组，带未知字段的 wrapper 则拒绝覆盖。Qoder 没有公开安全的非交互凭据写入接口；MiniMax Code 当前自定义 provider 会把 `options.apiKey` 作为字面量保存，因此两者仍由自身界面管理。
 
 ![MUX 模型接口与 Agent 分配](/img/model-endpoints.png)
 

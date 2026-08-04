@@ -10,7 +10,7 @@ pub fn get_pinned_agents() -> Result<Vec<String>, String> {
 }
 
 pub fn set_pinned_agents(ids: Vec<String>) -> Result<Vec<String>, String> {
-    super::gate::write(|| crate::pinned_agents::set_pinned_agents(ids))
+    super::gate::write_independent(|| crate::pinned_agents::set_pinned_agents(ids))
 }
 
 pub fn get_ui_locale() -> Result<Option<String>, String> {
@@ -22,7 +22,7 @@ pub fn get_ui_locale() -> Result<Option<String>, String> {
 }
 
 pub fn set_ui_locale(locale: Option<String>) -> Result<Option<String>, String> {
-    super::gate::write(|| {
+    super::gate::write_independent(|| {
         let locale = normalize_locale(locale)?;
         mutate_settings_checked(move |settings| {
             settings.ui.get_or_insert_with(UiSettings::default).locale = locale.clone();

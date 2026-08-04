@@ -15,6 +15,9 @@ use mux_core::application::assets::{
     PlanSetMcpEnabledRequest, PlanSetModelEnabledRequest, PlanSetSkillEnabledRequest,
     PlanUpdateCentralAssetRequest,
 };
+use mux_core::application::bootstrap::{
+    MigrationResolutionStrategy, MigrationReview, ResolveMigrationRequest,
+};
 use mux_core::application::mcp::catalog::read_registry;
 use mux_core::application::mcp::operations as mcp_operations;
 use mux_core::application::operations::PlanOperationRequest;
@@ -79,6 +82,11 @@ impl Cli {
 
 #[derive(Debug, Subcommand)]
 pub enum Command {
+    /// Review or resolve a bootstrap schema migration.
+    Migration {
+        #[command(subcommand)]
+        command: MigrationCommand,
+    },
     /// Manage central MCP assets and their Agent relationships.
     Mcp {
         #[command(subcommand)]
@@ -113,6 +121,39 @@ pub enum Command {
     Workspace,
     /// Upgrade a standalone CLI to the latest Stable release.
     Upgrade,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum MigrationCommand {
+    /// Show the current secret-free Model migration review.
+    Review,
+    /// Resolve, regenerate, or defer the current review.
+    Resolve {
+        #[arg(value_enum)]
+        strategy: MigrationStrategyArg,
+        /// Candidate hash printed by `mux migration review`; required with --yes.
+        #[arg(long)]
+        candidate_hash: Option<String>,
+    },
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+pub enum MigrationStrategyArg {
+    UseMux,
+    KeepAgent,
+    Recheck,
+    Later,
+}
+
+impl From<MigrationStrategyArg> for MigrationResolutionStrategy {
+    fn from(value: MigrationStrategyArg) -> Self {
+        match value {
+            MigrationStrategyArg::UseMux => Self::UseMux,
+            MigrationStrategyArg::KeepAgent => Self::KeepAgent,
+            MigrationStrategyArg::Recheck => Self::Recheck,
+            MigrationStrategyArg::Later => Self::Later,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum, PartialEq, Eq)]
@@ -383,6 +424,7 @@ pub fn dispatch(cli: &Cli) -> Result<CommandOutput, CliError> {
         )
     })?;
     match command {
+        Command::Migration { command } => dispatch_migration(cli, command),
         Command::Mcp { command } => dispatch_mcp(cli, command),
         Command::Model { command } => dispatch_model(cli, command),
         Command::Skill { command } => dispatch_skill(cli, command),
@@ -398,6 +440,170 @@ pub fn dispatch(cli: &Cli) -> Result<CommandOutput, CliError> {
         }
         Command::Upgrade => upgrade(cli.mutation_options()),
     }
+}
+
+fn dispatch_migration(cli: &Cli, command: &MigrationCommand) -> Result<CommandOutput, CliError> {
+    match command {
+        MigrationCommand::Review => {
+            cli.reject_mutation_options()?;
+            let review = MuxCore::migration_review().ok_or_else(|| {
+                CliError::new(
+                    "migration_review_unavailable",
+                    "no Model migration review is currently pending",
+                )
+            })?;
+            Ok(CommandOutput::new(
+                "migration.review",
+                false,
+                json!(review),
+                render_migration_review(&review),
+            ))
+        }
+        MigrationCommand::Resolve {
+            strategy,
+            candidate_hash: reviewed_candidate_hash,
+        } => {
+            let strategy = MigrationResolutionStrategy::from(*strategy);
+            let review = MuxCore::migration_review().ok_or_else(|| {
+                CliError::new(
+                    "migration_review_unavailable",
+                    "no Model migration review is currently pending",
+                )
+            })?;
+            let commit_strategy = matches!(
+                strategy,
+                MigrationResolutionStrategy::UseMux | MigrationResolutionStrategy::KeepAgent
+            );
+            if cli.yes && cli.dry_run {
+                return Err(CliError::new(
+                    "option_conflict",
+                    "--yes and --dry-run cannot be used together",
+                ));
+            }
+            if commit_strategy && !cli.yes && !cli.dry_run {
+                return Err(CliError::new(
+                    "confirmation_required",
+                    "migration resolution requires --yes or --dry-run",
+                ));
+            }
+            if commit_strategy && cli.yes && reviewed_candidate_hash.is_none() {
+                return Err(CliError::new(
+                    "confirmation_required",
+                    "--yes requires --candidate-hash from `mux migration review`",
+                ));
+            }
+            if !commit_strategy && (cli.yes || cli.dry_run) {
+                return Err(CliError::new(
+                    "option_not_applicable",
+                    "--yes and --dry-run apply only to use-mux or keep-agent",
+                ));
+            }
+            let current_candidate_hash = review
+                .actions
+                .iter()
+                .find(|action| action.strategy == strategy)
+                .map(|action| action.plan.candidate_hash.clone());
+            let candidate_hash = reviewed_candidate_hash.clone().or(current_candidate_hash);
+            let outcome = MuxCore::resolve_migration(ResolveMigrationRequest {
+                review_hash: review.review_hash.clone(),
+                strategy,
+                candidate_hash,
+                confirmed: cli.yes,
+                dry_run: cli.dry_run,
+            })
+            .map_err(migration_core_error)?;
+            let human = if cli.dry_run {
+                let selected = outcome
+                    .selected_plan
+                    .as_ref()
+                    .map(|plan| {
+                        format!(
+                            "Candidate {} would affect {} Agent(s) and {} target file(s).",
+                            plan.candidate_hash,
+                            plan.affected_agent_ids.len(),
+                            plan.target_files.len(),
+                        )
+                    })
+                    .unwrap_or_else(|| "Migration candidate reviewed.".into());
+                format!("{selected}\nDry run complete; no user configuration was changed.")
+            } else if strategy == MigrationResolutionStrategy::Later {
+                "Deferred. Model editing remains unavailable; MCP and Skill remain available."
+                    .into()
+            } else if strategy == MigrationResolutionStrategy::Recheck {
+                match &outcome.review {
+                    Some(next) => {
+                        format!("Review regenerated. New review hash: {}", next.review_hash)
+                    }
+                    None => "Configuration is now consistent; startup completed.".into(),
+                }
+            } else {
+                "Model migration completed; MUX is ready.".into()
+            };
+            Ok(CommandOutput::new(
+                "migration.resolve",
+                outcome.changed,
+                json!({
+                    "strategy": strategy,
+                    "dry_run": cli.dry_run,
+                    "outcome": outcome,
+                }),
+                human,
+            ))
+        }
+    }
+}
+
+fn migration_core_error(error: mux_core::domain::error::CoreError) -> CliError {
+    let mut result = CliError::new(error.code, error.message);
+    for (key, value) in error.details {
+        result = result.with_detail(key, value);
+    }
+    result
+}
+
+fn render_migration_review(review: &MigrationReview) -> String {
+    let mut lines = vec![
+        "Model configuration upgrade needs confirmation".to_string(),
+        format!(
+            "Schema {} -> {} · review {}",
+            review.source_schema_version, review.target_schema_version, review.review_hash
+        ),
+    ];
+    for blocker in &review.blockers {
+        lines.push(format!(
+            "\n{} ({})\n  target: {}\n  conflict: {}\n  Model: {} -> {}\n  keep-agent releases: {}",
+            blocker.agent_name,
+            blocker.agent_id,
+            if blocker.target_files.is_empty() {
+                "unknown".into()
+            } else {
+                blocker.target_files.join(", ")
+            },
+            blocker.message,
+            blocker.before.profile_id,
+            blocker.after.profile_id,
+            blocker.keep_agent_released_profile_ids.join(", "),
+        ));
+    }
+    lines.push("\nReviewed candidates:".into());
+    for action in &review.actions {
+        let strategy = match action.strategy {
+            MigrationResolutionStrategy::UseMux => "use-mux",
+            MigrationResolutionStrategy::KeepAgent => "keep-agent",
+            MigrationResolutionStrategy::Recheck => "recheck",
+            MigrationResolutionStrategy::Later => "later",
+        };
+        lines.push(format!(
+            "  {strategy}: {}\n    {}",
+            action.plan.candidate_hash, action.consequence
+        ));
+    }
+    lines.push("\nResolve with one of:".into());
+    lines.push("  mux migration resolve use-mux --yes --candidate-hash <hash>".into());
+    lines.push("  mux migration resolve keep-agent --yes --candidate-hash <hash>".into());
+    lines.push("  mux migration resolve recheck".into());
+    lines.push("  mux migration resolve later".into());
+    lines.join("\n")
 }
 
 fn dispatch_mcp(cli: &Cli, command: &McpCommand) -> Result<CommandOutput, CliError> {

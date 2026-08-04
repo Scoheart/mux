@@ -111,7 +111,7 @@ MUX 当前有 56 个核验定义、46 个 MCP 可写目标、45 个 Skills 目�
 
 顶部 **Models** 页面与 MCPs 使用同一套筛选栏、搜索、资源卡片和右侧详情面板。创建 Profile 只保存中央资产；之后在 Agent 页查看已分配、已启用和 current 状态。原生多模型 Agent 可以保留多个 Profile，但最多一个 current；单模型 Agent 仍限制为最多一个。编辑会传播到全部消费者，删除会级联清理关系和受管目标。API Key 只写入 macOS Keychain，不进入 `~/.mux/settings.json`、计划、Agent 配置预览或备份。
 
-Claude Code 目前只接收 Anthropic Messages 配置，Codex 使用 Responses API，Grok Build 与 Pi 支持三种首批协议。Grok Build 通过官方 `env_key` 使用外部环境变量，MUX 不把 Keychain 密钥明文写入 TOML；Qoder 和 MiniMax Code 仍显示安全设置入口。完整边界见 [模型接口](/guide/models)。
+Claude Code 目前只接收 Anthropic Messages 配置，Codex 使用 Responses API，Grok Build 与 Pi 支持三种首批协议；OpenCode 与 Kilo 额外支持 Gemini 原生 GenerateContent。Grok Build 通过官方 `env_key` 使用外部环境变量，MUX 不把 Keychain 密钥明文写入 TOML；Qoder 和 MiniMax Code 仍显示安全设置入口。完整边界见 [模型接口](/guide/models)。
 
 ## Skills
 

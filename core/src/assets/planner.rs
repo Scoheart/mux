@@ -144,6 +144,16 @@ pub(crate) enum LifecycleBinding {
         draft_hash: String,
         #[serde(default)]
         credential_profile_ids: BTreeSet<String>,
+        /// Legacy Keychain subjects still referenced by Agent files preserved
+        /// as external observations. They remain available so choosing
+        /// "keep Agent" cannot break the configuration it promises to keep.
+        #[serde(default)]
+        preserve_legacy_credential_ids: BTreeSet<String>,
+        /// Agents whose reviewed native Model targets must remain byte-for-byte
+        /// unchanged while their MUX relationship records are migrated or
+        /// released. This scope is bound into the candidate hash.
+        #[serde(default)]
+        preserve_agent_targets: BTreeSet<String>,
     },
     AgentConfiguration {
         agent_id: String,
@@ -2863,10 +2873,12 @@ fn persist_operation(operation: &PersistedAssetOperation) -> Result<(), String> 
     Ok(())
 }
 
+pub(crate) const OPERATION_UNAVAILABLE_ERROR: &str = "asset operation is unavailable or expired";
+
 pub(crate) fn load_operation(operation_id: &str) -> Result<PersistedAssetOperation, String> {
     Uuid::parse_str(operation_id).map_err(|_| "invalid asset operation id".to_string())?;
     let bytes = fs::read(operation_root(operation_id).join("plan.json"))
-        .map_err(|_| "asset operation is unavailable or expired".to_string())?;
+        .map_err(|_| OPERATION_UNAVAILABLE_ERROR.to_string())?;
     let operation: PersistedAssetOperation = serde_json::from_slice(&bytes)
         .map_err(|_| "asset operation plan is invalid".to_string())?;
     let canonical = serde_json::to_vec(&operation)

@@ -778,6 +778,7 @@ fn extract_open_code(agent_id: &str, path: &Path) -> Result<Vec<ExtractedModel>,
             .unwrap_or_default()
         {
             value if value.contains("anthropic") => ModelProtocol::AnthropicMessages,
+            value if value.contains("google") => ModelProtocol::GeminiGenerateContent,
             value if value.contains("openai-compatible") => ModelProtocol::OpenaiCompletions,
             _ => ModelProtocol::OpenaiResponses,
         };
@@ -1391,6 +1392,9 @@ fn protocol_from_name(value: &str) -> ModelProtocol {
     match value {
         "anthropic-messages" | "anthropic" | "messages" => ModelProtocol::AnthropicMessages,
         "openai-responses" | "responses" => ModelProtocol::OpenaiResponses,
+        "gemini-generate-content" | "gemini" | "google" | "generate-content" => {
+            ModelProtocol::GeminiGenerateContent
+        }
         _ => ModelProtocol::OpenaiCompletions,
     }
 }
@@ -1404,6 +1408,7 @@ fn protocol_name(protocol: &ModelProtocol) -> &'static str {
         ModelProtocol::AnthropicMessages => "anthropic-messages",
         ModelProtocol::OpenaiResponses => "openai-responses",
         ModelProtocol::OpenaiCompletions => "openai-completions",
+        ModelProtocol::GeminiGenerateContent => "gemini-generate-content",
     }
 }
 

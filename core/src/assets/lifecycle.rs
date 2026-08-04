@@ -133,6 +133,16 @@ fn remap_model_selection(
 }
 
 pub fn plan_model_schema_v2_migration() -> Result<Option<AssetOperationPlan>, String> {
+    plan_model_schema_v2_migration_preserving(&BTreeMap::new())
+}
+
+/// Build the reviewed "keep Agent" alternative for schema v2. Each entry
+/// names legacy Profile relationships that must be released for one Agent.
+/// Every native Model target for that Agent is preserved because its Profiles
+/// may share one physical configuration file.
+pub(crate) fn plan_model_schema_v2_migration_preserving(
+    released: &BTreeMap<String, BTreeSet<String>>,
+) -> Result<Option<AssetOperationPlan>, String> {
     let settings = load_settings_strict().map_err(|error| error.to_string())?;
     if settings.version.unwrap_or_default() >= 2 {
         return Ok(None);
@@ -156,12 +166,28 @@ pub fn plan_model_schema_v2_migration() -> Result<Option<AssetOperationPlan>, St
     for agent_id in agent_ids {
         let selection = settings.model_selection(&agent_id);
         before.insert(agent_id.clone(), selection.clone());
-        after.insert(agent_id, remap_model_selection(selection, &id_map)?);
+        let mut migrated = remap_model_selection(selection, &id_map)?;
+        if let Some(released_profile_ids) = released.get(&agent_id) {
+            for old_id in released_profile_ids {
+                let new_id = id_map
+                    .get(old_id)
+                    .ok_or_else(|| format!("model_schema_migration_missing_profile: {old_id}"))?;
+                migrated.profiles.remove(new_id);
+            }
+            migrated.normalize_active();
+        }
+        after.insert(agent_id, migrated);
     }
     let draft_hash = hash_serializable(&profiles)?;
     let credential_profile_ids = id_map
         .keys()
         .filter(|profile_id| credential_present(profile_id))
+        .cloned()
+        .collect::<BTreeSet<_>>();
+    let preserve_legacy_credential_ids = released
+        .values()
+        .flatten()
+        .filter(|profile_id| credential_profile_ids.contains(*profile_id))
         .cloned()
         .collect::<BTreeSet<_>>();
     let central_changes = id_map
@@ -190,6 +216,8 @@ pub fn plan_model_schema_v2_migration() -> Result<Option<AssetOperationPlan>, St
             id_map,
             draft_hash,
             credential_profile_ids,
+            preserve_legacy_credential_ids,
+            preserve_agent_targets: released.keys().cloned().collect(),
         }),
     )?;
     PENDING_PAYLOADS

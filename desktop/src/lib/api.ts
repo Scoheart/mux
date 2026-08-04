@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
   AgentDefinitionInput,
+  BackendStatus,
   AgentConfigurationInput,
   AgentConfigurationPatch,
   AgentConsumptionSelection,
@@ -20,6 +21,9 @@ import type {
   ModelProviderView,
   ModelProfileView,
   ModelProviderInstanceView,
+  MigrationResolutionOutcome,
+  MigrationResolutionStrategy,
+  MigrationReview,
   OperationPlan,
   OperationCommitResult,
   PlanOperationRequest,
@@ -44,6 +48,23 @@ import type {
 
 export const getWorkspaceSnapshot = () =>
   invoke<WorkspaceSnapshot>("get_workspace_snapshot");
+export const getBackendStatus = () => invoke<BackendStatus>("get_backend_status");
+export const getMigrationReview = () =>
+  invoke<MigrationReview | null>("get_migration_review");
+export const resolveMigration = (
+  review: MigrationReview,
+  strategy: MigrationResolutionStrategy,
+  candidateHash?: string,
+  dryRun = false,
+) => invoke<MigrationResolutionOutcome>("resolve_migration", {
+  request: {
+    review_hash: review.review_hash,
+    strategy,
+    candidate_hash: candidateHash ?? null,
+    confirmed: strategy === "use_mux" || strategy === "keep_agent",
+    dry_run: dryRun,
+  },
+});
 export const listAgentCapabilities = () =>
   invoke<AgentCapabilityView[]>("list_agent_capabilities");
 export const planOperation = (request: PlanOperationRequest) =>

@@ -1,11 +1,57 @@
 //! Cross-domain central asset use cases.
 
+use super::gate::CapabilityDomain;
 pub use crate::assets::{
     CompatibilityReason, CompatibilityView, McpAdoptionCandidate, McpAdoptionStatus,
     ModelAdoptionCandidate, ModelAdoptionStatus, ModelCredentialKind, PlanMcpAdoptionRequest,
     PlanModelAdoptionRequest,
 };
 pub use crate::domain::assets::*;
+
+fn asset_capability(asset: &AssetRef) -> CapabilityDomain {
+    match asset {
+        AssetRef::Mcp { .. } => CapabilityDomain::Mcp,
+        AssetRef::Model { .. } | AssetRef::ModelProvider { .. } => CapabilityDomain::Model,
+        AssetRef::Skill { .. } => CapabilityDomain::Skill,
+    }
+}
+
+fn draft_capability(draft: &CentralAssetDraft) -> CapabilityDomain {
+    match draft {
+        CentralAssetDraft::Mcp { .. } => CapabilityDomain::Mcp,
+        CentralAssetDraft::Model { .. } | CentralAssetDraft::ModelProvider { .. } => {
+            CapabilityDomain::Model
+        }
+    }
+}
+
+fn selection_capability(selection: &AgentConsumptionSelection) -> CapabilityDomain {
+    match selection {
+        AgentConsumptionSelection::Mcp { .. } => CapabilityDomain::Mcp,
+        AgentConsumptionSelection::Model { .. } => CapabilityDomain::Model,
+        AgentConsumptionSelection::Skill { .. } => CapabilityDomain::Skill,
+    }
+}
+
+fn operation_capability(operation_id: &str) -> Result<Option<CapabilityDomain>, String> {
+    let operation = crate::assets::planner::load_operation(operation_id)?;
+    Ok(match operation.plan.domain_plan {
+        DomainPlan::Mcp { .. } => Some(CapabilityDomain::Mcp),
+        DomainPlan::Model { .. } => Some(CapabilityDomain::Model),
+        DomainPlan::Skill { .. } => Some(CapabilityDomain::Skill),
+        DomainPlan::AgentConfiguration { .. } | DomainPlan::AgentCapabilities { .. } => None,
+    })
+}
+
+fn operation_capability_if_present(
+    operation_id: &str,
+) -> Result<Option<Option<CapabilityDomain>>, String> {
+    match operation_capability(operation_id) {
+        Ok(capability) => Ok(Some(capability)),
+        Err(error) if error == crate::assets::planner::OPERATION_UNAVAILABLE_ERROR => Ok(None),
+        Err(error) => Err(error),
+    }
+}
 
 pub fn compatibility_for(agent_id: &str, asset: &AssetRef) -> Result<CompatibilityView, String> {
     super::gate::read(|| crate::assets::compatibility_for(agent_id, asset))
@@ -28,7 +74,8 @@ pub fn list_model_adoption_candidates() -> Result<Vec<ModelAdoptionCandidate>, S
 pub fn plan_update_central_asset(
     request: PlanUpdateCentralAssetRequest,
 ) -> Result<AssetOperationPlan, String> {
-    super::gate::prepare("asset_plan", || {
+    let capability = draft_capability(&request.draft);
+    super::gate::prepare_for(capability, "asset_plan", || {
         crate::assets::plan_update_central_asset(request)
     })
 }
@@ -36,29 +83,39 @@ pub fn plan_update_central_asset(
 pub fn plan_delete_central_asset(
     request: PlanDeleteCentralAssetRequest,
 ) -> Result<AssetOperationPlan, String> {
-    super::gate::prepare("asset_plan", || {
+    let capability = asset_capability(&request.asset);
+    super::gate::prepare_for(capability, "asset_plan", || {
         crate::assets::plan_delete_central_asset(request)
     })
 }
 
 pub fn plan_mcp_adoption(request: PlanMcpAdoptionRequest) -> Result<AssetOperationPlan, String> {
-    super::gate::prepare("asset_plan", || crate::assets::plan_mcp_adoption(request))
+    super::gate::prepare_for(CapabilityDomain::Mcp, "asset_plan", || {
+        crate::assets::plan_mcp_adoption(request)
+    })
 }
 
 pub fn plan_model_adoption(
     request: PlanModelAdoptionRequest,
 ) -> Result<AssetOperationPlan, String> {
-    super::gate::prepare("asset_plan", || crate::assets::plan_model_adoption(request))
+    super::gate::prepare_for(CapabilityDomain::Model, "asset_plan", || {
+        crate::assets::plan_model_adoption(request)
+    })
 }
 
 pub fn plan_model_schema_v2_migration() -> Result<Option<AssetOperationPlan>, String> {
-    super::gate::prepare("asset_plan", crate::assets::plan_model_schema_v2_migration)
+    super::gate::prepare_for(
+        CapabilityDomain::Model,
+        "asset_plan",
+        crate::assets::plan_model_schema_v2_migration,
+    )
 }
 
 pub fn plan_set_agent_consumption(
     request: PlanSetAgentConsumptionRequest,
 ) -> Result<AssetOperationPlan, String> {
-    super::gate::prepare("asset_plan", || {
+    let capability = selection_capability(&request.selection);
+    super::gate::prepare_for(capability, "asset_plan", || {
         crate::assets::plan_set_agent_consumption(request)
     })
 }
@@ -66,7 +123,8 @@ pub fn plan_set_agent_consumption(
 pub fn plan_ensure_agent_consumption(
     request: PlanEnsureAgentConsumptionRequest,
 ) -> Result<AssetOperationPlan, String> {
-    super::gate::prepare("asset_plan", || {
+    let capability = selection_capability(&request.selection);
+    super::gate::prepare_for(capability, "asset_plan", || {
         crate::assets::plan_ensure_agent_consumption(request)
     })
 }
@@ -74,7 +132,8 @@ pub fn plan_ensure_agent_consumption(
 pub fn plan_remove_agent_consumption(
     request: PlanRemoveAgentConsumptionRequest,
 ) -> Result<AssetOperationPlan, String> {
-    super::gate::prepare("asset_plan", || {
+    let capability = selection_capability(&request.selection);
+    super::gate::prepare_for(capability, "asset_plan", || {
         crate::assets::plan_remove_agent_consumption(request)
     })
 }
@@ -82,7 +141,8 @@ pub fn plan_remove_agent_consumption(
 pub fn plan_set_asset_consumers(
     request: PlanSetAssetConsumersRequest,
 ) -> Result<AssetOperationPlan, String> {
-    super::gate::prepare("asset_plan", || {
+    let capability = asset_capability(&request.asset);
+    super::gate::prepare_for(capability, "asset_plan", || {
         crate::assets::plan_set_asset_consumers(request)
     })
 }
@@ -90,7 +150,8 @@ pub fn plan_set_asset_consumers(
 pub fn plan_update_asset_consumers(
     request: PlanUpdateAssetConsumersRequest,
 ) -> Result<AssetOperationPlan, String> {
-    super::gate::prepare("asset_plan", || {
+    let capability = asset_capability(&request.asset);
+    super::gate::prepare_for(capability, "asset_plan", || {
         crate::assets::plan_update_asset_consumers(request)
     })
 }
@@ -98,7 +159,7 @@ pub fn plan_update_asset_consumers(
 pub fn plan_set_mcp_enabled(
     request: PlanSetMcpEnabledRequest,
 ) -> Result<AssetOperationPlan, String> {
-    super::gate::prepare("asset_plan", || {
+    super::gate::prepare_for(CapabilityDomain::Mcp, "asset_plan", || {
         crate::assets::plan_set_mcp_enabled(request)
     })
 }
@@ -106,27 +167,33 @@ pub fn plan_set_mcp_enabled(
 pub fn plan_set_skill_enabled(
     request: PlanSetSkillEnabledRequest,
 ) -> Result<AssetOperationPlan, String> {
-    super::gate::prepare("asset_plan", || {
+    super::gate::prepare_for(CapabilityDomain::Skill, "asset_plan", || {
         crate::assets::plan_set_skill_enabled(request)
     })
 }
 
 pub fn plan_reapply_mcp(request: PlanReapplyMcpRequest) -> Result<AssetOperationPlan, String> {
-    super::gate::prepare("asset_plan", || crate::assets::plan_reapply_mcp(request))
+    super::gate::prepare_for(CapabilityDomain::Mcp, "asset_plan", || {
+        crate::assets::plan_reapply_mcp(request)
+    })
 }
 
 pub fn plan_reapply_model(request: PlanReapplyModelRequest) -> Result<AssetOperationPlan, String> {
-    super::gate::prepare("asset_plan", || crate::assets::plan_reapply_model(request))
+    super::gate::prepare_for(CapabilityDomain::Model, "asset_plan", || {
+        crate::assets::plan_reapply_model(request)
+    })
 }
 
 pub fn plan_reapply_skill(request: PlanReapplySkillRequest) -> Result<AssetOperationPlan, String> {
-    super::gate::prepare("asset_plan", || crate::assets::plan_reapply_skill(request))
+    super::gate::prepare_for(CapabilityDomain::Skill, "asset_plan", || {
+        crate::assets::plan_reapply_skill(request)
+    })
 }
 
 pub fn plan_set_model_enabled(
     request: PlanSetModelEnabledRequest,
 ) -> Result<AssetOperationPlan, String> {
-    super::gate::prepare("asset_plan", || {
+    super::gate::prepare_for(CapabilityDomain::Model, "asset_plan", || {
         crate::assets::plan_set_model_enabled(request)
     })
 }
@@ -134,7 +201,7 @@ pub fn plan_set_model_enabled(
 pub fn plan_set_active_model(
     request: PlanSetActiveModelRequest,
 ) -> Result<AssetOperationPlan, String> {
-    super::gate::prepare("asset_plan", || {
+    super::gate::prepare_for(CapabilityDomain::Model, "asset_plan", || {
         crate::assets::plan_set_active_model(request)
     })
 }
@@ -156,15 +223,48 @@ pub fn plan_update_agent_configuration(
 }
 
 pub fn commit_asset_operation(request: AssetCommitRequest) -> Result<ConsumptionInventory, String> {
-    super::gate::mutate("asset_commit", || {
-        crate::assets::commit_asset_operation(request)
-    })
+    let capability = operation_capability(&request.operation_id)?;
+    match capability {
+        Some(capability) => super::gate::mutate_for(capability, "asset_commit", || {
+            if operation_capability(&request.operation_id)? != Some(capability) {
+                return Err("asset_operation_stale: operation capability changed".into());
+            }
+            crate::assets::commit_asset_operation(request)
+        }),
+        None => super::gate::mutate("asset_commit", || {
+            if operation_capability(&request.operation_id)?.is_some() {
+                return Err("asset_operation_stale: operation capability changed".into());
+            }
+            crate::assets::commit_asset_operation(request)
+        }),
+    }
 }
 
 pub fn cancel_asset_operation(operation_id: &str) -> Result<(), String> {
-    super::gate::mutate("asset_cancel", || {
-        crate::assets::cancel_asset_operation(operation_id)
-    })
+    match operation_capability_if_present(operation_id)? {
+        None => super::gate::mutate("asset_cancel", || {
+            crate::assets::cancel_asset_operation(operation_id)
+        }),
+        Some(Some(capability)) => super::gate::mutate_for(capability, "asset_cancel", || {
+            match operation_capability_if_present(operation_id)? {
+                None => crate::assets::cancel_asset_operation(operation_id),
+                Some(Some(current)) if current == capability => {
+                    crate::assets::cancel_asset_operation(operation_id)
+                }
+                _ => Err("asset_operation_stale: operation capability changed".into()),
+            }
+        }),
+        Some(None) => {
+            super::gate::mutate("asset_cancel", || {
+                match operation_capability_if_present(operation_id)? {
+                    None | Some(None) => crate::assets::cancel_asset_operation(operation_id),
+                    Some(Some(_)) => {
+                        Err("asset_operation_stale: operation capability changed".into())
+                    }
+                }
+            })
+        }
+    }
 }
 
 pub fn recover_pending_asset_operations() -> Result<Vec<String>, String> {
@@ -175,7 +275,8 @@ pub fn recover_pending_asset_operations() -> Result<Vec<String>, String> {
 }
 
 pub fn migrate_model_profiles_v2_if_needed() -> Result<bool, String> {
-    super::gate::mutate(
+    super::gate::mutate_for(
+        CapabilityDomain::Model,
         "model_profile_migration",
         crate::assets::migrate_model_profiles_v2_if_needed,
     )

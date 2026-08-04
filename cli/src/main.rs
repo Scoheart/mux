@@ -120,7 +120,10 @@ fn run(cli: Cli) -> Result<(), CliError> {
         return tui::run().map_err(|error| CliError::private("tui_failed", error.to_string()));
     }
 
-    bootstrap(cli.json)?;
+    let report = bootstrap(cli.json)?;
+    if command_requires_model_mutation(cli.command.as_ref()) {
+        reject_model_blocker(&report)?;
+    }
 
     let is_upgrade = matches!(cli.command, Some(command::Command::Upgrade));
     let output = dispatch(&cli)?;
@@ -136,16 +139,70 @@ fn run(cli: Cli) -> Result<(), CliError> {
     Ok(())
 }
 
-fn bootstrap(json_mode: bool) -> Result<(), CliError> {
+fn bootstrap(
+    json_mode: bool,
+) -> Result<mux_core::application::bootstrap::BootstrapReport, CliError> {
     let outcome =
         mux_core::application::MuxCore::bootstrap(mux_core::application::bootstrap::Frontend::Cli)
-            .map_err(|error| CliError::private("bootstrap_failed", error.to_string()))?;
+            .map_err(|error| {
+                CliError::new("bootstrap_failed", "MUX startup failed")
+                    .with_detail("stage", error.stage.code())
+                    .with_detail("reviewable", false)
+            })?;
     if !json_mode {
-        for warning in outcome.warnings {
+        for warning in &outcome.warnings {
             eprintln!("MUX startup warning: {}", warning.message);
         }
     }
-    Ok(())
+    Ok(outcome)
+}
+
+fn command_requires_model_mutation(command: Option<&command::Command>) -> bool {
+    match command {
+        Some(command::Command::Model { command }) => !matches!(
+            command,
+            command::ModelCommand::List
+                | command::ModelCommand::Show { .. }
+                | command::ModelCommand::Status { .. }
+        ),
+        Some(command::Command::Adopt {
+            command: command::AdoptCommand::Model { .. },
+        }) => true,
+        _ => false,
+    }
+}
+
+fn reject_model_blocker(
+    report: &mux_core::application::bootstrap::BootstrapReport,
+) -> Result<(), CliError> {
+    match &report.status {
+        mux_core::application::BackendStatus::MigrationReviewRequired { stage, .. } => {
+            let review = mux_core::application::MuxCore::migration_review().ok_or_else(|| {
+                CliError::new(
+                    "migration_review_unavailable",
+                    "migration review is unavailable",
+                )
+            })?;
+            Err(CliError::new(
+                "migration_review_required",
+                "Model configuration upgrade needs confirmation; run `mux migration review`",
+            )
+            .with_detail("stage", stage.clone())
+            .with_detail("capability", "model")
+            .with_detail("reviewable", true)
+            .with_detail("review", serde_json::to_value(review).unwrap_or_default()))
+        }
+        mux_core::application::BackendStatus::CapabilityUnavailable {
+            capability: mux_core::application::CapabilityDomain::Model,
+            stage,
+            code,
+            message,
+        } => Err(CliError::new(code.clone(), message.clone())
+            .with_detail("stage", stage.clone())
+            .with_detail("capability", "model")
+            .with_detail("reviewable", false)),
+        _ => Ok(()),
+    }
 }
 
 #[cfg(test)]
@@ -196,5 +253,30 @@ mod tests {
             "mcp".into(),
             "list".into(),
         ]));
+    }
+
+    #[test]
+    fn model_blocker_precheck_is_limited_to_model_mutations() {
+        let model_list = Cli::try_parse_from(["mux", "model", "list"]).unwrap();
+        assert!(!command_requires_model_mutation(
+            model_list.command.as_ref()
+        ));
+
+        let model_assign =
+            Cli::try_parse_from(["mux", "model", "assign", "profile", "--agent", "codex"]).unwrap();
+        assert!(command_requires_model_mutation(
+            model_assign.command.as_ref()
+        ));
+
+        let skill_assign =
+            Cli::try_parse_from(["mux", "skill", "assign", "skill", "--agent", "codex"]).unwrap();
+        assert!(!command_requires_model_mutation(
+            skill_assign.command.as_ref()
+        ));
+
+        let model_adopt = Cli::try_parse_from(["mux", "adopt", "model", "candidate"]).unwrap();
+        assert!(command_requires_model_mutation(
+            model_adopt.command.as_ref()
+        ));
     }
 }

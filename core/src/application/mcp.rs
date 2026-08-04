@@ -67,6 +67,7 @@ pub mod scanning {
 }
 
 pub mod sources {
+    use crate::application::gate::CapabilityDomain;
     pub use crate::resources::mcp::sources::SourceView;
 
     pub fn list_views() -> Vec<SourceView> {
@@ -74,27 +75,40 @@ pub mod sources {
     }
 
     pub fn subscribe(url: String, name: Option<String>) -> Result<SourceView, String> {
-        super::super::gate::write(|| crate::resources::mcp::sources::subscribe(url, name))
+        super::super::gate::write_for(CapabilityDomain::Mcp, || {
+            crate::resources::mcp::sources::subscribe(url, name)
+        })
     }
 
     pub fn add_local(path: String, name: Option<String>) -> Result<SourceView, String> {
-        super::super::gate::write(|| crate::resources::mcp::sources::add_local(path, name))
+        super::super::gate::write_for(CapabilityDomain::Mcp, || {
+            crate::resources::mcp::sources::add_local(path, name)
+        })
     }
 
     pub fn add_official() -> Result<SourceView, String> {
-        super::super::gate::write(crate::resources::mcp::sources::add_official)
+        super::super::gate::write_for(
+            CapabilityDomain::Mcp,
+            crate::resources::mcp::sources::add_official,
+        )
     }
 
     pub fn refresh(id: String) -> Result<SourceView, String> {
-        super::super::gate::write(|| crate::resources::mcp::sources::refresh(id))
+        super::super::gate::write_for(CapabilityDomain::Mcp, || {
+            crate::resources::mcp::sources::refresh(id)
+        })
     }
 
     pub fn set_enabled(id: String, enabled: bool) -> Result<(), String> {
-        super::super::gate::write(|| crate::resources::mcp::sources::set_enabled(id, enabled))
+        super::super::gate::write_for(CapabilityDomain::Mcp, || {
+            crate::resources::mcp::sources::set_enabled(id, enabled)
+        })
     }
 
     pub fn remove(id: String) -> Result<(), String> {
-        super::super::gate::write(|| crate::resources::mcp::sources::remove(id))
+        super::super::gate::write_for(CapabilityDomain::Mcp, || {
+            crate::resources::mcp::sources::remove(id)
+        })
     }
 }
 

@@ -392,6 +392,7 @@ fn open_code_provider(profile: &ModelProfile) -> Value {
         ModelProtocol::AnthropicMessages => "@ai-sdk/anthropic",
         ModelProtocol::OpenaiResponses => "@ai-sdk/openai",
         ModelProtocol::OpenaiCompletions => "@ai-sdk/openai-compatible",
+        ModelProtocol::GeminiGenerateContent => "@ai-sdk/google",
     };
     let mut options = Map::from_iter([("baseURL".into(), Value::String(profile.base_url.clone()))]);
     if let Some(value) = env_ref(profile, "{env:", "}") {
@@ -834,6 +835,7 @@ fn factory_model(profile: &ModelProfile) -> Value {
         ModelProtocol::AnthropicMessages => "anthropic",
         ModelProtocol::OpenaiResponses => "openai",
         ModelProtocol::OpenaiCompletions => "generic-chat-completion-api",
+        ModelProtocol::GeminiGenerateContent => "google",
     };
     let mut value = Map::from_iter([
         ("model".into(), Value::String(profile.model.clone())),

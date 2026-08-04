@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.116](https://github.com/Scoheart/mux/compare/v1.8.115...v1.8.116) (2026-08-04)
+
+### Changes
+
+* refactor(assets): unify semantic state preconditions ([354b56b](https://github.com/Scoheart/mux/commit/354b56ba7f2fdf53c84d0e6008b870b9b406cb47))
+
 ## [1.8.115](https://github.com/Scoheart/mux/compare/v1.8.114...v1.8.115) (2026-08-04)
 
 ### Changes

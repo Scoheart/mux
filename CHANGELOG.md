@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.113](https://github.com/Scoheart/mux/compare/v1.8.112...v1.8.113) (2026-08-04)
+
+### Changes
+
+* fix(core): satisfy strict asset lint ([ac8d042](https://github.com/Scoheart/mux/commit/ac8d0420a2d97a4a3e3e368d8ae963427761a4b5))
+
 ## [1.8.112](https://github.com/Scoheart/mux/compare/v1.8.111...v1.8.112) (2026-08-04)
 
 ### Changes

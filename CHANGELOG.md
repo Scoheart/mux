@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.109](https://github.com/Scoheart/mux/compare/v1.8.108...v1.8.109) (2026-08-04)
+
+### Changes
+
+* feat(model): isolate migration recovery and add Gemini protocol ([4e9c516](https://github.com/Scoheart/mux/commit/4e9c5166dcaa57792edc9d1cafd3aa9f1747e275))
+
 ## [1.8.108](https://github.com/Scoheart/mux/compare/v1.8.107...v1.8.108) (2026-08-03)
 
 ### Changes

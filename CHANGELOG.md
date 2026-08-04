@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.111](https://github.com/Scoheart/mux/compare/v1.8.110...v1.8.111) (2026-08-04)
+
+### Changes
+
+* feat(assets)!: unify external state convergence ([ec09556](https://github.com/Scoheart/mux/commit/ec0955602fc4737500a94408bf5ff06429836f90))
+
 ## [1.8.110](https://github.com/Scoheart/mux/compare/v1.8.109...v1.8.110) (2026-08-04)
 
 ### Changes

@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.112](https://github.com/Scoheart/mux/compare/v1.8.111...v1.8.112) (2026-08-04)
+
+### Changes
+
+* fix(sync): isolate capability read failures ([6794566](https://github.com/Scoheart/mux/commit/679456629d8df33868b81d64983ec597f26a34ab))
+
 ## [1.8.111](https://github.com/Scoheart/mux/compare/v1.8.110...v1.8.111) (2026-08-04)
 
 ### Changes

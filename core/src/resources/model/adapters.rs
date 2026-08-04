@@ -387,23 +387,69 @@ fn prepared_json(path: &Path, original: Option<String>, root: CstRootNode) -> Pr
     }
 }
 
-fn open_code_provider(profile: &ModelProfile) -> Value {
+fn open_code_provider(
+    profile: &ModelProfile,
+    existing: Option<Value>,
+    path: &Path,
+) -> Result<Value, String> {
     let package = match profile.protocol {
         ModelProtocol::AnthropicMessages => "@ai-sdk/anthropic",
         ModelProtocol::OpenaiResponses => "@ai-sdk/openai",
         ModelProtocol::OpenaiCompletions => "@ai-sdk/openai-compatible",
         ModelProtocol::GeminiGenerateContent => "@ai-sdk/google",
     };
-    let mut options = Map::from_iter([("baseURL".into(), Value::String(profile.base_url.clone()))]);
+    let mut provider = match existing {
+        None => Map::new(),
+        Some(Value::Object(provider)) => provider,
+        Some(_) => {
+            return Err(format!(
+                "refusing to modify {}: OpenCode provider entry is not an object",
+                path.display()
+            ))
+        }
+    };
+    let mut options = match provider.remove("options") {
+        None => Map::new(),
+        Some(Value::Object(options)) => options,
+        Some(_) => {
+            return Err(format!(
+                "refusing to modify {}: OpenCode provider options is not an object",
+                path.display()
+            ))
+        }
+    };
+    options.insert("baseURL".into(), Value::String(profile.base_url.clone()));
     if let Some(value) = env_ref(profile, "{env:", "}") {
         options.insert("apiKey".into(), Value::String(value));
+    } else {
+        options.remove("apiKey");
     }
-    let mut model = Map::from_iter([
-        ("id".into(), Value::String(profile.model.clone())),
-        ("name".into(), Value::String(profile.name.clone())),
-    ]);
+    let mut models = match provider.remove("models") {
+        None => Map::new(),
+        Some(Value::Object(models)) => models,
+        Some(_) => {
+            return Err(format!(
+                "refusing to modify {}: OpenCode provider models is not an object",
+                path.display()
+            ))
+        }
+    };
+    let mut model = match models.remove(&profile.model) {
+        None => Map::new(),
+        Some(Value::Object(model)) => model,
+        Some(_) => {
+            return Err(format!(
+                "refusing to modify {}: OpenCode model entry is not an object",
+                path.display()
+            ))
+        }
+    };
+    model.insert("id".into(), Value::String(profile.model.clone()));
+    model.insert("name".into(), Value::String(profile.name.clone()));
     if let Some(value) = profile.reasoning {
         model.insert("reasoning".into(), Value::Bool(value));
+    } else {
+        model.remove("reasoning");
     }
     if profile.context_window.is_some() || profile.max_output_tokens.is_some() {
         let mut limit = Map::new();
@@ -414,13 +460,15 @@ fn open_code_provider(profile: &ModelProfile) -> Value {
             limit.insert("output".into(), value.into());
         }
         model.insert("limit".into(), Value::Object(limit));
+    } else {
+        model.remove("limit");
     }
-    json!({
-        "name": profile.name,
-        "npm": package,
-        "options": options,
-        "models": { profile.model.clone(): Value::Object(model) }
-    })
+    models.insert(profile.model.clone(), Value::Object(model));
+    provider.insert("name".into(), Value::String(profile.name.clone()));
+    provider.insert("npm".into(), Value::String(package.into()));
+    provider.insert("options".into(), Value::Object(options));
+    provider.insert("models".into(), Value::Object(models));
+    Ok(Value::Object(provider))
 }
 
 fn prepare_open_code(
@@ -439,20 +487,21 @@ fn prepare_open_code(
         )
     })?;
     ensure_unique(&providers, path, "provider")?;
+    let provider_id = provider_id_for(agent_id, profile);
+    let existing = providers
+        .get(&provider_id)
+        .and_then(|property| property.value())
+        .and_then(|value| value.to_serde_value());
     set_json(
         &providers,
-        &provider_id_for(agent_id, profile),
-        Some(open_code_provider(profile)),
+        &provider_id,
+        Some(open_code_provider(profile, existing, path)?),
     );
     if active {
         set_json(
             &object,
             "model",
-            Some(Value::String(format!(
-                "{}/{}",
-                provider_id_for(agent_id, profile),
-                profile.model
-            ))),
+            Some(Value::String(format!("{}/{}", provider_id, profile.model))),
         );
     }
     Ok(prepared_json(path, original, root))
@@ -466,11 +515,39 @@ fn prepare_clear_open_code(
     let (root, original) = read_jsonc(path)?;
     let object = root_object(&root, path)?;
     ensure_unique(&object, path, "$root")?;
+    let provider_id = provider_id_for(agent_id, profile);
     if let Some(providers) = object.object_value("provider") {
         ensure_unique(&providers, path, "provider")?;
-        set_json(&providers, &provider_id_for(agent_id, profile), None);
+        if let Some(property) = providers.get(&provider_id) {
+            let mut provider = property
+                .value()
+                .and_then(|value| value.to_serde_value())
+                .and_then(|value| value.as_object().cloned())
+                .ok_or_else(|| {
+                    format!(
+                        "refusing to modify {}: OpenCode provider entry is not an object",
+                        path.display()
+                    )
+                })?;
+            let mut models = provider
+                .remove("models")
+                .and_then(|value| value.as_object().cloned())
+                .ok_or_else(|| {
+                    format!(
+                        "refusing to modify {}: OpenCode provider models is not an object",
+                        path.display()
+                    )
+                })?;
+            models.remove(&profile.model);
+            if models.is_empty() {
+                set_json(&providers, &provider_id, None);
+            } else {
+                provider.insert("models".into(), Value::Object(models));
+                set_json(&providers, &provider_id, Some(Value::Object(provider)));
+            }
+        }
     }
-    let selected = format!("{}/{}", provider_id_for(agent_id, profile), profile.model);
+    let selected = format!("{provider_id}/{}", profile.model);
     let is_selected = object
         .get("model")
         .and_then(|p| p.value())
@@ -1653,6 +1730,50 @@ mod tests {
             assert!(content.contains("mux_776f726b/vendor/model"));
             fs::remove_file(path).unwrap();
         }
+    }
+
+    #[test]
+    fn opencode_restore_and_detach_preserve_sibling_external_models() {
+        let path = temp_path("opencode-sibling-model", "json");
+        fs::write(
+            &path,
+            r#"{"model":"legacy/managed","provider":{"legacy":{"future":true,"npm":"old","options":{"baseURL":"https://old","futureOption":true},"models":{"managed":{"name":"Old","futureModel":true},"external":{"name":"External"}}}}}"#,
+        )
+        .unwrap();
+        let mut managed = profile(ModelProtocol::OpenaiCompletions);
+        managed.model = "managed".into();
+        managed
+            .native_ids
+            .insert("opencode".into(), "legacy".into());
+
+        let applied =
+            prepare_apply("opencode", std::slice::from_ref(&path), &managed, true).unwrap();
+        let applied: Value = serde_json::from_str(applied[0].content.as_deref().unwrap()).unwrap();
+        assert_eq!(applied["provider"]["legacy"]["future"], true);
+        assert_eq!(
+            applied["provider"]["legacy"]["options"]["futureOption"],
+            true
+        );
+        assert_eq!(
+            applied["provider"]["legacy"]["models"]["managed"]["futureModel"],
+            true
+        );
+        assert_eq!(
+            applied["provider"]["legacy"]["models"]["external"]["name"],
+            "External"
+        );
+
+        fs::write(&path, serde_json::to_string(&applied).unwrap()).unwrap();
+        let cleared = prepare_clear("opencode", std::slice::from_ref(&path), &managed).unwrap();
+        let cleared: Value = serde_json::from_str(cleared[0].content.as_deref().unwrap()).unwrap();
+        assert!(cleared["provider"]["legacy"]["models"]
+            .get("managed")
+            .is_none());
+        assert_eq!(
+            cleared["provider"]["legacy"]["models"]["external"]["name"],
+            "External"
+        );
+        fs::remove_file(path).unwrap();
     }
 
     #[test]

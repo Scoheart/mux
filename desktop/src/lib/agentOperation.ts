@@ -8,7 +8,6 @@ import type { AssetOperationPlan } from "./types";
 export function requiresAgentReview(plan: AssetOperationPlan) {
   if (
     !plan.can_commit
-    || plan.requires_conflict_confirmation
     || plan.warnings.length > 0
   ) {
     return true;

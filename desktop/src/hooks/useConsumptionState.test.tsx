@@ -102,7 +102,6 @@ it("loads inventory and owns one reviewed operation", async () => {
     request: {
       operation_id: "00000000-0000-4000-8000-000000000001",
       candidate_hash: "candidate",
-      conflict_confirmation: undefined,
     },
   });
   expect(result.current.plan).toBeNull();

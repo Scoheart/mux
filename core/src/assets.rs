@@ -9,6 +9,7 @@ pub mod inventory;
 pub mod lifecycle;
 pub mod migration;
 pub mod model_migration;
+pub mod observation;
 pub mod planner;
 pub mod transaction;
 pub mod types {
@@ -18,8 +19,7 @@ pub mod types {
 pub use compatibility::{compatibility_for, CompatibilityReason, CompatibilityView};
 pub use inventory::{list_consumption_inventory, list_consumption_inventory_with_skills};
 pub use lifecycle::{
-    migrate_model_profiles_v2_if_needed, plan_delete_central_asset, plan_model_schema_v2_migration,
-    plan_update_central_asset,
+    migrate_model_profiles_v2_if_needed, plan_delete_central_asset, plan_update_central_asset,
 };
 pub use migration::{
     list_mcp_adoption_candidates, plan_mcp_adoption, McpAdoptionCandidate, McpAdoptionStatus,
@@ -29,11 +29,13 @@ pub use model_migration::{
     list_model_adoption_candidates, plan_model_adoption, ModelAdoptionCandidate,
     ModelAdoptionStatus, ModelCredentialKind, PlanModelAdoptionRequest,
 };
+pub use observation::{observation_watch_targets, ObservationDomain, ObservationWatchTarget};
 pub use planner::{
-    plan_ensure_agent_consumption, plan_reapply_mcp, plan_reapply_model, plan_reapply_skill,
-    plan_remove_agent_consumption, plan_set_active_model, plan_set_agent_consumption,
-    plan_set_asset_consumers, plan_set_mcp_enabled, plan_set_model_enabled, plan_set_skill_enabled,
-    plan_update_agent_capabilities, plan_update_agent_configuration, plan_update_asset_consumers,
+    plan_adopt_observed_skill, plan_ensure_agent_consumption, plan_reapply_mcp, plan_reapply_model,
+    plan_reapply_skill, plan_remove_agent_consumption, plan_set_active_model,
+    plan_set_agent_consumption, plan_set_asset_consumers, plan_set_mcp_enabled,
+    plan_set_model_enabled, plan_set_skill_enabled, plan_update_agent_capabilities,
+    plan_update_asset_consumers,
 };
 pub use transaction::{
     cancel_asset_operation, commit_asset_operation, recover_pending_asset_operations,
@@ -41,14 +43,14 @@ pub use transaction::{
 pub use types::{
     AgentConsumptionSelection, AssetCommitRequest, AssetOperationKind, AssetOperationPlan,
     AssetRef, CentralAssetAction, CentralAssetChange, CentralAssetDraft, ConsumptionInventory,
-    ConsumptionStateChange, ConsumptionStatus, ConsumptionTarget, ConsumptionView, DomainPlan,
-    McpConsumptionRecord, McpReapplyScope, ModelAgentSelection, ModelConsumptionRecord,
-    ModelStateChange, ModelStateSnapshot, PlanDeleteCentralAssetRequest,
+    ConsumptionStateChange, ConsumptionStatus, ConsumptionTarget, ConsumptionView,
+    ConvergenceAction, DomainPlan, McpConsumptionRecord, McpReapplyScope, ModelAgentSelection,
+    ModelConsumptionRecord, ModelStateChange, ModelStateSnapshot, OwnershipState,
+    PlanConvergeConsumptionRequest, PlanDeleteCentralAssetRequest,
     PlanEnsureAgentConsumptionRequest, PlanReapplyMcpRequest, PlanReapplyModelRequest,
     PlanReapplySkillRequest, PlanRemoveAgentConsumptionRequest, PlanSetActiveModelRequest,
     PlanSetAgentConsumptionRequest, PlanSetAssetConsumersRequest, PlanSetMcpEnabledRequest,
     PlanSetModelEnabledRequest, PlanSetSkillEnabledRequest, PlanUpdateAgentCapabilitiesRequest,
-    PlanUpdateAgentConfigurationRequest, PlanUpdateAssetConsumersRequest,
-    PlanUpdateCentralAssetRequest, RelationshipAction, RelationshipChange, SelectionError,
-    SkillConsumptionRecord,
+    PlanUpdateAssetConsumersRequest, PlanUpdateCentralAssetRequest, RelationshipAction,
+    RelationshipChange, SelectionError, SkillConsumptionRecord,
 };

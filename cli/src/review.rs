@@ -232,18 +232,12 @@ fn cancel_preserving(plan: &OperationPlan, mut error: CliError) -> CliError {
 
 fn commit(plan: OperationPlan) -> Result<Value, CliError> {
     let result = match plan {
-        OperationPlan::Asset { plan } => {
-            let conflict_confirmation = plan
-                .requires_conflict_confirmation
-                .then(|| plan.candidate_hash.clone());
-            MuxCore::commit(CommitOperationRequest::Asset {
-                request: AssetCommitRequest {
-                    operation_id: plan.operation_id,
-                    candidate_hash: plan.candidate_hash,
-                    conflict_confirmation,
-                },
-            })
-        }
+        OperationPlan::Asset { plan } => MuxCore::commit(CommitOperationRequest::Asset {
+            request: AssetCommitRequest {
+                operation_id: plan.operation_id,
+                candidate_hash: plan.candidate_hash,
+            },
+        }),
         OperationPlan::Skill { plan } => {
             let findings_confirmation = plan
                 .requires_risk_override
@@ -274,8 +268,7 @@ fn operation_has_changes(plan: &OperationPlan) -> bool {
 }
 
 fn asset_plan_has_changes(plan: &AssetOperationPlan) -> bool {
-    if plan.requires_conflict_confirmation
-        || !plan.central_changes.is_empty()
+    if !plan.central_changes.is_empty()
         || !plan.relationship_changes.is_empty()
         || !plan.model_state_changes.is_empty()
         || !plan.consumption_state_changes.is_empty()
@@ -285,7 +278,6 @@ fn asset_plan_has_changes(plan: &AssetOperationPlan) -> bool {
     match &plan.domain_plan {
         DomainPlan::Mcp { before, after } | DomainPlan::Skill { before, after } => before != after,
         DomainPlan::Model { before, after } => before != after,
-        DomainPlan::AgentConfiguration { before, after, .. } => before != after,
         DomainPlan::AgentCapabilities { before, after, .. } => before != after,
     }
 }
@@ -312,7 +304,6 @@ fn plan_summary(plan: &OperationPlan) -> Value {
             })).collect::<Vec<_>>(),
             "warnings": plan.warnings,
             "can_commit": plan.can_commit,
-            "requires_conflict_confirmation": plan.requires_conflict_confirmation,
             "candidate_hash": plan.candidate_hash,
         }),
         OperationPlan::Skill { plan } => {
@@ -345,7 +336,7 @@ fn asset_domain(plan: &AssetOperationPlan) -> &'static str {
         DomainPlan::Mcp { .. } => "mcp",
         DomainPlan::Model { .. } => "model",
         DomainPlan::Skill { .. } => "skill",
-        DomainPlan::AgentConfiguration { .. } | DomainPlan::AgentCapabilities { .. } => "agent",
+        DomainPlan::AgentCapabilities { .. } => "agent",
     }
 }
 
@@ -449,9 +440,6 @@ fn render_plan(plan: &OperationPlan, palette: Palette) -> String {
                     lines.push(format!("    fallback: {fallback}"));
                 }
             }
-            if plan.requires_conflict_confirmation {
-                lines.push(palette.yellow("  confirmation: accept reviewed conflict replacement"));
-            }
             for warning in &plan.warnings {
                 lines.push(palette.yellow(&format!("  warning: {warning}")));
             }
@@ -552,7 +540,6 @@ mod tests {
                 affected_agent_ids: vec!["codex".into(), "cursor".into()],
                 warnings: Vec::new(),
                 can_commit: true,
-                requires_conflict_confirmation: false,
                 candidate_hash: "candidate".into(),
             }),
         }
@@ -646,7 +633,7 @@ mod tests {
     }
 
     #[test]
-    fn confirmed_physical_repair_is_not_collapsed_into_a_noop() {
+    fn empty_model_plan_is_a_noop_without_legacy_confirmation_state() {
         let OperationPlan::Asset { mut plan } = state_only_plan() else {
             unreachable!();
         };
@@ -655,8 +642,6 @@ mod tests {
             after: BTreeMap::new(),
         };
         plan.consumption_state_changes.clear();
-        plan.requires_conflict_confirmation = true;
-
-        assert!(asset_plan_has_changes(&plan));
+        assert!(!asset_plan_has_changes(&plan));
     }
 }

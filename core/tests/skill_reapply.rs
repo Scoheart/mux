@@ -15,17 +15,15 @@ use support::skills::{assert_managed_link, managed_record, write_skill, SkillsFi
 
 fn commit(
     plan: &mux_core::consumption::AssetOperationPlan,
-    confirm_conflict: bool,
 ) -> Result<mux_core::consumption::ConsumptionInventory, String> {
     commit_asset_operation(AssetCommitRequest {
         operation_id: plan.operation_id.clone(),
         candidate_hash: plan.candidate_hash.clone(),
-        conflict_confirmation: confirm_conflict.then(|| plan.candidate_hash.clone()),
     })
 }
 
 #[test]
-fn shared_missing_skill_reapply_is_reviewed_repaired_and_then_clean_noop() {
+fn shared_missing_skill_restore_repairs_and_then_becomes_a_clean_noop() {
     let fixture = SkillsFixture::missing_managed_link("review-changes", "agents-user");
     let target = fixture.target("agents-user", "review-changes");
     let central = fixture.central("review-changes");
@@ -36,7 +34,6 @@ fn shared_missing_skill_reapply_is_reviewed_repaired_and_then_clean_noop() {
     })
     .unwrap();
     assert!(plan.can_commit);
-    assert!(plan.requires_conflict_confirmation);
     assert!(plan.relationship_changes.is_empty());
     assert_eq!(plan.target_files, vec!["~/.agents/skills/review-changes"]);
     assert_eq!(
@@ -49,11 +46,7 @@ fn shared_missing_skill_reapply_is_reviewed_repaired_and_then_clean_noop() {
         )));
     }
 
-    let rejected = commit(&plan, false).unwrap_err();
-    assert!(rejected.starts_with("confirmation_required:"), "{rejected}");
-    assert!(fs::symlink_metadata(&target).is_err());
-
-    let inventory = commit(&plan, true).unwrap();
+    let inventory = commit(&plan).unwrap();
     assert_managed_link(target.clone(), central.clone());
     for agent_id in ["codex", "copilot-cli", "cursor", "gemini", "opencode"] {
         let row = inventory
@@ -78,12 +71,11 @@ fn shared_missing_skill_reapply_is_reviewed_repaired_and_then_clean_noop() {
     })
     .unwrap();
     assert!(clean.can_commit);
-    assert!(!clean.requires_conflict_confirmation);
     assert!(clean.central_changes.is_empty());
     assert!(clean.relationship_changes.is_empty());
     assert!(clean.target_files.is_empty());
     assert!(clean.warnings.is_empty());
-    commit(&clean, false).unwrap();
+    commit(&clean).unwrap();
     assert_eq!(fs::read_link(target).unwrap(), link_before);
 }
 
@@ -155,7 +147,7 @@ fn confirmed_skill_reapply_still_refuses_a_target_that_changed_after_review() {
     .unwrap();
     write_skill(&target, "safe", "Appeared after review");
 
-    let error = commit(&plan, true).unwrap_err();
+    let error = commit(&plan).unwrap_err();
     assert_eq!(
         error,
         "asset_operation_stale: an Agent target changed after review"
@@ -195,7 +187,7 @@ fn skill_reapply_becomes_stale_when_a_new_agent_joins_the_shared_target() {
     assert!(fs::symlink_metadata(&target).is_err());
 
     fs::create_dir_all(fixture.home.home.join("Library/Application Support/Cursor")).unwrap();
-    let error = commit(&plan, true).unwrap_err();
+    let error = commit(&plan).unwrap_err();
     assert_eq!(
         error,
         "asset_operation_stale: Skill target graph changed after review"
@@ -217,7 +209,7 @@ fn skill_reapply_enforces_a_disabled_desired_relationship_without_deleting_forei
         enabled: false,
     })
     .unwrap();
-    commit(&disable, false).unwrap();
+    commit(&disable).unwrap();
     symlink(&central, &target).unwrap();
 
     let plan = plan_reapply_skill(PlanReapplySkillRequest {
@@ -225,8 +217,7 @@ fn skill_reapply_enforces_a_disabled_desired_relationship_without_deleting_forei
         name: "safe".into(),
     })
     .unwrap();
-    assert!(plan.requires_conflict_confirmation);
-    commit(&plan, true).unwrap();
+    commit(&plan).unwrap();
     assert!(fs::symlink_metadata(&target).is_err());
 
     write_skill(&target, "safe", "Foreign disabled target");
@@ -270,6 +261,6 @@ fn repeated_skill_enable_is_a_core_noop_even_when_the_link_is_missing() {
     assert!(plan.relationship_changes.is_empty());
     assert!(plan.consumption_state_changes.is_empty());
     assert!(plan.target_files.is_empty());
-    commit(&plan, false).unwrap();
+    commit(&plan).unwrap();
     assert!(fs::symlink_metadata(target).is_err());
 }

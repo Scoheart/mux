@@ -6,10 +6,9 @@ import { AssetOperationReviewDialog } from "./AssetOperationReviewDialog";
 
 afterEach(cleanup);
 
-it("requires explicit bound confirmation before replacing drift", async () => {
+it("commits an explicit convergence plan without a second conflict protocol", async () => {
   const plan = assetOperationPlanFixture();
   plan.kind = "update-asset";
-  plan.requires_conflict_confirmation = true;
   plan.warnings = ["codex: model_owned_fields_drift"];
   const onCommit = vi.fn();
   render(
@@ -21,11 +20,9 @@ it("requires explicit bound confirmation before replacing drift", async () => {
     />,
   );
   const commit = screen.getByRole("button", { name: "应用更改" });
-  expect(commit).toBeDisabled();
-  await userEvent.click(screen.getByRole("checkbox"));
   expect(commit).toBeEnabled();
   await userEvent.click(commit);
-  expect(onCommit).toHaveBeenCalledWith(plan.candidate_hash);
+  expect(onCommit).toHaveBeenCalledWith();
 });
 
 it("shows central lifecycle impact independently from relationship changes", () => {
@@ -564,19 +561,17 @@ it("shows configuration paths and shared Skill migration compactly", () => {
   const plan = assetOperationPlanFixture();
   plan.kind = "update-configuration";
   plan.domain_plan = {
-    domain: "agent-configuration",
+    domain: "agent-capabilities",
     agent_id: "codex",
     before: {
-      mcp_path: "~/.codex/config.toml",
-      mcp_key: "mcp_servers",
-      model_paths: ["~/.codex/config.toml"],
-      skills_global_dir: "~/.agents/skills",
+      mcp: { path: "~/.codex/config.toml", key: "mcp_servers" },
+      model: { paths: ["~/.codex/config.toml"] },
+      skill: { global_dir: "~/.agents/skills", alias_dirs: [] },
     },
     after: {
-      mcp_path: "~/.codex/config.toml",
-      mcp_key: "mcp_servers",
-      model_paths: ["~/.codex/config.toml"],
-      skills_global_dir: "~/.private/skills",
+      mcp: { path: "~/.codex/config.toml", key: "mcp_servers" },
+      model: { paths: ["~/.codex/config.toml"] },
+      skill: { global_dir: "~/.private/skills", alias_dirs: [] },
     },
     skills_before: {},
     skills_after: {},
@@ -607,19 +602,17 @@ it("describes shared Skills readers even when the changed directory has no Skill
   const plan = assetOperationPlanFixture();
   plan.kind = "update-configuration";
   plan.domain_plan = {
-    domain: "agent-configuration",
+    domain: "agent-capabilities",
     agent_id: "codex",
     before: {
-      mcp_path: "~/.codex/config.toml",
-      mcp_key: "mcp_servers",
-      model_paths: ["~/.codex/config.toml"],
-      skills_global_dir: "~/.agents/skills",
+      mcp: { path: "~/.codex/config.toml", key: "mcp_servers" },
+      model: { paths: ["~/.codex/config.toml"] },
+      skill: { global_dir: "~/.agents/skills", alias_dirs: [] },
     },
     after: {
-      mcp_path: "~/.codex/config.toml",
-      mcp_key: "mcp_servers",
-      model_paths: ["~/.codex/config.toml"],
-      skills_global_dir: "~/.private/skills",
+      mcp: { path: "~/.codex/config.toml", key: "mcp_servers" },
+      model: { paths: ["~/.codex/config.toml"] },
+      skill: { global_dir: "~/.private/skills", alias_dirs: [] },
     },
     skills_before: {},
     skills_after: {},
@@ -647,19 +640,17 @@ it("reviews an MCP key-only location change without implying migration", () => {
   const plan = assetOperationPlanFixture();
   plan.kind = "update-configuration";
   plan.domain_plan = {
-    domain: "agent-configuration",
+    domain: "agent-capabilities",
     agent_id: "amp",
     before: {
-      mcp_path: "~/.config/amp/settings.json",
-      mcp_key: "mcpServers",
-      model_paths: [],
-      skills_global_dir: null,
+      mcp: { path: "~/.config/amp/settings.json", key: "mcpServers" },
+      model: { paths: [] },
+      skill: null,
     },
     after: {
-      mcp_path: "~/.config/amp/settings.json",
-      mcp_key: "amp.mcpServers",
-      model_paths: [],
-      skills_global_dir: null,
+      mcp: { path: "~/.config/amp/settings.json", key: "amp.mcpServers" },
+      model: { paths: [] },
+      skill: null,
     },
     skills_before: {},
     skills_after: {},
@@ -693,19 +684,17 @@ it("explains that changing Model paths does not move existing configuration", ()
   const plan = assetOperationPlanFixture();
   plan.kind = "update-configuration";
   plan.domain_plan = {
-    domain: "agent-configuration",
+    domain: "agent-capabilities",
     agent_id: "codex",
     before: {
-      mcp_path: "~/.codex/config.toml",
-      mcp_key: "mcp_servers",
-      model_paths: ["~/.codex/config.toml"],
-      skills_global_dir: "~/.agents/skills",
+      mcp: { path: "~/.codex/config.toml", key: "mcp_servers" },
+      model: { paths: ["~/.codex/config.toml"] },
+      skill: { global_dir: "~/.agents/skills", alias_dirs: [] },
     },
     after: {
-      mcp_path: "~/.codex/config.toml",
-      mcp_key: "mcp_servers",
-      model_paths: ["~/.codex/models.toml"],
-      skills_global_dir: "~/.agents/skills",
+      mcp: { path: "~/.codex/config.toml", key: "mcp_servers" },
+      model: { paths: ["~/.codex/models.toml"] },
+      skill: { global_dir: "~/.agents/skills", alias_dirs: [] },
     },
     skills_before: {},
     skills_after: {},

@@ -12,16 +12,10 @@ import { useNetworkSettings } from "./hooks/useNetworkSettings";
 import { UpdateBanner } from "./components/UpdateBanner";
 import {
   getBackendStatus,
-  getMigrationReview,
   listModelAdoptionCandidates,
-  resolveMigration,
 } from "./lib/api";
-import { ModelMigrationReviewDialog } from "./components/ModelMigrationReviewDialog";
 import type {
-  AssetCommandError,
   BackendStatus,
-  MigrationResolutionStrategy,
-  MigrationReview,
   ModelAdoptionCandidate,
   ResourceNavigationRequest,
   View,
@@ -35,6 +29,7 @@ import { mergeAgentInfos } from "./lib/agentCapabilities";
 import { useStartupSync, type StartupTask } from "./hooks/useStartupSync";
 import { RefreshIcon } from "./components/icons";
 import { useTranslation } from "react-i18next";
+import { listen } from "@tauri-apps/api/event";
 
 const AgentView = lazy(() =>
   import("./components/AgentView").then((module) => ({
@@ -61,17 +56,19 @@ function ViewLoading() {
   );
 }
 
+function capabilityLabel(capability: "mcp" | "model" | "skill") {
+  if (capability === "mcp") return "MCP";
+  if (capability === "model") return "Model";
+  return "Skill";
+}
+
 function App() {
   const { t } = useTranslation();
   const [view, setView] = useState<View>({ kind: "registry" });
   const [addAgentOpen, setAddAgentOpen] = useState(false);
   const [mcpEditorOpen, setMcpEditorOpen] = useState(false);
   const [externalModelCandidates, setExternalModelCandidates] = useState<ModelAdoptionCandidate[]>([]);
-  const [migrationReview, setMigrationReview] = useState<MigrationReview | null>(null);
   const [backendStatus, setBackendStatus] = useState<BackendStatus | null>(null);
-  const [migrationReviewOpen, setMigrationReviewOpen] = useState(false);
-  const [migrationBusy, setMigrationBusy] = useState(false);
-  const [migrationError, setMigrationError] = useState<AssetCommandError | null>(null);
   const nextResourceNavigationId = useRef(0);
   const state = useInstallState({ autoLoad: false });
   const skillsState = useSkillsState({ autoLoad: false });
@@ -79,11 +76,8 @@ function App() {
   const networkSettings = useNetworkSettings();
   const updater = useUpdater(networkSettings.settings.proxy_url, { autoCheck: false });
   useEffect(() => {
-    Promise.all([getBackendStatus(), getMigrationReview()])
-      .then(([status, review]) => {
-        setBackendStatus(status);
-        setMigrationReview(review);
-      })
+    getBackendStatus()
+      .then(setBackendStatus)
       .catch(() => undefined);
   }, []);
   const agents = useMemo(
@@ -142,49 +136,49 @@ function App() {
     ]);
   }, [refreshExternalModels, refreshWorkspace, state.refreshRegistry, state.refreshSources]);
 
-  const handleMigrationResolution = useCallback(async (
-    strategy: MigrationResolutionStrategy,
-    candidateHash?: string,
-  ) => {
-    const review = migrationReview;
-    if (!review || migrationBusy) return;
-    setMigrationBusy(true);
-    setMigrationError(null);
-    try {
-      const outcome = await resolveMigration(review, strategy, candidateHash);
-      setBackendStatus(outcome.status);
-      setMigrationReview(outcome.review ?? null);
-      if (!outcome.review) {
-        setMigrationReviewOpen(false);
-        await refreshEverything();
+  useEffect(() => {
+    let disposed = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let refreshing = false;
+    let queued = false;
+    const refreshObservedState = async () => {
+      if (disposed) return;
+      if (refreshing) {
+        queued = true;
+        return;
       }
-    } catch (cause) {
-      if (typeof cause === "object" && cause !== null && "code" in cause) {
-        setMigrationError({
-          code: String(cause.code),
-          message: "message" in cause ? String(cause.message) : String(cause.code),
-          details: "details" in cause && typeof cause.details === "object"
-            ? cause.details as Record<string, unknown>
-            : undefined,
-        });
-      } else {
-        setMigrationError({ code: "migration_resolution_failed", message: String(cause) });
-      }
+      refreshing = true;
       try {
-        const [status, currentReview] = await Promise.all([
-          getBackendStatus(),
-          getMigrationReview(),
-        ]);
-        setBackendStatus(status);
-        setMigrationReview(currentReview);
-        if (!currentReview) setMigrationReviewOpen(false);
+        await refreshEverything();
       } catch {
-        // Preserve the actionable error already shown by the dialog.
+        // Existing domain error surfaces retain the last actionable failure.
+      } finally {
+        refreshing = false;
+        if (queued && !disposed) {
+          queued = false;
+          void refreshObservedState();
+        }
       }
-    } finally {
-      setMigrationBusy(false);
-    }
-  }, [migrationBusy, migrationReview, refreshEverything]);
+    };
+    const schedule = () => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => void refreshObservedState(), 300);
+    };
+    const unlisten = listen("asset-observation-changed", schedule).catch(() => undefined);
+    const onFocus = () => schedule();
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") schedule();
+    };
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      disposed = true;
+      if (timer) clearTimeout(timer);
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisibility);
+      void unlisten.then((dispose) => dispose?.());
+    };
+  }, [refreshEverything]);
 
   const openResource = useCallback((request: ResourceNavigationRequest) => {
     const id = ++nextResourceNavigationId.current;
@@ -264,23 +258,7 @@ function App() {
         />
       )}
 
-      {migrationReview && (
-        <div className="mux-asset-recovery-banner mux-migration-review-banner" role="alert">
-          <div>
-            <strong>{t("migration.title")}</strong>
-            <span>
-              {t("migration.bannerIntro", {
-                agent: migrationReview.blockers[0]?.agent_name ?? "Agent",
-              })}
-            </span>
-          </div>
-          <button type="button" className="btn-primary" onClick={() => setMigrationReviewOpen(true)}>
-            {t("migration.viewContinue")}
-          </button>
-        </div>
-      )}
-
-      {!migrationReview && (
+      {(
         backendStatus?.state === "read_only"
         || consumptionState.error?.code === "recovery_required"
       ) && (
@@ -292,24 +270,30 @@ function App() {
         </div>
       )}
 
-      {!migrationReview && backendStatus?.state === "capability_unavailable" && (
+      {backendStatus?.state === "capability_unavailable" && (
         <div className="mux-asset-recovery-banner mux-capability-warning-banner" role="alert">
           <strong>{t("migration.capabilityTitle")}</strong>
           <span>{t("migration.capabilityMessage", { stage: backendStatus.stage })}</span>
         </div>
       )}
 
-      {migrationReview && migrationReviewOpen && (
-        <ModelMigrationReviewDialog
-          review={migrationReview}
-          busy={migrationBusy}
-          error={migrationError}
-          onResolve={handleMigrationResolution}
-          onLater={() => {
-            if (!migrationBusy) setMigrationReviewOpen(false);
-          }}
-        />
-      )}
+      {backendStatus?.state !== "capability_unavailable"
+        && (consumptionState.inventory?.capability_errors ?? []).map((diagnostic) => (
+          <div
+            className="mux-asset-recovery-banner mux-capability-warning-banner"
+            role="status"
+            key={`${diagnostic.capability}:${diagnostic.code}`}
+          >
+            <strong>{t("observations.capabilityUnavailable", {
+              capability: capabilityLabel(diagnostic.capability),
+            })}</strong>
+            <span>{diagnostic.code === "skill_inventory_unavailable"
+              ? t("observations.skillInventoryUnavailable")
+              : diagnostic.code === "skill_recovery_required"
+                ? t("observations.skillRecoveryRequired")
+                : t("observations.capabilityFallback")}</span>
+          </div>
+        ))}
 
       <UpdateBanner updater={updater} />
     </Layout>

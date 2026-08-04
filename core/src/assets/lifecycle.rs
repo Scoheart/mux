@@ -2,17 +2,17 @@
 
 use super::planner::{finalize_plan_with, CredentialAction, LifecycleBinding};
 use super::types::{
-    AssetCommitRequest, AssetOperationKind, AssetOperationPlan, AssetRef, CentralAssetAction,
-    CentralAssetChange, CentralAssetDraft, DomainPlan, ModelAgentSelection, ModelConsumptionRecord,
+    AssetOperationKind, AssetOperationPlan, AssetRef, CentralAssetAction, CentralAssetChange,
+    CentralAssetDraft, DomainPlan, ModelAgentSelection, ModelConsumptionRecord,
     PlanDeleteCentralAssetRequest, PlanUpdateCentralAssetRequest,
 };
 use crate::domain::types::{ModelProfile, ModelProviderConfig, RegistryEntry};
 use crate::paths::local_sources_dir;
 use crate::resources::mcp::registry::{read_registry, read_registry_all};
 use crate::resources::model::{
-    credential_present, migrated_profiles_v2, model_agent_capability, prepare_profile_draft,
+    credential_snapshot, migrated_profiles_v2, model_agent_capability, prepare_profile_draft,
     prepare_provider_draft, profile_credential_issue, profile_endpoint_compatibility_issue,
-    provider_credential_present, provider_profiles,
+    provider_credential_present, provider_profiles, restore_credential_snapshot,
 };
 use crate::settings::{load_settings_strict, Settings};
 use sha2::{Digest, Sha256};
@@ -20,6 +20,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use std::sync::{LazyLock, Mutex};
 use zeroize::Zeroizing;
+
+#[cfg(test)]
+use super::types::AssetCommitRequest;
 
 #[derive(Clone)]
 pub(crate) enum PendingAssetPayload {
@@ -29,9 +32,6 @@ pub(crate) enum PendingAssetPayload {
     ModelUpsert {
         profile: Box<ModelProfile>,
         credential: Option<Zeroizing<String>>,
-    },
-    ModelSchemaV2 {
-        profiles: BTreeMap<String, ModelProfile>,
     },
     ModelProviderUpsert {
         provider: Box<ModelProviderConfig>,
@@ -132,20 +132,10 @@ fn remap_model_selection(
     })
 }
 
-pub fn plan_model_schema_v2_migration() -> Result<Option<AssetOperationPlan>, String> {
-    plan_model_schema_v2_migration_preserving(&BTreeMap::new())
-}
-
-/// Build the reviewed "keep Agent" alternative for schema v2. Each entry
-/// names legacy Profile relationships that must be released for one Agent.
-/// Every native Model target for that Agent is preserved because its Profiles
-/// may share one physical configuration file.
-pub(crate) fn plan_model_schema_v2_migration_preserving(
-    released: &BTreeMap<String, BTreeSet<String>>,
-) -> Result<Option<AssetOperationPlan>, String> {
+pub fn migrate_model_profiles_v2_if_needed() -> Result<bool, String> {
     let settings = load_settings_strict().map_err(|error| error.to_string())?;
     if settings.version.unwrap_or_default() >= 2 {
-        return Ok(None);
+        return Ok(false);
     }
     let (id_map, profiles) = migrated_profiles_v2(&settings)?;
     let agent_ids = settings
@@ -161,90 +151,42 @@ pub(crate) fn plan_model_schema_v2_migration_preserving(
                 .map(|(agent_id, _)| agent_id.clone()),
         )
         .collect::<BTreeSet<_>>();
-    let mut before = BTreeMap::new();
-    let mut after = BTreeMap::new();
-    for agent_id in agent_ids {
-        let selection = settings.model_selection(&agent_id);
-        before.insert(agent_id.clone(), selection.clone());
-        let mut migrated = remap_model_selection(selection, &id_map)?;
-        if let Some(released_profile_ids) = released.get(&agent_id) {
-            for old_id in released_profile_ids {
-                let new_id = id_map
-                    .get(old_id)
-                    .ok_or_else(|| format!("model_schema_migration_missing_profile: {old_id}"))?;
-                migrated.profiles.remove(new_id);
-            }
-            migrated.normalize_active();
-        }
-        after.insert(agent_id, migrated);
-    }
-    let draft_hash = hash_serializable(&profiles)?;
-    let credential_profile_ids = id_map
-        .keys()
-        .filter(|profile_id| credential_present(profile_id))
-        .cloned()
-        .collect::<BTreeSet<_>>();
-    let preserve_legacy_credential_ids = released
-        .values()
-        .flatten()
-        .filter(|profile_id| credential_profile_ids.contains(*profile_id))
-        .cloned()
-        .collect::<BTreeSet<_>>();
-    let central_changes = id_map
-        .iter()
-        .map(|(old_id, new_id)| CentralAssetChange {
-            asset: AssetRef::Model {
-                profile_id: new_id.clone(),
-            },
-            action: CentralAssetAction::Update,
-            summary: model_schema_migration_summary(
-                before
-                    .values()
-                    .filter(|selection| selection.profiles.contains_key(old_id))
-                    .count(),
-                credential_profile_ids.contains(old_id),
-            ),
+    let selections = agent_ids
+        .into_iter()
+        .map(|agent_id| {
+            remap_model_selection(settings.model_selection(&agent_id), &id_map)
+                .map(|selection| (agent_id, selection))
         })
-        .collect();
-    let domain_plan = DomainPlan::Model { before, after };
-    let plan = finalize_plan_with(
-        AssetOperationKind::UpdateAsset,
-        domain_plan,
-        central_changes,
-        Vec::new(),
-        Some(LifecycleBinding::ModelSchemaV2 {
-            id_map,
-            draft_hash,
-            credential_profile_ids,
-            preserve_legacy_credential_ids,
-            preserve_agent_targets: released.keys().cloned().collect(),
-        }),
-    )?;
-    PENDING_PAYLOADS
-        .lock()
-        .unwrap_or_else(|error| error.into_inner())
-        .insert(
-            plan.operation_id.clone(),
-            PendingAssetPayload::ModelSchemaV2 { profiles },
-        );
-    Ok(Some(plan))
-}
+        .collect::<Result<BTreeMap<_, _>, String>>()?;
 
-pub fn migrate_model_profiles_v2_if_needed() -> Result<bool, String> {
-    let Some(plan) = plan_model_schema_v2_migration()? else {
-        return Ok(false);
-    };
-    if !plan.can_commit || plan.requires_conflict_confirmation {
-        let _ = super::transaction::cancel_asset_operation(&plan.operation_id);
-        return Err(
-            "model_schema_migration_blocked: existing Model config requires manual review".into(),
-        );
+    // Copy credentials before publishing the new central identities. Legacy
+    // subjects are intentionally retained: an Agent file that still references
+    // one is observed external state, not migration damage.
+    for (old_id, new_id) in &id_map {
+        if let Some(credential) = credential_snapshot(old_id) {
+            restore_credential_snapshot(new_id, Some(&credential))?;
+        }
     }
-    super::transaction::commit_asset_operation(AssetCommitRequest {
-        operation_id: plan.operation_id.clone(),
-        candidate_hash: plan.candidate_hash.clone(),
-        conflict_confirmation: None,
-    })?;
+    crate::settings::mutate_settings_checked(|current| {
+        if current.version != settings.version
+            || current.model_profiles != settings.model_profiles
+            || current.model_consumptions != settings.model_consumptions
+            || current.model_assignments != settings.model_assignments
+        {
+            return Err(std::io::Error::other(
+                "asset_operation_stale: Model settings changed during schema migration",
+            ));
+        }
+        current.model_profiles = (!profiles.is_empty()).then_some(profiles.clone());
+        current.model_consumptions = None;
+        current.model_assignments = None;
+        for (agent_id, selection) in &selections {
+            current.set_model_selection(agent_id, selection.clone());
+        }
+        current.version = Some(2);
+        Ok(())
+    })
+    .map_err(|error| error.to_string())?;
     Ok(true)
 }
 
@@ -959,14 +901,7 @@ fn domain_agent_count(plan: &DomainPlan) -> usize {
             .chain(after.keys())
             .collect::<BTreeSet<_>>()
             .len(),
-        DomainPlan::AgentConfiguration {
-            agent_id,
-            skills_before,
-            skills_after,
-            affected_agent_ids,
-            ..
-        }
-        | DomainPlan::AgentCapabilities {
+        DomainPlan::AgentCapabilities {
             agent_id,
             skills_before,
             skills_after,
@@ -1031,15 +966,6 @@ fn model_provider_upsert_summary(
         CredentialAction::Clear => Some("清除 Provider API Key"),
     } {
         summary.push(credential_summary.into());
-    }
-    summary.push(agent_sync_summary(consumer_count));
-    summary
-}
-
-fn model_schema_migration_summary(consumer_count: usize, credential_present: bool) -> Vec<String> {
-    let mut summary = vec!["升级模型配置".into()];
-    if credential_present {
-        summary.push("保留钥匙串中的 API Key".into());
     }
     summary.push(agent_sync_summary(consumer_count));
     summary
@@ -1118,6 +1044,7 @@ mod tests {
     use crate::resources::mcp::registry::write_manual_entry;
     use crate::settings::mutate_settings;
     use crate::testenv::TestHome;
+    use std::fs;
 
     fn mcp(command: &str) -> RegistryEntry {
         RegistryEntry {
@@ -1452,7 +1379,6 @@ mod tests {
         crate::assets::commit_asset_operation(AssetCommitRequest {
             operation_id: create.operation_id,
             candidate_hash: create.candidate_hash,
-            conflict_confirmation: None,
         })
         .unwrap();
 
@@ -1478,7 +1404,6 @@ mod tests {
         crate::assets::commit_asset_operation(AssetCommitRequest {
             operation_id: delete.operation_id,
             candidate_hash: delete.candidate_hash,
-            conflict_confirmation: None,
         })
         .unwrap();
         assert!(!load_settings_strict()
@@ -1731,12 +1656,14 @@ mod tests {
         assert!(profile.id.starts_with("openrouter-openrouter-free-"));
         assert_eq!(profile.provider, "openrouter");
         assert_eq!(profile.model_vendor.as_deref(), Some("openrouter"));
-        assert!(!crate::resources::model::credential_present(&legacy.id));
+        // The migration copies central authority first and deliberately keeps
+        // the live legacy credential available to the untouched Agent config.
+        assert!(crate::resources::model::credential_present(&legacy.id));
         assert!(crate::resources::model::credential_present(&profile.id));
     }
 
     #[test]
-    fn model_schema_v2_rewrites_a_managed_agent_provider_identity() {
+    fn model_schema_v2_preserves_a_managed_agent_provider_identity() {
         let _home = TestHome::new("model-schema-v2-consumer");
         let legacy = ModelProfile {
             id: "legacy-router".into(),
@@ -1763,8 +1690,11 @@ mod tests {
         })
         .unwrap();
         crate::resources::model::apply_profile("grok-build", &legacy.id).unwrap();
+        let target = _home.home.join(".grok/config.toml");
+        let before = fs::read(&target).unwrap();
 
         assert!(migrate_model_profiles_v2_if_needed().unwrap());
+        assert_eq!(fs::read(&target).unwrap(), before);
 
         let settings = load_settings_strict().unwrap();
         let profile = settings
@@ -1784,7 +1714,7 @@ mod tests {
         );
         assert_eq!(
             crate::resources::model::observe_profile("grok-build", profile).unwrap(),
-            crate::resources::model::ModelObservedState::Synced
+            crate::resources::model::ModelObservedState::Drifted
         );
     }
 }

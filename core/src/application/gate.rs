@@ -26,12 +26,6 @@ pub enum CapabilityDomain {
 pub enum BackendStatus {
     Starting,
     Ready,
-    MigrationReviewRequired {
-        stage: String,
-        review_hash: String,
-        message: String,
-        blocked_capabilities: Vec<CapabilityDomain>,
-    },
     CapabilityUnavailable {
         capability: CapabilityDomain,
         stage: String,
@@ -192,38 +186,6 @@ pub(crate) fn begin_bootstrap() -> BootstrapPermit {
     }
 }
 
-/// The only privileged writer available while a reviewable bootstrap
-/// migration is pending. The reviewed group hash is checked before the status
-/// changes, so this cannot be used as a generic read-only bypass.
-pub(crate) fn begin_migration_resolution(
-    expected_review_hash: &str,
-) -> CoreResult<BootstrapPermit> {
-    let guard = WORKSPACE_GATE
-        .write()
-        .unwrap_or_else(|error| error.into_inner());
-    match current_status() {
-        BackendStatus::MigrationReviewRequired { review_hash, .. }
-            if review_hash == expected_review_hash => {}
-        BackendStatus::MigrationReviewRequired { .. } => {
-            return Err(CoreError::new(
-                "migration_review_stale",
-                "The Model migration review changed; reopen it before continuing",
-            ));
-        }
-        _ => {
-            return Err(CoreError::new(
-                "migration_review_unavailable",
-                "No Model migration review is currently pending",
-            ));
-        }
-    }
-    set_status(BackendStatus::Starting);
-    Ok(BootstrapPermit {
-        _guard: guard,
-        completed: false,
-    })
-}
-
 pub(crate) struct BootstrapPermit {
     _guard: RwLockWriteGuard<'static, ()>,
     completed: bool,
@@ -301,7 +263,6 @@ fn latched_status(current: &BackendStatus, stage: &str, message: String) -> Back
         BackendStatus::ReadOnly { .. } => current.clone(),
         BackendStatus::Starting
         | BackendStatus::Ready
-        | BackendStatus::MigrationReviewRequired { .. }
         | BackendStatus::CapabilityUnavailable { .. } => BackendStatus::ReadOnly {
             stage: stage.into(),
             message,
@@ -373,28 +334,6 @@ fn blocker_for_status(status: &BackendStatus, scope: MutationScope) -> Option<Co
             })
         }
         BackendStatus::Ready => None,
-        BackendStatus::MigrationReviewRequired {
-            stage,
-            review_hash,
-            blocked_capabilities,
-            ..
-        } if scope_is_blocked(scope, blocked_capabilities) => {
-            let mut details = BTreeMap::new();
-            details.insert(
-                "backend_state".into(),
-                Value::String("migration_review_required".into()),
-            );
-            details.insert("stage".into(), Value::String(stage.clone()));
-            details.insert("review_hash".into(), Value::String(review_hash.clone()));
-            Some(CoreError {
-                code: "migration_review_required".into(),
-                message: "Model configuration upgrade needs confirmation".into(),
-                details,
-                retry_at: None,
-                confirmation: None,
-            })
-        }
-        BackendStatus::MigrationReviewRequired { .. } => None,
         BackendStatus::CapabilityUnavailable {
             capability,
             stage,
@@ -568,26 +507,6 @@ mod tests {
 
     #[test]
     fn model_blockers_do_not_disable_mcp_or_skill_mutations() {
-        let review = BackendStatus::MigrationReviewRequired {
-            stage: "model_profile_migration".into(),
-            review_hash: "review".into(),
-            message: "review".into(),
-            blocked_capabilities: vec![CapabilityDomain::Model],
-        };
-        assert!(
-            blocker_for_status(&review, MutationScope::Capability(CapabilityDomain::Model))
-                .is_some()
-        );
-        assert!(
-            blocker_for_status(&review, MutationScope::Capability(CapabilityDomain::Mcp)).is_none()
-        );
-        assert!(
-            blocker_for_status(&review, MutationScope::Capability(CapabilityDomain::Skill))
-                .is_none()
-        );
-        assert!(blocker_for_status(&review, MutationScope::Independent).is_none());
-        assert!(blocker_for_status(&review, MutationScope::Shared).is_some());
-
         let unavailable = BackendStatus::CapabilityUnavailable {
             capability: CapabilityDomain::Model,
             stage: "model_profile_migration".into(),
@@ -610,11 +529,11 @@ mod tests {
     #[test]
     fn capability_status_executes_only_unrelated_and_unblocked_domain_writes() {
         let _home = crate::testenv::TestHome::new("gate-capability-isolation");
-        set_status(BackendStatus::MigrationReviewRequired {
+        set_status(BackendStatus::CapabilityUnavailable {
+            capability: CapabilityDomain::Model,
             stage: "model_profile_migration".into(),
-            review_hash: "review".into(),
-            message: "review".into(),
-            blocked_capabilities: vec![CapabilityDomain::Model],
+            code: "model_central_state_unavailable".into(),
+            message: "central Model state is unavailable".into(),
         });
 
         let independent_called = Cell::new(false);
@@ -699,11 +618,11 @@ mod tests {
 
     #[test]
     fn shared_recovery_supersedes_a_capability_only_blocker() {
-        let review = BackendStatus::MigrationReviewRequired {
+        let review = BackendStatus::CapabilityUnavailable {
+            capability: CapabilityDomain::Model,
             stage: "model_profile_migration".into(),
-            review_hash: "review".into(),
-            message: "review".into(),
-            blocked_capabilities: vec![CapabilityDomain::Model],
+            code: "model_central_state_unavailable".into(),
+            message: "central Model state is unavailable".into(),
         };
         assert_eq!(
             latched_status(&review, "asset_commit", "rollback failed".into()),

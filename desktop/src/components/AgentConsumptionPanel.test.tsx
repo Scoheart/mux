@@ -9,20 +9,24 @@ afterEach(cleanup);
 const syncedRow: ConsumptionView = {
   agent_id: "codex",
   asset: { domain: "mcp", key: "github::stdio" },
+  ownership: "managed",
   desired: true,
   observed: true,
   enabled: true,
   status: "synced",
   reason: null,
   affected_agent_ids: ["codex"],
+  available_actions: [],
 };
 
 const externalRow: ConsumptionView = {
   ...syncedRow,
   asset: { domain: "mcp", key: "computer-use::stdio" },
   desired: false,
-  status: "external",
+  ownership: "external",
+  status: "external-added",
   reason: "mcp_adoptable",
+  available_actions: ["adopt-observed"],
 };
 
 describe("AgentConsumptionPanel", () => {
@@ -139,9 +143,9 @@ describe("AgentConsumptionPanel", () => {
 
     const cards = screen.getAllByRole("listitem");
     expect(cards).toHaveLength(2);
-    expect(cards[1]).toHaveAttribute("data-status", "external");
+    expect(cards[1]).toHaveAttribute("data-status", "external-added");
     expect(cards[1]).toHaveAttribute("data-enabled", "false");
-    expect(within(cards[1]).getByText("外部配置")).toBeVisible();
+    expect(within(cards[1]).getByText("外部新增")).toBeVisible();
     expect(within(cards[1]).queryByRole("switch")).not.toBeInTheDocument();
     expect(within(cards[1]).queryByRole("button")).not.toBeInTheDocument();
     expect(onEnabledChange).not.toHaveBeenCalled();

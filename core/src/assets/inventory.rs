@@ -1,8 +1,12 @@
 //! Desired/observed central asset inventory.
 
 use super::compatibility::{compatibility_for, McpCompatibilityResolver};
+use super::model_migration::{
+    exact_managed_model_observations, list_model_adoption_candidates, ModelAdoptionStatus,
+};
 use super::types::{
-    AssetRef, ConsumptionInventory, ConsumptionStatus, ConsumptionTarget, ConsumptionView,
+    AssetCapability, AssetRef, CapabilityDiagnostic, ConsumptionInventory, ConsumptionStatus,
+    ConsumptionTarget, ConsumptionView, ConvergenceAction, OwnershipState,
 };
 use crate::resources::mcp::ops::scan_installed;
 use crate::resources::model::{
@@ -14,11 +18,15 @@ use crate::resources::skill::{
     list_inventory as list_skills_inventory, InventoryState, SkillLocation, SkillsInventory,
 };
 use crate::settings::load_settings_strict;
+use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
+use std::fs;
 
 pub fn list_consumption_inventory() -> Result<ConsumptionInventory, String> {
-    let skills = list_skills_inventory().map_err(|error| format!("{error:?}"))?;
-    list_consumption_inventory_with_skills(&skills)
+    match list_skills_inventory() {
+        Ok(skills) => list_consumption_inventory_with_skills(&skills),
+        Err(_) => list_consumption_inventory_inner(None, true),
+    }
 }
 
 /// Build the relationship projection from an already loaded Skill inventory.
@@ -27,16 +35,36 @@ pub fn list_consumption_inventory() -> Result<ConsumptionInventory, String> {
 pub fn list_consumption_inventory_with_skills(
     skills: &SkillsInventory,
 ) -> Result<ConsumptionInventory, String> {
+    list_consumption_inventory_inner(Some(skills), false)
+}
+
+fn list_consumption_inventory_inner(
+    skills: Option<&SkillsInventory>,
+    skills_unavailable: bool,
+) -> Result<ConsumptionInventory, String> {
     let settings = load_settings_strict().map_err(|error| error.to_string())?;
     let mut inventory = ConsumptionInventory {
-        recovery_error: super::transaction::pending_recovery_error()
-            .or_else(|| skills.recovery_error.clone()),
+        recovery_error: super::transaction::pending_recovery_error(),
         ..Default::default()
     };
     project_mcps(&settings, &mut inventory)?;
     project_models(&settings, &mut inventory)?;
-    project_skills(&settings, skills, &mut inventory)?;
+    if let Some(skills) = skills {
+        project_skills(&settings, skills, &mut inventory)?;
+        if skills.recovery_error.is_some() {
+            inventory.capability_errors.push(CapabilityDiagnostic {
+                capability: AssetCapability::Skill,
+                code: "skill_recovery_required".into(),
+            });
+        }
+    } else if skills_unavailable {
+        inventory.capability_errors.push(CapabilityDiagnostic {
+            capability: AssetCapability::Skill,
+            code: "skill_inventory_unavailable".into(),
+        });
+    }
     sort_inventory(&mut inventory);
+    finalize_observation(&mut inventory);
     Ok(inventory)
 }
 
@@ -53,7 +81,12 @@ fn project_mcps(
             let asset = AssetRef::Mcp {
                 key: record.asset_key.clone(),
             };
-            let compatibility = mcp_compatibility.resolve(agent_id, &record.asset_key)?;
+            let compatibility = mcp_compatibility.resolve(agent_id, &record.asset_key).ok();
+            let affected_agent_ids = compatibility
+                .as_ref()
+                .map(|view| view.affected_agent_ids.clone())
+                .filter(|agents| !agents.is_empty())
+                .unwrap_or_else(|| vec![agent_id.clone()]);
             let identity_matches = map_key == &record.asset_key;
             let match_index = observed.iter().position(|item| {
                 item.agent == *agent_id
@@ -61,38 +94,44 @@ fn project_mcps(
                     && format!("{}::{}", item.name, item.transport) == record.asset_key
             });
             let matching = match_index.map(|index| &observed[index]);
-            let (status, reason, is_observed) = if !identity_matches {
+            let (status, reason, is_observed) = if compatibility.is_none() {
                 (
-                    ConsumptionStatus::Conflicted,
+                    ConsumptionStatus::Ambiguous,
+                    Some("mcp_asset_identity_invalid".into()),
+                    matching.is_some(),
+                )
+            } else if !identity_matches {
+                (
+                    ConsumptionStatus::Ambiguous,
                     Some("mcp_record_identity_mismatch".into()),
                     matching.is_some(),
                 )
             } else if !mcp_compatibility.contains_asset(&record.asset_key) {
                 (
-                    ConsumptionStatus::Conflicted,
+                    ConsumptionStatus::Ambiguous,
                     Some("mcp_asset_missing".into()),
                     matching.is_some(),
                 )
-            } else if !compatibility.compatible {
+            } else if !compatibility.as_ref().is_some_and(|view| view.compatible) {
                 (
                     ConsumptionStatus::Unsupported,
-                    compatibility.reason.map(|reason| reason.code),
+                    compatibility.and_then(|view| view.reason.map(|reason| reason.code)),
                     matching.is_some(),
                 )
             } else {
                 match matching {
                     None => (
-                        ConsumptionStatus::Drifted,
+                        ConsumptionStatus::ExternalRemoved,
                         Some("mcp_target_missing".into()),
                         false,
                     ),
                     Some(item) if item.enabled != record.enabled => (
-                        ConsumptionStatus::Drifted,
+                        ConsumptionStatus::ExternalChanged,
                         Some("mcp_enabled_state_drift".into()),
                         true,
                     ),
                     Some(item) if item.customized => (
-                        ConsumptionStatus::Drifted,
+                        ConsumptionStatus::ExternalChanged,
                         Some("mcp_config_drift".into()),
                         true,
                     ),
@@ -105,18 +144,24 @@ fn project_mcps(
             inventory.consumptions.push(ConsumptionView {
                 agent_id: agent_id.clone(),
                 asset,
+                ownership: OwnershipState::Managed,
                 desired: true,
                 observed: is_observed,
                 enabled: Some(record.enabled),
+                observed_enabled: matching.map(|item| item.enabled),
                 active: None,
                 desired_active: None,
                 status,
                 reason,
-                affected_agent_ids: if compatibility.affected_agent_ids.is_empty() {
-                    vec![agent_id.clone()]
-                } else {
-                    compatibility.affected_agent_ids
-                },
+                observation_id: Some(format!(
+                    "mcp:{agent_id}:{}:{}",
+                    record.asset_key,
+                    matching
+                        .map(|item| item.observation_fingerprint.as_str())
+                        .unwrap_or("missing")
+                )),
+                available_actions: Vec::new(),
+                affected_agent_ids,
                 target: None,
             });
         }
@@ -130,12 +175,14 @@ fn project_mcps(
         inventory.external.push(ConsumptionView {
             agent_id: item.agent.clone(),
             asset: AssetRef::Mcp { key: key.clone() },
+            ownership: OwnershipState::External,
             desired: false,
             observed: true,
             enabled: Some(item.enabled),
+            observed_enabled: Some(item.enabled),
             active: None,
             desired_active: None,
-            status: ConsumptionStatus::External,
+            status: ConsumptionStatus::ExternalAdded,
             reason: Some(
                 if mcp_compatibility.contains_asset(&key) && !item.customized {
                     "mcp_adoptable"
@@ -146,6 +193,11 @@ fn project_mcps(
                 }
                 .into(),
             ),
+            observation_id: Some(format!(
+                "mcp:{}:{key}:{}",
+                item.agent, item.observation_fingerprint
+            )),
+            available_actions: Vec::new(),
             affected_agent_ids: vec![item.agent],
             target: None,
         });
@@ -157,6 +209,18 @@ fn project_models(
     settings: &crate::settings::Settings,
     inventory: &mut ConsumptionInventory,
 ) -> Result<(), String> {
+    let model_agents = list_model_agents();
+    let adoption_candidates = list_model_adoption_candidates()?;
+    let exact_managed_observations = exact_managed_model_observations(settings)?;
+    let observation_fingerprints: BTreeMap<_, _> = model_agents
+        .iter()
+        .map(|agent| {
+            (
+                agent.id.clone(),
+                file_set_observation_fingerprint(&agent.config_paths),
+            )
+        })
+        .collect();
     let assigned_agents: BTreeSet<String> = settings
         .model_consumptions
         .iter()
@@ -170,7 +234,12 @@ fn project_models(
                 .map(|(agent_id, _)| agent_id.clone()),
         )
         .collect();
+    let mut fallback_assigned_external = Vec::new();
     for agent_id in &assigned_agents {
+        let observation_fingerprint = observation_fingerprints
+            .get(agent_id.as_str())
+            .map(String::as_str)
+            .unwrap_or("unknown");
         let selection = settings.model_selection(agent_id);
         let observed_active = observe_active_model_for_settings(settings, agent_id);
         let observed_active_profile = match &observed_active {
@@ -181,7 +250,7 @@ fn project_models(
             let asset = AssetRef::Model {
                 profile_id: profile_id.clone(),
             };
-            let compatibility = compatibility_for(agent_id, &asset)?;
+            let compatibility = compatibility_for(agent_id, &asset).ok();
             let Some(profile) = settings
                 .model_profiles
                 .as_ref()
@@ -190,15 +259,21 @@ fn project_models(
                 inventory.consumptions.push(ConsumptionView {
                     agent_id: agent_id.clone(),
                     asset,
+                    ownership: OwnershipState::Managed,
                     desired: true,
                     observed: false,
                     enabled: Some(record.enabled),
+                    observed_enabled: None,
                     active: Some(observed_active_profile == Some(profile_id)),
                     desired_active: Some(
                         selection.active_profile_id.as_deref() == Some(profile_id.as_str()),
                     ),
-                    status: ConsumptionStatus::Conflicted,
+                    status: ConsumptionStatus::Ambiguous,
                     reason: Some("model_profile_missing".into()),
+                    observation_id: Some(format!(
+                        "model:{agent_id}:{profile_id}:{observation_fingerprint}"
+                    )),
+                    available_actions: Vec::new(),
                     affected_agent_ids: vec![agent_id.clone()],
                     target: None,
                 });
@@ -207,110 +282,221 @@ fn project_models(
             let desired_active =
                 selection.active_profile_id.as_deref() == Some(profile_id.as_str());
             let observed_is_active = observed_active_profile == Some(profile_id);
-            let (observed, status, reason) = if record.enabled && !compatibility.compatible {
+            let (observed, status, reason) = if compatibility.is_none() {
+                (
+                    false,
+                    ConsumptionStatus::Ambiguous,
+                    Some("model_asset_identity_invalid".into()),
+                )
+            } else if record.enabled && !compatibility.as_ref().is_some_and(|view| view.compatible)
+            {
                 (
                     false,
                     ConsumptionStatus::Unsupported,
-                    compatibility.reason.map(|reason| reason.code),
+                    compatibility.and_then(|view| view.reason.map(|reason| reason.code)),
                 )
             } else {
-                let state = match (
-                    record.enabled,
-                    observe_profile_consumption(agent_id, profile, observed_is_active)?,
-                ) {
-                    (true, ModelObservedState::Synced) => (true, ConsumptionStatus::Synced, None),
-                    (true, ModelObservedState::Missing) => (
+                let observed_profile =
+                    observe_profile_consumption(agent_id, profile, observed_is_active);
+                let state = match (record.enabled, observed_profile) {
+                    (_, Err(_)) => (
+                        true,
+                        ConsumptionStatus::Unparseable,
+                        Some("model_target_unparseable".into()),
+                    ),
+                    (true, Ok(ModelObservedState::Synced)) => {
+                        (true, ConsumptionStatus::Synced, None)
+                    }
+                    (true, Ok(ModelObservedState::Missing)) => (
                         false,
-                        ConsumptionStatus::Drifted,
+                        ConsumptionStatus::ExternalRemoved,
                         Some("model_target_missing".into()),
                     ),
-                    (true, ModelObservedState::Drifted) => (
+                    (true, Ok(ModelObservedState::Drifted))
+                        if exact_managed_observations
+                            .contains(&(agent_id.clone(), profile_id.clone())) =>
+                    {
+                        (true, ConsumptionStatus::Synced, None)
+                    }
+                    (true, Ok(ModelObservedState::Drifted)) => (
                         true,
-                        ConsumptionStatus::Drifted,
+                        ConsumptionStatus::ExternalChanged,
                         Some("model_owned_fields_drift".into()),
                     ),
-                    (true, ModelObservedState::Conflicted) => (
+                    (true, Ok(ModelObservedState::Conflicted)) => (
                         true,
-                        ConsumptionStatus::Conflicted,
+                        ConsumptionStatus::Ambiguous,
                         Some("model_target_conflicted".into()),
                     ),
-                    (false, ModelObservedState::Missing) => {
+                    (false, Ok(ModelObservedState::Missing)) => {
                         (false, ConsumptionStatus::Synced, None)
                     }
-                    (false, ModelObservedState::Conflicted) => (
+                    (false, Ok(ModelObservedState::Conflicted)) => (
                         true,
-                        ConsumptionStatus::Conflicted,
+                        ConsumptionStatus::Ambiguous,
                         Some("model_target_conflicted".into()),
                     ),
-                    (false, _) => (
+                    (false, Ok(_)) => (
                         true,
-                        ConsumptionStatus::Drifted,
+                        ConsumptionStatus::ExternalChanged,
                         Some("model_disabled_state_drift".into()),
                     ),
                 };
                 if state.1 == ConsumptionStatus::Synced && desired_active != observed_is_active {
                     (
                         state.0,
-                        ConsumptionStatus::Drifted,
+                        ConsumptionStatus::ExternalChanged,
                         Some("model_active_state_drift".into()),
                     )
                 } else {
                     state
                 }
             };
+            let available_actions = if status == ConsumptionStatus::ExternalChanged {
+                let can_adopt = reason.as_deref() == Some("model_active_state_drift")
+                    || adoption_candidates.iter().any(|candidate| {
+                        candidate.agent_id == agent_id.as_str()
+                            && candidate.managed_profile_id.as_deref() == Some(profile_id.as_str())
+                            && candidate.status == ModelAdoptionStatus::Adoptable
+                    });
+                let mut actions =
+                    vec![ConvergenceAction::RestoreDesired, ConvergenceAction::Detach];
+                if can_adopt {
+                    actions.insert(0, ConvergenceAction::AdoptObserved);
+                }
+                actions
+            } else {
+                Vec::new()
+            };
             inventory.consumptions.push(ConsumptionView {
                 agent_id: agent_id.clone(),
                 asset,
+                ownership: OwnershipState::Managed,
                 desired: true,
                 observed,
                 enabled: Some(record.enabled),
+                observed_enabled: Some(observed),
                 active: Some(observed_is_active),
                 desired_active: Some(desired_active),
                 status,
                 reason,
+                observation_id: Some(format!(
+                    "model:{agent_id}:{profile_id}:{observation_fingerprint}"
+                )),
+                available_actions,
                 affected_agent_ids: vec![agent_id.clone()],
                 target: None,
             });
         }
         let external_reason = match observed_active {
             ObservedActiveModel::External => {
-                Some((ConsumptionStatus::External, "model_external_current"))
+                Some((ConsumptionStatus::ExternalAdded, "model_external_current"))
             }
             ObservedActiveModel::Conflicted => {
-                Some((ConsumptionStatus::Conflicted, "model_active_conflicted"))
+                Some((ConsumptionStatus::Ambiguous, "model_active_conflicted"))
             }
             _ => None,
         };
         if let Some((status, reason)) = external_reason {
-            inventory.external.push(ConsumptionView {
-                agent_id: agent_id.clone(),
-                asset: AssetRef::Model {
-                    profile_id: format!("external-{agent_id}"),
-                },
-                desired: false,
-                observed: true,
-                enabled: None,
-                active: Some(true),
-                desired_active: Some(false),
+            fallback_assigned_external.push((
+                agent_id.clone(),
                 status,
-                reason: Some(reason.into()),
-                affected_agent_ids: vec![agent_id.clone()],
-                target: None,
-            });
+                reason.to_string(),
+                observation_fingerprint.to_string(),
+            ));
         }
     }
-    for agent in list_model_agents()
-        .into_iter()
-        .filter(|agent| agent.mode == "managed" && !assigned_agents.contains(&agent.id))
+
+    let candidate_agents: BTreeSet<_> = adoption_candidates
+        .iter()
+        .map(|candidate| candidate.agent_id.clone())
+        .collect();
+    for candidate in adoption_candidates
+        .iter()
+        .filter(|candidate| candidate.managed_profile_id.is_none())
     {
-        let (status, reason) = match observe_external_model(&agent.id)? {
-            ExternalModelObservedState::Absent => continue,
-            ExternalModelObservedState::Present => (
-                ConsumptionStatus::External,
+        let (status, fallback_reason) = match candidate.status {
+            ModelAdoptionStatus::Adoptable => (
+                ConsumptionStatus::ExternalAdded,
+                if candidate.active {
+                    "model_external_current"
+                } else {
+                    "model_external_unmanaged"
+                },
+            ),
+            ModelAdoptionStatus::NeedsCredential | ModelAdoptionStatus::Unsupported => {
+                (ConsumptionStatus::Unsupported, "model_external_unsupported")
+            }
+            ModelAdoptionStatus::Conflicted => {
+                (ConsumptionStatus::Ambiguous, "model_external_conflicted")
+            }
+        };
+        inventory.external.push(ConsumptionView {
+            agent_id: candidate.agent_id.clone(),
+            asset: AssetRef::Model {
+                profile_id: format!("external-{}", candidate.candidate_id),
+            },
+            ownership: OwnershipState::External,
+            desired: false,
+            observed: true,
+            enabled: None,
+            observed_enabled: Some(true),
+            active: Some(candidate.active),
+            desired_active: Some(false),
+            status,
+            reason: Some(fallback_reason.into()),
+            observation_id: Some(format!(
+                "model:{}:{}:{}",
+                candidate.agent_id, candidate.candidate_id, candidate.fingerprint
+            )),
+            available_actions: Vec::new(),
+            affected_agent_ids: vec![candidate.agent_id.clone()],
+            target: None,
+        });
+    }
+
+    for (agent_id, status, reason, observation_fingerprint) in fallback_assigned_external {
+        if candidate_agents.contains(&agent_id) {
+            continue;
+        }
+        inventory.external.push(ConsumptionView {
+            agent_id: agent_id.clone(),
+            asset: AssetRef::Model {
+                profile_id: format!("external-{agent_id}"),
+            },
+            ownership: OwnershipState::External,
+            desired: false,
+            observed: true,
+            enabled: None,
+            observed_enabled: Some(true),
+            active: Some(true),
+            desired_active: Some(false),
+            status,
+            reason: Some(reason),
+            observation_id: Some(format!("model:{agent_id}:active:{observation_fingerprint}")),
+            available_actions: Vec::new(),
+            affected_agent_ids: vec![agent_id],
+            target: None,
+        });
+    }
+
+    for agent in model_agents.into_iter().filter(|agent| {
+        agent.mode == "managed"
+            && !assigned_agents.contains(&agent.id)
+            && !candidate_agents.contains(&agent.id)
+    }) {
+        let (status, reason) = match observe_external_model(&agent.id) {
+            Err(_) => (
+                ConsumptionStatus::Unparseable,
+                Some("model_target_unparseable".into()),
+            ),
+            Ok(ExternalModelObservedState::Absent) => continue,
+            Ok(ExternalModelObservedState::Present) => (
+                ConsumptionStatus::ExternalAdded,
                 Some("model_external_unmanaged".into()),
             ),
-            ExternalModelObservedState::Conflicted => (
-                ConsumptionStatus::Conflicted,
+            Ok(ExternalModelObservedState::Conflicted) => (
+                ConsumptionStatus::Ambiguous,
                 Some("model_external_conflicted".into()),
             ),
         };
@@ -319,18 +505,60 @@ fn project_models(
             asset: AssetRef::Model {
                 profile_id: format!("external-{}", agent.id),
             },
+            ownership: OwnershipState::External,
             desired: false,
             observed: true,
             enabled: None,
+            observed_enabled: Some(true),
             active: Some(true),
             desired_active: Some(false),
             status,
             reason,
+            observation_id: Some(format!(
+                "model:{}:active:{}",
+                agent.id,
+                observation_fingerprints
+                    .get(agent.id.as_str())
+                    .map(String::as_str)
+                    .unwrap_or("unknown")
+            )),
+            available_actions: Vec::new(),
             affected_agent_ids: vec![agent.id],
             target: None,
         });
     }
     Ok(())
+}
+
+fn file_set_observation_fingerprint(paths: &[String]) -> String {
+    let mut paths = paths.to_vec();
+    paths.sort();
+    let mut hasher = Sha256::new();
+    for raw in paths {
+        hasher.update(raw.len().to_le_bytes());
+        hasher.update(raw.as_bytes());
+        let path = crate::resources::mcp::scanner::expand_tilde(&raw);
+        match fs::symlink_metadata(&path) {
+            Ok(metadata) if metadata.file_type().is_symlink() => {
+                hasher.update(b"symlink");
+                match fs::read_link(&path) {
+                    Ok(target) => hasher.update(target.as_os_str().as_encoded_bytes()),
+                    Err(error) => hasher.update(error.kind().to_string().as_bytes()),
+                }
+            }
+            Ok(metadata) if metadata.is_file() => {
+                hasher.update(b"file");
+                match fs::read(&path) {
+                    Ok(bytes) => hasher.update(bytes),
+                    Err(error) => hasher.update(error.kind().to_string().as_bytes()),
+                }
+            }
+            Ok(metadata) if metadata.is_dir() => hasher.update(b"directory"),
+            Ok(_) => hasher.update(b"special"),
+            Err(error) => hasher.update(error.kind().to_string().as_bytes()),
+        }
+    }
+    hex::encode(hasher.finalize())
 }
 
 fn project_skills(
@@ -377,13 +605,17 @@ fn project_skills(
                 inventory.consumptions.push(ConsumptionView {
                     agent_id: target_id.clone(),
                     asset: AssetRef::Skill { name: name.clone() },
+                    ownership: OwnershipState::Managed,
                     desired: true,
                     observed: false,
                     enabled: Some(enabled),
+                    observed_enabled: None,
                     active: None,
                     desired_active: None,
-                    status: ConsumptionStatus::Conflicted,
+                    status: ConsumptionStatus::Ambiguous,
                     reason: Some("skill_target_unknown".into()),
+                    observation_id: Some(format!("skill:{target_id}:{name}")),
+                    available_actions: Vec::new(),
                     affected_agent_ids: Vec::new(),
                     target: None,
                 });
@@ -393,32 +625,32 @@ fn project_skills(
             let (physical_observed, physical_status, physical_reason) = match physical {
                 None => (
                     false,
-                    ConsumptionStatus::Drifted,
+                    ConsumptionStatus::ExternalRemoved,
                     Some("skill_target_missing".into()),
                 ),
                 Some(item) if item.states.contains(&InventoryState::BrokenLink) => (
                     true,
-                    ConsumptionStatus::Drifted,
+                    ConsumptionStatus::ExternalRemoved,
                     Some("skill_broken_link".into()),
                 ),
                 Some(item) if item.states.contains(&InventoryState::ConflictingLink) => (
                     true,
-                    ConsumptionStatus::Conflicted,
+                    ConsumptionStatus::Ambiguous,
                     Some("skill_conflicting_link".into()),
                 ),
                 Some(item) if item.states.contains(&InventoryState::LocallyModified) => (
                     true,
-                    ConsumptionStatus::Drifted,
+                    ConsumptionStatus::ExternalChanged,
                     Some("skill_local_modification".into()),
                 ),
                 Some(item) if item.states.contains(&InventoryState::External) => (
                     true,
-                    ConsumptionStatus::Conflicted,
+                    ConsumptionStatus::ExternalChanged,
                     Some("skill_external_target".into()),
                 ),
                 Some(item) if item.states.contains(&InventoryState::Missing) => (
                     false,
-                    ConsumptionStatus::Drifted,
+                    ConsumptionStatus::ExternalRemoved,
                     Some("skill_target_missing".into()),
                 ),
                 Some(_) => (true, ConsumptionStatus::Synced, None),
@@ -430,10 +662,10 @@ fn project_skills(
             } else {
                 (
                     true,
-                    if physical_status == ConsumptionStatus::Conflicted {
-                        ConsumptionStatus::Conflicted
+                    if physical_status == ConsumptionStatus::Ambiguous {
+                        ConsumptionStatus::Ambiguous
                     } else {
-                        ConsumptionStatus::Drifted
+                        ConsumptionStatus::ExternalChanged
                     },
                     Some("skill_disabled_state_drift".into()),
                 )
@@ -447,13 +679,22 @@ fn project_skills(
                 inventory.consumptions.push(ConsumptionView {
                     agent_id: agent_id.clone(),
                     asset: AssetRef::Skill { name: name.clone() },
+                    ownership: OwnershipState::Managed,
                     desired: true,
                     observed,
                     enabled: Some(enabled),
+                    observed_enabled: Some(physical_observed),
                     active: None,
                     desired_active: None,
                     status: status.clone(),
                     reason: reason.clone(),
+                    observation_id: Some(item_observation_id(
+                        "skill",
+                        &target_id,
+                        name,
+                        physical.and_then(|item| item.content_hash.as_deref()),
+                    )),
+                    available_actions: Vec::new(),
                     affected_agent_ids: agents.clone(),
                     target: Some(ConsumptionTarget {
                         target_id: target.target_id.clone(),
@@ -489,13 +730,17 @@ fn project_skills(
                 asset: AssetRef::Skill {
                     name: item.name.clone(),
                 },
+                ownership: OwnershipState::External,
                 desired: false,
                 observed: true,
                 enabled: None,
+                observed_enabled: Some(true),
                 active: None,
                 desired_active: None,
-                status: ConsumptionStatus::External,
+                status: ConsumptionStatus::ExternalAdded,
                 reason: Some("skill_external".into()),
+                observation_id: Some(item.identity.clone()),
+                available_actions: Vec::new(),
                 affected_agent_ids: agents.clone(),
                 target: Some(ConsumptionTarget {
                     target_id: target_id.clone(),
@@ -518,4 +763,56 @@ fn sort_inventory(inventory: &mut ConsumptionInventory) {
     };
     sort(&mut inventory.consumptions);
     sort(&mut inventory.external);
+}
+
+fn item_observation_id(
+    domain: &str,
+    target_id: &str,
+    asset_id: &str,
+    content_hash: Option<&str>,
+) -> String {
+    format!(
+        "{domain}:{target_id}:{asset_id}:{}",
+        content_hash.unwrap_or("missing")
+    )
+}
+
+fn finalize_observation(inventory: &mut ConsumptionInventory) {
+    for item in inventory
+        .consumptions
+        .iter_mut()
+        .chain(inventory.external.iter_mut())
+    {
+        if !item.available_actions.is_empty() {
+            continue;
+        }
+        item.available_actions = match (&item.ownership, &item.status) {
+            (OwnershipState::External, ConsumptionStatus::ExternalAdded) => {
+                vec![ConvergenceAction::AdoptObserved]
+            }
+            (OwnershipState::Managed, ConsumptionStatus::ExternalChanged) => vec![
+                ConvergenceAction::AdoptObserved,
+                ConvergenceAction::RestoreDesired,
+                ConvergenceAction::Detach,
+            ],
+            (OwnershipState::Managed, ConsumptionStatus::ExternalRemoved) => {
+                vec![ConvergenceAction::RestoreDesired, ConvergenceAction::Detach]
+            }
+            (OwnershipState::Managed, ConsumptionStatus::Unparseable)
+            | (OwnershipState::Managed, ConsumptionStatus::Ambiguous)
+            | (OwnershipState::Managed, ConsumptionStatus::Unsupported) => {
+                vec![ConvergenceAction::Detach]
+            }
+            _ => Vec::new(),
+        };
+    }
+    let bytes = serde_json::to_vec(&(
+        &inventory.consumptions,
+        &inventory.external,
+        &inventory.capability_errors,
+        &inventory.recovery_error,
+    ))
+    .expect("observation projection serializes");
+    inventory.revision = hex::encode(Sha256::digest(bytes));
+    inventory.observed_at = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
 }

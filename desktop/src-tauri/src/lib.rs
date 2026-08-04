@@ -1,5 +1,6 @@
 pub mod cli_tool;
 pub mod commands;
+mod observation_watcher;
 pub mod updater_guard;
 
 use tauri::Manager;
@@ -27,6 +28,9 @@ pub fn run() {
         // Needed to relaunch the app after an update is installed.
         .plugin(tauri_plugin_process::init())
         .setup(move |app| {
+            if let Err(error) = observation_watcher::start(app.handle().clone()) {
+                eprintln!("MUX observation watcher warning: {error}");
+            }
             if bootstrap.skill_updates_allowed {
                 std::thread::spawn(|| {
                     let _ = mux_core::application::skills::check_updates_if_due();
@@ -43,8 +47,6 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::get_backend_status,
-            commands::get_migration_review,
-            commands::resolve_migration,
             commands::get_workspace_snapshot,
             commands::list_agent_capabilities,
             commands::plan_operation,
@@ -59,7 +61,6 @@ pub fn run() {
             commands::plan_set_active_model,
             commands::plan_set_asset_consumers,
             commands::plan_update_agent_capabilities,
-            commands::plan_update_agent_configuration,
             commands::plan_update_central_asset,
             commands::plan_delete_central_asset,
             commands::commit_asset_operation,

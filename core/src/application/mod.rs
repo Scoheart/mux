@@ -6,6 +6,7 @@
 pub mod agents;
 pub mod assets;
 pub mod bootstrap;
+pub mod convergence;
 mod error;
 pub(crate) mod gate;
 pub mod mcp;
@@ -35,16 +36,6 @@ impl MuxCore {
 
     pub fn backend_status() -> BackendStatus {
         gate::status()
-    }
-
-    pub fn migration_review() -> Option<bootstrap::MigrationReview> {
-        bootstrap::migration_review()
-    }
-
-    pub fn resolve_migration(
-        request: bootstrap::ResolveMigrationRequest,
-    ) -> crate::domain::error::CoreResult<bootstrap::MigrationResolutionOutcome> {
-        bootstrap::resolve_migration(request)
     }
 
     /// Gate a frontend-specific host write that does not read or mutate MCP,

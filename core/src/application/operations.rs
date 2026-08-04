@@ -1,27 +1,25 @@
 //! One plan/commit/cancel entry point for every resource domain.
 
-use crate::assets::{PlanMcpAdoptionRequest, PlanModelAdoptionRequest};
 use crate::domain::assets::{
-    AssetCommitRequest, AssetOperationPlan, ConsumptionInventory, PlanDeleteCentralAssetRequest,
-    PlanEnsureAgentConsumptionRequest, PlanReapplyMcpRequest, PlanReapplyModelRequest,
-    PlanReapplySkillRequest, PlanRemoveAgentConsumptionRequest, PlanSetActiveModelRequest,
-    PlanSetAgentConsumptionRequest, PlanSetAssetConsumersRequest, PlanSetMcpEnabledRequest,
-    PlanSetModelEnabledRequest, PlanSetSkillEnabledRequest, PlanUpdateAgentCapabilitiesRequest,
-    PlanUpdateAgentConfigurationRequest, PlanUpdateAssetConsumersRequest,
-    PlanUpdateCentralAssetRequest,
+    AssetCommitRequest, AssetOperationPlan, ConsumptionInventory, PlanConvergeConsumptionRequest,
+    PlanDeleteCentralAssetRequest, PlanEnsureAgentConsumptionRequest,
+    PlanRemoveAgentConsumptionRequest, PlanSetActiveModelRequest, PlanSetAgentConsumptionRequest,
+    PlanSetAssetConsumersRequest, PlanSetMcpEnabledRequest, PlanSetModelEnabledRequest,
+    PlanSetSkillEnabledRequest, PlanUpdateAgentCapabilitiesRequest,
+    PlanUpdateAssetConsumersRequest, PlanUpdateCentralAssetRequest,
 };
 use crate::domain::error::CoreResult;
 use crate::resources::skill::{
-    OperationPlan as SkillOperationPlan, PlanAssignmentRequest, PlanImportRequest,
-    PlanRemoveRequest, PlanRepairRequest, PlanSkillAssetImportRequest,
-    PlanSkillAssetInstallRequest, PlanUpdateRequest, SkillCommitRequest, SkillOperationKind,
-    SkillsInventory,
+    OperationPlan as SkillOperationPlan, PlanAssignmentRequest, PlanRemoveRequest,
+    PlanRepairRequest, PlanSkillAssetImportRequest, PlanSkillAssetInstallRequest,
+    PlanUpdateRequest, SkillCommitRequest, SkillOperationKind, SkillsInventory,
 };
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "operation", content = "request", rename_all = "snake_case")]
 pub enum PlanOperationRequest {
+    ConvergeConsumption(PlanConvergeConsumptionRequest),
     UpdateCentralAsset(PlanUpdateCentralAssetRequest),
     DeleteCentralAsset(PlanDeleteCentralAssetRequest),
     SetAgentConsumption(PlanSetAgentConsumptionRequest),
@@ -31,17 +29,9 @@ pub enum PlanOperationRequest {
     UpdateAssetConsumers(PlanUpdateAssetConsumersRequest),
     SetMcpEnabled(PlanSetMcpEnabledRequest),
     SetSkillEnabled(PlanSetSkillEnabledRequest),
-    ReapplyMcp(PlanReapplyMcpRequest),
-    ReapplyModel(PlanReapplyModelRequest),
-    ReapplySkill(PlanReapplySkillRequest),
     SetModelEnabled(PlanSetModelEnabledRequest),
     SetActiveModel(PlanSetActiveModelRequest),
     UpdateAgentCapabilities(PlanUpdateAgentCapabilitiesRequest),
-    /// Legacy full-form request retained for existing Desktop clients.
-    UpdateAgentConfiguration(PlanUpdateAgentConfigurationRequest),
-    AdoptMcp(PlanMcpAdoptionRequest),
-    AdoptModel(PlanModelAdoptionRequest),
-    AdoptSkill(PlanImportRequest),
     InstallSkill(PlanSkillAssetInstallRequest),
     ImportSkill(PlanSkillAssetImportRequest),
     AssignSkill(PlanAssignmentRequest),
@@ -87,6 +77,7 @@ pub fn plan(request: PlanOperationRequest) -> CoreResult<OperationPlan> {
     use PlanOperationRequest::*;
 
     let plan = match request {
+        ConvergeConsumption(request) => return super::convergence::plan(request),
         UpdateCentralAsset(request) => OperationPlan::Asset {
             plan: Box::new(
                 super::assets::plan_update_central_asset(request)
@@ -140,21 +131,6 @@ pub fn plan(request: PlanOperationRequest) -> CoreResult<OperationPlan> {
                     .map_err(super::error::from_legacy)?,
             ),
         },
-        ReapplyMcp(request) => OperationPlan::Asset {
-            plan: Box::new(
-                super::assets::plan_reapply_mcp(request).map_err(super::error::from_legacy)?,
-            ),
-        },
-        ReapplyModel(request) => OperationPlan::Asset {
-            plan: Box::new(
-                super::assets::plan_reapply_model(request).map_err(super::error::from_legacy)?,
-            ),
-        },
-        ReapplySkill(request) => OperationPlan::Asset {
-            plan: Box::new(
-                super::assets::plan_reapply_skill(request).map_err(super::error::from_legacy)?,
-            ),
-        },
         SetModelEnabled(request) => OperationPlan::Asset {
             plan: Box::new(
                 super::assets::plan_set_model_enabled(request)
@@ -171,25 +147,6 @@ pub fn plan(request: PlanOperationRequest) -> CoreResult<OperationPlan> {
                 super::assets::plan_update_agent_capabilities(request)
                     .map_err(super::error::from_legacy)?,
             ),
-        },
-        UpdateAgentConfiguration(request) => OperationPlan::Asset {
-            plan: Box::new(
-                super::assets::plan_update_agent_configuration(request)
-                    .map_err(super::error::from_legacy)?,
-            ),
-        },
-        AdoptMcp(request) => OperationPlan::Asset {
-            plan: Box::new(
-                super::assets::plan_mcp_adoption(request).map_err(super::error::from_legacy)?,
-            ),
-        },
-        AdoptModel(request) => OperationPlan::Asset {
-            plan: Box::new(
-                super::assets::plan_model_adoption(request).map_err(super::error::from_legacy)?,
-            ),
-        },
-        AdoptSkill(request) => OperationPlan::Skill {
-            plan: super::skills::plan_import(request).map_err(super::error::from_skill)?,
         },
         InstallSkill(request) => OperationPlan::Skill {
             plan: super::skills::plan_asset_install(request).map_err(super::error::from_skill)?,

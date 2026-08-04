@@ -1,8 +1,7 @@
 use mux_core::application::assets::{
     AssetCommitRequest, AssetOperationPlan, ConsumptionInventory, ModelAdoptionCandidate,
     PlanDeleteCentralAssetRequest, PlanSetAgentConsumptionRequest, PlanSetAssetConsumersRequest,
-    PlanUpdateAgentCapabilitiesRequest, PlanUpdateAgentConfigurationRequest,
-    PlanUpdateCentralAssetRequest,
+    PlanUpdateAgentCapabilitiesRequest, PlanUpdateCentralAssetRequest,
 };
 use mux_core::application::mcp::catalog::{
     read_registry, read_registry_all, user_override_keys, CatalogItem,
@@ -69,18 +68,6 @@ fn enrich_backend_error(mut error: CoreError) -> CoreError {
                 .insert("backend_state".into(), Value::String("read_only".into()));
             error.details.insert("stage".into(), Value::String(stage));
         }
-        BackendStatus::MigrationReviewRequired {
-            stage, review_hash, ..
-        } if error.code == "migration_review_required" => {
-            error.details.insert(
-                "backend_state".into(),
-                Value::String("migration_review_required".into()),
-            );
-            error.details.insert("stage".into(), Value::String(stage));
-            error
-                .details
-                .insert("review_hash".into(), Value::String(review_hash));
-        }
         BackendStatus::CapabilityUnavailable {
             capability,
             stage,
@@ -135,18 +122,6 @@ pub async fn get_workspace_snapshot(
 #[tauri::command]
 pub fn get_backend_status() -> BackendStatus {
     MuxCore::backend_status()
-}
-
-#[tauri::command]
-pub fn get_migration_review() -> Option<mux_core::application::bootstrap::MigrationReview> {
-    MuxCore::migration_review()
-}
-
-#[tauri::command]
-pub async fn resolve_migration(
-    request: mux_core::application::bootstrap::ResolveMigrationRequest,
-) -> CoreResult<mux_core::application::bootstrap::MigrationResolutionOutcome> {
-    core_blocking(move || MuxCore::resolve_migration(request)).await
 }
 
 #[tauri::command]
@@ -223,14 +198,6 @@ pub async fn plan_set_asset_consumers(
     request: PlanSetAssetConsumersRequest,
 ) -> Result<AssetOperationPlan, AssetCommandError> {
     asset_blocking(move || mux_core::application::assets::plan_set_asset_consumers(request)).await
-}
-
-#[tauri::command]
-pub async fn plan_update_agent_configuration(
-    request: PlanUpdateAgentConfigurationRequest,
-) -> Result<AssetOperationPlan, AssetCommandError> {
-    asset_blocking(move || mux_core::application::assets::plan_update_agent_configuration(request))
-        .await
 }
 
 #[tauri::command]
@@ -601,11 +568,11 @@ pub fn import_pasted_config(text: String) -> CoreResult<Vec<String>> {
             },
         )
         .map_err(|error| core_error_from_legacy(error, "asset_operation_failed"))?;
-        if !plan.can_commit || plan.requires_conflict_confirmation {
+        if !plan.can_commit {
             let _ = mux_core::application::assets::cancel_asset_operation(&plan.operation_id);
             return Err(CoreError::new(
-                "conflict_confirmation_required",
-                "粘贴导入需要覆盖漂移配置；请在资源审查界面逐项处理",
+                "asset_operation_blocked",
+                "粘贴导入与当前资产状态冲突；请先在资源界面收敛对应消费关系",
             ));
         }
         names.extend(
@@ -621,7 +588,6 @@ pub fn import_pasted_config(text: String) -> CoreResult<Vec<String>> {
         mux_core::application::assets::commit_asset_operation(AssetCommitRequest {
             operation_id: plan.operation_id,
             candidate_hash: plan.candidate_hash,
-            conflict_confirmation: None,
         })
         .map_err(|error| core_error_from_legacy(error, "asset_operation_failed"))?;
     }
@@ -917,7 +883,6 @@ mod tests {
         mux_core::application::assets::commit_asset_operation(AssetCommitRequest {
             operation_id: plan.operation_id,
             candidate_hash: plan.candidate_hash,
-            conflict_confirmation: None,
         })
         .unwrap();
         // Legacy callers may still send project fields. Serde ignores them and

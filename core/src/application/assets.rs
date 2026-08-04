@@ -39,7 +39,7 @@ fn operation_capability(operation_id: &str) -> Result<Option<CapabilityDomain>, 
         DomainPlan::Mcp { .. } => Some(CapabilityDomain::Mcp),
         DomainPlan::Model { .. } => Some(CapabilityDomain::Model),
         DomainPlan::Skill { .. } => Some(CapabilityDomain::Skill),
-        DomainPlan::AgentConfiguration { .. } | DomainPlan::AgentCapabilities { .. } => None,
+        DomainPlan::AgentCapabilities { .. } => None,
     })
 }
 
@@ -101,14 +101,6 @@ pub fn plan_model_adoption(
     super::gate::prepare_for(CapabilityDomain::Model, "asset_plan", || {
         crate::assets::plan_model_adoption(request)
     })
-}
-
-pub fn plan_model_schema_v2_migration() -> Result<Option<AssetOperationPlan>, String> {
-    super::gate::prepare_for(
-        CapabilityDomain::Model,
-        "asset_plan",
-        crate::assets::plan_model_schema_v2_migration,
-    )
 }
 
 pub fn plan_set_agent_consumption(
@@ -190,6 +182,12 @@ pub fn plan_reapply_skill(request: PlanReapplySkillRequest) -> Result<AssetOpera
     })
 }
 
+pub fn plan_adopt_observed_skill(agent_id: &str, name: &str) -> Result<AssetOperationPlan, String> {
+    super::gate::prepare_for(CapabilityDomain::Skill, "asset_plan", || {
+        crate::assets::plan_adopt_observed_skill(agent_id, name)
+    })
+}
+
 pub fn plan_set_model_enabled(
     request: PlanSetModelEnabledRequest,
 ) -> Result<AssetOperationPlan, String> {
@@ -211,14 +209,6 @@ pub fn plan_update_agent_capabilities(
 ) -> Result<AssetOperationPlan, String> {
     super::gate::prepare("asset_plan", || {
         crate::assets::plan_update_agent_capabilities(request)
-    })
-}
-
-pub fn plan_update_agent_configuration(
-    request: PlanUpdateAgentConfigurationRequest,
-) -> Result<AssetOperationPlan, String> {
-    super::gate::prepare("asset_plan", || {
-        crate::assets::plan_update_agent_configuration(request)
     })
 }
 

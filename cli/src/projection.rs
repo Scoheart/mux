@@ -51,6 +51,7 @@ pub fn safe_model_candidate(
         "candidate_id": candidate.candidate_id,
         "agent_id": candidate.agent_id,
         "native_id": candidate.native_id,
+        "managed_profile_id": candidate.managed_profile_id,
         "name": candidate.name,
         "provider": candidate.provider,
         "model_vendor": candidate.model_vendor,
@@ -87,8 +88,14 @@ fn safe_model_reason(
 
 pub fn safe_consumption_inventory(inventory: &ConsumptionInventory) -> Value {
     json!({
+        "revision": inventory.revision,
+        "observed_at": inventory.observed_at,
         "consumptions": inventory.consumptions.iter().map(safe_consumption_view).collect::<Vec<_>>(),
         "external": inventory.external.iter().map(safe_consumption_view).collect::<Vec<_>>(),
+        "capability_errors": inventory.capability_errors.iter().map(|diagnostic| json!({
+            "capability": diagnostic.capability,
+            "code": diagnostic.code,
+        })).collect::<Vec<_>>(),
         "recovery_error": inventory.recovery_error.as_ref().map(|_| "recovery_required"),
     })
 }
@@ -97,13 +104,17 @@ pub fn safe_consumption_view(row: &ConsumptionView) -> Value {
     json!({
         "agent_id": row.agent_id,
         "asset": row.asset,
+        "ownership": row.ownership,
         "desired": row.desired,
         "observed": row.observed,
         "enabled": row.enabled,
+        "observed_enabled": row.observed_enabled,
         "active": row.active,
         "desired_active": row.desired_active,
         "status": row.status,
         "reason": row.reason,
+        "observation_id": row.observation_id,
+        "available_actions": row.available_actions,
         "affected_agent_ids": row.affected_agent_ids,
         "target": row.target.as_ref().map(|target| json!({
             "target_id": target.target_id,

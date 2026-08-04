@@ -16,7 +16,7 @@ use mux_core::registry::write_manual_entry;
 use mux_core::settings::{mutate_settings, AgentConfigPathOverride};
 use mux_core::testenv::TestHome;
 use mux_core::types::{ModelProfile, ModelProtocol, RegistryConfig, RegistryEntry, StdioConfig};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fs;
 use support::skills::SkillsFixture;
 
@@ -78,7 +78,9 @@ fn mcp_inventory_reconciles_desired_and_external_without_writes() {
 
     let first = list_consumption_inventory().unwrap();
     let second = list_consumption_inventory().unwrap();
-    assert_eq!(first, second);
+    assert_eq!(first.revision, second.revision);
+    assert_eq!(first.consumptions, second.consumptions);
+    assert_eq!(first.external, second.external);
     assert!(first.consumptions.iter().any(|item| {
         item.agent_id == "claude-code"
             && item.asset
@@ -90,7 +92,7 @@ fn mcp_inventory_reconciles_desired_and_external_without_writes() {
     assert!(first.external.iter().any(|item| {
         item.agent_id == "codex"
             && item.reason.as_deref() == Some("mcp_adoptable")
-            && item.status == ConsumptionStatus::External
+            && item.status == ConsumptionStatus::ExternalAdded
     }));
     assert_eq!(
         before,
@@ -140,7 +142,7 @@ fn model_assignment_remains_visible_when_target_is_missing() {
         .unwrap();
     assert!(model.desired);
     assert!(!model.observed);
-    assert_eq!(model.status, ConsumptionStatus::Drifted);
+    assert_eq!(model.status, ConsumptionStatus::ExternalRemoved);
     assert_eq!(model.reason.as_deref(), Some("model_target_missing"));
 }
 
@@ -164,7 +166,7 @@ fn model_profile() -> ModelProfile {
 }
 
 #[test]
-fn unassigned_model_configuration_requires_confirmation_before_takeover() {
+fn unassigned_model_configuration_requires_explicit_convergence_before_takeover() {
     let home = TestHome::new("consume-model-external");
     let target = home.home.join(".codex/config.toml");
     fs::create_dir_all(target.parent().unwrap()).unwrap();
@@ -194,8 +196,7 @@ fn unassigned_model_configuration_requires_confirmation_before_takeover() {
         },
     })
     .unwrap();
-    assert!(plan.can_commit);
-    assert!(plan.requires_conflict_confirmation);
+    assert!(!plan.can_commit);
     assert!(plan
         .warnings
         .iter()
@@ -203,32 +204,64 @@ fn unassigned_model_configuration_requires_confirmation_before_takeover() {
     let rejected = commit_asset_operation(AssetCommitRequest {
         operation_id: plan.operation_id.clone(),
         candidate_hash: plan.candidate_hash.clone(),
-        conflict_confirmation: None,
     })
     .unwrap_err();
-    assert!(rejected.starts_with("confirmation_required:"));
+    assert!(rejected.starts_with("asset_operation_blocked:"));
     assert_eq!(
         fs::read_to_string(&target).unwrap(),
         "model = \"external-model\"\nmodel_provider = \"external-provider\"\n"
     );
 
-    let inventory = commit_asset_operation(AssetCommitRequest {
-        operation_id: plan.operation_id,
-        candidate_hash: plan.candidate_hash.clone(),
-        conflict_confirmation: Some(plan.candidate_hash),
-    })
+    assert_eq!(
+        fs::read_to_string(target).unwrap(),
+        "model = \"external-model\"\nmodel_provider = \"external-provider\"\n"
+    );
+}
+
+#[test]
+fn multiple_external_models_keep_distinct_candidate_identities() {
+    let home = TestHome::new("consume-model-multiple-external");
+    let target = home.home.join(".config/opencode/opencode.json");
+    fs::create_dir_all(target.parent().unwrap()).unwrap();
+    fs::write(
+        target,
+        r#"{
+  "model": "legacy/active",
+  "provider": {
+    "legacy": {
+      "npm": "@ai-sdk/openai-compatible",
+      "options": {"baseURL": "https://openrouter.ai/api/v1", "apiKey": "{env:OPENROUTER_API_KEY}"},
+      "models": {"active": {"name": "Active"}, "inactive": {"name": "Inactive"}}
+    }
+  }
+}"#,
+    )
     .unwrap();
-    assert!(inventory.consumptions.iter().any(|item| {
-        item.agent_id == "codex"
-            && item.asset
-                == (AssetRef::Model {
-                    profile_id: "inventory-profile".into(),
-                })
-            && item.status == ConsumptionStatus::Synced
-    }));
-    let updated = fs::read_to_string(target).unwrap();
-    assert!(updated.contains("model = \"example\""));
-    assert!(!updated.contains("external-model"));
+
+    let inventory = list_consumption_inventory().unwrap();
+    let rows = inventory
+        .external
+        .iter()
+        .filter(|item| item.agent_id == "opencode" && matches!(&item.asset, AssetRef::Model { .. }))
+        .collect::<Vec<_>>();
+    assert_eq!(rows.len(), 2);
+    let ids = rows
+        .iter()
+        .filter_map(|item| match &item.asset {
+            AssetRef::Model { profile_id } => Some(profile_id.clone()),
+            _ => None,
+        })
+        .collect::<BTreeSet<_>>();
+    assert_eq!(ids.len(), 2);
+    assert!(ids.iter().all(|id| id.starts_with("external-")));
+    assert_eq!(
+        rows.iter()
+            .filter(|item| item
+                .available_actions
+                .contains(&mux_core::consumption::ConvergenceAction::AdoptObserved))
+            .count(),
+        1
+    );
 }
 
 #[test]
@@ -257,7 +290,6 @@ fn ambiguous_model_configuration_cannot_be_taken_over() {
     })
     .unwrap();
     assert!(!plan.can_commit);
-    assert!(!plan.requires_conflict_confirmation);
     assert!(plan
         .warnings
         .iter()
@@ -289,7 +321,6 @@ fn drifted_model_requires_explicit_reapply_while_relationship_assignment_is_a_no
     assert!(relationship_plan.target_files.is_empty());
     assert!(relationship_plan.central_changes.is_empty());
     assert!(relationship_plan.relationship_changes.is_empty());
-    assert!(!relationship_plan.requires_conflict_confirmation);
     assert!(fs::read_to_string(&target).unwrap().contains("tampered"));
 
     let plan = plan_reapply_model(PlanReapplyModelRequest {
@@ -298,7 +329,6 @@ fn drifted_model_requires_explicit_reapply_while_relationship_assignment_is_a_no
     })
     .unwrap();
     assert!(plan.can_commit);
-    assert!(plan.requires_conflict_confirmation);
     assert!(plan
         .warnings
         .iter()
@@ -306,8 +336,7 @@ fn drifted_model_requires_explicit_reapply_while_relationship_assignment_is_a_no
 
     let inventory = commit_asset_operation(AssetCommitRequest {
         operation_id: plan.operation_id,
-        candidate_hash: plan.candidate_hash.clone(),
-        conflict_confirmation: Some(plan.candidate_hash),
+        candidate_hash: plan.candidate_hash,
     })
     .unwrap();
     assert!(inventory.consumptions.iter().any(|item| {
@@ -337,7 +366,6 @@ fn idempotent_asset_consumer_edits_never_repair_unrelated_model_drift() {
     commit_asset_operation(AssetCommitRequest {
         operation_id: assigned.operation_id,
         candidate_hash: assigned.candidate_hash,
-        conflict_confirmation: None,
     })
     .unwrap();
 
@@ -350,7 +378,6 @@ fn idempotent_asset_consumer_edits_never_repair_unrelated_model_drift() {
 
     let assert_noop = |plan: mux_core::consumption::AssetOperationPlan| {
         assert!(plan.can_commit);
-        assert!(!plan.requires_conflict_confirmation);
         assert!(plan.relationship_changes.is_empty());
         assert!(plan.model_state_changes.is_empty());
         assert!(plan.consumption_state_changes.is_empty());
@@ -359,7 +386,6 @@ fn idempotent_asset_consumer_edits_never_repair_unrelated_model_drift() {
         commit_asset_operation(AssetCommitRequest {
             operation_id: plan.operation_id,
             candidate_hash: plan.candidate_hash,
-            conflict_confirmation: None,
         })
         .unwrap();
         assert_eq!(fs::read(&target).unwrap(), reviewed_bytes);
@@ -423,7 +449,6 @@ fn model_plan_snapshots_and_writes_the_configured_override_path() {
     let inventory = commit_asset_operation(AssetCommitRequest {
         operation_id: plan.operation_id,
         candidate_hash: plan.candidate_hash,
-        conflict_confirmation: None,
     })
     .unwrap();
     assert!(inventory

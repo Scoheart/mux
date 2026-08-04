@@ -7,10 +7,12 @@ import type {
   AgentConsumptionSelection,
   AssetOperationPlan,
   AssetRef,
-  ConsumptionInventory,
+  ConsumptionView,
+  ConvergenceAction,
   ModelAdoptionCandidate,
   ModelAgentView,
   ModelProfileView,
+  OperationPlan,
   ResourceNavigationRequest,
 } from "../lib/types";
 import { formatError } from "../lib/format";
@@ -39,6 +41,8 @@ import {
 } from "./ConsumptionPickerDialog";
 import { AssetOperationReviewDialog } from "./AssetOperationReviewDialog";
 import { mergeAgentInfos } from "../lib/agentCapabilities";
+import { SkillReviewDialog } from "./SkillReviewDialog";
+import { useTranslation } from "react-i18next";
 
 type PickerDomain = "mcp" | "model" | "skill";
 
@@ -61,49 +65,10 @@ function modelCompatibilityReason(profile: ModelProfileView, agent: ModelAgentVi
 interface AgentViewProps {
   state: InstallState;
   skillsState: SkillsState;
-  consumptionState?: ConsumptionState;
+  consumptionState: ConsumptionState;
   agentId: string;
   externalModelCandidates?: ModelAdoptionCandidate[];
   onOpenResource?(request: ResourceNavigationRequest): void;
-  /** Transitional test adapters. */
-  onOpenModels?: () => void;
-  onOpenSkills?: (request: Extract<ResourceNavigationRequest, { domain: "skill" }>) => void;
-}
-
-function fallbackInventory(
-  state: InstallState,
-  modelAgents: ModelAgentView[],
-): ConsumptionInventory {
-  return {
-    consumptions: [
-      ...state.installed
-        .filter((item) => item.scope === "global")
-        .map((item) => ({
-          agent_id: item.agent,
-          asset: { domain: "mcp" as const, key: `${item.name}::${item.transport}` },
-          desired: true,
-          observed: true,
-          enabled: item.enabled,
-          status: item.customized ? "drifted" as const : "synced" as const,
-          reason: item.customized ? "mcp_config_drift" : null,
-          affected_agent_ids: [item.agent],
-        })),
-      ...modelAgents.flatMap((item) =>
-        (item.assigned_profiles ?? (item.assigned_profile ? [item.assigned_profile] : [])).map((profileId) => ({
-              agent_id: item.id,
-              asset: { domain: "model" as const, profile_id: profileId },
-              desired: true,
-              observed: true,
-              enabled: true,
-              active: profileId === (item.active_profile ?? item.assigned_profile),
-              status: "synced" as const,
-              reason: null,
-              affected_agent_ids: [item.id],
-            })),
-      ),
-    ],
-    external: [],
-  };
 }
 
 function completedMessage(plan: AssetOperationPlan, agentName: string) {
@@ -133,10 +98,9 @@ export function AgentView({
   agentId,
   externalModelCandidates = [],
   onOpenResource,
-  onOpenModels,
-  onOpenSkills,
 }: AgentViewProps) {
-  const { entries, refreshAgents, rescan } = state;
+  const { t } = useTranslation();
+  const { entries, refreshAgents } = state;
   const { show: showToast } = useToast();
   const [editingAgent, setEditingAgent] = useState(false);
   const [pickerDomain, setPickerDomain] = useState<PickerDomain | null>(null);
@@ -155,16 +119,15 @@ export function AgentView({
     enabled: boolean;
   } | null>(null);
   const [changingModel, setChangingModel] = useState<{ profileId: string } | null>(null);
+  const [skillConvergencePlan, setSkillConvergencePlan] = useState<OperationPlan | null>(null);
 
   const navigateResource = useCallback((request: ResourceNavigationRequest) => {
-    if (onOpenResource) return onOpenResource(request);
-    if (request.domain === "skill") return onOpenSkills?.(request);
-    if (request.domain === "model") return onOpenModels?.();
-  }, [onOpenModels, onOpenResource, onOpenSkills]);
+    onOpenResource?.(request);
+  }, [onOpenResource]);
 
   const agents = useMemo(
-    () => mergeAgentInfos(state.agents, consumptionState?.agents ?? []),
-    [consumptionState?.agents, state.agents],
+    () => mergeAgentInfos(state.agents, consumptionState.agents),
+    [consumptionState.agents, state.agents],
   );
   const agent = useMemo(
     () => agents.find((item) => item.id === agentId) ?? null,
@@ -210,7 +173,7 @@ export function AgentView({
       : [],
     [modelAgent, modelProfiles],
   );
-  const inventory = consumptionState?.inventory ?? fallbackInventory(state, modelAgents);
+  const inventory = consumptionState.inventory;
   const mcpRows = consumptionsForAgent(inventory, agentId, "mcp");
   const modelRows = consumptionsForAgent(inventory, agentId, "model");
   const skillRows = consumptionsForAgent(inventory, agentId, "skill");
@@ -232,34 +195,13 @@ export function AgentView({
   );
   const mcpExternal = externalForAgent(inventory, agentId, "mcp");
   const skillExternal = externalForAgent(inventory, agentId, "skill");
+  const modelExternal = externalForAgent(inventory, agentId, "model");
   const agentModelMigrationCandidates = useMemo(
     () => externalModelCandidates
       .filter((candidate) => candidate.agent_id === agentId)
       .sort((left, right) => Number(right.active) - Number(left.active)
         || (left.name || left.model).localeCompare(right.name || right.model)),
     [agentId, externalModelCandidates],
-  );
-  const externalModelCandidateByProfileId = useMemo(
-    () => new Map(agentModelMigrationCandidates.map((candidate) => [
-      `external-model:${candidate.candidate_id}`,
-      candidate,
-    ])),
-    [agentModelMigrationCandidates],
-  );
-  const modelExternalCards = useMemo(
-    () => agentModelMigrationCandidates.map((candidate) => ({
-      agent_id: agentId,
-      asset: { domain: "model" as const, profile_id: `external-model:${candidate.candidate_id}` },
-      desired: false,
-      observed: true,
-      enabled: false,
-      active: candidate.active,
-      desired_active: false,
-      status: "external" as const,
-      reason: candidate.reason ?? `model_${candidate.status}`,
-      affected_agent_ids: [agentId],
-    })),
-    [agentId, agentModelMigrationCandidates],
   );
   const displayedModelRows = useMemo(
     () => modelRows.map((item) => {
@@ -414,7 +356,6 @@ export function AgentView({
     ids: string[],
     mode: "add" | "replace" | "remove",
   ) => {
-    if (!consumptionState) return;
     setPreparingChange(true);
     try {
       const plan = mode === "add"
@@ -422,7 +363,7 @@ export function AgentView({
         : await consumptionState.planForAgent(agentId, createSelection(domain, ids));
       setPickerDomain(null);
       if (!requiresAgentReview(plan)) {
-        await commitPlan(undefined, plan);
+        await commitPlan(plan);
       }
     } catch (error) {
       showToast({ kind: "error", msg: "无法准备变更：" + formatError(error) });
@@ -447,14 +388,12 @@ export function AgentView({
   };
 
   const commitPlan = async (
-    conflictConfirmation?: string,
     preparedPlan?: AssetOperationPlan,
     successMessage?: string,
   ) => {
-    if (!consumptionState) return;
     const activePlan = preparedPlan ?? consumptionState.plan;
     try {
-      await consumptionState.commit(conflictConfirmation);
+      await consumptionState.commit();
       showToast({
         kind: "success",
         msg: successMessage
@@ -466,7 +405,7 @@ export function AgentView({
   };
 
   const toggleMcpEnabled = async (item: typeof mcpRows[number], enabled: boolean) => {
-    if (!consumptionState || item.asset.domain !== "mcp") return;
+    if (item.asset.domain !== "mcp") return;
     const key = item.asset.key;
     const name = entries.find((entry) => keyOf(entry) === key)?.name
       ?? key.replace(/::(?:stdio|http)$/, "");
@@ -474,7 +413,7 @@ export function AgentView({
     try {
       const plan = await consumptionState.planMcpEnabled(agentId, key, enabled);
       if (!requiresAgentReview(plan)) {
-        await commitPlan(undefined, plan, `${name} 已${enabled ? "启用" : "停用"}。`);
+        await commitPlan(plan, `${name} 已${enabled ? "启用" : "停用"}。`);
       }
     } catch (error) {
       showToast({ kind: "error", msg: `${enabled ? "启用" : "停用"}失败：${formatError(error)}` });
@@ -484,13 +423,13 @@ export function AgentView({
   };
 
   const toggleSkillEnabled = async (item: typeof skillRows[number], enabled: boolean) => {
-    if (!consumptionState || item.asset.domain !== "skill") return;
+    if (item.asset.domain !== "skill") return;
     const name = item.asset.name;
     setTogglingSkill({ name, enabled });
     try {
       const plan = await consumptionState.planSkillEnabled(agentId, name, enabled);
       if (!requiresAgentReview(plan)) {
-        await commitPlan(undefined, plan, `${name} 已${enabled ? "启用" : "停用"}。`);
+        await commitPlan(plan, `${name} 已${enabled ? "启用" : "停用"}。`);
       }
     } catch (error) {
       showToast({ kind: "error", msg: `${enabled ? "启用" : "停用"}失败：${formatError(error)}` });
@@ -500,14 +439,14 @@ export function AgentView({
   };
 
   const setActiveModel = async (item: typeof modelRows[number]) => {
-    if (!consumptionState || item.asset.domain !== "model" || item.desired_active) return;
+    if (item.asset.domain !== "model" || item.desired_active) return;
     const profileId = item.asset.profile_id;
     const name = modelProfiles.find((profile) => profile.id === profileId)?.name ?? profileId;
     setChangingModel({ profileId });
     try {
       const plan = await consumptionState.planActiveModel(agentId, profileId);
       if (!requiresAgentReview(plan)) {
-        await commitPlan(undefined, plan, `${agent.name} 已切换到 ${name}。`);
+        await commitPlan(plan, `${agent.name} 已切换到 ${name}。`);
       }
     } catch (error) {
       showToast({ kind: "error", msg: `切换失败：${formatError(error)}` });
@@ -519,6 +458,22 @@ export function AgentView({
   const switchActiveModel = (item: typeof modelRows[number], current: boolean) => {
     if (current) return void setActiveModel(item);
     showToast({ kind: "error", msg: "请先选择其他当前 Model。" });
+  };
+
+  const converge = async (item: ConsumptionView, action: ConvergenceAction) => {
+    if (preparingChange) return;
+    setPreparingChange(true);
+    try {
+      const result = await consumptionState.planConvergence(item, action);
+      if (result.domain === "skill") setSkillConvergencePlan(result.plan);
+    } catch (error) {
+      showToast({
+        kind: "error",
+        msg: t("observations.convergencePrepareFailed", { error: formatError(error) }),
+      });
+    } finally {
+      setPreparingChange(false);
+    }
   };
 
   const openAsset = (asset: AssetRef) => {
@@ -591,7 +546,7 @@ export function AgentView({
           onChange={setResourceTab}
           counts={{
             mcps: mcpRows.length + mcpExternal.length,
-            models: modelRows.length + modelExternalCards.length,
+            models: modelRows.length + modelExternal.length,
             skills: skillRows.length + skillExternal.length,
           }}
         >
@@ -614,12 +569,13 @@ export function AgentView({
               external={mcpExternal}
               externalMode="cards"
               onManage={() => setPickerDomain("mcp")}
-              manageDisabled={!agent.has_global || !consumptionState || preparingChange}
+              manageDisabled={!agent.has_global || preparingChange}
               onEnabledChange={(item, enabled) => void toggleMcpEnabled(item, enabled)}
-              enabledChangeDisabled={(item) => !consumptionState
-                || togglingMcp?.key === (item.asset.domain === "mcp" ? item.asset.key : "")
+              enabledChangeDisabled={(item) => togglingMcp?.key === (item.asset.domain === "mcp" ? item.asset.key : "")
                 || item.status !== "synced"}
               onRemove={(asset) => void planRemoval(asset)}
+              onConverge={(item, action) => void converge(item, action)}
+              convergenceDisabled={preparingChange}
               removeLabel={(name) => `从 ${agent.name} 移除 ${name}`}
               removeDisabled={preparingChange}
               emptyTitle="暂无 MCP"
@@ -659,16 +615,15 @@ export function AgentView({
                   manageLabel="添加 Model"
                   rows={displayedModelRows}
                   columns={3}
-                  external={modelExternalCards}
+                  external={modelExternal}
                   externalMode="cards"
                   onManage={() => setPickerDomain("model")}
-                  manageDisabled={!consumptionState || preparingChange || compatibleProfiles.length === 0}
+                  manageDisabled={preparingChange || compatibleProfiles.length === 0}
                   onOpenAsset={openAsset}
                   onEnabledChange={switchActiveModel}
                   toggleKind="current"
-                  enabledChangeDisabled={(item) => !consumptionState
-                    || changingModel !== null
-                    || item.status === "conflicted"}
+                  enabledChangeDisabled={(item) => changingModel !== null
+                    || item.status === "ambiguous"}
                   renderAction={(item) => item.desired_active ? (
                     <Badge tone={item.active === false ? "warning" : "success"}>
                       {item.active === false ? "期望当前" : "当前"}
@@ -677,6 +632,8 @@ export function AgentView({
                     <Badge tone="warning">Agent 实际当前</Badge>
                   ) : null}
                   onRemove={(asset) => void planRemoval(asset)}
+                  onConverge={(item, action) => void converge(item, action)}
+                  convergenceDisabled={preparingChange}
                   removeLabel={(name) => `从 ${agent.name} 移除 ${name}`}
                   removeDisabled={preparingChange || changingModel !== null}
                   emptyTitle="暂无 Model"
@@ -694,13 +651,16 @@ export function AgentView({
                   ) : undefined}
                   present={(asset) => {
                     const profileId = asset.domain === "model" ? asset.profile_id : "";
-                    const externalCandidate = externalModelCandidateByProfileId.get(profileId);
+                    const externalCandidate = profileId.startsWith("external-")
+                      ? agentModelMigrationCandidates.find(
+                        (candidate) => profileId === `external-${candidate.candidate_id}`,
+                      )
+                      : undefined;
                     if (externalCandidate) {
                       return {
                         name: externalCandidate.name || externalCandidate.model,
                         description: `${externalCandidate.model} · ${modelProtocolLabel(externalCandidate.protocol)} · ${externalCandidate.provider}`,
                         icon: <Avatar seed={externalCandidate.name || externalCandidate.model} kind="model" size={28} />,
-                        meta: externalCandidate.active ? <Badge tone="warning">Agent 当前</Badge> : null,
                       };
                     }
                     const profile = modelProfiles.find((candidate) => candidate.id === profileId);
@@ -732,12 +692,13 @@ export function AgentView({
               externalMode="cards"
               onManage={() => setPickerDomain("skill")}
               onOpenAsset={openAsset}
-              manageDisabled={!runtimeSkillAgent || !consumptionState || preparingChange}
+              manageDisabled={!runtimeSkillAgent || preparingChange}
               onEnabledChange={(item, enabled) => void toggleSkillEnabled(item, enabled)}
-              enabledChangeDisabled={(item) => !consumptionState
-                || togglingSkill?.name === (item.asset.domain === "skill" ? item.asset.name : "")
+              enabledChangeDisabled={(item) => togglingSkill?.name === (item.asset.domain === "skill" ? item.asset.name : "")
                 || item.status !== "synced"}
               onRemove={(asset) => void planRemoval(asset)}
+              onConverge={(item, action) => void converge(item, action)}
+              convergenceDisabled={preparingChange}
               removeLabel={(name) => `从 ${agent.name} 移除 ${name}`}
               removeDisabled={preparingChange}
               emptyTitle="暂无 Skill"
@@ -782,7 +743,7 @@ export function AgentView({
         />
       )}
 
-      {consumptionState?.plan && !preparingChange && (
+      {consumptionState.plan && !preparingChange && (
         <AssetOperationReviewDialog
           plan={consumptionState.plan}
           busy={consumptionState.committing}
@@ -791,8 +752,27 @@ export function AgentView({
           agentName={agent.name}
           agentDisplayNames={agentDisplayNames}
           assetDisplayNames={assetDisplayNames}
-          onCommit={(conflictConfirmation) => commitPlan(conflictConfirmation)}
+          onCommit={() => commitPlan()}
           onCancel={consumptionState.cancel}
+        />
+      )}
+
+      {skillConvergencePlan && (
+        <SkillReviewDialog
+          plan={skillConvergencePlan}
+          onCommit={skillsState.commit}
+          onClose={async () => {
+            await skillsState.cancel(skillConvergencePlan.operation_id);
+            setSkillConvergencePlan(null);
+          }}
+          onCommitted={async (next) => {
+            skillsState.hydrate(next);
+            setSkillConvergencePlan(null);
+            await consumptionState.refreshWorkspace();
+          }}
+          onRecoveryRequired={(message) => {
+            showToast({ kind: "error", msg: message });
+          }}
         />
       )}
 
@@ -806,10 +786,6 @@ export function AgentView({
               refreshAgents(),
               refreshModels(),
               (async () => {
-                if (!consumptionState) {
-                  await Promise.all([rescan(), skillsState.refresh()]);
-                  return;
-                }
                 const snapshot = await consumptionState.refreshWorkspace();
                 skillsState.hydrate(snapshot.assets.skills);
               })(),

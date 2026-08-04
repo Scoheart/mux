@@ -2,7 +2,7 @@
 
 MUX 把符合 Agent Skills 格式的用户级 Skill 作为中央资产统一管理。Desktop 负责添加和维护中央 Skill；Desktop 与 CLI 都可以单独选择哪些 Agent 消费它。Agent 页面不再解析来源或重新安装同一个 Skill。当前版本只管理用户主目录中的全局 Skill，不读取或写入项目目录中的 `.agents/skills`、`.claude/skills` 等内容。
 
-CLI 提供 `mux skill list/show/status/assign/unassign/enable/disable/reapply`。无参数 TUI 是面向 MCP 的兼容性终端管理器，不承担 Skill 生命周期界面。
+CLI 提供 `mux skill list/show/status/assign/unassign/enable/disable/converge`。无参数 TUI 是面向 MCP 的终端工作区，不承担 Skill 生命周期界面。
 
 ## 添加到中央资产库
 
@@ -109,7 +109,7 @@ MUX 在写盘前对候选文件做本地结构与静态校验。越界链接、�
 | 检查 / 更新 | 后台和手动检查只读取 GitHub revision、本地目录或压缩包哈希，不改变正文。选择更新后才暂存候选、展示差异、重新审计并确认替换；中央副本的本地修改会要求“备份后替换”。 |
 | 导入 | Agent 目录中的外部副本先只读展示。单项导入或历史迁移确认后，MUX 复制并校验内容、备份原目录，再用中央链接替换；多个同名且 hash 相同的目录会合并为一份中央副本，同名不同内容不会自动覆盖。成功前不会移动原副本。 |
 | 停用 | 移除当前受管目标链接，保留中央副本和其他 Agent 的分配。共享目录会在审阅中列出所有失去访问的 Agent。 |
-| 修复 | `mux skill reapply <skill-id> --agent <agent-id>` 只对已有 desired 关系重建缺失或断开的受管链接，并列出共享 target 影响的全部 Agent；外部目录、普通文件和异向链接明确阻断。中央正文缺失时，Desktop 的完整修复流程可从已记录来源或只读导入备份重新解析，并再次展示完整差异与风险。 |
+| 收敛 | `mux skill converge {skill-id} --agent {agent-id} {adopt\|restore\|detach}` 对一个准确 observation 采用外部内容、重建安全的受管链接或解除管理，并列出共享 target 影响的全部 Agent；外部目录、普通文件和异向链接不会被恢复操作覆盖。 |
 | 删除 | 先移除全部受管链接，再把中央副本移入带时间戳的 `~/.mux/backups/skills/`，最后移除托管记录。当前不提供永久清空备份操作。 |
 
 候选和内部事务计划位于 `~/.mux/staging/skills/`，提交进度位于 `~/.mux/journals/skills/`。提交失败或 App 崩溃时，journal 会按已持久化阶段安全回滚或完成提交；无法完成恢复时，Skills 工作区进入只读恢复状态，不继续新的写操作。

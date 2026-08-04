@@ -56,14 +56,14 @@ Within Desktop, consumption relationships are edited from Agent pages; central a
 
 ## Relationship state and removal
 
-An Agent page shows desired central assets even if an observed target is missing or conflicted. Core reconciles each relationship as synced, pending, drifted, or conflicted; it never silently overwrites drift in the background. Removing use changes that Agent's relationship and managed target but does not delete the central asset.
+An Agent page shows desired central assets even if an observed target is missing or ambiguous. Core projects each relationship as synced, externally added, changed, removed, unparseable, ambiguous, or unsupported; it never silently overwrites external changes. Removing use changes that Agent's relationship and managed target but does not delete the central asset.
 
-Configurations found only in Agent files first appear as read-only external state; scanning never silently imports them. A non-blocking migration inbox can explicitly deduplicate exact MCP / Skill copies, create one central asset, and adopt the original Agent relationships. Divergent same-name copies remain blocked instead of being overwritten. Deleting a central asset first reviews all consumers, then atomically removes every managed target and relationship together with the central record.
+Configurations found only in Agent files first appear as read-only external state; scanning never silently imports them. Each observation exposes only safe core-projected convergence actions. Deleting a central asset first reviews all consumers, then atomically removes every managed target and relationship together with the central record.
 
 ## Edit, paste, and export
 
 - **Edit**: modify a user-owned central entry. The plan retains relationships and includes every consumer, then commits the central asset and all targets together.
-- **Drift override**: manually customized targets are shown during review and require an explicit confirmation bound to the current candidate hash. Conflicts or concurrent changes block the entire commit.
+- **External-state convergence**: manually customized targets expose adopt, restore, or detach in place. The operation binds the current inventory revision; conflicts or concurrent changes block that operation without locking unrelated domains.
 - **Paste config**: supports recognizable JSON, TOML, or YAML; once parsed it's added to "manual."
 - **Export the effective config**: the download icon in the toolbar exports the full, deduplicated catalog — not just manual entries; the CLI equivalent is `mux mcp export`.
 
@@ -98,7 +98,7 @@ Claude Code currently accepts Anthropic Messages profiles, Codex uses the Respon
 
 The top-level **Skills** workspace downloads from public GitHub or directly imports a local folder or Skill archive into one central copy, without an installation review screen. A separate consumer operation from an Agent page links that copy into verified Agent directories. Agents sharing one physical target are selected as an inseparable group; Agent pages never resolve or install a Skill source.
 
-Skills do not require system Git, Node.js, or `npx`. This version does not support project-level content or private repositories. The CLI provides `skill list/show/status/assign/unassign/enable/disable/reapply`; the no-argument TUI remains MCP-focused. See [User-level Skills](/en/guide/skills) for installation, shared aliases, backups, and recovery.
+Skills do not require system Git, Node.js, or `npx`. This version does not support project-level content or private repositories. The CLI provides `skill list/show/status/assign/unassign/enable/disable/converge`; the no-argument TUI remains MCP-focused. See [User-level Skills](/en/guide/skills) for installation, shared aliases, backups, and recovery.
 
 ## Auto-update and the CLI
 

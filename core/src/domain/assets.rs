@@ -1,6 +1,6 @@
 //! Stable domain contracts shared by core application services and frontends.
 
-use crate::domain::agents::{AgentConfigurationInput, AgentConfigurationPatch};
+use crate::domain::agents::AgentConfigurationPatch;
 use crate::domain::mcp::OverridePatch;
 use crate::domain::types::{ModelProfile, ModelProviderConfig, RegistryEntry};
 use serde::{Deserialize, Deserializer, Serialize};
@@ -80,11 +80,49 @@ pub fn validate_mcp_asset_key(key: &str) -> Result<(), SelectionError> {
 #[serde(rename_all = "kebab-case")]
 pub enum ConsumptionStatus {
     Synced,
-    Pending,
-    Drifted,
-    Conflicted,
+    ExternalAdded,
+    ExternalChanged,
+    ExternalRemoved,
+    Unparseable,
+    Ambiguous,
     Unsupported,
+}
+
+/// Ownership is independent from what currently exists in an Agent target.
+/// An externally changed managed relationship remains managed until the user
+/// explicitly adopts, restores, or detaches it.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum OwnershipState {
+    Managed,
     External,
+}
+
+/// Explicit ways to converge one Agent/asset relationship. These actions are
+/// projected by core so frontends never infer mutation authority from a reason
+/// string or a visual status.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum ConvergenceAction {
+    AdoptObserved,
+    RestoreDesired,
+    Detach,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+#[serde(rename_all = "kebab-case")]
+pub enum AssetCapability {
+    Mcp,
+    Model,
+    Skill,
+}
+
+/// A capability-local read failure. These diagnostics never imply global
+/// read-only mode; shared transaction damage remains in `recovery_error`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CapabilityDiagnostic {
+    pub capability: AssetCapability,
+    pub code: String,
 }
 
 /// Physical destination behind a Skill relationship. Several Agents may read
@@ -102,12 +140,18 @@ pub struct ConsumptionTarget {
 pub struct ConsumptionView {
     pub agent_id: String,
     pub asset: AssetRef,
+    pub ownership: OwnershipState,
     pub desired: bool,
     pub observed: bool,
     /// Domain-specific enabled state. Present for managed MCP and Skill
     /// consumptions and for external MCP observations.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub enabled: Option<bool>,
+    /// Enabled state read from the Agent target. Keeping this separate from
+    /// `enabled` prevents an external toggle from being flattened into MUX's
+    /// desired state.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub observed_enabled: Option<bool>,
     /// Whether this Model Profile is the Agent's current primary model.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub active: Option<bool>,
@@ -118,6 +162,12 @@ pub struct ConsumptionView {
     pub status: ConsumptionStatus,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
+    /// Stable identity for the exact observation behind this row. It never
+    /// contains credentials or raw configuration values.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub observation_id: Option<String>,
+    #[serde(default)]
+    pub available_actions: Vec<ConvergenceAction>,
     #[serde(default)]
     pub affected_agent_ids: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -128,12 +178,29 @@ pub struct ConsumptionView {
 /// callers cannot accidentally treat discovery as ownership.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct ConsumptionInventory {
+    /// Hash of the normalized desired/observed projection. Convergence plans
+    /// bind to this revision and re-scan before committing.
+    #[serde(default)]
+    pub revision: String,
+    #[serde(default)]
+    pub observed_at: String,
     #[serde(default)]
     pub consumptions: Vec<ConsumptionView>,
     #[serde(default)]
     pub external: Vec<ConsumptionView>,
+    #[serde(default)]
+    pub capability_errors: Vec<CapabilityDiagnostic>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub recovery_error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct PlanConvergeConsumptionRequest {
+    pub agent_id: String,
+    pub asset: AssetRef,
+    pub action: ConvergenceAction,
+    pub observed_revision: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -313,19 +380,6 @@ pub enum DomainPlan {
         before: BTreeMap<String, Vec<String>>,
         after: BTreeMap<String, Vec<String>>,
     },
-    AgentConfiguration {
-        agent_id: String,
-        before: Box<AgentConfigurationInput>,
-        after: Box<AgentConfigurationInput>,
-        skills_before: BTreeMap<String, Vec<String>>,
-        skills_after: BTreeMap<String, Vec<String>>,
-        #[serde(default)]
-        affected_agent_ids: Vec<String>,
-        #[serde(default)]
-        migrated_skill_names: Vec<String>,
-    },
-    /// Capability-native Agent configuration. The legacy variant above remains
-    /// readable so an operation staged by an older MUX can still recover.
     AgentCapabilities {
         agent_id: String,
         before: Box<AgentConfigurationPatch>,
@@ -359,8 +413,6 @@ pub struct AssetOperationPlan {
     #[serde(default)]
     pub warnings: Vec<String>,
     pub can_commit: bool,
-    #[serde(default)]
-    pub requires_conflict_confirmation: bool,
     pub candidate_hash: String,
 }
 
@@ -497,13 +549,6 @@ pub struct PlanSetActiveModelRequest {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
-pub struct PlanUpdateAgentConfigurationRequest {
-    pub agent_id: String,
-    pub configuration: AgentConfigurationInput,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
 pub struct PlanUpdateAgentCapabilitiesRequest {
     pub agent_id: String,
     pub patch: AgentConfigurationPatch,
@@ -535,8 +580,6 @@ pub struct PlanUpdateAssetConsumersRequest {
 pub struct AssetCommitRequest {
     pub operation_id: String,
     pub candidate_hash: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub conflict_confirmation: Option<String>,
 }
 
 impl McpConsumptionRecord {

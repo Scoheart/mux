@@ -9,11 +9,11 @@ use std::thread;
 use mux_core::application::agents::list_infos;
 use mux_core::application::assets::{
     AssetCommitRequest, AssetOperationPlan, AssetRef, CentralAssetDraft, ConsumptionInventory,
-    McpReapplyScope, PlanDeleteCentralAssetRequest, PlanReapplyMcpRequest,
-    PlanSetMcpEnabledRequest, PlanUpdateAssetConsumersRequest, PlanUpdateCentralAssetRequest,
+    PlanDeleteCentralAssetRequest, PlanSetMcpEnabledRequest, PlanUpdateAssetConsumersRequest,
+    PlanUpdateCentralAssetRequest,
 };
 use mux_core::application::mcp::catalog::{read_registry, read_registry_all, user_override_keys};
-use mux_core::application::mcp::operations::{parse_pasted_entries, scan_installed, ResyncOutcome};
+use mux_core::application::mcp::operations::{parse_pasted_entries, scan_installed};
 use mux_core::application::mcp::sources;
 use mux_core::application::operations::{
     CancelOperationRequest, CommitOperationRequest, OperationCommitResult, OperationPlan,
@@ -82,13 +82,6 @@ pub enum Effect {
     /// Toggle any Agent definition without reconstructing or dropping its
     /// MCP/Model/Skill capability metadata.
     SetAgentEnabled { id: String, enabled: bool },
-    /// Re-stamp an entry's current config into the agents that have it installed
-    /// (global). force=false skips customized installs; force=true overwrites.
-    ResyncEntry {
-        name: String,
-        transport: String,
-        force: bool,
-    },
     /// Delete a manual/discovered catalog entry and uninstall it from all agents.
     ForgetEntry { name: String, transport: String },
 }
@@ -113,29 +106,17 @@ impl EffectRunner {
 }
 
 /// Join per-agent errors into one line for the status bar.
-fn commit_plan(
-    plan: AssetOperationPlan,
-    confirm_conflict: bool,
-) -> Result<ConsumptionInventory, String> {
+fn commit_plan(plan: AssetOperationPlan) -> Result<ConsumptionInventory, String> {
     if !plan.can_commit {
         let _ = MuxCore::cancel(CancelOperationRequest::Asset {
             operation_id: plan.operation_id.clone(),
         });
         return Err(plan.warnings.join("；"));
     }
-    if plan.requires_conflict_confirmation && !confirm_conflict {
-        let _ = MuxCore::cancel(CancelOperationRequest::Asset {
-            operation_id: plan.operation_id.clone(),
-        });
-        return Err("该操作会覆盖已漂移的 Agent 配置，需要显式确认".into());
-    }
     match MuxCore::commit(CommitOperationRequest::Asset {
         request: AssetCommitRequest {
             operation_id: plan.operation_id,
-            candidate_hash: plan.candidate_hash.clone(),
-            conflict_confirmation: plan
-                .requires_conflict_confirmation
-                .then_some(plan.candidate_hash),
+            candidate_hash: plan.candidate_hash,
         },
     })
     .map_err(|error| error.to_string())?
@@ -163,13 +144,13 @@ fn update_mcp_consumers(
     let OperationPlan::Asset { plan } = plan else {
         return Err("Core returned a Skill plan for an MCP consumer change".into());
     };
-    commit_plan(*plan, false).map(|_| ())
+    commit_plan(*plan).map(|_| ())
 }
 
 fn upsert_entry(
     entry: RegistryEntry,
     existing_key: Option<String>,
-    confirm_conflict: bool,
+    _confirm_conflict: bool,
 ) -> Result<Vec<String>, String> {
     let plan =
         mux_core::application::assets::plan_update_central_asset(PlanUpdateCentralAssetRequest {
@@ -179,7 +160,7 @@ fn upsert_entry(
             },
         })?;
     let affected = plan.affected_agent_ids.clone();
-    commit_plan(plan, confirm_conflict)?;
+    commit_plan(plan)?;
     Ok(affected)
 }
 
@@ -202,7 +183,7 @@ fn delete_entry_source(name: &str, transport: &str, source_id: &str) -> Result<(
             },
             source_id: Some(source_id.to_string()),
         })?;
-    commit_plan(plan, false).map(|_| ())
+    commit_plan(plan).map(|_| ())
 }
 
 fn forget_entry(name: &str, transport: &str) -> Result<(), String> {
@@ -223,27 +204,6 @@ fn forget_entry(name: &str, transport: &str) -> Result<(), String> {
         delete_entry_source(name, transport, &source_id)?;
     }
     Ok(())
-}
-
-fn resync_entry(name: &str, transport: &str, force: bool) -> Result<ResyncOutcome, String> {
-    let plan = mux_core::application::assets::plan_reapply_mcp(PlanReapplyMcpRequest {
-        asset_key: format!("{name}::{transport}"),
-        scope: McpReapplyScope::All,
-    })?;
-    if plan.requires_conflict_confirmation && !force {
-        let skipped_customized = plan.affected_agent_ids.clone();
-        let _ = mux_core::application::assets::cancel_asset_operation(&plan.operation_id);
-        return Ok(ResyncOutcome {
-            synced: Vec::new(),
-            skipped_customized,
-        });
-    }
-    let synced = plan.affected_agent_ids.clone();
-    commit_plan(plan, force)?;
-    Ok(ResyncOutcome {
-        synced,
-        skipped_customized: Vec::new(),
-    })
 }
 
 fn run_effect(eff: Effect) -> Msg {
@@ -274,7 +234,7 @@ fn run_effect(eff: Effect) -> Msg {
                 asset_key: format!("{server}::{transport}"),
                 enabled: true,
             })
-            .and_then(|plan| commit_plan(plan, false).map(|_| ())),
+            .and_then(|plan| commit_plan(plan).map(|_| ())),
         },
         Effect::Disable {
             server,
@@ -287,7 +247,7 @@ fn run_effect(eff: Effect) -> Msg {
                 asset_key: format!("{server}::{transport}"),
                 enabled: false,
             })
-            .and_then(|plan| commit_plan(plan, false).map(|_| ())),
+            .and_then(|plan| commit_plan(plan).map(|_| ())),
         },
         Effect::Delete {
             server,
@@ -370,18 +330,6 @@ fn run_effect(eff: Effect) -> Msg {
             label: format!("{} agent {id}", if enabled { "启用" } else { "停用" }),
             result: mux_core::application::agents::set_enabled(&id, enabled),
         },
-        Effect::ResyncEntry {
-            name,
-            transport,
-            force,
-        } => {
-            let result = resync_entry(&name, &transport, force);
-            Msg::Resynced {
-                name,
-                transport,
-                result,
-            }
-        }
         Effect::ForgetEntry { name, transport } => Msg::Mutated {
             label: format!("删除 {name}"),
             result: forget_entry(&name, &transport),

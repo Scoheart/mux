@@ -34,6 +34,7 @@ reqwest = { version = "0.13", default-features = false, features = ["socks"] }
 ureq = "3"
 libc = "0.2"
 mux-core = { path = "../../core" }
+notify = "8"
 
 # Tuned for CI build time (and a smaller dmg). Runtime perf is irrelevant for a
 # config-manager GUI, so we trade a little optimization for faster compiles.

@@ -19,6 +19,7 @@ describe("consumption selectors", () => {
     inventory.consumptions.push({
       agent_id: "codex",
       asset: { domain: "model", profile_id: "claude-opus-4-7" },
+      ownership: "managed",
       desired: true,
       observed: true,
       enabled: true,
@@ -27,6 +28,7 @@ describe("consumption selectors", () => {
       status: "synced",
       reason: null,
       affected_agent_ids: ["codex"],
+      available_actions: [],
     });
     const rows = consumptionsForAgent(inventory, "codex", "model");
     expect(rows).toHaveLength(1);
@@ -40,7 +42,7 @@ describe("consumption selectors", () => {
       name: "review-changes",
     });
     expect(consumers.map((item) => [item.agent_id, item.status])).toEqual([
-      ["codex", "drifted"],
+      ["codex", "external-removed"],
     ]);
   });
 

@@ -212,7 +212,7 @@ cd desktop && npm test && npm run build
 - `AssetOperationPlan`
 - `AssetOperationKind::{SetConsumption, UpdateAsset, DeleteAsset, Adopt}`
 - `DomainPlan::{Mcp, Model, Skill}`
-- `AssetCommitRequest { operation_id, candidate_hash, conflict_confirmation }`
+- `AssetCommitRequest { operation_id, candidate_hash }`; external-state intent is carried by the explicit convergence action, not a second confirmation token.
 - `cancel_asset_operation`、`recover_asset_operation`
 
 **步骤：**

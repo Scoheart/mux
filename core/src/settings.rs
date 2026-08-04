@@ -97,11 +97,6 @@ pub struct Settings {
     /// Profiles. Credentials remain outside settings.json in Keychain.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model_providers: Option<BTreeMap<String, ModelProviderConfig>>,
-    /// Durable retry marker for Agent targets whose credential/provider helper
-    /// must be restamped after Provider ownership migration. It is cleared only
-    /// after every still-managed target succeeds.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub model_provider_reapply_pending: Option<bool>,
     /// Current/active managed Model Profile per Agent. This legacy-compatible
     /// pointer is retained so older MUX builds do not lose the current model.
     #[serde(default, skip_serializing_if = "Option::is_none")]

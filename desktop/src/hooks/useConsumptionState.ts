@@ -5,6 +5,7 @@ import {
   getWorkspaceSnapshot,
   planOperation,
 } from "../lib/api";
+import i18n from "../i18n";
 import type {
   AgentConsumptionSelection,
   AgentCapabilityView,
@@ -13,7 +14,10 @@ import type {
   AssetRef,
   CentralAssetDraft,
   ConsumptionInventory,
+  ConsumptionView,
+  ConvergenceAction,
   PlanOperationRequest,
+  UnifiedOperationPlan,
   WorkspaceSnapshot,
 } from "../lib/types";
 
@@ -53,10 +57,14 @@ export interface ConsumptionState {
     agentId: string,
     profileId: string,
   ): Promise<AssetOperationPlan>;
+  planConvergence(
+    item: ConsumptionView,
+    action: ConvergenceAction,
+  ): Promise<UnifiedOperationPlan>;
   planForAsset(asset: AssetRef, agentIds: string[]): Promise<AssetOperationPlan>;
   planUpdate(draft: CentralAssetDraft): Promise<AssetOperationPlan>;
   planDelete(asset: AssetRef, sourceId?: string): Promise<AssetOperationPlan>;
-  commit(conflictConfirmation?: string): Promise<ConsumptionInventory>;
+  commit(): Promise<ConsumptionInventory>;
   cancel(): Promise<void>;
 }
 
@@ -210,6 +218,34 @@ export function useConsumptionState({ autoLoad = true }: { autoLoad?: boolean } 
     [startPlan],
   );
 
+  const planConvergence = useCallback(async (
+    item: ConsumptionView,
+    action: ConvergenceAction,
+  ) => {
+    if (planRef.current || planningRef.current) throw new Error("已有待确认的资产操作");
+    const observedRevision = inventory?.revision;
+    if (!observedRevision) throw new Error(i18n.t("observations.revisionUnavailable"));
+    planningRef.current = true;
+    try {
+      const result = await planOperation({
+        operation: "converge_consumption",
+        request: {
+          agent_id: item.agent_id,
+          asset: item.asset,
+          action,
+          observed_revision: observedRevision,
+        },
+      });
+      if (result.domain === "asset") ownPlan(result.plan);
+      return result;
+    } catch (cause) {
+      if (mounted.current) setError(commandError(cause));
+      throw cause;
+    } finally {
+      planningRef.current = false;
+    }
+  }, [inventory?.revision, ownPlan]);
+
   const planUpdate = useCallback(
     (draft: CentralAssetDraft) => startPlan({
       operation: "update_central_asset",
@@ -226,7 +262,7 @@ export function useConsumptionState({ autoLoad = true }: { autoLoad?: boolean } 
     [startPlan],
   );
 
-  const commit = useCallback(async (conflictConfirmation?: string) => {
+  const commit = useCallback(async () => {
     const active = planRef.current;
     if (!active || committingRef.current) throw new Error("没有可提交的资产操作");
     committingRef.current = true;
@@ -237,7 +273,6 @@ export function useConsumptionState({ autoLoad = true }: { autoLoad?: boolean } 
         request: {
           operation_id: active.operation_id,
           candidate_hash: active.candidate_hash,
-          conflict_confirmation: conflictConfirmation,
         },
       });
       if (committed.domain !== "asset") {
@@ -288,6 +323,7 @@ export function useConsumptionState({ autoLoad = true }: { autoLoad?: boolean } 
     planSkillEnabled,
     planModelEnabled,
     planActiveModel,
+    planConvergence,
     planForAsset,
     planUpdate,
     planDelete,

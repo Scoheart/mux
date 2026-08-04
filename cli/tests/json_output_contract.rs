@@ -57,18 +57,21 @@ fn server_argument_named_json_does_not_select_json_for_parse_errors() {
 }
 
 #[test]
-fn mcp_reapply_usage_expresses_exactly_one_scope() {
-    let help = run(&["mcp", "reapply", "--help"]);
+fn mcp_converge_usage_requires_one_agent_and_action() {
+    let help = run(&["mcp", "converge", "--help"]);
     assert!(help.status.success());
     assert!(help.stderr.is_empty());
     let help = String::from_utf8(help.stdout).expect("UTF-8 help");
-    assert!(help.contains("<--agent <AGENT>|--all> <KEY>"));
-    assert!(!help.contains("--agent <AGENT> --all"));
+    assert!(help.contains("--agent <AGENT>"));
+    assert!(help.contains("<ACTION>"));
+    assert!(help.contains("adopt"));
+    assert!(help.contains("restore"));
+    assert!(help.contains("detach"));
 
-    let missing = run(&["mcp", "reapply", "demo::stdio"]);
+    let missing = run(&["mcp", "converge", "demo::stdio", "restore"]);
     assert_eq!(missing.status.code(), Some(2));
     assert!(missing.stdout.is_empty());
     let error = String::from_utf8(missing.stderr).expect("UTF-8 parse error");
     assert!(error.contains("the following required arguments were not provided"));
-    assert!(error.contains("<--agent <AGENT>|--all>"));
+    assert!(error.contains("--agent <AGENT>"));
 }

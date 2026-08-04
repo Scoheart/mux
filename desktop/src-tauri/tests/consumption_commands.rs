@@ -81,12 +81,24 @@ fn unified_operation_envelopes_match_the_tauri_json_contract() {
         "domain": "asset",
         "request": {
             "operation_id": "asset-operation",
-            "candidate_hash": "asset-candidate",
-            "conflict_confirmation": null
+            "candidate_hash": "asset-candidate"
         }
     }))
     .unwrap();
     assert!(matches!(asset_commit, CommitOperationRequest::Asset { .. }));
+
+    let removed_conflict_protocol = serde_json::from_value::<CommitOperationRequest>(json!({
+        "domain": "asset",
+        "request": {
+            "operation_id": "asset-operation",
+            "candidate_hash": "asset-candidate",
+            "conflict_confirmation": null
+        }
+    }));
+    assert!(
+        removed_conflict_protocol.is_err(),
+        "removed conflict confirmation fields must not be silently accepted"
+    );
 
     let skill_commit: CommitOperationRequest = serde_json::from_value(json!({
         "domain": "skill",

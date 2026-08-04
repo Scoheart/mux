@@ -5,7 +5,7 @@
 use crossterm::event::KeyEvent;
 
 use mux_core::application::agents::AgentInfo;
-use mux_core::application::mcp::operations::{InstalledMcp, ResyncOutcome};
+use mux_core::application::mcp::operations::InstalledMcp;
 use mux_core::application::mcp::sources::SourceView;
 use mux_core::domain::types::RegistryEntry;
 
@@ -25,13 +25,6 @@ pub enum Msg {
     Mutated {
         label: String,
         result: Result<(), String>,
-    },
-    /// Result of a re-sync. Carries the entry identity so a follow-up force-sync
-    /// can be offered when some installs were skipped as customized.
-    Resynced {
-        name: String,
-        transport: String,
-        result: Result<ResyncOutcome, String>,
     },
 }
 

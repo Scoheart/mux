@@ -77,7 +77,7 @@ Agent 页面只显示已建立 desired relationship 的中央资产，即使目�
 ## 编辑、粘贴与导出
 
 - **编辑**：修改用户拥有的中央条目。计划会保留关系并包含所有消费者；一次确认后同步中央资产与全部目标。
-- **漂移覆盖**：发现手工定制时不会先写中央资产再补写 Agent；审阅对话框展示异常目标，并要求用当前候选哈希显式确认可覆盖的漂移。冲突或并发变化会阻止整个提交。
+- **外部变更收敛**：发现手工定制时不会先写中央资产再补写 Agent；每个异常关系原位提供采用外部、恢复 MUX 或解除管理。操作绑定当前 inventory revision，冲突或并发变化只阻止该操作。
 - **粘贴配置**：支持可识别的 JSON、TOML 或 YAML，解析后加入“手动添加”。
 - **导出生效配置**：工具栏下载图标导出完整的去重后目录，不只导出手动条目；CLI 对应 `mux mcp export`。
 
@@ -117,7 +117,7 @@ Claude Code 目前只接收 Anthropic Messages 配置，Codex 使用 Responses A
 
 顶部 **Skills** 工作区从公开 GitHub 直接下载，或从本地文件夹、Skill 压缩包直接导入，只写一份中央副本，不再弹出安装审核。然后从 Agent 页单独管理消费关系，把中央副本链接到已核验目录；共享一个物理 target 的 Agent 作为不可拆分组一起选择。Agent 页面不出现来源解析、安装或编辑流程。
 
-Skills 当前不依赖系统 Git、Node.js 或 `npx`，也不支持项目级内容或私有仓库。CLI 提供 `skill list/show/status/assign/unassign/enable/disable/reapply`；无参数 TUI 仍聚焦 MCP。下载、导入、共享 alias 和备份恢复说明见 [用户级 Skills](/guide/skills)。
+Skills 当前不依赖系统 Git、Node.js 或 `npx`，也不支持项目级内容或私有仓库。CLI 提供 `skill list/show/status/assign/unassign/enable/disable/converge`；无参数 TUI 仍聚焦 MCP。下载、导入、共享 alias 和备份恢复说明见 [用户级 Skills](/guide/skills)。
 
 ## 自动更新与 CLI
 

@@ -36,7 +36,10 @@ fn projection() -> CoreResult<(
     WorkspaceAssets,
     ConsumptionInventory,
 )> {
-    let skills = crate::resources::skill::list_inventory().map_err(super::error::from_skill)?;
+    let skills = crate::resources::skill::list_inventory().unwrap_or_else(|_| SkillsInventory {
+        recovery_error: Some("skill_inventory_unavailable".into()),
+        ..Default::default()
+    });
     let agents = super::agents::list_capabilities_with_skills(&skills.capabilities);
     let relationships = crate::assets::list_consumption_inventory_with_skills(&skills)
         .map_err(super::error::from_legacy)?;
@@ -57,9 +60,19 @@ fn serialize_projection(
 ) -> CoreResult<Vec<u8>> {
     // Convert through Value so maps originating as HashMap (MCP env/headers)
     // have canonical object-key order before equality and revision hashing.
-    let canonical = serde_json::to_value(projection).map_err(|error| {
+    let mut canonical = serde_json::to_value(projection).map_err(|error| {
         crate::domain::error::CoreError::new("serialization", error.to_string())
     })?;
+    // `observed_at` is presentation metadata, not content. Excluding it keeps
+    // the double-read consistency check and workspace revision stable while
+    // still returning the timestamp from the accepted projection.
+    if let Some(relationships) = canonical
+        .as_array_mut()
+        .and_then(|values| values.get_mut(2))
+        .and_then(serde_json::Value::as_object_mut)
+    {
+        relationships.remove("observed_at");
+    }
     serde_json::to_vec(&canonical)
         .map_err(|error| crate::domain::error::CoreError::new("serialization", error.to_string()))
 }

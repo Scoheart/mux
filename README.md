@@ -28,9 +28,9 @@ MUX ships as **two front-ends that share the same data** (`~/.mux/`):
 
 Both frontends enter through the same revisioned workspace, capability graph,
 startup recovery, and plan/commit/cancel application boundary. External MCP,
-Model, and Skill detection and adoption use the same explicit per-item contract:
-`mux discover` is read-only, while `mux adopt` reviews and confirms one exact
-candidate. The no-argument TUI is an MCP-focused compatibility terminal manager;
+Model, and Skill changes use the same explicit per-item contract: `mux discover`
+is read-only, while each domain's `converge` command adopts, restores, or detaches
+one exact observation. The no-argument TUI is an MCP-focused terminal workspace;
 Desktop remains the richer visual editor for central Model and Skill lifecycle
 operations.
 
@@ -55,9 +55,9 @@ A one-click **Mux 精选 (curated collection)** subscribes you to a curated sour
 - **Central assets, explicit consumers** — create or import assets once, then manage each Agent's desired MCP/Skill/Model sets from that Agent's page. Asset Inspectors keep lifecycle and impact read-only.
 - **Transport-aware** — `stdio` / `http` / `sse`, plus a **custom `type`** (e.g. `streamable-http`). Same-named stdio and http variants are tracked separately.
 - **Paste a config** — drop a `{"mcpServers": {…}}` block and MUX recognizes the servers and adds them.
-- **Desired vs. observed state** — Agent files and Skill links are scanned for `synced`, `pending`, `drifted`, `conflicted`, `unsupported`, and read-only `external` states; scans never silently create ownership.
-- **External configuration inbox** — newly detected global MCPs, Model Profiles, and user-level Skills appear in a non-blocking, read-only inbox. Every item has its own review and confirmation; there is no select-all or bulk adoption. Exact copies are deduplicated, original Agent relationships and disabled MCP state are preserved, and divergent same-name copies remain blocked for review.
-- **Reviewed propagation** — editing or deleting a central MCP or Model plans the central change together with every consumer. Drift replacement requires explicit confirmation, and unresolved conflicts prevent partial commits.
+- **Desired vs. observed state** — Agent files and Skill links are scanned for `synced`, `external-added`, `external-changed`, `external-removed`, `unparseable`, `ambiguous`, and `unsupported`; scans never silently create ownership.
+- **Normal external change tracking** — newly added, removed, toggled, or edited MCPs, Models, and Skills refresh in place. Every changed relationship exposes only the safe core-projected actions: adopt observed state, restore MUX desired state, or detach ownership.
+- **Reviewed propagation** — editing or deleting a central MCP or Model plans the central change together with every consumer. Ordinary central edits never overwrite drift; an exact convergence operation must resolve the affected relationship first.
 - **Safe, local writes** — MUX reads and edits only fields it owns. Existing files are backed up, prepared, and verified as one recoverable transaction; unrelated keys, comments, formatting, policy fields, permissions, and symlinks are preserved.
 - **Unified Agent consumption center** — each Agent page shows only desired central assets under MCPs, Model, and Skills, with a central picker for relationship changes and a separate read-only external section.
 - **Reusable model connections (preview)** — define one Provider Base URL, shared credential, and an editable Endpoint Path for every enabled protocol; Models then reference that connection with only their model ID and optional token limits. Native multi-model Agents can keep several Profiles installed, enable or disable each one, and choose exactly one current primary model; Claude Code and Codex retain their single-Profile contract.
@@ -133,7 +133,7 @@ cargo build --release -p mux-cli   # → target/release/mux
 Everything runs against `~/.mux/`, shared with the desktop app.
 
 Run `mux` with **no arguments** for the **interactive TUI** — an MCP-focused,
-keyboard-driven compatibility terminal manager with three screens (Registry /
+keyboard-driven terminal workspace with three screens (Registry /
 Sources / Agents). Browse and search the MCP catalog, install to Agents, enable,
 disable, or delete entries, and manage MCP sources and Agent targets. Press `?`
 for the keymap and `q` to quit. Set `MUX_NO_TUI=1` to print help instead when a
@@ -142,13 +142,11 @@ script invokes `mux` without arguments.
 Or drive it non-interactively with subcommands:
 
 ```text
-mux mcp {list,show,status,assign,unassign,enable,disable,reapply,add,delete,export}
-mux model {list,show,status,assign,unassign,enable,disable,reapply,use}
-mux skill {list,show,status,assign,unassign,enable,disable,reapply}
+mux mcp {list,show,status,assign,unassign,enable,disable,converge,add,delete,export}
+mux model {list,show,status,assign,unassign,enable,disable,converge,use}
+mux skill {list,show,status,assign,unassign,enable,disable,converge}
 mux agent {list,enable,disable}
 mux discover [mcp|model|skill]
-mux adopt {mcp,model,skill}
-mux migration {review,resolve}
 mux workspace
 mux upgrade
 ```
@@ -157,15 +155,14 @@ All Agent-relationship writes use exact stable asset IDs and exactly one explici
 `--agent <id>`. `assign` adds only the named relationships; `unassign` removes
 only those relationships; `enable` and `disable` preserve the relationship.
 `mux model use <profile-id> --agent <id>` selects the current Model independently
-of assignment. `reapply` is the explicit physical-repair verb; repeating
-`assign`, `enable`, or `use` never repairs or overwrites drift as a side effect.
+of assignment. `converge <asset-id> --agent <id> <adopt|restore|detach>` is the
+shared explicit reconciliation verb; repeating `assign`, `enable`, or `use`
+never repairs or overwrites external changes as a side effect.
 Skill plans report every installed Agent affected by a shared
 physical Skills directory. MCP IDs always include transport, such as
 `github::stdio`; a same-named HTTP variant is a separate asset and is never
-selected implicitly. All three domains repair one exact relationship with
-`reapply <asset-id> --agent <id>`; MCP alone also supports an explicit
-`reapply <key> --all` batch, which repairs only out-of-sync desired consumers
-after reviewing their complete impact.
+selected implicitly. Every convergence plan binds the inventory revision and
+re-scans before commit, so a changed observation returns `observation_stale`.
 
 The global `--json`, `--yes`, `--dry-run`, and `--no-color` options support
 machine output, reviewed automation, plan-only runs, and deterministic terminal
@@ -173,13 +170,11 @@ output. Any command that writes—including `mux mcp export --out`—requires
 interactive confirmation or an explicit `--yes` / `--dry-run`. See the
 [complete CLI guide](website/guide/cli.md).
 
-If startup finds a reviewable Model schema conflict, Model writes remain
-disabled while `mux migration review` exposes the same secret-free plan used by
-Desktop; MCP, Skill, and independent UI/network settings stay usable. Resolve it with `use-mux` or `keep-agent`;
-`--yes` also requires the selected `--candidate-hash` printed by the review.
-`recheck` regenerates the hash-bound candidates and `later` deliberately leaves
-the Model capability read-only. Only incomplete shared transactions or unsafe
-recovery evidence make the whole workspace read-only.
+Model schema upgrades migrate central MUX data and credentials without rewriting
+the Agent's current files. Those files are scanned afterward as ordinary observed
+state. A capability-local migration or parser failure isolates that capability;
+only damaged shared settings or an incomplete transaction that cannot be safely
+recovered make the whole workspace read-only.
 
 ---
 
@@ -218,10 +213,10 @@ Model API keys are not stored under `~/.mux/`; they remain in macOS Keychain.
 2. **Choose consumers** — from an Agent page or the CLI, select compatible assets. MCPs and Skills are sets; supported multi-model Agents also keep a Model Profile set plus one independent current pointer.
 3. **Review only meaningful risk** — routine reversible Agent relationship changes sync directly with inline progress; conflicts, removals from shared Skill directories, and disruptive Model changes still show their exact impact before commit.
 4. **Commit and verify** — settings, Agent targets, and central lifecycle changes are applied as a recoverable transaction and return their verified inventory before reporting success.
-5. **Manage historical state explicitly, one item at a time** — MUX detects unmanaged global MCPs, Model Profiles, and user-level Skills without taking ownership. There is no select-all or automatic import: each item gets its own impact review and confirmation before one recoverable transaction.
+5. **Converge external state explicitly, one item at a time** — MUX detects unmanaged and externally changed MCPs, Model Profiles, and user-level Skills without changing ownership. Adopt, restore, or detach one exact revision-bound observation through a recoverable transaction.
 6. **Propagate central lifecycle changes** — updates reach every desired consumer; deletion clears all managed targets and relationships instead of leaving implicit orphan copies.
 
-Skills in this version are user-level only. Project-level Skills, private repositories, and Skill editing are not supported. The CLI can query and manage Agent consumption for MCPs, Models, and Skills, and explicitly adopt one detected item at a time. Central Model and Skill authoring remains in Desktop, while the no-argument TUI is MCP-focused.
+Skills in this version are user-level only. Project-level Skills, private repositories, and Skill editing are not supported. The CLI can query and manage Agent consumption for MCPs, Models, and Skills, and explicitly converge one detected change at a time. Central Model and Skill authoring remains in Desktop, while the no-argument TUI is MCP-focused.
 
 ## Development
 

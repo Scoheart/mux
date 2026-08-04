@@ -1,6 +1,6 @@
 pub use crate::domain::agents::{
-    AgentConfigurationInput, AgentConfigurationPatch, McpConfigurationPatch,
-    ModelConfigurationPatch, SkillConfigurationPatch,
+    AgentConfigurationPatch, McpConfigurationPatch, ModelConfigurationPatch,
+    SkillConfigurationPatch,
 };
 use crate::domain::types::{AgentDefinition, AgentSkillsDirectory};
 use crate::resources::mcp::scanner::collapse_home;
@@ -646,32 +646,6 @@ pub fn set_enabled(id: &str, enabled: bool) -> Result<(), String> {
     .map_err(|error| error.to_string())
 }
 
-/// Update every configurable write location from one user action. Model and
-/// Skills locations are validated before the settings transaction starts, so
-/// the command cannot persist only a subset of the requested paths.
-pub fn update_configuration(id: String, input: AgentConfigurationInput) -> Result<(), String> {
-    let expected = current_configuration_patch(&id)?;
-    let normalized = normalize_configuration(&id, input)?;
-    let patch = AgentConfigurationPatch {
-        mcp: Some(McpConfigurationPatch {
-            path: normalized.mcp_path,
-            key: normalized.mcp_key,
-        }),
-        model: crate::resources::model::default_config_paths(&id).map(|_| {
-            ModelConfigurationPatch {
-                paths: normalized.model_paths,
-            }
-        }),
-        skill: normalized
-            .skills_global_dir
-            .map(|global_dir| SkillConfigurationPatch {
-                global_dir,
-                alias_dirs: normalized.skills_alias_dirs,
-            }),
-    };
-    apply_direct_configuration_patch(&id, &expected, &patch)
-}
-
 /// Update only the capabilities present in `patch`. This is the canonical
 /// configuration API for MCP-only, Model-only, Skill-only, and mixed Agents.
 pub fn update_configuration_patch(
@@ -759,41 +733,6 @@ fn ensure_direct_patch_is_unconsumed(
     Ok(())
 }
 
-pub(crate) fn current_configuration(id: &str) -> Result<AgentConfigurationInput, String> {
-    let agents = load_agents();
-    let agent = agents
-        .get(id)
-        .ok_or_else(|| format!("agent 不存在: {id}"))?;
-    let model_paths = crate::resources::model::list_agents()
-        .into_iter()
-        .find(|agent| agent.id == id)
-        .map(|agent| agent.config_paths)
-        .unwrap_or_default();
-    Ok(AgentConfigurationInput {
-        mcp_path: agent
-            .global
-            .clone()
-            .ok_or_else(|| "该 Agent 尚无可写的 MCP 配置".to_string())?,
-        mcp_key: Some(agent.key.clone()),
-        model_paths,
-        skills_global_dir: agent
-            .skills
-            .as_ref()
-            .map(|capability| capability.global_dir.clone()),
-        skills_alias_dirs: agent
-            .skills
-            .as_ref()
-            .map(|capability| {
-                capability
-                    .aliases
-                    .iter()
-                    .map(|alias| alias.global_dir.clone())
-                    .collect()
-            })
-            .unwrap_or_default(),
-    })
-}
-
 pub fn current_configuration_patch(id: &str) -> Result<AgentConfigurationPatch, String> {
     current_configuration_patch_for_settings(&load_settings(), id)
 }
@@ -826,107 +765,6 @@ pub(crate) fn current_configuration_patch_for_settings(
         return Err(format!("agent 不存在或没有可配置能力: {id}"));
     }
     Ok(AgentConfigurationPatch { mcp, model, skill })
-}
-
-pub(crate) fn normalize_configuration(
-    id: &str,
-    input: AgentConfigurationInput,
-) -> Result<AgentConfigurationInput, String> {
-    let id = id.trim().to_string();
-    if id.is_empty() {
-        return Err("agent id 不能为空".into());
-    }
-
-    let current_agents = load_agents();
-    let current = current_agents
-        .get(&id)
-        .ok_or_else(|| format!("agent 不存在: {id}"))?;
-    if current.global.is_none() {
-        return Err("该 Agent 尚无可写的 MCP 配置".into());
-    }
-
-    let mcp_path = input.mcp_path.trim();
-    if mcp_path.is_empty() {
-        return Err("MCP 配置路径不能为空".into());
-    }
-    let mcp_path = collapse_home(mcp_path);
-    let mcp_key = input
-        .mcp_key
-        .as_deref()
-        .unwrap_or(current.key.as_str())
-        .trim();
-    if mcp_key.is_empty() {
-        return Err("MCP 配置键不能为空".into());
-    }
-    let structured_key =
-        current.key_path || (current.format == "toml" && current.layout.as_deref() == Some("list"));
-    if structured_key && mcp_key.split('.').any(str::is_empty) {
-        return Err("MCP 配置键路径无效：不能包含空层级".into());
-    }
-    let mcp_key = Some(mcp_key.to_string());
-
-    let model_defaults = crate::resources::model::default_config_paths(&id);
-    let model_paths = match model_defaults.as_ref() {
-        Some(defaults) => {
-            crate::resources::model::normalize_config_paths(&input.model_paths, defaults.len())?
-        }
-        None if input.model_paths.iter().all(|path| path.trim().is_empty()) => Vec::new(),
-        None => return Err("该 Agent 尚未接入 Model writer".into()),
-    };
-
-    let skills_default = builtin_agents()
-        .get(&id)
-        .and_then(|definition| definition.skills.as_ref())
-        .map(|capability| capability.global_dir.clone());
-    let skills_global_dir = match (skills_default.as_ref(), input.skills_global_dir) {
-        (Some(_), Some(path)) => {
-            let path = collapse_home(path.trim());
-            validate_skill_directory(&path)
-                .map_err(|reason| format!("Skills 配置路径无效: {reason}"))?;
-            Some(path)
-        }
-        (Some(_), None) => return Err("Skills 配置路径不能为空".into()),
-        (None, Some(path)) if !path.trim().is_empty() => {
-            return Err("该 Agent 尚未接入 Skills writer".into())
-        }
-        (None, _) => None,
-    };
-    let skills_alias_dirs = if skills_default.is_some() {
-        let mut seen = BTreeSet::new();
-        if let Some(primary) = &skills_global_dir {
-            seen.insert(primary.clone());
-        }
-        let mut aliases = Vec::new();
-        for path in input.skills_alias_dirs {
-            let path = collapse_home(path.trim());
-            validate_skill_directory(&path)
-                .map_err(|reason| format!("Skills 兼容目录无效: {reason}"))?;
-            if !seen.insert(path.clone()) {
-                continue;
-            }
-            aliases.push(path);
-        }
-        if aliases.len() > 15 {
-            return Err("Skills 配置目录最多 16 个".into());
-        }
-        aliases
-    } else if input
-        .skills_alias_dirs
-        .iter()
-        .any(|path| !path.trim().is_empty())
-    {
-        return Err("该 Agent 尚未接入 Skills writer".into());
-    } else {
-        Vec::new()
-    };
-
-    Ok(AgentConfigurationInput {
-        mcp_path,
-        mcp_key,
-        model_paths,
-        skills_global_dir,
-        skills_alias_dirs,
-    })
 }
 
 pub(crate) fn normalize_configuration_patch(
@@ -1019,30 +857,6 @@ pub(crate) fn normalize_configuration_patch(
     };
 
     Ok(AgentConfigurationPatch { mcp, model, skill })
-}
-
-pub(crate) fn apply_configuration(
-    id: &str,
-    input: &AgentConfigurationInput,
-    skill_assignments: Option<BTreeMap<String, BTreeSet<String>>>,
-) -> Result<(), String> {
-    let patch = AgentConfigurationPatch {
-        mcp: Some(McpConfigurationPatch {
-            path: input.mcp_path.clone(),
-            key: input.mcp_key.clone(),
-        }),
-        model: crate::resources::model::default_config_paths(id).map(|_| ModelConfigurationPatch {
-            paths: input.model_paths.clone(),
-        }),
-        skill: input
-            .skills_global_dir
-            .as_ref()
-            .map(|global_dir| SkillConfigurationPatch {
-                global_dir: global_dir.clone(),
-                alias_dirs: input.skills_alias_dirs.clone(),
-            }),
-    };
-    apply_configuration_patch(id, &patch, skill_assignments)
 }
 
 pub(crate) fn apply_configuration_patch(
@@ -1395,164 +1209,6 @@ mod tests {
             assert!(!info.has_global);
             assert_eq!(info.skills_global_dir.as_deref(), Some(expected));
         }
-    }
-
-    #[test]
-    fn unified_configuration_updates_all_supported_paths() {
-        let _home = crate::testenv::TestHome::new("agent-unified-configuration");
-
-        update_configuration(
-            "codex".into(),
-            AgentConfigurationInput {
-                mcp_path: "~/.custom/codex-mcp.toml".into(),
-                mcp_key: Some("custom_mcp_servers".into()),
-                model_paths: vec!["~/.custom/codex-model.toml".into()],
-                skills_global_dir: Some("~/.custom/codex/skills".into()),
-                skills_alias_dirs: vec!["~/.custom/shared/skills".into()],
-            },
-        )
-        .unwrap();
-
-        let agents = load_agents();
-        assert_eq!(
-            agents["codex"].global.as_deref(),
-            Some("~/.custom/codex-mcp.toml")
-        );
-        assert_eq!(agents["codex"].key, "custom_mcp_servers");
-        assert_eq!(
-            agents["codex"]
-                .skills
-                .as_ref()
-                .map(|capability| capability.global_dir.as_str()),
-            Some("~/.custom/codex/skills")
-        );
-        assert_eq!(
-            agents["codex"].skills.as_ref().unwrap().aliases[0].global_dir,
-            "~/.custom/shared/skills"
-        );
-        assert_eq!(
-            load_settings().agent_config_paths.as_ref().unwrap()["codex"]
-                .skills_alias_dirs
-                .as_deref(),
-            Some(["~/.custom/shared/skills".to_string()].as_slice())
-        );
-        let model = crate::resources::model::list_agents()
-            .into_iter()
-            .find(|agent| agent.id == "codex")
-            .unwrap();
-        assert_eq!(model.config_paths, ["~/.custom/codex-model.toml"]);
-    }
-
-    #[test]
-    fn unified_configuration_overrides_and_resets_builtin_mcp_key() {
-        let _home = crate::testenv::TestHome::new("agent-unified-mcp-key");
-        let default_key = builtin_agents()["codex"].key.clone();
-        let mut configuration = current_configuration("codex").unwrap();
-        configuration.mcp_key = Some("  custom.mcpServers  ".into());
-
-        update_configuration("codex".into(), configuration).unwrap();
-
-        assert_eq!(load_agents()["codex"].key, "custom.mcpServers");
-        assert_eq!(
-            list_infos()
-                .into_iter()
-                .find(|agent| agent.id == "codex")
-                .unwrap()
-                .key,
-            "custom.mcpServers"
-        );
-        let settings = load_settings();
-        assert_eq!(
-            settings
-                .agent_config_paths
-                .as_ref()
-                .and_then(|overrides| overrides.get("codex"))
-                .and_then(|path_override| path_override.mcp_key.as_deref()),
-            Some("custom.mcpServers")
-        );
-        assert!(settings.agents.is_none());
-
-        let mut reset = current_configuration("codex").unwrap();
-        reset.mcp_key = Some(default_key.clone());
-        update_configuration("codex".into(), reset).unwrap();
-
-        assert_eq!(load_agents()["codex"].key, default_key);
-        assert!(load_settings().agent_config_paths.is_none());
-    }
-
-    #[test]
-    fn unified_configuration_preserves_mcp_key_for_legacy_callers() {
-        let _home = crate::testenv::TestHome::new("agent-unified-legacy-mcp-key");
-        let before = current_configuration("codex").unwrap();
-        let mut legacy_input = before.clone();
-        legacy_input.mcp_path = "~/.custom/legacy-codex.toml".into();
-        legacy_input.mcp_key = None;
-
-        update_configuration("codex".into(), legacy_input).unwrap();
-
-        let after = current_configuration("codex").unwrap();
-        assert_eq!(after.mcp_path, "~/.custom/legacy-codex.toml");
-        assert_eq!(after.mcp_key, before.mcp_key);
-    }
-
-    #[test]
-    fn unified_configuration_rejects_an_empty_mcp_key() {
-        let _home = crate::testenv::TestHome::new("agent-unified-empty-mcp-key");
-        let mut configuration = current_configuration("codex").unwrap();
-        configuration.mcp_key = Some("   ".into());
-
-        assert_eq!(
-            update_configuration("codex".into(), configuration).unwrap_err(),
-            "MCP 配置键不能为空"
-        );
-    }
-
-    #[test]
-    fn unified_configuration_rejects_empty_structured_mcp_key_segments() {
-        let _home = crate::testenv::TestHome::new("agent-unified-invalid-mcp-key-path");
-        let mut configuration = current_configuration("amp").unwrap();
-        configuration.mcp_key = Some("amp..mcpServers".into());
-
-        assert_eq!(
-            update_configuration("amp".into(), configuration).unwrap_err(),
-            "MCP 配置键路径无效：不能包含空层级"
-        );
-        assert!(load_settings().agent_config_paths.is_none());
-    }
-
-    #[test]
-    fn unified_configuration_updates_a_custom_agents_owned_mcp_key() {
-        let _home = crate::testenv::TestHome::new("agent-unified-custom-mcp-key");
-        put(
-            "custom-agent".into(),
-            AgentDefinition {
-                global: Some("~/.custom-agent/config.json".into()),
-                project: None,
-                format: "json".into(),
-                key: "mcpServers".into(),
-                enabled: true,
-                builtin: Some(false),
-                ..Default::default()
-            },
-            false,
-        )
-        .unwrap();
-        let mut configuration = current_configuration("custom-agent").unwrap();
-        configuration.mcp_key = Some("custom.mcpServers".into());
-
-        update_configuration("custom-agent".into(), configuration).unwrap();
-
-        assert_eq!(load_agents()["custom-agent"].key, "custom.mcpServers");
-        let settings = load_settings();
-        assert_eq!(
-            settings
-                .agents
-                .as_ref()
-                .and_then(|agents| agents.get("custom-agent"))
-                .map(|definition| definition.key.as_str()),
-            Some("custom.mcpServers")
-        );
-        assert!(settings.agent_config_paths.is_none());
     }
 
     #[test]

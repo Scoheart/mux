@@ -18,11 +18,13 @@ function consumption(status: ConsumptionStatus, reason: string | null = null): C
   return {
     agent_id: "codex",
     asset: { domain: "model", profile_id: profile.id },
+    ownership: "managed",
     desired: true,
-    observed: status !== "drifted" || reason !== "model_target_missing",
+    observed: status !== "external-removed",
     status,
     reason,
     affected_agent_ids: ["codex"],
+    available_actions: status === "synced" ? [] : ["restore-desired", "detach"],
   };
 }
 
@@ -37,14 +39,14 @@ describe("describeAgentModel", () => {
 
   it("does not mislabel desired drift as the current model", () => {
     expect(
-      describeAgentModel(profile, consumption("drifted", "model_owned_fields_drift"), false),
+      describeAgentModel(profile, consumption("external-changed", "model_owned_fields_drift"), false),
     ).toEqual({
       label: "配置已变更",
       detail: "期望：Team OpenAI · gpt-test",
       synced: false,
     });
     expect(
-      describeAgentModel(profile, consumption("drifted", "model_target_missing"), false),
+      describeAgentModel(profile, consumption("external-removed", "model_target_missing"), false),
     ).toEqual({
       label: "配置缺失",
       detail: "期望：Team OpenAI · gpt-test",

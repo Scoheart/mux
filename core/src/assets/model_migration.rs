@@ -53,6 +53,10 @@ pub struct ModelAdoptionCandidate {
     pub candidate_id: String,
     pub agent_id: String,
     pub native_id: String,
+    /// Existing MUX Profile whose native slot produced this observation.
+    /// Present only when the Agent changed fields of a managed Profile.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub managed_profile_id: Option<String>,
     pub name: String,
     pub provider: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -214,7 +218,11 @@ pub fn list_model_adoption_candidates() -> Result<Vec<ModelAdoptionCandidate>, S
     let settings_hash = hash_optional(fs::read(crate::paths::settings_file()).ok().as_deref());
     let mut candidates = Vec::new();
     for extracted in extract_models(&settings)? {
-        if already_managed(&settings, &extracted) {
+        let managed_profile_id = managed_profile_id(&settings, &extracted);
+        if managed_profile_id
+            .as_ref()
+            .is_some_and(|profile_id| managed_profile_matches(&settings, profile_id, &extracted))
+        {
             continue;
         }
         let (status, reason) = extracted.status();
@@ -233,6 +241,7 @@ pub fn list_model_adoption_candidates() -> Result<Vec<ModelAdoptionCandidate>, S
             candidate_id,
             agent_id: extracted.agent_id,
             native_id: extracted.native_id,
+            managed_profile_id,
             name: profile.name,
             provider: profile.provider,
             model_vendor: profile.model_vendor,
@@ -259,6 +268,26 @@ pub fn list_model_adoption_candidates() -> Result<Vec<ModelAdoptionCandidate>, S
             .then_with(|| left.agent_id.cmp(&right.agent_id))
     });
     Ok(candidates)
+}
+
+/// Exact Agent-native observations that already match an assigned MUX Profile.
+///
+/// Model writers intentionally own only one model entry, not the entire native
+/// provider container. Comparing extracted model identity avoids classifying
+/// unrelated sibling models or formatting differences as drift.
+pub(super) fn exact_managed_model_observations(
+    settings: &Settings,
+) -> Result<BTreeSet<(String, String)>, String> {
+    let mut exact = BTreeSet::new();
+    for candidate in extract_models(settings)? {
+        let Some(profile_id) = managed_profile_id(settings, &candidate) else {
+            continue;
+        };
+        if managed_profile_matches(settings, &profile_id, &candidate) {
+            exact.insert((candidate.agent_id, profile_id));
+        }
+    }
+    Ok(exact)
 }
 
 pub fn plan_model_adoption(
@@ -304,6 +333,22 @@ pub fn plan_model_adoption(
                 .into(),
         );
     }
+    let managed_profile_ids = selected_public
+        .iter()
+        .filter_map(|candidate| candidate.managed_profile_id.as_deref())
+        .collect::<BTreeSet<_>>();
+    if managed_profile_ids.len() > 1
+        || (!managed_profile_ids.is_empty()
+            && selected_public
+                .iter()
+                .any(|candidate| candidate.managed_profile_id.is_none()))
+    {
+        return Err(
+            "observation_ambiguous: managed and external Model observations cannot be adopted together"
+                .into(),
+        );
+    }
+    let managed_profile_id = managed_profile_ids.into_iter().next().map(str::to_string);
 
     let settings = load_settings_strict().map_err(|error| error.to_string())?;
     let extracted_by_id: BTreeMap<_, _> = extract_models(&settings)?
@@ -333,7 +378,7 @@ pub fn plan_model_adoption(
         }
     }
     let native_ids = std::mem::take(&mut draft.native_ids);
-    let mut profile = prepare_profile_draft(&settings, None, draft)?;
+    let mut profile = prepare_profile_draft(&settings, managed_profile_id.as_deref(), draft)?;
     profile.native_ids = native_ids;
     let credential = selected
         .iter()
@@ -378,7 +423,11 @@ pub fn plan_model_adoption(
     target_files.sort();
     target_files.dedup();
     let mut summary = vec![
-        "创建中央模型配置".into(),
+        if managed_profile_id.is_some() {
+            "采用 Agent 当前模型配置并更新中央 Model Profile".into()
+        } else {
+            "从 Agent 当前配置创建中央 Model Profile".into()
+        },
         format!("使用 {} / {}", profile.provider, profile.model),
     ];
     if credential_action == CredentialAction::Set {
@@ -392,7 +441,11 @@ pub fn plan_model_adoption(
             asset: AssetRef::Model {
                 profile_id: profile.id.clone(),
             },
-            action: CentralAssetAction::Create,
+            action: if managed_profile_id.is_some() {
+                CentralAssetAction::Update
+            } else {
+                CentralAssetAction::Create
+            },
             summary,
         }],
         target_files,
@@ -1238,27 +1291,80 @@ fn extract_goose(path: &Path) -> Result<Vec<ExtractedModel>, String> {
     Ok(rows)
 }
 
-fn already_managed(settings: &Settings, candidate: &ExtractedModel) -> bool {
+fn managed_profile_id(settings: &Settings, candidate: &ExtractedModel) -> Option<String> {
     let selection = settings.model_selection(&candidate.agent_id);
-    selection.profiles.keys().any(|profile_id| {
+    selection.profiles.keys().find_map(|profile_id| {
         settings
             .model_profiles
             .as_ref()
             .and_then(|profiles| profiles.get(profile_id))
-            .is_some_and(|profile| {
-                let native_matches = profile
-                    .native_ids
-                    .get(&candidate.agent_id)
-                    .is_some_and(|native| native == &candidate.native_id);
-                let connection_matches = normalized_url(&profile.base_url)
-                    == normalized_url(&candidate.base_url)
-                    && profile.model == candidate.model
-                    && profile.protocol == candidate.protocol
-                    && managed_credential_identity(&candidate.agent_id, profile)
-                        == candidate.credential_identity();
-                native_matches || connection_matches
+            .and_then(|profile| {
+                profile_owns_candidate(profile, candidate).then(|| profile_id.clone())
             })
     })
+}
+
+fn profile_owns_candidate(profile: &ModelProfile, candidate: &ExtractedModel) -> bool {
+    let explicit_native_id = profile.native_ids.get(&candidate.agent_id);
+    let expected_native_id = explicit_native_id
+        .cloned()
+        .unwrap_or_else(|| generated_native_id(&candidate.agent_id, profile));
+    if expected_native_id != candidate.native_id {
+        return false;
+    }
+    // Adopted provider containers may hold several independently managed or
+    // external models. Their shared native provider id is not sufficient to
+    // establish asset identity; the model id completes it. MUX-generated ids
+    // remain unique per Profile and can still identify a model after drift.
+    explicit_native_id.is_none()
+        || !matches!(
+            candidate.agent_id.as_str(),
+            "pi" | "opencode" | "kilo-code" | "crush" | "goose"
+        )
+        || profile.model == candidate.model
+}
+
+fn generated_native_id(agent_id: &str, profile: &ModelProfile) -> String {
+    match agent_id {
+        "claude-code" => "claude-settings".into(),
+        "pi" => format!("mux-{}", profile.id),
+        "qwen-code" => format!(
+            "{}:{}:{}",
+            if profile.protocol == ModelProtocol::AnthropicMessages {
+                "anthropic"
+            } else {
+                "openai"
+            },
+            profile.model,
+            profile.base_url
+        ),
+        "factory-droid" => format!("{}:{}", profile.model, profile.base_url),
+        _ => {
+            let mut id = String::from("mux_");
+            for byte in profile.id.bytes() {
+                id.push_str(&format!("{byte:02x}"));
+            }
+            id
+        }
+    }
+}
+
+fn managed_profile_matches(
+    settings: &Settings,
+    profile_id: &str,
+    candidate: &ExtractedModel,
+) -> bool {
+    settings
+        .model_profiles
+        .as_ref()
+        .and_then(|profiles| profiles.get(profile_id))
+        .is_some_and(|profile| {
+            normalized_url(&profile.base_url) == normalized_url(&candidate.base_url)
+                && profile.model == candidate.model
+                && profile.protocol == candidate.protocol
+                && managed_credential_identity(&candidate.agent_id, profile)
+                    == candidate.credential_identity()
+        })
 }
 
 fn managed_credential_identity(agent_id: &str, profile: &ModelProfile) -> String {
@@ -1522,7 +1628,7 @@ api_backend = "chat_completions"
         assert_eq!(
             plan.central_changes[0].summary,
             vec![
-                "创建中央模型配置",
+                "从 Agent 当前配置创建中央 Model Profile",
                 "使用 openrouter / tencent/hy3:free",
                 "关联 1 个 Agent 中的现有模型配置",
             ]
@@ -1530,7 +1636,6 @@ api_backend = "chat_completions"
         commit_asset_operation(AssetCommitRequest {
             operation_id: plan.operation_id,
             candidate_hash: plan.candidate_hash,
-            conflict_confirmation: None,
         })
         .unwrap();
 
@@ -1847,7 +1952,6 @@ env_key = "GATEWAY_KEY"
             commit_asset_operation(AssetCommitRequest {
                 operation_id: plan.operation_id,
                 candidate_hash: plan.candidate_hash,
-                conflict_confirmation: None,
             })
             .unwrap();
         }

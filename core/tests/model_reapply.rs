@@ -34,13 +34,9 @@ fn profile(id: &str, model: &str) -> ModelProfile {
 }
 
 fn commit(plan: mux_core::consumption::AssetOperationPlan) {
-    let conflict_confirmation = plan
-        .requires_conflict_confirmation
-        .then(|| plan.candidate_hash.clone());
     commit_asset_operation(AssetCommitRequest {
         operation_id: plan.operation_id,
         candidate_hash: plan.candidate_hash,
-        conflict_confirmation,
     })
     .unwrap();
 }
@@ -159,7 +155,6 @@ fn targeted_reapply_repairs_only_the_requested_profile_and_clean_retry_is_a_noop
         profile_id: active.clone(),
     })
     .unwrap();
-    assert!(plan.requires_conflict_confirmation);
     assert_eq!(
         plan.central_changes
             .iter()
@@ -184,7 +179,6 @@ fn targeted_reapply_repairs_only_the_requested_profile_and_clean_retry_is_a_noop
     .unwrap();
     assert!(clean.target_files.is_empty());
     assert!(clean.central_changes.is_empty());
-    assert!(!clean.requires_conflict_confirmation);
 }
 
 #[test]
@@ -243,7 +237,6 @@ fn reapply_materializes_the_desired_disabled_state_only_for_an_exact_managed_ent
         profile_id: inactive.clone(),
     })
     .unwrap();
-    assert!(repair.requires_conflict_confirmation);
     commit(repair);
     let cleared = fs::read_to_string(&target).unwrap();
     assert!(!cleared.contains(&inactive_model));
@@ -404,8 +397,7 @@ fn reapply_rejects_stale_target_bytes_after_review() {
 
     let error = commit_asset_operation(AssetCommitRequest {
         operation_id: plan.operation_id,
-        candidate_hash: plan.candidate_hash.clone(),
-        conflict_confirmation: Some(plan.candidate_hash),
+        candidate_hash: plan.candidate_hash,
     })
     .unwrap_err();
     assert!(error.contains("changed after review"), "{error}");
@@ -449,8 +441,7 @@ fn model_reapply_binds_the_reviewed_credential_presence() {
     std::env::set_var("MUX_TEST_MODEL_CREDENTIAL_PROFILES", &active);
     let error = commit_asset_operation(AssetCommitRequest {
         operation_id: plan.operation_id,
-        candidate_hash: plan.candidate_hash.clone(),
-        conflict_confirmation: Some(plan.candidate_hash),
+        candidate_hash: plan.candidate_hash,
     })
     .unwrap_err();
     match saved {
@@ -513,7 +504,6 @@ fn use_and_disable_require_reapply_when_the_exact_profile_payload_is_drifted() {
     })
     .unwrap();
     assert!(!switch.can_commit);
-    assert!(!switch.requires_conflict_confirmation);
     assert!(switch.warnings.iter().any(|warning| {
         warning.contains(&format!("model:{inactive}"))
             && warning.ends_with("model_owned_fields_drift")
@@ -527,7 +517,6 @@ fn use_and_disable_require_reapply_when_the_exact_profile_payload_is_drifted() {
     })
     .unwrap();
     assert!(!disable.can_commit);
-    assert!(!disable.requires_conflict_confirmation);
     assert!(disable.warnings.iter().any(|warning| {
         warning.contains(&format!("model:{inactive}"))
             && warning.ends_with("model_owned_fields_drift")
@@ -557,7 +546,6 @@ fn enable_requires_reapply_when_a_disabled_profile_is_still_materialized() {
     })
     .unwrap();
     assert!(!enable.can_commit);
-    assert!(!enable.requires_conflict_confirmation);
     assert!(enable.warnings.iter().any(|warning| {
         warning.contains(&format!("model:{inactive}"))
             && warning.ends_with("model_disabled_state_drift")

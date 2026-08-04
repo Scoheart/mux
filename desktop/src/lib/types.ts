@@ -213,14 +213,6 @@ export interface AgentDefinitionInput {
   verified_at?: string | null;
   skills?: AgentSkillsCapabilityInput | null;
 }
-export interface AgentConfigurationInput {
-  mcp_path: string;
-  /** Omitted only by legacy callers; normalized plans always include it. */
-  mcp_key?: string | null;
-  model_paths: string[];
-  skills_global_dir: string | null;
-  skills_alias_dirs?: string[];
-}
 export interface McpConfigurationPatch {
   path: string;
   key?: string | null;
@@ -243,8 +235,9 @@ export interface InstalledMcp {
   /** Whether the server is active in the agent's config (true) or merely
    *  remembered in MUX's disabled store (false). */
   enabled: boolean;
+  observation_fingerprint: string;
 }
-export type McpAdoptionStatus = "adoptable" | "drifted" | "external";
+export type McpAdoptionStatus = "external-added" | "external-changed";
 export interface McpAdoptionCandidate {
   agent_id: string;
   asset_key: string;
@@ -256,17 +249,13 @@ export interface McpAdoptionCandidate {
   target_hash: string;
   candidate_hash: string;
 }
-export interface PlanMcpAdoptionRequest {
-  asset_key: string;
-  agent_ids: string[];
-  candidate_fingerprints: Record<string, string>;
-}
 export type ModelAdoptionStatus = "adoptable" | "needs-credential" | "unsupported" | "conflicted";
 export type ModelCredentialKind = "none" | "environment-reference" | "literal" | "external-command";
 export interface ModelAdoptionCandidate {
   candidate_id: string;
   agent_id: string;
   native_id: string;
+  managed_profile_id?: string | null;
   name: string;
   provider: string;
   model_vendor?: string | null;
@@ -282,9 +271,6 @@ export interface ModelAdoptionCandidate {
   settings_hash: string;
   target_hash: string;
   candidate_hash: string;
-}
-export interface PlanModelAdoptionRequest {
-  candidate_fingerprints: Record<string, string>;
 }
 export interface PatchInput {
   args?: string[]; env?: Record<string, string>; url?: string; headers?: Record<string, string>;
@@ -515,11 +501,15 @@ export type AssetRef =
 
 export type ConsumptionStatus =
   | "synced"
-  | "pending"
-  | "drifted"
-  | "conflicted"
-  | "unsupported"
-  | "external";
+  | "external-added"
+  | "external-changed"
+  | "external-removed"
+  | "unparseable"
+  | "ambiguous"
+  | "unsupported";
+
+export type OwnershipState = "managed" | "external";
+export type ConvergenceAction = "adopt-observed" | "restore-desired" | "detach";
 
 export interface ConsumptionTarget {
   target_id: string;
@@ -529,20 +519,30 @@ export interface ConsumptionTarget {
 export interface ConsumptionView {
   agent_id: string;
   asset: AssetRef;
+  ownership: OwnershipState;
   desired: boolean;
   observed: boolean;
   enabled?: boolean | null;
+  observed_enabled?: boolean | null;
   active?: boolean | null;
   desired_active?: boolean | null;
   status: ConsumptionStatus;
   reason: string | null;
+  observation_id?: string | null;
+  available_actions: ConvergenceAction[];
   affected_agent_ids: string[];
   target?: ConsumptionTarget | null;
 }
 
 export interface ConsumptionInventory {
+  revision: string;
+  observed_at: string;
   consumptions: ConsumptionView[];
   external: ConsumptionView[];
+  capability_errors?: Array<{
+    capability: "mcp" | "model" | "skill";
+    code: string;
+  }>;
   recovery_error?: string | null;
 }
 
@@ -640,16 +640,6 @@ export type DomainPlan =
       after: Record<string, string[]>;
     }
   | {
-      domain: "agent-configuration";
-      agent_id: string;
-      before: AgentConfigurationInput;
-      after: AgentConfigurationInput;
-      skills_before: Record<string, string[]>;
-      skills_after: Record<string, string[]>;
-      affected_agent_ids: string[];
-      migrated_skill_names: string[];
-    }
-  | {
       domain: "agent-capabilities";
       agent_id: string;
       before: AgentConfigurationPatch;
@@ -672,7 +662,6 @@ export interface AssetOperationPlan {
   affected_agent_ids: string[];
   warnings: string[];
   can_commit: boolean;
-  requires_conflict_confirmation: boolean;
   candidate_hash: string;
 }
 
@@ -700,6 +689,15 @@ export type UnifiedOperationPlan =
   | { domain: "skill"; plan: OperationPlan };
 
 export type PlanOperationRequest =
+  | {
+      operation: "converge_consumption";
+      request: {
+        agent_id: string;
+        asset: AssetRef;
+        action: ConvergenceAction;
+        observed_revision: string;
+      };
+    }
   | { operation: "update_central_asset"; request: { draft: CentralAssetDraft } }
   | { operation: "delete_central_asset"; request: { asset: AssetRef; source_id?: string | null } }
   | {
@@ -735,21 +733,6 @@ export type PlanOperationRequest =
       request: { agent_id: string; name: string; enabled: boolean };
     }
   | {
-      operation: "reapply_mcp";
-      request: {
-        asset_key: string;
-        scope: { kind: "agent"; agent_id: string } | { kind: "all" };
-      };
-    }
-  | {
-      operation: "reapply_model";
-      request: { agent_id: string; profile_id: string };
-    }
-  | {
-      operation: "reapply_skill";
-      request: { agent_id: string; name: string };
-    }
-  | {
       operation: "set_model_enabled";
       request: { agent_id: string; profile_id: string; enabled: boolean };
     }
@@ -761,13 +744,6 @@ export type PlanOperationRequest =
       operation: "update_agent_capabilities";
       request: { agent_id: string; patch: AgentConfigurationPatch };
     }
-  | {
-      operation: "update_agent_configuration";
-      request: { agent_id: string; configuration: AgentConfigurationInput };
-    }
-  | { operation: "adopt_mcp"; request: PlanMcpAdoptionRequest }
-  | { operation: "adopt_model"; request: PlanModelAdoptionRequest }
-  | { operation: "adopt_skill"; request: PlanImportRequest }
   | { operation: "install_skill"; request: PlanSkillAssetInstallRequest }
   | { operation: "import_skill"; request: PlanSkillAssetImportRequest }
   | { operation: "assign_skill"; request: PlanAssignmentRequest }
@@ -781,7 +757,6 @@ export type CommitOperationRequest =
       request: {
         operation_id: string;
         candidate_hash: string;
-        conflict_confirmation?: string | null;
       };
     }
   | {
@@ -808,13 +783,6 @@ export type BackendStatus =
   | { state: "starting" }
   | { state: "ready" }
   | {
-      state: "migration_review_required";
-      stage: string;
-      review_hash: string;
-      message: string;
-      blocked_capabilities: Array<"mcp" | "model" | "skill">;
-    }
-  | {
       state: "capability_unavailable";
       capability: "mcp" | "model" | "skill";
       stage: string;
@@ -822,62 +790,6 @@ export type BackendStatus =
       message: string;
     }
   | { state: "read_only"; stage: string; message: string };
-
-export type MigrationResolutionStrategy =
-  | "use_mux"
-  | "keep_agent"
-  | "recheck"
-  | "later";
-
-export interface ModelMigrationState {
-  profile_id: string;
-  enabled: boolean;
-  active: boolean;
-}
-
-export interface MigrationBlocker {
-  agent_id: string;
-  agent_name: string;
-  target_files: string[];
-  profile_id: string;
-  reason: string;
-  message: string;
-  before: ModelMigrationState;
-  after: ModelMigrationState;
-  keep_agent_fallback_profile_id?: string | null;
-  keep_agent_released_profile_ids: string[];
-  migrates_keychain_reference: boolean;
-  agent_restart_recommended: boolean;
-  mux_owned_field_categories: string[];
-}
-
-export interface MigrationActionPlan {
-  strategy: MigrationResolutionStrategy;
-  title: string;
-  consequence: string;
-  modifies_agent_targets: boolean;
-  preserves_agent_targets: boolean;
-  plan: AssetOperationPlan;
-}
-
-export interface MigrationReview {
-  stage: "model_profile_migration";
-  source_schema_version: number;
-  target_schema_version: number;
-  review_hash: string;
-  can_commit: boolean;
-  requires_conflict_confirmation: boolean;
-  blockers: MigrationBlocker[];
-  actions: MigrationActionPlan[];
-  supported_actions: MigrationResolutionStrategy[];
-}
-
-export interface MigrationResolutionOutcome {
-  changed: boolean;
-  status: BackendStatus;
-  review?: MigrationReview | null;
-  selected_plan?: AssetOperationPlan | null;
-}
 
 export interface SkillDetail {
   item: SkillInventoryItem;

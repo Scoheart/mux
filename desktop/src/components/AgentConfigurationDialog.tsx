@@ -90,7 +90,7 @@ export function AgentConfigurationDialog({
     }
   };
 
-  const commit = async (conflictConfirmation?: string) => {
+  const commit = async () => {
     if (!plan) return;
     setBusy(true);
     setError(null);
@@ -100,7 +100,6 @@ export function AgentConfigurationDialog({
         request: {
           operation_id: plan.operation_id,
           candidate_hash: plan.candidate_hash,
-          conflict_confirmation: conflictConfirmation ?? null,
         },
       });
       if (result.domain !== "asset") {

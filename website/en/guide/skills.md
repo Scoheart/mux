@@ -2,7 +2,7 @@
 
 MUX manages user-level Skills that follow the Agent Skills format as central assets. Desktop adds and maintains central Skills; both Desktop and the CLI can separately choose which Agents consume them. An Agent page never resolves a source or reinstalls the same Skill. This version manages only global Skills under the user's home directory and neither reads nor writes project directories such as `.agents/skills` or `.claude/skills`.
 
-The CLI provides `mux skill list/show/status/assign/unassign/enable/disable/reapply`. The no-argument TUI is an MCP-focused compatibility terminal manager and does not provide a Skill lifecycle screen.
+The CLI provides `mux skill list/show/status/assign/unassign/enable/disable/converge`. The no-argument TUI is an MCP-focused terminal workspace and does not provide a Skill lifecycle screen.
 
 ## Add to the central library
 
@@ -107,7 +107,7 @@ Download and import commit their internal plans directly from the user's action.
 | Check / update | Background and manual checks read only a GitHub revision, local-folder hash, or archive hash and never change content. Choosing Update then stages the candidate, shows the diff, reruns the audit, and confirms replacement. Local modifications to the central copy require “back up and replace.” |
 | Import | An external copy in an Agent directory remains read-only first. A direct import or confirmed historical migration copies and validates it, backs up the original directory, and replaces it with a central link. Same-name directories with the same hash merge into one central copy; divergent content is never overwritten automatically. The original is not moved before success. |
 | Disable | Removes the managed target link while retaining the central copy and other assignments. Review lists every Agent that loses access through a shared directory. |
-| Repair | `mux skill reapply <skill-id> --agent <agent-id>` rebuilds only a missing or broken managed link for an existing desired relationship and lists every Agent affected by a shared target; external directories, regular files, and foreign links are explicitly blocked. If central content is missing, Desktop's full repair flow can resolve the recorded source or read-only import backup again and present the complete diff and risk review. |
+| Converge | `mux skill converge {skill-id} --agent {agent-id} {adopt\|restore\|detach}` adopts observed content, restores a provably safe managed link, or detaches ownership for one exact observation while listing every Agent affected by a shared target. Restore never overwrites external directories, regular files, or foreign links. |
 | Remove | Removes all managed links, moves the central copy into timestamped `~/.mux/backups/skills/`, then removes its managed record. This version has no permanent backup purge action. |
 
 Candidates and internal transaction plans live in `~/.mux/staging/skills/`; commit progress lives in `~/.mux/journals/skills/`. If a commit fails or the app crashes, the journal safely rolls back or finishes the commit according to the persisted phase. If recovery cannot complete, the Skills workspace becomes read-only and refuses new writes.

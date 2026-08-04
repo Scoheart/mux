@@ -215,7 +215,6 @@ it("commits the reviewed Agent configuration through the unified asset envelope"
       request: {
         operation_id: plan.operation_id,
         candidate_hash: plan.candidate_hash,
-        conflict_confirmation: null,
       },
     });
   });

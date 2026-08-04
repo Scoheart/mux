@@ -25,7 +25,6 @@ fn commit(plan: mux_core::consumption::AssetOperationPlan) {
     commit_asset_operation(AssetCommitRequest {
         operation_id: plan.operation_id,
         candidate_hash: plan.candidate_hash,
-        conflict_confirmation: None,
     })
     .unwrap();
 }
@@ -91,7 +90,6 @@ fn unrelated_mcp_drift_does_not_block_or_get_overwritten_by_central_update() {
     })
     .unwrap();
     assert!(plan.can_commit);
-    assert!(!plan.requires_conflict_confirmation);
     assert!(plan.warnings.is_empty());
     commit(plan);
 
@@ -230,7 +228,7 @@ fn mcp_rename_atomically_migrates_identity_consumers_and_enabled_state() {
 }
 
 #[test]
-fn mcp_customized_toggle_requires_candidate_bound_confirmation_in_both_directions() {
+fn mcp_customized_toggle_requires_explicit_convergence() {
     let home = TestHome::new("central-mcp-toggle-drift");
     write_manual_entry(&mcp("managed-server")).unwrap();
     commit(
@@ -254,8 +252,7 @@ fn mcp_customized_toggle_requires_candidate_bound_confirmation_in_both_direction
         enabled: false,
     })
     .unwrap();
-    assert!(disable.can_commit);
-    assert!(disable.requires_conflict_confirmation);
+    assert!(!disable.can_commit);
     assert_eq!(
         disable.warnings,
         vec!["claude-code / mcp:local::stdio: mcp_config_drift"]
@@ -264,44 +261,14 @@ fn mcp_customized_toggle_requires_candidate_bound_confirmation_in_both_direction
     let rejected = commit_asset_operation(AssetCommitRequest {
         operation_id: disable.operation_id.clone(),
         candidate_hash: disable.candidate_hash.clone(),
-        conflict_confirmation: None,
     })
     .unwrap_err();
-    assert!(rejected.starts_with("confirmation_required:"), "{rejected}");
-    assert_eq!(fs::read_to_string(&target).unwrap(), customized);
-    commit_asset_operation(AssetCommitRequest {
-        operation_id: disable.operation_id,
-        candidate_hash: disable.candidate_hash.clone(),
-        conflict_confirmation: Some(disable.candidate_hash),
-    })
-    .unwrap();
-    assert!(!load_settings().mcp_consumptions.unwrap()["claude-code"]["local::stdio"].enabled);
-    assert!(!fs::read_to_string(&target)
-        .unwrap()
-        .contains("customized-server"));
-
-    let enable = plan_set_mcp_enabled(PlanSetMcpEnabledRequest {
-        agent_id: "claude-code".into(),
-        asset_key: "local::stdio".into(),
-        enabled: true,
-    })
-    .unwrap();
-    assert!(enable.can_commit);
-    assert!(enable.requires_conflict_confirmation);
-    assert_eq!(
-        enable.warnings,
-        vec!["claude-code / mcp:local::stdio: mcp_config_drift"]
+    assert!(
+        rejected.starts_with("asset_operation_blocked:"),
+        "{rejected}"
     );
-    assert_eq!(enable.consumption_state_changes.len(), 1);
-    commit_asset_operation(AssetCommitRequest {
-        operation_id: enable.operation_id,
-        candidate_hash: enable.candidate_hash.clone(),
-        conflict_confirmation: Some(enable.candidate_hash),
-    })
-    .unwrap();
-    assert!(fs::read_to_string(target)
-        .unwrap()
-        .contains("customized-server"));
+    assert_eq!(fs::read_to_string(&target).unwrap(), customized);
+    assert!(load_settings().mcp_consumptions.unwrap()["claude-code"]["local::stdio"].enabled);
 }
 
 #[test]
@@ -326,7 +293,6 @@ fn mcp_missing_target_toggle_remains_hard_blocked() {
     })
     .unwrap();
     assert!(!plan.can_commit);
-    assert!(!plan.requires_conflict_confirmation);
     assert_eq!(
         plan.warnings,
         vec!["claude-code / mcp:local::stdio: mcp_target_missing"]
@@ -449,7 +415,6 @@ fn mcp_rename_rejects_a_stale_catalog_without_partial_migration() {
     let error = commit_asset_operation(AssetCommitRequest {
         operation_id: plan.operation_id,
         candidate_hash: plan.candidate_hash,
-        conflict_confirmation: None,
     })
     .unwrap_err();
 
@@ -484,7 +449,7 @@ fn central_mcp_create_does_not_touch_agent_targets() {
 }
 
 #[test]
-fn drifted_consumer_requires_bound_confirmation_before_central_update() {
+fn drifted_consumer_requires_explicit_convergence_before_central_update() {
     let home = TestHome::new("central-mcp-drift");
     write_manual_entry(&mcp("old-server")).unwrap();
     commit(
@@ -509,15 +474,13 @@ fn drifted_consumer_requires_bound_confirmation_before_central_update() {
         },
     })
     .unwrap();
-    assert!(plan.can_commit);
-    assert!(plan.requires_conflict_confirmation);
+    assert!(!plan.can_commit);
     let rejected = commit_asset_operation(AssetCommitRequest {
         operation_id: plan.operation_id.clone(),
         candidate_hash: plan.candidate_hash.clone(),
-        conflict_confirmation: None,
     })
     .unwrap_err();
-    assert!(rejected.starts_with("confirmation_required:"));
+    assert!(rejected.starts_with("asset_operation_blocked:"));
     assert_eq!(
         read_registry()
             .into_iter()
@@ -533,13 +496,9 @@ fn drifted_consumer_requires_bound_confirmation_before_central_update() {
         .unwrap()
         .contains("custom-server"));
 
-    commit_asset_operation(AssetCommitRequest {
-        operation_id: plan.operation_id,
-        candidate_hash: plan.candidate_hash.clone(),
-        conflict_confirmation: Some(plan.candidate_hash),
-    })
-    .unwrap();
-    assert!(fs::read_to_string(target).unwrap().contains("new-server"));
+    assert!(fs::read_to_string(target)
+        .unwrap()
+        .contains("custom-server"));
 }
 
 #[test]
@@ -567,7 +526,6 @@ fn mcp_reapply_repairs_drift_without_changing_the_central_asset() {
     })
     .unwrap();
     assert!(plan.can_commit);
-    assert!(plan.requires_conflict_confirmation);
     assert_eq!(
         plan.central_changes[0].summary,
         vec![
@@ -578,8 +536,7 @@ fn mcp_reapply_repairs_drift_without_changing_the_central_asset() {
     );
     commit_asset_operation(AssetCommitRequest {
         operation_id: plan.operation_id,
-        candidate_hash: plan.candidate_hash.clone(),
-        conflict_confirmation: Some(plan.candidate_hash),
+        candidate_hash: plan.candidate_hash,
     })
     .unwrap();
 
@@ -641,8 +598,7 @@ fn mcp_reapply_is_exact_by_default_and_all_repairs_only_drifted_consumers() {
     assert_eq!(exact.affected_agent_ids, vec!["claude-code"]);
     commit_asset_operation(AssetCommitRequest {
         operation_id: exact.operation_id,
-        candidate_hash: exact.candidate_hash.clone(),
-        conflict_confirmation: Some(exact.candidate_hash),
+        candidate_hash: exact.candidate_hash,
     })
     .unwrap();
     assert!(fs::read_to_string(&claude)
@@ -659,8 +615,7 @@ fn mcp_reapply_is_exact_by_default_and_all_repairs_only_drifted_consumers() {
     assert_eq!(all.affected_agent_ids, vec!["codex"]);
     commit_asset_operation(AssetCommitRequest {
         operation_id: all.operation_id,
-        candidate_hash: all.candidate_hash.clone(),
-        conflict_confirmation: Some(all.candidate_hash),
+        candidate_hash: all.candidate_hash,
     })
     .unwrap();
     assert_eq!(fs::read(&claude).unwrap(), clean_claude);
@@ -818,11 +773,9 @@ fn mcp_reapply_preserves_a_disabled_desired_relationship() {
         },
     })
     .unwrap();
-    assert!(repair.requires_conflict_confirmation);
     commit_asset_operation(AssetCommitRequest {
         operation_id: repair.operation_id,
-        candidate_hash: repair.candidate_hash.clone(),
-        conflict_confirmation: Some(repair.candidate_hash),
+        candidate_hash: repair.candidate_hash,
     })
     .unwrap();
 
@@ -862,8 +815,7 @@ fn mcp_reapply_rejects_a_catalog_change_after_review() {
     write_manual_entry(&mcp("changed-after-review")).unwrap();
     let error = commit_asset_operation(AssetCommitRequest {
         operation_id: plan.operation_id,
-        candidate_hash: plan.candidate_hash.clone(),
-        conflict_confirmation: Some(plan.candidate_hash),
+        candidate_hash: plan.candidate_hash,
     })
     .unwrap_err();
 
@@ -1166,7 +1118,6 @@ fn model_switch_preserves_drifted_old_current_and_unrelated_third_profile() {
     })
     .unwrap();
     assert!(plan.can_commit, "{:?}", plan.warnings);
-    assert!(!plan.requires_conflict_confirmation);
     assert!(plan.warnings.is_empty());
     assert!(plan
         .model_state_changes
@@ -1184,7 +1135,6 @@ fn model_switch_preserves_drifted_old_current_and_unrelated_third_profile() {
     commit_asset_operation(AssetCommitRequest {
         operation_id: plan.operation_id,
         candidate_hash: plan.candidate_hash,
-        conflict_confirmation: None,
     })
     .unwrap();
 

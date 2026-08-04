@@ -24,6 +24,7 @@ use crate::resources::mcp::registry::{
 use crate::resources::mcp::scanner::{expand_tilde, scan_agents};
 use crate::safe_write::{acquire_settings_lock, SettingsLock};
 use serde::Serialize;
+use sha2::{Digest, Sha256};
 use std::collections::HashSet;
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
@@ -517,6 +518,14 @@ pub struct InstalledMcp {
     /// (`true`) or merely remembered in MUX's disabled store (`false`).
     #[serde(default)]
     pub enabled: bool,
+    /// Secret-free digest of the exact observed entry. Consumers use it for
+    /// stale-observation detection without exposing configuration values.
+    pub observation_fingerprint: String,
+}
+
+fn observation_fingerprint(config: &McpConfig) -> String {
+    let bytes = serde_json::to_vec(config).expect("MCP configuration serializes");
+    hex::encode(Sha256::digest(bytes))
 }
 
 /// Scan real agent config files → "who installed what". `customized` flags an
@@ -539,6 +548,7 @@ pub fn scan_installed(project_dir: Option<&str>) -> Vec<InstalledMcp> {
     let mut out: Vec<InstalledMcp> = scan_agents(&agents, pd, true)
         .into_iter()
         .map(|s| {
+            let observation_fingerprint = observation_fingerprint(&s.config);
             let transport = transport_of(&s.config);
             let key = format!("{}::{}", s.name, transport);
             let customized = base_map
@@ -564,6 +574,7 @@ pub fn scan_installed(project_dir: Option<&str>) -> Vec<InstalledMcp> {
                 transport: transport.to_string(),
                 customized,
                 enabled: true,
+                observation_fingerprint,
             }
         })
         .collect();
@@ -592,6 +603,7 @@ pub fn scan_installed(project_dir: Option<&str>) -> Vec<InstalledMcp> {
                 continue;
             }
             let key = format!("{}::{}", d.name, d.transport);
+            let observation_fingerprint = observation_fingerprint(&d.config);
             let customized = base_map
                 .get(&key)
                 .map(|base| {
@@ -615,6 +627,7 @@ pub fn scan_installed(project_dir: Option<&str>) -> Vec<InstalledMcp> {
                 transport: d.transport,
                 customized,
                 enabled: false,
+                observation_fingerprint,
             });
         }
     }

@@ -165,9 +165,6 @@ fn command_requires_model_mutation(command: Option<&command::Command>) -> bool {
                 | command::ModelCommand::Show { .. }
                 | command::ModelCommand::Status { .. }
         ),
-        Some(command::Command::Adopt {
-            command: command::AdoptCommand::Model { .. },
-        }) => true,
         _ => false,
     }
 }
@@ -176,22 +173,6 @@ fn reject_model_blocker(
     report: &mux_core::application::bootstrap::BootstrapReport,
 ) -> Result<(), CliError> {
     match &report.status {
-        mux_core::application::BackendStatus::MigrationReviewRequired { stage, .. } => {
-            let review = mux_core::application::MuxCore::migration_review().ok_or_else(|| {
-                CliError::new(
-                    "migration_review_unavailable",
-                    "migration review is unavailable",
-                )
-            })?;
-            Err(CliError::new(
-                "migration_review_required",
-                "Model configuration upgrade needs confirmation; run `mux migration review`",
-            )
-            .with_detail("stage", stage.clone())
-            .with_detail("capability", "model")
-            .with_detail("reviewable", true)
-            .with_detail("review", serde_json::to_value(review).unwrap_or_default()))
-        }
         mux_core::application::BackendStatus::CapabilityUnavailable {
             capability: mux_core::application::CapabilityDomain::Model,
             stage,
@@ -274,7 +255,10 @@ mod tests {
             skill_assign.command.as_ref()
         ));
 
-        let model_adopt = Cli::try_parse_from(["mux", "adopt", "model", "candidate"]).unwrap();
+        let model_adopt = Cli::try_parse_from([
+            "mux", "model", "converge", "profile", "--agent", "codex", "adopt",
+        ])
+        .unwrap();
         assert!(command_requires_model_mutation(
             model_adopt.command.as_ref()
         ));

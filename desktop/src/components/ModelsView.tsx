@@ -533,9 +533,9 @@ export function ModelsView({
             ],
           )}
           onCancel={consumptionState.cancel}
-          onCommit={async (conflictConfirmation) => {
+          onCommit={async () => {
             const kind = consumptionState.plan?.kind;
-            await consumptionState.commit(conflictConfirmation);
+            await consumptionState.commit();
             await refresh();
             if (kind === "delete-asset") setSelectedProfileId(null);
             toast.show({

@@ -58,7 +58,6 @@ describe("unified operation wire contract", () => {
       request: {
         operation_id: "asset-operation",
         candidate_hash: "asset-candidate",
-        conflict_confirmation: null,
       },
     };
     await commitOperation(assetCommit);

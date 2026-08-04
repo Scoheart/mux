@@ -16,13 +16,9 @@ use mux_core::testenv::TestHome;
 use mux_core::types::{ModelProfile, ModelProtocol, RegistryConfig, RegistryEntry, StdioConfig};
 
 fn commit(plan: mux_core::consumption::AssetOperationPlan) {
-    let conflict_confirmation = plan
-        .requires_conflict_confirmation
-        .then(|| plan.candidate_hash.clone());
     commit_asset_operation(AssetCommitRequest {
         operation_id: plan.operation_id,
         candidate_hash: plan.candidate_hash,
-        conflict_confirmation,
     })
     .unwrap();
 }
@@ -105,14 +101,9 @@ fn model_reapply_rejects_a_reviewed_missing_target_after_parent_becomes_symlink(
     .unwrap();
     let outside = home.home.join("outside-model-parent");
     substitute_parent_with_outside_symlink(target.parent().unwrap(), &outside);
-    let conflict_confirmation = plan
-        .requires_conflict_confirmation
-        .then(|| plan.candidate_hash.clone());
-
     let error = commit_asset_operation(AssetCommitRequest {
         operation_id: plan.operation_id,
         candidate_hash: plan.candidate_hash,
-        conflict_confirmation,
     })
     .unwrap_err();
 
@@ -148,14 +139,9 @@ fn mcp_reapply_rejects_a_reviewed_missing_target_after_parent_becomes_symlink() 
     .unwrap();
     let outside = home.home.join("outside-mcp-parent");
     substitute_parent_with_outside_symlink(target.parent().unwrap(), &outside);
-    let conflict_confirmation = plan
-        .requires_conflict_confirmation
-        .then(|| plan.candidate_hash.clone());
-
     let error = commit_asset_operation(AssetCommitRequest {
         operation_id: plan.operation_id,
         candidate_hash: plan.candidate_hash,
-        conflict_confirmation,
     })
     .unwrap_err();
 
@@ -202,7 +188,6 @@ fn skill_path_migration_rejects_a_reviewed_missing_destination_after_parent_beco
     let error = commit_asset_operation(AssetCommitRequest {
         operation_id: plan.operation_id,
         candidate_hash: plan.candidate_hash,
-        conflict_confirmation: None,
     })
     .unwrap_err();
 

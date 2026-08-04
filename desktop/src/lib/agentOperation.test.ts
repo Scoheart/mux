@@ -6,7 +6,6 @@ function plan() {
   const value = assetOperationPlanFixture();
   value.warnings = [];
   value.can_commit = true;
-  value.requires_conflict_confirmation = false;
   value.relationship_changes = [];
   value.model_state_changes = [];
   value.affected_agent_ids = ["codex"];

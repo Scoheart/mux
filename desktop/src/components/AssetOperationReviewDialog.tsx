@@ -1,4 +1,3 @@
-import { useState } from "react";
 import type { AssetCommandError, AssetOperationPlan, AssetRef } from "../lib/types";
 import { assetIdentity } from "../lib/consumption";
 import { DialogShell } from "./DialogShell";
@@ -183,21 +182,6 @@ function configurationPlanValues(plan: AssetOperationPlan): {
   migratedSkillNames: string[];
 } | null {
   const domainPlan = plan.domain_plan;
-  if (domainPlan.domain === "agent-configuration") {
-    const project = (value: typeof domainPlan.before): ConfigurationValues => ({
-      mcpPath: value.mcp_path,
-      mcpKey: value.mcp_key ?? null,
-      modelPaths: value.model_paths,
-      skillsGlobalDir: value.skills_global_dir,
-      skillsAliasDirs: value.skills_alias_dirs ?? [],
-    });
-    return {
-      agentId: domainPlan.agent_id,
-      before: project(domainPlan.before),
-      after: project(domainPlan.after),
-      migratedSkillNames: domainPlan.migrated_skill_names,
-    };
-  }
   if (domainPlan.domain === "agent-capabilities") {
     const project = (value: typeof domainPlan.before): ConfigurationValues => ({
       mcpPath: value.mcp?.path ?? null,
@@ -270,10 +254,9 @@ export function AssetOperationReviewDialog({
   agentName?: string;
   agentDisplayNames?: Record<string, string>;
   assetDisplayNames?: Record<string, string>;
-  onCommit(conflictConfirmation?: string): Promise<unknown> | unknown;
+  onCommit(): Promise<unknown> | unknown;
   onCancel(): Promise<unknown> | unknown;
 }) {
-  const [replaceDrift, setReplaceDrift] = useState(false);
   const isConfiguration = plan.kind === "update-configuration";
   const isAgentSkillPlan = Boolean(
     agentId && agentName && plan.kind === "set-consumption" && plan.domain_plan.domain === "skill",
@@ -334,22 +317,20 @@ export function AssetOperationReviewDialog({
       onClose={() => void onCancel()}
       status={!plan.can_commit
         ? <span className="mux-review-error">存在冲突，暂不可继续。</span>
-        : plan.requires_conflict_confirmation
-          ? <span className="mux-review-error">将覆盖差异，写入前备份。</span>
-          : reviewError
-            ? <div className="mux-asset-review-error" role="alert">
-                <strong>操作未完成</strong>
-                <span>{reviewError}</span>
-              </div>
-            : null}
+        : reviewError
+          ? <div className="mux-asset-review-error" role="alert">
+              <strong>操作未完成</strong>
+              <span>{reviewError}</span>
+            </div>
+          : null}
       footerEnd={
         <>
           <button type="button" className="btn-ghost" disabled={busy} onClick={() => void onCancel()}>取消</button>
           <button
             type="button"
             className={isRemoveOnly || plan.kind === "delete-asset" ? "btn-danger" : "btn-primary"}
-            disabled={busy || !plan.can_commit || (plan.requires_conflict_confirmation && !replaceDrift)}
-            onClick={() => void onCommit(plan.requires_conflict_confirmation ? plan.candidate_hash : undefined)}
+            disabled={busy || !plan.can_commit}
+            onClick={() => void onCommit()}
           >
             {!busy && (isRemoveOnly || plan.kind === "delete-asset") && <TrashIcon className="w-4 h-4" />}
             {busy
@@ -569,17 +550,6 @@ export function AssetOperationReviewDialog({
             <h3>需要处理</h3>
             <ul>{plan.warnings.map((warning) => <li key={warning}>{warningCopy(warning)}</li>)}</ul>
           </section>
-        )}
-        {plan.requires_conflict_confirmation && (
-          <label className="mux-model-check mux-asset-conflict-confirmation">
-            <input
-              type="checkbox"
-              checked={replaceDrift}
-              disabled={busy}
-              onChange={(event) => setReplaceDrift(event.target.checked)}
-            />
-            允许覆盖上述差异
-          </label>
         )}
       </div>
     </DialogShell>

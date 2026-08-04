@@ -28,13 +28,9 @@ use std::os::unix::fs::symlink;
 use support::skills::SkillsFixture;
 
 fn commit(plan: AssetOperationPlan) {
-    let conflict_confirmation = plan
-        .requires_conflict_confirmation
-        .then(|| plan.candidate_hash.clone());
     commit_asset_operation(AssetCommitRequest {
         operation_id: plan.operation_id,
         candidate_hash: plan.candidate_hash,
-        conflict_confirmation,
     })
     .unwrap();
 }
@@ -145,7 +141,6 @@ fn mcp_removal_is_atomic_preserves_other_relationships_and_is_idempotent() {
     let error = commit_asset_operation(AssetCommitRequest {
         operation_id: stale.operation_id,
         candidate_hash: stale.candidate_hash,
-        conflict_confirmation: None,
     })
     .unwrap_err();
     assert_eq!(
@@ -333,7 +328,6 @@ fn orphaned_active_model_removal_with_disabled_fallback_remains_reviewable() {
     })
     .unwrap();
     assert!(plan.can_commit, "{:?}", plan.warnings);
-    assert!(plan.requires_conflict_confirmation);
     assert!(plan
         .relationship_changes
         .iter()
@@ -358,7 +352,7 @@ fn orphaned_active_model_removal_with_disabled_fallback_remains_reviewable() {
 }
 
 #[test]
-fn confirmed_final_drifted_model_unassign_releases_ownership_without_touching_agent_bytes() {
+fn final_drifted_model_detach_releases_ownership_without_touching_agent_bytes() {
     let home = TestHome::new("remove-final-drifted-model");
     save_profile(model("drifted-final"), None).unwrap();
     commit(
@@ -390,7 +384,6 @@ fn confirmed_final_drifted_model_unassign_releases_ownership_without_touching_ag
     })
     .unwrap();
     assert!(plan.can_commit, "{:?}", plan.warnings);
-    assert!(plan.requires_conflict_confirmation);
     assert_eq!(plan.relationship_changes.len(), 1);
     assert_eq!(
         plan.relationship_changes[0].action,
@@ -401,21 +394,9 @@ fn confirmed_final_drifted_model_unassign_releases_ownership_without_touching_ag
         .iter()
         .any(|warning| warning.ends_with("model_owned_fields_drift")));
 
-    let operation_id = plan.operation_id.clone();
-    let candidate_hash = plan.candidate_hash.clone();
-    let error = commit_asset_operation(AssetCommitRequest {
-        operation_id: operation_id.clone(),
-        candidate_hash: candidate_hash.clone(),
-        conflict_confirmation: None,
-    })
-    .unwrap_err();
-    assert!(error.starts_with("confirmation_required:"));
-    assert_eq!(fs::read(&target).unwrap(), reviewed_bytes);
-
     let inventory = commit_asset_operation(AssetCommitRequest {
-        operation_id,
-        candidate_hash: candidate_hash.clone(),
-        conflict_confirmation: Some(candidate_hash),
+        operation_id: plan.operation_id,
+        candidate_hash: plan.candidate_hash,
     })
     .unwrap();
     assert_eq!(fs::read(&target).unwrap(), reviewed_bytes);
@@ -426,8 +407,8 @@ fn confirmed_final_drifted_model_unassign_releases_ownership_without_touching_ag
         item.agent_id == "codex"
             && item.observed
             && !item.desired
-            && item.reason.as_deref() == Some("model_external_unmanaged")
-            && matches!(&item.asset, AssetRef::Model { profile_id } if profile_id == "external-codex")
+            && item.status == mux_core::consumption::ConsumptionStatus::ExternalAdded
+            && matches!(&item.asset, AssetRef::Model { profile_id } if profile_id.starts_with("external-"))
     }));
 
     let retry = plan_remove_agent_consumption(PlanRemoveAgentConsumptionRequest {
@@ -473,7 +454,6 @@ fn unassigning_an_absent_model_never_repairs_unrelated_drift() {
     })
     .unwrap();
     assert!(plan.can_commit);
-    assert!(!plan.requires_conflict_confirmation);
     assert!(plan.relationship_changes.is_empty());
     assert!(plan.model_state_changes.is_empty());
     assert!(plan.consumption_state_changes.is_empty());
@@ -556,7 +536,6 @@ fn orphaned_skill_exact_central_link_is_removed_and_settings_are_released() {
     })
     .unwrap();
     assert!(plan.can_commit);
-    assert!(plan.requires_conflict_confirmation);
     assert!(plan
         .warnings
         .iter()
@@ -604,7 +583,6 @@ fn orphaned_skill_external_directory_is_preserved_and_becomes_external() {
         },
     })
     .unwrap();
-    assert!(plan.requires_conflict_confirmation);
     commit(plan);
 
     assert!(fs::symlink_metadata(&target).unwrap().is_dir());
@@ -637,7 +615,6 @@ fn managed_skill_external_directory_is_preserved_when_ownership_is_released() {
         },
     })
     .unwrap();
-    assert!(plan.requires_conflict_confirmation);
     commit(plan);
 
     assert!(central.is_dir());
@@ -667,7 +644,6 @@ fn managed_skill_foreign_symlink_is_preserved_when_ownership_is_released() {
         },
     })
     .unwrap();
-    assert!(plan.requires_conflict_confirmation);
     commit(plan);
 
     assert_eq!(fs::read_link(&target).unwrap(), external);
@@ -791,7 +767,6 @@ fn orphaned_central_assets_can_still_be_unassigned() {
     })
     .unwrap();
     assert_eq!(mcp_plan.relationship_changes.len(), 1);
-    assert!(mcp_plan.requires_conflict_confirmation);
     let mcp_target_before = target_bytes(&mcp_plan);
     assert!(!mcp_target_before.is_empty());
     commit(mcp_plan);
@@ -839,7 +814,6 @@ fn orphaned_central_assets_can_still_be_unassigned() {
     })
     .unwrap();
     assert_eq!(model_plan.relationship_changes.len(), 1);
-    assert!(model_plan.requires_conflict_confirmation);
     let model_target_before = target_bytes(&model_plan);
     assert!(!model_target_before.is_empty());
     commit(model_plan);

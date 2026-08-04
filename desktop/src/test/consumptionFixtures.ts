@@ -1,36 +1,44 @@
 import type { AssetOperationPlan, ConsumptionInventory } from "../lib/types";
 
 export const consumptionInventoryFixture = (): ConsumptionInventory => ({
+  revision: "fixture-revision",
+  observed_at: "2026-08-04T00:00:00Z",
   recovery_error: null,
   consumptions: [
     {
       agent_id: "claude-code",
       asset: { domain: "mcp", key: "github::stdio" },
+      ownership: "managed",
       desired: true,
       observed: true,
       status: "synced",
       reason: null,
       affected_agent_ids: ["claude-code"],
+      available_actions: [],
     },
     {
       agent_id: "codex",
       asset: { domain: "skill", name: "review-changes" },
+      ownership: "managed",
       desired: true,
       observed: false,
-      status: "drifted",
+      status: "external-removed",
       reason: "skill_target_missing",
       affected_agent_ids: ["codex", "cursor", "gemini"],
+      available_actions: ["restore-desired", "detach"],
     },
   ],
   external: [
     {
       agent_id: "claude-code",
       asset: { domain: "mcp", key: "external::http" },
+      ownership: "external",
       desired: false,
       observed: true,
-      status: "external",
+      status: "external-added",
       reason: "mcp_external_unmanaged",
       affected_agent_ids: ["claude-code"],
+      available_actions: ["adopt-observed"],
     },
   ],
 });
@@ -57,6 +65,5 @@ export const assetOperationPlanFixture = (): AssetOperationPlan => ({
   affected_agent_ids: ["claude-code"],
   warnings: [],
   can_commit: true,
-  requires_conflict_confirmation: false,
   candidate_hash: "candidate",
 });

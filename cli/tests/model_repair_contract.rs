@@ -45,7 +45,7 @@ fn success_json(output: Output) -> serde_json::Value {
 }
 
 #[test]
-fn relationship_verbs_are_idempotent_and_only_explicit_reapply_repairs_model_drift() {
+fn relationship_verbs_are_idempotent_and_only_explicit_convergence_repairs_model_drift() {
     let home = TestHome::new("cli-model-repair");
     save_profile(profile(), None).unwrap();
 
@@ -109,27 +109,30 @@ fn relationship_verbs_are_idempotent_and_only_explicit_reapply_repairs_model_dri
     let repaired = success_json(run(&[
         "--json",
         "model",
-        "reapply",
+        "converge",
         "repair-contract",
         "--agent",
         "grok-build",
+        "restore",
         "--yes",
     ]));
-    assert_eq!(repaired["command"], "model.reapply");
+    assert_eq!(repaired["command"], "converge");
     assert_eq!(repaired["changed"], true);
     assert!(fs::read_to_string(&target)
         .unwrap()
         .contains("repair-contract-model"));
 
-    let clean = success_json(run(&[
+    let clean = run(&[
         "--json",
         "model",
-        "reapply",
+        "converge",
         "repair-contract",
         "--agent",
         "grok-build",
+        "restore",
         "--yes",
-    ]));
-    assert_eq!(clean["command"], "model.reapply");
-    assert_eq!(clean["changed"], false);
+    ]);
+    assert!(!clean.status.success());
+    let clean: serde_json::Value = serde_json::from_slice(&clean.stderr).unwrap();
+    assert_eq!(clean["error"]["code"], "convergence_action_unavailable");
 }

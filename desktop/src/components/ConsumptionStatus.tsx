@@ -1,13 +1,5 @@
 import type { ConsumptionStatus as Status } from "../lib/types";
-
-const LABELS: Record<Status, string> = {
-  synced: "已同步",
-  pending: "待同步",
-  drifted: "有漂移",
-  conflicted: "有冲突",
-  unsupported: "不兼容",
-  external: "外部配置",
-};
+import { useTranslation } from "react-i18next";
 
 export function ConsumptionStatus({
   status,
@@ -16,14 +8,24 @@ export function ConsumptionStatus({
   status: Status;
   reason?: string | null;
 }) {
+  const { t } = useTranslation();
+  const labels: Record<Status, string> = {
+    synced: t("observations.statuses.synced"),
+    "external-added": t("observations.statuses.externalAdded"),
+    "external-changed": t("observations.statuses.externalChanged"),
+    "external-removed": t("observations.statuses.externalRemoved"),
+    unparseable: t("observations.statuses.unparseable"),
+    ambiguous: t("observations.statuses.ambiguous"),
+    unsupported: t("observations.statuses.unsupported"),
+  };
   return (
     <span
       className="mux-consumption-status"
       data-status={status}
-      title={reason ?? LABELS[status]}
+      title={reason ?? labels[status]}
     >
       <span aria-hidden="true" />
-      {LABELS[status]}
+      {labels[status]}
     </span>
   );
 }

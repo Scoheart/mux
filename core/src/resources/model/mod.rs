@@ -979,7 +979,6 @@ pub fn migrate_model_providers_v3_if_needed() -> Result<bool, String> {
         let upgraded = version < crate::settings::SETTINGS_VERSION;
         if upgraded {
             crate::settings::mutate_settings(|settings| {
-                settings.model_provider_reapply_pending = Some(true);
                 settings.version = Some(crate::settings::SETTINGS_VERSION);
             })
             .map_err(|error| error.to_string())?;
@@ -1077,63 +1076,12 @@ pub fn migrate_model_providers_v3_if_needed() -> Result<bool, String> {
         }
         current.model_profiles = (!profiles.is_empty()).then_some(profiles.clone());
         current.model_providers = (!providers.is_empty()).then_some(providers.clone());
-        current.model_provider_reapply_pending = Some(true);
         current.version = Some(crate::settings::SETTINGS_VERSION);
         Ok(())
     })
     .map_err(|error| error.to_string())?;
     consolidate_provider_credentials()?;
     Ok(true)
-}
-
-pub(crate) fn model_provider_reapply_pending() -> Result<bool, String> {
-    crate::settings::load_settings_strict()
-        .map(|settings| settings.model_provider_reapply_pending == Some(true))
-        .map_err(|error| error.to_string())
-}
-
-fn mark_model_provider_reapply_pending() -> Result<(), String> {
-    crate::settings::mutate_settings(|settings| {
-        settings.model_provider_reapply_pending = Some(true);
-    })
-    .map_err(|error| error.to_string())
-}
-
-pub(crate) fn complete_model_provider_reapply() -> Result<(), String> {
-    crate::settings::mutate_settings(|settings| {
-        settings.model_provider_reapply_pending = None;
-    })
-    .map_err(|error| error.to_string())
-}
-
-/// Provider v3 moves credential ownership from each Profile to its shared
-/// Provider. Native Agent helpers embed the Keychain service name, so every
-/// enabled managed Profile must be re-stamped after that central migration,
-/// except Agent targets explicitly preserved by a Keep Agent review.
-/// Bootstrap holds the global cross-process mutation lock while this runs;
-/// each adapter still performs its own compare-and-swap write and rollback.
-pub(crate) fn reapply_managed_models_after_provider_migration(
-    preserved_agent_targets: &BTreeSet<String>,
-) -> Result<(), String> {
-    let settings = crate::settings::load_settings_strict().map_err(|error| error.to_string())?;
-    for (agent_id, selection) in settings.model_consumptions.iter().flatten() {
-        if preserved_agent_targets.contains(agent_id) {
-            continue;
-        }
-        let desired = settings.model_selection(agent_id);
-        for (profile_id, record) in selection {
-            if !record.enabled {
-                continue;
-            }
-            apply_profile_consumption_with_credential_presence(
-                agent_id,
-                profile_id,
-                credential_present(profile_id),
-                desired.active_profile_id.as_deref() == Some(profile_id.as_str()),
-            )?;
-        }
-    }
-    Ok(())
 }
 
 fn repair_missing_provider_references(
@@ -1196,7 +1144,6 @@ fn repair_missing_provider_references(
             })?;
             profile.provider_id = Some(provider_id.clone());
         }
-        current.model_provider_reapply_pending = Some(true);
         Ok(())
     })
     .map_err(|error| error.to_string())?;
@@ -1205,7 +1152,6 @@ fn repair_missing_provider_references(
 
 fn consolidate_provider_credentials() -> Result<bool, String> {
     let settings = crate::settings::load_settings_strict().map_err(|error| error.to_string())?;
-    let mut reapply_marked = settings.model_provider_reapply_pending == Some(true);
     let profiles = settings.model_profiles.unwrap_or_default();
     let mut changed = false;
     for provider in settings.model_providers.unwrap_or_default().into_values() {
@@ -1229,25 +1175,12 @@ fn consolidate_provider_credentials() -> Result<bool, String> {
                 ));
             }
             if let Some(credential) = legacy_credentials.iter().next() {
-                if !reapply_marked {
-                    mark_model_provider_reapply_pending()?;
-                    reapply_marked = true;
-                }
                 set_credential_service(&provider_service, credential)?;
                 changed = true;
             }
         }
-        for profile_id in profile_ids {
-            let legacy_service = legacy_keychain_service(profile_id);
-            if credential_service_exists(&legacy_service) {
-                if !reapply_marked {
-                    mark_model_provider_reapply_pending()?;
-                    reapply_marked = true;
-                }
-                delete_credential_service(&legacy_service)?;
-                changed = true;
-            }
-        }
+        // Keep per-Profile credentials. Existing Agent helpers may still
+        // reference them until the user explicitly restores MUX desired state.
     }
     Ok(changed)
 }
@@ -4464,7 +4397,6 @@ mod tests {
 
         assert!(migrate_model_providers_v3_if_needed().unwrap());
         assert!(!migrate_model_providers_v3_if_needed().unwrap());
-        assert!(model_provider_reapply_pending().unwrap());
         let settings = crate::settings::load_settings_strict().unwrap();
         assert_eq!(settings.version, Some(crate::settings::SETTINGS_VERSION));
         let providers = settings.model_providers.unwrap();
@@ -4503,23 +4435,14 @@ mod tests {
             read_credential_service(&provider_keychain_service(&provider.id)).unwrap(),
             b"shared-secret"
         );
-        assert!(read_credential_service(&legacy_keychain_service(&anthropic.id)).is_none());
-        assert!(read_credential_service(&legacy_keychain_service(&responses.id)).is_none());
-    }
-
-    #[test]
-    fn provider_reapply_marker_clears_only_after_explicit_completion() {
-        let _home = TestHome::new("model-provider-reapply-marker");
-        crate::settings::save_settings(&crate::settings::Settings {
-            version: Some(2),
-            ..Default::default()
-        })
-        .unwrap();
-
-        assert!(migrate_model_providers_v3_if_needed().unwrap());
-        assert!(model_provider_reapply_pending().unwrap());
-        complete_model_provider_reapply().unwrap();
-        assert!(!model_provider_reapply_pending().unwrap());
+        assert_eq!(
+            read_credential_service(&legacy_keychain_service(&anthropic.id)).unwrap(),
+            b"shared-secret"
+        );
+        assert_eq!(
+            read_credential_service(&legacy_keychain_service(&responses.id)).unwrap(),
+            b"shared-secret"
+        );
     }
 
     #[test]

@@ -435,9 +435,9 @@ export function RegistryView({ state, consumptionState, intent, onIntentConsumed
           busy={consumptionState.committing}
           error={consumptionState.error}
           onCancel={consumptionState.cancel}
-          onCommit={async (conflictConfirmation) => {
+          onCommit={async () => {
             const kind = consumptionState.plan?.kind;
-            await consumptionState.commit(conflictConfirmation);
+            await consumptionState.commit();
             await state.refreshRegistry();
             if (kind === "delete-asset") setDetail(null);
             toast.show({

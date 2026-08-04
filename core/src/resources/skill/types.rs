@@ -453,7 +453,7 @@ pub struct SkillInventoryItem {
     pub updated_at: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct SkillsInventory {
     pub items: Vec<SkillInventoryItem>,
     pub agents: Vec<SkillAgentView>,

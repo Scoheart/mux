@@ -88,14 +88,6 @@ where
     if !persisted.plan.can_commit {
         return Err("asset_operation_blocked: resolve drift or conflict before commit".into());
     }
-    if persisted.plan.requires_conflict_confirmation
-        && request.conflict_confirmation.as_deref() != Some(persisted.plan.candidate_hash.as_str())
-    {
-        return Err(
-            "confirmation_required: explicitly confirm replacement of the reviewed drifted targets"
-                .into(),
-        );
-    }
     verify_preconditions(&persisted)?;
     after_preconditions()?;
 
@@ -109,9 +101,7 @@ where
     let mut snapshots = vec![PathSnapshot::capture(&settings_path)?];
     let skill_link_targets = matches!(
         persisted.plan.domain_plan,
-        DomainPlan::Skill { .. }
-            | DomainPlan::AgentConfiguration { .. }
-            | DomainPlan::AgentCapabilities { .. }
+        DomainPlan::Skill { .. } | DomainPlan::AgentCapabilities { .. }
     );
     let preserving_external_skill_targets =
         matches!(persisted.plan.domain_plan, DomainPlan::Skill { .. })
@@ -555,10 +545,6 @@ fn lifecycle_profile_ids(lifecycle: Option<&LifecycleBinding>) -> Vec<String> {
         | Some(LifecycleBinding::ModelProviderDelete { provider_id }) => {
             vec![provider_credential_subject(provider_id)]
         }
-        Some(LifecycleBinding::ModelSchemaV2 { id_map, .. }) => id_map
-            .iter()
-            .flat_map(|(old_id, new_id)| [old_id.clone(), new_id.clone()])
-            .collect(),
         _ => Vec::new(),
     }
 }
@@ -754,6 +740,29 @@ fn apply_operation(
                 .map_err(|error| format!("{error:?}"))?;
             Ok(())
         }
+        LifecycleBinding::SkillAdoptObserved { name, record } => {
+            let inventory =
+                crate::resources::skill::list_inventory().map_err(|error| format!("{error:?}"))?;
+            let current = inventory.items.iter().find(|item| {
+                item.name == *name
+                    && matches!(
+                        item.location,
+                        crate::resources::skill::SkillLocation::Central
+                    )
+            });
+            if current.and_then(|item| item.content_hash.as_ref()) != Some(&record.content_hash) {
+                return Err(
+                    "asset_operation_stale: Skill content changed after convergence review".into(),
+                );
+            }
+            mutate_settings(|settings| {
+                settings
+                    .managed_skills
+                    .get_or_insert_default()
+                    .insert(name.clone(), record.clone());
+            })
+            .map_err(|error| error.to_string())
+        }
         LifecycleBinding::ModelUpsert {
             profile_id,
             draft_hash,
@@ -842,20 +851,17 @@ fn apply_operation(
                 credential,
             } = require_pending_payload(&persisted.plan.operation_id)?
             else {
-                return Err("asset_operation_expired: Model adoption payload is unavailable; reopen migration review".into());
+                return Err("asset_operation_expired: Model adoption payload is unavailable; refresh the observed state".into());
             };
             verify_payload_hash(&profile, draft_hash)?;
             if profile.id != *profile_id || credential_action_for(&credential) != *credential_action
             {
                 return Err("asset_operation_stale: Model adoption payload changed".into());
             }
-            let desired_credential_present = matches!(credential_action, CredentialAction::Set);
             save_profile(*profile, None)?;
-            reapply_model_consumers(
-                &persisted.plan.domain_plan,
-                profile_id,
-                desired_credential_present,
-            )?;
+            // Adoption changes MUX authority to match the reviewed Agent state.
+            // It must never normalize or rewrite that state; doing so can erase
+            // unrelated external models from a shared Agent configuration.
             let DomainPlan::Model { after, .. } = &persisted.plan.domain_plan else {
                 return Err("asset operation domain mismatch".into());
             };
@@ -874,97 +880,6 @@ fn apply_operation(
                 skills_lock,
             )?;
             delete_profile(profile_id)
-        }
-        LifecycleBinding::ModelSchemaV2 {
-            id_map,
-            draft_hash,
-            credential_profile_ids,
-            preserve_legacy_credential_ids,
-            preserve_agent_targets,
-        } => {
-            let PendingAssetPayload::ModelSchemaV2 { profiles } =
-                require_pending_payload(&persisted.plan.operation_id)?
-            else {
-                return Err(
-                    "asset_operation_expired: Model migration payload is unavailable; restart MUX"
-                        .into(),
-                );
-            };
-            verify_payload_hash(&profiles, draft_hash)?;
-            if profiles.keys().cloned().collect::<BTreeSet<_>>()
-                != id_map.values().cloned().collect::<BTreeSet<_>>()
-            {
-                return Err("asset_operation_stale: Model migration identities changed".into());
-            }
-            mutate_settings(|settings| {
-                settings
-                    .model_profiles
-                    .get_or_insert_default()
-                    .extend(profiles.clone());
-            })
-            .map_err(|error| error.to_string())?;
-            for (old_id, new_id) in id_map {
-                if credential_profile_ids.contains(old_id) {
-                    let credential = credential_snapshot(old_id).ok_or_else(|| {
-                        format!("model_schema_migration_credential_missing: {old_id}")
-                    })?;
-                    restore_credential_snapshot(new_id, Some(&credential))?;
-                }
-            }
-            let DomainPlan::Model { before, after } = &persisted.plan.domain_plan else {
-                return Err("asset operation domain mismatch".into());
-            };
-            // This lifecycle is committed only through a candidate-bound
-            // bootstrap confirmation. Old identities must be cleared before
-            // their new identities are applied; reviewed drift may make the
-            // strict clear refuse, in which case the following new-identity
-            // write is the explicit replacement the user approved.
-            let reviewed_identity_replacements = persisted
-                .plan
-                .relationship_changes
-                .iter()
-                .filter_map(|change| match (&change.asset, &change.action) {
-                    (AssetRef::Model { profile_id }, RelationshipAction::Remove) => {
-                        Some((change.agent_id.clone(), profile_id.clone()))
-                    }
-                    _ => None,
-                })
-                .collect::<BTreeSet<_>>();
-            apply_model(
-                before,
-                after,
-                &reviewed_identity_replacements,
-                preserve_agent_targets,
-            )?;
-            mutate_settings(|settings| {
-                settings.model_profiles = Some(profiles.clone());
-                settings.version = Some(2);
-                if let DomainPlan::Model { after, .. } = &persisted.plan.domain_plan {
-                    for (agent_id, selection) in after {
-                        settings.set_model_selection(agent_id, selection.clone());
-                    }
-                }
-            })
-            .map_err(|error| error.to_string())?;
-            for old_id in id_map.keys() {
-                if !preserve_legacy_credential_ids.contains(old_id) {
-                    apply_credential_update(old_id, Some(""))?;
-                }
-            }
-            Ok(())
-        }
-        LifecycleBinding::AgentConfiguration {
-            agent_id,
-            after,
-            skill_assignments_after,
-            skill_migration,
-        } => {
-            for entry in skill_migration {
-                if let Some(source) = &entry.source {
-                    create_skill_migration_link(source, &entry.destination)?;
-                }
-            }
-            crate::agents::apply_configuration(agent_id, after, skill_assignments_after.clone())
         }
         LifecycleBinding::AgentCapabilities {
             agent_id,
@@ -1234,6 +1149,35 @@ fn verify_operation(persisted: &PersistedAssetOperation) -> Result<(), String> {
             }
             Ok(())
         }
+        LifecycleBinding::SkillAdoptObserved { name, record } => {
+            let settings = load_settings_strict().map_err(|error| error.to_string())?;
+            if settings
+                .managed_skills
+                .as_ref()
+                .and_then(|records| records.get(name))
+                != Some(record)
+            {
+                return Err("Skill adopted baseline was not persisted".into());
+            }
+            let inventory =
+                crate::resources::skill::list_inventory().map_err(|error| format!("{error:?}"))?;
+            let current = inventory.items.iter().find(|item| {
+                item.name == *name
+                    && matches!(
+                        item.location,
+                        crate::resources::skill::SkillLocation::Central
+                    )
+            });
+            if current.is_none_or(|item| {
+                item.content_hash.as_ref() != Some(&record.content_hash)
+                    || item
+                        .states
+                        .contains(&crate::resources::skill::InventoryState::LocallyModified)
+            }) {
+                return Err("Skill adopted baseline verification failed".into());
+            }
+            Ok(())
+        }
         LifecycleBinding::ModelUpsert {
             profile_id,
             draft_hash,
@@ -1320,9 +1264,15 @@ fn verify_operation(persisted: &PersistedAssetOperation) -> Result<(), String> {
                 .and_then(|profiles| profiles.get(profile_id))
                 .ok_or_else(|| "Model Profile missing after adoption".to_string())?;
             verify_payload_hash(profile, draft_hash)?;
-            if matches!(credential_action, CredentialAction::Set) != credential_present(profile_id)
-            {
-                return Err("Model credential presence did not match adoption plan".into());
+            match credential_action {
+                CredentialAction::Keep => {}
+                CredentialAction::Set if !credential_present(profile_id) => {
+                    return Err("Model credential was not saved after adoption".into())
+                }
+                CredentialAction::Clear if credential_present(profile_id) => {
+                    return Err("Model credential was not cleared after adoption".into())
+                }
+                CredentialAction::Set | CredentialAction::Clear => {}
             }
             Ok(())
         }
@@ -1349,50 +1299,6 @@ fn verify_operation(persisted: &PersistedAssetOperation) -> Result<(), String> {
             }
             if credential_present(profile_id) {
                 return Err("Model credential still exists after deletion".into());
-            }
-            Ok(())
-        }
-        LifecycleBinding::ModelSchemaV2 {
-            id_map,
-            draft_hash,
-            credential_profile_ids,
-            preserve_legacy_credential_ids,
-            ..
-        } => {
-            let settings = load_settings_strict().map_err(|error| error.to_string())?;
-            if settings.version != Some(2) {
-                return Err("Model schema version was not updated".into());
-            }
-            let profiles = settings.model_profiles.unwrap_or_default();
-            verify_payload_hash(&profiles, draft_hash)?;
-            for (old_id, new_id) in id_map {
-                if profiles.contains_key(old_id) || !profiles.contains_key(new_id) {
-                    return Err("Model Profile identity migration postcondition failed".into());
-                }
-                let legacy_credential_expected = credential_profile_ids.contains(old_id)
-                    && preserve_legacy_credential_ids.contains(old_id);
-                if credential_present(old_id) != legacy_credential_expected
-                    || credential_present(new_id) != credential_profile_ids.contains(old_id)
-                {
-                    return Err("Model credential migration postcondition failed".into());
-                }
-            }
-            Ok(())
-        }
-        LifecycleBinding::AgentConfiguration {
-            agent_id,
-            after,
-            skill_migration,
-            ..
-        } => {
-            if crate::agents::current_configuration(agent_id)? != *after {
-                return Err("Agent configuration postcondition failed".into());
-            }
-            for entry in skill_migration {
-                let actual = skill_content_hash(&entry.destination)?;
-                if actual.as_deref() != Some(entry.content_hash.as_str()) {
-                    return Err("Skills path migration postcondition failed".into());
-                }
             }
             Ok(())
         }
@@ -1641,10 +1547,7 @@ fn verify_preconditions(persisted: &PersistedAssetOperation) -> Result<(), Strin
         }
     }
     match &persisted.lifecycle {
-        Some(LifecycleBinding::AgentConfiguration {
-            skill_migration, ..
-        })
-        | Some(LifecycleBinding::AgentCapabilities {
+        Some(LifecycleBinding::AgentCapabilities {
             skill_migration, ..
         }) => verify_skill_migration_preconditions(skill_migration)?,
         _ => {}
@@ -1675,14 +1578,6 @@ fn verify_preconditions(persisted: &PersistedAssetOperation) -> Result<(), Strin
         DomainPlan::Skill { .. } => {
             // Physical link and assignment preconditions are rechecked by the
             // existing Skills planner for every step.
-        }
-        DomainPlan::AgentConfiguration {
-            agent_id, before, ..
-        } => {
-            let actual = crate::agents::current_configuration(agent_id)?;
-            if actual != **before {
-                return Err("asset_operation_stale: Agent configuration changed".into());
-            }
         }
         DomainPlan::AgentCapabilities {
             agent_id, before, ..
@@ -1805,23 +1700,24 @@ fn apply_domain_plan(
         DomainPlan::Model { before, after } => apply_model(
             before,
             after,
-            &confirmed_model_relationship_releases(operation),
+            &model_relationship_releases(operation),
             &BTreeSet::new(),
         ),
         DomainPlan::Skill { before, after } => {
             apply_skill(before, after, release_orphaned_relationships, skills_lock)
         }
-        DomainPlan::AgentConfiguration { .. } | DomainPlan::AgentCapabilities { .. } => {
+        DomainPlan::AgentCapabilities { .. } => {
             Err("asset operation requires a configuration lifecycle".into())
         }
     }
 }
 
-/// Only an explicitly reviewed relationship removal may release ownership of
-/// customized Model fields. `use`, `enable`, and `disable` never receive an
-/// implicit repair or overwrite capability from a plan-level confirmation.
-fn confirmed_model_relationship_releases(plan: &AssetOperationPlan) -> BTreeSet<(String, String)> {
-    if plan.kind != AssetOperationKind::SetConsumption || !plan.requires_conflict_confirmation {
+/// A pure relationship removal may release ownership when the Agent bytes no
+/// longer match MUX authority. Synchronized entries are still removed
+/// normally; missing central metadata or drifted bytes are preserved as
+/// external observations. Toggle and update operations never enter this set.
+fn model_relationship_releases(plan: &AssetOperationPlan) -> BTreeSet<(String, String)> {
+    if !releases_relationship_ownership(plan) {
         return BTreeSet::new();
     }
     plan.relationship_changes
@@ -1864,10 +1760,13 @@ fn apply_mcp(
             .into_iter()
             .collect();
         for key in left.difference(&right) {
-            // A missing central definition cannot prove what bytes MUX used to
-            // own. Release the desired relationship and leave the observed
-            // Agent entry external instead of deleting unreviewable content.
-            if release_orphaned_relationships && !central_keys.contains(key) {
+            // Missing central authority or externally changed Agent bytes are
+            // not safe deletion targets. Release the relationship and keep the
+            // observation external. An exact synchronized entry is removable.
+            if release_orphaned_relationships
+                && (!central_keys.contains(key)
+                    || !exact_observed.contains(&(agent_id.clone(), key.clone())))
+            {
                 continue;
             }
             let (name, transport) = split_mcp_key(key)?;
@@ -2020,7 +1919,7 @@ fn apply_skill_enabled(
 fn apply_model(
     before: &BTreeMap<String, ModelAgentSelection>,
     after: &BTreeMap<String, ModelAgentSelection>,
-    confirmed_relationship_releases: &BTreeSet<(String, String)>,
+    relationship_releases: &BTreeSet<(String, String)>,
     preserve_agent_targets: &BTreeSet<String>,
 ) -> Result<(), String> {
     let settings = load_settings_strict().map_err(|error| error.to_string())?;
@@ -2049,8 +1948,8 @@ fn apply_model(
             .map(|(profile_id, _)| profile_id.clone())
             .collect();
         for profile_id in removed_or_disabled {
-            let release_relationship = confirmed_relationship_releases
-                .contains(&(agent_id.to_string(), profile_id.clone()));
+            let release_relationship =
+                relationship_releases.contains(&(agent_id.to_string(), profile_id.clone()));
             // As with MCP, a missing central Profile no longer provides the
             // schema needed to identify owned native fields. Preserve the
             // observed configuration as external while clearing ownership.
@@ -2062,11 +1961,10 @@ fn apply_model(
                 &profile_id,
                 left.active_profile_id.as_deref() == Some(profile_id.as_str()),
             ) {
-                // A confirmed relationship removal releases ownership instead
-                // of replacing or deleting reviewed drift.
-                // `verify_request` has already bound that confirmation to this
-                // plan's candidate hash. Keeping this decision here leaves the
-                // general-purpose Model clear API strict for every other caller.
+                // Relationship detachment releases ownership instead of
+                // replacing or deleting externally changed bytes. Keeping the
+                // decision here leaves the general-purpose Model clear API
+                // strict for every other caller.
                 let released_as_external = release_relationship
                     && (error.starts_with("model_owned_fields_drift:")
                         || error.starts_with("model_target_conflicted:"));
@@ -2245,22 +2143,6 @@ fn verify_postcondition(
                 })?;
             }
         }
-        DomainPlan::AgentConfiguration {
-            agent_id,
-            after,
-            skills_after,
-            ..
-        } => {
-            if crate::agents::current_configuration(agent_id)? != **after {
-                return Err("Agent configuration post-commit verification failed".into());
-            }
-            for (affected_agent, expected) in skills_after {
-                verify_desired_many(&inventory, affected_agent, expected, |asset| match asset {
-                    AssetRef::Skill { name } => Some(name.as_str()),
-                    _ => None,
-                })?;
-            }
-        }
         DomainPlan::AgentCapabilities {
             agent_id,
             after,
@@ -2314,17 +2196,8 @@ fn verify_postcondition(
                 .external
                 .iter()
                 .any(|item| external_remains_after_removal(&agent_id, &asset, item));
-            let preserved_by_model_migration = matches!(
-                lifecycle,
-                Some(LifecycleBinding::ModelSchemaV2 {
-                    preserve_agent_targets,
-                    ..
-                }) if preserve_agent_targets.contains(&agent_id)
-            );
             if consumption.is_some()
-                || (external_remains
-                    && !preserved_by_model_migration
-                    && !released_orphan_external_is_expected(plan, &agent_id, &asset)?)
+                || (external_remains && !released_external_is_expected(plan, &agent_id, &asset)?)
             {
                 return Err("asset removal post-commit verification failed".into());
             }
@@ -2333,7 +2206,7 @@ fn verify_postcondition(
     Ok(())
 }
 
-fn released_orphan_external_is_expected(
+fn released_external_is_expected(
     plan: &AssetOperationPlan,
     agent_id: &str,
     asset: &AssetRef,
@@ -2347,16 +2220,7 @@ fn released_orphan_external_is_expected(
     {
         return Ok(false);
     }
-    match asset {
-        AssetRef::Mcp { key } => Ok(!read_registry().iter().any(|entry| entry.key() == *key)),
-        AssetRef::Model { profile_id } => Ok(!load_settings_strict()
-            .map_err(|error| error.to_string())?
-            .model_profiles
-            .as_ref()
-            .is_some_and(|profiles| profiles.contains_key(profile_id))),
-        AssetRef::Skill { .. } => Ok(true),
-        AssetRef::ModelProvider { .. } => Ok(false),
-    }
+    Ok(!matches!(asset, AssetRef::ModelProvider { .. }))
 }
 
 fn verify_desired_many<'a, F>(
@@ -2411,11 +2275,6 @@ fn asset_desired_after(plan: &DomainPlan, agent_id: &str, asset: &AssetRef) -> b
         (DomainPlan::Skill { after, .. }, AssetRef::Skill { name }) => after
             .get(agent_id)
             .is_some_and(|names| names.contains(name)),
-        (DomainPlan::AgentConfiguration { skills_after, .. }, AssetRef::Skill { name }) => {
-            skills_after
-                .get(agent_id)
-                .is_some_and(|names| names.contains(name))
-        }
         (DomainPlan::AgentCapabilities { skills_after, .. }, AssetRef::Skill { name }) => {
             skills_after
                 .get(agent_id)
@@ -3226,7 +3085,6 @@ mod tests {
         let inventory = commit_asset_operation(AssetCommitRequest {
             operation_id: plan.operation_id,
             candidate_hash: plan.candidate_hash,
-            conflict_confirmation: None,
         })
         .unwrap();
         assert!(inventory.consumptions.iter().any(|item| {
@@ -3273,7 +3131,6 @@ mod tests {
             AssetCommitRequest {
                 operation_id: plan.operation_id,
                 candidate_hash: plan.candidate_hash,
-                conflict_confirmation: None,
             },
             || {
                 fs::create_dir_all(target.parent().unwrap()).map_err(|error| error.to_string())?;
@@ -3320,7 +3177,6 @@ mod tests {
         let error = commit_asset_operation(AssetCommitRequest {
             operation_id: plan.operation_id,
             candidate_hash: plan.candidate_hash,
-            conflict_confirmation: None,
         })
         .unwrap_err();
 
@@ -3424,7 +3280,6 @@ mod tests {
         commit_asset_operation(AssetCommitRequest {
             operation_id: plan.operation_id,
             candidate_hash: plan.candidate_hash,
-            conflict_confirmation: None,
         })
         .unwrap();
 
@@ -3482,7 +3337,6 @@ mod tests {
         commit_asset_operation(AssetCommitRequest {
             operation_id: added.operation_id,
             candidate_hash: added.candidate_hash,
-            conflict_confirmation: None,
         })
         .unwrap();
 
@@ -3496,7 +3350,6 @@ mod tests {
             let inventory = commit_asset_operation(AssetCommitRequest {
                 operation_id: plan.operation_id,
                 candidate_hash: plan.candidate_hash,
-                conflict_confirmation: None,
             })
             .unwrap();
             assert!(inventory.consumptions.iter().any(|item| {
@@ -3785,7 +3638,6 @@ mod tests {
         commit_asset_operation(AssetCommitRequest {
             operation_id: plan.operation_id,
             candidate_hash: plan.candidate_hash,
-            conflict_confirmation: None,
         })
         .unwrap();
 
@@ -3832,7 +3684,6 @@ mod tests {
         commit_asset_operation(AssetCommitRequest {
             operation_id: assignment.operation_id,
             candidate_hash: assignment.candidate_hash,
-            conflict_confirmation: None,
         })
         .unwrap();
 
@@ -3852,8 +3703,7 @@ mod tests {
             },
         })
         .unwrap();
-        assert!(plan.can_commit, "{:?}", plan.warnings);
-        assert!(plan.requires_conflict_confirmation);
+        assert!(!plan.can_commit, "{:?}", plan.warnings);
         assert!(plan.central_changes.iter().any(|change| change.asset
             == (AssetRef::Model {
                 profile_id: first.id.clone(),
@@ -3875,35 +3725,16 @@ mod tests {
             .iter()
             .any(|warning| warning.contains(&format!("model:{}", third.id))));
 
-        let inventory = commit_asset_operation(AssetCommitRequest {
+        let error = commit_asset_operation(AssetCommitRequest {
             operation_id: plan.operation_id,
-            candidate_hash: plan.candidate_hash.clone(),
-            conflict_confirmation: Some(plan.candidate_hash),
+            candidate_hash: plan.candidate_hash,
         })
-        .unwrap();
+        .unwrap_err();
+        assert!(error.starts_with("asset_operation_blocked:"));
         let updated = fs::read_to_string(target).unwrap();
-        assert!(updated.contains("gpt-shared"));
-        assert!(!updated.contains("first-reviewed-drift"));
+        assert!(updated.contains("first-reviewed-drift"));
         assert!(updated.contains("third-unreviewed-drift"));
         assert!(!updated.contains("third-model"));
-        for profile_id in [&first.id, &second.id] {
-            assert!(inventory.consumptions.iter().any(|item| {
-                item.agent_id == "grok-build"
-                    && item.asset
-                        == (AssetRef::Model {
-                            profile_id: profile_id.clone(),
-                        })
-                    && item.status == ConsumptionStatus::Synced
-            }));
-        }
-        assert!(inventory.consumptions.iter().any(|item| {
-            item.agent_id == "grok-build"
-                && item.asset
-                    == (AssetRef::Model {
-                        profile_id: third.id.clone(),
-                    })
-                && item.status == ConsumptionStatus::Drifted
-        }));
     }
 
     #[test]
@@ -3934,7 +3765,6 @@ mod tests {
         commit_asset_operation(AssetCommitRequest {
             operation_id: assignment.operation_id,
             candidate_hash: assignment.candidate_hash,
-            conflict_confirmation: None,
         })
         .unwrap();
 
@@ -3946,7 +3776,6 @@ mod tests {
         commit_asset_operation(AssetCommitRequest {
             operation_id: make_first_active.operation_id,
             candidate_hash: make_first_active.candidate_hash,
-            conflict_confirmation: None,
         })
         .unwrap();
 
@@ -3961,7 +3790,6 @@ mod tests {
         commit_asset_operation(AssetCommitRequest {
             operation_id: disable.operation_id,
             candidate_hash: disable.candidate_hash,
-            conflict_confirmation: None,
         })
         .unwrap();
         let disabled_stray = managed.replace("claude-shared", "disabled-child-customization");
@@ -3977,7 +3805,6 @@ mod tests {
         })
         .unwrap();
         assert!(plan.can_commit, "{:?}", plan.warnings);
-        assert!(!plan.requires_conflict_confirmation);
         assert!(!plan
             .warnings
             .iter()
@@ -3986,7 +3813,6 @@ mod tests {
         let inventory = commit_asset_operation(AssetCommitRequest {
             operation_id: plan.operation_id,
             candidate_hash: plan.candidate_hash,
-            conflict_confirmation: None,
         })
         .unwrap();
         let updated = fs::read_to_string(target).unwrap();
@@ -3998,7 +3824,7 @@ mod tests {
                         profile_id: second.id.clone(),
                     })
                 && item.enabled == Some(false)
-                && item.status == ConsumptionStatus::Drifted
+                && item.status == ConsumptionStatus::ExternalChanged
                 && item.reason.as_deref() == Some("model_disabled_state_drift")
         }));
         let profiles = load_settings_strict().unwrap().model_profiles.unwrap();

@@ -9,7 +9,7 @@ For MCP capability, clients whose global file path, top-level key, and entry str
 
 MUX treats MCPs, Models, and Skills as central assets. Create, import, and maintain them in the top-level libraries first; an Agent page or the unified CLI then chooses which compatible assets that Agent should consume. MCPs and Skills are `0..N` per Agent. Native multi-model Agents may have several assigned Profiles but at most one current Profile; single-model Agents remain `0..1`. Asset Inspectors own lifecycle actions and show impact without editing Agent relationships.
 
-Agent files and Skill links are observed state, not an alternate asset database. MUX reconciles them as synced, pending, drifted, or conflicted. Scanning never silently takes ownership. When historical MCPs or Skills are detected, Desktop offers an explicit migration that imports the central asset and adopts its original Agent relationships as one recoverable per-asset transaction.
+Agent files and Skill links are observed state, not an alternate asset database. MUX projects them as synced, externally added, changed, removed, unparseable, ambiguous, or unsupported. Scanning never silently takes ownership. Each changed relationship can explicitly adopt the observation, restore MUX desired state, or detach ownership through one recoverable transaction.
 
 MUX currently exposes **14 Model targets**: 12 are safely managed, while MiniMax Code and Qoder remain the two guided targets because no equivalent safe writer is available.
 

@@ -1,27 +1,22 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
 #[cfg(unix)]
 use std::os::unix::fs::OpenOptionsExt;
 
-use clap::{ArgGroup, Parser, Subcommand, ValueEnum};
+use clap::{Parser, Subcommand, ValueEnum};
 use mux_core::application::assets::{
-    AgentConsumptionSelection, AssetRef, CentralAssetDraft, McpAdoptionCandidate,
-    McpAdoptionStatus, McpReapplyScope, ModelAdoptionStatus, PlanDeleteCentralAssetRequest,
-    PlanEnsureAgentConsumptionRequest, PlanMcpAdoptionRequest, PlanModelAdoptionRequest,
-    PlanReapplyMcpRequest, PlanReapplyModelRequest, PlanReapplySkillRequest,
-    PlanRemoveAgentConsumptionRequest, PlanSetActiveModelRequest, PlanSetAgentConsumptionRequest,
-    PlanSetMcpEnabledRequest, PlanSetModelEnabledRequest, PlanSetSkillEnabledRequest,
-    PlanUpdateCentralAssetRequest,
-};
-use mux_core::application::bootstrap::{
-    MigrationResolutionStrategy, MigrationReview, ResolveMigrationRequest,
+    AgentConsumptionSelection, AssetRef, CentralAssetDraft, ConvergenceAction, McpAdoptionStatus,
+    ModelAdoptionStatus, PlanConvergeConsumptionRequest, PlanDeleteCentralAssetRequest,
+    PlanEnsureAgentConsumptionRequest, PlanRemoveAgentConsumptionRequest,
+    PlanSetActiveModelRequest, PlanSetAgentConsumptionRequest, PlanSetMcpEnabledRequest,
+    PlanSetModelEnabledRequest, PlanSetSkillEnabledRequest, PlanUpdateCentralAssetRequest,
 };
 use mux_core::application::mcp::catalog::read_registry;
 use mux_core::application::mcp::operations as mcp_operations;
 use mux_core::application::operations::PlanOperationRequest;
-use mux_core::application::skills::{InventoryState, PlanImportRequest, SkillLocation};
+use mux_core::application::skills::{InventoryState, SkillLocation};
 use mux_core::application::MuxCore;
 use mux_core::domain::types::{
     HttpConfig, RegistryConfig, RegistryEntry, RegistryOrigin, StdioConfig,
@@ -82,11 +77,6 @@ impl Cli {
 
 #[derive(Debug, Subcommand)]
 pub enum Command {
-    /// Review or resolve a bootstrap schema migration.
-    Migration {
-        #[command(subcommand)]
-        command: MigrationCommand,
-    },
     /// Manage central MCP assets and their Agent relationships.
     Mcp {
         #[command(subcommand)]
@@ -112,48 +102,10 @@ pub enum Command {
         #[arg(value_enum)]
         domain: Option<AssetDomain>,
     },
-    /// Adopt exactly one discovered configuration.
-    Adopt {
-        #[command(subcommand)]
-        command: AdoptCommand,
-    },
     /// Show the complete revisioned workspace projection.
     Workspace,
     /// Upgrade a standalone CLI to the latest Stable release.
     Upgrade,
-}
-
-#[derive(Debug, Subcommand)]
-pub enum MigrationCommand {
-    /// Show the current secret-free Model migration review.
-    Review,
-    /// Resolve, regenerate, or defer the current review.
-    Resolve {
-        #[arg(value_enum)]
-        strategy: MigrationStrategyArg,
-        /// Candidate hash printed by `mux migration review`; required with --yes.
-        #[arg(long)]
-        candidate_hash: Option<String>,
-    },
-}
-
-#[derive(Debug, Clone, Copy, ValueEnum)]
-pub enum MigrationStrategyArg {
-    UseMux,
-    KeepAgent,
-    Recheck,
-    Later,
-}
-
-impl From<MigrationStrategyArg> for MigrationResolutionStrategy {
-    fn from(value: MigrationStrategyArg) -> Self {
-        match value {
-            MigrationStrategyArg::UseMux => Self::UseMux,
-            MigrationStrategyArg::KeepAgent => Self::KeepAgent,
-            MigrationStrategyArg::Recheck => Self::Recheck,
-            MigrationStrategyArg::Later => Self::Later,
-        }
-    }
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum, PartialEq, Eq)]
@@ -205,20 +157,14 @@ pub enum McpCommand {
         #[arg(long, required = true)]
         agent: String,
     },
-    /// Reapply one assigned MCP's desired physical state to one Agent or explicitly all Agents.
-    #[command(group(
-        ArgGroup::new("scope")
-            .required(true)
-            .multiple(false)
-            .args(["agent", "all"])
-    ))]
-    Reapply {
+    /// Converge one observed MCP relationship: adopt, restore, or detach.
+    Converge {
         #[arg(value_parser = parse_mcp_key)]
         key: String,
-        #[arg(long)]
-        agent: Option<String>,
-        #[arg(long)]
-        all: bool,
+        #[arg(long, required = true)]
+        agent: String,
+        #[arg(value_enum)]
+        action: ConvergenceActionArg,
     },
     /// Add one manual MCP. stdio requires --command; http requires --url.
     Add {
@@ -296,12 +242,14 @@ pub enum ModelCommand {
         #[arg(long, required = true)]
         agent: String,
     },
-    /// Reapply one assigned Model Profile's desired physical state.
-    Reapply {
+    /// Converge one observed Model relationship: adopt, restore, or detach.
+    Converge {
         #[arg(value_parser = parse_identity)]
         profile_id: String,
         #[arg(long, required = true)]
         agent: String,
+        #[arg(value_enum)]
+        action: ConvergenceActionArg,
     },
     /// Select the current Model Profile for an Agent.
     Use {
@@ -354,12 +302,14 @@ pub enum SkillCommand {
         #[arg(long, required = true)]
         agent: String,
     },
-    /// Reapply one assigned Skill's desired managed-link state.
-    Reapply {
+    /// Converge one observed Skill relationship: adopt, restore, or detach.
+    Converge {
         #[arg(value_parser = parse_identity)]
         name: String,
         #[arg(long, required = true)]
         agent: String,
+        #[arg(value_enum)]
+        action: ConvergenceActionArg,
     },
 }
 
@@ -379,25 +329,21 @@ pub enum AgentCommand {
     },
 }
 
-#[derive(Debug, Subcommand)]
-pub enum AdoptCommand {
-    /// Adopt one MCP identity, anchored by an exact observation from one Agent.
-    Mcp {
-        #[arg(value_parser = parse_mcp_key)]
-        key: String,
-        #[arg(long, required = true)]
-        agent: String,
-    },
-    /// Adopt one detected Agent-native Model candidate.
-    Model {
-        #[arg(value_parser = parse_identity)]
-        candidate_id: String,
-    },
-    /// Adopt one detected external Skill directory.
-    Skill {
-        #[arg(value_parser = parse_identity)]
-        identity: String,
-    },
+#[derive(Debug, Clone, Copy, ValueEnum)]
+pub enum ConvergenceActionArg {
+    Adopt,
+    Restore,
+    Detach,
+}
+
+impl From<ConvergenceActionArg> for ConvergenceAction {
+    fn from(value: ConvergenceActionArg) -> Self {
+        match value {
+            ConvergenceActionArg::Adopt => Self::AdoptObserved,
+            ConvergenceActionArg::Restore => Self::RestoreDesired,
+            ConvergenceActionArg::Detach => Self::Detach,
+        }
+    }
 }
 
 fn parse_mcp_key(raw: &str) -> Result<String, String> {
@@ -424,7 +370,6 @@ pub fn dispatch(cli: &Cli) -> Result<CommandOutput, CliError> {
         )
     })?;
     match command {
-        Command::Migration { command } => dispatch_migration(cli, command),
         Command::Mcp { command } => dispatch_mcp(cli, command),
         Command::Model { command } => dispatch_model(cli, command),
         Command::Skill { command } => dispatch_skill(cli, command),
@@ -433,177 +378,12 @@ pub fn dispatch(cli: &Cli) -> Result<CommandOutput, CliError> {
             cli.reject_mutation_options()?;
             discover(*domain, Palette::new(cli.no_color || cli.json))
         }
-        Command::Adopt { command } => adopt(command, cli.mutation_options()),
         Command::Workspace => {
             cli.reject_mutation_options()?;
             workspace(Palette::new(cli.no_color || cli.json))
         }
         Command::Upgrade => upgrade(cli.mutation_options()),
     }
-}
-
-fn dispatch_migration(cli: &Cli, command: &MigrationCommand) -> Result<CommandOutput, CliError> {
-    match command {
-        MigrationCommand::Review => {
-            cli.reject_mutation_options()?;
-            let review = MuxCore::migration_review().ok_or_else(|| {
-                CliError::new(
-                    "migration_review_unavailable",
-                    "no Model migration review is currently pending",
-                )
-            })?;
-            Ok(CommandOutput::new(
-                "migration.review",
-                false,
-                json!(review),
-                render_migration_review(&review),
-            ))
-        }
-        MigrationCommand::Resolve {
-            strategy,
-            candidate_hash: reviewed_candidate_hash,
-        } => {
-            let strategy = MigrationResolutionStrategy::from(*strategy);
-            let review = MuxCore::migration_review().ok_or_else(|| {
-                CliError::new(
-                    "migration_review_unavailable",
-                    "no Model migration review is currently pending",
-                )
-            })?;
-            let commit_strategy = matches!(
-                strategy,
-                MigrationResolutionStrategy::UseMux | MigrationResolutionStrategy::KeepAgent
-            );
-            if cli.yes && cli.dry_run {
-                return Err(CliError::new(
-                    "option_conflict",
-                    "--yes and --dry-run cannot be used together",
-                ));
-            }
-            if commit_strategy && !cli.yes && !cli.dry_run {
-                return Err(CliError::new(
-                    "confirmation_required",
-                    "migration resolution requires --yes or --dry-run",
-                ));
-            }
-            if commit_strategy && cli.yes && reviewed_candidate_hash.is_none() {
-                return Err(CliError::new(
-                    "confirmation_required",
-                    "--yes requires --candidate-hash from `mux migration review`",
-                ));
-            }
-            if !commit_strategy && (cli.yes || cli.dry_run) {
-                return Err(CliError::new(
-                    "option_not_applicable",
-                    "--yes and --dry-run apply only to use-mux or keep-agent",
-                ));
-            }
-            let current_candidate_hash = review
-                .actions
-                .iter()
-                .find(|action| action.strategy == strategy)
-                .map(|action| action.plan.candidate_hash.clone());
-            let candidate_hash = reviewed_candidate_hash.clone().or(current_candidate_hash);
-            let outcome = MuxCore::resolve_migration(ResolveMigrationRequest {
-                review_hash: review.review_hash.clone(),
-                strategy,
-                candidate_hash,
-                confirmed: cli.yes,
-                dry_run: cli.dry_run,
-            })
-            .map_err(migration_core_error)?;
-            let human = if cli.dry_run {
-                let selected = outcome
-                    .selected_plan
-                    .as_ref()
-                    .map(|plan| {
-                        format!(
-                            "Candidate {} would affect {} Agent(s) and {} target file(s).",
-                            plan.candidate_hash,
-                            plan.affected_agent_ids.len(),
-                            plan.target_files.len(),
-                        )
-                    })
-                    .unwrap_or_else(|| "Migration candidate reviewed.".into());
-                format!("{selected}\nDry run complete; no user configuration was changed.")
-            } else if strategy == MigrationResolutionStrategy::Later {
-                "Deferred. Model editing remains unavailable; MCP and Skill remain available."
-                    .into()
-            } else if strategy == MigrationResolutionStrategy::Recheck {
-                match &outcome.review {
-                    Some(next) => {
-                        format!("Review regenerated. New review hash: {}", next.review_hash)
-                    }
-                    None => "Configuration is now consistent; startup completed.".into(),
-                }
-            } else {
-                "Model migration completed; MUX is ready.".into()
-            };
-            Ok(CommandOutput::new(
-                "migration.resolve",
-                outcome.changed,
-                json!({
-                    "strategy": strategy,
-                    "dry_run": cli.dry_run,
-                    "outcome": outcome,
-                }),
-                human,
-            ))
-        }
-    }
-}
-
-fn migration_core_error(error: mux_core::domain::error::CoreError) -> CliError {
-    let mut result = CliError::new(error.code, error.message);
-    for (key, value) in error.details {
-        result = result.with_detail(key, value);
-    }
-    result
-}
-
-fn render_migration_review(review: &MigrationReview) -> String {
-    let mut lines = vec![
-        "Model configuration upgrade needs confirmation".to_string(),
-        format!(
-            "Schema {} -> {} · review {}",
-            review.source_schema_version, review.target_schema_version, review.review_hash
-        ),
-    ];
-    for blocker in &review.blockers {
-        lines.push(format!(
-            "\n{} ({})\n  target: {}\n  conflict: {}\n  Model: {} -> {}\n  keep-agent releases: {}",
-            blocker.agent_name,
-            blocker.agent_id,
-            if blocker.target_files.is_empty() {
-                "unknown".into()
-            } else {
-                blocker.target_files.join(", ")
-            },
-            blocker.message,
-            blocker.before.profile_id,
-            blocker.after.profile_id,
-            blocker.keep_agent_released_profile_ids.join(", "),
-        ));
-    }
-    lines.push("\nReviewed candidates:".into());
-    for action in &review.actions {
-        let strategy = match action.strategy {
-            MigrationResolutionStrategy::UseMux => "use-mux",
-            MigrationResolutionStrategy::KeepAgent => "keep-agent",
-            MigrationResolutionStrategy::Recheck => "recheck",
-            MigrationResolutionStrategy::Later => "later",
-        };
-        lines.push(format!(
-            "  {strategy}: {}\n    {}",
-            action.plan.candidate_hash, action.consequence
-        ));
-    }
-    lines.push("\nResolve with one of:".into());
-    lines.push("  mux migration resolve use-mux --yes --candidate-hash <hash>".into());
-    lines.push("  mux migration resolve keep-agent --yes --candidate-hash <hash>".into());
-    lines.push("  mux migration resolve recheck".into());
-    lines.push("  mux migration resolve later".into());
-    lines.join("\n")
 }
 
 fn dispatch_mcp(cli: &Cli, command: &McpCommand) -> Result<CommandOutput, CliError> {
@@ -659,9 +439,12 @@ fn dispatch_mcp(cli: &Cli, command: &McpCommand) -> Result<CommandOutput, CliErr
             mcp_export_stdout()
         }
         McpCommand::Export { out: Some(path) } => mcp_export_file(path, cli.mutation_options()),
-        McpCommand::Reapply { key, agent, all: _ } => {
-            mcp_reapply(key, agent.as_deref(), cli.mutation_options())
-        }
+        McpCommand::Converge { key, agent, action } => converge(
+            AssetRef::Mcp { key: key.clone() },
+            agent,
+            (*action).into(),
+            cli.mutation_options(),
+        ),
     }
 }
 
@@ -714,9 +497,18 @@ fn dispatch_model(cli: &Cli, command: &ModelCommand) -> Result<CommandOutput, Cl
         ModelCommand::Use { profile_id, agent } => {
             model_use(profile_id, agent, cli.mutation_options())
         }
-        ModelCommand::Reapply { profile_id, agent } => {
-            model_reapply(profile_id, agent, cli.mutation_options())
-        }
+        ModelCommand::Converge {
+            profile_id,
+            agent,
+            action,
+        } => converge(
+            AssetRef::Model {
+                profile_id: profile_id.clone(),
+            },
+            agent,
+            (*action).into(),
+            cli.mutation_options(),
+        ),
     }
 }
 
@@ -759,7 +551,16 @@ fn dispatch_skill(cli: &Cli, command: &SkillCommand) -> Result<CommandOutput, Cl
             false,
             cli.mutation_options(),
         ),
-        SkillCommand::Reapply { name, agent } => skill_reapply(name, agent, cli.mutation_options()),
+        SkillCommand::Converge {
+            name,
+            agent,
+            action,
+        } => converge(
+            AssetRef::Skill { name: name.clone() },
+            agent,
+            (*action).into(),
+            cli.mutation_options(),
+        ),
     }
 }
 
@@ -923,6 +724,24 @@ fn status(
     }
     let inventory =
         mux_core::application::assets::list_inventory().map_err(CliError::from_legacy)?;
+    let revision = inventory.revision.clone();
+    let observed_at = inventory.observed_at.clone();
+    let capability_errors = inventory
+        .capability_errors
+        .iter()
+        .filter(|diagnostic| match domain {
+            AssetDomain::Mcp => {
+                diagnostic.capability == mux_core::application::assets::AssetCapability::Mcp
+            }
+            AssetDomain::Model => {
+                diagnostic.capability == mux_core::application::assets::AssetCapability::Model
+            }
+            AssetDomain::Skill => {
+                diagnostic.capability == mux_core::application::assets::AssetCapability::Skill
+            }
+        })
+        .cloned()
+        .collect::<Vec<_>>();
     let (managed, external, recovery_error) = status_projection(inventory, domain, agent);
     let command = match domain {
         AssetDomain::Mcp => "mcp.status",
@@ -930,9 +749,15 @@ fn status(
         AssetDomain::Skill => "skill.status",
     };
     let mut lines = if managed.is_empty() && external.is_empty() {
-        vec![palette.dim("No matching relationships or external observations.")]
+        vec![
+            palette.dim(&format!("Observed at {observed_at} · revision {revision}")),
+            palette.dim("No matching relationships or external observations."),
+        ]
     } else {
-        let mut lines = vec![palette.bold("Managed relationships")];
+        let mut lines = vec![
+            palette.dim(&format!("Observed at {observed_at} · revision {revision}")),
+            palette.bold("Managed relationships"),
+        ];
         for row in &managed {
             lines.push(format_status_row(row));
         }
@@ -949,13 +774,20 @@ fn status(
         lines.push(String::new());
         lines.push(palette.yellow(&format!("recovery warning: {error}")));
     }
+    for diagnostic in &capability_errors {
+        lines.push(String::new());
+        lines.push(palette.yellow(&format!("capability warning: {}", diagnostic.code)));
+    }
     let human = lines.join("\n");
     Ok(CommandOutput::new(
         command,
         false,
         json!({
+            "revision": revision,
+            "observed_at": observed_at,
             "managed": managed.iter().map(safe_consumption_view).collect::<Vec<_>>(),
             "external": external.iter().map(safe_consumption_view).collect::<Vec<_>>(),
+            "capability_errors": capability_errors,
             "recovery_error": recovery_error.as_ref().map(|_| "recovery_required"),
         }),
         human,
@@ -989,6 +821,44 @@ fn status_projection(
     external
         .sort_by(|left, right| (&left.agent_id, &left.asset).cmp(&(&right.agent_id, &right.asset)));
     (managed, external, recovery_error)
+}
+
+fn converge(
+    asset: AssetRef,
+    agent_id: &str,
+    action: ConvergenceAction,
+    options: MutationOptions,
+) -> Result<CommandOutput, CliError> {
+    options.validate()?;
+    let inventory =
+        mux_core::application::assets::list_inventory().map_err(CliError::from_legacy)?;
+    let row = inventory
+        .consumptions
+        .iter()
+        .chain(inventory.external.iter())
+        .find(|row| row.agent_id == agent_id && row.asset == asset)
+        .ok_or_else(|| {
+            CliError::new(
+                "observation_missing",
+                "no current observation matches that Agent and asset identity; run status again",
+            )
+        })?;
+    if !row.available_actions.contains(&action) {
+        return Err(CliError::new(
+            "convergence_action_unavailable",
+            format!("available actions: {:?}", row.available_actions),
+        ));
+    }
+    let plan = MuxCore::plan(PlanOperationRequest::ConvergeConsumption(
+        PlanConvergeConsumptionRequest {
+            agent_id: agent_id.to_string(),
+            asset,
+            action,
+            observed_revision: inventory.revision,
+        },
+    ))
+    .map_err(CliError::from_core)?;
+    execute_operation("converge", plan, options, NoopPolicy::AlwaysChange)
 }
 
 fn assign(
@@ -1093,42 +963,6 @@ fn model_use(
     ))
     .map_err(CliError::from_core)?;
     execute_operation("model.use", plan, options, NoopPolicy::Detect)
-}
-
-fn model_reapply(
-    profile_id: &str,
-    agent: &str,
-    options: MutationOptions,
-) -> Result<CommandOutput, CliError> {
-    options.validate()?;
-    require_enabled_agent_capability(agent, AssetDomain::Model)?;
-    require_central_assets(AssetDomain::Model, &[profile_id.to_string()])?;
-    let plan = MuxCore::plan(PlanOperationRequest::ReapplyModel(
-        PlanReapplyModelRequest {
-            agent_id: agent.to_string(),
-            profile_id: profile_id.to_string(),
-        },
-    ))
-    .map_err(CliError::from_core)?;
-    execute_operation("model.reapply", plan, options, NoopPolicy::Detect)
-}
-
-fn skill_reapply(
-    name: &str,
-    agent: &str,
-    options: MutationOptions,
-) -> Result<CommandOutput, CliError> {
-    options.validate()?;
-    require_enabled_agent_capability(agent, AssetDomain::Skill)?;
-    require_central_assets(AssetDomain::Skill, &[name.to_string()])?;
-    let plan = MuxCore::plan(PlanOperationRequest::ReapplySkill(
-        PlanReapplySkillRequest {
-            agent_id: agent.to_string(),
-            name: name.to_string(),
-        },
-    ))
-    .map_err(CliError::from_core)?;
-    execute_operation("skill.reapply", plan, options, NoopPolicy::Detect)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1326,29 +1160,6 @@ fn write_new_private_export(path: &Path, content: &str) -> Result<(), CliError> 
     Ok(())
 }
 
-fn mcp_reapply(
-    key: &str,
-    agent: Option<&str>,
-    options: MutationOptions,
-) -> Result<CommandOutput, CliError> {
-    options.validate()?;
-    central_mcp(key)?;
-    let scope = if let Some(agent) = agent {
-        require_enabled_agent_capability(agent, AssetDomain::Mcp)?;
-        McpReapplyScope::Agent {
-            agent_id: agent.to_string(),
-        }
-    } else {
-        McpReapplyScope::All
-    };
-    let plan = MuxCore::plan(PlanOperationRequest::ReapplyMcp(PlanReapplyMcpRequest {
-        asset_key: key.to_string(),
-        scope,
-    }))
-    .map_err(CliError::from_core)?;
-    execute_operation("mcp.reapply", plan, options, NoopPolicy::Detect)
-}
-
 fn agent_list(palette: Palette) -> Result<CommandOutput, CliError> {
     let agents = mux_core::application::agents::list_capabilities().map_err(CliError::from_core)?;
     let human = if agents.is_empty() {
@@ -1485,100 +1296,6 @@ fn discover(domain: Option<AssetDomain>, palette: Palette) -> Result<CommandOutp
         }),
         lines.join("\n"),
     ))
-}
-
-fn adopt(command: &AdoptCommand, options: MutationOptions) -> Result<CommandOutput, CliError> {
-    options.validate()?;
-    let (command_name, plan) = match command {
-        AdoptCommand::Mcp { key, agent } => {
-            let candidates = mux_core::application::assets::list_mcp_adoption_candidates()
-                .map_err(CliError::from_legacy)?;
-            // The Agent is an explicit anchor, not a request to adopt only one
-            // physical copy. Core requires the complete current observation
-            // set for this logical MCP identity so exact copies and their
-            // original relationships are adopted atomically; divergent copies
-            // remain a reviewed conflict.
-            let (agent_ids, candidate_fingerprints) =
-                anchored_mcp_adoption_group(candidates, key, agent)?;
-            let plan = MuxCore::plan(PlanOperationRequest::AdoptMcp(PlanMcpAdoptionRequest {
-                asset_key: key.clone(),
-                agent_ids,
-                candidate_fingerprints,
-            }))
-            .map_err(CliError::from_core)?;
-            ("adopt.mcp", plan)
-        }
-        AdoptCommand::Model { candidate_id } => {
-            let candidate = mux_core::application::assets::list_model_adoption_candidates()
-                .map_err(CliError::from_legacy)?
-                .into_iter()
-                .find(|candidate| candidate.candidate_id == *candidate_id)
-                .ok_or_else(|| {
-                    CliError::new(
-                        "adoption_candidate_missing",
-                        format!(
-                            "no current Model detection matches {candidate_id}; run `mux discover model` again"
-                        ),
-                    )
-                })?;
-            let plan = MuxCore::plan(PlanOperationRequest::AdoptModel(PlanModelAdoptionRequest {
-                candidate_fingerprints: BTreeMap::from([(
-                    candidate.candidate_id,
-                    candidate.fingerprint,
-                )]),
-            }))
-            .map_err(CliError::from_core)?;
-            ("adopt.model", plan)
-        }
-        AdoptCommand::Skill { identity } => {
-            let candidate = mux_core::application::skills::list_migration_candidates()
-                .map_err(skill_error)?
-                .into_iter()
-                .filter(is_external_skill)
-                .find(|candidate| candidate.identity == *identity)
-                .ok_or_else(|| {
-                    CliError::new(
-                        "adoption_candidate_missing",
-                        format!(
-                            "no current Skill detection matches {identity}; run `mux discover skill` again"
-                        ),
-                    )
-                })?;
-            let plan = MuxCore::plan(PlanOperationRequest::AdoptSkill(PlanImportRequest {
-                identity: candidate.identity,
-                agent_ids: candidate.affected_agent_ids,
-                replace_conflicts: false,
-            }))
-            .map_err(CliError::from_core)?;
-            ("adopt.skill", plan)
-        }
-    };
-    execute_operation(command_name, plan, options, NoopPolicy::AlwaysChange)
-}
-
-fn anchored_mcp_adoption_group(
-    candidates: Vec<McpAdoptionCandidate>,
-    key: &str,
-    anchor_agent: &str,
-) -> Result<(Vec<String>, BTreeMap<String, String>), CliError> {
-    if !candidates
-        .iter()
-        .any(|candidate| candidate.asset_key == key && candidate.agent_id == anchor_agent)
-    {
-        return Err(CliError::new(
-            "adoption_candidate_missing",
-            format!(
-                "no current MCP detection matches {key} for {anchor_agent}; run `mux discover mcp` again"
-            ),
-        ));
-    }
-    let fingerprints = candidates
-        .into_iter()
-        .filter(|candidate| candidate.asset_key == key)
-        .map(|candidate| (candidate.agent_id, candidate.fingerprint))
-        .collect::<BTreeMap<_, _>>();
-    let agent_ids = fingerprints.keys().cloned().collect();
-    Ok((agent_ids, fingerprints))
 }
 
 fn workspace(palette: Palette) -> Result<CommandOutput, CliError> {
@@ -1889,18 +1606,25 @@ fn format_status_row(row: &mux_core::application::assets::ConsumptionView) -> St
         AssetRef::ModelProvider { provider_id } => provider_id,
     };
     let mut state = vec![
+        format!("ownership={:?}", row.ownership),
         format!("desired={}", row.desired),
         format!("observed={}", row.observed),
         format!("status={:?}", row.status),
     ];
     if let Some(enabled) = row.enabled {
-        state.push(format!("enabled={enabled}"));
+        state.push(format!("desired_enabled={enabled}"));
+    }
+    if let Some(observed_enabled) = row.observed_enabled {
+        state.push(format!("observed_enabled={observed_enabled}"));
     }
     if let Some(active) = row.active {
         state.push(format!("active={active}"));
     }
     if let Some(desired_active) = row.desired_active {
         state.push(format!("desired_active={desired_active}"));
+    }
+    if !row.available_actions.is_empty() {
+        state.push(format!("actions={:?}", row.available_actions));
     }
     format!("  {}  {}  {}", row.agent_id, identity, state.join(" "))
 }
@@ -1972,9 +1696,8 @@ fn redacted_model_profile(view: &mux_core::application::models::ModelProfileView
 
 fn mcp_status_label(status: &McpAdoptionStatus) -> &'static str {
     match status {
-        McpAdoptionStatus::Adoptable => "adoptable",
-        McpAdoptionStatus::Drifted => "drifted",
-        McpAdoptionStatus::External => "external",
+        McpAdoptionStatus::ExternalAdded => "external added",
+        McpAdoptionStatus::ExternalChanged => "external changed",
     }
 }
 
@@ -2029,8 +1752,33 @@ mod tests {
             vec!["mux", "mcp", "add", "github::stdio", "--command", "npx"],
             vec!["mux", "mcp", "delete", "github::stdio"],
             vec!["mux", "mcp", "export", "--out", "mcp.json"],
-            vec!["mux", "mcp", "reapply", "github::stdio", "--agent", "codex"],
-            vec!["mux", "mcp", "reapply", "github::stdio", "--all"],
+            vec![
+                "mux",
+                "mcp",
+                "converge",
+                "github::stdio",
+                "--agent",
+                "codex",
+                "restore",
+            ],
+            vec![
+                "mux",
+                "mcp",
+                "converge",
+                "github::stdio",
+                "--agent",
+                "codex",
+                "adopt",
+            ],
+            vec![
+                "mux",
+                "mcp",
+                "converge",
+                "github::stdio",
+                "--agent",
+                "codex",
+                "detach",
+            ],
             vec!["mux", "model", "list"],
             vec!["mux", "model", "show", "work"],
             vec!["mux", "model", "status", "--agent", "codex"],
@@ -2039,7 +1787,9 @@ mod tests {
             vec!["mux", "model", "enable", "work", "--agent", "codex"],
             vec!["mux", "model", "disable", "work", "--agent", "codex"],
             vec!["mux", "model", "use", "work", "--agent", "codex"],
-            vec!["mux", "model", "reapply", "work", "--agent", "codex"],
+            vec![
+                "mux", "model", "converge", "work", "--agent", "codex", "restore",
+            ],
             vec!["mux", "skill", "list"],
             vec!["mux", "skill", "show", "review-changes"],
             vec!["mux", "skill", "status", "--agent", "codex"],
@@ -2078,19 +1828,17 @@ mod tests {
             vec![
                 "mux",
                 "skill",
-                "reapply",
+                "converge",
                 "review-changes",
                 "--agent",
                 "codex",
+                "restore",
             ],
             vec!["mux", "agent", "list"],
             vec!["mux", "agent", "enable", "codex"],
             vec!["mux", "agent", "disable", "codex"],
             vec!["mux", "discover"],
             vec!["mux", "discover", "skill"],
-            vec!["mux", "adopt", "mcp", "github::stdio", "--agent", "codex"],
-            vec!["mux", "adopt", "model", "candidate"],
-            vec!["mux", "adopt", "skill", "identity"],
             vec!["mux", "workspace"],
             vec!["mux", "upgrade"],
         ] {
@@ -2098,15 +1846,17 @@ mod tests {
                 panic!("failed to parse {args:?}: {error}");
             });
         }
-        assert!(Cli::try_parse_from(["mux", "mcp", "reapply", "github::stdio"]).is_err());
+        assert!(
+            Cli::try_parse_from(["mux", "mcp", "converge", "github::stdio", "restore"]).is_err()
+        );
         assert!(Cli::try_parse_from([
             "mux",
             "mcp",
-            "reapply",
+            "converge",
             "github::stdio",
             "--agent",
             "codex",
-            "--all",
+            "invalid-action",
         ])
         .is_err());
     }
@@ -2169,37 +1919,6 @@ mod tests {
                 command: ModelCommand::Assign { replace: true, .. }
             })
         ));
-    }
-
-    #[test]
-    fn mcp_adoption_anchor_expands_to_the_complete_logical_identity() {
-        let candidate = |agent: &str, key: &str, fingerprint: &str| McpAdoptionCandidate {
-            agent_id: agent.into(),
-            asset_key: key.into(),
-            enabled: true,
-            status: McpAdoptionStatus::Adoptable,
-            config_hash: format!("config-{fingerprint}"),
-            fingerprint: fingerprint.into(),
-            settings_hash: "settings".into(),
-            target_hash: format!("target-{agent}"),
-            candidate_hash: format!("candidate-{agent}"),
-        };
-        let candidates = vec![
-            candidate("cursor", "shared::stdio", "cursor-fingerprint"),
-            candidate("claude-code", "shared::stdio", "claude-fingerprint"),
-            candidate("codex", "other::stdio", "other-fingerprint"),
-        ];
-
-        let (agents, fingerprints) =
-            anchored_mcp_adoption_group(candidates.clone(), "shared::stdio", "cursor").unwrap();
-        assert_eq!(agents, vec!["claude-code", "cursor"]);
-        assert_eq!(fingerprints.len(), 2);
-        assert_eq!(fingerprints["cursor"], "cursor-fingerprint");
-        assert_eq!(fingerprints["claude-code"], "claude-fingerprint");
-
-        let error =
-            anchored_mcp_adoption_group(candidates, "shared::stdio", "missing").unwrap_err();
-        assert_eq!(error.code, "adoption_candidate_missing");
     }
 
     #[test]
@@ -2289,13 +2008,17 @@ mod tests {
         let row = |agent: &str, key: &str| ConsumptionView {
             agent_id: agent.into(),
             asset: AssetRef::Mcp { key: key.into() },
+            ownership: mux_core::application::assets::OwnershipState::Managed,
             desired: true,
             observed: true,
             enabled: Some(true),
+            observed_enabled: Some(true),
             active: None,
             desired_active: None,
             status: ConsumptionStatus::Synced,
             reason: None,
+            observation_id: None,
+            available_actions: Vec::new(),
             affected_agent_ids: Vec::new(),
             target: None,
         };
@@ -2303,6 +2026,7 @@ mod tests {
             consumptions: vec![row("z-agent", "z::stdio"), row("a-agent", "z::stdio")],
             external: vec![row("b-agent", "b::http"), row("a-agent", "a::stdio")],
             recovery_error: Some("RECOVERY_SENTINEL".into()),
+            ..Default::default()
         };
         let (managed, external, recovery_error) =
             status_projection(inventory, AssetDomain::Mcp, None);
@@ -2322,13 +2046,19 @@ mod tests {
             asset: AssetRef::Model {
                 profile_id: "work".into(),
             },
+            ownership: mux_core::application::assets::OwnershipState::Managed,
             desired: true,
             observed: true,
             enabled: None,
+            observed_enabled: Some(true),
             active: Some(false),
             desired_active: Some(true),
-            status: ConsumptionStatus::Drifted,
+            status: ConsumptionStatus::ExternalChanged,
             reason: Some("current model changed externally".into()),
+            observation_id: None,
+            available_actions: vec![
+                mux_core::application::assets::ConvergenceAction::AdoptObserved,
+            ],
             affected_agent_ids: Vec::new(),
             target: None,
         };

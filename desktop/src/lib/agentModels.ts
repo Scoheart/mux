@@ -16,19 +16,16 @@ export function describeAgentModel(
   }
   if (consumption) {
     const expected = profile ? `期望：${profile.name} · ${profile.model}` : "中央模型资产已缺失";
-    if (consumption.status === "drifted") {
-      return consumption.reason === "model_target_missing"
+    if (consumption.status === "external-changed" || consumption.status === "external-removed") {
+      return consumption.status === "external-removed"
         ? { label: "配置缺失", detail: expected, synced: false }
         : { label: "配置已变更", detail: expected, synced: false };
     }
-    if (consumption.status === "conflicted") {
+    if (consumption.status === "ambiguous" || consumption.status === "unparseable") {
       return { label: "配置冲突", detail: expected, synced: false };
     }
     if (consumption.status === "unsupported") {
       return { label: "当前配置不兼容", detail: expected, synced: false };
-    }
-    if (consumption.status === "pending") {
-      return { label: "等待同步", detail: expected, synced: false };
     }
   }
   if (hasExternalConfig) {

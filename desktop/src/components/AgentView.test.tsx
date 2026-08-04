@@ -103,6 +103,17 @@ const skillsState = {
   refresh: vi.fn(),
 } as unknown as SkillsState;
 
+const emptyConsumptionState = {
+  agents: [],
+  inventory: {
+    revision: "empty",
+    observed_at: "2026-08-04T00:00:00Z",
+    consumptions: [],
+    external: [],
+  },
+  plan: null,
+} as unknown as ConsumptionState;
+
 it("opens a projection-only Skills Agent without a legacy MCP-shaped row", async () => {
   const projectionOnlyState = {
     ...state,
@@ -163,6 +174,7 @@ it("toggles a managed Skill without routing through removal", async () => {
         enabled: true,
         status: "synced",
         reason: null,
+        available_actions: [],
         affected_agent_ids: [skillsOnlyAgent.id],
         target: {
           target_id: "cortex-user",
@@ -223,6 +235,7 @@ it("keeps meaningful Agent badges while leaving builtin headers clean", () => {
     <AgentView
       state={badgeState}
       skillsState={badgeSkillsState}
+      consumptionState={emptyConsumptionState}
       agentId={skillsOnlyAgent.id}
     />,
   );
@@ -234,6 +247,7 @@ it("keeps meaningful Agent badges while leaving builtin headers clean", () => {
     <AgentView
       state={badgeState}
       skillsState={badgeSkillsState}
+      consumptionState={emptyConsumptionState}
       agentId={communityAgent.id}
     />,
   );
@@ -243,6 +257,7 @@ it("keeps meaningful Agent badges while leaving builtin headers clean", () => {
     <AgentView
       state={badgeState}
       skillsState={badgeSkillsState}
+      consumptionState={emptyConsumptionState}
       agentId={customAgent.id}
     />,
   );
@@ -342,17 +357,20 @@ it("keeps an external MCP card read-only", async () => {
     refreshAgents: vi.fn().mockResolvedValue([mcpAgent]),
   } as unknown as InstallState;
   const consumptionState = {
+    agents: [],
     inventory: {
       consumptions: [],
       external: [{
         agent_id: "codex",
         asset: { domain: "mcp", key: "computer-use::stdio" },
+        ownership: "external",
         desired: false,
         observed: true,
         enabled: true,
-        status: "external",
+        status: "external-added",
         reason: "mcp_adoptable",
         affected_agent_ids: ["codex"],
+        available_actions: ["adopt-observed"],
       }],
     },
   } as unknown as ConsumptionState;
@@ -380,7 +398,7 @@ it("keeps an external MCP card read-only", async () => {
   expect(card).toHaveAttribute("data-enabled", "false");
   expect(within(card!).queryByRole("switch")).not.toBeInTheDocument();
   expect(within(card!).queryByRole("button", { name: /查看|移除/ })).not.toBeInTheDocument();
-  expect(within(card!).queryByRole("button", { name: "让 MUX 管理" })).not.toBeInTheDocument();
+  expect(within(card!).getByRole("button", { name: "采用外部" })).toBeVisible();
 });
 
 it("adds an Agent asset as a delta with inline progress and no routine review dialog", async () => {
@@ -408,7 +426,6 @@ it("adds an Agent asset as a delta with inline progress and no routine review di
   const operation = assetOperationPlanFixture();
   operation.warnings = [];
   operation.can_commit = true;
-  operation.requires_conflict_confirmation = false;
   operation.affected_agent_ids = ["claude-code", "codex"];
   operation.relationship_changes = [
     {
@@ -519,7 +536,27 @@ it("renders every external Model as its own read-only card", async () => {
     <AgentView
       state={{ ...state, agents: [modelAgentInfo] } as unknown as InstallState}
       skillsState={skillsState}
-      consumptionState={{ inventory: { consumptions: [], external: [] } } as unknown as ConsumptionState}
+      consumptionState={{
+        agents: [],
+        inventory: {
+          consumptions: [],
+          external: [{
+            agent_id: "opencode",
+            asset: { domain: "model", profile_id: `external-${candidate.candidate_id}` },
+            ownership: "external",
+            desired: false,
+            observed: true,
+            observed_enabled: true,
+            active: true,
+            desired_active: false,
+            status: "external-added",
+            reason: "model_external_current",
+            observation_id: `model:opencode:${candidate.candidate_id}:${candidate.fingerprint}`,
+            available_actions: ["adopt-observed"],
+            affected_agent_ids: ["opencode"],
+          }],
+        },
+      } as unknown as ConsumptionState}
       agentId="opencode"
       externalModelCandidates={[candidate]}
     />,
@@ -529,10 +566,10 @@ it("renders every external Model as its own read-only card", async () => {
   const card = await screen.findByText("HY3").then((node) => node.closest<HTMLElement>("li"));
   expect(card).not.toBeNull();
   expect(card).toHaveAttribute("data-enabled", "false");
-  expect(within(card!).getByText("Agent 当前")).toBeVisible();
+  expect(within(card!).getByText("Agent 实际当前")).toBeVisible();
   expect(within(card!).queryByRole("switch")).not.toBeInTheDocument();
   expect(within(card!).queryByRole("button", { name: /查看|移除/ })).not.toBeInTheDocument();
-  expect(within(card!).queryByRole("button", { name: "让 MUX 管理" })).not.toBeInTheDocument();
+  expect(within(card!).getByRole("button", { name: "采用外部" })).toBeVisible();
 });
 
 it("renders external Skills as read-only cards", async () => {
@@ -558,16 +595,19 @@ it("renders external Skills as read-only cards", async () => {
     inventory: { ...skillsState.inventory!, items: [externalSkill] },
   } as unknown as SkillsState;
   const consumptionState = {
+    agents: [],
     inventory: {
       consumptions: [],
       external: [{
         agent_id: skillsOnlyAgent.id,
         asset: { domain: "skill", name: "review" },
+        ownership: "external",
         desired: false,
         observed: true,
-        status: "external",
+        status: "external-added",
         reason: "skill_external",
         affected_agent_ids: [skillsOnlyAgent.id],
+        available_actions: ["adopt-observed"],
       }],
     },
   } as unknown as ConsumptionState;
@@ -585,7 +625,7 @@ it("renders external Skills as read-only cards", async () => {
   expect(card).toHaveAttribute("data-enabled", "false");
   expect(within(card!).getByText("Review changes")).toBeVisible();
   expect(within(card!).queryByRole("button", { name: /查看|移除/ })).not.toBeInTheDocument();
-  expect(within(card!).queryByRole("button", { name: "让 MUX 管理" })).not.toBeInTheDocument();
+  expect(within(card!).getByRole("button", { name: "采用外部" })).toBeVisible();
 });
 
 it("uses one current-Model switch and activates a disabled backup atomically", async () => {
@@ -654,6 +694,7 @@ it("uses one current-Model switch and activates a disabled backup atomically", a
         desired_active: true,
         status: "synced" as const,
         reason: null,
+        available_actions: [],
         affected_agent_ids: ["pi"],
       },
       {
@@ -666,6 +707,7 @@ it("uses one current-Model switch and activates a disabled backup atomically", a
         desired_active: false,
         status: "synced" as const,
         reason: null,
+        available_actions: [],
         affected_agent_ids: ["pi"],
       },
     ],

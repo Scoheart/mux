@@ -16,15 +16,14 @@ use crate::resources::mcp::scanner::scan_agents;
 use crate::settings::load_settings_strict;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::fs;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
 pub enum McpAdoptionStatus {
-    Adoptable,
-    Drifted,
-    External,
+    ExternalAdded,
+    ExternalChanged,
 }
 
 /// Read-only migration evidence. Config values may contain credentials, so the
@@ -47,8 +46,8 @@ pub struct McpAdoptionCandidate {
 #[serde(deny_unknown_fields)]
 pub struct PlanMcpAdoptionRequest {
     pub asset_key: String,
-    pub agent_ids: Vec<String>,
-    pub candidate_fingerprints: BTreeMap<String, String>,
+    pub agent_id: String,
+    pub candidate_fingerprint: String,
 }
 
 #[derive(Debug, Clone)]
@@ -60,17 +59,7 @@ struct ObservedConfig {
 }
 
 pub fn list_mcp_adoption_candidates() -> Result<Vec<McpAdoptionCandidate>, String> {
-    let central: BTreeSet<String> = read_registry()
-        .into_iter()
-        .map(|entry| entry.key())
-        .collect();
     let settings = load_settings_strict().map_err(|error| error.to_string())?;
-    let desired: BTreeSet<(String, String)> = settings
-        .mcp_consumptions
-        .iter()
-        .flatten()
-        .flat_map(|(agent_id, records)| records.keys().cloned().map(|key| (agent_id.clone(), key)))
-        .collect();
     let settings_hash = hash_optional(fs::read(settings_file()).ok().as_deref());
     let configs = observed_configs();
     let mut candidates: Vec<_> = scan_installed(None)
@@ -78,7 +67,13 @@ pub fn list_mcp_adoption_candidates() -> Result<Vec<McpAdoptionCandidate>, Strin
         .filter(|item| item.scope == "global")
         .filter_map(|item| {
             let asset_key = format!("{}::{}", item.name, item.transport);
-            if desired.contains(&(item.agent.clone(), asset_key.clone())) {
+            let desired_enabled = settings
+                .mcp_consumptions
+                .as_ref()
+                .and_then(|records| records.get(&item.agent))
+                .and_then(|records| records.get(&asset_key))
+                .map(|record| record.enabled);
+            if desired_enabled == Some(item.enabled) && !item.customized {
                 return None;
             }
             let observed = configs.iter().find(|candidate| {
@@ -86,12 +81,10 @@ pub fn list_mcp_adoption_candidates() -> Result<Vec<McpAdoptionCandidate>, Strin
                     && candidate.asset_key == asset_key
                     && candidate.enabled == item.enabled
             })?;
-            let status = if !central.contains(&asset_key) {
-                McpAdoptionStatus::External
-            } else if item.customized {
-                McpAdoptionStatus::Drifted
+            let status = if desired_enabled.is_some() {
+                McpAdoptionStatus::ExternalChanged
             } else {
-                McpAdoptionStatus::Adoptable
+                McpAdoptionStatus::ExternalAdded
             };
             let config_hash = hash_serializable(&observed.config);
             let fingerprint = hash_fields(&[
@@ -137,128 +130,94 @@ pub fn list_mcp_adoption_candidates() -> Result<Vec<McpAdoptionCandidate>, Strin
 
 pub fn plan_mcp_adoption(request: PlanMcpAdoptionRequest) -> Result<AssetOperationPlan, String> {
     super::types::validate_mcp_asset_key(&request.asset_key).map_err(|error| error.to_string())?;
-    let selected: BTreeSet<String> = request.agent_ids.into_iter().collect();
-    if selected.is_empty() {
-        return Err("invalid_migration_selection: select at least one Agent".into());
-    }
-
-    let candidates: Vec<_> = list_mcp_adoption_candidates()?
+    let candidate = list_mcp_adoption_candidates()?
         .into_iter()
-        .filter(|candidate| candidate.asset_key == request.asset_key)
-        .collect();
-    let available: BTreeSet<String> = candidates
-        .iter()
-        .map(|candidate| candidate.agent_id.clone())
-        .collect();
-    if selected != available {
-        return Err(
-            "migration_selection_stale: all observed copies of one MCP must be migrated together"
-                .into(),
-        );
-    }
-    if request.candidate_fingerprints.len() != candidates.len()
-        || candidates.iter().any(|candidate| {
-            request.candidate_fingerprints.get(&candidate.agent_id) != Some(&candidate.fingerprint)
+        .find(|candidate| {
+            candidate.asset_key == request.asset_key && candidate.agent_id == request.agent_id
         })
-    {
-        return Err("migration_selection_stale: an MCP candidate changed after review".into());
-    }
-
-    let config_hashes: BTreeSet<&str> = candidates
-        .iter()
-        .map(|candidate| candidate.config_hash.as_str())
-        .collect();
-    if config_hashes.len() != 1 {
-        return Err(
-            "migration_conflict: same-name MCP copies contain different connection settings".into(),
-        );
+        .ok_or_else(|| "observation_stale: MCP observation is no longer available".to_string())?;
+    if candidate.fingerprint != request.candidate_fingerprint {
+        return Err("observation_stale: MCP observation changed after review".into());
     }
 
     let central = read_registry()
         .into_iter()
         .find(|entry| entry.key() == request.asset_key);
-    if central.is_some()
-        && candidates
-            .iter()
-            .any(|candidate| candidate.status != McpAdoptionStatus::Adoptable)
-    {
-        return Err("migration_conflict: the external MCP differs from the central asset".into());
-    }
-    if central.is_none()
-        && candidates
-            .iter()
-            .any(|candidate| candidate.status != McpAdoptionStatus::External)
-    {
-        return Err("migration_selection_stale: MCP central state changed after review".into());
-    }
-
     let settings = load_settings_strict().map_err(|error| error.to_string())?;
-    let mut before = BTreeMap::new();
-    let mut after = BTreeMap::new();
     let name = request
         .asset_key
         .rsplit_once("::")
         .map(|(name, _)| name)
         .ok_or_else(|| "invalid MCP asset key".to_string())?;
-    for agent_id in &selected {
-        if !load_agents().contains_key(agent_id) {
-            return Err(format!(
-                "migration_selection_stale: unknown Agent {agent_id}"
-            ));
-        }
-        let existing: Vec<String> = settings
-            .mcp_consumptions
-            .as_ref()
-            .and_then(|records| records.get(agent_id))
-            .map(|records| records.keys().cloned().collect())
-            .unwrap_or_default();
-        if existing.iter().any(|key| {
-            key != &request.asset_key
-                && key
-                    .rsplit_once("::")
-                    .is_some_and(|(existing_name, _)| existing_name == name)
-        }) {
-            return Err(format!(
-                "mcp_identity_conflict: {agent_id} already manages another MCP named {name}"
-            ));
-        }
-        let mut desired: BTreeSet<String> = existing.iter().cloned().collect();
-        desired.insert(request.asset_key.clone());
-        before.insert(agent_id.clone(), existing);
-        after.insert(agent_id.clone(), desired.into_iter().collect());
+    if !load_agents().contains_key(&request.agent_id) {
+        return Err(format!(
+            "observation_stale: unknown Agent {}",
+            request.agent_id
+        ));
     }
+    let existing: Vec<String> = settings
+        .mcp_consumptions
+        .as_ref()
+        .and_then(|records| records.get(&request.agent_id))
+        .map(|records| records.keys().cloned().collect())
+        .unwrap_or_default();
+    if existing.iter().any(|key| {
+        key != &request.asset_key
+            && key
+                .rsplit_once("::")
+                .is_some_and(|(existing_name, _)| existing_name == name)
+    }) {
+        return Err(format!(
+            "mcp_identity_conflict: {} already manages another MCP named {name}",
+            request.agent_id
+        ));
+    }
+    let mut desired: std::collections::BTreeSet<String> = existing.iter().cloned().collect();
+    desired.insert(request.asset_key.clone());
+    let before = BTreeMap::from([(request.agent_id.clone(), existing)]);
+    let after = BTreeMap::from([(request.agent_id.clone(), desired.into_iter().collect())]);
 
-    let enabled = candidates
-        .iter()
-        .map(|candidate| (candidate.agent_id.clone(), candidate.enabled))
-        .collect::<BTreeMap<_, _>>();
+    let enabled = BTreeMap::from([(request.agent_id.clone(), candidate.enabled)]);
     let mut draft_hash = None;
     let mut central_changes = Vec::new();
     let mut extra_target_files = Vec::new();
-    let pending_entry = if central.is_none() {
-        let observed = observed_configs()
-            .into_iter()
-            .find(|observed| {
-                observed.asset_key == request.asset_key && selected.contains(&observed.agent_id)
-            })
-            .ok_or_else(|| "migration_selection_stale: MCP config is unavailable".to_string())?;
-        let entry = RegistryEntry {
-            name: name.to_string(),
-            description: String::new(),
-            tags: Vec::new(),
-            config: observed.config.into(),
-            origin: None,
-            repo: None,
-        };
+    let observed = observed_configs()
+        .into_iter()
+        .find(|observed| {
+            observed.asset_key == request.asset_key && observed.agent_id == request.agent_id
+        })
+        .ok_or_else(|| "observation_stale: MCP config is unavailable".to_string())?;
+    let entry = RegistryEntry {
+        name: name.to_string(),
+        description: central
+            .as_ref()
+            .map(|entry| entry.description.clone())
+            .unwrap_or_default(),
+        tags: central
+            .as_ref()
+            .map(|entry| entry.tags.clone())
+            .unwrap_or_default(),
+        config: observed.config.into(),
+        origin: None,
+        repo: None,
+    };
+    let central_changed = central
+        .as_ref()
+        .is_none_or(|current| current.config != entry.config);
+    let pending_entry = if central_changed {
         let hash = hash_serializable(&entry);
         draft_hash = Some(hash);
         central_changes.push(CentralAssetChange {
             asset: AssetRef::Mcp {
                 key: request.asset_key.clone(),
             },
-            action: CentralAssetAction::Create,
+            action: if central.is_some() {
+                CentralAssetAction::Update
+            } else {
+                CentralAssetAction::Create
+            },
             summary: vec![
-                "从现有 Agent 配置创建私有中央副本".into(),
+                "采用这个 Agent 当前观测到的 MCP 配置".into(),
                 "敏感连接值不进入计划、日志或界面".into(),
             ],
         });
@@ -383,7 +342,7 @@ mod tests {
         let candidates = list_mcp_adoption_candidates().unwrap();
 
         assert_eq!(candidates.len(), 1);
-        assert_eq!(candidates[0].status, McpAdoptionStatus::Adoptable);
+        assert_eq!(candidates[0].status, McpAdoptionStatus::ExternalAdded);
         assert_eq!(
             fs::read(home.home.join(".mux/settings.json")).unwrap(),
             before
@@ -392,7 +351,7 @@ mod tests {
     }
 
     #[test]
-    fn adoption_plan_binds_all_exact_observations_without_exposing_config() {
+    fn adoption_plan_binds_one_exact_observation_without_exposing_config() {
         let home = TestHome::new("mcp-adopt-plan");
         write_manual_entry(&local_entry("private-command")).unwrap();
         install(
@@ -407,20 +366,14 @@ mod tests {
         let candidates = list_mcp_adoption_candidates().unwrap();
         let plan = plan_mcp_adoption(PlanMcpAdoptionRequest {
             asset_key: "local::stdio".into(),
-            agent_ids: candidates
-                .iter()
-                .map(|item| item.agent_id.clone())
-                .collect(),
-            candidate_fingerprints: candidates
-                .iter()
-                .map(|item| (item.agent_id.clone(), item.fingerprint.clone()))
-                .collect(),
+            agent_id: candidates[0].agent_id.clone(),
+            candidate_fingerprint: candidates[0].fingerprint.clone(),
         })
         .unwrap();
 
         assert_eq!(plan.kind, AssetOperationKind::Adopt);
         assert!(plan.can_commit);
-        assert_eq!(plan.relationship_changes.len(), 2);
+        assert_eq!(plan.relationship_changes.len(), 1);
         let persisted = fs::read_to_string(
             home.home
                 .join(".mux/staging/consumption")
@@ -449,18 +402,14 @@ mod tests {
         let candidates = list_mcp_adoption_candidates().unwrap();
         let plan = plan_mcp_adoption(PlanMcpAdoptionRequest {
             asset_key: "local::stdio".into(),
-            agent_ids: vec!["claude-code".into()],
-            candidate_fingerprints: BTreeMap::from([(
-                "claude-code".into(),
-                candidates[0].fingerprint.clone(),
-            )]),
+            agent_id: "claude-code".into(),
+            candidate_fingerprint: candidates[0].fingerprint.clone(),
         })
         .unwrap();
 
         let inventory = commit_asset_operation(AssetCommitRequest {
             operation_id: plan.operation_id,
             candidate_hash: plan.candidate_hash,
-            conflict_confirmation: None,
         })
         .unwrap();
 
@@ -494,18 +443,14 @@ mod tests {
         assert!(!candidates[0].enabled);
         let plan = plan_mcp_adoption(PlanMcpAdoptionRequest {
             asset_key: "local::stdio".into(),
-            agent_ids: vec!["claude-code".into()],
-            candidate_fingerprints: BTreeMap::from([(
-                "claude-code".into(),
-                candidates[0].fingerprint.clone(),
-            )]),
+            agent_id: "claude-code".into(),
+            candidate_fingerprint: candidates[0].fingerprint.clone(),
         })
         .unwrap();
 
         let inventory = commit_asset_operation(AssetCommitRequest {
             operation_id: plan.operation_id,
             candidate_hash: plan.candidate_hash,
-            conflict_confirmation: None,
         })
         .unwrap();
 
@@ -533,14 +478,11 @@ mod tests {
         .unwrap();
         let candidates = list_mcp_adoption_candidates().unwrap();
         assert_eq!(candidates.len(), 1);
-        assert_eq!(candidates[0].status, McpAdoptionStatus::External);
+        assert_eq!(candidates[0].status, McpAdoptionStatus::ExternalAdded);
         let plan = plan_mcp_adoption(PlanMcpAdoptionRequest {
             asset_key: "private::stdio".into(),
-            agent_ids: vec!["claude-code".into()],
-            candidate_fingerprints: BTreeMap::from([(
-                "claude-code".into(),
-                candidates[0].fingerprint.clone(),
-            )]),
+            agent_id: "claude-code".into(),
+            candidate_fingerprint: candidates[0].fingerprint.clone(),
         })
         .unwrap();
         let plan_path = home
@@ -555,7 +497,6 @@ mod tests {
         commit_asset_operation(AssetCommitRequest {
             operation_id: plan.operation_id,
             candidate_hash: plan.candidate_hash,
-            conflict_confirmation: None,
         })
         .unwrap();
 

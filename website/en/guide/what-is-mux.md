@@ -23,7 +23,7 @@ MUX has two interfaces, and they **share the same data directory, `~/.mux/`**:
 | | Description |
 |---|---|
 | **Desktop app** | A macOS application (Tauri + React). Visual management, best for the mouse. |
-| **CLI / TUI** | The native Rust binary `mux`. Its subcommands manage consumption across all three asset domains; with no arguments it opens the MCP-focused compatibility terminal manager. |
+| **CLI / TUI** | The native Rust binary `mux`. Its subcommands manage consumption across all three asset domains; with no arguments it opens the MCP-focused terminal workspace. |
 
 Because both are built on the **same Rust core crate (`mux-core`)**, the data model exists in only one place. A change you make in the desktop app shows up in the CLI after a refresh, and vice versa.
 
@@ -42,7 +42,7 @@ The catalog is the union of all enabled managed sources. A separate desired rela
 
 - **Browse the catalog**: search, filter by source, and see each MCP's transport, source, which agents use it, and its GitHub repo.
 - **Manage consumers**: edit desired relationships only from the relevant Agent page, then review and write with backups; asset Inspectors show impact read-only.
-- **Reconcile state**: distinguish synced, pending, drifted, conflicted, and read-only external configurations without silent background overwrite.
+- **Reconcile state**: distinguish synced, externally added, changed, removed, unparseable, ambiguous, and unsupported observations without silent background overwrite.
 - **Cascade lifecycle changes**: central updates propagate to every consumer; central deletion also clears relationships and managed Agent targets.
 - **Edit / paste**: edit an MCP config visually, or paste an `mcpServers` JSON/TOML block for automatic recognition.
 - **Recover transactions**: central changes, relationships, and every target commit together; after a crash, startup verifies completion or restores durable snapshots.

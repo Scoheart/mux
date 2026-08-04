@@ -9,8 +9,7 @@ use std::collections::BTreeMap;
 
 pub use crate::agents::AgentInfo;
 pub use crate::domain::agents::{
-    AgentConfigurationInput, McpConfigurationPatch, ModelConfigurationPatch,
-    SkillConfigurationPatch,
+    McpConfigurationPatch, ModelConfigurationPatch, SkillConfigurationPatch,
 };
 pub use crate::domain::types::{
     AgentDefinition, AgentInstallProbe, AgentSkillsCapability, AgentSkillsDirectory,

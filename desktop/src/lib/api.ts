@@ -2,7 +2,6 @@ import { invoke } from "@tauri-apps/api/core";
 import type {
   AgentDefinitionInput,
   BackendStatus,
-  AgentConfigurationInput,
   AgentConfigurationPatch,
   AgentConsumptionSelection,
   AgentCapabilityView,
@@ -21,9 +20,6 @@ import type {
   ModelProviderView,
   ModelProfileView,
   ModelProviderInstanceView,
-  MigrationResolutionOutcome,
-  MigrationResolutionStrategy,
-  MigrationReview,
   OperationPlan,
   OperationCommitResult,
   PlanOperationRequest,
@@ -49,22 +45,6 @@ import type {
 export const getWorkspaceSnapshot = () =>
   invoke<WorkspaceSnapshot>("get_workspace_snapshot");
 export const getBackendStatus = () => invoke<BackendStatus>("get_backend_status");
-export const getMigrationReview = () =>
-  invoke<MigrationReview | null>("get_migration_review");
-export const resolveMigration = (
-  review: MigrationReview,
-  strategy: MigrationResolutionStrategy,
-  candidateHash?: string,
-  dryRun = false,
-) => invoke<MigrationResolutionOutcome>("resolve_migration", {
-  request: {
-    review_hash: review.review_hash,
-    strategy,
-    candidate_hash: candidateHash ?? null,
-    confirmed: strategy === "use_mux" || strategy === "keep_agent",
-    dry_run: dryRun,
-  },
-});
 export const listAgentCapabilities = () =>
   invoke<AgentCapabilityView[]>("list_agent_capabilities");
 export const planOperation = (request: PlanOperationRequest) =>
@@ -126,13 +106,11 @@ export const planDeleteCentralAsset = (asset: AssetRef, sourceId?: string) =>
   });
 export const commitAssetOperation = (
   plan: Pick<AssetOperationPlan, "operation_id" | "candidate_hash">,
-  conflictConfirmation?: string,
 ) =>
   invoke<ConsumptionInventory>("commit_asset_operation", {
     request: {
       operation_id: plan.operation_id,
       candidate_hash: plan.candidate_hash,
-      conflict_confirmation: conflictConfirmation ?? null,
     },
   });
 export const cancelAssetOperation = (operationId: string) =>
@@ -192,12 +170,6 @@ export const addAgent = (id: string, def: AgentDefinitionInput) =>
   invoke<void>("add_agent", { id, def });
 export const updateAgent = (id: string, def: AgentDefinitionInput) =>
   invoke<void>("update_agent", { id, def });
-export const planUpdateAgentConfiguration = (
-  id: string,
-  configuration: AgentConfigurationInput,
-) => invoke<AssetOperationPlan>("plan_update_agent_configuration", {
-  request: { agent_id: id, configuration },
-});
 export const planUpdateAgentCapabilities = (
   id: string,
   patch: AgentConfigurationPatch,

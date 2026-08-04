@@ -3,22 +3,6 @@
 use crate::domain::types::ModelProtocol;
 use serde::{Deserialize, Serialize};
 
-/// Legacy all-capabilities input retained for the existing desktop wire
-/// contract. New integrations should use [`AgentConfigurationPatch`], whose
-/// domains are independently optional.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct AgentConfigurationInput {
-    pub mcp_path: String,
-    /// `None` keeps the effective key for backward-compatible callers.
-    #[serde(default)]
-    pub mcp_key: Option<String>,
-    #[serde(default)]
-    pub model_paths: Vec<String>,
-    pub skills_global_dir: Option<String>,
-    #[serde(default)]
-    pub skills_alias_dirs: Vec<String>,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct McpConfigurationPatch {

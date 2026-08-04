@@ -49,7 +49,7 @@ Claude Code 只接收 Anthropic Messages，Codex 只接收 Responses；其余自
 2. 在居中的 Provider Catalog 中选择模板。Catalog 内置 OpenRouter、Anthropic、OpenAI、Google AI Studio、DeepSeek、Groq、SiliconFlow、Together AI、Fireworks AI、Cerebras、Ollama、LM Studio、vLLM 等常用入口；模板本身不会立刻写入配置。
 3. Provider 表单按顺序填写名称、类型、唯一 Base URL、API Key / 环境变量，再启用协议并编辑各自 Endpoint Path。每行会实时预览完整请求 URL，也可单独恢复模板默认 Path。保存后连接实例进入左侧 **My Providers**。
 4. 点击 **添加模型**，选择已保存的 Provider、协议与 Model ID；Model 表单只读显示最终请求 URL，不再重复输入 Base URL 或凭据。
-5. Model 保存到中央资产库后，进入对应 Agent 页的 Model 标签，或使用 `mux model assign` 增量分配兼容 Profile；需要切换 current 时单独使用 `mux model use`。若 desired 关系不变但物理配置漂移，使用 `mux model reapply <profile-id> --agent <agent-id>` 单独审阅并修复；重复 `assign` / `use` 不会隐式覆盖漂移。
+5. Model 保存到中央资产库后，进入对应 Agent 页的 Model 标签，或使用 `mux model assign` 增量分配兼容 Profile；需要切换 current 时单独使用 `mux model use`。若 Agent 现场被外部修改，使用 `mux model converge <profile-id> --agent <agent-id> <adopt|restore|detach>` 收敛一个准确 observation；重复 `assign` / `use` 不会隐式覆盖现场。
 6. 审阅关系变化、目标文件与异常状态后提交。MUX 备份、写入并重新读取验证；成功后重启对应 Agent 会话。
 
 同一个 Profile 可以被多个 Agent 消费，但协议必须兼容。原生多模型 Agent 可以保留多个已分配 / 已启用 Profile，但最多一个 current；单模型 Agent 仍限制为最多一个。Desktop 与 CLI 修改的是同一份 desired relationship，MUX 会在修改磁盘前拒绝不兼容组合。
@@ -70,7 +70,7 @@ Agent 配置中心会同时列出 Agent/模型配置文件和 MCP 配置文件�
 - 若 Agent 原生格式只能表达客户端 Base URL，而自定义 Endpoint Path 无法保持相同请求目标，绑定或更新会以 `model_endpoint_path_unsupported` 阻止，不会忽略 Path。
 - Pi 两个配置文件按事务处理；第二个文件失败时回滚第一个文件。
 - Profile metadata、全部消费者文件和 desired relationship 属于同一事务；Keychain 变更最后执行。App 重启后会验证完整提交，否则用持久化快照回滚。
-- 消费目标存在漂移时，中央更新不会静默覆盖；必须审阅目标并用当前候选哈希显式确认。冲突或并发变化会阻止整个提交。
+- 消费目标存在外部修改时，中央更新不会静默覆盖；必须先对准确关系执行采用外部、恢复 MUX 或解除管理。计划绑定 inventory revision，冲突或并发变化会阻止该提交。
 
 Claude Code 已启用 Bedrock、Vertex 或 Foundry 路由时，MUX 会拒绝接管，而不是静默覆盖云提供商配置。
 

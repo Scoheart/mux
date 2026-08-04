@@ -55,7 +55,6 @@ fn unified_facade_creates_an_asset_and_returns_a_revisioned_snapshot() {
         request: AssetCommitRequest {
             operation_id: plan.operation_id,
             candidate_hash: plan.candidate_hash,
-            conflict_confirmation: None,
         },
     })
     .unwrap();
@@ -113,7 +112,6 @@ fn capability_patch_does_not_require_unrelated_mcp_or_skill_fields() {
         request: AssetCommitRequest {
             operation_id: plan.operation_id.clone(),
             candidate_hash: plan.candidate_hash.clone(),
-            conflict_confirmation: None,
         },
     })
     .unwrap();

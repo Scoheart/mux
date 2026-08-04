@@ -1,9 +1,10 @@
 import type { ReactNode } from "react";
-import type { AssetRef, ConsumptionView } from "../lib/types";
+import type { AssetRef, ConsumptionView, ConvergenceAction } from "../lib/types";
 import { assetIdentity } from "../lib/consumption";
 import { LinkIcon, PackageIcon, PlusIcon, TrashIcon } from "./icons";
 import { ConsumptionStatus } from "./ConsumptionStatus";
 import { Switch } from "./ui";
+import { useTranslation } from "react-i18next";
 
 export interface ConsumptionAssetPresentation {
   name: string;
@@ -31,6 +32,8 @@ export function AgentConsumptionPanel({
   toggleKind = "enabled",
   renderAction,
   onRemove,
+  onConverge,
+  convergenceDisabled = false,
   removeLabel,
   manageDisabled = false,
   removeDisabled = false,
@@ -57,6 +60,8 @@ export function AgentConsumptionPanel({
   toggleKind?: "enabled" | "current";
   renderAction?(item: ConsumptionView): ReactNode;
   onRemove?(asset: AssetRef): void;
+  onConverge?(item: ConsumptionView, action: ConvergenceAction): void;
+  convergenceDisabled?: boolean;
   removeLabel?(name: string): string;
   manageDisabled?: boolean;
   removeDisabled?: boolean;
@@ -65,6 +70,7 @@ export function AgentConsumptionPanel({
   emptyAction?: ReactNode;
   columns?: 2 | 3;
 }) {
+  const { t } = useTranslation();
   const domainRows = rows.filter((item) => item.asset.domain === domain);
   const domainExternal = external.filter((item) => item.asset.domain === domain);
   const items = [
@@ -152,10 +158,25 @@ export function AgentConsumptionPanel({
                 {(isExternal || item.status !== "synced") && (
                   <ConsumptionStatus status={item.status} reason={item.reason} />
                 )}
-                {!isExternal && (renderAction || onEnabledChange && enabled !== null || onOpenAsset || onRemove) && (
+                {(item.available_actions.length > 0 || !isExternal && (renderAction || onEnabledChange && enabled !== null || onOpenAsset || onRemove)) && (
                   <span className="mux-consumption-actions">
+                    {onConverge && item.available_actions.map((action) => (
+                      <button
+                        key={action}
+                        type="button"
+                        className={action === "restore-desired" ? "btn-primary" : "btn-secondary"}
+                        disabled={convergenceDisabled}
+                        onClick={() => onConverge(item, action)}
+                      >
+                        {action === "adopt-observed"
+                          ? t("observations.actions.adopt")
+                          : action === "restore-desired"
+                            ? t("observations.actions.restore")
+                            : t("observations.actions.detach")}
+                      </button>
+                    ))}
                     {renderAction?.(item)}
-                    {onEnabledChange && enabled !== null && (
+                    {!isExternal && onEnabledChange && enabled !== null && (
                       <Switch
                         checked={enabled}
                         compact
@@ -165,7 +186,7 @@ export function AgentConsumptionPanel({
                         onChange={(next) => onEnabledChange(item, next)}
                       />
                     )}
-                    {onOpenAsset && (
+                    {!isExternal && onOpenAsset && (
                       <button
                         type="button"
                         className="mux-consumption-open"
@@ -175,7 +196,7 @@ export function AgentConsumptionPanel({
                         <LinkIcon className="w-4 h-4" />
                       </button>
                     )}
-                    {onRemove && (
+                    {!isExternal && onRemove && (
                       <button
                         type="button"
                         className="mux-consumption-open mux-consumption-remove"

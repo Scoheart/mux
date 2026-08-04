@@ -2,6 +2,7 @@
 
 use super::compatibility::{compatibility_for, require_mcp_selection_compatible};
 use super::inventory::list_consumption_inventory;
+use super::store::{AssetStateStore, StatePrecondition, StateSubject};
 use super::types::{
     AgentConsumptionSelection, AssetOperationKind, AssetOperationPlan, AssetRef,
     CentralAssetChange, ConsumptionInventory, ConsumptionStateChange, ConsumptionStatus,
@@ -38,13 +39,21 @@ use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
-const OPERATION_SCHEMA_VERSION: u32 = 2;
+const OPERATION_SCHEMA_VERSION: u32 = 3;
+const LEGACY_OPERATION_SCHEMA_VERSION: u32 = 2;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub(crate) struct PersistedAssetOperation {
     pub schema_version: u32,
     pub plan: AssetOperationPlan,
-    pub settings_hash: String,
+    /// v2 bound every operation to the complete settings file. Keep the field
+    /// readable so an operation with durable rollback evidence from an older
+    /// MUX can still recover safely.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub settings_hash: Option<String>,
+    /// v3 binds only the semantic state actually reviewed by this operation.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub state_preconditions: Vec<StatePrecondition>,
     pub settings_target_hash: String,
     pub target_hashes: BTreeMap<String, String>,
     /// Canonical effective/source catalog projection used by MCP plans. This
@@ -1941,22 +1950,13 @@ fn finalize_plan_with_inventory(
     // Materialize the stable MUX root before parent fingerprints are captured
     // so that persisting this very plan cannot make its own target hash stale.
     fs::create_dir_all(mux_dir()).map_err(|error| error.to_string())?;
-    let settings_hash = hash_file(&settings_file());
-    let settings_target_hash = hash_target(&settings_file());
-    let target_hashes = hash_targets(&target_files);
-    let mcp_catalog_hash = if matches!(&domain_plan, DomainPlan::Mcp { .. }) {
-        Some(hash_mcp_catalog()?)
-    } else {
-        None
-    };
-    let skill_target_graph_hash = if matches!(
+    let state_preconditions = AssetStateStore::load()?.capture(state_subjects(
         &domain_plan,
-        DomainPlan::Skill { .. } | DomainPlan::AgentCapabilities { .. }
-    ) {
-        Some(hash_skill_target_graph()?)
-    } else {
-        None
-    };
+        &central_changes,
+        lifecycle.as_ref(),
+    ))?;
+    let settings_target_hash = hash_settings_target(&settings_file());
+    let target_hashes = hash_targets(&target_files);
     let mut persisted = PersistedAssetOperation {
         schema_version: OPERATION_SCHEMA_VERSION,
         plan: AssetOperationPlan {
@@ -1973,17 +1973,182 @@ fn finalize_plan_with_inventory(
             can_commit,
             candidate_hash: String::new(),
         },
-        settings_hash,
+        settings_hash: None,
+        state_preconditions,
         settings_target_hash,
         target_hashes,
-        mcp_catalog_hash,
-        skill_target_graph_hash,
+        mcp_catalog_hash: None,
+        skill_target_graph_hash: None,
         lifecycle,
     };
     persisted.plan.candidate_hash = candidate_hash(&persisted)?;
     let plan = persisted.plan.clone();
     persist_operation(&persisted)?;
     Ok(plan)
+}
+
+fn state_subjects(
+    domain_plan: &DomainPlan,
+    central_changes: &[CentralAssetChange],
+    lifecycle: Option<&LifecycleBinding>,
+) -> BTreeSet<StateSubject> {
+    let mut subjects = BTreeSet::new();
+    for change in central_changes {
+        subjects.insert(StateSubject::CentralAsset {
+            asset: change.asset.clone(),
+        });
+        subjects.insert(StateSubject::AssetConsumers {
+            asset: change.asset.clone(),
+        });
+    }
+    match domain_plan {
+        DomainPlan::Mcp { before, after } => {
+            for agent_id in before.keys().chain(after.keys()) {
+                subjects.insert(StateSubject::AgentConsumption {
+                    capability: crate::domain::assets::AssetCapability::Mcp,
+                    agent_id: agent_id.clone(),
+                });
+                subjects.insert(StateSubject::AgentConfiguration {
+                    capability: crate::domain::assets::AssetCapability::Mcp,
+                    agent_id: agent_id.clone(),
+                });
+            }
+            for key in before
+                .values()
+                .chain(after.values())
+                .flatten()
+                .collect::<BTreeSet<_>>()
+            {
+                subjects.insert(StateSubject::CentralAsset {
+                    asset: AssetRef::Mcp { key: key.clone() },
+                });
+            }
+        }
+        DomainPlan::Model { before, after } => {
+            for agent_id in before.keys().chain(after.keys()) {
+                subjects.insert(StateSubject::AgentConsumption {
+                    capability: crate::domain::assets::AssetCapability::Model,
+                    agent_id: agent_id.clone(),
+                });
+                subjects.insert(StateSubject::AgentConfiguration {
+                    capability: crate::domain::assets::AssetCapability::Model,
+                    agent_id: agent_id.clone(),
+                });
+            }
+            for profile_id in before
+                .values()
+                .chain(after.values())
+                .flat_map(|selection| selection.profiles.keys())
+                .collect::<BTreeSet<_>>()
+            {
+                subjects.insert(StateSubject::CentralAsset {
+                    asset: AssetRef::Model {
+                        profile_id: profile_id.clone(),
+                    },
+                });
+            }
+        }
+        DomainPlan::Skill { before, after } => {
+            for agent_id in before.keys().chain(after.keys()) {
+                subjects.insert(StateSubject::AgentConsumption {
+                    capability: crate::domain::assets::AssetCapability::Skill,
+                    agent_id: agent_id.clone(),
+                });
+                subjects.insert(StateSubject::AgentConfiguration {
+                    capability: crate::domain::assets::AssetCapability::Skill,
+                    agent_id: agent_id.clone(),
+                });
+            }
+            for name in before
+                .values()
+                .chain(after.values())
+                .flatten()
+                .collect::<BTreeSet<_>>()
+            {
+                subjects.insert(StateSubject::CentralAsset {
+                    asset: AssetRef::Skill { name: name.clone() },
+                });
+            }
+            subjects.insert(StateSubject::SkillTargetGraph);
+        }
+        DomainPlan::AgentCapabilities {
+            agent_id,
+            skills_before,
+            skills_after,
+            affected_agent_ids,
+            ..
+        } => {
+            for capability in [
+                crate::domain::assets::AssetCapability::Mcp,
+                crate::domain::assets::AssetCapability::Model,
+                crate::domain::assets::AssetCapability::Skill,
+            ] {
+                subjects.insert(StateSubject::AgentConfiguration {
+                    capability,
+                    agent_id: agent_id.clone(),
+                });
+                subjects.insert(StateSubject::AgentConsumption {
+                    capability,
+                    agent_id: agent_id.clone(),
+                });
+            }
+            for affected in std::iter::once(agent_id).chain(affected_agent_ids) {
+                subjects.insert(StateSubject::AgentConsumption {
+                    capability: crate::domain::assets::AssetCapability::Skill,
+                    agent_id: affected.clone(),
+                });
+            }
+            for name in skills_before
+                .values()
+                .chain(skills_after.values())
+                .flatten()
+                .collect::<BTreeSet<_>>()
+            {
+                subjects.insert(StateSubject::CentralAsset {
+                    asset: AssetRef::Skill { name: name.clone() },
+                });
+            }
+            subjects.insert(StateSubject::SkillTargetGraph);
+        }
+    }
+    match lifecycle {
+        Some(LifecycleBinding::ModelUpsert { profile_id, .. })
+        | Some(LifecycleBinding::ModelAdopt { profile_id, .. }) => {
+            subjects.insert(StateSubject::ModelCatalog);
+            subjects.insert(StateSubject::CredentialPresence {
+                profile_id: profile_id.clone(),
+            });
+        }
+        Some(LifecycleBinding::ModelProviderUpsert { provider_id, .. }) => {
+            subjects.insert(StateSubject::CentralAsset {
+                asset: AssetRef::ModelProvider {
+                    provider_id: provider_id.clone(),
+                },
+            });
+            subjects.insert(StateSubject::ModelProviderNames);
+            subjects.insert(StateSubject::ProviderCredentialPresence {
+                provider_id: provider_id.clone(),
+            });
+        }
+        Some(LifecycleBinding::ModelProviderDelete { provider_id }) => {
+            subjects.insert(StateSubject::CentralAsset {
+                asset: AssetRef::ModelProvider {
+                    provider_id: provider_id.clone(),
+                },
+            });
+            subjects.insert(StateSubject::ProviderCredentialPresence {
+                provider_id: provider_id.clone(),
+            });
+        }
+        Some(LifecycleBinding::ModelDelete { profile_id })
+        | Some(LifecycleBinding::ModelReapply { profile_id, .. }) => {
+            subjects.insert(StateSubject::CredentialPresence {
+                profile_id: profile_id.clone(),
+            });
+        }
+        _ => {}
+    }
+    subjects
 }
 
 fn append_missing_skill_removal_warnings(
@@ -2717,6 +2882,28 @@ pub(crate) fn hash_target(path: &Path) -> String {
         .unwrap_or_else(|error| hex::encode(Sha256::digest(format!("error:{error}").as_bytes())))
 }
 
+/// Fingerprint the guarded settings namespace without binding an Asset plan to
+/// settings contents or the inode produced by an unrelated atomic settings
+/// update. Semantic state is covered by typed StatePreconditions; this guard
+/// owns only the parent directory identity and the requirement that the leaf
+/// remain a regular-file slot.
+pub(crate) fn hash_settings_target(path: &Path) -> String {
+    capture_parent_directory(path)
+        .and_then(|parent| {
+            let state = read_path_state_anchored(path, &parent)?;
+            let leaf = match state {
+                crate::safe_write::AnchoredPathState::Missing
+                | crate::safe_write::AnchoredPathState::File { .. } => "regular-or-missing",
+                crate::safe_write::AnchoredPathState::Symlink { .. } => "symlink",
+                crate::safe_write::AnchoredPathState::Directory { .. } => "directory",
+                crate::safe_write::AnchoredPathState::Other { .. } => "other",
+            };
+            let bytes = serde_json::to_vec(&(leaf, parent)).map_err(|error| error.to_string())?;
+            Ok(hex::encode(Sha256::digest(bytes)))
+        })
+        .unwrap_or_else(|error| hex::encode(Sha256::digest(format!("error:{error}").as_bytes())))
+}
+
 pub(crate) fn hash_file(path: &Path) -> String {
     match fs::read(path) {
         Ok(bytes) => hex::encode(Sha256::digest(bytes)),
@@ -2790,8 +2977,10 @@ pub(crate) fn load_operation(operation_id: &str) -> Result<PersistedAssetOperati
         .map_err(|_| "asset operation plan is invalid".to_string())?;
     let canonical = serde_json::to_vec(&operation)
         .map_err(|_| "asset operation plan is invalid".to_string())?;
-    if operation.schema_version != OPERATION_SCHEMA_VERSION
-        || operation.plan.operation_id != operation_id
+    if !matches!(
+        operation.schema_version,
+        LEGACY_OPERATION_SCHEMA_VERSION | OPERATION_SCHEMA_VERSION
+    ) || operation.plan.operation_id != operation_id
         || canonical != bytes
         || candidate_hash(&operation)? != operation.plan.candidate_hash
     {
@@ -2801,6 +2990,9 @@ pub(crate) fn load_operation(operation_id: &str) -> Result<PersistedAssetOperati
 }
 
 fn candidate_hash(operation: &PersistedAssetOperation) -> Result<String, String> {
+    if operation.schema_version == LEGACY_OPERATION_SCHEMA_VERSION {
+        return legacy_candidate_hash(operation);
+    }
     let plan = &operation.plan;
     let material = serde_json::to_vec(&(
         &plan.kind,
@@ -2813,7 +3005,33 @@ fn candidate_hash(operation: &PersistedAssetOperation) -> Result<String, String>
         &plan.affected_agent_ids,
         &plan.warnings,
         plan.can_commit,
-        &operation.settings_hash,
+        &operation.settings_target_hash,
+        &operation.target_hashes,
+        &operation.state_preconditions,
+        &operation.lifecycle,
+    ))
+    .map_err(|error| error.to_string())?;
+    Ok(hex::encode(Sha256::digest(material)))
+}
+
+fn legacy_candidate_hash(operation: &PersistedAssetOperation) -> Result<String, String> {
+    let plan = &operation.plan;
+    let settings_hash = operation
+        .settings_hash
+        .as_deref()
+        .ok_or_else(|| "asset operation plan is invalid".to_string())?;
+    let material = serde_json::to_vec(&(
+        &plan.kind,
+        &plan.domain_plan,
+        &plan.central_changes,
+        &plan.relationship_changes,
+        &plan.model_state_changes,
+        &plan.consumption_state_changes,
+        &plan.target_files,
+        &plan.affected_agent_ids,
+        &plan.warnings,
+        plan.can_commit,
+        settings_hash,
         &operation.target_hashes,
         &operation.mcp_catalog_hash,
         &operation.skill_target_graph_hash,
@@ -2835,6 +3053,53 @@ mod tests {
     use crate::resources::mcp::registry::write_manual_entry;
     use crate::settings::mutate_settings;
     use crate::testenv::TestHome;
+
+    #[test]
+    fn legacy_v2_reviewed_operations_remain_loadable_and_committable() {
+        let _home = TestHome::new("asset-plan-v2-compatibility");
+        write_manual_entry(&RegistryEntry {
+            name: "legacy-plan".into(),
+            description: String::new(),
+            tags: Vec::new(),
+            config: RegistryConfig {
+                stdio: Some(StdioConfig {
+                    command: "legacy-plan-server".into(),
+                    args: None,
+                    env: None,
+                    cwd: None,
+                }),
+                http: None,
+            },
+            origin: None,
+            repo: None,
+        })
+        .unwrap();
+        let plan = plan_set_agent_consumption(PlanSetAgentConsumptionRequest {
+            agent_id: "claude-code".into(),
+            selection: AgentConsumptionSelection::Mcp {
+                asset_keys: vec!["legacy-plan::stdio".into()],
+            },
+        })
+        .unwrap();
+        let mut persisted = load_operation(&plan.operation_id).unwrap();
+        persisted.schema_version = LEGACY_OPERATION_SCHEMA_VERSION;
+        persisted.settings_hash = Some(hash_file(&settings_file()));
+        persisted.settings_target_hash = hash_target(&settings_file());
+        persisted.state_preconditions.clear();
+        persisted.mcp_catalog_hash = Some(hash_mcp_catalog().unwrap());
+        persisted.skill_target_graph_hash = None;
+        persisted.plan.candidate_hash = legacy_candidate_hash(&persisted).unwrap();
+        let path = operation_root(&persisted.plan.operation_id).join("plan.json");
+        fs::write(&path, serde_json::to_vec(&persisted).unwrap()).unwrap();
+
+        let loaded = load_operation(&persisted.plan.operation_id).unwrap();
+        assert_eq!(loaded.schema_version, LEGACY_OPERATION_SCHEMA_VERSION);
+        commit_asset_operation(AssetCommitRequest {
+            operation_id: loaded.plan.operation_id,
+            candidate_hash: loaded.plan.candidate_hash,
+        })
+        .unwrap();
+    }
 
     fn write_external_skill(root: &Path, name: &str, description: &str) {
         let skill = root.join(name);
@@ -3183,6 +3448,62 @@ mod tests {
         .unwrap_err();
 
         assert!(error.starts_with("agent_configuration_in_use:"), "{error}");
+    }
+
+    #[test]
+    fn capability_plan_stales_when_mcp_consumption_appears_after_review() {
+        let _home = TestHome::new("capability-plan-mcp-consumer-race");
+        write_manual_entry(&RegistryEntry {
+            name: "fixture".into(),
+            description: String::new(),
+            tags: Vec::new(),
+            config: RegistryConfig {
+                stdio: Some(StdioConfig {
+                    command: "fixture-server".into(),
+                    args: None,
+                    env: None,
+                    cwd: None,
+                }),
+                http: None,
+            },
+            origin: None,
+            repo: None,
+        })
+        .unwrap();
+        let plan = plan_update_agent_capabilities(PlanUpdateAgentCapabilitiesRequest {
+            agent_id: "codex".into(),
+            patch: AgentConfigurationPatch {
+                mcp: Some(McpConfigurationPatch {
+                    path: "~/.codex/moved.toml".into(),
+                    key: None,
+                }),
+                ..AgentConfigurationPatch::default()
+            },
+        })
+        .unwrap();
+
+        let relationship = plan_set_agent_consumption(PlanSetAgentConsumptionRequest {
+            agent_id: "codex".into(),
+            selection: AgentConsumptionSelection::Mcp {
+                asset_keys: vec!["fixture::stdio".into()],
+            },
+        })
+        .unwrap();
+        commit_asset_operation(AssetCommitRequest {
+            operation_id: relationship.operation_id,
+            candidate_hash: relationship.candidate_hash,
+        })
+        .unwrap();
+
+        let error = commit_asset_operation(AssetCommitRequest {
+            operation_id: plan.operation_id,
+            candidate_hash: plan.candidate_hash,
+        })
+        .unwrap_err();
+        assert_eq!(
+            error,
+            "asset_operation_stale: an Agent consumption changed after review"
+        );
     }
 
     #[test]

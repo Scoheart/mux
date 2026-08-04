@@ -145,7 +145,7 @@ fn mcp_removal_is_atomic_preserves_other_relationships_and_is_idempotent() {
     .unwrap_err();
     assert_eq!(
         error,
-        "asset_operation_stale: MUX settings changed after review"
+        "asset_operation_stale: an Agent consumption changed after review"
     );
     cancel_asset_operation(&stale_operation_id).unwrap();
 

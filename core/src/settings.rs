@@ -262,6 +262,18 @@ fn parse_for_update(path: &Path) -> std::io::Result<(Settings, Option<String>)> 
         })?,
         None => Settings::default(),
     };
+    if settings
+        .version
+        .is_some_and(|version| version > SETTINGS_VERSION)
+    {
+        return Err(Error::new(
+            ErrorKind::InvalidData,
+            format!(
+                "refusing to read MUX settings schema {} with supported schema {SETTINGS_VERSION}",
+                settings.version.unwrap_or_default()
+            ),
+        ));
+    }
     settings.hydrate_model_provider_fields();
     Ok((settings, original))
 }
@@ -882,6 +894,26 @@ mod tests {
         });
 
         assert!(result.is_err());
+        assert_eq!(std::fs::read_to_string(path).unwrap(), original);
+    }
+
+    #[test]
+    fn future_schema_is_never_downgraded_by_an_older_writer() {
+        let home = crate::testenv::TestHome::new("settings-future-version");
+        let path = home.home.join(".mux/settings.json");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let original = format!(
+            r#"{{"version":{},"future":{{"nested":"keep"}}}}"#,
+            SETTINGS_VERSION + 1
+        );
+        std::fs::write(&path, &original).unwrap();
+
+        let error = mutate_settings(|settings| {
+            settings.imported = Some("must-not-write".into());
+        })
+        .unwrap_err();
+
+        assert_eq!(error.kind(), ErrorKind::InvalidData);
         assert_eq!(std::fs::read_to_string(path).unwrap(), original);
     }
 

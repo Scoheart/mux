@@ -137,8 +137,7 @@ pub fn write_discovered_entry(entry: &RegistryEntry) -> std::io::Result<()> {
 ///     < manual (the user's own edits win over everything).
 /// The last copy of a given composite key in this order is the one that "wins"
 /// in `read_registry`. Each entry carries its own `origin`.
-fn enabled_source_entries_in_order() -> Vec<RegistryEntry> {
-    let defs = load_settings().sources.unwrap_or_default();
+fn enabled_source_entries_in_order_for(defs: &[SourceDef]) -> Vec<RegistryEntry> {
     let mut out: Vec<RegistryEntry> = Vec::new();
     // 1. external sources (everything that isn't a managed source), in order.
     for def in defs
@@ -156,6 +155,11 @@ fn enabled_source_entries_in_order() -> Vec<RegistryEntry> {
         out.extend(source_entries(def));
     }
     out
+}
+
+fn enabled_source_entries_in_order() -> Vec<RegistryEntry> {
+    let defs = load_settings().sources.unwrap_or_default();
+    enabled_source_entries_in_order_for(&defs)
 }
 
 /// All catalog entries, assembled from every enabled source and deduped by
@@ -186,6 +190,17 @@ pub struct CatalogItem {
 /// would drop, and mark which source's copy actually takes effect.
 pub fn read_registry_all() -> Vec<CatalogItem> {
     flag_in_effect(enabled_source_entries_in_order())
+}
+
+/// Project every source copy from one already-loaded settings snapshot.
+///
+/// Asset planning uses this form so all semantic preconditions share the same
+/// settings read instead of silently reloading a different source definition
+/// list halfway through the projection.
+pub(crate) fn read_registry_all_for_settings(settings: &Settings) -> Vec<CatalogItem> {
+    flag_in_effect(enabled_source_entries_in_order_for(
+        settings.sources.as_deref().unwrap_or_default(),
+    ))
 }
 
 /// Flag each entry with whether it's the last (highest-precedence) copy of its

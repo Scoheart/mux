@@ -207,6 +207,14 @@ Skills-specific runtime paths:
 
 Model API keys are not stored under `~/.mux/`; they remain in macOS Keychain.
 
+The three resource types share one typed state contract in Core rather than a
+second on-disk manifest. Asset operations persist semantic revisions only for
+the exact central assets, their reverse consumer sets, Agent relationships,
+target graph, and credential presence they reviewed. Unrelated UI, network,
+Agent, or other state outside those semantic subjects does not invalidate that
+review. MCP source precedence, the single managed Skill tree, and Keychain
+credentials remain in their native authoritative stores.
+
 ## How it works
 
 1. **Build the central libraries** — subscribe or import MCP sources, create Model Profiles, and directly download or import Skills. No Agent target is changed during central intake.

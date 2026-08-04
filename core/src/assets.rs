@@ -11,6 +11,7 @@ pub mod migration;
 pub mod model_migration;
 pub mod observation;
 pub mod planner;
+pub(crate) mod store;
 pub mod transaction;
 pub mod types {
     pub use crate::domain::assets::*;

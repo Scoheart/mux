@@ -3,10 +3,11 @@
 use super::inventory::list_consumption_inventory;
 use super::lifecycle::{clear_pending_payload, pending_payload, PendingAssetPayload};
 use super::planner::{
-    hash_file, hash_mcp_catalog, hash_skill_target_graph, hash_target, hash_targets,
-    load_operation, operation_root, CredentialAction, LifecycleBinding, PersistedAssetOperation,
-    SkillMigrationEntry,
+    hash_file, hash_mcp_catalog, hash_settings_target, hash_skill_target_graph, hash_target,
+    hash_targets, load_operation, operation_root, CredentialAction, LifecycleBinding,
+    PersistedAssetOperation, SkillMigrationEntry,
 };
+use super::store::AssetStateStore;
 use super::types::{
     AssetCapability, AssetCommitRequest, AssetOperationKind, AssetOperationPlan, AssetRef,
     ConsumptionInventory, DomainPlan, McpConsumptionRecord, ModelAgentSelection,
@@ -1761,23 +1762,39 @@ fn verify_request(
 }
 
 fn verify_preconditions(persisted: &PersistedAssetOperation) -> Result<(), String> {
-    if hash_file(&settings_file()) != persisted.settings_hash {
-        return Err("asset_operation_stale: MUX settings changed after review".into());
+    if persisted.schema_version == 2 {
+        let current_hash = hash_file(&settings_file());
+        if persisted.settings_hash.as_deref() != Some(current_hash.as_str()) {
+            return Err("asset_operation_stale: MUX settings changed after review".into());
+        }
+    } else {
+        AssetStateStore::load()?.verify(&persisted.state_preconditions)?;
     }
-    if hash_target(&settings_file()) != persisted.settings_target_hash {
+    let settings_target_hash = if persisted.schema_version == 2 {
+        hash_target(&settings_file())
+    } else {
+        hash_settings_target(&settings_file())
+    };
+    if settings_target_hash != persisted.settings_target_hash {
         return Err("asset_operation_stale: MUX settings target changed after review".into());
     }
     if hash_targets(&persisted.plan.target_files) != persisted.target_hashes {
         return Err("asset_operation_stale: an Agent target changed after review".into());
     }
-    if let Some(expected) = &persisted.mcp_catalog_hash {
-        if &hash_mcp_catalog()? != expected {
-            return Err("asset_operation_stale: central MCP catalog changed after review".into());
+    if persisted.schema_version == 2 {
+        if let Some(expected) = &persisted.mcp_catalog_hash {
+            if &hash_mcp_catalog()? != expected {
+                return Err(
+                    "asset_operation_stale: central MCP catalog changed after review".into(),
+                );
+            }
         }
-    }
-    if let Some(expected) = &persisted.skill_target_graph_hash {
-        if &hash_skill_target_graph()? != expected {
-            return Err("asset_operation_stale: Skill target graph changed after review".into());
+        if let Some(expected) = &persisted.skill_target_graph_hash {
+            if &hash_skill_target_graph()? != expected {
+                return Err(
+                    "asset_operation_stale: Skill target graph changed after review".into(),
+                );
+            }
         }
     }
     if let Some(LifecycleBinding::ModelReapply {
@@ -1846,10 +1863,20 @@ fn verify_captured_snapshots(
         .iter()
         .find(|snapshot| snapshot.path == settings_path)
         .ok_or_else(|| "asset_operation_stale: settings snapshot is missing".to_string())?;
-    if settings.path_hash() != persisted.settings_hash
-        || settings.target_fingerprint()? != persisted.settings_target_hash
-    {
+    let settings_target_changed = if persisted.schema_version == 2 {
+        persisted.settings_hash.as_deref() != Some(settings.path_hash().as_str())
+            || settings.target_fingerprint()? != persisted.settings_target_hash
+    } else {
+        hash_settings_target(&settings_path) != persisted.settings_target_hash
+    };
+    if settings_target_changed {
         return Err("asset_operation_stale: MUX settings changed while preparing commit".into());
+    }
+    if persisted.schema_version >= 3 {
+        // The settings lock is still held. Recompute the semantic revisions
+        // after snapshot capture so a non-cooperating write between the first
+        // check and rollback preparation cannot escape review.
+        AssetStateStore::load()?.verify(&persisted.state_preconditions)?;
     }
 
     let snapshots_by_path = snapshots
@@ -3366,6 +3393,38 @@ mod tests {
 
         assert!(error.contains("changed after MUX wrote it"), "{error}");
         assert_eq!(fs::read_to_string(target).unwrap(), "external-edit");
+    }
+
+    #[test]
+    fn settings_edit_after_snapshot_is_never_written_over_or_rolled_back() {
+        let home = TestHome::new("transaction-settings-post-snapshot-race");
+        mutate_settings(|settings| settings.imported = Some("reviewed".into())).unwrap();
+        let path = settings_file();
+        let snapshots = vec![PathSnapshot::capture(&path).unwrap()];
+        let tracked_paths = vec![path.clone()];
+        let tracker = begin_transaction_write_tracking(
+            &home.home.join("write-evidence"),
+            &tracked_paths,
+            &parent_snapshots_for_snapshots(&snapshots),
+        )
+        .unwrap();
+        let external = fs::read_to_string(&path)
+            .unwrap()
+            .replace("reviewed", "external-update");
+        fs::write(&path, &external).unwrap();
+
+        let error = mutate_settings(|settings| settings.state = Some(serde_json::json!("mux")))
+            .unwrap_err();
+        assert!(
+            error.to_string().contains("reviewed target changed"),
+            "{error}"
+        );
+        let states = tracker.states();
+        drop(tracker);
+
+        let rollback_errors = restore_snapshots_if_unchanged(&snapshots, &states);
+        assert_eq!(rollback_errors.len(), 1, "{rollback_errors:?}");
+        assert_eq!(fs::read_to_string(&path).unwrap(), external);
     }
 
     #[test]

@@ -13,7 +13,7 @@ use mux_core::consumption::{
 };
 use mux_core::models::{apply_profile, list_profiles, reconcile_active_models, save_profile};
 use mux_core::registry::{read_registry, write_manual_entry};
-use mux_core::settings::load_settings;
+use mux_core::settings::{load_settings, mutate_settings, UiSettings};
 use mux_core::testenv::TestHome;
 use mux_core::types::{
     HttpConfig, ModelProfile, ModelProtocol, RegistryConfig, RegistryEntry, StdioConfig,
@@ -97,6 +97,44 @@ fn unrelated_mcp_drift_does_not_block_or_get_overwritten_by_central_update() {
     assert!(updated.contains("alpha-new"));
     assert!(updated.contains("beta-custom"));
     assert!(!updated.contains("beta-old"));
+}
+
+#[test]
+fn central_update_rejects_a_consumer_added_after_review() {
+    let _home = TestHome::new("central-mcp-new-consumer-stale");
+    write_manual_entry(&named_mcp("alpha", "alpha-old")).unwrap();
+    let stale = plan_update_central_asset(PlanUpdateCentralAssetRequest {
+        draft: CentralAssetDraft::Mcp {
+            existing_key: Some("alpha::stdio".into()),
+            entry: Box::new(named_mcp("alpha", "alpha-new")),
+        },
+    })
+    .unwrap();
+
+    commit(
+        plan_set_agent_consumption(PlanSetAgentConsumptionRequest {
+            agent_id: "claude-code".into(),
+            selection: AgentConsumptionSelection::Mcp {
+                asset_keys: vec!["alpha::stdio".into()],
+            },
+        })
+        .unwrap(),
+    );
+
+    let error = commit_asset_operation(AssetCommitRequest {
+        operation_id: stale.operation_id,
+        candidate_hash: stale.candidate_hash,
+    })
+    .unwrap_err();
+    assert_eq!(
+        error,
+        "asset_operation_stale: central asset consumers changed after review"
+    );
+    let alpha = read_registry()
+        .into_iter()
+        .find(|entry| entry.key() == "alpha::stdio")
+        .unwrap();
+    assert_eq!(alpha.config.stdio.unwrap().command, "alpha-old");
 }
 
 #[test]
@@ -824,6 +862,47 @@ fn mcp_reapply_rejects_a_catalog_change_after_review() {
         "{error}"
     );
     assert_eq!(fs::read_to_string(target).unwrap(), drifted);
+}
+
+#[test]
+fn reviewed_mcp_plan_survives_unrelated_preferences_and_assets() {
+    let _home = TestHome::new("central-mcp-semantic-preconditions");
+    write_manual_entry(&named_mcp("alpha", "alpha-server")).unwrap();
+    let plan = plan_set_agent_consumption(PlanSetAgentConsumptionRequest {
+        agent_id: "claude-code".into(),
+        selection: AgentConsumptionSelection::Mcp {
+            asset_keys: vec!["alpha::stdio".into()],
+        },
+    })
+    .unwrap();
+
+    mutate_settings(|settings| {
+        settings.ui = Some(UiSettings {
+            pinned_agents: vec!["codex".into()],
+            locale: Some("en-US".into()),
+            ..Default::default()
+        });
+    })
+    .unwrap();
+    write_manual_entry(&named_mcp("beta", "beta-server")).unwrap();
+
+    let inventory = commit_asset_operation(AssetCommitRequest {
+        operation_id: plan.operation_id,
+        candidate_hash: plan.candidate_hash,
+    })
+    .unwrap();
+
+    assert!(inventory.consumptions.iter().any(|item| {
+        item.agent_id == "claude-code"
+            && item.asset
+                == AssetRef::Mcp {
+                    key: "alpha::stdio".into(),
+                }
+    }));
+    assert_eq!(
+        load_settings().ui.and_then(|ui| ui.locale).as_deref(),
+        Some("en-US")
+    );
 }
 
 fn model(model: &str) -> ModelProfile {

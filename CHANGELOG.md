@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.114](https://github.com/Scoheart/mux/compare/v1.8.113...v1.8.114) (2026-08-04)
+
+### Changes
+
+* fix(desktop): suppress spurious observation refreshes ([345a3a1](https://github.com/Scoheart/mux/commit/345a3a17f2b6428039937331f2e296d4a3154d90))
+
 ## [1.8.113](https://github.com/Scoheart/mux/compare/v1.8.112...v1.8.113) (2026-08-04)
 
 ### Changes

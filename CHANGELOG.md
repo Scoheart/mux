@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.115](https://github.com/Scoheart/mux/compare/v1.8.114...v1.8.115) (2026-08-04)
+
+### Changes
+
+* refactor(assets)!: isolate convergence failures by target ([9b18235](https://github.com/Scoheart/mux/commit/9b182353b258b73bf9a105f0bc51fd8aaaeb6447))
+
 ## [1.8.114](https://github.com/Scoheart/mux/compare/v1.8.113...v1.8.114) (2026-08-04)
 
 ### Changes

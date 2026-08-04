@@ -624,7 +624,7 @@ fn apply_operation(
             previous_key,
             previous_source_id,
         } => {
-            let PendingAssetPayload::McpUpsert { entry } =
+            let PendingAssetPayload::Mcp { entry } =
                 require_pending_payload(&persisted.plan.operation_id)?
             else {
                 return Err(
@@ -658,7 +658,7 @@ fn apply_operation(
             enabled,
         } => {
             if let Some(draft_hash) = draft_hash {
-                let PendingAssetPayload::McpUpsert { entry } =
+                let PendingAssetPayload::Mcp { entry } =
                     require_pending_payload(&persisted.plan.operation_id)?
                 else {
                     return Err(
@@ -759,7 +759,7 @@ fn apply_operation(
                 settings
                     .managed_skills
                     .get_or_insert_default()
-                    .insert(name.clone(), record.clone());
+                    .insert(name.clone(), record.as_ref().clone());
             })
             .map_err(|error| error.to_string())
         }
@@ -768,7 +768,7 @@ fn apply_operation(
             draft_hash,
             credential_action,
         } => {
-            let PendingAssetPayload::ModelUpsert {
+            let PendingAssetPayload::Model {
                 profile,
                 credential,
             } = require_pending_payload(&persisted.plan.operation_id)?
@@ -804,7 +804,7 @@ fn apply_operation(
             draft_hash,
             credential_action,
         } => {
-            let PendingAssetPayload::ModelProviderUpsert {
+            let PendingAssetPayload::ModelProvider {
                 provider,
                 profiles,
                 credential,
@@ -846,7 +846,7 @@ fn apply_operation(
             draft_hash,
             credential_action,
         } => {
-            let PendingAssetPayload::ModelUpsert {
+            let PendingAssetPayload::Model {
                 profile,
                 credential,
             } = require_pending_payload(&persisted.plan.operation_id)?
@@ -1155,7 +1155,7 @@ fn verify_operation(persisted: &PersistedAssetOperation) -> Result<(), String> {
                 .managed_skills
                 .as_ref()
                 .and_then(|records| records.get(name))
-                != Some(record)
+                != Some(record.as_ref())
             {
                 return Err("Skill adopted baseline was not persisted".into());
             }
@@ -1546,11 +1546,11 @@ fn verify_preconditions(persisted: &PersistedAssetOperation) -> Result<(), Strin
             );
         }
     }
-    match &persisted.lifecycle {
-        Some(LifecycleBinding::AgentCapabilities {
-            skill_migration, ..
-        }) => verify_skill_migration_preconditions(skill_migration)?,
-        _ => {}
+    if let Some(LifecycleBinding::AgentCapabilities {
+        skill_migration, ..
+    }) = &persisted.lifecycle
+    {
+        verify_skill_migration_preconditions(skill_migration)?;
     }
     let current = load_settings_strict().map_err(|error| error.to_string())?;
     match &persisted.plan.domain_plan {

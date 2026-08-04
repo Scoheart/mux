@@ -119,7 +119,7 @@ pub(crate) enum LifecycleBinding {
     },
     SkillAdoptObserved {
         name: String,
-        record: ManagedSkillRecord,
+        record: Box<ManagedSkillRecord>,
     },
     ModelUpsert {
         profile_id: String,
@@ -987,7 +987,7 @@ pub fn plan_adopt_observed_skill(agent_id: &str, name: &str) -> Result<AssetOper
         Vec::new(),
         Some(LifecycleBinding::SkillAdoptObserved {
             name: name.into(),
-            record,
+            record: Box::new(record),
         }),
         &inventory,
     )

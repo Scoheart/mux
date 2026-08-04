@@ -26,14 +26,14 @@ use super::types::AssetCommitRequest;
 
 #[derive(Clone)]
 pub(crate) enum PendingAssetPayload {
-    McpUpsert {
+    Mcp {
         entry: Box<RegistryEntry>,
     },
-    ModelUpsert {
+    Model {
         profile: Box<ModelProfile>,
         credential: Option<Zeroizing<String>>,
     },
-    ModelProviderUpsert {
+    ModelProvider {
         provider: Box<ModelProviderConfig>,
         profiles: BTreeMap<String, ModelProfile>,
         credential: Option<Zeroizing<String>>,
@@ -64,7 +64,7 @@ pub(crate) fn store_pending_mcp_entry(operation_id: &str, entry: RegistryEntry) 
         .unwrap_or_else(|error| error.into_inner())
         .insert(
             operation_id.to_string(),
-            PendingAssetPayload::McpUpsert {
+            PendingAssetPayload::Mcp {
                 entry: Box::new(entry),
             },
         );
@@ -88,7 +88,7 @@ pub(crate) fn store_pending_model_profile_secret(
         .unwrap_or_else(|error| error.into_inner())
         .insert(
             operation_id.to_string(),
-            PendingAssetPayload::ModelUpsert {
+            PendingAssetPayload::Model {
                 profile: Box::new(profile),
                 credential,
             },
@@ -515,7 +515,7 @@ fn plan_model_provider_upsert(
         .unwrap_or_else(|error| error.into_inner())
         .insert(
             plan.operation_id.clone(),
-            PendingAssetPayload::ModelProviderUpsert {
+            PendingAssetPayload::ModelProvider {
                 provider: Box::new(provider),
                 profiles,
                 credential: credential.map(Zeroizing::new),

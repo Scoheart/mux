@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.110](https://github.com/Scoheart/mux/compare/v1.8.109...v1.8.110) (2026-08-04)
+
+### Changes
+
+* fix(model): satisfy strict migration lint ([89202e1](https://github.com/Scoheart/mux/commit/89202e1302169490ef2cb64900946af15d3d25ac))
+
 ## [1.8.109](https://github.com/Scoheart/mux/compare/v1.8.108...v1.8.109) (2026-08-04)
 
 ### Changes

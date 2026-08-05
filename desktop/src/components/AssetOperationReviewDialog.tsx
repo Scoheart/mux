@@ -359,7 +359,7 @@ export function AssetOperationReviewDialog({
             </p>
           </section>
         )}
-        {isRemoveOnly && (
+        {isRemoveOnly && !isClearMcp && (
           <section className="mux-asset-review-summary">
             <h3>影响摘要</h3>
             {plan.relationship_changes

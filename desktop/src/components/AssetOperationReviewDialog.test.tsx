@@ -98,7 +98,11 @@ it("requires an explicit destructive confirmation for clearing all Agent MCPs", 
   const plan = assetOperationPlanFixture();
   plan.kind = "clear-mcp";
   plan.domain_plan = { domain: "mcp", before: {}, after: {} };
-  plan.relationship_changes = [];
+  plan.relationship_changes = [{
+    agent_id: "qoder",
+    asset: { domain: "mcp", key: "managed::stdio" },
+    action: "remove",
+  }];
   plan.affected_agent_ids = ["qoder"];
   plan.target_files = ["~/.qoder/mcp.json"];
   const onCommit = vi.fn();
@@ -115,6 +119,7 @@ it("requires an explicit destructive confirmation for clearing all Agent MCPs", 
   );
 
   expect(screen.getByRole("heading", { name: "确认移除全部 MCP" })).toBeVisible();
+  expect(screen.getAllByRole("heading", { name: "影响摘要" })).toHaveLength(1);
   expect(screen.getByText(/包括外部新增项和停用项/)).toBeVisible();
   expect(screen.getByText(/中央 MCP 资产及其他 Agent 不受影响/)).toBeVisible();
   const commit = screen.getByRole("button", { name: "移除全部 MCP" });

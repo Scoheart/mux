@@ -2460,18 +2460,21 @@ fn consumption_state_changes(
             before,
             after,
         }) => {
-            changes.extend(before.iter().filter_map(|(asset_key, enabled)| {
-                (*enabled != *after).then(|| ConsumptionStateChange {
-                    agent_id: agent_id.clone(),
-                    asset: AssetRef::Mcp {
-                        key: asset_key.clone(),
-                    },
-                    before_enabled: *enabled,
-                    after_enabled: *after,
-                    affected_agent_ids: vec![agent_id.clone()],
-                    target: None,
-                })
-            }));
+            changes.extend(
+                before
+                    .iter()
+                    .filter(|(_, enabled)| **enabled != *after)
+                    .map(|(asset_key, enabled)| ConsumptionStateChange {
+                        agent_id: agent_id.clone(),
+                        asset: AssetRef::Mcp {
+                            key: asset_key.clone(),
+                        },
+                        before_enabled: *enabled,
+                        after_enabled: *after,
+                        affected_agent_ids: vec![agent_id.clone()],
+                        target: None,
+                    }),
+            );
         }
         Some(LifecycleBinding::SkillEnabled {
             agent_id,

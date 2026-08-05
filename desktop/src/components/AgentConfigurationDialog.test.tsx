@@ -234,7 +234,7 @@ it("cancels the reviewed Agent configuration through the unified asset envelope"
   );
 
   await userEvent.click(screen.getByRole("button", { name: "继续" }));
-  await userEvent.click(await screen.findByRole("button", { name: "取消" }));
+  await userEvent.click(await screen.findByRole("button", { name: "返回编辑" }));
 
   await waitFor(() => {
     expect(apiMocks.cancelOperation).toHaveBeenCalledWith({

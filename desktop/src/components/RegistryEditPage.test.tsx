@@ -134,7 +134,7 @@ it("renames an existing MCP through the shared plan while keeping its transport 
       config: { stdio: expect.objectContaining({ command: "rename-server" }) },
     }),
   });
-  expect(onBack).toHaveBeenCalledTimes(1);
+  expect(onBack).not.toHaveBeenCalled();
 });
 
 it("rejects a rename collision and cancellation leaves the plan untouched", async () => {

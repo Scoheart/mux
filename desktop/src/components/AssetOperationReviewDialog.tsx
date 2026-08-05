@@ -1,6 +1,6 @@
+import { useId } from "react";
 import type { AssetCommandError, AssetOperationPlan, AssetRef } from "../lib/types";
 import { assetIdentity } from "../lib/consumption";
-import { DialogShell } from "./DialogShell";
 import { TrashIcon } from "./icons";
 
 function assetKey(asset: AssetRef) {
@@ -247,6 +247,7 @@ export function AssetOperationReviewDialog({
   agentName,
   agentDisplayNames = {},
   assetDisplayNames = {},
+  cancelLabel = "取消",
   onCommit,
   onCancel,
 }: {
@@ -257,9 +258,11 @@ export function AssetOperationReviewDialog({
   agentName?: string;
   agentDisplayNames?: Record<string, string>;
   assetDisplayNames?: Record<string, string>;
+  cancelLabel?: string;
   onCommit(): Promise<unknown> | unknown;
   onCancel(): Promise<unknown> | unknown;
 }) {
+  const headingId = useId();
   const isConfiguration = plan.kind === "update-configuration";
   const isAgentSkillPlan = Boolean(
     agentId && agentName && plan.kind === "set-consumption" && plan.domain_plan.domain === "skill",
@@ -315,40 +318,28 @@ export function AssetOperationReviewDialog({
       : agentName
     : `${plan.affected_agent_ids.length} 个 Agent · ${plan.target_files.length} 个目标`;
   return (
-    <DialogShell
-      kind="review"
-      size="md"
-      title={title}
-      subtitle={subtitle}
-      busy={busy}
-      onClose={() => void onCancel()}
-      status={!plan.can_commit
-        ? <span className="mux-review-error">存在冲突，暂不可继续。</span>
-        : reviewError
-          ? <div className="mux-asset-review-error" role="alert">
-              <strong>操作未完成</strong>
-              <span>{reviewError}</span>
-            </div>
-          : null}
-      footerEnd={
-        <>
-          <button type="button" className="btn-ghost" disabled={busy} onClick={() => void onCancel()}>取消</button>
-          <button
-            type="button"
-            className={isDanger ? "btn-danger" : "btn-primary"}
-            disabled={busy || !plan.can_commit}
-            onClick={() => void onCommit()}
-          >
-            {!busy && isDanger && <TrashIcon className="w-4 h-4" />}
-            {busy
-              ? (isConfiguration ? "保存中…" : agentCopy?.busy ?? "处理中…")
-              : reviewError && (isRemoveOnly || isClearMcp)
-                ? `重试${commitLabel}`
-                : commitLabel}
-          </button>
-        </>
-      }
+    <section
+      className="mux-asset-operation-review"
+      aria-labelledby={headingId}
+      aria-busy={busy || undefined}
     >
+      <header className="mux-asset-operation-review-header">
+        <div>
+          <h2 id={headingId}>{title}</h2>
+          <p>{subtitle}</p>
+        </div>
+        <span className="mux-asset-operation-review-step">检查并应用</span>
+      </header>
+      {!plan.can_commit ? (
+        <div className="mux-asset-operation-review-status mux-review-error" role="alert">
+          存在冲突，暂不可继续。
+        </div>
+      ) : reviewError ? (
+        <div className="mux-asset-operation-review-status mux-asset-review-error" role="alert">
+          <strong>操作未完成</strong>
+          <span>{reviewError}</span>
+        </div>
+      ) : null}
       <div className="mux-review-content mux-asset-review">
         {isClearMcp && (
           <section className="mux-asset-review-summary">
@@ -568,6 +559,24 @@ export function AssetOperationReviewDialog({
           </section>
         )}
       </div>
-    </DialogShell>
+      <footer className="mux-asset-operation-review-footer">
+        <button type="button" className="btn-ghost" disabled={busy} onClick={() => void onCancel()}>
+          {cancelLabel}
+        </button>
+        <button
+          type="button"
+          className={isDanger ? "btn-danger" : "btn-primary"}
+          disabled={busy || !plan.can_commit}
+          onClick={() => void onCommit()}
+        >
+          {!busy && isDanger && <TrashIcon className="w-4 h-4" />}
+          {busy
+            ? (isConfiguration ? "保存中…" : agentCopy?.busy ?? "处理中…")
+            : reviewError && (isRemoveOnly || isClearMcp)
+              ? `重试${commitLabel}`
+              : commitLabel}
+        </button>
+      </footer>
+    </section>
   );
 }

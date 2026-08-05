@@ -146,14 +146,24 @@ export function AgentConfigurationDialog({
 
   if (plan) {
     return (
-      <AssetOperationReviewDialog
-        plan={plan}
+      <DialogShell
+        kind="editor"
+        size="md"
+        title="编辑配置"
+        subtitle={`${agent.name} · 检查变更`}
         busy={busy}
-        error={error}
-        agentName={agent.name}
-        onCommit={commit}
-        onCancel={cancelPlan}
-      />
+        onClose={() => void cancelPlan()}
+      >
+        <AssetOperationReviewDialog
+          plan={plan}
+          busy={busy}
+          error={error}
+          agentName={agent.name}
+          cancelLabel="返回编辑"
+          onCommit={commit}
+          onCancel={cancelPlan}
+        />
+      </DialogShell>
     );
   }
 

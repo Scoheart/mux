@@ -4,6 +4,7 @@ import type { ConsumptionState } from "../hooks/useConsumptionState";
 import type { RegistryEntry } from "../lib/types";
 import { keyOf, type Transport } from "../lib/mcp";
 import { EnvEditor } from "./EnvEditor";
+import { AssetOperationReviewDialog } from "./AssetOperationReviewDialog";
 import { DialogShell } from "./DialogShell";
 import { ResourceInspector } from "./ResourceWorkspace";
 import { LayersIcon, SaveIcon } from "./icons";
@@ -130,8 +131,6 @@ export function RegistryEditPage({
         existing_key: existing ? keyOf(existing) : undefined,
         entry: draft,
       });
-      toast.show({ kind: "success", msg: "已准备好更改，请确认后应用。" });
-      onBack();
     } catch (err) {
       toast.show({ kind: "error", msg: `无法保存：${String(err)}` });
     } finally {
@@ -148,8 +147,6 @@ export function RegistryEditPage({
         { domain: "mcp", key: keyOf(existing) },
         sourceId,
       );
-      toast.show({ kind: "success", msg: `已准备恢复 ${name} 的默认设置，请确认后应用。` });
-      onBack();
     } catch (err) {
       toast.show({ kind: "error", msg: `恢复失败: ${String(err)}` });
     } finally {
@@ -301,14 +298,41 @@ export function RegistryEditPage({
     </>
   );
 
+  const review = consumptionState.plan ? (
+    <AssetOperationReviewDialog
+      plan={consumptionState.plan}
+      busy={consumptionState.committing}
+      error={consumptionState.error}
+      cancelLabel="返回编辑"
+      onCancel={consumptionState.cancel}
+      onCommit={async () => {
+        const kind = consumptionState.plan?.kind;
+        await consumptionState.commit();
+        await state.refreshRegistry();
+        toast.show({
+          kind: "success",
+          msg: kind === "delete-asset" ? "MCP 资产已删除。" : "MCP 资产已保存。",
+        });
+        onBack();
+      }}
+    />
+  ) : null;
+  const close = () => {
+    if (!review) {
+      onBack();
+      return;
+    }
+    void consumptionState.cancel().finally(onBack);
+  };
+
   if (presentation === "inspector" && existing) {
     return (
       <ResourceInspector
         title={existing.name}
         avatar={<Avatar seed={existing.name} kind="mcp" size={40} />}
-        subtitle={`编辑 · ${transport === "stdio" ? "stdio" : "HTTP"} · 全局配置`}
-        onClose={onBack}
-        footer={
+        subtitle={review ? "检查变更 · 全局配置" : `编辑 · ${transport === "stdio" ? "stdio" : "HTTP"} · 全局配置`}
+        onClose={close}
+        footer={review ? undefined :
           <>
             {footerStart}
             <div className="flex-1" />
@@ -316,7 +340,7 @@ export function RegistryEditPage({
           </>
         }
       >
-        {form}
+        {review ?? form}
       </ResourceInspector>
     );
   }
@@ -326,13 +350,13 @@ export function RegistryEditPage({
       kind="editor"
       size="lg"
       title={isNew ? "新建 MCP" : "编辑 MCP"}
-      subtitle={transport === "stdio" ? "stdio · 全局配置" : "HTTP · 全局配置"}
-      busy={saving}
-      onClose={onBack}
-      footerStart={footerStart}
-      footerEnd={footerEnd}
+      subtitle={review ? "检查变更 · 确认后写入" : transport === "stdio" ? "stdio · 全局配置" : "HTTP · 全局配置"}
+      busy={saving || consumptionState.committing}
+      onClose={close}
+      footerStart={review ? undefined : footerStart}
+      footerEnd={review ? undefined : footerEnd}
     >
-      {form}
+      {review ?? form}
     </DialogShell>
   );
 }

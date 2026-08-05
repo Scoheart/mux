@@ -43,6 +43,7 @@ interface RegistryViewProps {
   intent?: Extract<ResourceNavigationIntent, { domain: "mcp" }>;
   onIntentConsumed?(id: number): void;
   onCreate: () => void;
+  suppressOperationReview?: boolean;
   onRetryLoad?(): Promise<void>;
   retryLoadDisabled?: boolean;
 }
@@ -141,7 +142,7 @@ function originLabel(origin: RegistryOrigin | undefined, sourceName: (id: string
   return label || (origin.kind === "remote" ? "订阅" : "本地");
 }
 
-export function RegistryView({ state, consumptionState, intent, onIntentConsumed, onCreate, onRetryLoad, retryLoadDisabled = false }: RegistryViewProps) {
+export function RegistryView({ state, consumptionState, intent, onIntentConsumed, onCreate, suppressOperationReview = false, onRetryLoad, retryLoadDisabled = false }: RegistryViewProps) {
   const { t } = useTranslation();
   const { catalog, entries, sources } = state;
   const toast = useToast();
@@ -364,7 +365,24 @@ export function RegistryView({ state, consumptionState, intent, onIntentConsumed
       }
       onInspectorClose={closeDetail}
     >
-      {state.loading || minimumSkeleton ? (
+      {consumptionState?.plan && !editingDetail && !suppressOperationReview ? (
+        <AssetOperationReviewDialog
+          plan={consumptionState.plan}
+          busy={consumptionState.committing}
+          error={consumptionState.error}
+          onCancel={consumptionState.cancel}
+          onCommit={async () => {
+            const kind = consumptionState.plan?.kind;
+            await consumptionState.commit();
+            await state.refreshRegistry();
+            if (kind === "delete-asset") setDetail(null);
+            toast.show({
+              kind: "success",
+              msg: kind === "delete-asset" ? "MCP 资产已删除。" : "MCP 资产已保存。",
+            });
+          }}
+        />
+      ) : state.loading || minimumSkeleton ? (
         <ResourceState kind="loading" title="正在读取 MCP…" />
       ) : state.registryError && catalog.length === 0 ? (
         <ResourceState
@@ -429,24 +447,6 @@ export function RegistryView({ state, consumptionState, intent, onIntentConsumed
       )}
 
       {pasteOpen && <PasteConfigDialog state={state} onClose={() => setPasteOpen(false)} />}
-      {consumptionState?.plan && (
-        <AssetOperationReviewDialog
-          plan={consumptionState.plan}
-          busy={consumptionState.committing}
-          error={consumptionState.error}
-          onCancel={consumptionState.cancel}
-          onCommit={async () => {
-            const kind = consumptionState.plan?.kind;
-            await consumptionState.commit();
-            await state.refreshRegistry();
-            if (kind === "delete-asset") setDetail(null);
-            toast.show({
-              kind: "success",
-              msg: kind === "delete-asset" ? "MCP 资产已删除。" : "MCP 资产已保存。",
-            });
-          }}
-        />
-      )}
       </ResourceWorkspace>
     </div>
   );

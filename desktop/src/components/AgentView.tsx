@@ -569,6 +569,19 @@ export function AgentView({
             skills: skillRows.length + skillExternal.length,
           }}
         >
+          {consumptionState.plan && !preparingChange ? (
+            <AssetOperationReviewDialog
+              plan={consumptionState.plan}
+              busy={consumptionState.committing}
+              error={consumptionState.error}
+              agentId={agent.id}
+              agentName={agent.name}
+              agentDisplayNames={agentDisplayNames}
+              assetDisplayNames={assetDisplayNames}
+              onCommit={() => commitPlan()}
+              onCancel={consumptionState.cancel}
+            />
+          ) : <>
           {visibleIncidents.map((incident) => (
             <div className="mux-target-incident" role="status" key={incident.id}>
               <div>
@@ -757,6 +770,7 @@ export function AgentView({
               }}
             />
           )}
+          </>}
         </AgentResourcePanel>
       </div>
 
@@ -772,20 +786,6 @@ export function AgentView({
           searchPlaceholder={picker.searchPlaceholder}
           onClose={() => setPickerDomain(null)}
           onSelect={(ids) => planAdditions(pickerDomain, ids)}
-        />
-      )}
-
-      {consumptionState.plan && !preparingChange && (
-        <AssetOperationReviewDialog
-          plan={consumptionState.plan}
-          busy={consumptionState.committing}
-          error={consumptionState.error}
-          agentId={agent.id}
-          agentName={agent.name}
-          agentDisplayNames={agentDisplayNames}
-          assetDisplayNames={assetDisplayNames}
-          onCommit={() => commitPlan()}
-          onCancel={consumptionState.cancel}
         />
       )}
 

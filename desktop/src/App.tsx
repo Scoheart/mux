@@ -285,6 +285,7 @@ function App() {
             intent={view.intent}
             onIntentConsumed={consumeResourceIntent}
             onCreate={() => setMcpEditorOpen(true)}
+            suppressOperationReview={mcpEditorOpen}
             onRetryLoad={startupSync.retryFailed}
             retryLoadDisabled={startupSync.syncing}
           />

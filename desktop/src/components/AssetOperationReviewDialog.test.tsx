@@ -422,7 +422,8 @@ it("presents a Model removal as a readable danger summary", () => {
   expect(screen.getByText("移除")).toHaveAttribute("data-action", "remove");
   expect(screen.getByText("Model · OpenRouter 自用")).toBeVisible();
   expect(screen.getByRole("button", { name: "移除 Model" })).toHaveClass("btn-danger");
-  expect(screen.getByRole("button", { name: "关闭" })).toBeEnabled();
+  expect(screen.getByRole("region", { name: "确认移除 Model" })).toBeVisible();
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
 });
 
 it("maps a stale Model removal conflict to a concise retry state", () => {
@@ -468,7 +469,8 @@ it("maps a stale Model removal conflict to a concise retry state", () => {
   );
   expect(screen.queryByText(/requested model/i)).not.toBeInTheDocument();
   expect(screen.getByRole("button", { name: "重试移除 Model" })).toBeEnabled();
-  expect(screen.getByRole("button", { name: "关闭" })).toBeEnabled();
+  expect(screen.getByRole("region", { name: "确认移除 Model" })).toBeVisible();
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
 });
 
 it("separates direct Skill assignment from compatible visibility", () => {

@@ -392,6 +392,33 @@ export function ModelsView({
         ) : undefined}
         onInspectorClose={clearSelection}
       >
+        {consumptionState?.plan ? (
+          <AssetOperationReviewDialog
+            plan={consumptionState.plan}
+            busy={consumptionState.committing}
+            error={consumptionState.error}
+            assetDisplayNames={Object.fromEntries(
+              [
+                ...profiles.map((profile) => [`model:${profile.id}`, profile.name] as const),
+                ...providerInstances.map((provider) => [
+                  `model-provider:${provider.id}`,
+                  provider.name,
+                ] as const),
+              ],
+            )}
+            onCancel={consumptionState.cancel}
+            onCommit={async () => {
+              const kind = consumptionState.plan?.kind;
+              await consumptionState.commit();
+              await refresh();
+              if (kind === "delete-asset") setSelectedProfileId(null);
+              toast.show({
+                kind: "success",
+                msg: kind === "delete-asset" ? t("models.deleted") : t("models.saved"),
+              });
+            }}
+          />
+        ) : <>
         {selectedProvider && (
           <ProviderBanner
             provider={selectedProvider}
@@ -453,6 +480,7 @@ export function ModelsView({
             }}
           />
         )}
+        </>}
       </ResourceWorkspace>
 
       {providerCatalogOpen && (
@@ -518,33 +546,6 @@ export function ModelsView({
         />
       )}
 
-      {consumptionState?.plan && (
-        <AssetOperationReviewDialog
-          plan={consumptionState.plan}
-          busy={consumptionState.committing}
-          error={consumptionState.error}
-          assetDisplayNames={Object.fromEntries(
-            [
-              ...profiles.map((profile) => [`model:${profile.id}`, profile.name] as const),
-              ...providerInstances.map((provider) => [
-                `model-provider:${provider.id}`,
-                provider.name,
-              ] as const),
-            ],
-          )}
-          onCancel={consumptionState.cancel}
-          onCommit={async () => {
-            const kind = consumptionState.plan?.kind;
-            await consumptionState.commit();
-            await refresh();
-            if (kind === "delete-asset") setSelectedProfileId(null);
-            toast.show({
-              kind: "success",
-              msg: kind === "delete-asset" ? t("models.deleted") : t("models.saved"),
-            });
-          }}
-        />
-      )}
     </div>
   );
 }

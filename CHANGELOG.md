@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.120](https://github.com/Scoheart/mux/compare/v1.8.119...v1.8.120) (2026-08-05)
+
+### Changes
+
+* feat(mcp): add immediate and bulk enabled controls ([a24be7c](https://github.com/Scoheart/mux/commit/a24be7c7621302eff8fe5c0632a55cf1af12ad6f))
+
 ## [1.8.119](https://github.com/Scoheart/mux/compare/v1.8.118...v1.8.119) (2026-08-05)
 
 ### Changes

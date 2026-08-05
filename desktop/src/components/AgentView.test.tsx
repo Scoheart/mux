@@ -395,6 +395,7 @@ it("keeps an external MCP card read-only", async () => {
     agents: [mcpAgent],
     refreshAgents: vi.fn().mockResolvedValue([mcpAgent]),
   } as unknown as InstallState;
+  const planClearAgentMcp = vi.fn().mockResolvedValue(assetOperationPlanFixture());
   const consumptionState = {
     agents: [],
     inventory: {
@@ -412,6 +413,7 @@ it("keeps an external MCP card read-only", async () => {
         available_actions: ["adopt-observed"],
       }],
     },
+    planClearAgentMcp,
   } as unknown as ConsumptionState;
   render(
     <AgentView
@@ -438,6 +440,10 @@ it("keeps an external MCP card read-only", async () => {
   expect(within(card!).queryByRole("switch")).not.toBeInTheDocument();
   expect(within(card!).queryByRole("button", { name: /查看|移除/ })).not.toBeInTheDocument();
   expect(within(card!).getByRole("button", { name: "采用外部" })).toBeVisible();
+  const clearAll = screen.getByRole("button", { name: "移除全部 MCP" });
+  expect(clearAll).toHaveAttribute("title", expect.stringContaining("包括外部配置"));
+  await userEvent.click(clearAll);
+  expect(planClearAgentMcp).toHaveBeenCalledWith("codex");
 });
 
 it("adds an Agent asset as a delta with inline progress and no routine review dialog", async () => {

@@ -72,6 +72,7 @@ interface AgentViewProps {
 }
 
 function completedMessage(plan: AssetOperationPlan, agentName: string) {
+  if (plan.kind === "clear-mcp") return `${agentName} 的全部 MCP 已移除。`;
   const domain = plan.domain_plan.domain;
   const asset = domain === "mcp" ? "MCP" : domain === "model" ? "Model" : "Skill";
   const hasAdd = plan.relationship_changes.some((change) => change.action === "add");
@@ -394,6 +395,17 @@ export function AgentView({
     );
   };
 
+  const planClearMcp = async () => {
+    setPreparingChange(true);
+    try {
+      await consumptionState.planClearAgentMcp(agentId);
+    } catch (error) {
+      showToast({ kind: "error", msg: "无法准备清空 MCP：" + formatError(error) });
+    } finally {
+      setPreparingChange(false);
+    }
+  };
+
   const commitPlan = async (
     preparedPlan?: AssetOperationPlan,
     successMessage?: string,
@@ -586,6 +598,10 @@ export function AgentView({
               externalMode="cards"
               onManage={() => setPickerDomain("mcp")}
               manageDisabled={!agent.has_global || preparingChange}
+              bulkRemoveLabel="移除全部 MCP"
+              bulkRemoveTitle={`清空 ${agent.name} 的全部 MCP，包括外部配置；不会删除中央 MCP 资产`}
+              bulkRemoveDisabled={preparingChange || mcpRows.length + mcpExternal.length === 0}
+              onBulkRemove={() => void planClearMcp()}
               onEnabledChange={(item, enabled) => void toggleMcpEnabled(item, enabled)}
               enabledChangeDisabled={(item) => togglingMcp?.key === (item.asset.domain === "mcp" ? item.asset.key : "")
                 || item.status !== "synced"}

@@ -40,6 +40,7 @@ export interface ConsumptionState {
     agentId: string,
     selection: AgentConsumptionSelection,
   ): Promise<AssetOperationPlan>;
+  planClearAgentMcp(agentId: string): Promise<AssetOperationPlan>;
   planMcpEnabled(
     agentId: string,
     assetKey: string,
@@ -187,6 +188,14 @@ export function useConsumptionState({ autoLoad = true }: { autoLoad?: boolean } 
     (agentId: string, selection: AgentConsumptionSelection) => startPlan({
       operation: "ensure_agent_consumption",
       request: { agent_id: agentId, selection },
+    }),
+    [startPlan],
+  );
+
+  const planClearAgentMcp = useCallback(
+    (agentId: string) => startPlan({
+      operation: "clear_agent_mcp",
+      request: { agent_id: agentId },
     }),
     [startPlan],
   );
@@ -346,6 +355,7 @@ export function useConsumptionState({ autoLoad = true }: { autoLoad?: boolean } 
     refreshAgents,
     planForAgent,
     planAdditionsForAgent,
+    planClearAgentMcp,
     planMcpEnabled,
     planSkillEnabled,
     planModelEnabled,

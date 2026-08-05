@@ -66,6 +66,13 @@ fn unified_operation_envelopes_match_the_tauri_json_contract() {
         PlanOperationRequest::SetAgentConsumption(_)
     ));
 
+    let clear_mcp: PlanOperationRequest = serde_json::from_value(json!({
+        "operation": "clear_agent_mcp",
+        "request": { "agent_id": "qoder" }
+    }))
+    .unwrap();
+    assert!(matches!(clear_mcp, PlanOperationRequest::ClearAgentMcp(_)));
+
     let skill_plan: PlanOperationRequest = serde_json::from_value(json!({
         "operation": "assign_skill",
         "request": {

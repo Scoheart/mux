@@ -404,6 +404,33 @@ impl Adapter for TomlListAdapter {
         self.write_document(path, &document, original.as_deref())
     }
 
+    fn clear(&self, path: &Path) -> Result<(), String> {
+        if !path.exists() {
+            return Ok(());
+        }
+        let (mut document, original) = self.read_document(path)?;
+        let Some(section) = self.section_mut(&mut document, path, false)? else {
+            return Ok(());
+        };
+        if section.is_empty() {
+            return Ok(());
+        }
+        for index in (0..section.len()).rev() {
+            section.remove(index);
+        }
+        self.write_document(path, &document, original.as_deref())
+    }
+
+    fn has_entries(&self, path: &Path) -> Result<bool, String> {
+        if !path.exists() {
+            return Ok(false);
+        }
+        let (mut document, _) = self.read_document(path)?;
+        Ok(self
+            .section_mut(&mut document, path, false)?
+            .is_some_and(|section| !section.is_empty()))
+    }
+
     fn snapshot(&self, path: &Path, name: &str) -> Result<Option<Value>, String> {
         let (document, _) = self.read_document(path)?;
         self.validate_root_enablement(&document)?;

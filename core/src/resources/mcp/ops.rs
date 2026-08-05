@@ -9,7 +9,9 @@ use crate::domain::types::{
 };
 use crate::paths::{backup_timestamp, backups_dir, settings_file};
 use crate::resources::mcp::adapter::get_agent_adapter_for;
-use crate::resources::mcp::applier::{apply_diffs, remove_snapshot, restore_snapshot, ApplyError};
+use crate::resources::mcp::applier::{
+    apply_diffs, backup, remove_snapshot, restore_snapshot, ApplyError,
+};
 use crate::resources::mcp::codec::{decode_any, from_name, normalize_with_codec, Codec};
 use crate::resources::mcp::differ::{DiffAction, DiffEntry};
 use crate::resources::mcp::disabled::{
@@ -313,6 +315,45 @@ pub fn clean(only_agent: Option<&str>) -> CleanOutcome {
         }
     }
     CleanOutcome { cleaned, errors }
+}
+
+/// Atomically clear the complete MCP section for one enabled Agent. The
+/// adapter-level clear removes even entries whose payload is not decodable as
+/// a supported transport, while retaining every non-MCP sibling setting.
+pub fn clear_agent(agent_id: &str) -> Result<(), String> {
+    let _settings_guard = mutation_lock()?;
+    let agents = load_agents();
+    let agent = agents
+        .get(agent_id)
+        .ok_or_else(|| format!("unknown Agent: {agent_id}"))?;
+    if !agent.enabled {
+        return Err(format!(
+            "agent_disabled: Agent {agent_id} is disabled in MUX"
+        ));
+    }
+    let path = target_file(agent, "global", None)
+        .ok_or_else(|| format!("{agent_id}: global config path is unavailable"))?;
+    if !path.exists() {
+        return Ok(());
+    }
+    backup(
+        &path,
+        &backups_dir(),
+        &backup_timestamp(),
+        agent_id,
+        "global",
+    )?;
+    get_agent_adapter_for(agent, agent_id).clear(&path)
+}
+
+pub fn agent_has_entries(agent_id: &str) -> Result<bool, String> {
+    let agents = load_agents();
+    let agent = agents
+        .get(agent_id)
+        .ok_or_else(|| format!("unknown Agent: {agent_id}"))?;
+    let path = target_file(agent, "global", None)
+        .ok_or_else(|| format!("{agent_id}: global config path is unavailable"))?;
+    get_agent_adapter_for(agent, agent_id).has_entries(&path)
 }
 
 // ── Registry entry editing (upsert / remove / paste-import) ────────────────

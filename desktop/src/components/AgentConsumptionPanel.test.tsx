@@ -30,6 +30,29 @@ const externalRow: ConsumptionView = {
 };
 
 describe("AgentConsumptionPanel", () => {
+  it("places the explicit bulk MCP removal next to the add action", async () => {
+    const onBulkRemove = vi.fn();
+    render(
+      <AgentConsumptionPanel
+        domain="mcp"
+        title="MCP"
+        manageLabel="添加 MCP"
+        rows={[syncedRow]}
+        external={[externalRow]}
+        present={() => ({ name: "MCP" })}
+        onManage={vi.fn()}
+        bulkRemoveLabel="移除全部 MCP"
+        bulkRemoveTitle="清空 Codex 的全部 MCP，包括外部配置"
+        onBulkRemove={onBulkRemove}
+      />,
+    );
+
+    const button = screen.getByRole("button", { name: "移除全部 MCP" });
+    expect(button).toHaveAttribute("title", "清空 Codex 的全部 MCP，包括外部配置");
+    await userEvent.click(button);
+    expect(onBulkRemove).toHaveBeenCalledOnce();
+  });
+
   it("uses direct Agent actions and keeps healthy sync state quiet", async () => {
     const onManage = vi.fn();
     const onRemove = vi.fn();

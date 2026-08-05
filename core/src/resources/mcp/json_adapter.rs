@@ -424,6 +424,47 @@ impl Adapter for JsonAdapter {
         Ok(())
     }
 
+    fn clear(&self, path: &Path) -> Result<(), String> {
+        if !path.exists() {
+            return Ok(());
+        }
+        let (root, original) = self.read_document(path)?;
+        let object = root.object_value().ok_or_else(|| {
+            format!(
+                "refusing to modify {}: JSON root is not an object",
+                path.display()
+            )
+        })?;
+        let Some(section) = self.section_object(object, path, false)? else {
+            return Ok(());
+        };
+        self.validate_section_mutation_policy(&section, path)?;
+        let properties = section.properties();
+        if properties.is_empty() {
+            return Ok(());
+        }
+        for property in properties {
+            property.remove();
+        }
+        self.write_document(path, &root, original.as_deref())
+    }
+
+    fn has_entries(&self, path: &Path) -> Result<bool, String> {
+        if !path.exists() {
+            return Ok(false);
+        }
+        let (root, _) = self.read_document(path)?;
+        let object = root.object_value().ok_or_else(|| {
+            format!(
+                "refusing to read {}: JSON root is not an object",
+                path.display()
+            )
+        })?;
+        Ok(self
+            .section_object(object, path, false)?
+            .is_some_and(|section| !section.properties().is_empty()))
+    }
+
     fn snapshot(&self, path: &Path, name: &str) -> Result<Option<Value>, String> {
         let (root, original) = self.read_document(path)?;
         if original

@@ -72,5 +72,9 @@ describe("Agent operation review policy", () => {
       reason: "model_removed",
     }];
     expect(requiresAgentReview(currentModel)).toBe(true);
+
+    const clearMcp = plan();
+    clearMcp.kind = "clear-mcp";
+    expect(requiresAgentReview(clearMcp)).toBe(true);
   });
 });

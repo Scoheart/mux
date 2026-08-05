@@ -94,6 +94,35 @@ it("presents Agent assignment as a direct add action", () => {
   expect(screen.queryByText(/desired relationship/)).not.toBeInTheDocument();
 });
 
+it("requires an explicit destructive confirmation for clearing all Agent MCPs", async () => {
+  const plan = assetOperationPlanFixture();
+  plan.kind = "clear-mcp";
+  plan.domain_plan = { domain: "mcp", before: {}, after: {} };
+  plan.relationship_changes = [];
+  plan.affected_agent_ids = ["qoder"];
+  plan.target_files = ["~/.qoder/mcp.json"];
+  const onCommit = vi.fn();
+
+  render(
+    <AssetOperationReviewDialog
+      plan={plan}
+      busy={false}
+      agentId="qoder"
+      agentName="Qoder Desktop"
+      onCommit={onCommit}
+      onCancel={vi.fn()}
+    />,
+  );
+
+  expect(screen.getByRole("heading", { name: "确认移除全部 MCP" })).toBeVisible();
+  expect(screen.getByText(/包括外部新增项和停用项/)).toBeVisible();
+  expect(screen.getByText(/中央 MCP 资产及其他 Agent 不受影响/)).toBeVisible();
+  const commit = screen.getByRole("button", { name: "移除全部 MCP" });
+  expect(commit).toHaveClass("btn-danger");
+  await userEvent.click(commit);
+  expect(onCommit).toHaveBeenCalledOnce();
+});
+
 it("shows an MCP enabled-state change separately from relationship changes", () => {
   const plan = assetOperationPlanFixture();
   plan.domain_plan = {

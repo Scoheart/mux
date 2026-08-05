@@ -55,6 +55,7 @@ Registry 默认显示所有已启用来源中的**每一份副本**。同一个 
 1. 在顶部 Agent 选择器中选择一个 Agent。
 2. 在 Agent 配置中心确认 **Agent 配置文件**与 **MCP 配置文件**。两者可能是同一文件，也可能是两个独立文件；MUX 会明确标注。
 3. 在 MCPs、Model 或 Skills 标签点击“管理”，从中央资产选择器设置该 Agent 的完整 desired selection；MCPs 与 Skills 可多选，支持多模型的 Agent 也可分配多个 Model Profile，但任一时刻最多一个为 current。单模型 Agent 仍只接受一个 Profile。
+   MCP 标签还提供“移除全部 MCP”：明确确认后清空该 Agent 的受管、停用与外部 MCP，但不会删除中央资产或改动其他 Agent。
 4. 审阅关系变化、目标文件、共享 Skill target 与异常状态后提交。MUX 备份、按 Agent 原生格式写入，并重新扫描验证。
 
 Desktop 内的消费关系从 Agent 页面修改；中央资产详情不反向配置 Agent。CLI 也可用三类统一的 `assign` / `unassign` / `enable` / `disable` 命令管理同一关系。MUX 当前只管理 Agent 的用户级全局配置。

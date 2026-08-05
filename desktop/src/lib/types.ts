@@ -663,7 +663,7 @@ export type DomainPlan =
 
 export interface AssetOperationPlan {
   operation_id: string;
-  kind: "set-consumption" | "update-asset" | "delete-asset" | "adopt" | "update-configuration";
+  kind: "set-consumption" | "clear-mcp" | "update-asset" | "delete-asset" | "adopt" | "update-configuration";
   domain_plan: DomainPlan;
   central_changes: CentralAssetChange[];
   relationship_changes: RelationshipChange[];
@@ -722,6 +722,10 @@ export type PlanOperationRequest =
   | {
       operation: "remove_agent_consumption";
       request: { agent_id: string; selection: AgentConsumptionSelection };
+    }
+  | {
+      operation: "clear_agent_mcp";
+      request: { agent_id: string };
     }
   | {
       operation: "set_asset_consumers";

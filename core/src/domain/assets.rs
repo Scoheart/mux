@@ -305,6 +305,7 @@ impl ModelAgentSelection {
 #[serde(rename_all = "kebab-case")]
 pub enum AssetOperationKind {
     SetConsumption,
+    ClearMcp,
     UpdateAsset,
     DeleteAsset,
     Adopt,
@@ -501,6 +502,14 @@ pub struct PlanEnsureAgentConsumptionRequest {
 pub struct PlanRemoveAgentConsumptionRequest {
     pub agent_id: String,
     pub selection: AgentConsumptionSelection,
+}
+
+/// Clear every MCP entry from one Agent target, including disabled snapshots
+/// and externally-created entries, without deleting central MCP assets.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct PlanClearAgentMcpRequest {
+    pub agent_id: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

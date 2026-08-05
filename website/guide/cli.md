@@ -92,9 +92,11 @@ JSON 状态中的 `capability_errors` 表示能力域局部不可用；`recovery
 | Agent | Agent ID | `claude-code`、`codex` |
 
 关系命令必须显式带一个 `--agent <id>`。`assign` / `unassign` 可在一次命令中处理多个准确资产 ID；`enable` / `disable` / `use` / `converge` 一次处理一个。
+MCP 另支持 `unassign --all`：审阅后清空这一个 Agent 的全部 MCP，包括受管项、停用快照和外部项；中央 MCP 资产与其他 Agent 不受影响。
 
 ```bash
 mux mcp assign github::stdio filesystem::stdio --agent claude-code
+mux mcp unassign --all --agent qoder
 mux skill unassign source-explainer --agent codex
 mux model assign work backup --agent pi
 mux model use work --agent pi

@@ -154,6 +154,9 @@ mux upgrade
 All Agent-relationship writes use exact stable asset IDs and exactly one explicit
 `--agent <id>`. `assign` adds only the named relationships; `unassign` removes
 only those relationships; `enable` and `disable` preserve the relationship.
+For MCP only, `mux mcp unassign --all --agent <id>` performs a reviewed,
+target-scoped clear of managed, disabled, and external MCP entries while
+leaving the central catalog and every other Agent unchanged.
 `mux model use <profile-id> --agent <id>` selects the current Model independently
 of assignment. `converge <asset-id> --agent <id> <adopt|restore|detach>` is the
 shared explicit reconciliation verb; repeating `assign`, `enable`, or `use`

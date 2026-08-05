@@ -36,6 +36,10 @@ export function AgentConsumptionPanel({
   convergenceDisabled = false,
   removeLabel,
   manageDisabled = false,
+  bulkRemoveLabel,
+  bulkRemoveTitle,
+  bulkRemoveDisabled = false,
+  onBulkRemove,
   removeDisabled = false,
   emptyTitle = "还没有添加资产",
   emptyDescription,
@@ -64,6 +68,10 @@ export function AgentConsumptionPanel({
   convergenceDisabled?: boolean;
   removeLabel?(name: string): string;
   manageDisabled?: boolean;
+  bulkRemoveLabel?: string;
+  bulkRemoveTitle?: string;
+  bulkRemoveDisabled?: boolean;
+  onBulkRemove?(): void;
   removeDisabled?: boolean;
   emptyTitle?: string;
   emptyDescription?: string;
@@ -85,15 +93,29 @@ export function AgentConsumptionPanel({
           <h3>{title}</h3>
           {description && <p>{description}</p>}
         </div>
-        <button
-          type="button"
-          className="btn-primary"
-          disabled={manageDisabled}
-          onClick={onManage}
-        >
-          {manageIcon}
-          {manageLabel}
-        </button>
+        <div className="mux-agent-section-actions">
+          {bulkRemoveLabel && onBulkRemove && (
+            <button
+              type="button"
+              className="btn-danger"
+              disabled={bulkRemoveDisabled}
+              title={bulkRemoveTitle}
+              onClick={onBulkRemove}
+            >
+              <TrashIcon className="w-3.5 h-3.5" />
+              {bulkRemoveLabel}
+            </button>
+          )}
+          <button
+            type="button"
+            className="btn-primary"
+            disabled={manageDisabled}
+            onClick={onManage}
+          >
+            {manageIcon}
+            {manageLabel}
+          </button>
+        </div>
       </div>
 
       {externalMode === "summary" && domainExternal.length > 0 && (

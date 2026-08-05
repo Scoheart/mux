@@ -92,9 +92,11 @@ Mutations use exact stable IDs and never fuzzy-match display names:
 | Agent | Agent ID | `claude-code`, `codex` |
 
 Relationship commands require one explicit `--agent <id>`. `assign` and `unassign` can process several exact asset IDs; `enable`, `disable`, `use`, and `converge` process one at a time.
+MCP additionally supports `unassign --all`: after review, it clears every managed, disabled, and external MCP entry from that one Agent while leaving central MCP assets and every other Agent unchanged.
 
 ```bash
 mux mcp assign github::stdio filesystem::stdio --agent claude-code
+mux mcp unassign --all --agent qoder
 mux skill unassign source-explainer --agent codex
 mux model assign work backup --agent pi
 mux model use work --agent pi

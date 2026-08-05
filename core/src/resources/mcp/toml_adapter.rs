@@ -234,6 +234,52 @@ impl Adapter for TomlAdapter {
         Ok(())
     }
 
+    fn clear(&self, path: &Path) -> Result<(), String> {
+        if !path.exists() {
+            return Ok(());
+        }
+        let (mut document, original) = self.read_document(path)?;
+        let Some(section_item) = document.as_table_mut().get_mut(&self.key) else {
+            return Ok(());
+        };
+        let section = section_item.as_table_mut().ok_or_else(|| {
+            format!(
+                "refusing to modify {}: '{}' is not a TOML table",
+                path.display(),
+                self.key
+            )
+        })?;
+        let names = section
+            .iter()
+            .map(|(name, _)| name.to_string())
+            .collect::<Vec<_>>();
+        if names.is_empty() {
+            return Ok(());
+        }
+        for name in names {
+            section.remove(&name);
+        }
+        self.write_document(path, &document, original.as_deref())
+    }
+
+    fn has_entries(&self, path: &Path) -> Result<bool, String> {
+        if !path.exists() {
+            return Ok(false);
+        }
+        let (document, _) = self.read_document(path)?;
+        let Some(section_item) = document.as_table().get(&self.key) else {
+            return Ok(false);
+        };
+        let section = section_item.as_table().ok_or_else(|| {
+            format!(
+                "refusing to read {}: '{}' is not a TOML table",
+                path.display(),
+                self.key
+            )
+        })?;
+        Ok(!section.is_empty())
+    }
+
     fn snapshot(&self, path: &Path, name: &str) -> Result<Option<serde_json::Value>, String> {
         let (document, _) = self.read_document(path)?;
         let Some(section_item) = document.as_table().get(&self.key) else {

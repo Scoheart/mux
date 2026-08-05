@@ -268,6 +268,9 @@ fn operation_has_changes(plan: &OperationPlan) -> bool {
 }
 
 fn asset_plan_has_changes(plan: &AssetOperationPlan) -> bool {
+    if plan.kind == mux_core::application::assets::AssetOperationKind::ClearMcp {
+        return true;
+    }
     if !plan.central_changes.is_empty()
         || !plan.relationship_changes.is_empty()
         || !plan.model_state_changes.is_empty()

@@ -117,6 +117,20 @@ it("plans Agent additions as an atomic delta instead of replacing a stale select
   });
 });
 
+it("plans a target-scoped clear for every MCP in one Agent", async () => {
+  const { result } = renderHook(() => useConsumptionState());
+  await waitFor(() => expect(result.current.loading).toBe(false));
+
+  await act(async () => {
+    await result.current.planClearAgentMcp("qoder");
+  });
+
+  expect(api.planOperation).toHaveBeenCalledWith({
+    operation: "clear_agent_mcp",
+    request: { agent_id: "qoder" },
+  });
+});
+
 it("loads the Agent capability projection independently from relationships", async () => {
   vi.mocked(api.listAgentCapabilities).mockResolvedValueOnce([{
       identity: {

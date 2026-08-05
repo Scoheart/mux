@@ -6,6 +6,7 @@ import type { AssetOperationPlan } from "./types";
  * routine reversible relationship change can proceed with progress feedback.
  */
 export function requiresAgentReview(plan: AssetOperationPlan) {
+  if (plan.kind === "clear-mcp") return true;
   if (
     !plan.can_commit
     || plan.warnings.length > 0

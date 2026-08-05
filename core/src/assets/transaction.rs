@@ -808,7 +808,8 @@ fn resolves_target_incident(operation: &PersistedAssetOperation) -> bool {
         || matches!(
             operation.lifecycle,
             Some(
-                LifecycleBinding::McpReapply { .. }
+                LifecycleBinding::McpClear { .. }
+                    | LifecycleBinding::McpReapply { .. }
                     | LifecycleBinding::ModelReapply { .. }
                     | LifecycleBinding::SkillReapply { .. }
                     | LifecycleBinding::SkillAdoptObserved { .. }
@@ -843,6 +844,29 @@ fn apply_operation(
         );
     };
     match lifecycle {
+        LifecycleBinding::McpClear { agent_id } => {
+            mutate_settings(|settings| {
+                if let Some(consumptions) = settings.mcp_consumptions.as_mut() {
+                    consumptions.remove(agent_id);
+                    if consumptions.is_empty() {
+                        settings.mcp_consumptions = None;
+                    }
+                }
+                if let Some(disabled) = settings.disabled.as_mut() {
+                    disabled.remove(agent_id);
+                    if disabled.is_empty() {
+                        settings.disabled = None;
+                    }
+                }
+            })
+            .map_err(|error| error.to_string())?;
+            match crate::resources::mcp::ops::clear_agent(agent_id) {
+                Ok(()) => clear_target_incidents(&persisted.plan, agent_id),
+                Err(_) => {
+                    record_target_incident(&persisted.plan, agent_id, "target_convergence_failed")
+                }
+            }
+        }
         LifecycleBinding::McpUpsert {
             key,
             draft_hash,
@@ -1169,6 +1193,23 @@ fn verify_operation(persisted: &PersistedAssetOperation) -> Result<(), String> {
         return Ok(());
     };
     match lifecycle {
+        LifecycleBinding::McpClear { agent_id } => {
+            let settings = load_settings_strict().map_err(|error| error.to_string())?;
+            let has_consumptions = settings
+                .mcp_consumptions
+                .as_ref()
+                .and_then(|records| records.get(agent_id))
+                .is_some_and(|records| !records.is_empty());
+            let has_disabled = settings
+                .disabled
+                .as_ref()
+                .and_then(|records| records.get(agent_id))
+                .is_some_and(|records| !records.is_empty());
+            if has_consumptions || has_disabled {
+                return Err("MCP clear desired state verification failed".into());
+            }
+            Ok(())
+        }
         LifecycleBinding::McpUpsert {
             key,
             draft_hash,

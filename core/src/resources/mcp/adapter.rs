@@ -23,6 +23,13 @@ pub trait Adapter {
     /// Remove `names` from the `key` section, leaving all other entries untouched.
     /// No-op if the file does not exist.
     fn remove(&self, path: &Path, names: &[String]) -> Result<(), String>;
+    /// Remove every entry from the MCP section while preserving all sibling
+    /// configuration. Unlike `read` + `remove`, this also clears entries whose
+    /// payload cannot be decoded as a supported MCP transport.
+    fn clear(&self, path: &Path) -> Result<(), String>;
+    /// Return whether the raw MCP section contains any entries, including
+    /// entries that are not decodable as supported MCP transports.
+    fn has_entries(&self, path: &Path) -> Result<bool, String>;
     /// Capture one complete server entry before a destructive operation. Unlike
     /// `read`, this includes Agent-owned policy fields that MUX does not model.
     fn snapshot(&self, path: &Path, name: &str) -> Result<Option<Value>, String>;
@@ -138,6 +145,14 @@ impl Adapter for UnsupportedAdapter {
 
     fn remove(&self, _path: &Path, _names: &[String]) -> Result<(), String> {
         self.error()
+    }
+
+    fn clear(&self, _path: &Path) -> Result<(), String> {
+        self.error()
+    }
+
+    fn has_entries(&self, _path: &Path) -> Result<bool, String> {
+        Err(self.error.clone())
     }
 
     fn snapshot(&self, _path: &Path, _name: &str) -> Result<Option<Value>, String> {

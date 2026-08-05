@@ -718,6 +718,54 @@ impl Adapter for YamlAdapter {
         Ok(())
     }
 
+    fn clear(&self, path: &Path) -> Result<(), String> {
+        if !path.exists() {
+            return Ok(());
+        }
+        let (file, document, original) = self.read_document(path)?;
+        let root = self.ensure_root(&document, path)?;
+        let changed = if self.list {
+            let Some(sequence) = self.section_sequence(&root, path, false)? else {
+                return Ok(());
+            };
+            let changed = !sequence.is_empty();
+            for index in (0..sequence.len()).rev() {
+                sequence.remove(index);
+            }
+            changed
+        } else {
+            let Some(section) = self.section_mapping(&root, path, false)? else {
+                return Ok(());
+            };
+            let keys = Self::mapping_keys(&section);
+            for key in &keys {
+                section.remove(key.as_str());
+            }
+            !keys.is_empty()
+        };
+        if changed {
+            self.write_document(path, &file, original.as_deref())?;
+        }
+        Ok(())
+    }
+
+    fn has_entries(&self, path: &Path) -> Result<bool, String> {
+        if !path.exists() {
+            return Ok(false);
+        }
+        let (_, document, _) = self.read_document(path)?;
+        let root = self.ensure_root(&document, path)?;
+        if self.list {
+            Ok(self
+                .section_sequence(&root, path, false)?
+                .is_some_and(|section| !section.is_empty()))
+        } else {
+            Ok(self
+                .section_mapping(&root, path, false)?
+                .is_some_and(|section| !Self::mapping_keys(&section).is_empty()))
+        }
+    }
+
     fn snapshot(&self, path: &Path, name: &str) -> Result<Option<Value>, String> {
         self.snapshot_node(path, name)?
             .map(|node| {

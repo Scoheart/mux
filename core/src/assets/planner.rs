@@ -7,12 +7,12 @@ use super::types::{
     AgentConsumptionSelection, AssetOperationKind, AssetOperationPlan, AssetRef,
     CentralAssetChange, ConsumptionInventory, ConsumptionStateChange, ConsumptionStatus,
     ConsumptionTarget, DomainPlan, McpReapplyScope, ModelConsumptionRecord, ModelStateChange,
-    ModelStateSnapshot, PlanEnsureAgentConsumptionRequest, PlanReapplyMcpRequest,
-    PlanReapplyModelRequest, PlanReapplySkillRequest, PlanRemoveAgentConsumptionRequest,
-    PlanSetActiveModelRequest, PlanSetAgentConsumptionRequest, PlanSetAssetConsumersRequest,
-    PlanSetMcpEnabledRequest, PlanSetModelEnabledRequest, PlanSetSkillEnabledRequest,
-    PlanUpdateAgentCapabilitiesRequest, PlanUpdateAssetConsumersRequest, RelationshipAction,
-    RelationshipChange,
+    ModelStateSnapshot, PlanClearAgentMcpRequest, PlanEnsureAgentConsumptionRequest,
+    PlanReapplyMcpRequest, PlanReapplyModelRequest, PlanReapplySkillRequest,
+    PlanRemoveAgentConsumptionRequest, PlanSetActiveModelRequest, PlanSetAgentConsumptionRequest,
+    PlanSetAssetConsumersRequest, PlanSetMcpEnabledRequest, PlanSetModelEnabledRequest,
+    PlanSetSkillEnabledRequest, PlanUpdateAgentCapabilitiesRequest,
+    PlanUpdateAssetConsumersRequest, RelationshipAction, RelationshipChange,
 };
 use crate::agents::{
     builtin_agents, current_configuration_patch, load_agents, normalize_configuration_patch,
@@ -74,6 +74,9 @@ pub(crate) struct PersistedAssetOperation {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "domain", rename_all = "kebab-case")]
 pub(crate) enum LifecycleBinding {
+    McpClear {
+        agent_id: String,
+    },
     McpUpsert {
         key: String,
         draft_hash: String,
@@ -376,6 +379,53 @@ pub fn plan_remove_agent_consumption(
         }
     };
     plan_agent_consumption(request.agent_id, selection, &settings, skill_inventory)
+}
+
+pub fn plan_clear_agent_mcp(
+    request: PlanClearAgentMcpRequest,
+) -> Result<AssetOperationPlan, String> {
+    validate_agent_id(&request.agent_id)?;
+    require_enabled_agent(&request.agent_id)?;
+    let agents = load_agents();
+    let target = agents
+        .get(&request.agent_id)
+        .and_then(|agent| agent.global.clone())
+        .ok_or_else(|| format!("unsupported MCP Agent: {}", request.agent_id))?;
+    let settings = load_settings_strict().map_err(|error| error.to_string())?;
+    let before = current_mcp_selection(&settings, &request.agent_id);
+    let inventory = list_consumption_inventory()?;
+    let observed = inventory
+        .consumptions
+        .iter()
+        .chain(inventory.external.iter())
+        .any(|item| {
+            item.agent_id == request.agent_id && matches!(item.asset, AssetRef::Mcp { .. })
+        })
+        || crate::resources::mcp::ops::agent_has_entries(&request.agent_id)?;
+    let disabled = settings
+        .disabled
+        .as_ref()
+        .and_then(|records| records.get(&request.agent_id))
+        .is_some_and(|records| !records.is_empty());
+    if before.is_empty() && !observed && !disabled {
+        return finalize_plan(DomainPlan::Mcp {
+            before: BTreeMap::new(),
+            after: BTreeMap::new(),
+        });
+    }
+    finalize_plan_with_inventory(
+        AssetOperationKind::ClearMcp,
+        DomainPlan::Mcp {
+            before: BTreeMap::from([(request.agent_id.clone(), before)]),
+            after: BTreeMap::from([(request.agent_id.clone(), Vec::new())]),
+        },
+        Vec::new(),
+        vec![target],
+        Some(LifecycleBinding::McpClear {
+            agent_id: request.agent_id,
+        }),
+        &inventory,
+    )
 }
 
 pub fn plan_set_model_enabled(
@@ -1862,8 +1912,10 @@ fn finalize_plan_with_inventory(
                 | LifecycleBinding::SkillReapply { .. }
         )
     );
-    let relation_target_write = kind == AssetOperationKind::SetConsumption
-        || (!central_changes.is_empty() && !effects.is_empty())
+    let relation_target_write = matches!(
+        kind,
+        AssetOperationKind::SetConsumption | AssetOperationKind::ClearMcp
+    ) || (!central_changes.is_empty() && !effects.is_empty())
         || matches!(
             lifecycle.as_ref(),
             Some(

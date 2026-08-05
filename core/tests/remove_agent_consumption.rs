@@ -3,17 +3,17 @@
 mod support;
 
 use mux_core::application::assets::{
-    cancel_asset_operation, commit_asset_operation, list_inventory, plan_ensure_agent_consumption,
-    plan_remove_agent_consumption, plan_set_agent_consumption, plan_set_model_enabled,
-    plan_set_skill_enabled,
+    cancel_asset_operation, commit_asset_operation, list_inventory, plan_clear_agent_mcp,
+    plan_ensure_agent_consumption, plan_remove_agent_consumption, plan_set_agent_consumption,
+    plan_set_mcp_enabled, plan_set_model_enabled, plan_set_skill_enabled,
 };
 use mux_core::application::operations::{OperationPlan, PlanOperationRequest};
 use mux_core::application::MuxCore;
 use mux_core::domain::assets::{
-    AgentConsumptionSelection, AssetCommitRequest, AssetOperationPlan, AssetRef,
-    PlanEnsureAgentConsumptionRequest, PlanRemoveAgentConsumptionRequest,
-    PlanSetAgentConsumptionRequest, PlanSetModelEnabledRequest, PlanSetSkillEnabledRequest,
-    RelationshipAction,
+    AgentConsumptionSelection, AssetCommitRequest, AssetOperationKind, AssetOperationPlan,
+    AssetRef, PlanClearAgentMcpRequest, PlanEnsureAgentConsumptionRequest,
+    PlanRemoveAgentConsumptionRequest, PlanSetAgentConsumptionRequest, PlanSetMcpEnabledRequest,
+    PlanSetModelEnabledRequest, PlanSetSkillEnabledRequest, RelationshipAction,
 };
 use mux_core::resources::mcp::registry::{delete_registry_entry, write_manual_entry};
 use mux_core::resources::mcp::scanner::expand_tilde;
@@ -191,6 +191,81 @@ fn mcp_removal_is_atomic_preserves_other_relationships_and_is_idempotent() {
     .unwrap();
     assert!(no_op.relationship_changes.is_empty());
     commit(no_op);
+}
+
+#[test]
+fn clear_agent_mcp_removes_managed_disabled_external_and_undecodable_entries() {
+    let home = TestHome::new("clear-agent-mcp");
+    for name in ["alpha", "beta"] {
+        write_manual_entry(&mcp(name)).unwrap();
+    }
+    commit(
+        plan_set_agent_consumption(PlanSetAgentConsumptionRequest {
+            agent_id: "claude-code".into(),
+            selection: AgentConsumptionSelection::Mcp {
+                asset_keys: vec!["alpha::stdio".into(), "beta::stdio".into()],
+            },
+        })
+        .unwrap(),
+    );
+    commit(
+        plan_set_mcp_enabled(PlanSetMcpEnabledRequest {
+            agent_id: "claude-code".into(),
+            asset_key: "alpha::stdio".into(),
+            enabled: false,
+        })
+        .unwrap(),
+    );
+
+    let target = home.home.join(".claude.json");
+    let mut document: serde_json::Value =
+        serde_json::from_slice(&fs::read(&target).unwrap()).unwrap();
+    document["sibling"] = serde_json::json!({ "preserved": true });
+    document["mcpServers"]["external"] = serde_json::json!({ "command": "external-server" });
+    document["mcpServers"]["undecodable"] = serde_json::json!({ "policyOnly": true });
+    fs::write(&target, serde_json::to_vec_pretty(&document).unwrap()).unwrap();
+
+    let plan = plan_clear_agent_mcp(PlanClearAgentMcpRequest {
+        agent_id: "claude-code".into(),
+    })
+    .unwrap();
+    assert_eq!(plan.kind, AssetOperationKind::ClearMcp);
+    assert_eq!(plan.affected_agent_ids, vec!["claude-code"]);
+    assert_eq!(plan.target_files, vec!["~/.claude.json"]);
+    assert_eq!(plan.relationship_changes.len(), 2);
+    assert!(plan
+        .relationship_changes
+        .iter()
+        .all(|change| change.action == RelationshipAction::Remove));
+    commit(plan);
+
+    let document: serde_json::Value = serde_json::from_slice(&fs::read(&target).unwrap()).unwrap();
+    assert_eq!(document["mcpServers"], serde_json::json!({}));
+    assert_eq!(
+        document["sibling"],
+        serde_json::json!({ "preserved": true })
+    );
+    let settings = load_settings();
+    assert!(settings
+        .mcp_consumptions
+        .as_ref()
+        .is_none_or(|records| !records.contains_key("claude-code")));
+    assert!(settings
+        .disabled
+        .as_ref()
+        .is_none_or(|records| !records.contains_key("claude-code")));
+    assert!(settings.target_incidents.as_ref().is_none_or(|incidents| {
+        incidents
+            .values()
+            .all(|incident| !incident.affected_agent_ids.contains(&"claude-code".into()))
+    }));
+
+    let no_op = plan_clear_agent_mcp(PlanClearAgentMcpRequest {
+        agent_id: "claude-code".into(),
+    })
+    .unwrap();
+    assert_eq!(no_op.kind, AssetOperationKind::SetConsumption);
+    assert!(no_op.relationship_changes.is_empty());
 }
 
 #[test]

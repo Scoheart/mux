@@ -1,12 +1,13 @@
 //! One plan/commit/cancel entry point for every resource domain.
 
 use crate::domain::assets::{
-    AssetCommitRequest, AssetOperationPlan, ConsumptionInventory, PlanConvergeConsumptionRequest,
-    PlanDeleteCentralAssetRequest, PlanEnsureAgentConsumptionRequest,
-    PlanRemoveAgentConsumptionRequest, PlanSetActiveModelRequest, PlanSetAgentConsumptionRequest,
-    PlanSetAssetConsumersRequest, PlanSetMcpEnabledRequest, PlanSetModelEnabledRequest,
-    PlanSetSkillEnabledRequest, PlanUpdateAgentCapabilitiesRequest,
-    PlanUpdateAssetConsumersRequest, PlanUpdateCentralAssetRequest,
+    AssetCommitRequest, AssetOperationPlan, ConsumptionInventory, PlanClearAgentMcpRequest,
+    PlanConvergeConsumptionRequest, PlanDeleteCentralAssetRequest,
+    PlanEnsureAgentConsumptionRequest, PlanRemoveAgentConsumptionRequest,
+    PlanSetActiveModelRequest, PlanSetAgentConsumptionRequest, PlanSetAssetConsumersRequest,
+    PlanSetMcpEnabledRequest, PlanSetModelEnabledRequest, PlanSetSkillEnabledRequest,
+    PlanUpdateAgentCapabilitiesRequest, PlanUpdateAssetConsumersRequest,
+    PlanUpdateCentralAssetRequest,
 };
 use crate::domain::error::CoreResult;
 use crate::resources::skill::{
@@ -25,6 +26,7 @@ pub enum PlanOperationRequest {
     SetAgentConsumption(PlanSetAgentConsumptionRequest),
     EnsureAgentConsumption(PlanEnsureAgentConsumptionRequest),
     RemoveAgentConsumption(PlanRemoveAgentConsumptionRequest),
+    ClearAgentMcp(PlanClearAgentMcpRequest),
     SetAssetConsumers(PlanSetAssetConsumersRequest),
     UpdateAssetConsumers(PlanUpdateAssetConsumersRequest),
     SetMcpEnabled(PlanSetMcpEnabledRequest),
@@ -106,6 +108,11 @@ pub fn plan(request: PlanOperationRequest) -> CoreResult<OperationPlan> {
             plan: Box::new(
                 super::assets::plan_remove_agent_consumption(request)
                     .map_err(super::error::from_legacy)?,
+            ),
+        },
+        ClearAgentMcp(request) => OperationPlan::Asset {
+            plan: Box::new(
+                super::assets::plan_clear_agent_mcp(request).map_err(super::error::from_legacy)?,
             ),
         },
         SetAssetConsumers(request) => OperationPlan::Asset {

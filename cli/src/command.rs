@@ -8,10 +8,11 @@ use std::os::unix::fs::OpenOptionsExt;
 use clap::{Parser, Subcommand, ValueEnum};
 use mux_core::application::assets::{
     AgentConsumptionSelection, AssetRef, CentralAssetDraft, ConvergenceAction, McpAdoptionStatus,
-    ModelAdoptionStatus, PlanConvergeConsumptionRequest, PlanDeleteCentralAssetRequest,
-    PlanEnsureAgentConsumptionRequest, PlanRemoveAgentConsumptionRequest,
-    PlanSetActiveModelRequest, PlanSetAgentConsumptionRequest, PlanSetMcpEnabledRequest,
-    PlanSetModelEnabledRequest, PlanSetSkillEnabledRequest, PlanUpdateCentralAssetRequest,
+    ModelAdoptionStatus, PlanClearAgentMcpRequest, PlanConvergeConsumptionRequest,
+    PlanDeleteCentralAssetRequest, PlanEnsureAgentConsumptionRequest,
+    PlanRemoveAgentConsumptionRequest, PlanSetActiveModelRequest, PlanSetAgentConsumptionRequest,
+    PlanSetMcpEnabledRequest, PlanSetModelEnabledRequest, PlanSetSkillEnabledRequest,
+    PlanUpdateCentralAssetRequest,
 };
 use mux_core::application::mcp::catalog::read_registry;
 use mux_core::application::mcp::operations as mcp_operations;
@@ -138,8 +139,11 @@ pub enum McpCommand {
     },
     /// Remove MCP assignments from one Agent without deleting central assets.
     Unassign {
-        #[arg(required = true, num_args = 1.., value_parser = parse_mcp_key)]
+        #[arg(num_args = 1.., required_unless_present = "all", conflicts_with = "all", value_parser = parse_mcp_key)]
         keys: Vec<String>,
+        /// Clear every MCP from this Agent, including external and disabled entries.
+        #[arg(long)]
+        all: bool,
         #[arg(long, required = true)]
         agent: String,
     },
@@ -404,8 +408,8 @@ fn dispatch_mcp(cli: &Cli, command: &McpCommand) -> Result<CommandOutput, CliErr
         McpCommand::Assign { keys, agent } => {
             assign(AssetDomain::Mcp, keys, agent, false, cli.mutation_options())
         }
-        McpCommand::Unassign { keys, agent } => {
-            unassign(AssetDomain::Mcp, keys, agent, cli.mutation_options())
+        McpCommand::Unassign { keys, all, agent } => {
+            unassign(AssetDomain::Mcp, keys, *all, agent, cli.mutation_options())
         }
         McpCommand::Enable { key, agent } => {
             set_enabled(AssetDomain::Mcp, key, agent, true, cli.mutation_options())
@@ -477,6 +481,7 @@ fn dispatch_model(cli: &Cli, command: &ModelCommand) -> Result<CommandOutput, Cl
         ModelCommand::Unassign { profile_ids, agent } => unassign(
             AssetDomain::Model,
             profile_ids,
+            false,
             agent,
             cli.mutation_options(),
         ),
@@ -534,9 +539,13 @@ fn dispatch_skill(cli: &Cli, command: &SkillCommand) -> Result<CommandOutput, Cl
             false,
             cli.mutation_options(),
         ),
-        SkillCommand::Unassign { names, agent } => {
-            unassign(AssetDomain::Skill, names, agent, cli.mutation_options())
-        }
+        SkillCommand::Unassign { names, agent } => unassign(
+            AssetDomain::Skill,
+            names,
+            false,
+            agent,
+            cli.mutation_options(),
+        ),
         SkillCommand::Enable { name, agent } => set_enabled(
             AssetDomain::Skill,
             name,
@@ -911,18 +920,23 @@ fn assign(
 fn unassign(
     domain: AssetDomain,
     identities: &[String],
+    clear_all: bool,
     agent: &str,
     options: MutationOptions,
 ) -> Result<CommandOutput, CliError> {
     options.validate()?;
     require_enabled_agent_capability(agent, domain)?;
-    let plan = MuxCore::plan(PlanOperationRequest::RemoveAgentConsumption(
-        PlanRemoveAgentConsumptionRequest {
+    let request = if domain == AssetDomain::Mcp && clear_all {
+        PlanOperationRequest::ClearAgentMcp(PlanClearAgentMcpRequest {
+            agent_id: agent.to_string(),
+        })
+    } else {
+        PlanOperationRequest::RemoveAgentConsumption(PlanRemoveAgentConsumptionRequest {
             agent_id: agent.to_string(),
             selection: selection(domain, identities.to_vec()),
-        },
-    ))
-    .map_err(CliError::from_core)?;
+        })
+    };
+    let plan = MuxCore::plan(request).map_err(CliError::from_core)?;
     execute_operation(
         domain_command(domain, "unassign"),
         plan,
@@ -1763,6 +1777,7 @@ mod tests {
                 "--agent",
                 "codex",
             ],
+            vec!["mux", "mcp", "unassign", "--all", "--agent", "codex"],
             vec!["mux", "mcp", "enable", "github::stdio", "--agent", "codex"],
             vec!["mux", "mcp", "disable", "github::stdio", "--agent", "codex"],
             vec!["mux", "mcp", "add", "github::stdio", "--command", "npx"],
@@ -1904,6 +1919,20 @@ mod tests {
             "cursor"
         ])
         .is_err());
+        assert!(Cli::try_parse_from(["mux", "mcp", "unassign", "--agent", "codex"]).is_err());
+        assert!(Cli::try_parse_from([
+            "mux",
+            "mcp",
+            "unassign",
+            "github::stdio",
+            "--all",
+            "--agent",
+            "codex"
+        ])
+        .is_err());
+        assert!(
+            Cli::try_parse_from(["mux", "model", "unassign", "--all", "--agent", "codex"]).is_err()
+        );
     }
 
     #[test]

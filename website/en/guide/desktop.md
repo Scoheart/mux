@@ -50,6 +50,7 @@ Cards select assets and show read-only consumer impact; lifecycle actions live i
 1. Choose an agent from the selector in the top bar.
 2. Confirm the **Agent config file** and **MCP config file** in the agent configuration center. They may be the same file or two separate files; MUX labels the relationship explicitly.
 3. In MCPs, Model, or Skills, click **Manage** and set the Agent's complete desired selection from the central picker. MCPs and Skills allow multiple selections. Multi-model Agents may also receive multiple Model Profiles, with at most one current Profile at a time; single-model Agents still accept one.
+   The MCP tab also offers **Remove all MCPs**. After explicit confirmation, it clears managed, disabled, and external MCP entries for that Agent without deleting central assets or changing other Agents.
 4. Review relationship changes, target files, shared Skill targets, drift, and conflicts. MUX then backs up, writes in the Agent's native format, and rescans to verify the result.
 
 Within Desktop, consumption relationships are edited from Agent pages; central asset Inspectors do not configure Agents. The CLI manages the same relationships through the shared `assign` / `unassign` / `enable` / `disable` verbs. MUX currently manages only user-level global configuration.

@@ -91,6 +91,9 @@ export function assetReviewErrorMessage(
 }
 
 function agentActionCopy(plan: AssetOperationPlan) {
+  if (plan.kind === "clear-mcp") {
+    return { title: "确认移除全部 MCP", commit: "移除全部 MCP", busy: "移除中…" };
+  }
   const domain = plan.domain_plan.domain;
   const asset = domain === "mcp" ? "MCP" : domain === "model" ? "Model" : "Skill";
   const hasAdd = plan.relationship_changes.some((change) => change.action === "add");
@@ -290,8 +293,12 @@ export function AssetOperationReviewDialog({
   const hasAdd = plan.relationship_changes.some((change) => change.action === "add");
   const hasRemove = plan.relationship_changes.some((change) => change.action === "remove");
   const isRemoveOnly = hasRemove && !hasAdd;
+  const isClearMcp = plan.kind === "clear-mcp";
+  const isDanger = isRemoveOnly || isClearMcp || plan.kind === "delete-asset";
   const reviewError = error ? assetReviewErrorMessage(error, plan) : null;
-  const agentCopy = agentName && plan.kind === "set-consumption" ? agentActionCopy(plan) : null;
+  const agentCopy = agentName && (plan.kind === "set-consumption" || isClearMcp)
+    ? agentActionCopy(plan)
+    : null;
   const title = isConfiguration ? "确认修改配置" : agentCopy?.title ?? (plan.kind === "update-asset"
     ? "确认更改"
     : plan.kind === "delete-asset"
@@ -328,14 +335,14 @@ export function AssetOperationReviewDialog({
           <button type="button" className="btn-ghost" disabled={busy} onClick={() => void onCancel()}>取消</button>
           <button
             type="button"
-            className={isRemoveOnly || plan.kind === "delete-asset" ? "btn-danger" : "btn-primary"}
+            className={isDanger ? "btn-danger" : "btn-primary"}
             disabled={busy || !plan.can_commit}
             onClick={() => void onCommit()}
           >
-            {!busy && (isRemoveOnly || plan.kind === "delete-asset") && <TrashIcon className="w-4 h-4" />}
+            {!busy && isDanger && <TrashIcon className="w-4 h-4" />}
             {busy
               ? (isConfiguration ? "保存中…" : agentCopy?.busy ?? "处理中…")
-              : reviewError && isRemoveOnly
+              : reviewError && (isRemoveOnly || isClearMcp)
                 ? `重试${commitLabel}`
                 : commitLabel}
           </button>
@@ -343,6 +350,15 @@ export function AssetOperationReviewDialog({
       }
     >
       <div className="mux-review-content mux-asset-review">
+        {isClearMcp && (
+          <section className="mux-asset-review-summary">
+            <h3>影响摘要</h3>
+            <p>
+              将清空此 Agent 配置中的全部 MCP，包括外部新增项和停用项。
+              中央 MCP 资产及其他 Agent 不受影响。
+            </p>
+          </section>
+        )}
         {isRemoveOnly && (
           <section className="mux-asset-review-summary">
             <h3>影响摘要</h3>

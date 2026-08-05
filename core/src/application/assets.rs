@@ -130,6 +130,14 @@ pub fn plan_remove_agent_consumption(
     })
 }
 
+pub fn plan_clear_agent_mcp(
+    request: PlanClearAgentMcpRequest,
+) -> Result<AssetOperationPlan, String> {
+    super::gate::prepare_for(CapabilityDomain::Mcp, "asset_plan", || {
+        crate::assets::plan_clear_agent_mcp(request)
+    })
+}
+
 pub fn plan_set_asset_consumers(
     request: PlanSetAssetConsumersRequest,
 ) -> Result<AssetOperationPlan, String> {

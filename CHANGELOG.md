@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.121](https://github.com/Scoheart/mux/compare/v1.8.120...v1.8.121) (2026-08-05)
+
+### Changes
+
+* fix(mcp): satisfy strict bulk change lint ([9006a37](https://github.com/Scoheart/mux/commit/9006a3712b135ccf389ffa67ad04821185d5c506))
+
 ## [1.8.120](https://github.com/Scoheart/mux/compare/v1.8.119...v1.8.120) (2026-08-05)
 
 ### Changes

@@ -10,8 +10,8 @@ use super::types::{
     ModelStateSnapshot, PlanClearAgentMcpRequest, PlanEnsureAgentConsumptionRequest,
     PlanReapplyMcpRequest, PlanReapplyModelRequest, PlanReapplySkillRequest,
     PlanRemoveAgentConsumptionRequest, PlanSetActiveModelRequest, PlanSetAgentConsumptionRequest,
-    PlanSetAssetConsumersRequest, PlanSetMcpEnabledRequest, PlanSetModelEnabledRequest,
-    PlanSetSkillEnabledRequest, PlanUpdateAgentCapabilitiesRequest,
+    PlanSetAllMcpEnabledRequest, PlanSetAssetConsumersRequest, PlanSetMcpEnabledRequest,
+    PlanSetModelEnabledRequest, PlanSetSkillEnabledRequest, PlanUpdateAgentCapabilitiesRequest,
     PlanUpdateAssetConsumersRequest, RelationshipAction, RelationshipChange,
 };
 use crate::agents::{
@@ -101,6 +101,11 @@ pub(crate) enum LifecycleBinding {
         agent_id: String,
         asset_key: String,
         before: bool,
+        after: bool,
+    },
+    McpEnabledBulk {
+        agent_id: String,
+        before: BTreeMap<String, bool>,
         after: bool,
     },
     SkillEnabled {
@@ -549,6 +554,48 @@ pub fn plan_set_mcp_enabled(
             agent_id: request.agent_id,
             asset_key: request.asset_key,
             before: record.enabled,
+            after: request.enabled,
+        }),
+    )
+}
+
+/// Plan one target-scoped transition for every MCP currently managed by MUX
+/// for an Agent. Keeping this as one lifecycle operation lets the transaction
+/// layer roll the shared Agent file back as a unit if any entry cannot change.
+pub fn plan_set_all_mcp_enabled(
+    request: PlanSetAllMcpEnabledRequest,
+) -> Result<AssetOperationPlan, String> {
+    validate_agent_id(&request.agent_id)?;
+    require_enabled_agent(&request.agent_id)?;
+    let settings = load_settings_strict().map_err(|error| error.to_string())?;
+    let records = settings
+        .mcp_consumptions
+        .as_ref()
+        .and_then(|consumptions| consumptions.get(&request.agent_id))
+        .ok_or_else(|| "mcp_consumption_missing: Agent has no managed MCPs".to_string())?;
+    if records.is_empty() {
+        return Err("mcp_consumption_missing: Agent has no managed MCPs".into());
+    }
+    let before = records
+        .iter()
+        .map(|(key, record)| (key.clone(), record.enabled))
+        .collect::<BTreeMap<_, _>>();
+    let selection = records.keys().cloned().collect::<Vec<_>>();
+    let domain_plan = DomainPlan::Mcp {
+        before: BTreeMap::from([(request.agent_id.clone(), selection.clone())]),
+        after: BTreeMap::from([(request.agent_id.clone(), selection)]),
+    };
+    if before.values().all(|enabled| *enabled == request.enabled) {
+        return finalize_plan(domain_plan);
+    }
+    finalize_plan_with(
+        AssetOperationKind::SetConsumption,
+        domain_plan,
+        Vec::new(),
+        Vec::new(),
+        Some(LifecycleBinding::McpEnabledBulk {
+            agent_id: request.agent_id,
+            before,
             after: request.enabled,
         }),
     )
@@ -1920,6 +1967,7 @@ fn finalize_plan_with_inventory(
             lifecycle.as_ref(),
             Some(
                 LifecycleBinding::McpEnabled { .. }
+                    | LifecycleBinding::McpEnabledBulk { .. }
                     | LifecycleBinding::SkillEnabled { .. }
                     | LifecycleBinding::McpReapply { .. }
                     | LifecycleBinding::ModelReapply { .. }
@@ -2407,6 +2455,24 @@ fn consumption_state_changes(
             affected_agent_ids: vec![agent_id.clone()],
             target: None,
         }),
+        Some(LifecycleBinding::McpEnabledBulk {
+            agent_id,
+            before,
+            after,
+        }) => {
+            changes.extend(before.iter().filter_map(|(asset_key, enabled)| {
+                (*enabled != *after).then(|| ConsumptionStateChange {
+                    agent_id: agent_id.clone(),
+                    asset: AssetRef::Mcp {
+                        key: asset_key.clone(),
+                    },
+                    before_enabled: *enabled,
+                    after_enabled: *after,
+                    affected_agent_ids: vec![agent_id.clone()],
+                    target: None,
+                })
+            }));
+        }
         Some(LifecycleBinding::SkillEnabled {
             agent_id,
             name,

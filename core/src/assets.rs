@@ -34,8 +34,8 @@ pub use observation::{observation_watch_targets, ObservationDomain, ObservationW
 pub use planner::{
     plan_adopt_observed_skill, plan_clear_agent_mcp, plan_ensure_agent_consumption,
     plan_reapply_mcp, plan_reapply_model, plan_reapply_skill, plan_remove_agent_consumption,
-    plan_set_active_model, plan_set_agent_consumption, plan_set_asset_consumers,
-    plan_set_mcp_enabled, plan_set_model_enabled, plan_set_skill_enabled,
+    plan_set_active_model, plan_set_agent_consumption, plan_set_all_mcp_enabled,
+    plan_set_asset_consumers, plan_set_mcp_enabled, plan_set_model_enabled, plan_set_skill_enabled,
     plan_update_agent_capabilities, plan_update_asset_consumers,
 };
 pub use transaction::{
@@ -50,8 +50,9 @@ pub use types::{
     PlanConvergeConsumptionRequest, PlanDeleteCentralAssetRequest,
     PlanEnsureAgentConsumptionRequest, PlanReapplyMcpRequest, PlanReapplyModelRequest,
     PlanReapplySkillRequest, PlanRemoveAgentConsumptionRequest, PlanSetActiveModelRequest,
-    PlanSetAgentConsumptionRequest, PlanSetAssetConsumersRequest, PlanSetMcpEnabledRequest,
-    PlanSetModelEnabledRequest, PlanSetSkillEnabledRequest, PlanUpdateAgentCapabilitiesRequest,
-    PlanUpdateAssetConsumersRequest, PlanUpdateCentralAssetRequest, RelationshipAction,
-    RelationshipChange, SelectionError, SkillConsumptionRecord, TargetIncident,
+    PlanSetAgentConsumptionRequest, PlanSetAllMcpEnabledRequest, PlanSetAssetConsumersRequest,
+    PlanSetMcpEnabledRequest, PlanSetModelEnabledRequest, PlanSetSkillEnabledRequest,
+    PlanUpdateAgentCapabilitiesRequest, PlanUpdateAssetConsumersRequest,
+    PlanUpdateCentralAssetRequest, RelationshipAction, RelationshipChange, SelectionError,
+    SkillConsumptionRecord, TargetIncident,
 };

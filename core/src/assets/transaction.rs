@@ -951,6 +951,19 @@ fn apply_operation(
             after,
             ..
         } => apply_mcp_enabled(&persisted.plan, agent_id, asset_key, *after, blocked_agents),
+        LifecycleBinding::McpEnabledBulk {
+            agent_id,
+            before,
+            after,
+        } => {
+            for asset_key in before
+                .iter()
+                .filter_map(|(key, enabled)| (*enabled != *after).then_some(key))
+            {
+                apply_mcp_enabled(&persisted.plan, agent_id, asset_key, *after, blocked_agents)?;
+            }
+            Ok(())
+        }
         LifecycleBinding::SkillEnabled {
             name,
             target_id,
@@ -1313,6 +1326,27 @@ fn verify_operation(persisted: &PersistedAssetOperation) -> Result<(), String> {
                 .map(|record| record.enabled);
             if desired != Some(*after) {
                 return Err("MCP enabled state did not match the reviewed change".into());
+            }
+            Ok(())
+        }
+        LifecycleBinding::McpEnabledBulk {
+            agent_id,
+            before,
+            after,
+        } => {
+            let settings = load_settings_strict().map_err(|error| error.to_string())?;
+            let records = settings
+                .mcp_consumptions
+                .as_ref()
+                .and_then(|records| records.get(agent_id))
+                .ok_or_else(|| {
+                    "MCP consumptions disappeared after bulk enabled-state update".to_string()
+                })?;
+            if before
+                .keys()
+                .any(|key| records.get(key).map(|record| record.enabled) != Some(*after))
+            {
+                return Err("MCP enabled states did not match the reviewed bulk change".into());
             }
             Ok(())
         }
@@ -3187,11 +3221,11 @@ fn set_private_dir(path: &Path) -> Result<(), String> {
 mod tests {
     use super::*;
     use crate::assets::{
-        plan_set_active_model, plan_set_agent_consumption, plan_set_mcp_enabled,
-        plan_set_model_enabled, plan_update_central_asset, AgentConsumptionSelection,
-        CentralAssetAction, CentralAssetDraft, PlanSetActiveModelRequest,
-        PlanSetAgentConsumptionRequest, PlanSetMcpEnabledRequest, PlanSetModelEnabledRequest,
-        PlanUpdateCentralAssetRequest,
+        plan_set_active_model, plan_set_agent_consumption, plan_set_all_mcp_enabled,
+        plan_set_mcp_enabled, plan_set_model_enabled, plan_update_central_asset,
+        AgentConsumptionSelection, CentralAssetAction, CentralAssetDraft,
+        PlanSetActiveModelRequest, PlanSetAgentConsumptionRequest, PlanSetAllMcpEnabledRequest,
+        PlanSetMcpEnabledRequest, PlanSetModelEnabledRequest, PlanUpdateCentralAssetRequest,
     };
     use crate::domain::assets::ConsumptionStatus;
     use crate::domain::types::{
@@ -3835,6 +3869,65 @@ mod tests {
                     && item.enabled == Some(enabled)
                     && item.status == ConsumptionStatus::Synced
             }));
+        }
+    }
+
+    #[test]
+    fn bulk_mcp_enabled_toggle_updates_every_managed_relationship() {
+        let _home = TestHome::new("consume-enabled-toggle-all");
+        for name in ["alpha", "beta"] {
+            write_manual_entry(&RegistryEntry {
+                name: name.into(),
+                description: String::new(),
+                tags: Vec::new(),
+                config: RegistryConfig {
+                    stdio: Some(StdioConfig {
+                        command: format!("{name}-server"),
+                        args: None,
+                        env: None,
+                        cwd: None,
+                    }),
+                    http: None,
+                },
+                origin: None,
+                repo: None,
+            })
+            .unwrap();
+        }
+        let added = plan_set_agent_consumption(PlanSetAgentConsumptionRequest {
+            agent_id: "claude-code".into(),
+            selection: AgentConsumptionSelection::Mcp {
+                asset_keys: vec!["alpha::stdio".into(), "beta::stdio".into()],
+            },
+        })
+        .unwrap();
+        commit_asset_operation(AssetCommitRequest {
+            operation_id: added.operation_id,
+            candidate_hash: added.candidate_hash,
+        })
+        .unwrap();
+
+        for enabled in [false, true] {
+            let plan = plan_set_all_mcp_enabled(PlanSetAllMcpEnabledRequest {
+                agent_id: "claude-code".into(),
+                enabled,
+            })
+            .unwrap();
+            assert_eq!(plan.consumption_state_changes.len(), 2);
+            let inventory = commit_asset_operation(AssetCommitRequest {
+                operation_id: plan.operation_id,
+                candidate_hash: plan.candidate_hash,
+            })
+            .unwrap();
+            let rows = inventory
+                .consumptions
+                .iter()
+                .filter(|item| {
+                    item.agent_id == "claude-code" && matches!(item.asset, AssetRef::Mcp { .. })
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(rows.len(), 2);
+            assert!(rows.iter().all(|item| item.enabled == Some(enabled)));
         }
     }
 

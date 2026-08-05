@@ -239,12 +239,12 @@ it("refreshes and retries convergence once when the observation is stale", async
   expect(result.current.error).toBeNull();
 });
 
-it("owns MCP enabled-state plans through the central operation slot", async () => {
+it("commits MCP enabled-state changes without exposing a review plan", async () => {
   const { result } = renderHook(() => useConsumptionState());
   await waitFor(() => expect(result.current.loading).toBe(false));
 
   await act(async () => {
-    await result.current.planMcpEnabled("codex", "github::stdio", false);
+    await result.current.setMcpEnabled("codex", "github::stdio", false);
   });
 
   expect(api.planOperation).toHaveBeenCalledWith({
@@ -255,15 +255,22 @@ it("owns MCP enabled-state plans through the central operation slot", async () =
       enabled: false,
     },
   });
-  expect(result.current.plan?.candidate_hash).toBe("candidate");
+  expect(api.commitOperation).toHaveBeenCalledWith({
+    domain: "asset",
+    request: {
+      operation_id: "00000000-0000-4000-8000-000000000001",
+      candidate_hash: "candidate",
+    },
+  });
+  expect(result.current.plan).toBeNull();
 });
 
-it("owns Skill enabled-state plans through the central operation slot", async () => {
+it("commits Skill enabled-state changes without exposing a review plan", async () => {
   const { result } = renderHook(() => useConsumptionState());
   await waitFor(() => expect(result.current.loading).toBe(false));
 
   await act(async () => {
-    await result.current.planSkillEnabled("codex", "review-changes", false);
+    await result.current.setSkillEnabled("codex", "review-changes", false);
   });
 
   expect(api.planOperation).toHaveBeenCalledWith({
@@ -274,7 +281,24 @@ it("owns Skill enabled-state plans through the central operation slot", async ()
       enabled: false,
     },
   });
-  expect(result.current.plan?.candidate_hash).toBe("candidate");
+  expect(api.commitOperation).toHaveBeenCalledOnce();
+  expect(result.current.plan).toBeNull();
+});
+
+it("commits the Agent-wide MCP switch as one operation", async () => {
+  const { result } = renderHook(() => useConsumptionState());
+  await waitFor(() => expect(result.current.loading).toBe(false));
+
+  await act(async () => {
+    await result.current.setAllMcpEnabled("codex", false);
+  });
+
+  expect(api.planOperation).toHaveBeenCalledWith({
+    operation: "set_all_mcp_enabled",
+    request: { agent_id: "codex", enabled: false },
+  });
+  expect(api.commitOperation).toHaveBeenCalledOnce();
+  expect(result.current.plan).toBeNull();
 });
 
 it("owns Model enabled and active plans through the central operation slot", async () => {

@@ -115,6 +115,7 @@ export function AgentView({
     key: string;
     enabled: boolean;
   } | null>(null);
+  const [togglingAllMcp, setTogglingAllMcp] = useState<{ enabled: boolean } | null>(null);
   const [togglingSkill, setTogglingSkill] = useState<{
     name: string;
     enabled: boolean;
@@ -187,11 +188,13 @@ export function AgentView({
   const skillRows = consumptionsForAgent(inventory, agentId, "skill");
   const displayedMcpRows = useMemo(
     () => mcpRows.map((item) => (
-      togglingMcp && item.asset.domain === "mcp" && item.asset.key === togglingMcp.key
-        ? { ...item, enabled: togglingMcp.enabled }
-        : item
+      togglingAllMcp
+        ? { ...item, enabled: togglingAllMcp.enabled }
+        : togglingMcp && item.asset.domain === "mcp" && item.asset.key === togglingMcp.key
+          ? { ...item, enabled: togglingMcp.enabled }
+          : item
     )),
-    [mcpRows, togglingMcp],
+    [mcpRows, togglingAllMcp, togglingMcp],
   );
   const displayedSkillRows = useMemo(
     () => skillRows.map((item) => (
@@ -430,14 +433,30 @@ export function AgentView({
       ?? key.replace(/::(?:stdio|http)$/, "");
     setTogglingMcp({ key, enabled });
     try {
-      const plan = await consumptionState.planMcpEnabled(agentId, key, enabled);
-      if (!requiresAgentReview(plan)) {
-        await commitPlan(plan, `${name} 已${enabled ? "启用" : "停用"}。`);
-      }
+      await consumptionState.setMcpEnabled(agentId, key, enabled);
+      showToast({ kind: "success", msg: `${name} 已${enabled ? "启用" : "停用"}。` });
     } catch (error) {
       showToast({ kind: "error", msg: `${enabled ? "启用" : "停用"}失败：${formatError(error)}` });
     } finally {
       setTogglingMcp((current) => current?.key === key ? null : current);
+    }
+  };
+
+  const toggleAllMcpEnabled = async (enabled: boolean) => {
+    setTogglingAllMcp({ enabled });
+    try {
+      await consumptionState.setAllMcpEnabled(agentId, enabled);
+      showToast({
+        kind: "success",
+        msg: `${agent.name} 的全部 MCP 已${enabled ? "启用" : "停用"}。`,
+      });
+    } catch (error) {
+      showToast({
+        kind: "error",
+        msg: `${enabled ? "启用" : "停用"}全部 MCP 失败：${formatError(error)}`,
+      });
+    } finally {
+      setTogglingAllMcp(null);
     }
   };
 
@@ -446,10 +465,8 @@ export function AgentView({
     const name = item.asset.name;
     setTogglingSkill({ name, enabled });
     try {
-      const plan = await consumptionState.planSkillEnabled(agentId, name, enabled);
-      if (!requiresAgentReview(plan)) {
-        await commitPlan(plan, `${name} 已${enabled ? "启用" : "停用"}。`);
-      }
+      await consumptionState.setSkillEnabled(agentId, name, enabled);
+      showToast({ kind: "success", msg: `${name} 已${enabled ? "启用" : "停用"}。` });
     } catch (error) {
       showToast({ kind: "error", msg: `${enabled ? "启用" : "停用"}失败：${formatError(error)}` });
     } finally {
@@ -613,10 +630,15 @@ export function AgentView({
               manageDisabled={!agent.has_global || preparingChange}
               bulkRemoveLabel="移除全部 MCP"
               bulkRemoveTitle={`清空 ${agent.name} 的全部 MCP，包括外部配置；不会删除中央 MCP 资产`}
-              bulkRemoveDisabled={preparingChange || mcpRows.length + mcpExternal.length === 0}
+              bulkRemoveDisabled={preparingChange || togglingAllMcp !== null || mcpRows.length + mcpExternal.length === 0}
               onBulkRemove={() => void planClearMcp()}
+              bulkToggleLabel="全部"
+              bulkEnabled={mcpRows.length > 0 && displayedMcpRows.every((item) => item.enabled === true)}
+              bulkToggleDisabled={preparingChange || togglingMcp !== null || togglingAllMcp !== null || mcpRows.length === 0}
+              onBulkEnabledChange={(enabled) => void toggleAllMcpEnabled(enabled)}
               onEnabledChange={(item, enabled) => void toggleMcpEnabled(item, enabled)}
-              enabledChangeDisabled={(item) => togglingMcp?.key === (item.asset.domain === "mcp" ? item.asset.key : "")
+              enabledChangeDisabled={(item) => togglingAllMcp !== null
+                || togglingMcp?.key === (item.asset.domain === "mcp" ? item.asset.key : "")
                 || item.status !== "synced"}
               onRemove={(asset) => void planRemoval(asset)}
               onConverge={(item, action) => void converge(item, action)}

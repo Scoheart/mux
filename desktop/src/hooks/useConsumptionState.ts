@@ -41,16 +41,20 @@ export interface ConsumptionState {
     selection: AgentConsumptionSelection,
   ): Promise<AssetOperationPlan>;
   planClearAgentMcp(agentId: string): Promise<AssetOperationPlan>;
-  planMcpEnabled(
+  setMcpEnabled(
     agentId: string,
     assetKey: string,
     enabled: boolean,
-  ): Promise<AssetOperationPlan>;
-  planSkillEnabled(
+  ): Promise<ConsumptionInventory>;
+  setAllMcpEnabled(
+    agentId: string,
+    enabled: boolean,
+  ): Promise<ConsumptionInventory>;
+  setSkillEnabled(
     agentId: string,
     name: string,
     enabled: boolean,
-  ): Promise<AssetOperationPlan>;
+  ): Promise<ConsumptionInventory>;
   planModelEnabled(
     agentId: string,
     profileId: string,
@@ -176,6 +180,51 @@ export function useConsumptionState({ autoLoad = true }: { autoLoad?: boolean } 
     }
   }, [ownPlan]);
 
+  const executeImmediately = useCallback(async (request: PlanOperationRequest) => {
+    if (planRef.current || planningRef.current || committingRef.current) {
+      throw new Error("已有正在处理的资产操作");
+    }
+    planningRef.current = true;
+    let active: AssetOperationPlan | null = null;
+    try {
+      active = await planAsset(request);
+      if (!active.can_commit) {
+        throw new Error(active.warnings[0] ?? "当前状态无法应用此更改");
+      }
+      planningRef.current = false;
+      committingRef.current = true;
+      if (mounted.current) setCommitting(true);
+      const committed = await commitOperation({
+        domain: "asset",
+        request: {
+          operation_id: active.operation_id,
+          candidate_hash: active.candidate_hash,
+        },
+      });
+      if (committed.domain !== "asset") {
+        throw new Error("Core returned a Skill inventory for an asset commit");
+      }
+      const next = committed.inventory;
+      ++inventoryGeneration.current;
+      if (mounted.current) {
+        setInventory(next);
+        setError(null);
+      }
+      return next;
+    } catch (cause) {
+      if (active) {
+        await cancelOperation({ domain: "asset", operation_id: active.operation_id })
+          .catch(() => undefined);
+      }
+      if (mounted.current) setError(commandError(cause));
+      throw cause;
+    } finally {
+      planningRef.current = false;
+      committingRef.current = false;
+      if (mounted.current) setCommitting(false);
+    }
+  }, []);
+
   const planForAgent = useCallback(
     (agentId: string, selection: AgentConsumptionSelection) => startPlan({
       operation: "set_agent_consumption",
@@ -208,20 +257,28 @@ export function useConsumptionState({ autoLoad = true }: { autoLoad?: boolean } 
     [startPlan],
   );
 
-  const planMcpEnabled = useCallback(
-    (agentId: string, assetKey: string, enabled: boolean) => startPlan({
+  const setMcpEnabled = useCallback(
+    (agentId: string, assetKey: string, enabled: boolean) => executeImmediately({
       operation: "set_mcp_enabled",
       request: { agent_id: agentId, asset_key: assetKey, enabled },
     }),
-    [startPlan],
+    [executeImmediately],
   );
 
-  const planSkillEnabled = useCallback(
-    (agentId: string, name: string, enabled: boolean) => startPlan({
+  const setAllMcpEnabled = useCallback(
+    (agentId: string, enabled: boolean) => executeImmediately({
+      operation: "set_all_mcp_enabled",
+      request: { agent_id: agentId, enabled },
+    }),
+    [executeImmediately],
+  );
+
+  const setSkillEnabled = useCallback(
+    (agentId: string, name: string, enabled: boolean) => executeImmediately({
       operation: "set_skill_enabled",
       request: { agent_id: agentId, name, enabled },
     }),
-    [startPlan],
+    [executeImmediately],
   );
 
   const planModelEnabled = useCallback(
@@ -356,8 +413,9 @@ export function useConsumptionState({ autoLoad = true }: { autoLoad?: boolean } 
     planForAgent,
     planAdditionsForAgent,
     planClearAgentMcp,
-    planMcpEnabled,
-    planSkillEnabled,
+    setMcpEnabled,
+    setAllMcpEnabled,
+    setSkillEnabled,
     planModelEnabled,
     planActiveModel,
     planConvergence,

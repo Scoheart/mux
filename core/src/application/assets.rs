@@ -164,6 +164,14 @@ pub fn plan_set_mcp_enabled(
     })
 }
 
+pub fn plan_set_all_mcp_enabled(
+    request: crate::domain::assets::PlanSetAllMcpEnabledRequest,
+) -> Result<AssetOperationPlan, String> {
+    super::gate::prepare_for(CapabilityDomain::Mcp, "asset_plan", || {
+        crate::assets::plan_set_all_mcp_enabled(request)
+    })
+}
+
 pub fn plan_set_skill_enabled(
     request: PlanSetSkillEnabledRequest,
 ) -> Result<AssetOperationPlan, String> {

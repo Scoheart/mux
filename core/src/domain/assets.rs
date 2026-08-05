@@ -520,6 +520,15 @@ pub struct PlanSetMcpEnabledRequest {
     pub enabled: bool,
 }
 
+/// Enable or disable every MCP relationship currently managed by MUX for one
+/// Agent. External, unadopted entries are intentionally outside this request.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct PlanSetAllMcpEnabledRequest {
+    pub agent_id: String,
+    pub enabled: bool,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct PlanSetSkillEnabledRequest {

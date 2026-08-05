@@ -36,6 +36,10 @@ export function AgentConsumptionPanel({
   convergenceDisabled = false,
   removeLabel,
   manageDisabled = false,
+  bulkToggleLabel,
+  bulkEnabled,
+  bulkToggleDisabled = false,
+  onBulkEnabledChange,
   bulkRemoveLabel,
   bulkRemoveTitle,
   bulkRemoveDisabled = false,
@@ -68,6 +72,10 @@ export function AgentConsumptionPanel({
   convergenceDisabled?: boolean;
   removeLabel?(name: string): string;
   manageDisabled?: boolean;
+  bulkToggleLabel?: string;
+  bulkEnabled?: boolean;
+  bulkToggleDisabled?: boolean;
+  onBulkEnabledChange?(enabled: boolean): void;
   bulkRemoveLabel?: string;
   bulkRemoveTitle?: string;
   bulkRemoveDisabled?: boolean;
@@ -94,6 +102,19 @@ export function AgentConsumptionPanel({
           {description && <p>{description}</p>}
         </div>
         <div className="mux-agent-section-actions">
+          {bulkToggleLabel && bulkEnabled !== undefined && onBulkEnabledChange && (
+            <div className="mux-agent-bulk-toggle">
+              <span>{bulkToggleLabel}</span>
+              <Switch
+                checked={bulkEnabled}
+                compact
+                disabled={bulkToggleDisabled}
+                ariaLabel={bulkEnabled ? `停用全部 ${title}` : `启用全部 ${title}`}
+                title={bulkEnabled ? `停用全部 ${title}` : `启用全部 ${title}`}
+                onChange={onBulkEnabledChange}
+              />
+            </div>
+          )}
           {bulkRemoveLabel && onBulkRemove && (
             <button
               type="button"

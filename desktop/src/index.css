@@ -1447,6 +1447,11 @@ body {
 .mux-agent-section-head h3 { margin: 0; color: var(--text-primary); font-size: 13px; font-weight: 690; }
 .mux-agent-section-head p { margin: 5px 0 0; color: var(--text-secondary); font-size: 11px; line-height: 1.35; }
 .mux-agent-section-actions { display: flex; flex: 0 0 auto; align-items: center; gap: 8px; }
+.mux-agent-bulk-toggle {
+  display: inline-flex; height: 32px; align-items: center; gap: 7px; padding: 0 9px;
+  border-radius: var(--radius-control); background: var(--surface-control);
+  color: var(--text-secondary); font-size: 10px; font-weight: 650;
+}
 .mux-agent-config-locations { margin-top: 18px; }
 .mux-agent-file-map { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); overflow: visible; gap: 8px; border: 0; border-radius: 0; background: transparent; }
 .mux-agent-file-row { display: flex; min-width: 0; min-height: 84px; align-items: flex-start; gap: 10px; padding: 14px; border-radius: var(--radius-row); background: var(--surface-item); }

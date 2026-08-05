@@ -197,8 +197,7 @@ it("shows one target-scoped incident only on its affected Agent capability", asy
 });
 
 it("toggles a managed Skill without routing through removal", async () => {
-  const planSkillEnabled = vi.fn().mockResolvedValue(assetOperationPlanFixture());
-  const commit = vi.fn().mockResolvedValue({
+  const setSkillEnabled = vi.fn().mockResolvedValue({
     consumptions: [],
     external: [],
   });
@@ -223,8 +222,7 @@ it("toggles a managed Skill without routing through removal", async () => {
       external: [],
     },
     plan: null,
-    planSkillEnabled,
-    commit,
+    setSkillEnabled,
   } as unknown as ConsumptionState;
 
   render(
@@ -239,13 +237,75 @@ it("toggles a managed Skill without routing through removal", async () => {
   const toggle = await screen.findByRole("switch", { name: "停用 review-changes" });
   await userEvent.click(toggle);
   await waitFor(() => {
-    expect(planSkillEnabled).toHaveBeenCalledWith(
+    expect(setSkillEnabled).toHaveBeenCalledWith(
       skillsOnlyAgent.id,
       "review-changes",
       false,
     );
-    expect(commit).toHaveBeenCalled();
   });
+  expect(screen.queryByRole("heading", { name: "确认停用 Skill" })).not.toBeInTheDocument();
+});
+
+it("toggles one or every managed MCP without opening the review panel", async () => {
+  const mcpAgent: AgentInfo = {
+    ...skillsOnlyAgent,
+    id: "codex",
+    name: "Codex",
+    format: "json",
+    key: "mcpServers",
+    has_global: true,
+    supported_transports: ["stdio", "http"],
+    global: "~/.codex/config.json",
+    skills_global_dir: null,
+  };
+  const mcpState = {
+    ...state,
+    agents: [mcpAgent],
+  } as unknown as InstallState;
+  const setMcpEnabled = vi.fn().mockResolvedValue({ consumptions: [], external: [] });
+  const setAllMcpEnabled = vi.fn().mockResolvedValue({ consumptions: [], external: [] });
+  const consumptionState = {
+    agents: [],
+    inventory: {
+      consumptions: [{
+        agent_id: mcpAgent.id,
+        asset: { domain: "mcp", key: "github::stdio" },
+        desired: true,
+        observed: true,
+        enabled: true,
+        status: "synced",
+        reason: null,
+        available_actions: [],
+        affected_agent_ids: [mcpAgent.id],
+        target: null,
+      }],
+      external: [],
+    },
+    plan: null,
+    setMcpEnabled,
+    setAllMcpEnabled,
+  } as unknown as ConsumptionState;
+
+  render(
+    <AgentView
+      state={mcpState}
+      skillsState={skillsState}
+      consumptionState={consumptionState}
+      agentId={mcpAgent.id}
+    />,
+  );
+
+  await userEvent.click(await screen.findByRole("switch", { name: "停用 github" }));
+  await waitFor(() => expect(setMcpEnabled).toHaveBeenCalledWith(
+    mcpAgent.id,
+    "github::stdio",
+    false,
+  ));
+  expect(screen.queryByRole("heading", { name: "确认停用 MCP" })).not.toBeInTheDocument();
+
+  await userEvent.click(screen.getByRole("switch", { name: "停用全部 MCP" }));
+  await waitFor(() => expect(setAllMcpEnabled).toHaveBeenCalledWith(mcpAgent.id, false));
+  expect(screen.queryByRole("heading", { name: "确认停用 MCP" })).not.toBeInTheDocument();
 });
 
 it("keeps meaningful Agent badges while leaving builtin headers clean", () => {

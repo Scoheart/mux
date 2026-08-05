@@ -30,6 +30,29 @@ const externalRow: ConsumptionView = {
 };
 
 describe("AgentConsumptionPanel", () => {
+  it("offers one master MCP switch without changing external entries", async () => {
+    const onBulkEnabledChange = vi.fn();
+    render(
+      <AgentConsumptionPanel
+        domain="mcp"
+        title="MCP"
+        manageLabel="添加 MCP"
+        rows={[syncedRow]}
+        external={[externalRow]}
+        present={() => ({ name: "MCP" })}
+        onManage={vi.fn()}
+        bulkToggleLabel="全部"
+        bulkEnabled
+        onBulkEnabledChange={onBulkEnabledChange}
+      />,
+    );
+
+    const toggle = screen.getByRole("switch", { name: "停用全部 MCP" });
+    expect(toggle).toHaveAttribute("aria-checked", "true");
+    await userEvent.click(toggle);
+    expect(onBulkEnabledChange).toHaveBeenCalledWith(false);
+  });
+
   it("places the explicit bulk MCP removal next to the add action", async () => {
     const onBulkRemove = vi.fn();
     render(

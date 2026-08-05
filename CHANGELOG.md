@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.118](https://github.com/Scoheart/mux/compare/v1.8.117...v1.8.118) (2026-08-05)
+
+### Changes
+
+* fix(desktop): deduplicate MCP clear impact ([15e4e9e](https://github.com/Scoheart/mux/commit/15e4e9e273e670cd5645409c62370bbcf0e3f0c1))
+
 ## [1.8.117](https://github.com/Scoheart/mux/compare/v1.8.116...v1.8.117) (2026-08-05)
 
 ### Changes

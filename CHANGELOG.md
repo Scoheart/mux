@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.117](https://github.com/Scoheart/mux/compare/v1.8.116...v1.8.117) (2026-08-05)
+
+### Changes
+
+* feat(mcp): clear all MCPs for one agent ([508bf87](https://github.com/Scoheart/mux/commit/508bf87d031d5e9de8fc932904dfae7f36b476a0))
+
 ## [1.8.116](https://github.com/Scoheart/mux/compare/v1.8.115...v1.8.116) (2026-08-04)
 
 ### Changes

@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.119](https://github.com/Scoheart/mux/compare/v1.8.118...v1.8.119) (2026-08-05)
+
+### Changes
+
+* fix(desktop): keep asset reviews in context ([b846876](https://github.com/Scoheart/mux/commit/b84687617e800e0cf5d57ad913e27ac1c2418853))
+
 ## [1.8.118](https://github.com/Scoheart/mux/compare/v1.8.117...v1.8.118) (2026-08-05)
 
 ### Changes

@@ -1431,17 +1431,15 @@ body {
 .mux-agent-shell { width: min(100%, 1180px); margin: 0 auto; padding: 14px 20px 32px; }
 .mux-agent-context { padding: 20px; border-radius: var(--radius-canvas); background: var(--surface-workspace); }
 .mux-agent-header {
-  display: grid; min-height: 58px; grid-template-columns: 1fr minmax(0, 2fr) 1fr;
-  align-items: center; gap: 12px;
+  display: flex; min-height: 58px; align-items: center; justify-content: center;
 }
 .mux-agent-header[data-tone="reference"] { margin-bottom: 18px; }
 .mux-agent-header-identity {
-  display: flex; min-width: 0; grid-column: 2; align-items: center; justify-content: center; gap: 12px;
+  display: flex; min-width: 0; align-items: center; justify-content: center; gap: 12px;
 }
 .mux-agent-header-copy { min-width: 0; }
 .mux-agent-header-copy > div { display: flex; min-width: 0; align-items: center; justify-content: center; gap: 8px; }
 .mux-agent-header h2 { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-primary); font-size: 18px; font-weight: 700; }
-.mux-agent-header-actions { display: flex; min-width: 0; grid-column: 3; justify-self: end; align-items: center; gap: 6px; }
 .mux-agent-section { padding: 0; border: 0; }
 .mux-agent-section-head { display: flex; min-height: 38px; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 13px; }
 .mux-agent-section-head h3 { margin: 0; color: var(--text-primary); font-size: 13px; font-weight: 690; }

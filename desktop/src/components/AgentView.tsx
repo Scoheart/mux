@@ -31,7 +31,7 @@ import {
   RefreshIcon,
   SparklesIcon,
 } from "./icons";
-import { Avatar, Badge, IconButton } from "./ui";
+import { Avatar, Badge } from "./ui";
 import { AgentGlyph } from "./brandIcons";
 import { AgentConfigurationDialog } from "./AgentConfigurationDialog";
 import { useToast } from "./Toast";
@@ -572,10 +572,7 @@ export function AgentView({
     <div className="mux-agent-page">
       <div className="mux-agent-shell">
         <section className="mux-agent-context" aria-label={`${agent.name} 配置范围`}>
-          <AgentHeader
-            agent={agent}
-            onEdit={canEditConfiguration ? () => setEditingAgent(true) : undefined}
-          />
+          <AgentHeader agent={agent} />
 
           <section
             className="mux-agent-section mux-agent-config-locations"
@@ -587,10 +584,19 @@ export function AgentView({
                 <h3 id="agent-files-title">配置位置</h3>
                 <p>这些是 MUX 为当前 Agent 读取或写入的实际位置</p>
               </div>
-              {canEditConfiguration && (
-                <button type="button" className="btn-secondary" onClick={() => setEditingAgent(true)}>
-                  <EditIcon className="w-3.5 h-3.5" />编辑配置
-                </button>
+              {(agent.docs || canEditConfiguration) && (
+                <div className="mux-agent-section-actions">
+                  {agent.docs && (
+                    <button type="button" className="btn-secondary" onClick={() => openUrl(agent.docs!)}>
+                      <LinkIcon className="w-3.5 h-3.5" />官方文档
+                    </button>
+                  )}
+                  {canEditConfiguration && (
+                    <button type="button" className="btn-secondary" onClick={() => setEditingAgent(true)}>
+                      <EditIcon className="w-3.5 h-3.5" />编辑配置
+                    </button>
+                  )}
+                </div>
               )}
             </div>
             <div className="mux-agent-file-map">
@@ -906,11 +912,9 @@ function TransportMark({ transport }: { transport: string }) {
 function AgentHeader({
   agent,
   tone,
-  onEdit,
 }: {
   agent: InstallState["agents"][number];
   tone?: "reference";
-  onEdit?: () => void;
 }) {
   return (
     <header
@@ -929,20 +933,6 @@ function AgentHeader({
           </div>
         </div>
       </div>
-      {(onEdit || agent.docs) && (
-        <div className="mux-agent-header-actions">
-          {onEdit && (
-            <IconButton title="编辑 Agent 设置" onClick={onEdit}>
-              <EditIcon className="w-4 h-4" />
-            </IconButton>
-          )}
-          {agent.docs && (
-            <IconButton title="打开官方文档" onClick={() => openUrl(agent.docs!)}>
-              <LinkIcon className="w-4 h-4" />
-            </IconButton>
-          )}
-        </div>
-      )}
     </header>
   );
 }

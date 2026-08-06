@@ -104,13 +104,11 @@ it("groups Agent identity and paths in one context region", () => {
   expect(declarations(".mux-consumption-external")).toMatch(/background:\s*var\(--surface-attention\)/);
 });
 
-it("centers the Agent identity independently from its header actions", () => {
-  expect(declarations(".mux-agent-header")).toMatch(
-    /grid-template-columns:\s*1fr minmax\(0,\s*2fr\) 1fr/,
-  );
-  expect(declarations(".mux-agent-header-identity")).toMatch(/grid-column:\s*2/);
+it("centers the Agent identity and keeps actions with configuration locations", () => {
+  expect(declarations(".mux-agent-header")).toMatch(/justify-content:\s*center/);
   expect(declarations(".mux-agent-header-identity")).toMatch(/justify-content:\s*center/);
-  expect(declarations(".mux-agent-header-actions")).toMatch(/grid-column:\s*3/);
+  expect(agentView).toMatch(/className="mux-agent-section-actions"[\s\S]*?官方文档[\s\S]*?编辑配置/);
+  expect(agentView).not.toMatch(/mux-agent-header-actions/);
   expect(agentView).not.toMatch(/agent\.id\} · \{agent\.category/);
 });
 

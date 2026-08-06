@@ -155,7 +155,7 @@ it("opens a projection-only Skills Agent without a legacy MCP-shaped row", async
     name: "打开文件夹：/Users/test/.snowflake/cortex/skills",
   }));
   expect(openerMocks.openPath).toHaveBeenCalledWith("/Users/test/.snowflake/cortex/skills");
-  expect(screen.getByRole("button", { name: "编辑 Agent 设置" })).toBeVisible();
+  expect(within(locations).getByRole("button", { name: "编辑配置" })).toBeVisible();
   expect(screen.queryByText(/UNKNOWN/)).not.toBeInTheDocument();
   expect(screen.queryByText(/coding-agent/)).not.toBeInTheDocument();
   expect(screen.queryByText(/公开来源/)).not.toBeInTheDocument();
@@ -438,7 +438,7 @@ it("keeps a Model-only Agent in the full resource workspace", async () => {
   );
 
   await waitFor(() => {
-    expect(screen.getByRole("button", { name: "编辑 Agent 设置" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "编辑配置" })).toBeVisible();
   });
   expect(await screen.findByText("/Users/test/.model-only/config.json")).toBeVisible();
   expect(screen.queryByText(/未提供可写的用户级全局配置/)).not.toBeInTheDocument();
@@ -506,7 +506,7 @@ it("keeps an external MCP card read-only", async () => {
   }));
   expect(openerMocks.openPath).toHaveBeenCalledWith("/Users/test/.codex/config.toml");
   expect(screen.queryByText(`${mcpAgent.id} · ${mcpAgent.category}`)).not.toBeInTheDocument();
-  expect(screen.getByRole("button", { name: "编辑 Agent 设置" })).toBeVisible();
+  expect(within(locations).getByRole("button", { name: "编辑配置" })).toBeVisible();
   await userEvent.click(within(locations).getByRole("button", { name: "编辑配置" }));
   expect(screen.getByRole("heading", { name: "编辑配置" })).toBeVisible();
 

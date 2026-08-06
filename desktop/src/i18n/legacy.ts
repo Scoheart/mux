@@ -385,6 +385,7 @@ const english: Record<string, string> = {
   "我已了解高风险内容及其影响": "I understand the high-risk content and its impact",
   "手动": "Manual",
   "打开官方文档": "Open official documentation",
+  "官方文档": "Official documentation",
   "探索": "Discover",
   "提示": "Notice",
   "搜索 Model": "Search Models",

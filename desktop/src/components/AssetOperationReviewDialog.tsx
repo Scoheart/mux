@@ -91,9 +91,6 @@ export function assetReviewErrorMessage(
 }
 
 function agentActionCopy(plan: AssetOperationPlan) {
-  if (plan.kind === "clear-mcp") {
-    return { title: "确认移除全部 MCP", commit: "移除全部 MCP", busy: "移除中…" };
-  }
   const domain = plan.domain_plan.domain;
   const asset = domain === "mcp" ? "MCP" : domain === "model" ? "Model" : "Skill";
   const hasAdd = plan.relationship_changes.some((change) => change.action === "add");
@@ -263,6 +260,7 @@ export function AssetOperationReviewDialog({
   onCancel(): Promise<unknown> | unknown;
 }) {
   const headingId = useId();
+  if (plan.kind === "clear-mcp") return null;
   const isConfiguration = plan.kind === "update-configuration";
   const isAgentSkillPlan = Boolean(
     agentId && agentName && plan.kind === "set-consumption" && plan.domain_plan.domain === "skill",
@@ -296,10 +294,9 @@ export function AssetOperationReviewDialog({
   const hasAdd = plan.relationship_changes.some((change) => change.action === "add");
   const hasRemove = plan.relationship_changes.some((change) => change.action === "remove");
   const isRemoveOnly = hasRemove && !hasAdd;
-  const isClearMcp = plan.kind === "clear-mcp";
-  const isDanger = isRemoveOnly || isClearMcp || plan.kind === "delete-asset";
+  const isDanger = isRemoveOnly || plan.kind === "delete-asset";
   const reviewError = error ? assetReviewErrorMessage(error, plan) : null;
-  const agentCopy = agentName && (plan.kind === "set-consumption" || isClearMcp)
+  const agentCopy = agentName && plan.kind === "set-consumption"
     ? agentActionCopy(plan)
     : null;
   const title = isConfiguration ? "确认修改配置" : agentCopy?.title ?? (plan.kind === "update-asset"
@@ -341,16 +338,7 @@ export function AssetOperationReviewDialog({
         </div>
       ) : null}
       <div className="mux-review-content mux-asset-review">
-        {isClearMcp && (
-          <section className="mux-asset-review-summary">
-            <h3>影响摘要</h3>
-            <p>
-              将清空此 Agent 配置中的全部 MCP，包括外部新增项和停用项。
-              中央 MCP 资产及其他 Agent 不受影响。
-            </p>
-          </section>
-        )}
-        {isRemoveOnly && !isClearMcp && (
+        {isRemoveOnly && (
           <section className="mux-asset-review-summary">
             <h3>影响摘要</h3>
             {plan.relationship_changes

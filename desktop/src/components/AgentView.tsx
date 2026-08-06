@@ -398,12 +398,13 @@ export function AgentView({
     );
   };
 
-  const planClearMcp = async () => {
+  const clearMcp = async () => {
     setPreparingChange(true);
     try {
-      await consumptionState.planClearAgentMcp(agentId);
+      await consumptionState.clearAgentMcp(agentId);
+      showToast({ kind: "success", msg: `${agent.name} 的全部 MCP 已移除。` });
     } catch (error) {
-      showToast({ kind: "error", msg: "无法准备清空 MCP：" + formatError(error) });
+      showToast({ kind: "error", msg: "移除全部 MCP 失败：" + formatError(error) });
     } finally {
       setPreparingChange(false);
     }
@@ -631,7 +632,7 @@ export function AgentView({
               bulkRemoveLabel="移除全部 MCP"
               bulkRemoveTitle={`清空 ${agent.name} 的全部 MCP，包括外部配置；不会删除中央 MCP 资产`}
               bulkRemoveDisabled={preparingChange || togglingAllMcp !== null || mcpRows.length + mcpExternal.length === 0}
-              onBulkRemove={() => void planClearMcp()}
+              onBulkRemove={() => void clearMcp()}
               bulkToggleLabel="全部"
               bulkEnabled={mcpRows.length > 0 && displayedMcpRows.every((item) => item.enabled === true)}
               bulkToggleDisabled={preparingChange || togglingMcp !== null || togglingAllMcp !== null || mcpRows.length === 0}

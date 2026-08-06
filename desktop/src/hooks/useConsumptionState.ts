@@ -40,7 +40,7 @@ export interface ConsumptionState {
     agentId: string,
     selection: AgentConsumptionSelection,
   ): Promise<AssetOperationPlan>;
-  planClearAgentMcp(agentId: string): Promise<AssetOperationPlan>;
+  clearAgentMcp(agentId: string): Promise<ConsumptionInventory>;
   setMcpEnabled(
     agentId: string,
     assetKey: string,
@@ -247,12 +247,12 @@ export function useConsumptionState({ autoLoad = true }: { autoLoad?: boolean } 
     [startPlan],
   );
 
-  const planClearAgentMcp = useCallback(
-    (agentId: string) => startPlan({
+  const clearAgentMcp = useCallback(
+    (agentId: string) => executeImmediately({
       operation: "clear_agent_mcp",
       request: { agent_id: agentId },
     }),
-    [startPlan],
+    [executeImmediately],
   );
 
   const planForAsset = useCallback(
@@ -424,7 +424,7 @@ export function useConsumptionState({ autoLoad = true }: { autoLoad?: boolean } 
     refreshAgents,
     planForAgent,
     planAdditionsForAgent,
-    planClearAgentMcp,
+    clearAgentMcp,
     setMcpEnabled,
     setAllMcpEnabled,
     setSkillEnabled,

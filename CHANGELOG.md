@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.128](https://github.com/Scoheart/mux/compare/v1.8.127...v1.8.128) (2026-08-06)
+
+### Changes
+
+* feat(desktop): open absolute config locations ([4c72298](https://github.com/Scoheart/mux/commit/4c72298946a3f463b815af04f80325acd0297ee9))
+
 ## [1.8.127](https://github.com/Scoheart/mux/compare/v1.8.126...v1.8.127) (2026-08-06)
 
 ### Changes

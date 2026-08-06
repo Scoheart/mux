@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.123](https://github.com/Scoheart/mux/compare/v1.8.122...v1.8.123) (2026-08-06)
+
+### Changes
+
+* ci: pause automated quality checks ([a5201b4](https://github.com/Scoheart/mux/commit/a5201b4a1d83ee0770c990d6f80d8eb161ab29ed))
+
 ## [1.8.122](https://github.com/Scoheart/mux/compare/v1.8.121...v1.8.122) (2026-08-06)
 
 ### Changes

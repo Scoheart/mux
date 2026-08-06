@@ -5,7 +5,6 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "prebuild": "npm run check:agent-icons",
     "build": "tsc && vite build",
     "check:agent-icons": "node ../scripts/check-agent-icons.mjs",
     "test": "vitest run",

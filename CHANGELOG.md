@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.127](https://github.com/Scoheart/mux/compare/v1.8.126...v1.8.127) (2026-08-06)
+
+### Changes
+
+* fix(desktop): finish removing clear review state ([11d125a](https://github.com/Scoheart/mux/commit/11d125a347f8a02e84f6b38f154dc0002d8f56ca))
+
 ## [1.8.126](https://github.com/Scoheart/mux/compare/v1.8.125...v1.8.126) (2026-08-06)
 
 ### Changes

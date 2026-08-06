@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.125](https://github.com/Scoheart/mux/compare/v1.8.124...v1.8.125) (2026-08-06)
+
+### Changes
+
+* fix(cli): report pending target convergence ([5fa0fc5](https://github.com/Scoheart/mux/commit/5fa0fc5a65bc05cd383981c52dfeb51ad32fcf79))
+
 ## [1.8.124](https://github.com/Scoheart/mux/compare/v1.8.123...v1.8.124) (2026-08-06)
 
 ### Changes

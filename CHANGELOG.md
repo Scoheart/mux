@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.122](https://github.com/Scoheart/mux/compare/v1.8.121...v1.8.122) (2026-08-06)
+
+### Changes
+
+* fix(desktop): simplify external asset actions ([687f16f](https://github.com/Scoheart/mux/commit/687f16f59a724dc53e1385e2b0104df7f33c0181))
+
 ## [1.8.121](https://github.com/Scoheart/mux/compare/v1.8.120...v1.8.121) (2026-08-05)
 
 ### Changes

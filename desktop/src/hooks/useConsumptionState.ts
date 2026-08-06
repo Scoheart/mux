@@ -210,6 +210,12 @@ export function useConsumptionState({ autoLoad = true }: { autoLoad?: boolean } 
         setInventory(next);
         setError(null);
       }
+      if (!committed.converged) {
+        throw {
+          code: "pending_convergence",
+          message: i18n.t("observations.convergencePending"),
+        } satisfies AssetCommandError;
+      }
       return next;
     } catch (cause) {
       if (active) {
@@ -379,6 +385,12 @@ export function useConsumptionState({ autoLoad = true }: { autoLoad?: boolean } 
         planRef.current = null;
         setPlan(null);
         setError(null);
+      }
+      if (!committed.converged) {
+        throw {
+          code: "pending_convergence",
+          message: i18n.t("observations.convergencePending"),
+        } satisfies AssetCommandError;
       }
       return next;
     } catch (cause) {

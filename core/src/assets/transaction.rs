@@ -223,6 +223,34 @@ fn cleanup_resolved_incident_operations(operation_ids: &BTreeSet<String>, curren
             if fs::symlink_metadata(&root).is_ok_and(|metadata| {
                 metadata.file_type().is_dir() && !metadata.file_type().is_symlink()
             }) {
+                // A resolved target incident may still own a durable guard or
+                // temp from an older rename-based writer. Reconcile and retire
+                // that exact evidence before removing its operation journal;
+                // otherwise the sibling artifacts would be orphaned forever.
+                let reconciled = load_rollback_snapshots(operation_id)
+                    .ok()
+                    .flatten()
+                    .map(|snapshots| {
+                        snapshots
+                            .iter()
+                            .map(|snapshot| (snapshot.path.clone(), snapshot.parent.clone()))
+                            .collect::<BTreeMap<_, _>>()
+                    })
+                    .is_some_and(|parents| {
+                        recover_transaction_mutation_intents(
+                            &transaction_mutation_intent_dir(operation_id),
+                            &parents,
+                        )
+                        .and_then(|_| {
+                            ensure_no_transaction_mutation_intents(
+                                &transaction_mutation_intent_dir(operation_id),
+                            )
+                        })
+                        .is_ok()
+                    });
+                if !reconciled {
+                    continue;
+                }
                 let _ = fs::remove_dir_all(&root);
                 clear_pending_payload(operation_id);
             }
@@ -335,12 +363,10 @@ where
         &tracked_parent_snapshots,
         &reviewed_states,
     )?;
-    let blocked_agents = blocked_incident_agents(&persisted.plan);
-    let blocked_agents = if resolves_target_incident(&persisted) {
-        BTreeSet::new()
-    } else {
-        blocked_agents
-    };
+    // A prior target incident is observable state, not a write prohibition.
+    // Every new operation gets one real convergence attempt for its own target;
+    // failures remain scoped incidents instead of silently skipping Agent I/O.
+    let blocked_agents = BTreeSet::new();
     let applied = apply_operation(&persisted, &skills_guard, &blocked_agents)
         .and_then(|_| verify_operation(&persisted))
         .and_then(|_| mark_operation_committed(&request.operation_id));
@@ -802,34 +828,6 @@ fn releases_relationship_ownership(plan: &AssetOperationPlan) -> bool {
             .all(|change| change.action == RelationshipAction::Remove)
 }
 
-fn resolves_target_incident(operation: &PersistedAssetOperation) -> bool {
-    operation.plan.kind == AssetOperationKind::Adopt
-        || releases_relationship_ownership(&operation.plan)
-        || matches!(
-            operation.lifecycle,
-            Some(
-                LifecycleBinding::McpClear { .. }
-                    | LifecycleBinding::McpReapply { .. }
-                    | LifecycleBinding::ModelReapply { .. }
-                    | LifecycleBinding::SkillReapply { .. }
-                    | LifecycleBinding::SkillAdoptObserved { .. }
-            )
-        )
-}
-
-fn blocked_incident_agents(plan: &AssetOperationPlan) -> BTreeSet<String> {
-    let capability = plan_capability(&plan.domain_plan);
-    load_settings_strict()
-        .ok()
-        .and_then(|settings| settings.target_incidents)
-        .into_iter()
-        .flat_map(|incidents| incidents.into_values())
-        .filter(|incident| incident.capability == capability)
-        .flat_map(|incident| incident.affected_agent_ids)
-        .filter(|agent_id| plan.affected_agent_ids.contains(agent_id))
-        .collect()
-}
-
 fn apply_operation(
     persisted: &PersistedAssetOperation,
     skills_lock: &SkillsOperationLock,
@@ -860,7 +858,13 @@ fn apply_operation(
                 }
             })
             .map_err(|error| error.to_string())?;
-            match crate::resources::mcp::ops::clear_agent(agent_id) {
+            match crate::resources::mcp::ops::clear_agent(agent_id).and_then(|_| {
+                if crate::resources::mcp::ops::agent_has_entries(agent_id)? {
+                    Err("target_convergence_failed: MCP entries reappeared after clear".into())
+                } else {
+                    Ok(())
+                }
+            }) {
                 Ok(()) => clear_target_incidents(&persisted.plan, agent_id),
                 Err(_) => {
                     record_target_incident(&persisted.plan, agent_id, "target_convergence_failed")
@@ -2163,7 +2167,10 @@ fn apply_mcp(
                 )
                 .map_err(|errors| errors.join("; "))?;
             }
-            for key in right.difference(&left) {
+            // Reconcile the complete desired set, not only the relationship
+            // delta. This lets an ordinary add/update repair a prior local
+            // target incident instead of preserving missing historical entries.
+            for key in &right {
                 if exact_observed.contains(&(agent_id.clone(), key.clone())) {
                     continue;
                 }
@@ -2202,11 +2209,62 @@ fn apply_mcp(
                 }
             }
             Ok::<_, String>(())
-        })();
+        })()
+        .and_then(|_| {
+            verify_agent_mcp_convergence(
+                agent_id,
+                &left,
+                &right,
+                &settings,
+                release_orphaned_relationships,
+            )
+        });
         if result.is_ok() {
             clear_target_incidents(operation, agent_id)?;
         } else {
             record_target_incident(operation, agent_id, "target_convergence_failed")?;
+        }
+    }
+    Ok(())
+}
+
+fn verify_agent_mcp_convergence(
+    agent_id: &str,
+    before: &BTreeSet<String>,
+    desired: &BTreeSet<String>,
+    settings: &crate::settings::Settings,
+    release_orphaned_relationships: bool,
+) -> Result<(), String> {
+    let observed = ops::scan_installed(None)
+        .into_iter()
+        .filter(|item| item.scope == "global" && item.agent == agent_id)
+        .map(|item| {
+            (
+                format!("{}::{}", item.name, item.transport),
+                item.enabled,
+            )
+        })
+        .collect::<BTreeMap<_, _>>();
+    for key in desired {
+        let expected_enabled = settings
+            .mcp_consumptions
+            .as_ref()
+            .and_then(|records| records.get(agent_id))
+            .and_then(|records| records.get(key))
+            .is_none_or(|record| record.enabled);
+        if observed.get(key) != Some(&expected_enabled) {
+            return Err(format!(
+                "target_convergence_failed: {agent_id} MCP target does not contain {key} in its desired state"
+            ));
+        }
+    }
+    if !release_orphaned_relationships {
+        for key in before.difference(desired) {
+            if observed.contains_key(key) {
+                return Err(format!(
+                    "target_convergence_failed: {agent_id} MCP target still contains removed asset {key}"
+                ));
+            }
         }
     }
     Ok(())
@@ -2244,7 +2302,22 @@ fn apply_mcp_enabled(
         ops::enable(name, transport, "global", &agents, None)
     } else {
         ops::disable(name, transport, "global", &agents, None)
-    };
+    }
+    .and_then(|_| {
+        let observed = ops::scan_installed(None).into_iter().find(|item| {
+            item.scope == "global"
+                && item.agent == agent_id
+                && item.name == name
+                && item.transport == transport
+        });
+        if observed.is_some_and(|item| item.enabled == enabled) {
+            Ok(())
+        } else {
+            Err(vec![format!(
+                "target_convergence_failed: {agent_id} MCP enabled state was not persisted"
+            )])
+        }
+    });
     if result.is_ok() {
         clear_target_incidents(operation, agent_id)
     } else {

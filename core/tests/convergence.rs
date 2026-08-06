@@ -68,7 +68,7 @@ fn commit(plan: OperationPlan) -> ConsumptionInventory {
         },
     })
     .unwrap();
-    let OperationCommitResult::Asset { inventory } = result else {
+    let OperationCommitResult::Asset { inventory, .. } = result else {
         panic!("expected an Asset convergence result")
     };
     inventory

@@ -12,7 +12,7 @@
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, OpenOptions};
-use std::io::{ErrorKind, Write};
+use std::io::{ErrorKind, Read, Seek, SeekFrom, Write};
 use std::marker::PhantomData;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
@@ -150,6 +150,7 @@ struct ActiveTransactionWrites {
 enum MutationIntentOperation {
     Create,
     Replace,
+    Rewrite,
     Remove,
 }
 
@@ -965,7 +966,9 @@ pub(crate) fn recover_transaction_mutation_intents(
                 MutationIntentOperation::Create | MutationIntentOperation::Replace => {
                     record.temp_name.is_some()
                 }
-                MutationIntentOperation::Remove => record.temp_name.is_none(),
+                MutationIntentOperation::Rewrite | MutationIntentOperation::Remove => {
+                    record.temp_name.is_none()
+                }
             }
             || !match record.phase {
                 MutationIntentPhase::Prepared => {
@@ -1045,6 +1048,10 @@ fn recover_one_mutation_intent(
             .desired_fingerprint
             .as_deref()
             .is_some_and(|desired| target_fingerprint == desired);
+        let target_is_semantically_desired =
+            semantic_path_state_fingerprint(&target)? == record.desired_semantic_fingerprint
+                || legacy_semantic_path_state_fingerprint(&target)?
+                    == record.desired_semantic_fingerprint;
         let guard_is_missing = matches!(guard, AnchoredPathState::Missing);
         let guard_is_expected = guard_fingerprint == record.expected_fingerprint;
         let missing_fingerprint =
@@ -1088,7 +1095,38 @@ fn recover_one_mutation_intent(
             {
                 return Err("recovery_required: invalid replace mutation intent".into());
             }
+            MutationIntentOperation::Rewrite
+                if record.expected_fingerprint == missing_fingerprint
+                    || desired_fingerprint == missing_fingerprint =>
+            {
+                return Err("recovery_required: invalid rewrite mutation intent".into());
+            }
             _ => {}
+        }
+
+        if record.operation == MutationIntentOperation::Rewrite {
+            if !guard_is_missing {
+                return Err(
+                    "recovery_required: in-place rewrite has an unexpected claim guard".into(),
+                );
+            }
+            if target_is_expected {
+                retire_mutation_intent_record(record_path, record, record_identity)?;
+                return Ok(());
+            }
+            if target_is_desired || target_is_semantically_desired {
+                persist_current_transaction_state(
+                    record,
+                    &parent,
+                    transaction_evidence_directory,
+                )?;
+                retire_mutation_intent_record(record_path, record, record_identity)?;
+                return Ok(());
+            }
+            return Err(
+                "recovery_required: in-place rewrite target is neither the reviewed nor desired semantic state"
+                    .into(),
+            );
         }
 
         if record.operation == MutationIntentOperation::Create {
@@ -1098,7 +1136,7 @@ fn recover_one_mutation_intent(
                         .into(),
                 );
             }
-            if target_is_expected || target_is_desired {
+            if target_is_expected || target_is_desired || target_is_semantically_desired {
                 cleanup_intent_temp_if_owned(record, parent_snapshot, &parent)?;
                 retire_mutation_intent_record(record_path, record, record_identity)?;
                 return Ok(());
@@ -1120,7 +1158,7 @@ fn recover_one_mutation_intent(
             retire_mutation_intent_record(record_path, record, record_identity)?;
             return Ok(());
         }
-        if guard_is_missing && target_is_desired {
+        if guard_is_missing && (target_is_desired || target_is_semantically_desired) {
             // The verified guard was already removed after publication. The
             // outer transaction write evidence and rollback snapshot own the
             // remaining desired leaf.
@@ -1145,56 +1183,21 @@ fn recover_one_mutation_intent(
             retire_mutation_intent_record(record_path, record, record_identity)?;
             return Ok(());
         }
-        if guard_is_expected && target_is_desired {
-            let recovery_name = record.temp_name.as_deref().ok_or_else(|| {
-                "recovery_required: replace mutation intent has no recovery name".to_string()
-            })?;
-            let recovery_name = std::ffi::OsStr::new(recovery_name);
-            let recovery_path = sibling_path(parent_snapshot, recovery_name);
-            if !matches!(
-                read_path_state_from_parent(&recovery_path, &parent)?,
-                AnchoredPathState::Missing
-            ) {
-                return Err(
-                    "recovery_required: replace recovery name is unexpectedly occupied".into(),
-                );
-            }
-            rename_entry_noreplace(&parent, name, recovery_name)
-                .map_err(|error| format!("recovery_required: {error}"))?;
-            parent
-                .directory
-                .sync_all()
-                .map_err(|error| format!("recovery_required: {error}"))?;
-            let claimed = read_path_state_from_parent(&recovery_path, &parent)?;
-            if fingerprint_anchored_path_state(&claimed, parent_snapshot)? != desired_fingerprint {
-                if rename_entry_noreplace(&parent, recovery_name, name).is_ok() {
-                    parent
-                        .directory
-                        .sync_all()
-                        .map_err(|error| format!("recovery_required: {error}"))?;
-                    return Err(
-                        "recovery_required: desired target changed while reversing a claim; the unknown entry was restored"
-                            .into(),
-                    );
-                }
-                return Err("recovery_required: desired target changed while reversing a claim; both unknown entries were preserved".into());
-            }
-            rename_entry_noreplace(&parent, guard_name, name)
-                .map_err(|error| format!("recovery_required: {error}"))?;
-            parent
-                .directory
-                .sync_all()
-                .map_err(|error| format!("recovery_required: {error}"))?;
+        if guard_is_expected && (target_is_desired || target_is_semantically_desired) {
+            // The live target already has the reviewed desired meaning. This
+            // commonly happens when a watching Agent recreates the file while
+            // an older MUX release is publishing it. Keep the live target and
+            // retire only MUX-owned claim evidence; restoring the guard would
+            // incorrectly undo a successfully converged configuration.
             verify_mutation_parent_is_current(record)?;
-            unlinkat(&parent.directory, recovery_name, AtFlags::empty())
+            unlinkat(&parent.directory, guard_name, AtFlags::empty())
                 .map_err(|error| format!("recovery_required: {error}"))?;
             parent
                 .directory
                 .sync_all()
                 .map_err(|error| error.to_string())?;
-            persist_reconciled_transaction_state(
+            persist_current_transaction_state(
                 record,
-                parent_snapshot,
                 &parent,
                 transaction_evidence_directory,
             )?;
@@ -1270,6 +1273,32 @@ fn persist_reconciled_transaction_state(
         if active.borrow().directory != directory {
             return Err(
                 "recovery_required: active transaction evidence does not match the mutation intent"
+                    .into(),
+            );
+        }
+        return record_transaction_path_state(&record.path, state);
+    }
+    append_transaction_write_state(directory, &record.path, state)
+}
+
+#[cfg(unix)]
+fn persist_current_transaction_state(
+    record: &DurableMutationIntent,
+    parent: &OpenParent,
+    transaction_evidence_directory: Option<&Path>,
+) -> Result<(), String> {
+    let Some(directory) = transaction_evidence_directory else {
+        return Ok(());
+    };
+    let state = transaction_state_from_anchored(read_path_state_from_parent(
+        &record.path,
+        parent,
+    )?)?;
+    let active = ACTIVE_TRANSACTION_WRITES.with(|slot| slot.borrow().clone());
+    if let Some(active) = active {
+        if active.borrow().directory != directory {
+            return Err(
+                "recovery_required: active transaction evidence does not match the rewrite intent"
                     .into(),
             );
         }
@@ -2767,6 +2796,30 @@ pub(crate) fn fingerprint_anchored_path_state(
 fn semantic_path_state_fingerprint(state: &AnchoredPathState) -> Result<String, String> {
     let value = match state {
         AnchoredPathState::Missing => serde_json::json!({ "kind": "missing" }),
+        AnchoredPathState::File { bytes, .. } => {
+            let canonical = serde_json::from_slice::<serde_json::Value>(bytes)
+                .ok()
+                .and_then(|value| serde_json::to_vec(&value).ok())
+                .unwrap_or_else(|| bytes.clone());
+            serde_json::json!({
+                "kind": "file",
+                "content_hash": hex::encode(Sha256::digest(canonical)),
+            })
+        }
+        AnchoredPathState::Symlink { target, .. } => serde_json::json!({
+            "kind": "symlink",
+            "target_hash": hex::encode(Sha256::digest(target.as_os_str().as_encoded_bytes())),
+        }),
+        AnchoredPathState::Directory { .. } => serde_json::json!({ "kind": "directory" }),
+        AnchoredPathState::Other { .. } => serde_json::json!({ "kind": "other" }),
+    };
+    let bytes = serde_json::to_vec(&value).map_err(|error| error.to_string())?;
+    Ok(hex::encode(Sha256::digest(bytes)))
+}
+
+fn legacy_semantic_path_state_fingerprint(state: &AnchoredPathState) -> Result<String, String> {
+    let value = match state {
+        AnchoredPathState::Missing => serde_json::json!({ "kind": "missing" }),
         AnchoredPathState::File { bytes, .. } => serde_json::json!({
             "kind": "file",
             "content_hash": hex::encode(Sha256::digest(bytes)),
@@ -3121,6 +3174,144 @@ fn sibling_path(parent: &ParentDirectorySnapshot, name: &std::ffi::OsStr) -> Pat
 }
 
 #[cfg(unix)]
+#[allow(clippy::too_many_arguments)]
+fn rewrite_regular_file_in_place(
+    path: &Path,
+    parent_snapshot: &ParentDirectorySnapshot,
+    parent: &OpenParent,
+    authoritative: &AnchoredPathState,
+    expected: (&[u8], Option<u32>),
+    content: &[u8],
+    mode: Option<u32>,
+    record_path: &Path,
+) -> Result<(), String> {
+    use rustix::fs::{fchmod, openat, Mode, OFlags, RawMode};
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+
+    let expected_identity = match authoritative {
+        AnchoredPathState::File { identity, .. } if identity.is_exact() => *identity,
+        _ => {
+            return Err(format!(
+                "asset_target_unsafe: in-place rewrite requires an exact regular-file identity: {}",
+                path.display()
+            ));
+        }
+    };
+    let desired = AnchoredPathState::File {
+        bytes: content.to_vec(),
+        mode,
+        identity: expected_identity,
+    };
+    let guard = temp_entry_name(path, "rewrite-guard");
+    let intent = begin_mutation_intent(MutationIntentRequest {
+        path,
+        parent: parent_snapshot,
+        mutation_parent_identity: open_parent_identity(parent)?,
+        guard_name: &guard,
+        temp_name: None,
+        operation: MutationIntentOperation::Rewrite,
+        expected: authoritative,
+        desired: &desired,
+    })?;
+    let result = (|| {
+        let name = target_name(path)?;
+        let mut file = fs::File::from(
+            openat(
+                &parent.directory,
+                name,
+                OFlags::RDWR | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+                Mode::empty(),
+            )
+            .map_err(|error| format!("failed to open {} for in-place edit: {error}", path.display()))?,
+        );
+        let metadata = file
+            .metadata()
+            .map_err(|error| format!("failed to inspect {}: {error}", path.display()))?;
+        let opened_identity = PathIdentity {
+            device: Some(metadata.dev()),
+            inode: Some(metadata.ino()),
+        };
+        if opened_identity != expected_identity {
+            return Err(format!(
+                "asset_operation_stale: {} changed before the in-place edit",
+                path.display()
+            ));
+        }
+        let mut opened_bytes = Vec::new();
+        file.read_to_end(&mut opened_bytes)
+            .map_err(|error| format!("failed to read {} before editing: {error}", path.display()))?;
+        if opened_bytes != expected.0
+            || expected.1.is_some_and(|expected_mode| {
+                metadata.permissions().mode() != expected_mode
+            })
+        {
+            return Err(format!(
+                "asset_operation_stale: {} changed before the in-place edit",
+                path.display()
+            ));
+        }
+
+        run_before_mutation_claim_hook(path);
+        let current = read_path_state_from_parent(path, parent)?;
+        if !anchored_states_match(authoritative, &current) {
+            return Err(format!(
+                "asset_operation_stale: {} changed at the in-place CAS boundary",
+                path.display()
+            ));
+        }
+
+        file.seek(SeekFrom::Start(0))
+            .map_err(|error| format!("failed to seek {}: {error}", path.display()))?;
+        file.set_len(0)
+            .map_err(|error| format!("failed to truncate {}: {error}", path.display()))?;
+        file.write_all(content)
+            .map_err(|error| format!("failed to edit {}: {error}", path.display()))?;
+        if let Some(mode) = mode {
+            fchmod(
+                &file,
+                Mode::from_raw_mode(RawMode::try_from(mode & 0o7777).unwrap_or(0o600)),
+            )
+            .map_err(|error| format!("failed to preserve permissions for {}: {error}", path.display()))?;
+        }
+        file.sync_all()
+            .map_err(|error| format!("failed to sync {}: {error}", path.display()))?;
+
+        let published = read_path_state_from_parent(path, parent)?;
+        if semantic_path_state_fingerprint(&published)?
+            != semantic_path_state_fingerprint(&desired)?
+        {
+            return Err(format!(
+                "target_convergence_failed: {} changed while MUX was editing it",
+                path.display()
+            ));
+        }
+        verify_mutation_parent_is_current(
+            &intent
+                .as_ref()
+                .expect("rewrite mutation intent remains active")
+                .record,
+        )?;
+        let AnchoredPathState::File {
+            bytes,
+            mode,
+            identity,
+        } = published
+        else {
+            return Err(format!(
+                "target_convergence_failed: {} is no longer a regular file",
+                path.display()
+            ));
+        };
+        record_transaction_file(record_path, &bytes, mode, identity)?;
+        complete_mutation_intent(intent.as_ref())
+    })();
+    match result {
+        Ok(()) => Ok(()),
+        Err(error) => recover_failed_mutation_intent(intent.as_ref(), error),
+    }
+}
+
+#[cfg(unix)]
 fn write_regular_file_anchored(
     path: &Path,
     parent_snapshot: &ParentDirectorySnapshot,
@@ -3129,6 +3320,7 @@ fn write_regular_file_anchored(
     mode: Option<u32>,
     record_path: &Path,
     purpose: &str,
+    preserve_inode: bool,
 ) -> Result<(), String> {
     use rustix::fs::{fchmod, linkat, openat, unlinkat, AtFlags, Mode, OFlags, RawMode};
     use std::os::unix::fs::PermissionsExt;
@@ -3160,6 +3352,19 @@ fn write_regular_file_anchored(
             "asset_operation_stale: reviewed target changed before write preparation: {}",
             path.display()
         ));
+    }
+
+    if expected.is_some() && preserve_inode {
+        return rewrite_regular_file_in_place(
+            path,
+            parent_snapshot,
+            &parent,
+            &authoritative,
+            expected.expect("checked above"),
+            content,
+            mode,
+            record_path,
+        );
     }
 
     let name = target_name(path)?;
@@ -3944,7 +4149,16 @@ pub(crate) fn write_bytes_if_unchanged_in_parent(
 ) -> Result<(), String> {
     #[cfg(unix)]
     {
-        write_regular_file_anchored(path, parent, expected, content, mode, path, "rollback")
+        write_regular_file_anchored(
+            path,
+            parent,
+            expected,
+            content,
+            mode,
+            path,
+            "rollback",
+            true,
+        )
     }
 
     #[cfg(not(unix))]
@@ -4288,6 +4502,7 @@ fn write_if_unchanged_impl(
             mode,
             &destination,
             "write",
+            !private,
         )?;
         if resolve_destination(path)? != destination {
             return Err(format!(

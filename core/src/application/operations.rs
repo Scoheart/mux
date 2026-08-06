@@ -72,7 +72,10 @@ pub enum CancelOperationRequest {
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(tag = "domain", rename_all = "snake_case")]
 pub enum OperationCommitResult {
-    Asset { inventory: ConsumptionInventory },
+    Asset {
+        inventory: ConsumptionInventory,
+        converged: bool,
+    },
     Skill { inventory: SkillsInventory },
 }
 
@@ -187,9 +190,17 @@ pub fn plan(request: PlanOperationRequest) -> CoreResult<OperationPlan> {
 pub fn commit(request: CommitOperationRequest) -> CoreResult<OperationCommitResult> {
     match request {
         CommitOperationRequest::Asset { request } => {
+            let operation_id = request.operation_id.clone();
             let inventory = super::assets::commit_asset_operation(request)
                 .map_err(super::error::from_legacy)?;
-            Ok(OperationCommitResult::Asset { inventory })
+            let converged = !inventory
+                .target_incidents
+                .iter()
+                .any(|incident| incident.operation_id == operation_id);
+            Ok(OperationCommitResult::Asset {
+                inventory,
+                converged,
+            })
         }
         CommitOperationRequest::Skill { kind, request } => {
             let result = match kind {

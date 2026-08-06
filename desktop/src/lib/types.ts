@@ -789,7 +789,7 @@ export type CancelOperationRequest =
   | { domain: "skill"; operation_id: string };
 
 export type OperationCommitResult =
-  | { domain: "asset"; inventory: ConsumptionInventory }
+  | { domain: "asset"; inventory: ConsumptionInventory; converged: boolean }
   | { domain: "skill"; inventory: SkillsInventory };
 
 export interface AssetCommandError {

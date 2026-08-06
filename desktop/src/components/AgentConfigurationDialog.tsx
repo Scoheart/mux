@@ -105,6 +105,10 @@ export function AgentConfigurationDialog({
       if (result.domain !== "asset") {
         throw new Error("Core returned a Skill inventory for an Agent configuration commit");
       }
+      if (!result.converged) {
+        await onSaved();
+        throw new Error("MUX 已保存期望配置，但 Agent 文件尚未完成收敛；请在当前配置位置重试。");
+      }
       await onSaved();
       toast.show({ kind: "success", msg: `${agent.name} 配置已更新。` });
       onClose();

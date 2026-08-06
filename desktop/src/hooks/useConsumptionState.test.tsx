@@ -26,6 +26,7 @@ beforeEach(() => {
   vi.mocked(api.commitOperation).mockResolvedValue({
     domain: "asset",
     inventory: consumptionInventoryFixture(),
+    converged: true,
   });
   vi.mocked(api.cancelOperation).mockResolvedValue(undefined);
 });

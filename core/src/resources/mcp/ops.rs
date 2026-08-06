@@ -31,6 +31,8 @@ use std::collections::HashSet;
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 
+const TARGET_CONVERGENCE_ATTEMPTS: usize = 3;
+
 fn mutation_lock() -> Result<SettingsLock, String> {
     acquire_settings_lock(&settings_file())
 }
@@ -66,6 +68,51 @@ pub fn push_apply_errors(errors: &mut Vec<String>, errs: Vec<ApplyError>) {
     }
 }
 
+fn retryable_target_error(error: &str) -> bool {
+    error.contains("asset_operation_stale")
+        || error.contains("file changed while MUX was preparing")
+        || error.contains("in-place CAS boundary")
+        || error.contains("target_convergence_failed")
+}
+
+fn apply_diffs_with_retry(
+    mut apply: impl FnMut() -> Result<(), Vec<ApplyError>>,
+) -> Result<(), Vec<ApplyError>> {
+    let mut last = Vec::new();
+    for attempt in 0..TARGET_CONVERGENCE_ATTEMPTS {
+        match apply() {
+            Ok(()) => return Ok(()),
+            Err(errors)
+                if attempt + 1 < TARGET_CONVERGENCE_ATTEMPTS
+                    && errors.iter().all(|error| retryable_target_error(&error.error)) =>
+            {
+                last = errors;
+                std::thread::yield_now();
+            }
+            Err(errors) => return Err(errors),
+        }
+    }
+    Err(last)
+}
+
+fn target_write_with_retry(mut write: impl FnMut() -> Result<(), String>) -> Result<(), String> {
+    let mut last = String::new();
+    for attempt in 0..TARGET_CONVERGENCE_ATTEMPTS {
+        match write() {
+            Ok(()) => return Ok(()),
+            Err(error)
+                if attempt + 1 < TARGET_CONVERGENCE_ATTEMPTS
+                    && retryable_target_error(&error) =>
+            {
+                last = error;
+                std::thread::yield_now();
+            }
+            Err(error) => return Err(error),
+        }
+    }
+    Err(last)
+}
+
 /// Write one server's config into a single agent's file (Add diff, backed up).
 pub fn add_one(
     agent_id: &str,
@@ -92,14 +139,14 @@ pub fn add_one(
         agent: agent_id.to_string(),
         scope: scope.to_string(),
     }];
-    apply_diffs(
+    apply_diffs_with_retry(|| apply_diffs(
         &diff,
         &adef,
         &one,
         &backups_dir(),
         project_dir.map(Path::new),
         timestamp,
-    )
+    ))
 }
 
 /// Remove one server from a single agent's file (Remove diff, backed up).
@@ -126,14 +173,14 @@ pub fn remove_one(
         scope: scope.to_string(),
     }];
     let empty: BTreeMap<String, McpConfig> = BTreeMap::new();
-    apply_diffs(
+    apply_diffs_with_retry(|| apply_diffs(
         &diff,
         &adef,
         &empty,
         &backups_dir(),
         project_dir.map(Path::new),
         timestamp,
-    )
+    ))
 }
 
 /// Install a catalog server (`name`+`transport`) into the given agents.
@@ -309,7 +356,9 @@ pub fn clean(only_agent: Option<&str>) -> CleanOutcome {
         let mut adef = BTreeMap::new();
         adef.insert(agent_id.clone(), def.clone());
         let empty: BTreeMap<String, McpConfig> = BTreeMap::new();
-        match apply_diffs(&diffs, &adef, &empty, &backups_dir(), None, &ts) {
+        match apply_diffs_with_retry(|| {
+            apply_diffs(&diffs, &adef, &empty, &backups_dir(), None, &ts)
+        }) {
             Ok(()) => cleaned.push(agent_id.clone()),
             Err(apply_errors) => push_apply_errors(&mut errors, apply_errors),
         }
@@ -343,7 +392,8 @@ pub fn clear_agent(agent_id: &str) -> Result<(), String> {
         agent_id,
         "global",
     )?;
-    get_agent_adapter_for(agent, agent_id).clear(&path)
+    let adapter = get_agent_adapter_for(agent, agent_id);
+    target_write_with_retry(|| adapter.clear(&path))
 }
 
 pub fn agent_has_entries(agent_id: &str) -> Result<bool, String> {

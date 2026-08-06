@@ -32,6 +32,7 @@ beforeEach(() => {
   apiMocks.commitOperation.mockResolvedValue({
     domain: "asset",
     inventory: consumptionInventoryFixture(),
+    converged: true,
   });
   apiMocks.cancelOperation.mockResolvedValue(undefined);
 });

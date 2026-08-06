@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.129](https://github.com/Scoheart/mux/compare/v1.8.128...v1.8.129) (2026-08-06)
+
+### Changes
+
+* fix(desktop): move Agent actions below header ([99868bf](https://github.com/Scoheart/mux/commit/99868bf376f6ae5c417ac24feba17f163f990148))
+
 ## [1.8.128](https://github.com/Scoheart/mux/compare/v1.8.127...v1.8.128) (2026-08-06)
 
 ### Changes

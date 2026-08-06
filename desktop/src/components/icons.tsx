@@ -188,6 +188,17 @@ export function LinkIcon({ className, style }: IconProps) {
   );
 }
 
+export function ExternalLinkIcon({ className, style }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} style={style} stroke="currentColor" fill="none"
+      strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M14 3h7v7" />
+      <path d="M10 14 21 3" />
+      <path d="M21 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h6" />
+    </svg>
+  );
+}
+
 export function ArrowLeftIcon({ className, style }: IconProps) {
   return (
     <svg viewBox="0 0 24 24" className={className} style={style} stroke="currentColor" fill="none"

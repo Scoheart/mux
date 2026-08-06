@@ -19,6 +19,15 @@ const apiMocks = vi.hoisted(() => ({
   listModelAgents: vi.fn().mockResolvedValue([]),
   listModelProfiles: vi.fn().mockResolvedValue([]),
 }));
+const openerMocks = vi.hoisted(() => ({
+  openPath: vi.fn().mockResolvedValue(undefined),
+  openUrl: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock("@tauri-apps/api/path", () => ({
+  homeDir: vi.fn().mockResolvedValue("/Users/test"),
+}));
+vi.mock("@tauri-apps/plugin-opener", () => openerMocks);
 
 vi.mock("../lib/api", async () => {
   const actual = await vi.importActual<typeof import("../lib/api")>("../lib/api");
@@ -141,7 +150,11 @@ it("opens a projection-only Skills Agent without a legacy MCP-shaped row", async
   expect(within(locations).getByText("MCPs")).toBeVisible();
   expect(within(locations).getByText("Models")).toBeVisible();
   expect(within(locations).getByText("Skills")).toBeVisible();
-  expect(within(locations).getByText(skillsOnlyAgent.skills_global_dir!)).toBeVisible();
+  expect(await within(locations).findByText("/Users/test/.snowflake/cortex/skills")).toBeVisible();
+  await userEvent.click(within(locations).getByRole("button", {
+    name: "打开文件夹：/Users/test/.snowflake/cortex/skills",
+  }));
+  expect(openerMocks.openPath).toHaveBeenCalledWith("/Users/test/.snowflake/cortex/skills");
   expect(screen.getByRole("button", { name: "编辑 Agent 设置" })).toBeVisible();
   expect(screen.queryByText(/UNKNOWN/)).not.toBeInTheDocument();
   expect(screen.queryByText(/coding-agent/)).not.toBeInTheDocument();
@@ -427,7 +440,7 @@ it("keeps a Model-only Agent in the full resource workspace", async () => {
   await waitFor(() => {
     expect(screen.getByRole("button", { name: "编辑 Agent 设置" })).toBeVisible();
   });
-  expect(screen.getByText("~/.model-only/config.json")).toBeVisible();
+  expect(await screen.findByText("/Users/test/.model-only/config.json")).toBeVisible();
   expect(screen.queryByText(/未提供可写的用户级全局配置/)).not.toBeInTheDocument();
 });
 
@@ -485,8 +498,13 @@ it("keeps an external MCP card read-only", async () => {
   );
 
   const locations = screen.getByRole("region", { name: "配置位置" });
-  expect(within(locations).getByText(mcpAgent.global!)).toBeVisible();
-  expect(within(locations).getByText("~/.agents/skills · ~/.claude/skills")).toBeVisible();
+  expect(await within(locations).findByText("/Users/test/.codex/config.toml")).toBeVisible();
+  expect(within(locations).getByText("/Users/test/.agents/skills")).toBeVisible();
+  expect(within(locations).getByText("/Users/test/.claude/skills")).toBeVisible();
+  await userEvent.click(within(locations).getByRole("button", {
+    name: "使用默认应用打开文件：/Users/test/.codex/config.toml",
+  }));
+  expect(openerMocks.openPath).toHaveBeenCalledWith("/Users/test/.codex/config.toml");
   expect(screen.queryByText(`${mcpAgent.id} · ${mcpAgent.category}`)).not.toBeInTheDocument();
   expect(screen.getByRole("button", { name: "编辑 Agent 设置" })).toBeVisible();
   await userEvent.click(within(locations).getByRole("button", { name: "编辑配置" }));

@@ -1461,7 +1461,17 @@ body {
 .mux-agent-file-copy > div { display: flex; min-width: 0; align-items: baseline; gap: 7px; }
 .mux-agent-file-copy strong { flex: 0 0 auto; color: var(--text-primary); font-size: 11px; font-weight: 670; }
 .mux-agent-file-copy > div span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-secondary); font-size: 9px; }
-.mux-agent-file-copy code { display: block; margin-top: 10px; overflow-wrap: anywhere; color: var(--text-primary); font: 10px/1.45 var(--font-mono); }
+.mux-agent-file-paths { display: flex; min-width: 0; flex-direction: column; gap: 3px; margin-top: 8px; }
+.mux-agent-file-path {
+  display: grid; width: 100%; min-width: 0; grid-template-columns: minmax(0, 1fr) 12px; align-items: center; gap: 6px;
+  margin: 0; padding: 3px 5px; border: 0; border-radius: 5px; background: transparent;
+  color: var(--text-primary); cursor: pointer; text-align: left;
+}
+.mux-agent-file-path code { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 10px/1.45 var(--font-mono); }
+.mux-agent-file-path svg { color: var(--text-secondary); opacity: .72; }
+.mux-agent-file-path:hover { background: var(--surface-selected); color: var(--color-blue); }
+.mux-agent-file-path:hover svg { color: var(--color-blue); opacity: 1; }
+.mux-agent-file-path:focus-visible { outline: 2px solid color-mix(in srgb, var(--color-blue) 48%, transparent); outline-offset: 1px; }
 .mux-agent-file-unavailable { display: block; margin-top: 10px; color: var(--text-secondary); font-size: 10px; }
 .mux-agent-resource-panel { margin-top: 14px; overflow: hidden; border: 0; border-radius: var(--radius-canvas); background: var(--surface-workspace); }
 .mux-agent-resource-panel-head {

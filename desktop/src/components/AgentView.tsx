@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { openUrl } from "@tauri-apps/plugin-opener";
+import { homeDir } from "@tauri-apps/api/path";
+import { openPath, openUrl } from "@tauri-apps/plugin-opener";
 import type { InstallState } from "../hooks/useInstallState";
 import type { SkillsState } from "../hooks/useSkillsState";
 import type { ConsumptionState } from "../hooks/useConsumptionState";
@@ -22,6 +23,7 @@ import { requiresAgentReview } from "../lib/agentOperation";
 import { listModelAgents, listModelProfiles } from "../lib/api";
 import {
   EditIcon,
+  ExternalLinkIcon,
   LayersIcon,
   LinkIcon,
   PackageIcon,
@@ -45,6 +47,21 @@ import { SkillReviewDialog } from "./SkillReviewDialog";
 import { useTranslation } from "react-i18next";
 
 type PickerDomain = "mcp" | "model" | "skill";
+type ConfigLocationKind = "file" | "folder";
+
+function absoluteConfigLocation(path: string, home: string) {
+  const value = path.trim();
+  const normalizedHome = home.replace(/\/$/, "");
+  if (value === "~" && normalizedHome) return normalizedHome;
+  if (value.startsWith("~/") && normalizedHome) return `${normalizedHome}/${value.slice(2)}`;
+  return value;
+}
+
+function configLocations(paths: string[] | undefined, fallback?: string | null) {
+  const values = (paths ?? []).map((path) => path.trim()).filter(Boolean);
+  if (values.length > 0) return [...new Set(values)];
+  return [...new Set((fallback ?? "").split(/\s+(?:\+|·)\s+/).map((path) => path.trim()).filter(Boolean))];
+}
 
 function modelProtocolLabel(protocol: ModelProfileView["protocol"]) {
   if (protocol === "anthropic-messages") return "Anthropic Messages";
@@ -122,6 +139,7 @@ export function AgentView({
   } | null>(null);
   const [changingModel, setChangingModel] = useState<{ profileId: string } | null>(null);
   const [skillConvergencePlan, setSkillConvergencePlan] = useState<OperationPlan | null>(null);
+  const [userHome, setUserHome] = useState("");
   const visibleIncidents = useMemo(() => {
     const capability = resourceTab === "mcps" ? "mcp" : resourceTab === "models" ? "model" : "skill";
     return (consumptionState.inventory?.target_incidents ?? []).filter(
@@ -133,6 +151,16 @@ export function AgentView({
   const navigateResource = useCallback((request: ResourceNavigationRequest) => {
     onOpenResource?.(request);
   }, [onOpenResource]);
+
+  useEffect(() => {
+    let active = true;
+    homeDir().then((path) => {
+      if (active) setUserHome(path);
+    }).catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const agents = useMemo(
     () => mergeAgentInfos(state.agents, consumptionState.agents),
@@ -242,13 +270,12 @@ export function AgentView({
     );
   }
 
-  const mcpConfigPath = agent.has_global ? agent.global : null;
+  const mcpConfigPaths = agent.has_global && agent.global ? [agent.global] : [];
   const mcpDescription = agent.has_global
     ? `${agent.format.toUpperCase()} · ${agent.key}`
     : "此 Agent 未接入 MCP";
-  const skillsConfigPaths = agent.skills_global_dirs?.filter((path) => path.trim().length > 0)
-    ?? (agent.skills_global_dir ? [agent.skills_global_dir] : []);
-  const skillsConfigPath = skillsConfigPaths.length > 0 ? skillsConfigPaths.join(" · ") : null;
+  const skillsConfigPaths = configLocations(agent.skills_global_dirs, agent.skills_global_dir);
+  const modelConfigPaths = configLocations(modelAgent?.config_paths, modelAgent?.config_path);
   const runtimeSkillAgent = skillsState.inventory?.agents.find((item) => item.id === agentId) ?? null;
   const modelDescription = modelsLoading
     ? "读取中…"
@@ -257,7 +284,7 @@ export function AgentView({
       : modelAgent?.mode === "guided"
         ? "Agent 内管理"
         : modelAgent ? `MUX 管理${modelAgent.supports_multiple ? " · 多模型" : ""}` : "未接入";
-  const skillsDescription = !skillsConfigPath
+  const skillsDescription = skillsConfigPaths.length === 0
     ? "未接入"
     : skillsState.loading
       ? "读取中…"
@@ -278,6 +305,18 @@ export function AgentView({
     ...modelProfiles.map((profile) => [`model:${profile.id}`, profile.name] as const),
     ...centralSkills.map((skill) => [`skill:${skill.name}`, skill.name] as const),
   ]);
+
+  const openConfigLocation = async (path: string, kind: ConfigLocationKind) => {
+    try {
+      const home = userHome || await homeDir();
+      await openPath(absoluteConfigLocation(path, home));
+    } catch (error) {
+      showToast({
+        kind: "error",
+        msg: `无法打开${kind === "folder" ? "文件夹" : "文件"}：${formatError(error)}`,
+      });
+    }
+  };
 
   const currentIds = (domain: PickerDomain): string[] => {
     if (domain === "mcp") {
@@ -559,20 +598,29 @@ export function AgentView({
                 icon={<PackageIcon className="w-4 h-4" />}
                 label="MCPs"
                 description={mcpDescription}
-                path={mcpConfigPath}
+                paths={mcpConfigPaths}
+                kind="file"
+                home={userHome}
+                onOpen={openConfigLocation}
                 unavailableLabel={agent.has_global ? undefined : "未接入"}
               />
               <ConfigPath
                 icon={<LayersIcon className="w-4 h-4" />}
                 label="Models"
                 description={modelDescription}
-                path={modelAgent?.config_path ?? null}
+                paths={modelConfigPaths}
+                kind="file"
+                home={userHome}
+                onOpen={openConfigLocation}
               />
               <ConfigPath
                 icon={<SparklesIcon className="w-4 h-4" />}
                 label="Skills"
                 description={skillsDescription}
-                path={skillsConfigPath}
+                paths={skillsConfigPaths}
+                kind="folder"
+                home={userHome}
+                onOpen={openConfigLocation}
               />
             </div>
           </section>
@@ -903,13 +951,19 @@ function ConfigPath({
   icon,
   label,
   description,
-  path,
+  paths,
+  kind,
+  home,
+  onOpen,
   unavailableLabel = "不可用",
 }: {
   icon: ReactNode;
   label: string;
   description: string;
-  path: string | null;
+  paths: string[];
+  kind: ConfigLocationKind;
+  home: string;
+  onOpen(path: string, kind: ConfigLocationKind): Promise<unknown> | unknown;
   unavailableLabel?: string;
 }) {
   return (
@@ -917,7 +971,26 @@ function ConfigPath({
       <span className="mux-agent-file-icon">{icon}</span>
       <div className="mux-agent-file-copy">
         <div><strong>{label}</strong><span>{description}</span></div>
-        {path ? <code title={path}>{path}</code> : (
+        {paths.length > 0 ? (
+          <div className="mux-agent-file-paths">
+            {paths.map((path) => {
+              const absolutePath = absoluteConfigLocation(path, home);
+              return (
+                <button
+                  type="button"
+                  className="mux-agent-file-path"
+                  key={path}
+                  title={kind === "folder" ? `在 Finder 中打开 ${absolutePath}` : `使用默认应用打开 ${absolutePath}`}
+                  aria-label={`${kind === "folder" ? "打开文件夹" : "使用默认应用打开文件"}：${absolutePath}`}
+                  onClick={() => void onOpen(path, kind)}
+                >
+                  <code>{absolutePath}</code>
+                  <ExternalLinkIcon className="w-3 h-3" />
+                </button>
+              );
+            })}
+          </div>
+        ) : (
           <span className="mux-agent-file-unavailable">{unavailableLabel}</span>
         )}
       </div>

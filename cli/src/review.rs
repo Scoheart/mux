@@ -255,7 +255,16 @@ fn commit(plan: OperationPlan) -> Result<Value, CliError> {
     .map_err(CliError::from_core)?;
 
     match result {
-        OperationCommitResult::Asset { inventory } => Ok(safe_consumption_inventory(&inventory)),
+        OperationCommitResult::Asset {
+            inventory,
+            converged: true,
+        } => Ok(safe_consumption_inventory(&inventory)),
+        OperationCommitResult::Asset {
+            converged: false, ..
+        } => Err(CliError::new(
+            "pending_convergence",
+            "MUX saved the desired configuration, but the Agent target has not converged",
+        )),
         OperationCommitResult::Skill { inventory } => Ok(safe_skill_inventory(&inventory)),
     }
 }

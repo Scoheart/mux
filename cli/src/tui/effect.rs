@@ -121,7 +121,13 @@ fn commit_plan(plan: AssetOperationPlan) -> Result<ConsumptionInventory, String>
     })
     .map_err(|error| error.to_string())?
     {
-        OperationCommitResult::Asset { inventory } => Ok(inventory),
+        OperationCommitResult::Asset {
+            inventory,
+            converged: true,
+        } => Ok(inventory),
+        OperationCommitResult::Asset {
+            converged: false, ..
+        } => Err("MUX 已保存期望配置，但 Agent 文件尚未完成收敛".into()),
         OperationCommitResult::Skill { .. } => {
             Err("Core returned a Skill result for an asset commit".into())
         }

@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.124](https://github.com/Scoheart/mux/compare/v1.8.123...v1.8.124) (2026-08-06)
+
+### Changes
+
+* fix(core): converge agent configs in place ([e7fd758](https://github.com/Scoheart/mux/commit/e7fd75846ffcbd57c644d7001e1cb08a1ca35069))
+
 ## [1.8.123](https://github.com/Scoheart/mux/compare/v1.8.122...v1.8.123) (2026-08-06)
 
 ### Changes

@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.126](https://github.com/Scoheart/mux/compare/v1.8.125...v1.8.126) (2026-08-06)
+
+### Changes
+
+* fix(desktop): remove clear MCP confirmation view ([c5f081f](https://github.com/Scoheart/mux/commit/c5f081f8d05d1567c486168eff3c4a446c4f21a5))
+
 ## [1.8.125](https://github.com/Scoheart/mux/compare/v1.8.124...v1.8.125) (2026-08-06)
 
 ### Changes

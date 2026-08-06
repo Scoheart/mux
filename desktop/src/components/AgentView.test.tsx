@@ -499,7 +499,8 @@ it("keeps an external MCP card read-only", async () => {
   expect(card).toHaveAttribute("data-enabled", "false");
   expect(within(card!).queryByRole("switch")).not.toBeInTheDocument();
   expect(within(card!).queryByRole("button", { name: /查看|移除/ })).not.toBeInTheDocument();
-  expect(within(card!).getByRole("button", { name: "采用外部" })).toBeVisible();
+  expect(within(card!).queryByText("外部新增")).not.toBeInTheDocument();
+  expect(within(card!).getByRole("button", { name: "收录 MUX" })).toBeVisible();
   const clearAll = screen.getByRole("button", { name: "移除全部 MCP" });
   expect(clearAll).toHaveAttribute("title", expect.stringContaining("包括外部配置"));
   await userEvent.click(clearAll);
@@ -674,7 +675,8 @@ it("renders every external Model as its own read-only card", async () => {
   expect(within(card!).getByText("Agent 实际当前")).toBeVisible();
   expect(within(card!).queryByRole("switch")).not.toBeInTheDocument();
   expect(within(card!).queryByRole("button", { name: /查看|移除/ })).not.toBeInTheDocument();
-  expect(within(card!).getByRole("button", { name: "采用外部" })).toBeVisible();
+  expect(within(card!).queryByText("外部新增")).not.toBeInTheDocument();
+  expect(within(card!).getByRole("button", { name: "收录 MUX" })).toBeVisible();
 });
 
 it("renders external Skills as read-only cards", async () => {
@@ -730,7 +732,8 @@ it("renders external Skills as read-only cards", async () => {
   expect(card).toHaveAttribute("data-enabled", "false");
   expect(within(card!).getByText("Review changes")).toBeVisible();
   expect(within(card!).queryByRole("button", { name: /查看|移除/ })).not.toBeInTheDocument();
-  expect(within(card!).getByRole("button", { name: "采用外部" })).toBeVisible();
+  expect(within(card!).queryByText("外部新增")).not.toBeInTheDocument();
+  expect(within(card!).getByRole("button", { name: "收录 MUX" })).toBeVisible();
 });
 
 it("uses one current-Model switch and activates a disabled backup atomically", async () => {

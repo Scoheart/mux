@@ -198,7 +198,8 @@ export function AgentConsumptionPanel({
                   </span>
                   {presentationDescription && <small>{presentationDescription}</small>}
                 </span>
-                {(isExternal || item.status !== "synced") && (
+                {item.status !== "synced"
+                  && !(isExternal && item.status === "external-added") && (
                   <ConsumptionStatus status={item.status} reason={item.reason} />
                 )}
                 {(item.available_actions.length > 0 || !isExternal && (renderAction || onEnabledChange && enabled !== null || onOpenAsset || onRemove)) && (

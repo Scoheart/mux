@@ -191,7 +191,8 @@ describe("AgentConsumptionPanel", () => {
     expect(cards).toHaveLength(2);
     expect(cards[1]).toHaveAttribute("data-status", "external-added");
     expect(cards[1]).toHaveAttribute("data-enabled", "false");
-    expect(within(cards[1]).getByText("外部新增")).toBeVisible();
+    expect(within(cards[1]).queryByText("外部新增")).not.toBeInTheDocument();
+    expect(cards[1].querySelector(".mux-consumption-status")).toBeNull();
     expect(within(cards[1]).queryByRole("switch")).not.toBeInTheDocument();
     expect(within(cards[1]).queryByRole("button")).not.toBeInTheDocument();
     expect(onEnabledChange).not.toHaveBeenCalled();

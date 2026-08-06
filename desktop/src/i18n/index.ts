@@ -105,7 +105,7 @@ const zhCN = {
       unsupported: "不兼容",
     },
     actions: {
-      adopt: "采用外部",
+      adopt: "收录 MUX",
       restore: "恢复 MUX",
       detach: "解除管理",
     },
@@ -384,7 +384,7 @@ const enUS: TranslationShape<typeof zhCN> = {
       unsupported: "Incompatible",
     },
     actions: {
-      adopt: "Adopt external",
+      adopt: "Add to MUX",
       restore: "Restore MUX",
       detach: "Detach",
     },

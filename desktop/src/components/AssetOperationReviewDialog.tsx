@@ -560,7 +560,7 @@ export function AssetOperationReviewDialog({
           {!busy && isDanger && <TrashIcon className="w-4 h-4" />}
           {busy
             ? (isConfiguration ? "保存中…" : agentCopy?.busy ?? "处理中…")
-            : reviewError && (isRemoveOnly || isClearMcp)
+            : reviewError && isRemoveOnly
               ? `重试${commitLabel}`
               : commitLabel}
         </button>

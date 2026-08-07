@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.130](https://github.com/Scoheart/mux/compare/v1.8.129...v1.8.130) (2026-08-07)
+
+### Changes
+
+* fix(desktop): prioritize Custom Provider template ([0dc4cb9](https://github.com/Scoheart/mux/commit/0dc4cb94bdcf46830bf2f5ffc12bbcac95a4a16e))
+
 ## [1.8.129](https://github.com/Scoheart/mux/compare/v1.8.128...v1.8.129) (2026-08-06)
 
 ### Changes

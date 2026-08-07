@@ -365,6 +365,7 @@ it("keeps the built-in Provider Catalog unfiltered, searchable, and keyboard-sel
   expect(within(catalog).getByRole("radio", { name: /OpenAI/ })).toBeVisible();
   expect(within(catalog).getByRole("radio", { name: /Ollama/ })).toBeVisible();
   expect(within(catalog).getByRole("radio", { name: /Custom Provider/ })).toBeVisible();
+  expect(within(catalog).getAllByRole("radio")[0]).toHaveAccessibleName(/Custom Provider/);
   expect(within(catalog).getByRole("radio", { name: /OpenAI/ })
     .querySelector('[data-provider-icon="openai"]')).toBeInTheDocument();
   expect(within(catalog).getByRole("radio", { name: /Custom Provider/ })

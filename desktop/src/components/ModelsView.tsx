@@ -752,7 +752,11 @@ function ProviderCatalogDialog({
   const [selectedId, setSelectedId] = useState(
     providers.find((provider) => provider.id === "openrouter")?.id ?? providers[0]?.id ?? "",
   );
-  const visibleProviders = providers.filter((provider) => {
+  const orderedProviders = [
+    ...providers.filter((provider) => provider.id === "custom"),
+    ...providers.filter((provider) => provider.id !== "custom"),
+  ];
+  const visibleProviders = orderedProviders.filter((provider) => {
     const needle = query.trim().toLocaleLowerCase();
     return !needle || [
       provider.name,

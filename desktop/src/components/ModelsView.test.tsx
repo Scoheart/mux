@@ -155,8 +155,8 @@ it("maps Models to one compact, scannable list", () => {
   expect(list).toMatch(/className="mux-asset-list-row mux-model-list-row"/);
   expect(list).toMatch(/<strong title=\{displayName\}>\{displayName\}<\/strong>/);
   expect(list).toMatch(/title=\{profile\.model\}>\{profile\.model\}<\/code>/);
-  expect(list).toMatch(/protocolLabel\(profile\.protocol\)/);
-  expect(list).toMatch(/profile\.credential_saved/);
+  expect(list).not.toMatch(/protocolLabel\(profile\.protocol\)/);
+  expect(list).not.toMatch(/profile\.credential_saved/);
   expect(list).not.toMatch(/<ResourceCard/);
   expect(source).toMatch(/className="mux-models-workspace"/);
   expect(source).not.toMatch(/<ResourceTabs/);
@@ -256,7 +256,7 @@ it("enriches an OpenRouter list row without overriding user token limits", async
   const card = await screen.findByRole("button", { name: "打开模型 OpenRouter 详情" });
   await waitFor(() => expect(within(card).getByText("Qwen3")).toBeVisible());
   expect(within(card).getByText("qwen/qwen3")).toBeVisible();
-  expect(within(card).getByText("OpenRouter")).toBeVisible();
+  expect(within(card).queryByText("OpenRouter")).not.toBeInTheDocument();
   expect(within(card).getByText("200K")).toBeVisible();
   expect(within(card).queryByText("262.1K")).not.toBeInTheDocument();
   expect(within(card).queryByText("$0.2/M 输入")).not.toBeInTheDocument();
@@ -416,9 +416,12 @@ it("centers compact Provider cards without sacrificing a dedicated selection col
   expect(css).not.toMatch(/\.mux-provider-catalog-categories/);
 });
 
-it("keeps Keychain presence-only rendering in the Inspector", () => {
-  expect(source).toMatch(/profile\.credential_saved \? t\("models\.keychainSaved"\) : t\("models\.keychainNotSaved"\)/);
-  expect(source).not.toMatch(/credential_saved\s*\}\s*<code/);
+it("keeps Keychain status on the Provider rather than Model cards", () => {
+  expect(source).toMatch(/className="mux-model-provider-credential"/);
+  expect(source).toMatch(/data-saved=\{provider\.credential_saved \? "true" : "false"\}/);
+  expect(source).toMatch(/<KeyIcon className="w-3\.5 h-3\.5" \/>/);
+  expect(source).not.toMatch(/className="mux-model-list-credential"/);
+  expect(css).not.toMatch(/\.mux-model-list-credential/);
 });
 
 it("renders model details as one continuous field list without section cards", async () => {
@@ -448,7 +451,7 @@ it("renders model details as one continuous field list without section cards", a
   const inspector = screen.getByRole("complementary", { name: "Qwen3 7 Plus 详情" });
   const fields = within(inspector).getByRole("region", { name: "模型详情字段" });
   expect(fields).toHaveClass("mux-model-inspector-fields");
-  expect(fields.querySelectorAll(".mux-inspector-field")).toHaveLength(7);
+  expect(fields.querySelectorAll(".mux-inspector-field")).toHaveLength(6);
   expect(fields.querySelectorAll(".mux-inspector-section")).toHaveLength(0);
   for (const label of [
     "模型提供商",
@@ -457,11 +460,11 @@ it("renders model details as one continuous field list without section cards", a
     "模型 ID",
     "完整请求 URL",
     "环境变量",
-    "API Key",
   ]) {
     expect(within(fields).getByText(label)).toBeVisible();
   }
-  expect(within(fields).getByText("已保存到 Keychain")).toBeVisible();
+  expect(within(fields).queryByText("API Key")).not.toBeInTheDocument();
+  expect(within(fields).queryByText("已保存到 Keychain")).not.toBeInTheDocument();
   for (const removed of ["模型开发商", "目录来源", "Profile ID", "Catalog Key"]) {
     expect(within(fields).queryByText(removed)).not.toBeInTheDocument();
   }

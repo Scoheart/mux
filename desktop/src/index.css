@@ -744,28 +744,43 @@ body {
   min-width: 0; overflow: hidden; color: var(--text-primary); font-size: 13px;
   text-overflow: ellipsis; white-space: nowrap;
 }
-:where(.mux-registry-workspace, .mux-models-workspace, .mux-skill-workspace) .mux-asset-list {
-  width: min(100%, 1280px); margin: 6px auto; overflow: hidden;
-  border-radius: var(--radius-region); background: var(--surface-section);
+.mux-model-provider-credential {
+  display: inline-flex; width: 22px; height: 22px; flex: 0 0 22px; align-items: center; justify-content: center;
+  border-radius: 6px; background: var(--surface-control); color: var(--text-tertiary);
 }
-:where(.mux-registry-workspace, .mux-models-workspace, .mux-skill-workspace) :is(.mux-asset-list-header, .mux-asset-list-row) {
+.mux-model-provider-credential[data-saved="true"] {
+  background: color-mix(in srgb, var(--color-green) 11%, transparent); color: var(--color-green);
+}
+:where(.mux-registry-workspace, .mux-models-workspace, .mux-skill-workspace) .mux-asset-list {
+  display: grid; width: min(100%, 1280px); min-width: 0; margin: 6px auto;
+  grid-template-columns: repeat(2, minmax(0, 1fr)); align-content: start; gap: 8px;
+  padding: 2px; overflow: visible; background: transparent;
+}
+:where(.mux-registry-workspace, .mux-models-workspace, .mux-skill-workspace) .mux-asset-list-row {
   display: grid; min-width: 0; align-items: center; gap: 10px;
 }
 :where(.mux-registry-workspace, .mux-models-workspace, .mux-skill-workspace) .mux-asset-list-header {
-  position: sticky; z-index: 2; top: 0; min-height: 36px; padding: 0 13px;
-  background: var(--surface-section); color: var(--text-tertiary);
-  font-size: 9px; font-weight: 680;
+  display: none;
 }
-:where(.mux-registry-workspace, .mux-models-workspace, .mux-skill-workspace) .mux-asset-list > [role="listitem"] { margin: 0 6px 6px; }
+:where(.mux-registry-workspace, .mux-models-workspace, .mux-skill-workspace) .mux-asset-list > [role="listitem"] {
+  min-width: 0; margin: 0;
+}
 :where(.mux-registry-workspace, .mux-models-workspace, .mux-skill-workspace) .mux-asset-list-row {
-  width: 100%; min-height: 62px; padding: 8px 9px; border: 0; border-radius: var(--radius-row);
+  width: 100%; min-height: 78px; padding: 10px 11px; border: 1px solid var(--border-hairline);
+  border-radius: 10px;
   background: var(--surface-asset); color: var(--text-primary); font: 10px/1.3 var(--font-sans);
-  text-align: left; cursor: pointer; transition: background-color .12s ease;
+  text-align: left; cursor: pointer;
+  transition: border-color .12s ease, background-color .12s ease, box-shadow .12s ease;
 }
-:where(.mux-registry-workspace, .mux-models-workspace, .mux-skill-workspace) .mux-asset-list-row:hover { background: color-mix(in srgb, var(--surface-selected) 38%, var(--surface-asset)); }
-:where(.mux-registry-workspace, .mux-models-workspace, .mux-skill-workspace) .mux-asset-list-row[data-selected="true"] { background: var(--surface-selected); }
-:where(.mux-registry-workspace, .mux-models-workspace, .mux-skill-workspace) .mux-asset-list-row[data-attention="shadowed"] { box-shadow: inset 2px 0 color-mix(in srgb, var(--color-blue) 55%, var(--surface-asset)); }
-:where(.mux-registry-workspace, .mux-models-workspace, .mux-skill-workspace) .mux-asset-list-row[data-attention="warning"] { box-shadow: inset 2px 0 var(--color-brand-gold); }
+:where(.mux-registry-workspace, .mux-models-workspace, .mux-skill-workspace) .mux-asset-list-row:hover {
+  border-color: color-mix(in srgb, var(--color-blue) 24%, var(--border-hairline));
+  background: color-mix(in srgb, var(--surface-selected) 30%, var(--surface-asset));
+}
+:where(.mux-registry-workspace, .mux-models-workspace, .mux-skill-workspace) .mux-asset-list-row[data-selected="true"] {
+  border-color: color-mix(in srgb, var(--color-blue) 68%, var(--border-hairline));
+  background: color-mix(in srgb, var(--surface-selected) 72%, var(--surface-asset));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-blue) 16%, transparent);
+}
 :where(.mux-registry-workspace, .mux-models-workspace, .mux-skill-workspace) .mux-asset-list-row:focus-visible {
   outline: 2px solid color-mix(in srgb, var(--color-blue) 58%, transparent); outline-offset: 1px;
 }
@@ -792,85 +807,62 @@ body {
 }
 :where(.mux-registry-workspace, .mux-models-workspace, .mux-skill-workspace) .mux-asset-list-status { display: flex; min-width: 0; align-items: center; }
 .mux-registry-workspace :is(.mux-mcp-list-header, .mux-mcp-list-row) {
-  grid-template-columns: minmax(220px, 2.2fr) 74px minmax(112px, 1fr) 82px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-areas:
+    "identity identity status"
+    "transport source status";
+  column-gap: 8px; row-gap: 7px;
 }
+.mux-mcp-list-row .mux-asset-list-identity { grid-area: identity; }
+.mux-mcp-list-row .mux-asset-list-transport { grid-area: transport; }
+.mux-mcp-list-row .mux-asset-list-source { grid-area: source; }
+.mux-mcp-list-row .mux-asset-list-status { grid-area: status; align-self: start; justify-self: end; }
 .mux-skill-workspace :is(.mux-skill-list-header, .mux-skill-list-row) {
-  grid-template-columns: minmax(220px, 1.8fr) minmax(180px, 1.4fr) 92px 92px 78px;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  grid-template-areas:
+    "identity identity status"
+    "source risk update";
+  column-gap: 8px; row-gap: 7px;
 }
+.mux-skill-list-row .mux-asset-list-identity { grid-area: identity; }
+.mux-skill-list-row .mux-asset-list-source { grid-area: source; }
+.mux-skill-list-row .mux-skill-list-risk { grid-area: risk; }
+.mux-skill-list-row .mux-skill-list-update { grid-area: update; }
+.mux-skill-list-row .mux-asset-list-status { grid-area: status; align-self: start; justify-self: end; }
 .mux-models-workspace :is(.mux-model-list-header, .mux-model-list-row) {
-  grid-template-columns: minmax(220px, 2.1fr) minmax(120px, 1fr) minmax(142px, .9fr) minmax(76px, .55fr) minmax(108px, .7fr);
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas: "identity";
+  min-height: 78px; column-gap: 10px;
 }
 .mux-models-workspace .mux-model-list {
-  margin: 6px auto 0; overflow: visible; border-radius: 0; background: transparent;
+  margin: 6px auto 0;
 }
-.mux-models-workspace .mux-model-list-header {
-  min-height: 34px; padding: 0 10px;
-  border-bottom: 1px solid color-mix(in srgb, var(--border-hairline) 74%, transparent);
-  background: var(--surface-workspace);
+.mux-model-list-row .mux-model-list-identity { grid-area: identity; }
+.mux-model-list-subline {
+  display: flex !important; min-width: 0; align-items: center; gap: 6px; margin-top: 4px;
+  overflow: hidden; color: var(--text-secondary); font: 9px/1.25 var(--font-mono); white-space: nowrap;
 }
-.mux-models-workspace .mux-model-list > [role="listitem"] {
-  margin: 0; border-bottom: 1px solid color-mix(in srgb, var(--border-hairline) 74%, transparent);
+.mux-model-list-subline code {
+  min-width: 0; overflow: hidden; color: inherit; font: inherit; text-overflow: ellipsis; white-space: nowrap;
 }
-.mux-models-workspace .mux-model-list > [role="listitem"]:last-child { border-bottom: 0; }
-.mux-models-workspace .mux-model-list-row {
-  min-height: 64px; padding: 9px 10px; border-radius: 0; background: transparent;
-}
-.mux-models-workspace .mux-model-list-row:hover {
-  background: color-mix(in srgb, var(--surface-selected) 32%, transparent);
-}
-.mux-models-workspace .mux-model-list-row[data-selected="true"] {
-  background: color-mix(in srgb, var(--surface-selected) 68%, var(--surface-workspace));
-}
-.mux-model-list-provider { min-width: 0; overflow: hidden; color: var(--text-primary); font-weight: 640; text-overflow: ellipsis; white-space: nowrap; }
-.mux-model-list-protocol {
-  display: inline-flex; width: fit-content; max-width: 100%; min-width: 0; align-items: center;
-  padding: 4px 7px; overflow: hidden; border-radius: 5px; background: var(--surface-control);
-  color: var(--text-secondary); font-size: 8px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap;
-}
-.mux-model-list-context { color: var(--text-secondary); font: 9px/1.2 var(--font-mono); }
+.mux-model-list-context { flex: 0 0 auto; color: var(--text-tertiary); font: inherit; }
 .mux-skill-workspace .mux-asset-list-copy > .mux-skill-list-description { font-family: var(--font-sans); line-height: 1.3; }
 .mux-skill-workspace :is(.mux-skill-list-risk, .mux-skill-list-update) { display: flex; min-width: 0; align-items: center; }
 @container resource-stage (max-width: 780px) {
-  .mux-models-workspace :is(.mux-model-list-header, .mux-model-list-row) {
-    grid-template-columns: minmax(210px, 2fr) minmax(120px, 1fr) minmax(132px, .9fr);
+  :where(.mux-registry-workspace, .mux-models-workspace, .mux-skill-workspace) .mux-asset-list {
+    grid-template-columns: minmax(0, 1fr);
   }
-  .mux-models-workspace .mux-model-list-header > :nth-child(4),
-  .mux-models-workspace .mux-model-list-header > :nth-child(5),
-  .mux-model-list-context,
-  .mux-models-workspace .mux-model-list-row > :nth-child(5) { display: none; }
-
-  .mux-registry-workspace :is(.mux-mcp-list-header, .mux-mcp-list-row) {
-    grid-template-columns: minmax(220px, 2fr) minmax(100px, 1fr) 82px;
-  }
-  .mux-registry-workspace .mux-mcp-list-header > :nth-child(2),
-  .mux-registry-workspace .mux-mcp-list-row > :nth-child(2) { display: none; }
-
-  .mux-skill-workspace :is(.mux-skill-list-header, .mux-skill-list-row) {
-    grid-template-columns: minmax(210px, 1.8fr) minmax(150px, 1.2fr) 92px;
-  }
-  .mux-skill-workspace .mux-skill-list-header > :nth-child(3),
-  .mux-skill-workspace .mux-skill-list-header > :nth-child(4),
-  .mux-skill-workspace .mux-skill-list-row > :nth-child(3),
-  .mux-skill-workspace .mux-skill-list-row > :nth-child(4) { display: none; }
-}
-@container resource-stage (max-width: 520px) {
-  .mux-registry-workspace :is(.mux-mcp-list-header, .mux-mcp-list-row) {
-    grid-template-columns: minmax(220px, 1fr) 82px;
-  }
-  .mux-registry-workspace .mux-mcp-list-header > :nth-child(3),
-  .mux-registry-workspace .mux-mcp-list-row > :nth-child(3) { display: none; }
-
-  .mux-skill-workspace :is(.mux-skill-list-header, .mux-skill-list-row) {
-    grid-template-columns: minmax(220px, 1fr) 92px;
-  }
-  .mux-skill-workspace .mux-skill-list-header > :nth-child(2),
-  .mux-skill-workspace .mux-skill-list-row > :nth-child(2) { display: none; }
 }
 :is(.mux-registry-workspace, .mux-models-workspace, .mux-skill-workspace) .mux-resource-skeleton {
-  grid-template-columns: minmax(0, 1fr);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 :is(.mux-registry-workspace, .mux-models-workspace, .mux-skill-workspace) .mux-resource-skeleton > span {
-  min-height: 62px;
+  min-height: 78px;
+}
+@container resource-stage (max-width: 780px) {
+  :is(.mux-registry-workspace, .mux-models-workspace, .mux-skill-workspace) .mux-resource-skeleton {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 .mux-resource-card-footer {
   display: flex; align-items: center; justify-content: space-between; gap: 8px;

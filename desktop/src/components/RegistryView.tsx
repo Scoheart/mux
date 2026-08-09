@@ -420,12 +420,6 @@ export function RegistryView({ state, consumptionState, intent, onIntentConsumed
           role="list"
           aria-label={t("centralAssets.mcpList")}
         >
-          <div className="mux-asset-list-header mux-mcp-list-header" aria-hidden="true">
-            <span>{t("centralAssets.mcpIdentity")}</span>
-            <span>{t("centralAssets.transport")}</span>
-            <span>{t("centralAssets.source")}</span>
-            <span>{t("centralAssets.status")}</span>
-          </div>
           {filtered.map((item) => (
             <div
               role="listitem"

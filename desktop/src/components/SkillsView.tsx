@@ -606,13 +606,6 @@ export function SkillsView({
               role="list"
               aria-label={t("centralAssets.skillList")}
             >
-              <div className="mux-asset-list-header mux-skill-list-header" aria-hidden="true">
-                <span>{t("centralAssets.skillIdentity")}</span>
-                <span>{t("centralAssets.sourceRevision")}</span>
-                <span>{t("centralAssets.risk")}</span>
-                <span>{t("centralAssets.update")}</span>
-                <span>{t("centralAssets.status")}</span>
-              </div>
               {filtered.map((item) => (
                 <div role="listitem" key={item.identity}>
                   <SkillCard

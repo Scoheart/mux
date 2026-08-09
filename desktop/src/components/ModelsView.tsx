@@ -22,7 +22,6 @@ import {
   type ModelsDevMetadata,
 } from "../lib/modelsDev";
 import { Avatar, Badge } from "./ui";
-import { ResourceKindIcon } from "./ResourceCard";
 import { ResourceState } from "./ResourceState";
 import { DialogShell } from "./DialogShell";
 import { AssetOperationReviewDialog } from "./AssetOperationReviewDialog";
@@ -569,9 +568,15 @@ function ProviderBanner({
         <div className="mux-model-provider-banner-copy">
           <strong>{provider.name}</strong>
           <span>{t("models.providerModelCount", { count: provider.model_count })}</span>
-          <Badge tone={provider.credential_saved ? "success" : "neutral"}>
-            {provider.credential_saved ? t("models.keychainSaved") : t("models.keychainNotSaved")}
-          </Badge>
+          <span
+            className="mux-model-provider-credential"
+            data-saved={provider.credential_saved ? "true" : "false"}
+            role="img"
+            aria-label={provider.credential_saved ? t("models.keychainSaved") : t("models.keychainNotSaved")}
+            title={provider.credential_saved ? t("models.keychainSaved") : t("models.keychainNotSaved")}
+          >
+            <KeyIcon className="w-3.5 h-3.5" />
+          </span>
         </div>
       </div>
       <div className="flex items-center gap-2">
@@ -606,13 +611,6 @@ function ModelList({
   const { t } = useTranslation();
   return (
     <div className="mux-asset-list mux-model-list" role="list" aria-label={t("models.asset")}>
-      <div className="mux-asset-list-header mux-model-list-header" aria-hidden="true">
-        <span>{t("models.modelColumn")}</span>
-        <span>{t("models.providerColumn")}</span>
-        <span>{t("models.protocol")}</span>
-        <span>{t("models.context")}</span>
-        <span>{t("models.credentialColumn")}</span>
-      </div>
       {profiles.map((profile) => {
         const providerName = profileProviderName(profile, providerInstances, providers);
         const profileMetadata = metadata[profile.id];
@@ -628,19 +626,16 @@ function ModelList({
               onClick={() => onOpen(profile.id)}
             >
               <span className="mux-asset-list-identity mux-model-list-identity">
-                <ResourceKindIcon kind="model" seed={displayName} />
+                <ProviderGlyph id={profile.provider || "custom"} name={providerName} size={34} />
                 <span className="mux-asset-list-copy">
                   <strong title={displayName}>{displayName}</strong>
-                  <code title={profile.model}>{profile.model}</code>
+                  <span className="mux-model-list-subline">
+                    <code title={profile.model}>{profile.model}</code>
+                    {contextWindow && (
+                      <span className="mux-model-list-context">· {formatTokens(contextWindow)}</span>
+                    )}
+                  </span>
                 </span>
-              </span>
-              <span className="mux-model-list-provider" title={providerName}>{providerName}</span>
-              <span className="mux-model-list-protocol">{protocolLabel(profile.protocol)}</span>
-              <span className="mux-model-list-context">
-                {contextWindow ? formatTokens(contextWindow) : t("common.notSet")}
-              </span>
-              <span className={profile.credential_saved ? "mux-status-ok" : "mux-status-muted"}>
-                {profile.credential_saved ? t("models.keychainSaved") : t("models.keychainNotSaved")}
               </span>
             </button>
           </div>
@@ -730,11 +725,6 @@ function ModelInspector({
         <InspectorField label={t("models.modelId")} mono>{profile.model}</InspectorField>
         <InspectorField label={t("models.fullRequestUrl")} mono>{requestUrl || t("common.notSet")}</InspectorField>
         {profile.env_key && <InspectorField label={t("models.environmentVariable")} mono>{profile.env_key}</InspectorField>}
-        <InspectorField label={t("models.apiKey")}>
-          <span className={profile.credential_saved ? "mux-status-ok" : "mux-status-muted"}>
-            {profile.credential_saved ? t("models.keychainSaved") : t("models.keychainNotSaved")}
-          </span>
-        </InspectorField>
       </section>
     </ResourceInspector>
   );

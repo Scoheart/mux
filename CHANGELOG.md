@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.133](https://github.com/Scoheart/mux/compare/v1.8.132...v1.8.133) (2026-08-09)
+
+### Changes
+
+* fix(desktop): resolve credential translation collision ([119f34b](https://github.com/Scoheart/mux/commit/119f34b7c31da5d18092a5111574cd2164156d91))
+
 ## [1.8.132](https://github.com/Scoheart/mux/compare/v1.8.131...v1.8.132) (2026-08-09)
 
 ### Changes

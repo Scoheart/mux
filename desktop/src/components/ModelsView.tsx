@@ -1123,9 +1123,7 @@ function ModelProviderDialog({
 }) {
   const { t } = useTranslation();
   const toast = useToast();
-  const initialProviderType = initial?.provider
-    ?? (providerTemplate?.id === "custom" ? "" : providerTemplate?.id)
-    ?? "";
+  const initialProviderType = initial?.provider ?? providerTemplate?.id ?? "";
   const knownProvider = providers.some(
     (provider) => provider.id !== "custom" && provider.id === initialProviderType,
   );
@@ -1268,19 +1266,10 @@ function ModelProviderDialog({
                     ...(usesTemplateConnection ? nextConnection : {}),
                   });
                 } else if (!initial) {
-                  setDraft((current) => ({ ...current, provider: "" }));
+                  setDraft((current) => ({ ...current, provider: "custom" }));
                 }
               }}
             />
-            {providerSelection === CUSTOM_PROVIDER_OPTION && (
-              <input
-                aria-label={t("models.customProviderId")}
-                className="mux-model-field mux-model-custom-provider"
-                value={draft.provider}
-                onChange={(event) => setDraft({ ...draft, provider: event.target.value })}
-                spellCheck={false}
-              />
-            )}
           </div>
         </div>
 

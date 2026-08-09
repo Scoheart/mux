@@ -523,6 +523,7 @@ it("fills a standalone Provider form from the selected catalog template", async 
   await openProviderTemplate(user, "OpenRouter");
   expect(screen.getByRole("heading", { name: "新建 Provider" })).toBeVisible();
   expect(screen.getByRole("combobox", { name: "Provider 类型" })).toHaveTextContent("OpenRouter");
+  expect(screen.queryByLabelText("自定义模型提供商 ID")).not.toBeInTheDocument();
   expect(screen.getByLabelText("Base URL")).toHaveValue("https://openrouter.ai/api/v1");
   expect(screen.getAllByLabelText("Base URL")).toHaveLength(1);
   expect(screen.getByRole("switch", { name: /OpenAI Responses/ })).toBeChecked();
@@ -625,6 +626,7 @@ it("keeps an explicitly entered Provider endpoint while changing its type", asyn
   await openProviderTemplate(user, "Custom Provider");
   const endpoint = screen.getByLabelText("Base URL");
 
+  expect(screen.queryByLabelText("自定义模型提供商 ID")).not.toBeInTheDocument();
   await user.type(endpoint, "https://gateway.example.test/v1");
   await chooseFormSelect(user, "Provider 类型", "OpenRouter");
 
@@ -704,7 +706,6 @@ it("rejects absolute, fragmented, and traversal Endpoint Paths in the Provider f
   );
 
   await openProviderTemplate(user, "Custom Provider");
-  await user.type(screen.getByLabelText("自定义模型提供商 ID"), "safe-gateway");
   await user.type(screen.getByLabelText("Base URL"), "https://gateway.example.test");
   const path = screen.getByLabelText("OpenAI Responses Endpoint Path");
   const protocolCard = path.closest(".mux-provider-protocol");
@@ -865,7 +866,6 @@ it("submits an independent custom Provider through the central asset plan", asyn
   );
 
   await openProviderTemplate(user, "Custom Provider");
-  await user.type(screen.getByLabelText("自定义模型提供商 ID"), "my-gateway");
   await user.type(
     screen.getByLabelText("Base URL"),
     "https://models.example.test/v1/",
@@ -878,7 +878,7 @@ it("submits an independent custom Provider through the central asset plan", asyn
     existing_id: undefined,
     provider: expect.objectContaining({
       id: "",
-      provider: "my-gateway",
+      provider: "custom",
       base_url: "https://models.example.test/v1",
       protocols: expect.objectContaining({
         "openai-responses": { endpoint_path: "/responses" },
@@ -900,7 +900,6 @@ it("configures a Gemini native GenerateContent endpoint on a custom Provider", a
   );
 
   await openProviderTemplate(user, "Custom Provider");
-  await user.type(screen.getByLabelText("自定义模型提供商 ID"), "local-gemini");
   fireEvent.change(screen.getByLabelText("Base URL"), {
     target: { value: "http://127.0.0.1:18080/v1beta" },
   });
@@ -915,7 +914,7 @@ it("configures a Gemini native GenerateContent endpoint on a custom Provider", a
   await waitFor(() => expect(planUpdate).toHaveBeenCalledWith(expect.objectContaining({
     domain: "model-provider",
     provider: expect.objectContaining({
-      provider: "local-gemini",
+      provider: "custom",
       base_url: "http://127.0.0.1:18080/v1beta",
       protocols: expect.objectContaining({
         "gemini-generate-content": {

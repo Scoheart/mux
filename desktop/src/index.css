@@ -1935,7 +1935,6 @@ body {
   .mux-form-select-menu { animation: none; }
   .mux-form-select-chevron { transition: none; }
 }
-.mux-model-custom-provider { margin-top: 6px; }
 .mux-model-check { display: inline-flex; align-items: center; gap: 7px; color: var(--text-secondary); font-size: 11px; }
 .mux-model-check input { accent-color: var(--color-blue); }
 .mux-provider-protocols { display: grid; min-width: 0; gap: 8px; padding-top: 2px; }

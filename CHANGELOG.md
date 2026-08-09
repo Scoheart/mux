@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.134](https://github.com/Scoheart/mux/compare/v1.8.133...v1.8.134) (2026-08-09)
+
+### Changes
+
+* feat(desktop): refine asset card layouts ([67a3790](https://github.com/Scoheart/mux/commit/67a3790ee5e565f4cf00ab966d054da26f55bb6a))
+
 ## [1.8.133](https://github.com/Scoheart/mux/compare/v1.8.132...v1.8.133) (2026-08-09)
 
 ### Changes

@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.132](https://github.com/Scoheart/mux/compare/v1.8.131...v1.8.132) (2026-08-09)
+
+### Changes
+
+* feat(assets): unify central storage and provider setup ([82e10fe](https://github.com/Scoheart/mux/commit/82e10fe993e2819e70052a781c5ec28e6e8ccee1))
+
 ## [1.8.131](https://github.com/Scoheart/mux/compare/v1.8.130...v1.8.131) (2026-08-09)
 
 ### Changes

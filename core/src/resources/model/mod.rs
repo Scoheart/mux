@@ -4481,9 +4481,14 @@ mod tests {
         assert!(migrate_model_providers_v3_if_needed().unwrap());
         assert!(!migrate_model_providers_v3_if_needed().unwrap());
 
-        let raw: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
-        assert_eq!(raw["version"], crate::settings::SETTINGS_VERSION);
-        let provider = &raw["model_providers"]["team-provider"];
+        let raw_settings: Value =
+            serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(raw_settings["version"], crate::settings::SETTINGS_VERSION);
+        let raw: Value = serde_json::from_str(
+            &fs::read_to_string(crate::paths::model_catalog_file()).unwrap(),
+        )
+        .unwrap();
+        let provider = &raw["providers"]["team-provider"];
         assert!(provider.get("endpoints").is_none());
         assert_eq!(provider["base_url"], "https://gateway.example.test");
         assert_eq!(
@@ -4494,7 +4499,7 @@ mod tests {
             provider["protocols"]["anthropic-messages"]["endpoint_path"],
             "/anthropic/v1/messages"
         );
-        let shared = &raw["model_providers"]["shared-provider"];
+        let shared = &raw["providers"]["shared-provider"];
         assert_eq!(shared["base_url"], "https://shared.example.test/api/v2");
         assert_eq!(
             shared["protocols"]["openai-responses"]["endpoint_path"],

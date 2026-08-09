@@ -28,7 +28,7 @@ pub fn builtin_registry() -> Vec<RegistryEntry> {
 
 /// Ids of the two **managed** local sources. Manually-created and auto-discovered
 /// entries are stored as ordinary local-source files under
-/// `~/.mux/sources/local/<id>.json`, exactly like an added local file — not in
+/// `~/.mux/assets/mcps/sources/local/<id>.json`, exactly like an added local file — not in
 /// `settings.registry`. They appear in the Sources list like any other source.
 pub const MANUAL_ID: &str = "manual";
 pub const DISCOVERED_ID: &str = "discovered";

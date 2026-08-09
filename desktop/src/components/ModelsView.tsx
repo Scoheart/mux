@@ -30,8 +30,12 @@ import { FormSelect } from "./FormSelect";
 import { ProviderGlyph } from "./providerIcons";
 import {
   EditIcon,
+  EyeIcon,
+  EyeOffIcon,
+  KeyIcon,
   LayersIcon,
   PlusIcon,
+  TerminalIcon,
   TrashIcon,
 } from "./icons";
 import { useToast } from "./Toast";
@@ -57,8 +61,6 @@ const DEFAULT_ENDPOINT_PATHS: Record<ModelProtocol, string> = {
   "openai-completions": "/chat/completions",
   "gemini-generate-content": "/models/{model}:generateContent",
 };
-
-const CUSTOM_PROVIDER_OPTION = "__custom__";
 
 const emptyProfile = (): ModelProfile => ({
   id: "",
@@ -750,7 +752,7 @@ function ProviderCatalogDialog({
   const { t } = useTranslation();
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState(
-    providers.find((provider) => provider.id === "openrouter")?.id ?? providers[0]?.id ?? "",
+    providers.find((provider) => provider.id === "custom")?.id ?? providers[0]?.id ?? "",
   );
   const orderedProviders = [
     ...providers.filter((provider) => provider.id === "custom"),
@@ -1124,30 +1126,47 @@ function ModelProviderDialog({
   const { t } = useTranslation();
   const toast = useToast();
   const initialProviderType = initial?.provider ?? providerTemplate?.id ?? "";
-  const knownProvider = providers.some(
-    (provider) => provider.id !== "custom" && provider.id === initialProviderType,
-  );
-  const templateConnection = providerTemplateConnection(providerTemplate);
+  const template = providerTemplate
+    ?? providers.find((provider) => provider.id === initialProviderType)
+    ?? null;
+  const templateConnection = providerTemplateConnection(template);
+  const initialProtocols = initial
+    ? Object.fromEntries(
+        Object.entries(initial.protocols)
+          .map(([protocol, config]) => [protocol, { ...config! }]),
+      ) as ModelProviderConfig["protocols"]
+    : templateConnection.protocols;
   const [draft, setDraft] = useState<ModelProviderConfig>({
     id: initial?.id ?? "",
     name: initial?.name ?? providerTemplate?.name ?? "",
     provider: initialProviderType,
     base_url: initial?.base_url ?? templateConnection.base_url,
-    protocols: initial
-      ? Object.fromEntries(
-          Object.entries(initial.protocols)
-            .map(([protocol, config]) => [protocol, { ...config! }]),
-        )
-      : templateConnection.protocols,
+    protocols: initialProtocols,
     env_key: initial?.env_key,
   });
-  const [providerSelection, setProviderSelection] = useState(
-    knownProvider ? initialProviderType : CUSTOM_PROVIDER_OPTION,
+  const [protocolPaths, setProtocolPaths] = useState<Record<ModelProtocol, string>>(
+    Object.fromEntries(
+      PROTOCOLS.map(({ id }) => [
+        id,
+        initialProtocols[id]?.endpoint_path ?? providerTemplatePath(template, id),
+      ]),
+    ) as Record<ModelProtocol, string>,
+  );
+  const [selectedProtocol, setSelectedProtocol] = useState<ModelProtocol>(
+    PROTOCOLS.find(({ id }) => Boolean(initialProtocols[id]))?.id ?? "openai-responses",
   );
   const [credential, setCredential] = useState("");
+  const [credentialMode, setCredentialMode] = useState<"key" | "env">(
+    initial?.env_key && !initial.credential_saved ? "env" : "key",
+  );
+  const [credentialVisible, setCredentialVisible] = useState(false);
   const [clearCredential, setClearCredential] = useState(false);
   const [busy, setBusy] = useState(false);
   const enabledProtocols = PROTOCOLS.filter(({ id }) => Boolean(draft.protocols[id]));
+  const selectedProtocolInfo = PROTOCOLS.find(({ id }) => id === selectedProtocol) ?? PROTOCOLS[0];
+  const selectedProtocolPath = protocolPaths[selectedProtocol];
+  const selectedProtocolPreview = fullRequestUrl(draft.base_url, selectedProtocolPath);
+  const selectedProtocolEnabled = Boolean(draft.protocols[selectedProtocol]);
   const normalizedBaseUrl = normalizeBaseUrl(draft.base_url);
   const protocolsValid = enabledProtocols.length > 0
     && enabledProtocols.every(({ id }) => {
@@ -1180,8 +1199,10 @@ function ModelProviderDialog({
         provider: draft.provider.trim(),
         base_url: normalizedBaseUrl!,
         protocols,
-        env_key: draft.env_key?.trim() || undefined,
-      }, clearCredential ? "" : credential || undefined);
+        env_key: credentialMode === "env" ? draft.env_key?.trim() || undefined : undefined,
+      }, credentialMode === "env"
+        ? initial?.credential_saved ? "" : undefined
+        : clearCredential ? "" : credential || undefined);
     } catch (error) {
       toast.show({ kind: "error", msg: t("models.saveFailed", { error: formatError(error) }) });
     } finally {
@@ -1189,19 +1210,21 @@ function ModelProviderDialog({
     }
   };
 
+  const dialogName = initial?.name || providerTemplate?.name || draft.name || t("models.provider");
+
   return (
     <DialogShell
       kind="editor"
-      size="md"
-      title={initial ? t("models.editProvider") : t("models.createProvider")}
-      subtitle={initial
-        ? t("models.providerSharedSubtitle", { count: initial.model_count })
-        : t("models.providerCreateSubtitle")}
+      size="wide"
+      borderRadius="10px"
+      title={initial
+        ? t("models.editProviderNamed", { name: dialogName })
+        : t("models.addProviderNamed", { name: dialogName })}
       busy={busy}
       onClose={onClose}
       footerEnd={(
         <>
-          <button type="button" className="btn-ghost" disabled={busy} onClick={onClose}>
+          <button type="button" className="btn-secondary" disabled={busy} onClick={onClose}>
             {t("common.cancel")}
           </button>
           <button type="button" className="btn-primary" disabled={!valid} onClick={() => void save()}>
@@ -1210,10 +1233,10 @@ function ModelProviderDialog({
         </>
       )}
     >
-      <div className="mux-model-form">
-        <div className="mux-model-form-grid">
+      <div className="mux-model-form mux-provider-form">
+        <div className="mux-provider-basic-grid">
           <label>
-            <span>{t("models.providerName")}</span>
+            <span>{t("models.providerNameShort")}</span>
             <input
               autoFocus
               className="mux-model-field"
@@ -1221,156 +1244,131 @@ function ModelProviderDialog({
               onChange={(event) => setDraft({ ...draft, name: event.target.value })}
             />
           </label>
-          <div className="mux-model-form-field">
-            <span>{t("models.providerType")}</span>
-            <FormSelect
-              ariaLabel={t("models.providerType")}
-              value={providerSelection}
-              options={initial
-                ? [{
-                    value: knownProvider ? initial.provider : CUSTOM_PROVIDER_OPTION,
-                    label: knownProvider
-                      ? providerLabel(providers, initial.provider)
-                      : t("models.customProvider"),
-                  }]
-                : [
-                    ...providers
-                      .filter((provider) => provider.id !== "custom")
-                      .map((provider) => ({ value: provider.id, label: provider.name })),
-                    { value: CUSTOM_PROVIDER_OPTION, label: t("models.customProvider") },
-              ]}
-              onChange={(value) => {
-                setProviderSelection(value);
-                if (value !== CUSTOM_PROVIDER_OPTION) {
-                  const previousProvider = providers.find(
-                    (provider) => provider.id === draft.provider,
-                  );
-                  const nextProvider = providers.find(
-                    (provider) => provider.id === value,
-                  );
-                  const previousConnection = providerTemplateConnection(previousProvider);
-                  const usesTemplateConnection = (
-                    !draft.base_url.trim()
-                    || (
-                      normalizeBaseUrl(draft.base_url) === normalizeBaseUrl(previousConnection.base_url)
-                      && PROTOCOLS.every(({ id }) =>
-                        (draft.protocols[id]?.endpoint_path ?? "")
-                          === (previousConnection.protocols[id]?.endpoint_path ?? "")
-                      )
-                    )
-                  );
-                  const nextConnection = providerTemplateConnection(nextProvider);
-                  setDraft({
-                    ...draft,
-                    provider: value,
-                    ...(usesTemplateConnection ? nextConnection : {}),
-                  });
-                } else if (!initial) {
-                  setDraft((current) => ({ ...current, provider: "custom" }));
-                }
-              }}
-            />
-          </div>
-        </div>
-
-        <label className="mux-model-form-wide">
-          <span>{t("models.baseUrl")}</span>
-          <input
-            aria-label={t("models.baseUrl")}
-            className="mux-model-field"
-            value={draft.base_url}
-            onChange={(event) => setDraft({ ...draft, base_url: event.currentTarget.value })}
-            placeholder="https://gateway.example.com/api/v2"
-            spellCheck={false}
-          />
-          {draft.base_url && !normalizedBaseUrl && <small>{t("models.invalidBaseUrl")}</small>}
-        </label>
-
-        <div className="mux-model-form-grid">
           <label>
-            <span>{t("models.apiKey")}</span>
+            <span>{t("models.baseUrl")}</span>
             <input
-              type="password"
-              autoComplete="new-password"
+              aria-label={t("models.baseUrl")}
               className="mux-model-field"
-              value={credential}
-              disabled={clearCredential}
-              onChange={(event) => setCredential(event.target.value)}
-              placeholder={initial?.credential_saved ? t("models.keepCredential") : t("models.optionalCredential")}
-            />
-          </label>
-          <label>
-            <span>{t("models.apiKeyEnv")}</span>
-            <input
-              className="mux-model-field"
-              value={draft.env_key ?? ""}
-              onChange={(event) => setDraft({ ...draft, env_key: event.target.value || undefined })}
-              placeholder="MY_API_KEY"
+              value={draft.base_url}
+              onChange={(event) => setDraft({ ...draft, base_url: event.currentTarget.value })}
+              placeholder="https://gateway.example.com/api/v2"
               spellCheck={false}
             />
+            {draft.base_url && !normalizedBaseUrl && <small>{t("models.invalidBaseUrl")}</small>}
           </label>
         </div>
 
-        {initial?.credential_saved && (
-          <label className="mux-model-check">
-            <input
-              type="checkbox"
-              checked={clearCredential}
-              onChange={(event) => setClearCredential(event.target.checked)}
-            />
-            {t("models.clearCredential")}
-          </label>
-        )}
+        <section className="mux-provider-form-section mux-provider-credential" aria-label={t("models.credential")}>
+          <div className="mux-provider-section-head">
+            <strong>{t("models.credential")}</strong>
+          </div>
+          <div className="mux-provider-credential-layout">
+            <div className="mux-provider-credential-mode" role="tablist" aria-label={t("models.credentialSource")}>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={credentialMode === "key"}
+                onClick={() => {
+                  setCredentialMode("key");
+                  setCredentialVisible(false);
+                }}
+              >
+                <KeyIcon className="w-4 h-4" />
+                {t("models.apiKey")}
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={credentialMode === "env"}
+                onClick={() => setCredentialMode("env")}
+              >
+                <TerminalIcon className="w-4 h-4" />
+                {t("models.credentialEnv")}
+              </button>
+            </div>
+            <div className="mux-model-form-field mux-provider-credential-field">
+              <div className="mux-provider-credential-input" data-mode={credentialMode}>
+                {credentialMode === "env" && <span aria-hidden="true">$</span>}
+                <input
+                  type={credentialMode === "key" && !credentialVisible ? "password" : "text"}
+                  autoComplete={credentialMode === "key" ? "new-password" : "off"}
+                  aria-label={credentialMode === "key" ? t("models.apiKey") : t("models.apiKeyEnv")}
+                  value={credentialMode === "key" ? credential : draft.env_key ?? ""}
+                  disabled={credentialMode === "key" && clearCredential}
+                  onChange={(event) => {
+                    if (credentialMode === "key") setCredential(event.target.value);
+                    else setDraft({ ...draft, env_key: event.target.value || undefined });
+                  }}
+                  placeholder={credentialMode === "key"
+                    ? initial?.credential_saved ? t("models.keepCredential") : t("models.optionalCredential")
+                    : "OPENROUTER_API_KEY"}
+                  spellCheck={credentialMode === "env" ? false : undefined}
+                />
+                {credentialMode === "key" && (
+                  <button
+                    type="button"
+                    className="mux-provider-icon-button"
+                    aria-label={credentialVisible ? t("models.hideApiKey") : t("models.showApiKey")}
+                    title={credentialVisible ? t("models.hideApiKey") : t("models.showApiKey")}
+                    onClick={() => setCredentialVisible((visible) => !visible)}
+                  >
+                    {credentialVisible
+                      ? <EyeOffIcon className="w-4 h-4" />
+                      : <EyeIcon className="w-4 h-4" />}
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+          {initial?.credential_saved && credentialMode === "key" && (
+            <label className="mux-model-check mux-provider-credential-clear">
+              <input
+                type="checkbox"
+                checked={clearCredential}
+                onChange={(event) => setClearCredential(event.target.checked)}
+              />
+              {t("models.clearCredential")}
+            </label>
+          )}
+        </section>
 
-        <section className="mux-provider-protocols" aria-label={t("models.supportedProtocols")}>
-          <div className="mux-provider-protocols-head">
-            <div>
-              <strong>{t("models.supportedProtocols")}</strong>
-              <small>{t("models.supportedProtocolsHelp")}</small>
-              {enabledProtocols.length === 0 && (
-                <small className="mux-provider-protocol-error" role="status">
-                  {t("models.protocolRequired")}
-                </small>
-              )}
-            </div>
-            <div
-              className="mux-provider-protocol-summary"
-              data-empty={enabledProtocols.length === 0 ? "true" : undefined}
-              aria-live="polite"
-            >
-              <span className="mux-provider-protocol-meter" aria-hidden="true">
-                {PROTOCOLS.map((protocol) => (
-                  <i
-                    data-enabled={draft.protocols[protocol.id] ? "true" : undefined}
-                    key={protocol.id}
-                  />
-                ))}
-              </span>
-              <span>{t("models.protocolCount", { count: enabledProtocols.length })}</span>
-            </div>
+        <section className="mux-provider-form-section mux-provider-protocols" aria-label={t("models.supportedProtocols")}>
+          <div className="mux-provider-section-head">
+            <strong>{t("models.protocolsShort")}</strong>
+            {enabledProtocols.length === 0 && (
+              <small className="mux-provider-protocol-error" role="status">
+                {t("models.protocolRequired")}
+              </small>
+            )}
           </div>
           <div className="mux-provider-protocol-list">
             {PROTOCOLS.map((protocol) => {
-              const config = draft.protocols[protocol.id];
-              const enabled = Boolean(config);
-              const path = config?.endpoint_path ?? "";
-              const template = providers.find((provider) => provider.id === draft.provider);
-              const pathSummary = enabled
-                ? normalizeEndpointPath(path) ?? "—"
-                : providerTemplatePath(template, protocol.id);
-              const preview = enabled ? fullRequestUrl(draft.base_url, path) : "";
+              const enabled = Boolean(draft.protocols[protocol.id]);
+              const path = protocolPaths[protocol.id];
+              const pathSummary = normalizeEndpointPath(path) ?? "—";
+              const selected = selectedProtocol === protocol.id;
               return (
                 <article
                   className="mux-provider-protocol"
                   data-enabled={enabled ? "true" : undefined}
+                  data-selected={selected ? "true" : undefined}
                   key={protocol.id}
                 >
+                  <button
+                    type="button"
+                    className="mux-provider-protocol-trigger"
+                    aria-pressed={selected}
+                    onClick={() => setSelectedProtocol(protocol.id)}
+                  >
+                    <span className="mux-provider-protocol-signal">
+                      <span className="mux-model-protocol-dot" data-protocol={protocol.id} />
+                    </span>
+                    <span className="mux-provider-protocol-copy">
+                      <strong>{protocol.label}</strong>
+                      <code className="mux-provider-protocol-path" title={pathSummary}>{pathSummary}</code>
+                    </span>
+                  </button>
                   <label className="mux-provider-protocol-toggle">
-                    <span className="mux-model-protocol-dot" data-protocol={protocol.id} />
-                    <strong>{protocol.label}</strong>
-                    <code className="mux-provider-protocol-path" title={pathSummary}>
-                      {pathSummary}
-                    </code>
                     <input
                       aria-label={protocol.label}
                       className="mux-provider-protocol-switch-input"
@@ -1378,77 +1376,63 @@ function ModelProviderDialog({
                       role="switch"
                       checked={enabled}
                       onChange={(event) => {
+                        const checked = event.target.checked;
+                        setSelectedProtocol(protocol.id);
                         setDraft((current) => {
                           const protocols = { ...current.protocols };
-                          if (event.target.checked) {
-                            protocols[protocol.id] = {
-                              endpoint_path: providerTemplatePath(template, protocol.id),
-                            };
-                          } else {
-                            delete protocols[protocol.id];
-                          }
+                          if (checked) protocols[protocol.id] = { endpoint_path: protocolPaths[protocol.id] };
+                          else delete protocols[protocol.id];
                           return { ...current, protocols };
                         });
                       }}
                     />
                     <span className="mux-provider-protocol-switch" aria-hidden="true" />
                   </label>
-                  {enabled && (
-                    <div className="mux-provider-protocol-fields">
-                      <label>
-                        <span>{t("models.endpointPath")}</span>
-                        <input
-                          aria-label={`${protocol.label} ${t("models.endpointPath")}`}
-                          className="mux-model-field"
-                          value={path}
-                          onChange={(event) => {
-                            const endpointPath = event.currentTarget.value;
-                            setDraft((current) => ({
-                              ...current,
-                              protocols: {
-                                ...current.protocols,
-                                [protocol.id]: { endpoint_path: endpointPath },
-                              },
-                            }));
-                          }}
-                          placeholder={DEFAULT_ENDPOINT_PATHS[protocol.id]}
-                          spellCheck={false}
-                        />
-                        {path && !normalizeEndpointPath(path) && (
-                          <small>{t("models.invalidEndpointPath")}</small>
-                        )}
-                      </label>
-                      <div className="mux-model-form-field mux-provider-url-field">
-                        <span>{t("models.fullRequestUrl")}</span>
-                        <output
-                          aria-label={t("models.fullRequestUrl")}
-                          className="mux-provider-url-output"
-                          data-empty={preview ? undefined : "true"}
-                          title={preview || undefined}
-                        >
-                          {preview || t("models.fullRequestUrlUnavailable")}
-                        </output>
-                      </div>
-                      <button
-                        type="button"
-                        className="btn-ghost mux-provider-path-reset"
-                        onClick={() => setDraft((current) => ({
-                          ...current,
-                          protocols: {
-                            ...current.protocols,
-                            [protocol.id]: {
-                              endpoint_path: providerTemplatePath(template, protocol.id),
-                            },
-                          },
-                        }))}
-                      >
-                        {t("models.restoreDefaultPath")}
-                      </button>
-                    </div>
-                  )}
                 </article>
               );
             })}
+          </div>
+          <div
+            className="mux-provider-protocol-editor"
+            data-enabled={selectedProtocolEnabled ? "true" : undefined}
+          >
+            <div
+              className="mux-provider-route-builder"
+              data-enabled={selectedProtocolEnabled ? "true" : undefined}
+              data-invalid={selectedProtocolPath && !normalizeEndpointPath(selectedProtocolPath) ? "true" : undefined}
+            >
+              <input
+                aria-label={`${selectedProtocolInfo.label} ${t("models.endpointPath")}`}
+                className="mux-provider-route-path"
+                value={selectedProtocolPath}
+                onChange={(event) => {
+                  const endpointPath = event.currentTarget.value;
+                  setProtocolPaths((current) => ({ ...current, [selectedProtocol]: endpointPath }));
+                  if (selectedProtocolEnabled) {
+                    setDraft((current) => ({
+                      ...current,
+                      protocols: {
+                        ...current.protocols,
+                        [selectedProtocol]: { endpoint_path: endpointPath },
+                      },
+                    }));
+                  }
+                }}
+                placeholder={DEFAULT_ENDPOINT_PATHS[selectedProtocol]}
+                spellCheck={false}
+              />
+              <output
+                aria-label={t("models.fullRequestUrl")}
+                className="mux-provider-route-preview"
+                data-empty={!selectedProtocolPreview ? "true" : undefined}
+                title={selectedProtocolPreview || undefined}
+              >
+                {selectedProtocolPreview || "—"}
+              </output>
+            </div>
+            {selectedProtocolEnabled && selectedProtocolPath && !normalizeEndpointPath(selectedProtocolPath) && (
+              <small className="mux-provider-route-error">{t("models.invalidEndpointPath")}</small>
+            )}
           </div>
         </section>
       </div>

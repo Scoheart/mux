@@ -167,6 +167,36 @@ export function CopyIcon({ className, style }: IconProps) {
   );
 }
 
+export function KeyIcon({ className, style }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} style={style} stroke="currentColor" fill="none"
+      strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="8" cy="15" r="4" />
+      <path d="m11 12 8-8m-3 3 2 2m-5 1 2 2" />
+    </svg>
+  );
+}
+
+export function EyeIcon({ className, style }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} style={style} stroke="currentColor" fill="none"
+      strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z" />
+      <circle cx="12" cy="12" r="2.7" />
+    </svg>
+  );
+}
+
+export function EyeOffIcon({ className, style }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} style={style} stroke="currentColor" fill="none"
+      strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="m3 3 18 18" />
+      <path d="M10.5 6.2A10.8 10.8 0 0 1 12 6c6 0 9.5 6 9.5 6a15.8 15.8 0 0 1-2.2 2.9M6.1 6.1C3.8 7.8 2.5 12 2.5 12s3.5 6 9.5 6c1.7 0 3.2-.5 4.5-1.2" />
+    </svg>
+  );
+}
+
 export function RefreshIcon({ className, style }: IconProps) {
   return (
     <svg viewBox="0 0 24 24" className={className} style={style} stroke="currentColor" fill="none"

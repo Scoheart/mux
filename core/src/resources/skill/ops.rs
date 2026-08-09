@@ -372,17 +372,14 @@ pub(crate) fn release_assignment_safely(
             continue;
         }
         let raw_target = fs::read_link(&path).map_err(|error| io_error(&path, error))?;
-        let resolved = if raw_target.is_absolute() {
-            lexical_absolute(&raw_target)?
-        } else {
-            lexical_absolute(
-                &path
-                    .parent()
-                    .ok_or_else(|| invalid_source_error("a Skill link has no target parent"))?
-                    .join(&raw_target),
-            )?
+        let resolved = match fs::canonicalize(&path) {
+            Ok(resolved) => resolved,
+            Err(error) if error.kind() == ErrorKind::NotFound || is_symlink_loop(&error) => {
+                continue;
+            }
+            Err(error) => return Err(io_error(&path, error)),
         };
-        if resolved != lexical_absolute(&central)? {
+        if fs::canonicalize(&central).ok().as_ref() != Some(&resolved) {
             continue;
         }
         let expected = match fs::metadata(&path) {
@@ -1279,13 +1276,11 @@ fn build_remove_plan(
             Err(SkillError::Conflict { .. }) => continue,
             Err(error) => return Err(error),
         };
-        let exact = matches!(
-            &state,
-            LinkState::ManagedSymlink { target } if target == &central
-        ) || matches!(
-            &state,
-            LinkState::BrokenSymlink { target } if target == &central
-        );
+        let exact = matches!(&state, LinkState::ManagedSymlink { .. })
+            || matches!(
+                &state,
+                LinkState::BrokenSymlink { target } if target == &central
+            );
         if exact {
             target_views.push(target.clone());
             expected_links.push(ExpectedLink {
@@ -2637,14 +2632,7 @@ fn inspect_link(path: &Path, central: &Path, paths: &SkillsPaths) -> Result<Link
             let resolved = fs::canonicalize(path).map_err(|error| io_error(path, error))?;
             let central_resolved = fs::canonicalize(central).ok();
             if central_resolved.as_ref() == Some(&resolved) {
-                if raw_target != central {
-                    return conflict_result(
-                        "a relative managed Skill link cannot be changed transactionally",
-                    );
-                }
-                Ok(LinkState::ManagedSymlink {
-                    target: central.to_path_buf(),
-                })
+                Ok(LinkState::ManagedSymlink { target: raw_target })
             } else {
                 let central_root = fs::canonicalize(paths.skills_dir()).ok();
                 if central_root

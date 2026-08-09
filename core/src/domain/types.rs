@@ -316,7 +316,8 @@ fn default_mcp_key() -> String {
 
 /// A user-added catalog source: either a subscribed remote URL or a local file.
 /// The actual servers are parsed from a cached copy on disk under
-/// `~/.mux/sources/<kind>/<id>.<ext>`. There is intentionally no "builtin" kind —
+/// `~/.mux/assets/mcps/sources/<kind>/<id>.<ext>`. There is intentionally no
+/// "builtin" kind —
 /// the catalog is entirely user-driven (subscribe / add local).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct SourceDef {

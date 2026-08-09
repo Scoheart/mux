@@ -144,7 +144,7 @@ async function openProviderTemplate(
   await user.click(within(catalog).getByRole("radio", { name: new RegExp(provider) }));
   await user.click(within(catalog).getByRole("button", { name: "使用此模板" }));
   await waitFor(() =>
-    expect(screen.getByRole("heading", { name: "新建 Provider" })).toHaveFocus()
+    expect(screen.getByRole("heading", { name: `添加 ${provider}` })).toHaveFocus()
   );
 }
 
@@ -160,6 +160,9 @@ it("maps Models to one compact, scannable list", () => {
   expect(list).not.toMatch(/<ResourceCard/);
   expect(source).toMatch(/className="mux-models-workspace"/);
   expect(source).not.toMatch(/<ResourceTabs/);
+  expect(css).toMatch(/\.mux-models-workspace \.mux-model-list \{[\s\S]*?background: transparent;/);
+  expect(css).toMatch(/\.mux-models-workspace \.mux-model-list > \[role="listitem"\] \{[\s\S]*?border-bottom:/);
+  expect(css).toMatch(/\.mux-models-workspace \.mux-model-list-row \{[\s\S]*?border-radius: 0;[\s\S]*?background: transparent;/);
 });
 
 it("keeps the Models workspace visible through loading, error recovery, and empty states", async () => {
@@ -361,7 +364,7 @@ it("keeps the built-in Provider Catalog unfiltered, searchable, and keyboard-sel
   await user.click(await screen.findByRole("button", { name: "添加 Provider" }));
   const catalog = screen.getByRole("dialog", { name: "添加 Provider" });
   expect(catalog).toBeVisible();
-  expect(within(catalog).getByRole("radio", { name: /OpenRouter/ })).toHaveAttribute("aria-checked", "true");
+  expect(within(catalog).getByRole("radio", { name: /Custom Provider/ })).toHaveAttribute("aria-checked", "true");
   expect(within(catalog).getByRole("radio", { name: /OpenAI/ })).toBeVisible();
   expect(within(catalog).getByRole("radio", { name: /Ollama/ })).toBeVisible();
   expect(within(catalog).getByRole("radio", { name: /Custom Provider/ })).toBeVisible();
@@ -397,7 +400,7 @@ it("keeps the built-in Provider Catalog unfiltered, searchable, and keyboard-sel
   expect(within(catalog).getByText("已选择 OpenAI")).toBeVisible();
 
   await user.click(within(catalog).getByRole("button", { name: "使用此模板" }));
-  await waitFor(() => expect(screen.getByRole("heading", { name: "新建 Provider" })).toHaveFocus());
+  await waitFor(() => expect(screen.getByRole("heading", { name: "添加 OpenAI" })).toHaveFocus());
   expect(screen.getByLabelText("Base URL")).toHaveValue("https://api.openai.com/v1");
   expect(screen.getByText("API Key")).toBeVisible();
   expect(source).toMatch(/<DialogShell\s+[\s\S]*?kind="picker"/);
@@ -512,7 +515,8 @@ it("uses one custom select surface for model provider, protocol, and reasoning",
 
 it("fills a standalone Provider form from the selected catalog template", async () => {
   const user = userEvent.setup();
-  const consumptionState = { plan: null, planUpdate: vi.fn() } as unknown as ConsumptionState;
+  const planUpdate = vi.fn().mockResolvedValue({ operation_id: "provider-plan" });
+  const consumptionState = { plan: null, planUpdate } as unknown as ConsumptionState;
 
   render(
     <ToastProvider>
@@ -521,8 +525,8 @@ it("fills a standalone Provider form from the selected catalog template", async 
   );
 
   await openProviderTemplate(user, "OpenRouter");
-  expect(screen.getByRole("heading", { name: "新建 Provider" })).toBeVisible();
-  expect(screen.getByRole("combobox", { name: "Provider 类型" })).toHaveTextContent("OpenRouter");
+  expect(screen.getByRole("heading", { name: "添加 OpenRouter" })).toBeVisible();
+  expect(screen.queryByRole("combobox", { name: "Provider 类型" })).not.toBeInTheDocument();
   expect(screen.queryByLabelText("自定义模型提供商 ID")).not.toBeInTheDocument();
   expect(screen.getByLabelText("Base URL")).toHaveValue("https://openrouter.ai/api/v1");
   expect(screen.getAllByLabelText("Base URL")).toHaveLength(1);
@@ -542,15 +546,33 @@ it("fills a standalone Provider form from the selected catalog template", async 
   expect(within(protocolList as HTMLElement).getByText("/responses")).toBeVisible();
   expect(within(protocolList as HTMLElement).getByText("/chat/completions")).toBeVisible();
   const responseSwitch = screen.getByRole("switch", { name: "OpenAI Responses" });
-  const responseRow = responseSwitch.closest(".mux-provider-protocol-toggle");
+  const responseRow = responseSwitch.closest(".mux-provider-protocol");
   const responsePath = within(responseRow as HTMLElement).getByText("/responses");
   const visualSwitch = responseRow?.querySelector(".mux-provider-protocol-switch");
   expect(visualSwitch).not.toBeNull();
   expect(responsePath.compareDocumentPosition(visualSwitch as Node) & Node.DOCUMENT_POSITION_FOLLOWING)
     .toBeTruthy();
-  expect(screen.getByText("已启用 1 个")).toBeVisible();
-  expect(screen.getByText("API Key")).toBeVisible();
-  expect(screen.getByText("API Key 环境变量")).toBeVisible();
+  const credential = screen.getByRole("region", { name: "凭据" });
+  expect(credential).toHaveClass("mux-provider-credential");
+  const apiKey = within(credential).getByLabelText("API Key");
+  expect(apiKey).toHaveAttribute("type", "password");
+  expect(within(credential).getByRole("tab", { name: "API Key" })).toHaveAttribute("aria-selected", "true");
+  expect(within(credential).getByRole("tab", { name: "Env" })).toHaveAttribute("aria-selected", "false");
+  await user.click(within(credential).getByRole("button", { name: "显示 API Key" }));
+  expect(apiKey).toHaveAttribute("type", "text");
+  await user.click(within(credential).getByRole("tab", { name: "Env" }));
+  const env = within(credential).getByLabelText("API Key 环境变量");
+  expect(env).toBeVisible();
+  expect(credential.querySelectorAll(".mux-provider-credential-input input")).toHaveLength(1);
+  await user.type(env, "OPENROUTER_API_KEY");
+  await user.click(screen.getByRole("button", { name: "保存" }));
+  await waitFor(() => expect(planUpdate).toHaveBeenCalledWith(expect.objectContaining({
+    domain: "model-provider",
+    credential: undefined,
+    provider: expect.objectContaining({
+      env_key: "OPENROUTER_API_KEY",
+    }),
+  })));
 });
 
 it("keeps the empty protocol requirement inside the compact section header", async () => {
@@ -567,10 +589,10 @@ it("keeps the empty protocol requirement inside the compact section header", asy
   await user.click(screen.getByRole("switch", { name: /OpenAI Responses/ }));
 
   const protocols = screen.getByRole("region", { name: "支持的协议" });
-  const header = protocols.querySelector(".mux-provider-protocols-head");
+  const header = protocols.querySelector(".mux-provider-section-head");
   expect(header).not.toBeNull();
   expect(within(header as HTMLElement).getByRole("status")).toHaveTextContent("至少启用一种协议。");
-  expect(within(header as HTMLElement).getByText("已启用 0 个")).toBeVisible();
+  expect(within(header as HTMLElement).queryByText("已启用 0 个")).not.toBeInTheDocument();
   expect(protocols.querySelector(".mux-provider-protocol-list + .mux-provider-protocol-error"))
     .not.toBeInTheDocument();
 });
@@ -595,6 +617,7 @@ it("keeps plan-specific protocols under one Base URL", async () => {
   expect(screen.getByLabelText("Anthropic Messages Endpoint Path")).toHaveValue(
     "/apps/anthropic/v1/messages",
   );
+  await user.click(screen.getByRole("button", { name: /OpenAI Chat Completions/ }));
   expect(screen.getByLabelText("OpenAI Chat Completions Endpoint Path")).toHaveValue(
     "/v1/chat/completions",
   );
@@ -613,49 +636,7 @@ it("keeps plan-specific protocols under one Base URL", async () => {
   })));
 });
 
-it("keeps an explicitly entered Provider endpoint while changing its type", async () => {
-  const user = userEvent.setup();
-  const consumptionState = { plan: null, planUpdate: vi.fn() } as unknown as ConsumptionState;
-
-  render(
-    <ToastProvider>
-      <ModelsView consumptionState={consumptionState} />
-    </ToastProvider>,
-  );
-
-  await openProviderTemplate(user, "Custom Provider");
-  const endpoint = screen.getByLabelText("Base URL");
-
-  expect(screen.queryByLabelText("自定义模型提供商 ID")).not.toBeInTheDocument();
-  await user.type(endpoint, "https://gateway.example.test/v1");
-  await chooseFormSelect(user, "Provider 类型", "OpenRouter");
-
-  expect(endpoint).toHaveValue("https://gateway.example.test/v1");
-  expect(screen.getByRole("combobox", { name: "Provider 类型" })).toHaveTextContent("OpenRouter");
-  expect(screen.queryByLabelText("自定义模型提供商 ID")).not.toBeInTheDocument();
-});
-
-it("replaces an untouched template connection when the Provider type changes", async () => {
-  const user = userEvent.setup();
-  const consumptionState = { plan: null, planUpdate: vi.fn() } as unknown as ConsumptionState;
-
-  render(
-    <ToastProvider>
-      <ModelsView consumptionState={consumptionState} />
-    </ToastProvider>,
-  );
-
-  await openProviderTemplate(user, "Ollama");
-  expect(screen.getByRole("switch", { name: /OpenAI Chat Completions/ })).toBeChecked();
-  expect(screen.getByLabelText("Base URL")).toHaveValue("http://localhost:11434/v1");
-
-  await chooseFormSelect(user, "Provider 类型", "OpenRouter");
-  expect(screen.getByRole("switch", { name: /OpenAI Responses/ })).toBeChecked();
-  expect(screen.getByRole("switch", { name: /OpenAI Chat Completions/ })).not.toBeChecked();
-  expect(screen.getByLabelText("Base URL")).toHaveValue("https://openrouter.ai/api/v1");
-});
-
-it("enables, previews, resets, and submits protocol Endpoint Paths", async () => {
+it("enables, previews, and submits protocol Endpoint Paths", async () => {
   const user = userEvent.setup();
   const planUpdate = vi.fn().mockResolvedValue({ operation_id: "provider-plan" });
   const consumptionState = { plan: null, planUpdate } as unknown as ConsumptionState;
@@ -668,6 +649,7 @@ it("enables, previews, resets, and submits protocol Endpoint Paths", async () =>
 
   await openProviderTemplate(user, "OpenRouter");
   await user.click(screen.getByRole("switch", { name: /Anthropic Messages/ }));
+  await user.click(screen.getByRole("button", { name: /Anthropic Messages/ }));
   expect(screen.getAllByLabelText("Base URL")).toHaveLength(1);
   expect(screen.getByLabelText("Base URL")).toHaveValue("https://openrouter.ai/api/v1");
   const path = screen.getByLabelText("Anthropic Messages Endpoint Path");
@@ -675,12 +657,10 @@ it("enables, previews, resets, and submits protocol Endpoint Paths", async () =>
   await user.clear(path);
   await user.type(path, "custom/messages");
   expect(path).toHaveValue("custom/messages");
-  const protocolCard = path.closest(".mux-provider-protocol");
-  expect(protocolCard).not.toBeNull();
-  expect(within(protocolCard as HTMLElement).getByLabelText("完整请求 URL"))
+  const protocolEditor = path.closest(".mux-provider-protocol-editor");
+  expect(protocolEditor).not.toBeNull();
+  expect(within(protocolEditor as HTMLElement).getByLabelText("完整请求 URL"))
     .toHaveTextContent("https://openrouter.ai/api/v1/custom/messages");
-  await user.click(within(protocolCard as HTMLElement).getByRole("button", { name: "恢复默认" }));
-  expect(path).toHaveValue("/v1/messages");
   await user.click(screen.getByRole("button", { name: "保存" }));
 
   await waitFor(() => expect(planUpdate).toHaveBeenCalledWith(expect.objectContaining({
@@ -688,7 +668,7 @@ it("enables, previews, resets, and submits protocol Endpoint Paths", async () =>
     provider: expect.objectContaining({
       base_url: "https://openrouter.ai/api/v1",
       protocols: expect.objectContaining({
-        "anthropic-messages": { endpoint_path: "/v1/messages" },
+        "anthropic-messages": { endpoint_path: "/custom/messages" },
         "openai-responses": { endpoint_path: "/responses" },
       }),
     }),
@@ -708,8 +688,8 @@ it("rejects absolute, fragmented, and traversal Endpoint Paths in the Provider f
   await openProviderTemplate(user, "Custom Provider");
   await user.type(screen.getByLabelText("Base URL"), "https://gateway.example.test");
   const path = screen.getByLabelText("OpenAI Responses Endpoint Path");
-  const protocolCard = path.closest(".mux-provider-protocol");
-  expect(protocolCard).not.toBeNull();
+  const protocolEditor = path.closest(".mux-provider-protocol-editor");
+  expect(protocolEditor).not.toBeNull();
   const save = screen.getByRole("button", { name: "保存" });
 
   for (const invalid of [
@@ -721,8 +701,9 @@ it("rejects absolute, fragmented, and traversal Endpoint Paths in the Provider f
     await user.clear(path);
     await user.type(path, invalid);
     expect(screen.getByText(/请输入相对路径/)).toBeVisible();
-    expect(within(protocolCard as HTMLElement).getByText("—")).toBeVisible();
-    expect(within(protocolCard as HTMLElement).queryByText(invalid)).not.toBeInTheDocument();
+    expect(protocolEditor?.querySelector(".mux-provider-route-builder"))
+      .toHaveAttribute("data-invalid", "true");
+    expect(within(protocolEditor as HTMLElement).queryByText(invalid)).not.toBeInTheDocument();
     expect(save).toBeDisabled();
   }
 });
@@ -906,7 +887,8 @@ it("configures a Gemini native GenerateContent endpoint on a custom Provider", a
   const geminiSwitch = screen.getByRole("switch", { name: "Gemini GenerateContent" });
   await user.click(geminiSwitch);
   const protocolRow = geminiSwitch.closest("article") as HTMLElement;
-  expect(within(protocolRow).getByLabelText("完整请求 URL")).toHaveTextContent(
+  await user.click(within(protocolRow).getByRole("button", { name: /Gemini GenerateContent/ }));
+  expect(screen.getByLabelText("完整请求 URL")).toHaveTextContent(
     "http://127.0.0.1:18080/v1beta/models/{model}:generateContent",
   );
   await user.click(screen.getByRole("button", { name: "保存" }));

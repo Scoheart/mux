@@ -1,19 +1,21 @@
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { XIcon } from "./icons";
 import { Modal } from "./ui";
 
 export type DialogShellKind = "editor" | "picker" | "review";
-export type DialogShellSize = "sm" | "md" | "lg";
+export type DialogShellSize = "sm" | "md" | "wide" | "lg";
 
 const SIZE_WIDTH: Record<DialogShellSize, number> = {
   sm: 440,
   md: 560,
+  wide: 640,
   lg: 760,
 };
 
 export function DialogShell({
   kind,
   size = kind === "review" ? "sm" : kind === "picker" ? "md" : "lg",
+  borderRadius,
   title,
   subtitle,
   status,
@@ -26,6 +28,7 @@ export function DialogShell({
 }: {
   kind: DialogShellKind;
   size?: DialogShellSize;
+  borderRadius?: CSSProperties["borderRadius"];
   title: string;
   subtitle?: ReactNode;
   status?: ReactNode;
@@ -44,6 +47,7 @@ export function DialogShell({
     <Modal
       width={`min(${SIZE_WIDTH[size]}px, calc(100vw - 32px))`}
       maxHeight="calc(100vh - 32px)"
+      borderRadius={borderRadius}
       ariaLabel={title}
       layer={kind}
       onClose={requestClose}

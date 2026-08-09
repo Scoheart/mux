@@ -15,6 +15,7 @@ pub enum BootstrapStage {
     SkillRecovery,
     AssetRecovery,
     SettingsMigration,
+    AssetLayoutMigration,
     McpRegistryMigration,
     ModelProfileMigration,
     ModelProviderMigration,
@@ -27,6 +28,7 @@ impl BootstrapStage {
             Self::SkillRecovery => "skill_recovery",
             Self::AssetRecovery => "asset_recovery",
             Self::SettingsMigration => "settings_migration",
+            Self::AssetLayoutMigration => "asset_layout_migration",
             Self::McpRegistryMigration => "mcp_registry_migration",
             Self::ModelProfileMigration => "model_profile_migration",
             Self::ModelProviderMigration => "model_provider_migration",
@@ -151,24 +153,14 @@ fn bootstrap_unlocked() -> Result<BootstrapProgress, BootstrapError> {
         });
     }
 
-    run_steps(vec![
-        (
-            BootstrapStage::SettingsMigration,
-            Box::new(|| {
-                crate::settings::migrate_if_needed()
-                    .map(|_| ())
-                    .map_err(|error| error.to_string())
-            }),
-        ),
-        (
-            BootstrapStage::McpRegistryMigration,
-            Box::new(|| {
-                crate::resources::mcp::registry::migrate_registry_to_sources()
-                    .map(|_| ())
-                    .map_err(|error| error.to_string())
-            }),
-        ),
-    ])?;
+    run_steps(vec![(
+        BootstrapStage::SettingsMigration,
+        Box::new(|| {
+            crate::settings::migrate_if_needed()
+                .map(|_| ())
+                .map_err(|error| error.to_string())
+        }),
+    )])?;
 
     for (stage, operation) in [
         (
@@ -193,6 +185,25 @@ fn bootstrap_unlocked() -> Result<BootstrapProgress, BootstrapError> {
             };
         }
     }
+
+    run_steps(vec![
+        (
+            BootstrapStage::AssetLayoutMigration,
+            Box::new(|| {
+                crate::settings::migrate_asset_layout_if_needed()
+                    .map(|_| ())
+                    .map_err(|error| error.to_string())
+            }),
+        ),
+        (
+            BootstrapStage::McpRegistryMigration,
+            Box::new(|| {
+                crate::resources::mcp::registry::migrate_registry_to_sources()
+                    .map(|_| ())
+                    .map_err(|error| error.to_string())
+            }),
+        ),
+    ])?;
     Ok(BootstrapProgress::Ready {
         warnings,
         skill_updates_allowed,

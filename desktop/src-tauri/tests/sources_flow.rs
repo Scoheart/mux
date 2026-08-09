@@ -48,7 +48,7 @@ fn local_source_flow_populates_toggles_and_removes() {
         .iter()
         .any(|e| e.name == "wiki" && e.transport() == "http"));
 
-    // The cached copy exists under ~/.mux/sources/local/.
+    // The cached copy exists under ~/.mux/assets/mcps/sources/local/.
     let cached = home
         .join(".mux")
         .join("sources")

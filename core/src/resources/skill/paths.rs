@@ -59,7 +59,13 @@ impl SkillsPaths {
     }
 
     pub fn skills_dir(&self) -> PathBuf {
-        self.mux_dir.join("skills")
+        let current = crate::paths::skill_contents_dir();
+        let legacy = crate::paths::legacy_skills_dir();
+        if !current.exists() && legacy.exists() {
+            legacy
+        } else {
+            current
+        }
     }
 
     pub fn staging_skills_dir(&self) -> PathBuf {

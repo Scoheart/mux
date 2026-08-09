@@ -296,6 +296,7 @@ export function wasHandledByLayer(event: KeyboardEvent): boolean {
 export function Modal({
   width = 520,
   maxHeight = "82vh",
+  borderRadius = "20px",
   ariaLabel = "对话框",
   layer,
   onClose,
@@ -303,6 +304,7 @@ export function Modal({
 }: {
   width?: CSSProperties["width"];
   maxHeight?: CSSProperties["maxHeight"];
+  borderRadius?: CSSProperties["borderRadius"];
   ariaLabel?: string;
   layer?: string;
   onClose: () => void;
@@ -399,7 +401,7 @@ export function Modal({
           maxHeight,
           background: "var(--surface-overlay)",
           border: 0,
-          borderRadius: "20px",
+          borderRadius,
           boxShadow: "var(--shadow-sheet)",
         }}
         onClick={(event) => event.stopPropagation()}

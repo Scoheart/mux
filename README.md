@@ -187,11 +187,16 @@ Everything lives under `~/.mux/`:
 
 ```
 ~/.mux/
-├── settings.json           # agents · sources · central metadata · desired consumption state
-├── sources/
-│   ├── remote/<id>.json    # cached copies of subscribed URLs
-│   └── local/<id>.(json|toml)   # imported local files + the managed manual/discovered sources
-├── skills/                 # one managed central copy per Skill
+├── settings.json           # agents · consumption relationships · UI/network state
+├── assets/
+│   ├── mcps/
+│   │   ├── catalog.json    # MCP registry and source definitions
+│   │   └── sources/{remote,local}/  # cached and managed source payloads
+│   ├── models/catalog.json # Provider and Model Profile assets
+│   └── skills/
+│       ├── catalog.json    # managed Skill metadata
+│       └── items/<name>/   # one managed central copy per Skill
+├── skills -> assets/skills/items  # compatibility alias for links made by older releases
 ├── staging/skills/         # resolved Skill candidates and internal Skill operations
 ├── staging/consumption/    # reviewed cross-domain plans and durable rollback snapshots
 ├── backups/                # timestamped backups made before managed writes
@@ -202,7 +207,7 @@ Everything lives under `~/.mux/`:
 Skills-specific runtime paths:
 
 ```text
-~/.mux/skills/                  managed Skill contents
+~/.mux/assets/skills/items/     managed Skill contents
 ~/.mux/staging/skills/          staged candidates and internal operation plans
 ~/.mux/backups/skills/          reversible replacements/removals
 ~/.mux/journals/skills/         crash recovery journals
@@ -210,13 +215,14 @@ Skills-specific runtime paths:
 
 Model API keys are not stored under `~/.mux/`; they remain in macOS Keychain.
 
-The three resource types share one typed state contract in Core rather than a
-second on-disk manifest. Asset operations persist semantic revisions only for
+The three resource types share one typed state contract in Core and one central
+asset root, while retaining domain-specific catalogs and payload formats. Asset
+operations persist semantic revisions only for
 the exact central assets, their reverse consumer sets, Agent relationships,
 target graph, and credential presence they reviewed. Unrelated UI, network,
 Agent, or other state outside those semantic subjects does not invalidate that
 review. MCP source precedence, the single managed Skill tree, and Keychain
-credentials remain in their native authoritative stores.
+credentials remain in macOS Keychain.
 
 ## How it works
 

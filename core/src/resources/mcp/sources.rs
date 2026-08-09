@@ -1,7 +1,7 @@
 //! MCP catalog **sources**: subscribed remote URLs and added local files.
 //!
 //! A source's servers are parsed from a cached copy on disk under
-//! `~/.mux/sources/<kind>/<id>.<ext>`. This module owns the parse / fetch /
+//! `~/.mux/assets/mcps/sources/<kind>/<id>.<ext>`. This module owns the parse / fetch /
 //! store primitives; the Tauri commands in `commands.rs` orchestrate them.
 //! There is no "builtin" source — the catalog is entirely user-driven.
 
@@ -243,7 +243,7 @@ fn parse_candidate_content(def: &SourceDef, content: &str) -> Result<Vec<Registr
 
 /// Reduce a user-selected local file to the MCP data MUX owns before caching it.
 /// This prevents unrelated account, history, model, or credential fields from
-/// being duplicated under `~/.mux/sources/local/`.
+/// being duplicated under `~/.mux/assets/mcps/sources/local/`.
 fn sanitized_local_content(
     path: &Path,
     content: &str,
@@ -535,7 +535,7 @@ pub fn list_views() -> Vec<SourceView> {
 }
 
 /// Subscribe to a remote config URL: fetch, validate, cache it under
-/// `~/.mux/sources/remote/<id>`, and register it as an enabled source.
+/// `~/.mux/assets/mcps/sources/remote/<id>`, and register it as an enabled source.
 pub fn subscribe(url: String, name: Option<String>) -> Result<SourceView, String> {
     let url = url.trim().to_string();
     if url.is_empty() {
@@ -562,7 +562,7 @@ pub fn subscribe(url: String, name: Option<String>) -> Result<SourceView, String
 }
 
 /// Register a local config file as a source: read and validate it, then cache only
-/// its MCP entries under `~/.mux/sources/local/<id>`. Unrelated user settings are
+/// its MCP entries under `~/.mux/assets/mcps/sources/local/<id>`. Unrelated user settings are
 /// never copied into MUX's source store.
 pub fn add_local(path: String, name: Option<String>) -> Result<SourceView, String> {
     let src = expand_tilde(&path);

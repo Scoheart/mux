@@ -13,7 +13,7 @@ use super::types::{
     ConsumptionInventory, DomainPlan, McpConsumptionRecord, ModelAgentSelection,
     RelationshipAction, SkillConsumptionRecord, TargetIncident,
 };
-use crate::paths::settings_file;
+use crate::paths::{mcp_catalog_file, model_catalog_file, settings_file, skill_catalog_file};
 use crate::resources::mcp::ops;
 use crate::resources::mcp::r#override::OverridePatch;
 use crate::resources::mcp::registry::{
@@ -298,7 +298,15 @@ where
         .iter()
         .map(|path| crate::resources::mcp::scanner::expand_tilde(path))
         .collect::<BTreeSet<_>>();
+    let catalog_paths = [
+        mcp_catalog_file(),
+        model_catalog_file(),
+        skill_catalog_file(),
+    ];
     let mut snapshots = vec![PathSnapshot::capture(&settings_path)?];
+    for path in &catalog_paths {
+        snapshots.push(PathSnapshot::capture(path)?);
+    }
     let skill_link_targets = matches!(
         persisted.plan.domain_plan,
         DomainPlan::Skill { .. } | DomainPlan::AgentCapabilities { .. }
@@ -312,7 +320,7 @@ where
                 .iter()
                 .all(|change| change.action == RelationshipAction::Remove);
     for path in target_paths {
-        if path == settings_path {
+        if path == settings_path || catalog_paths.contains(&path) {
             continue;
         }
         snapshots.push(if preserving_external_skill_targets {

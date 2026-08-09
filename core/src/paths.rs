@@ -20,9 +20,62 @@ pub fn backups_dir() -> PathBuf {
     mux_dir().join("backups")
 }
 
-/// `~/.mux/sources` —— 用户来源(订阅/本地)缓存文件的根目录
-pub fn sources_dir() -> PathBuf {
+/// `~/.mux/assets` —— MCP、Model 与 Skill 中央资产的统一物理根目录。
+pub fn assets_dir() -> PathBuf {
+    mux_dir().join("assets")
+}
+
+pub fn mcp_assets_dir() -> PathBuf {
+    assets_dir().join("mcps")
+}
+
+pub fn mcp_sources_dir() -> PathBuf {
+    mcp_assets_dir().join("sources")
+}
+
+pub fn model_assets_dir() -> PathBuf {
+    assets_dir().join("models")
+}
+
+pub fn skill_assets_dir() -> PathBuf {
+    assets_dir().join("skills")
+}
+
+pub fn skill_contents_dir() -> PathBuf {
+    skill_assets_dir().join("items")
+}
+
+pub fn mcp_catalog_file() -> PathBuf {
+    mcp_assets_dir().join("catalog.json")
+}
+
+pub fn model_catalog_file() -> PathBuf {
+    model_assets_dir().join("catalog.json")
+}
+
+pub fn skill_catalog_file() -> PathBuf {
+    skill_assets_dir().join("catalog.json")
+}
+
+pub(crate) fn legacy_sources_dir() -> PathBuf {
     mux_dir().join("sources")
+}
+
+pub(crate) fn legacy_skills_dir() -> PathBuf {
+    mux_dir().join("skills")
+}
+
+/// MCP source payload root. Before the startup migration completes, readers
+/// transparently resolve the legacy `~/.mux/sources` location so recovery and
+/// upgrades never observe an empty catalog merely because the binary changed.
+pub fn sources_dir() -> PathBuf {
+    let current = mcp_sources_dir();
+    let legacy = legacy_sources_dir();
+    if !current.exists() && legacy.exists() {
+        legacy
+    } else {
+        current
+    }
 }
 
 /// `~/.mux/sources/remote` —— 订阅(远程 URL)抓取后的缓存副本
@@ -47,6 +100,90 @@ pub fn registry_dir() -> PathBuf {
 
 pub fn user_agents_file() -> PathBuf {
     mux_dir().join("agents.json")
+}
+
+fn migrate_directory(legacy: &std::path::Path, current: &std::path::Path) -> std::io::Result<bool> {
+    match (legacy.exists(), current.exists()) {
+        (false, _) => Ok(false),
+        (true, false) => {
+            if let Some(parent) = current.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            std::fs::rename(legacy, current)?;
+            Ok(true)
+        }
+        (true, true) => Err(std::io::Error::new(
+            std::io::ErrorKind::AlreadyExists,
+            format!(
+                "refusing to merge legacy asset directory {} into existing {}",
+                legacy.display(),
+                current.display()
+            ),
+        )),
+    }
+}
+
+#[cfg(unix)]
+fn create_directory_alias(
+    target: &std::path::Path,
+    alias: &std::path::Path,
+) -> std::io::Result<()> {
+    std::os::unix::fs::symlink(target, alias)
+}
+
+#[cfg(windows)]
+fn create_directory_alias(
+    target: &std::path::Path,
+    alias: &std::path::Path,
+) -> std::io::Result<()> {
+    std::os::windows::fs::symlink_dir(target, alias)
+}
+
+/// Atomically move legacy central asset directories under `~/.mux/assets`.
+/// The settings lock must be held by the caller. A simultaneous legacy and new
+/// directory is ambiguous and therefore fails closed instead of merging trees.
+/// The old Skill root becomes a compatibility symlink so links created by an
+/// earlier MUX release keep resolving to the one physical central copy.
+pub(crate) fn migrate_legacy_asset_directories() -> std::io::Result<bool> {
+    let mut changed = migrate_directory(&legacy_sources_dir(), &mcp_sources_dir())?;
+
+    let legacy = legacy_skills_dir();
+    let current = skill_contents_dir();
+    match std::fs::symlink_metadata(&legacy) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            if !current.exists() {
+                return Ok(changed);
+            }
+        }
+        Err(error) => return Err(error),
+        Ok(metadata) if metadata.file_type().is_dir() => {
+            migrate_directory(&legacy, &current)?;
+        }
+        Ok(metadata) if metadata.file_type().is_symlink() => {
+            let resolved = std::fs::canonicalize(&legacy)?;
+            let expected = std::fs::canonicalize(&current)?;
+            if resolved != expected {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::AlreadyExists,
+                    format!(
+                        "legacy Skill alias {} does not resolve to {}",
+                        legacy.display(),
+                        current.display()
+                    ),
+                ));
+            }
+            return Ok(changed);
+        }
+        Ok(_) => {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::AlreadyExists,
+                format!("legacy Skill path {} is not a directory", legacy.display()),
+            ));
+        }
+    }
+    create_directory_alias(&current, &legacy)?;
+    changed = true;
+    Ok(changed)
 }
 
 /// Filename-safe local timestamp (`%Y-%m-%dT%H-%M-%S`) used for backup artifacts.

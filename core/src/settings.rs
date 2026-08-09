@@ -1,9 +1,12 @@
-//! Single consolidated user-data file: `~/.mux/settings.json`.
+//! Runtime settings plus hydrated central asset catalogs.
 //!
 //! MUX's desktop app and the CLI share `~/.mux/`. Historically that meant a
 //! sprawl of files: `registry/<name>__<transport>.json` (one per custom MCP),
 //! `agents.json`, `disabled.json`, `state.json`, and a `.imported` marker. This
-//! module collapses all of it into one `settings.json`.
+//! module originally collapsed all of it into one `settings.json`. Central MCP,
+//! Model, and Skill metadata now live below `~/.mux/assets/{mcps,models,skills}`;
+//! callers still receive one hydrated [`Settings`] value so domain code does
+//! not need to know which physical document owns a field.
 //!
 //! Cross-tool rule: the desktop fully types the sections it owns
 //! (`agents`/`registry`/`disabled`) and carries the CLI-owned ones
@@ -17,8 +20,11 @@ use crate::domain::skill::ManagedSkillRecord;
 use crate::domain::types::{
     AgentDefinition, ModelProfile, ModelProviderConfig, RegistryEntry, SourceDef,
 };
-use crate::paths::{backups_dir, mux_dir, registry_dir, settings_file, user_agents_file};
-use crate::safe_write::{acquire_settings_lock, write_private_if_unchanged};
+use crate::paths::{
+    backups_dir, mcp_catalog_file, model_catalog_file, mux_dir, registry_dir, settings_file,
+    skill_catalog_file, user_agents_file,
+};
+use crate::safe_write::{acquire_settings_lock, remove_if_unchanged, write_private_if_unchanged};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
@@ -27,7 +33,8 @@ use std::io::{Error, ErrorKind};
 use std::path::Path;
 use std::sync::Mutex;
 
-pub const SETTINGS_VERSION: u32 = 5;
+pub const SETTINGS_VERSION: u32 = 6;
+const ASSET_CATALOG_VERSION: u32 = 1;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
 pub struct UiSettings {
@@ -84,7 +91,8 @@ pub struct Settings {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub registry: Option<Vec<RegistryEntry>>,
     /// User-added catalog sources (subscribed remote URLs + local files). Their
-    /// servers are parsed from cached files under `~/.mux/sources/` on read.
+    /// servers are parsed from cached files under
+    /// `~/.mux/assets/mcps/sources/` on read.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sources: Option<Vec<SourceDef>>,
     /// Disable snapshots, keyed by agent id.
@@ -140,6 +148,48 @@ pub struct Settings {
     /// older binary never drops a newer one's data.
     #[serde(flatten)]
     pub extra: BTreeMap<String, Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+struct McpAssetCatalog {
+    #[serde(default)]
+    version: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    registry: Option<Vec<RegistryEntry>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    sources: Option<Vec<SourceDef>>,
+    #[serde(flatten)]
+    extra: BTreeMap<String, Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+struct ModelAssetCatalog {
+    #[serde(default)]
+    version: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    providers: Option<BTreeMap<String, ModelProviderConfig>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    profiles: Option<BTreeMap<String, ModelProfile>>,
+    #[serde(flatten)]
+    extra: BTreeMap<String, Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+struct SkillAssetCatalog {
+    #[serde(default)]
+    version: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    skills: Option<BTreeMap<String, ManagedSkillRecord>>,
+    #[serde(flatten)]
+    extra: BTreeMap<String, Value>,
+}
+
+#[derive(Default)]
+struct PersistedDocuments {
+    settings: Option<String>,
+    mcp: Option<String>,
+    model: Option<String>,
+    skill: Option<String>,
 }
 
 impl Settings {
@@ -247,19 +297,84 @@ fn read_optional(path: &Path) -> std::io::Result<Option<String>> {
     }
 }
 
-fn parse_for_update(path: &Path) -> std::io::Result<(Settings, Option<String>)> {
+fn invalid_document(path: &Path, error: impl std::fmt::Display) -> Error {
+    Error::new(
+        ErrorKind::InvalidData,
+        format!(
+            "refusing to replace invalid MUX document at {}: {}",
+            path.display(),
+            error
+        ),
+    )
+}
+
+fn parse_catalog<T>(path: &Path) -> std::io::Result<(Option<T>, Option<String>)>
+where
+    T: for<'de> Deserialize<'de>,
+{
     let original = read_optional(path)?;
-    let mut settings = match original.as_deref() {
-        Some(content) => serde_json::from_str(content).map_err(|error| {
-            Error::new(
-                ErrorKind::InvalidData,
-                format!(
-                    "refusing to replace invalid MUX settings at {}: {}",
-                    path.display(),
-                    error
-                ),
-            )
-        })?,
+    let parsed = original
+        .as_deref()
+        .map(|content| serde_json::from_str(content).map_err(|error| invalid_document(path, error)))
+        .transpose()?;
+    Ok((parsed, original))
+}
+
+fn validate_catalog_version(path: &Path, version: u32) -> std::io::Result<()> {
+    if version > ASSET_CATALOG_VERSION {
+        return Err(Error::new(
+            ErrorKind::InvalidData,
+            format!(
+                "refusing to read asset catalog schema {version} at {} with supported schema {ASSET_CATALOG_VERSION}",
+                path.display()
+            ),
+        ));
+    }
+    Ok(())
+}
+
+fn require_matching_legacy<T: PartialEq>(
+    path: &Path,
+    label: &str,
+    legacy: &Option<T>,
+    current: &Option<T>,
+) -> std::io::Result<()> {
+    if legacy.is_some() && legacy != current {
+        return Err(Error::new(
+            ErrorKind::InvalidData,
+            format!(
+                "refusing to choose between conflicting legacy and unified {label} data at {}",
+                path.display()
+            ),
+        ));
+    }
+    Ok(())
+}
+
+fn canonicalize_persisted_profiles(
+    profiles: &Option<BTreeMap<String, ModelProfile>>,
+) -> Option<BTreeMap<String, ModelProfile>> {
+    let mut profiles = profiles.clone();
+    for profile in profiles
+        .iter_mut()
+        .flatten()
+        .map(|(_, profile)| profile)
+        .filter(|profile| profile.provider_id.is_some())
+    {
+        profile.provider.clear();
+        profile.base_url.clear();
+        profile.endpoint_path.clear();
+        profile.env_key = None;
+    }
+    profiles
+}
+
+fn parse_for_update(path: &Path) -> std::io::Result<(Settings, PersistedDocuments)> {
+    let settings_original = read_optional(path)?;
+    let mut settings = match settings_original.as_deref() {
+        Some(content) => {
+            serde_json::from_str(content).map_err(|error| invalid_document(path, error))?
+        }
         None => Settings::default(),
     };
     if settings
@@ -274,8 +389,68 @@ fn parse_for_update(path: &Path) -> std::io::Result<(Settings, Option<String>)> 
             ),
         ));
     }
+
+    let mcp_path = mcp_catalog_file();
+    let model_path = model_catalog_file();
+    let skill_path = skill_catalog_file();
+    let (mcp, mcp_original) = parse_catalog::<McpAssetCatalog>(&mcp_path)?;
+    let (model, model_original) = parse_catalog::<ModelAssetCatalog>(&model_path)?;
+    let (skill, skill_original) = parse_catalog::<SkillAssetCatalog>(&skill_path)?;
+
+    if let Some(catalog) = mcp {
+        validate_catalog_version(&mcp_path, catalog.version)?;
+        require_matching_legacy(
+            &mcp_path,
+            "MCP registry",
+            &settings.registry,
+            &catalog.registry,
+        )?;
+        require_matching_legacy(
+            &mcp_path,
+            "MCP sources",
+            &settings.sources,
+            &catalog.sources,
+        )?;
+        settings.registry = catalog.registry;
+        settings.sources = catalog.sources;
+    }
+    if let Some(catalog) = model {
+        validate_catalog_version(&model_path, catalog.version)?;
+        require_matching_legacy(
+            &model_path,
+            "Model providers",
+            &settings.model_providers,
+            &catalog.providers,
+        )?;
+        require_matching_legacy(
+            &model_path,
+            "Model profiles",
+            &canonicalize_persisted_profiles(&settings.model_profiles),
+            &canonicalize_persisted_profiles(&catalog.profiles),
+        )?;
+        settings.model_providers = catalog.providers;
+        settings.model_profiles = catalog.profiles;
+    }
+    if let Some(catalog) = skill {
+        validate_catalog_version(&skill_path, catalog.version)?;
+        require_matching_legacy(
+            &skill_path,
+            "Skill metadata",
+            &settings.managed_skills,
+            &catalog.skills,
+        )?;
+        settings.managed_skills = catalog.skills;
+    }
     settings.hydrate_model_provider_fields();
-    Ok((settings, original))
+    Ok((
+        settings,
+        PersistedDocuments {
+            settings: settings_original,
+            mcp: mcp_original,
+            model: model_original,
+            skill: skill_original,
+        },
+    ))
 }
 
 pub(crate) fn load_settings_strict() -> std::io::Result<Settings> {
@@ -285,12 +460,12 @@ pub(crate) fn load_settings_strict() -> std::io::Result<Settings> {
 fn save_with_expected(
     path: &Path,
     settings: &Settings,
-    original: Option<&str>,
+    original: &PersistedDocuments,
 ) -> std::io::Result<()> {
-    let mut settings = settings.clone();
-    settings.version.get_or_insert(SETTINGS_VERSION);
-    if settings.version.unwrap_or_default() >= 4 {
-        for profile in settings
+    let mut runtime = settings.clone();
+    runtime.version.get_or_insert(SETTINGS_VERSION);
+    if runtime.version.unwrap_or_default() >= 4 {
+        for profile in runtime
             .model_profiles
             .iter_mut()
             .flatten()
@@ -302,12 +477,101 @@ fn save_with_expected(
             profile.env_key = None;
         }
     }
-    let json = serde_json::to_string_pretty(&settings)
-        .map_err(|error| Error::new(ErrorKind::InvalidData, error))?;
-    if original == Some(json.as_str()) {
-        return Ok(());
+
+    let mcp = McpAssetCatalog {
+        version: ASSET_CATALOG_VERSION,
+        registry: runtime.registry.take(),
+        sources: runtime.sources.take(),
+        extra: original
+            .mcp
+            .as_deref()
+            .and_then(|content| serde_json::from_str::<McpAssetCatalog>(content).ok())
+            .map(|catalog| catalog.extra)
+            .unwrap_or_default(),
+    };
+    let model = ModelAssetCatalog {
+        version: ASSET_CATALOG_VERSION,
+        providers: runtime.model_providers.take(),
+        profiles: runtime.model_profiles.take(),
+        extra: original
+            .model
+            .as_deref()
+            .and_then(|content| serde_json::from_str::<ModelAssetCatalog>(content).ok())
+            .map(|catalog| catalog.extra)
+            .unwrap_or_default(),
+    };
+    let skill = SkillAssetCatalog {
+        version: ASSET_CATALOG_VERSION,
+        skills: runtime.managed_skills.take(),
+        extra: original
+            .skill
+            .as_deref()
+            .and_then(|content| serde_json::from_str::<SkillAssetCatalog>(content).ok())
+            .map(|catalog| catalog.extra)
+            .unwrap_or_default(),
+    };
+
+    let mut writes = Vec::new();
+    if original.mcp.is_some() || mcp.registry.is_some() || mcp.sources.is_some() {
+        writes.push((
+            mcp_catalog_file(),
+            original.mcp.as_deref(),
+            serde_json::to_string_pretty(&mcp)
+                .map_err(|error| Error::new(ErrorKind::InvalidData, error))?,
+        ));
     }
-    write_private_if_unchanged(path, original, &json).map_err(Error::other)
+    if original.model.is_some() || model.providers.is_some() || model.profiles.is_some() {
+        writes.push((
+            model_catalog_file(),
+            original.model.as_deref(),
+            serde_json::to_string_pretty(&model)
+                .map_err(|error| Error::new(ErrorKind::InvalidData, error))?,
+        ));
+    }
+    if original.skill.is_some() || skill.skills.is_some() {
+        writes.push((
+            skill_catalog_file(),
+            original.skill.as_deref(),
+            serde_json::to_string_pretty(&skill)
+                .map_err(|error| Error::new(ErrorKind::InvalidData, error))?,
+        ));
+    }
+    writes.push((
+        path.to_path_buf(),
+        original.settings.as_deref(),
+        serde_json::to_string_pretty(&runtime)
+            .map_err(|error| Error::new(ErrorKind::InvalidData, error))?,
+    ));
+
+    let mut applied: Vec<(std::path::PathBuf, Option<&str>, String)> = Vec::new();
+    for (write_path, expected, desired) in writes {
+        if expected == Some(desired.as_str()) {
+            continue;
+        }
+        if let Err(error) = write_private_if_unchanged(&write_path, expected, &desired) {
+            let mut rollback_failed = None;
+            for (applied_path, previous, written) in applied.into_iter().rev() {
+                let restored = match previous {
+                    Some(previous) => {
+                        write_private_if_unchanged(&applied_path, Some(written.as_str()), previous)
+                    }
+                    None => remove_if_unchanged(&applied_path, &written),
+                };
+                if let Err(rollback_error) = restored {
+                    rollback_failed = Some(rollback_error);
+                    break;
+                }
+            }
+            return Err(Error::other(match rollback_failed {
+                Some(rollback_error) => format!(
+                    "recovery_required: asset catalog write failed ({error}); rollback failed ({rollback_error})"
+                ),
+                None => error.to_string(),
+            }));
+        }
+        applied.push((write_path, expected, desired));
+    }
+    Ok(())
 }
 
 /// Persist the whole settings document (pretty JSON, atomic). Stamps `version`.
@@ -319,8 +583,8 @@ pub fn save_settings(settings: &Settings) -> std::io::Result<()> {
     // threads until the filesystem-lock timeout.
     let _filesystem_guard = acquire_settings_lock(&path).map_err(Error::other)?;
     let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    let original = read_optional(&path)?;
-    save_with_expected(&path, settings, original.as_deref())
+    let (_, original) = parse_for_update(&path)?;
+    save_with_expected(&path, settings, &original)
 }
 
 /// Load → apply `f` to one section → save under the process and filesystem
@@ -334,7 +598,7 @@ where
     let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let (mut settings, original) = parse_for_update(&path)?;
     let out = f(&mut settings);
-    save_with_expected(&path, &settings, original.as_deref())?;
+    save_with_expected(&path, &settings, &original)?;
     Ok(out)
 }
 
@@ -349,8 +613,44 @@ where
     let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let (mut settings, original) = parse_for_update(&path)?;
     let out = f(&mut settings)?;
-    save_with_expected(&path, &settings, original.as_deref())?;
+    save_with_expected(&path, &settings, &original)?;
     Ok(out)
+}
+
+/// Move central payload directories below `~/.mux/assets` and extract central
+/// metadata from the legacy consolidated settings document into one catalog per
+/// asset domain. The operation is idempotent. If a crash leaves both the old
+/// fields and a new catalog, the strict loader accepts them only when they are
+/// byte-semantically equal; the next run then removes the legacy fields.
+pub fn migrate_asset_layout_if_needed() -> std::io::Result<bool> {
+    let path = settings_file();
+    let _filesystem_guard = acquire_settings_lock(&path).map_err(Error::other)?;
+    let _guard = LOCK.lock().unwrap_or_else(|error| error.into_inner());
+    let moved = crate::paths::migrate_legacy_asset_directories()?;
+    let (mut settings, original) = parse_for_update(&path)?;
+    let legacy_asset_fields = original
+        .settings
+        .as_deref()
+        .and_then(|content| serde_json::from_str::<Value>(content).ok())
+        .and_then(|value| value.as_object().cloned())
+        .is_some_and(|object| {
+            [
+                "registry",
+                "sources",
+                "model_profiles",
+                "model_providers",
+                "managed_skills",
+            ]
+            .iter()
+            .any(|key| object.contains_key(*key))
+        });
+    let needs_schema_upgrade = settings.version.unwrap_or_default() < SETTINGS_VERSION;
+    if !moved && !legacy_asset_fields && !needs_schema_upgrade {
+        return Ok(false);
+    }
+    settings.version = Some(SETTINGS_VERSION);
+    save_with_expected(&path, &settings, &original)?;
+    Ok(true)
 }
 
 /// Move `from` into `legacy_dir` if it exists.
@@ -453,7 +753,7 @@ pub fn migrate_if_needed() -> std::io::Result<bool> {
     // Only archive the legacy files once the new file is safely written.
     // The caller already owns both locks, so use the internal CAS writer
     // directly instead of re-entering the non-reentrant process mutex.
-    save_with_expected(&settings_path, &s, None)?;
+    save_with_expected(&settings_path, &s, &PersistedDocuments::default())?;
     let stamp = super::paths::backup_timestamp();
     let legacy_dir = backups_dir().join(format!("legacy-{stamp}"));
     archive(&reg_dir, &legacy_dir, "registry")?;
@@ -498,8 +798,8 @@ mod tests {
     }
 
     #[test]
-    fn v5_persists_provider_connection_only_once_and_hydrates_models_on_read() {
-        let _home = TestHome::new("settings-model-provider-v5");
+    fn v6_persists_provider_connection_only_once_and_hydrates_models_on_read() {
+        let _home = TestHome::new("settings-model-provider-v6");
         let provider = ModelProviderConfig {
             id: "team-provider".into(),
             name: "Team Provider".into(),
@@ -540,10 +840,10 @@ mod tests {
         .unwrap();
 
         let raw: Value = serde_json::from_str(
-            &fs::read_to_string(settings_file()).expect("settings should exist"),
+            &fs::read_to_string(model_catalog_file()).expect("Model catalog should exist"),
         )
         .unwrap();
-        let persisted = &raw["model_profiles"]["team-model"];
+        let persisted = &raw["profiles"]["team-model"];
         assert!(persisted.get("provider").is_none());
         assert!(persisted.get("base_url").is_none());
         assert!(persisted.get("endpoint_path").is_none());

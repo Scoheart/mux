@@ -1258,9 +1258,9 @@ function ModelProviderDialog({
           </label>
         </div>
 
-        <section className="mux-provider-form-section mux-provider-credential" aria-label={t("models.credential")}>
+        <section className="mux-provider-form-section mux-provider-credential" aria-label={t("models.credentialSection")}>
           <div className="mux-provider-section-head">
-            <strong>{t("models.credential")}</strong>
+            <strong>{t("models.credentialSection")}</strong>
           </div>
           <div className="mux-provider-credential-layout">
             <div className="mux-provider-credential-mode" role="tablist" aria-label={t("models.credentialSource")}>

@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.131](https://github.com/Scoheart/mux/compare/v1.8.130...v1.8.131) (2026-08-09)
+
+### Changes
+
+* fix(models): remove redundant custom provider id field ([ff2ffa2](https://github.com/Scoheart/mux/commit/ff2ffa2a011dd7012d010fe3a236ba047ef50bca))
+
 ## [1.8.130](https://github.com/Scoheart/mux/compare/v1.8.129...v1.8.130) (2026-08-07)
 
 ### Changes

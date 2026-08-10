@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.135](https://github.com/Scoheart/mux/compare/v1.8.134...v1.8.135) (2026-08-10)
+
+### Changes
+
+* feat(desktop): polish provider selection UI ([4835897](https://github.com/Scoheart/mux/commit/4835897b6a447c36a46fba90be05c86e8d445957))
+
 ## [1.8.134](https://github.com/Scoheart/mux/compare/v1.8.133...v1.8.134) (2026-08-09)
 
 ### Changes

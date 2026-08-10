@@ -142,7 +142,7 @@ async function openProviderTemplate(
   const catalog = screen.getByRole("dialog", { name: "添加 Provider" });
   expect(catalog).toBeVisible();
   await user.click(within(catalog).getByRole("radio", { name: new RegExp(provider) }));
-  await user.click(within(catalog).getByRole("button", { name: "使用此模板" }));
+  await user.click(within(catalog).getByRole("button", { name: "创建" }));
   await waitFor(() =>
     expect(screen.getByRole("heading", { name: `添加 ${provider}` })).toHaveFocus()
   );
@@ -389,7 +389,7 @@ it("keeps the built-in Provider Catalog unfiltered, searchable, and keyboard-sel
   await user.type(search, "api.openai.com");
   expect(within(catalog).getAllByRole("radio")).toHaveLength(1);
   expect(within(catalog).getByRole("radio", { name: /OpenAI/ })).toBeVisible();
-  expect(within(catalog).getByRole("button", { name: "使用此模板" })).toBeDisabled();
+  expect(within(catalog).getByRole("button", { name: "创建" })).toBeDisabled();
 
   await user.clear(search);
   expect(within(catalog).getAllByRole("radio")).toHaveLength(5);
@@ -397,9 +397,9 @@ it("keeps the built-in Provider Catalog unfiltered, searchable, and keyboard-sel
   openAi.focus();
   await user.keyboard("{Enter}");
   expect(openAi).toHaveAttribute("aria-checked", "true");
-  expect(within(catalog).getByText("已选择 OpenAI")).toBeVisible();
+  expect(catalog.querySelector(".mux-provider-catalog-selection")).toHaveTextContent("OpenAI");
 
-  await user.click(within(catalog).getByRole("button", { name: "使用此模板" }));
+  await user.click(within(catalog).getByRole("button", { name: "创建" }));
   await waitFor(() => expect(screen.getByRole("heading", { name: "添加 OpenAI" })).toHaveFocus());
   expect(screen.getByLabelText("Base URL")).toHaveValue("https://api.openai.com/v1");
   expect(screen.getByText("API Key")).toBeVisible();
@@ -407,11 +407,13 @@ it("keeps the built-in Provider Catalog unfiltered, searchable, and keyboard-sel
   expect(source).not.toMatch(/ProviderCatalogDrawer|provider-catalog-drawer/);
 });
 
-it("centers compact Provider cards without sacrificing a dedicated selection column", () => {
-  expect(css).toMatch(/\.mux-provider-catalog-item\s*\{[\s\S]*?min-height: 56px/);
-  expect(css).toMatch(/grid-template-columns: 26px minmax\(0, 1fr\) 15px; align-items: center/);
+it("renders compact Provider options with a quiet sticky action bar", () => {
+  expect(css).toMatch(/\.mux-provider-catalog-item\s*\{[\s\S]*?min-height: 54px/);
+  expect(css).toMatch(/grid-template-columns: 28px minmax\(0, 1fr\) 16px; align-items: center/);
   expect(css).toMatch(/\.mux-provider-catalog-copy\s*\{[\s\S]*?align-content: center; gap: 3px/);
-  expect(css).toMatch(/\.mux-provider-catalog-grid\s*\{[\s\S]*?row-gap: 6px/);
+  expect(css).toMatch(/\.mux-provider-catalog-grid\s*\{[\s\S]*?gap: 7px/);
+  expect(css).toMatch(/\.mux-dialog-shell:has\(\.mux-provider-catalog\) \.mux-dialog-shell-footer\s*\{[\s\S]*?border-top:/);
+  expect(css).toMatch(/\.mux-provider-catalog-search \.mux-model-field\s*\{[\s\S]*?padding-left: 36px/);
   expect(css).toMatch(/\.mux-provider-catalog-copy code\s*\{[\s\S]*?text-overflow: ellipsis; white-space: nowrap/);
   expect(css).not.toMatch(/\.mux-provider-catalog-categories/);
 });

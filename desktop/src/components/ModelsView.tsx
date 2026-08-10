@@ -34,6 +34,7 @@ import {
   KeyIcon,
   LayersIcon,
   PlusIcon,
+  SearchIcon,
   TerminalIcon,
   TrashIcon,
 } from "./icons";
@@ -774,7 +775,12 @@ function ProviderCatalogDialog({
       title={t("models.providerCatalogTitle")}
       subtitle={t("models.providerCatalogSubtitle")}
       onClose={onClose}
-      footerStart={selected ? t("models.providerSelected", { name: selected.name }) : undefined}
+      footerStart={selected ? (
+        <span className="mux-provider-catalog-selection">
+          <span aria-hidden="true">✓</span>
+          <strong>{selected.name}</strong>
+        </span>
+      ) : undefined}
       footerEnd={(
         <>
           <button type="button" className="btn-ghost" onClick={onClose}>{t("common.cancel")}</button>
@@ -790,15 +796,18 @@ function ProviderCatalogDialog({
       )}
     >
       <div className="mux-provider-catalog">
-        <input
-          autoFocus
-          type="search"
-          className="mux-model-field"
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          placeholder={t("models.searchProviders")}
-          aria-label={t("models.searchProviders")}
-        />
+        <label className="mux-provider-catalog-search">
+          <SearchIcon className="w-4 h-4" />
+          <input
+            autoFocus
+            type="search"
+            className="mux-model-field"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder={t("models.searchProviders")}
+            aria-label={t("models.searchProviders")}
+          />
+        </label>
         <div className="mux-provider-catalog-grid" role="radiogroup" aria-label={t("models.providerCatalogTitle")}>
           {visibleProviders.map((provider) => (
             <button

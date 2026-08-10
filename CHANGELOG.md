@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.136](https://github.com/Scoheart/mux/compare/v1.8.135...v1.8.136) (2026-08-10)
+
+### Changes
+
+* style(desktop): remove provider catalog helper copy ([b4dd236](https://github.com/Scoheart/mux/commit/b4dd23691e7e2e180a302696b15ac3002333bc25))
+
 ## [1.8.135](https://github.com/Scoheart/mux/compare/v1.8.134...v1.8.135) (2026-08-10)
 
 ### Changes

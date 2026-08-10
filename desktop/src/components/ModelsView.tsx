@@ -773,7 +773,6 @@ function ProviderCatalogDialog({
       kind="picker"
       size="lg"
       title={t("models.providerCatalogTitle")}
-      subtitle={t("models.providerCatalogSubtitle")}
       onClose={onClose}
       footerStart={selected ? (
         <span className="mux-provider-catalog-selection">

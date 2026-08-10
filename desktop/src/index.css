@@ -1399,7 +1399,7 @@ body {
 /* Models */
 .mux-dialog-shell:has(.mux-provider-catalog) { padding: 0; }
 .mux-dialog-shell:has(.mux-provider-catalog) .mux-dialog-shell-header {
-  min-height: 66px; align-items: center; padding: 14px 24px 10px;
+  min-height: 56px; align-items: center; padding: 10px 24px 8px;
 }
 .mux-dialog-shell:has(.mux-provider-catalog) .mux-dialog-shell-close {
   width: 32px; height: 32px; flex-basis: 32px; border-radius: 8px; background: transparent;

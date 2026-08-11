@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.137](https://github.com/Scoheart/mux/compare/v1.8.136...v1.8.137) (2026-08-11)
+
+### Changes
+
+* feat(desktop): simplify convergence actions ([e2a2334](https://github.com/Scoheart/mux/commit/e2a233429108a43f34cba7a0dbca4ace79deb600))
+
 ## [1.8.136](https://github.com/Scoheart/mux/compare/v1.8.135...v1.8.136) (2026-08-10)
 
 ### Changes

@@ -200,6 +200,42 @@ describe("AgentConsumptionPanel", () => {
     expect(onRemove).not.toHaveBeenCalled();
   });
 
+  it("keeps one recovery action visible and moves alternatives into a compact menu", async () => {
+    const onConverge = vi.fn();
+    const changedRow: ConsumptionView = {
+      ...syncedRow,
+      status: "external-changed",
+      reason: "mcp_owned_fields_drift",
+      available_actions: ["adopt-observed", "restore-desired", "detach"],
+    };
+    render(
+      <AgentConsumptionPanel
+        domain="mcp"
+        title="MCP"
+        manageLabel="添加 MCP"
+        rows={[changedRow]}
+        external={[]}
+        present={() => ({ name: "GitHub" })}
+        onManage={vi.fn()}
+        onConverge={onConverge}
+      />,
+    );
+
+    const card = screen.getByText("GitHub").closest<HTMLElement>("li");
+    expect(card).not.toBeNull();
+    expect(within(card!).getByLabelText("外部已修改")).toBeVisible();
+    expect(within(card!).queryByText("外部已修改")).not.toBeInTheDocument();
+    expect(within(card!).getByRole("button", { name: "恢复 MUX" })).toBeVisible();
+    expect(within(card!).queryByRole("button", { name: "收录 MUX" })).not.toBeInTheDocument();
+    expect(within(card!).queryByRole("button", { name: "解除管理" })).not.toBeInTheDocument();
+
+    await userEvent.click(within(card!).getByRole("button", { name: "更多处理方式" }));
+    expect(within(card!).getByRole("menuitem", { name: "收录 MUX" })).toBeVisible();
+    expect(within(card!).getByRole("menuitem", { name: "解除管理" })).toBeVisible();
+    await userEvent.click(within(card!).getByRole("menuitem", { name: "收录 MUX" }));
+    expect(onConverge).toHaveBeenCalledWith(changedRow, "adopt-observed");
+  });
+
   it("rejects cross-domain rows at the panel boundary", () => {
     const modelRow: ConsumptionView = {
       ...syncedRow,

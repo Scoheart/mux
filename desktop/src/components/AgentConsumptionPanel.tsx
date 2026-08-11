@@ -1,7 +1,16 @@
-import type { ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { AssetRef, ConsumptionView, ConvergenceAction } from "../lib/types";
 import { assetIdentity } from "../lib/consumption";
-import { LinkIcon, PackageIcon, PlusIcon, TrashIcon } from "./icons";
+import {
+  DownloadIcon,
+  LinkIcon,
+  LinkOffIcon,
+  MoreHorizontalIcon,
+  PackageIcon,
+  PlusIcon,
+  RefreshIcon,
+  TrashIcon,
+} from "./icons";
 import { ConsumptionStatus } from "./ConsumptionStatus";
 import { Switch } from "./ui";
 import { useTranslation } from "react-i18next";
@@ -11,6 +20,106 @@ export interface ConsumptionAssetPresentation {
   description?: string;
   icon?: ReactNode;
   meta?: ReactNode;
+}
+
+function ConvergenceActionIcon({ action }: { action: ConvergenceAction }) {
+  if (action === "adopt-observed") return <DownloadIcon className="w-3.5 h-3.5" />;
+  if (action === "restore-desired") return <RefreshIcon className="w-3.5 h-3.5" />;
+  return <LinkOffIcon className="w-3.5 h-3.5" />;
+}
+
+function ConvergenceActions({
+  actions,
+  disabled,
+  onAction,
+}: {
+  actions: ConvergenceAction[];
+  disabled: boolean;
+  onAction(action: ConvergenceAction): void;
+}) {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLSpanElement>(null);
+  const label = (action: ConvergenceAction) => action === "adopt-observed"
+    ? t("observations.actions.adopt")
+    : action === "restore-desired"
+      ? t("observations.actions.restore")
+      : t("observations.actions.detach");
+  const primary = actions.includes("restore-desired")
+    ? "restore-desired"
+    : actions.includes("adopt-observed")
+      ? "adopt-observed"
+      : actions[0];
+  const secondary = actions.filter((action) => action !== primary);
+
+  useEffect(() => {
+    if (!open) return;
+    const closeOutside = (event: PointerEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("pointerdown", closeOutside);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeOutside);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [open]);
+
+  if (!primary) return null;
+  return (
+    <span className="mux-convergence-controls" ref={rootRef}>
+      <button
+        type="button"
+        className="mux-convergence-action"
+        data-primary="true"
+        data-action={primary}
+        aria-label={label(primary)}
+        title={label(primary)}
+        disabled={disabled}
+        onClick={() => onAction(primary)}
+      >
+        <ConvergenceActionIcon action={primary} />
+      </button>
+      {secondary.length > 0 && (
+        <span className="mux-convergence-more">
+          <button
+            type="button"
+            className="mux-convergence-action"
+            aria-label={t("observations.actions.more")}
+            title={t("observations.actions.more")}
+            aria-haspopup="menu"
+            aria-expanded={open}
+            disabled={disabled}
+            onClick={() => setOpen((current) => !current)}
+          >
+            <MoreHorizontalIcon className="w-4 h-4" />
+          </button>
+          {open && (
+            <span className="mux-convergence-menu" role="menu">
+              {secondary.map((action) => (
+                <button
+                  key={action}
+                  type="button"
+                  role="menuitem"
+                  data-action={action}
+                  onClick={() => {
+                    setOpen(false);
+                    onAction(action);
+                  }}
+                >
+                  <ConvergenceActionIcon action={action} />
+                  <span>{label(action)}</span>
+                </button>
+              ))}
+            </span>
+          )}
+        </span>
+      )}
+    </span>
+  );
 }
 
 export function AgentConsumptionPanel({
@@ -86,7 +195,6 @@ export function AgentConsumptionPanel({
   emptyAction?: ReactNode;
   columns?: 2 | 3;
 }) {
-  const { t } = useTranslation();
   const domainRows = rows.filter((item) => item.asset.domain === domain);
   const domainExternal = external.filter((item) => item.asset.domain === domain);
   const items = [
@@ -198,59 +306,55 @@ export function AgentConsumptionPanel({
                   </span>
                   {presentationDescription && <small>{presentationDescription}</small>}
                 </span>
-                {item.status !== "synced"
-                  && !(isExternal && item.status === "external-added") && (
-                  <ConsumptionStatus status={item.status} reason={item.reason} />
-                )}
-                {(item.available_actions.length > 0 || !isExternal && (renderAction || onEnabledChange && enabled !== null || onOpenAsset || onRemove)) && (
-                  <span className="mux-consumption-actions">
-                    {onConverge && item.available_actions.map((action) => (
-                      <button
-                        key={action}
-                        type="button"
-                        className={action === "restore-desired" ? "btn-primary" : "btn-secondary"}
-                        disabled={convergenceDisabled}
-                        onClick={() => onConverge(item, action)}
-                      >
-                        {action === "adopt-observed"
-                          ? t("observations.actions.adopt")
-                          : action === "restore-desired"
-                            ? t("observations.actions.restore")
-                            : t("observations.actions.detach")}
-                      </button>
-                    ))}
-                    {renderAction?.(item)}
-                    {!isExternal && onEnabledChange && enabled !== null && (
-                      <Switch
-                        checked={enabled}
-                        compact
-                        disabled={toggleDisabled}
-                        ariaLabel={toggleLabel}
-                        title={toggleLabel}
-                        onChange={(next) => onEnabledChange(item, next)}
-                      />
+                {(item.status !== "synced" && !(isExternal && item.status === "external-added")
+                  || item.available_actions.length > 0
+                  || !isExternal && (renderAction || onEnabledChange && enabled !== null || onOpenAsset || onRemove)) && (
+                  <span className="mux-consumption-controls">
+                    {item.status !== "synced"
+                      && !(isExternal && item.status === "external-added") && (
+                      <ConsumptionStatus status={item.status} reason={item.reason} compact />
                     )}
-                    {!isExternal && onOpenAsset && (
-                      <button
-                        type="button"
-                        className="mux-consumption-open"
-                        aria-label={`查看 ${presentation.name}`}
-                        onClick={() => onOpenAsset(item.asset)}
-                      >
-                        <LinkIcon className="w-4 h-4" />
-                      </button>
-                    )}
-                    {!isExternal && onRemove && (
-                      <button
-                        type="button"
-                        className="mux-consumption-open mux-consumption-remove"
-                        aria-label={removeLabel?.(presentation.name) ?? `从 Agent 移除 ${presentation.name}`}
-                        disabled={removeDisabled}
-                        onClick={() => onRemove(item.asset)}
-                      >
-                        <TrashIcon className="w-4 h-4" />
-                      </button>
-                    )}
+                    <span className="mux-consumption-actions">
+                      {onConverge && item.available_actions.length > 0 && (
+                        <ConvergenceActions
+                          actions={item.available_actions}
+                          disabled={convergenceDisabled}
+                          onAction={(action) => onConverge(item, action)}
+                        />
+                      )}
+                      {renderAction?.(item)}
+                      {!isExternal && onEnabledChange && enabled !== null && (
+                        <Switch
+                          checked={enabled}
+                          compact
+                          disabled={toggleDisabled}
+                          ariaLabel={toggleLabel}
+                          title={toggleLabel}
+                          onChange={(next) => onEnabledChange(item, next)}
+                        />
+                      )}
+                      {!isExternal && onOpenAsset && (
+                        <button
+                          type="button"
+                          className="mux-consumption-open"
+                          aria-label={`查看 ${presentation.name}`}
+                          onClick={() => onOpenAsset(item.asset)}
+                        >
+                          <LinkIcon className="w-4 h-4" />
+                        </button>
+                      )}
+                      {!isExternal && onRemove && (
+                        <button
+                          type="button"
+                          className="mux-consumption-open mux-consumption-remove"
+                          aria-label={removeLabel?.(presentation.name) ?? `从 Agent 移除 ${presentation.name}`}
+                          disabled={removeDisabled}
+                          onClick={() => onRemove(item.asset)}
+                        >
+                          <TrashIcon className="w-4 h-4" />
+                        </button>
+                      )}
+                    </span>
                   </span>
                 )}
               </li>

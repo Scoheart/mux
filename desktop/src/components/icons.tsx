@@ -318,4 +318,26 @@ export function GripVerticalIcon({ className, style }: IconProps) {
   );
 }
 
+export function MoreHorizontalIcon({ className, style }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} style={style} stroke="currentColor" fill="none"
+      strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="5" cy="12" r="1" fill="currentColor" stroke="none" />
+      <circle cx="12" cy="12" r="1" fill="currentColor" stroke="none" />
+      <circle cx="19" cy="12" r="1" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
+export function LinkOffIcon({ className, style }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} style={style} stroke="currentColor" fill="none"
+      strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="m3 3 18 18" />
+      <path d="M10.6 13.4a5 5 0 0 0 6.9.1l3-3a5 5 0 0 0-6.9-7.2l-1.7 1.6" />
+      <path d="M13.4 10.6a5 5 0 0 0-6.9-.1l-3 3a5 5 0 0 0 6.9 7.2l1.7-1.6" />
+    </svg>
+  );
+}
+
 /** Half-filled circle (◐) to indicate customized/overridden state */

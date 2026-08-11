@@ -4,9 +4,11 @@ import { useTranslation } from "react-i18next";
 export function ConsumptionStatus({
   status,
   reason,
+  compact = false,
 }: {
   status: Status;
   reason?: string | null;
+  compact?: boolean;
 }) {
   const { t } = useTranslation();
   const labels: Record<Status, string> = {
@@ -22,10 +24,12 @@ export function ConsumptionStatus({
     <span
       className="mux-consumption-status"
       data-status={status}
+      data-compact={compact ? "true" : undefined}
       title={reason ?? labels[status]}
+      aria-label={compact ? labels[status] : undefined}
     >
       <span aria-hidden="true" />
-      {labels[status]}
+      {!compact && labels[status]}
     </span>
   );
 }

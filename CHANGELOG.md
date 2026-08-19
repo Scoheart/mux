@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.138](https://github.com/Scoheart/mux/compare/v1.8.137...v1.8.138) (2026-08-19)
+
+### Changes
+
+* feat(models): reveal saved Provider API keys on demand (#126) ([45e3678](https://github.com/Scoheart/mux/commit/45e3678f518e7237ed3ce0e37d4a0e83b785693b))
+
 ## [1.8.137](https://github.com/Scoheart/mux/compare/v1.8.136...v1.8.137) (2026-08-11)
 
 ### Changes

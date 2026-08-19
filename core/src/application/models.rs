@@ -17,6 +17,10 @@ pub fn list_provider_instances() -> Vec<ModelProviderInstanceView> {
     super::gate::read(crate::resources::model::list_provider_instances)
 }
 
+pub fn reveal_provider_credential(provider_id: &str) -> Result<String, String> {
+    super::gate::read(|| crate::resources::model::reveal_provider_credential(provider_id))
+}
+
 pub fn infer_provider(base_url: &str) -> String {
     crate::resources::model::infer_provider(base_url)
 }

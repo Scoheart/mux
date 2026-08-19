@@ -16,6 +16,7 @@ vi.mock("../lib/api", async () => {
     listModelProfiles: vi.fn(),
     listModelProviders: vi.fn(),
     listModelProviderInstances: vi.fn(),
+    revealModelProviderCredential: vi.fn(),
     inferModelProvider: vi.fn(),
   };
 });
@@ -102,6 +103,7 @@ beforeEach(() => {
     },
   ]);
   vi.mocked(api.listModelProviderInstances).mockResolvedValue([]);
+  vi.mocked(api.revealModelProviderCredential).mockResolvedValue("");
   vi.mocked(api.inferModelProvider).mockImplementation(async (baseUrl) => {
     const host = (() => {
       try {
@@ -711,6 +713,55 @@ it("rejects absolute, fragmented, and traversal Endpoint Paths in the Provider f
     expect(within(protocolEditor as HTMLElement).queryByText(invalid)).not.toBeInTheDocument();
     expect(save).toBeDisabled();
   }
+});
+
+it("reveals a saved Provider API key only after an explicit request", async () => {
+  vi.mocked(api.listModelProviderInstances).mockResolvedValue([{
+    id: "openrouter-team",
+    name: "OpenRouter Team",
+    provider: "openrouter",
+    base_url: "https://openrouter.ai/api/v1",
+    protocols: { "openai-responses": { endpoint_path: "/responses" } },
+    credential_saved: true,
+    model_count: 0,
+  }]);
+  vi.mocked(api.revealModelProviderCredential).mockResolvedValue("saved-test-value");
+  const user = userEvent.setup();
+  const planUpdate = vi.fn().mockResolvedValue({ operation_id: "provider-plan" });
+  const consumptionState = { plan: null, planUpdate } as unknown as ConsumptionState;
+
+  const view = render(
+    <ToastProvider>
+      <ModelsView consumptionState={consumptionState} />
+    </ToastProvider>,
+  );
+
+  const sidebar = within(view.container.querySelector(".mux-workspace-sidebar") as HTMLElement);
+  await user.click(await sidebar.findByTitle("OpenRouter Team"));
+  await user.click(screen.getByRole("button", { name: "编辑 Provider" }));
+
+  const credential = screen.getByRole("region", { name: "凭据" });
+  const apiKey = within(credential).getByLabelText("API Key");
+  expect(apiKey).toHaveAttribute("type", "password");
+  expect(apiKey).toHaveValue("");
+  expect(api.revealModelProviderCredential).not.toHaveBeenCalled();
+
+  await user.click(within(credential).getByRole("button", { name: "显示 API Key" }));
+  await waitFor(() =>
+    expect(api.revealModelProviderCredential).toHaveBeenCalledWith("openrouter-team")
+  );
+  expect(apiKey).toHaveAttribute("type", "text");
+  expect(apiKey).toHaveValue("saved-test-value");
+
+  await user.click(within(credential).getByRole("button", { name: "隐藏 API Key" }));
+  expect(apiKey).toHaveAttribute("type", "password");
+  expect(apiKey).toHaveValue("saved-test-value");
+
+  await user.click(screen.getByRole("button", { name: "保存" }));
+  await waitFor(() => expect(planUpdate).toHaveBeenCalledWith(expect.objectContaining({
+    domain: "model-provider",
+    credential: undefined,
+  })));
 });
 
 it("filters Model protocols by Provider and previews the selected request URL", async () => {

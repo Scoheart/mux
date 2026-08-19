@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { listModelProfiles } from "./api";
+import { listModelProfiles, revealModelProviderCredential } from "./api";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 
@@ -32,5 +32,16 @@ describe("Model Profile wire contract", () => {
       credential_saved: false,
     }]);
     expect(invokeMock).toHaveBeenCalledWith("list_model_profiles");
+  });
+
+  it("uses a dedicated command to reveal one Provider credential", async () => {
+    invokeMock.mockResolvedValueOnce("saved-test-value");
+
+    await expect(revealModelProviderCredential("team-provider"))
+      .resolves.toBe("saved-test-value");
+    expect(invokeMock).toHaveBeenCalledWith(
+      "reveal_model_provider_credential",
+      { providerId: "team-provider" },
+    );
   });
 });

@@ -2240,6 +2240,34 @@ pub(crate) fn provider_credential_present(provider_id: &str) -> bool {
     credential_exists(&provider_credential_subject(provider_id))
 }
 
+/// Read a configured Provider's Keychain value for an explicit reveal action.
+///
+/// Callers must keep the returned value ephemeral and must not serialize or log it.
+pub fn reveal_provider_credential(provider_id: &str) -> Result<String, String> {
+    let settings = load_settings();
+    if !settings
+        .model_providers
+        .as_ref()
+        .is_some_and(|providers| providers.contains_key(provider_id))
+    {
+        return Err(format!(
+            "model_provider_not_found: Provider '{provider_id}' does not exist"
+        ));
+    }
+
+    let credential = read_credential_service(&provider_keychain_service(provider_id))
+        .ok_or_else(|| {
+            format!(
+                "model_provider_credential_missing: Provider '{provider_id}' has no API Key in Keychain"
+            )
+        })?;
+    String::from_utf8(credential).map_err(|_| {
+        format!(
+            "model_provider_credential_invalid: Provider '{provider_id}' has a non-UTF-8 API Key"
+        )
+    })
+}
+
 /// Return the credential contract that prevents an Agent from consuming a
 /// Profile safely. Environment-reference Agents cannot read MUX's per-Profile
 /// Keychain item, so an authenticated Profile must name an environment variable
@@ -4708,6 +4736,55 @@ mod tests {
             .contains_key(&provider.id));
         delete_provider(&provider.id).unwrap();
         assert!(read_credential_service(&provider_service).is_none());
+    }
+
+    #[test]
+    fn provider_credential_reveal_is_scoped_to_configured_providers() {
+        let _home = TestHome::new("model-provider-credential-reveal");
+        let provider = ModelProviderConfig {
+            id: "team-provider".into(),
+            name: "Team Provider".into(),
+            provider: "custom".into(),
+            base_url: "https://gateway.example.test".into(),
+            protocols: BTreeMap::from([(
+                ModelProtocol::OpenaiResponses,
+                protocol("/v1/responses"),
+            )]),
+            env_key: None,
+        };
+        crate::settings::save_settings(&crate::settings::Settings {
+            model_providers: Some(BTreeMap::from([(
+                provider.id.clone(),
+                provider.clone(),
+            )])),
+            ..Default::default()
+        })
+        .unwrap();
+        set_credential_service(
+            &provider_keychain_service(&provider.id),
+            b"saved-test-value",
+        )
+        .unwrap();
+        set_credential_service(
+            &provider_keychain_service("unmanaged-provider"),
+            b"unmanaged-test-value",
+        )
+        .unwrap();
+
+        assert_eq!(
+            reveal_provider_credential(&provider.id).unwrap(),
+            "saved-test-value"
+        );
+        let unmanaged = reveal_provider_credential("unmanaged-provider").unwrap_err();
+        assert!(unmanaged.starts_with("model_provider_not_found:"), "{unmanaged}");
+
+        delete_credential_service(&provider_keychain_service(&provider.id)).unwrap();
+        let missing = reveal_provider_credential(&provider.id).unwrap_err();
+        assert!(
+            missing.starts_with("model_provider_credential_missing:"),
+            "{missing}"
+        );
+        delete_credential_service(&provider_keychain_service("unmanaged-provider")).unwrap();
     }
 
     #[test]

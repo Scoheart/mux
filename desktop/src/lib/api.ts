@@ -135,6 +135,8 @@ export const listModelProviders = () =>
   invoke<ModelProviderView[]>("list_model_providers");
 export const listModelProviderInstances = () =>
   invoke<ModelProviderInstanceView[]>("list_model_provider_instances");
+export const revealModelProviderCredential = (providerId: string) =>
+  invoke<string>("reveal_model_provider_credential", { providerId });
 export const inferModelProvider = (baseUrl: string) =>
   invoke<string>("infer_model_provider", { baseUrl });
 export const listModelAgents = () =>

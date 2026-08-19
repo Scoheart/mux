@@ -516,6 +516,11 @@ pub fn list_model_provider_instances(
 }
 
 #[tauri::command]
+pub fn reveal_model_provider_credential(provider_id: String) -> Result<String, String> {
+    mux_core::application::models::reveal_provider_credential(&provider_id)
+}
+
+#[tauri::command]
 pub fn infer_model_provider(base_url: String) -> String {
     mux_core::application::models::infer_provider(&base_url)
 }

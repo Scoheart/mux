@@ -4,6 +4,7 @@ import {
   listModelProfiles,
   listModelProviderInstances,
   listModelProviders,
+  revealModelProviderCredential,
 } from "../lib/api";
 import type { ConsumptionState } from "../hooks/useConsumptionState";
 import type {
@@ -1154,6 +1155,8 @@ function ModelProviderDialog({
     PROTOCOLS.find(({ id }) => Boolean(initialProtocols[id]))?.id ?? "openai-responses",
   );
   const [credential, setCredential] = useState("");
+  const [credentialDirty, setCredentialDirty] = useState(false);
+  const [credentialLoading, setCredentialLoading] = useState(false);
   const [credentialMode, setCredentialMode] = useState<"key" | "env">(
     initial?.env_key && !initial.credential_saved ? "env" : "key",
   );
@@ -1176,8 +1179,35 @@ function ModelProviderDialog({
       && draft.provider.trim()
       && normalizedBaseUrl
       && protocolsValid
-      && !busy,
+      && !busy
+      && !credentialLoading,
   );
+
+  const toggleCredentialVisibility = async () => {
+    if (credentialVisible) {
+      setCredentialVisible(false);
+      return;
+    }
+    if (!initial?.credential_saved || credential || credentialDirty) {
+      setCredentialVisible(true);
+      return;
+    }
+
+    setCredentialLoading(true);
+    try {
+      const savedCredential = await revealModelProviderCredential(initial.id);
+      setCredential(savedCredential);
+      setCredentialDirty(false);
+      setCredentialVisible(true);
+    } catch (error) {
+      toast.show({
+        kind: "error",
+        msg: t("models.revealApiKeyFailed", { error: formatError(error) }),
+      });
+    } finally {
+      setCredentialLoading(false);
+    }
+  };
 
   const save = async () => {
     if (!valid) return;
@@ -1200,7 +1230,7 @@ function ModelProviderDialog({
         env_key: credentialMode === "env" ? draft.env_key?.trim() || undefined : undefined,
       }, credentialMode === "env"
         ? initial?.credential_saved ? "" : undefined
-        : clearCredential ? "" : credential || undefined);
+        : clearCredential ? "" : credentialDirty && credential ? credential : undefined);
     } catch (error) {
       toast.show({ kind: "error", msg: t("models.saveFailed", { error: formatError(error) }) });
     } finally {
@@ -1292,10 +1322,14 @@ function ModelProviderDialog({
                   autoComplete={credentialMode === "key" ? "new-password" : "off"}
                   aria-label={credentialMode === "key" ? t("models.apiKey") : t("models.apiKeyEnv")}
                   value={credentialMode === "key" ? credential : draft.env_key ?? ""}
-                  disabled={credentialMode === "key" && clearCredential}
+                  disabled={credentialMode === "key" && (clearCredential || credentialLoading)}
                   onChange={(event) => {
-                    if (credentialMode === "key") setCredential(event.target.value);
-                    else setDraft({ ...draft, env_key: event.target.value || undefined });
+                    if (credentialMode === "key") {
+                      setCredential(event.target.value);
+                      setCredentialDirty(true);
+                    } else {
+                      setDraft({ ...draft, env_key: event.target.value || undefined });
+                    }
                   }}
                   placeholder={credentialMode === "key"
                     ? initial?.credential_saved ? t("models.keepCredential") : t("models.optionalCredential")
@@ -1308,7 +1342,9 @@ function ModelProviderDialog({
                     className="mux-provider-icon-button"
                     aria-label={credentialVisible ? t("models.hideApiKey") : t("models.showApiKey")}
                     title={credentialVisible ? t("models.hideApiKey") : t("models.showApiKey")}
-                    onClick={() => setCredentialVisible((visible) => !visible)}
+                    disabled={credentialLoading || clearCredential}
+                    aria-busy={credentialLoading}
+                    onClick={() => void toggleCredentialVisibility()}
                   >
                     {credentialVisible
                       ? <EyeOffIcon className="w-4 h-4" />
@@ -1323,7 +1359,10 @@ function ModelProviderDialog({
               <input
                 type="checkbox"
                 checked={clearCredential}
-                onChange={(event) => setClearCredential(event.target.checked)}
+                onChange={(event) => {
+                  setClearCredential(event.target.checked);
+                  if (event.target.checked) setCredentialVisible(false);
+                }}
               />
               {t("models.clearCredential")}
             </label>

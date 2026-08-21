@@ -129,6 +129,13 @@ export interface ModelProviderConfig {
 export interface ModelProviderInstanceView extends ModelProviderConfig {
   credential_saved: boolean;
   model_count: number;
+  model_discovery_supported: boolean;
+}
+
+export interface ProviderModelSummary {
+  id: string;
+  name?: string | null;
+  context_length?: number | null;
 }
 
 export interface ModelProfileView extends ModelProfile {
@@ -151,6 +158,7 @@ export interface ModelProviderView {
     endpoint_path: string;
   }>>;
   category: "official" | "gateway" | "local" | "custom";
+  model_discovery_supported: boolean;
 }
 
 export interface ModelAgentView {

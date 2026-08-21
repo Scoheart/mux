@@ -516,6 +516,17 @@ pub fn list_model_provider_instances(
 }
 
 #[tauri::command]
+pub async fn discover_provider_models(
+    provider_id: String,
+) -> Result<Vec<mux_core::application::models::ProviderModelSummary>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        mux_core::application::models::discover_provider_models(&provider_id)
+    })
+    .await
+    .map_err(|_| "model_discovery_worker_failed: Background model discovery failed".to_owned())?
+}
+
+#[tauri::command]
 pub fn reveal_model_provider_credential(provider_id: String) -> Result<String, String> {
     mux_core::application::models::reveal_provider_credential(&provider_id)
 }

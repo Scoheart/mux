@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
+  discoverProviderModels,
   listModelProfiles,
   listModelProviderInstances,
   listModelProviders,
@@ -14,6 +15,7 @@ import type {
   ModelProviderInstanceView,
   ModelProviderView,
   ModelProtocol,
+  ProviderModelSummary,
   ResourceNavigationIntent,
 } from "../lib/types";
 import { formatError } from "../lib/format";
@@ -35,6 +37,7 @@ import {
   KeyIcon,
   LayersIcon,
   PlusIcon,
+  RefreshIcon,
   SearchIcon,
   TerminalIcon,
   TrashIcon,
@@ -71,6 +74,14 @@ const emptyProfile = (): ModelProfile => ({
   base_url: "",
   model: "",
 });
+
+type ProviderModelDiscoveryState = {
+  status: "loading" | "success" | "error";
+  models: ProviderModelSummary[];
+  error?: string;
+};
+
+const MAX_VISIBLE_DISCOVERY_MODELS = 100;
 
 function protocolLabel(protocol: ModelProtocol) {
   return PROTOCOLS.find((item) => item.id === protocol)?.label ?? protocol;
@@ -880,6 +891,18 @@ function ModelProfileDialog({
     env_key: preferredProvider?.env_key,
   });
   const [busy, setBusy] = useState(false);
+  const [modelDiscoveryByProvider, setModelDiscoveryByProvider] = useState<
+    Record<string, ProviderModelDiscoveryState>
+  >({});
+  const [modelPickerOpen, setModelPickerOpen] = useState(false);
+  const [modelDiscoveryQuery, setModelDiscoveryQuery] = useState("");
+  const modelListId = useId();
+  const modelDiscoveryRequests = useRef<Record<string, number>>({});
+  const modelDiscoveryRequested = useRef(new Set<string>());
+  const activeProviderId = useRef<string | null>(draft.provider_id ?? null);
+  const handledInitialProvider = useRef(false);
+  const previousProviderId = useRef<string | undefined>(draft.provider_id);
+  const mounted = useRef(true);
   const toast = useToast();
   const providerInstance = providerInstances.find(
     (provider) => provider.id === draft.provider_id,
@@ -893,6 +916,77 @@ function ModelProfileDialog({
         providerInstance.protocols[draft.protocol]?.endpoint_path ?? "",
       )
     : "";
+  activeProviderId.current = providerInstance?.id ?? null;
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+
+  const loadProviderModels = useCallback(async (providerId: string, force = false) => {
+    const provider = providerInstances.find((candidate) => candidate.id === providerId);
+    if (!provider?.model_discovery_supported) return;
+    if (!force && modelDiscoveryRequested.current.has(providerId)) return;
+    modelDiscoveryRequested.current.add(providerId);
+    const requestId = (modelDiscoveryRequests.current[providerId] ?? 0) + 1;
+    modelDiscoveryRequests.current[providerId] = requestId;
+    if (activeProviderId.current === providerId) setModelDiscoveryQuery("");
+    setModelDiscoveryByProvider((current) => ({
+      ...current,
+      [providerId]: {
+        status: "loading",
+        models: current[providerId]?.models ?? [],
+      },
+    }));
+    try {
+      const models = await discoverProviderModels(providerId);
+      if (!mounted.current || modelDiscoveryRequests.current[providerId] !== requestId) return;
+      setModelDiscoveryByProvider((current) => ({
+        ...current,
+        [providerId]: { status: "success", models },
+      }));
+      if (activeProviderId.current === providerId) setModelPickerOpen(true);
+    } catch (error) {
+      if (!mounted.current || modelDiscoveryRequests.current[providerId] !== requestId) return;
+      setModelDiscoveryByProvider((current) => ({
+        ...current,
+        [providerId]: {
+          status: "error",
+          models: current[providerId]?.models ?? [],
+          error: formatError(error),
+        },
+      }));
+    }
+  }, [providerInstances]);
+
+  useEffect(() => {
+    const providerId = providerInstance?.id;
+    if (!providerId) return;
+    const changed = previousProviderId.current !== providerId;
+    previousProviderId.current = providerId;
+    if (!handledInitialProvider.current) {
+      handledInitialProvider.current = true;
+      if (initial) return;
+    } else if (!changed) {
+      return;
+    }
+    if (providerInstance.model_discovery_supported) {
+      void loadProviderModels(providerId);
+    }
+  }, [initial, loadProviderModels, providerInstance]);
+
+  const activeModelDiscovery = providerInstance
+    ? modelDiscoveryByProvider[providerInstance.id]
+    : undefined;
+  const modelQuery = modelDiscoveryQuery.trim().toLocaleLowerCase();
+  const matchingProviderModels = (activeModelDiscovery?.models ?? []).filter((model) =>
+    !modelQuery
+      || model.id.toLocaleLowerCase().includes(modelQuery)
+      || model.name?.toLocaleLowerCase().includes(modelQuery)
+  );
+  const visibleProviderModels = matchingProviderModels.slice(0, MAX_VISIBLE_DISCOVERY_MODELS);
 
   const selectProvider = (providerId: string) => {
     const provider = providerInstances.find((candidate) => candidate.id === providerId);
@@ -901,6 +995,9 @@ function ModelProfileDialog({
       ? draft.protocol
       : PROTOCOLS.find((candidate) => provider.protocols[candidate.id])?.id
         ?? draft.protocol;
+    activeProviderId.current = provider.id;
+    setModelPickerOpen(false);
+    setModelDiscoveryQuery("");
     setDraft((current) => ({
       ...current,
       provider_id: provider.id,
@@ -1000,19 +1097,99 @@ function ModelProfileDialog({
             }}
           />
         </div>
-        <label>
+        <div className="mux-model-form-field mux-provider-model-picker">
           <span>{t("models.modelId")}</span>
-          <input
-            className="mux-model-field"
-            value={draft.model}
-            onChange={(event) => {
-              const model = event.currentTarget.value;
-              setDraft((current) => ({ ...current, model }));
-            }}
-            placeholder="model-name"
-            spellCheck={false}
-          />
-        </label>
+          <div className="mux-provider-model-input">
+            <input
+              aria-autocomplete={providerInstance?.model_discovery_supported ? "list" : undefined}
+              aria-controls={providerInstance?.model_discovery_supported ? modelListId : undefined}
+              aria-expanded={providerInstance?.model_discovery_supported ? modelPickerOpen : undefined}
+              aria-label={t("models.modelId")}
+              className="mux-model-field"
+              role={providerInstance?.model_discovery_supported ? "combobox" : undefined}
+              value={draft.model}
+              onChange={(event) => {
+                const model = event.currentTarget.value;
+                setDraft((current) => ({ ...current, model }));
+                setModelDiscoveryQuery(model);
+                if (activeModelDiscovery?.status === "success") setModelPickerOpen(true);
+              }}
+              onFocus={() => {
+                if (activeModelDiscovery?.status === "success") setModelPickerOpen(true);
+              }}
+              placeholder="model-name"
+              spellCheck={false}
+            />
+            {providerInstance?.model_discovery_supported && (
+              <button
+                type="button"
+                className="mux-provider-model-refresh"
+                aria-label={t("models.refreshModelCatalog")}
+                title={t("models.refreshModelCatalog")}
+                aria-busy={activeModelDiscovery?.status === "loading"}
+                disabled={activeModelDiscovery?.status === "loading"}
+                onClick={() => void loadProviderModels(providerInstance.id, true)}
+              >
+                <RefreshIcon className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+          {providerInstance?.model_discovery_supported && activeModelDiscovery && (
+            <div
+              className="mux-provider-model-status"
+              data-status={activeModelDiscovery.status}
+              role="status"
+            >
+              {activeModelDiscovery.status === "loading" && t("models.loadingModelCatalog")}
+              {activeModelDiscovery.status === "success" && t("models.modelCatalogCount", {
+                count: activeModelDiscovery.models.length,
+              })}
+              {activeModelDiscovery.status === "error" && t("models.modelCatalogError", {
+                error: activeModelDiscovery.error,
+              })}
+            </div>
+          )}
+          {providerInstance?.model_discovery_supported
+            && modelPickerOpen
+            && activeModelDiscovery?.status === "success" && (
+            <div
+              id={modelListId}
+              className="mux-provider-model-options"
+              role="listbox"
+              aria-label={t("models.modelCatalogSuggestions")}
+            >
+              {visibleProviderModels.map((model) => (
+                <button
+                  type="button"
+                  role="option"
+                  aria-selected={draft.model === model.id}
+                  className="mux-provider-model-option"
+                  key={model.id}
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => {
+                    setDraft((current) => ({ ...current, model: model.id }));
+                    setModelDiscoveryQuery("");
+                    setModelPickerOpen(false);
+                  }}
+                >
+                  <span>
+                    <strong>{model.name || model.id}</strong>
+                    {model.name && <code>{model.id}</code>}
+                  </span>
+                  {model.context_length && <small>{formatTokens(model.context_length)}</small>}
+                </button>
+              ))}
+              {matchingProviderModels.length === 0 && (
+                <div className="mux-provider-model-empty">{t("models.noModelCatalogMatches")}</div>
+              )}
+              {matchingProviderModels.length > visibleProviderModels.length && (
+                <div className="mux-provider-model-limit">
+                  {t("models.modelCatalogShowing", { count: visibleProviderModels.length })}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
       </div>
 
       <label className="mux-model-form-wide">

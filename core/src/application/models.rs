@@ -3,6 +3,7 @@
 pub use crate::domain::types::{ModelProfile, ModelProtocol};
 pub use crate::resources::model::{
     ModelAgentView, ModelProfileView, ModelProviderInstanceView, ModelProviderView,
+    ProviderModelSummary,
 };
 
 pub fn list_profiles() -> Vec<ModelProfileView> {
@@ -15,6 +16,10 @@ pub fn list_providers() -> &'static [ModelProviderView] {
 
 pub fn list_provider_instances() -> Vec<ModelProviderInstanceView> {
     super::gate::read(crate::resources::model::list_provider_instances)
+}
+
+pub fn discover_provider_models(provider_id: &str) -> Result<Vec<ProviderModelSummary>, String> {
+    super::gate::read(|| crate::resources::model::discover_provider_models(provider_id))
 }
 
 pub fn reveal_provider_credential(provider_id: &str) -> Result<String, String> {

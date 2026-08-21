@@ -9,7 +9,7 @@
 pub(crate) mod adapters;
 mod discovery;
 
-pub use discovery::ProviderModelSummary;
+pub use discovery::{discover_provider_models, ProviderModelSummary};
 
 use crate::domain::types::{
     migrate_legacy_provider_endpoints, ModelProfile, ModelProtocol, ModelProviderConfig,
@@ -83,6 +83,7 @@ pub struct ModelProviderInstanceView {
     pub provider: ModelProviderConfig,
     pub credential_saved: bool,
     pub model_count: usize,
+    pub model_discovery_supported: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -98,7 +99,7 @@ impl Serialize for ModelProviderView {
     {
         let (base_url, protocols) =
             provider_template_connection(self).map_err(serde::ser::Error::custom)?;
-        let mut view = serializer.serialize_struct("ModelProviderView", 8)?;
+        let mut view = serializer.serialize_struct("ModelProviderView", 9)?;
         view.serialize_field("id", self.id)?;
         view.serialize_field("name", self.name)?;
         view.serialize_field("default_base_url", &self.default_base_url)?;
@@ -110,6 +111,10 @@ impl Serialize for ModelProviderView {
         view.serialize_field("base_url", &base_url)?;
         view.serialize_field("protocols", &protocols)?;
         view.serialize_field("category", self.category)?;
+        view.serialize_field(
+            "model_discovery_supported",
+            &discovery::model_discovery_supported(self.id),
+        )?;
         view.end()
     }
 }
@@ -653,6 +658,7 @@ pub fn list_provider_instances() -> Vec<ModelProviderInstanceView> {
             ModelProviderInstanceView {
                 credential_saved: provider_credential_present(&provider.id),
                 model_count: linked.len(),
+                model_discovery_supported: discovery::model_discovery_supported(&provider.provider),
                 provider,
             }
         })

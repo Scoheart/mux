@@ -86,11 +86,11 @@ No blind endpoint probing is allowed.
 
 **Step 3: Enforce transport and secret boundaries**
 
-Load only the persisted Provider instance and its Keychain credential. Wrap credential bytes/string in `zeroize::Zeroizing`, use `crate::network::build_ureq_agent`, require HTTPS except loopback local runtimes, disable redirects, set a 15-second global timeout, cap each response at 4 MiB, cap native pagination at 10 pages, and cap normalized results at 2,000 records. Never include response bodies, URLs containing keys, or credentials in errors/logs.
+Load only the persisted Provider instance and its Keychain credential. Wrap credential bytes/string in `zeroize::Zeroizing`, use `crate::network::build_ureq_agent`, keep the existing Provider URL validation policy, disable redirects, set a 15-second global timeout, cap each response at 4 MiB, cap native pagination at 10 pages, and cap normalized results at 2,000 records. Never include response bodies, URLs containing keys, or credentials in errors/logs.
 
 **Step 4: Normalize results**
 
-Parse only required fields, trim and reject empty IDs, deduplicate by ID, sort case-insensitively with a stable ID tie-breaker, and return optional names/context lengths without inferring unrelated Model fields.
+Parse only required fields, trim and reject empty IDs, deduplicate by first occurrence while preserving Provider response order, and return optional names/context lengths without inferring unrelated Model fields.
 
 **Step 5: Run Core tests**
 

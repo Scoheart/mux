@@ -7,6 +7,9 @@
 //! guidance-only.
 
 pub(crate) mod adapters;
+mod discovery;
+
+pub use discovery::ProviderModelSummary;
 
 use crate::domain::types::{
     migrate_legacy_provider_endpoints, ModelProfile, ModelProtocol, ModelProviderConfig,

@@ -134,8 +134,8 @@ export interface ModelProviderInstanceView extends ModelProviderConfig {
 
 export interface ProviderModelSummary {
   id: string;
-  name?: string;
-  context_length?: number;
+  name?: string | null;
+  context_length?: number | null;
 }
 
 export interface ModelProfileView extends ModelProfile {

@@ -78,12 +78,29 @@ fn read_bounded(_reader: impl Read, _maximum: u64) -> Result<Vec<u8>, String> {
     Err("model_discovery_not_implemented".into())
 }
 
+fn discovery_agent() -> Result<ureq::Agent, String> {
+    Err("model_discovery_not_implemented".into())
+}
+
+fn fetch_page(
+    _agent: &ureq::Agent,
+    _url: &Url,
+    _adapter: DiscoveryAdapter,
+    _credential: Option<&str>,
+) -> Result<DecodedPage, String> {
+    Err("model_discovery_not_implemented".into())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::domain::types::{ModelProtocol, ModelProviderProtocolConfig};
+    use crate::testenv::TestHome;
     use std::collections::{BTreeMap, BTreeSet};
-    use std::io::Cursor;
+    use std::io::{Cursor, Read, Write};
+    use std::net::TcpListener;
+    use std::sync::mpsc;
+    use std::thread;
 
     const EXPECTED_OPENAI_COMPATIBLE: &[&str] = &[
         "openrouter",
@@ -151,6 +168,53 @@ mod tests {
             )]),
             env_key: None,
         }
+    }
+
+    fn serve_once(
+        status: &str,
+        headers: &[(&str, &str)],
+        body: &str,
+    ) -> (Url, mpsc::Receiver<String>, thread::JoinHandle<()>) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let (sender, receiver) = mpsc::channel();
+        let status = status.to_owned();
+        let headers = headers
+            .iter()
+            .map(|(name, value)| ((*name).to_owned(), (*value).to_owned()))
+            .collect::<Vec<_>>();
+        let body = body.to_owned();
+        let handle = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = Vec::new();
+            let mut buffer = [0_u8; 1024];
+            loop {
+                let read = stream.read(&mut buffer).unwrap();
+                if read == 0 {
+                    break;
+                }
+                request.extend_from_slice(&buffer[..read]);
+                if request.windows(4).any(|window| window == b"\r\n\r\n") {
+                    break;
+                }
+            }
+            sender.send(String::from_utf8_lossy(&request).into_owned()).unwrap();
+            let mut response = format!(
+                "HTTP/1.1 {status}\r\nContent-Length: {}\r\nConnection: close\r\n",
+                body.len(),
+            );
+            for (name, value) in headers {
+                response.push_str(&format!("{name}: {value}\r\n"));
+            }
+            response.push_str("\r\n");
+            response.push_str(&body);
+            stream.write_all(response.as_bytes()).unwrap();
+        });
+        (
+            Url::parse(&format!("http://{address}/models")).unwrap(),
+            receiver,
+            handle,
+        )
     }
 
     #[test]
@@ -412,5 +476,91 @@ mod tests {
         )
         .unwrap_err();
         assert!(error.starts_with("model_discovery_too_many_models:"), "{error}");
+    }
+
+    #[test]
+    fn sends_only_the_adapter_specific_authentication_headers() {
+        let _home = TestHome::new("model-discovery-auth-headers");
+        let agent = discovery_agent().unwrap();
+
+        let (url, request, handle) = serve_once("200 OK", &[], r#"{"data": []}"#);
+        fetch_page(
+            &agent,
+            &url,
+            DiscoveryAdapter::OpenAi,
+            Some("openai-secret"),
+        )
+        .unwrap();
+        let request = request.recv().unwrap().to_ascii_lowercase();
+        handle.join().unwrap();
+        assert!(request.contains("authorization: bearer openai-secret\r\n"));
+
+        let (url, request, handle) = serve_once("200 OK", &[], r#"{"data": []}"#);
+        fetch_page(
+            &agent,
+            &url,
+            DiscoveryAdapter::Anthropic,
+            Some("anthropic-secret"),
+        )
+        .unwrap();
+        let request = request.recv().unwrap().to_ascii_lowercase();
+        handle.join().unwrap();
+        assert!(request.contains("x-api-key: anthropic-secret\r\n"));
+        assert!(request.contains("anthropic-version: 2023-06-01\r\n"));
+        assert!(!request.contains("authorization:"));
+
+        let (url, request, handle) = serve_once("200 OK", &[], r#"{"models": []}"#);
+        fetch_page(
+            &agent,
+            &url,
+            DiscoveryAdapter::Gemini,
+            Some("gemini-secret"),
+        )
+        .unwrap();
+        let request = request.recv().unwrap().to_ascii_lowercase();
+        handle.join().unwrap();
+        assert!(request.contains("x-goog-api-key: gemini-secret\r\n"));
+        assert!(!request.contains("authorization:"));
+    }
+
+    #[test]
+    fn refuses_redirects_and_never_echoes_provider_bodies_or_credentials() {
+        let _home = TestHome::new("model-discovery-safe-errors");
+        let agent = discovery_agent().unwrap();
+        let (url, _request, handle) = serve_once(
+            "302 Found",
+            &[("Location", "http://127.0.0.1:9/credential-sink")],
+            "redirected openai-secret",
+        );
+        let redirect = fetch_page(
+            &agent,
+            &url,
+            DiscoveryAdapter::OpenAi,
+            Some("openai-secret"),
+        )
+        .unwrap_err();
+        handle.join().unwrap();
+        assert!(redirect.starts_with("model_discovery_http:"), "{redirect}");
+        assert!(redirect.contains("302"), "{redirect}");
+        assert!(!redirect.contains("credential-sink"), "{redirect}");
+        assert!(!redirect.contains("openai-secret"), "{redirect}");
+
+        let (url, _request, handle) = serve_once(
+            "401 Unauthorized",
+            &[],
+            "provider echoed openai-secret in its body",
+        );
+        let unauthorized = fetch_page(
+            &agent,
+            &url,
+            DiscoveryAdapter::OpenAi,
+            Some("openai-secret"),
+        )
+        .unwrap_err();
+        handle.join().unwrap();
+        assert!(unauthorized.starts_with("model_discovery_http:"), "{unauthorized}");
+        assert!(unauthorized.contains("401"), "{unauthorized}");
+        assert!(!unauthorized.contains("provider echoed"), "{unauthorized}");
+        assert!(!unauthorized.contains("openai-secret"), "{unauthorized}");
     }
 }

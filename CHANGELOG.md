@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.139](https://github.com/Scoheart/mux/compare/v1.8.138...v1.8.139) (2026-08-26)
+
+### Changes
+
+* feat(brand): adopt border collie app icon (#130) ([6c3ee0d](https://github.com/Scoheart/mux/commit/6c3ee0d163fa9a4f844b212e94378ee224455aeb))
+
 ## [1.8.138](https://github.com/Scoheart/mux/compare/v1.8.137...v1.8.138) (2026-08-19)
 
 ### Changes

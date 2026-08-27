@@ -1245,9 +1245,10 @@ it("adds another Model to an existing Provider without repeating shared connecti
   await user.click(screen.getByRole("button", { name: "添加模型" }));
 
   expect(screen.getByRole("heading", { name: "新建模型" })).toBeVisible();
-  expect(screen.getByRole("combobox", { name: "模型提供商" })).toHaveTextContent(
-    "OpenRouter Team",
-  );
+  const provider = screen.getByRole("textbox", { name: "模型提供商" });
+  expect(provider).toHaveValue("OpenRouter Team");
+  expect(provider).toHaveAttribute("readonly");
+  expect(screen.queryByRole("combobox", { name: "模型提供商" })).not.toBeInTheDocument();
   expect(screen.queryByLabelText("Base URL")).not.toBeInTheDocument();
   expect(screen.queryByText("API Key")).not.toBeInTheDocument();
   expect(screen.queryByText("API Key 环境变量")).not.toBeInTheDocument();

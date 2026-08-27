@@ -930,3 +930,196 @@ it("uses one current-Model switch and activates a disabled backup atomically", a
     expect(commit).toHaveBeenCalledOnce();
   });
 });
+
+it("plans one reviewed empty Model selection when clearing an Agent", async () => {
+  const piAgent: AgentInfo = {
+    ...skillsOnlyAgent,
+    id: "pi",
+    name: "Pi Coding Agent",
+    format: "json",
+    key: "mcpServers",
+    has_global: true,
+    global: "~/.pi/agent/mcp.json",
+    supported_transports: ["stdio", "http"],
+    skills_global_dir: "~/.pi/agent/skills",
+  };
+  const piModelAgent: ModelAgentView = {
+    id: "pi",
+    name: piAgent.name,
+    mode: "managed",
+    installed: true,
+    config_path: "~/.pi/agent/models.json + ~/.pi/agent/settings.json",
+    config_paths: ["~/.pi/agent/models.json", "~/.pi/agent/settings.json"],
+    docs: "https://github.com/earendil-works/pi",
+    assigned_profile: "idealab",
+    assigned_profiles: ["idealab", "qwen"],
+    active_profile: "idealab",
+    supports_multiple: true,
+    credential_mode: "keychain-command",
+    supported_protocols: ["openai-responses"],
+    note: "",
+  };
+  const profiles: ModelProfileView[] = [
+    {
+      id: "idealab",
+      name: "idealab",
+      provider: "idealab",
+      protocol: "openai-responses",
+      base_url: "https://idealab.example.test/v1",
+      model: "Peach-07-17-DogFooding",
+      reasoning: true,
+      catalog_key: "idealab/Peach-07-17-DogFooding",
+      credential_saved: true,
+    },
+    {
+      id: "qwen",
+      name: "Qwen3 7 Plus",
+      provider: "max-ai",
+      protocol: "openai-responses",
+      base_url: "https://max-ai.example.test/v1",
+      model: "qwen3.7-plus",
+      reasoning: true,
+      catalog_key: "max-ai/qwen3.7-plus",
+      credential_saved: true,
+    },
+  ];
+  apiMocks.listModelAgents.mockResolvedValue([piModelAgent]);
+  apiMocks.listModelProfiles.mockResolvedValue(profiles);
+  const external = [{
+    agent_id: "pi",
+    asset: { domain: "model" as const, profile_id: "external-manual" },
+    ownership: "external" as const,
+    desired: false,
+    observed: true,
+    observed_enabled: true,
+    active: false,
+    desired_active: false,
+    status: "external-added" as const,
+    reason: "model_external",
+    observation_id: "model:pi:manual",
+    available_actions: [],
+    affected_agent_ids: ["pi"],
+  }];
+  const consumptions = [
+    {
+      agent_id: "pi",
+      asset: { domain: "model" as const, profile_id: "idealab" },
+      desired: true,
+      observed: true,
+      enabled: true,
+      active: true,
+      desired_active: true,
+      status: "synced" as const,
+      reason: null,
+      available_actions: [],
+      affected_agent_ids: ["pi"],
+    },
+    {
+      agent_id: "pi",
+      asset: { domain: "model" as const, profile_id: "qwen" },
+      desired: true,
+      observed: true,
+      enabled: false,
+      active: false,
+      desired_active: false,
+      status: "synced" as const,
+      reason: null,
+      available_actions: [],
+      affected_agent_ids: ["pi"],
+    },
+  ];
+  const plan = assetOperationPlanFixture();
+  plan.domain_plan = {
+    domain: "model",
+    before: {
+      pi: {
+        profiles: {
+          idealab: { profile_id: "idealab", enabled: true },
+          qwen: { profile_id: "qwen", enabled: false },
+        },
+        active_profile_id: "idealab",
+      },
+    },
+    after: {
+      pi: { profiles: {}, active_profile_id: null },
+    },
+  };
+  plan.relationship_changes = consumptions.map((item) => ({
+    agent_id: "pi",
+    asset: item.asset,
+    action: "remove" as const,
+  }));
+  plan.model_state_changes = [
+    {
+      agent_id: "pi",
+      profile_id: "idealab",
+      before: { added: true, enabled: true, active: true },
+      after: { added: false, enabled: false, active: false },
+      reason: "model_removed",
+    },
+    {
+      agent_id: "pi",
+      profile_id: "qwen",
+      before: { added: true, enabled: false, active: false },
+      after: { added: false, enabled: false, active: false },
+      reason: "model_removed",
+    },
+  ];
+  const planForAgent = vi.fn().mockResolvedValue(plan);
+  const commit = vi.fn();
+  const consumptionState = {
+    agents: [],
+    inventory: { consumptions, external },
+    plan: null,
+    committing: false,
+    planForAgent,
+    commit,
+  } as unknown as ConsumptionState;
+  const taskSkillsState = {
+    ...skillsState,
+    refresh: vi.fn().mockResolvedValue(skillsState.inventory),
+  } as unknown as SkillsState;
+  const view = render(
+    <ToastProvider>
+      <AgentView
+        state={{ ...state, agents: [piAgent] } as unknown as InstallState}
+        skillsState={taskSkillsState}
+        consumptionState={consumptionState}
+        agentId="pi"
+      />
+    </ToastProvider>,
+  );
+
+  await userEvent.click(await screen.findByRole("tab", { name: /Models/ }));
+  expect(screen.getByText("2 个已添加 · 同一时间使用其中一个")).toBeVisible();
+  const externalCard = screen.getByText("external-manual").closest<HTMLElement>("li");
+  expect(externalCard).not.toBeNull();
+  expect(within(externalCard!).queryByRole("button", { name: /移除/ })).not.toBeInTheDocument();
+  const clear = screen.getByRole("button", { name: "清空 Models" });
+  expect(clear).toBeEnabled();
+  expect(clear).toHaveAttribute("title", "移除 Pi Coding Agent 已添加的全部 Model");
+
+  await userEvent.click(clear);
+  await waitFor(() => {
+    expect(planForAgent).toHaveBeenCalledWith("pi", {
+      domain: "model",
+      profile_ids: [],
+    });
+  });
+  expect(commit).not.toHaveBeenCalled();
+
+  view.rerender(
+    <ToastProvider>
+      <AgentView
+        state={{ ...state, agents: [piAgent] } as unknown as InstallState}
+        skillsState={taskSkillsState}
+        consumptionState={{
+          ...consumptionState,
+          inventory: { consumptions: [], external },
+        }}
+        agentId="pi"
+      />
+    </ToastProvider>,
+  );
+  expect(screen.getByRole("button", { name: "清空 Models" })).toBeDisabled();
+});

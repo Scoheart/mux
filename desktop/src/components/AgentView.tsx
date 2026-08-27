@@ -94,8 +94,13 @@ function completedMessage(plan: AssetOperationPlan, agentName: string) {
   const asset = domain === "mcp" ? "MCP" : domain === "model" ? "Model" : "Skill";
   const hasAdd = plan.relationship_changes.some((change) => change.action === "add");
   const hasRemove = plan.relationship_changes.some((change) => change.action === "remove");
+  const removesEveryModel = plan.domain_plan.domain === "model"
+    && Object.values(plan.domain_plan.after).every(
+      (selection) => Object.keys(selection.profiles).length === 0,
+    );
   if (domain === "model" && hasAdd) return `Model 已添加到 ${agentName}。`;
   if (hasAdd && !hasRemove) return `${asset} 已添加到 ${agentName}。`;
+  if (hasRemove && !hasAdd && removesEveryModel) return `${agentName} 的全部 Model 已移除。`;
   if (hasRemove && !hasAdd) return `${asset} 已从 ${agentName} 移除。`;
   if (domain === "model") {
     if (plan.model_state_changes.some((change) => change.reason === "model_disabled")) {
@@ -437,6 +442,20 @@ export function AgentView({
     );
   };
 
+  const clearModels = async () => {
+    setPreparingChange(true);
+    try {
+      await consumptionState.planForAgent(agentId, {
+        domain: "model",
+        profile_ids: [],
+      });
+    } catch (error) {
+      showToast({ kind: "error", msg: "无法准备清空 Models：" + formatError(error) });
+    } finally {
+      setPreparingChange(false);
+    }
+  };
+
   const clearMcp = async () => {
     setPreparingChange(true);
     try {
@@ -739,6 +758,13 @@ export function AgentView({
                   columns={3}
                   external={modelExternal}
                   externalMode="cards"
+                  bulkRemoveLabel="清空 Models"
+                  bulkRemoveTitle={`移除 ${agent.name} 已添加的全部 Model`}
+                  bulkRemoveDisabled={modelRows.length === 0
+                    || preparingChange
+                    || consumptionState.committing
+                    || changingModel !== null}
+                  onBulkRemove={() => void clearModels()}
                   onManage={() => setPickerDomain("model")}
                   manageDisabled={preparingChange || compatibleProfiles.length === 0}
                   onOpenAsset={openAsset}

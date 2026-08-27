@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.8.141](https://github.com/Scoheart/mux/compare/v1.8.140...v1.8.141) (2026-08-27)
+
+### Changes
+
+* fix(desktop): complete clear Models fixture (#132) ([f8bd48d](https://github.com/Scoheart/mux/commit/f8bd48d90862941f4bc56785842caeb2a20f9ecb))
+
+## [1.8.140](https://github.com/Scoheart/mux/compare/v1.8.139...v1.8.140) (2026-08-27)
+
+### Changes
+
+* feat(models): clear all Models from one Agent (#131) ([2b5ebea](https://github.com/Scoheart/mux/commit/2b5ebeae3ffa4f55bea2f4b234c7a3a4fa941e0c))
+
+## [1.8.139](https://github.com/Scoheart/mux/compare/v1.8.138...v1.8.139) (2026-08-26)
+
+### Changes
+
+* feat(brand): adopt border collie app icon (#130) ([6c3ee0d](https://github.com/Scoheart/mux/commit/6c3ee0d163fa9a4f844b212e94378ee224455aeb))
+
 ## [1.8.138](https://github.com/Scoheart/mux/compare/v1.8.137...v1.8.138) (2026-08-19)
 
 ### Changes

@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.140](https://github.com/Scoheart/mux/compare/v1.8.139...v1.8.140) (2026-08-27)
+
+### Changes
+
+* feat(models): clear all Models from one Agent (#131) ([2b5ebea](https://github.com/Scoheart/mux/commit/2b5ebeae3ffa4f55bea2f4b234c7a3a4fa941e0c))
+
 ## [1.8.139](https://github.com/Scoheart/mux/compare/v1.8.138...v1.8.139) (2026-08-26)
 
 ### Changes

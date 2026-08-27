@@ -935,6 +935,12 @@ it("discovers provider models when creating and keeps manual Model ID input auth
   expect(await screen.findByText("找到 2 个模型")).toBeVisible();
 
   const modelId = screen.getByRole("combobox", { name: "模型 ID" });
+  const modelPicker = modelId.closest(".mux-provider-model-picker");
+  expect(modelPicker).toHaveClass("mux-model-form-wide");
+  expect(modelPicker?.parentElement).toHaveClass("mux-model-form-grid");
+  expect(screen.getByRole("combobox", { name: "协议" }).closest(".mux-model-form-grid"))
+    .toBe(modelPicker?.parentElement);
+  expect(css).toMatch(/\.mux-provider-model-picker\s*\{[^}]*grid-column: 1 \/ -1/);
   await user.type(modelId, "claude");
   await user.click(screen.getByRole("option", { name: /Claude Sonnet 4.*anthropic\/claude-sonnet-4/ }));
   expect(modelId).toHaveValue("anthropic/claude-sonnet-4");

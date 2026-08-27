@@ -1111,7 +1111,7 @@ function ModelProfileDialog({
             }}
           />
         </div>
-        <div className="mux-model-form-field mux-provider-model-picker">
+        <div className="mux-model-form-field mux-provider-model-picker mux-model-form-wide">
           <span>{t("models.modelId")}</span>
           <div className="mux-provider-model-input">
             <input

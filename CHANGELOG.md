@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.144](https://github.com/Scoheart/mux/compare/v1.8.143...v1.8.144) (2026-08-27)
+
+### Changes
+
+* fix(models): widen the Model picker (#134) ([e19fedc](https://github.com/Scoheart/mux/commit/e19fedc8968c1670210749d8595cde60db129801))
+
 ## [1.8.143](https://github.com/Scoheart/mux/compare/v1.8.142...v1.8.143) (2026-08-27)
 
 ### Changes

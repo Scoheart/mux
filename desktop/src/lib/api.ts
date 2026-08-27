@@ -18,6 +18,7 @@ import type {
   ModelAdoptionCandidate,
   ModelAgentView,
   ModelProviderView,
+  ProviderModelSummary,
   ModelProfileView,
   ModelProviderInstanceView,
   OperationPlan,
@@ -135,6 +136,8 @@ export const listModelProviders = () =>
   invoke<ModelProviderView[]>("list_model_providers");
 export const listModelProviderInstances = () =>
   invoke<ModelProviderInstanceView[]>("list_model_provider_instances");
+export const discoverProviderModels = (providerId: string) =>
+  invoke<ProviderModelSummary[]>("discover_provider_models", { providerId });
 export const revealModelProviderCredential = (providerId: string) =>
   invoke<string>("reveal_model_provider_credential", { providerId });
 export const inferModelProvider = (baseUrl: string) =>

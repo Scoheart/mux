@@ -16,6 +16,7 @@ vi.mock("../lib/api", async () => {
     listModelProfiles: vi.fn(),
     listModelProviders: vi.fn(),
     listModelProviderInstances: vi.fn(),
+    discoverProviderModels: vi.fn(),
     revealModelProviderCredential: vi.fn(),
     inferModelProvider: vi.fn(),
   };
@@ -48,6 +49,7 @@ beforeEach(() => {
       default_protocol: "openai-responses",
       additional_endpoints: [],
       category: "gateway",
+      model_discovery_supported: true,
     },
     {
       id: "openai",
@@ -60,6 +62,7 @@ beforeEach(() => {
       default_protocol: "openai-responses",
       additional_endpoints: [],
       category: "official",
+      model_discovery_supported: true,
     },
     {
       id: "alibaba-coding-plan",
@@ -76,6 +79,7 @@ beforeEach(() => {
         base_url: "https://coding-intl.dashscope.aliyuncs.com/apps/anthropic",
       }],
       category: "official",
+      model_discovery_supported: true,
     },
     {
       id: "ollama",
@@ -88,6 +92,7 @@ beforeEach(() => {
       default_protocol: "openai-completions",
       additional_endpoints: [],
       category: "local",
+      model_discovery_supported: true,
     },
     {
       id: "custom",
@@ -100,9 +105,11 @@ beforeEach(() => {
       default_protocol: "openai-responses",
       additional_endpoints: [],
       category: "custom",
+      model_discovery_supported: false,
     },
   ]);
   vi.mocked(api.listModelProviderInstances).mockResolvedValue([]);
+  vi.mocked(api.discoverProviderModels).mockResolvedValue([]);
   vi.mocked(api.revealModelProviderCredential).mockResolvedValue("");
   vi.mocked(api.inferModelProvider).mockImplementation(async (baseUrl) => {
     const host = (() => {
@@ -283,6 +290,7 @@ it("keeps the sidebar limited to the model library and configured Providers", as
       protocols: { "openai-responses": { endpoint_path: "/v1/responses" } },
       credential_saved: true,
       model_count: 1,
+      model_discovery_supported: true,
     },
     {
       id: "openrouter-personal",
@@ -292,6 +300,7 @@ it("keeps the sidebar limited to the model library and configured Providers", as
       protocols: { "openai-completions": { endpoint_path: "/api/v1/chat/completions" } },
       credential_saved: false,
       model_count: 1,
+      model_discovery_supported: true,
     },
   ]);
   vi.mocked(api.listModelProfiles).mockResolvedValue([
@@ -724,6 +733,7 @@ it("reveals a saved Provider API key only after an explicit request", async () =
     protocols: { "openai-responses": { endpoint_path: "/responses" } },
     credential_saved: true,
     model_count: 0,
+    model_discovery_supported: true,
   }]);
   vi.mocked(api.revealModelProviderCredential).mockResolvedValue("saved-test-value");
   const user = userEvent.setup();
@@ -777,6 +787,7 @@ it("filters Model protocols by Provider and previews the selected request URL", 
       },
       credential_saved: false,
       model_count: 0,
+      model_discovery_supported: false,
     },
     {
       id: "chat-provider",
@@ -788,6 +799,7 @@ it("filters Model protocols by Provider and previews the selected request URL", 
       },
       credential_saved: false,
       model_count: 0,
+      model_discovery_supported: false,
     },
   ]);
   const user = userEvent.setup();
@@ -832,6 +844,7 @@ it("switches an existing Model to another persisted Provider relationship", asyn
       protocols: { "openai-responses": { endpoint_path: "/v1/responses" } },
       credential_saved: false,
       model_count: 1,
+      model_discovery_supported: false,
     },
     {
       id: "openrouter-provider",
@@ -841,6 +854,7 @@ it("switches an existing Model to another persisted Provider relationship", asyn
       protocols: { "openai-responses": { endpoint_path: "/api/v1/responses" } },
       credential_saved: true,
       model_count: 0,
+      model_discovery_supported: true,
     },
   ]);
   vi.mocked(api.listModelProfiles).mockResolvedValue([{
@@ -889,6 +903,192 @@ it("switches an existing Model to another persisted Provider relationship", asyn
       profile: expect.objectContaining({ provider_id: "openrouter-provider" }),
     }),
   ));
+});
+
+it("discovers provider models when creating and keeps manual Model ID input authoritative", async () => {
+  vi.mocked(api.listModelProviderInstances).mockResolvedValue([{
+    id: "openrouter-team-a",
+    name: "OpenRouter Team",
+    provider: "openrouter",
+    base_url: "https://openrouter.ai",
+    protocols: { "openai-responses": { endpoint_path: "/api/v1/responses" } },
+    credential_saved: true,
+    model_count: 0,
+    model_discovery_supported: true,
+  }]);
+  vi.mocked(api.discoverProviderModels).mockResolvedValue([
+    { id: "anthropic/claude-sonnet-4", name: "Claude Sonnet 4", context_length: 200000 },
+    { id: "openai/gpt-5", name: "GPT-5", context_length: 400000 },
+  ]);
+  const user = userEvent.setup();
+  const planUpdate = vi.fn().mockResolvedValue({ operation_id: "model-plan" });
+  const consumptionState = { plan: null, planUpdate } as unknown as ConsumptionState;
+
+  render(
+    <ToastProvider>
+      <ModelsView consumptionState={consumptionState} />
+    </ToastProvider>,
+  );
+
+  await user.click(await screen.findByRole("button", { name: "添加模型" }));
+  await waitFor(() => expect(api.discoverProviderModels).toHaveBeenCalledWith("openrouter-team-a"));
+  expect(await screen.findByText("找到 2 个模型")).toBeVisible();
+
+  const modelId = screen.getByRole("combobox", { name: "模型 ID" });
+  await user.type(modelId, "claude");
+  await user.click(screen.getByRole("option", { name: /Claude Sonnet 4.*anthropic\/claude-sonnet-4/ }));
+  expect(modelId).toHaveValue("anthropic/claude-sonnet-4");
+  expect(screen.getByLabelText("名称（可选）")).toHaveValue("");
+  expect(screen.getByLabelText("上下文窗口")).toHaveValue(null);
+
+  await user.clear(modelId);
+  await user.type(modelId, "my-private-model-id");
+  await user.click(screen.getByRole("button", { name: "保存" }));
+  await waitFor(() => expect(planUpdate).toHaveBeenCalledWith(expect.objectContaining({
+    profile: expect.objectContaining({
+      provider_id: "openrouter-team-a",
+      model: "my-private-model-id",
+    }),
+  })));
+});
+
+it("discovers provider models without blocking manual save after a discovery error", async () => {
+  vi.mocked(api.listModelProviderInstances).mockResolvedValue([{
+    id: "openai-personal",
+    name: "OpenAI Personal",
+    provider: "openai",
+    base_url: "https://api.openai.com",
+    protocols: { "openai-responses": { endpoint_path: "/v1/responses" } },
+    credential_saved: false,
+    model_count: 0,
+    model_discovery_supported: true,
+  }]);
+  vi.mocked(api.discoverProviderModels).mockRejectedValue(
+    new Error("model_provider_credential_missing: save an API Key first"),
+  );
+  const user = userEvent.setup();
+  const planUpdate = vi.fn().mockResolvedValue({ operation_id: "manual-model-plan" });
+  const consumptionState = { plan: null, planUpdate } as unknown as ConsumptionState;
+
+  render(
+    <ToastProvider>
+      <ModelsView consumptionState={consumptionState} />
+    </ToastProvider>,
+  );
+
+  await user.click(await screen.findByRole("button", { name: "添加模型" }));
+  expect(await screen.findByText(/无法获取模型列表/)).toBeVisible();
+  const modelId = screen.getByRole("combobox", { name: "模型 ID" });
+  await user.type(modelId, "gpt-manual-fallback");
+  expect(modelId).toHaveValue("gpt-manual-fallback");
+  const save = screen.getByRole("button", { name: "保存" });
+  expect(save).toBeEnabled();
+  await user.click(save);
+  await waitFor(() => expect(planUpdate).toHaveBeenCalledWith(expect.objectContaining({
+    profile: expect.objectContaining({ model: "gpt-manual-fallback" }),
+  })));
+});
+
+it("discovers provider models on refresh but never lets a stale Provider response win", async () => {
+  vi.mocked(api.listModelProviderInstances).mockResolvedValue([
+    {
+      id: "openrouter-team-a",
+      name: "OpenRouter Team",
+      provider: "openrouter",
+      base_url: "https://openrouter.ai",
+      protocols: { "openai-responses": { endpoint_path: "/api/v1/responses" } },
+      credential_saved: true,
+      model_count: 0,
+      model_discovery_supported: true,
+    },
+    {
+      id: "openai-personal",
+      name: "OpenAI Personal",
+      provider: "openai",
+      base_url: "https://api.openai.com",
+      protocols: { "openai-responses": { endpoint_path: "/v1/responses" } },
+      credential_saved: true,
+      model_count: 0,
+      model_discovery_supported: true,
+    },
+  ]);
+  let resolveOpenRouter: ((models: Array<{ id: string; name?: string; context_length?: number }>) => void) | undefined;
+  let resolveOpenAi: ((models: Array<{ id: string; name?: string; context_length?: number }>) => void) | undefined;
+  vi.mocked(api.discoverProviderModels).mockImplementation((providerId) => new Promise((resolveModels) => {
+    if (providerId === "openrouter-team-a") resolveOpenRouter = resolveModels;
+    else resolveOpenAi = resolveModels;
+  }));
+  const user = userEvent.setup();
+  const consumptionState = {
+    plan: null,
+    planUpdate: vi.fn().mockResolvedValue({ operation_id: "stale-model-plan" }),
+  } as unknown as ConsumptionState;
+
+  render(
+    <ToastProvider>
+      <ModelsView consumptionState={consumptionState} />
+    </ToastProvider>,
+  );
+
+  await user.click(await screen.findByRole("button", { name: "添加模型" }));
+  await waitFor(() => expect(resolveOpenRouter).toBeTypeOf("function"));
+  await chooseFormSelect(user, "模型提供商", "OpenAI Personal");
+  await waitFor(() => expect(resolveOpenAi).toBeTypeOf("function"));
+
+  resolveOpenAi?.([{ id: "gpt-current", name: "Current GPT" }]);
+  expect(await screen.findByRole("option", { name: /Current GPT.*gpt-current/ })).toBeVisible();
+  resolveOpenRouter?.([{ id: "stale-openrouter", name: "Stale OpenRouter" }]);
+  await waitFor(() => expect(screen.queryByText(/Stale OpenRouter/)).not.toBeInTheDocument());
+
+  await user.click(screen.getByRole("button", { name: "刷新模型列表" }));
+  await waitFor(() => expect(api.discoverProviderModels).toHaveBeenCalledTimes(3));
+});
+
+it("discovers provider models only after refresh when editing an existing Model", async () => {
+  vi.mocked(api.listModelProviderInstances).mockResolvedValue([{
+    id: "openrouter-team-a",
+    name: "OpenRouter Team",
+    provider: "openrouter",
+    base_url: "https://openrouter.ai",
+    protocols: { "openai-responses": { endpoint_path: "/api/v1/responses" } },
+    credential_saved: true,
+    model_count: 1,
+    model_discovery_supported: true,
+  }]);
+  vi.mocked(api.listModelProfiles).mockResolvedValue([{
+    id: "existing-model",
+    name: "Existing Model",
+    provider_id: "openrouter-team-a",
+    provider: "openrouter",
+    protocol: "openai-responses",
+    base_url: "https://openrouter.ai",
+    model: "existing/model",
+    catalog_key: "openrouter/existing/model",
+    credential_saved: true,
+  }]);
+  vi.mocked(api.discoverProviderModels).mockResolvedValue([
+    { id: "new/model", name: "New Model" },
+  ]);
+  const user = userEvent.setup();
+  const consumptionState = {
+    plan: null,
+    planUpdate: vi.fn().mockResolvedValue({ operation_id: "edit-model-plan" }),
+  } as unknown as ConsumptionState;
+
+  render(
+    <ToastProvider>
+      <ModelsView consumptionState={consumptionState} />
+    </ToastProvider>,
+  );
+
+  await user.click(await screen.findByRole("button", { name: "打开模型 Existing Model 详情" }));
+  await user.click(screen.getByRole("button", { name: "编辑" }));
+  await waitFor(() => expect(screen.getByRole("combobox", { name: "模型 ID" })).toBeVisible());
+  expect(api.discoverProviderModels).not.toHaveBeenCalled();
+
+  await user.click(screen.getByRole("button", { name: "刷新模型列表" }));
+  await waitFor(() => expect(api.discoverProviderModels).toHaveBeenCalledWith("openrouter-team-a"));
+  expect(await screen.findByRole("option", { name: /New Model.*new\/model/ })).toBeVisible();
 });
 
 it("submits an independent custom Provider through the central asset plan", async () => {
@@ -972,6 +1172,7 @@ it("keeps Model fields local while writing an explicit Provider reference", asyn
     protocols: { "openai-responses": { endpoint_path: "/api/v1/responses" } },
     credential_saved: true,
     model_count: 0,
+    model_discovery_supported: true,
   }]);
   const user = userEvent.setup();
   const planUpdate = vi.fn().mockResolvedValue({ operation_id: "model-plan" });
@@ -1016,6 +1217,7 @@ it("adds another Model to an existing Provider without repeating shared connecti
     },
     credential_saved: true,
     model_count: 1,
+    model_discovery_supported: true,
   }]);
   vi.mocked(api.listModelProfiles).mockResolvedValue([{
     id: "existing-openrouter-model",
@@ -1079,6 +1281,7 @@ it("edits one Provider configuration through a single central asset plan", async
     env_key: "OPENROUTER_API_KEY",
     credential_saved: true,
     model_count: 3,
+    model_discovery_supported: true,
   }]);
   const user = userEvent.setup();
   const planUpdate = vi.fn().mockResolvedValue({ operation_id: "provider-plan" });

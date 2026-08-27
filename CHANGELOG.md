@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.142](https://github.com/Scoheart/mux/compare/v1.8.141...v1.8.142) (2026-08-27)
+
+### Changes
+
+* feat(models): discover Provider models when adding a Model (#128) ([05fd31e](https://github.com/Scoheart/mux/commit/05fd31e2dfb430ad985651ebe59faf3746de9b99))
+
 ## [1.8.141](https://github.com/Scoheart/mux/compare/v1.8.140...v1.8.141) (2026-08-27)
 
 ### Changes

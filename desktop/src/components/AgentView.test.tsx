@@ -1067,9 +1067,16 @@ it("plans one reviewed empty Model selection when clearing an Agent", async () =
   ];
   const planForAgent = vi.fn().mockResolvedValue(plan);
   const commit = vi.fn();
+  const inventory = {
+    revision: "models",
+    observed_at: "2026-08-27T00:00:00Z",
+    consumptions,
+    external,
+    target_incidents: [],
+  };
   const consumptionState = {
     agents: [],
-    inventory: { consumptions, external },
+    inventory,
     plan: null,
     committing: false,
     planForAgent,
@@ -1115,7 +1122,7 @@ it("plans one reviewed empty Model selection when clearing an Agent", async () =
         skillsState={taskSkillsState}
         consumptionState={{
           ...consumptionState,
-          inventory: { consumptions: [], external },
+          inventory: { ...inventory, consumptions: [] },
         }}
         agentId="pi"
       />

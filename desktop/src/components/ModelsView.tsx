@@ -514,6 +514,7 @@ export function ModelsView({
           initial={editing}
           providerInstances={providerInstances}
           preferredProviderId={creatingForProviderId}
+          providerSelectionLocked={providerFilter !== null}
           onClose={() => {
             setEditing(undefined);
             setCreatingProviderTemplate(null);
@@ -861,6 +862,7 @@ function ModelProfileDialog({
   initial,
   providerInstances,
   preferredProviderId,
+  providerSelectionLocked = false,
   onClose,
   onReview,
   onAddProvider,
@@ -869,6 +871,7 @@ function ModelProfileDialog({
   initial: ModelProfileView | null;
   providerInstances: ModelProviderInstanceView[];
   preferredProviderId?: string | null;
+  providerSelectionLocked?: boolean;
   onClose: () => void;
   onReview: (profile: ModelProfile) => Promise<void>;
   onAddProvider?: () => void;
@@ -1056,26 +1059,37 @@ function ModelProfileDialog({
         </label>
         <div className="mux-model-form-field">
           <span>{t("models.provider")}</span>
-          <FormSelect
-            ariaLabel={t("models.provider")}
-            value={draft.provider_id ?? ""}
-            placeholder={t("models.providerPlaceholder")}
-            options={providerInstances.map((provider) => ({
-              value: provider.id,
-              label: provider.name,
-            }))}
-            onChange={selectProvider}
-          />
-          {providerInstances.length === 0 && (
-            <div className="mux-model-provider-required">
-              <small>{t("models.providerRequired")}</small>
-              {onAddProvider && (
-                <button type="button" className="btn-secondary" onClick={onAddProvider}>
-                  <PlusIcon className="w-3.5 h-3.5" />
-                  {t("models.addProvider")}
-                </button>
+          {providerSelectionLocked && providerInstance ? (
+            <input
+              aria-label={t("models.provider")}
+              className="mux-model-field"
+              readOnly
+              value={providerInstance.name}
+            />
+          ) : (
+            <>
+              <FormSelect
+                ariaLabel={t("models.provider")}
+                value={draft.provider_id ?? ""}
+                placeholder={t("models.providerPlaceholder")}
+                options={providerInstances.map((provider) => ({
+                  value: provider.id,
+                  label: provider.name,
+                }))}
+                onChange={selectProvider}
+              />
+              {providerInstances.length === 0 && (
+                <div className="mux-model-provider-required">
+                  <small>{t("models.providerRequired")}</small>
+                  {onAddProvider && (
+                    <button type="button" className="btn-secondary" onClick={onAddProvider}>
+                      <PlusIcon className="w-3.5 h-3.5" />
+                      {t("models.addProvider")}
+                    </button>
+                  )}
+                </div>
               )}
-            </div>
+            </>
           )}
         </div>
       </div>

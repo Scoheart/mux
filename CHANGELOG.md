@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.143](https://github.com/Scoheart/mux/compare/v1.8.142...v1.8.143) (2026-08-27)
+
+### Changes
+
+* fix(models): lock Provider in scoped Model creation (#133) ([84447f8](https://github.com/Scoheart/mux/commit/84447f890e7fea49eeea1e2cc445605ac80f78c9))
+
 ## [1.8.142](https://github.com/Scoheart/mux/compare/v1.8.141...v1.8.142) (2026-08-27)
 
 ### Changes

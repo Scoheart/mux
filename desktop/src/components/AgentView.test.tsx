@@ -848,49 +848,7 @@ it("uses one current-Model switch and activates a disabled backup atomically", a
     ],
     external: [],
   };
-  const plan = assetOperationPlanFixture();
-  plan.domain_plan = {
-    domain: "model",
-    before: {
-      pi: {
-        profiles: {
-          idealab: { profile_id: "idealab", enabled: true },
-          qwen: { profile_id: "qwen", enabled: false },
-        },
-        active_profile_id: "idealab",
-      },
-    },
-    after: {
-      pi: {
-        profiles: {
-          idealab: { profile_id: "idealab", enabled: true },
-          qwen: { profile_id: "qwen", enabled: true },
-        },
-        active_profile_id: "qwen",
-      },
-    },
-  };
-  plan.relationship_changes = [];
-  plan.model_state_changes = [
-    {
-      agent_id: "pi",
-      profile_id: "idealab",
-      before: { added: true, enabled: true, active: true },
-      after: { added: true, enabled: true, active: false },
-      reason: "active_model_changed",
-    },
-    {
-      agent_id: "pi",
-      profile_id: "qwen",
-      before: { added: true, enabled: false, active: false },
-      after: { added: true, enabled: true, active: true },
-      reason: "active_model_changed",
-    },
-  ];
-  plan.target_files = ["~/.pi/agent/models.json", "~/.pi/agent/settings.json"];
-  plan.affected_agent_ids = ["pi"];
-  const planActiveModel = vi.fn().mockResolvedValue(plan);
-  const commit = vi.fn().mockResolvedValue(inventory);
+  const setActiveModel = vi.fn().mockResolvedValue(inventory);
   const taskSkillsState = {
     ...skillsState,
     refresh: vi.fn().mockResolvedValue(skillsState.inventory),
@@ -899,8 +857,7 @@ it("uses one current-Model switch and activates a disabled backup atomically", a
     agents: [],
     inventory,
     plan: null,
-    planActiveModel,
-    commit,
+    setActiveModel,
   } as unknown as ConsumptionState;
 
   render(
@@ -931,13 +888,15 @@ it("uses one current-Model switch and activates a disabled backup atomically", a
 
   await userEvent.click(current);
   expect(await screen.findByText("请先选择其他当前 Model。")).toBeVisible();
-  expect(planActiveModel).not.toHaveBeenCalled();
+  expect(setActiveModel).not.toHaveBeenCalled();
 
   await userEvent.click(backup);
   await waitFor(() => {
-    expect(planActiveModel).toHaveBeenCalledWith("pi", "qwen");
-    expect(commit).toHaveBeenCalledOnce();
+    expect(setActiveModel).toHaveBeenCalledWith("pi", "qwen");
   });
+  expect(await screen.findByText("Pi Coding Agent 已切换到 Qwen3 7 Plus。")).toBeVisible();
+  expect(screen.queryByText("确认切换当前 Model")).not.toBeInTheDocument();
+  expect(screen.queryByText("检查并应用")).not.toBeInTheDocument();
 });
 
 it("plans one reviewed empty Model selection when clearing an Agent", async () => {

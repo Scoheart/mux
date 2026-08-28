@@ -1299,23 +1299,29 @@ fn managed_profile_id(settings: &Settings, candidate: &ExtractedModel) -> Option
             .as_ref()
             .and_then(|profiles| profiles.get(profile_id))
             .and_then(|profile| {
-                profile_owns_candidate(profile, candidate).then(|| profile_id.clone())
+                profile_owns_candidate(settings, profile, candidate).then(|| profile_id.clone())
             })
     })
 }
 
-fn profile_owns_candidate(profile: &ModelProfile, candidate: &ExtractedModel) -> bool {
+fn profile_owns_candidate(
+    settings: &Settings,
+    profile: &ModelProfile,
+    candidate: &ExtractedModel,
+) -> bool {
     let explicit_native_id = profile.native_ids.get(&candidate.agent_id);
     let expected_native_id = explicit_native_id
         .cloned()
-        .unwrap_or_else(|| generated_native_id(&candidate.agent_id, profile));
+        .unwrap_or_else(|| generated_native_id(settings, &candidate.agent_id, profile));
     if expected_native_id != candidate.native_id {
         return false;
     }
-    // Adopted provider containers may hold several independently managed or
-    // external models. Their shared native provider id is not sufficient to
-    // establish asset identity; the model id completes it. MUX-generated ids
-    // remain unique per Profile and can still identify a model after drift.
+    // Pi Provider names are shared by every MUX Model under the same Provider,
+    // while adopted provider containers may also hold several models. In both
+    // cases the provider id alone is not asset identity; the model id completes it.
+    if candidate.agent_id == "pi" {
+        return profile.model == candidate.model;
+    }
     explicit_native_id.is_none()
         || !matches!(
             candidate.agent_id.as_str(),
@@ -1324,10 +1330,10 @@ fn profile_owns_candidate(profile: &ModelProfile, candidate: &ExtractedModel) ->
         || profile.model == candidate.model
 }
 
-fn generated_native_id(agent_id: &str, profile: &ModelProfile) -> String {
+fn generated_native_id(settings: &Settings, agent_id: &str, profile: &ModelProfile) -> String {
     match agent_id {
         "claude-code" => "claude-settings".into(),
-        "pi" => format!("mux-{}", profile.id),
+        "pi" => crate::resources::model::generated_pi_provider_id(settings, profile),
         "qwen-code" => format!(
             "{}:{}:{}",
             if profile.protocol == ModelProtocol::AnthropicMessages {

@@ -61,10 +61,10 @@ export interface ConsumptionState {
     profileId: string,
     enabled: boolean,
   ): Promise<AssetOperationPlan>;
-  planActiveModel(
+  setActiveModel(
     agentId: string,
     profileId: string,
-  ): Promise<AssetOperationPlan>;
+  ): Promise<ConsumptionInventory>;
   planConvergence(
     item: ConsumptionView,
     action: ConvergenceAction,
@@ -304,12 +304,12 @@ export function useConsumptionState({ autoLoad = true }: { autoLoad?: boolean } 
     [startPlan],
   );
 
-  const planActiveModel = useCallback(
-    (agentId: string, profileId: string) => startPlan({
+  const setActiveModel = useCallback(
+    (agentId: string, profileId: string) => executeImmediately({
       operation: "set_active_model",
       request: { agent_id: agentId, profile_id: profileId },
     }),
-    [startPlan],
+    [executeImmediately],
   );
 
   const planConvergence = useCallback(async (
@@ -439,7 +439,7 @@ export function useConsumptionState({ autoLoad = true }: { autoLoad?: boolean } 
     setAllMcpEnabled,
     setSkillEnabled,
     planModelEnabled,
-    planActiveModel,
+    setActiveModel,
     planConvergence,
     planForAsset,
     planUpdate,

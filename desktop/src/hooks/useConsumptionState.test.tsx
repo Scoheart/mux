@@ -321,7 +321,7 @@ it("commits the Agent-wide MCP switch as one operation", async () => {
   expect(result.current.plan).toBeNull();
 });
 
-it("owns Model enabled and active plans through the central operation slot", async () => {
+it("owns reviewed Model enabled plans through the central operation slot", async () => {
   const { result } = renderHook(() => useConsumptionState());
   await waitFor(() => expect(result.current.loading).toBe(false));
 
@@ -332,15 +332,21 @@ it("owns Model enabled and active plans through the central operation slot", asy
     operation: "set_model_enabled",
     request: { agent_id: "pi", profile_id: "work", enabled: false },
   });
+});
 
-  await act(async () => result.current.cancel());
+it("commits the active Model switch immediately without exposing a review plan", async () => {
+  const { result } = renderHook(() => useConsumptionState());
+  await waitFor(() => expect(result.current.loading).toBe(false));
+
   await act(async () => {
-    await result.current.planActiveModel("pi", "personal");
+    await result.current.setActiveModel("pi", "personal");
   });
-  expect(api.planOperation).toHaveBeenLastCalledWith({
+  expect(api.planOperation).toHaveBeenCalledWith({
     operation: "set_active_model",
     request: { agent_id: "pi", profile_id: "personal" },
   });
+  expect(api.commitOperation).toHaveBeenCalledOnce();
+  expect(result.current.plan).toBeNull();
 });
 
 it("cancels the exact active operation", async () => {

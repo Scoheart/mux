@@ -952,18 +952,23 @@ fn materialize_profile_for_agent(
     agent_id: &str,
     profile: &ModelProfile,
 ) -> Result<ModelProfile, String> {
-    if profile.endpoint_path.is_empty() {
-        return Ok(profile.clone());
-    }
     let mut materialized = profile.clone();
-    materialized.base_url =
-        protocol_client_base_url(&profile.base_url, &profile.protocol, &profile.endpoint_path)
-            .map_err(|error| {
-                format!(
-                    "model_endpoint_path_unsupported: {agent_id} cannot express this custom Endpoint Path without changing the request target: {error}"
-                )
-            })?;
-    materialized.endpoint_path.clear();
+    if agent_id == "pi" && !materialized.native_ids.contains_key("pi") {
+        let settings = crate::settings::load_settings_strict().map_err(|error| error.to_string())?;
+        materialized
+            .native_ids
+            .insert("pi".into(), generated_pi_provider_id(&settings, profile));
+    }
+    if !profile.endpoint_path.is_empty() {
+        materialized.base_url =
+            protocol_client_base_url(&profile.base_url, &profile.protocol, &profile.endpoint_path)
+                .map_err(|error| {
+                    format!(
+                        "model_endpoint_path_unsupported: {agent_id} cannot express this custom Endpoint Path without changing the request target: {error}"
+                    )
+                })?;
+        materialized.endpoint_path.clear();
+    }
     Ok(materialized)
 }
 
@@ -2625,6 +2630,7 @@ pub(crate) fn observe_active_model_for_settings(
     else {
         return ObservedActiveModel::None;
     };
+    let mut selected_pi_model = None;
     let selected = match agent_id {
         "grok-build" => read_toml(&paths[0]).ok().and_then(|(document, _)| {
             document
@@ -2634,13 +2640,22 @@ pub(crate) fn observe_active_model_for_settings(
                 .as_str()
                 .map(str::to_string)
         }),
-        "pi" => read_jsonc(&paths[1]).ok().and_then(|(root, original)| {
-            original?;
-            root.to_serde_value()?
-                .get("defaultProvider")?
-                .as_str()
+        "pi" => {
+            let value = read_jsonc(&paths[1]).ok().and_then(|(root, original)| {
+                original?;
+                root.to_serde_value()
+            });
+            selected_pi_model = value
+                .as_ref()
+                .and_then(|value| value.get("defaultModel"))
+                .and_then(Value::as_str)
+                .map(str::to_string);
+            value
+                .as_ref()
+                .and_then(|value| value.get("defaultProvider"))
+                .and_then(Value::as_str)
                 .map(str::to_string)
-        }),
+        },
         "claude-code" | "codex" => settings.model_selection(agent_id).active_profile_id,
         "opencode" | "kilo-code" | "qwen-code" | "crush" | "mistral-vibe" | "hermes"
         | "factory-droid" | "goose" => {
@@ -2660,7 +2675,15 @@ pub(crate) fn observe_active_model_for_settings(
         .values()
         .filter(|profile| match agent_id {
             "grok-build" => selected == grok_model_id(profile),
-            "pi" => selected == pi_provider_id(profile),
+            "pi" => {
+                selected
+                    == profile
+                        .native_ids
+                        .get("pi")
+                        .cloned()
+                        .unwrap_or_else(|| generated_pi_provider_id(settings, profile))
+                    && selected_pi_model.as_deref() == Some(profile.model.as_str())
+            }
             _ => selected == profile.id,
         })
         .map(|profile| profile.id.clone())
@@ -3644,6 +3667,59 @@ fn pi_provider_id(profile: &ModelProfile) -> String {
     native_profile_id(profile, "pi", format!("mux-{}", profile.id))
 }
 
+fn pi_provider_slug(value: &str) -> String {
+    let mut slug = String::new();
+    let mut pending_separator = false;
+    for character in value.chars() {
+        if character.is_alphanumeric() {
+            if pending_separator && !slug.is_empty() {
+                slug.push('-');
+            }
+            slug.extend(character.to_lowercase());
+            pending_separator = false;
+        } else {
+            pending_separator = true;
+        }
+    }
+    slug.trim_matches('-').to_string()
+}
+
+fn pi_provider_config_slug(provider: &ModelProviderConfig) -> String {
+    [provider.name.as_str(), provider.provider.as_str(), provider.id.as_str()]
+        .into_iter()
+        .map(pi_provider_slug)
+        .find(|value| !value.is_empty())
+        .unwrap_or_else(|| "provider".into())
+}
+
+pub(crate) fn generated_pi_provider_id(
+    settings: &crate::settings::Settings,
+    profile: &ModelProfile,
+) -> String {
+    let Some(provider_id) = profile.provider_id.as_deref() else {
+        return format!("mux-{}", profile.id);
+    };
+    let Some(providers) = settings.model_providers.as_ref() else {
+        return format!("mux-{}", profile.id);
+    };
+    let Some(provider) = providers.get(provider_id) else {
+        return format!("mux-{}", profile.id);
+    };
+    let base = pi_provider_config_slug(provider);
+    let collides = providers.iter().any(|(candidate_id, candidate)| {
+        candidate_id != provider_id && pi_provider_config_slug(candidate) == base
+    });
+    if !collides {
+        return base;
+    }
+    let suffix = pi_provider_slug(&provider.id);
+    if suffix.is_empty() {
+        format!("{base}-provider")
+    } else {
+        format!("{base}-{suffix}")
+    }
+}
+
 fn grok_api_backend(protocol: &ModelProtocol) -> &'static str {
     match protocol {
         ModelProtocol::AnthropicMessages => "messages",
@@ -3798,39 +3874,273 @@ fn prepare_clear_all_grok_build(path: &Path) -> Result<(Option<String>, String),
     Ok((original, document.to_string()))
 }
 
-fn pi_provider_value(profile: &ModelProfile, has_credential: bool) -> Value {
-    let mut provider = serde_json::Map::from_iter([
-        ("baseUrl".into(), Value::String(profile.base_url.clone())),
-        (
-            "api".into(),
-            Value::String(protocol_name(&profile.protocol).into()),
-        ),
-    ]);
-    if has_credential {
-        provider.insert(
-            "apiKey".into(),
-            Value::String(format!("!{}", security_shell_command(&profile.id))),
-        );
-    }
-    let mut model = serde_json::Map::from_iter([
-        ("id".into(), Value::String(profile.model.clone())),
-        ("name".into(), Value::String(profile.name.clone())),
-        (
-            "input".into(),
-            Value::Array(vec![Value::String("text".into())]),
-        ),
-    ]);
+fn pi_model_value(profile: &ModelProfile, existing: Option<Value>) -> Result<Value, String> {
+    let mut model = match existing {
+        Some(Value::Object(model)) => model,
+        Some(_) => return Err("existing Pi model entry is not an object".into()),
+        None => serde_json::Map::new(),
+    };
+    model.insert("id".into(), Value::String(profile.model.clone()));
+    model.insert("name".into(), Value::String(profile.name.clone()));
+    model.insert(
+        "input".into(),
+        Value::Array(vec![Value::String("text".into())]),
+    );
     if let Some(value) = profile.reasoning {
         model.insert("reasoning".into(), Value::Bool(value));
+    } else {
+        model.remove("reasoning");
     }
     if let Some(value) = profile.context_window {
         model.insert("contextWindow".into(), Value::Number(value.into()));
+    } else {
+        model.remove("contextWindow");
     }
     if let Some(value) = profile.max_output_tokens {
         model.insert("maxTokens".into(), Value::Number(value.into()));
+    } else {
+        model.remove("maxTokens");
     }
-    provider.insert("models".into(), Value::Array(vec![Value::Object(model)]));
-    Value::Object(provider)
+    Ok(Value::Object(model))
+}
+
+fn set_pi_model_fields(
+    model: &CstObject,
+    profile: &ModelProfile,
+    path: &Path,
+    context: &str,
+) -> Result<(), String> {
+    ensure_unique_keys(model, path, context)?;
+    set_json_property(
+        model,
+        "id",
+        Some(Value::String(profile.model.clone())),
+        path,
+        context,
+    )?;
+    set_json_property(
+        model,
+        "name",
+        Some(Value::String(profile.name.clone())),
+        path,
+        context,
+    )?;
+    set_json_property(
+        model,
+        "input",
+        Some(Value::Array(vec![Value::String("text".into())])),
+        path,
+        context,
+    )?;
+    set_json_property(
+        model,
+        "reasoning",
+        profile.reasoning.map(Value::Bool),
+        path,
+        context,
+    )?;
+    set_json_property(
+        model,
+        "contextWindow",
+        profile
+            .context_window
+            .map(|value| Value::Number(value.into())),
+        path,
+        context,
+    )?;
+    set_json_property(
+        model,
+        "maxTokens",
+        profile
+            .max_output_tokens
+            .map(|value| Value::Number(value.into())),
+        path,
+        context,
+    )
+}
+
+fn upsert_pi_provider(
+    providers: &CstObject,
+    provider_id: &str,
+    profile: &ModelProfile,
+    has_credential: bool,
+    path: &Path,
+) -> Result<(), String> {
+    ensure_unique(providers, provider_id, path, "providers")?;
+    if providers.get(provider_id).is_none() {
+        providers.append(provider_id, CstInputValue::Object(Vec::new()));
+    }
+    let provider = providers.object_value(provider_id).ok_or_else(|| {
+        format!(
+            "refusing to modify {}: Pi provider '{}' is not an object",
+            path.display(),
+            provider_id
+        )
+    })?;
+    let provider_context = format!("providers.{provider_id}");
+    ensure_unique_keys(&provider, path, &provider_context)?;
+    ensure_unique(&provider, "models", path, &provider_context)?;
+    let models = provider.array_value_or_create("models").ok_or_else(|| {
+        format!(
+            "refusing to modify {}: '{}.models' is not an array",
+            path.display(),
+            provider_context
+        )
+    })?;
+    let elements = models.elements();
+    let mut matching = Vec::new();
+    let mut sibling_count = 0usize;
+    for element in &elements {
+        if element
+            .to_serde_value()
+            .and_then(|value| value.get("id").and_then(Value::as_str).map(str::to_string))
+            .as_deref()
+            == Some(profile.model.as_str())
+        {
+            matching.push(element.clone());
+        } else {
+            sibling_count += 1;
+        }
+    }
+    if matching.len() > 1 {
+        return Err(format!(
+            "refusing to modify {}: Pi provider '{}' contains duplicate model id '{}'",
+            path.display(),
+            provider_id,
+            profile.model
+        ));
+    }
+    let expected_api = protocol_name(&profile.protocol);
+    if sibling_count > 0
+        && (json_property_string(&provider, "baseUrl")
+            .is_some_and(|value| value != profile.base_url.as_str())
+            || json_property_string(&provider, "api").is_some_and(|value| value != expected_api))
+    {
+        return Err(format!(
+            "refusing to modify {}: Pi provider '{}' has sibling models with a different endpoint or protocol",
+            path.display(),
+            provider_id
+        ));
+    }
+    set_json_property(
+        &provider,
+        "baseUrl",
+        Some(Value::String(profile.base_url.clone())),
+        path,
+        &provider_context,
+    )?;
+    set_json_property(
+        &provider,
+        "api",
+        Some(Value::String(expected_api.into())),
+        path,
+        &provider_context,
+    )?;
+    set_json_property(
+        &provider,
+        "apiKey",
+        has_credential.then(|| {
+            Value::String(format!("!{}", security_shell_command(&profile.id)))
+        }),
+        path,
+        &provider_context,
+    )?;
+    if let Some(element) = matching.pop() {
+        let model = element.as_object().ok_or_else(|| {
+            format!(
+                "refusing to modify {}: Pi model '{}' is not an object",
+                path.display(),
+                profile.model
+            )
+        })?;
+        let model_context = format!("{provider_context}.models.{}", profile.model);
+        set_pi_model_fields(&model, profile, path, &model_context)?;
+    } else {
+        models.append(input_value(pi_model_value(profile, None)?));
+    }
+    Ok(())
+}
+
+fn json_property_string(object: &CstObject, name: &str) -> Option<String> {
+    object
+        .get(name)
+        .and_then(|property| property.value())
+        .and_then(|value| value.to_serde_value())
+        .and_then(|value| value.as_str().map(str::to_string))
+}
+
+fn clear_pi_profile_from_provider(
+    providers: &CstObject,
+    provider_id: &str,
+    profile: &ModelProfile,
+    path: &Path,
+) -> Result<(), String> {
+    ensure_unique(providers, provider_id, path, "providers")?;
+    let Some(property) = providers.get(provider_id) else {
+        return Ok(());
+    };
+    let provider = property.object_value().ok_or_else(|| {
+        format!(
+            "refusing to modify {}: Pi provider '{}' is not an object",
+            path.display(),
+            provider_id
+        )
+    })?;
+    let provider_context = format!("providers.{provider_id}");
+    ensure_unique_keys(&provider, path, &provider_context)?;
+    ensure_unique(&provider, "models", path, &provider_context)?;
+    let Some(models_property) = provider.get("models") else {
+        return Ok(());
+    };
+    let models = models_property.array_value().ok_or_else(|| {
+        format!(
+            "refusing to modify {}: '{}.models' is not an array",
+            path.display(),
+            provider_context
+        )
+    })?;
+    let elements = models.elements();
+    let matching = elements
+        .iter()
+        .filter(|element| {
+            element
+                .to_serde_value()
+                .and_then(|value| value.get("id").and_then(Value::as_str).map(str::to_string))
+                .as_deref()
+                == Some(profile.model.as_str())
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    if matching.len() > 1 {
+        return Err(format!(
+            "refusing to modify {}: Pi provider '{}' contains duplicate model id '{}'",
+            path.display(),
+            provider_id,
+            profile.model
+        ));
+    }
+    let Some(model) = matching.into_iter().next() else {
+        return Ok(());
+    };
+    if elements.len() == 1 {
+        property.remove();
+    } else {
+        model.remove();
+    }
+    Ok(())
+}
+
+fn clear_legacy_pi_profile_provider(
+    providers: &CstObject,
+    provider_id: &str,
+    profile: &ModelProfile,
+    path: &Path,
+) -> Result<(), String> {
+    let legacy_id = format!("mux-{}", profile.id);
+    if legacy_id == provider_id {
+        return Ok(());
+    }
+    clear_pi_profile_from_provider(providers, &legacy_id, profile, path)
 }
 
 fn prepare_pi_models(
@@ -3850,13 +4160,8 @@ fn prepare_pi_models(
     })?;
     ensure_unique_keys(&providers, path, "providers")?;
     let provider_id = pi_provider_id(profile);
-    set_json_property(
-        &providers,
-        &provider_id,
-        Some(pi_provider_value(profile, has_credential)),
-        path,
-        "providers",
-    )?;
+    upsert_pi_provider(&providers, &provider_id, profile, has_credential, path)?;
+    clear_legacy_pi_profile_provider(&providers, &provider_id, profile, path)?;
     Ok((original, root.to_string()))
 }
 
@@ -3896,13 +4201,9 @@ fn prepare_clear_pi_models(
     ensure_unique_keys(&object, path, "$root")?;
     if let Some(providers) = object.object_value("providers") {
         ensure_unique_keys(&providers, path, "providers")?;
-        set_json_property(
-            &providers,
-            &pi_provider_id(profile),
-            None,
-            path,
-            "providers",
-        )?;
+        let provider_id = pi_provider_id(profile);
+        clear_pi_profile_from_provider(&providers, &provider_id, profile, path)?;
+        clear_legacy_pi_profile_provider(&providers, &provider_id, profile, path)?;
     }
     Ok((original, root.to_string()))
 }
@@ -4576,6 +4877,32 @@ mod tests {
         }
     }
 
+    fn pi_profile(id: &str, model: &str, name: &str) -> ModelProfile {
+        let mut profile = responses_profile();
+        profile.id = id.into();
+        profile.model = model.into();
+        profile.name = name.into();
+        profile.provider_id = Some("openrouter-provider".into());
+        profile
+            .native_ids
+            .insert("pi".into(), "openrouter".into());
+        profile
+    }
+
+    fn openrouter_provider(id: &str, name: &str) -> ModelProviderConfig {
+        ModelProviderConfig {
+            id: id.into(),
+            name: name.into(),
+            provider: "openrouter".into(),
+            base_url: "https://openrouter.ai/api/v1".into(),
+            protocols: BTreeMap::from([(
+                ModelProtocol::OpenaiResponses,
+                protocol("/responses"),
+            )]),
+            env_key: None,
+        }
+    }
+
     #[test]
     fn provider_migration_groups_matching_credentials_and_preserves_request_targets() {
         let _home = TestHome::new("model-provider-v3-migration");
@@ -5155,9 +5482,18 @@ mod tests {
         )
         .unwrap();
 
-        clear_pi(&models_path, &settings_path, &responses_profile(), true).unwrap();
+        clear_pi(
+            &models_path,
+            &settings_path,
+            &pi_profile("team-openai", "gpt-custom", "Team OpenAI"),
+            true,
+        )
+        .unwrap();
 
         assert!(models_path.exists());
+        let models: Value =
+            serde_json::from_str(&fs::read_to_string(&models_path).unwrap()).unwrap();
+        assert!(models["providers"].as_object().unwrap().is_empty());
         assert!(!settings_path.exists());
     }
 
@@ -5280,11 +5616,172 @@ wire_api = "responses"
         )
         .unwrap();
 
-        let (_, content) = prepare_pi_models(&path, &responses_profile(), true).unwrap();
+        let profile = pi_profile("team-openai", "gpt-custom", "Team OpenAI");
+        let (_, content) = prepare_pi_models(&path, &profile, true).unwrap();
         assert!(content.contains("user provider"));
         assert!(content.contains("\"local\""));
-        assert!(content.contains("\"mux-team-openai\""));
+        assert!(content.contains("\"openrouter\""));
         assert!(content.contains("!/usr/bin/security"));
+    }
+
+    #[test]
+    fn pi_generated_provider_id_uses_mux_provider_name_and_disambiguates_collisions() {
+        let mut profile = responses_profile();
+        profile.provider_id = Some("openrouter-provider".into());
+        let settings = crate::settings::Settings {
+            model_providers: Some(BTreeMap::from([
+                (
+                    "openrouter-provider".into(),
+                    openrouter_provider("openrouter-provider", "Open Router"),
+                ),
+                (
+                    "other-provider".into(),
+                    openrouter_provider("other-provider", "Open-Router"),
+                ),
+            ])),
+            ..Default::default()
+        };
+
+        assert_eq!(
+            generated_pi_provider_id(&settings, &profile),
+            "open-router-openrouter-provider"
+        );
+
+        let settings = crate::settings::Settings {
+            model_providers: Some(BTreeMap::from([(
+                "openrouter-provider".into(),
+                openrouter_provider("openrouter-provider", "OpenRouter"),
+            )])),
+            ..Default::default()
+        };
+        assert_eq!(generated_pi_provider_id(&settings, &profile), "openrouter");
+    }
+
+    #[test]
+    fn pi_materialization_preserves_an_explicit_adopted_native_provider_id() {
+        let mut profile = responses_profile();
+        profile
+            .native_ids
+            .insert("pi".into(), "my-existing-provider".into());
+
+        let materialized = materialize_profile_for_agent("pi", &profile).unwrap();
+
+        assert_eq!(
+            materialized.native_ids.get("pi").map(String::as_str),
+            Some("my-existing-provider")
+        );
+    }
+
+    #[test]
+    fn pi_active_model_observation_uses_provider_and_model_identity() {
+        let th = TestHome::new("model-pi-active-shared-provider");
+        let settings_path = th.home.join(".pi/agent/settings.json");
+        fs::create_dir_all(settings_path.parent().unwrap()).unwrap();
+        fs::write(
+            &settings_path,
+            r#"{"defaultProvider":"openrouter","defaultModel":"second-model"}"#,
+        )
+        .unwrap();
+        let provider = openrouter_provider("openrouter-provider", "OpenRouter");
+        let mut first = responses_profile();
+        first.id = "first".into();
+        first.model = "first-model".into();
+        first.provider_id = Some(provider.id.clone());
+        let mut second = responses_profile();
+        second.id = "second".into();
+        second.model = "second-model".into();
+        second.provider_id = Some(provider.id.clone());
+        let settings = crate::settings::Settings {
+            model_providers: Some(BTreeMap::from([(provider.id.clone(), provider)])),
+            model_profiles: Some(BTreeMap::from([
+                (first.id.clone(), first),
+                (second.id.clone(), second),
+            ])),
+            ..Default::default()
+        };
+
+        assert_eq!(
+            observe_active_model_for_settings(&settings, "pi"),
+            ObservedActiveModel::Managed("second".into())
+        );
+    }
+
+    #[test]
+    fn pi_patch_preserves_comments_and_unknown_fields_inside_a_shared_provider() {
+        let th = TestHome::new("model-pi-preserve-shared-provider");
+        let path = th.home.join(".pi/agent/models.json");
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(
+            &path,
+            r#"{
+  "providers": {
+    "openrouter": {
+      // keep provider comment
+      "baseUrl": "https://gateway.example.test/v1",
+      "api": "openai-responses",
+      "policy": "keep-provider-field",
+      "models": [{
+        // keep model comment
+        "id": "gpt-custom",
+        "name": "Old Name",
+        "custom": "keep-model-field"
+      }]
+    }
+  }
+}"#,
+        )
+        .unwrap();
+
+        let profile = pi_profile("team-openai", "gpt-custom", "Team OpenAI");
+        let (_, content) = prepare_pi_models(&path, &profile, false).unwrap();
+
+        assert!(content.contains("keep provider comment"));
+        assert!(content.contains("keep model comment"));
+        assert!(content.contains("keep-provider-field"));
+        assert!(content.contains("keep-model-field"));
+        assert!(content.contains("Team OpenAI"));
+    }
+
+    #[test]
+    fn pi_provider_keeps_sibling_models_when_upserting_and_clearing_one_profile() {
+        let th = TestHome::new("model-pi-shared-provider");
+        let path = th.home.join(".pi/agent/models.json");
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let first = pi_profile("first", "first-model", "First");
+        let second = pi_profile("second", "second-model", "Second");
+
+        let (_, first_content) = prepare_pi_models(&path, &first, false).unwrap();
+        fs::write(&path, first_content).unwrap();
+        let (_, second_content) = prepare_pi_models(&path, &second, false).unwrap();
+        fs::write(&path, second_content).unwrap();
+
+        let models: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(models["providers"]["openrouter"]["models"].as_array().unwrap().len(), 2);
+
+        let (_, cleared) = prepare_clear_pi_models(&path, &first).unwrap();
+        let models: Value = serde_json::from_str(&cleared).unwrap();
+        assert_eq!(
+            models["providers"]["openrouter"]["models"],
+            serde_json::json!([{ "id": "second-model", "name": "Second", "input": ["text"], "reasoning": true, "contextWindow": 128000, "maxTokens": 16000 }])
+        );
+    }
+
+    #[test]
+    fn pi_write_migrates_the_matching_legacy_mux_profile_provider() {
+        let th = TestHome::new("model-pi-legacy-provider");
+        let path = th.home.join(".pi/agent/models.json");
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(
+            &path,
+            r#"{"providers":{"mux-team-openai":{"baseUrl":"https://gateway.example.test/v1","models":[{"id":"gpt-custom","name":"Team OpenAI"}]}}}"#,
+        )
+        .unwrap();
+
+        let profile = pi_profile("team-openai", "gpt-custom", "Team OpenAI");
+        let (_, content) = prepare_pi_models(&path, &profile, false).unwrap();
+        let models: Value = serde_json::from_str(&content).unwrap();
+        assert!(models["providers"].get("mux-team-openai").is_none());
+        assert_eq!(models["providers"]["openrouter"]["models"][0]["id"], "gpt-custom");
     }
 
     #[test]
@@ -5303,7 +5800,7 @@ wire_api = "responses"
         let result = apply_pi(
             &models_path,
             &settings_path,
-            &responses_profile(),
+            &pi_profile("team-openai", "gpt-custom", "Team OpenAI"),
             true,
             false,
         )
@@ -5312,7 +5809,7 @@ wire_api = "responses"
         assert_eq!(fs::read_to_string(&settings_path).unwrap(), before);
         assert!(fs::read_to_string(&models_path)
             .unwrap()
-            .contains("\"mux-team-openai\""));
+            .contains("\"openrouter\""));
         assert_eq!(result.files, vec![models_path.display().to_string()]);
         assert!(result.message.contains("without changing the default"));
     }

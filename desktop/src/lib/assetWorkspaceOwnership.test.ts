@@ -25,7 +25,7 @@ it("owns multi-Model consumption and current-model switching in the Agent worksp
   expect(source).toContain("planForAgent");
   expect(source).toContain("同一时间使用其中一个");
   expect(source).not.toContain("planModelEnabled");
-  expect(source).toContain("planActiveModel");
+  expect(source).toContain("setActiveModel");
   expect(source).toContain('toggleKind="current"');
   expect(source).not.toContain("设为当前");
 });

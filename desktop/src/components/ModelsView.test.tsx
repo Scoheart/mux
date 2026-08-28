@@ -1354,7 +1354,7 @@ it("owns multi-Model display and switching inside the Agent panel", () => {
   expect(agentSource).toMatch(/title="Models"/);
   expect(agentSource).toMatch(/同一时间使用其中一个/);
   expect(agentSource).not.toMatch(/planModelEnabled/);
-  expect(agentSource).toMatch(/planActiveModel/);
+  expect(agentSource).toMatch(/setActiveModel/);
   expect(agentSource).toMatch(/toggleKind="current"/);
   expect(agentSource).not.toMatch(/设为当前/);
 });

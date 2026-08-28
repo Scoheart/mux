@@ -564,10 +564,8 @@ export function AgentView({
     const name = modelProfiles.find((profile) => profile.id === profileId)?.name ?? profileId;
     setChangingModel({ profileId });
     try {
-      const plan = await consumptionState.planActiveModel(agentId, profileId);
-      if (!requiresAgentReview(plan)) {
-        await commitPlan(plan, `${agent.name} 已切换到 ${name}。`);
-      }
+      await consumptionState.setActiveModel(agentId, profileId);
+      showToast({ kind: "success", msg: `${agent.name} 已切换到 ${name}。` });
     } catch (error) {
       showToast({ kind: "error", msg: `切换失败：${formatError(error)}` });
     } finally {

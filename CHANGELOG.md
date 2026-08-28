@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.150](https://github.com/Scoheart/mux/compare/v1.8.149...v1.8.150) (2026-08-28)
+
+### Changes
+
+* style(models): remove redundant helper copy (#141) ([c0fef63](https://github.com/Scoheart/mux/commit/c0fef636212209195754113b065666792eff9969))
+
 ## [1.8.149](https://github.com/Scoheart/mux/compare/v1.8.148...v1.8.149) (2026-08-28)
 
 ### Changes

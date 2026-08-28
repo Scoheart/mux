@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.8.145](https://github.com/Scoheart/mux/compare/v1.8.144...v1.8.145) (2026-08-28)
+
+### Changes
+
+* feat(mcp): add customizable asset icons (#136) ([f9ec9c2](https://github.com/Scoheart/mux/commit/f9ec9c2c826026cd65ef6bfa808e61de7b962f68))
+* feat(models): use Agent config as source of truth (#135) ([ff03ced](https://github.com/Scoheart/mux/commit/ff03ceddd375df45839f6b4aa448075e1e2804c8))
+
 ## [1.8.144](https://github.com/Scoheart/mux/compare/v1.8.143...v1.8.144) (2026-08-27)
 
 ### Changes

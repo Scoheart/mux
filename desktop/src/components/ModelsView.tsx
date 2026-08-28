@@ -1054,7 +1054,9 @@ function ModelProfileDialog({
     <>
       <button type="button" className="btn-ghost" disabled={busy} onClick={onClose}>{t("common.cancel")}</button>
       <button type="button" className="btn-primary" disabled={!valid} onClick={() => void save()}>
-        {busy ? t("common.saving") : t("common.save")}
+        {initial
+          ? busy ? t("common.saving") : t("common.save")
+          : busy ? t("models.addingAction") : t("models.addAction")}
       </button>
     </>
   );

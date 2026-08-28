@@ -7,6 +7,7 @@ export interface ConsumptionPickerOption {
   id: string;
   name: string;
   description?: string;
+  icon?: ReactNode;
   meta?: ReactNode;
   disabled?: boolean;
   reason?: string;
@@ -118,6 +119,7 @@ export function ConsumptionPickerDialog({
             <span className="mux-consumption-picker-check" aria-hidden="true">
               {selectedIds.has(option.id) ? "✓" : ""}
             </span>
+            {option.icon && <span className="mux-consumption-picker-icon">{option.icon}</span>}
             <span className="mux-picker-option-copy">
               <strong>{option.name}</strong>
               <small>{option.description}</small>

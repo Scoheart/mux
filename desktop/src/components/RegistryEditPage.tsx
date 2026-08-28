@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import type { InstallState } from "../hooks/useInstallState";
 import type { ConsumptionState } from "../hooks/useConsumptionState";
-import type { RegistryEntry } from "../lib/types";
+import type { McpIconPreference, RegistryEntry } from "../lib/types";
 import { keyOf, type Transport } from "../lib/mcp";
 import { EnvEditor } from "./EnvEditor";
 import { AssetOperationReviewDialog } from "./AssetOperationReviewDialog";
@@ -9,7 +9,7 @@ import { DialogShell } from "./DialogShell";
 import { ResourceInspector } from "./ResourceWorkspace";
 import { LayersIcon, SaveIcon } from "./icons";
 import { useToast } from "./Toast";
-import { Avatar } from "./ui";
+import { McpAvatar } from "./McpIcon";
 
 interface RegistryEditPageProps {
   state: InstallState;
@@ -18,6 +18,7 @@ interface RegistryEditPageProps {
   name: string | null;
   /** Exact catalog entry when editing from an Inspector, including shadowed copies. */
   entry?: RegistryEntry;
+  iconPreference?: McpIconPreference;
   /** Which transport variant to edit (a name can have both stdio + http). */
   transport?: Transport;
   onBack: () => void;
@@ -43,6 +44,7 @@ export function RegistryEditPage({
   consumptionState,
   name,
   entry,
+  iconPreference,
   transport: editTransport,
   onBack,
   presentation = "dialog",
@@ -329,7 +331,7 @@ export function RegistryEditPage({
     return (
       <ResourceInspector
         title={existing.name}
-        avatar={<Avatar seed={existing.name} kind="mcp" size={40} />}
+        avatar={<McpAvatar assetKey={keyOf(existing)} entry={existing} preference={iconPreference} size={40} />}
         subtitle={review ? "检查变更 · 全局配置" : `编辑 · ${transport === "stdio" ? "stdio" : "HTTP"} · 全局配置`}
         onClose={close}
         footer={review ? undefined :

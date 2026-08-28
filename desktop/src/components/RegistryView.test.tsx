@@ -1,4 +1,4 @@
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
@@ -8,9 +8,25 @@ import type { RegistryEntry } from "../lib/types";
 import { RegistryView } from "./RegistryView";
 import { ToastProvider } from "./Toast";
 
+const apiMocks = vi.hoisted(() => ({
+  listMcpIconPreferences: vi.fn().mockResolvedValue({}),
+  setMcpBuiltinIcon: vi.fn(),
+  importMcpIconDialog: vi.fn(),
+  resetMcpIcon: vi.fn(),
+}));
+
+vi.mock("../lib/api", async () => {
+  const actual = await vi.importActual<typeof import("../lib/api")>("../lib/api");
+  return { ...actual, ...apiMocks };
+});
+
 const source = await readFile(resolve(process.cwd(), "src/components/RegistryView.tsx"), "utf8");
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.clearAllMocks();
+  apiMocks.listMcpIconPreferences.mockResolvedValue({});
+});
 
 function registryState(overrides: Record<string, unknown> = {}) {
   return {
@@ -39,7 +55,7 @@ it("maps MCP assets to the compact central index", () => {
   expect(row).toMatch(/mux-asset-list-source/);
   expect(row).toMatch(/mux-asset-list-status/);
   expect(row).toMatch(/transportOf\(entry\)\.toUpperCase\(\)/);
-  expect(row).toMatch(/<ResourceKindIcon kind="mcp" seed=\{entry\.name\} \/>/);
+  expect(row).toMatch(/<McpAvatar[\s\S]*?assetKey=\{keyOf\(entry\)\}/);
   expect(row).toMatch(/centralAssets\.effective/);
   expect(row).toMatch(/centralAssets\.shadowed/);
   expect(row).not.toMatch(/<IconButton|<ResourceCard/);
@@ -120,6 +136,19 @@ it("renders effective and shadowed MCP rows and opens the existing Inspector", a
   const inspector = await screen.findByRole("complementary", { name: "brave-search 详情" });
   expect(within(inspector).getByText("Web search")).toBeVisible();
   expect(within(inspector).getByText("https://mcp.example.test/search")).toBeVisible();
+  expect(within(inspector).getByRole("button", { name: "图标" })).toBeVisible();
+
+  apiMocks.setMcpBuiltinIcon.mockResolvedValue({
+    "brave-search::http": { kind: "builtin", value: "database" },
+  });
+  await user.click(within(inspector).getByRole("button", { name: "图标" }));
+  expect(screen.getByRole("dialog", { name: "选择 MCP 图标" })).toBeVisible();
+  await user.click(screen.getByRole("button", { name: "选择内置图标：数据库" }));
+  await waitFor(() => expect(apiMocks.setMcpBuiltinIcon).toHaveBeenCalledWith(
+    "brave-search::http",
+    "database",
+  ));
+  expect(document.querySelector('[data-mcp-icon="database"]')).not.toBeNull();
 });
 
 it("keeps MCP workspace actions visible through loading, error retry, and empty states", async () => {

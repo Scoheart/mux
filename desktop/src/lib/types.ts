@@ -18,6 +18,12 @@ export interface RegistryEntry {
   /** Optional homepage / source repo URL (e.g. a GitHub repo), shown as a link. */
   repo?: string;
 }
+export interface McpIconPreference {
+  kind: "builtin" | "custom";
+  value: string;
+  path?: string;
+}
+export type McpIconPreferences = Record<string, McpIconPreference>;
 /** One entry copy from a source, plus whether it's the in-effect (winning) copy
  *  for its composite key. Copies with `in_effect === false` are shadowed by a
  *  higher-precedence source but still shown so nothing is hidden. */

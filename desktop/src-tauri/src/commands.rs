@@ -757,6 +757,55 @@ pub fn set_ui_locale(locale: Option<String>) -> CoreResult<Option<String>> {
         .map_err(|error| core_error_from_legacy(error, "ui_preference_failed"))
 }
 
+#[tauri::command]
+pub fn list_mcp_icon_preferences(
+) -> CoreResult<BTreeMap<String, mux_core::application::ui::McpIconPreferenceView>> {
+    mux_core::application::ui::list_mcp_icon_preferences()
+        .map_err(|error| core_error_from_legacy(error, "ui_preference_failed"))
+}
+
+#[tauri::command]
+pub fn set_mcp_builtin_icon(
+    asset_key: String,
+    icon_id: String,
+) -> CoreResult<BTreeMap<String, mux_core::application::ui::McpIconPreferenceView>> {
+    mux_core::application::ui::set_mcp_builtin_icon(asset_key, icon_id)
+        .map_err(|error| core_error_from_legacy(error, "ui_preference_failed"))
+}
+
+#[tauri::command]
+pub fn reset_mcp_icon(
+    asset_key: String,
+) -> CoreResult<BTreeMap<String, mux_core::application::ui::McpIconPreferenceView>> {
+    mux_core::application::ui::reset_mcp_icon(asset_key)
+        .map_err(|error| core_error_from_legacy(error, "ui_preference_failed"))
+}
+
+#[tauri::command]
+pub async fn import_mcp_icon_dialog(
+    app: tauri::AppHandle,
+    asset_key: String,
+) -> CoreResult<Option<BTreeMap<String, mux_core::application::ui::McpIconPreferenceView>>> {
+    use tauri_plugin_dialog::DialogExt;
+    let picked = tauri::async_runtime::spawn_blocking(move || {
+        app.dialog()
+            .file()
+            .add_filter("MCP 图标", &["png", "jpg", "jpeg", "webp"])
+            .blocking_pick_file()
+    })
+    .await
+    .map_err(|_| CoreError::new("worker_failed", "后台任务失败，请重试。"))?;
+    let Some(file_path) = picked else {
+        return Ok(None);
+    };
+    let path = file_path
+        .into_path()
+        .map_err(|error| CoreError::new("invalid_icon_path", error.to_string()))?;
+    mux_core::application::ui::import_mcp_icon(asset_key, path)
+        .map(Some)
+        .map_err(|error| core_error_from_legacy(error, "ui_preference_failed"))
+}
+
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct ProxySettingsView {
     pub proxy_url: Option<String>,

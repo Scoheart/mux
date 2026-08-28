@@ -950,7 +950,7 @@ it("discovers provider models when creating and keeps manual Model ID input auth
   await user.clear(modelId);
   await user.type(modelId, "my-private-model-id");
   expect(screen.getByLabelText("上下文窗口")).toHaveValue(null);
-  await user.click(screen.getByRole("button", { name: "保存" }));
+  await user.click(screen.getByRole("button", { name: "添加" }));
   await waitFor(() => expect(planUpdate).toHaveBeenCalledWith(expect.objectContaining({
     profile: expect.objectContaining({
       provider_id: "openrouter-team-a",
@@ -989,9 +989,9 @@ it("discovers provider models without blocking manual save after a discovery err
   const modelId = screen.getByRole("combobox", { name: "模型 ID" });
   await user.type(modelId, "gpt-manual-fallback");
   expect(modelId).toHaveValue("gpt-manual-fallback");
-  const save = screen.getByRole("button", { name: "保存" });
-  expect(save).toBeEnabled();
-  await user.click(save);
+  const add = screen.getByRole("button", { name: "添加" });
+  expect(add).toBeEnabled();
+  await user.click(add);
   await waitFor(() => expect(planUpdate).toHaveBeenCalledWith(expect.objectContaining({
     profile: expect.objectContaining({ model: "gpt-manual-fallback" }),
   })));
@@ -1202,7 +1202,7 @@ it("keeps Model fields local while writing an explicit Provider reference", asyn
 
   await chooseFormSelect(user, "推理", "关闭");
   await user.type(screen.getByPlaceholderText("model-name"), "explicit-reasoning-off");
-  await user.click(screen.getByRole("button", { name: "保存" }));
+  await user.click(screen.getByRole("button", { name: "添加" }));
 
   await waitFor(() => expect(planUpdate).toHaveBeenCalledTimes(1));
   const submitted = planUpdate.mock.calls[0][0].profile;
@@ -1252,7 +1252,7 @@ it("adds another Model to an existing Provider without repeating shared connecti
   await user.click(await sidebar.findByTitle("OpenRouter Team"));
   await user.click(screen.getByRole("button", { name: "添加模型" }));
 
-  expect(screen.getByRole("heading", { name: "新建模型" })).toBeVisible();
+  expect(screen.getByRole("heading", { name: "添加模型" })).toBeVisible();
   const provider = screen.getByRole("textbox", { name: "模型提供商" });
   expect(provider).toHaveValue("OpenRouter Team");
   expect(provider).toHaveAttribute("readonly");
@@ -1264,7 +1264,7 @@ it("adds another Model to an existing Provider without repeating shared connecti
   fireEvent.change(screen.getByPlaceholderText("model-name"), {
     target: { value: "anthropic/claude-sonnet-4" },
   });
-  await user.click(screen.getByRole("button", { name: "保存" }));
+  await user.click(screen.getByRole("button", { name: "添加" }));
   await waitFor(() => expect(planUpdate).toHaveBeenCalledWith(expect.objectContaining({
     domain: "model",
     profile: expect.objectContaining({

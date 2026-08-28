@@ -820,7 +820,7 @@ export function AgentView({
                       className="btn-secondary"
                       onClick={() => navigateResource({ domain: "model", kind: "create" })}
                     >
-                      <PlusIcon className="w-4 h-4" />新建模型
+                      <PlusIcon className="w-4 h-4" />添加模型
                     </button>
                   ) : undefined}
                   present={(asset) => {

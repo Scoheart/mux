@@ -306,6 +306,7 @@ impl ModelAgentSelection {
 pub enum AssetOperationKind {
     SetConsumption,
     ClearMcp,
+    ClearModels,
     UpdateAsset,
     DeleteAsset,
     Adopt,
@@ -509,6 +510,14 @@ pub struct PlanRemoveAgentConsumptionRequest {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct PlanClearAgentMcpRequest {
+    pub agent_id: String,
+}
+
+/// Clear the selected Agent's complete Model source according to its declared
+/// storage authority without deleting central Model assets or credentials.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct PlanClearAgentModelsRequest {
     pub agent_id: String,
 }
 

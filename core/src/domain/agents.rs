@@ -3,6 +3,14 @@
 use crate::domain::types::ModelProtocol;
 use serde::{Deserialize, Serialize};
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum ModelStorageAuthority {
+    NativeRegistry,
+    MuxMapping,
+    Guided,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct McpConfigurationPatch {
@@ -68,6 +76,7 @@ pub struct McpAgentCapabilityView {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ModelAgentCapabilityView {
     pub mode: String,
+    pub storage_authority: ModelStorageAuthority,
     pub installed: bool,
     #[serde(default)]
     pub config_paths: Vec<String>,

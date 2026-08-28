@@ -70,6 +70,38 @@ pub fn prepare_clear(
     Ok(vec![prepared])
 }
 
+pub fn prepare_clear_all(
+    agent_id: &str,
+    paths: &[PathBuf],
+) -> Result<Vec<PreparedModelFile>, String> {
+    prepare_clear_all_for_targets(agent_id, paths, None)
+}
+
+pub fn prepare_clear_all_for_targets(
+    agent_id: &str,
+    paths: &[PathBuf],
+    reviewed_targets: Option<&[PathBuf]>,
+) -> Result<Vec<PreparedModelFile>, String> {
+    match agent_id {
+        "opencode" | "kilo-code" => Ok(vec![prepare_clear_all_open_code(&paths[0])?]),
+        "qwen-code" => Ok(vec![prepare_clear_all_qwen(&paths[0])?]),
+        "crush" => Ok(vec![prepare_clear_all_crush(&paths[0])?]),
+        "mistral-vibe" => Ok(vec![prepare_clear_all_vibe(&paths[0])?]),
+        "factory-droid" => Ok(vec![prepare_clear_all_factory(&paths[0])?]),
+        "hermes" => Ok(vec![prepare_clear_all_yaml_model(&paths[0], YamlAgent::Hermes)?]),
+        "goose" => prepare_clear_all_goose(&paths[0], reviewed_targets),
+        _ => Err(format!("unsupported multi-model Agent: {agent_id}")),
+    }
+}
+
+pub fn has_configured_models(agent_id: &str, paths: &[PathBuf]) -> Result<bool, String> {
+    Ok(prepare_clear_all(agent_id, paths)?.iter().any(|file| match (&file.original, &file.content) {
+        (Some(original), Some(content)) => original != content,
+        (Some(_), None) => true,
+        _ => false,
+    }))
+}
+
 pub fn target_files(
     agent_id: &str,
     config_paths: &[String],
@@ -161,8 +193,9 @@ pub fn observe_external(
             .ok()
             .and_then(|value| value.as_object().cloned())
             .is_some_and(|root| {
-                root.contains_key("model")
-                    || root.contains_key("active_provider")
+                root.get("model").and_then(Value::as_object).is_some_and(|model| {
+                    ["default", "provider", "base_url"].iter().any(|key| model.contains_key(*key))
+                }) || root.get("active_provider").and_then(Value::as_str).is_some()
                     || root.get("providers").is_some_and(|value| {
                         value
                             .as_object()
@@ -174,16 +207,17 @@ pub fn observe_external(
             .and_then(|(root, original)| original.map(|_| root))
             .and_then(|root| root.to_serde_value())
             .and_then(|value| value.as_object().cloned())
-            .is_some_and(|root| {
-                [
-                    "model",
-                    "provider",
-                    "providers",
-                    "modelProviders",
-                    "customModels",
-                ]
-                .iter()
-                .any(|key| root.contains_key(*key))
+            .is_some_and(|root| match agent_id {
+                "opencode" | "kilo-code" => root.get("model").and_then(Value::as_str).is_some()
+                    || root.get("provider").and_then(Value::as_object).is_some_and(|value| !value.is_empty()),
+                "qwen-code" => root.get("model").and_then(Value::as_object)
+                    .and_then(|model| model.get("name")).and_then(Value::as_str).is_some()
+                    || root.get("modelProviders").and_then(Value::as_object).is_some_and(|value| !value.is_empty()),
+                "crush" => root.get("providers").and_then(Value::as_object).is_some_and(|value| !value.is_empty())
+                    || root.get("models").and_then(Value::as_object).is_some_and(|value| !value.is_empty()),
+                "factory-droid" => root.get("model").and_then(Value::as_str).is_some()
+                    || root.get("customModels").and_then(Value::as_array).is_some_and(|value| !value.is_empty()),
+                _ => false,
             }),
     };
     if present {
@@ -561,6 +595,21 @@ fn prepare_clear_open_code(
     Ok(prepared_json(path, original, root))
 }
 
+fn prepare_clear_all_open_code(path: &Path) -> Result<PreparedModelFile, String> {
+    let (root, original) = read_jsonc(path)?;
+    if original.is_none() {
+        return Ok(PreparedModelFile { path: path.into(), original, content: None });
+    }
+    let object = root_object(&root, path)?;
+    ensure_unique(&object, path, "$root")?;
+    if let Some(providers) = object.object_value("provider") {
+        ensure_unique(&providers, path, "provider")?;
+        set_json(&object, "provider", None);
+    }
+    set_json(&object, "model", None);
+    Ok(prepared_json(path, original, root))
+}
+
 fn qwen_auth_type(profile: &ModelProfile) -> &'static str {
     match profile.protocol {
         ModelProtocol::AnthropicMessages => "anthropic",
@@ -711,6 +760,31 @@ fn prepare_clear_qwen(path: &Path, profile: &ModelProfile) -> Result<PreparedMod
     Ok(prepared_json(path, original, root))
 }
 
+fn prepare_clear_all_qwen(path: &Path) -> Result<PreparedModelFile, String> {
+    let (root, original) = read_jsonc(path)?;
+    if original.is_none() {
+        return Ok(PreparedModelFile { path: path.into(), original, content: None });
+    }
+    let object = root_object(&root, path)?;
+    ensure_unique(&object, path, "$root")?;
+    if object.get("modelProviders").is_some() {
+        qwen_providers(&object, path)?;
+        set_json(&object, "modelProviders", None);
+    }
+    if let Some(model) = object.object_value("model") {
+        ensure_unique(&model, path, "model")?;
+        set_json(&model, "name", None);
+    }
+    if let Some(security) = object.object_value("security") {
+        ensure_unique(&security, path, "security")?;
+        if let Some(auth) = security.object_value("auth") {
+            ensure_unique(&auth, path, "security.auth")?;
+            set_json(&auth, "selectedType", None);
+        }
+    }
+    Ok(prepared_json(path, original, root))
+}
+
 fn crush_provider(profile: &ModelProfile) -> Value {
     let provider_type = match profile.protocol {
         ModelProtocol::AnthropicMessages => "anthropic",
@@ -793,6 +867,24 @@ fn prepare_clear_crush(path: &Path, profile: &ModelProfile) -> Result<PreparedMo
                 set_json(&models, &slot, None);
             }
         }
+    }
+    Ok(prepared_json(path, original, root))
+}
+
+fn prepare_clear_all_crush(path: &Path) -> Result<PreparedModelFile, String> {
+    let (root, original) = read_jsonc(path)?;
+    if original.is_none() {
+        return Ok(PreparedModelFile { path: path.into(), original, content: None });
+    }
+    let object = root_object(&root, path)?;
+    ensure_unique(&object, path, "$root")?;
+    if let Some(providers) = object.object_value("providers") {
+        ensure_unique(&providers, path, "providers")?;
+        set_json(&object, "providers", None);
+    }
+    if let Some(models) = object.object_value("models") {
+        ensure_unique(&models, path, "models")?;
+        set_json(&object, "models", None);
     }
     Ok(prepared_json(path, original, root))
 }
@@ -907,6 +999,23 @@ fn prepare_clear_vibe(path: &Path, profile: &ModelProfile) -> Result<PreparedMod
     })
 }
 
+fn prepare_clear_all_vibe(path: &Path) -> Result<PreparedModelFile, String> {
+    let (mut document, original) = read_toml(path)?;
+    if original.is_none() {
+        return Ok(PreparedModelFile { path: path.into(), original, content: None });
+    }
+    if document.get("providers").is_some_and(|item| item.as_array_of_tables().is_none()) {
+        return Err("providers is not an array of tables".into());
+    }
+    if document.get("models").is_some_and(|item| item.as_array_of_tables().is_none()) {
+        return Err("models is not an array of tables".into());
+    }
+    document.remove("providers");
+    document.remove("models");
+    document.remove("active_model");
+    Ok(PreparedModelFile { path: path.into(), original, content: Some(document.to_string()) })
+}
+
 fn factory_model(profile: &ModelProfile) -> Value {
     let provider = match profile.protocol {
         ModelProtocol::AnthropicMessages => "anthropic",
@@ -966,6 +1075,25 @@ fn prepare_clear_factory(path: &Path, profile: &ModelProfile) -> Result<Prepared
     if selected.as_ref().and_then(Value::as_str) == Some(profile.model.as_str()) {
         set_json(&object, "model", None);
     }
+    Ok(prepared_json(path, original, root))
+}
+
+fn prepare_clear_all_factory(path: &Path) -> Result<PreparedModelFile, String> {
+    let (root, original) = read_jsonc(path)?;
+    if original.is_none() {
+        return Ok(PreparedModelFile { path: path.into(), original, content: None });
+    }
+    let object = root_object(&root, path)?;
+    ensure_unique(&object, path, "$root")?;
+    if object.get("customModels").is_some() {
+        let value = object.get("customModels").and_then(|property| property.value())
+            .and_then(|node| node.to_serde_value());
+        if !matches!(value, Some(Value::Array(_))) {
+            return Err(format!("refusing to modify {}: customModels is not an array", path.display()));
+        }
+        set_json(&object, "customModels", None);
+    }
+    set_json(&object, "model", None);
     Ok(prepared_json(path, original, root))
 }
 
@@ -1037,6 +1165,49 @@ fn prepare_clear_goose(
             content: None,
         },
     ])
+}
+
+fn prepare_clear_all_goose(
+    path: &Path,
+    reviewed_targets: Option<&[PathBuf]>,
+) -> Result<Vec<PreparedModelFile>, String> {
+    let mut files = vec![prepare_clear_all_yaml_model(path, YamlAgent::Goose)?];
+    let directory = path.parent().unwrap_or_else(|| Path::new(".")).join("custom_providers");
+    if let Some(reviewed_targets) = reviewed_targets {
+        for provider_path in reviewed_targets {
+            if provider_path == path {
+                continue;
+            }
+            if provider_path.parent() != Some(directory.as_path())
+                || provider_path.extension().and_then(|value| value.to_str()) != Some("json")
+            {
+                return Err(format!(
+                    "reviewed Goose Model target is outside {}: {}",
+                    directory.display(),
+                    provider_path.display()
+                ));
+            }
+            let original = read_optional(provider_path)?;
+            files.push(PreparedModelFile { path: provider_path.clone(), original, content: None });
+        }
+        return Ok(files);
+    }
+    match fs::read_dir(&directory) {
+        Ok(entries) => {
+            for entry in entries {
+                let entry = entry.map_err(|error| format!("failed to inspect {}: {error}", directory.display()))?;
+                let provider_path = entry.path();
+                if provider_path.extension().and_then(|value| value.to_str()) != Some("json") {
+                    continue;
+                }
+                let original = read_optional(&provider_path)?;
+                files.push(PreparedModelFile { path: provider_path, original, content: None });
+            }
+        }
+        Err(error) if error.kind() == ErrorKind::NotFound => {}
+        Err(error) => return Err(format!("failed to inspect {}: {error}", directory.display())),
+    }
+    Ok(files)
 }
 
 fn goose_provider_path(config: &Path, profile: &ModelProfile) -> Result<PathBuf, String> {
@@ -1204,6 +1375,40 @@ fn prepare_clear_yaml_model(
         original,
         content: Some(content),
     })
+}
+
+fn prepare_clear_all_yaml_model(
+    path: &Path,
+    agent: YamlAgent,
+) -> Result<PreparedModelFile, String> {
+    let (_file, document, original) = read_yaml(path)?;
+    if original.is_none() {
+        return Ok(PreparedModelFile { path: path.into(), original, content: None });
+    }
+    let root = yaml_root(&document, path)?;
+    let mut content = original.clone().unwrap_or_default();
+    let state: Value = serde_yaml::from_str(if content.is_empty() { "{}" } else { &content })
+        .map_err(|error| error.to_string())?;
+    validate_yaml_mapping_section(&root, "providers", path)?;
+    if let Some(providers) = state.get("providers").and_then(Value::as_object) {
+        for id in providers.keys() {
+            yaml_text_remove_mapping_entry(&mut content, "providers", id)?;
+        }
+    }
+    match agent {
+        YamlAgent::Hermes => {
+            validate_yaml_mapping_section(&root, "model_aliases", path)?;
+            if let Some(aliases) = state.get("model_aliases").and_then(Value::as_object) {
+                for id in aliases.keys() {
+                    yaml_text_remove_mapping_entry(&mut content, "model_aliases", id)?;
+                }
+            }
+            yaml_text_remove_fields(&mut content, "model", &["default", "provider", "base_url"])?;
+        }
+        YamlAgent::Goose => yaml_text_remove_root_key(&mut content, "active_provider")?,
+    }
+    validate_generated_yaml(&content, path)?;
+    Ok(PreparedModelFile { path: path.into(), original, content: Some(content) })
 }
 
 fn read_yaml(path: &Path) -> Result<(YamlFile, YamlDocument, Option<String>), String> {
@@ -1710,6 +1915,33 @@ mod tests {
             uuid::Uuid::new_v4(),
             extension
         ))
+    }
+
+    #[test]
+    fn clear_all_json_registries_remove_external_models_and_keep_unrelated_fields() {
+        let cases = [
+            ("opencode", r#"{"theme":"dark","provider":{"manual":{"models":{"x":{}}}},"model":"manual/x"}"#),
+            ("qwen-code", r#"{"theme":"dark","modelProviders":{"openai":[{"id":"x"}]},"model":{"name":"x","keep":true},"security":{"auth":{"selectedType":"openai"}}}"#),
+            ("crush", r#"{"theme":"dark","providers":{"manual":{}},"models":{"large":{"provider":"manual","model":"x"}}}"#),
+            ("factory-droid", r#"{"theme":"dark","customModels":[{"model":"x"}],"model":"x"}"#),
+        ];
+        for (agent, source) in cases {
+            let path = temp_path(agent, "jsonc");
+            fs::write(&path, source).unwrap();
+            assert_eq!(
+                observe_external(agent, &path),
+                crate::resources::model::ExternalModelObservedState::Present,
+            );
+            let prepared = prepare_clear_all(agent, std::slice::from_ref(&path)).unwrap();
+            fs::write(&path, prepared[0].content.as_deref().unwrap()).unwrap();
+            assert_eq!(
+                observe_external(agent, &path),
+                crate::resources::model::ExternalModelObservedState::Absent,
+            );
+            let value: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+            assert_eq!(value["theme"], "dark");
+            fs::remove_file(path).unwrap();
+        }
     }
 
     #[test]

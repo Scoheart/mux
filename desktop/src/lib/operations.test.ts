@@ -38,6 +38,15 @@ describe("unified operation wire contract", () => {
       request: assetRequest,
     });
 
+    const clearModelsRequest: PlanOperationRequest = {
+      operation: "clear_agent_models",
+      request: { agent_id: "pi" },
+    };
+    await planOperation(clearModelsRequest);
+    expect(invokeMock).toHaveBeenLastCalledWith("plan_operation", {
+      request: clearModelsRequest,
+    });
+
     const skillRequest: PlanOperationRequest = {
       operation: "assign_skill",
       request: {

@@ -21,13 +21,15 @@ use crate::resources::mcp::registry::{
     write_manual_entry,
 };
 use crate::resources::model::{
-    apply_credential_update, apply_profile, apply_profile_consumption,
+    agent_has_configured_models, apply_credential_update, apply_profile,
+    apply_profile_consumption, clear_all_configured_models_for_targets,
     apply_profile_consumption_with_credential_presence, clear_credential_rollback,
     clear_profile_consumption, credential_present, credential_rollback_snapshot,
     credential_snapshot, delete_profile, delete_provider, persist_credential_rollback,
     provider_credential_present, provider_credential_subject, restore_credential_snapshot,
     save_profile, save_provider_bundle,
 };
+use crate::domain::agents::ModelStorageAuthority;
 use crate::resources::skill::{
     acquire_skills_lock, cancel_operation_in_asset_transaction, canonical_skill_assignments,
     commit_assignment_in_asset_transaction, declared_targets_for_agents, normalize_agent_selection,
@@ -879,6 +881,64 @@ fn apply_operation(
                 }
             }
         }
+        LifecycleBinding::ModelClear {
+            agent_id,
+            storage_authority,
+            ..
+        } => {
+            let before = match &persisted.plan.domain_plan {
+                DomainPlan::Model { before, .. } => before.get(agent_id).cloned().unwrap_or_default(),
+                _ => return Err("Model clear requires a Model domain plan".into()),
+            };
+            mutate_settings(|settings| {
+                if let Some(consumptions) = settings.model_consumptions.as_mut() {
+                    consumptions.remove(agent_id);
+                    if consumptions.is_empty() {
+                        settings.model_consumptions = None;
+                    }
+                }
+                if let Some(assignments) = settings.model_assignments.as_mut() {
+                    assignments.remove(agent_id);
+                    if assignments.is_empty() {
+                        settings.model_assignments = None;
+                    }
+                }
+            })
+            .map_err(|error| error.to_string())?;
+            let result = match storage_authority {
+                ModelStorageAuthority::NativeRegistry => clear_all_configured_models_for_targets(
+                    agent_id,
+                    &persisted.plan.target_files,
+                )
+                    .and_then(|_| {
+                        if agent_has_configured_models(agent_id)? {
+                            Err("target_convergence_failed: Model entries reappeared after clear".into())
+                        } else {
+                            Ok(())
+                        }
+                    }),
+                ModelStorageAuthority::MuxMapping => {
+                    let mut result = Ok(());
+                    for (profile_id, _) in &before.profiles {
+                        let active = before.active_profile_id.as_deref() == Some(profile_id.as_str());
+                        if let Err(error) = clear_profile_consumption(agent_id, profile_id, active) {
+                            result = Err(error);
+                            break;
+                        }
+                    }
+                    result
+                }
+                ModelStorageAuthority::Guided => Err("model_agent_guided".into()),
+            };
+            match result {
+                Ok(()) => clear_target_incidents(&persisted.plan, agent_id),
+                Err(_) => record_target_incident(
+                    &persisted.plan,
+                    agent_id,
+                    "target_convergence_failed",
+                ),
+            }
+        }
         LifecycleBinding::McpUpsert {
             key,
             draft_hash,
@@ -1232,6 +1292,22 @@ fn verify_operation(persisted: &PersistedAssetOperation) -> Result<(), String> {
                 .is_some_and(|records| !records.is_empty());
             if has_consumptions || has_disabled {
                 return Err("MCP clear desired state verification failed".into());
+            }
+            Ok(())
+        }
+        LifecycleBinding::ModelClear { agent_id, .. } => {
+            let settings = load_settings_strict().map_err(|error| error.to_string())?;
+            let has_consumptions = settings
+                .model_consumptions
+                .as_ref()
+                .and_then(|records| records.get(agent_id))
+                .is_some_and(|records| !records.is_empty());
+            let has_assignment = settings
+                .model_assignments
+                .as_ref()
+                .is_some_and(|records| records.contains_key(agent_id));
+            if has_consumptions || has_assignment {
+                return Err("Model clear desired state verification failed".into());
             }
             Ok(())
         }
@@ -3301,6 +3377,7 @@ fn set_private_dir(path: &Path) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::Value;
     use crate::assets::{
         plan_set_active_model, plan_set_agent_consumption, plan_set_all_mcp_enabled,
         plan_set_mcp_enabled, plan_set_model_enabled, plan_update_central_asset,
@@ -3317,6 +3394,45 @@ mod tests {
     use crate::resources::mcp::sources::cached_path;
     use crate::resources::model::save_profile;
     use crate::testenv::TestHome;
+
+    #[test]
+    fn clear_agent_models_removes_native_pi_registry_even_without_mux_relationships() {
+        let home = TestHome::new("clear-agent-models-native-pi");
+        let models = home.home.join(".pi/agent/models.json");
+        let settings = home.home.join(".pi/agent/settings.json");
+        fs::create_dir_all(models.parent().unwrap()).unwrap();
+        fs::write(
+            &models,
+            r#"{"providers":{"manual":{"models":[{"id":"external"}]}}}"#,
+        )
+        .unwrap();
+        fs::write(
+            &settings,
+            r#"{"theme":"dark","defaultProvider":"manual","defaultModel":"external"}"#,
+        )
+        .unwrap();
+
+        let plan = crate::assets::plan_clear_agent_models(
+            crate::domain::assets::PlanClearAgentModelsRequest { agent_id: "pi".into() },
+        )
+        .unwrap();
+        assert_eq!(plan.kind, AssetOperationKind::ClearModels);
+        assert!(plan.can_commit, "{:?}", plan.warnings);
+        assert!(plan.warnings.iter().any(|warning| warning.contains("external")));
+
+        let result = commit_asset_operation(AssetCommitRequest {
+            operation_id: plan.operation_id,
+            candidate_hash: plan.candidate_hash,
+        })
+        .unwrap();
+        assert!(result.converged);
+        let models: Value = serde_json::from_str(&fs::read_to_string(models).unwrap()).unwrap();
+        let settings: Value = serde_json::from_str(&fs::read_to_string(settings).unwrap()).unwrap();
+        assert_eq!(models["providers"], serde_json::json!({}));
+        assert!(settings.get("defaultProvider").is_none());
+        assert!(settings.get("defaultModel").is_none());
+        assert_eq!(settings["theme"], "dark");
+    }
 
     fn model(model: &str) -> ModelProfile {
         ModelProfile {

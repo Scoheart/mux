@@ -2,7 +2,8 @@
 
 pub use crate::domain::agents::{
     AgentCapabilitySet, AgentCapabilityView, AgentConfigurationPatch, AgentIdentityView,
-    McpAgentCapabilityView, ModelAgentCapabilityView, SkillAgentCapabilityView,
+    McpAgentCapabilityView, ModelAgentCapabilityView, ModelStorageAuthority,
+    SkillAgentCapabilityView,
 };
 use crate::domain::error::{CoreError, CoreResult};
 use std::collections::BTreeMap;
@@ -133,6 +134,7 @@ pub(crate) fn list_capabilities_with_skills(
         entry.installed |= model.installed;
         entry.capabilities.model = Some(ModelAgentCapabilityView {
             mode: model.mode,
+            storage_authority: model.storage_authority,
             installed: model.installed,
             config_paths: model.config_paths,
             assigned_profiles: model.assigned_profiles,
@@ -196,6 +198,30 @@ mod tests {
         assert_eq!(ids.len(), views.len());
         assert!(views.iter().any(|view| view.capabilities.model.is_some()));
         assert!(views.iter().any(|view| view.capabilities.skill.is_some()));
+    }
+
+    #[test]
+    fn model_capabilities_declare_one_exact_storage_authority() {
+        let views = list_capabilities().unwrap();
+        let authority = |agent_id: &str| {
+            views
+                .iter()
+                .find(|view| view.identity.id == agent_id)
+                .and_then(|view| view.capabilities.model.as_ref())
+                .map(|model| model.storage_authority)
+        };
+        for agent_id in [
+            "pi", "grok-build", "opencode", "kilo-code", "qwen-code", "crush",
+            "mistral-vibe", "hermes", "factory-droid", "goose",
+        ] {
+            assert_eq!(authority(agent_id), Some(ModelStorageAuthority::NativeRegistry));
+        }
+        for agent_id in ["claude-code", "codex"] {
+            assert_eq!(authority(agent_id), Some(ModelStorageAuthority::MuxMapping));
+        }
+        for agent_id in ["minimax-code", "qoder"] {
+            assert_eq!(authority(agent_id), Some(ModelStorageAuthority::Guided));
+        }
     }
 
     #[test]

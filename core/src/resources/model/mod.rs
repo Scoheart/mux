@@ -11,6 +11,7 @@ mod discovery;
 
 pub use discovery::{discover_provider_models, ProviderModelSummary};
 
+use crate::domain::agents::ModelStorageAuthority;
 use crate::domain::types::{
     migrate_legacy_provider_endpoints, ModelProfile, ModelProtocol, ModelProviderConfig,
     ModelProviderProtocolConfig,
@@ -1418,6 +1419,7 @@ pub struct ModelAgentView {
     pub name: String,
     /// `managed` or `guided`.
     pub mode: String,
+    pub storage_authority: ModelStorageAuthority,
     pub installed: bool,
     pub config_path: String,
     pub config_paths: Vec<String>,
@@ -2391,6 +2393,7 @@ pub fn list_agents() -> Vec<ModelAgentView> {
             id: "claude-code".into(),
             name: "Claude Code".into(),
             mode: "managed".into(),
+            storage_authority: ModelStorageAuthority::MuxMapping,
             installed: agent_installed(&["claude"], &[".claude"], &[]),
             config_path: claude_config_path,
             config_paths: claude_config_paths,
@@ -2407,6 +2410,7 @@ pub fn list_agents() -> Vec<ModelAgentView> {
             id: "codex".into(),
             name: "Codex".into(),
             mode: "managed".into(),
+            storage_authority: ModelStorageAuthority::MuxMapping,
             installed: agent_installed(&["codex"], &[".codex"], &["/Applications/Codex.app"]),
             config_path: codex_config_path,
             config_paths: codex_config_paths,
@@ -2423,6 +2427,7 @@ pub fn list_agents() -> Vec<ModelAgentView> {
             id: "grok-build".into(),
             name: "Grok Build".into(),
             mode: "managed".into(),
+            storage_authority: ModelStorageAuthority::NativeRegistry,
             installed: agent_installed(&["grok"], &[".grok"], &[]),
             config_path: grok_config_path,
             config_paths: grok_config_paths,
@@ -2443,6 +2448,7 @@ pub fn list_agents() -> Vec<ModelAgentView> {
             id: "pi".into(),
             name: "Pi".into(),
             mode: "managed".into(),
+            storage_authority: ModelStorageAuthority::NativeRegistry,
             installed: agent_installed(&["pi"], &[".pi/agent"], &[]),
             config_path: pi_config_path,
             config_paths: pi_config_paths,
@@ -2463,6 +2469,7 @@ pub fn list_agents() -> Vec<ModelAgentView> {
             id: "minimax-code".into(),
             name: "MiniMax Code".into(),
             mode: "guided".into(),
+            storage_authority: ModelStorageAuthority::Guided,
             installed: agent_installed(
                 &["mavis"],
                 &[".mavis"],
@@ -2487,6 +2494,7 @@ pub fn list_agents() -> Vec<ModelAgentView> {
             id: "qoder".into(),
             name: "Qoder".into(),
             mode: "guided".into(),
+            storage_authority: ModelStorageAuthority::Guided,
             installed: agent_installed(
                 &["qoder", "qodercli"],
                 &[".qoder"],
@@ -2561,6 +2569,7 @@ fn managed_agent_view(
         id: id.into(),
         name: name.into(),
         mode: "managed".into(),
+        storage_authority: ModelStorageAuthority::NativeRegistry,
         installed: agent_installed(commands, config_locations, &[]),
         config_path,
         config_paths,
@@ -3108,6 +3117,91 @@ pub(crate) fn apply_profile_consumption_with_credential_presence(
 /// unrelated providers and Agent policy remain untouched.
 pub fn clear_profile(agent_id: &str, profile_id: &str) -> Result<(), String> {
     clear_profile_consumption(agent_id, profile_id, true)
+}
+
+pub(crate) fn clear_all_configured_models(agent_id: &str) -> Result<(), String> {
+    clear_all_configured_models_for_targets(agent_id, &[])
+}
+
+pub(crate) fn clear_all_configured_models_for_targets(
+    agent_id: &str,
+    reviewed_targets: &[String],
+) -> Result<(), String> {
+    let authority = model_agent_capability(agent_id)
+        .ok_or_else(|| format!("unsupported model Agent: {agent_id}"))?
+        .storage_authority;
+    if authority != ModelStorageAuthority::NativeRegistry {
+        return Err(format!("model Agent {agent_id} does not use a native registry"));
+    }
+    let paths = configured_paths(agent_id)
+        .ok_or_else(|| format!("unsupported model Agent: {agent_id}"))?;
+    match agent_id {
+        "pi" => clear_all_pi(&paths[0], &paths[1]),
+        "grok-build" => clear_one_model_file(
+            &paths[0],
+            "grok-build",
+            prepare_clear_all_grok_build,
+        ),
+        "opencode" | "kilo-code" | "qwen-code" | "crush" | "mistral-vibe"
+        | "hermes" | "factory-droid" | "goose" => {
+            let reviewed = reviewed_targets
+                .iter()
+                .map(|path| expand_tilde(path))
+                .collect::<Vec<_>>();
+            let prepared = if reviewed.is_empty() {
+                adapters::prepare_clear_all(agent_id, &paths)?
+            } else {
+                adapters::prepare_clear_all_for_targets(agent_id, &paths, Some(&reviewed))?
+            };
+            commit_native_model_files(agent_id, prepared)
+        }
+        _ => Err(format!("unsupported native Model registry Agent: {agent_id}")),
+    }
+}
+
+pub(crate) fn agent_has_configured_models(agent_id: &str) -> Result<bool, String> {
+    let authority = model_agent_capability(agent_id)
+        .ok_or_else(|| format!("unsupported model Agent: {agent_id}"))?
+        .storage_authority;
+    if authority != ModelStorageAuthority::NativeRegistry {
+        return Ok(false);
+    }
+    let paths = configured_paths(agent_id)
+        .ok_or_else(|| format!("unsupported model Agent: {agent_id}"))?;
+    match agent_id {
+        "pi" => {
+            let (models_original, models_content) = prepare_clear_all_pi_models(&paths[0])?;
+            let (settings_original, settings_content) = prepare_clear_pi_settings(&paths[1])?;
+            Ok(models_original.as_deref().is_some_and(|value| value != models_content.as_str())
+                || settings_original.as_deref().is_some_and(|value| value != settings_content.as_str()))
+        }
+        "grok-build" => {
+            let (original, content) = prepare_clear_all_grok_build(&paths[0])?;
+            Ok(original.as_deref().is_some_and(|value| value != content.as_str()))
+        }
+        "opencode" | "kilo-code" | "qwen-code" | "crush" | "mistral-vibe"
+        | "hermes" | "factory-droid" | "goose" => {
+            adapters::has_configured_models(agent_id, &paths)
+        }
+        _ => Ok(false),
+    }
+}
+
+pub(crate) fn clear_all_configured_model_paths(agent_id: &str) -> Result<Vec<String>, String> {
+    let settings = crate::settings::load_settings_strict().map_err(|error| error.to_string())?;
+    let paths = configured_path_strings_checked(&settings, agent_id)?
+        .ok_or_else(|| format!("unsupported model Agent: {agent_id}"))?;
+    if agent_id != "goose" {
+        return Ok(paths);
+    }
+    let expanded = paths.iter().map(|path| expand_tilde(path)).collect::<Vec<_>>();
+    let mut targets = adapters::prepare_clear_all(agent_id, &expanded)?
+        .into_iter()
+        .map(|file| collapse_home(file.path.to_string_lossy().as_ref()))
+        .collect::<Vec<_>>();
+    targets.sort();
+    targets.dedup();
+    Ok(targets)
 }
 
 pub(crate) fn clear_profile_consumption(
@@ -3686,6 +3780,24 @@ fn prepare_clear_grok_build(
     Ok((original, document.to_string()))
 }
 
+fn prepare_clear_all_grok_build(path: &Path) -> Result<(Option<String>, String), String> {
+    let (mut document, original) = read_toml(path)?;
+    if original.is_none() {
+        return Ok((None, String::new()));
+    }
+    if document.get("models").is_some_and(|item| !item.is_table()) {
+        return Err(format!("refusing to modify {}: 'models' is not a TOML table", path.display()));
+    }
+    if document.get("model").is_some_and(|item| !item.is_table()) {
+        return Err(format!("refusing to modify {}: 'model' is not a TOML table", path.display()));
+    }
+    if let Some(defaults) = document.get_mut("models").and_then(Item::as_table_mut) {
+        defaults.remove("default");
+    }
+    document.remove("model");
+    Ok((original, document.to_string()))
+}
+
 fn pi_provider_value(profile: &ModelProfile, has_credential: bool) -> Value {
     let mut provider = serde_json::Map::from_iter([
         ("baseUrl".into(), Value::String(profile.base_url.clone())),
@@ -3792,6 +3904,23 @@ fn prepare_clear_pi_models(
             "providers",
         )?;
     }
+    Ok((original, root.to_string()))
+}
+
+fn prepare_clear_all_pi_models(path: &Path) -> Result<(Option<String>, String), String> {
+    let (root, original) = read_jsonc(path)?;
+    if original.is_none() {
+        return Ok((None, String::new()));
+    }
+    let object = json_root_object(&root, path)?;
+    ensure_unique_keys(&object, path, "$root")?;
+    set_json_property(
+        &object,
+        "providers",
+        Some(Value::Object(serde_json::Map::new())),
+        path,
+        "$root",
+    )?;
     Ok((original, root.to_string()))
 }
 
@@ -4001,6 +4130,38 @@ fn clear_pi(
     let stamp = backup_timestamp();
     backup_config(models_path, "pi-models", &stamp)?;
     backup_config(settings_path, "pi-settings", &stamp)?;
+    match (models_original.as_deref(), settings_original.as_deref()) {
+        (Some(models_before), Some(settings_before)) => write_pi_transaction(
+            models_path,
+            Some(models_before),
+            &models_content,
+            settings_path,
+            Some(settings_before),
+            &settings_content,
+        ),
+        (Some(models_before), None) => {
+            write_if_unchanged(models_path, Some(models_before), &models_content)
+        }
+        (None, Some(settings_before)) => {
+            write_if_unchanged(settings_path, Some(settings_before), &settings_content)
+        }
+        (None, None) => Ok(()),
+    }
+}
+
+fn clear_all_pi(models_path: &Path, settings_path: &Path) -> Result<(), String> {
+    let (models_original, models_content) = prepare_clear_all_pi_models(models_path)?;
+    let (settings_original, settings_content) = prepare_clear_pi_settings(settings_path)?;
+    if models_original.is_none() && settings_original.is_none() {
+        return Ok(());
+    }
+    let stamp = backup_timestamp();
+    if models_original.is_some() {
+        backup_config(models_path, "pi-models", &stamp)?;
+    }
+    if settings_original.is_some() {
+        backup_config(settings_path, "pi-settings", &stamp)?;
+    }
     match (models_original.as_deref(), settings_original.as_deref()) {
         (Some(models_before), Some(settings_before)) => write_pi_transaction(
             models_path,
@@ -4998,6 +5159,41 @@ mod tests {
 
         assert!(models_path.exists());
         assert!(!settings_path.exists());
+    }
+
+    #[test]
+    fn clearing_all_pi_models_removes_managed_and_external_entries() {
+        let th = TestHome::new("model-pi-clear-all");
+        let models_path = th.home.join(".pi/agent/models.json");
+        let settings_path = th.home.join(".pi/agent/settings.json");
+        fs::create_dir_all(models_path.parent().unwrap()).unwrap();
+        fs::write(
+            &models_path,
+            r#"{
+  "keep": { "theme": "dark" },
+  "providers": {
+    "mux-owned": { "models": [{ "id": "owned" }] },
+    "manual": { "models": [{ "id": "external" }] }
+  }
+}"#,
+        )
+        .unwrap();
+        fs::write(
+            &settings_path,
+            r#"{"theme":"dark","defaultProvider":"manual","defaultModel":"external"}"#,
+        )
+        .unwrap();
+
+        clear_all_configured_models("pi").unwrap();
+
+        let models: Value = serde_json::from_str(&fs::read_to_string(models_path).unwrap()).unwrap();
+        let settings: Value = serde_json::from_str(&fs::read_to_string(settings_path).unwrap()).unwrap();
+        assert_eq!(models["providers"], serde_json::json!({}));
+        assert_eq!(models["keep"]["theme"], "dark");
+        assert!(settings.get("defaultProvider").is_none());
+        assert!(settings.get("defaultModel").is_none());
+        assert_eq!(settings["theme"], "dark");
+        assert!(!agent_has_configured_models("pi").unwrap());
     }
 
     #[test]

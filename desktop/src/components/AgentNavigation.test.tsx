@@ -177,6 +177,7 @@ it("lists and opens a projection-only Model Agent", () => {
     capabilities: {
       model: {
         mode: "managed",
+        storage_authority: "mux-mapping",
         installed: true,
         config_paths: ["~/.model-only/config.json"],
         assigned_profiles: [],

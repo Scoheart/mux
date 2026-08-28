@@ -6,8 +6,10 @@ use super::store::{AssetStateStore, StatePrecondition, StateSubject};
 use super::types::{
     AgentConsumptionSelection, AssetOperationKind, AssetOperationPlan, AssetRef,
     CentralAssetChange, ConsumptionInventory, ConsumptionStateChange, ConsumptionStatus,
-    ConsumptionTarget, DomainPlan, McpReapplyScope, ModelConsumptionRecord, ModelStateChange,
-    ModelStateSnapshot, PlanClearAgentMcpRequest, PlanEnsureAgentConsumptionRequest,
+    ConsumptionTarget, DomainPlan, McpReapplyScope, ModelAgentSelection,
+    ModelConsumptionRecord, ModelStateChange,
+    ModelStateSnapshot, PlanClearAgentMcpRequest, PlanClearAgentModelsRequest,
+    PlanEnsureAgentConsumptionRequest,
     PlanReapplyMcpRequest, PlanReapplyModelRequest, PlanReapplySkillRequest,
     PlanRemoveAgentConsumptionRequest, PlanSetActiveModelRequest, PlanSetAgentConsumptionRequest,
     PlanSetAllMcpEnabledRequest, PlanSetAssetConsumersRequest, PlanSetMcpEnabledRequest,
@@ -18,6 +20,7 @@ use crate::agents::{
     builtin_agents, current_configuration_patch, load_agents, normalize_configuration_patch,
     AgentConfigurationPatch, SkillConfigurationPatch,
 };
+use crate::domain::agents::ModelStorageAuthority;
 use crate::domain::skill::ManagedSkillRecord;
 use crate::paths::{mux_dir, settings_file};
 use crate::resources::mcp::scanner::{collapse_home, expand_tilde};
@@ -76,6 +79,12 @@ pub(crate) struct PersistedAssetOperation {
 pub(crate) enum LifecycleBinding {
     McpClear {
         agent_id: String,
+    },
+    ModelClear {
+        agent_id: String,
+        storage_authority: ModelStorageAuthority,
+        configured_count: usize,
+        external_count: usize,
     },
     McpUpsert {
         key: String,
@@ -428,6 +437,81 @@ pub fn plan_clear_agent_mcp(
         vec![target],
         Some(LifecycleBinding::McpClear {
             agent_id: request.agent_id,
+        }),
+        &inventory,
+    )
+}
+
+pub fn plan_clear_agent_models(
+    request: PlanClearAgentModelsRequest,
+) -> Result<AssetOperationPlan, String> {
+    validate_agent_id(&request.agent_id)?;
+    require_enabled_agent(&request.agent_id)?;
+    let capability = crate::resources::model::model_agent_capability(&request.agent_id)
+        .ok_or_else(|| format!("unsupported Model Agent: {}", request.agent_id))?;
+    if capability.storage_authority == ModelStorageAuthority::Guided {
+        return Err(format!(
+            "model_agent_guided: {} must be configured inside the Agent",
+            request.agent_id
+        ));
+    }
+    let settings = load_settings_strict().map_err(|error| error.to_string())?;
+    let before = settings.model_selection(&request.agent_id);
+    let mapped_count = before.profiles.len();
+    let inventory = list_consumption_inventory()?;
+    let managed_count = inventory
+        .consumptions
+        .iter()
+        .filter(|item| item.agent_id == request.agent_id
+            && item.observed
+            && matches!(&item.asset, AssetRef::Model { .. }))
+        .count();
+    let external_count = inventory
+        .external
+        .iter()
+        .filter(|item| item.agent_id == request.agent_id && matches!(&item.asset, AssetRef::Model { .. }))
+        .count();
+    let configured_count = match capability.storage_authority {
+        ModelStorageAuthority::NativeRegistry => managed_count + external_count,
+        ModelStorageAuthority::MuxMapping => before.profiles.len(),
+        ModelStorageAuthority::Guided => unreachable!(),
+    };
+    let domain_plan = DomainPlan::Model {
+        before: BTreeMap::from([(request.agent_id.clone(), before)]),
+        after: BTreeMap::from([(
+            request.agent_id.clone(),
+            ModelAgentSelection::default(),
+        )]),
+    };
+    if configured_count == 0 && mapped_count == 0 {
+        return finalize_plan_with_inventory(
+            AssetOperationKind::ClearModels,
+            domain_plan,
+            Vec::new(),
+            Vec::new(),
+            None,
+            &inventory,
+        );
+    }
+    let target_files = if capability.storage_authority == ModelStorageAuthority::NativeRegistry {
+        crate::resources::model::clear_all_configured_model_paths(&request.agent_id)?
+    } else {
+        Vec::new()
+    };
+    finalize_plan_with_inventory(
+        AssetOperationKind::ClearModels,
+        domain_plan,
+        Vec::new(),
+        target_files,
+        Some(LifecycleBinding::ModelClear {
+            agent_id: request.agent_id,
+            storage_authority: capability.storage_authority,
+            configured_count,
+            external_count: if capability.storage_authority == ModelStorageAuthority::NativeRegistry {
+                external_count
+            } else {
+                0
+            },
         }),
         &inventory,
     )
@@ -1961,7 +2045,9 @@ fn finalize_plan_with_inventory(
     );
     let relation_target_write = matches!(
         kind,
-        AssetOperationKind::SetConsumption | AssetOperationKind::ClearMcp
+        AssetOperationKind::SetConsumption
+            | AssetOperationKind::ClearMcp
+            | AssetOperationKind::ClearModels
     ) || (!central_changes.is_empty() && !effects.is_empty())
         || matches!(
             lifecycle.as_ref(),
@@ -2038,6 +2124,17 @@ fn finalize_plan_with_inventory(
     blocked.sort();
     blocked.dedup();
     let mut warnings = observations;
+    if let Some(LifecycleBinding::ModelClear {
+        storage_authority: ModelStorageAuthority::NativeRegistry,
+        configured_count,
+        external_count,
+        ..
+    }) = lifecycle.as_ref()
+    {
+        warnings.push(format!(
+            "将删除 Agent 真实配置中的 {configured_count} 个 Model，其中 {external_count} 个是 external/手工配置"
+        ));
+    }
     warnings.extend(removal_warnings);
     warnings.extend(blocked.iter().cloned());
     warnings.sort();

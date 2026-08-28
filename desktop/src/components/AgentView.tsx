@@ -90,6 +90,7 @@ interface AgentViewProps {
 
 function completedMessage(plan: AssetOperationPlan, agentName: string) {
   if (plan.kind === "clear-mcp") return `${agentName} 的全部 MCP 已移除。`;
+  if (plan.kind === "clear-models") return `${agentName} 的全部 Model 已从权威配置中移除。`;
   const domain = plan.domain_plan.domain;
   const asset = domain === "mcp" ? "MCP" : domain === "model" ? "Model" : "Skill";
   const hasAdd = plan.relationship_changes.some((change) => change.action === "add");
@@ -240,6 +241,13 @@ export function AgentView({
   const mcpExternal = externalForAgent(inventory, agentId, "mcp");
   const skillExternal = externalForAgent(inventory, agentId, "skill");
   const modelExternal = externalForAgent(inventory, agentId, "model");
+  const authorityModelRows = modelAgent?.storage_authority === "native-registry"
+    ? modelRows.filter((item) => item.observed)
+    : modelRows;
+  const modelConfiguredCount = authorityModelRows.length + modelExternal.length;
+  const modelVisibleCount = modelAgent?.storage_authority === "native-registry"
+    ? modelConfiguredCount
+    : modelRows.length;
   const agentModelMigrationCandidates = useMemo(
     () => externalModelCandidates
       .filter((candidate) => candidate.agent_id === agentId)
@@ -248,14 +256,14 @@ export function AgentView({
     [agentId, externalModelCandidates],
   );
   const displayedModelRows = useMemo(
-    () => modelRows.map((item) => {
+    () => authorityModelRows.map((item) => {
       const profileId = item.asset.domain === "model" ? item.asset.profile_id : "";
       const current = changingModel
         ? profileId === changingModel.profileId
         : item.desired_active ?? item.active ?? false;
       return { ...item, enabled: current };
     }),
-    [changingModel, modelRows],
+    [authorityModelRows, changingModel],
   );
 
   if (!agent) return <div className="mux-agent-state">未找到该 Agent</div>;
@@ -288,7 +296,9 @@ export function AgentView({
       ? "读取失败"
       : modelAgent?.mode === "guided"
         ? "Agent 内管理"
-        : modelAgent ? `MUX 管理${modelAgent.supports_multiple ? " · 多模型" : ""}` : "未接入";
+        : modelAgent?.storage_authority === "native-registry"
+          ? `真实配置${modelAgent.supports_multiple ? " · 多模型" : ""}`
+          : modelAgent ? "MUX 映射" : "未接入";
   const skillsDescription = skillsConfigPaths.length === 0
     ? "未接入"
     : skillsState.loading
@@ -445,10 +455,7 @@ export function AgentView({
   const clearModels = async () => {
     setPreparingChange(true);
     try {
-      await consumptionState.planForAgent(agentId, {
-        domain: "model",
-        profile_ids: [],
-      });
+      await consumptionState.planClearAgentModels(agentId);
     } catch (error) {
       showToast({ kind: "error", msg: "无法准备清空 Models：" + formatError(error) });
     } finally {
@@ -656,7 +663,7 @@ export function AgentView({
           onChange={setResourceTab}
           counts={{
             mcps: mcpRows.length + mcpExternal.length,
-            models: modelRows.length + modelExternal.length,
+            models: modelVisibleCount,
             skills: skillRows.length + skillExternal.length,
           }}
         >
@@ -752,15 +759,19 @@ export function AgentView({
                 <AgentConsumptionPanel
                   domain="model"
                   title="Models"
-                  description={`${modelRows.length} 个已添加${modelAgent.supports_multiple ? " · 同一时间使用其中一个" : ""}`}
+                  description={modelAgent.storage_authority === "native-registry"
+                    ? `配置中 ${modelVisibleCount} 个${modelAgent.supports_multiple ? " · 同一时间使用其中一个" : ""}`
+                    : `MUX 管理 ${modelVisibleCount} 个`}
                   manageLabel="添加 Model"
                   rows={displayedModelRows}
                   columns={3}
-                  external={modelExternal}
+                  external={modelAgent.storage_authority === "native-registry" ? modelExternal : []}
                   externalMode="cards"
-                  bulkRemoveLabel="清空 Models"
-                  bulkRemoveTitle={`移除 ${agent.name} 已添加的全部 Model`}
-                  bulkRemoveDisabled={modelRows.length === 0
+                  bulkRemoveLabel="清空全部 Models"
+                  bulkRemoveTitle={modelAgent.storage_authority === "native-registry"
+                    ? `清空 ${agent.name} 真实配置中的全部 Model，包括外部和手工配置；中央资产与凭据保留`
+                    : `清空 ${agent.name} 的全部 MUX Model 映射；中央资产与凭据保留`}
+                  bulkRemoveDisabled={modelVisibleCount === 0
                     || preparingChange
                     || consumptionState.committing
                     || changingModel !== null}

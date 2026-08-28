@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.8.148](https://github.com/Scoheart/mux/compare/v1.8.147...v1.8.148) (2026-08-28)
+
+### Changes
+
+* fix(models): unify add model copy (#140) ([ebc0af7](https://github.com/Scoheart/mux/commit/ebc0af773a130e2cdfe7635128f19f3c8cfd052d))
+
+## [1.8.147](https://github.com/Scoheart/mux/compare/v1.8.146...v1.8.147) (2026-08-28)
+
+### Changes
+
+* feat(models): show context size on model cards (#138) ([a97b63b](https://github.com/Scoheart/mux/commit/a97b63bf4036b917ec9f020dfb52ee43b99c787c))
+
 ## [1.8.146](https://github.com/Scoheart/mux/compare/v1.8.145...v1.8.146) (2026-08-28)
 
 ### Changes

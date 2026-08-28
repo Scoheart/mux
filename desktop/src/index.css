@@ -908,7 +908,12 @@ body {
 .mux-model-list-subline code {
   min-width: 0; overflow: hidden; color: inherit; font: inherit; text-overflow: ellipsis; white-space: nowrap;
 }
-.mux-model-list-context { flex: 0 0 auto; color: var(--text-tertiary); font: inherit; }
+.mux-model-list-context {
+  display: inline-flex; flex: 0 0 auto; align-items: baseline; gap: 4px; padding: 2px 6px;
+  border-radius: 999px; background: var(--surface-control); color: var(--text-tertiary);
+  font: 8px/1 var(--font-sans); letter-spacing: .01em;
+}
+.mux-model-list-context strong { color: var(--text-secondary); font: 650 9px/1 var(--font-mono); }
 .mux-skill-workspace .mux-asset-list-copy > .mux-skill-list-description { font-family: var(--font-sans); line-height: 1.3; }
 .mux-skill-workspace :is(.mux-skill-list-risk, .mux-skill-list-update) { display: flex; min-width: 0; align-items: center; }
 @container resource-stage (max-width: 780px) {

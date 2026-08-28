@@ -18,6 +18,9 @@ import { ToastProvider } from "./Toast";
 const apiMocks = vi.hoisted(() => ({
   listModelAgents: vi.fn().mockResolvedValue([]),
   listModelProfiles: vi.fn().mockResolvedValue([]),
+  listMcpIconPreferences: vi.fn().mockResolvedValue({
+    "github::stdio": { kind: "builtin", value: "database" },
+  }),
 }));
 const openerMocks = vi.hoisted(() => ({
   openPath: vi.fn().mockResolvedValue(undefined),
@@ -307,6 +310,8 @@ it("toggles one or every managed MCP without opening the review panel", async ()
       agentId={mcpAgent.id}
     />,
   );
+
+  await waitFor(() => expect(document.querySelector('[data-mcp-icon="database"]')).not.toBeNull());
 
   await userEvent.click(await screen.findByRole("switch", { name: "停用 github" }));
   await waitFor(() => expect(setMcpEnabled).toHaveBeenCalledWith(

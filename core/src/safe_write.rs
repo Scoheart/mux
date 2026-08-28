@@ -1592,6 +1592,62 @@ fn write_private_new_file(path: &Path, bytes: &[u8]) -> Result<(), String> {
     result
 }
 
+pub(crate) fn ensure_private_file(path: &Path, bytes: &[u8]) -> Result<(), String> {
+    let parent = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    create_private_directory_all_durable(parent)?;
+    match fs::symlink_metadata(path) {
+        Ok(metadata) => {
+            if metadata.file_type().is_symlink() || !metadata.is_file() {
+                return Err(format!(
+                    "asset_target_unsafe: managed icon is not a regular file: {}",
+                    path.display()
+                ));
+            }
+            #[cfg(unix)]
+            let mut file = {
+                use rustix::fs::{open, Mode, OFlags};
+                use std::os::unix::fs::{MetadataExt, PermissionsExt};
+                let file = open(
+                    path,
+                    OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+                    Mode::empty(),
+                )
+                .map(fs::File::from)
+                .map_err(|error| format!("failed to open {} safely: {error}", path.display()))?;
+                let metadata = file
+                    .metadata()
+                    .map_err(|error| format!("failed to inspect {}: {error}", path.display()))?;
+                if !metadata.is_file() || metadata.nlink() != 1 {
+                    return Err(format!(
+                        "asset_target_unsafe: managed icon has multiple links: {}",
+                        path.display()
+                    ));
+                }
+                file.set_permissions(fs::Permissions::from_mode(0o600))
+                    .map_err(|error| format!("failed to secure {}: {error}", path.display()))?;
+                file
+            };
+            #[cfg(not(unix))]
+            let mut file = OpenOptions::new()
+                .read(true)
+                .open(path)
+                .map_err(|error| format!("failed to open {}: {error}", path.display()))?;
+            let mut existing = Vec::new();
+            file.read_to_end(&mut existing)
+                .map_err(|error| format!("failed to read {}: {error}", path.display()))?;
+            if existing != bytes {
+                return Err("managed icon hash collision".into());
+            }
+            Ok(())
+        }
+        Err(error) if error.kind() == ErrorKind::NotFound => write_private_new_file(path, bytes),
+        Err(error) => Err(format!("failed to inspect {}: {error}", path.display())),
+    }
+}
+
 #[cfg(not(unix))]
 fn write_private_replace_file(path: &Path, bytes: &[u8]) -> Result<(), String> {
     let metadata = fs::symlink_metadata(path)

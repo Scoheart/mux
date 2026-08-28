@@ -4,6 +4,7 @@ import { openPath, openUrl } from "@tauri-apps/plugin-opener";
 import type { InstallState } from "../hooks/useInstallState";
 import type { SkillsState } from "../hooks/useSkillsState";
 import type { ConsumptionState } from "../hooks/useConsumptionState";
+import { useMcpIconPreferences } from "../hooks/useMcpIconPreferences";
 import type {
   AgentConsumptionSelection,
   AssetOperationPlan,
@@ -45,6 +46,7 @@ import { AssetOperationReviewDialog } from "./AssetOperationReviewDialog";
 import { mergeAgentInfos } from "../lib/agentCapabilities";
 import { SkillReviewDialog } from "./SkillReviewDialog";
 import { useTranslation } from "react-i18next";
+import { McpAvatar } from "./McpIcon";
 
 type PickerDomain = "mcp" | "model" | "skill";
 type ConfigLocationKind = "file" | "folder";
@@ -125,6 +127,7 @@ export function AgentView({
   const { t } = useTranslation();
   const { entries, refreshAgents } = state;
   const { show: showToast } = useToast();
+  const mcpIcons = useMcpIconPreferences();
   const [editingAgent, setEditingAgent] = useState(false);
   const [pickerDomain, setPickerDomain] = useState<PickerDomain | null>(null);
   const [modelProfiles, setModelProfiles] = useState<ModelProfileView[]>([]);
@@ -358,6 +361,12 @@ export function AgentView({
             id: keyOf(entry),
             name: entry.name,
             description: entry.description,
+            icon: <McpAvatar
+              assetKey={keyOf(entry)}
+              entry={entry}
+              preference={mcpIcons.preferences[keyOf(entry)]}
+              size={28}
+            />,
             meta: <TransportMark transport={transportOf(entry)} />,
           })),
       };
@@ -723,10 +732,16 @@ export function AgentView({
               present={(asset) => {
                 const key = asset.domain === "mcp" ? asset.key : "";
                 const entry = entries.find((candidate) => keyOf(candidate) === key);
+                const iconEntry = entry ?? {
+                  name: key.replace(/::(?:stdio|http)$/, ""),
+                  description: "",
+                  tags: [],
+                  config: {},
+                };
                 return {
-                  name: entry?.name ?? key.replace(/::(?:stdio|http)$/, ""),
+                  name: iconEntry.name,
                   description: entry?.description?.trim() || undefined,
-                  icon: <Avatar seed={entry?.name ?? key} kind="mcp" size={28} />,
+                  icon: <McpAvatar assetKey={key} entry={iconEntry} preference={mcpIcons.preferences[key]} size={28} />,
                   meta: <TransportMark transport={entry ? transportOf(entry) : key.split("::").at(-1) ?? ""} />,
                 };
               }}

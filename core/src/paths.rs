@@ -33,6 +33,10 @@ pub fn mcp_sources_dir() -> PathBuf {
     mcp_assets_dir().join("sources")
 }
 
+pub fn mcp_icons_dir() -> PathBuf {
+    assets_dir().join("mcp-icons")
+}
+
 pub fn model_assets_dir() -> PathBuf {
     assets_dir().join("models")
 }

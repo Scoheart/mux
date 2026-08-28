@@ -20,6 +20,7 @@ import type {
   ModelProviderView,
   ProviderModelSummary,
   ModelProfileView,
+  McpIconPreferences,
   ModelProviderInstanceView,
   OperationPlan,
   OperationCommitResult,
@@ -167,6 +168,14 @@ export const getUiLocale = () =>
   invoke<"zh-CN" | "en-US" | null>("get_ui_locale");
 export const setUiLocale = (locale: "zh-CN" | "en-US" | null) =>
   invoke<"zh-CN" | "en-US" | null>("set_ui_locale", { locale });
+export const listMcpIconPreferences = () =>
+  invoke<McpIconPreferences>("list_mcp_icon_preferences");
+export const setMcpBuiltinIcon = (assetKey: string, iconId: string) =>
+  invoke<McpIconPreferences>("set_mcp_builtin_icon", { assetKey, iconId });
+export const importMcpIconDialog = (assetKey: string) =>
+  invoke<McpIconPreferences | null>("import_mcp_icon_dialog", { assetKey });
+export const resetMcpIcon = (assetKey: string) =>
+  invoke<McpIconPreferences>("reset_mcp_icon", { assetKey });
 export const getProxySettings = () =>
   invoke<ProxySettings>("get_proxy_settings");
 export const setProxySettings = (proxyUrl: string | null) =>

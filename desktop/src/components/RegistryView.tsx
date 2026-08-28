@@ -2,10 +2,11 @@ import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import type { InstallState } from "../hooks/useInstallState";
 import type { ConsumptionState } from "../hooks/useConsumptionState";
-import type { RegistryEntry, RegistryOrigin, CatalogItem, ResourceNavigationIntent } from "../lib/types";
+import type { McpIconPreference, RegistryEntry, RegistryOrigin, CatalogItem, ResourceNavigationIntent } from "../lib/types";
 import { keyOf, transportOf } from "../lib/mcp";
 import { observedAgentIdsForAsset } from "../lib/consumption";
 import { exportEffectiveDialog } from "../lib/api";
+import { useMcpIconPreferences } from "../hooks/useMcpIconPreferences";
 import { formatError } from "../lib/format";
 import { redactSensitiveConfig } from "../lib/resourceWorkspace";
 import { openUrl } from "@tauri-apps/plugin-opener";
@@ -21,10 +22,12 @@ import {
   FolderIcon,
   LayersIcon,
   PackageIcon,
+  SparklesIcon,
   TrashIcon,
 } from "./icons";
-import { Avatar, Badge, IconButton, TransportPill } from "./ui";
-import { ResourceKindIcon } from "./ResourceCard";
+import { Badge, IconButton, TransportPill } from "./ui";
+import { McpAvatar } from "./McpIcon";
+import { McpIconPickerDialog } from "./McpIconPickerDialog";
 import { ResourceState } from "./ResourceState";
 import { useToast } from "./Toast";
 import { PasteConfigDialog } from "./PasteConfigDialog";
@@ -146,6 +149,7 @@ export function RegistryView({ state, consumptionState, intent, onIntentConsumed
   const { t } = useTranslation();
   const { catalog, entries, sources } = state;
   const toast = useToast();
+  const mcpIcons = useMcpIconPreferences();
   const [minimumSkeleton, setMinimumSkeleton] = useState(state.loading);
 
   const [q, setQ] = useState("");
@@ -153,6 +157,7 @@ export function RegistryView({ state, consumptionState, intent, onIntentConsumed
   const [detail, setDetail] = useState<CatalogItem | null>(null);
   const [editingDetail, setEditingDetail] = useState(false);
   const [pasteOpen, setPasteOpen] = useState(false);
+  const [iconPickerEntry, setIconPickerEntry] = useState<RegistryEntry | null>(null);
   const lastConsumedIntentId = useRef<number | null>(null);
   const agentsForServer = useCallback(
     (key: string) => observedAgentIdsForAsset(
@@ -338,6 +343,7 @@ export function RegistryView({ state, consumptionState, intent, onIntentConsumed
             consumptionState={consumptionState}
             name={detail.entry.name}
             entry={detail.entry}
+            iconPreference={mcpIcons.preferences[keyOf(detail.entry)]}
             transport={transportOf(detail.entry)}
             presentation="inspector"
             onBack={closeDetail}
@@ -345,6 +351,7 @@ export function RegistryView({ state, consumptionState, intent, onIntentConsumed
         ) : detail ? (
           <RegistryDetail
             entry={detail.entry}
+            iconPreference={mcpIcons.preferences[keyOf(detail.entry)]}
             overriddenBy={
               detail.in_effect
                 ? undefined
@@ -354,6 +361,7 @@ export function RegistryView({ state, consumptionState, intent, onIntentConsumed
             sourceName={sourceName}
             onClose={closeDetail}
             onCopy={() => copyConfig(detail.entry)}
+            onCustomizeIcon={() => setIconPickerEntry(detail.entry)}
             onEdit={
               consumptionState
                 ? () => setEditingDetail(true)
@@ -427,6 +435,7 @@ export function RegistryView({ state, consumptionState, intent, onIntentConsumed
             >
               <RegistryCard
                 item={item}
+                iconPreference={mcpIcons.preferences[keyOf(item.entry)]}
                 selected={detail === item}
                 installedAgents={agentsForServer(keyOf(item.entry))}
                 sourceName={sourceName}
@@ -442,18 +451,31 @@ export function RegistryView({ state, consumptionState, intent, onIntentConsumed
 
       {pasteOpen && <PasteConfigDialog state={state} onClose={() => setPasteOpen(false)} />}
       </ResourceWorkspace>
+      {iconPickerEntry && (
+        <McpIconPickerDialog
+          assetKey={keyOf(iconPickerEntry)}
+          entry={iconPickerEntry}
+          preference={mcpIcons.preferences[keyOf(iconPickerEntry)]}
+          onSelectBuiltin={(iconId) => mcpIcons.selectBuiltin(keyOf(iconPickerEntry), iconId)}
+          onUpload={() => mcpIcons.upload(keyOf(iconPickerEntry))}
+          onReset={() => mcpIcons.reset(keyOf(iconPickerEntry))}
+          onClose={() => setIconPickerEntry(null)}
+        />
+      )}
     </div>
   );
 }
 
 function RegistryCard({
   item,
+  iconPreference,
   selected,
   installedAgents,
   sourceName,
   onOpen,
 }: {
   item: CatalogItem;
+  iconPreference?: McpIconPreference;
   selected: boolean;
   installedAgents: string[];
   sourceName: (id: string) => string;
@@ -479,7 +501,7 @@ function RegistryCard({
       onClick={onOpen}
     >
       <span className="mux-asset-list-identity">
-        <ResourceKindIcon kind="mcp" seed={entry.name} />
+        <McpAvatar assetKey={keyOf(entry)} entry={entry} preference={iconPreference} />
         <span className="mux-asset-list-copy">
           <strong title={entry.name}>{entry.name}</strong>
           <code title={ep.text}>{ep.text}</code>
@@ -500,28 +522,33 @@ function RegistryCard({
 
 function RegistryDetail({
   entry,
+  iconPreference,
   overriddenBy,
   installedAgents,
   sourceName,
   onClose,
   onCopy,
+  onCustomizeIcon,
   onEdit,
   onDelete,
 }: {
   entry: RegistryEntry;
+  iconPreference?: McpIconPreference;
   overriddenBy?: string;
   installedAgents: string[];
   sourceName: (id: string) => string;
   onClose: () => void;
   onCopy: () => void;
+  onCustomizeIcon: () => void;
   onEdit?: () => void;
   onDelete?: () => void;
 }) {
+  const { t } = useTranslation();
   const endpoint = endpointOf(entry);
   return (
     <ResourceInspector
       title={entry.name}
-      avatar={<Avatar seed={entry.name} kind="mcp" size={40} />}
+      avatar={<McpAvatar assetKey={keyOf(entry)} entry={entry} preference={iconPreference} size={40} />}
       subtitle={
         <div className="flex items-center gap-1.5">
           <TransportPill entry={entry} />
@@ -538,6 +565,10 @@ function RegistryDetail({
             </button>
           )}
           <div className="flex-1" />
+          <button onClick={onCustomizeIcon} className="btn-ghost">
+            <SparklesIcon className="w-4 h-4" />
+            {t("mcpIcons.action")}
+          </button>
           <button onClick={onCopy} className="btn-ghost">
             <CopyIcon className="w-4 h-4" />
             复制

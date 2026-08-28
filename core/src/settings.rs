@@ -37,12 +37,22 @@ pub const SETTINGS_VERSION: u32 = 6;
 const ASSET_CATALOG_VERSION: u32 = 1;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+pub struct McpIconPreference {
+    pub kind: String,
+    pub value: String,
+    #[serde(flatten)]
+    pub extra: BTreeMap<String, Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
 pub struct UiSettings {
     #[serde(default)]
     pub pinned_agents: Vec<String>,
     /// Desktop language override. Missing means follow the operating system.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub locale: Option<String>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub mcp_icons: BTreeMap<String, McpIconPreference>,
     #[serde(flatten)]
     pub extra: BTreeMap<String, Value>,
 }

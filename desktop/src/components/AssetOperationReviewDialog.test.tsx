@@ -94,33 +94,31 @@ it("presents Agent assignment as a direct add action", () => {
   expect(screen.queryByText(/desired relationship/)).not.toBeInTheDocument();
 });
 
-it("never renders a confirmation view for clearing all Agent MCPs", () => {
-  const plan = assetOperationPlanFixture();
-  plan.kind = "clear-mcp";
-  plan.domain_plan = { domain: "mcp", before: {}, after: {} };
-  plan.relationship_changes = [{
-    agent_id: "qoder",
-    asset: { domain: "mcp", key: "managed::stdio" },
-    action: "remove",
-  }];
-  plan.affected_agent_ids = ["qoder"];
-  plan.target_files = ["~/.qoder/mcp.json"];
-  const onCommit = vi.fn();
+it.each(["clear-mcp", "clear-models"] as const)(
+  "never renders the generic confirmation view for %s",
+  (kind) => {
+    const plan = assetOperationPlanFixture();
+    plan.kind = kind;
+    plan.domain_plan = kind === "clear-mcp"
+      ? { domain: "mcp", before: {}, after: {} }
+      : { domain: "model", before: {}, after: {} };
+    const onCommit = vi.fn();
 
-  const { container } = render(
-    <AssetOperationReviewDialog
-      plan={plan}
-      busy={false}
-      agentId="qoder"
-      agentName="Qoder Desktop"
-      onCommit={onCommit}
-      onCancel={vi.fn()}
-    />,
-  );
+    const { container } = render(
+      <AssetOperationReviewDialog
+        plan={plan}
+        busy={false}
+        agentId="pi"
+        agentName="Pi Coding Agent"
+        onCommit={onCommit}
+        onCancel={vi.fn()}
+      />,
+    );
 
-  expect(container).toBeEmptyDOMElement();
-  expect(onCommit).not.toHaveBeenCalled();
-});
+    expect(container).toBeEmptyDOMElement();
+    expect(onCommit).not.toHaveBeenCalled();
+  },
+);
 
 it("shows an MCP enabled-state change separately from relationship changes", () => {
   const plan = assetOperationPlanFixture();

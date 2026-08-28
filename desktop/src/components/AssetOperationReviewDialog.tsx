@@ -260,7 +260,7 @@ export function AssetOperationReviewDialog({
   onCancel(): Promise<unknown> | unknown;
 }) {
   const headingId = useId();
-  if (plan.kind === "clear-mcp") return null;
+  if (plan.kind === "clear-mcp" || plan.kind === "clear-models") return null;
   const isConfiguration = plan.kind === "update-configuration";
   const isAgentSkillPlan = Boolean(
     agentId && agentName && plan.kind === "set-consumption" && plan.domain_plan.domain === "skill",

@@ -266,7 +266,7 @@ it("enriches an OpenRouter list row without overriding user token limits", async
   await waitFor(() => expect(within(card).getByText("Qwen3")).toBeVisible());
   expect(within(card).getByText("qwen/qwen3")).toBeVisible();
   expect(within(card).queryByText("OpenRouter")).not.toBeInTheDocument();
-  expect(within(card).getByText("200K")).toBeVisible();
+  expect(within(card).getByLabelText("上下文 200K")).toHaveTextContent("上下文 200K");
   expect(within(card).queryByText("262.1K")).not.toBeInTheDocument();
   expect(within(card).queryByText("$0.2/M 输入")).not.toBeInTheDocument();
   expect(within(card).queryByText("推理")).not.toBeInTheDocument();
@@ -945,15 +945,17 @@ it("discovers provider models when creating and keeps manual Model ID input auth
   await user.click(screen.getByRole("option", { name: /Claude Sonnet 4.*anthropic\/claude-sonnet-4/ }));
   expect(modelId).toHaveValue("anthropic/claude-sonnet-4");
   expect(screen.getByLabelText("名称（可选）")).toHaveValue("");
-  expect(screen.getByLabelText("上下文窗口")).toHaveValue(null);
+  expect(screen.getByLabelText("上下文窗口")).toHaveValue(200000);
 
   await user.clear(modelId);
   await user.type(modelId, "my-private-model-id");
+  expect(screen.getByLabelText("上下文窗口")).toHaveValue(null);
   await user.click(screen.getByRole("button", { name: "保存" }));
   await waitFor(() => expect(planUpdate).toHaveBeenCalledWith(expect.objectContaining({
     profile: expect.objectContaining({
       provider_id: "openrouter-team-a",
       model: "my-private-model-id",
+      context_window: undefined,
     }),
   })));
 });

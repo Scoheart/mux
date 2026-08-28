@@ -646,7 +646,14 @@ function ModelList({
                   <span className="mux-model-list-subline">
                     <code title={profile.model}>{profile.model}</code>
                     {contextWindow && (
-                      <span className="mux-model-list-context">· {formatTokens(contextWindow)}</span>
+                      <span
+                        className="mux-model-list-context"
+                        aria-label={`${t("models.context")} ${formatTokens(contextWindow)}`}
+                        title={`${t("models.contextWindow")}: ${contextWindow.toLocaleString()} tokens`}
+                      >
+                        <span>{t("models.context")}</span>
+                        <strong>{formatTokens(contextWindow)}</strong>
+                      </span>
                     )}
                   </span>
                 </span>
@@ -902,6 +909,7 @@ function ModelProfileDialog({
   const modelListId = useId();
   const modelDiscoveryRequests = useRef<Record<string, number>>({});
   const modelDiscoveryRequested = useRef(new Set<string>());
+  const autoContextWindow = useRef<number | null>(null);
   const activeProviderId = useRef<string | null>(draft.provider_id ?? null);
   const handledInitialProvider = useRef(false);
   const previousProviderId = useRef<string | undefined>(draft.provider_id);
@@ -1001,6 +1009,8 @@ function ModelProfileDialog({
     activeProviderId.current = provider.id;
     setModelPickerOpen(false);
     setModelDiscoveryQuery("");
+    const previousAutoContextWindow = autoContextWindow.current;
+    autoContextWindow.current = null;
     setDraft((current) => ({
       ...current,
       provider_id: provider.id,
@@ -1008,6 +1018,10 @@ function ModelProfileDialog({
       protocol,
       base_url: provider.base_url,
       env_key: provider.env_key,
+      context_window: previousAutoContextWindow !== null
+        && current.context_window === previousAutoContextWindow
+        ? undefined
+        : current.context_window,
     }));
   };
 
@@ -1124,7 +1138,16 @@ function ModelProfileDialog({
               value={draft.model}
               onChange={(event) => {
                 const model = event.currentTarget.value;
-                setDraft((current) => ({ ...current, model }));
+                const previousAutoContextWindow = autoContextWindow.current;
+                autoContextWindow.current = null;
+                setDraft((current) => ({
+                  ...current,
+                  model,
+                  context_window: previousAutoContextWindow !== null
+                    && current.context_window === previousAutoContextWindow
+                    ? undefined
+                    : current.context_window,
+                }));
                 setModelDiscoveryQuery(model);
                 if (activeModelDiscovery?.status === "success") setModelPickerOpen(true);
               }}
@@ -1181,7 +1204,20 @@ function ModelProfileDialog({
                   key={model.id}
                   onMouseDown={(event) => event.preventDefault()}
                   onClick={() => {
-                    setDraft((current) => ({ ...current, model: model.id }));
+                    const previousAutoContextWindow = autoContextWindow.current;
+                    const nextAutoContextWindow = model.context_length && model.context_length > 0
+                      ? model.context_length
+                      : null;
+                    autoContextWindow.current = nextAutoContextWindow;
+                    setDraft((current) => ({
+                      ...current,
+                      model: model.id,
+                      context_window: nextAutoContextWindow
+                        ?? (previousAutoContextWindow !== null
+                          && current.context_window === previousAutoContextWindow
+                          ? undefined
+                          : current.context_window),
+                    }));
                     setModelDiscoveryQuery("");
                     setModelPickerOpen(false);
                   }}
@@ -1224,10 +1260,14 @@ function ModelProfileDialog({
             min={1}
             className="mux-model-field"
             value={draft.context_window ?? ""}
-            onChange={(event) => setDraft({
-              ...draft,
-              context_window: event.target.value ? Number(event.target.value) : undefined,
-            })}
+            onChange={(event) => {
+              const value = event.currentTarget.value;
+              autoContextWindow.current = null;
+              setDraft((current) => ({
+                ...current,
+                context_window: value ? Number(value) : undefined,
+              }));
+            }}
           />
         </label>
         <label>

@@ -1039,6 +1039,7 @@ it("plans one reviewed empty Model selection when clearing an Agent", async () =
     },
   ];
   const plan = assetOperationPlanFixture();
+  plan.kind = "clear-models";
   plan.domain_plan = {
     domain: "model",
     before: {
@@ -1077,6 +1078,7 @@ it("plans one reviewed empty Model selection when clearing an Agent", async () =
   ];
   const planClearAgentModels = vi.fn().mockResolvedValue(plan);
   const commit = vi.fn();
+  const cancel = vi.fn();
   const inventory = {
     revision: "models",
     observed_at: "2026-08-27T00:00:00Z",
@@ -1091,6 +1093,7 @@ it("plans one reviewed empty Model selection when clearing an Agent", async () =
     committing: false,
     planClearAgentModels,
     commit,
+    cancel,
   } as unknown as ConsumptionState;
   const taskSkillsState = {
     ...skillsState,
@@ -1121,6 +1124,39 @@ it("plans one reviewed empty Model selection when clearing an Agent", async () =
     expect(planClearAgentModels).toHaveBeenCalledWith("pi");
   });
   expect(commit).not.toHaveBeenCalled();
+
+  view.rerender(
+    <ToastProvider>
+      <AgentView
+        state={{ ...state, agents: [piAgent] } as unknown as InstallState}
+        skillsState={taskSkillsState}
+        consumptionState={{ ...consumptionState, plan }}
+        agentId="pi"
+      />
+    </ToastProvider>,
+  );
+  expect(screen.getByText("配置中 3 个 · 同一时间使用其中一个")).toBeVisible();
+  const dialog = screen.getByRole("dialog", { name: "清空全部 Models？" });
+  expect(dialog.closest('[data-modal-overlay="true"]')).not.toBeNull();
+  expect(within(dialog).getByText("将删除 3 个 Models")).toBeVisible();
+  expect(within(dialog).queryByText(/models\.json|settings\.json|external|检查并应用/)).not.toBeInTheDocument();
+
+  await userEvent.click(within(dialog).getByRole("button", { name: "清空" }));
+  await waitFor(() => expect(commit).toHaveBeenCalledTimes(1));
+
+  view.rerender(
+    <ToastProvider>
+      <AgentView
+        state={{ ...state, agents: [piAgent] } as unknown as InstallState}
+        skillsState={taskSkillsState}
+        consumptionState={{ ...consumptionState, plan }}
+        agentId="pi"
+      />
+    </ToastProvider>,
+  );
+  const cancelDialog = screen.getByRole("dialog", { name: "清空全部 Models？" });
+  await userEvent.click(within(cancelDialog).getByRole("button", { name: "取消" }));
+  expect(cancel).toHaveBeenCalledTimes(1);
 
   view.rerender(
     <ToastProvider>

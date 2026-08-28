@@ -43,6 +43,7 @@ import {
   type ConsumptionPickerOption,
 } from "./ConsumptionPickerDialog";
 import { AssetOperationReviewDialog } from "./AssetOperationReviewDialog";
+import { ReviewDialog } from "./ReviewDialog";
 import { mergeAgentInfos } from "../lib/agentCapabilities";
 import { SkillReviewDialog } from "./SkillReviewDialog";
 import { useTranslation } from "react-i18next";
@@ -472,6 +473,14 @@ export function AgentView({
     }
   };
 
+  const commitClearModels = async () => {
+    await consumptionState.commit();
+    showToast({
+      kind: "success",
+      msg: `${agent.name} 的全部 Model 已从权威配置中移除。`,
+    });
+  };
+
   const clearMcp = async () => {
     setPreparingChange(true);
     try {
@@ -676,7 +685,19 @@ export function AgentView({
             skills: skillRows.length + skillExternal.length,
           }}
         >
-          {consumptionState.plan && !preparingChange ? (
+          {consumptionState.plan?.kind === "clear-models" && !preparingChange && (
+            <ReviewDialog
+              title="清空全部 Models？"
+              confirmLabel="清空"
+              onConfirm={commitClearModels}
+              onClose={() => void consumptionState.cancel()}
+            >
+              <p>将删除 {modelVisibleCount} 个 Models</p>
+            </ReviewDialog>
+          )}
+          {consumptionState.plan
+            && consumptionState.plan.kind !== "clear-models"
+            && !preparingChange ? (
             <AssetOperationReviewDialog
               plan={consumptionState.plan}
               busy={consumptionState.committing}

@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.149](https://github.com/Scoheart/mux/compare/v1.8.148...v1.8.149) (2026-08-28)
+
+### Changes
+
+* fix(models): use a global clear confirmation (#139) ([2dac136](https://github.com/Scoheart/mux/commit/2dac13678b31ea18e8b8b4653ea1ae75c0a27eda))
+
 ## [1.8.148](https://github.com/Scoheart/mux/compare/v1.8.147...v1.8.148) (2026-08-28)
 
 ### Changes

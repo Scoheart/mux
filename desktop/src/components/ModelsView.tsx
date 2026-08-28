@@ -1173,16 +1173,15 @@ function ModelProfileDialog({
               </button>
             )}
           </div>
-          {providerInstance?.model_discovery_supported && activeModelDiscovery && (
+          {providerInstance?.model_discovery_supported
+            && activeModelDiscovery
+            && activeModelDiscovery.status !== "success" && (
             <div
               className="mux-provider-model-status"
               data-status={activeModelDiscovery.status}
               role="status"
             >
               {activeModelDiscovery.status === "loading" && t("models.loadingModelCatalog")}
-              {activeModelDiscovery.status === "success" && t("models.modelCatalogCount", {
-                count: activeModelDiscovery.models.length,
-              })}
               {activeModelDiscovery.status === "error" && t("models.modelCatalogError", {
                 error: activeModelDiscovery.error,
               })}
@@ -1303,8 +1302,6 @@ function ModelProfileDialog({
           })}
         />
       </div>
-
-      <small>{t("models.modelUsesProviderConnection")}</small>
     </div>
   );
 

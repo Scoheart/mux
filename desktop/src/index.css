@@ -2077,7 +2077,6 @@ body {
 .mux-provider-model-refresh:disabled { opacity: .62; cursor: wait; }
 .mux-provider-model-refresh[aria-busy="true"] svg { animation: spin .8s linear infinite; }
 .mux-provider-model-status { min-height: 13px; margin-top: 5px; color: var(--text-tertiary); font-size: 9px; line-height: 1.45; overflow-wrap: anywhere; }
-.mux-provider-model-status[data-status="success"] { color: var(--text-secondary); }
 .mux-provider-model-status[data-status="error"] { color: var(--color-red); }
 .mux-provider-model-options {
   position: absolute; z-index: 620; top: calc(100% + 5px); right: 0; left: 0;

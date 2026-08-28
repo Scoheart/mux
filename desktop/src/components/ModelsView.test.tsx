@@ -932,7 +932,8 @@ it("discovers provider models when creating and keeps manual Model ID input auth
 
   await user.click(await screen.findByRole("button", { name: "添加模型" }));
   await waitFor(() => expect(api.discoverProviderModels).toHaveBeenCalledWith("openrouter-team-a"));
-  expect(await screen.findByText("找到 2 个模型")).toBeVisible();
+  expect(await screen.findByRole("option", { name: /Claude Sonnet 4.*anthropic\/claude-sonnet-4/ })).toBeVisible();
+  expect(screen.queryByText("找到 2 个模型")).not.toBeInTheDocument();
 
   const modelId = screen.getByRole("combobox", { name: "模型 ID" });
   const modelPicker = modelId.closest(".mux-provider-model-picker");

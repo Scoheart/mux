@@ -281,7 +281,6 @@ const zhCN = {
     modelId: "模型 ID",
     refreshModelCatalog: "刷新模型列表",
     loadingModelCatalog: "正在获取模型列表…",
-    modelCatalogCount: "找到 {{count}} 个模型",
     modelCatalogError: "无法获取模型列表：{{error}}",
     modelCatalogSuggestions: "可用模型",
     noModelCatalogMatches: "没有匹配的模型；仍可直接输入 Model ID。",
@@ -327,7 +326,6 @@ const zhCN = {
     editTitle: "编辑模型",
     createTitle: "添加模型",
     modelRelationshipSubtitle: "模型必须引用一个 Provider；连接与凭据由 Provider 统一管理。",
-    modelUsesProviderConnection: "Base URL、Endpoint Path、环境变量和 API Key 均继承自所选 Provider。",
     keychainSubtitle: "API Key 保存在 macOS Keychain。",
   },
 } as const;
@@ -609,7 +607,6 @@ const enUS: TranslationShape<typeof zhCN> = {
     modelId: "Model ID",
     refreshModelCatalog: "Refresh model list",
     loadingModelCatalog: "Fetching model list…",
-    modelCatalogCount: "Found {{count}} models",
     modelCatalogError: "Could not fetch the model list: {{error}}",
     modelCatalogSuggestions: "Available models",
     noModelCatalogMatches: "No matching models. You can still enter a Model ID directly.",
@@ -655,7 +652,6 @@ const enUS: TranslationShape<typeof zhCN> = {
     editTitle: "Edit model",
     createTitle: "Add model",
     modelRelationshipSubtitle: "Every model references a Provider; the Provider owns connection and credential settings.",
-    modelUsesProviderConnection: "Base URL, Endpoint Path, environment variable, and API Key are inherited from the selected Provider.",
     keychainSubtitle: "API Keys are stored in macOS Keychain.",
   },
 };

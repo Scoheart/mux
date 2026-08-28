@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.151](https://github.com/Scoheart/mux/compare/v1.8.150...v1.8.151) (2026-08-28)
+
+### Changes
+
+* feat(models): simplify Pi providers and model switching ([ca76717](https://github.com/Scoheart/mux/commit/ca76717a0bab22c5577253fad559d18b4fd535b8))
+
 ## [1.8.150](https://github.com/Scoheart/mux/compare/v1.8.149...v1.8.150) (2026-08-28)
 
 ### Changes

@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.146](https://github.com/Scoheart/mux/compare/v1.8.145...v1.8.146) (2026-08-28)
+
+### Changes
+
+* fix(desktop): enable the asset protocol feature (#137) ([a5619f0](https://github.com/Scoheart/mux/commit/a5619f0aa91c52b91757210f02c1d5cfb5952ae0))
+
 ## [1.8.145](https://github.com/Scoheart/mux/compare/v1.8.144...v1.8.145) (2026-08-28)
 
 ### Changes

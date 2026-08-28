@@ -138,6 +138,14 @@ pub fn plan_clear_agent_mcp(
     })
 }
 
+pub fn plan_clear_agent_models(
+    request: crate::domain::assets::PlanClearAgentModelsRequest,
+) -> Result<AssetOperationPlan, String> {
+    super::gate::prepare_for(CapabilityDomain::Model, "asset_plan", || {
+        crate::assets::plan_clear_agent_models(request)
+    })
+}
+
 pub fn plan_set_asset_consumers(
     request: PlanSetAssetConsumersRequest,
 ) -> Result<AssetOperationPlan, String> {

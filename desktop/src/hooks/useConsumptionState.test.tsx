@@ -134,6 +134,22 @@ it("clears every MCP in one Agent without exposing a review plan", async () => {
   expect(result.current.plan).toBeNull();
 });
 
+it("plans one reviewed authority-aware Model clear", async () => {
+  const { result } = renderHook(() => useConsumptionState());
+  await waitFor(() => expect(result.current.loading).toBe(false));
+
+  await act(async () => {
+    await result.current.planClearAgentModels("pi");
+  });
+
+  expect(api.planOperation).toHaveBeenCalledWith({
+    operation: "clear_agent_models",
+    request: { agent_id: "pi" },
+  });
+  expect(api.commitOperation).not.toHaveBeenCalled();
+  expect(result.current.plan).not.toBeNull();
+});
+
 it("loads the Agent capability projection independently from relationships", async () => {
   vi.mocked(api.listAgentCapabilities).mockResolvedValueOnce([{
       identity: {
@@ -148,6 +164,7 @@ it("loads the Agent capability projection independently from relationships", asy
       capabilities: {
         model: {
           mode: "managed",
+          storage_authority: "mux-mapping",
           installed: true,
           config_paths: ["~/.model-only/config.json"],
           assigned_profiles: [],

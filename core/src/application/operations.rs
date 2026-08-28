@@ -2,6 +2,7 @@
 
 use crate::domain::assets::{
     AssetCommitRequest, AssetOperationPlan, ConsumptionInventory, PlanClearAgentMcpRequest,
+    PlanClearAgentModelsRequest,
     PlanConvergeConsumptionRequest, PlanDeleteCentralAssetRequest,
     PlanEnsureAgentConsumptionRequest, PlanRemoveAgentConsumptionRequest,
     PlanSetActiveModelRequest, PlanSetAgentConsumptionRequest, PlanSetAllMcpEnabledRequest,
@@ -27,6 +28,7 @@ pub enum PlanOperationRequest {
     EnsureAgentConsumption(PlanEnsureAgentConsumptionRequest),
     RemoveAgentConsumption(PlanRemoveAgentConsumptionRequest),
     ClearAgentMcp(PlanClearAgentMcpRequest),
+    ClearAgentModels(PlanClearAgentModelsRequest),
     SetAssetConsumers(PlanSetAssetConsumersRequest),
     UpdateAssetConsumers(PlanUpdateAssetConsumersRequest),
     SetMcpEnabled(PlanSetMcpEnabledRequest),
@@ -117,6 +119,12 @@ pub fn plan(request: PlanOperationRequest) -> CoreResult<OperationPlan> {
         ClearAgentMcp(request) => OperationPlan::Asset {
             plan: Box::new(
                 super::assets::plan_clear_agent_mcp(request).map_err(super::error::from_legacy)?,
+            ),
+        },
+        ClearAgentModels(request) => OperationPlan::Asset {
+            plan: Box::new(
+                super::assets::plan_clear_agent_models(request)
+                    .map_err(super::error::from_legacy)?,
             ),
         },
         SetAssetConsumers(request) => OperationPlan::Asset {

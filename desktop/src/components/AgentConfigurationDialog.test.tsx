@@ -159,6 +159,7 @@ it("submits a Model-only Agent without inventing MCP configuration", async () =>
         id: "grok-build",
         name: "Grok Build",
         mode: "managed",
+        storage_authority: "native-registry",
         installed: true,
         config_path: "~/.grok-build/config.json",
         config_paths: ["~/.grok-build/config.json"],

@@ -398,6 +398,7 @@ it("keeps a Model-only Agent in the full resource workspace", async () => {
     capabilities: {
       model: {
         mode: "managed",
+        storage_authority: "mux-mapping",
         installed: true,
         config_paths: ["~/.model-only/config.json"],
         assigned_profiles: [],
@@ -417,6 +418,7 @@ it("keeps a Model-only Agent in the full resource workspace", async () => {
     id: modelOnlyAgent.identity.id,
     name: modelOnlyAgent.identity.name,
     mode: "managed",
+    storage_authority: "mux-mapping",
     installed: true,
     config_path: "~/.model-only/config.json",
     config_paths: ["~/.model-only/config.json"],
@@ -628,6 +630,7 @@ it("renders every external Model as its own read-only card", async () => {
     id: "opencode",
     name: "OpenCode",
     mode: "managed",
+    storage_authority: "native-registry",
     installed: true,
     config_path: "~/.config/opencode/opencode.json",
     config_paths: ["~/.config/opencode/opencode.json"],
@@ -775,6 +778,7 @@ it("uses one current-Model switch and activates a disabled backup atomically", a
     id: "pi",
     name: piAgent.name,
     mode: "managed",
+    storage_authority: "native-registry",
     installed: true,
     config_path: "~/.pi/agent/models.json + ~/.pi/agent/settings.json",
     config_paths: ["~/.pi/agent/models.json", "~/.pi/agent/settings.json"],
@@ -911,7 +915,7 @@ it("uses one current-Model switch and activates a disabled backup atomically", a
   );
 
   await userEvent.click(await screen.findByRole("tab", { name: /Models/ }));
-  expect(screen.getByText("2 个已添加 · 同一时间使用其中一个")).toBeVisible();
+  expect(screen.getByText("配置中 2 个 · 同一时间使用其中一个")).toBeVisible();
   expect(screen.queryByRole("button", { name: "设为当前" })).not.toBeInTheDocument();
   const current = screen.getByRole("switch", {
     name: "idealab 当前正在使用；请选择其他 Model 切换",
@@ -952,6 +956,7 @@ it("plans one reviewed empty Model selection when clearing an Agent", async () =
     id: "pi",
     name: piAgent.name,
     mode: "managed",
+    storage_authority: "native-registry",
     installed: true,
     config_path: "~/.pi/agent/models.json + ~/.pi/agent/settings.json",
     config_paths: ["~/.pi/agent/models.json", "~/.pi/agent/settings.json"],
@@ -1070,7 +1075,7 @@ it("plans one reviewed empty Model selection when clearing an Agent", async () =
       reason: "model_removed",
     },
   ];
-  const planForAgent = vi.fn().mockResolvedValue(plan);
+  const planClearAgentModels = vi.fn().mockResolvedValue(plan);
   const commit = vi.fn();
   const inventory = {
     revision: "models",
@@ -1084,7 +1089,7 @@ it("plans one reviewed empty Model selection when clearing an Agent", async () =
     inventory,
     plan: null,
     committing: false,
-    planForAgent,
+    planClearAgentModels,
     commit,
   } as unknown as ConsumptionState;
   const taskSkillsState = {
@@ -1103,20 +1108,17 @@ it("plans one reviewed empty Model selection when clearing an Agent", async () =
   );
 
   await userEvent.click(await screen.findByRole("tab", { name: /Models/ }));
-  expect(screen.getByText("2 个已添加 · 同一时间使用其中一个")).toBeVisible();
+  expect(screen.getByText("配置中 3 个 · 同一时间使用其中一个")).toBeVisible();
   const externalCard = screen.getByText("external-manual").closest<HTMLElement>("li");
   expect(externalCard).not.toBeNull();
   expect(within(externalCard!).queryByRole("button", { name: /移除/ })).not.toBeInTheDocument();
-  const clear = screen.getByRole("button", { name: "清空 Models" });
+  const clear = screen.getByRole("button", { name: "清空全部 Models" });
   expect(clear).toBeEnabled();
-  expect(clear).toHaveAttribute("title", "移除 Pi Coding Agent 已添加的全部 Model");
+  expect(clear).toHaveAttribute("title", expect.stringContaining("包括外部和手工配置"));
 
   await userEvent.click(clear);
   await waitFor(() => {
-    expect(planForAgent).toHaveBeenCalledWith("pi", {
-      domain: "model",
-      profile_ids: [],
-    });
+    expect(planClearAgentModels).toHaveBeenCalledWith("pi");
   });
   expect(commit).not.toHaveBeenCalled();
 
@@ -1133,5 +1135,5 @@ it("plans one reviewed empty Model selection when clearing an Agent", async () =
       />
     </ToastProvider>,
   );
-  expect(screen.getByRole("button", { name: "清空 Models" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "清空全部 Models" })).toBeEnabled();
 });

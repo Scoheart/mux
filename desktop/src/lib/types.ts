@@ -74,6 +74,7 @@ export interface AgentCapabilityView {
     } | null;
     model?: {
       mode: string;
+      storage_authority: ModelStorageAuthority;
       installed: boolean;
       config_paths: string[];
       assigned_profiles: string[];
@@ -167,10 +168,13 @@ export interface ModelProviderView {
   model_discovery_supported: boolean;
 }
 
+export type ModelStorageAuthority = "native-registry" | "mux-mapping" | "guided";
+
 export interface ModelAgentView {
   id: "claude-code" | "codex" | "pi" | "qoder" | string;
   name: string;
   mode: "managed" | "guided";
+  storage_authority: ModelStorageAuthority;
   installed: boolean;
   config_path: string;
   config_paths: string[];
@@ -677,7 +681,7 @@ export type DomainPlan =
 
 export interface AssetOperationPlan {
   operation_id: string;
-  kind: "set-consumption" | "clear-mcp" | "update-asset" | "delete-asset" | "adopt" | "update-configuration";
+  kind: "set-consumption" | "clear-mcp" | "clear-models" | "update-asset" | "delete-asset" | "adopt" | "update-configuration";
   domain_plan: DomainPlan;
   central_changes: CentralAssetChange[];
   relationship_changes: RelationshipChange[];
@@ -739,6 +743,10 @@ export type PlanOperationRequest =
     }
   | {
       operation: "clear_agent_mcp";
+      request: { agent_id: string };
+    }
+  | {
+      operation: "clear_agent_models";
       request: { agent_id: string };
     }
   | {

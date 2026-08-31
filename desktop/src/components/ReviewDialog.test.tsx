@@ -12,7 +12,11 @@ describe("ReviewDialog", () => {
       </ReviewDialog>,
     );
     expect(screen.getByText(/2 个 Agent/)).toBeVisible();
-    expect(screen.getByRole("button", { name: "删除 MCP" })).toBeVisible();
+    const dialog = screen.getByRole("dialog", { name: "删除 MCP" });
+    expect(dialog.style.width).toContain("408px");
+    expect(dialog.querySelector(".mux-review-dialog-danger")).not.toBeNull();
+    expect(dialog.querySelector(".mux-dialog-shell-leading svg")).not.toBeNull();
+    expect(screen.getByRole("button", { name: "删除 MCP" })).toHaveClass("btn-danger-solid");
   });
 
   it("keeps context open and reports a failed mutation", async () => {

@@ -15,7 +15,10 @@ const SIZE_WIDTH: Record<DialogShellSize, number> = {
 export function DialogShell({
   kind,
   size = kind === "review" ? "sm" : kind === "picker" ? "md" : "lg",
+  width,
+  className,
   borderRadius,
+  leading,
   title,
   subtitle,
   status,
@@ -28,7 +31,10 @@ export function DialogShell({
 }: {
   kind: DialogShellKind;
   size?: DialogShellSize;
+  width?: CSSProperties["width"];
+  className?: string;
   borderRadius?: CSSProperties["borderRadius"];
+  leading?: ReactNode;
   title: string;
   subtitle?: ReactNode;
   status?: ReactNode;
@@ -45,7 +51,7 @@ export function DialogShell({
 
   return (
     <Modal
-      width={`min(${SIZE_WIDTH[size]}px, calc(100vw - 32px))`}
+      width={width ?? `min(${SIZE_WIDTH[size]}px, calc(100vw - 32px))`}
       maxHeight="calc(100vh - 32px)"
       borderRadius={borderRadius}
       ariaLabel={title}
@@ -53,12 +59,13 @@ export function DialogShell({
       onClose={requestClose}
     >
       <section
-        className="mux-dialog-shell"
+        className={["mux-dialog-shell", className].filter(Boolean).join(" ")}
         data-dialog-kind={kind}
         data-dialog-size={size}
         aria-busy={busy || undefined}
       >
         <header className="mux-dialog-shell-header">
+          {leading != null && <div className="mux-dialog-shell-leading">{leading}</div>}
           <div className="mux-dialog-shell-heading">
             <h2 data-modal-title tabIndex={-1}>{title}</h2>
             {subtitle != null && <div className="mux-dialog-shell-subtitle">{subtitle}</div>}

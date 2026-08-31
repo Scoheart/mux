@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from "react";
 import { formatError } from "../lib/format";
 import { DialogShell } from "./DialogShell";
+import { TrashIcon } from "./icons";
 
 export function ReviewDialog({
   title,
@@ -38,6 +39,13 @@ export function ReviewDialog({
   return (
     <DialogShell
       kind="review"
+      width="min(408px, calc(100vw - 32px))"
+      className={`mux-review-dialog mux-review-dialog-${tone}`}
+      leading={tone === "danger" ? (
+        <span className="mux-review-dialog-glyph" aria-hidden="true">
+          <TrashIcon className="w-4 h-4" />
+        </span>
+      ) : undefined}
       title={title}
       subtitle={subtitle}
       status={error ? <div className="mux-review-error" role="alert">{error}</div> : undefined}
@@ -48,7 +56,7 @@ export function ReviewDialog({
           <button type="button" className="btn-ghost" disabled={busy} onClick={onClose}>取消</button>
           <button
             type="button"
-            className={tone === "danger" ? "btn-danger" : "btn-primary"}
+            className={tone === "danger" ? "btn-danger-solid" : "btn-primary"}
             disabled={busy}
             onClick={() => void confirm()}
           >

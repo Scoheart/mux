@@ -1095,12 +1095,15 @@ it("plans one reviewed empty Model selection when clearing an Agent", async () =
     </ToastProvider>,
   );
   expect(screen.getByText("配置中 3 个 · 同一时间使用其中一个")).toBeVisible();
-  const dialog = screen.getByRole("dialog", { name: "清空全部 Models？" });
+  const dialog = screen.getByRole("dialog", { name: "清空全部 Models" });
   expect(dialog.closest('[data-modal-overlay="true"]')).not.toBeNull();
-  expect(within(dialog).getByText("将删除 3 个 Models")).toBeVisible();
+  expect(within(dialog).getByText("Pi Coding Agent · 3 个 Models")).toBeVisible();
+  expect(within(dialog).getByText("将移除此 Agent 配置中的全部 Model")).toBeVisible();
+  expect(within(dialog).getByText("包括外部和手工配置，操作无法撤销")).toBeVisible();
+  expect(within(dialog).getByText("中央 Models、Providers 与凭据保持不变")).toBeVisible();
   expect(within(dialog).queryByText(/models\.json|settings\.json|external|检查并应用/)).not.toBeInTheDocument();
 
-  await userEvent.click(within(dialog).getByRole("button", { name: "清空" }));
+  await userEvent.click(within(dialog).getByRole("button", { name: "清空 3 个 Models" }));
   await waitFor(() => expect(commit).toHaveBeenCalledTimes(1));
 
   view.rerender(
@@ -1113,7 +1116,7 @@ it("plans one reviewed empty Model selection when clearing an Agent", async () =
       />
     </ToastProvider>,
   );
-  const cancelDialog = screen.getByRole("dialog", { name: "清空全部 Models？" });
+  const cancelDialog = screen.getByRole("dialog", { name: "清空全部 Models" });
   await userEvent.click(within(cancelDialog).getByRole("button", { name: "取消" }));
   expect(cancel).toHaveBeenCalledTimes(1);
 

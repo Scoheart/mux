@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.152](https://github.com/Scoheart/mux/compare/v1.8.151...v1.8.152) (2026-08-31)
+
+### Changes
+
+* style(desktop): refine destructive review dialogs ([570663d](https://github.com/Scoheart/mux/commit/570663d00511837a7c9e5a16202750dbfe5d5659))
+
 ## [1.8.151](https://github.com/Scoheart/mux/compare/v1.8.150...v1.8.151) (2026-08-28)
 
 ### Changes

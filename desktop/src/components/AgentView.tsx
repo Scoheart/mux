@@ -685,12 +685,19 @@ export function AgentView({
         >
           {consumptionState.plan?.kind === "clear-models" && !preparingChange && (
             <ReviewDialog
-              title="清空全部 Models？"
-              confirmLabel="清空"
+              title="清空全部 Models"
+              subtitle={`${agent.name} · ${modelVisibleCount} 个 Models`}
+              confirmLabel={`清空 ${modelVisibleCount} 个 Models`}
               onConfirm={commitClearModels}
               onClose={() => void consumptionState.cancel()}
             >
-              <p>将删除 {modelVisibleCount} 个 Models</p>
+              <div className="mux-clear-models-impact">
+                <strong>将移除此 Agent 配置中的全部 Model</strong>
+                <span>包括外部和手工配置，操作无法撤销</span>
+              </div>
+              <p className="mux-clear-models-preserved">
+                中央 Models、Providers 与凭据保持不变
+              </p>
             </ReviewDialog>
           )}
           {consumptionState.plan

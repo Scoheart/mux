@@ -553,6 +553,24 @@ body {
 .btn-secondary:disabled { opacity: .45; cursor: default; }
 .btn-danger { border: 0; background: transparent; color: var(--color-red); }
 .btn-danger:hover { background: color-mix(in srgb, var(--color-red) 9%, transparent); }
+.btn-danger-solid {
+  display: inline-flex; height: 34px; align-items: center; justify-content: center; gap: 6px;
+  padding: 0 14px; border: 0; border-radius: var(--radius-mac);
+  background: var(--color-red); color: #fff;
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--color-red) 34%, transparent);
+  font-size: 12px; font-weight: 680; line-height: 1; white-space: nowrap; cursor: pointer;
+  touch-action: manipulation;
+  transition: filter .12s ease, transform .12s ease, box-shadow .12s ease;
+}
+.btn-danger-solid:hover:not(:disabled) {
+  filter: brightness(.94);
+  box-shadow: 0 2px 5px color-mix(in srgb, var(--color-red) 28%, transparent);
+}
+.btn-danger-solid:active:not(:disabled) { transform: scale(.97); }
+.btn-danger-solid:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--color-red) 48%, transparent); outline-offset: 2px;
+}
+.btn-danger-solid:disabled { opacity: .45; cursor: default; box-shadow: none; }
 
 /* Shared search field */
 .mux-search {
@@ -1013,6 +1031,7 @@ body {
   border: 0; background: var(--surface-overlay);
 }
 .mux-dialog-shell-heading { min-width: 0; flex: 1; }
+.mux-dialog-shell-leading { display: inline-flex; flex: 0 0 auto; }
 .mux-dialog-shell-heading h2 { margin: 0; color: var(--text-primary); font-size: 15px; font-weight: 680; line-height: 1.35; }
 .mux-dialog-shell-subtitle { margin-top: 4px; color: var(--text-secondary); font-size: 11px; line-height: 1.45; }
 .mux-dialog-shell-close {
@@ -1055,6 +1074,50 @@ body {
 .mux-review-content strong { font-weight: 690; }
 .mux-review-content code { font: 10px/1.5 var(--font-mono); overflow-wrap: anywhere; }
 .mux-review-error { color: var(--color-red); font-size: 11px; line-height: 1.45; }
+.mux-dialog-shell.mux-review-dialog-danger { padding: 0; }
+.mux-review-dialog-danger .mux-dialog-shell-header {
+  min-height: 0; align-items: center; gap: 12px; padding: 20px 20px 14px;
+}
+.mux-review-dialog-danger .mux-dialog-shell-heading h2 { font-size: 16px; font-weight: 700; letter-spacing: -.01em; }
+.mux-review-dialog-danger .mux-dialog-shell-subtitle { margin-top: 3px; font-size: 10px; }
+.mux-review-dialog-danger .mux-dialog-shell-close { align-self: flex-start; background: transparent; }
+.mux-review-dialog-danger .mux-dialog-shell-close:hover:not(:disabled) { background: var(--color-gray-150); }
+.mux-review-dialog-glyph {
+  display: inline-flex; width: 38px; height: 38px; align-items: center; justify-content: center;
+  border-radius: 11px; background: color-mix(in srgb, var(--color-red) 10%, var(--surface-raised));
+  color: var(--color-red);
+}
+.mux-review-dialog-glyph svg { width: 17px; height: 17px; }
+.mux-review-dialog-danger .mux-dialog-shell-status { margin: 0 20px 10px; background: color-mix(in srgb, var(--color-red) 7%, var(--surface-raised)); }
+.mux-review-dialog-danger .mux-dialog-shell-body { padding: 4px 20px 16px; overflow: visible; overscroll-behavior: contain; }
+.mux-review-dialog-danger .mux-review-content { display: grid; gap: 10px; }
+.mux-review-dialog-danger .mux-dialog-shell-footer {
+  min-height: 0; margin: 0; padding: 14px 20px 18px;
+  border-top: 1px solid var(--border-hairline); border-radius: 0; background: transparent;
+}
+.mux-clear-models-impact {
+  display: grid; gap: 4px; padding: 12px 13px;
+  border: 1px solid color-mix(in srgb, var(--color-red) 18%, var(--border-hairline));
+  border-radius: 11px; background: color-mix(in srgb, var(--color-red) 6%, var(--surface-section));
+}
+.mux-clear-models-impact strong { color: var(--text-primary); font-size: 12px; line-height: 1.4; text-wrap: balance; }
+.mux-clear-models-impact span { color: var(--color-red); font-size: 10px; line-height: 1.45; }
+.mux-clear-models-preserved {
+  position: relative; padding-left: 13px; color: var(--text-secondary); font-size: 10px; line-height: 1.45;
+}
+.mux-clear-models-preserved::before {
+  position: absolute; top: .55em; left: 2px; width: 4px; height: 4px;
+  border-radius: 50%; background: var(--color-green); content: "";
+}
+.mux-review-dialog-danger .mux-dialog-shell-close:focus-visible,
+.mux-review-dialog-danger .btn-ghost:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--color-blue) 48%, transparent); outline-offset: 2px;
+}
+@media (max-width: 520px) {
+  .mux-review-dialog-danger .mux-dialog-shell-header { padding: 17px 17px 12px; }
+  .mux-review-dialog-danger .mux-dialog-shell-body { padding: 3px 17px 14px; }
+  .mux-review-dialog-danger .mux-dialog-shell-footer { padding: 12px 17px 16px; }
+}
 .mux-picker-search { width: 100%; min-width: 0; flex: 0 0 auto; margin-bottom: 12px; }
 .mux-picker-list {
   display: grid; width: 100%; min-width: 0; min-height: 0; max-height: min(430px, calc(100vh - 240px));

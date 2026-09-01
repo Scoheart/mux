@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.159](https://github.com/Scoheart/mux/compare/v1.8.158...v1.8.159) (2026-09-01)
+
+### Changes
+
+* fix(network): trust platform certificates (#152) ([731b6dd](https://github.com/Scoheart/mux/commit/731b6dd923910743310681a7b93c23dbdf026acc))
+
 ## [1.8.158](https://github.com/Scoheart/mux/compare/v1.8.157...v1.8.158) (2026-09-01)
 
 ### Changes

@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.156](https://github.com/Scoheart/mux/compare/v1.8.155...v1.8.156) (2026-09-01)
+
+### Changes
+
+* fix(models): normalize optional catalog URL type (#149) ([3260a4d](https://github.com/Scoheart/mux/commit/3260a4d98f6c3f20c3a9efdb5cfb7d44bda03a67))
+
 ## [1.8.155](https://github.com/Scoheart/mux/compare/v1.8.154...v1.8.155) (2026-09-01)
 
 ### Changes

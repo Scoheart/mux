@@ -46,8 +46,8 @@ struct DecodedPage {
     next_token: Option<String>,
 }
 
-pub(super) fn model_discovery_supported(provider_type: &str) -> bool {
-    discovery_spec(provider_type).is_some()
+pub(super) fn model_discovery_supported(_provider_type: &str) -> bool {
+    true
 }
 
 pub fn discover_provider_models(provider_id: &str) -> Result<Vec<ProviderModelSummary>, String> {
@@ -59,12 +59,7 @@ pub fn discover_provider_models(provider_id: &str) -> Result<Vec<ProviderModelSu
         .ok_or_else(|| {
             format!("model_provider_not_found: Provider '{provider_id}' does not exist")
         })?;
-    let spec = discovery_spec(&provider.provider).ok_or_else(|| {
-        format!(
-            "model_discovery_unsupported: Provider type '{}' does not publish a reviewed model catalog",
-            provider.provider
-        )
-    })?;
+    let spec = discovery_spec_for_provider(provider)?;
 
     let credential = read_credential(&provider_credential_subject(provider_id))
         .map(String::from_utf8)
@@ -105,7 +100,7 @@ pub fn discover_provider_models(provider_id: &str) -> Result<Vec<ProviderModelSu
     Ok(models)
 }
 
-fn discovery_spec(provider_type: &str) -> Option<DiscoverySpec> {
+fn reviewed_discovery_spec(provider_type: &str) -> Option<DiscoverySpec> {
     let adapter = match provider_type {
         "openrouter"
         | "openai"
@@ -178,6 +173,42 @@ fn discovery_spec(provider_type: &str) -> Option<DiscoverySpec> {
     Some(DiscoverySpec {
         adapter,
         credential,
+    })
+}
+
+fn discovery_spec_for_provider(
+    provider: &ModelProviderConfig,
+) -> Result<DiscoverySpec, String> {
+    if let Some(spec) = reviewed_discovery_spec(&provider.provider) {
+        return Ok(spec);
+    }
+    let adapter = if provider
+        .protocols
+        .contains_key(&ModelProtocol::OpenaiResponses)
+        || provider
+            .protocols
+            .contains_key(&ModelProtocol::OpenaiCompletions)
+    {
+        DiscoveryAdapter::OpenAi
+    } else if provider
+        .protocols
+        .contains_key(&ModelProtocol::AnthropicMessages)
+    {
+        DiscoveryAdapter::Anthropic
+    } else if provider
+        .protocols
+        .contains_key(&ModelProtocol::GeminiGenerateContent)
+    {
+        DiscoveryAdapter::Gemini
+    } else {
+        return Err(
+            "model_discovery_endpoint_invalid: Provider has no configured protocol endpoint"
+                .into(),
+        );
+    };
+    Ok(DiscoverySpec {
+        adapter,
+        credential: CredentialPolicy::Optional,
     })
 }
 
@@ -525,7 +556,7 @@ mod tests {
     use super::*;
     use crate::domain::types::{ModelProtocol, ModelProviderProtocolConfig};
     use crate::testenv::TestHome;
-    use std::collections::{BTreeMap, BTreeSet};
+    use std::collections::BTreeMap;
     use std::io::{Cursor, Read, Write};
     use std::net::TcpListener;
     use std::sync::mpsc;
@@ -649,22 +680,12 @@ mod tests {
     }
 
     #[test]
-    fn supports_exactly_the_researched_48_builtin_provider_types() {
-        let expected = EXPECTED_OPENAI_COMPATIBLE
+    fn allows_every_builtin_and_custom_provider_to_attempt_model_discovery() {
+        assert!(super::super::MODEL_PROVIDERS
             .iter()
-            .copied()
-            .chain(["anthropic", "google", "cohere", "fireworks"])
-            .collect::<BTreeSet<_>>();
-        let actual = super::super::MODEL_PROVIDERS
-            .iter()
-            .filter(|provider| model_discovery_supported(provider.id))
-            .map(|provider| provider.id)
-            .collect::<BTreeSet<_>>();
-
-        assert_eq!(actual, expected);
-        assert_eq!(actual.len(), 48);
-        for unsupported in ["github-models", "wandb", "custom"] {
-            assert!(!model_discovery_supported(unsupported));
+            .all(|provider| model_discovery_supported(provider.id)));
+        for provider_type in ["github-models", "wandb", "custom", "private-gateway"] {
+            assert!(model_discovery_supported(provider_type), "{provider_type}");
         }
     }
 
@@ -672,25 +693,25 @@ mod tests {
     fn assigns_the_expected_adapter_and_credential_policy() {
         for provider_type in EXPECTED_OPENAI_COMPATIBLE {
             assert_eq!(
-                discovery_spec(provider_type).map(|spec| spec.adapter),
+                reviewed_discovery_spec(provider_type).map(|spec| spec.adapter),
                 Some(DiscoveryAdapter::OpenAi),
                 "{provider_type}",
             );
         }
         assert_eq!(
-            discovery_spec("anthropic").map(|spec| spec.adapter),
+            reviewed_discovery_spec("anthropic").map(|spec| spec.adapter),
             Some(DiscoveryAdapter::Anthropic),
         );
         assert_eq!(
-            discovery_spec("google").map(|spec| spec.adapter),
+            reviewed_discovery_spec("google").map(|spec| spec.adapter),
             Some(DiscoveryAdapter::Gemini),
         );
         assert_eq!(
-            discovery_spec("cohere").map(|spec| spec.adapter),
+            reviewed_discovery_spec("cohere").map(|spec| spec.adapter),
             Some(DiscoveryAdapter::Cohere),
         );
         assert_eq!(
-            discovery_spec("fireworks").map(|spec| spec.adapter),
+            reviewed_discovery_spec("fireworks").map(|spec| spec.adapter),
             Some(DiscoveryAdapter::Fireworks),
         );
 
@@ -708,14 +729,61 @@ mod tests {
             "vllm",
         ] {
             assert_eq!(
-                discovery_spec(provider_type).map(|spec| spec.credential),
+                reviewed_discovery_spec(provider_type).map(|spec| spec.credential),
                 Some(CredentialPolicy::Optional),
                 "{provider_type}",
             );
         }
         assert_eq!(
-            discovery_spec("openai").map(|spec| spec.credential),
+            reviewed_discovery_spec("openai").map(|spec| spec.credential),
             Some(CredentialPolicy::Required),
+        );
+    }
+
+    #[test]
+    fn derives_optional_generic_discovery_from_custom_provider_protocols() {
+        let openai = provider(
+            "custom",
+            "https://gateway.example.test",
+            ModelProtocol::OpenaiResponses,
+            "/tenant/v1/responses",
+        );
+        let openai_spec = discovery_spec_for_provider(&openai).unwrap();
+        assert_eq!(openai_spec.adapter, DiscoveryAdapter::OpenAi);
+        assert_eq!(openai_spec.credential, CredentialPolicy::Optional);
+        assert_eq!(
+            discovery_url(&openai, openai_spec.adapter).unwrap().as_str(),
+            "https://gateway.example.test/tenant/v1/models",
+        );
+
+        let anthropic = provider(
+            "private-anthropic",
+            "https://gateway.example.test",
+            ModelProtocol::AnthropicMessages,
+            "/tenant/v1/messages",
+        );
+        let anthropic_spec = discovery_spec_for_provider(&anthropic).unwrap();
+        assert_eq!(anthropic_spec.adapter, DiscoveryAdapter::Anthropic);
+        assert_eq!(anthropic_spec.credential, CredentialPolicy::Optional);
+        assert_eq!(
+            discovery_url(&anthropic, anthropic_spec.adapter)
+                .unwrap()
+                .as_str(),
+            "https://gateway.example.test/tenant/v1/models?limit=1000",
+        );
+
+        let gemini = provider(
+            "private-gemini",
+            "https://gateway.example.test/v1beta",
+            ModelProtocol::GeminiGenerateContent,
+            "/models/{model}:generateContent",
+        );
+        let gemini_spec = discovery_spec_for_provider(&gemini).unwrap();
+        assert_eq!(gemini_spec.adapter, DiscoveryAdapter::Gemini);
+        assert_eq!(gemini_spec.credential, CredentialPolicy::Optional);
+        assert_eq!(
+            discovery_url(&gemini, gemini_spec.adapter).unwrap().as_str(),
+            "https://gateway.example.test/v1beta/models?pageSize=1000",
         );
     }
 

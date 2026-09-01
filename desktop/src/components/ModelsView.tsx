@@ -918,6 +918,7 @@ function ModelProfileDialog({
   const providerInstance = providerInstances.find(
     (provider) => provider.id === draft.provider_id,
   ) ?? null;
+  const modelDiscoveryAvailable = providerInstance !== null;
   const availableProtocols = providerInstance
     ? PROTOCOLS.filter((protocol) => Boolean(providerInstance.protocols[protocol.id]))
     : [];
@@ -938,7 +939,7 @@ function ModelProfileDialog({
 
   const loadProviderModels = useCallback(async (providerId: string, force = false) => {
     const provider = providerInstances.find((candidate) => candidate.id === providerId);
-    if (!provider?.model_discovery_supported) return;
+    if (!provider) return;
     if (!force && modelDiscoveryRequested.current.has(providerId)) return;
     modelDiscoveryRequested.current.add(providerId);
     const requestId = (modelDiscoveryRequests.current[providerId] ?? 0) + 1;
@@ -983,9 +984,7 @@ function ModelProfileDialog({
     } else if (!changed) {
       return;
     }
-    if (providerInstance.model_discovery_supported) {
-      void loadProviderModels(providerId);
-    }
+    void loadProviderModels(providerId);
   }, [initial, loadProviderModels, providerInstance]);
 
   const activeModelDiscovery = providerInstance
@@ -1131,12 +1130,12 @@ function ModelProfileDialog({
           <span>{t("models.modelId")}</span>
           <div className="mux-provider-model-input">
             <input
-              aria-autocomplete={providerInstance?.model_discovery_supported ? "list" : undefined}
-              aria-controls={providerInstance?.model_discovery_supported ? modelListId : undefined}
-              aria-expanded={providerInstance?.model_discovery_supported ? modelPickerOpen : undefined}
+              aria-autocomplete={modelDiscoveryAvailable ? "list" : undefined}
+              aria-controls={modelDiscoveryAvailable ? modelListId : undefined}
+              aria-expanded={modelDiscoveryAvailable ? modelPickerOpen : undefined}
               aria-label={t("models.modelId")}
               className="mux-model-field"
-              role={providerInstance?.model_discovery_supported ? "combobox" : undefined}
+              role={modelDiscoveryAvailable ? "combobox" : undefined}
               value={draft.model}
               onChange={(event) => {
                 const model = event.currentTarget.value;
@@ -1159,7 +1158,7 @@ function ModelProfileDialog({
               placeholder="model-name"
               spellCheck={false}
             />
-            {providerInstance?.model_discovery_supported && (
+            {providerInstance && (
               <button
                 type="button"
                 className="mux-provider-model-refresh"
@@ -1173,7 +1172,7 @@ function ModelProfileDialog({
               </button>
             )}
           </div>
-          {providerInstance?.model_discovery_supported
+          {providerInstance
             && activeModelDiscovery
             && activeModelDiscovery.status !== "success" && (
             <div
@@ -1187,7 +1186,7 @@ function ModelProfileDialog({
               })}
             </div>
           )}
-          {providerInstance?.model_discovery_supported
+          {providerInstance
             && modelPickerOpen
             && activeModelDiscovery?.status === "success" && (
             <div

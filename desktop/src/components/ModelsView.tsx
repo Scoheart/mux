@@ -1537,25 +1537,23 @@ function ModelProviderDialog({
             />
             {draft.base_url && !normalizedBaseUrl && <small>{t("models.invalidBaseUrl")}</small>}
           </label>
-          {draft.provider === "custom" && (
-            <label className="mux-provider-model-catalog-field">
-              <span>{t("models.modelCatalogUrl")}</span>
-              <input
-                aria-label={t("models.modelCatalogUrl")}
-                className="mux-model-field"
-                value={draft.model_catalog_url ?? ""}
-                onChange={(event) => setDraft({
-                  ...draft,
-                  model_catalog_url: event.currentTarget.value || undefined,
-                })}
-                placeholder="https://gateway.example.com/v1/models"
-                spellCheck={false}
-              />
-              {draft.model_catalog_url && !normalizedModelCatalogUrl && (
-                <small>{t("models.invalidModelCatalogUrl")}</small>
-              )}
-            </label>
-          )}
+          <label className="mux-provider-model-catalog-field">
+            <span>{t("models.modelCatalogUrl")}</span>
+            <input
+              aria-label={t("models.modelCatalogUrl")}
+              className="mux-model-field"
+              value={draft.model_catalog_url ?? ""}
+              onChange={(event) => setDraft({
+                ...draft,
+                model_catalog_url: event.currentTarget.value || undefined,
+              })}
+              placeholder="https://gateway.example.com/v1/models"
+              spellCheck={false}
+            />
+            {draft.model_catalog_url && !normalizedModelCatalogUrl && (
+              <small>{t("models.invalidModelCatalogUrl")}</small>
+            )}
+          </label>
         </div>
 
         <section className="mux-provider-form-section mux-provider-credential" aria-label={t("models.credentialSection")}>

@@ -41,6 +41,10 @@ pub struct ModelProviderConfig {
     pub provider: String,
     /// Shared connection root. Protocol-specific request paths live below.
     pub base_url: String,
+    /// Optional full model-catalog endpoint. When absent, MUX derives one from
+    /// the Provider protocol endpoint.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_catalog_url: Option<String>,
     /// Enabled protocols and their editable relative request paths.
     pub protocols: BTreeMap<ModelProtocol, ModelProviderProtocolConfig>,
     /// Non-secret environment variable shared by every Model on this Provider.
@@ -55,6 +59,8 @@ struct ModelProviderConfigWire {
     provider: String,
     #[serde(default)]
     base_url: String,
+    #[serde(default)]
+    model_catalog_url: Option<String>,
     #[serde(default)]
     protocols: BTreeMap<ModelProtocol, ModelProviderProtocolConfig>,
     /// Settings v3/v4 stored one protocol-client base URL per protocol.
@@ -89,6 +95,7 @@ impl<'de> Deserialize<'de> for ModelProviderConfig {
             name: wire.name,
             provider: wire.provider,
             base_url,
+            model_catalog_url: wire.model_catalog_url,
             protocols,
             env_key: wire.env_key,
         })

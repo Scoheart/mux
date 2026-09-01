@@ -126,6 +126,8 @@ export interface ModelProviderConfig {
   name: string;
   provider: string;
   base_url: string;
+  /** Optional full endpoint used to discover this Provider's available models. */
+  model_catalog_url?: string;
   protocols: Partial<Record<ModelProtocol, {
     endpoint_path: string;
   }>>;

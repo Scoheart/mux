@@ -1071,6 +1071,7 @@ mod tests {
             name: "Team Gateway".into(),
             provider: "custom".into(),
             base_url: "https://old.example.test".into(),
+            model_catalog_url: None,
             protocols: BTreeMap::from([
                 (
                     ModelProtocol::OpenaiResponses,
@@ -1360,6 +1361,7 @@ mod tests {
                     name: "Independent Gateway".into(),
                     provider: "custom".into(),
                     base_url: "https://gateway.example.test".into(),
+                    model_catalog_url: None,
                     protocols: BTreeMap::from([(
                         ModelProtocol::OpenaiResponses,
                         ModelProviderProtocolConfig {

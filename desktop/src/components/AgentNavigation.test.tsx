@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { AgentCapabilityView, AgentInfo } from "../lib/types";
 import { mergeAgentInfos } from "../lib/agentCapabilities";
@@ -41,10 +41,35 @@ function agent(id: string, name: string): AgentInfo {
 
 const agents = [
   agent("claude-code", "Claude Code"),
+  agent("claude-desktop", "Claude Desktop"),
   agent("codex", "Codex"),
   agent("qoder", "Qoder"),
   agent("amp", "Amp"),
 ];
+
+it("distinguishes shared Claude logos in the Agent picker", () => {
+  const { container } = render(
+    <AgentNavigation
+      agents={agents}
+      selectedAgentId="codex"
+      onSelectAgent={vi.fn()}
+    />,
+  );
+
+  fireEvent.click(
+    container.querySelector<HTMLButtonElement>(".mux-agent-picker-trigger")!,
+  );
+
+  const picker = within(screen.getByRole("dialog", { name: "选择和置顶 Agent" }));
+  const codeRow = picker.getByText("Claude Code").closest(".mux-agent-picker-select");
+  const desktopRow = picker
+    .getByText("Claude Desktop")
+    .closest(".mux-agent-picker-select");
+  expect(codeRow?.querySelector("[data-agent-surface='cli']")).not.toBeNull();
+  expect(
+    desktopRow?.querySelector("[data-agent-surface='desktop']"),
+  ).not.toBeNull();
+});
 
 beforeEach(() => {
   pinnedAgentMocks.commit.mockReset();

@@ -411,6 +411,26 @@ body {
 .mux-src-row .mux-icon-btn { width: 24px; height: 24px; border-radius: 6px; }
 
 /* Persistent Agent shortcuts and their searchable management popup. */
+.mux-agent-glyph {
+  position: relative; display: inline-flex; flex: 0 0 auto; overflow: visible; vertical-align: middle;
+}
+.mux-agent-glyph-base {
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.mux-agent-surface-badge {
+  position: absolute; right: -2px; bottom: -2px; z-index: 2;
+  display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box;
+  border-radius: 4px; color: #fff; box-shadow: 0 0 0 2px var(--surface-app);
+}
+.mux-agent-surface-badge[data-agent-surface="cli"] { background: #202733; }
+.mux-agent-surface-badge[data-agent-surface="desktop"] { background: var(--color-blue); }
+.mux-agent-surface-badge[data-agent-surface="ide"] { background: #7656d6; }
+.mux-agent-surface-badge[data-agent-surface="web"] { background: #159b91; }
+.mux-agent-surface-badge > svg { width: 78%; height: 78%; }
+.mux-agent-surface-badge :is(path, rect, circle) {
+  stroke: currentColor; stroke-width: 1.35; stroke-linecap: round; stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
 .mux-agent-navigation { display: flex; width: 100%; min-width: 0; flex: 1 1 auto; align-items: center; justify-content: flex-end; gap: 8px; }
 .mux-agent-picker-cluster { position: relative; display: flex; max-width: 100%; min-width: 0; flex: 0 1 auto; align-items: center; gap: 8px; }
 .mux-pinned-agent-bar {

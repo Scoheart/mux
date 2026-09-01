@@ -4,7 +4,7 @@
 
 **Goal:** Let MUX safely create, select, observe, and clear one direct Claude Desktop third-party inference Profile, automatically disabling model-name verification only for non-Claude routes.
 
-**Architecture:** Add a macOS-only Claude Desktop adapter under the authoritative Rust Model resource. The adapter owns a deterministic `MUX` config-library entry, reads the selected Provider credential from Keychain only during commit, writes the secret-bearing Profile as `0600`, and preserves/restores every external Claude Profile. Existing Agent capability, consumption planning, inventory, React review, and remote PR/release paths remain the orchestration surfaces.
+**Architecture:** Add a macOS-only Claude Desktop adapter under the authoritative Rust Model resource. The adapter owns a deterministic `MUX` config-library entry, reads the selected Provider credential from Keychain only during commit, writes the secret-bearing Profile as `0600`, and preserves/restores every external Claude Profile. This is direct Claude configuration; it does not add a local gateway, LaunchAgent, or background proxy. Existing Agent capability, consumption planning, inventory, React review, and remote PR/release paths remain the orchestration surfaces.
 
 **Tech Stack:** Rust (`mux-core`, JSONC/serde, safe-write CAS, macOS Keychain), React 19 + TypeScript/Vitest, GitHub Git Data API, MUX Direct Stable.
 
@@ -14,6 +14,8 @@
 
 - Create `core/src/resources/model/claude_desktop.rs`: Claude Desktop paths, route classification, lossless prepare/apply/observe/clear, credential export, permission tightening, and focused Rust tests.
 - Modify `core/src/resources/model/mod.rs`: register the module and Claude Desktop capability; dispatch support, observation, apply, and clear to the adapter.
+- Modify `core/src/assets/transaction.rs`: bind private-target discovery to the configured Claude Desktop fourth target and persist/restore its Keychain-backed rollback pre-state with crash-safe cleanup.
+- Modify `core/src/safe_write.rs`: carry private transaction state with zeroizing/redacted values and hash/mode/identity-only durable write evidence and rollback guards.
 - Modify `core/src/settings.rs`: persist the previously active external Claude Profile ID as typed operational state without mixing it into central Model assets.
 - Modify `core/src/assets/planner.rs`: add the explicit plaintext-export review warning and ensure all four physical targets bind the plan hash.
 - Modify `core/src/application/agents.rs`: retain the shared projection while testing the new capability is visible to every frontend.
@@ -96,13 +98,17 @@ pub(crate) fn route_is_claude(route: &str) -> bool {
 }
 
 fn gateway_base_url(profile: &ModelProfile) -> Result<String, String> {
-    if profile.endpoint_path.trim_end_matches('/') != "/v1/messages" {
+    if profile.protocol != ModelProtocol::AnthropicMessages {
         return Err(
             "claude_desktop_endpoint_unsupported: expected an Anthropic /v1/messages endpoint"
                 .into(),
         );
     }
-    Ok(profile.base_url.trim_end_matches('/').to_string())
+    protocol_client_base_url(&profile.base_url, &profile.protocol, &profile.endpoint_path)
+        .map_err(|_| {
+            "claude_desktop_endpoint_unsupported: expected an Anthropic /v1/messages endpoint"
+                .into()
+        })
 }
 
 pub(crate) fn projected_profile(
@@ -130,6 +136,11 @@ pub(crate) fn projected_profile(
 ```
 
 Expose the child module from `model/mod.rs` with `mod claude_desktop;`.
+
+Delivered implementation hardens this initial sketch: production projection uses a typed
+`Serialize` carrier and returns only `Zeroizing<String>` JSON. The `serde_json::Value` helper is
+compiled for fake-credential tests only, so a real Provider key never enters a cloneable or
+debug-printable value tree.
 
 - [ ] **Step 4: Run the focused test and verify GREEN**
 
@@ -219,7 +230,8 @@ Define:
 
 ```rust
 pub(crate) struct PreparedClaudeDesktop {
-    pub files: Vec<PreparedModelFile>,
+    pub files: Vec<PreparedModelFile>, // three ordinary, non-secret targets
+    pub profile: PreparedClaudeDesktopPrivateFile, // Zeroizing, non-Debug/non-Clone
     pub previous_applied_id: Option<String>,
 }
 
@@ -248,6 +260,8 @@ Expected: preparation, preservation, restore fallback, collision, malformed JSON
 **Files:**
 - Modify: `core/src/resources/model/claude_desktop.rs`
 - Modify: `core/src/resources/model/mod.rs`
+- Modify: `core/src/assets/transaction.rs`
+- Modify: `core/src/safe_write.rs`
 
 - [ ] **Step 1: Write failing commit, permission, observation, and clear tests**
 
@@ -286,8 +300,11 @@ pub(crate) fn apply(
     paths: &[PathBuf],
     profile: &ModelProfile,
     credential: zeroize::Zeroizing<Vec<u8>>,
-) -> Result<ModelApplyResult, String>;
-pub(crate) fn clear(paths: &[PathBuf], remembered: Option<&str>) -> Result<(), String>;
+) -> Result<ModelApplyResult, ModelTargetError>;
+pub(crate) fn clear(
+    paths: &[PathBuf],
+    remembered: Option<&str>,
+) -> Result<(), ModelTargetError>;
 pub(crate) fn observe(
     paths: &[PathBuf],
     profile: &ModelProfile,
@@ -298,9 +315,13 @@ pub(crate) fn observe_active(
 ) -> ObservedActiveModel;
 ```
 
-Commit the two ordinary Claude JSON files and `_meta.json` with `write_if_unchanged` so existing regular files preserve inode. Commit the MUX Profile with `write_private_if_unchanged` so it is atomically published as `0600`. Do not call `backup_config` for the secret-bearing MUX Profile. Roll back changed files in reverse order with the same normal/private writer distinction.
+Commit the two ordinary Claude JSON files and `_meta.json` with `write_if_unchanged` so existing regular files preserve inode. Commit the configured fourth target—the MUX Profile—with `write_private_if_unchanged` so it is atomically published as `0600`; do not restrict this to the default literal path. Do not call `backup_config` for the secret-bearing MUX Profile. Roll back changed files in reverse order with the same normal/private writer distinction. The outer transaction extension in `transaction.rs` persists a nonsecret private-target ledger before Keychain pre-state, stores the private pre-state under an operation/path-bound Keychain subject, and cleans it on persist failure, cancel, success, rollback, startup/no-manifest recovery, and resolved incidents. Filesystem rollback manifests, mutation intents, and write evidence carry only path/mode/identity/version/hash/reference metadata; private Profile bytes never enter them.
+
+Extend `safe_write.rs` so private carriers are `Zeroizing` and redacted in debug output, while durable `TransactionPathState` and write evidence remain hash-only. Hash/mode/identity CAS guards must refuse rollback after an external edit and retain evidence for recovery when ownership or cleanup cannot be proven.
 
 Wrap `read_credential(profile_id)` in `Zeroizing<Vec<u8>>`, validate UTF-8 without logging it, and read it only inside the apply branch after operation confirmation.
+
+Retain the focused `private_transaction` tests as delivery evidence: configured-path classifier isolation, hash-only snapshots and repeated writes/removals, new-target rollback, external-edit refusal, missing Keychain pre-state, no-manifest startup/cancel cleanup, terminal cleanup, persistence-failure cleanup, real Claude-plan recovery, overridden fourth-target startup cleanup, and resolved-incident cleanup.
 
 - [ ] **Step 4: Register the capability and dispatch branches**
 
@@ -455,6 +476,8 @@ bash /Users/scoheart/Code/ai/.agents/skills/mux-release/scripts/validate-change.
 
 - [ ] **Step 4: Create one remote feature commit and update PR #146**
 
+MUX normally delivers through its direct-main policy. This change uses the PR #146 path because the user explicitly requested remote-only commit, PR, and merge delivery; keep the local checkout untouched while performing those remote operations.
+
 Build an exact TSV manifest and use `gh-remote-commit.sh` against `codex/claude-desktop-direct-models`. Commit message:
 
 ```text
@@ -467,7 +490,17 @@ Verify every remote blob SHA matches `git hash-object`, compare `main...branch`,
 
 - [ ] **Step 5: Squash merge and verify Stable**
 
-Squash merge PR #146 and delete its remote branch. Do not pull the result into the user's diverged local checkout. Locate the exact Direct Stable run for the merge SHA, wait until its immutable tag is recorded, and resolve that tag into `stable_tag`. Then run the single-pass release verifier:
+Squash merge PR #146 and delete its remote branch. Do not pull the result into the user's diverged local checkout. Locate the exact Direct Stable run for the merge SHA and wait until its immutable tag is recorded. Resolve the release tag from the post-merge `main` commit before invoking the verifier:
+
+```bash
+release_sha="$(gh api repos/Scoheart/mux/git/ref/heads/main --jq '.object.sha')"
+stable_tag="$(gh api 'repos/Scoheart/mux/releases?per_page=20' --paginate \
+  | jq -r --arg sha "$release_sha" '.[] | select(.target_commitish == $sha) | .tag_name' \
+  | head -n 1)"
+test -n "$stable_tag" && test "$stable_tag" != "null"
+```
+
+Then run the single-pass release verifier:
 
 ```bash
 bash /Users/scoheart/Code/ai/.agents/skills/mux-release/scripts/verify-release.sh \

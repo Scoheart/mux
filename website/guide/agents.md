@@ -11,7 +11,7 @@ MUX 的 Agent 数据分为两层：
 
 消费关系可在 Agent 页面或统一 CLI 中管理：MCP 与 Skills 每个 Agent 可选择多个；原生多模型 Agent 可分配多个 Profile、最多一个 current，单模型 Agent 仍最多一个。中央资产详情只负责资产生命周期和只读影响范围，不反向修改 Agent。MUX 再把 Agent 文件或 Skill link 作为 observed state 对账；仅在 Agent 中发现的外部配置保持只读，扫描不会静默接管。检测到历史 MCP / Skill 时，可显式纳管并把中央资产与原有消费关系作为同一项可恢复事务导入。
 
-当前共有 **14 个 Model target**：12 个由 MUX 安全管理，MiniMax Code 与 Qoder 这 2 个因缺少等价的安全 writer 而保留为 guided target。
+当前共有 **15 个 Model target**：13 个由 MUX 管理，MiniMax Code 与 Qoder 这 2 个因缺少等价的安全 writer 而保留为 guided target。
 
 ## 已核验列表
 

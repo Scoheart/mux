@@ -7,9 +7,13 @@
 //! guidance-only.
 
 pub(crate) mod adapters;
+mod claude_desktop;
 mod discovery;
 
 pub use discovery::{discover_provider_models, ProviderModelSummary};
+
+#[cfg(test)]
+pub(crate) use claude_desktop::set_config_write_hook as set_claude_desktop_config_write_hook;
 
 use crate::domain::agents::ModelStorageAuthority;
 use crate::domain::types::{
@@ -17,7 +21,7 @@ use crate::domain::types::{
     ModelProviderProtocolConfig,
 };
 use crate::paths::{backup_timestamp, backups_dir, settings_file};
-use crate::resources::mcp::applier::backup;
+use crate::resources::mcp::applier::{backup, backup_bytes};
 use crate::resources::mcp::scanner::{collapse_home, expand_tilde};
 use crate::safe_write::{
     acquire_settings_lock, remove_if_unchanged, write_if_unchanged, SettingsLock,
@@ -37,12 +41,16 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 #[cfg(target_os = "macos")]
 use std::process::{Command, Stdio};
+#[cfg(any(test, debug_assertions))]
 use std::sync::{LazyLock, Mutex};
 use toml_edit::{Array, Document, Item, Table};
 use uuid::Uuid;
+use zeroize::{Zeroize, Zeroizing};
 
 const KEYCHAIN_ACCOUNT: &str = "api-key";
 const CREDENTIAL_ROLLBACK_PREFIX: &str = "__asset-operation-rollback__";
+const PRIVATE_FILE_SNAPSHOT_SERVICE_PREFIX: &str = "com.scoheart.mux.private-file-snapshot";
+const PRIVATE_FILE_SNAPSHOT_VERSION: &str = "v1";
 const QODER_DOCS: &str = "https://docs.qoder.com/user-guide/chat/custom-models";
 const GROK_BUILD_MODEL_DOCS: &str = "https://docs.x.ai/build/settings#model-id";
 const MINIMAX_CODE_DOCS: &str = "https://agent.minimax.io/download";
@@ -51,14 +59,45 @@ fn mutation_lock() -> Result<SettingsLock, String> {
     acquire_settings_lock(&settings_file())
 }
 
+#[cfg(any(test, debug_assertions))]
 static TEST_CREDENTIALS: LazyLock<Mutex<BTreeMap<String, Vec<u8>>>> =
     LazyLock::new(|| Mutex::new(BTreeMap::new()));
 
+#[cfg(test)]
+thread_local! {
+    static TEST_CREDENTIAL_DELETE_ERROR: std::cell::RefCell<Option<String>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+#[cfg(test)]
+pub(crate) struct TestCredentialDeleteErrorGuard;
+
+#[cfg(test)]
+impl Drop for TestCredentialDeleteErrorGuard {
+    fn drop(&mut self) {
+        TEST_CREDENTIAL_DELETE_ERROR.with(|slot| slot.borrow_mut().take());
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn set_test_credential_delete_error(
+    error: impl Into<String>,
+) -> TestCredentialDeleteErrorGuard {
+    TEST_CREDENTIAL_DELETE_ERROR.with(|slot| *slot.borrow_mut() = Some(error.into()));
+    TestCredentialDeleteErrorGuard
+}
+
+#[cfg(any(test, debug_assertions))]
 fn test_credential_key(service: &str) -> String {
     format!(
         "{}::{service}",
         std::env::var("MUX_TEST_PROBE_ROOT").unwrap_or_default()
     )
+}
+
+#[cfg(test)]
+fn test_credential_delete_error() -> Option<String> {
+    TEST_CREDENTIAL_DELETE_ERROR.with(|slot| slot.borrow().clone())
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -954,12 +993,13 @@ fn materialize_profile_for_agent(
 ) -> Result<ModelProfile, String> {
     let mut materialized = profile.clone();
     if agent_id == "pi" && !materialized.native_ids.contains_key("pi") {
-        let settings = crate::settings::load_settings_strict().map_err(|error| error.to_string())?;
+        let settings =
+            crate::settings::load_settings_strict().map_err(|error| error.to_string())?;
         materialized
             .native_ids
             .insert("pi".into(), generated_pi_provider_id(&settings, profile));
     }
-    if !profile.endpoint_path.is_empty() {
+    if agent_id != claude_desktop::AGENT_ID && !profile.endpoint_path.is_empty() {
         materialized.base_url =
             protocol_client_base_url(&profile.base_url, &profile.protocol, &profile.endpoint_path)
                 .map_err(|error| {
@@ -1433,7 +1473,7 @@ pub struct ModelAgentView {
     pub assigned_profiles: Vec<String>,
     pub active_profile: Option<String>,
     pub supports_multiple: bool,
-    /// `keychain-command`, `environment-reference`, or `guided`.
+    /// `keychain-command`, `keychain-export`, `environment-reference`, or `guided`.
     pub credential_mode: String,
     pub supported_protocols: Vec<ModelProtocol>,
     pub note: String,
@@ -1446,6 +1486,35 @@ pub struct ModelApplyResult {
     pub files: Vec<String>,
     pub restart_required: bool,
     pub message: String,
+}
+
+#[derive(Debug)]
+pub(crate) enum ModelTargetError {
+    /// No target write occurred, or every target write was proven restored.
+    ConvergenceFailed(String),
+    /// A target may remain partially written or lacks proven cleanup.
+    RecoveryRequired(String),
+}
+
+impl ModelTargetError {
+    pub(crate) fn into_message(self) -> String {
+        match self {
+            Self::ConvergenceFailed(message) => message,
+            Self::RecoveryRequired(message) => format!("target_recovery_required: {message}"),
+        }
+    }
+}
+
+impl From<String> for ModelTargetError {
+    fn from(message: String) -> Self {
+        Self::ConvergenceFailed(message)
+    }
+}
+
+impl From<&str> for ModelTargetError {
+    fn from(message: &str) -> Self {
+        Self::ConvergenceFailed(message.to_string())
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1480,6 +1549,9 @@ fn config_path(relative: &str) -> PathBuf {
 }
 
 pub fn default_config_paths(agent_id: &str) -> Option<Vec<String>> {
+    if agent_id == claude_desktop::AGENT_ID {
+        return Some(claude_desktop::default_paths());
+    }
     let paths: &[&str] = match agent_id {
         "claude-code" => &["~/.claude/settings.json"],
         "codex" => &["~/.codex/config.toml"],
@@ -1504,7 +1576,7 @@ pub fn normalize_config_paths(paths: &[String], expected: usize) -> Result<Vec<S
     if paths.len() != expected {
         return Err(format!("Model 配置需要 {expected} 个路径"));
     }
-    paths
+    let normalized = paths
         .iter()
         .map(|path| {
             let path = collapse_home(path.trim());
@@ -1519,7 +1591,16 @@ pub fn normalize_config_paths(paths: &[String], expected: usize) -> Result<Vec<S
             }
             Ok(path)
         })
-        .collect()
+        .collect::<Result<Vec<_>, String>>()?;
+    let mut distinct = BTreeSet::new();
+    if normalized
+        .iter()
+        .map(|path| expand_tilde(path))
+        .any(|path| !distinct.insert(path))
+    {
+        return Err("model_config_paths_not_distinct: Model 配置角色必须使用不同的展开路径".into());
+    }
+    Ok(normalized)
 }
 
 pub(crate) fn configured_path_strings_checked(
@@ -1536,7 +1617,15 @@ pub(crate) fn configured_path_strings_checked(
         .and_then(|overrides| overrides.get(agent_id))
         .and_then(|path_override| path_override.model_paths.clone())
         .unwrap_or(defaults);
-    normalize_config_paths(&paths, expected).map(Some)
+    let normalized = normalize_config_paths(&paths, expected)?;
+    if agent_id == claude_desktop::AGENT_ID {
+        let expanded = normalized
+            .iter()
+            .map(|path| expand_tilde(path))
+            .collect::<Vec<_>>();
+        claude_desktop::validate_paths(&expanded)?;
+    }
+    Ok(Some(normalized))
 }
 
 fn configured_path_strings(
@@ -1607,12 +1696,15 @@ fn security_shell_command(profile_id: &str) -> String {
 
 #[cfg(target_os = "macos")]
 fn read_credential_service(service: &str) -> Option<Vec<u8>> {
-    if std::env::var_os("MUX_TEST_PROBE_ROOT").is_some() {
-        return TEST_CREDENTIALS
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .get(&test_credential_key(service))
-            .cloned();
+    #[cfg(any(test, debug_assertions))]
+    {
+        if std::env::var_os("MUX_TEST_PROBE_ROOT").is_some() {
+            return TEST_CREDENTIALS
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .get(&test_credential_key(service))
+                .cloned();
+        }
     }
     let output = Command::new("/usr/bin/security")
         .args([
@@ -1641,24 +1733,31 @@ fn read_credential_service(service: &str) -> Option<Vec<u8>> {
 
 #[cfg(not(target_os = "macos"))]
 fn read_credential_service(service: &str) -> Option<Vec<u8>> {
-    if std::env::var_os("MUX_TEST_PROBE_ROOT").is_some() {
-        return TEST_CREDENTIALS
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .get(&test_credential_key(service))
-            .cloned();
+    #[cfg(any(test, debug_assertions))]
+    {
+        if std::env::var_os("MUX_TEST_PROBE_ROOT").is_some() {
+            return TEST_CREDENTIALS
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .get(&test_credential_key(service))
+                .cloned();
+        }
     }
+    let _ = service;
     None
 }
 
 fn credential_service_exists(service: &str) -> bool {
     // TestHome sets this marker specifically to isolate probes from the real
     // machine. Never consult the user's Keychain from a test process.
-    if std::env::var_os("MUX_TEST_PROBE_ROOT").is_some() {
-        return TEST_CREDENTIALS
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .contains_key(&test_credential_key(service));
+    #[cfg(any(test, debug_assertions))]
+    {
+        if std::env::var_os("MUX_TEST_PROBE_ROOT").is_some() {
+            return TEST_CREDENTIALS
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .contains_key(&test_credential_key(service));
+        }
     }
     #[cfg(target_os = "macos")]
     {
@@ -1681,12 +1780,15 @@ fn credential_service_exists(service: &str) -> bool {
 
 #[cfg(target_os = "macos")]
 fn set_credential_service(service: &str, credential: &[u8]) -> Result<(), String> {
-    if std::env::var_os("MUX_TEST_PROBE_ROOT").is_some() {
-        TEST_CREDENTIALS
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .insert(test_credential_key(service), credential.to_vec());
-        return Ok(());
+    #[cfg(any(test, debug_assertions))]
+    {
+        if std::env::var_os("MUX_TEST_PROBE_ROOT").is_some() {
+            TEST_CREDENTIALS
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .insert(test_credential_key(service), credential.to_vec());
+            return Ok(());
+        }
     }
     if credential.contains(&b'\n') || credential.contains(&b'\r') {
         return Err("API key cannot contain a newline".into());
@@ -1735,27 +1837,48 @@ fn set_credential_service(service: &str, credential: &[u8]) -> Result<(), String
 
 #[cfg(not(target_os = "macos"))]
 fn set_credential_service(service: &str, credential: &[u8]) -> Result<(), String> {
-    if std::env::var_os("MUX_TEST_PROBE_ROOT").is_some() {
-        TEST_CREDENTIALS
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .insert(test_credential_key(service), credential.to_vec());
-        return Ok(());
+    #[cfg(any(test, debug_assertions))]
+    {
+        if std::env::var_os("MUX_TEST_PROBE_ROOT").is_some() {
+            TEST_CREDENTIALS
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .insert(test_credential_key(service), credential.to_vec());
+            return Ok(());
+        }
     }
+    let _ = (service, credential);
     Err("secure model credentials are currently supported on macOS only".into())
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CredentialDeleteOutcome {
+    Deleted,
+    NotFound,
+}
+
 #[cfg(target_os = "macos")]
-fn delete_credential_service(service: &str) -> Result<(), String> {
-    if std::env::var_os("MUX_TEST_PROBE_ROOT").is_some() {
-        TEST_CREDENTIALS
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .remove(&test_credential_key(service));
-        return Ok(());
-    }
-    if !credential_service_exists(service) {
-        return Ok(());
+fn delete_credential_service_authoritative(
+    service: &str,
+) -> Result<CredentialDeleteOutcome, String> {
+    #[cfg(any(test, debug_assertions))]
+    {
+        if std::env::var_os("MUX_TEST_PROBE_ROOT").is_some() {
+            #[cfg(test)]
+            if let Some(error) = test_credential_delete_error() {
+                return Err(error);
+            }
+            let deleted = TEST_CREDENTIALS
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .remove(&test_credential_key(service))
+                .is_some();
+            return Ok(if deleted {
+                CredentialDeleteOutcome::Deleted
+            } else {
+                CredentialDeleteOutcome::NotFound
+            });
+        }
     }
     let output = Command::new("/usr/bin/security")
         .args([
@@ -1770,7 +1893,11 @@ fn delete_credential_service(service: &str) -> Result<(), String> {
         .output()
         .map_err(|error| format!("failed to start macOS Keychain helper: {error}"))?;
     if output.status.success() {
-        Ok(())
+        Ok(CredentialDeleteOutcome::Deleted)
+    } else if output.status.code() == Some(44) {
+        // `security` returns errSecItemNotFound (-25300) modulo the Unix
+        // process-status byte. No other helper failure is treated as absence.
+        Ok(CredentialDeleteOutcome::NotFound)
     } else {
         Err(format!(
             "failed to remove API key from macOS Keychain: {}",
@@ -1780,14 +1907,34 @@ fn delete_credential_service(service: &str) -> Result<(), String> {
 }
 
 #[cfg(not(target_os = "macos"))]
-fn delete_credential_service(service: &str) -> Result<(), String> {
-    if std::env::var_os("MUX_TEST_PROBE_ROOT").is_some() {
-        TEST_CREDENTIALS
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .remove(&test_credential_key(service));
+fn delete_credential_service_authoritative(
+    service: &str,
+) -> Result<CredentialDeleteOutcome, String> {
+    #[cfg(any(test, debug_assertions))]
+    {
+        if std::env::var_os("MUX_TEST_PROBE_ROOT").is_some() {
+            #[cfg(test)]
+            if let Some(error) = test_credential_delete_error() {
+                return Err(error);
+            }
+            let deleted = TEST_CREDENTIALS
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .remove(&test_credential_key(service))
+                .is_some();
+            return Ok(if deleted {
+                CredentialDeleteOutcome::Deleted
+            } else {
+                CredentialDeleteOutcome::NotFound
+            });
+        }
     }
-    Ok(())
+    let _ = service;
+    Ok(CredentialDeleteOutcome::NotFound)
+}
+
+fn delete_credential_service(service: &str) -> Result<(), String> {
+    delete_credential_service_authoritative(service).map(|_| ())
 }
 
 fn read_credential(profile_id: &str) -> Option<Vec<u8>> {
@@ -1802,12 +1949,18 @@ fn read_credential(profile_id: &str) -> Option<Vec<u8>> {
 
 fn credential_exists(profile_id: &str) -> bool {
     let service = keychain_service(profile_id);
-    credential_service_exists(&service)
+    let keychain_exists = credential_service_exists(&service)
         || (service != legacy_keychain_service(profile_id)
-            && credential_service_exists(&legacy_keychain_service(profile_id)))
-        || std::env::var("MUX_TEST_MODEL_CREDENTIAL_PROFILES")
-            .ok()
-            .is_some_and(|profiles| profiles.split(',').any(|item| item == profile_id))
+            && credential_service_exists(&legacy_keychain_service(profile_id)));
+    #[cfg(any(test, debug_assertions))]
+    {
+        keychain_exists
+            || std::env::var("MUX_TEST_MODEL_CREDENTIAL_PROFILES")
+                .ok()
+                .is_some_and(|profiles| profiles.split(',').any(|item| item == profile_id))
+    }
+    #[cfg(not(any(test, debug_assertions)))]
+    keychain_exists
 }
 
 fn set_credential(profile_id: &str, credential: &[u8]) -> Result<(), String> {
@@ -2088,6 +2241,168 @@ pub(crate) fn clear_credential_rollback(
     profile_id: &str,
 ) -> Result<(), String> {
     delete_credential(&credential_rollback_profile_id(operation_id, profile_id))
+}
+
+fn private_file_path_hash(path: &Path) -> String {
+    hex::encode(Sha256::digest(path.as_os_str().as_encoded_bytes()))
+}
+
+pub(crate) fn private_file_snapshot_subject(operation_id: &str, path: &Path) -> String {
+    let mut binding = Sha256::new();
+    binding.update(operation_id.as_bytes());
+    binding.update([0]);
+    binding.update(path.as_os_str().as_encoded_bytes());
+    format!(
+        "{PRIVATE_FILE_SNAPSHOT_SERVICE_PREFIX}.{operation_id}.{}",
+        hex::encode(binding.finalize())
+    )
+}
+
+fn encode_base64(bytes: &[u8]) -> String {
+    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut encoded = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for chunk in bytes.chunks(3) {
+        let first = chunk[0];
+        let second = chunk.get(1).copied().unwrap_or_default();
+        let third = chunk.get(2).copied().unwrap_or_default();
+        encoded.push(ALPHABET[(first >> 2) as usize] as char);
+        encoded.push(ALPHABET[(((first & 0x03) << 4) | (second >> 4)) as usize] as char);
+        if chunk.len() > 1 {
+            encoded.push(ALPHABET[(((second & 0x0f) << 2) | (third >> 6)) as usize] as char);
+        } else {
+            encoded.push('=');
+        }
+        if chunk.len() > 2 {
+            encoded.push(ALPHABET[(third & 0x3f) as usize] as char);
+        } else {
+            encoded.push('=');
+        }
+    }
+    encoded
+}
+
+fn decode_base64(encoded: &str) -> Result<Vec<u8>, ()> {
+    fn value(byte: u8) -> Option<u8> {
+        match byte {
+            b'A'..=b'Z' => Some(byte - b'A'),
+            b'a'..=b'z' => Some(byte - b'a' + 26),
+            b'0'..=b'9' => Some(byte - b'0' + 52),
+            b'+' => Some(62),
+            b'/' => Some(63),
+            _ => None,
+        }
+    }
+
+    let bytes = encoded.as_bytes();
+    if bytes.len() % 4 != 0 {
+        return Err(());
+    }
+    let mut decoded = Vec::with_capacity(bytes.len() / 4 * 3);
+    for (index, chunk) in bytes.chunks_exact(4).enumerate() {
+        let last = index + 1 == bytes.len() / 4;
+        let first = value(chunk[0]).ok_or(())?;
+        let second = value(chunk[1]).ok_or(())?;
+        let third = if chunk[2] == b'=' {
+            if !last || chunk[3] != b'=' {
+                return Err(());
+            }
+            None
+        } else {
+            Some(value(chunk[2]).ok_or(())?)
+        };
+        let fourth = if chunk[3] == b'=' {
+            if !last {
+                return Err(());
+            }
+            None
+        } else {
+            Some(value(chunk[3]).ok_or(())?)
+        };
+        if third.is_none() && fourth.is_some() {
+            return Err(());
+        }
+        decoded.push((first << 2) | (second >> 4));
+        if let Some(third) = third {
+            decoded.push((second << 4) | (third >> 2));
+            if let Some(fourth) = fourth {
+                decoded.push((third << 6) | fourth);
+            }
+        }
+    }
+    Ok(decoded)
+}
+
+pub(crate) fn persist_private_file_snapshot(
+    operation_id: &str,
+    path: &Path,
+    content: &[u8],
+) -> Result<String, String> {
+    let subject = private_file_snapshot_subject(operation_id, path);
+    let content_hash = hex::encode(Sha256::digest(content));
+    let mut encoded_content = Zeroizing::new(encode_base64(content));
+    let mut payload = Zeroizing::new(format!(
+        "{PRIVATE_FILE_SNAPSHOT_VERSION}|{operation_id}|{}|{content_hash}|{}",
+        private_file_path_hash(path),
+        encoded_content.as_str()
+    ));
+    encoded_content.zeroize();
+    let result = set_credential_service(&subject, payload.as_bytes());
+    payload.zeroize();
+    result?;
+    Ok(subject)
+}
+
+pub(crate) fn load_private_file_snapshot(
+    operation_id: &str,
+    path: &Path,
+    expected_content_hash: &str,
+) -> Result<Option<Zeroizing<Vec<u8>>>, String> {
+    let subject = private_file_snapshot_subject(operation_id, path);
+    let Some(payload) = read_credential_service(&subject) else {
+        return Ok(None);
+    };
+    let payload = Zeroizing::new(payload);
+    let text = std::str::from_utf8(payload.as_slice()).map_err(|_| {
+        "private_file_snapshot_invalid: private rollback payload is not UTF-8".to_string()
+    })?;
+    let mut parts = text.split('|');
+    let version = parts.next();
+    let bound_operation = parts.next();
+    let bound_path_hash = parts.next();
+    let bound_content_hash = parts.next();
+    let encoded_content = parts.next();
+    if parts.next().is_some()
+        || version != Some(PRIVATE_FILE_SNAPSHOT_VERSION)
+        || bound_operation != Some(operation_id)
+        || bound_path_hash != Some(private_file_path_hash(path).as_str())
+        || bound_content_hash != Some(expected_content_hash)
+    {
+        return Err(
+            "private_file_snapshot_invalid: private rollback payload binding is invalid".into(),
+        );
+    }
+    let mut content = Zeroizing::new(decode_base64(encoded_content.unwrap_or_default()).map_err(
+        |_| {
+            "private_file_snapshot_invalid: private rollback payload encoding is invalid"
+                .to_string()
+        },
+    )?);
+    if hex::encode(Sha256::digest(content.as_slice())) != expected_content_hash {
+        content.zeroize();
+        return Err(
+            "private_file_snapshot_invalid: private rollback payload hash is invalid".into(),
+        );
+    }
+    Ok(Some(content))
+}
+
+#[cfg(test)]
+pub(crate) fn private_file_snapshot_exists(operation_id: &str, path: &Path) -> bool {
+    credential_service_exists(&private_file_snapshot_subject(operation_id, path))
+}
+
+pub(crate) fn clear_private_file_snapshot(operation_id: &str, path: &Path) -> Result<(), String> {
+    delete_credential_service(&private_file_snapshot_subject(operation_id, path))
 }
 
 pub(crate) fn restore_credential_snapshot(
@@ -2388,6 +2703,8 @@ pub fn list_agents() -> Vec<ModelAgentView> {
             .collect::<Vec<_>>()
     };
     let (claude_config_path, claude_config_paths) = path_view(&settings, "claude-code");
+    let (claude_desktop_config_path, claude_desktop_config_paths) =
+        path_view(&settings, claude_desktop::AGENT_ID);
     let (codex_config_path, codex_config_paths) = path_view(&settings, "codex");
     let (grok_config_path, grok_config_paths) = path_view(&settings, "grok-build");
     let (pi_config_path, pi_config_paths) = path_view(&settings, "pi");
@@ -2410,6 +2727,23 @@ pub fn list_agents() -> Vec<ModelAgentView> {
             credential_mode: "keychain-command".into(),
             supported_protocols: vec![ModelProtocol::AnthropicMessages],
             note: "Anthropic-compatible endpoint; restart the session after applying.".into(),
+        },
+        ModelAgentView {
+            id: claude_desktop::AGENT_ID.into(),
+            name: "Claude Desktop".into(),
+            mode: "managed".into(),
+            storage_authority: ModelStorageAuthority::MuxMapping,
+            installed: agent_installed(&[], &[], &["/Applications/Claude.app"]),
+            config_path: claude_desktop_config_path,
+            config_paths: claude_desktop_config_paths,
+            docs: "https://support.claude.com/".into(),
+            assigned_profile: assignments.get(claude_desktop::AGENT_ID).cloned(),
+            assigned_profiles: assigned_profiles(claude_desktop::AGENT_ID),
+            active_profile: assignments.get(claude_desktop::AGENT_ID).cloned(),
+            supports_multiple: false,
+            credential_mode: "keychain-export".into(),
+            supported_protocols: vec![ModelProtocol::AnthropicMessages],
+            note: "Exports the selected Provider credential into Claude Desktop's private Profile; restart Claude Desktop after applying.".into(),
         },
         ModelAgentView {
             id: "codex".into(),
@@ -2630,6 +2964,9 @@ pub(crate) fn observe_active_model_for_settings(
     else {
         return ObservedActiveModel::None;
     };
+    if agent_id == claude_desktop::AGENT_ID {
+        return claude_desktop::observe_active(settings, &paths);
+    }
     let mut selected_pi_model = None;
     let selected = match agent_id {
         "grok-build" => read_toml(&paths[0]).ok().and_then(|(document, _)| {
@@ -2655,7 +2992,7 @@ pub(crate) fn observe_active_model_for_settings(
                 .and_then(|value| value.get("defaultProvider"))
                 .and_then(Value::as_str)
                 .map(str::to_string)
-        },
+        }
         "claude-code" | "codex" => settings.model_selection(agent_id).active_profile_id,
         "opencode" | "kilo-code" | "qwen-code" | "crush" | "mistral-vibe" | "hermes"
         | "factory-droid" | "goose" => {
@@ -2764,6 +3101,7 @@ pub fn observe_profile(
         configured_paths(agent_id).ok_or_else(|| format!("unsupported model Agent: {agent_id}"))?;
     let observed = match agent_id {
         "claude-code" => observe_prepared(prepare_claude(&paths[0], &profile, has_credential)),
+        claude_desktop::AGENT_ID => claude_desktop::observe(&paths, &profile),
         "codex" => observe_prepared(prepare_codex(&paths[0], &profile, has_credential)),
         "grok-build" => observe_prepared(prepare_grok_build(&paths[0], &profile)),
         "pi" => {
@@ -2791,7 +3129,7 @@ pub fn observe_profile_consumption(
     profile: &ModelProfile,
     active: bool,
 ) -> Result<ModelObservedState, String> {
-    if active || matches!(agent_id, "claude-code" | "codex") {
+    if active || matches!(agent_id, "claude-code" | claude_desktop::AGENT_ID | "codex") {
         return observe_profile(agent_id, profile);
     }
     let profile = materialize_profile_for_agent(agent_id, profile)?;
@@ -2841,6 +3179,7 @@ pub fn observe_external_model(agent_id: &str) -> Result<ExternalModelObservedSta
         configured_paths(agent_id).ok_or_else(|| format!("unsupported model Agent: {agent_id}"))?;
     match agent_id {
         "claude-code" => observe_external_claude(&paths[0]),
+        claude_desktop::AGENT_ID => claude_desktop::observe_external(&paths),
         "codex" => observe_external_codex(&paths[0]),
         "grok-build" => observe_external_grok_build(&paths[0]),
         "pi" => observe_external_pi(&paths[0], &paths[1]),
@@ -3022,6 +3361,7 @@ fn profile_for_apply(profile_id: &str) -> Result<ModelProfile, String> {
 fn ensure_supported(agent_id: &str, protocol: &ModelProtocol) -> Result<(), String> {
     let supported = match agent_id {
         "claude-code" => matches!(protocol, ModelProtocol::AnthropicMessages),
+        claude_desktop::AGENT_ID => matches!(protocol, ModelProtocol::AnthropicMessages),
         "codex" => matches!(protocol, ModelProtocol::OpenaiResponses),
         "opencode" | "kilo-code" => true,
         "grok-build" | "pi" | "factory-droid" => {
@@ -3065,17 +3405,29 @@ fn protocol_name(protocol: &ModelProtocol) -> &'static str {
 }
 
 pub fn apply_profile(agent_id: &str, profile_id: &str) -> Result<ModelApplyResult, String> {
-    let _settings_guard = mutation_lock()?;
-    apply_profile_with_credential_presence(agent_id, profile_id, credential_exists(profile_id))
+    apply_profile_target(agent_id, profile_id).map_err(ModelTargetError::into_message)
 }
 
-pub(crate) fn apply_profile_consumption(
+pub(crate) fn apply_profile_target(
+    agent_id: &str,
+    profile_id: &str,
+) -> Result<ModelApplyResult, ModelTargetError> {
+    let _settings_guard = mutation_lock()?;
+    apply_profile_consumption_with_credential_presence_target(
+        agent_id,
+        profile_id,
+        credential_exists(profile_id),
+        true,
+    )
+}
+
+pub(crate) fn apply_profile_consumption_target(
     agent_id: &str,
     profile_id: &str,
     active: bool,
-) -> Result<ModelApplyResult, String> {
+) -> Result<ModelApplyResult, ModelTargetError> {
     let _settings_guard = mutation_lock()?;
-    apply_profile_consumption_with_credential_presence(
+    apply_profile_consumption_with_credential_presence_target(
         agent_id,
         profile_id,
         credential_exists(profile_id),
@@ -3083,41 +3435,45 @@ pub(crate) fn apply_profile_consumption(
     )
 }
 
-pub(crate) fn apply_profile_with_credential_presence(
-    agent_id: &str,
-    profile_id: &str,
-    has_credential: bool,
-) -> Result<ModelApplyResult, String> {
-    apply_profile_consumption_with_credential_presence(agent_id, profile_id, has_credential, true)
-}
-
-pub(crate) fn apply_profile_consumption_with_credential_presence(
+pub(crate) fn apply_profile_consumption_with_credential_presence_target(
     agent_id: &str,
     profile_id: &str,
     has_credential: bool,
     active: bool,
-) -> Result<ModelApplyResult, String> {
+) -> Result<ModelApplyResult, ModelTargetError> {
     let profile = profile_for_apply(profile_id)?;
     ensure_supported(agent_id, &profile.protocol)?;
     let profile = materialize_profile_for_agent(agent_id, &profile)?;
     if let Some((code, message)) = profile_credential_issue(agent_id, &profile, has_credential) {
-        return Err(format!("{code}: {message}"));
+        return Err(format!("{code}: {message}").into());
     }
     let paths =
         configured_paths(agent_id).ok_or_else(|| format!("unsupported model Agent: {agent_id}"))?;
     let result = match agent_id {
-        "claude-code" => apply_claude(&paths[0], &profile, has_credential),
-        "codex" => apply_codex(&paths[0], &profile, has_credential),
-        "grok-build" if active => apply_grok_build(&paths[0], &profile),
-        "grok-build" => apply_grok_model(&paths[0], &profile),
-        "pi" => apply_pi(&paths[0], &paths[1], &profile, has_credential, active),
+        "claude-code" => apply_claude(&paths[0], &profile, has_credential).map_err(Into::into),
+        claude_desktop::AGENT_ID => {
+            let credential = read_credential(&profile.id).ok_or_else(|| {
+                ModelTargetError::ConvergenceFailed(
+                    "claude_desktop_credential_missing: Claude Desktop requires an API Key in MUX Keychain"
+                        .to_string(),
+                )
+            })?;
+            claude_desktop::apply(&paths, &profile, Zeroizing::new(credential))
+        }
+        "codex" => apply_codex(&paths[0], &profile, has_credential).map_err(Into::into),
+        "grok-build" if active => apply_grok_build(&paths[0], &profile).map_err(Into::into),
+        "grok-build" => apply_grok_model(&paths[0], &profile).map_err(Into::into),
+        "pi" => {
+            apply_pi(&paths[0], &paths[1], &profile, has_credential, active).map_err(Into::into)
+        }
         "opencode" | "kilo-code" | "qwen-code" | "crush" | "mistral-vibe" | "hermes"
         | "factory-droid" | "goose" => apply_native_multi_model(
             agent_id,
             &profile,
             adapters::prepare_apply(agent_id, &paths, &profile, active)?,
             active,
-        ),
+        )
+        .map_err(Into::into),
         _ => unreachable!("ensure_supported filtered unknown agents"),
     }?;
 
@@ -3129,7 +3485,14 @@ pub(crate) fn apply_profile_consumption_with_credential_presence(
                 .insert(agent_id.into(), profile_id.into());
         })
         .map_err(|error| {
-            format!("model config was applied, but MUX could not record the assignment: {error}")
+            let message = format!(
+                "model config was applied, but MUX could not record the assignment: {error}"
+            );
+            if agent_id == claude_desktop::AGENT_ID {
+                ModelTargetError::RecoveryRequired(message)
+            } else {
+                ModelTargetError::ConvergenceFailed(message)
+            }
         })?;
     }
     Ok(result)
@@ -3154,19 +3517,17 @@ pub(crate) fn clear_all_configured_models_for_targets(
         .ok_or_else(|| format!("unsupported model Agent: {agent_id}"))?
         .storage_authority;
     if authority != ModelStorageAuthority::NativeRegistry {
-        return Err(format!("model Agent {agent_id} does not use a native registry"));
+        return Err(format!(
+            "model Agent {agent_id} does not use a native registry"
+        ));
     }
-    let paths = configured_paths(agent_id)
-        .ok_or_else(|| format!("unsupported model Agent: {agent_id}"))?;
+    let paths =
+        configured_paths(agent_id).ok_or_else(|| format!("unsupported model Agent: {agent_id}"))?;
     match agent_id {
         "pi" => clear_all_pi(&paths[0], &paths[1]),
-        "grok-build" => clear_one_model_file(
-            &paths[0],
-            "grok-build",
-            prepare_clear_all_grok_build,
-        ),
-        "opencode" | "kilo-code" | "qwen-code" | "crush" | "mistral-vibe"
-        | "hermes" | "factory-droid" | "goose" => {
+        "grok-build" => clear_one_model_file(&paths[0], "grok-build", prepare_clear_all_grok_build),
+        "opencode" | "kilo-code" | "qwen-code" | "crush" | "mistral-vibe" | "hermes"
+        | "factory-droid" | "goose" => {
             let reviewed = reviewed_targets
                 .iter()
                 .map(|path| expand_tilde(path))
@@ -3178,7 +3539,9 @@ pub(crate) fn clear_all_configured_models_for_targets(
             };
             commit_native_model_files(agent_id, prepared)
         }
-        _ => Err(format!("unsupported native Model registry Agent: {agent_id}")),
+        _ => Err(format!(
+            "unsupported native Model registry Agent: {agent_id}"
+        )),
     }
 }
 
@@ -3189,23 +3552,27 @@ pub(crate) fn agent_has_configured_models(agent_id: &str) -> Result<bool, String
     if authority != ModelStorageAuthority::NativeRegistry {
         return Ok(false);
     }
-    let paths = configured_paths(agent_id)
-        .ok_or_else(|| format!("unsupported model Agent: {agent_id}"))?;
+    let paths =
+        configured_paths(agent_id).ok_or_else(|| format!("unsupported model Agent: {agent_id}"))?;
     match agent_id {
         "pi" => {
             let (models_original, models_content) = prepare_clear_all_pi_models(&paths[0])?;
             let (settings_original, settings_content) = prepare_clear_pi_settings(&paths[1])?;
-            Ok(models_original.as_deref().is_some_and(|value| value != models_content.as_str())
-                || settings_original.as_deref().is_some_and(|value| value != settings_content.as_str()))
+            Ok(models_original
+                .as_deref()
+                .is_some_and(|value| value != models_content.as_str())
+                || settings_original
+                    .as_deref()
+                    .is_some_and(|value| value != settings_content.as_str()))
         }
         "grok-build" => {
             let (original, content) = prepare_clear_all_grok_build(&paths[0])?;
-            Ok(original.as_deref().is_some_and(|value| value != content.as_str()))
+            Ok(original
+                .as_deref()
+                .is_some_and(|value| value != content.as_str()))
         }
-        "opencode" | "kilo-code" | "qwen-code" | "crush" | "mistral-vibe"
-        | "hermes" | "factory-droid" | "goose" => {
-            adapters::has_configured_models(agent_id, &paths)
-        }
+        "opencode" | "kilo-code" | "qwen-code" | "crush" | "mistral-vibe" | "hermes"
+        | "factory-droid" | "goose" => adapters::has_configured_models(agent_id, &paths),
         _ => Ok(false),
     }
 }
@@ -3217,7 +3584,10 @@ pub(crate) fn clear_all_configured_model_paths(agent_id: &str) -> Result<Vec<Str
     if agent_id != "goose" {
         return Ok(paths);
     }
-    let expanded = paths.iter().map(|path| expand_tilde(path)).collect::<Vec<_>>();
+    let expanded = paths
+        .iter()
+        .map(|path| expand_tilde(path))
+        .collect::<Vec<_>>();
     let mut targets = adapters::prepare_clear_all(agent_id, &expanded)?
         .into_iter()
         .map(|file| collapse_home(file.path.to_string_lossy().as_ref()))
@@ -3232,40 +3602,69 @@ pub(crate) fn clear_profile_consumption(
     profile_id: &str,
     active: bool,
 ) -> Result<(), String> {
+    clear_profile_consumption_target(agent_id, profile_id, active)
+        .map_err(ModelTargetError::into_message)
+}
+
+pub(crate) fn clear_profile_consumption_target(
+    agent_id: &str,
+    profile_id: &str,
+    active: bool,
+) -> Result<(), ModelTargetError> {
     let _settings_guard = mutation_lock()?;
     let profile = profile_for_apply(profile_id)?;
     ensure_supported(agent_id, &profile.protocol)?;
     let profile = materialize_profile_for_agent(agent_id, &profile)?;
-    match observe_profile_consumption(agent_id, &profile, false)? {
+    let paths =
+        configured_paths(agent_id).ok_or_else(|| format!("unsupported model Agent: {agent_id}"))?;
+    let observed = if agent_id == claude_desktop::AGENT_ID {
+        claude_desktop::observe_installed(&paths, &profile)?
+    } else {
+        observe_profile_consumption(agent_id, &profile, false)?
+    };
+    match observed {
         ModelObservedState::Synced => {}
         ModelObservedState::Missing => {}
         ModelObservedState::Drifted => {
-            return Err("model_owned_fields_drift: review the Agent config before clearing".into())
+            return Err(ModelTargetError::ConvergenceFailed(
+                "model_owned_fields_drift: review the Agent config before clearing".into(),
+            ))
         }
         ModelObservedState::Conflicted => {
-            return Err("model_target_conflicted: the Agent config is ambiguous".into())
+            return Err(ModelTargetError::ConvergenceFailed(
+                "model_target_conflicted: the Agent config is ambiguous".into(),
+            ))
         }
     }
-    let paths =
-        configured_paths(agent_id).ok_or_else(|| format!("unsupported model Agent: {agent_id}"))?;
     match agent_id {
-        "claude-code" => clear_one_model_file(&paths[0], "claude-code", prepare_clear_claude)?,
+        "claude-code" => clear_one_model_file(&paths[0], "claude-code", prepare_clear_claude)
+            .map_err(ModelTargetError::from)?,
+        claude_desktop::AGENT_ID => {
+            let settings = load_settings();
+            let remembered = settings
+                .model_agent_runtime_state(claude_desktop::AGENT_ID)
+                .and_then(|state| state.previous_applied_profile_id.as_deref());
+            claude_desktop::clear(&paths, remembered)?;
+        }
         "codex" => {
-            clear_one_model_file_with_profile(&paths[0], "codex", &profile, prepare_clear_codex)?
+            clear_one_model_file_with_profile(&paths[0], "codex", &profile, prepare_clear_codex)
+                .map_err(ModelTargetError::from)?
         }
         "grok-build" => clear_one_model_file_with_profile(
             &paths[0],
             "grok-build",
             &profile,
             prepare_clear_grok_build,
-        )?,
-        "pi" => clear_pi(&paths[0], &paths[1], &profile, active)?,
+        )
+        .map_err(ModelTargetError::from)?,
+        "pi" => clear_pi(&paths[0], &paths[1], &profile, active).map_err(ModelTargetError::from)?,
         "opencode" | "kilo-code" | "qwen-code" | "crush" | "mistral-vibe" | "hermes"
         | "factory-droid" | "goose" => {
             commit_native_model_files(
                 agent_id,
                 adapters::prepare_clear(agent_id, &paths, &profile)?,
-            )?;
+            )
+            .map_err(ModelTargetError::from)?;
         }
         _ => unreachable!("ensure_supported filtered unsupported model Agent"),
     }
@@ -3276,7 +3675,14 @@ pub(crate) fn clear_profile_consumption(
             }
         }
     })
-    .map_err(|error| error.to_string())
+    .map_err(|error| {
+        let message = error.to_string();
+        if agent_id == claude_desktop::AGENT_ID {
+            ModelTargetError::RecoveryRequired(message)
+        } else {
+            ModelTargetError::ConvergenceFailed(message)
+        }
+    })
 }
 
 fn apply_native_multi_model(
@@ -3685,11 +4091,15 @@ fn pi_provider_slug(value: &str) -> String {
 }
 
 fn pi_provider_config_slug(provider: &ModelProviderConfig) -> String {
-    [provider.name.as_str(), provider.provider.as_str(), provider.id.as_str()]
-        .into_iter()
-        .map(pi_provider_slug)
-        .find(|value| !value.is_empty())
-        .unwrap_or_else(|| "provider".into())
+    [
+        provider.name.as_str(),
+        provider.provider.as_str(),
+        provider.id.as_str(),
+    ]
+    .into_iter()
+    .map(pi_provider_slug)
+    .find(|value| !value.is_empty())
+    .unwrap_or_else(|| "provider".into())
 }
 
 pub(crate) fn generated_pi_provider_id(
@@ -3862,10 +4272,16 @@ fn prepare_clear_all_grok_build(path: &Path) -> Result<(Option<String>, String),
         return Ok((None, String::new()));
     }
     if document.get("models").is_some_and(|item| !item.is_table()) {
-        return Err(format!("refusing to modify {}: 'models' is not a TOML table", path.display()));
+        return Err(format!(
+            "refusing to modify {}: 'models' is not a TOML table",
+            path.display()
+        ));
     }
     if document.get("model").is_some_and(|item| !item.is_table()) {
-        return Err(format!("refusing to modify {}: 'model' is not a TOML table", path.display()));
+        return Err(format!(
+            "refusing to modify {}: 'model' is not a TOML table",
+            path.display()
+        ));
     }
     if let Some(defaults) = document.get_mut("models").and_then(Item::as_table_mut) {
         defaults.remove("default");
@@ -4039,9 +4455,7 @@ fn upsert_pi_provider(
     set_json_property(
         &provider,
         "apiKey",
-        has_credential.then(|| {
-            Value::String(format!("!{}", security_shell_command(&profile.id)))
-        }),
+        has_credential.then(|| Value::String(format!("!{}", security_shell_command(&profile.id)))),
         path,
         &provider_context,
     )?;
@@ -4239,6 +4653,15 @@ fn prepare_clear_pi_settings(path: &Path) -> Result<(Option<String>, String), St
 
 fn backup_config(path: &Path, agent: &str, stamp: &str) -> Result<(), String> {
     backup(path, &backups_dir(), stamp, agent, "model")
+}
+
+pub(crate) fn backup_reviewed_config_bytes(
+    path: &Path,
+    bytes: &[u8],
+    agent: &str,
+    stamp: &str,
+) -> Result<(), String> {
+    backup_bytes(path, bytes, &backups_dir(), stamp, agent, "model")
 }
 
 fn apply_claude(
@@ -4883,9 +5306,7 @@ mod tests {
         profile.model = model.into();
         profile.name = name.into();
         profile.provider_id = Some("openrouter-provider".into());
-        profile
-            .native_ids
-            .insert("pi".into(), "openrouter".into());
+        profile.native_ids.insert("pi".into(), "openrouter".into());
         profile
     }
 
@@ -4895,10 +5316,7 @@ mod tests {
             name: name.into(),
             provider: "openrouter".into(),
             base_url: "https://openrouter.ai/api/v1".into(),
-            protocols: BTreeMap::from([(
-                ModelProtocol::OpenaiResponses,
-                protocol("/responses"),
-            )]),
+            protocols: BTreeMap::from([(ModelProtocol::OpenaiResponses, protocol("/responses"))]),
             env_key: None,
         }
     }
@@ -5009,10 +5427,9 @@ mod tests {
         let raw_settings: Value =
             serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
         assert_eq!(raw_settings["version"], crate::settings::SETTINGS_VERSION);
-        let raw: Value = serde_json::from_str(
-            &fs::read_to_string(crate::paths::model_catalog_file()).unwrap(),
-        )
-        .unwrap();
+        let raw: Value =
+            serde_json::from_str(&fs::read_to_string(crate::paths::model_catalog_file()).unwrap())
+                .unwrap();
         let provider = &raw["providers"]["team-provider"];
         assert!(provider.get("endpoints").is_none());
         assert_eq!(provider["base_url"], "https://gateway.example.test");
@@ -5250,10 +5667,7 @@ mod tests {
             env_key: None,
         };
         crate::settings::save_settings(&crate::settings::Settings {
-            model_providers: Some(BTreeMap::from([(
-                provider.id.clone(),
-                provider.clone(),
-            )])),
+            model_providers: Some(BTreeMap::from([(provider.id.clone(), provider.clone())])),
             ..Default::default()
         })
         .unwrap();
@@ -5273,7 +5687,10 @@ mod tests {
             "saved-test-value"
         );
         let unmanaged = reveal_provider_credential("unmanaged-provider").unwrap_err();
-        assert!(unmanaged.starts_with("model_provider_not_found:"), "{unmanaged}");
+        assert!(
+            unmanaged.starts_with("model_provider_not_found:"),
+            "{unmanaged}"
+        );
 
         delete_credential_service(&provider_keychain_service(&provider.id)).unwrap();
         let missing = reveal_provider_credential(&provider.id).unwrap_err();
@@ -5522,8 +5939,10 @@ mod tests {
 
         clear_all_configured_models("pi").unwrap();
 
-        let models: Value = serde_json::from_str(&fs::read_to_string(models_path).unwrap()).unwrap();
-        let settings: Value = serde_json::from_str(&fs::read_to_string(settings_path).unwrap()).unwrap();
+        let models: Value =
+            serde_json::from_str(&fs::read_to_string(models_path).unwrap()).unwrap();
+        let settings: Value =
+            serde_json::from_str(&fs::read_to_string(settings_path).unwrap()).unwrap();
         assert_eq!(models["providers"], serde_json::json!({}));
         assert_eq!(models["keep"]["theme"], "dark");
         assert!(settings.get("defaultProvider").is_none());
@@ -5756,7 +6175,13 @@ wire_api = "responses"
         fs::write(&path, second_content).unwrap();
 
         let models: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
-        assert_eq!(models["providers"]["openrouter"]["models"].as_array().unwrap().len(), 2);
+        assert_eq!(
+            models["providers"]["openrouter"]["models"]
+                .as_array()
+                .unwrap()
+                .len(),
+            2
+        );
 
         let (_, cleared) = prepare_clear_pi_models(&path, &first).unwrap();
         let models: Value = serde_json::from_str(&cleared).unwrap();
@@ -5781,7 +6206,10 @@ wire_api = "responses"
         let (_, content) = prepare_pi_models(&path, &profile, false).unwrap();
         let models: Value = serde_json::from_str(&content).unwrap();
         assert!(models["providers"].get("mux-team-openai").is_none());
-        assert_eq!(models["providers"]["openrouter"]["models"][0]["id"], "gpt-custom");
+        assert_eq!(
+            models["providers"]["openrouter"]["models"][0]["id"],
+            "gpt-custom"
+        );
     }
 
     #[test]
@@ -6046,6 +6474,88 @@ url = "https://example.test/mcp"
     fn codex_provider_ids_do_not_collapse_profile_punctuation() {
         assert_ne!(mux_profile_id("a-b"), mux_profile_id("a_b"));
         assert_ne!(mux_profile_id("a.b"), mux_profile_id("a_b"));
+    }
+
+    #[test]
+    fn private_transaction_keychain_snapshot_round_trips_without_plaintext_payload() {
+        let home = TestHome::new("private-transaction-keychain-roundtrip");
+        let operation_id = "11111111-1111-4111-8111-111111111111";
+        let path = home
+            .home
+            .join("Library/Application Support/Claude-3p/configLibrary/private-profile.json");
+        let sentinel = b"{\n  \"inferenceGatewayApiKey\": \"PRIVATE-SNAPSHOT-SENTINEL\"\n}\n";
+        let content_hash = hex::encode(Sha256::digest(sentinel));
+
+        let subject = persist_private_file_snapshot(operation_id, &path, sentinel).unwrap();
+        let stored = read_credential_service(&subject).unwrap();
+        assert!(!stored
+            .windows(b"PRIVATE-SNAPSHOT-SENTINEL".len())
+            .any(|window| window == b"PRIVATE-SNAPSHOT-SENTINEL"));
+        assert!(!stored.contains(&b'\n'));
+
+        let restored = load_private_file_snapshot(operation_id, &path, &content_hash)
+            .unwrap()
+            .unwrap();
+        assert_eq!(restored.as_slice(), sentinel);
+        clear_private_file_snapshot(operation_id, &path).unwrap();
+        assert!(!private_file_snapshot_exists(operation_id, &path));
+    }
+
+    #[test]
+    fn private_transaction_production_credential_backend_is_compile_time_gated() {
+        let source = include_str!("mod.rs");
+        let declaration = source
+            .find("static TEST_CREDENTIALS")
+            .expect("test credential backend declaration");
+        let cfg_prefix = &source[declaration.saturating_sub(160)..declaration];
+
+        assert!(
+            cfg_prefix.contains("cfg(any(test, debug_assertions))"),
+            "the in-memory credential map must be absent from optimized release artifacts"
+        );
+        assert!(
+            !include_str!("../../../Cargo.toml").contains("test-credential-backend"),
+            "a production-selectable Cargo feature must not enable the fake credential backend"
+        );
+        let presence_override = source
+            .find("MUX_TEST_MODEL_CREDENTIAL_PROFILES")
+            .expect("test credential-presence override");
+        let cfg_prefix = &source[presence_override.saturating_sub(220)..presence_override];
+        assert!(
+            cfg_prefix.contains("cfg(any(test, debug_assertions))"),
+            "the test credential-presence override must be absent from optimized release artifacts"
+        );
+    }
+
+    #[test]
+    fn private_transaction_keychain_snapshot_rejects_corrupt_or_rebound_payload() {
+        let home = TestHome::new("private-transaction-keychain-binding");
+        let operation_id = "22222222-2222-4222-8222-222222222222";
+        let first = home.home.join("first-private.json");
+        let second = home.home.join("second-private.json");
+        let sentinel = b"PRIVATE-SNAPSHOT-SENTINEL";
+        let content_hash = hex::encode(Sha256::digest(sentinel));
+        let first_subject = persist_private_file_snapshot(operation_id, &first, sentinel).unwrap();
+        let payload = read_credential_service(&first_subject).unwrap();
+        let second_subject = private_file_snapshot_subject(operation_id, &second);
+        set_credential_service(&second_subject, &payload).unwrap();
+
+        let rebound = load_private_file_snapshot(operation_id, &second, &content_hash).unwrap_err();
+        assert!(
+            rebound.starts_with("private_file_snapshot_invalid:"),
+            "{rebound}"
+        );
+        assert!(!rebound.contains("PRIVATE-SNAPSHOT-SENTINEL"));
+
+        set_credential_service(&first_subject, b"not-a-valid-private-snapshot").unwrap();
+        let corrupt = load_private_file_snapshot(operation_id, &first, &content_hash).unwrap_err();
+        assert!(
+            corrupt.starts_with("private_file_snapshot_invalid:"),
+            "{corrupt}"
+        );
+        assert!(!corrupt.contains("PRIVATE-SNAPSHOT-SENTINEL"));
+        clear_private_file_snapshot(operation_id, &first).unwrap();
+        clear_private_file_snapshot(operation_id, &second).unwrap();
     }
 
     #[cfg(target_os = "macos")]

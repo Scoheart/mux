@@ -211,12 +211,23 @@ mod tests {
                 .map(|model| model.storage_authority)
         };
         for agent_id in [
-            "pi", "grok-build", "opencode", "kilo-code", "qwen-code", "crush",
-            "mistral-vibe", "hermes", "factory-droid", "goose",
+            "pi",
+            "grok-build",
+            "opencode",
+            "kilo-code",
+            "qwen-code",
+            "crush",
+            "mistral-vibe",
+            "hermes",
+            "factory-droid",
+            "goose",
         ] {
-            assert_eq!(authority(agent_id), Some(ModelStorageAuthority::NativeRegistry));
+            assert_eq!(
+                authority(agent_id),
+                Some(ModelStorageAuthority::NativeRegistry)
+            );
         }
-        for agent_id in ["claude-code", "codex"] {
+        for agent_id in ["claude-code", "claude-desktop", "codex"] {
             assert_eq!(authority(agent_id), Some(ModelStorageAuthority::MuxMapping));
         }
         for agent_id in ["minimax-code", "qoder"] {

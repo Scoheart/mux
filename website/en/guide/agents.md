@@ -11,7 +11,7 @@ MUX treats MCPs, Models, and Skills as central assets. Create, import, and maint
 
 Agent files and Skill links are observed state, not an alternate asset database. MUX projects them as synced, externally added, changed, removed, unparseable, ambiguous, or unsupported. Scanning never silently takes ownership. Each changed relationship can explicitly adopt the observation, restore MUX desired state, or detach ownership through one recoverable transaction.
 
-MUX currently exposes **14 Model targets**: 12 are safely managed, while MiniMax Code and Qoder remain the two guided targets because no equivalent safe writer is available.
+MUX currently exposes **15 Model targets**: 13 are managed, while MiniMax Code and Qoder remain the two guided targets because no equivalent safe writer is available.
 
 ## Verified list
 

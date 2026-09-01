@@ -1,6 +1,6 @@
 # Models（Beta）
 
-MUX 桌面端把模型端点保存为中央 Model Profile，再由多个兼容 Agent 消费。创建 Profile 本身不会写 Agent 配置；支持多模型的 Agent 可以保留多个已添加 Profile，但同时只有一个 current profile。当前有 12 个自动写入目标；Qoder 与 MiniMax Code 保留安全引导。
+MUX 桌面端把模型端点保存为中央 Model Profile，再由多个兼容 Agent 消费。创建 Profile 本身不会写 Agent 配置；支持多模型的 Agent 可以保留多个已添加 Profile，但同时只有一个 current profile。当前有 13 个自动写入目标；Qoder 与 MiniMax Code 保留安全引导。
 
 ## Profile、Provider 与状态
 
@@ -39,7 +39,7 @@ MUX 会只读扫描受支持 Agent 的历史自定义模型配置，在“历史
 | MiniMax Code | 安全引导 | `~/.mavis/config.yaml`（MUX 自动管理独立的 `~/.mavis/mcp.json`） | 不自动写 Model；当前 provider 流程会保存明文 `options.apiKey` |
 | Qoder | 官方引导 | `~/.qoder/settings.json`（MUX 不写） | 在 Qoder 的 `/model` 中选择 |
 
-Claude Code 只接收 Anthropic Messages，Codex 只接收 Responses；其余自动目标按各自能力接受一种或多种 Anthropic Messages、OpenAI Responses、OpenAI Chat Completions。OpenCode 与 Kilo 还可通过 `@ai-sdk/google` 使用 Gemini 原生 GenerateContent；不支持该协议的 Agent 会在建立关系前被局部拒绝，不影响 MCP、Skill 或其他 Model。Grok Build、OpenCode/Kilo、Qwen、Crush、Vibe、Hermes、Factory 与 Goose 使用环境变量引用，不导出 Keychain 密钥正文。Qwen 当前 stable 0.20.0 的发布包仍要求 `modelProviders.<auth>` 是数组；MUX 会把自己旧版写出的精确 `{ protocol, models }` wrapper 安全迁移为数组，带未知字段的 wrapper 则拒绝覆盖。Qoder 没有公开安全的非交互凭据写入接口；MiniMax Code 当前自定义 provider 会把 `options.apiKey` 作为字面量保存，因此两者仍由自身界面管理。
+Claude Desktop 与 Claude Code 只接收 Anthropic Messages，Codex 只接收 Responses；其余自动目标按各自能力接受一种或多种 Anthropic Messages、OpenAI Responses、OpenAI Chat Completions。OpenCode 与 Kilo 还可通过 `@ai-sdk/google` 使用 Gemini 原生 GenerateContent；不支持该协议的 Agent 会在建立关系前被局部拒绝，不影响 MCP、Skill 或其他 Model。Claude Desktop 是明确审阅的例外：应用 Model 时，MUX 会把所选 Provider Key 从 Keychain 导出到 Claude Desktop 的 MUX 专属 `0600` Profile；非 Claude 路由名会自动关闭 Claude Desktop 模型名校验。Grok Build、OpenCode/Kilo、Qwen、Crush、Vibe、Hermes、Factory 与 Goose 使用环境变量引用，不导出 Keychain 密钥正文。Qwen 当前 stable 0.20.0 的发布包仍要求 `modelProviders.<auth>` 是数组；MUX 会把自己旧版写出的精确 `{ protocol, models }` wrapper 安全迁移为数组，带未知字段的 wrapper 则拒绝覆盖。Qoder 没有公开安全的非交互凭据写入接口；MiniMax Code 当前自定义 provider 会把 `options.apiKey` 作为字面量保存，因此两者仍由自身界面管理。
 
 ![MUX 模型接口与 Agent 分配](/img/model-endpoints.png)
 
@@ -60,7 +60,7 @@ Agent 配置中心会同时列出 Agent/模型配置文件和 MCP 配置文件�
 
 ## 凭据与写入安全
 
-- API Key 仅存于 macOS Keychain，`~/.mux/settings.json` 只有非敏感配置元数据。
+- API Key 的中央权威副本仅存于 macOS Keychain，`~/.mux/settings.json` 只有非敏感配置元数据；Claude Desktop 的已审阅直连例外会把所选 Key 写入其 MUX 专属 `0600` Profile。
 - Claude Code、Codex 和 Pi 的配置只保存系统 Keychain 读取命令，不保存密钥正文。
 - Grok Build 配置只保存 `env_key` 变量名，不写 `api_key`；启动 Grok Build 前需让该变量在其运行环境中可用。
 - 修改已有 Agent 文件前创建 `~/.mux/backups/` 备份；备份失败则不写。

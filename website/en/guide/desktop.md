@@ -87,13 +87,13 @@ The source model itself supports enable/disable, which the TUI's "Sources" scree
 - Inside a built-in agent's page you may override the global MCP path and section key; the official format, layout, and codec remain catalog-owned, to avoid producing incompatible configs.
 - Paths inside the home directory are saved as `~/…`; absolute paths outside it keep their original value.
 
-MUX currently has 56 audited Agent definitions, 46 writable MCP targets, 45 Skills targets, and 14 Model targets (12 managed and 2 guided). Its 201 discovery-catalog entries combine with the audited definitions into 211 unique identities. See [Supported agents](/en/guide/agents) for the full matrix.
+MUX currently has 56 audited Agent definitions, 46 writable MCP targets, 45 Skills targets, and 15 Model targets (13 managed and 2 guided). Its 201 discovery-catalog entries combine with the audited definitions into 211 unique identities. See [Supported agents](/en/guide/agents) for the full matrix.
 
 ## Models (Beta)
 
-The top-level **Models** workspace creates central reusable Profiles without touching an Agent. Each Agent page then shows assigned, enabled, and current state. A native multi-model Agent may retain several Profiles but has at most one current Profile; a single-model Agent remains limited to one. Editing propagates through every consumer and deletion cascades through relationships and managed targets. API keys remain in macOS Keychain and never enter settings, persisted plans, previews, or backups.
+The top-level **Models** workspace creates central reusable Profiles without touching an Agent. Each Agent page then shows assigned, enabled, and current state. A native multi-model Agent may retain several Profiles but has at most one current Profile; a single-model Agent remains limited to one. Editing propagates through every consumer and deletion cascades through relationships and managed targets. The central API-key copy remains in macOS Keychain and never enters settings, persisted plans, previews, or backups. Claude Desktop is the reviewed direct-connect exception: applying a Model exports the selected key into its dedicated private `0600` MUX Profile.
 
-Claude Code currently accepts Anthropic Messages profiles, Codex uses the Responses API, and Grok Build plus Pi support all three initial protocols. Grok Build reads authentication through its documented `env_key`; MUX never writes a Keychain secret into TOML. Qoder and MiniMax Code remain guided setup targets.
+Claude Desktop and Claude Code currently accept Anthropic Messages profiles, Codex uses the Responses API, and Grok Build plus Pi support all three initial protocols. Claude Desktop creates one reviewed MUX-owned direct Profile and disables its model-name verification for non-Claude routes. Grok Build reads authentication through its documented `env_key`; MUX never writes a Keychain secret into TOML. Qoder and MiniMax Code remain guided setup targets.
 
 ## Skills
 

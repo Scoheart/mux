@@ -4,7 +4,7 @@
 
 Add Claude Desktop as a managed MUX Model Agent on macOS. Applying an Anthropic Messages-compatible Model creates one MUX-owned third-party inference profile; non-Claude model routes automatically opt out of Claude Desktop's Claude-name verification.
 
-This is a deliberate security exception to MUX's normal credential policy: Claude Desktop requires `inferenceGatewayApiKey` to be a literal string, so an explicitly reviewed apply exports the selected Provider credential from Keychain into Claude Desktop's private `0600` profile file.
+The direct Claude Desktop Profile remains a user-approved security exception to MUX's normal credential policy: Claude Desktop requires `inferenceGatewayApiKey` to be a literal string, so an explicitly reviewed apply exports the selected Provider credential from Keychain into Claude Desktop's private `0600` profile file.
 
 ## Product contract
 
@@ -15,7 +15,7 @@ This is a deliberate security exception to MUX's normal credential policy: Claud
 - Non-Claude routes set `unstableDisableModelVerification: true`.
 - Claude-compatible routes omit `unstableDisableModelVerification`; MUX never weakens verification when it is unnecessary.
 - Every MUX profile disables Claude Desktop model discovery and writes one explicit `inferenceModels` entry. Provider model discovery remains a MUX Models-page concern and does not depend on the Provider returning Claude Desktop's expected `/v1/models` envelope.
-- Applying or clearing reports that Claude Desktop must be restarted.
+- Claude Desktop must be restarted after apply or clear for the running app to refresh; only apply currently returns `restart_required`.
 
 ## Configuration targets
 
@@ -77,18 +77,38 @@ The effective base URL uses the selected Provider's Anthropic Messages connectio
 - The operation review explicitly states that the credential will be exported to Claude Desktop's private configuration.
 - The MUX profile is created with mode `0600`; an existing MUX profile with broader permissions is tightened before success is reported.
 - Credential values never enter operation DTOs, logs, errors, screenshots, test snapshots, or repository fixtures.
-- The MUX-owned secret-bearing profile is not copied into MUX's persistent backup directory. Transaction rollback retains prior bytes only in memory and zeroizes them after commit or rollback.
+- Secret-bearing in-memory carriers use zeroizing storage and redacted debug/output representations. They are cleared after commit or rollback.
+- The MUX-owned secret-bearing Profile is not copied into MUX's filesystem backup directory. The outer transaction stores its pre-state in an operation-and-path-bound Keychain item for crash recovery; this is durable recovery evidence, not a memory-only rollback promise.
 
 ## Apply transaction
 
 1. Planning reads and hashes all four physical targets, validates their JSON, confirms the Profile protocol, and records the exact write set without reading the credential.
+   The four configured roles must be distinct. Commit rechecks canonical destinations and exact inode identities so an ordinary target cannot hardlink or alias the private Profile into filesystem backups.
 2. Commit rechecks the candidate hash and target hashes, then reads the credential from Keychain.
 3. Existing listened-to Claude configuration and `_meta.json` files are updated in place while preserving inode, permissions, unknown fields, and unrelated formatting where the existing safe-write layer supports it.
+   These ordinary JSON/JSONC files are edited through CST-owned fields with recursive duplicate-key rejection; MUX never accepts last-key-wins ambiguity.
 4. A new MUX profile is published atomically in the same directory with mode `0600`; an existing MUX profile is replaced only after CAS revalidation.
 5. The transaction records the previously applied non-MUX profile ID in typed MUX operational state, then switches `_meta.json.appliedId` to the MUX profile.
 6. Any failure rolls every changed target back. Cross-process changes fail closed rather than being overwritten.
 
-Central desired-state persistence and Claude projection remain separate phases under the existing `Agent × capability × physical target` operation model.
+Central desired-state persistence and Claude projection remain separate phases under the existing `Agent × capability × physical target` operation model. The direct adapter writes Claude's files itself; it does not introduce a local gateway, LaunchAgent, or background proxy.
+
+### Private transaction evidence and recovery
+
+Before the private pre-state is written to Keychain, the outer transaction writes a nonsecret preparation ledger. That ledger binds the operation to the configured Claude Desktop fourth target (the private MUX Profile path) and to its Keychain snapshot subject. The filesystem rollback manifest, mutation intent, and write evidence for that private target contain only path, mode, identity, version, content hash, and Keychain reference fields. They never contain the Profile bytes. Ordinary, nonsecret Claude configuration backups may retain their prior file content under the normal backup policy.
+
+The private pre-state and its metadata are cleaned up as one fail-closed lifecycle:
+
+| Situation | Required handling |
+|---|---|
+| Pre-state persistence fails | Remove the partial Keychain item and preparation ledger. If cleanup fails, retain evidence and require recovery. |
+| User cancels before a rollback manifest exists | Clear the ledger-bound private Keychain item and operation artifacts; do not touch Claude files. |
+| Commit succeeds | After the commit boundary is recorded, clear the private pre-state and ledger, then retire the operation journal. |
+| Commit fails and rollback is owned | Restore only with matching hash/mode/identity evidence, then clear private evidence. A mismatch or cleanup failure retains evidence and fails closed. |
+| Startup with no rollback manifest | Use the nonsecret ledger to clear its exact private Keychain item and operation root; never hydrate or guess Profile bytes. |
+| Resolved target incident | Authorize cleanup only after the incident is resolved, clear private Keychain evidence before retiring the journal, and retain evidence on any failure. |
+
+Any incomplete cleanup returns a recovery-required result and leaves the evidence needed for a later, exact recovery. It never broad-deletes a path or silently treats missing evidence as success.
 
 ## Clear and restore
 
@@ -105,7 +125,9 @@ Central desired-state persistence and Claude projection remain separate phases u
 - Missing means an assigned MUX Profile or meta entry is absent.
 - Drifted means MUX-owned fields differ while the files remain parseable.
 - Conflicted means JSON is invalid, the deterministic UUID belongs to an unexpected entry, the active selection is ambiguous, or a target changed during planning.
+- A symlinked, non-regular, or non-`0600` private MUX Profile is conflicted even when its JSON bytes otherwise match.
 - External Claude profiles are preserved and are not silently adopted into the central Model library.
+- The exact non-Claude route classifier is evaluated only while projecting the configured Claude Desktop fourth target; it is not a global model-name rule and does not affect other Agents or external Profiles.
 
 ## UI surface
 
@@ -143,4 +165,4 @@ Rejected because MUX's current mapping contract needs only one active Profile. O
 - Planning and serialized operation results contain no credential.
 - Clear restores the previous external profile and removes only MUX-owned state.
 - Invalid JSON, unsupported protocols, missing credentials, UUID collisions, and CAS changes fail closed.
-- Focused Rust and React regression tests are retained. Per the repository's fast-delivery policy, broader test suites run only when explicitly requested; production Stable build and release verification remain mandatory.
+- Focused Rust and React regression tests are retained, including the `private_transaction` tests for configured-path classification, Keychain-backed hash-only pre-state recovery, external-edit refusal, missing evidence, no-manifest startup/cancel cleanup, persistence failure, and resolved-incident cleanup. Per the repository's fast-delivery policy, broader test suites run only when explicitly requested; production Stable build and release verification remain mandatory.

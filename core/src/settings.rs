@@ -83,6 +83,14 @@ pub struct AgentConfigPathOverride {
     pub skills_alias_dirs: Option<Vec<String>>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+pub struct ModelAgentRuntimeState {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub previous_applied_profile_id: Option<String>,
+    #[serde(flatten)]
+    pub extra: BTreeMap<String, Value>,
+}
+
 /// The whole `~/.mux/settings.json` document.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Settings {
@@ -124,6 +132,9 @@ pub struct Settings {
     /// `model_assignments` and persisted on the next Model mutation.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model_consumptions: Option<BTreeMap<String, BTreeMap<String, ModelConsumptionRecord>>>,
+    /// Per-Agent runtime state needed to restore externally owned model state.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_agent_runtime: Option<BTreeMap<String, ModelAgentRuntimeState>>,
     /// Desired MCP consumption, keyed by canonical Agent id and then by the
     /// stable central Registry asset key (`name::transport`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -203,6 +214,45 @@ struct PersistedDocuments {
 }
 
 impl Settings {
+    pub fn model_agent_runtime_state(&self, agent_id: &str) -> Option<&ModelAgentRuntimeState> {
+        self.model_agent_runtime.as_ref()?.get(agent_id)
+    }
+
+    pub fn set_model_agent_runtime_state(&mut self, agent_id: &str, state: ModelAgentRuntimeState) {
+        let mut state = state;
+        if let Some(existing) = self.model_agent_runtime_state(agent_id) {
+            for (key, value) in &existing.extra {
+                state
+                    .extra
+                    .entry(key.clone())
+                    .or_insert_with(|| value.clone());
+            }
+        }
+        self.model_agent_runtime
+            .get_or_insert_default()
+            .insert(agent_id.to_string(), state);
+    }
+
+    pub fn remove_model_agent_runtime_state(
+        &mut self,
+        agent_id: &str,
+    ) -> Option<ModelAgentRuntimeState> {
+        let all = self.model_agent_runtime.as_mut()?;
+        let (previous, remove_agent) = {
+            let state = all.get_mut(agent_id)?;
+            let previous = state.clone();
+            state.previous_applied_profile_id = None;
+            (previous, state.extra.is_empty())
+        };
+        if remove_agent {
+            all.remove(agent_id);
+        }
+        if all.is_empty() {
+            self.model_agent_runtime = None;
+        }
+        Some(previous)
+    }
+
     /// Hydrate Provider-owned connection fields for runtime consumers while
     /// keeping them out of persisted Model records.
     fn hydrate_model_provider_fields(&mut self) {
@@ -805,6 +855,83 @@ mod tests {
         assert!(back.contains("futureThing"));
         assert!(back.contains("\"active\""));
         assert!(back.contains("2026-01-02T03:04:05"));
+    }
+
+    #[test]
+    fn claude_desktop_model_agent_runtime_state_roundtrips_and_helpers_prune_empty_map() {
+        let json = r#"{
+            "model_agent_runtime": {
+                "claude-desktop": {
+                    "previous_applied_profile_id": "cc-switch-id",
+                    "futureRuntimeField": {"keep": true}
+                }
+            },
+            "futureThing": {"keep": true}
+        }"#;
+        let mut settings: Settings = serde_json::from_str(json).unwrap();
+
+        assert_eq!(
+            settings
+                .model_agent_runtime_state("claude-desktop")
+                .and_then(|state| state.previous_applied_profile_id.as_deref()),
+            Some("cc-switch-id")
+        );
+        settings.set_model_agent_runtime_state(
+            "another-agent",
+            ModelAgentRuntimeState {
+                previous_applied_profile_id: Some("external-id".into()),
+                ..Default::default()
+            },
+        );
+        settings.set_model_agent_runtime_state(
+            "claude-desktop",
+            ModelAgentRuntimeState {
+                previous_applied_profile_id: Some("updated-id".into()),
+                ..Default::default()
+            },
+        );
+        let encoded = serde_json::to_value(&settings).unwrap();
+        assert_eq!(
+            encoded["model_agent_runtime"]["claude-desktop"]["previous_applied_profile_id"],
+            "updated-id"
+        );
+        assert_eq!(
+            encoded["model_agent_runtime"]["claude-desktop"]["futureRuntimeField"]["keep"],
+            true
+        );
+        assert_eq!(
+            encoded["model_agent_runtime"]["another-agent"]["previous_applied_profile_id"],
+            "external-id"
+        );
+        assert_eq!(encoded["futureThing"]["keep"], true);
+
+        settings.remove_model_agent_runtime_state("claude-desktop");
+        let encoded = serde_json::to_value(&settings).unwrap();
+        assert!(encoded["model_agent_runtime"]["claude-desktop"]
+            .get("previous_applied_profile_id")
+            .is_none());
+        assert_eq!(
+            encoded["model_agent_runtime"]["claude-desktop"]["futureRuntimeField"]["keep"],
+            true
+        );
+        settings.remove_model_agent_runtime_state("another-agent");
+        assert!(settings
+            .model_agent_runtime_state("claude-desktop")
+            .is_some());
+        settings
+            .model_agent_runtime
+            .as_mut()
+            .unwrap()
+            .get_mut("claude-desktop")
+            .unwrap()
+            .extra
+            .clear();
+        settings.remove_model_agent_runtime_state("claude-desktop");
+        assert!(settings.model_agent_runtime.is_none());
+        assert!(serde_json::to_value(settings)
+            .unwrap()
+            .get("model_agent_runtime")
+            .is_none());
     }
 
     #[test]

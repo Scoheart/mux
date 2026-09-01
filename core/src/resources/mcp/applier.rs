@@ -7,7 +7,7 @@ use crate::resources::mcp::scanner::expand_tilde;
 use serde_json::Value;
 use std::collections::BTreeMap;
 use std::fs::{self, OpenOptions};
-use std::io::ErrorKind;
+use std::io::{ErrorKind, Write};
 #[cfg(unix)]
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
@@ -112,6 +112,70 @@ pub(crate) fn backup(
                 Err(format!(
                     "failed to back up {} to {}: {}",
                     path.display(),
+                    backup_path.display(),
+                    error
+                ))
+            }
+        };
+    }
+    unreachable!("u32 backup suffix space exhausted")
+}
+
+/// Persist bytes already captured from an anchored, reviewed source. This is
+/// used when reopening the source path would reintroduce a target-swap race.
+pub(crate) fn backup_bytes(
+    path: &Path,
+    bytes: &[u8],
+    backups_dir: &Path,
+    stamp: &str,
+    agent: &str,
+    scope: &str,
+) -> Result<(), String> {
+    fs::create_dir_all(backups_dir)
+        .map_err(|error| format!("failed to create backup directory: {error}"))?;
+    #[cfg(unix)]
+    fs::set_permissions(backups_dir, fs::Permissions::from_mode(0o700))
+        .map_err(|error| format!("failed to secure backup directory: {error}"))?;
+    let fname = path.file_name().and_then(|s| s.to_str()).unwrap_or("file");
+    let base_name = format!(
+        "{}-{}-{}-{}",
+        fname,
+        stamp,
+        backup_component(agent),
+        backup_component(scope)
+    );
+
+    for suffix in 0_u32.. {
+        let name = if suffix == 0 {
+            base_name.clone()
+        } else {
+            format!("{base_name}-{suffix}")
+        };
+        let backup_path = backups_dir.join(name);
+        let mut options = OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        options.mode(0o600);
+        let mut destination = match options.open(&backup_path) {
+            Ok(file) => file,
+            Err(error) if error.kind() == ErrorKind::AlreadyExists => continue,
+            Err(error) => {
+                return Err(format!(
+                    "failed to create backup {}: {}",
+                    backup_path.display(),
+                    error
+                ));
+            }
+        };
+        let result = destination
+            .write_all(bytes)
+            .and_then(|_| destination.sync_all());
+        return match result {
+            Ok(()) => Ok(()),
+            Err(error) => {
+                let _ = fs::remove_file(&backup_path);
+                Err(format!(
+                    "failed to back up reviewed bytes to {}: {}",
                     backup_path.display(),
                     error
                 ))

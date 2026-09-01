@@ -6,15 +6,14 @@ use super::store::{AssetStateStore, StatePrecondition, StateSubject};
 use super::types::{
     AgentConsumptionSelection, AssetOperationKind, AssetOperationPlan, AssetRef,
     CentralAssetChange, ConsumptionInventory, ConsumptionStateChange, ConsumptionStatus,
-    ConsumptionTarget, DomainPlan, McpReapplyScope, ModelAgentSelection,
-    ModelConsumptionRecord, ModelStateChange,
-    ModelStateSnapshot, PlanClearAgentMcpRequest, PlanClearAgentModelsRequest,
-    PlanEnsureAgentConsumptionRequest,
-    PlanReapplyMcpRequest, PlanReapplyModelRequest, PlanReapplySkillRequest,
-    PlanRemoveAgentConsumptionRequest, PlanSetActiveModelRequest, PlanSetAgentConsumptionRequest,
-    PlanSetAllMcpEnabledRequest, PlanSetAssetConsumersRequest, PlanSetMcpEnabledRequest,
-    PlanSetModelEnabledRequest, PlanSetSkillEnabledRequest, PlanUpdateAgentCapabilitiesRequest,
-    PlanUpdateAssetConsumersRequest, RelationshipAction, RelationshipChange,
+    ConsumptionTarget, DomainPlan, McpReapplyScope, ModelAgentSelection, ModelConsumptionRecord,
+    ModelStateChange, ModelStateSnapshot, PlanClearAgentMcpRequest, PlanClearAgentModelsRequest,
+    PlanEnsureAgentConsumptionRequest, PlanReapplyMcpRequest, PlanReapplyModelRequest,
+    PlanReapplySkillRequest, PlanRemoveAgentConsumptionRequest, PlanSetActiveModelRequest,
+    PlanSetAgentConsumptionRequest, PlanSetAllMcpEnabledRequest, PlanSetAssetConsumersRequest,
+    PlanSetMcpEnabledRequest, PlanSetModelEnabledRequest, PlanSetSkillEnabledRequest,
+    PlanUpdateAgentCapabilitiesRequest, PlanUpdateAssetConsumersRequest, RelationshipAction,
+    RelationshipChange,
 };
 use crate::agents::{
     builtin_agents, current_configuration_patch, load_agents, normalize_configuration_patch,
@@ -462,14 +461,18 @@ pub fn plan_clear_agent_models(
     let managed_count = inventory
         .consumptions
         .iter()
-        .filter(|item| item.agent_id == request.agent_id
-            && item.observed
-            && matches!(&item.asset, AssetRef::Model { .. }))
+        .filter(|item| {
+            item.agent_id == request.agent_id
+                && item.observed
+                && matches!(&item.asset, AssetRef::Model { .. })
+        })
         .count();
     let external_count = inventory
         .external
         .iter()
-        .filter(|item| item.agent_id == request.agent_id && matches!(&item.asset, AssetRef::Model { .. }))
+        .filter(|item| {
+            item.agent_id == request.agent_id && matches!(&item.asset, AssetRef::Model { .. })
+        })
         .count();
     let configured_count = match capability.storage_authority {
         ModelStorageAuthority::NativeRegistry => managed_count + external_count,
@@ -478,10 +481,7 @@ pub fn plan_clear_agent_models(
     };
     let domain_plan = DomainPlan::Model {
         before: BTreeMap::from([(request.agent_id.clone(), before)]),
-        after: BTreeMap::from([(
-            request.agent_id.clone(),
-            ModelAgentSelection::default(),
-        )]),
+        after: BTreeMap::from([(request.agent_id.clone(), ModelAgentSelection::default())]),
     };
     if configured_count == 0 && mapped_count == 0 {
         return finalize_plan_with_inventory(
@@ -507,7 +507,8 @@ pub fn plan_clear_agent_models(
             agent_id: request.agent_id,
             storage_authority: capability.storage_authority,
             configured_count,
-            external_count: if capability.storage_authority == ModelStorageAuthority::NativeRegistry {
+            external_count: if capability.storage_authority == ModelStorageAuthority::NativeRegistry
+            {
                 external_count
             } else {
                 0
@@ -2014,6 +2015,7 @@ fn finalize_plan_with_inventory(
     target_files.extend(extra_target_files);
     target_files.sort();
     target_files.dedup();
+    order_model_target_files(&domain_plan, &mut target_files)?;
     validate_transaction_targets(&domain_plan, &target_files)?;
     let observations: Vec<_> = current_inventory
         .consumptions
@@ -2124,6 +2126,7 @@ fn finalize_plan_with_inventory(
     blocked.sort();
     blocked.dedup();
     let mut warnings = observations;
+    append_model_credential_export_warning(&domain_plan, &mut warnings);
     if let Some(LifecycleBinding::ModelClear {
         storage_authority: ModelStorageAuthority::NativeRegistry,
         configured_count,
@@ -2510,6 +2513,80 @@ fn model_state_changes(plan: &DomainPlan) -> Vec<ModelStateChange> {
         }
     }
     changes
+}
+
+fn append_model_credential_export_warning(plan: &DomainPlan, warnings: &mut Vec<String>) {
+    let DomainPlan::Model { before, after } = plan else {
+        return;
+    };
+    let should_warn = union_keys(before, after)
+        .into_iter()
+        .filter(|agent_id| agent_id.as_str() == "claude-desktop")
+        .any(|agent_id| {
+            let left = before.get(agent_id).cloned().unwrap_or_default();
+            let right = after.get(agent_id).cloned().unwrap_or_default();
+            let profile_ids = left
+                .profiles
+                .keys()
+                .chain(right.profiles.keys())
+                .cloned()
+                .collect::<BTreeSet<_>>();
+            profile_ids.into_iter().any(|profile_id| {
+                (!left.profiles.contains_key(&profile_id)
+                    && right.profiles.contains_key(&profile_id))
+                    || (left.active_profile_id.as_deref() != Some(profile_id.as_str())
+                        && right.active_profile_id.as_deref() == Some(profile_id.as_str()))
+                    || (left.active_profile_id.as_deref() == Some(profile_id.as_str())
+                        && right.active_profile_id.as_deref() == Some(profile_id.as_str())
+                        && left
+                            .profiles
+                            .get(&profile_id)
+                            .is_some_and(|record| !record.enabled)
+                        && right
+                            .profiles
+                            .get(&profile_id)
+                            .is_some_and(|record| record.enabled))
+            })
+        });
+    if should_warn {
+        warnings.push("claude-desktop: model_credential_export_plaintext".into());
+    }
+}
+
+fn order_model_target_files(plan: &DomainPlan, target_files: &mut [String]) -> Result<(), String> {
+    let DomainPlan::Model { before, after } = plan else {
+        return Ok(());
+    };
+    if !union_keys(before, after)
+        .iter()
+        .any(|agent_id| agent_id.as_str() == "claude-desktop")
+    {
+        return Ok(());
+    }
+    let settings = load_settings_strict().map_err(|error| error.to_string())?;
+    let order =
+        crate::resources::model::configured_path_strings_checked(&settings, "claude-desktop")?
+            .ok_or_else(|| "unsupported model Agent: claude-desktop".to_string())?;
+    let positions = target_files
+        .iter()
+        .enumerate()
+        .filter(|(_, path)| order.iter().any(|candidate| candidate == *path))
+        .map(|(index, _)| index)
+        .collect::<Vec<_>>();
+    let mut recognized = positions
+        .iter()
+        .map(|index| target_files[*index].clone())
+        .collect::<Vec<_>>();
+    recognized.sort_by_key(|path| {
+        order
+            .iter()
+            .position(|candidate| candidate == path)
+            .expect("recognized Claude Desktop target has a configured role")
+    });
+    for (index, path) in positions.into_iter().zip(recognized) {
+        target_files[index] = path;
+    }
+    Ok(())
 }
 
 fn consumption_state_changes(
@@ -3760,6 +3837,30 @@ mod tests {
     }
 
     #[test]
+    fn claude_desktop_capability_plan_rejects_duplicate_model_roles() {
+        let _home = TestHome::new("capability-plan-claude-duplicate");
+        let duplicate = "~/.claude-duplicate/shared.json".to_string();
+
+        let error = plan_update_agent_capabilities(PlanUpdateAgentCapabilitiesRequest {
+            agent_id: "claude-desktop".into(),
+            patch: AgentConfigurationPatch {
+                model: Some(ModelConfigurationPatch {
+                    paths: vec![
+                        duplicate.clone(),
+                        "~/.claude-duplicate/deployment.json".into(),
+                        "~/.claude-duplicate/meta.json".into(),
+                        duplicate,
+                    ],
+                }),
+                ..AgentConfigurationPatch::default()
+            },
+        })
+        .unwrap_err();
+
+        assert!(error.contains("distinct"), "{error}");
+    }
+
+    #[test]
     fn one_agent_cannot_select_two_transports_with_the_same_mcp_name() {
         let _home = TestHome::new("consume-mcp-name-conflict");
         write_manual_entry(&RegistryEntry {
@@ -4122,6 +4223,359 @@ mod tests {
         .unwrap();
         assert!(providers["providers"].get("mux-current").is_some());
         assert!(providers["providers"].get("mux-backup").is_some());
+    }
+
+    fn claude_desktop_provider_profile() -> ModelProfile {
+        ModelProfile {
+            id: "claude-desktop-planner-test".into(),
+            name: "Claude Desktop planner test".into(),
+            provider_id: Some("claude-desktop-planner-provider".into()),
+            provider: "custom".into(),
+            model_vendor: Some("anthropic".into()),
+            native_ids: Default::default(),
+            protocol: ModelProtocol::AnthropicMessages,
+            base_url: "https://gateway.example.test".into(),
+            endpoint_path: "/anthropic/v1/messages".into(),
+            model: "claude-sonnet-test".into(),
+            env_key: None,
+            context_window: None,
+            max_output_tokens: None,
+            reasoning: Some(true),
+        }
+    }
+
+    #[test]
+    fn claude_desktop_model_add_warns_about_plaintext_credential_export() {
+        let home = TestHome::new("planner-claude-desktop-credential-warning");
+        let profile = claude_desktop_provider_profile();
+        let fake_credential = "fake-claude-desktop-credential";
+        crate::resources::model::save_profile(profile.clone(), Some(fake_credential.into()))
+            .unwrap();
+
+        let plan = crate::application::assets::plan_set_agent_consumption(
+            PlanSetAgentConsumptionRequest {
+                agent_id: "claude-desktop".into(),
+                selection: AgentConsumptionSelection::Model {
+                    profile_ids: vec![profile.id.clone()],
+                },
+            },
+        )
+        .unwrap();
+
+        assert_eq!(
+            plan.warnings,
+            vec!["claude-desktop: model_credential_export_plaintext"]
+        );
+        assert_eq!(
+            plan.target_files,
+            vec![
+                "~/Library/Application Support/Claude/claude_desktop_config.json",
+                "~/Library/Application Support/Claude-3p/claude_desktop_config.json",
+                "~/Library/Application Support/Claude-3p/configLibrary/_meta.json",
+                "~/Library/Application Support/Claude-3p/configLibrary/6d757800-0000-4000-8000-000000000001.json",
+            ]
+        );
+        let serialized = fs::read_to_string(
+            home.home
+                .join(".mux/staging/consumption")
+                .join(&plan.operation_id)
+                .join("plan.json"),
+        )
+        .unwrap();
+        assert!(!serialized.contains(fake_credential));
+    }
+
+    #[test]
+    fn claude_desktop_plaintext_export_warning_is_scoped_to_add_or_activation() {
+        let _home = TestHome::new("planner-claude-desktop-credential-warning-scope");
+        let profile = claude_desktop_provider_profile();
+        crate::resources::model::save_profile(profile.clone(), Some("fake-credential".into()))
+            .unwrap();
+
+        mutate_settings(|settings| {
+            settings.set_model_selection(
+                "claude-desktop",
+                ModelAgentSelection {
+                    profiles: BTreeMap::from([(
+                        profile.id.clone(),
+                        ModelConsumptionRecord {
+                            profile_id: profile.id.clone(),
+                            enabled: true,
+                            last_selected_at: None,
+                        },
+                    )]),
+                    active_profile_id: Some(profile.id.clone()),
+                },
+            );
+        })
+        .unwrap();
+
+        let removal = crate::application::assets::plan_remove_agent_consumption(
+            PlanRemoveAgentConsumptionRequest {
+                agent_id: "claude-desktop".into(),
+                selection: AgentConsumptionSelection::Model {
+                    profile_ids: vec![profile.id.clone()],
+                },
+            },
+        )
+        .unwrap();
+        assert!(!removal
+            .warnings
+            .contains(&"claude-desktop: model_credential_export_plaintext".into()));
+
+        let no_op = crate::application::assets::plan_set_agent_consumption(
+            PlanSetAgentConsumptionRequest {
+                agent_id: "claude-desktop".into(),
+                selection: AgentConsumptionSelection::Model {
+                    profile_ids: vec![profile.id.clone()],
+                },
+            },
+        )
+        .unwrap();
+        assert!(!no_op
+            .warnings
+            .contains(&"claude-desktop: model_credential_export_plaintext".into()));
+
+        let unrelated = crate::application::assets::plan_set_agent_consumption(
+            PlanSetAgentConsumptionRequest {
+                agent_id: "claude-code".into(),
+                selection: AgentConsumptionSelection::Model {
+                    profile_ids: vec![profile.id],
+                },
+            },
+        )
+        .unwrap();
+        assert!(!unrelated
+            .warnings
+            .contains(&"claude-desktop: model_credential_export_plaintext".into()));
+    }
+
+    #[test]
+    fn claude_desktop_model_targets_follow_configured_override_order() {
+        let _home = TestHome::new("planner-claude-desktop-configured-target-order");
+        let profile = claude_desktop_provider_profile();
+        crate::resources::model::save_profile(profile.clone(), Some("fake-credential".into()))
+            .unwrap();
+        let configured_paths = vec![
+            "~/.mux-claude/primary.json".into(),
+            "~/.mux-claude/deployment.json".into(),
+            "~/.mux-claude/meta.json".into(),
+            "~/.mux-claude/profile.json".into(),
+        ];
+        mutate_settings(|settings| {
+            settings.agent_config_paths.get_or_insert_default().insert(
+                "claude-desktop".into(),
+                AgentConfigPathOverride {
+                    model_paths: Some(configured_paths.clone()),
+                    ..Default::default()
+                },
+            );
+        })
+        .unwrap();
+
+        let plan = crate::application::assets::plan_set_agent_consumption(
+            PlanSetAgentConsumptionRequest {
+                agent_id: "claude-desktop".into(),
+                selection: AgentConsumptionSelection::Model {
+                    profile_ids: vec![profile.id],
+                },
+            },
+        )
+        .unwrap();
+
+        assert_eq!(plan.target_files, configured_paths);
+    }
+
+    #[test]
+    fn claude_desktop_duplicate_override_paths_fail_planning() {
+        let _home = TestHome::new("planner-claude-desktop-duplicate-targets");
+        let profile = claude_desktop_provider_profile();
+        crate::resources::model::save_profile(profile.clone(), Some("fake-credential".into()))
+            .unwrap();
+        let duplicate = "~/.mux-claude/shared.json".to_string();
+        mutate_settings(|settings| {
+            settings.agent_config_paths.get_or_insert_default().insert(
+                "claude-desktop".into(),
+                AgentConfigPathOverride {
+                    model_paths: Some(vec![
+                        duplicate.clone(),
+                        "~/.mux-claude/deployment.json".into(),
+                        "~/.mux-claude/meta.json".into(),
+                        duplicate.clone(),
+                    ]),
+                    ..Default::default()
+                },
+            );
+        })
+        .unwrap();
+
+        let error = crate::application::assets::plan_set_agent_consumption(
+            PlanSetAgentConsumptionRequest {
+                agent_id: "claude-desktop".into(),
+                selection: AgentConsumptionSelection::Model {
+                    profile_ids: vec![profile.id],
+                },
+            },
+        )
+        .unwrap_err();
+
+        assert!(error.contains("distinct"), "{error}");
+    }
+
+    #[test]
+    fn claude_desktop_model_target_order_does_not_reorder_mixed_agent_targets() {
+        let _home = TestHome::new("planner-claude-desktop-mixed-target-order");
+        let profile = claude_desktop_provider_profile();
+        crate::resources::model::save_profile(profile.clone(), Some("fake-credential".into()))
+            .unwrap();
+
+        let plan =
+            crate::application::assets::plan_set_asset_consumers(PlanSetAssetConsumersRequest {
+                asset: AssetRef::Model {
+                    profile_id: profile.id,
+                },
+                agent_ids: vec!["claude-desktop".into(), "pi".into()],
+            })
+            .unwrap();
+
+        assert_eq!(
+            plan.target_files,
+            vec![
+                "~/.pi/agent/models.json",
+                "~/.pi/agent/settings.json",
+                "~/Library/Application Support/Claude/claude_desktop_config.json",
+                "~/Library/Application Support/Claude-3p/claude_desktop_config.json",
+                "~/Library/Application Support/Claude-3p/configLibrary/_meta.json",
+                "~/Library/Application Support/Claude-3p/configLibrary/6d757800-0000-4000-8000-000000000001.json",
+            ]
+        );
+    }
+
+    #[test]
+    fn claude_desktop_reenabling_the_active_disabled_model_warns_about_export() {
+        let _home = TestHome::new("planner-claude-desktop-reenable-active-warning");
+        let profile = claude_desktop_provider_profile();
+        crate::resources::model::save_profile(profile.clone(), Some("fake-credential".into()))
+            .unwrap();
+        mutate_settings(|settings| {
+            settings.set_model_selection(
+                "claude-desktop",
+                ModelAgentSelection {
+                    profiles: BTreeMap::from([(
+                        profile.id.clone(),
+                        ModelConsumptionRecord {
+                            profile_id: profile.id.clone(),
+                            enabled: false,
+                            last_selected_at: None,
+                        },
+                    )]),
+                    active_profile_id: Some(profile.id.clone()),
+                },
+            );
+        })
+        .unwrap();
+
+        let plan = crate::application::assets::plan_set_model_enabled(PlanSetModelEnabledRequest {
+            agent_id: "claude-desktop".into(),
+            profile_id: profile.id,
+            enabled: true,
+        })
+        .unwrap();
+
+        assert!(plan
+            .warnings
+            .contains(&"claude-desktop: model_credential_export_plaintext".into()));
+    }
+
+    #[test]
+    fn claude_desktop_model_replacement_warns_when_the_active_pointer_changes() {
+        let _home = TestHome::new("planner-claude-desktop-active-pointer-warning");
+        let first = claude_desktop_provider_profile();
+        crate::resources::model::save_profile(first.clone(), Some("first-fake-credential".into()))
+            .unwrap();
+        let mut second = first.clone();
+        second.id = "claude-desktop-planner-test-second".into();
+        second.name = "Claude Desktop planner test second".into();
+        second.model = "claude-opus-test".into();
+        crate::resources::model::save_profile(
+            second.clone(),
+            Some("second-fake-credential".into()),
+        )
+        .unwrap();
+        mutate_settings(|settings| {
+            settings.set_model_selection(
+                "claude-desktop",
+                ModelAgentSelection {
+                    profiles: BTreeMap::from([(
+                        first.id.clone(),
+                        ModelConsumptionRecord {
+                            profile_id: first.id.clone(),
+                            enabled: true,
+                            last_selected_at: None,
+                        },
+                    )]),
+                    active_profile_id: Some(first.id),
+                },
+            );
+        })
+        .unwrap();
+
+        let plan = crate::application::assets::plan_set_agent_consumption(
+            PlanSetAgentConsumptionRequest {
+                agent_id: "claude-desktop".into(),
+                selection: AgentConsumptionSelection::Model {
+                    profile_ids: vec![second.id.clone()],
+                },
+            },
+        )
+        .unwrap();
+
+        let DomainPlan::Model { after, .. } = &plan.domain_plan else {
+            panic!("expected Model plan");
+        };
+        assert_eq!(
+            after["claude-desktop"].active_profile_id.as_deref(),
+            Some(second.id.as_str())
+        );
+        assert!(plan
+            .warnings
+            .contains(&"claude-desktop: model_credential_export_plaintext".into()));
+    }
+
+    #[test]
+    fn claude_desktop_public_activation_warns_without_a_relationship_add() {
+        let _home = TestHome::new("planner-claude-desktop-public-activation-warning");
+        let profile = claude_desktop_provider_profile();
+        crate::resources::model::save_profile(profile.clone(), Some("fake-credential".into()))
+            .unwrap();
+        mutate_settings(|settings| {
+            settings.set_model_selection(
+                "claude-desktop",
+                ModelAgentSelection {
+                    profiles: BTreeMap::from([(
+                        profile.id.clone(),
+                        ModelConsumptionRecord {
+                            profile_id: profile.id.clone(),
+                            enabled: true,
+                            last_selected_at: None,
+                        },
+                    )]),
+                    active_profile_id: None,
+                },
+            );
+        })
+        .unwrap();
+
+        let plan = crate::application::assets::plan_set_active_model(PlanSetActiveModelRequest {
+            agent_id: "claude-desktop".into(),
+            profile_id: profile.id,
+        })
+        .unwrap();
+
+        assert!(plan.relationship_changes.is_empty());
+        assert!(plan
+            .warnings
+            .contains(&"claude-desktop: model_credential_export_plaintext".into()));
     }
 
     #[test]

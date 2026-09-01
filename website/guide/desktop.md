@@ -106,13 +106,13 @@ Agent 页面只显示已建立 desired relationship 的中央资产，即使目�
 - 进入内置 Agent 页面后可覆盖 MCP 全局路径与配置键；官方格式、布局和 codec 仍由核验目录锁定，避免产生不兼容配置。
 - 位于用户主目录内的路径保存为 `~/…`；主目录外的绝对路径保持原值。
 
-MUX 当前有 56 个核验定义、46 个 MCP 可写目标、45 个 Skills 目标和 14 个 Model target（12 个 managed、2 个 guided）；201 条发现目录记录与核验定义合并后共有 211 个唯一 identity。完整口径见 [支持的 Agent](/guide/agents)。
+MUX 当前有 56 个核验定义、46 个 MCP 可写目标、45 个 Skills 目标和 15 个 Model target（13 个 managed、2 个 guided）；201 条发现目录记录与核验定义合并后共有 211 个唯一 identity。完整口径见 [支持的 Agent](/guide/agents)。
 
 ## Models（Beta）
 
-顶部 **Models** 页面与 MCPs 使用同一套筛选栏、搜索、资源卡片和右侧详情面板。创建 Profile 只保存中央资产；之后在 Agent 页查看已分配、已启用和 current 状态。原生多模型 Agent 可以保留多个 Profile，但最多一个 current；单模型 Agent 仍限制为最多一个。编辑会传播到全部消费者，删除会级联清理关系和受管目标。API Key 只写入 macOS Keychain；编辑 Provider 时仅在用户主动点击“显示 API Key”后按需读取，且不会进入 `~/.mux/settings.json`、计划、Agent 配置预览或备份。
+顶部 **Models** 页面与 MCPs 使用同一套筛选栏、搜索、资源卡片和右侧详情面板。创建 Profile 只保存中央资产；之后在 Agent 页查看已分配、已启用和 current 状态。原生多模型 Agent 可以保留多个 Profile，但最多一个 current；单模型 Agent 仍限制为最多一个。编辑会传播到全部消费者，删除会级联清理关系和受管目标。API Key 的中央副本保存在 macOS Keychain，且不会进入 `~/.mux/settings.json`、计划、预览或备份；Claude Desktop 的已审阅直连例外会把所选 Key 写入其 MUX 专属 `0600` Profile。
 
-Claude Code 目前只接收 Anthropic Messages 配置，Codex 使用 Responses API，Grok Build 与 Pi 支持三种首批协议；OpenCode 与 Kilo 额外支持 Gemini 原生 GenerateContent。Grok Build 通过官方 `env_key` 使用外部环境变量，MUX 不把 Keychain 密钥明文写入 TOML；Qoder 和 MiniMax Code 仍显示安全设置入口。完整边界见 [模型接口](/guide/models)。
+Claude Desktop 与 Claude Code 目前只接收 Anthropic Messages 配置，Codex 使用 Responses API，Grok Build 与 Pi 支持三种首批协议；OpenCode 与 Kilo 额外支持 Gemini 原生 GenerateContent。Claude Desktop 会在审阅后创建一个 MUX 专属直连 Profile；Grok Build 通过官方 `env_key` 使用外部环境变量，MUX 不把 Keychain 密钥明文写入 TOML；Qoder 和 MiniMax Code 仍显示安全设置入口。完整边界见 [模型接口](/guide/models)。
 
 ## Skills
 

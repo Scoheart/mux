@@ -13,6 +13,7 @@ use super::types::{
     ConsumptionInventory, DomainPlan, McpConsumptionRecord, ModelAgentSelection,
     RelationshipAction, SkillConsumptionRecord, TargetIncident,
 };
+use crate::domain::agents::ModelStorageAuthority;
 use crate::paths::{mcp_catalog_file, model_catalog_file, settings_file, skill_catalog_file};
 use crate::resources::mcp::ops;
 use crate::resources::mcp::r#override::OverridePatch;
@@ -20,16 +21,18 @@ use crate::resources::mcp::registry::{
     delete_discovered_entry, delete_registry_entry, read_registry, read_registry_all,
     write_manual_entry,
 };
+#[cfg(test)]
+use crate::resources::model::private_file_snapshot_exists;
 use crate::resources::model::{
-    agent_has_configured_models, apply_credential_update, apply_profile,
-    apply_profile_consumption, clear_all_configured_models_for_targets,
-    apply_profile_consumption_with_credential_presence, clear_credential_rollback,
-    clear_profile_consumption, credential_present, credential_rollback_snapshot,
-    credential_snapshot, delete_profile, delete_provider, persist_credential_rollback,
-    provider_credential_present, provider_credential_subject, restore_credential_snapshot,
-    save_profile, save_provider_bundle,
+    agent_has_configured_models, apply_credential_update, apply_profile_consumption_target,
+    apply_profile_consumption_with_credential_presence_target, apply_profile_target,
+    clear_all_configured_models_for_targets, clear_credential_rollback,
+    clear_private_file_snapshot, clear_profile_consumption_target, credential_present,
+    credential_rollback_snapshot, credential_snapshot, delete_profile, delete_provider,
+    load_private_file_snapshot, persist_credential_rollback, persist_private_file_snapshot,
+    private_file_snapshot_subject, provider_credential_present, provider_credential_subject,
+    restore_credential_snapshot, save_profile, save_provider_bundle, ModelTargetError,
 };
-use crate::domain::agents::ModelStorageAuthority;
 use crate::resources::skill::{
     acquire_skills_lock, cancel_operation_in_asset_transaction, canonical_skill_assignments,
     commit_assignment_in_asset_transaction, declared_targets_for_agents, normalize_agent_selection,
@@ -37,18 +40,20 @@ use crate::resources::skill::{
     SkillsOperationLock, SkillsPaths,
 };
 use crate::safe_write::{
-    acquire_settings_lock, anchored_states_match, begin_transaction_write_tracking_with_states,
+    acquire_settings_lock, begin_transaction_write_tracking_with_private_states,
     capture_parent_directory, create_transaction_symlink_if_missing,
-    ensure_no_transaction_mutation_intents, fingerprint_anchored_path_state,
-    load_transaction_write_states, read_path_state_anchored, recover_global_mutation_intents,
-    recover_transaction_mutation_intents, remove_bytes_if_unchanged_in_parent,
-    remove_symlink_if_unchanged_in_parent, resume_transaction_write_tracking,
+    ensure_no_transaction_mutation_intents, load_transaction_write_states_with_private_paths,
+    read_path_state_anchored, recover_global_mutation_intents,
+    recover_transaction_mutation_intents_with_private_paths,
+    remove_bytes_if_hash_unchanged_in_parent, remove_bytes_if_unchanged_in_parent,
+    remove_symlink_if_unchanged_in_parent, resume_transaction_write_tracking_with_private_states,
+    transaction_private_file_state, write_bytes_if_hash_unchanged_in_parent,
     write_bytes_if_unchanged_in_parent, write_symlink_if_unchanged_in_parent, AnchoredPathState,
     ParentDirectorySnapshot, PathIdentity, TransactionPathState,
 };
 #[cfg(test)]
 use crate::safe_write::{begin_transaction_write_tracking, set_transaction_symlink};
-use crate::settings::{load_settings_strict, mutate_settings};
+use crate::settings::{load_settings_strict, mutate_settings, Settings};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -56,11 +61,37 @@ use std::fs;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
-use zeroize::Zeroizing;
+use zeroize::{Zeroize, Zeroizing};
 
 static COMMIT_LOCK: Mutex<()> = Mutex::new(());
-const ROLLBACK_MANIFEST_VERSION: u32 = 2;
+const ROLLBACK_MANIFEST_VERSION: u32 = 3;
+const PRIVATE_TARGET_LEDGER_VERSION: u32 = 1;
 const TARGET_INCIDENT_MARKER: &str = "target-incident";
+const ROLLBACK_COMPLETE_MARKER: &str = "rollback-complete";
+const CLEANUP_AUTHORIZED_MARKER: &str = "cleanup-authorized";
+
+#[cfg(test)]
+thread_local! {
+    static AFTER_PRIVATE_SNAPSHOT_PERSIST_HOOK:
+        std::cell::RefCell<Option<Box<dyn FnOnce() -> Result<(), String>>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+#[cfg(test)]
+fn set_after_private_snapshot_persist_hook(hook: impl FnOnce() -> Result<(), String> + 'static) {
+    AFTER_PRIVATE_SNAPSHOT_PERSIST_HOOK.with(|slot| *slot.borrow_mut() = Some(Box::new(hook)));
+}
+
+#[cfg(test)]
+fn run_after_private_snapshot_persist_hook() -> Result<(), String> {
+    AFTER_PRIVATE_SNAPSHOT_PERSIST_HOOK
+        .with(|slot| slot.borrow_mut().take().map_or(Ok(()), |hook| hook()))
+}
+
+#[cfg(not(test))]
+fn run_after_private_snapshot_persist_hook() -> Result<(), String> {
+    Ok(())
+}
 
 fn plan_capability(plan: &DomainPlan) -> AssetCapability {
     match plan {
@@ -229,19 +260,29 @@ fn cleanup_resolved_incident_operations(operation_ids: &BTreeSet<String>, curren
                 // temp from an older rename-based writer. Reconcile and retire
                 // that exact evidence before removing its operation journal;
                 // otherwise the sibling artifacts would be orphaned forever.
-                let reconciled = load_rollback_snapshots(operation_id)
-                    .ok()
-                    .flatten()
+                let manifest = load_rollback_manifest(operation_id).ok().flatten();
+                let reconciled = manifest
+                    .as_ref()
                     .map(|snapshots| {
                         snapshots
+                            .snapshots
                             .iter()
                             .map(|snapshot| (snapshot.path.clone(), snapshot.parent.clone()))
                             .collect::<BTreeMap<_, _>>()
                     })
                     .is_some_and(|parents| {
-                        recover_transaction_mutation_intents(
+                        let private_paths = manifest
+                            .as_ref()
+                            .expect("manifest exists when parents were derived")
+                            .snapshots
+                            .iter()
+                            .filter(|snapshot| snapshot.privacy == SnapshotPrivacy::Private)
+                            .map(|snapshot| snapshot.path.clone())
+                            .collect::<BTreeSet<_>>();
+                        recover_transaction_mutation_intents_with_private_paths(
                             &transaction_mutation_intent_dir(operation_id),
                             &parents,
+                            &private_paths,
                         )
                         .and_then(|_| {
                             ensure_no_transaction_mutation_intents(
@@ -253,11 +294,70 @@ fn cleanup_resolved_incident_operations(operation_ids: &BTreeSet<String>, curren
                 if !reconciled {
                     continue;
                 }
-                let _ = fs::remove_dir_all(&root);
-                clear_pending_payload(operation_id);
+                if mark_operation_state(
+                    operation_id,
+                    CLEANUP_AUTHORIZED_MARKER,
+                    b"cleanup-authorized\n",
+                )
+                .is_err()
+                {
+                    continue;
+                }
+                let Some(manifest) = manifest.as_ref() else {
+                    continue;
+                };
+                let Ok(operation) = load_operation(operation_id) else {
+                    continue;
+                };
+                if finalize_completed_operation_cleanup(
+                    operation_id,
+                    &root,
+                    manifest,
+                    &lifecycle_profile_ids(operation.lifecycle.as_ref()),
+                )
+                .is_err()
+                {
+                    continue;
+                }
             }
         }
     }
+}
+
+fn private_transaction_paths(
+    plan: &AssetOperationPlan,
+    settings: &Settings,
+) -> Result<BTreeSet<PathBuf>, String> {
+    const CLAUDE_DESKTOP: &str = "claude-desktop";
+    if !plan
+        .affected_agent_ids
+        .iter()
+        .any(|agent_id| agent_id == CLAUDE_DESKTOP)
+    {
+        return Ok(BTreeSet::new());
+    }
+    let Some(configured) =
+        crate::resources::model::configured_path_strings_checked(settings, CLAUDE_DESKTOP)?
+    else {
+        return Err("unsupported model Agent: claude-desktop".into());
+    };
+    let private = configured
+        .get(3)
+        .ok_or_else(|| {
+            "claude_desktop_paths_invalid: expected exactly four target paths".to_string()
+        })?
+        .to_string();
+    let private = crate::resources::mcp::scanner::expand_tilde(&private);
+    let reviewed = plan
+        .target_files
+        .iter()
+        .map(|path| crate::resources::mcp::scanner::expand_tilde(path))
+        .collect::<BTreeSet<_>>();
+    Ok(reviewed
+        .contains(&private)
+        .then_some(private)
+        .into_iter()
+        .collect())
 }
 
 pub fn commit_asset_operation(request: AssetCommitRequest) -> Result<ConsumptionInventory, String> {
@@ -292,6 +392,8 @@ where
     verify_preconditions(&persisted)?;
     after_preconditions()?;
     let incident_operation_ids = incident_operation_ids_for_plan(&persisted.plan);
+    let commit_settings = load_settings_strict().map_err(|error| error.to_string())?;
+    let private_paths = private_transaction_paths(&persisted.plan, &commit_settings)?;
 
     let settings_path = settings_file();
     let target_paths = persisted
@@ -325,7 +427,9 @@ where
         if path == settings_path || catalog_paths.contains(&path) {
             continue;
         }
-        snapshots.push(if preserving_external_skill_targets {
+        snapshots.push(if private_paths.contains(&path) {
+            PathSnapshot::capture_private(&path)?
+        } else if preserving_external_skill_targets {
             PathSnapshot::capture_any(&path)?
         } else if skill_link_targets {
             PathSnapshot::capture_link(&path)?
@@ -334,6 +438,7 @@ where
         });
     }
     verify_captured_snapshots(&persisted, &snapshots)?;
+    validate_private_snapshot_aliases(&snapshots, &private_paths)?;
     let tracked_paths = snapshots
         .iter()
         .map(|snapshot| snapshot.path.clone())
@@ -344,17 +449,25 @@ where
         .collect::<BTreeMap<_, _>>();
     let reviewed_states = snapshots
         .iter()
-        .map(|snapshot| (snapshot.path.clone(), snapshot.anchored_state()))
-        .collect::<BTreeMap<_, _>>();
+        .map(|snapshot| {
+            snapshot
+                .transaction_state()
+                .map(|state| (snapshot.path.clone(), state))
+        })
+        .collect::<Result<BTreeMap<_, _>, String>>()?;
     let credential_backups = lifecycle_profile_ids(persisted.lifecycle.as_ref())
         .into_iter()
         .map(|profile_id| {
-            let credential = credential_snapshot(&profile_id);
+            let credential = credential_snapshot(&profile_id).map(Zeroizing::new);
             (profile_id, credential)
         })
         .collect::<Vec<_>>();
     for (profile_id, credential) in &credential_backups {
-        persist_credential_rollback(&request.operation_id, profile_id, credential.as_deref())?;
+        persist_credential_rollback(
+            &request.operation_id,
+            profile_id,
+            credential.as_ref().map(|value| value.as_slice()),
+        )?;
     }
     if let Err(error) = persist_rollback_snapshots(&request.operation_id, &snapshots) {
         for (profile_id, _) in &credential_backups {
@@ -367,9 +480,10 @@ where
         return Err(error);
     }
 
-    let write_tracker = begin_transaction_write_tracking_with_states(
+    let write_tracker = begin_transaction_write_tracking_with_private_states(
         &transaction_write_evidence_dir(&request.operation_id),
         &tracked_paths,
+        &private_paths,
         &tracked_parent_snapshots,
         &reviewed_states,
     )?;
@@ -378,12 +492,37 @@ where
     // failures remain scoped incidents instead of silently skipping Agent I/O.
     let blocked_agents = BTreeSet::new();
     let applied = apply_operation(&persisted, &skills_guard, &blocked_agents)
-        .and_then(|_| verify_operation(&persisted))
-        .and_then(|_| mark_operation_committed(&request.operation_id));
-    if let Err(error) = applied {
-        if let Err(recovery) = recover_transaction_mutation_intents(
+        .and_then(|_| verify_operation(&persisted).map_err(ModelTargetError::from))
+        .and_then(|_| {
+            mark_operation_committed(&request.operation_id).map_err(ModelTargetError::from)
+        });
+    let convergence_error = match applied {
+        Ok(()) => None,
+        Err(ModelTargetError::ConvergenceFailed(error)) => Some(error),
+        Err(ModelTargetError::RecoveryRequired(error)) => {
+            let claim_recovery = recover_transaction_mutation_intents_with_private_paths(
+                &transaction_mutation_intent_dir(&request.operation_id),
+                &tracked_parent_snapshots,
+                &private_paths,
+            );
+            drop(write_tracker);
+            let error = match claim_recovery {
+                Ok(()) => error,
+                Err(recovery) => {
+                    format!("{error}; target claim recovery also failed: {recovery}")
+                }
+            };
+            if localize_runtime_recovery_failure(&persisted.plan) {
+                return Err(format!("target_recovery_required: {error}"));
+            }
+            return Err(format!("recovery_required: {error}"));
+        }
+    };
+    if let Some(error) = convergence_error {
+        if let Err(recovery) = recover_transaction_mutation_intents_with_private_paths(
             &transaction_mutation_intent_dir(&request.operation_id),
             &tracked_parent_snapshots,
+            &private_paths,
         ) {
             drop(write_tracker);
             if localize_runtime_recovery_failure(&persisted.plan) {
@@ -412,27 +551,46 @@ where
         // durable backup untouched for startup recovery/manual resolution.
         if rollback_errors.is_empty() {
             for (profile_id, credential) in &credential_backups {
-                if let Err(rollback) =
-                    restore_credential_snapshot(profile_id, credential.as_deref())
-                {
+                if let Err(rollback) = restore_credential_snapshot(
+                    profile_id,
+                    credential.as_ref().map(|value| value.as_slice()),
+                ) {
                     rollback_errors.push(format!("failed to restore Model credential: {rollback}"));
                 }
             }
         }
         if rollback_errors.is_empty() {
-            for (profile_id, _) in &credential_backups {
-                if let Err(cleanup) = clear_credential_rollback(&request.operation_id, profile_id) {
-                    rollback_errors.push(format!(
-                        "failed to clear durable Model credential rollback: {cleanup}"
-                    ));
-                }
+            if let Err(marker) = mark_operation_state(
+                &request.operation_id,
+                ROLLBACK_COMPLETE_MARKER,
+                b"rolled-back\n",
+            ) {
+                rollback_errors.push(format!(
+                    "failed to record completed rollback before cleanup: {marker}"
+                ));
             }
         }
         if rollback_errors.is_empty() {
-            if let Err(cleanup) = fs::remove_dir_all(operation_root(&request.operation_id)) {
-                rollback_errors.push(format!("failed to clean rolled-back operation: {cleanup}"));
-            } else {
-                clear_pending_payload(&request.operation_id);
+            match load_rollback_manifest(&request.operation_id) {
+                Ok(Some(manifest)) => {
+                    if let Err(cleanup) = finalize_completed_operation_cleanup(
+                        &request.operation_id,
+                        &operation_root(&request.operation_id),
+                        &manifest,
+                        &credential_backups
+                            .iter()
+                            .map(|(profile_id, _)| profile_id.clone())
+                            .collect::<Vec<_>>(),
+                    ) {
+                        rollback_errors
+                            .push(format!("failed to clean completed rollback: {cleanup}"));
+                    }
+                }
+                Ok(None) => rollback_errors
+                    .push("failed to clean completed rollback: manifest is missing".into()),
+                Err(cleanup) => {
+                    rollback_errors.push(format!("failed to clean completed rollback: {cleanup}"))
+                }
             }
         }
         if rollback_errors.is_empty() {
@@ -456,15 +614,18 @@ where
         &request.operation_id,
     ))?;
 
-    for (profile_id, _) in &credential_backups {
-        clear_credential_rollback(&request.operation_id, profile_id).map_err(|error| {
-            format!("asset operation committed but Keychain rollback cleanup failed: {error}")
-        })?;
-    }
-    fs::remove_dir_all(operation_root(&request.operation_id)).map_err(|error| {
-        format!("asset operation committed but staging cleanup failed: {error}")
-    })?;
-    clear_pending_payload(&request.operation_id);
+    let manifest = load_rollback_manifest(&request.operation_id)?
+        .ok_or_else(|| "asset operation committed but rollback manifest is missing".to_string())?;
+    finalize_completed_operation_cleanup(
+        &request.operation_id,
+        &operation_root(&request.operation_id),
+        &manifest,
+        &credential_backups
+            .iter()
+            .map(|(profile_id, _)| profile_id.clone())
+            .collect::<Vec<_>>(),
+    )
+    .map_err(|error| format!("asset operation committed but cleanup failed: {error}"))?;
     cleanup_resolved_incident_operations(&incident_operation_ids, &request.operation_id);
     list_consumption_inventory()
 }
@@ -505,7 +666,7 @@ pub fn recover_pending_asset_operations() -> Result<Vec<String>, String> {
         let operation_id = entry.file_name().to_string_lossy().into_owned();
         let persisted =
             load_operation(&operation_id).map_err(|error| format!("recovery_required: {error}"))?;
-        if target_incident_marker_exists(&operation_id)? {
+        if operation_should_pause_for_target_incident(&operation_id)? {
             record_recovery_incidents(&persisted.plan)?;
             continue;
         }
@@ -546,10 +707,15 @@ fn recover_pending_asset_operation(
 ) -> Result<(), String> {
     let operation_id = &persisted.plan.operation_id;
     let profile_ids = lifecycle_profile_ids(persisted.lifecycle.as_ref());
-    let Some(snapshots) = load_rollback_snapshots(operation_id)? else {
+    let private_ledger = load_private_target_ledger(operation_id)?;
+    let Some(manifest) = load_rollback_manifest(operation_id)? else {
         ensure_no_transaction_mutation_intents(&transaction_mutation_intent_dir(operation_id))?;
         for profile_id in &profile_ids {
             clear_credential_rollback(operation_id, profile_id)
+                .map_err(|error| format!("recovery_required: {error}"))?;
+        }
+        if let Some(ledger) = private_ledger.as_ref() {
+            clear_private_target_ledger_items(operation_id, ledger)
                 .map_err(|error| format!("recovery_required: {error}"))?;
         }
         fs::remove_dir_all(operation_path)
@@ -558,29 +724,74 @@ fn recover_pending_asset_operation(
         return Ok(());
     };
 
-    let parent_snapshots = snapshots
+    let private_paths = manifest
+        .snapshots
+        .iter()
+        .filter(|snapshot| snapshot.privacy == SnapshotPrivacy::Private)
+        .map(|snapshot| snapshot.path.clone())
+        .collect::<BTreeSet<_>>();
+    let ledger_paths = private_ledger
+        .as_ref()
+        .map(|ledger| {
+            ledger
+                .targets
+                .iter()
+                .map(|target| target.path.clone())
+                .collect::<BTreeSet<_>>()
+        })
+        .unwrap_or_default();
+    let reviewed_targets = persisted
+        .plan
+        .target_files
+        .iter()
+        .map(|path| crate::resources::mcp::scanner::expand_tilde(path))
+        .collect::<BTreeSet<_>>();
+    if private_paths != ledger_paths
+        || !private_paths.is_subset(&reviewed_targets)
+        || (!private_paths.is_empty()
+            && !persisted
+                .plan
+                .affected_agent_ids
+                .iter()
+                .any(|agent_id| agent_id == "claude-desktop"))
+    {
+        return Err(
+            "recovery_required: reviewed private transaction paths do not match rollback manifest"
+                .into(),
+        );
+    }
+    let parent_snapshots = manifest
+        .snapshots
         .iter()
         .map(|snapshot| (snapshot.path.clone(), snapshot.parent.clone()))
         .collect::<BTreeMap<_, _>>();
-    recover_transaction_mutation_intents(
+    recover_transaction_mutation_intents_with_private_paths(
         &transaction_mutation_intent_dir(operation_id),
         &parent_snapshots,
+        &private_paths,
     )?;
     ensure_no_transaction_mutation_intents(&transaction_mutation_intent_dir(operation_id))?;
 
-    if operation_commit_marker_exists(operation_id)? {
-        for profile_id in &profile_ids {
-            clear_credential_rollback(operation_id, profile_id)
-                .map_err(|error| format!("recovery_required: {error}"))?;
-        }
-        fs::remove_dir_all(operation_path)
+    if operation_commit_marker_exists(operation_id)?
+        || operation_state_marker_exists(operation_id, ROLLBACK_COMPLETE_MARKER)?
+        || operation_state_marker_exists(operation_id, CLEANUP_AUTHORIZED_MARKER)?
+    {
+        finalize_completed_operation_cleanup(operation_id, operation_path, &manifest, &profile_ids)
             .map_err(|error| format!("recovery_required: {error}"))?;
-        clear_pending_payload(operation_id);
         return Ok(());
     }
 
+    let snapshots = load_rollback_snapshots(operation_id)?
+        .ok_or_else(|| "recovery_required: rollback manifest disappeared".to_string())?;
+    let evidence_dir = transaction_write_evidence_dir(operation_id);
+    let evidence_exists = match fs::symlink_metadata(&evidence_dir) {
+        Ok(metadata) if metadata.file_type().is_dir() && !metadata.file_type().is_symlink() => true,
+        Ok(_) => return Err("recovery_required: transaction write evidence is unsafe".into()),
+        Err(error) if error.kind() == ErrorKind::NotFound => false,
+        Err(error) => return Err(format!("recovery_required: {error}")),
+    };
     let written_states =
-        load_transaction_write_states(&transaction_write_evidence_dir(operation_id))?;
+        load_transaction_write_states_with_private_paths(&evidence_dir, &private_paths)?;
     let mut credential_backups = Vec::new();
     for profile_id in &profile_ids {
         let snapshot = credential_rollback_snapshot(operation_id, profile_id)
@@ -599,15 +810,29 @@ fn recover_pending_asset_operation(
         .collect::<Vec<_>>();
     let reviewed_states = snapshots
         .iter()
-        .map(|snapshot| (snapshot.path.clone(), snapshot.anchored_state()))
-        .collect::<BTreeMap<_, _>>();
-    let write_tracker = resume_transaction_write_tracking(
-        &transaction_write_evidence_dir(operation_id),
-        &tracked_paths,
-        &parent_snapshots,
-        &reviewed_states,
-        &written_states,
-    )?;
+        .map(|snapshot| {
+            snapshot
+                .transaction_state()
+                .map(|state| (snapshot.path.clone(), state))
+        })
+        .collect::<Result<BTreeMap<_, _>, String>>()?;
+    let write_tracker = if evidence_exists {
+        Some(resume_transaction_write_tracking_with_private_states(
+            &evidence_dir,
+            &tracked_paths,
+            &private_paths,
+            &parent_snapshots,
+            &reviewed_states,
+            &written_states,
+        )?)
+    } else {
+        if !written_states.is_empty() {
+            return Err(
+                "recovery_required: write states exist without an evidence directory".into(),
+            );
+        }
+        None
+    };
     let mut rollback_errors = restore_snapshots_if_unchanged(&snapshots, &written_states);
     if let Err(error) =
         ensure_no_transaction_mutation_intents(&transaction_mutation_intent_dir(operation_id))
@@ -628,11 +853,15 @@ fn recover_pending_asset_operation(
         )
         .map_err(|error| format!("target_recovery_required: {error}"))?;
     }
+    mark_operation_state(operation_id, ROLLBACK_COMPLETE_MARKER, b"rolled-back\n")
+        .map_err(|error| format!("target_recovery_required: {error}"))?;
     ensure_no_transaction_mutation_intents(&transaction_mutation_intent_dir(operation_id))?;
     for profile_id in &profile_ids {
         clear_credential_rollback(operation_id, profile_id)
             .map_err(|error| format!("target_recovery_required: {error}"))?;
     }
+    clear_private_snapshot_items(operation_id, &snapshots)
+        .map_err(|error| format!("target_recovery_required: {error}"))?;
     fs::remove_dir_all(operation_path)
         .map_err(|error| format!("target_recovery_required: {error}"))?;
     clear_pending_payload(operation_id);
@@ -649,6 +878,13 @@ fn target_incident_marker_exists(operation_id: &str) -> Result<bool, String> {
             "recovery_required: failed to inspect Asset target incident marker: {error}"
         )),
     }
+}
+
+fn operation_should_pause_for_target_incident(operation_id: &str) -> Result<bool, String> {
+    let terminal_cleanup = operation_commit_marker_exists(operation_id)?
+        || operation_state_marker_exists(operation_id, ROLLBACK_COMPLETE_MARKER)?
+        || operation_state_marker_exists(operation_id, CLEANUP_AUTHORIZED_MARKER)?;
+    Ok(!terminal_cleanup && target_incident_marker_exists(operation_id)?)
 }
 
 fn operation_commit_marker_exists(operation_id: &str) -> Result<bool, String> {
@@ -718,6 +954,12 @@ pub fn cancel_asset_operation(operation_id: &str) -> Result<(), String> {
     if operation.plan.operation_id != operation_id {
         return Err("asset operation identity mismatch".into());
     }
+    if load_rollback_manifest(operation_id)?.is_none() {
+        if let Some(ledger) = load_private_target_ledger(operation_id)? {
+            clear_private_target_ledger_items(operation_id, &ledger)?;
+            remove_private_target_ledger(operation_id)?;
+        }
+    }
     if operation_has_recovery_evidence(operation_id, &operation)? {
         return Err(
             "recovery_required: the asset operation has started committing; recover it before cancelling"
@@ -765,6 +1007,12 @@ fn operation_has_recovery_evidence(
             }
         }
     }
+    if load_private_target_ledger(operation_id)?.is_some() {
+        // The durable ledger itself is recovery evidence. Do not downgrade a
+        // locked/denied Keychain lookup to "no evidence" and retire the only
+        // path binding capable of cleaning the private snapshot safely.
+        return Ok(true);
+    }
     Ok(false)
 }
 
@@ -783,6 +1031,30 @@ fn lifecycle_profile_ids(lifecycle: Option<&LifecycleBinding>) -> Vec<String> {
 
 fn operation_commit_marker(operation_id: &str) -> PathBuf {
     operation_root(operation_id).join("commit-complete")
+}
+
+fn operation_state_marker_exists(operation_id: &str, name: &str) -> Result<bool, String> {
+    let marker = operation_root(operation_id).join(name);
+    match fs::symlink_metadata(&marker) {
+        Ok(metadata) if metadata.file_type().is_file() && !metadata.file_type().is_symlink() => {
+            Ok(true)
+        }
+        Ok(_) => Err("recovery_required: Asset operation state marker is unsafe".into()),
+        Err(error) if error.kind() == ErrorKind::NotFound => Ok(false),
+        Err(error) => Err(format!(
+            "recovery_required: failed to inspect Asset operation state marker: {error}"
+        )),
+    }
+}
+
+fn mark_operation_state(operation_id: &str, name: &str, content: &[u8]) -> Result<(), String> {
+    let operation_directory = operation_root(operation_id);
+    write_private_file(&operation_directory.join(name), content)?;
+    sync_directory(&operation_directory)?;
+    let parent = operation_directory
+        .parent()
+        .ok_or_else(|| "asset operation directory has no parent".to_string())?;
+    sync_directory(parent)
 }
 
 fn transaction_write_evidence_dir(operation_id: &str) -> PathBuf {
@@ -842,7 +1114,7 @@ fn apply_operation(
     persisted: &PersistedAssetOperation,
     skills_lock: &SkillsOperationLock,
     blocked_agents: &BTreeSet<String>,
-) -> Result<(), String> {
+) -> Result<(), ModelTargetError> {
     let Some(lifecycle) = &persisted.lifecycle else {
         return apply_domain_plan(
             &persisted.plan,
@@ -875,11 +1147,12 @@ fn apply_operation(
                     Ok(())
                 }
             }) {
-                Ok(()) => clear_target_incidents(&persisted.plan, agent_id),
+                Ok(()) => clear_target_incidents(&persisted.plan, agent_id)?,
                 Err(_) => {
-                    record_target_incident(&persisted.plan, agent_id, "target_convergence_failed")
+                    record_target_incident(&persisted.plan, agent_id, "target_convergence_failed")?
                 }
             }
+            Ok(())
         }
         LifecycleBinding::ModelClear {
             agent_id,
@@ -887,7 +1160,9 @@ fn apply_operation(
             ..
         } => {
             let before = match &persisted.plan.domain_plan {
-                DomainPlan::Model { before, .. } => before.get(agent_id).cloned().unwrap_or_default(),
+                DomainPlan::Model { before, .. } => {
+                    before.get(agent_id).cloned().unwrap_or_default()
+                }
                 _ => return Err("Model clear requires a Model domain plan".into()),
             };
             mutate_settings(|settings| {
@@ -905,39 +1180,47 @@ fn apply_operation(
                 }
             })
             .map_err(|error| error.to_string())?;
-            let result = match storage_authority {
-                ModelStorageAuthority::NativeRegistry => clear_all_configured_models_for_targets(
-                    agent_id,
-                    &persisted.plan.target_files,
-                )
-                    .and_then(|_| {
-                        if agent_has_configured_models(agent_id)? {
-                            Err("target_convergence_failed: Model entries reappeared after clear".into())
-                        } else {
-                            Ok(())
-                        }
-                    }),
+            let result: Result<(), ModelTargetError> = match storage_authority {
+                ModelStorageAuthority::NativeRegistry => {
+                    clear_all_configured_models_for_targets(agent_id, &persisted.plan.target_files)
+                        .and_then(|_| {
+                            if agent_has_configured_models(agent_id)? {
+                                Err(
+                            "target_convergence_failed: Model entries reappeared after clear"
+                                .into(),
+                        )
+                            } else {
+                                Ok(())
+                            }
+                        })
+                        .map_err(ModelTargetError::from)
+                }
                 ModelStorageAuthority::MuxMapping => {
                     let mut result = Ok(());
                     for (profile_id, _) in &before.profiles {
-                        let active = before.active_profile_id.as_deref() == Some(profile_id.as_str());
-                        if let Err(error) = clear_profile_consumption(agent_id, profile_id, active) {
+                        let active =
+                            before.active_profile_id.as_deref() == Some(profile_id.as_str());
+                        if let Err(error) =
+                            clear_profile_consumption_target(agent_id, profile_id, active)
+                        {
                             result = Err(error);
                             break;
                         }
                     }
                     result
                 }
-                ModelStorageAuthority::Guided => Err("model_agent_guided".into()),
+                ModelStorageAuthority::Guided => Err(ModelTargetError::ConvergenceFailed(
+                    "model_agent_guided".into(),
+                )),
             };
             match result {
-                Ok(()) => clear_target_incidents(&persisted.plan, agent_id),
-                Err(_) => record_target_incident(
-                    &persisted.plan,
-                    agent_id,
-                    "target_convergence_failed",
-                ),
+                Ok(()) => clear_target_incidents(&persisted.plan, agent_id)?,
+                Err(ModelTargetError::ConvergenceFailed(_)) => {
+                    record_target_incident(&persisted.plan, agent_id, "target_convergence_failed")?
+                }
+                Err(error @ ModelTargetError::RecoveryRequired(_)) => return Err(error),
             }
+            Ok(())
         }
         LifecycleBinding::McpUpsert {
             key,
@@ -970,8 +1253,10 @@ fn apply_operation(
                     blocked_agents,
                 )?;
                 delete_mcp_source_copy(previous_key, previous_source_id)
+                    .map_err(ModelTargetError::from)
             } else {
                 reapply_mcp_consumers(&persisted.plan, key, blocked_agents)
+                    .map_err(ModelTargetError::from)
             }
         }
         LifecycleBinding::McpAdopt {
@@ -994,7 +1279,7 @@ fn apply_operation(
                 }
                 write_manual_entry(&entry).map_err(|error| error.to_string())?;
             }
-            apply_mcp_adoption(&persisted.plan, key, enabled)
+            apply_mcp_adoption(&persisted.plan, key, enabled).map_err(ModelTargetError::from)
         }
         LifecycleBinding::McpDelete {
             key,
@@ -1008,6 +1293,7 @@ fn apply_operation(
             }
             if *fallback_exists {
                 reapply_mcp_consumers(&persisted.plan, key, blocked_agents)
+                    .map_err(ModelTargetError::from)
             } else {
                 apply_domain_plan(
                     &persisted.plan,
@@ -1022,7 +1308,8 @@ fn apply_operation(
             asset_key,
             after,
             ..
-        } => apply_mcp_enabled(&persisted.plan, agent_id, asset_key, *after, blocked_agents),
+        } => apply_mcp_enabled(&persisted.plan, agent_id, asset_key, *after, blocked_agents)
+            .map_err(ModelTargetError::from),
         LifecycleBinding::McpEnabledBulk {
             agent_id,
             before,
@@ -1050,9 +1337,11 @@ fn apply_operation(
             *after,
             skills_lock,
             blocked_agents,
-        ),
+        )
+        .map_err(ModelTargetError::from),
         LifecycleBinding::McpReapply { key, agent_ids } => {
             reapply_mcp_consumers_for_agents(&persisted.plan, key, agent_ids, blocked_agents)
+                .map_err(ModelTargetError::from)
         }
         LifecycleBinding::ModelReapply {
             agent_id,
@@ -1065,7 +1354,7 @@ fn apply_operation(
                 return Ok(());
             }
             let result = if *enabled {
-                apply_profile_consumption_with_credential_presence(
+                apply_profile_consumption_with_credential_presence_target(
                     agent_id,
                     profile_id,
                     *credential_present,
@@ -1073,14 +1362,16 @@ fn apply_operation(
                 )
                 .map(|_| ())
             } else {
-                clear_profile_consumption(agent_id, profile_id, *active)
+                clear_profile_consumption_target(agent_id, profile_id, *active)
             };
             match result {
-                Ok(()) => clear_target_incidents(&persisted.plan, agent_id),
-                Err(_) => {
-                    record_target_incident(&persisted.plan, agent_id, "target_convergence_failed")
+                Ok(()) => clear_target_incidents(&persisted.plan, agent_id)?,
+                Err(ModelTargetError::ConvergenceFailed(_)) => {
+                    record_target_incident(&persisted.plan, agent_id, "target_convergence_failed")?
                 }
+                Err(error @ ModelTargetError::RecoveryRequired(_)) => return Err(error),
             }
+            Ok(())
         }
         LifecycleBinding::SkillReapply {
             name,
@@ -1162,6 +1453,7 @@ fn apply_operation(
             // leaves the old credential intact and can roll files/settings back;
             // a crash after it has a fully verifiable committed state.
             apply_credential_update(profile_id, credential.as_deref().map(String::as_str))
+                .map_err(ModelTargetError::from)
         }
         LifecycleBinding::ModelProviderUpsert {
             provider_id,
@@ -1205,8 +1497,11 @@ fn apply_operation(
                 &provider_credential_subject(provider_id),
                 credential.as_deref().map(String::as_str),
             )
+            .map_err(ModelTargetError::from)
         }
-        LifecycleBinding::ModelProviderDelete { provider_id } => delete_provider(provider_id),
+        LifecycleBinding::ModelProviderDelete { provider_id } => {
+            delete_provider(provider_id).map_err(ModelTargetError::from)
+        }
         LifecycleBinding::ModelAdopt {
             profile_id,
             draft_hash,
@@ -1250,7 +1545,7 @@ fn apply_operation(
                 skills_lock,
                 blocked_agents,
             )?;
-            delete_profile(profile_id)
+            delete_profile(profile_id).map_err(ModelTargetError::from)
         }
         LifecycleBinding::AgentCapabilities {
             agent_id,
@@ -1268,6 +1563,7 @@ fn apply_operation(
                 after,
                 skill_assignments_after.clone(),
             )
+            .map_err(ModelTargetError::from)
         }
     }
 }
@@ -1883,9 +2179,11 @@ fn reapply_model_consumers(
     profile_id: &str,
     credential_present: bool,
     blocked_agents: &BTreeSet<String>,
-) -> Result<(), String> {
+) -> Result<(), ModelTargetError> {
     let DomainPlan::Model { after, .. } = &operation.domain_plan else {
-        return Err("asset operation domain mismatch".into());
+        return Err(ModelTargetError::ConvergenceFailed(
+            "asset operation domain mismatch".into(),
+        ));
     };
     for (agent_id, desired) in after {
         if blocked_agents.contains(agent_id) {
@@ -1896,16 +2194,18 @@ fn reapply_model_consumers(
             .get(profile_id)
             .is_some_and(|record| record.enabled)
         {
-            let result = apply_profile_consumption_with_credential_presence(
+            let result = apply_profile_consumption_with_credential_presence_target(
                 agent_id,
                 profile_id,
                 credential_present,
                 desired.active_profile_id.as_deref() == Some(profile_id),
             );
-            if result.is_ok() {
-                clear_target_incidents(operation, agent_id)?;
-            } else {
-                record_target_incident(operation, agent_id, "target_convergence_failed")?;
+            match result {
+                Ok(_) => clear_target_incidents(operation, agent_id)?,
+                Err(ModelTargetError::ConvergenceFailed(_)) => {
+                    record_target_incident(operation, agent_id, "target_convergence_failed")?;
+                }
+                Err(error @ ModelTargetError::RecoveryRequired(_)) => return Err(error),
             }
         }
     }
@@ -2128,7 +2428,7 @@ fn apply_domain_plan(
     release_orphaned_relationships: bool,
     skills_lock: &SkillsOperationLock,
     blocked_agents: &BTreeSet<String>,
-) -> Result<(), String> {
+) -> Result<(), ModelTargetError> {
     let plan = &operation.domain_plan;
     match plan {
         DomainPlan::Mcp { before, after } => apply_mcp(
@@ -2137,7 +2437,8 @@ fn apply_domain_plan(
             after,
             release_orphaned_relationships,
             blocked_agents,
-        ),
+        )
+        .map_err(ModelTargetError::from),
         DomainPlan::Model { before, after } => apply_model(
             operation,
             before,
@@ -2153,10 +2454,11 @@ fn apply_domain_plan(
             release_orphaned_relationships,
             skills_lock,
             blocked_agents,
-        ),
-        DomainPlan::AgentCapabilities { .. } => {
-            Err("asset operation requires a configuration lifecycle".into())
-        }
+        )
+        .map_err(ModelTargetError::from),
+        DomainPlan::AgentCapabilities { .. } => Err(ModelTargetError::ConvergenceFailed(
+            "asset operation requires a configuration lifecycle".into(),
+        )),
     }
 }
 
@@ -2322,12 +2624,7 @@ fn verify_agent_mcp_convergence(
     let observed = ops::scan_installed(None)
         .into_iter()
         .filter(|item| item.scope == "global" && item.agent == agent_id)
-        .map(|item| {
-            (
-                format!("{}::{}", item.name, item.transport),
-                item.enabled,
-            )
-        })
+        .map(|item| (format!("{}::{}", item.name, item.transport), item.enabled))
         .collect::<BTreeMap<_, _>>();
     for key in desired {
         let expected_enabled = settings
@@ -2485,7 +2782,7 @@ fn apply_model(
     relationship_releases: &BTreeSet<(String, String)>,
     preserve_agent_targets: &BTreeSet<String>,
     blocked_agents: &BTreeSet<String>,
-) -> Result<(), String> {
+) -> Result<(), ModelTargetError> {
     let settings = load_settings_strict().map_err(|error| error.to_string())?;
     let central_profile_ids: BTreeSet<String> = settings
         .model_profiles
@@ -2525,16 +2822,21 @@ fn apply_model(
                 if release_relationship && !central_profile_ids.contains(&profile_id) {
                     continue;
                 }
-                if let Err(error) = clear_profile_consumption(
+                if let Err(error) = clear_profile_consumption_target(
                     agent_id,
                     &profile_id,
                     left.active_profile_id.as_deref() == Some(profile_id.as_str()),
                 ) {
-                    let released_as_external = release_relationship
-                        && (error.starts_with("model_owned_fields_drift:")
-                            || error.starts_with("model_target_conflicted:"));
-                    if !released_as_external {
-                        return Err(error);
+                    match error {
+                        ModelTargetError::ConvergenceFailed(message) => {
+                            let released_as_external = release_relationship
+                                && (message.starts_with("model_owned_fields_drift:")
+                                    || message.starts_with("model_target_conflicted:"));
+                            if !released_as_external {
+                                return Err(ModelTargetError::ConvergenceFailed(message));
+                            }
+                        }
+                        error @ ModelTargetError::RecoveryRequired(_) => return Err(error),
                     }
                 }
             }
@@ -2544,7 +2846,7 @@ fn apply_model(
                     .get(profile_id)
                     .is_some_and(|previous| previous.enabled);
                 if record.enabled && !was_enabled {
-                    apply_profile_consumption(
+                    apply_profile_consumption_target(
                         agent_id,
                         profile_id,
                         right.active_profile_id.as_deref() == Some(profile_id),
@@ -2559,14 +2861,16 @@ fn apply_model(
                 })
             {
                 let profile_id = right.active_profile_id.as_deref().expect("checked above");
-                apply_profile(agent_id, profile_id)?;
+                apply_profile_target(agent_id, profile_id)?;
             }
-            Ok::<_, String>(())
+            Ok::<_, ModelTargetError>(())
         })();
-        if result.is_ok() {
-            clear_target_incidents(operation, agent_id)?;
-        } else {
-            record_target_incident(operation, agent_id, "target_convergence_failed")?;
+        match result {
+            Ok(()) => clear_target_incidents(operation, agent_id)?,
+            Err(ModelTargetError::ConvergenceFailed(_)) => {
+                record_target_incident(operation, agent_id, "target_convergence_failed")?;
+            }
+            Err(error @ ModelTargetError::RecoveryRequired(_)) => return Err(error),
         }
     }
     Ok(())
@@ -2956,20 +3260,126 @@ fn union_keys<'a, T>(
     left.keys().chain(right.keys()).collect()
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+enum SnapshotPrivacy {
+    Ordinary,
+    Private,
+}
+
+impl Default for SnapshotPrivacy {
+    fn default() -> Self {
+        Self::Ordinary
+    }
+}
+
+#[derive(PartialEq, Eq)]
 enum SnapshotKind {
     Missing,
-    File { bytes: Vec<u8>, mode: Option<u32> },
-    Symlink { target: PathBuf },
+    File {
+        bytes: Zeroizing<Vec<u8>>,
+        mode: Option<u32>,
+    },
+    PrivateFile {
+        bytes: Zeroizing<Vec<u8>>,
+        mode: Option<u32>,
+    },
+    PrivateDigest {
+        content_hash: String,
+        mode: Option<u32>,
+    },
+    Symlink {
+        target: PathBuf,
+    },
     Directory,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(PartialEq, Eq)]
 struct PathSnapshot {
     path: PathBuf,
     parent: ParentDirectorySnapshot,
     kind: SnapshotKind,
     identity: PathIdentity,
+    privacy: SnapshotPrivacy,
+}
+
+fn validate_private_snapshot_aliases(
+    snapshots: &[PathSnapshot],
+    private_paths: &BTreeSet<PathBuf>,
+) -> Result<(), String> {
+    for private_path in private_paths {
+        let private = snapshots
+            .iter()
+            .filter(|snapshot| {
+                snapshot.path == *private_path && snapshot.privacy == SnapshotPrivacy::Private
+            })
+            .collect::<Vec<_>>();
+        let [private] = private.as_slice() else {
+            return Err(format!(
+                "claude_desktop_private_target_alias: reviewed fourth role was not captured as the private target: {}",
+                private_path.display()
+            ));
+        };
+        for ordinary in snapshots
+            .iter()
+            .filter(|snapshot| snapshot.privacy == SnapshotPrivacy::Ordinary)
+        {
+            let exact_identity_alias = private.identity.is_exact()
+                && ordinary.identity.is_exact()
+                && private.identity == ordinary.identity;
+            let canonical_alias = if matches!(private.kind, SnapshotKind::Missing)
+                || matches!(ordinary.kind, SnapshotKind::Missing)
+            {
+                false
+            } else {
+                let private_canonical = fs::canonicalize(&private.path).map_err(|error| {
+                    format!(
+                        "claude_desktop_path_identity_failed: {}: {error}",
+                        private.path.display()
+                    )
+                })?;
+                let ordinary_canonical = fs::canonicalize(&ordinary.path).map_err(|error| {
+                    format!(
+                        "claude_desktop_path_identity_failed: {}: {error}",
+                        ordinary.path.display()
+                    )
+                })?;
+                private_canonical == ordinary_canonical
+            };
+            if exact_identity_alias || canonical_alias {
+                return Err(format!(
+                    "claude_desktop_private_target_alias: ordinary target {} aliases the reviewed private target",
+                    ordinary.path.display()
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+impl std::fmt::Debug for PathSnapshot {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let kind = match &self.kind {
+            SnapshotKind::Missing => "missing",
+            SnapshotKind::File { .. } => "file",
+            SnapshotKind::PrivateFile { .. } => "private-file",
+            SnapshotKind::PrivateDigest { .. } => "private-digest",
+            SnapshotKind::Symlink { .. } => "symlink",
+            SnapshotKind::Directory => "directory",
+        };
+        formatter
+            .debug_struct("PathSnapshot")
+            .field("path", &self.path)
+            .field("kind", &kind)
+            .field(
+                "privacy",
+                &match self.privacy {
+                    SnapshotPrivacy::Ordinary => "ordinary",
+                    SnapshotPrivacy::Private => "private",
+                },
+            )
+            .finish()
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -2980,10 +3390,26 @@ struct DurableSnapshotManifest {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PrivateTargetLedger {
+    version: u32,
+    targets: Vec<PrivateTargetLedgerEntry>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PrivateTargetLedgerEntry {
+    path: PathBuf,
+    subject: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 struct DurableSnapshot {
     path: PathBuf,
     parent: ParentDirectorySnapshot,
     identity: PathIdentity,
+    #[serde(default)]
+    privacy: SnapshotPrivacy,
     kind: DurableSnapshotKind,
 }
 
@@ -2995,6 +3421,12 @@ enum DurableSnapshotKind {
         backup: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         mode: Option<u32>,
+    },
+    PrivateFile {
+        content_hash: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        mode: Option<u32>,
+        subject: String,
     },
     Symlink {
         target: PathBuf,
@@ -3010,6 +3442,9 @@ impl PathSnapshot {
         let snapshot = Self::capture_any(path)?;
         match &snapshot.kind {
             SnapshotKind::Missing | SnapshotKind::File { .. } => Ok(snapshot),
+            SnapshotKind::PrivateFile { .. } | SnapshotKind::PrivateDigest { .. } => {
+                unreachable!("ordinary capture cannot create a private snapshot")
+            }
             SnapshotKind::Symlink { .. } => Err(format!(
                 "asset_target_unsafe: refusing to snapshot symlinked configuration target: {}",
                 path.display()
@@ -3027,11 +3462,33 @@ impl PathSnapshot {
         let snapshot = Self::capture_any(path)?;
         match &snapshot.kind {
             SnapshotKind::Missing | SnapshotKind::Symlink { .. } => Ok(snapshot),
-            SnapshotKind::File { .. } | SnapshotKind::Directory => Err(format!(
+            SnapshotKind::File { .. }
+            | SnapshotKind::PrivateFile { .. }
+            | SnapshotKind::PrivateDigest { .. }
+            | SnapshotKind::Directory => Err(format!(
                 "asset_target_unsafe: refusing non-link Skill transaction target: {}",
                 path.display()
             )),
         }
+    }
+
+    fn capture_private(path: &Path) -> Result<Self, String> {
+        let mut snapshot = Self::capture_any(path)?;
+        snapshot.privacy = SnapshotPrivacy::Private;
+        snapshot.kind = match snapshot.kind {
+            SnapshotKind::Missing => SnapshotKind::Missing,
+            SnapshotKind::File { bytes, mode } => SnapshotKind::PrivateFile { bytes, mode },
+            SnapshotKind::Symlink { .. }
+            | SnapshotKind::Directory
+            | SnapshotKind::PrivateFile { .. }
+            | SnapshotKind::PrivateDigest { .. } => {
+                return Err(format!(
+                    "asset_target_unsafe: refusing non-file private transaction target: {}",
+                    path.display()
+                ));
+            }
+        };
+        Ok(snapshot)
     }
 
     fn capture_any(path: &Path) -> Result<Self, String> {
@@ -3056,31 +3513,100 @@ impl PathSnapshot {
             parent,
             kind,
             identity,
+            privacy: SnapshotPrivacy::Ordinary,
         })
     }
 
-    fn anchored_state(&self) -> AnchoredPathState {
+    fn transaction_state(&self) -> Result<TransactionPathState, String> {
         match &self.kind {
-            SnapshotKind::Missing => AnchoredPathState::Missing,
-            SnapshotKind::File { bytes, mode } => AnchoredPathState::File {
-                bytes: bytes.clone(),
-                mode: *mode,
-                identity: self.identity,
-            },
-            SnapshotKind::Symlink { target } => AnchoredPathState::Symlink {
-                target: target.clone(),
-                identity: self.identity,
-            },
-            SnapshotKind::Directory => AnchoredPathState::Directory {
-                identity: self.identity,
-            },
+            SnapshotKind::Missing if self.privacy == SnapshotPrivacy::Private => {
+                Ok(TransactionPathState::PrivateMissing)
+            }
+            SnapshotKind::Missing => Ok(TransactionPathState::Missing),
+            SnapshotKind::File { bytes, mode } if self.privacy == SnapshotPrivacy::Ordinary => {
+                Ok(TransactionPathState::File {
+                    bytes: bytes.to_vec(),
+                    mode: *mode,
+                    identity: self.identity,
+                })
+            }
+            SnapshotKind::PrivateFile { bytes, mode }
+                if self.privacy == SnapshotPrivacy::Private =>
+            {
+                transaction_private_file_state(bytes.as_slice(), *mode, self.identity)
+            }
+            SnapshotKind::PrivateDigest { content_hash, mode }
+                if self.privacy == SnapshotPrivacy::Private =>
+            {
+                Ok(TransactionPathState::PrivateFile {
+                    content_hash: content_hash.clone(),
+                    mode: *mode,
+                    identity: self.identity,
+                })
+            }
+            SnapshotKind::Symlink { target } if self.privacy == SnapshotPrivacy::Ordinary => {
+                Ok(TransactionPathState::Symlink {
+                    target: target.clone(),
+                    identity: self.identity,
+                })
+            }
+            SnapshotKind::Directory => Err(format!(
+                "asset_target_unsafe: refusing directory transaction target: {}",
+                self.path.display()
+            )),
+            _ => Err(format!(
+                "asset_target_unsafe: transaction snapshot privacy mismatch: {}",
+                self.path.display()
+            )),
         }
+    }
+
+    fn content_hash(&self) -> Option<String> {
+        match &self.kind {
+            SnapshotKind::File { bytes, .. } => Some(hex::encode(Sha256::digest(bytes))),
+            SnapshotKind::PrivateFile { bytes, .. } => {
+                Some(hex::encode(Sha256::digest(bytes.as_slice())))
+            }
+            SnapshotKind::PrivateDigest { content_hash, .. } => Some(content_hash.clone()),
+            _ => None,
+        }
+    }
+
+    fn target_fingerprint(&self) -> Result<String, String> {
+        let leaf = match &self.kind {
+            SnapshotKind::Missing => serde_json::json!({ "kind": "missing" }),
+            SnapshotKind::File { mode, .. }
+            | SnapshotKind::PrivateFile { mode, .. }
+            | SnapshotKind::PrivateDigest { mode, .. } => serde_json::json!({
+                "kind": "file",
+                "content_hash": self.content_hash().expect("file snapshot has a hash"),
+                "mode": mode,
+                "identity": self.identity,
+            }),
+            SnapshotKind::Symlink { target } => serde_json::json!({
+                "kind": "symlink",
+                "target_hash": hex::encode(Sha256::digest(target.as_os_str().as_encoded_bytes())),
+                "identity": self.identity,
+            }),
+            SnapshotKind::Directory => serde_json::json!({
+                "kind": "directory",
+                "identity": self.identity,
+            }),
+        };
+        let parent = serde_json::to_vec(&self.parent).map_err(|error| error.to_string())?;
+        let parent_hash = hex::encode(Sha256::digest(parent));
+        let bytes = serde_json::to_vec(&(leaf, parent_hash)).map_err(|error| error.to_string())?;
+        Ok(hex::encode(Sha256::digest(bytes)))
     }
 
     fn path_hash(&self) -> String {
         match &self.kind {
             SnapshotKind::Missing => "missing".into(),
-            SnapshotKind::File { bytes, .. } => hex::encode(Sha256::digest(bytes)),
+            SnapshotKind::File { .. }
+            | SnapshotKind::PrivateFile { .. }
+            | SnapshotKind::PrivateDigest { .. } => {
+                self.content_hash().expect("file snapshot has a hash")
+            }
             SnapshotKind::Symlink { target } => {
                 hex::encode(Sha256::digest(target.as_os_str().as_encoded_bytes()))
             }
@@ -3088,35 +3614,125 @@ impl PathSnapshot {
         }
     }
 
-    fn target_fingerprint(&self) -> Result<String, String> {
-        fingerprint_anchored_path_state(&self.anchored_state(), &self.parent)
-    }
-
     fn from_transaction_state(
-        path: &Path,
-        parent: &ParentDirectorySnapshot,
+        original: &Self,
         state: &TransactionPathState,
-    ) -> Self {
-        let kind = match state {
-            TransactionPathState::Missing => SnapshotKind::Missing,
-            TransactionPathState::File { bytes, mode, .. } => SnapshotKind::File {
-                bytes: bytes.clone(),
-                mode: *mode,
-            },
-            TransactionPathState::Symlink { target, .. } => SnapshotKind::Symlink {
-                target: target.clone(),
-            },
+    ) -> Result<Self, String> {
+        let (kind, identity) = match (original.privacy, state) {
+            (SnapshotPrivacy::Ordinary, TransactionPathState::Missing)
+            | (SnapshotPrivacy::Private, TransactionPathState::PrivateMissing) => {
+                (SnapshotKind::Missing, PathIdentity::unknown())
+            }
+            (
+                SnapshotPrivacy::Ordinary,
+                TransactionPathState::File {
+                    bytes,
+                    mode,
+                    identity,
+                },
+            ) => (
+                SnapshotKind::File {
+                    bytes: Zeroizing::new(bytes.clone()),
+                    mode: *mode,
+                },
+                *identity,
+            ),
+            (
+                SnapshotPrivacy::Private,
+                TransactionPathState::PrivateFile {
+                    content_hash,
+                    mode,
+                    identity,
+                },
+            ) => (
+                SnapshotKind::PrivateDigest {
+                    content_hash: content_hash.clone(),
+                    mode: *mode,
+                },
+                *identity,
+            ),
+            (SnapshotPrivacy::Ordinary, TransactionPathState::Symlink { target, identity }) => (
+                SnapshotKind::Symlink {
+                    target: target.clone(),
+                },
+                *identity,
+            ),
+            _ => {
+                return Err(format!(
+                    "transaction private/ordinary parity mismatch for {}",
+                    original.path.display()
+                ));
+            }
         };
-        let identity = match state {
-            TransactionPathState::Missing => PathIdentity::unknown(),
-            TransactionPathState::File { identity, .. }
-            | TransactionPathState::Symlink { identity, .. } => *identity,
-        };
-        Self {
-            path: path.to_path_buf(),
-            parent: parent.clone(),
+        Ok(Self {
+            path: original.path.clone(),
+            parent: original.parent.clone(),
             kind,
             identity,
+            privacy: original.privacy,
+        })
+    }
+
+    fn matches_current(&self, current: &AnchoredPathState) -> bool {
+        match (&self.kind, current) {
+            (SnapshotKind::Missing, AnchoredPathState::Missing) => true,
+            (
+                SnapshotKind::File { bytes, mode },
+                AnchoredPathState::File {
+                    bytes: current_bytes,
+                    mode: current_mode,
+                    identity,
+                },
+            ) => {
+                self.privacy == SnapshotPrivacy::Ordinary
+                    && bytes == current_bytes
+                    && mode == current_mode
+                    && (!self.identity.is_exact() || self.identity == *identity)
+            }
+            (
+                SnapshotKind::PrivateFile { bytes, mode },
+                AnchoredPathState::File {
+                    bytes: current_bytes,
+                    mode: current_mode,
+                    identity,
+                },
+            ) => {
+                self.privacy == SnapshotPrivacy::Private
+                    && mode == current_mode
+                    && self.identity.is_exact()
+                    && self.identity == *identity
+                    && hex::encode(Sha256::digest(current_bytes))
+                        == hex::encode(Sha256::digest(bytes.as_slice()))
+            }
+            (
+                SnapshotKind::PrivateDigest { content_hash, mode },
+                AnchoredPathState::File {
+                    bytes,
+                    mode: current_mode,
+                    identity,
+                },
+            ) => {
+                self.privacy == SnapshotPrivacy::Private
+                    && mode == current_mode
+                    && self.identity.is_exact()
+                    && self.identity == *identity
+                    && hex::encode(Sha256::digest(bytes)) == *content_hash
+            }
+            (
+                SnapshotKind::Symlink { target },
+                AnchoredPathState::Symlink {
+                    target: current_target,
+                    identity,
+                },
+            ) => {
+                self.privacy == SnapshotPrivacy::Ordinary
+                    && target == current_target
+                    && (!self.identity.is_exact() || self.identity == *identity)
+            }
+            (SnapshotKind::Directory, AnchoredPathState::Directory { identity }) => {
+                !self.identity.is_exact() || self.identity == *identity
+            }
+            _ => false,
         }
     }
 
@@ -3125,26 +3741,41 @@ impl PathSnapshot {
             return Ok(());
         }
         let expected = expected.expect("validated changed state has write evidence");
-        match (&self.kind, &expected.kind) {
-            (SnapshotKind::Missing, SnapshotKind::Missing) => Ok(()),
+        match (&self.kind, &expected.kind, self.privacy) {
+            (SnapshotKind::Missing, SnapshotKind::Missing, _) => Ok(()),
             (
                 SnapshotKind::Missing,
                 SnapshotKind::File {
                     bytes,
                     mode: expected_mode,
                 },
+                SnapshotPrivacy::Ordinary,
             ) => {
                 remove_bytes_if_unchanged_in_parent(&self.path, &self.parent, bytes, *expected_mode)
             }
-            (SnapshotKind::Missing, SnapshotKind::Symlink { target }) => {
-                remove_symlink_if_unchanged_in_parent(&self.path, &self.parent, target)
-            }
+            (
+                SnapshotKind::Missing,
+                SnapshotKind::PrivateDigest { content_hash, mode },
+                SnapshotPrivacy::Private,
+            ) => remove_bytes_if_hash_unchanged_in_parent(
+                &self.path,
+                &self.parent,
+                content_hash,
+                *mode,
+                expected.identity,
+            ),
+            (
+                SnapshotKind::Missing,
+                SnapshotKind::Symlink { target },
+                SnapshotPrivacy::Ordinary,
+            ) => remove_symlink_if_unchanged_in_parent(&self.path, &self.parent, target),
             (
                 SnapshotKind::File { bytes, mode },
                 SnapshotKind::File {
                     bytes: expected,
                     mode: expected_mode,
                 },
+                SnapshotPrivacy::Ordinary,
             ) => write_bytes_if_unchanged_in_parent(
                 &self.path,
                 &self.parent,
@@ -3152,69 +3783,108 @@ impl PathSnapshot {
                 bytes,
                 *mode,
             ),
-            (SnapshotKind::File { bytes, mode }, SnapshotKind::Missing) => {
-                write_bytes_if_unchanged_in_parent(&self.path, &self.parent, None, bytes, *mode)
-            }
-            (SnapshotKind::Symlink { target }, SnapshotKind::Missing) => {
-                write_symlink_if_unchanged_in_parent(&self.path, &self.parent, None, target)
-            }
+            (
+                SnapshotKind::PrivateFile { bytes, mode },
+                SnapshotKind::PrivateDigest {
+                    content_hash,
+                    mode: expected_mode,
+                },
+                SnapshotPrivacy::Private,
+            ) => write_bytes_if_hash_unchanged_in_parent(
+                &self.path,
+                &self.parent,
+                Some((content_hash, *expected_mode, expected.identity)),
+                bytes.as_slice(),
+                *mode,
+            ),
+            (
+                SnapshotKind::File { bytes, mode },
+                SnapshotKind::Missing,
+                SnapshotPrivacy::Ordinary,
+            ) => write_bytes_if_unchanged_in_parent(&self.path, &self.parent, None, bytes, *mode),
+            (
+                SnapshotKind::PrivateFile { bytes, mode },
+                SnapshotKind::Missing,
+                SnapshotPrivacy::Private,
+            ) => write_bytes_if_hash_unchanged_in_parent(
+                &self.path,
+                &self.parent,
+                None,
+                bytes.as_slice(),
+                *mode,
+            ),
+            (
+                SnapshotKind::Symlink { target },
+                SnapshotKind::Missing,
+                SnapshotPrivacy::Ordinary,
+            ) => write_symlink_if_unchanged_in_parent(&self.path, &self.parent, None, target),
             (
                 SnapshotKind::Symlink { target },
                 SnapshotKind::Symlink {
                     target: expected_target,
                 },
+                SnapshotPrivacy::Ordinary,
             ) => write_symlink_if_unchanged_in_parent(
                 &self.path,
                 &self.parent,
                 Some(expected_target.as_path()),
                 target.as_path(),
             ),
-            (_, SnapshotKind::Directory) | (SnapshotKind::Directory, _) => Err(format!(
+            (_, SnapshotKind::Directory, _) | (SnapshotKind::Directory, _, _) => Err(format!(
                 "refusing to roll back directory transaction target: {}",
                 self.path.display()
             )),
             _ => Err(format!(
-                "refusing to roll back {}: target type changed",
+                "refusing to roll back {}: target type or privacy changed",
                 self.path.display()
             )),
         }
     }
 
     fn validate_owned(&self, expected: Option<&Self>) -> Result<bool, String> {
-        let current = read_path_state_anchored(&self.path, &self.parent)?;
-        if matches!(&current, AnchoredPathState::Other { .. }) {
-            return Err(format!(
-                "refusing to roll back {}: unsupported target type",
-                self.path.display()
-            ));
+        let mut current = read_path_state_anchored(&self.path, &self.parent)?;
+        let result = (|| {
+            if matches!(&current, AnchoredPathState::Other { .. }) {
+                return Err(format!(
+                    "refusing to roll back {}: unsupported target type",
+                    self.path.display()
+                ));
+            }
+            if self.matches_current(&current) {
+                return Ok(false);
+            }
+            let expected = expected.ok_or_else(|| {
+                format!(
+                    "refusing to roll back {}: no transaction write evidence matches the changed target",
+                    self.path.display()
+                )
+            })?;
+            if self.path != expected.path
+                || self.parent != expected.parent
+                || self.privacy != expected.privacy
+                || !expected.matches_current(&current)
+            {
+                return Err(format!(
+                    "refusing to roll back {}: target changed after MUX wrote it",
+                    self.path.display()
+                ));
+            }
+            if matches!(&self.kind, SnapshotKind::Directory)
+                || matches!(&expected.kind, SnapshotKind::Directory)
+            {
+                return Err(format!(
+                    "refusing to roll back directory transaction target: {}",
+                    self.path.display()
+                ));
+            }
+            Ok(true)
+        })();
+        if self.privacy == SnapshotPrivacy::Private {
+            if let AnchoredPathState::File { bytes, .. } = &mut current {
+                bytes.zeroize();
+            }
         }
-        if anchored_states_match(&self.anchored_state(), &current) {
-            return Ok(false);
-        }
-        let expected = expected.ok_or_else(|| {
-            format!(
-                "refusing to roll back {}: no transaction write evidence matches the changed target",
-                self.path.display()
-            )
-        })?;
-        if self.path != expected.path
-            || self.parent != expected.parent
-            || !anchored_states_match(&expected.anchored_state(), &current)
-        {
-            return Err(format!(
-                "refusing to roll back {}: target changed after MUX wrote it",
-                self.path.display()
-            ));
-        }
-        if matches!(&self.kind, SnapshotKind::Directory)
-            || matches!(&expected.kind, SnapshotKind::Directory)
-        {
-            return Err(format!(
-                "refusing to roll back directory transaction target: {}",
-                self.path.display()
-            ));
-        }
-        Ok(true)
+        result
     }
 }
 
@@ -3222,14 +3892,24 @@ fn restore_snapshots_if_unchanged(
     snapshots: &[PathSnapshot],
     written_states: &BTreeMap<PathBuf, TransactionPathState>,
 ) -> Vec<String> {
-    let expected = snapshots
-        .iter()
-        .map(|snapshot| {
-            written_states.get(&snapshot.path).map(|state| {
-                PathSnapshot::from_transaction_state(&snapshot.path, &snapshot.parent, state)
-            })
-        })
-        .collect::<Vec<_>>();
+    let mut expected = Vec::with_capacity(snapshots.len());
+    let mut conversion_errors = Vec::new();
+    for snapshot in snapshots {
+        match written_states
+            .get(&snapshot.path)
+            .map(|state| PathSnapshot::from_transaction_state(snapshot, state))
+            .transpose()
+        {
+            Ok(expected_state) => expected.push(expected_state),
+            Err(error) => {
+                conversion_errors.push(error);
+                expected.push(None);
+            }
+        }
+    }
+    if !conversion_errors.is_empty() {
+        return conversion_errors;
+    }
     let preflight_errors = snapshots
         .iter()
         .zip(&expected)
@@ -3248,63 +3928,204 @@ fn restore_snapshots_if_unchanged(
     errors
 }
 
-fn persist_rollback_snapshots(
+fn private_target_ledger_path(operation_id: &str) -> PathBuf {
+    operation_root(operation_id).join("private-targets.json")
+}
+
+fn persist_private_target_ledger(
     operation_id: &str,
     snapshots: &[PathSnapshot],
 ) -> Result<(), String> {
-    let root = operation_root(operation_id).join("rollback");
-    match fs::remove_dir_all(&root) {
-        Ok(()) => {}
-        Err(error) if error.kind() == ErrorKind::NotFound => {}
-        Err(error) => return Err(error.to_string()),
+    let targets = snapshots
+        .iter()
+        .filter(|snapshot| snapshot.privacy == SnapshotPrivacy::Private)
+        .map(|snapshot| PrivateTargetLedgerEntry {
+            path: snapshot.path.clone(),
+            subject: private_file_snapshot_subject(operation_id, &snapshot.path),
+        })
+        .collect::<Vec<_>>();
+    if targets.is_empty() {
+        return Ok(());
     }
+    let root = operation_root(operation_id);
     fs::create_dir_all(&root).map_err(|error| error.to_string())?;
     set_private_dir(&root)?;
-    let mut durable = Vec::with_capacity(snapshots.len());
-    for (index, snapshot) in snapshots.iter().enumerate() {
-        let kind = match &snapshot.kind {
-            SnapshotKind::Missing => DurableSnapshotKind::Missing,
-            SnapshotKind::Directory => DurableSnapshotKind::Directory,
-            SnapshotKind::Symlink { target } => DurableSnapshotKind::Symlink {
-                target: target.clone(),
-            },
-            SnapshotKind::File { bytes, mode } => {
-                let backup = format!("{index}.bin");
-                let path = root.join(&backup);
-                write_private_file(&path, bytes)?;
-                DurableSnapshotKind::File {
-                    backup,
-                    mode: *mode,
-                }
-            }
-        };
-        durable.push(DurableSnapshot {
-            path: snapshot.path.clone(),
-            parent: snapshot.parent.clone(),
-            identity: snapshot.identity,
-            kind,
-        });
-    }
-    let manifest = serde_json::to_vec_pretty(&DurableSnapshotManifest {
-        version: ROLLBACK_MANIFEST_VERSION,
-        snapshots: durable,
+    let bytes = serde_json::to_vec_pretty(&PrivateTargetLedger {
+        version: PRIVATE_TARGET_LEDGER_VERSION,
+        targets,
     })
     .map_err(|error| error.to_string())?;
-    // Manifest is written last: its presence proves every referenced backup is
-    // durable before the first target mutation begins.
-    write_private_file(&root.join("manifest.json"), &manifest)?;
-    fs::File::open(&root)
-        .and_then(|directory| directory.sync_all())
-        .map_err(|error| error.to_string())?;
+    write_private_file(&private_target_ledger_path(operation_id), &bytes)?;
+    sync_directory(&root)?;
     if let Some(parent) = root.parent() {
-        fs::File::open(parent)
-            .and_then(|directory| directory.sync_all())
-            .map_err(|error| error.to_string())?;
+        sync_directory(parent)?;
     }
     Ok(())
 }
 
-fn load_rollback_snapshots(operation_id: &str) -> Result<Option<Vec<PathSnapshot>>, String> {
+fn load_private_target_ledger(operation_id: &str) -> Result<Option<PrivateTargetLedger>, String> {
+    let bytes = match fs::read(private_target_ledger_path(operation_id)) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(format!("recovery_required: {error}")),
+    };
+    let ledger: PrivateTargetLedger = serde_json::from_slice(&bytes)
+        .map_err(|_| "recovery_required: invalid private target ledger".to_string())?;
+    if ledger.version != PRIVATE_TARGET_LEDGER_VERSION {
+        return Err("recovery_required: unsupported private target ledger".into());
+    }
+    let mut paths = BTreeSet::new();
+    for target in &ledger.targets {
+        if !paths.insert(target.path.clone())
+            || target.subject != private_file_snapshot_subject(operation_id, &target.path)
+        {
+            return Err("recovery_required: invalid private target ledger binding".into());
+        }
+    }
+    Ok(Some(ledger))
+}
+
+fn clear_private_target_ledger_items(
+    operation_id: &str,
+    ledger: &PrivateTargetLedger,
+) -> Result<(), String> {
+    cleanup_persisted_private_paths(
+        operation_id,
+        &ledger
+            .targets
+            .iter()
+            .map(|target| target.path.clone())
+            .collect::<Vec<_>>(),
+    )
+}
+
+fn remove_private_target_ledger(operation_id: &str) -> Result<(), String> {
+    match fs::remove_file(private_target_ledger_path(operation_id)) {
+        Ok(()) => sync_directory(&operation_root(operation_id)),
+        Err(error) if error.kind() == ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error.to_string()),
+    }
+}
+
+fn persist_rollback_snapshots(
+    operation_id: &str,
+    snapshots: &[PathSnapshot],
+) -> Result<(), String> {
+    persist_private_target_ledger(operation_id, snapshots)?;
+    let ledger_paths = load_private_target_ledger(operation_id)?
+        .map(|ledger| {
+            ledger
+                .targets
+                .into_iter()
+                .map(|target| target.path)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    let root = operation_root(operation_id).join("rollback");
+    let persisted = (|| {
+        match fs::remove_dir_all(&root) {
+            Ok(()) => {}
+            Err(error) if error.kind() == ErrorKind::NotFound => {}
+            Err(error) => return Err(error.to_string()),
+        }
+        fs::create_dir_all(&root).map_err(|error| error.to_string())?;
+        set_private_dir(&root)?;
+        let mut durable = Vec::with_capacity(snapshots.len());
+        for (index, snapshot) in snapshots.iter().enumerate() {
+            let kind = match (&snapshot.kind, snapshot.privacy) {
+                (SnapshotKind::Missing, _) => DurableSnapshotKind::Missing,
+                (SnapshotKind::Directory, SnapshotPrivacy::Ordinary) => {
+                    DurableSnapshotKind::Directory
+                }
+                (SnapshotKind::Symlink { target }, SnapshotPrivacy::Ordinary) => {
+                    DurableSnapshotKind::Symlink {
+                        target: target.clone(),
+                    }
+                }
+                (SnapshotKind::File { bytes, mode }, SnapshotPrivacy::Ordinary) => {
+                    let backup = format!("{index}.bin");
+                    write_private_file(&root.join(&backup), bytes)?;
+                    DurableSnapshotKind::File {
+                        backup,
+                        mode: *mode,
+                    }
+                }
+                (SnapshotKind::PrivateFile { bytes, mode }, SnapshotPrivacy::Private) => {
+                    let content_hash = hex::encode(Sha256::digest(bytes.as_slice()));
+                    let subject = persist_private_file_snapshot(
+                        operation_id,
+                        &snapshot.path,
+                        bytes.as_slice(),
+                    )?;
+                    run_after_private_snapshot_persist_hook()?;
+                    DurableSnapshotKind::PrivateFile {
+                        content_hash,
+                        mode: *mode,
+                        subject,
+                    }
+                }
+                (SnapshotKind::PrivateDigest { .. }, SnapshotPrivacy::Private) => {
+                    return Err("cannot persist a post-state digest as rollback pre-state".into());
+                }
+                _ => {
+                    return Err(format!(
+                        "transaction snapshot privacy mismatch for {}",
+                        snapshot.path.display()
+                    ));
+                }
+            };
+            durable.push(DurableSnapshot {
+                path: snapshot.path.clone(),
+                parent: snapshot.parent.clone(),
+                identity: snapshot.identity,
+                privacy: snapshot.privacy,
+                kind,
+            });
+        }
+        let manifest = serde_json::to_vec_pretty(&DurableSnapshotManifest {
+            version: ROLLBACK_MANIFEST_VERSION,
+            snapshots: durable,
+        })
+        .map_err(|error| error.to_string())?;
+        // Manifest is written last: its presence proves every referenced
+        // filesystem backup and Keychain item is durable before target mutation.
+        write_private_file(&root.join("manifest.json"), &manifest)?;
+        sync_directory(&root)?;
+        if let Some(parent) = root.parent() {
+            sync_directory(parent)?;
+        }
+        Ok::<_, String>(())
+    })();
+    if let Err(error) = persisted {
+        return match cleanup_persisted_private_paths(operation_id, &ledger_paths) {
+            Ok(()) => {
+                let _ = fs::remove_dir_all(&root);
+                let _ = remove_private_target_ledger(operation_id);
+                Err(error)
+            }
+            Err(cleanup) => Err(format!(
+                "recovery_required: rollback snapshot persistence failed ({error}); private Keychain cleanup failed: {cleanup}"
+            )),
+        };
+    }
+    Ok(())
+}
+
+fn cleanup_persisted_private_paths(operation_id: &str, paths: &[PathBuf]) -> Result<(), String> {
+    let mut errors = Vec::new();
+    for path in paths {
+        if let Err(error) = clear_private_file_snapshot(operation_id, path) {
+            errors.push(error);
+        }
+    }
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors.join("; "))
+    }
+}
+
+fn load_rollback_manifest(operation_id: &str) -> Result<Option<DurableSnapshotManifest>, String> {
     let root = operation_root(operation_id).join("rollback");
     let manifest = match fs::read(root.join("manifest.json")) {
         Ok(bytes) => bytes,
@@ -3313,9 +4134,17 @@ fn load_rollback_snapshots(operation_id: &str) -> Result<Option<Vec<PathSnapshot
     };
     let manifest: DurableSnapshotManifest = serde_json::from_slice(&manifest)
         .map_err(|_| "recovery_required: invalid asset rollback manifest".to_string())?;
-    if manifest.version != ROLLBACK_MANIFEST_VERSION {
+    if !matches!(manifest.version, 2 | ROLLBACK_MANIFEST_VERSION) {
         return Err("recovery_required: unsupported asset rollback manifest".into());
     }
+    Ok(Some(manifest))
+}
+
+fn load_rollback_snapshots(operation_id: &str) -> Result<Option<Vec<PathSnapshot>>, String> {
+    let root = operation_root(operation_id).join("rollback");
+    let Some(manifest) = load_rollback_manifest(operation_id)? else {
+        return Ok(None);
+    };
     let mut snapshots = Vec::with_capacity(manifest.snapshots.len());
     for snapshot in manifest.snapshots {
         #[cfg(unix)]
@@ -3323,24 +4152,97 @@ fn load_rollback_snapshots(operation_id: &str) -> Result<Option<Vec<PathSnapshot
         {
             return Err("recovery_required: rollback snapshot has no exact target identity".into());
         }
-        let kind = match snapshot.kind {
-            DurableSnapshotKind::Missing => SnapshotKind::Missing,
-            DurableSnapshotKind::Directory => SnapshotKind::Directory,
-            DurableSnapshotKind::Symlink { target } => SnapshotKind::Symlink { target },
-            DurableSnapshotKind::File { backup, mode } => SnapshotKind::File {
-                bytes: fs::read(root.join(backup))
-                    .map_err(|error| format!("recovery_required: {error}"))?,
-                mode,
-            },
+        let kind = match (snapshot.privacy, snapshot.kind) {
+            (_, DurableSnapshotKind::Missing) => SnapshotKind::Missing,
+            (SnapshotPrivacy::Ordinary, DurableSnapshotKind::Directory) => SnapshotKind::Directory,
+            (SnapshotPrivacy::Ordinary, DurableSnapshotKind::Symlink { target }) => {
+                SnapshotKind::Symlink { target }
+            }
+            (SnapshotPrivacy::Ordinary, DurableSnapshotKind::File { backup, mode }) => {
+                SnapshotKind::File {
+                    bytes: Zeroizing::new(
+                        fs::read(root.join(backup))
+                            .map_err(|error| format!("recovery_required: {error}"))?,
+                    ),
+                    mode,
+                }
+            }
+            (
+                SnapshotPrivacy::Private,
+                DurableSnapshotKind::PrivateFile {
+                    content_hash,
+                    mode,
+                    subject,
+                },
+            ) => {
+                if subject != private_file_snapshot_subject(operation_id, &snapshot.path) {
+                    return Err(
+                        "recovery_required: private rollback subject binding is invalid".into(),
+                    );
+                }
+                let bytes = load_private_file_snapshot(operation_id, &snapshot.path, &content_hash)
+                    .map_err(|error| format!("recovery_required: {error}"))?
+                    .ok_or_else(|| {
+                        "recovery_required: private rollback Keychain item is missing".to_string()
+                    })?;
+                SnapshotKind::PrivateFile { bytes, mode }
+            }
+            _ => {
+                return Err(format!(
+                    "recovery_required: rollback snapshot privacy mismatch: {}",
+                    snapshot.path.display()
+                ));
+            }
         };
         snapshots.push(PathSnapshot {
             path: snapshot.path,
             parent: snapshot.parent,
             kind,
             identity: snapshot.identity,
+            privacy: snapshot.privacy,
         });
     }
     Ok(Some(snapshots))
+}
+
+fn clear_private_snapshot_manifest_items(
+    operation_id: &str,
+    manifest: &DurableSnapshotManifest,
+) -> Result<(), String> {
+    let paths = manifest
+        .snapshots
+        .iter()
+        .filter(|snapshot| snapshot.privacy == SnapshotPrivacy::Private)
+        .map(|snapshot| snapshot.path.clone())
+        .collect::<Vec<_>>();
+    cleanup_persisted_private_paths(operation_id, &paths)
+}
+
+fn clear_private_snapshot_items(
+    operation_id: &str,
+    snapshots: &[PathSnapshot],
+) -> Result<(), String> {
+    let paths = snapshots
+        .iter()
+        .filter(|snapshot| snapshot.privacy == SnapshotPrivacy::Private)
+        .map(|snapshot| snapshot.path.clone())
+        .collect::<Vec<_>>();
+    cleanup_persisted_private_paths(operation_id, &paths)
+}
+
+fn finalize_completed_operation_cleanup(
+    operation_id: &str,
+    operation_path: &Path,
+    manifest: &DurableSnapshotManifest,
+    profile_ids: &[String],
+) -> Result<(), String> {
+    for profile_id in profile_ids {
+        clear_credential_rollback(operation_id, profile_id)?;
+    }
+    clear_private_snapshot_manifest_items(operation_id, manifest)?;
+    fs::remove_dir_all(operation_path).map_err(|error| error.to_string())?;
+    clear_pending_payload(operation_id);
+    Ok(())
 }
 
 fn write_private_file(path: &Path, bytes: &[u8]) -> Result<(), String> {
@@ -3377,7 +4279,6 @@ fn set_private_dir(path: &Path) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::Value;
     use crate::assets::{
         plan_set_active_model, plan_set_agent_consumption, plan_set_all_mcp_enabled,
         plan_set_mcp_enabled, plan_set_model_enabled, plan_update_central_asset,
@@ -3394,6 +4295,7 @@ mod tests {
     use crate::resources::mcp::sources::cached_path;
     use crate::resources::model::save_profile;
     use crate::testenv::TestHome;
+    use serde_json::Value;
 
     #[test]
     fn clear_agent_models_removes_native_pi_registry_even_without_mux_relationships() {
@@ -3413,19 +4315,23 @@ mod tests {
         .unwrap();
 
         let plan = crate::assets::plan_clear_agent_models(
-            crate::domain::assets::PlanClearAgentModelsRequest { agent_id: "pi".into() },
+            crate::domain::assets::PlanClearAgentModelsRequest {
+                agent_id: "pi".into(),
+            },
         )
         .unwrap();
         assert_eq!(plan.kind, AssetOperationKind::ClearModels);
         assert!(plan.can_commit, "{:?}", plan.warnings);
-        assert!(plan.warnings.iter().any(|warning| warning.contains("external")));
+        assert!(plan
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("external")));
 
-        let result = commit_asset_operation(AssetCommitRequest {
+        commit_asset_operation(AssetCommitRequest {
             operation_id: plan.operation_id,
             candidate_hash: plan.candidate_hash,
         })
         .unwrap();
-        assert!(result.converged);
         let models: Value = serde_json::from_str(&fs::read_to_string(models).unwrap()).unwrap();
         let settings: Value = serde_json::from_str(&fs::read_to_string(settings).unwrap()).unwrap();
         assert_eq!(models["providers"], serde_json::json!({}));
@@ -3529,6 +4435,775 @@ mod tests {
             .iter()
             .map(|snapshot| (snapshot.path.clone(), snapshot.parent.clone()))
             .collect()
+    }
+
+    fn evidence_contains(root: &Path, needle: &[u8]) -> bool {
+        let Ok(entries) = fs::read_dir(root) else {
+            return false;
+        };
+        entries.flatten().any(|entry| {
+            let path = entry.path();
+            if path.is_dir() {
+                evidence_contains(&path, needle)
+            } else {
+                fs::read(path)
+                    .ok()
+                    .is_some_and(|bytes| bytes.windows(needle.len()).any(|window| window == needle))
+            }
+        })
+    }
+
+    fn private_transaction_plan(target_files: Vec<String>) -> AssetOperationPlan {
+        AssetOperationPlan {
+            operation_id: "33333333-3333-4333-8333-333333333333".into(),
+            kind: AssetOperationKind::SetConsumption,
+            domain_plan: DomainPlan::Model {
+                before: BTreeMap::new(),
+                after: BTreeMap::new(),
+            },
+            central_changes: Vec::new(),
+            relationship_changes: Vec::new(),
+            model_state_changes: Vec::new(),
+            consumption_state_changes: Vec::new(),
+            target_files,
+            affected_agent_ids: vec!["claude-desktop".into()],
+            warnings: Vec::new(),
+            can_commit: true,
+            candidate_hash: "candidate".into(),
+        }
+    }
+
+    fn save_private_claude_profile(id: &str, credential: &str) -> ModelProfile {
+        let profile = ModelProfile {
+            id: id.into(),
+            provider_id: Some(format!("{id}-provider")),
+            name: format!("{id} model"),
+            provider: "custom".into(),
+            model_vendor: None,
+            native_ids: Default::default(),
+            protocol: ModelProtocol::AnthropicMessages,
+            base_url: "https://gateway.example.test".into(),
+            endpoint_path: "/anthropic/v1/messages".into(),
+            model: "claude-sonnet-4-6".into(),
+            env_key: None,
+            context_window: None,
+            max_output_tokens: None,
+            reasoning: None,
+        };
+        save_profile(profile.clone(), Some(credential.into())).unwrap();
+        profile
+    }
+
+    fn plan_private_claude_consumption(profile_id: &str) -> AssetOperationPlan {
+        plan_set_agent_consumption(PlanSetAgentConsumptionRequest {
+            agent_id: "claude-desktop".into(),
+            selection: AgentConsumptionSelection::Model {
+                profile_ids: vec![profile_id.into()],
+            },
+        })
+        .unwrap()
+    }
+
+    #[test]
+    fn private_transaction_classifier_selects_only_reviewed_claude_desktop_profile() {
+        let _home = TestHome::new("private-transaction-classifier");
+        let fixed = crate::resources::model::default_config_paths("claude-desktop")
+            .unwrap()
+            .into_iter()
+            .nth(3)
+            .unwrap();
+        let decoy = format!("~/other/{}", fixed.rsplit('/').next().unwrap());
+        let plan = private_transaction_plan(vec![fixed.clone(), decoy.clone()]);
+
+        let private = private_transaction_paths(&plan, &load_settings_strict().unwrap()).unwrap();
+
+        assert_eq!(
+            private,
+            BTreeSet::from([crate::resources::mcp::scanner::expand_tilde(&fixed)])
+        );
+        assert!(!private.contains(&crate::resources::mcp::scanner::expand_tilde(&decoy)));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn private_transaction_hardlinked_ordinary_target_fails_before_evidence_or_write() {
+        use std::os::unix::fs::MetadataExt;
+
+        let home = TestHome::new("private-transaction-hardlink-alias");
+        let profile = save_private_claude_profile(
+            "claude-private-hardlink-alias",
+            "PRIVATE-ALIAS-NEW-CREDENTIAL",
+        );
+        let configured = crate::resources::model::default_config_paths("claude-desktop").unwrap();
+        let ordinary = crate::resources::mcp::scanner::expand_tilde(&configured[0]);
+        let private = crate::resources::mcp::scanner::expand_tilde(&configured[3]);
+        let sentinel = b"{\"inferenceGatewayApiKey\":\"PRIVATE-ALIAS-PRESTATE-SENTINEL\"}";
+        fs::create_dir_all(private.parent().unwrap()).unwrap();
+        fs::write(&private, sentinel).unwrap();
+        fs::create_dir_all(ordinary.parent().unwrap()).unwrap();
+        fs::hard_link(&private, &ordinary).unwrap();
+        let before = fs::metadata(&private).unwrap();
+        assert_eq!(before.dev(), fs::metadata(&ordinary).unwrap().dev());
+        assert_eq!(before.ino(), fs::metadata(&ordinary).unwrap().ino());
+        let plan = plan_private_claude_consumption(&profile.id);
+        let operation_id = plan.operation_id.clone();
+
+        let error = commit_asset_operation(AssetCommitRequest {
+            operation_id: plan.operation_id,
+            candidate_hash: plan.candidate_hash,
+        })
+        .unwrap_err();
+
+        assert!(
+            error.contains("claude_desktop_private_target_alias"),
+            "{error}"
+        );
+        assert_eq!(fs::read(&ordinary).unwrap(), sentinel);
+        assert_eq!(fs::read(&private).unwrap(), sentinel);
+        assert!(!operation_root(&operation_id)
+            .join("rollback/manifest.json")
+            .exists());
+        assert!(!private_target_ledger_path(&operation_id).exists());
+        assert!(!operation_commit_marker(&operation_id).exists());
+        assert!(credential_rollback_snapshot(&operation_id, &profile.id)
+            .unwrap()
+            .is_none());
+        assert!(!private_file_snapshot_exists(&operation_id, &private));
+        assert!(!evidence_contains(
+            &home.home.join(".mux"),
+            b"PRIVATE-ALIAS-PRESTATE-SENTINEL"
+        ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn private_transaction_adapter_rollback_failure_retains_recovery_evidence() {
+        let _home = TestHome::new("private-transaction-rollback-failure");
+        let profile = save_private_claude_profile(
+            "claude-private-rollback-failure",
+            "PRIVATE-ROLLBACK-NEW-CREDENTIAL",
+        );
+        let configured = crate::resources::model::default_config_paths("claude-desktop").unwrap();
+        let paths = configured
+            .iter()
+            .map(|path| crate::resources::mcp::scanner::expand_tilde(path))
+            .collect::<Vec<_>>();
+        crate::resources::model::apply_profile("claude-desktop", &profile.id).unwrap();
+        mutate_settings(|settings| {
+            settings.set_model_selection(
+                "claude-desktop",
+                ModelAgentSelection {
+                    profiles: BTreeMap::from([(
+                        profile.id.clone(),
+                        crate::domain::assets::ModelConsumptionRecord {
+                            profile_id: profile.id.clone(),
+                            enabled: true,
+                            last_selected_at: None,
+                        },
+                    )]),
+                    active_profile_id: Some(profile.id.clone()),
+                },
+            );
+        })
+        .unwrap();
+        fs::write(&paths[0], r#"{"deploymentMode":"native"}"#).unwrap();
+        let meta: Value = serde_json::from_str(&fs::read_to_string(&paths[2]).unwrap()).unwrap();
+        fs::write(&paths[2], serde_json::to_vec(&meta).unwrap()).unwrap();
+        let plan =
+            crate::assets::plan_reapply_model(crate::domain::assets::PlanReapplyModelRequest {
+                agent_id: "claude-desktop".into(),
+                profile_id: profile.id.clone(),
+            })
+            .unwrap();
+        assert!(plan.can_commit, "{:?}", plan.warnings);
+        let operation_id = plan.operation_id.clone();
+        let meta_path = paths[2].clone();
+        let private_path = paths[3].clone();
+        let _hook =
+            crate::resources::model::set_claude_desktop_config_write_hook(move |path, rollback| {
+                if !rollback && path == meta_path {
+                    return Err("injected forward write failure".into());
+                }
+                if rollback && path == private_path {
+                    return Err("injected private rollback failure".into());
+                }
+                Ok(())
+            });
+
+        let error = commit_asset_operation(AssetCommitRequest {
+            operation_id: plan.operation_id,
+            candidate_hash: plan.candidate_hash,
+        })
+        .unwrap_err();
+
+        assert!(error.starts_with("target_recovery_required:"), "{error}");
+        assert!(
+            error.contains("injected private rollback failure"),
+            "{error}"
+        );
+        assert!(operation_root(&operation_id)
+            .join("rollback/manifest.json")
+            .is_file());
+        assert!(private_target_ledger_path(&operation_id).is_file());
+        assert!(private_file_snapshot_exists(&operation_id, &paths[3]));
+        assert!(!operation_commit_marker(&operation_id).exists());
+        assert!(!operation_state_marker_exists(&operation_id, ROLLBACK_COMPLETE_MARKER).unwrap());
+        drop(_hook);
+        clear_private_file_snapshot(&operation_id, &paths[3]).unwrap();
+        fs::remove_dir_all(operation_root(&operation_id)).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn private_transaction_clear_rollback_failure_retains_recovery_evidence() {
+        let _home = TestHome::new("private-transaction-clear-rollback");
+        let profile = save_private_claude_profile(
+            "claude-private-clear-rollback",
+            "PRIVATE-CLEAR-ROLLBACK-CREDENTIAL",
+        );
+        let configured = crate::resources::model::default_config_paths("claude-desktop").unwrap();
+        let paths = configured
+            .iter()
+            .map(|path| crate::resources::mcp::scanner::expand_tilde(path))
+            .collect::<Vec<_>>();
+        fs::create_dir_all(paths[2].parent().unwrap()).unwrap();
+        fs::write(
+            &paths[2],
+            r#"{"appliedId":"default-id","entries":[{"id":"default-id","name":"Default"}]}"#,
+        )
+        .unwrap();
+        crate::resources::model::apply_profile("claude-desktop", &profile.id).unwrap();
+        mutate_settings(|settings| {
+            settings.set_model_selection(
+                "claude-desktop",
+                ModelAgentSelection {
+                    profiles: BTreeMap::from([(
+                        profile.id.clone(),
+                        crate::domain::assets::ModelConsumptionRecord {
+                            profile_id: profile.id.clone(),
+                            enabled: true,
+                            last_selected_at: None,
+                        },
+                    )]),
+                    active_profile_id: Some(profile.id.clone()),
+                },
+            );
+        })
+        .unwrap();
+        let plan = crate::assets::plan_clear_agent_models(
+            crate::domain::assets::PlanClearAgentModelsRequest {
+                agent_id: "claude-desktop".into(),
+            },
+        )
+        .unwrap();
+        assert!(plan.can_commit, "{:?}", plan.warnings);
+        let operation_id = plan.operation_id.clone();
+        let meta_path = paths[2].clone();
+        let private_path = paths[3].clone();
+        let _hook =
+            crate::resources::model::set_claude_desktop_config_write_hook(move |path, rollback| {
+                if !rollback && path == private_path {
+                    return Err("injected private clear failure".into());
+                }
+                if rollback && path == meta_path {
+                    return Err("injected metadata rollback failure".into());
+                }
+                Ok(())
+            });
+
+        let error = commit_asset_operation(AssetCommitRequest {
+            operation_id: plan.operation_id,
+            candidate_hash: plan.candidate_hash,
+        })
+        .unwrap_err();
+
+        assert!(error.starts_with("target_recovery_required:"), "{error}");
+        assert!(
+            error.contains("injected metadata rollback failure"),
+            "{error}"
+        );
+        assert!(operation_root(&operation_id)
+            .join("rollback/manifest.json")
+            .is_file());
+        assert!(private_target_ledger_path(&operation_id).is_file());
+        assert!(private_file_snapshot_exists(&operation_id, &paths[3]));
+        assert!(!operation_commit_marker(&operation_id).exists());
+        assert!(operation_root(&operation_id)
+            .join(TARGET_INCIDENT_MARKER)
+            .is_file());
+        drop(_hook);
+        clear_private_file_snapshot(&operation_id, &paths[3]).unwrap();
+        fs::remove_dir_all(operation_root(&operation_id)).unwrap();
+    }
+
+    #[test]
+    fn private_transaction_snapshot_is_hash_only_and_restores_from_keychain() {
+        let home = TestHome::new("private-transaction-keychain-restore");
+        let operation_id = "44444444-4444-4444-8444-444444444444";
+        let target = home.home.join("private-profile.json");
+        let original = b"{\n\"inferenceGatewayApiKey\":\"PRIVATE-PRESTATE-SENTINEL\"\n}\n";
+        let written = b"{\n\"inferenceGatewayApiKey\":\"PRIVATE-POSTSTATE-SENTINEL\"\n}\n";
+        fs::write(&target, original).unwrap();
+        let snapshots = vec![PathSnapshot::capture_private(&target).unwrap()];
+
+        persist_rollback_snapshots(operation_id, &snapshots).unwrap();
+        assert!(!evidence_contains(
+            &operation_root(operation_id),
+            b"PRIVATE-PRESTATE-SENTINEL"
+        ));
+        let private_paths = BTreeSet::from([target.clone()]);
+        let parents = BTreeMap::from([(target.clone(), snapshots[0].parent.clone())]);
+        let reviewed =
+            BTreeMap::from([(target.clone(), snapshots[0].transaction_state().unwrap())]);
+        let tracker = begin_transaction_write_tracking_with_private_states(
+            &transaction_write_evidence_dir(operation_id),
+            std::slice::from_ref(&target),
+            &private_paths,
+            &parents,
+            &reviewed,
+        )
+        .unwrap();
+        crate::safe_write::write_private_if_unchanged(
+            &target,
+            Some(std::str::from_utf8(original).unwrap()),
+            std::str::from_utf8(written).unwrap(),
+        )
+        .unwrap();
+        let written_states = tracker.states();
+        drop(tracker);
+        assert!(!evidence_contains(
+            &operation_root(operation_id),
+            b"PRIVATE-POSTSTATE-SENTINEL"
+        ));
+        let loaded = load_rollback_snapshots(operation_id).unwrap().unwrap();
+
+        assert!(restore_snapshots_if_unchanged(&loaded, &written_states).is_empty());
+        assert_eq!(fs::read(&target).unwrap(), original);
+        clear_private_snapshot_items(operation_id, &loaded).unwrap();
+        assert!(!crate::resources::model::private_file_snapshot_exists(
+            operation_id,
+            &target
+        ));
+        fs::remove_dir_all(operation_root(operation_id)).unwrap();
+    }
+
+    #[test]
+    fn private_transaction_new_target_rollback_removes_only_matching_poststate() {
+        let home = TestHome::new("private-transaction-new-target");
+        let operation_id = "55555555-5555-4555-8555-555555555555";
+        let target = home.home.join("new-private-profile.json");
+        let snapshots = vec![PathSnapshot::capture_private(&target).unwrap()];
+        persist_rollback_snapshots(operation_id, &snapshots).unwrap();
+        fs::write(&target, b"PRIVATE-NEW-TARGET-SENTINEL").unwrap();
+        let current = read_path_state_anchored(&target, &snapshots[0].parent).unwrap();
+        let AnchoredPathState::File {
+            bytes,
+            mode,
+            identity,
+        } = current
+        else {
+            panic!("private target should be a file");
+        };
+        let written_states = BTreeMap::from([(
+            target.clone(),
+            crate::safe_write::transaction_private_file_state(&bytes, mode, identity).unwrap(),
+        )]);
+        let loaded = load_rollback_snapshots(operation_id).unwrap().unwrap();
+
+        assert!(restore_snapshots_if_unchanged(&loaded, &written_states).is_empty());
+        assert!(!target.exists());
+        clear_private_snapshot_items(operation_id, &loaded).unwrap();
+        fs::remove_dir_all(operation_root(operation_id)).unwrap();
+    }
+
+    #[test]
+    fn private_transaction_external_edit_refuses_restore_and_retains_keychain_evidence() {
+        let home = TestHome::new("private-transaction-external-edit");
+        let operation_id = "66666666-6666-4666-8666-666666666666";
+        let target = home.home.join("private-profile.json");
+        fs::write(&target, b"PRIVATE-PRESTATE-SENTINEL").unwrap();
+        let snapshots = vec![PathSnapshot::capture_private(&target).unwrap()];
+        persist_rollback_snapshots(operation_id, &snapshots).unwrap();
+        fs::write(&target, b"PRIVATE-MUX-POSTSTATE-SENTINEL").unwrap();
+        let mux = read_path_state_anchored(&target, &snapshots[0].parent).unwrap();
+        let AnchoredPathState::File {
+            bytes,
+            mode,
+            identity,
+        } = mux
+        else {
+            panic!("private target should be a file");
+        };
+        let written_states = BTreeMap::from([(
+            target.clone(),
+            crate::safe_write::transaction_private_file_state(&bytes, mode, identity).unwrap(),
+        )]);
+        fs::write(&target, b"PRIVATE-EXTERNAL-EDIT-SENTINEL").unwrap();
+        let loaded = load_rollback_snapshots(operation_id).unwrap().unwrap();
+
+        let errors = restore_snapshots_if_unchanged(&loaded, &written_states);
+        assert_eq!(errors.len(), 1, "{errors:?}");
+        assert_eq!(
+            fs::read(&target).unwrap(),
+            b"PRIVATE-EXTERNAL-EDIT-SENTINEL"
+        );
+        assert!(crate::resources::model::private_file_snapshot_exists(
+            operation_id,
+            &target
+        ));
+        clear_private_snapshot_items(operation_id, &loaded).unwrap();
+        fs::remove_dir_all(operation_root(operation_id)).unwrap();
+    }
+
+    #[test]
+    fn private_transaction_missing_keychain_prestate_fails_closed() {
+        let home = TestHome::new("private-transaction-missing-keychain");
+        let operation_id = "77777777-7777-4777-8777-777777777777";
+        let target = home.home.join("private-profile.json");
+        fs::write(&target, b"PRIVATE-PRESTATE-SENTINEL").unwrap();
+        let snapshots = vec![PathSnapshot::capture_private(&target).unwrap()];
+        persist_rollback_snapshots(operation_id, &snapshots).unwrap();
+        crate::resources::model::clear_private_file_snapshot(operation_id, &target).unwrap();
+
+        let error = match load_rollback_snapshots(operation_id) {
+            Ok(_) => panic!("private rollback unexpectedly loaded without Keychain prestate"),
+            Err(error) => error,
+        };
+        assert!(error.starts_with("recovery_required:"), "{error}");
+        assert!(!error.contains("PRIVATE-PRESTATE-SENTINEL"));
+        fs::remove_dir_all(operation_root(operation_id)).unwrap();
+    }
+
+    #[test]
+    fn private_transaction_no_manifest_ledger_cleans_keychain_evidence() {
+        let home = TestHome::new("private-transaction-no-manifest-ledger");
+        let operation_id = "88888888-8888-4888-8888-888888888888";
+        let target = home.home.join("private-profile.json");
+        let sentinel = b"PRIVATE-LEDGER-PRESTATE-SENTINEL";
+        fs::write(&target, sentinel).unwrap();
+        let snapshots = vec![PathSnapshot::capture_private(&target).unwrap()];
+        persist_private_target_ledger(operation_id, &snapshots).unwrap();
+        persist_private_file_snapshot(operation_id, &target, sentinel).unwrap();
+        assert!(load_rollback_manifest(operation_id).unwrap().is_none());
+
+        let ledger = load_private_target_ledger(operation_id)
+            .unwrap()
+            .expect("private target ledger");
+        clear_private_target_ledger_items(operation_id, &ledger).unwrap();
+
+        assert!(!private_file_snapshot_exists(operation_id, &target));
+        fs::remove_dir_all(operation_root(operation_id)).unwrap();
+    }
+
+    #[test]
+    fn private_transaction_terminal_cleanup_never_hydrates_missing_keychain_item() {
+        let home = TestHome::new("private-transaction-terminal-cleanup");
+        let operation_id = "99999999-9999-4999-8999-999999999999";
+        let target = home.home.join("private-profile.json");
+        fs::write(&target, b"PRIVATE-TERMINAL-PRESTATE-SENTINEL").unwrap();
+        let snapshots = vec![PathSnapshot::capture_private(&target).unwrap()];
+        persist_rollback_snapshots(operation_id, &snapshots).unwrap();
+        clear_private_file_snapshot(operation_id, &target).unwrap();
+        mark_operation_state(operation_id, ROLLBACK_COMPLETE_MARKER, b"rolled-back\n").unwrap();
+        let manifest = load_rollback_manifest(operation_id).unwrap().unwrap();
+
+        finalize_completed_operation_cleanup(
+            operation_id,
+            &operation_root(operation_id),
+            &manifest,
+            &[],
+        )
+        .unwrap();
+
+        assert!(!operation_root(operation_id).exists());
+    }
+
+    #[test]
+    fn private_transaction_delete_failure_retains_keychain_ledger_and_root() {
+        let home = TestHome::new("private-transaction-delete-failure");
+        let operation_id = "91919191-9191-4919-8919-919191919191";
+        let target = home.home.join("private-profile.json");
+        fs::write(&target, b"PRIVATE-DELETE-FAILURE-SENTINEL").unwrap();
+        let snapshots = vec![PathSnapshot::capture_private(&target).unwrap()];
+        persist_rollback_snapshots(operation_id, &snapshots).unwrap();
+        let manifest = load_rollback_manifest(operation_id).unwrap().unwrap();
+        let _failure = crate::resources::model::set_test_credential_delete_error(
+            "injected Keychain permission failure",
+        );
+
+        let error = finalize_completed_operation_cleanup(
+            operation_id,
+            &operation_root(operation_id),
+            &manifest,
+            &[],
+        )
+        .unwrap_err();
+
+        assert!(error.contains("permission failure"), "{error}");
+        assert!(private_target_ledger_path(operation_id).is_file());
+        assert!(private_file_snapshot_exists(operation_id, &target));
+        assert!(operation_root(operation_id).is_dir());
+        drop(_failure);
+        clear_private_file_snapshot(operation_id, &target).unwrap();
+        fs::remove_dir_all(operation_root(operation_id)).unwrap();
+    }
+
+    #[test]
+    fn private_transaction_cleanup_authorized_takes_precedence_over_target_incident() {
+        let _home = TestHome::new("private-transaction-cleanup-precedence");
+        let operation_id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+        fs::create_dir_all(operation_root(operation_id)).unwrap();
+        write_private_file(
+            &operation_root(operation_id).join(TARGET_INCIDENT_MARKER),
+            b"incident\n",
+        )
+        .unwrap();
+        mark_operation_state(
+            operation_id,
+            CLEANUP_AUTHORIZED_MARKER,
+            b"cleanup-authorized\n",
+        )
+        .unwrap();
+
+        assert!(!operation_should_pause_for_target_incident(operation_id).unwrap());
+
+        fs::remove_dir_all(operation_root(operation_id)).unwrap();
+    }
+
+    #[test]
+    fn private_transaction_real_claude_plan_commit_recovers_without_filesystem_secret_evidence() {
+        let home = TestHome::new("private-transaction-real-claude-plan");
+        let profile = ModelProfile {
+            id: "claude-desktop-private-plan".into(),
+            provider_id: Some("claude-desktop-private-provider".into()),
+            name: "Claude Desktop Private Plan".into(),
+            provider: "custom".into(),
+            model_vendor: None,
+            native_ids: Default::default(),
+            protocol: ModelProtocol::AnthropicMessages,
+            base_url: "https://gateway.example.test".into(),
+            endpoint_path: "/anthropic/v1/messages".into(),
+            model: "claude-sonnet-4-6".into(),
+            env_key: None,
+            context_window: None,
+            max_output_tokens: None,
+            reasoning: None,
+        };
+        let new_secret = "PRIVATE-REAL-PLAN-NEW-SENTINEL";
+        let old_secret = "PRIVATE-REAL-PLAN-OLD-SENTINEL";
+        save_profile(profile.clone(), Some(new_secret.into())).unwrap();
+        let defaults = crate::resources::model::default_config_paths("claude-desktop").unwrap();
+        let private_path = crate::resources::mcp::scanner::expand_tilde(&defaults[3]);
+        fs::create_dir_all(private_path.parent().unwrap()).unwrap();
+        fs::write(
+            &private_path,
+            format!("{{\"inferenceGatewayApiKey\":\"{old_secret}\"}}"),
+        )
+        .unwrap();
+        let plan = plan_set_agent_consumption(PlanSetAgentConsumptionRequest {
+            agent_id: "claude-desktop".into(),
+            selection: AgentConsumptionSelection::Model {
+                profile_ids: vec![profile.id.clone()],
+            },
+        })
+        .unwrap();
+        let persisted = load_operation(&plan.operation_id).unwrap();
+        let settings = load_settings_strict().unwrap();
+        let private_paths = private_transaction_paths(&plan, &settings).unwrap();
+        assert_eq!(private_paths, BTreeSet::from([private_path.clone()]));
+        let settings_path = settings_file();
+        let catalog_paths = [
+            mcp_catalog_file(),
+            model_catalog_file(),
+            skill_catalog_file(),
+        ];
+        let mut snapshots = vec![PathSnapshot::capture(&settings_path).unwrap()];
+        snapshots.extend(
+            catalog_paths
+                .iter()
+                .map(|path| PathSnapshot::capture(path).unwrap()),
+        );
+        snapshots.extend(plan.target_files.iter().filter_map(|target| {
+            let path = crate::resources::mcp::scanner::expand_tilde(target);
+            (path != settings_path && !catalog_paths.contains(&path)).then(|| {
+                if private_paths.contains(&path) {
+                    PathSnapshot::capture_private(&path).unwrap()
+                } else {
+                    PathSnapshot::capture(&path).unwrap()
+                }
+            })
+        }));
+        persist_rollback_snapshots(&plan.operation_id, &snapshots).unwrap();
+        let tracked_paths = snapshots
+            .iter()
+            .map(|snapshot| snapshot.path.clone())
+            .collect::<Vec<_>>();
+        let parents = parent_snapshots_for_snapshots(&snapshots);
+        let reviewed = snapshots
+            .iter()
+            .map(|snapshot| (snapshot.path.clone(), snapshot.transaction_state().unwrap()))
+            .collect::<BTreeMap<_, _>>();
+        let tracker = begin_transaction_write_tracking_with_private_states(
+            &transaction_write_evidence_dir(&plan.operation_id),
+            &tracked_paths,
+            &private_paths,
+            &parents,
+            &reviewed,
+        )
+        .unwrap();
+        let skills_guard = acquire_asset_skills_lock().unwrap();
+
+        apply_operation(&persisted, &skills_guard, &BTreeSet::new()).unwrap();
+        verify_operation(&persisted).unwrap();
+        mark_operation_committed(&plan.operation_id).unwrap();
+        assert!(!evidence_contains(
+            &operation_root(&plan.operation_id),
+            old_secret.as_bytes()
+        ));
+        assert!(!evidence_contains(
+            &operation_root(&plan.operation_id),
+            new_secret.as_bytes()
+        ));
+        drop(tracker);
+        drop(skills_guard);
+
+        recover_pending_asset_operations().unwrap();
+
+        let committed_profile: Value =
+            serde_json::from_str(&fs::read_to_string(&private_path).unwrap()).unwrap();
+        assert_eq!(committed_profile["inferenceGatewayApiKey"], new_secret);
+        assert!(!private_file_snapshot_exists(
+            &plan.operation_id,
+            &private_path
+        ));
+        assert!(!operation_root(&plan.operation_id).exists());
+        assert!(home.home.exists());
+    }
+
+    #[test]
+    fn private_transaction_overridden_path_no_manifest_startup_cleans_keychain() {
+        let _home = TestHome::new("private-transaction-override-startup-cleanup");
+        let profile = save_private_claude_profile(
+            "claude-private-override-startup",
+            "PRIVATE-OVERRIDE-STARTUP-SENTINEL",
+        );
+        let custom_paths = vec![
+            "~/custom/claude-main.json".into(),
+            "~/custom/claude-3p.json".into(),
+            "~/custom/_meta.json".into(),
+            "~/custom/private-profile.json".into(),
+        ];
+        mutate_settings(|settings| {
+            settings.agent_config_paths.get_or_insert_default().insert(
+                "claude-desktop".into(),
+                crate::settings::AgentConfigPathOverride {
+                    model_paths: Some(custom_paths.clone()),
+                    ..Default::default()
+                },
+            );
+        })
+        .unwrap();
+        let plan = plan_private_claude_consumption(&profile.id);
+        let private_path = crate::resources::mcp::scanner::expand_tilde(&custom_paths[3]);
+        assert!(plan
+            .target_files
+            .iter()
+            .any(|target| crate::resources::mcp::scanner::expand_tilde(target) == private_path));
+        let snapshots = vec![PathSnapshot::capture_private(&private_path).unwrap()];
+        persist_private_target_ledger(&plan.operation_id, &snapshots).unwrap();
+        persist_private_file_snapshot(
+            &plan.operation_id,
+            &private_path,
+            b"PRIVATE-OVERRIDE-PRESTATE-SENTINEL",
+        )
+        .unwrap();
+
+        recover_pending_asset_operations().unwrap();
+
+        assert!(!private_file_snapshot_exists(
+            &plan.operation_id,
+            &private_path
+        ));
+        assert!(!operation_root(&plan.operation_id).exists());
+    }
+
+    #[test]
+    fn private_transaction_cancel_cleans_no_manifest_but_refuses_manifest_evidence() {
+        let _home = TestHome::new("private-transaction-cancel-contract");
+        let profile =
+            save_private_claude_profile("claude-private-cancel", "PRIVATE-CANCEL-SENTINEL");
+        let first = plan_private_claude_consumption(&profile.id);
+        let private_path = crate::resources::mcp::scanner::expand_tilde(
+            &crate::resources::model::default_config_paths("claude-desktop").unwrap()[3],
+        );
+        let snapshots = vec![PathSnapshot::capture_private(&private_path).unwrap()];
+        persist_private_target_ledger(&first.operation_id, &snapshots).unwrap();
+        persist_private_file_snapshot(
+            &first.operation_id,
+            &private_path,
+            b"PRIVATE-CANCEL-NO-MANIFEST-SENTINEL",
+        )
+        .unwrap();
+
+        cancel_asset_operation(&first.operation_id).unwrap();
+        assert!(!private_file_snapshot_exists(
+            &first.operation_id,
+            &private_path
+        ));
+        assert!(!operation_root(&first.operation_id).exists());
+
+        let second = plan_private_claude_consumption(&profile.id);
+        persist_rollback_snapshots(&second.operation_id, &snapshots).unwrap();
+        let error = cancel_asset_operation(&second.operation_id).unwrap_err();
+        assert!(error.starts_with("recovery_required:"), "{error}");
+        assert!(operation_root(&second.operation_id).exists());
+        recover_pending_asset_operations().unwrap();
+        assert!(!operation_root(&second.operation_id).exists());
+    }
+
+    #[test]
+    fn private_transaction_injected_persistence_failure_cleans_keychain_and_ledger() {
+        let home = TestHome::new("private-transaction-persist-failure");
+        let operation_id = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+        let private_path = home.home.join("private-profile.json");
+        fs::write(&private_path, b"PRIVATE-PERSIST-FAILURE-SENTINEL").unwrap();
+        let snapshots = vec![PathSnapshot::capture_private(&private_path).unwrap()];
+        set_after_private_snapshot_persist_hook(|| Err("injected persistence failure".into()));
+
+        let error = persist_rollback_snapshots(operation_id, &snapshots).unwrap_err();
+
+        assert!(error.contains("injected persistence failure"), "{error}");
+        assert!(!private_file_snapshot_exists(operation_id, &private_path));
+        assert!(!private_target_ledger_path(operation_id).exists());
+    }
+
+    #[test]
+    fn private_transaction_resolved_incident_cleanup_clears_keychain_before_root() {
+        let home = TestHome::new("private-transaction-resolved-incident");
+        let profile =
+            save_private_claude_profile("claude-private-incident", "PRIVATE-INCIDENT-SENTINEL");
+        let plan = plan_private_claude_consumption(&profile.id);
+        let private_path = crate::resources::mcp::scanner::expand_tilde(
+            &crate::resources::model::default_config_paths("claude-desktop").unwrap()[3],
+        );
+        fs::create_dir_all(private_path.parent().unwrap()).unwrap();
+        fs::write(&private_path, b"PRIVATE-INCIDENT-PRESTATE-SENTINEL").unwrap();
+        let snapshots = vec![PathSnapshot::capture_private(&private_path).unwrap()];
+        persist_rollback_snapshots(&plan.operation_id, &snapshots).unwrap();
+        record_target_incident(&plan, "claude-desktop", "target_recovery_required").unwrap();
+        clear_target_incidents(&plan, "claude-desktop").unwrap();
+
+        cleanup_resolved_incident_operations(
+            &BTreeSet::from([plan.operation_id.clone()]),
+            "different-current-operation",
+        );
+
+        assert!(!private_file_snapshot_exists(
+            &plan.operation_id,
+            &private_path
+        ));
+        assert!(!operation_root(&plan.operation_id).exists());
+        assert!(home.home.exists());
     }
 
     #[test]
@@ -3659,7 +5334,7 @@ mod tests {
         drop(tracker);
         let expected = states
             .get(&target)
-            .map(|state| PathSnapshot::from_transaction_state(&target, &original.parent, state));
+            .map(|state| PathSnapshot::from_transaction_state(&original, state).unwrap());
 
         let error = original.restore_if_owned(expected.as_ref()).unwrap_err();
 
@@ -3715,7 +5390,7 @@ mod tests {
         drop(tracker);
         let expected = states
             .get(&target)
-            .map(|state| PathSnapshot::from_transaction_state(&target, &original.parent, state));
+            .map(|state| PathSnapshot::from_transaction_state(&original, state).unwrap());
 
         original.restore_if_owned(expected.as_ref()).unwrap();
 

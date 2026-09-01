@@ -370,6 +370,66 @@ it("translates Model conflict warnings into user-facing copy", () => {
   expect(screen.queryByText(/pi: model_/)).not.toBeInTheDocument();
 });
 
+it("explains Claude Desktop plaintext credential export in the shared Model review", () => {
+  const plan = assetOperationPlanFixture();
+  plan.domain_plan = {
+    domain: "model",
+    before: { "claude-desktop": { profiles: {}, active_profile_id: null } },
+    after: {
+      "claude-desktop": {
+        profiles: {
+          "claude-desktop-planner-test": {
+            profile_id: "claude-desktop-planner-test",
+            enabled: true,
+          },
+        },
+        active_profile_id: "claude-desktop-planner-test",
+      },
+    },
+  };
+  plan.relationship_changes = [{
+    agent_id: "claude-desktop",
+    asset: { domain: "model", profile_id: "claude-desktop-planner-test" },
+    action: "add",
+  }];
+  plan.model_state_changes = [{
+    agent_id: "claude-desktop",
+    profile_id: "claude-desktop-planner-test",
+    before: { added: false, enabled: false, active: false },
+    after: { added: true, enabled: true, active: true },
+    fallback_profile_id: null,
+    reason: "model_added",
+  }];
+  plan.target_files = [
+    "~/Library/Application Support/Claude/claude_desktop_config.json",
+    "~/Library/Application Support/Claude-3p/claude_desktop_config.json",
+    "~/Library/Application Support/Claude-3p/configLibrary/_meta.json",
+    "~/Library/Application Support/Claude-3p/configLibrary/6d757800-0000-4000-8000-000000000001.json",
+  ];
+  plan.warnings = ["claude-desktop: model_credential_export_plaintext"];
+
+  render(
+    <AssetOperationReviewDialog
+      plan={plan}
+      busy={false}
+      agentId="claude-desktop"
+      agentName="Claude Desktop"
+      assetDisplayNames={{ "model:claude-desktop-planner-test": "Claude Desktop Test Model" }}
+      onCommit={vi.fn()}
+      onCancel={vi.fn()}
+    />,
+  );
+
+  expect(screen.getByRole("heading", { name: "确认添加当前 Model" })).toBeVisible();
+  expect(screen.getByRole("button", { name: "添加 Model" })).toBeEnabled();
+  expect(screen.getByText("Agent 变更")).toBeVisible();
+  expect(screen.getByText("~/Library/Application Support/Claude/claude_desktop_config.json")).toBeVisible();
+  expect(screen.getByText(
+    "Claude Desktop：将把所选 Provider 的 API Key 写入 Claude Desktop 的私有配置文件（权限 0600）",
+  )).toBeVisible();
+  expect(screen.queryByText("claude-desktop: model_credential_export_plaintext")).not.toBeInTheDocument();
+});
+
 it("presents a Model removal as a readable danger summary", () => {
   const plan = assetOperationPlanFixture();
   plan.domain_plan = {

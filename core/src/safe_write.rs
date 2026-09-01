@@ -23,6 +23,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use fs2::FileExt;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use zeroize::{Zeroize, Zeroizing};
 
 static NEXT_TEMP_FILE: AtomicU64 = AtomicU64::new(0);
 const SETTINGS_LOCK_TIMEOUT: Duration = Duration::from_secs(10);
@@ -113,9 +114,15 @@ fn run_before_mutation_claim_hook(_path: &Path) {}
 #[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
 pub(crate) enum TransactionPathState {
     Missing,
+    PrivateMissing,
     File {
         bytes: Vec<u8>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        mode: Option<u32>,
+        identity: PathIdentity,
+    },
+    PrivateFile {
+        content_hash: String,
         mode: Option<u32>,
         identity: PathIdentity,
     },
@@ -138,11 +145,41 @@ struct DurableTransactionWrite {
 struct ActiveTransactionWrites {
     directory: PathBuf,
     tracked_paths: BTreeSet<PathBuf>,
+    private_paths: BTreeSet<PathBuf>,
     parent_snapshots: BTreeMap<PathBuf, ParentDirectorySnapshot>,
-    reviewed_states: BTreeMap<PathBuf, AnchoredPathState>,
+    reviewed_states: BTreeMap<PathBuf, ReviewedTransactionPathState>,
     states: BTreeMap<PathBuf, TransactionPathState>,
     next_sequence: u64,
     next_intent_sequence: u64,
+}
+
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+enum TransactionPathPrivacy {
+    #[default]
+    Ordinary,
+    Private,
+}
+
+fn transaction_path_privacy(
+    path: &Path,
+    private_paths: &BTreeSet<PathBuf>,
+) -> TransactionPathPrivacy {
+    if private_paths.contains(path) {
+        TransactionPathPrivacy::Private
+    } else {
+        TransactionPathPrivacy::Ordinary
+    }
+}
+
+#[derive(Debug, Clone)]
+enum ReviewedTransactionPathState {
+    Anchored(AnchoredPathState),
+    PrivateFile {
+        content_hash: String,
+        mode: Option<u32>,
+        identity: PathIdentity,
+    },
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -168,6 +205,8 @@ struct DurableMutationIntent {
     sequence: u64,
     record_id: String,
     path: PathBuf,
+    #[serde(default)]
+    privacy: TransactionPathPrivacy,
     parent: ParentDirectorySnapshot,
     mutation_parent_identity: PathIdentity,
     journal_identity: PathIdentity,
@@ -235,11 +274,11 @@ impl PathIdentity {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub(crate) enum AnchoredPathState {
     Missing,
     File {
-        bytes: Vec<u8>,
+        bytes: Zeroizing<Vec<u8>>,
         mode: Option<u32>,
         identity: PathIdentity,
     },
@@ -253,6 +292,208 @@ pub(crate) enum AnchoredPathState {
     Other {
         identity: PathIdentity,
     },
+}
+
+impl std::fmt::Debug for AnchoredPathState {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Missing => formatter.write_str("Missing"),
+            Self::File { mode, identity, .. } => formatter
+                .debug_struct("File")
+                .field("bytes", &"<redacted>")
+                .field("mode", mode)
+                .field("identity", identity)
+                .finish(),
+            Self::Symlink { target, identity } => formatter
+                .debug_struct("Symlink")
+                .field("target", target)
+                .field("identity", identity)
+                .finish(),
+            Self::Directory { identity } => formatter
+                .debug_struct("Directory")
+                .field("identity", identity)
+                .finish(),
+            Self::Other { identity } => formatter
+                .debug_struct("Other")
+                .field("identity", identity)
+                .finish(),
+        }
+    }
+}
+
+fn private_transaction_content_hash(bytes: &[u8]) -> String {
+    hex::encode(Sha256::digest(bytes))
+}
+
+fn valid_private_transaction_content_hash(content_hash: &str) -> bool {
+    content_hash.len() == 64
+        && content_hash
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+}
+
+pub(crate) fn transaction_private_file_state(
+    bytes: &[u8],
+    mode: Option<u32>,
+    identity: PathIdentity,
+) -> Result<TransactionPathState, String> {
+    transaction_private_file_state_from_hash(
+        private_transaction_content_hash(bytes),
+        mode,
+        identity,
+    )
+}
+
+fn transaction_private_file_state_from_hash(
+    content_hash: String,
+    mode: Option<u32>,
+    identity: PathIdentity,
+) -> Result<TransactionPathState, String> {
+    if !valid_private_transaction_content_hash(&content_hash)
+        || mode.is_none()
+        || !identity.is_exact()
+    {
+        return Err(
+            "asset_target_unsafe: private transaction file state requires an exact hash, mode, and identity"
+                .into(),
+        );
+    }
+    Ok(TransactionPathState::PrivateFile {
+        content_hash,
+        mode,
+        identity,
+    })
+}
+
+fn validate_transaction_state_parity(
+    path: &Path,
+    state: &TransactionPathState,
+    private_paths: &BTreeSet<PathBuf>,
+) -> Result<(), String> {
+    match (transaction_path_privacy(path, private_paths), state) {
+        (TransactionPathPrivacy::Private, TransactionPathState::PrivateMissing)
+        | (TransactionPathPrivacy::Ordinary, TransactionPathState::Missing)
+        | (TransactionPathPrivacy::Ordinary, TransactionPathState::File { .. })
+        | (TransactionPathPrivacy::Ordinary, TransactionPathState::Symlink { .. }) => Ok(()),
+        (
+            TransactionPathPrivacy::Private,
+            TransactionPathState::PrivateFile {
+                content_hash,
+                mode,
+                identity,
+            },
+        ) if valid_private_transaction_content_hash(content_hash)
+            && mode.is_some()
+            && identity.is_exact() =>
+        {
+            Ok(())
+        }
+        _ => Err(format!(
+            "transaction private/ordinary parity mismatch for {}",
+            path.display()
+        )),
+    }
+}
+
+fn reviewed_state_from_transaction_state(
+    path: &Path,
+    state: &TransactionPathState,
+    private_paths: &BTreeSet<PathBuf>,
+) -> Result<ReviewedTransactionPathState, String> {
+    if transaction_path_privacy(path, private_paths) == TransactionPathPrivacy::Private
+        && matches!(state, TransactionPathState::Missing)
+    {
+        return Ok(ReviewedTransactionPathState::Anchored(
+            AnchoredPathState::Missing,
+        ));
+    }
+    validate_transaction_state_parity(path, state, private_paths)?;
+    Ok(match state {
+        TransactionPathState::Missing | TransactionPathState::PrivateMissing => {
+            ReviewedTransactionPathState::Anchored(AnchoredPathState::Missing)
+        }
+        TransactionPathState::File {
+            bytes,
+            mode,
+            identity,
+        } => ReviewedTransactionPathState::Anchored(AnchoredPathState::File {
+            bytes: Zeroizing::new(bytes.clone()),
+            mode: *mode,
+            identity: *identity,
+        }),
+        TransactionPathState::PrivateFile {
+            content_hash,
+            mode,
+            identity,
+        } => ReviewedTransactionPathState::PrivateFile {
+            content_hash: content_hash.clone(),
+            mode: *mode,
+            identity: *identity,
+        },
+        TransactionPathState::Symlink { target, identity } => {
+            ReviewedTransactionPathState::Anchored(AnchoredPathState::Symlink {
+                target: target.clone(),
+                identity: *identity,
+            })
+        }
+    })
+}
+
+fn validate_reviewed_transaction_state_parity(
+    path: &Path,
+    state: &ReviewedTransactionPathState,
+    private_paths: &BTreeSet<PathBuf>,
+) -> Result<(), String> {
+    match (transaction_path_privacy(path, private_paths), state) {
+        (TransactionPathPrivacy::Ordinary, ReviewedTransactionPathState::Anchored(_))
+        | (
+            TransactionPathPrivacy::Private,
+            ReviewedTransactionPathState::Anchored(AnchoredPathState::Missing),
+        ) => Ok(()),
+        (
+            TransactionPathPrivacy::Private,
+            ReviewedTransactionPathState::PrivateFile {
+                content_hash,
+                mode,
+                identity,
+            },
+        ) if valid_private_transaction_content_hash(content_hash)
+            && mode.is_some()
+            && identity.is_exact() =>
+        {
+            Ok(())
+        }
+        _ => Err(format!(
+            "transaction private/ordinary parity mismatch for {}",
+            path.display()
+        )),
+    }
+}
+
+fn private_transaction_state_matches_anchored(
+    content_hash: &str,
+    mode: Option<u32>,
+    identity: PathIdentity,
+    actual: &AnchoredPathState,
+) -> bool {
+    if !valid_private_transaction_content_hash(content_hash)
+        || mode.is_none()
+        || !identity.is_exact()
+    {
+        return false;
+    }
+    let AnchoredPathState::File {
+        bytes,
+        mode: actual_mode,
+        identity: actual_identity,
+    } = actual
+    else {
+        return false;
+    };
+    actual_identity.is_exact()
+        && *actual_identity == identity
+        && *actual_mode == mode
+        && private_transaction_content_hash(bytes) == content_hash
 }
 
 /// Thread-bound ownership evidence for a central asset transaction.
@@ -600,10 +841,65 @@ pub(crate) fn begin_transaction_write_tracking_with_states(
     parent_snapshots: &BTreeMap<PathBuf, ParentDirectorySnapshot>,
     reviewed_states: &BTreeMap<PathBuf, AnchoredPathState>,
 ) -> Result<TransactionWriteTracker, String> {
+    let reviewed_states = reviewed_states
+        .iter()
+        .map(|(path, state)| {
+            (
+                path.clone(),
+                ReviewedTransactionPathState::Anchored(state.clone()),
+            )
+        })
+        .collect::<BTreeMap<_, _>>();
+    begin_transaction_write_tracking_with_reviewed_states(
+        directory,
+        tracked_paths,
+        &BTreeSet::new(),
+        parent_snapshots,
+        &reviewed_states,
+    )
+}
+
+pub(crate) fn begin_transaction_write_tracking_with_private_states(
+    directory: &Path,
+    tracked_paths: &[PathBuf],
+    private_paths: &BTreeSet<PathBuf>,
+    parent_snapshots: &BTreeMap<PathBuf, ParentDirectorySnapshot>,
+    reviewed_states: &BTreeMap<PathBuf, TransactionPathState>,
+) -> Result<TransactionWriteTracker, String> {
+    let reviewed_states = reviewed_states
+        .iter()
+        .map(|(path, state)| {
+            reviewed_state_from_transaction_state(path, state, private_paths)
+                .map(|state| (path.clone(), state))
+        })
+        .collect::<Result<BTreeMap<_, _>, _>>()?;
+    begin_transaction_write_tracking_with_reviewed_states(
+        directory,
+        tracked_paths,
+        private_paths,
+        parent_snapshots,
+        &reviewed_states,
+    )
+}
+
+fn begin_transaction_write_tracking_with_reviewed_states(
+    directory: &Path,
+    tracked_paths: &[PathBuf],
+    private_paths: &BTreeSet<PathBuf>,
+    parent_snapshots: &BTreeMap<PathBuf, ParentDirectorySnapshot>,
+    reviewed_states: &BTreeMap<PathBuf, ReviewedTransactionPathState>,
+) -> Result<TransactionWriteTracker, String> {
     let already_active = ACTIVE_TRANSACTION_WRITES.with(|slot| slot.borrow().is_some());
     if already_active {
         return Err("a transaction write tracker is already active on this thread".into());
     }
+    let tracked_paths = tracked_paths.iter().cloned().collect::<BTreeSet<_>>();
+    validate_transaction_tracker_inputs(
+        &tracked_paths,
+        private_paths,
+        parent_snapshots,
+        reviewed_states,
+    )?;
     match fs::create_dir(directory) {
         Ok(()) => {}
         Err(error) if error.kind() == ErrorKind::AlreadyExists => {
@@ -621,21 +917,10 @@ pub(crate) fn begin_transaction_write_tracking_with_states(
     }
     set_private_directory(directory)?;
     sync_parent(directory)?;
-    let tracked_paths = tracked_paths.iter().cloned().collect::<BTreeSet<_>>();
-    if tracked_paths.len() != parent_snapshots.len()
-        || tracked_paths.len() != reviewed_states.len()
-        || tracked_paths
-            .iter()
-            .any(|path| !parent_snapshots.contains_key(path) || !reviewed_states.contains_key(path))
-    {
-        return Err(
-            "transaction parent snapshots and reviewed states do not cover every tracked target"
-                .to_string(),
-        );
-    }
     let active = Rc::new(RefCell::new(ActiveTransactionWrites {
         directory: directory.to_path_buf(),
         tracked_paths,
+        private_paths: private_paths.clone(),
         parent_snapshots: parent_snapshots.clone(),
         reviewed_states: reviewed_states.clone(),
         states: BTreeMap::new(),
@@ -658,9 +943,86 @@ pub(crate) fn resume_transaction_write_tracking(
     reviewed_states: &BTreeMap<PathBuf, AnchoredPathState>,
     states: &BTreeMap<PathBuf, TransactionPathState>,
 ) -> Result<TransactionWriteTracker, String> {
+    let reviewed_states = reviewed_states
+        .iter()
+        .map(|(path, state)| {
+            (
+                path.clone(),
+                ReviewedTransactionPathState::Anchored(state.clone()),
+            )
+        })
+        .collect::<BTreeMap<_, _>>();
+    resume_transaction_write_tracking_with_reviewed_states(
+        directory,
+        tracked_paths,
+        &BTreeSet::new(),
+        parent_snapshots,
+        &reviewed_states,
+        states,
+    )
+}
+
+pub(crate) fn resume_transaction_write_tracking_with_private_states(
+    directory: &Path,
+    tracked_paths: &[PathBuf],
+    private_paths: &BTreeSet<PathBuf>,
+    parent_snapshots: &BTreeMap<PathBuf, ParentDirectorySnapshot>,
+    reviewed_states: &BTreeMap<PathBuf, TransactionPathState>,
+    states: &BTreeMap<PathBuf, TransactionPathState>,
+) -> Result<TransactionWriteTracker, String> {
+    let reviewed_states = reviewed_states
+        .iter()
+        .map(|(path, state)| {
+            reviewed_state_from_transaction_state(path, state, private_paths)
+                .map(|state| (path.clone(), state))
+        })
+        .collect::<Result<BTreeMap<_, _>, _>>()?;
+    resume_transaction_write_tracking_with_reviewed_states(
+        directory,
+        tracked_paths,
+        private_paths,
+        parent_snapshots,
+        &reviewed_states,
+        states,
+    )
+}
+
+fn resume_transaction_write_tracking_with_reviewed_states(
+    directory: &Path,
+    tracked_paths: &[PathBuf],
+    private_paths: &BTreeSet<PathBuf>,
+    parent_snapshots: &BTreeMap<PathBuf, ParentDirectorySnapshot>,
+    reviewed_states: &BTreeMap<PathBuf, ReviewedTransactionPathState>,
+    states: &BTreeMap<PathBuf, TransactionPathState>,
+) -> Result<TransactionWriteTracker, String> {
     let already_active = ACTIVE_TRANSACTION_WRITES.with(|slot| slot.borrow().is_some());
     if already_active {
         return Err("a transaction write tracker is already active on this thread".into());
+    }
+    let tracked_paths = tracked_paths.iter().cloned().collect::<BTreeSet<_>>();
+    validate_transaction_tracker_inputs(
+        &tracked_paths,
+        private_paths,
+        parent_snapshots,
+        reviewed_states,
+    )
+    .map_err(|error| format!("recovery_required: {error}"))?;
+    if states.keys().any(|path| !tracked_paths.contains(path)) {
+        return Err(
+            "recovery_required: transaction recovery state does not cover the reviewed targets"
+                .to_string(),
+        );
+    }
+    for (path, state) in states {
+        validate_transaction_state_parity(path, state, private_paths)
+            .map_err(|error| format!("recovery_required: {error}"))?;
+        #[cfg(unix)]
+        if !transaction_path_state_has_exact_identity(state) {
+            return Err(format!(
+                "recovery_required: transaction recovery state has no exact identity: {}",
+                path.display()
+            ));
+        }
     }
     let metadata = match fs::symlink_metadata(directory) {
         Ok(metadata) => metadata,
@@ -703,19 +1065,6 @@ pub(crate) fn resume_transaction_write_tracking(
             ));
         }
     }
-    let tracked_paths = tracked_paths.iter().cloned().collect::<BTreeSet<_>>();
-    if tracked_paths.len() != parent_snapshots.len()
-        || tracked_paths.len() != reviewed_states.len()
-        || tracked_paths
-            .iter()
-            .any(|path| !parent_snapshots.contains_key(path) || !reviewed_states.contains_key(path))
-        || states.keys().any(|path| !tracked_paths.contains(path))
-    {
-        return Err(
-            "recovery_required: transaction recovery state does not cover the reviewed targets"
-                .to_string(),
-        );
-    }
     let mut next_sequence = 0;
     for entry in fs::read_dir(directory).map_err(|error| format!("recovery_required: {error}"))? {
         let path = entry
@@ -728,6 +1077,7 @@ pub(crate) fn resume_transaction_write_tracking(
     let active = Rc::new(RefCell::new(ActiveTransactionWrites {
         directory: directory.to_path_buf(),
         tracked_paths,
+        private_paths: private_paths.clone(),
         parent_snapshots: parent_snapshots.clone(),
         reviewed_states: reviewed_states.clone(),
         states: states.clone(),
@@ -741,6 +1091,30 @@ pub(crate) fn resume_transaction_write_tracking(
         active,
         _thread_bound: PhantomData,
     })
+}
+
+fn validate_transaction_tracker_inputs(
+    tracked_paths: &BTreeSet<PathBuf>,
+    private_paths: &BTreeSet<PathBuf>,
+    parent_snapshots: &BTreeMap<PathBuf, ParentDirectorySnapshot>,
+    reviewed_states: &BTreeMap<PathBuf, ReviewedTransactionPathState>,
+) -> Result<(), String> {
+    if tracked_paths.len() != parent_snapshots.len()
+        || tracked_paths.len() != reviewed_states.len()
+        || !private_paths.is_subset(tracked_paths)
+        || tracked_paths
+            .iter()
+            .any(|path| !parent_snapshots.contains_key(path) || !reviewed_states.contains_key(path))
+    {
+        return Err(
+            "transaction parent snapshots, private paths, and reviewed states do not cover every tracked target"
+                .to_string(),
+        );
+    }
+    for (path, state) in reviewed_states {
+        validate_reviewed_transaction_state_parity(path, state, private_paths)?;
+    }
+    Ok(())
 }
 
 pub(crate) fn ensure_no_transaction_mutation_intents(directory: &Path) -> Result<(), String> {
@@ -788,6 +1162,13 @@ pub(crate) fn ensure_no_transaction_mutation_intents(directory: &Path) -> Result
 
 pub(crate) fn load_transaction_write_states(
     directory: &Path,
+) -> Result<BTreeMap<PathBuf, TransactionPathState>, String> {
+    load_transaction_write_states_with_private_paths(directory, &BTreeSet::new())
+}
+
+pub(crate) fn load_transaction_write_states_with_private_paths(
+    directory: &Path,
+    private_paths: &BTreeSet<PathBuf>,
 ) -> Result<BTreeMap<PathBuf, TransactionPathState>, String> {
     let entries = match fs::read_dir(directory) {
         Ok(entries) => entries,
@@ -855,6 +1236,8 @@ pub(crate) fn load_transaction_write_states(
                 path.display()
             ));
         }
+        validate_transaction_state_parity(&record.path, &record.state, private_paths)
+            .map_err(|error| format!("recovery_required: {error}"))?;
         #[cfg(unix)]
         if !transaction_path_state_has_exact_identity(&record.state) {
             return Err(format!(
@@ -869,8 +1252,9 @@ pub(crate) fn load_transaction_write_states(
 
 fn transaction_path_state_has_exact_identity(state: &TransactionPathState) -> bool {
     match state {
-        TransactionPathState::Missing => true,
+        TransactionPathState::Missing | TransactionPathState::PrivateMissing => true,
         TransactionPathState::File { identity, .. }
+        | TransactionPathState::PrivateFile { identity, .. }
         | TransactionPathState::Symlink { identity, .. } => identity.is_exact(),
     }
 }
@@ -882,6 +1266,26 @@ pub(crate) fn recover_transaction_mutation_intents(
     directory: &Path,
     parent_snapshots: &BTreeMap<PathBuf, ParentDirectorySnapshot>,
 ) -> Result<(), String> {
+    recover_transaction_mutation_intents_with_private_paths(
+        directory,
+        parent_snapshots,
+        &BTreeSet::new(),
+    )
+}
+
+pub(crate) fn recover_transaction_mutation_intents_with_private_paths(
+    directory: &Path,
+    parent_snapshots: &BTreeMap<PathBuf, ParentDirectorySnapshot>,
+    private_paths: &BTreeSet<PathBuf>,
+) -> Result<(), String> {
+    if !private_paths
+        .iter()
+        .all(|path| parent_snapshots.contains_key(path))
+    {
+        return Err(
+            "recovery_required: private mutation paths are not covered by reviewed parents".into(),
+        );
+    }
     let _journal_lock = acquire_settings_lock(&global_mutation_lock_subject())?;
     let transaction_evidence_directory = if parent_snapshots.is_empty() {
         None
@@ -945,6 +1349,13 @@ pub(crate) fn recover_transaction_mutation_intents(
     for (path, bytes, record_identity, observed_journal_identity) in raw_records {
         let record: DurableMutationIntent = serde_json::from_slice(&bytes)
             .map_err(|_| "recovery_required: malformed mutation intent".to_string())?;
+        let reviewed_privacy = transaction_path_privacy(&record.path, private_paths);
+        if record.privacy != reviewed_privacy {
+            return Err(format!(
+                "recovery_required: mutation intent privacy does not match reviewed policy for {}",
+                record.path.display()
+            ));
+        }
         let expected_name = format!("{:020}-{}.json", record.sequence, record.record_id);
         #[cfg(unix)]
         let journal_identity_matches = record.journal_identity.is_exact()
@@ -990,6 +1401,7 @@ pub(crate) fn recover_transaction_mutation_intents(
             record_identity,
             parent_snapshots,
             transaction_evidence_directory.as_deref(),
+            private_paths,
         )?;
     }
     Ok(())
@@ -1001,6 +1413,7 @@ fn recover_one_mutation_intent(
     record_identity: PathIdentity,
     parent_snapshots: &BTreeMap<PathBuf, ParentDirectorySnapshot>,
     transaction_evidence_directory: Option<&Path>,
+    private_paths: &BTreeSet<PathBuf>,
 ) -> Result<(), String> {
     #[cfg(unix)]
     {
@@ -1048,10 +1461,10 @@ fn recover_one_mutation_intent(
             .desired_fingerprint
             .as_deref()
             .is_some_and(|desired| target_fingerprint == desired);
-        let target_is_semantically_desired =
-            semantic_path_state_fingerprint(&target)? == record.desired_semantic_fingerprint
-                || legacy_semantic_path_state_fingerprint(&target)?
-                    == record.desired_semantic_fingerprint;
+        let target_is_semantically_desired = semantic_path_state_fingerprint(&target)?
+            == record.desired_semantic_fingerprint
+            || legacy_semantic_path_state_fingerprint(&target)?
+                == record.desired_semantic_fingerprint;
         let guard_is_missing = matches!(guard, AnchoredPathState::Missing);
         let guard_is_expected = guard_fingerprint == record.expected_fingerprint;
         let missing_fingerprint =
@@ -1119,6 +1532,7 @@ fn recover_one_mutation_intent(
                     record,
                     &parent,
                     transaction_evidence_directory,
+                    private_paths,
                 )?;
                 retire_mutation_intent_record(record_path, record, record_identity)?;
                 return Ok(());
@@ -1153,6 +1567,7 @@ fn recover_one_mutation_intent(
                 parent_snapshot,
                 &parent,
                 transaction_evidence_directory,
+                private_paths,
             )?;
             cleanup_intent_temp_if_owned(record, parent_snapshot, &parent)?;
             retire_mutation_intent_record(record_path, record, record_identity)?;
@@ -1178,6 +1593,7 @@ fn recover_one_mutation_intent(
                 parent_snapshot,
                 &parent,
                 transaction_evidence_directory,
+                private_paths,
             )?;
             cleanup_intent_temp_if_owned(record, parent_snapshot, &parent)?;
             retire_mutation_intent_record(record_path, record, record_identity)?;
@@ -1200,6 +1616,7 @@ fn recover_one_mutation_intent(
                 record,
                 &parent,
                 transaction_evidence_directory,
+                private_paths,
             )?;
             cleanup_intent_temp_if_owned(record, parent_snapshot, &parent)?;
             retire_mutation_intent_record(record_path, record, record_identity)?;
@@ -1256,6 +1673,7 @@ fn persist_reconciled_transaction_state(
     parent_snapshot: &ParentDirectorySnapshot,
     parent: &OpenParent,
     transaction_evidence_directory: Option<&Path>,
+    private_paths: &BTreeSet<PathBuf>,
 ) -> Result<(), String> {
     let Some(directory) = transaction_evidence_directory else {
         return Ok(());
@@ -1267,18 +1685,21 @@ fn persist_reconciled_transaction_state(
                 .into(),
         );
     }
-    let state = transaction_state_from_anchored(state)?;
+    let state =
+        transaction_state_from_anchored_with_private_paths(&record.path, state, private_paths)?;
     let active = ACTIVE_TRANSACTION_WRITES.with(|slot| slot.borrow().clone());
     if let Some(active) = active {
-        if active.borrow().directory != directory {
+        let active_state = active.borrow();
+        if active_state.directory != directory || active_state.private_paths != *private_paths {
             return Err(
-                "recovery_required: active transaction evidence does not match the mutation intent"
+                "recovery_required: active transaction evidence or private paths do not match the mutation intent"
                     .into(),
             );
         }
+        drop(active_state);
         return record_transaction_path_state(&record.path, state);
     }
-    append_transaction_write_state(directory, &record.path, state)
+    append_transaction_write_state(directory, &record.path, state, private_paths)
 }
 
 #[cfg(unix)]
@@ -1286,25 +1707,54 @@ fn persist_current_transaction_state(
     record: &DurableMutationIntent,
     parent: &OpenParent,
     transaction_evidence_directory: Option<&Path>,
+    private_paths: &BTreeSet<PathBuf>,
 ) -> Result<(), String> {
     let Some(directory) = transaction_evidence_directory else {
         return Ok(());
     };
-    let state = transaction_state_from_anchored(read_path_state_from_parent(
+    let state = transaction_state_from_anchored_with_private_paths(
         &record.path,
-        parent,
-    )?)?;
+        read_path_state_from_parent(&record.path, parent)?,
+        private_paths,
+    )?;
     let active = ACTIVE_TRANSACTION_WRITES.with(|slot| slot.borrow().clone());
     if let Some(active) = active {
-        if active.borrow().directory != directory {
+        let active_state = active.borrow();
+        if active_state.directory != directory || active_state.private_paths != *private_paths {
             return Err(
-                "recovery_required: active transaction evidence does not match the rewrite intent"
+                "recovery_required: active transaction evidence or private paths do not match the rewrite intent"
                     .into(),
             );
         }
+        drop(active_state);
         return record_transaction_path_state(&record.path, state);
     }
-    append_transaction_write_state(directory, &record.path, state)
+    append_transaction_write_state(directory, &record.path, state, private_paths)
+}
+
+fn transaction_state_from_anchored_with_private_paths(
+    path: &Path,
+    state: AnchoredPathState,
+    private_paths: &BTreeSet<PathBuf>,
+) -> Result<TransactionPathState, String> {
+    if !private_paths.contains(path) {
+        return transaction_state_from_anchored(state);
+    }
+    match state {
+        AnchoredPathState::Missing => Ok(TransactionPathState::PrivateMissing),
+        AnchoredPathState::File {
+            bytes,
+            mode,
+            identity,
+        } => transaction_private_file_state(&bytes, mode, identity)
+            .map_err(|error| format!("recovery_required: {error}")),
+        AnchoredPathState::Symlink { .. }
+        | AnchoredPathState::Directory { .. }
+        | AnchoredPathState::Other { .. } => Err(format!(
+            "recovery_required: private transaction target is not a regular file: {}",
+            path.display()
+        )),
+    }
 }
 
 fn transaction_state_from_anchored(
@@ -1317,7 +1767,7 @@ fn transaction_state_from_anchored(
             mode,
             identity,
         } => Ok(TransactionPathState::File {
-            bytes,
+            bytes: bytes.to_vec(),
             mode,
             identity,
         }),
@@ -1334,6 +1784,7 @@ fn append_transaction_write_state(
     directory: &Path,
     path: &Path,
     state: TransactionPathState,
+    private_paths: &BTreeSet<PathBuf>,
 ) -> Result<(), String> {
     let metadata = fs::symlink_metadata(directory).map_err(|error| {
         format!(
@@ -1357,7 +1808,9 @@ fn append_transaction_write_state(
             ));
         }
     }
-    let existing = load_transaction_write_states(directory)?;
+    validate_transaction_state_parity(path, &state, private_paths)
+        .map_err(|error| format!("recovery_required: {error}"))?;
+    let existing = load_transaction_write_states_with_private_paths(directory, private_paths)?;
     let sequence = existing_journal_record_count(directory)?;
     let record = DurableTransactionWrite {
         version: TRANSACTION_WRITE_RECORD_VERSION,
@@ -1501,7 +1954,19 @@ fn record_transaction_symlink_state(
 }
 
 pub(crate) fn record_transaction_removal(path: &Path) -> Result<(), String> {
-    record_transaction_path_state(path, TransactionPathState::Missing)
+    let private = ACTIVE_TRANSACTION_WRITES.with(|slot| {
+        slot.borrow()
+            .as_ref()
+            .is_some_and(|active| active.borrow().private_paths.contains(path))
+    });
+    record_transaction_path_state(
+        path,
+        if private {
+            TransactionPathState::PrivateMissing
+        } else {
+            TransactionPathState::Missing
+        },
+    )
 }
 
 fn record_transaction_file(
@@ -1510,14 +1975,21 @@ fn record_transaction_file(
     mode: Option<u32>,
     identity: PathIdentity,
 ) -> Result<(), String> {
-    record_transaction_path_state(
-        path,
+    let private = ACTIVE_TRANSACTION_WRITES.with(|slot| {
+        slot.borrow()
+            .as_ref()
+            .is_some_and(|active| active.borrow().private_paths.contains(path))
+    });
+    let state = if private {
+        transaction_private_file_state(bytes, mode, identity)?
+    } else {
         TransactionPathState::File {
             bytes: bytes.to_vec(),
             mode,
             identity,
-        },
-    )
+        }
+    };
+    record_transaction_path_state(path, state)
 }
 
 fn record_transaction_path_state(path: &Path, state: TransactionPathState) -> Result<(), String> {
@@ -1529,6 +2001,15 @@ fn record_transaction_path_state(path: &Path, state: TransactionPathState) -> Re
     if !active.tracked_paths.contains(path) {
         return Err(format!(
             "asset_target_unsafe: transaction attempted to record an unreviewed write: {}",
+            path.display()
+        ));
+    }
+    validate_transaction_state_parity(path, &state, &active.private_paths)
+        .map_err(|error| format!("asset_target_unsafe: {error}"))?;
+    #[cfg(unix)]
+    if !transaction_path_state_has_exact_identity(&state) {
+        return Err(format!(
+            "asset_target_unsafe: transaction write state has no exact identity: {}",
             path.display()
         ));
     }
@@ -2344,33 +2825,42 @@ fn transaction_expected_state(path: &Path) -> Result<Option<AnchoredPathState>, 
             path.display()
         ));
     }
-    active
-        .states
-        .get(path)
-        .map(|state| match state {
-            TransactionPathState::Missing => AnchoredPathState::Missing,
-            TransactionPathState::File {
-                bytes,
-                mode,
-                identity,
-            } => AnchoredPathState::File {
-                bytes: bytes.clone(),
-                mode: *mode,
-                identity: *identity,
-            },
-            TransactionPathState::Symlink { target, identity } => AnchoredPathState::Symlink {
-                target: target.clone(),
-                identity: *identity,
-            },
-        })
-        .or_else(|| active.reviewed_states.get(path).cloned())
-        .map(Some)
-        .ok_or_else(|| {
+    let state = if let Some(state) = active.states.get(path) {
+        reviewed_state_from_transaction_state(path, state, &active.private_paths)?
+    } else {
+        active.reviewed_states.get(path).cloned().ok_or_else(|| {
             format!(
                 "asset_target_unsafe: transaction has no reviewed state for {}",
                 path.display()
             )
-        })
+        })?
+    };
+    let parent = active.parent_snapshots.get(path).cloned().ok_or_else(|| {
+        format!(
+            "asset_target_unsafe: transaction has no reviewed parent for {}",
+            path.display()
+        )
+    })?;
+    drop(active);
+    let state = match state {
+        ReviewedTransactionPathState::Anchored(state) => state,
+        ReviewedTransactionPathState::PrivateFile {
+            content_hash,
+            mode,
+            identity,
+        } => {
+            let current = read_path_state_anchored(path, &parent)?;
+            if !private_transaction_state_matches_anchored(&content_hash, mode, identity, &current)
+            {
+                return Err(format!(
+                    "asset_operation_stale: private transaction target changed before hash/mode/identity verification: {}",
+                    path.display()
+                ));
+            }
+            current
+        }
+    };
+    Ok(Some(state))
 }
 
 fn require_transaction_expected_state(
@@ -2708,7 +3198,7 @@ fn read_path_state_from_parent(
             file.read_to_end(&mut bytes)
                 .map_err(|error| format!("failed to read {}: {error}", path.display()))?;
             Ok(AnchoredPathState::File {
-                bytes,
+                bytes: Zeroizing::new(bytes),
                 mode,
                 identity: PathIdentity {
                     device: Some(metadata.dev()),
@@ -2849,17 +3339,35 @@ pub(crate) fn fingerprint_anchored_path_state(
     Ok(hex::encode(Sha256::digest(bytes)))
 }
 
+fn zeroize_json_value_strings(value: &mut serde_json::Value) {
+    match value {
+        serde_json::Value::String(value) => value.zeroize(),
+        serde_json::Value::Array(values) => values.iter_mut().for_each(zeroize_json_value_strings),
+        serde_json::Value::Object(values) => {
+            values.values_mut().for_each(zeroize_json_value_strings)
+        }
+        serde_json::Value::Null | serde_json::Value::Bool(_) | serde_json::Value::Number(_) => {}
+    }
+}
+
 fn semantic_path_state_fingerprint(state: &AnchoredPathState) -> Result<String, String> {
     let value = match state {
         AnchoredPathState::Missing => serde_json::json!({ "kind": "missing" }),
         AnchoredPathState::File { bytes, .. } => {
-            let canonical = serde_json::from_slice::<serde_json::Value>(bytes)
-                .ok()
-                .and_then(|value| serde_json::to_vec(&value).ok())
-                .unwrap_or_else(|| bytes.clone());
+            let mut parsed = serde_json::from_slice::<serde_json::Value>(bytes).ok();
+            let canonical = Zeroizing::new(
+                parsed
+                    .as_ref()
+                    .and_then(|value| serde_json::to_vec(value).ok())
+                    .unwrap_or_else(|| bytes.to_vec()),
+            );
+            let content_hash = hex::encode(Sha256::digest(canonical.as_slice()));
+            if let Some(value) = parsed.as_mut() {
+                zeroize_json_value_strings(value);
+            }
             serde_json::json!({
                 "kind": "file",
-                "content_hash": hex::encode(Sha256::digest(canonical)),
+                "content_hash": content_hash,
             })
         }
         AnchoredPathState::Symlink { target, .. } => serde_json::json!({
@@ -2932,7 +3440,7 @@ fn create_mutation_intent_record(
     } = request;
     let journal_lock = acquire_settings_lock(&global_mutation_lock_subject())?;
     let active = ACTIVE_TRANSACTION_WRITES.with(|slot| slot.borrow().clone());
-    let (claims, sequence) = if let Some(active) = active {
+    let (claims, sequence, privacy) = if let Some(active) = active {
         ensure_no_transaction_mutation_intents(&global_mutation_intent_dir())?;
         let mut active = active.borrow_mut();
         if !active.tracked_paths.contains(path) {
@@ -2948,14 +3456,22 @@ fn create_mutation_intent_record(
             .parent()
             .ok_or_else(|| "asset_target_unsafe: transaction evidence has no parent".to_string())?
             .join("claims");
-        (claims, sequence)
+        (
+            claims,
+            sequence,
+            transaction_path_privacy(path, &active.private_paths),
+        )
     } else {
         let sequence = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
             .as_nanos()
             .min(u64::MAX as u128) as u64;
-        (global_mutation_intent_dir(), sequence)
+        (
+            global_mutation_intent_dir(),
+            sequence,
+            TransactionPathPrivacy::Ordinary,
+        )
     };
     ensure_no_transaction_mutation_intents(&claims)?;
     let guard_name = guard_name
@@ -2983,6 +3499,7 @@ fn create_mutation_intent_record(
         sequence,
         record_id: record_id.clone(),
         path: path.to_path_buf(),
+        privacy,
         parent: parent.clone(),
         mutation_parent_identity,
         journal_identity,
@@ -3131,13 +3648,23 @@ fn recover_failed_mutation_intent(
             "recovery_required: mutation failed ({mutation_error}); intent has no journal parent"
         )
     })?;
-    let parent_snapshots = ACTIVE_TRANSACTION_WRITES.with(|slot| {
+    let (parent_snapshots, private_paths) = ACTIVE_TRANSACTION_WRITES.with(|slot| {
         slot.borrow()
             .as_ref()
-            .map(|active| active.borrow().parent_snapshots.clone())
+            .map(|active| {
+                let active = active.borrow();
+                (
+                    active.parent_snapshots.clone(),
+                    active.private_paths.clone(),
+                )
+            })
             .unwrap_or_default()
     });
-    match recover_transaction_mutation_intents(directory, &parent_snapshots) {
+    match recover_transaction_mutation_intents_with_private_paths(
+        directory,
+        &parent_snapshots,
+        &private_paths,
+    ) {
         Ok(()) => Err(mutation_error),
         Err(recovery) => Err(format!(
             "recovery_required: mutation failed ({mutation_error}); immediate claim recovery failed: {recovery}"
@@ -3254,7 +3781,7 @@ fn rewrite_regular_file_in_place(
         }
     };
     let desired = AnchoredPathState::File {
-        bytes: content.to_vec(),
+        bytes: Zeroizing::new(content.to_vec()),
         mode,
         identity: expected_identity,
     };
@@ -3278,7 +3805,12 @@ fn rewrite_regular_file_in_place(
                 OFlags::RDWR | OFlags::NOFOLLOW | OFlags::CLOEXEC,
                 Mode::empty(),
             )
-            .map_err(|error| format!("failed to open {} for in-place edit: {error}", path.display()))?,
+            .map_err(|error| {
+                format!(
+                    "failed to open {} for in-place edit: {error}",
+                    path.display()
+                )
+            })?,
         );
         let metadata = file
             .metadata()
@@ -3293,13 +3825,14 @@ fn rewrite_regular_file_in_place(
                 path.display()
             ));
         }
-        let mut opened_bytes = Vec::new();
-        file.read_to_end(&mut opened_bytes)
-            .map_err(|error| format!("failed to read {} before editing: {error}", path.display()))?;
-        if opened_bytes != expected.0
-            || expected.1.is_some_and(|expected_mode| {
-                metadata.permissions().mode() != expected_mode
-            })
+        let mut opened_bytes = Zeroizing::new(Vec::new());
+        file.read_to_end(&mut opened_bytes).map_err(|error| {
+            format!("failed to read {} before editing: {error}", path.display())
+        })?;
+        if opened_bytes.as_slice() != expected.0
+            || expected
+                .1
+                .is_some_and(|expected_mode| metadata.permissions().mode() != expected_mode)
         {
             return Err(format!(
                 "asset_operation_stale: {} changed before the in-place edit",
@@ -3327,7 +3860,12 @@ fn rewrite_regular_file_in_place(
                 &file,
                 Mode::from_raw_mode(RawMode::try_from(mode & 0o7777).unwrap_or(0o600)),
             )
-            .map_err(|error| format!("failed to preserve permissions for {}: {error}", path.display()))?;
+            .map_err(|error| {
+                format!(
+                    "failed to preserve permissions for {}: {error}",
+                    path.display()
+                )
+            })?;
         }
         file.sync_all()
             .map_err(|error| format!("failed to sync {}: {error}", path.display()))?;
@@ -3377,6 +3915,7 @@ fn write_regular_file_anchored(
     record_path: &Path,
     purpose: &str,
     preserve_inode: bool,
+    required_identity: Option<PathIdentity>,
 ) -> Result<(), String> {
     use rustix::fs::{fchmod, linkat, openat, unlinkat, AtFlags, Mode, OFlags, RawMode};
     use std::os::unix::fs::PermissionsExt;
@@ -3399,6 +3938,21 @@ fn write_regular_file_anchored(
         }
         return Err(format!(
             "refusing to modify {}: file changed while MUX was preparing the update",
+            path.display()
+        ));
+    }
+    if required_identity.is_some_and(|identity| {
+        !identity.is_exact()
+            || !matches!(
+                &current,
+                AnchoredPathState::File {
+                    identity: current_identity,
+                    ..
+                } if current_identity.is_exact() && *current_identity == identity
+            )
+    }) {
+        return Err(format!(
+            "refusing to modify {}: hash/mode/identity changed before rollback",
             path.display()
         ));
     }
@@ -3436,7 +3990,7 @@ fn write_regular_file_anchored(
         MutationIntentOperation::Replace
     };
     let planned_desired = AnchoredPathState::File {
-        bytes: content.to_vec(),
+        bytes: Zeroizing::new(content.to_vec()),
         mode,
         identity: PathIdentity::unknown(),
     };
@@ -3488,7 +4042,7 @@ fn write_regular_file_anchored(
             inode: Some(written_metadata.ino()),
         };
         let desired = AnchoredPathState::File {
-            bytes: content.to_vec(),
+            bytes: Zeroizing::new(content.to_vec()),
             mode: written_mode,
             identity: written_identity,
         };
@@ -3673,6 +4227,7 @@ fn remove_regular_file_anchored(
     path: &Path,
     parent_snapshot: &ParentDirectorySnapshot,
     expected: (&[u8], Option<u32>),
+    required_identity: Option<PathIdentity>,
 ) -> Result<(), String> {
     use rustix::fs::{unlinkat, AtFlags};
 
@@ -3686,6 +4241,21 @@ fn remove_regular_file_anchored(
     if !file_bytes_match(file_state(current.clone(), path)?.as_ref(), Some(expected)) {
         return Err(format!(
             "refusing to remove {} during rollback: file changed",
+            path.display()
+        ));
+    }
+    if required_identity.is_some_and(|identity| {
+        !identity.is_exact()
+            || !matches!(
+                &current,
+                AnchoredPathState::File {
+                    identity: current_identity,
+                    ..
+                } if current_identity.is_exact() && *current_identity == identity
+            )
+    }) {
+        return Err(format!(
+            "refusing to remove {} during rollback: hash/mode/identity changed",
             path.display()
         ));
     }
@@ -4121,13 +4691,13 @@ pub(crate) fn remove_if_unchanged(path: &Path, expected: &str) -> Result<(), Str
                 path.display()
             ));
         };
-        if current.bytes != expected.as_bytes() {
+        if current.bytes.as_slice() != expected.as_bytes() {
             return Err(format!(
                 "refusing to remove {} during rollback: file changed after MUX wrote it",
                 path.display()
             ));
         }
-        remove_regular_file_anchored(path, &parent, (expected.as_bytes(), current.mode))
+        remove_regular_file_anchored(path, &parent, (expected.as_bytes(), current.mode), None)
     }
 
     #[cfg(not(unix))]
@@ -4144,10 +4714,20 @@ pub(crate) fn remove_if_unchanged(path: &Path, expected: &str) -> Result<(), Str
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(PartialEq, Eq)]
 struct FileBytes {
-    bytes: Vec<u8>,
+    bytes: Zeroizing<Vec<u8>>,
     mode: Option<u32>,
+}
+
+impl std::fmt::Debug for FileBytes {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("FileBytes")
+            .field("bytes", &"<redacted>")
+            .field("mode", &self.mode)
+            .finish()
+    }
 }
 
 #[cfg(not(unix))]
@@ -4170,7 +4750,12 @@ fn read_optional_bytes(path: &Path) -> Result<Option<FileBytes>, String> {
             #[cfg(not(unix))]
             let mode = None;
             fs::read(path)
-                .map(|bytes| Some(FileBytes { bytes, mode }))
+                .map(|bytes| {
+                    Some(FileBytes {
+                        bytes: Zeroizing::new(bytes),
+                        mode,
+                    })
+                })
                 .map_err(|error| format!("failed to read {}: {error}", path.display()))
         }
         Ok(_) => Err(format!(
@@ -4206,14 +4791,7 @@ pub(crate) fn write_bytes_if_unchanged_in_parent(
     #[cfg(unix)]
     {
         write_regular_file_anchored(
-            path,
-            parent,
-            expected,
-            content,
-            mode,
-            path,
-            "rollback",
-            true,
+            path, parent, expected, content, mode, path, "rollback", true, None,
         )
     }
 
@@ -4299,7 +4877,7 @@ pub(crate) fn remove_bytes_if_unchanged_in_parent(
 ) -> Result<(), String> {
     #[cfg(unix)]
     {
-        remove_regular_file_anchored(path, parent, (expected, expected_mode))
+        remove_regular_file_anchored(path, parent, (expected, expected_mode), None)
     }
 
     #[cfg(not(unix))]
@@ -4326,10 +4904,128 @@ pub(crate) fn remove_bytes_if_unchanged_in_parent(
     }
 }
 
+pub(crate) fn write_bytes_if_hash_unchanged_in_parent(
+    path: &Path,
+    parent: &ParentDirectorySnapshot,
+    expected: Option<(&str, Option<u32>, PathIdentity)>,
+    content: &[u8],
+    mode: Option<u32>,
+) -> Result<(), String> {
+    let Some((expected_hash, expected_mode, expected_identity)) = expected else {
+        return write_bytes_if_unchanged_in_parent(path, parent, None, content, mode);
+    };
+    let mut current = private_hash_guarded_file(
+        path,
+        parent,
+        expected_hash,
+        expected_mode,
+        expected_identity,
+    )?;
+    #[cfg(unix)]
+    let result = {
+        write_regular_file_anchored(
+            path,
+            parent,
+            Some((&current.bytes, current.mode)),
+            content,
+            mode,
+            path,
+            "rollback",
+            true,
+            Some(expected_identity),
+        )
+    };
+    #[cfg(not(unix))]
+    let result = {
+        let _ = (content, mode);
+        Err(format!(
+            "refusing to restore {}: exact hash/mode/identity rollback is unsupported",
+            path.display()
+        ))
+    };
+    current.bytes.zeroize();
+    result
+}
+
+pub(crate) fn remove_bytes_if_hash_unchanged_in_parent(
+    path: &Path,
+    parent: &ParentDirectorySnapshot,
+    expected_hash: &str,
+    expected_mode: Option<u32>,
+    expected_identity: PathIdentity,
+) -> Result<(), String> {
+    let mut current = private_hash_guarded_file(
+        path,
+        parent,
+        expected_hash,
+        expected_mode,
+        expected_identity,
+    )?;
+    #[cfg(unix)]
+    let result = {
+        remove_regular_file_anchored(
+            path,
+            parent,
+            (&current.bytes, current.mode),
+            Some(expected_identity),
+        )
+    };
+    #[cfg(not(unix))]
+    let result = {
+        Err(format!(
+            "refusing to remove {}: exact hash/mode/identity rollback is unsupported",
+            path.display()
+        ))
+    };
+    current.bytes.zeroize();
+    result
+}
+
+fn private_hash_guarded_file(
+    path: &Path,
+    parent: &ParentDirectorySnapshot,
+    expected_hash: &str,
+    expected_mode: Option<u32>,
+    expected_identity: PathIdentity,
+) -> Result<FileBytes, String> {
+    transaction_private_file_state_from_hash(
+        expected_hash.to_string(),
+        expected_mode,
+        expected_identity,
+    )
+    .map_err(|_| {
+        format!(
+            "refusing to access {} during rollback: invalid hash/mode/identity evidence",
+            path.display()
+        )
+    })?;
+    let mut current = read_path_state_anchored(path, parent)?;
+    if !private_transaction_state_matches_anchored(
+        expected_hash,
+        expected_mode,
+        expected_identity,
+        &current,
+    ) {
+        if let AnchoredPathState::File { bytes, .. } = &mut current {
+            bytes.zeroize();
+        }
+        return Err(format!(
+            "refusing to access {} during rollback: hash/mode/identity changed",
+            path.display()
+        ));
+    }
+    let AnchoredPathState::File { bytes, mode, .. } = current else {
+        unreachable!("private state matcher only accepts regular files");
+    };
+    Ok(FileBytes { bytes, mode })
+}
+
 fn file_bytes_match(actual: Option<&FileBytes>, expected: Option<(&[u8], Option<u32>)>) -> bool {
     match (actual, expected) {
         (None, None) => true,
-        (Some(actual), Some((bytes, mode))) => actual.bytes == bytes && actual.mode == mode,
+        (Some(actual), Some((bytes, mode))) => {
+            actual.bytes.as_slice() == bytes && actual.mode == mode
+        }
         _ => false,
     }
 }
@@ -4559,6 +5255,7 @@ fn write_if_unchanged_impl(
             &destination,
             "write",
             !private,
+            None,
         )?;
         if resolve_destination(path)? != destination {
             return Err(format!(
@@ -4997,7 +5694,7 @@ mod tests {
             operation: MutationIntentOperation::Create,
             expected: &AnchoredPathState::Missing,
             desired: &AnchoredPathState::File {
-                bytes: b"planned".to_vec(),
+                bytes: Zeroizing::new(b"planned".to_vec()),
                 mode: Some(0o600),
                 identity: PathIdentity::unknown(),
             },
@@ -5012,7 +5709,7 @@ mod tests {
         let error = arm_mutation_intent(
             &mut intent,
             &AnchoredPathState::File {
-                bytes: b"planned".to_vec(),
+                bytes: Zeroizing::new(b"planned".to_vec()),
                 mode: Some(0o600),
                 identity: PathIdentity {
                     device: Some(1),
@@ -5157,6 +5854,516 @@ mod tests {
             "{error}"
         );
         assert_eq!(fs::read_to_string(path).unwrap(), "first");
+    }
+
+    #[cfg(unix)]
+    fn private_transaction_state_from_disk(
+        path: &Path,
+        parent: &ParentDirectorySnapshot,
+    ) -> TransactionPathState {
+        match read_path_state_anchored(path, parent).unwrap() {
+            AnchoredPathState::Missing => TransactionPathState::PrivateMissing,
+            AnchoredPathState::File {
+                bytes,
+                mode,
+                identity,
+            } => transaction_private_file_state(&bytes, mode, identity).unwrap(),
+            state => panic!("expected a private regular file, got {state:?}"),
+        }
+    }
+
+    #[cfg(unix)]
+    fn assert_private_transaction_records_omit(directory: &Path, sentinels: &[&[u8]]) {
+        let entries = match fs::read_dir(directory) {
+            Ok(entries) => entries,
+            Err(error) if error.kind() == ErrorKind::NotFound => return,
+            Err(error) => panic!("failed to read {}: {error}", directory.display()),
+        };
+        for entry in entries {
+            let path = entry.unwrap().path();
+            let metadata = fs::symlink_metadata(&path).unwrap();
+            if metadata.is_dir() && !metadata.file_type().is_symlink() {
+                assert_private_transaction_records_omit(&path, sentinels);
+                continue;
+            }
+            if !metadata.is_file() || metadata.file_type().is_symlink() {
+                continue;
+            }
+            let bytes = fs::read(&path).unwrap();
+            for sentinel in sentinels {
+                assert!(
+                    !bytes
+                        .windows(sentinel.len())
+                        .any(|window| window == *sentinel),
+                    "private sentinel leaked into durable record {}",
+                    path.display()
+                );
+            }
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn private_transaction_ordinary_wrappers_preserve_directory_reviewed_states() {
+        let home = crate::testenv::TestHome::new("safe-write-ordinary-directory-review");
+        let path = home.home.join("reviewed-directory");
+        let evidence = home.home.join("post");
+        fs::create_dir(&path).unwrap();
+        let parent = capture_parent_directory(&path).unwrap();
+        let parents = BTreeMap::from([(path.clone(), parent.clone())]);
+        let reviewed = BTreeMap::from([(
+            path.clone(),
+            read_path_state_anchored(&path, &parent).unwrap(),
+        )]);
+
+        let tracker = begin_transaction_write_tracking_with_states(
+            &evidence,
+            std::slice::from_ref(&path),
+            &parents,
+            &reviewed,
+        )
+        .unwrap();
+        drop(tracker);
+
+        let tracker = resume_transaction_write_tracking(
+            &evidence,
+            std::slice::from_ref(&path),
+            &parents,
+            &reviewed,
+            &BTreeMap::new(),
+        )
+        .unwrap();
+        drop(tracker);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn private_transaction_write_evidence_is_hash_only() {
+        let home = crate::testenv::TestHome::new("safe-write-private-evidence");
+        let path = home.home.join("private.json");
+        let evidence = home.home.join("post");
+        let initial = "private-initial";
+        let sentinel = "private-transaction-sentinel-evidence";
+        fs::write(&path, initial).unwrap();
+        let parent = capture_parent_directory(&path).unwrap();
+        let parent_snapshots = BTreeMap::from([(path.clone(), parent.clone())]);
+        let private_paths = BTreeSet::from([path.clone()]);
+        let reviewed_states = BTreeMap::from([(
+            path.clone(),
+            private_transaction_state_from_disk(&path, &parent),
+        )]);
+        let tracker = begin_transaction_write_tracking_with_private_states(
+            &evidence,
+            std::slice::from_ref(&path),
+            &private_paths,
+            &parent_snapshots,
+            &reviewed_states,
+        )
+        .unwrap();
+
+        write_private_if_unchanged(&path, Some(initial), sentinel).unwrap();
+
+        let states = tracker.states();
+        let TransactionPathState::PrivateFile { content_hash, .. } = states.get(&path).unwrap()
+        else {
+            panic!("private write was not retained as hash-only evidence");
+        };
+        assert_eq!(
+            content_hash,
+            &hex::encode(Sha256::digest(sentinel.as_bytes()))
+        );
+        assert_private_transaction_records_omit(&evidence, &[sentinel.as_bytes()]);
+        drop(tracker);
+        assert_eq!(
+            load_transaction_write_states_with_private_paths(&evidence, &private_paths).unwrap(),
+            states
+        );
+    }
+
+    #[test]
+    fn private_transaction_anchored_debug_redacts_file_bytes() {
+        let sentinel = b"PRIVATE-ANCHORED-DEBUG-SENTINEL";
+        let state = AnchoredPathState::File {
+            bytes: Zeroizing::new(sentinel.to_vec()),
+            mode: Some(0o600),
+            identity: PathIdentity::unknown(),
+        };
+        let AnchoredPathState::File { bytes, .. } = &state else {
+            unreachable!();
+        };
+        fn assert_zeroizing(_: &Zeroizing<Vec<u8>>) {}
+        assert_zeroizing(bytes);
+
+        let debug = format!("{state:?}");
+        let cloned_debug = format!("{:?}", state.clone());
+
+        assert!(!debug.contains("PRIVATE-ANCHORED-DEBUG-SENTINEL"));
+        assert!(!debug.contains(&format!("{:?}", sentinel.to_vec())));
+        assert!(!cloned_debug.contains(&format!("{:?}", sentinel.to_vec())));
+        let file_bytes = FileBytes {
+            bytes: Zeroizing::new(sentinel.to_vec()),
+            mode: Some(0o600),
+        };
+        assert!(!format!("{file_bytes:?}").contains(&format!("{:?}", sentinel.to_vec())));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn private_transaction_rejects_private_ordinary_state_parity_mismatches() {
+        let home = crate::testenv::TestHome::new("safe-write-private-parity");
+        let path = home.home.join("private.json");
+        fs::write(&path, "private-initial").unwrap();
+        let parent = capture_parent_directory(&path).unwrap();
+        let AnchoredPathState::File {
+            bytes,
+            mode,
+            identity,
+        } = read_path_state_anchored(&path, &parent).unwrap()
+        else {
+            panic!("fixture is not a regular file");
+        };
+        let paths = std::slice::from_ref(&path);
+        let parents = BTreeMap::from([(path.clone(), parent)]);
+        let private_paths = BTreeSet::from([path.clone()]);
+        let ordinary_state = BTreeMap::from([(
+            path.clone(),
+            TransactionPathState::File {
+                bytes: bytes.to_vec(),
+                mode,
+                identity,
+            },
+        )]);
+
+        let private_error = match begin_transaction_write_tracking_with_private_states(
+            &home.home.join("private-post"),
+            paths,
+            &private_paths,
+            &parents,
+            &ordinary_state,
+        ) {
+            Ok(_) => panic!("ordinary state was accepted for a private transaction path"),
+            Err(error) => error,
+        };
+        assert!(
+            private_error.contains("private/ordinary parity"),
+            "{private_error}"
+        );
+
+        let private_state = BTreeMap::from([(
+            path.clone(),
+            transaction_private_file_state(&bytes, mode, identity).unwrap(),
+        )]);
+        let ordinary_error = match begin_transaction_write_tracking_with_private_states(
+            &home.home.join("ordinary-post"),
+            paths,
+            &BTreeSet::new(),
+            &parents,
+            &private_state,
+        ) {
+            Ok(_) => panic!("private state was accepted for an ordinary transaction path"),
+            Err(error) => error,
+        };
+        assert!(
+            ordinary_error.contains("private/ordinary parity"),
+            "{ordinary_error}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn private_transaction_resume_supports_repeated_writes_and_removals_hash_only() {
+        let home = crate::testenv::TestHome::new("safe-write-private-resume");
+        let path = home.home.join("private.json");
+        let evidence = home.home.join("post");
+        let initial = "private-resume-initial";
+        let first = "private-transaction-sentinel-resume-first";
+        let second = "private-transaction-sentinel-resume-second";
+        let third = "private-transaction-sentinel-resume-third";
+        fs::write(&path, initial).unwrap();
+        let parent = capture_parent_directory(&path).unwrap();
+        let parents = BTreeMap::from([(path.clone(), parent.clone())]);
+        let private_paths = BTreeSet::from([path.clone()]);
+        let reviewed_states = BTreeMap::from([(
+            path.clone(),
+            private_transaction_state_from_disk(&path, &parent),
+        )]);
+        let tracker = begin_transaction_write_tracking_with_private_states(
+            &evidence,
+            std::slice::from_ref(&path),
+            &private_paths,
+            &parents,
+            &reviewed_states,
+        )
+        .unwrap();
+        write_private_if_unchanged(&path, Some(initial), first).unwrap();
+        drop(tracker);
+        let written_states =
+            load_transaction_write_states_with_private_paths(&evidence, &private_paths).unwrap();
+        let tracker = resume_transaction_write_tracking_with_private_states(
+            &evidence,
+            std::slice::from_ref(&path),
+            &private_paths,
+            &parents,
+            &reviewed_states,
+            &written_states,
+        )
+        .unwrap();
+
+        write_private_if_unchanged(&path, Some(first), second).unwrap();
+        remove_if_unchanged(&path, second).unwrap();
+        write_private_if_unchanged(&path, None, third).unwrap();
+
+        let TransactionPathState::PrivateFile { content_hash, .. } =
+            tracker.states().remove(&path).unwrap()
+        else {
+            panic!("final private state was not hash-only");
+        };
+        assert_eq!(content_hash, hex::encode(Sha256::digest(third.as_bytes())));
+        assert_private_transaction_records_omit(
+            &evidence,
+            &[first.as_bytes(), second.as_bytes(), third.as_bytes()],
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn private_transaction_missing_restart_keeps_private_policy_and_hash_only_next_write() {
+        let home = crate::testenv::TestHome::new("safe-write-private-missing-restart");
+        let path = home.home.join("private.json");
+        let evidence = home.home.join("post");
+        let initial = "private-transaction-sentinel-missing-initial";
+        let next = "private-transaction-sentinel-missing-next";
+        fs::write(&path, initial).unwrap();
+        let parent = capture_parent_directory(&path).unwrap();
+        let parents = BTreeMap::from([(path.clone(), parent.clone())]);
+        let private_paths = BTreeSet::from([path.clone()]);
+        let reviewed_states = BTreeMap::from([(
+            path.clone(),
+            private_transaction_state_from_disk(&path, &parent),
+        )]);
+        let ordinary_reviewed = BTreeMap::from([(
+            path.clone(),
+            read_path_state_anchored(&path, &parent).unwrap(),
+        )]);
+        let tracker = begin_transaction_write_tracking_with_private_states(
+            &evidence,
+            std::slice::from_ref(&path),
+            &private_paths,
+            &parents,
+            &reviewed_states,
+        )
+        .unwrap();
+
+        remove_if_unchanged(&path, initial).unwrap();
+        drop(tracker);
+
+        let ordinary_load_error = load_transaction_write_states(&evidence).unwrap_err();
+        assert!(
+            ordinary_load_error.contains("private/ordinary parity"),
+            "{ordinary_load_error}"
+        );
+        let written_states =
+            load_transaction_write_states_with_private_paths(&evidence, &private_paths).unwrap();
+        assert!(matches!(
+            written_states.get(&path),
+            Some(TransactionPathState::PrivateMissing)
+        ));
+        let ordinary_resume_error = match resume_transaction_write_tracking(
+            &evidence,
+            std::slice::from_ref(&path),
+            &parents,
+            &ordinary_reviewed,
+            &written_states,
+        ) {
+            Ok(_) => panic!("ordinary resume accepted private-missing evidence"),
+            Err(error) => error,
+        };
+        assert!(
+            ordinary_resume_error.contains("private/ordinary parity"),
+            "{ordinary_resume_error}"
+        );
+        let tracker = resume_transaction_write_tracking_with_private_states(
+            &evidence,
+            std::slice::from_ref(&path),
+            &private_paths,
+            &parents,
+            &reviewed_states,
+            &written_states,
+        )
+        .unwrap();
+
+        write_private_if_unchanged(&path, None, next).unwrap();
+
+        assert!(matches!(
+            tracker.states().get(&path),
+            Some(TransactionPathState::PrivateFile { .. })
+        ));
+        assert_private_transaction_records_omit(&evidence, &[initial.as_bytes(), next.as_bytes()]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn private_transaction_mutation_intent_recovery_persists_hash_only_state() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let home = crate::testenv::TestHome::new("safe-write-private-intent-recovery");
+        let path = home.home.join("private.json");
+        let evidence = home.home.join("post");
+        let claims = home.home.join("claims");
+        let initial = "private-transaction-sentinel-recovery-initial";
+        let desired_bytes = b"private-transaction-sentinel-recovery-desired";
+        fs::write(&path, initial).unwrap();
+        let parent = capture_parent_directory(&path).unwrap();
+        let parents = BTreeMap::from([(path.clone(), parent.clone())]);
+        let private_paths = BTreeSet::from([path.clone()]);
+        let reviewed_states = BTreeMap::from([(
+            path.clone(),
+            private_transaction_state_from_disk(&path, &parent),
+        )]);
+        let tracker = begin_transaction_write_tracking_with_private_states(
+            &evidence,
+            std::slice::from_ref(&path),
+            &private_paths,
+            &parents,
+            &reviewed_states,
+        )
+        .unwrap();
+        let expected = read_path_state_anchored(&path, &parent).unwrap();
+        let AnchoredPathState::File { mode, identity, .. } = expected else {
+            panic!("fixture is not a regular file");
+        };
+        let desired = AnchoredPathState::File {
+            bytes: Zeroizing::new(desired_bytes.to_vec()),
+            mode,
+            identity,
+        };
+        let open_parent = open_parent_anchored(&parent, false).unwrap().unwrap();
+        let intent = begin_mutation_intent(MutationIntentRequest {
+            path: &path,
+            parent: &parent,
+            mutation_parent_identity: open_parent_identity(&open_parent).unwrap(),
+            guard_name: std::ffi::OsStr::new(".private-rewrite-guard"),
+            temp_name: None,
+            operation: MutationIntentOperation::Rewrite,
+            expected: &read_path_state_anchored(&path, &parent).unwrap(),
+            desired: &desired,
+        })
+        .unwrap()
+        .unwrap();
+        fs::write(&path, desired_bytes).unwrap();
+        drop(intent);
+        drop(tracker);
+        assert_private_transaction_records_omit(&claims, &[initial.as_bytes(), desired_bytes]);
+
+        let ordinary_recovery_error =
+            recover_transaction_mutation_intents(&claims, &parents).unwrap_err();
+        assert!(
+            ordinary_recovery_error.contains("privacy"),
+            "{ordinary_recovery_error}"
+        );
+        assert_private_transaction_records_omit(&claims, &[initial.as_bytes(), desired_bytes]);
+        assert_private_transaction_records_omit(&evidence, &[initial.as_bytes(), desired_bytes]);
+
+        recover_transaction_mutation_intents_with_private_paths(&claims, &parents, &private_paths)
+            .unwrap();
+
+        ensure_no_transaction_mutation_intents(&claims).unwrap();
+        let written_states =
+            load_transaction_write_states_with_private_paths(&evidence, &private_paths).unwrap();
+        let TransactionPathState::PrivateFile {
+            content_hash,
+            mode: recovered_mode,
+            ..
+        } = written_states.get(&path).unwrap()
+        else {
+            panic!("recovered private state was not hash-only");
+        };
+        assert_eq!(content_hash, &hex::encode(Sha256::digest(desired_bytes)));
+        assert_private_transaction_records_omit(&claims, &[initial.as_bytes(), desired_bytes]);
+        assert_private_transaction_records_omit(&evidence, &[initial.as_bytes(), desired_bytes]);
+
+        let tracker = resume_transaction_write_tracking_with_private_states(
+            &evidence,
+            std::slice::from_ref(&path),
+            &private_paths,
+            &parents,
+            &reviewed_states,
+            &written_states,
+        )
+        .unwrap();
+        let replacement = home.home.join("replacement.json");
+        fs::write(&replacement, desired_bytes).unwrap();
+        if let Some(mode) = *recovered_mode {
+            fs::set_permissions(&replacement, fs::Permissions::from_mode(mode)).unwrap();
+        }
+        fs::rename(&replacement, &path).unwrap();
+        let error = write_private_if_unchanged(
+            &path,
+            Some(std::str::from_utf8(desired_bytes).unwrap()),
+            "must-not-replace-an-unowned-inode",
+        )
+        .unwrap_err();
+        assert!(error.contains("hash/mode/identity"), "{error}");
+        assert_eq!(fs::read(&path).unwrap(), desired_bytes);
+        drop(tracker);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn private_transaction_hash_rollback_rejects_hash_mode_and_identity_mismatches() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let home = crate::testenv::TestHome::new("safe-write-private-hash-rollback");
+        let path = home.home.join("private.json");
+        let replacement = home.home.join("replacement.json");
+        let bytes = b"private-rollback-owned";
+        fs::write(&path, bytes).unwrap();
+        let parent = capture_parent_directory(&path).unwrap();
+        let AnchoredPathState::File { mode, identity, .. } =
+            read_path_state_anchored(&path, &parent).unwrap()
+        else {
+            panic!("fixture is not a regular file");
+        };
+        let hash = hex::encode(Sha256::digest(bytes));
+
+        let hash_error = remove_bytes_if_hash_unchanged_in_parent(
+            &path,
+            &parent,
+            &"0".repeat(64),
+            mode,
+            identity,
+        )
+        .unwrap_err();
+        assert!(hash_error.contains("hash/mode/identity"), "{hash_error}");
+
+        let mode_error = remove_bytes_if_hash_unchanged_in_parent(
+            &path,
+            &parent,
+            &hash,
+            mode.map(|value| value ^ 0o100),
+            identity,
+        )
+        .unwrap_err();
+        assert!(mode_error.contains("hash/mode/identity"), "{mode_error}");
+
+        fs::write(&replacement, bytes).unwrap();
+        if let Some(mode) = mode {
+            fs::set_permissions(&replacement, fs::Permissions::from_mode(mode)).unwrap();
+        }
+        fs::rename(&replacement, &path).unwrap();
+        let identity_error = write_bytes_if_hash_unchanged_in_parent(
+            &path,
+            &parent,
+            Some((&hash, mode, identity)),
+            b"private-restored",
+            mode,
+        )
+        .unwrap_err();
+        assert!(
+            identity_error.contains("hash/mode/identity"),
+            "{identity_error}"
+        );
+        assert_eq!(fs::read(&path).unwrap(), bytes);
     }
 
     #[cfg(unix)]

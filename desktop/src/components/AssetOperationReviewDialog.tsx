@@ -141,6 +141,8 @@ function warningCopy(warning: string) {
     model_active_conflicted: "当前 Model 配置存在歧义，请先修复配置",
     model_owned_fields_drift: "该 Model 的托管字段已被外部修改",
     model_target_missing: "该 Model 的 Agent 配置缺失",
+    model_credential_export_plaintext:
+      "将把所选 Provider 的 API Key 写入 Claude Desktop 的私有配置文件（权限 0600）",
   };
   return labels[reason] ? `${readableIdentity(agent)}：${labels[reason]}` : warning;
 }

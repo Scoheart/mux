@@ -546,6 +546,7 @@ it("fills a standalone Provider form from the selected catalog template", async 
   expect(screen.queryByLabelText("自定义模型提供商 ID")).not.toBeInTheDocument();
   expect(screen.getByLabelText("Base URL")).toHaveValue("https://openrouter.ai/api/v1");
   expect(screen.getAllByLabelText("Base URL")).toHaveLength(1);
+  expect(screen.getByLabelText("Models 列表 URL")).toHaveValue("");
   expect(screen.getByRole("switch", { name: /OpenAI Responses/ })).toBeChecked();
   expect(screen.getByRole("switch", { name: /Anthropic Messages/ })).not.toBeChecked();
   expect(screen.getByLabelText("OpenAI Responses Endpoint Path")).toHaveValue(

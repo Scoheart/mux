@@ -213,6 +213,11 @@ fn discovery_spec_for_provider(
 }
 
 fn discovery_url(provider: &ModelProviderConfig, adapter: DiscoveryAdapter) -> Result<Url, String> {
+    if let Some(model_catalog_url) = provider.model_catalog_url.as_deref() {
+        return Url::parse(model_catalog_url).map_err(|_| {
+            "model_discovery_endpoint_invalid: Provider Models list URL is invalid".into()
+        });
+    }
     match adapter {
         DiscoveryAdapter::OpenAi => [
             ModelProtocol::OpenaiResponses,
@@ -620,6 +625,7 @@ mod tests {
             name: format!("{provider_type} instance"),
             provider: provider_type.into(),
             base_url: base_url.into(),
+            model_catalog_url: None,
             protocols: BTreeMap::from([(
                 protocol,
                 ModelProviderProtocolConfig {
@@ -784,6 +790,27 @@ mod tests {
         assert_eq!(
             discovery_url(&gemini, gemini_spec.adapter).unwrap().as_str(),
             "https://gateway.example.test/v1beta/models?pageSize=1000",
+        );
+    }
+
+    #[test]
+    fn custom_provider_prefers_its_explicit_model_catalog_url() {
+        let provider: ModelProviderConfig = serde_json::from_value(serde_json::json!({
+            "id": "custom-instance",
+            "name": "Custom instance",
+            "provider": "custom",
+            "base_url": "https://gateway.example.test",
+            "model_catalog_url": "https://catalog.example.test/api/models?scope=available",
+            "protocols": {
+                "openai-responses": { "endpoint_path": "/v1/responses" }
+            }
+        }))
+        .unwrap();
+        let spec = discovery_spec_for_provider(&provider).unwrap();
+
+        assert_eq!(
+            discovery_url(&provider, spec.adapter).unwrap().as_str(),
+            "https://catalog.example.test/api/models?scope=available",
         );
     }
 

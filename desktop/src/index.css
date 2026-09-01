@@ -2205,6 +2205,7 @@ body {
   gap: 0; padding: 0; overflow: visible; border-radius: 0; background: transparent;
 }
 .mux-provider-basic-grid { display: grid; grid-template-columns: 180px minmax(0, 1fr); gap: 12px; }
+.mux-provider-model-catalog-field { grid-column: 1 / -1; }
 .mux-provider-form .mux-model-field { height: 32px; }
 .mux-provider-form-section {
   display: grid; min-width: 0; gap: 12px; margin-top: 20px; padding-top: 18px;

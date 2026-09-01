@@ -129,6 +129,24 @@ function normalizeBaseUrl(value: string) {
   }
 }
 
+function normalizeModelCatalogUrl(value: string) {
+  const normalized = value.trim();
+  if (!normalized || /\s/.test(normalized)) return null;
+  try {
+    const url = new URL(normalized);
+    if (
+      !["http:", "https:"].includes(url.protocol)
+      || !url.hostname
+      || url.username
+      || url.password
+      || url.hash
+    ) return null;
+    return normalized;
+  } catch {
+    return null;
+  }
+}
+
 function normalizeEndpointPath(value: string) {
   const trimmed = value.trim();
   if (
@@ -1369,6 +1387,7 @@ function ModelProviderDialog({
     name: initial?.name ?? providerTemplate?.name ?? "",
     provider: initialProviderType,
     base_url: initial?.base_url ?? templateConnection.base_url,
+    model_catalog_url: initial?.model_catalog_url,
     protocols: initialProtocols,
     env_key: initial?.env_key,
   });
@@ -1398,6 +1417,9 @@ function ModelProviderDialog({
   const selectedProtocolPreview = fullRequestUrl(draft.base_url, selectedProtocolPath);
   const selectedProtocolEnabled = Boolean(draft.protocols[selectedProtocol]);
   const normalizedBaseUrl = normalizeBaseUrl(draft.base_url);
+  const normalizedModelCatalogUrl = draft.model_catalog_url
+    ? normalizeModelCatalogUrl(draft.model_catalog_url)
+    : undefined;
   const protocolsValid = enabledProtocols.length > 0
     && enabledProtocols.every(({ id }) => {
       const path = draft.protocols[id]?.endpoint_path ?? "";
@@ -1407,6 +1429,7 @@ function ModelProviderDialog({
     draft.name.trim()
       && draft.provider.trim()
       && normalizedBaseUrl
+      && (!draft.model_catalog_url || normalizedModelCatalogUrl)
       && protocolsValid
       && !busy
       && !credentialLoading,
@@ -1455,6 +1478,7 @@ function ModelProviderDialog({
         name: draft.name.trim(),
         provider: draft.provider.trim(),
         base_url: normalizedBaseUrl!,
+        model_catalog_url: normalizedModelCatalogUrl,
         protocols,
         env_key: credentialMode === "env" ? draft.env_key?.trim() || undefined : undefined,
       }, credentialMode === "env"
@@ -1513,6 +1537,25 @@ function ModelProviderDialog({
             />
             {draft.base_url && !normalizedBaseUrl && <small>{t("models.invalidBaseUrl")}</small>}
           </label>
+          {draft.provider === "custom" && (
+            <label className="mux-provider-model-catalog-field">
+              <span>{t("models.modelCatalogUrl")}</span>
+              <input
+                aria-label={t("models.modelCatalogUrl")}
+                className="mux-model-field"
+                value={draft.model_catalog_url ?? ""}
+                onChange={(event) => setDraft({
+                  ...draft,
+                  model_catalog_url: event.currentTarget.value || undefined,
+                })}
+                placeholder="https://gateway.example.com/v1/models"
+                spellCheck={false}
+              />
+              {draft.model_catalog_url && !normalizedModelCatalogUrl && (
+                <small>{t("models.invalidModelCatalogUrl")}</small>
+              )}
+            </label>
+          )}
         </div>
 
         <section className="mux-provider-form-section mux-provider-credential" aria-label={t("models.credentialSection")}>

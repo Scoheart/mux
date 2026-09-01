@@ -903,6 +903,26 @@ pub fn normalize_provider_base_url(base_url: &str) -> Result<String, String> {
     Ok(base_url.to_string())
 }
 
+pub fn normalize_model_catalog_url(model_catalog_url: &str) -> Result<String, String> {
+    let model_catalog_url = model_catalog_url.trim();
+    if model_catalog_url.is_empty() || model_catalog_url.chars().any(char::is_whitespace) {
+        return Err("Models list URL cannot contain whitespace".into());
+    }
+    let parsed = url::Url::parse(model_catalog_url)
+        .map_err(|error| format!("Models list URL must be a valid http(s) URL: {error}"))?;
+    if !matches!(parsed.scheme(), "http" | "https")
+        || parsed.host_str().is_none()
+        || !parsed.username().is_empty()
+        || parsed.password().is_some()
+        || parsed.fragment().is_some()
+    {
+        return Err(
+            "Models list URL must be an http(s) URL without credentials or a fragment".into(),
+        );
+    }
+    Ok(model_catalog_url.to_string())
+}
+
 pub fn normalize_endpoint_path(endpoint_path: &str) -> Result<String, String> {
     let endpoint_path = endpoint_path.trim();
     if endpoint_path.is_empty() {
@@ -1099,6 +1119,7 @@ pub fn migrate_model_providers_v3_if_needed() -> Result<bool, String> {
                         name,
                         provider: profile.provider.clone(),
                         base_url: String::new(),
+                        model_catalog_url: None,
                         protocols: BTreeMap::new(),
                         env_key: profile.env_key.clone(),
                     },
@@ -2038,6 +2059,9 @@ pub(crate) fn validate_provider_config(provider: &ModelProviderConfig) -> Result
         return Err("Provider type must be a lowercase identifier".into());
     }
     normalize_provider_base_url(&provider.base_url)?;
+    if let Some(model_catalog_url) = provider.model_catalog_url.as_deref() {
+        normalize_model_catalog_url(model_catalog_url)?;
+    }
     if provider.protocols.is_empty() {
         return Err("Provider must enable at least one protocol".into());
     }
@@ -2109,6 +2133,10 @@ pub(crate) fn prepare_provider_draft(
     provider.name = provider.name.trim().to_string();
     provider.provider = normalize_slug(&provider.provider);
     provider.base_url = normalize_provider_base_url(&provider.base_url)?;
+    provider.model_catalog_url = provider
+        .model_catalog_url
+        .map(|value| normalize_model_catalog_url(&value))
+        .transpose()?;
     provider.protocols = provider
         .protocols
         .into_iter()
@@ -2464,6 +2492,7 @@ pub fn save_profile(profile: ModelProfile, credential: Option<String>) -> Result
                         name: provider_name.clone(),
                         provider: profile.provider.clone(),
                         base_url: profile.base_url.clone(),
+                        model_catalog_url: None,
                         protocols: BTreeMap::new(),
                         env_key: profile.env_key.clone(),
                     });
@@ -5036,6 +5065,7 @@ mod tests {
             name: "Team Provider".into(),
             provider: "custom".into(),
             base_url: "https://gateway.example.test".into(),
+            model_catalog_url: None,
             protocols: BTreeMap::from([(
                 ModelProtocol::OpenaiResponses,
                 protocol("/v1/responses"),
@@ -5063,6 +5093,7 @@ mod tests {
             name: "Shared Path Provider".into(),
             provider: "custom".into(),
             base_url: "https://gateway.example.test/api/v2/".into(),
+            model_catalog_url: None,
             protocols: BTreeMap::from([
                 (
                     ModelProtocol::AnthropicMessages,
@@ -5316,6 +5347,7 @@ mod tests {
             name: name.into(),
             provider: "openrouter".into(),
             base_url: "https://openrouter.ai/api/v1".into(),
+            model_catalog_url: None,
             protocols: BTreeMap::from([(ModelProtocol::OpenaiResponses, protocol("/responses"))]),
             env_key: None,
         }
@@ -5493,6 +5525,7 @@ mod tests {
             name: "Primary".into(),
             provider: "custom".into(),
             base_url: "https://gateway.example.test".into(),
+            model_catalog_url: None,
             protocols: BTreeMap::from([
                 (ModelProtocol::OpenaiResponses, protocol("/v1/responses")),
                 (
@@ -5507,6 +5540,7 @@ mod tests {
             name: "Secure".into(),
             provider: "custom".into(),
             base_url: "https://gateway.example.test".into(),
+            model_catalog_url: None,
             protocols: BTreeMap::from([(
                 ModelProtocol::AnthropicMessages,
                 protocol("/anthropic/v1/messages"),
@@ -5570,6 +5604,7 @@ mod tests {
             name: "Team Provider".into(),
             provider: "custom".into(),
             base_url: "https://gateway.example.test".into(),
+            model_catalog_url: None,
             protocols: BTreeMap::from([
                 (ModelProtocol::OpenaiResponses, protocol("/v1/responses")),
                 (
@@ -5612,6 +5647,7 @@ mod tests {
             name: "Team Provider".into(),
             provider: "custom".into(),
             base_url: "https://gateway.example.test".into(),
+            model_catalog_url: None,
             protocols: BTreeMap::from([
                 (ModelProtocol::OpenaiResponses, protocol("/v1/responses")),
                 (
@@ -5660,6 +5696,7 @@ mod tests {
             name: "Team Provider".into(),
             provider: "custom".into(),
             base_url: "https://gateway.example.test".into(),
+            model_catalog_url: None,
             protocols: BTreeMap::from([(
                 ModelProtocol::OpenaiResponses,
                 protocol("/v1/responses"),
@@ -5708,6 +5745,7 @@ mod tests {
             name: "Team Provider".into(),
             provider: "custom".into(),
             base_url: "https://gateway.example.test".into(),
+            model_catalog_url: None,
             protocols: BTreeMap::from([(
                 ModelProtocol::OpenaiResponses,
                 protocol("/v1/responses"),
@@ -5738,6 +5776,7 @@ mod tests {
             name: "First Provider".into(),
             provider: "custom".into(),
             base_url: "https://first.example.test".into(),
+            model_catalog_url: None,
             protocols: BTreeMap::from([(
                 ModelProtocol::OpenaiResponses,
                 protocol("/v1/responses"),
@@ -5749,6 +5788,7 @@ mod tests {
             name: "Second Provider".into(),
             provider: "openrouter".into(),
             base_url: "https://second.example.test".into(),
+            model_catalog_url: None,
             protocols: BTreeMap::from([(
                 ModelProtocol::OpenaiResponses,
                 protocol("/v1/responses"),

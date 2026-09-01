@@ -591,6 +591,33 @@ it("fills a standalone Provider form from the selected catalog template", async 
   })));
 });
 
+it("lets a Custom Provider save an explicit model catalog URL", async () => {
+  const user = userEvent.setup();
+  const planUpdate = vi.fn().mockResolvedValue({ operation_id: "provider-plan" });
+  const consumptionState = { plan: null, planUpdate } as unknown as ConsumptionState;
+
+  render(
+    <ToastProvider>
+      <ModelsView consumptionState={consumptionState} />
+    </ToastProvider>,
+  );
+
+  await openProviderTemplate(user, "Custom Provider");
+  await user.type(screen.getByLabelText("Base URL"), "https://gateway.example.test");
+  await user.type(
+    screen.getByLabelText("Models 列表 URL"),
+    "https://catalog.example.test/v1/models?available=true",
+  );
+  await user.click(screen.getByRole("button", { name: "保存" }));
+
+  await waitFor(() => expect(planUpdate).toHaveBeenCalledWith(expect.objectContaining({
+    domain: "model-provider",
+    provider: expect.objectContaining({
+      model_catalog_url: "https://catalog.example.test/v1/models?available=true",
+    }),
+  })));
+});
+
 it("keeps the empty protocol requirement inside the compact section header", async () => {
   const user = userEvent.setup();
   const consumptionState = { plan: null, planUpdate: vi.fn() } as unknown as ConsumptionState;

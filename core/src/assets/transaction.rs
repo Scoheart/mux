@@ -4365,6 +4365,7 @@ mod tests {
             name: "Shared Provider".into(),
             provider: "custom".into(),
             base_url: "https://old.example.test".into(),
+            model_catalog_url: None,
             protocols: BTreeMap::from([
                 (
                     ModelProtocol::OpenaiResponses,

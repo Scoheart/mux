@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.157](https://github.com/Scoheart/mux/compare/v1.8.156...v1.8.157) (2026-09-01)
+
+### Changes
+
+* feat(desktop): distinguish shared Agent logos ([09a6c1a](https://github.com/Scoheart/mux/commit/09a6c1a07fbe38a941e92570f3504ae67126172d))
+
 ## [1.8.156](https://github.com/Scoheart/mux/compare/v1.8.155...v1.8.156) (2026-09-01)
 
 ### Changes

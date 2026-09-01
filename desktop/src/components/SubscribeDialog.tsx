@@ -3,6 +3,7 @@ import type { InstallState } from "../hooks/useInstallState";
 import { useToast } from "./Toast";
 import { DialogShell } from "./DialogShell";
 import { formatError } from "../lib/format";
+import { LinkIcon, SparklesIcon } from "./icons";
 
 /** Official curated collection preset for the shared subscription flow. */
 const OFFICIAL_SOURCE = {
@@ -39,14 +40,9 @@ export function SubscribeDialog({
     }
   };
 
-  const fieldStyle = {
-    background: "var(--surface-app)",
-    border: "1px solid var(--border-hairline)",
-    color: "var(--text-primary)",
-  } as const;
-
   return (
     <DialogShell
+      className="mux-dialog-subscription"
       kind="editor"
       size="md"
       title="添加订阅"
@@ -62,49 +58,38 @@ export function SubscribeDialog({
         </>
       }
     >
-
-        {/* Body */}
-        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
-          <div>
-            <button
-              type="button"
-              onClick={() => { setUrl(OFFICIAL_SOURCE.url); setName(OFFICIAL_SOURCE.name); }}
-              className="text-[11px] px-2.5 py-1 rounded-full cursor-pointer border-0"
-              style={{ background: "var(--surface-raised)", color: "var(--color-blue)" }}
-              title="使用 Mux 精选"
-            >
-              Mux 精选
-            </button>
-          </div>
-          <div>
-            <label className="text-xs font-medium block mb-1.5" style={{ color: "var(--text-secondary)" }}>
-              配置 URL <span style={{ color: "#FF375F" }}>*</span>
-            </label>
-            <input
-              autoFocus
-              className="w-full px-3 py-2 text-sm rounded-mac outline-none"
-              style={{ ...fieldStyle, fontFamily: "var(--font-mono)" }}
-              placeholder="https://example.com/mcp.json"
-              value={url}
-              onChange={(e) => setUrl(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter") submit(); }}
-            />
-          </div>
-          <div>
-            <label className="text-xs font-medium block mb-1.5" style={{ color: "var(--text-secondary)" }}>
-              名称
-            </label>
-            <input
-              className="w-full px-3 py-2 text-sm rounded-mac outline-none"
-              style={fieldStyle}
-              placeholder="留空则用 URL 主机名"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter") submit(); }}
-            />
-          </div>
-        </div>
-
+      <div className="mux-subscription-form">
+        <button
+          type="button"
+          onClick={() => { setUrl(OFFICIAL_SOURCE.url); setName(OFFICIAL_SOURCE.name); }}
+          className="mux-subscription-preset"
+          title="使用 Mux 精选"
+        >
+          <SparklesIcon className="w-4 h-4" />
+          <span>使用 Mux 精选</span>
+        </button>
+        <label className="mux-dialog-field">
+          <span><LinkIcon className="w-4 h-4" />配置 URL <i>*</i></span>
+          <input
+            autoFocus
+            className="mux-dialog-input mux-dialog-input-mono"
+            placeholder="https://example.com/mcp.json"
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") submit(); }}
+          />
+        </label>
+        <label className="mux-dialog-field">
+          <span>名称</span>
+          <input
+            className="mux-dialog-input"
+            placeholder="留空则用 URL 主机名"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") submit(); }}
+          />
+        </label>
+      </div>
     </DialogShell>
   );
 }

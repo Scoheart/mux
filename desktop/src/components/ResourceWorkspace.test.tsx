@@ -2,11 +2,15 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  InspectorField,
+  InspectorMetric,
+  InspectorMetrics,
   ResourceInspector,
   ResourceTabs,
   ResourceWorkspace,
   WorkspaceSidebar,
 } from "./ResourceWorkspace";
+import { LayersIcon, LinkIcon } from "./icons";
 import { Modal } from "./ui";
 
 afterEach(cleanup);
@@ -46,6 +50,17 @@ function WorkspaceHarness({ onInspectorClose = vi.fn() }: { onInspectorClose?: (
       inspector={
         inspectorOpen ? (
           <ResourceInspector title="资源 A" avatar={<span>A</span>} onClose={closeInspector}>
+            <InspectorMetrics>
+              <InspectorMetric icon={<LayersIcon />} label="上下文" value="1M" />
+            </InspectorMetrics>
+            <InspectorField
+              icon={<LinkIcon />}
+              label="地址"
+              mono
+              action={<button type="button" aria-label="复制地址">复制</button>}
+            >
+              https://example.test
+            </InspectorField>
             <button type="button" onClick={() => setModalOpen(true)}>打开确认</button>
             {modalOpen && (
               <Modal ariaLabel="确认资源" onClose={() => setModalOpen(false)}>
@@ -125,6 +140,9 @@ describe("ResourceWorkspace", () => {
     expect(panel).toHaveAttribute("aria-hidden", "true");
     const dialog = await screen.findByRole("dialog", { name: "资源详情" });
     expect(dialog).toHaveAttribute("aria-modal", "true");
+    expect(screen.getByLabelText("资源指标")).toBeVisible();
+    expect(screen.getByText("1M")).toBeVisible();
+    expect(screen.getByRole("button", { name: "复制地址" })).toBeVisible();
     await waitFor(() => expect(screen.getByRole("complementary", { name: "资源 A 详情" })).toHaveFocus());
 
     fireEvent.click(screen.getByRole("button", { name: "关闭详情" }));

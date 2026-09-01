@@ -43,47 +43,29 @@ export function PasteConfigDialog({
 
   return (
     <DialogShell
-          kind="editor"
-          size="md"
-          title="粘贴配置"
-          subtitle={
-            <>
-              粘贴一段 <code style={{ fontFamily: "var(--font-mono)" }}>mcpServers</code> 配置，server 加入「手动添加」。
-            </>
-          }
-          busy={busy}
-          onClose={onClose}
-          footerEnd={
-            <>
-              <button onClick={onClose} disabled={busy} className="btn-ghost">取消</button>
-              <button disabled={!text.trim() || busy} onClick={submit} className="btn-primary">
-                {busy ? "识别中…" : "识别并添加"}
-              </button>
-            </>
-          }
-        >
-
-        <div className="flex-1 overflow-y-auto px-6 py-5">
-          <textarea
-            autoFocus
-            className="w-full rounded-mac outline-none"
-            style={{
-              background: "var(--surface-app)",
-              border: "1px solid var(--border-hairline)",
-              color: "var(--text-primary)",
-              fontFamily: "var(--font-mono)",
-              fontSize: 12.5,
-              padding: "10px 12px",
-              minHeight: 240,
-              resize: "vertical",
-              lineHeight: 1.5,
-            }}
-            placeholder={EXAMPLE}
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-          />
-        </div>
-
+      className="mux-dialog-paste-config"
+      kind="editor"
+      size="md"
+      title="粘贴配置"
+      subtitle={<>粘贴 <code>mcpServers</code> 配置，识别后加入「手动添加」。</>}
+      busy={busy}
+      onClose={onClose}
+      footerEnd={
+        <>
+          <button onClick={onClose} disabled={busy} className="btn-ghost">取消</button>
+          <button disabled={!text.trim() || busy} onClick={submit} className="btn-primary">
+            {busy ? "识别中…" : "识别并添加"}
+          </button>
+        </>
+      }
+    >
+      <textarea
+        autoFocus
+        className="mux-paste-config-input"
+        placeholder={EXAMPLE}
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+      />
     </DialogShell>
   );
 }

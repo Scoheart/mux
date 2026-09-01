@@ -31,20 +31,28 @@ import { AssetOperationReviewDialog } from "./AssetOperationReviewDialog";
 import { FormSelect } from "./FormSelect";
 import { ProviderGlyph } from "./providerIcons";
 import {
+  CalendarIcon,
+  CopyIcon,
   EditIcon,
   EyeIcon,
   EyeOffIcon,
+  GaugeIcon,
   KeyIcon,
   LayersIcon,
+  LinkIcon,
+  NetworkIcon,
   PlusIcon,
   RefreshIcon,
   SearchIcon,
+  SparklesIcon,
   TerminalIcon,
   TrashIcon,
 } from "./icons";
 import { useToast } from "./Toast";
 import {
   InspectorField,
+  InspectorMetric,
+  InspectorMetrics,
   ResourceInspector,
   ResourceWorkspace,
   SidebarItem,
@@ -702,6 +710,7 @@ function ModelInspector({
   onDelete?: () => void;
 }) {
   const { t } = useTranslation();
+  const toast = useToast();
   const contextWindow = profile.context_window ?? metadata?.contextWindow;
   const maxOutputTokens = profile.max_output_tokens ?? metadata?.maxOutputTokens;
   const capabilities = [
@@ -716,6 +725,28 @@ function ModelInspector({
         provider.protocols[profile.protocol]?.endpoint_path ?? "",
       )
     : "";
+  const priceSummary = [
+    metadata?.inputCost != null && t("models.inputMetric", { value: formatCatalogCost(metadata.inputCost) }),
+    metadata?.outputCost != null && t("models.outputPriceMetric", { value: formatCatalogCost(metadata.outputCost) }),
+  ].filter(Boolean).join(" · ");
+  const copyValue = async (label: string, value: string) => {
+    try {
+      await navigator.clipboard.writeText(value);
+      toast.show({ kind: "success", msg: t("models.copiedValue", { label }) });
+    } catch (error) {
+      toast.show({ kind: "error", msg: t("models.copyValueFailed", { error: formatError(error) }) });
+    }
+  };
+  const copyAction = (label: string, value: string) => (
+    <button
+      type="button"
+      aria-label={t("models.copyValue", { label })}
+      title={t("models.copyValue", { label })}
+      onClick={() => void copyValue(label, value)}
+    >
+      <CopyIcon className="w-3.5 h-3.5" />
+    </button>
+  );
   return (
     <ResourceInspector
       title={readableModelName(profile, providerName, metadata)}
@@ -736,11 +767,28 @@ function ModelInspector({
         </>
       }
     >
+      {(contextWindow || maxOutputTokens || capabilities.length > 0 || priceSummary) && (
+        <InspectorMetrics>
+          {contextWindow && (
+            <InspectorMetric icon={<LayersIcon />} label={t("models.context")} value={formatTokens(contextWindow)} />
+          )}
+          {maxOutputTokens && (
+            <InspectorMetric icon={<GaugeIcon />} label={t("models.outputLimit")} value={formatTokens(maxOutputTokens)} />
+          )}
+          {capabilities.length > 0 && (
+            <InspectorMetric icon={<SparklesIcon />} label={t("models.capabilities")} value={capabilities.join(" · ")} />
+          )}
+          {priceSummary && (
+            <InspectorMetric icon={<KeyIcon />} label={t("models.catalogPrice")} value={priceSummary} />
+          )}
+        </InspectorMetrics>
+      )}
+      {metadata?.description && <p className="mux-model-inspector-description">{metadata.description}</p>}
       <section className="mux-model-inspector-fields" aria-label={t("models.detailsFields")}>
-        <InspectorField label={t("models.provider")}>{providerName}</InspectorField>
-        <InspectorField label={t("models.protocol")}>{protocolLabel(profile.protocol)}</InspectorField>
+        <InspectorField icon={<LayersIcon />} label={t("models.provider")}>{providerName}</InspectorField>
+        <InspectorField icon={<NetworkIcon />} label={t("models.protocol")}>{protocolLabel(profile.protocol)}</InspectorField>
         {showReasoning && (
-          <InspectorField label={t("models.reasoningMode")}>
+          <InspectorField icon={<SparklesIcon />} label={t("models.reasoningMode")}>
             {profile.reasoning === undefined
               ? t("models.reasoningAuto")
               : profile.reasoning
@@ -748,22 +796,18 @@ function ModelInspector({
                 : t("models.reasoningOff")}
           </InspectorField>
         )}
-        {metadata?.description && <InspectorField label={t("models.modelDescription")}>{metadata.description}</InspectorField>}
-        {contextWindow && <InspectorField label={t("models.context")}>{formatTokens(contextWindow)} tokens</InspectorField>}
-        {maxOutputTokens && <InspectorField label={t("models.outputLimit")}>{formatTokens(maxOutputTokens)} tokens</InspectorField>}
-        {(metadata?.inputCost != null || metadata?.outputCost != null) && (
-          <InspectorField label={t("models.catalogPrice")}>
-            {[
-              metadata.inputCost != null && t("models.inputMetric", { value: formatCatalogCost(metadata.inputCost) }),
-              metadata.outputCost != null && t("models.outputPriceMetric", { value: formatCatalogCost(metadata.outputCost) }),
-            ].filter(Boolean).join(" · ")}
-          </InspectorField>
-        )}
-        {capabilities.length > 0 && <InspectorField label={t("models.capabilities")}>{capabilities.join(" · ")}</InspectorField>}
-        {metadata?.releaseDate && <InspectorField label={t("models.releaseDate")}>{metadata.releaseDate}</InspectorField>}
-        <InspectorField label={t("models.modelId")} mono>{profile.model}</InspectorField>
-        <InspectorField label={t("models.fullRequestUrl")} mono>{requestUrl || t("common.notSet")}</InspectorField>
-        {profile.env_key && <InspectorField label={t("models.environmentVariable")} mono>{profile.env_key}</InspectorField>}
+        {metadata?.releaseDate && <InspectorField icon={<CalendarIcon />} label={t("models.releaseDate")}>{metadata.releaseDate}</InspectorField>}
+        <InspectorField icon={<TerminalIcon />} label={t("models.modelId")} mono wide action={copyAction(t("models.modelId"), profile.model)}>{profile.model}</InspectorField>
+        <InspectorField
+          icon={<LinkIcon />}
+          label={t("models.fullRequestUrl")}
+          mono
+          wide
+          action={requestUrl ? copyAction(t("models.fullRequestUrl"), requestUrl) : undefined}
+        >
+          {requestUrl || t("common.notSet")}
+        </InspectorField>
+        {profile.env_key && <InspectorField icon={<KeyIcon />} label={t("models.environmentVariable")} mono wide>{profile.env_key}</InspectorField>}
       </section>
     </ResourceInspector>
   );
@@ -808,6 +852,7 @@ function ProviderCatalogDialog({
 
   return (
     <DialogShell
+      className="mux-dialog-provider-catalog"
       kind="picker"
       size="lg"
       title={t("models.providerCatalogTitle")}
@@ -1343,6 +1388,7 @@ function ModelProfileDialog({
 
   return (
     <DialogShell
+      className="mux-dialog-model-editor"
       kind="editor"
       size="md"
       title={initial ? t("models.editTitle") : t("models.createTitle")}
@@ -1495,6 +1541,7 @@ function ModelProviderDialog({
 
   return (
     <DialogShell
+      className="mux-dialog-provider-editor"
       kind="editor"
       size="wide"
       borderRadius="10px"

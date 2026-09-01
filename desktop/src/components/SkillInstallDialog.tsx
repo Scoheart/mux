@@ -366,6 +366,7 @@ export function SkillInstallDialog({
 
   return (
     <DialogShell
+      className="mux-dialog-skill-flow"
       kind="editor"
       size="md"
       title="添加 Skill"

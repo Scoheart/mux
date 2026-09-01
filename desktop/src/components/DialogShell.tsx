@@ -1,5 +1,5 @@
 import type { CSSProperties, ReactNode } from "react";
-import { XIcon } from "./icons";
+import { CheckIcon, EditIcon, SearchIcon, XIcon } from "./icons";
 import { Modal } from "./ui";
 
 export type DialogShellKind = "editor" | "picker" | "review";
@@ -10,6 +10,12 @@ const SIZE_WIDTH: Record<DialogShellSize, number> = {
   md: 560,
   wide: 640,
   lg: 760,
+};
+
+const DEFAULT_LEADING: Record<DialogShellKind, ReactNode> = {
+  editor: <EditIcon className="w-4 h-4" />,
+  picker: <SearchIcon className="w-4 h-4" />,
+  review: <CheckIcon className="w-4 h-4" />,
 };
 
 export function DialogShell({
@@ -48,6 +54,11 @@ export function DialogShell({
   const requestClose = () => {
     if (!busy) onClose();
   };
+  const effectiveLeading = leading ?? (
+    <span className="mux-dialog-shell-glyph" aria-hidden="true">
+      {DEFAULT_LEADING[kind]}
+    </span>
+  );
 
   return (
     <Modal
@@ -65,7 +76,7 @@ export function DialogShell({
         aria-busy={busy || undefined}
       >
         <header className="mux-dialog-shell-header">
-          {leading != null && <div className="mux-dialog-shell-leading">{leading}</div>}
+          <div className="mux-dialog-shell-leading">{effectiveLeading}</div>
           <div className="mux-dialog-shell-heading">
             <h2 data-modal-title tabIndex={-1}>{title}</h2>
             {subtitle != null && <div className="mux-dialog-shell-subtitle">{subtitle}</div>}

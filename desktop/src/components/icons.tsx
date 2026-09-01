@@ -329,6 +329,27 @@ export function MoreHorizontalIcon({ className, style }: IconProps) {
   );
 }
 
+export function GaugeIcon({ className, style }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} style={style} stroke="currentColor" fill="none"
+      strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4.9 19a9 9 0 1 1 14.2 0" />
+      <path d="m12 13 4-4" />
+      <path d="M12 19h.01" />
+    </svg>
+  );
+}
+
+export function CalendarIcon({ className, style }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} style={style} stroke="currentColor" fill="none"
+      strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="5" width="18" height="16" rx="2" />
+      <path d="M16 3v4M8 3v4M3 10h18" />
+    </svg>
+  );
+}
+
 export function LinkOffIcon({ className, style }: IconProps) {
   return (
     <svg viewBox="0 0 24 24" className={className} style={style} stroke="currentColor" fill="none"

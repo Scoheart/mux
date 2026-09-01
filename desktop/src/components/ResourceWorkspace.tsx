@@ -502,32 +502,69 @@ export function ResourceInspector({
 
 export function InspectorSection({
   title,
+  icon,
   children,
 }: {
   title: string;
+  icon?: ReactNode;
   children: ReactNode;
 }) {
   return (
     <section className="mux-inspector-section">
-      <h3>{title}</h3>
+      <h3>
+        {icon && <span aria-hidden="true">{icon}</span>}
+        {title}
+      </h3>
       {children}
     </section>
   );
 }
 
-export function InspectorField({
+export function InspectorMetrics({ children }: { children: ReactNode }) {
+  return <div className="mux-inspector-metrics">{children}</div>;
+}
+
+export function InspectorMetric({
+  icon,
   label,
-  children,
-  mono,
+  value,
 }: {
+  icon: ReactNode;
   label: string;
-  children: ReactNode;
-  mono?: boolean;
+  value: ReactNode;
 }) {
   return (
-    <div className="mux-inspector-field">
-      <span>{label}</span>
-      <div className={mono ? "mux-inspector-field-mono" : undefined}>{children}</div>
+    <div className="mux-inspector-metric" title={label}>
+      <span className="mux-inspector-metric-icon" aria-hidden="true">{icon}</span>
+      <span>
+        <strong>{value}</strong>
+        <small>{label}</small>
+      </span>
+    </div>
+  );
+}
+
+export function InspectorField({
+  label,
+  icon,
+  children,
+  mono,
+  action,
+  wide,
+}: {
+  label: string;
+  icon?: ReactNode;
+  children: ReactNode;
+  mono?: boolean;
+  action?: ReactNode;
+  wide?: boolean;
+}) {
+  return (
+    <div className="mux-inspector-field" data-wide={wide ? "true" : undefined}>
+      <span className="mux-inspector-field-icon" data-empty={!icon ? "true" : undefined} aria-hidden="true">{icon}</span>
+      <span className="mux-inspector-field-label">{label}</span>
+      <div className={["mux-inspector-field-value", mono && "mux-inspector-field-mono"].filter(Boolean).join(" ")}>{children}</div>
+      {action && <div className="mux-inspector-field-action">{action}</div>}
     </div>
   );
 }

@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.160](https://github.com/Scoheart/mux/compare/v1.8.159...v1.8.160) (2026-09-01)
+
+### Changes
+
+* fix(build): sync Tauri TLS lockfile (#153) ([d7a0d04](https://github.com/Scoheart/mux/commit/d7a0d045a2c86763d055fb2f9ee07b3530e04766))
+
 ## [1.8.159](https://github.com/Scoheart/mux/compare/v1.8.158...v1.8.159) (2026-09-01)
 
 ### Changes

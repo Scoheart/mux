@@ -105,7 +105,7 @@ beforeEach(() => {
       default_protocol: "openai-responses",
       additional_endpoints: [],
       category: "custom",
-      model_discovery_supported: false,
+      model_discovery_supported: true,
     },
   ]);
   vi.mocked(api.listModelProviderInstances).mockResolvedValue([]);
@@ -961,19 +961,19 @@ it("discovers provider models when creating and keeps manual Model ID input auth
   })));
 });
 
-it("discovers provider models without blocking manual save after a discovery error", async () => {
+it("tries discovery for a custom Provider and keeps manual save available after failure", async () => {
   vi.mocked(api.listModelProviderInstances).mockResolvedValue([{
-    id: "openai-personal",
-    name: "OpenAI Personal",
-    provider: "openai",
-    base_url: "https://api.openai.com",
+    id: "custom-gateway",
+    name: "Custom Gateway",
+    provider: "custom",
+    base_url: "https://gateway.example.test",
     protocols: { "openai-responses": { endpoint_path: "/v1/responses" } },
     credential_saved: false,
     model_count: 0,
-    model_discovery_supported: true,
+    model_discovery_supported: false,
   }]);
   vi.mocked(api.discoverProviderModels).mockRejectedValue(
-    new Error("model_provider_credential_missing: save an API Key first"),
+    new Error("model_discovery_http: Provider model catalog returned HTTP 404"),
   );
   const user = userEvent.setup();
   const planUpdate = vi.fn().mockResolvedValue({ operation_id: "manual-model-plan" });
@@ -986,7 +986,9 @@ it("discovers provider models without blocking manual save after a discovery err
   );
 
   await user.click(await screen.findByRole("button", { name: "添加模型" }));
-  expect(await screen.findByText(/无法获取模型列表/)).toBeVisible();
+  await waitFor(() => expect(api.discoverProviderModels).toHaveBeenCalledWith("custom-gateway"));
+  expect(await screen.findByText(/无法获取模型列表.*仍可手动填写/)).toBeVisible();
+  expect(screen.getByRole("button", { name: "刷新模型列表" })).toBeVisible();
   const modelId = screen.getByRole("combobox", { name: "模型 ID" });
   await user.type(modelId, "gpt-manual-fallback");
   expect(modelId).toHaveValue("gpt-manual-fallback");

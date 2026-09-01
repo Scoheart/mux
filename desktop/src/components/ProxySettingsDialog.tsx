@@ -36,6 +36,7 @@ export function ProxySettingsDialog({
 
   return (
     <DialogShell
+      className="mux-dialog-proxy-settings"
       kind="editor"
       size="sm"
       title="网络代理"

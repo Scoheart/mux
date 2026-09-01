@@ -60,6 +60,10 @@
   --status-shadowed-border: rgba(94,92,230,.28);
   --status-shadowed-surface: rgba(246,246,255,.76);
   --status-shadowed-surface-hover: rgba(241,241,255,.92);
+  --mux-dialog-header-height: 56px;
+  --mux-dialog-footer-height: 52px;
+  --mux-dialog-inline: 18px;
+  --mux-dialog-block: 16px;
   color-scheme: light;
 
   --glass-fill: #FAFBFC;
@@ -1021,63 +1025,75 @@ body {
 .mux-resource-usage-empty { color: var(--text-secondary); font-size: 10px; }
 
 .mux-workspace-inspector-surface {
-  display: flex; width: 100%; height: min(680px, calc(100vh - 32px)); min-width: 0; min-height: 0;
+  display: flex; width: 100%; max-height: inherit; min-width: 0; min-height: 0;
   overflow: hidden; border-radius: inherit;
 }
 .mux-resource-inspector {
-  display: flex; width: 100%; height: 100%; min-height: 0; flex-direction: column;
-  border: 0; border-radius: var(--radius-region); background: var(--surface-section);
+  display: flex; width: 100%; max-height: inherit; min-height: 0; flex-direction: column; overflow: hidden;
+  border: 0; border-radius: inherit; background: var(--surface-overlay);
   box-shadow: none;
 }
 .mux-resource-inspector-head {
-  display: flex; align-items: center; gap: 11px; min-height: 76px; padding: 16px 18px 12px;
-  border: 0;
+  display: flex; min-height: var(--mux-dialog-header-height); flex: 0 0 auto; align-items: center; gap: 11px;
+  padding: 10px var(--mux-dialog-inline); border-bottom: 1px solid var(--border-hairline);
 }
 .mux-resource-inspector-head h2 { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-primary); font-size: 14px; font-weight: 680; }
-.mux-resource-inspector-subtitle { margin-top: 5px; }
+.mux-resource-inspector-subtitle { margin-top: 2px; color: var(--text-secondary); font-size: 9px; }
 .mux-inspector-close {
   display: inline-flex; width: 28px; height: 28px; flex: 0 0 auto; align-items: center; justify-content: center;
   padding: 0; border: 0; border-radius: 6px; background: transparent; color: var(--text-secondary); cursor: pointer;
 }
-.mux-inspector-close:hover { background: var(--color-gray-150); color: var(--text-primary); }
-.mux-resource-inspector-body { flex: 1; min-height: 0; overflow-y: auto; padding: 4px 12px 14px; }
-.mux-resource-inspector-footer {
-  display: flex; align-items: center; gap: 6px; min-height: 64px; margin: 0 12px 12px; padding: 10px;
-  border: 0; border-radius: var(--radius-row); background: var(--surface-control);
+.mux-inspector-close:hover { background: var(--surface-section); color: var(--text-primary); }
+.mux-resource-inspector-body {
+  flex: 0 1 auto; min-height: 0; max-height: calc(100vh - 140px); overflow-y: auto;
+  padding: var(--mux-dialog-block) var(--mux-dialog-inline); overscroll-behavior: contain;
 }
-.mux-dialog-shell { display: flex; width: 100%; max-height: inherit; min-height: 0; flex-direction: column; overflow: hidden; padding: 8px; }
+.mux-resource-inspector-footer {
+  display: flex; min-height: var(--mux-dialog-footer-height); flex: 0 0 auto; align-items: center; gap: 7px;
+  margin: 0; padding: 9px var(--mux-dialog-inline); border-top: 1px solid var(--border-hairline); background: transparent;
+}
+.mux-dialog-shell { display: flex; width: 100%; max-height: inherit; min-height: 0; flex-direction: column; overflow: hidden; padding: 0; }
 .mux-dialog-shell-header {
-  display: flex; min-height: 70px; flex: 0 0 auto; align-items: flex-start; gap: 16px; padding: 16px 16px 12px;
-  border: 0; background: var(--surface-overlay);
+  display: flex; min-height: var(--mux-dialog-header-height); flex: 0 0 auto; align-items: center; gap: 11px;
+  padding: 10px var(--mux-dialog-inline); border-bottom: 1px solid var(--border-hairline); background: var(--surface-overlay);
 }
 .mux-dialog-shell-heading { min-width: 0; flex: 1; }
 .mux-dialog-shell-leading { display: inline-flex; flex: 0 0 auto; }
-.mux-dialog-shell-heading h2 { margin: 0; color: var(--text-primary); font-size: 15px; font-weight: 680; line-height: 1.35; }
-.mux-dialog-shell-subtitle { margin-top: 4px; color: var(--text-secondary); font-size: 11px; line-height: 1.45; }
+.mux-dialog-shell-glyph {
+  display: inline-flex; width: 32px; height: 32px; flex: 0 0 32px; align-items: center; justify-content: center;
+  border-radius: 9px; background: color-mix(in srgb, var(--color-blue) 10%, transparent); color: var(--color-blue);
+}
+.mux-dialog-shell-glyph svg { width: 15px; height: 15px; }
+.mux-dialog-shell-heading h2 { margin: 0; color: var(--text-primary); font-size: 14px; font-weight: 680; line-height: 1.3; }
+.mux-dialog-shell-subtitle { margin-top: 2px; color: var(--text-secondary); font-size: 9px; line-height: 1.4; }
 .mux-dialog-shell-close {
   display: inline-flex; width: 28px; height: 28px; flex: 0 0 auto; align-items: center; justify-content: center;
-  padding: 0; border: 0; border-radius: 50%; background: var(--color-gray-150); color: var(--text-secondary); cursor: pointer;
+  padding: 0; border: 0; border-radius: 7px; background: transparent; color: var(--text-secondary); cursor: pointer;
 }
-.mux-dialog-shell-close:hover:not(:disabled) { color: var(--text-primary); }
+.mux-dialog-shell-close:hover:not(:disabled) { background: var(--surface-section); color: var(--text-primary); }
 .mux-dialog-shell-close:disabled { cursor: default; opacity: .45; }
-.mux-dialog-shell-status { flex: 0 0 auto; margin: 0 8px 8px; padding: 11px 12px; border: 0; border-radius: var(--radius-row); background: var(--surface-section); }
+.mux-dialog-shell-status { flex: 0 0 auto; margin: 10px var(--mux-dialog-inline) 0; padding: 9px 10px; border: 0; border-radius: 8px; background: var(--surface-section); }
 .mux-operation-progress { display: inline-flex; align-items: center; gap: 8px; color: var(--text-secondary); font-size: 11px; }
 .mux-operation-progress svg,
 .mux-button-progress-icon { width: 13px; height: 13px; flex: 0 0 13px; animation: spin .8s linear infinite; }
 .mux-view-loading { display: flex; height: 100%; align-items: center; justify-content: center; gap: 9px; color: var(--text-secondary); font-size: 11px; }
 .mux-view-loading svg { width: 14px; height: 14px; animation: spin .8s linear infinite; }
-.mux-dialog-shell-body { flex: 1 1 auto; min-width: 0; min-height: 0; margin: 0; padding: 8px; overflow-x: hidden; overflow-y: auto; }
+.mux-dialog-shell-body {
+  flex: 1 1 auto; min-width: 0; min-height: 0; margin: 0; padding: var(--mux-dialog-block) var(--mux-dialog-inline);
+  overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain;
+}
 .mux-dialog-shell[data-dialog-kind="picker"] .mux-dialog-shell-body {
   display: flex; flex-direction: column; overflow: hidden;
 }
 .mux-dialog-shell-footer {
-  display: flex; min-height: 58px; flex: 0 0 auto; align-items: center; justify-content: space-between; gap: 12px; margin: 8px; padding: 9px 10px;
-  border: 0; border-radius: var(--radius-row); background: var(--surface-section);
+  display: flex; min-height: var(--mux-dialog-footer-height); flex: 0 0 auto; align-items: center; justify-content: space-between;
+  gap: 12px; margin: 0; padding: 9px var(--mux-dialog-inline); border-top: 1px solid var(--border-hairline);
+  background: var(--surface-overlay);
 }
 .mux-dialog-shell-footer-start,
 .mux-dialog-shell-footer-end { display: flex; align-items: center; gap: 7px; }
 .mux-dialog-shell-footer-end { margin-left: auto; }
-.mux-proxy-form { display: grid; gap: 10px; padding: 16px; border-radius: 15px; background: var(--surface-section); }
+.mux-proxy-form { display: grid; gap: 10px; padding: 0; border-radius: 0; background: transparent; }
 .mux-proxy-form label { color: var(--text-primary); font-size: 10px; font-weight: 680; }
 .mux-proxy-form input {
   box-sizing: border-box; width: 100%; height: 36px; padding: 0 10px; border: 1px solid var(--border-hairline); border-radius: 7px;
@@ -1089,6 +1105,28 @@ body {
 .mux-proxy-help { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--text-secondary); font-size: 9px; }
 .mux-proxy-help span:first-child { color: var(--color-blue); font: 650 8px/1 var(--font-mono); letter-spacing: .05em; }
 .mux-proxy-error { color: var(--color-red); font-size: 10px; line-height: 1.45; }
+.mux-subscription-form { display: grid; min-width: 0; gap: 14px; }
+.mux-subscription-preset {
+  display: inline-flex; width: fit-content; height: 30px; align-items: center; gap: 7px; padding: 0 9px;
+  border: 0; border-radius: 7px; background: color-mix(in srgb, var(--color-blue) 9%, transparent);
+  color: var(--color-blue); font: 650 10px/1 var(--font-sans); cursor: pointer;
+}
+.mux-subscription-preset:hover { background: color-mix(in srgb, var(--color-blue) 14%, transparent); }
+.mux-dialog-field { display: grid; min-width: 0; gap: 6px; }
+.mux-dialog-field > span { display: flex; align-items: center; gap: 6px; color: var(--text-secondary); font-size: 10px; font-weight: 650; }
+.mux-dialog-field > span svg { width: 13px; height: 13px; color: var(--text-tertiary); }
+.mux-dialog-field > span i { color: var(--color-red); font-style: normal; }
+.mux-dialog-input,
+.mux-paste-config-input {
+  box-sizing: border-box; width: 100%; min-width: 0; border: 1px solid var(--border-hairline); border-radius: 7px;
+  outline: 0; background: var(--surface-control); color: var(--text-primary);
+}
+.mux-dialog-input { height: 34px; padding: 0 10px; font: 11px/1 var(--font-sans); }
+.mux-dialog-input-mono { font-family: var(--font-mono); }
+.mux-paste-config-input { min-height: 230px; padding: 10px 11px; resize: vertical; font: 10px/1.55 var(--font-mono); }
+.mux-dialog-input:focus,
+.mux-paste-config-input:focus { border-color: color-mix(in srgb, var(--color-blue) 58%, var(--border-hairline)); box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-blue) 10%, transparent); }
+.mux-dialog-paste-config .mux-dialog-shell-subtitle code { font: 9px/1.4 var(--font-mono); }
 .mux-review-content { color: var(--text-primary); font-size: 12px; line-height: 1.55; }
 .mux-review-content p { margin: 0; }
 .mux-review-content strong { font-weight: 690; }
@@ -1096,29 +1134,28 @@ body {
 .mux-review-error { color: var(--color-red); font-size: 11px; line-height: 1.45; }
 .mux-dialog-shell.mux-review-dialog-danger { padding: 0; }
 .mux-review-dialog-danger .mux-dialog-shell-header {
-  min-height: 0; align-items: center; gap: 12px; padding: 20px 20px 14px;
+  min-height: var(--mux-dialog-header-height); align-items: center; gap: 11px;
+  padding: 10px var(--mux-dialog-inline);
 }
-.mux-review-dialog-danger .mux-dialog-shell-heading h2 { font-size: 16px; font-weight: 700; letter-spacing: -.01em; }
-.mux-review-dialog-danger .mux-dialog-shell-subtitle { margin-top: 3px; font-size: 10px; }
-.mux-review-dialog-danger .mux-dialog-shell-close { align-self: flex-start; background: transparent; }
+.mux-review-dialog-danger .mux-dialog-shell-heading h2 { font-size: 14px; font-weight: 700; letter-spacing: -.01em; }
+.mux-review-dialog-danger .mux-dialog-shell-subtitle { margin-top: 2px; font-size: 9px; }
+.mux-review-dialog-danger .mux-dialog-shell-close { background: transparent; }
 .mux-review-dialog-danger .mux-dialog-shell-close:hover:not(:disabled) { background: var(--color-gray-150); }
 .mux-review-dialog-glyph {
-  display: inline-flex; width: 38px; height: 38px; align-items: center; justify-content: center;
-  border-radius: 11px; background: color-mix(in srgb, var(--color-red) 10%, var(--surface-raised));
+  display: inline-flex; width: 28px; height: 28px; align-items: center; justify-content: center;
+  border-radius: 7px; background: color-mix(in srgb, var(--color-red) 10%, var(--surface-raised));
   color: var(--color-red);
 }
-.mux-review-dialog-glyph svg { width: 17px; height: 17px; }
-.mux-review-dialog-danger .mux-dialog-shell-status { margin: 0 20px 10px; background: color-mix(in srgb, var(--color-red) 7%, var(--surface-raised)); }
-.mux-review-dialog-danger .mux-dialog-shell-body { padding: 4px 20px 16px; overflow: visible; overscroll-behavior: contain; }
+.mux-review-dialog-glyph svg { width: 15px; height: 15px; }
+.mux-review-dialog-danger .mux-dialog-shell-status { margin: 0 var(--mux-dialog-inline) 8px; background: color-mix(in srgb, var(--color-red) 7%, var(--surface-raised)); }
+.mux-review-dialog-danger .mux-dialog-shell-body { padding: var(--mux-dialog-block) var(--mux-dialog-inline); overflow: visible; overscroll-behavior: contain; }
 .mux-review-dialog-danger .mux-review-content { display: grid; gap: 10px; }
 .mux-review-dialog-danger .mux-dialog-shell-footer {
-  min-height: 0; margin: 0; padding: 14px 20px 18px;
+  min-height: var(--mux-dialog-footer-height); margin: 0; padding: 9px var(--mux-dialog-inline);
   border-top: 1px solid var(--border-hairline); border-radius: 0; background: transparent;
 }
 .mux-clear-models-impact {
-  display: grid; gap: 4px; padding: 12px 13px;
-  border: 1px solid color-mix(in srgb, var(--color-red) 18%, var(--border-hairline));
-  border-radius: 11px; background: color-mix(in srgb, var(--color-red) 6%, var(--surface-section));
+  display: grid; gap: 4px; padding: 0; border: 0; border-radius: 0; background: transparent;
 }
 .mux-clear-models-impact strong { color: var(--text-primary); font-size: 12px; line-height: 1.4; text-wrap: balance; }
 .mux-clear-models-impact span { color: var(--color-red); font-size: 10px; line-height: 1.45; }
@@ -1134,21 +1171,21 @@ body {
   outline: 2px solid color-mix(in srgb, var(--color-blue) 48%, transparent); outline-offset: 2px;
 }
 @media (max-width: 520px) {
-  .mux-review-dialog-danger .mux-dialog-shell-header { padding: 17px 17px 12px; }
-  .mux-review-dialog-danger .mux-dialog-shell-body { padding: 3px 17px 14px; }
-  .mux-review-dialog-danger .mux-dialog-shell-footer { padding: 12px 17px 16px; }
+  .mux-review-dialog-danger .mux-dialog-shell-header,
+  .mux-review-dialog-danger .mux-dialog-shell-body,
+  .mux-review-dialog-danger .mux-dialog-shell-footer { padding-right: 14px; padding-left: 14px; }
 }
 .mux-picker-search { width: 100%; min-width: 0; flex: 0 0 auto; margin-bottom: 12px; }
 .mux-picker-list {
   display: grid; width: 100%; min-width: 0; min-height: 0; max-height: min(430px, calc(100vh - 240px));
-  gap: 6px; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable;
+  gap: 0; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable;
 }
 .mux-picker-option {
-  display: flex; box-sizing: border-box; width: 100%; min-width: 0; max-width: 100%; min-height: 54px; align-items: center; gap: 10px; padding: 9px 10px;
-  border: 0; border-radius: var(--radius-row); background: var(--surface-item); color: var(--text-primary); text-align: left; cursor: pointer;
+  display: flex; box-sizing: border-box; width: 100%; min-width: 0; max-width: 100%; min-height: 54px; align-items: center; gap: 10px; padding: 9px 8px;
+  border: 0; border-bottom: 1px solid var(--border-hairline); border-radius: 0; background: transparent; color: var(--text-primary); text-align: left; cursor: pointer;
 }
-.mux-picker-option:hover { background: color-mix(in srgb, var(--surface-selected) 55%, var(--surface-item)); }
-.mux-picker-option[data-selected="true"] { background: var(--surface-selected); box-shadow: none; }
+.mux-picker-option:hover { background: color-mix(in srgb, var(--surface-selected) 42%, transparent); }
+.mux-picker-option[data-selected="true"] { border-radius: 8px; background: var(--surface-selected); box-shadow: none; }
 .mux-picker-option-copy { min-width: 0; flex: 1; }
 .mux-picker-option-copy strong,
 .mux-picker-option-copy small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -1157,13 +1194,53 @@ body {
 .mux-picker-option-meta { flex: 0 0 auto; }
 .mux-picker-empty { display: flex; min-height: 180px; align-items: center; justify-content: center; color: var(--text-secondary); font-size: 11px; }
 .mux-picker-count { color: var(--text-secondary); font-size: 10px; font-variant-numeric: tabular-nums; }
-.mux-inspector-section { padding: 14px; border-radius: var(--radius-row); background: var(--surface-control); }
-.mux-inspector-section + .mux-inspector-section { margin-top: 8px; }
-.mux-inspector-section h3 { margin: 0 0 10px; color: var(--text-primary); font-size: 11px; font-weight: 700; }
-.mux-model-inspector-fields { padding: 10px 14px; border-radius: var(--radius-row); background: var(--surface-control); }
-.mux-inspector-field { display: grid; grid-template-columns: 82px minmax(0, 1fr); align-items: start; gap: 10px; padding: 7px 0; border: 0; }
-.mux-inspector-field > span { color: var(--text-secondary); font-size: 11px; }
-.mux-inspector-field > div { min-width: 0; overflow-wrap: anywhere; color: var(--text-primary); font-size: 11px; }
+.mux-inspector-section { padding: 0 0 14px; border-bottom: 1px solid var(--border-hairline); background: transparent; }
+.mux-inspector-section + .mux-inspector-section { margin-top: 14px; }
+.mux-inspector-section:last-child { padding-bottom: 0; border-bottom: 0; }
+.mux-inspector-section h3 { display: flex; align-items: center; gap: 7px; margin: 0 0 8px; color: var(--text-primary); font-size: 10px; font-weight: 700; }
+.mux-inspector-section h3 > span { display: inline-flex; color: var(--color-blue); }
+.mux-inspector-section h3 svg { width: 14px; height: 14px; }
+.mux-inspector-metrics { display: flex; min-width: 0; flex-wrap: wrap; gap: 18px; padding-bottom: 14px; border-bottom: 1px solid var(--border-hairline); }
+.mux-inspector-metric { display: flex; min-width: 88px; align-items: center; gap: 7px; }
+.mux-inspector-metric-icon { display: inline-flex; width: 26px; height: 26px; flex: 0 0 26px; align-items: center; justify-content: center; border-radius: 7px; background: color-mix(in srgb, var(--color-blue) 10%, transparent); color: var(--color-blue); }
+.mux-inspector-metric-icon svg { width: 14px; height: 14px; }
+.mux-inspector-metric > span:last-child { display: grid; min-width: 0; gap: 2px; }
+.mux-inspector-metric strong { overflow: hidden; color: var(--text-primary); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.mux-inspector-metric small { color: var(--text-secondary); font-size: 8px; }
+.mux-model-inspector-description { margin: 13px 0 4px; color: var(--text-secondary); font-size: 10px; line-height: 1.55; }
+.mux-model-inspector-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 22px; padding: 4px 0 0; border: 0; border-radius: 0; background: transparent; }
+.mux-model-inspector-fields .mux-inspector-field[data-wide="true"] { grid-column: 1 / -1; }
+@media (max-width: 620px) {
+  .mux-model-inspector-fields { grid-template-columns: minmax(0, 1fr); }
+  .mux-model-inspector-fields .mux-inspector-field[data-wide="true"] { grid-column: auto; }
+  .mux-dialog-shell-header,
+  .mux-resource-inspector-head { padding-right: 14px; padding-left: 14px; }
+  .mux-dialog-shell-body,
+  .mux-resource-inspector-body { padding-right: 14px; padding-left: 14px; }
+  .mux-dialog-shell-footer,
+  .mux-resource-inspector-footer { padding-right: 14px; padding-left: 14px; }
+  .mux-inspector-metrics { gap: 12px; }
+  .mux-inspector-field { grid-template-columns: 22px 68px minmax(0, 1fr) auto; }
+}
+@media (max-height: 640px) {
+  .mux-dialog-shell-body,
+  .mux-resource-inspector-body { padding-top: 12px; padding-bottom: 12px; }
+  .mux-picker-list { max-height: calc(100vh - 190px); }
+}
+.mux-inspector-field {
+  display: grid; min-width: 0; grid-template-columns: 24px 76px minmax(0, 1fr) auto; align-items: start;
+  gap: 7px; padding: 9px 0; border-bottom: 1px solid var(--border-hairline);
+}
+.mux-inspector-field:last-child { border-bottom: 0; }
+.mux-inspector-field-icon { display: inline-flex; align-items: center; justify-content: center; color: var(--text-tertiary); }
+.mux-inspector-field-icon[data-empty="true"] { visibility: hidden; }
+.mux-inspector-field-icon svg { width: 14px; height: 14px; }
+.mux-inspector-field-label { color: var(--text-secondary); font-size: 10px; }
+.mux-inspector-field-value { min-width: 0; overflow-wrap: anywhere; color: var(--text-primary); font-size: 10px; }
+.mux-inspector-field-action { display: inline-flex; align-items: center; justify-content: flex-end; }
+.mux-inspector-field-action > button { display: inline-flex; width: 24px; height: 24px; align-items: center; justify-content: center; padding: 0; border: 0; border-radius: 6px; background: transparent; color: var(--text-tertiary); cursor: pointer; }
+.mux-inspector-field-action > button:hover { background: var(--surface-section); color: var(--color-blue); }
+.mux-inspector-field-action svg { width: 13px; height: 13px; }
 .mux-inspector-field-mono { font-family: var(--font-mono); font-size: 10px !important; line-height: 1.5; }
 .mux-copy-inline { display: inline-flex; align-items: center; margin-left: 6px; padding: 2px; color: var(--text-tertiary); border-radius: 5px; }
 .mux-copy-inline:hover { color: var(--color-blue); background: var(--surface-selected); }
@@ -1232,11 +1309,11 @@ body {
 }
 .mux-skill-inspector-findings li,
 .mux-skill-file-tree li {
-  min-width: 0; padding: 10px; border: 0; border-radius: var(--radius-control);
-  background: var(--surface-item);
+  min-width: 0; padding: 9px 0; border-bottom: 1px solid var(--border-hairline); border-radius: 0;
+  background: transparent;
 }
 .mux-skill-inspector-findings li + li,
-.mux-skill-file-tree li + li { margin-top: 6px; }
+.mux-skill-file-tree li + li { margin-top: 0; }
 .mux-skill-inspector-finding-head { display: flex; min-width: 0; align-items: flex-start; justify-content: space-between; gap: 8px; }
 .mux-skill-inspector-finding-head > code { min-width: 0; flex: 1; color: var(--text-primary); font: 9px/1.45 var(--font-mono); }
 .mux-skill-inspector-findings li > p { margin: 7px 0; color: var(--text-primary); font-size: 10px; line-height: 1.5; overflow-wrap: anywhere; }
@@ -1263,7 +1340,7 @@ body {
 .mux-skill-review-dialog,
 .mux-skill-risk-dialog {
   display: flex; width: 100%; min-width: 0; min-height: 0; max-height: inherit;
-  flex: 1 1 auto; flex-direction: column; overflow: hidden; padding: 8px; background: var(--surface-overlay);
+  flex: 1 1 auto; flex-direction: column; overflow: visible; padding: 0; background: transparent;
 }
 .mux-skill-install-dialog code,
 .mux-skill-install-dialog pre,
@@ -1306,8 +1383,7 @@ body {
 .mux-skill-review-header > button:disabled { opacity: .45; cursor: default; }
 .mux-skill-dialog-body,
 .mux-skill-review-body {
-  min-width: 0; min-height: 0; flex: 1 1 auto; padding: 8px; overflow-x: hidden;
-  overflow-y: auto; overscroll-behavior: contain; background: var(--surface-overlay);
+  min-width: 0; min-height: 0; flex: 1 1 auto; padding: 0; overflow: visible; background: transparent;
 }
 .mux-skill-dialog-footer,
 .mux-skill-review-footer {
@@ -1331,14 +1407,14 @@ body {
 .mux-skill-review-skill,
 .mux-skill-review-targets,
 .mux-skill-review-warnings {
-  min-width: 0; border: 0; border-radius: var(--radius-row); background: var(--surface-section);
+  min-width: 0; border: 0; border-radius: 0; background: transparent;
 }
-.mux-skill-source-step > section { padding: 13px; }
+.mux-skill-source-step > section { padding: 0 0 13px; border-bottom: 1px solid var(--border-hairline); }
 .mux-skill-source-step-compact {
   grid-template-columns: minmax(0, 2.2fr) repeat(2, minmax(118px, 1fr));
   align-items: stretch; gap: 8px;
 }
-.mux-skill-source-step-compact > section { padding: 12px; }
+.mux-skill-source-step-compact > section { padding: 0 12px 0 0; border-right: 1px solid var(--border-hairline); border-bottom: 0; }
 .mux-skill-source-heading { display: flex; min-width: 0; align-items: flex-start; gap: 9px; color: var(--color-blue); }
 .mux-skill-source-heading > div { min-width: 0; }
 .mux-skill-source-heading h3,
@@ -1403,8 +1479,8 @@ body {
 .mux-skill-choice-list > label,
 .mux-skill-agent-choice-grid > label,
 .mux-skill-assignment-list > label {
-  display: flex; min-width: 0; align-items: flex-start; gap: 8px; padding: 9px;
-  border: 0; border-radius: var(--radius-control); background: var(--surface-item);
+  display: flex; min-width: 0; align-items: flex-start; gap: 8px; padding: 9px 0;
+  border-bottom: 1px solid var(--border-hairline); border-radius: 0; background: transparent;
   color: var(--text-primary); cursor: pointer;
 }
 .mux-skill-choice-list > label:has(input:checked),
@@ -1548,19 +1624,6 @@ body {
 }
 
 /* Models */
-.mux-dialog-shell:has(.mux-provider-catalog) { padding: 0; }
-.mux-dialog-shell:has(.mux-provider-catalog) .mux-dialog-shell-header {
-  min-height: 56px; align-items: center; padding: 10px 24px 8px;
-}
-.mux-dialog-shell:has(.mux-provider-catalog) .mux-dialog-shell-close {
-  width: 32px; height: 32px; flex-basis: 32px; border-radius: 8px; background: transparent;
-}
-.mux-dialog-shell:has(.mux-provider-catalog) .mux-dialog-shell-close:hover:not(:disabled) { background: var(--surface-control); }
-.mux-dialog-shell:has(.mux-provider-catalog) .mux-dialog-shell-body { padding: 6px 24px 0; }
-.mux-dialog-shell:has(.mux-provider-catalog) .mux-dialog-shell-footer {
-  min-height: 62px; margin: 0; padding: 10px 24px; border-top: 1px solid var(--border-hairline);
-  border-radius: 0; background: var(--surface-overlay); box-shadow: 0 -8px 24px rgba(20, 31, 51, .035);
-}
 .mux-provider-catalog { display: grid; min-height: 0; padding: 0 2px 14px; overflow-y: auto; gap: 10px; }
 .mux-provider-catalog-search { position: relative; display: block; flex: 0 0 auto; }
 .mux-provider-catalog-search > svg {
@@ -1939,18 +2002,12 @@ body {
 .mux-consumption-picker-option em { display: block; margin-top: 4px; color: var(--color-brand-gold); font-size: 9px; font-style: normal; }
 
 /* Add Agent keeps identity and writer locations compact without hiding validation. */
-.mux-dialog-shell:has(.mux-agent-create) .mux-dialog-shell-header {
-  min-height: 52px; align-items: center; padding: 10px 12px 8px;
-}
-.mux-dialog-shell:has(.mux-agent-create) .mux-dialog-shell-body { padding: 5px 8px; }
-.mux-dialog-shell:has(.mux-agent-create) .mux-dialog-shell-footer {
-  min-height: 50px; margin: 6px 8px 8px; padding: 7px 8px;
-}
 .mux-agent-create { display: grid; gap: 8px; }
 .mux-agent-create-section {
-  min-width: 0; padding: 11px; border-radius: 13px;
-  background: var(--surface-section);
+  min-width: 0; padding: 0 0 14px; border-bottom: 1px solid var(--border-hairline); border-radius: 0;
+  background: transparent;
 }
+.mux-agent-create-section:last-child { padding-bottom: 0; border-bottom: 0; }
 .mux-agent-create-section-head { display: flex; align-items: center; min-height: 18px; margin-bottom: 8px; }
 .mux-agent-create-section-head h3,
 .mux-agent-create-section-head p { margin: 0; }
@@ -1961,7 +2018,7 @@ body {
 }
 .mux-agent-identity-preview {
   display: flex; width: 52px; height: 52px; align-items: center; justify-content: center;
-  border-radius: 12px; background: var(--surface-raised);
+  border-radius: 12px; background: var(--surface-section);
 }
 .mux-agent-identity-fields,
 .mux-agent-detail-fields { display: grid; min-width: 0; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
@@ -2102,14 +2159,20 @@ body {
   background: color-mix(in srgb, var(--color-blue) 10%, var(--surface-control)); color: var(--color-blue);
   font-size: 9px; font-weight: 680;
 }
-.mux-asset-operation-review-status { padding: 10px 12px; border-radius: var(--radius-row); background: var(--surface-section); }
+.mux-asset-operation-review-status { padding: 9px 10px; border-radius: 7px; background: var(--surface-section); }
 .mux-asset-operation-review-footer {
   display: flex; flex: 0 0 auto; align-items: center; justify-content: flex-end; gap: 8px;
   padding: 10px; border-radius: var(--radius-row); background: var(--surface-section);
 }
-.mux-dialog-shell-body > .mux-asset-operation-review { max-width: none; border: 0; background: transparent; box-shadow: none; }
+.mux-dialog-shell-body > .mux-asset-operation-review { max-width: none; gap: 14px; padding: 0; border: 0; background: transparent; box-shadow: none; }
+.mux-dialog-shell-body > .mux-asset-operation-review .mux-asset-operation-review-header h2 { font-size: 13px; }
+.mux-dialog-shell-body > .mux-asset-operation-review .mux-asset-operation-review-footer {
+  min-height: var(--mux-dialog-footer-height); padding: 9px 0 0; border-top: 1px solid var(--border-hairline);
+  border-radius: 0; background: transparent;
+}
 .mux-asset-review { display: grid; gap: 10px; }
-.mux-asset-review > section { padding: 14px; border-radius: var(--radius-row); background: var(--surface-section); }
+.mux-asset-review > section { padding: 0 0 12px; border-bottom: 1px solid var(--border-hairline); border-radius: 0; background: transparent; }
+.mux-asset-review > section:last-child { padding-bottom: 0; border-bottom: 0; }
 .mux-asset-review section h3 { margin: 0 0 8px; color: var(--text-secondary); font-size: 10px; }
 .mux-asset-review-summary { border: 1px solid color-mix(in srgb, var(--color-red) 14%, transparent); background: color-mix(in srgb, var(--color-red) 5%, var(--surface-section)) !important; }
 .mux-asset-review-summary p { display: flex; align-items: baseline; gap: 4px; }
@@ -2117,7 +2180,8 @@ body {
 .mux-asset-review-error { display: grid; gap: 2px; color: var(--color-red); font-size: 10px; line-height: 1.45; }
 .mux-asset-review-error strong { font-size: 11px; }
 .mux-asset-review ul { display: grid; margin: 0; padding: 0; gap: 6px; list-style: none; }
-.mux-asset-review li { display: grid; min-width: 0; grid-template-columns: auto auto minmax(0, 1fr); align-items: center; gap: 8px; padding: 7px 8px; border-radius: 6px; background: var(--surface-control); }
+.mux-asset-review li { display: grid; min-width: 0; grid-template-columns: auto auto minmax(0, 1fr); align-items: center; gap: 8px; padding: 7px 0; border-bottom: 1px solid var(--border-hairline); border-radius: 0; background: transparent; }
+.mux-asset-review li:last-child { border-bottom: 0; }
 .mux-asset-review li > span { color: var(--color-blue); font-size: 9px; }
 .mux-asset-review li > span[data-action="remove"] { color: var(--color-red); }
 .mux-asset-review li > strong { font-size: 10px; }
@@ -2133,11 +2197,11 @@ body {
 .mux-skill-impact-list li > span[data-impact="compatible"] { color: var(--text-secondary); }
 .mux-config-review li { grid-template-columns: auto minmax(0, 1fr) auto minmax(0, 1fr); }
 .mux-config-review li > code { overflow-wrap: anywhere; }
-.mux-asset-review-warnings { padding: 12px; border: 0; border-radius: var(--radius-row); background: var(--surface-attention); }
+.mux-asset-review-warnings { padding: 10px !important; border: 0 !important; border-radius: 7px !important; background: var(--surface-attention) !important; }
 
 /* Shared MCP / Model forms */
 .mux-model-form,
-.mux-mcp-form { display: flex; flex-direction: column; gap: 14px; padding: 16px; overflow-y: auto; border-radius: 15px; background: var(--surface-section); }
+.mux-mcp-form { display: flex; flex-direction: column; gap: 14px; padding: 0; overflow-y: auto; border-radius: 0; background: transparent; }
 .mux-mcp-override-note { display: flex; align-items: flex-start; gap: 9px; padding: 10px 12px; border: 1px solid color-mix(in srgb, var(--color-blue) 22%, var(--border-hairline)); border-radius: 8px; background: color-mix(in srgb, var(--color-blue) 7%, var(--surface-raised)); color: var(--text-primary); }
 .mux-mcp-override-note > svg { color: var(--color-blue); }
 .mux-model-form-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
@@ -2207,20 +2271,6 @@ body {
 }
 .mux-model-check { display: inline-flex; align-items: center; gap: 7px; color: var(--text-secondary); font-size: 11px; }
 .mux-model-check input { accent-color: var(--color-blue); }
-.mux-dialog-shell:has(.mux-provider-form) { padding: 0; }
-.mux-dialog-shell:has(.mux-provider-form) .mux-dialog-shell-header {
-  min-height: 56px; align-items: center; padding: 0 24px;
-}
-.mux-dialog-shell:has(.mux-provider-form) .mux-dialog-shell-heading h2 { font-size: 16px; font-weight: 650; }
-.mux-dialog-shell:has(.mux-provider-form) .mux-dialog-shell-close {
-  width: 32px; height: 32px; flex-basis: 32px; border-radius: 6px; background: transparent;
-}
-.mux-dialog-shell:has(.mux-provider-form) .mux-dialog-shell-close:hover:not(:disabled) { background: var(--surface-control); }
-.mux-dialog-shell:has(.mux-provider-form) .mux-dialog-shell-body { padding: 8px 24px 20px; }
-.mux-dialog-shell:has(.mux-provider-form) .mux-dialog-shell-footer {
-  min-height: 60px; margin: 0; padding: 0 24px; border-top: 1px solid var(--border-hairline);
-  border-radius: 0; background: var(--surface-overlay);
-}
 .mux-provider-form {
   gap: 0; padding: 0; overflow: visible; border-radius: 0; background: transparent;
 }
@@ -2228,7 +2278,7 @@ body {
 .mux-provider-model-catalog-field { grid-column: 1 / -1; }
 .mux-provider-form .mux-model-field { height: 32px; }
 .mux-provider-form-section {
-  display: grid; min-width: 0; gap: 12px; margin-top: 20px; padding-top: 18px;
+  display: grid; min-width: 0; gap: 12px; margin-top: 16px; padding-top: 16px;
   border-top: 1px solid var(--border-hairline);
 }
 .mux-provider-section-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }

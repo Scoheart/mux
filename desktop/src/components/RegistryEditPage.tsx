@@ -349,6 +349,7 @@ export function RegistryEditPage({
 
   return (
     <DialogShell
+      className="mux-dialog-mcp-editor"
       kind="editor"
       size="lg"
       title={isNew ? "新建 MCP" : "编辑 MCP"}

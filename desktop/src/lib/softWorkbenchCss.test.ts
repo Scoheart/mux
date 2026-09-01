@@ -59,12 +59,12 @@ it("uses regions and row islands instead of structural divider lines", () => {
   expect(declarations(".mux-resource-card:hover")).toMatch(/transform:\s*none/);
 });
 
-it("keeps the top bar and dialogs free of decorative separators", () => {
+it("keeps the top bar quiet and gives dialogs only structural hairlines", () => {
   expect(layout).not.toMatch(/borderBottom/);
   expect(layout).not.toMatch(/h-5 w-px/);
   expect(layout).toMatch(/background:\s*"var\(--surface-workspace\)"/);
-  expect(declarations(".mux-dialog-shell-header")).toMatch(/border:\s*0/);
-  expect(declarations(".mux-dialog-shell-footer")).toMatch(/border:\s*0/);
+  expect(declarations(".mux-dialog-shell-header")).toMatch(/border-bottom:\s*1px solid var\(--border-hairline\)/);
+  expect(declarations(".mux-dialog-shell-footer")).toMatch(/border-top:\s*1px solid var\(--border-hairline\)/);
   expect(declarations(".mux-resource-inspector")).toMatch(/border:\s*0/);
   expect(ui).toMatch(/background:\s*"var\(--surface-modal-scrim\)"/);
 });

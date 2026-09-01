@@ -162,6 +162,7 @@ export function AddAgentDialog({
 
   return (
     <DialogShell
+      className="mux-dialog-agent-editor"
       kind="editor"
       size="md"
       title={t("agents.addTitle")}

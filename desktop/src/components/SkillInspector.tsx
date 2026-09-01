@@ -14,7 +14,15 @@ import {
 import { SkillRiskBadge, skillSourceText } from "./SkillCard";
 import { agentName } from "./brandIcons";
 import { Avatar, Badge } from "./ui";
-import { TrashIcon } from "./icons";
+import {
+  CalendarIcon,
+  FolderIcon,
+  LayersIcon,
+  LinkIcon,
+  RefreshIcon,
+  TerminalIcon,
+  TrashIcon,
+} from "./icons";
 
 const stateLabels: Record<InventoryState, string> = {
   managed: "已托管",
@@ -191,30 +199,30 @@ export function SkillInspector({
     >
       <p className="mux-skill-inspector-description">{item.description}</p>
 
-      <InspectorSection title="来源与版本">
-        <InspectorField label="来源" mono>
+      <InspectorSection title="来源与版本" icon={<LinkIcon className="w-4 h-4" />}>
+        <InspectorField icon={<LinkIcon className="w-4 h-4" />} label="来源" mono>
           {skillSourceText(item.source)}
         </InspectorField>
-        <InspectorField label="Revision" mono>
+        <InspectorField icon={<RefreshIcon className="w-4 h-4" />} label="Revision" mono>
           {item.resolved_revision ?? "未记录"}
         </InspectorField>
-        <InspectorField label="内容哈希" mono>
+        <InspectorField icon={<TerminalIcon className="w-4 h-4" />} label="内容哈希" mono>
           {item.content_hash ?? "未记录"}
         </InspectorField>
-        <InspectorField label="安装时间" mono>
+        <InspectorField icon={<CalendarIcon className="w-4 h-4" />} label="安装时间" mono>
           {item.installed_at ?? "未记录"}
         </InspectorField>
-        <InspectorField label="更新时间" mono>
+        <InspectorField icon={<CalendarIcon className="w-4 h-4" />} label="更新时间" mono>
           {item.updated_at ?? "未记录"}
         </InspectorField>
         {item.affected_agent_ids.length > 0 && (
-          <InspectorField label="关联 Agent">
+          <InspectorField icon={<LayersIcon className="w-4 h-4" />} label="关联 Agent">
             {item.affected_agent_ids.length} 个 · {item.affected_agent_ids.map((id) => agentName(id)).join("、")}
           </InspectorField>
         )}
       </InspectorSection>
 
-      <InspectorSection title="状态与风险">
+      <InspectorSection title="状态与风险" icon={<LayersIcon className="w-4 h-4" />}>
         <div className="mux-skill-inspector-state-list">
           <SkillRiskBadge level={item.risk?.level ?? null} />
           {item.states.filter((state) => state !== "assigned").map((state) => (
@@ -270,11 +278,11 @@ export function SkillInspector({
       </InspectorSection>
 
       {loading ? (
-        <InspectorSection title="内容">
+        <InspectorSection title="内容" icon={<TerminalIcon className="w-4 h-4" />}>
           <p className="mux-skill-inspector-loading" role="status">正在读取 Skill 详情…</p>
         </InspectorSection>
       ) : error ? (
-        <InspectorSection title="内容">
+        <InspectorSection title="内容" icon={<TerminalIcon className="w-4 h-4" />}>
           <p className="mux-skill-inspector-error" role="alert">
             读取详情失败：{error.message}
             {error.retry_at ? ` · 可重试：${error.retry_at}` : ""}
@@ -282,7 +290,7 @@ export function SkillInspector({
         </InspectorSection>
       ) : detail ? (
         <>
-          <InspectorSection title="文件">
+          <InspectorSection title="文件" icon={<FolderIcon className="w-4 h-4" />}>
             <ul className="mux-skill-file-tree" aria-label="Skill 文件树">
               {detail.files.map((file) => (
                 <li key={file.path}>
@@ -297,7 +305,7 @@ export function SkillInspector({
             </ul>
           </InspectorSection>
 
-          <InspectorSection title="SKILL.md">
+          <InspectorSection title="SKILL.md" icon={<TerminalIcon className="w-4 h-4" />}>
             {detail.skill_md_truncated && (
               <p className="mux-skill-inspector-truncation">SKILL.md 预览已截断</p>
             )}
@@ -307,7 +315,7 @@ export function SkillInspector({
           </InspectorSection>
         </>
       ) : (
-        <InspectorSection title="内容">
+        <InspectorSection title="内容" icon={<TerminalIcon className="w-4 h-4" />}>
           <p className="mux-skill-inspector-empty">尚未加载 Skill 详情。</p>
         </InspectorSection>
       )}

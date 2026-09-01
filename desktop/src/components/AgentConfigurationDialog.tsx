@@ -151,6 +151,7 @@ export function AgentConfigurationDialog({
   if (plan) {
     return (
       <DialogShell
+        className="mux-dialog-agent-config-review"
         kind="editor"
         size="md"
         title="编辑配置"
@@ -173,6 +174,7 @@ export function AgentConfigurationDialog({
 
   return (
     <DialogShell
+      className="mux-dialog-agent-config"
       kind="editor"
       size="md"
       title="编辑配置"

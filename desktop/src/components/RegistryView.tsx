@@ -22,7 +22,9 @@ import {
   FolderIcon,
   LayersIcon,
   PackageIcon,
+  NetworkIcon,
   SparklesIcon,
+  TerminalIcon,
   TrashIcon,
 } from "./icons";
 import { Badge, IconButton, TransportPill } from "./ui";
@@ -565,14 +567,12 @@ function RegistryDetail({
             </button>
           )}
           <div className="flex-1" />
-          <button onClick={onCustomizeIcon} className="btn-ghost">
+          <IconButton onClick={onCustomizeIcon} title={t("mcpIcons.action")}>
             <SparklesIcon className="w-4 h-4" />
-            {t("mcpIcons.action")}
-          </button>
-          <button onClick={onCopy} className="btn-ghost">
+          </IconButton>
+          <IconButton onClick={onCopy} title="复制配置">
             <CopyIcon className="w-4 h-4" />
-            复制
-          </button>
+          </IconButton>
           {onEdit && (
             <button onClick={onEdit} className="btn-primary">
               <EditIcon className="w-4 h-4" />
@@ -596,10 +596,10 @@ function RegistryDetail({
 
       {entry.description && <p className="mux-inspector-description">{entry.description}</p>}
 
-      <InspectorSection title="连接">
-        <InspectorField label="地址" mono>{endpoint.text}</InspectorField>
+      <InspectorSection title="连接" icon={<LinkIcon className="w-4 h-4" />}>
+        <InspectorField icon={<NetworkIcon className="w-4 h-4" />} label="地址" mono>{endpoint.text}</InspectorField>
         {entry.repo && (
-          <InspectorField label="主页">
+          <InspectorField icon={<LinkIcon className="w-4 h-4" />} label="主页">
             <button onClick={() => openUrl(entry.repo!)} className="mux-inline-link" title="在浏览器中打开">
               <LinkIcon className="w-3.5 h-3.5" />
               {entry.repo}
@@ -609,14 +609,14 @@ function RegistryDetail({
       </InspectorSection>
 
       {entry.tags.length > 0 && (
-        <InspectorSection title="标签">
+        <InspectorSection title="标签" icon={<LayersIcon className="w-4 h-4" />}>
           <div className="flex flex-wrap gap-1.5">
             {entry.tags.map((tag) => <Badge key={tag} tone="info">{tag}</Badge>)}
           </div>
         </InspectorSection>
       )}
 
-      <InspectorSection title="配置">
+      <InspectorSection title="配置" icon={<TerminalIcon className="w-4 h-4" />}>
         <pre className="mux-config-preview">
           {JSON.stringify(redactSensitiveConfig(entry.config), null, 2)}
         </pre>

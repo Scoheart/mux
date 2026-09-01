@@ -6,6 +6,22 @@ afterEach(cleanup);
 
 describe("DialogShell", () => {
   it.each([
+    ["editor", "编辑"],
+    ["picker", "选择"],
+    ["review", "确认"],
+  ] as const)("gives %s dialogs a semantic default glyph", (kind, label) => {
+    render(
+      <DialogShell kind={kind} title={`${label}资源`} onClose={() => undefined}>
+        内容
+      </DialogShell>,
+    );
+
+    const shell = screen.getByRole("dialog", { name: `${label}资源` }).firstElementChild!;
+    expect(shell.querySelector(".mux-dialog-shell-glyph")).toBeInTheDocument();
+    expect(shell).toHaveAttribute("data-dialog-kind", kind);
+  });
+
+  it.each([
     ["editor", "lg"],
     ["picker", "md"],
     ["review", "sm"],

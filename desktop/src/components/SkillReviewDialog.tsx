@@ -338,6 +338,7 @@ export function SkillReviewDialog({
 
   return (
     <DialogShell
+      className="mux-dialog-skill-review"
       kind="review"
       size="lg"
       title="确认 Skill 更改"
@@ -440,6 +441,7 @@ export function SkillReviewDialog({
 
       {riskHash && (
         <DialogShell
+          className="mux-dialog-skill-risk"
           kind="review"
           size="md"
           title="确认高风险覆盖"

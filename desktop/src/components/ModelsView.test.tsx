@@ -423,10 +423,17 @@ it("renders compact Provider options with a quiet sticky action bar", () => {
   expect(css).toMatch(/grid-template-columns: 28px minmax\(0, 1fr\) 16px; align-items: center/);
   expect(css).toMatch(/\.mux-provider-catalog-copy\s*\{[\s\S]*?align-content: center; gap: 3px/);
   expect(css).toMatch(/\.mux-provider-catalog-grid\s*\{[\s\S]*?gap: 7px/);
-  expect(css).toMatch(/\.mux-dialog-shell:has\(\.mux-provider-catalog\) \.mux-dialog-shell-footer\s*\{[\s\S]*?border-top:/);
+  expect(css).toMatch(/\.mux-dialog-shell-footer\s*\{[\s\S]*?border-top:/);
   expect(css).toMatch(/\.mux-provider-catalog-search \.mux-model-field\s*\{[\s\S]*?padding-left: 36px/);
   expect(css).toMatch(/\.mux-provider-catalog-copy code\s*\{[\s\S]*?text-overflow: ellipsis; white-space: nowrap/);
   expect(css).not.toMatch(/\.mux-provider-catalog-categories/);
+});
+
+it("uses explicit dialog variants instead of descendant shell detection", () => {
+  expect(source).toMatch(/className="mux-dialog-provider-catalog"/);
+  expect(source).toMatch(/className="mux-dialog-provider-editor"/);
+  expect(css).not.toMatch(/\.mux-dialog-shell:has\(\.mux-provider-(catalog|form)\)/);
+  expect(css).not.toMatch(/\.mux-dialog-shell:has\(\.mux-agent-create\)/);
 });
 
 it("keeps Keychain status on the Provider rather than Model cards", () => {
@@ -447,6 +454,8 @@ it("renders model details as one continuous field list without section cards", a
     base_url: "https://models.example.test/v1",
     model: "qwen3.7-plus",
     env_key: "MAX_AI_API_KEY",
+    context_window: 200_000,
+    max_output_tokens: 32_000,
     reasoning: true,
     catalog_key: "max-ai/qwen3.7-plus",
     credential_saved: true,
@@ -463,6 +472,9 @@ it("renders model details as one continuous field list without section cards", a
 
   const inspector = screen.getByRole("complementary", { name: "Qwen3 7 Plus 详情" });
   const fields = within(inspector).getByRole("region", { name: "模型详情字段" });
+  expect(within(inspector).getByLabelText("资源指标")).toBeVisible();
+  expect(within(inspector).getByText("200K")).toBeVisible();
+  expect(within(inspector).getByText("32K")).toBeVisible();
   expect(fields).toHaveClass("mux-model-inspector-fields");
   expect(fields.querySelectorAll(".mux-inspector-field")).toHaveLength(6);
   expect(fields.querySelectorAll(".mux-inspector-section")).toHaveLength(0);
@@ -487,6 +499,7 @@ it("renders model details as one continuous field list without section cards", a
   expect(within(inspector).queryByRole("heading", { name: "技术详情" })).not.toBeInTheDocument();
   expect(within(inspector).getByRole("button", { name: "删除" })).toBeVisible();
   expect(within(inspector).getByRole("button", { name: "编辑" })).toBeVisible();
+  expect(within(inspector).getByRole("button", { name: "复制模型 ID" })).toBeVisible();
 });
 
 it("keeps environment and credential metadata on Provider rather than Model forms", () => {

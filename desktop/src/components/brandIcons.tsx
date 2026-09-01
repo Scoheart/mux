@@ -1,4 +1,8 @@
 import iconAliases from "../assets/agents/aliases.json";
+import agentSurfaces from "../assets/agents/surfaces.json";
+import type { ReactNode } from "react";
+
+type AgentSurface = "cli" | "desktop" | "ide" | "web";
 
 const iconModules = import.meta.glob("../assets/agents/*.{png,svg,webp}", {
   eager: true,
@@ -10,6 +14,40 @@ const LOGOS = Object.fromEntries(
   Object.entries(iconModules).map(([path, url]) => [path.split("/").pop()!.replace(/\.[^.]+$/, ""), url])
 ) as Record<string, string>;
 const ICON_ALIASES: Record<string, string> = iconAliases;
+const SURFACE_VALUES = new Set<AgentSurface>(["cli", "desktop", "ide", "web"]);
+const AGENT_SURFACES: Record<string, string> = agentSurfaces;
+
+function resolvedLogoKey(id: string): string {
+  return ICON_ALIASES[id] ?? id;
+}
+
+function declaredSurface(id: string): AgentSurface | null {
+  const value = AGENT_SURFACES[id];
+  return SURFACE_VALUES.has(value as AgentSurface) ? value as AgentSurface : null;
+}
+
+const COLLIDING_LOGO_KEYS = (() => {
+  const surfacesByLogo = new Map<string, Set<AgentSurface>>();
+  for (const id of Object.keys(AGENT_SURFACES)) {
+    const surface = declaredSurface(id);
+    const logoKey = resolvedLogoKey(id);
+    if (!surface || !LOGOS[logoKey]) continue;
+    const surfaces = surfacesByLogo.get(logoKey) ?? new Set<AgentSurface>();
+    surfaces.add(surface);
+    surfacesByLogo.set(logoKey, surfaces);
+  }
+  return new Set(
+    [...surfacesByLogo.entries()]
+      .filter(([, surfaces]) => surfaces.size > 1)
+      .map(([logoKey]) => logoKey),
+  );
+})();
+
+function visibleSurface(id: string): AgentSurface | null {
+  const logoKey = resolvedLogoKey(id);
+  if (!COLLIDING_LOGO_KEYS.has(logoKey)) return null;
+  return declaredSurface(id);
+}
 
 /** Logos that are complete app icons (own background + rounded corners), so they
  *  render edge-to-edge instead of as a mark centered on a white tile. */
@@ -77,19 +115,65 @@ function fallbackColor(id: string): string {
   return FALLBACK_COLORS[hash % FALLBACK_COLORS.length];
 }
 
+function surfaceBadgeSize(size: number): number {
+  if (size <= 24) return 10;
+  if (size <= 36) return 12;
+  return 14;
+}
+
+function AgentSurfaceBadge({ surface, size }: { surface: AgentSurface; size: number }) {
+  const badgeSize = surfaceBadgeSize(size);
+  return (
+    <span
+      className="mux-agent-surface-badge"
+      data-agent-surface={surface}
+      aria-hidden="true"
+      style={{ width: badgeSize, height: badgeSize }}
+    >
+      <svg viewBox="0 0 12 12" fill="none" focusable="false">
+        {surface === "cli" && (
+          <>
+            <path d="M2.25 3.25 4.5 5.5 2.25 7.75" />
+            <path d="M5.5 8h4" />
+          </>
+        )}
+        {surface === "desktop" && (
+          <>
+            <rect x="1.5" y="2" width="9" height="6.75" rx="1.25" />
+            <path d="M4 10h4" />
+          </>
+        )}
+        {surface === "ide" && (
+          <>
+            <rect x="1.5" y="1.75" width="9" height="8.5" rx="1.25" />
+            <path d="M5 2v8M6.75 4h2M6.75 6h2" />
+          </>
+        )}
+        {surface === "web" && (
+          <>
+            <circle cx="6" cy="6" r="4.5" />
+            <path d="M1.75 6h8.5M6 1.75c1.35 1.25 2 2.67 2 4.25S7.35 9 6 10.25C4.65 9 4 7.58 4 6s.65-3 2-4.25Z" />
+          </>
+        )}
+      </svg>
+    </span>
+  );
+}
+
 /**
  * Square brand badge for an agent: the real logo on a white tile when available,
  * otherwise a brand-coloured monogram.
  */
 export function AgentGlyph({ id, name, size = 26 }: { id: string; name?: string; size?: number }) {
-  const logo = LOGOS[ICON_ALIASES[id] ?? id];
+  const logo = LOGOS[resolvedLogoKey(id)];
   const meta = AGENT_META[id];
   const displayName = agentName(id, name);
   const radius = Math.round(size * 0.3);
+  let baseGlyph: ReactNode;
 
   if (logo) {
     if (WIDE_TILES[id]) {
-      return (
+      baseGlyph = (
         <div
           className="flex items-center justify-center"
           style={{
@@ -108,11 +192,9 @@ export function AgentGlyph({ id, name, size = 26 }: { id: string; name?: string;
           />
         </div>
       );
-    }
-
-    // App-icon logos (own background) fill the badge; mark-only logos sit on a white tile.
-    if (FULL_BLEED.has(id)) {
-      return (
+    } else if (FULL_BLEED.has(id)) {
+      // App-icon logos (own background) fill the badge; mark-only logos sit on a white tile.
+      baseGlyph = (
         <img
           src={logo}
           alt={displayName}
@@ -120,41 +202,52 @@ export function AgentGlyph({ id, name, size = 26 }: { id: string; name?: string;
           style={{ width: size, height: size, borderRadius: radius, objectFit: "cover", display: "block" }}
         />
       );
+    } else {
+      baseGlyph = (
+        <div
+          className="flex items-center justify-center"
+          style={{
+            width: size,
+            height: size,
+            borderRadius: radius,
+            background: THEMED_MARKS.has(id) ? "var(--surface-app)" : "#fff",
+            border: "1px solid var(--border-hairline)",
+          }}
+        >
+          <img
+            src={logo}
+            alt={displayName}
+            draggable={false}
+            style={{ width: Math.round(size * 0.64), height: Math.round(size * 0.64), objectFit: "contain" }}
+          />
+        </div>
+      );
     }
-    return (
+  } else {
+    const label = displayName[0]?.toUpperCase() ?? "?";
+    baseGlyph = (
       <div
-        className="flex items-center justify-center"
+        className="flex items-center justify-center text-white font-semibold select-none"
         style={{
           width: size,
           height: size,
           borderRadius: radius,
-          background: THEMED_MARKS.has(id) ? "var(--surface-app)" : "#fff",
-          border: "1px solid var(--border-hairline)",
+          background: meta?.color ?? fallbackColor(id),
+          fontSize: Math.round(size * 0.5),
         }}
       >
-        <img
-          src={logo}
-          alt={displayName}
-          draggable={false}
-          style={{ width: Math.round(size * 0.64), height: Math.round(size * 0.64), objectFit: "contain" }}
-        />
+        {label}
       </div>
     );
   }
 
-  const label = displayName[0]?.toUpperCase() ?? "?";
+  const surface = logo ? visibleSurface(id) : null;
   return (
-    <div
-      className="flex items-center justify-center text-white font-semibold select-none"
-      style={{
-        width: size,
-        height: size,
-        borderRadius: radius,
-        background: meta?.color ?? fallbackColor(id),
-        fontSize: Math.round(size * 0.5),
-      }}
-    >
-      {label}
-    </div>
+    <span className="mux-agent-glyph" data-agent-id={id} style={{ width: size, height: size }}>
+      <span className="mux-agent-glyph-base" style={{ width: size, height: size }}>
+        {baseGlyph}
+      </span>
+      {surface && <AgentSurfaceBadge surface={surface} size={size} />}
+    </span>
   );
 }

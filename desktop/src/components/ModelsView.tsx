@@ -1418,7 +1418,7 @@ function ModelProviderDialog({
   const selectedProtocolEnabled = Boolean(draft.protocols[selectedProtocol]);
   const normalizedBaseUrl = normalizeBaseUrl(draft.base_url);
   const normalizedModelCatalogUrl = draft.model_catalog_url
-    ? normalizeModelCatalogUrl(draft.model_catalog_url)
+    ? normalizeModelCatalogUrl(draft.model_catalog_url) ?? undefined
     : undefined;
   const protocolsValid = enabledProtocols.length > 0
     && enabledProtocols.every(({ id }) => {

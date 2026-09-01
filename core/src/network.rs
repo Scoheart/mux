@@ -40,6 +40,11 @@ pub fn configured_proxy_url() -> Result<Option<String>, String> {
 pub type UreqAgentBuilder = ureq::config::ConfigBuilder<ureq::typestate::AgentScope>;
 
 pub fn build_ureq_agent(builder: UreqAgentBuilder) -> Result<ureq::Agent, String> {
+    let builder = builder.tls_config(
+        ureq::tls::TlsConfig::builder()
+            .root_certs(ureq::tls::RootCerts::PlatformVerifier)
+            .build(),
+    );
     let Some(proxy_url) = configured_proxy_url()? else {
         return Ok(builder.build().new_agent());
     };
@@ -200,6 +205,17 @@ mod tests {
 
         assert_eq!(response, "ok");
         proxy.join().unwrap();
+    }
+
+    #[test]
+    fn ureq_agents_trust_platform_certificates() {
+        let _home = TestHome::new("network-platform-certificates");
+        let agent = build_ureq_agent(ureq::Agent::config_builder()).unwrap();
+
+        assert!(matches!(
+            agent.config().tls_config().root_certs(),
+            &ureq::tls::RootCerts::PlatformVerifier,
+        ));
     }
 
     #[test]

@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.161](https://github.com/Scoheart/mux/compare/v1.8.160...v1.8.161) (2026-09-01)
+
+### Changes
+
+* feat(desktop): unify dialog presentation (#154) ([03db2bb](https://github.com/Scoheart/mux/commit/03db2bbe0667bb7e23affd22985f0eee432cafea))
+
 ## [1.8.160](https://github.com/Scoheart/mux/compare/v1.8.159...v1.8.160) (2026-09-01)
 
 ### Changes

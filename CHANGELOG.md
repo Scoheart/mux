@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.155](https://github.com/Scoheart/mux/compare/v1.8.154...v1.8.155) (2026-09-01)
+
+### Changes
+
+* feat(models): allow custom model catalog URLs (#148) ([1ac55a6](https://github.com/Scoheart/mux/commit/1ac55a69094ce29b61afe780346f560b8018c627))
+
 ## [1.8.154](https://github.com/Scoheart/mux/compare/v1.8.153...v1.8.154) (2026-09-01)
 
 ### Changes

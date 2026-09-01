@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.158](https://github.com/Scoheart/mux/compare/v1.8.157...v1.8.158) (2026-09-01)
+
+### Changes
+
+* fix(models): show catalog URL for every provider (#151) ([1f844bc](https://github.com/Scoheart/mux/commit/1f844bccbfb77ac31701db2874861926ac36e8d2))
+
 ## [1.8.157](https://github.com/Scoheart/mux/compare/v1.8.156...v1.8.157) (2026-09-01)
 
 ### Changes

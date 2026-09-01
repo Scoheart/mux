@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.153](https://github.com/Scoheart/mux/compare/v1.8.152...v1.8.153) (2026-09-01)
+
+### Changes
+
+* feat(models): try discovery for every provider ([89d6dbc](https://github.com/Scoheart/mux/commit/89d6dbc2ce15c6d318cf483127ea824ee8fb867f))
+
 ## [1.8.152](https://github.com/Scoheart/mux/compare/v1.8.151...v1.8.152) (2026-08-31)
 
 ### Changes

@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.154](https://github.com/Scoheart/mux/compare/v1.8.153...v1.8.154) (2026-09-01)
+
+### Changes
+
+* feat(models): support Claude Desktop direct models ([36db1fe](https://github.com/Scoheart/mux/commit/36db1fef8839822f0cac589b3a43147ba71beeb2))
+
 ## [1.8.153](https://github.com/Scoheart/mux/compare/v1.8.152...v1.8.153) (2026-09-01)
 
 ### Changes

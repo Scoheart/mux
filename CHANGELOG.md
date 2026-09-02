@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.162](https://github.com/Scoheart/mux/compare/v1.8.161...v1.8.162) (2026-09-02)
+
+### Changes
+
+* feat(models): add credential sources and agent delivery ([711c88c](https://github.com/Scoheart/mux/commit/711c88cbfd26dd03f0ec0cae83b24539e039d7c8))
+
 ## [1.8.161](https://github.com/Scoheart/mux/compare/v1.8.160...v1.8.161) (2026-09-01)
 
 ### Changes

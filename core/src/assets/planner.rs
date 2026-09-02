@@ -248,6 +248,7 @@ fn plan_agent_consumption(
                     .or_insert(ModelConsumptionRecord {
                         profile_id,
                         enabled: true,
+                        credential: Default::default(),
                         last_selected_at: None,
                     });
             }
@@ -1592,6 +1593,7 @@ fn plan_asset_consumers(
                         .or_insert(ModelConsumptionRecord {
                             profile_id: profile_id.clone(),
                             enabled: true,
+                            credential: Default::default(),
                             last_selected_at: None,
                         });
                 } else {
@@ -3813,6 +3815,7 @@ mod tests {
                         ModelConsumptionRecord {
                             profile_id: "fixture".into(),
                             enabled: true,
+                            credential: Default::default(),
                             last_selected_at: None,
                         },
                     )]),
@@ -3938,6 +3941,7 @@ mod tests {
                         ModelConsumptionRecord {
                             profile_id: "work".into(),
                             enabled: true,
+                            credential: Default::default(),
                             last_selected_at: None,
                         },
                     )]),
@@ -4031,6 +4035,7 @@ mod tests {
                         ModelConsumptionRecord {
                             profile_id: "current".into(),
                             enabled: true,
+                            credential: Default::default(),
                             last_selected_at: None,
                         },
                     )]),
@@ -4113,6 +4118,7 @@ mod tests {
                         ModelConsumptionRecord {
                             profile_id: "current".into(),
                             enabled: true,
+                            credential: Default::default(),
                             last_selected_at: None,
                         },
                     )]),
@@ -4165,6 +4171,7 @@ mod tests {
                             ModelConsumptionRecord {
                                 profile_id: "current".into(),
                                 enabled: true,
+                                credential: Default::default(),
                                 last_selected_at: None,
                             },
                         ),
@@ -4173,6 +4180,7 @@ mod tests {
                             ModelConsumptionRecord {
                                 profile_id: "backup".into(),
                                 enabled: false,
+                                credential: Default::default(),
                                 last_selected_at: None,
                             },
                         ),
@@ -4301,6 +4309,7 @@ mod tests {
                         ModelConsumptionRecord {
                             profile_id: profile.id.clone(),
                             enabled: true,
+                            credential: Default::default(),
                             last_selected_at: None,
                         },
                     )]),
@@ -4466,6 +4475,7 @@ mod tests {
                         ModelConsumptionRecord {
                             profile_id: profile.id.clone(),
                             enabled: false,
+                            credential: Default::default(),
                             last_selected_at: None,
                         },
                     )]),
@@ -4511,6 +4521,7 @@ mod tests {
                         ModelConsumptionRecord {
                             profile_id: first.id.clone(),
                             enabled: true,
+                            credential: Default::default(),
                             last_selected_at: None,
                         },
                     )]),
@@ -4557,6 +4568,7 @@ mod tests {
                         ModelConsumptionRecord {
                             profile_id: profile.id.clone(),
                             enabled: true,
+                            credential: Default::default(),
                             last_selected_at: None,
                         },
                     )]),

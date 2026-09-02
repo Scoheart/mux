@@ -401,6 +401,7 @@ pub fn plan_model_adoption(
             ModelConsumptionRecord {
                 profile_id: profile.id.clone(),
                 enabled: true,
+                credential: Default::default(),
                 last_selected_at: candidate
                     .active
                     .then(|| chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true)),

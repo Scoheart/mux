@@ -537,8 +537,38 @@ pub fn infer_model_provider(base_url: String) -> String {
 }
 
 #[tauri::command]
+pub async fn validate_model_credential_source(
+    source: mux_core::domain::types::ApiKeySource,
+) -> Result<mux_core::application::models::CredentialValidationView, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        mux_core::application::models::validate_credential_source(&source)
+    })
+    .await
+    .map_err(|_| "credential_validation_worker_failed: credential validation worker failed".to_owned())?
+}
+
+#[tauri::command]
 pub fn list_model_agents() -> Result<Vec<mux_core::application::models::ModelAgentView>, String> {
     mux_core::application::models::list_agent_capabilities()
+}
+
+#[tauri::command]
+pub async fn set_model_credential_delivery(
+    agent_id: String,
+    profile_id: String,
+    delivery: mux_core::application::models::ApiKeyDelivery,
+    confirm_plaintext: bool,
+) -> Result<mux_core::resources::model::ModelApplyResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        mux_core::application::models::set_credential_delivery(
+            &agent_id,
+            &profile_id,
+            delivery,
+            confirm_plaintext,
+        )
+    })
+    .await
+    .map_err(|_| "model_credential_worker_failed: credential delivery worker failed".to_owned())?
 }
 
 #[tauri::command]

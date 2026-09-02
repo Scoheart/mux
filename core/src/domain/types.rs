@@ -31,6 +31,33 @@ pub struct ModelProviderProtocolConfig {
     pub endpoint_path: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum AuthRequirement {
+    Required,
+    Optional,
+    None,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+pub enum ApiKeySource {
+    MuxStore,
+    Env {
+        name: String,
+    },
+    File {
+        path: String,
+    },
+    Helper {
+        command: String,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        args: Vec<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        ttl_ms: Option<u64>,
+    },
+}
+
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct ModelProviderConfig {
     /// Stable MUX identity for one account/endpoint configuration. The
@@ -47,8 +74,12 @@ pub struct ModelProviderConfig {
     pub model_catalog_url: Option<String>,
     /// Enabled protocols and their editable relative request paths.
     pub protocols: BTreeMap<ModelProtocol, ModelProviderProtocolConfig>,
-    /// Non-secret environment variable shared by every Model on this Provider.
+    pub auth_requirement: AuthRequirement,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub api_key_source: Option<ApiKeySource>,
+    /// Hydrated compatibility field for adapters that have not yet moved to a
+    /// prepared credential route. New persistence uses `api_key_source` only.
+    #[serde(skip)]
     pub env_key: Option<String>,
 }
 
@@ -68,6 +99,10 @@ struct ModelProviderConfigWire {
     endpoints: BTreeMap<ModelProtocol, String>,
     #[serde(default)]
     env_key: Option<String>,
+    #[serde(default)]
+    auth_requirement: Option<AuthRequirement>,
+    #[serde(default)]
+    api_key_source: Option<ApiKeySource>,
 }
 
 impl<'de> Deserialize<'de> for ModelProviderConfig {
@@ -90,6 +125,18 @@ impl<'de> Deserialize<'de> for ModelProviderConfig {
             migrate_legacy_provider_endpoints(&wire.name, &wire.endpoints)
                 .map_err(serde::de::Error::custom)?
         };
+        let api_key_source = wire.api_key_source.or_else(|| {
+            wire.env_key
+                .clone()
+                .map(|name| ApiKeySource::Env { name })
+        });
+        let auth_requirement = wire.auth_requirement.unwrap_or_else(|| {
+            infer_auth_requirement(&wire.provider, &base_url, api_key_source.is_some())
+        });
+        let env_key = match &api_key_source {
+            Some(ApiKeySource::Env { name }) => Some(name.clone()),
+            _ => None,
+        };
         Ok(Self {
             id: wire.id,
             name: wire.name,
@@ -97,8 +144,34 @@ impl<'de> Deserialize<'de> for ModelProviderConfig {
             base_url,
             model_catalog_url: wire.model_catalog_url,
             protocols,
-            env_key: wire.env_key,
+            auth_requirement,
+            api_key_source,
+            env_key,
         })
+    }
+}
+
+fn infer_auth_requirement(
+    provider: &str,
+    base_url: &str,
+    has_source: bool,
+) -> AuthRequirement {
+    let provider = provider.trim().to_ascii_lowercase();
+    let local_provider = matches!(provider.as_str(), "ollama" | "lm-studio" | "vllm")
+        || url::Url::parse(base_url).ok().is_some_and(|url| {
+            matches!(
+                url.host_str(),
+                Some("localhost" | "127.0.0.1" | "::1")
+            )
+        });
+    if local_provider {
+        AuthRequirement::None
+    } else if provider.is_empty() || provider == "custom" {
+        AuthRequirement::Optional
+    } else if has_source {
+        AuthRequirement::Required
+    } else {
+        AuthRequirement::Required
     }
 }
 
@@ -545,5 +618,54 @@ mod tests {
             serde_json::from_str::<ModelProtocol>("\"gemini-generate-content\"").unwrap(),
             protocol
         );
+    }
+
+    #[test]
+    fn api_key_source_roundtrips_all_non_secret_forms() {
+        let cases = [
+            ApiKeySource::MuxStore,
+            ApiKeySource::Env {
+                name: "MAX_AI_API_KEY".into(),
+            },
+            ApiKeySource::File {
+                path: "/private/maxai.key".into(),
+            },
+            ApiKeySource::Helper {
+                command: "/usr/local/bin/maxai-key".into(),
+                args: vec!["--profile".into(), "coding".into()],
+                ttl_ms: Some(300_000),
+            },
+        ];
+
+        for source in cases {
+            let json = serde_json::to_value(&source).unwrap();
+            assert_eq!(serde_json::from_value::<ApiKeySource>(json).unwrap(), source);
+        }
+    }
+
+    #[test]
+    fn legacy_provider_env_key_migrates_to_an_environment_source() {
+        let provider: ModelProviderConfig = serde_json::from_value(serde_json::json!({
+            "id": "max-ai",
+            "name": "Max AI",
+            "provider": "custom",
+            "base_url": "https://max.example/v1",
+            "protocols": {
+                "openai-completions": { "endpoint_path": "/chat/completions" }
+            },
+            "env_key": "MAX_AI_API_KEY"
+        }))
+        .unwrap();
+
+        assert_eq!(provider.auth_requirement, AuthRequirement::Optional);
+        assert_eq!(
+            provider.api_key_source,
+            Some(ApiKeySource::Env {
+                name: "MAX_AI_API_KEY".into()
+            })
+        );
+        let persisted = serde_json::to_value(provider).unwrap();
+        assert!(persisted.get("env_key").is_none());
+        assert_eq!(persisted["api_key_source"]["kind"], "env");
     }
 }

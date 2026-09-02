@@ -1595,6 +1595,7 @@ mod tests {
                         ModelConsumptionRecord {
                             profile_id: "fixture".into(),
                             enabled: true,
+                            credential: Default::default(),
                             last_selected_at: None,
                         },
                     )]),

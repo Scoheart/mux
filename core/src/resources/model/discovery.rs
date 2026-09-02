@@ -632,6 +632,8 @@ mod tests {
                     endpoint_path: endpoint_path.into(),
                 },
             )]),
+            auth_requirement: crate::domain::types::AuthRequirement::Optional,
+            api_key_source: None,
             env_key: None,
         }
     }

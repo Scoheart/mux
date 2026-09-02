@@ -4380,6 +4380,8 @@ mod tests {
                     },
                 ),
             ]),
+            auth_requirement: crate::domain::types::AuthRequirement::Optional,
+            api_key_source: None,
             env_key: None,
         };
         let first = ModelProfile {
@@ -4599,6 +4601,7 @@ mod tests {
                         crate::domain::assets::ModelConsumptionRecord {
                             profile_id: profile.id.clone(),
                             enabled: true,
+                            credential: Default::default(),
                             last_selected_at: None,
                         },
                     )]),
@@ -4683,6 +4686,7 @@ mod tests {
                         crate::domain::assets::ModelConsumptionRecord {
                             profile_id: profile.id.clone(),
                             enabled: true,
+                            credential: Default::default(),
                             last_selected_at: None,
                         },
                     )]),

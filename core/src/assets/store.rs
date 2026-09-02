@@ -586,6 +586,7 @@ mod tests {
                 ModelConsumptionRecord {
                     profile_id: "work".into(),
                     enabled: true,
+                    credential: Default::default(),
                     last_selected_at: None,
                 },
             );

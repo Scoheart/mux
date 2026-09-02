@@ -407,6 +407,7 @@ mod tests {
                         ModelConsumptionRecord {
                             profile_id: profile.id.clone(),
                             enabled: true,
+                            credential: Default::default(),
                             last_selected_at: None,
                         },
                     )]),

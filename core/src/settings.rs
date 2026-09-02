@@ -308,6 +308,7 @@ impl Settings {
                 .or_insert(ModelConsumptionRecord {
                     profile_id,
                     enabled: true,
+                    credential: Default::default(),
                     last_selected_at: None,
                 });
         }
@@ -949,6 +950,8 @@ mod tests {
                     endpoint_path: "/v1/responses".into(),
                 },
             )]),
+            auth_requirement: crate::domain::types::AuthRequirement::Optional,
+            api_key_source: None,
             env_key: Some("TEAM_API_KEY".into()),
         };
         let profile = ModelProfile {
@@ -1092,6 +1095,7 @@ mod tests {
             ModelConsumptionRecord {
                 profile_id: "personal".into(),
                 enabled: true,
+                credential: Default::default(),
                 last_selected_at: None,
             },
         );

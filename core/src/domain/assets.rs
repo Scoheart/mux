@@ -237,6 +237,23 @@ pub struct SkillConsumptionRecord {
     pub enabled: bool,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum ApiKeyDelivery {
+    #[default]
+    Auto,
+    AgentStore,
+    Plaintext,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct ModelCredentialPolicy {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_override: Option<crate::domain::types::ApiKeySource>,
+    #[serde(default)]
+    pub delivery: ApiKeyDelivery,
+}
+
 /// One MUX-owned Model Profile installed for an Agent. Installation and the
 /// Agent's active/default model are intentionally separate: an Agent may keep
 /// several enabled profiles while only one is current. Frontends expose the
@@ -246,6 +263,8 @@ pub struct SkillConsumptionRecord {
 pub struct ModelConsumptionRecord {
     pub profile_id: String,
     pub enabled: bool,
+    #[serde(default)]
+    pub credential: ModelCredentialPolicy,
     /// RFC3339 timestamp updated only when this Profile becomes current. It is
     /// used to choose a deterministic fallback when the current Profile is
     /// disabled or removed.
@@ -800,6 +819,7 @@ mod tests {
                     ModelConsumptionRecord {
                         profile_id: "backup".into(),
                         enabled: false,
+                        credential: Default::default(),
                         last_selected_at: None,
                     },
                 ),
@@ -808,6 +828,7 @@ mod tests {
                     ModelConsumptionRecord {
                         profile_id: "work".into(),
                         enabled: false,
+                        credential: Default::default(),
                         last_selected_at: Some("2026-07-24T00:00:00Z".into()),
                     },
                 ),
@@ -820,5 +841,21 @@ mod tests {
         assert_eq!(selection.active_profile_id.as_deref(), Some("work"));
         assert!(selection.profiles["work"].enabled);
         assert!(!selection.profiles["backup"].enabled);
+    }
+
+    #[test]
+    fn legacy_model_consumption_defaults_to_safe_automatic_delivery() {
+        let record: ModelConsumptionRecord = serde_json::from_value(json!({
+            "profile_id": "work",
+            "enabled": true
+        }))
+        .unwrap();
+
+        assert_eq!(record.credential.source_override, None);
+        assert_eq!(record.credential.delivery, ApiKeyDelivery::Auto);
+        assert_eq!(
+            serde_json::to_value(record).unwrap()["credential"]["delivery"],
+            "auto"
+        );
     }
 }

@@ -502,15 +502,21 @@ it("renders model details as one continuous field list without section cards", a
   expect(within(inspector).getByRole("button", { name: "复制模型 ID" })).toBeVisible();
 });
 
-it("keeps environment and credential metadata on Provider rather than Model forms", () => {
+it("keeps all credential source metadata on Provider rather than Model forms", () => {
   const modelDialog = source.slice(
     source.indexOf("function ModelProfileDialog"),
     source.indexOf("function ModelProviderDialog"),
   );
   const providerDialog = source.slice(source.indexOf("function ModelProviderDialog"));
   expect(modelDialog).not.toMatch(/models\.apiKeyEnv|models\.apiKey"\)/);
-  expect(providerDialog).toMatch(/t\("models\.apiKeyEnv"\)/);
-  expect(providerDialog).toMatch(/env_key: draft\.env_key\?\.trim\(\) \|\| undefined/);
+  expect(providerDialog).toMatch(/credentialSourceOptions/);
+  for (const kind of ["mux-store", "env", "file", "helper"]) {
+    expect(providerDialog).toContain(`value: "${kind}"`);
+  }
+  expect(providerDialog).toMatch(/auth_requirement/);
+  expect(providerDialog).toMatch(/api_key_source/);
+  expect(providerDialog).toMatch(/command/);
+  expect(providerDialog).toMatch(/ttl_ms/);
   expect(agentSource).toMatch(/modelAgent\.credential_mode === "environment-reference"/);
   expect(agentSource).toMatch(/ENV · \$\{profile\.env_key\}/);
   expect(agentSource).toMatch(/需要 ENV/);

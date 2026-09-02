@@ -112,6 +112,7 @@ fn remap_model_selection(
                 ModelConsumptionRecord {
                     profile_id: new_id,
                     enabled: record.enabled,
+                    credential: record.credential,
                     last_selected_at: record.last_selected_at,
                 },
             ))
@@ -1086,6 +1087,8 @@ mod tests {
                     },
                 ),
             ]),
+            auth_requirement: crate::domain::types::AuthRequirement::Optional,
+            api_key_source: None,
             env_key: None,
         };
         let mut first = ModelProfile {
@@ -1368,6 +1371,8 @@ mod tests {
                             endpoint_path: "/v1/responses".into(),
                         },
                     )]),
+                    auth_requirement: crate::domain::types::AuthRequirement::Optional,
+                    api_key_source: None,
                     env_key: Some("TEAM_GATEWAY_KEY".into()),
                 }),
                 credential: Some("provider-secret".into()),

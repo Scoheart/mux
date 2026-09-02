@@ -1,6 +1,11 @@
 import { invoke } from "@tauri-apps/api/core";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { listModelProfiles, revealModelProviderCredential } from "./api";
+import {
+  listModelProfiles,
+  revealModelProviderCredential,
+  setModelCredentialDelivery,
+  validateModelCredentialSource,
+} from "./api";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 
@@ -43,5 +48,28 @@ describe("Model Profile wire contract", () => {
       "reveal_model_provider_credential",
       { providerId: "team-provider" },
     );
+  });
+
+  it("validates source metadata without putting a secret in the request", async () => {
+    invokeMock.mockResolvedValueOnce({
+      source_kind: "file",
+      source_identity: "/private/provider.key",
+      message: "valid",
+    });
+    await validateModelCredentialSource({ kind: "file", path: "/private/provider.key" });
+    expect(invokeMock).toHaveBeenCalledWith("validate_model_credential_source", {
+      source: { kind: "file", path: "/private/provider.key" },
+    });
+  });
+
+  it("passes plaintext confirmation only to the scoped delivery command", async () => {
+    invokeMock.mockResolvedValueOnce({});
+    await setModelCredentialDelivery("opencode", "max-ai", "plaintext", true);
+    expect(invokeMock).toHaveBeenCalledWith("set_model_credential_delivery", {
+      agentId: "opencode",
+      profileId: "max-ai",
+      delivery: "plaintext",
+      confirmPlaintext: true,
+    });
   });
 });

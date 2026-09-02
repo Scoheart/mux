@@ -99,6 +99,22 @@ export type ModelProtocol =
   | "openai-completions"
   | "gemini-generate-content";
 
+export type AuthRequirement = "required" | "optional" | "none";
+
+export type ApiKeySource =
+  | { kind: "mux-store" }
+  | { kind: "env"; name: string }
+  | { kind: "file"; path: string }
+  | { kind: "helper"; command: string; args: string[]; ttl_ms?: number };
+
+export type ApiKeyDelivery = "auto" | "agent-store" | "plaintext";
+
+export interface CredentialValidationView {
+  source_kind: ApiKeySource["kind"];
+  source_identity: string;
+  message: string;
+}
+
 export interface ModelProfile {
   id: string;
   name: string;
@@ -131,7 +147,9 @@ export interface ModelProviderConfig {
   protocols: Partial<Record<ModelProtocol, {
     endpoint_path: string;
   }>>;
-  /** Non-secret environment variable shared by this Provider. */
+  auth_requirement?: AuthRequirement;
+  api_key_source?: ApiKeySource;
+  /** Hydrated legacy compatibility field; new writes use api_key_source. */
   env_key?: string;
 }
 
@@ -186,6 +204,17 @@ export interface ModelAgentView {
   active_profile: string | null;
   supports_multiple: boolean;
   credential_mode: "keychain-command" | "environment-reference" | "guided" | string;
+  credential_capabilities?: {
+    native_sources: Array<ApiKeySource["kind"]>;
+    mux_keychain_helper: boolean;
+    agent_store: boolean;
+    plaintext: boolean;
+    note?: string;
+  };
+  credential_policies?: Record<string, {
+    source_override?: ApiKeySource | null;
+    delivery: ApiKeyDelivery;
+  }>;
   supported_protocols: ModelProtocol[];
   note: string;
 }
@@ -646,6 +675,10 @@ export interface ModelStateChange {
 export interface ModelConsumptionRecord {
   profile_id: string;
   enabled: boolean;
+  credential?: {
+    source_override?: ApiKeySource | null;
+    delivery: ApiKeyDelivery;
+  };
   last_selected_at?: string | null;
 }
 

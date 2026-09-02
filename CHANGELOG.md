@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.8.166](https://github.com/Scoheart/mux/compare/v1.8.165...v1.8.166) (2026-09-02)
+
+### Changes
+
+* fix(desktop): keep asset hydration alive under StrictMode (#159) ([c06851a](https://github.com/Scoheart/mux/commit/c06851ac07f382af8449ae5b4d207b7a24f0f56c))
+* chore(deps): bump actions/checkout from 7.0.0 to 7.0.1 in the actions-minor-patch group across 1 directory (#108) ([b2ec50b](https://github.com/Scoheart/mux/commit/b2ec50bcf4c2a2e70b030334fce8f3616455c1aa))
+* chore(deps): bump the tauri-minor-patch group across 1 directory with 3 updates (#125) ([528ac2d](https://github.com/Scoheart/mux/commit/528ac2d5423a36c6eede4e15ee1bcc8da72dbf16))
+* chore(deps): bump the desktop-minor-patch group across 1 directory with 10 updates (#143) ([ca6cdf5](https://github.com/Scoheart/mux/commit/ca6cdf5625ef145e76ffb389d6e7690dee25ff89))
+* chore(deps): bump the workspace-minor-patch group across 1 directory with 6 updates (#145) ([f8c0ec1](https://github.com/Scoheart/mux/commit/f8c0ec16cb1d2d27bb25f0ed54ffa899702e93ca))
+
 ## [1.8.165](https://github.com/Scoheart/mux/compare/v1.8.164...v1.8.165) (2026-09-02)
 
 ### Changes

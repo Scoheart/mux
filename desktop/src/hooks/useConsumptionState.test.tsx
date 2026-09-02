@@ -1,4 +1,5 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
+import { StrictMode } from "react";
 import { beforeEach, expect, it, vi } from "vitest";
 import * as api from "../lib/api";
 import {
@@ -29,6 +30,16 @@ beforeEach(() => {
     converged: true,
   });
   vi.mocked(api.cancelOperation).mockResolvedValue(undefined);
+});
+
+it("hydrates relationship inventory under React StrictMode", async () => {
+  const inventory = consumptionInventoryFixture();
+  const { result } = renderHook(() => useConsumptionState(), {
+    wrapper: StrictMode,
+  });
+
+  await waitFor(() => expect(result.current.inventory).toEqual(inventory));
+  expect(result.current.loading).toBe(false);
 });
 
 it("owns central update and delete plans through the same operation state", async () => {

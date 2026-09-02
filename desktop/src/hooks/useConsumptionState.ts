@@ -115,8 +115,11 @@ export function useConsumptionState({ autoLoad = true }: { autoLoad?: boolean } 
   const committingRef = useRef(false);
   planRef.current = plan;
 
-  useEffect(() => () => {
-    mounted.current = false;
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
   }, []);
 
   const refresh = useCallback(async () => {

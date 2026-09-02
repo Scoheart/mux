@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.164](https://github.com/Scoheart/mux/compare/v1.8.163...v1.8.164) (2026-09-02)
+
+### Changes
+
+* fix(models): simplify provider credential setup (#157) ([7b680b4](https://github.com/Scoheart/mux/commit/7b680b4f501567efe4d243bb7ff8a99a59acddee))
+
 ## [1.8.163](https://github.com/Scoheart/mux/compare/v1.8.162...v1.8.163) (2026-09-02)
 
 ### Changes

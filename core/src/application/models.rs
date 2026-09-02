@@ -1,6 +1,5 @@
 //! Model Profile use cases.
 
-pub use crate::domain::assets::ApiKeyDelivery;
 pub use crate::domain::types::{ModelProfile, ModelProtocol};
 pub use crate::resources::model::credential::CredentialValidationView;
 pub use crate::resources::model::{
@@ -41,20 +40,4 @@ pub fn validate_credential_source(
 /// Return Model target capabilities for frontend presentation.
 pub fn list_agent_capabilities() -> Result<Vec<ModelAgentView>, String> {
     Ok(super::gate::read(crate::resources::model::list_agents))
-}
-
-pub fn set_credential_delivery(
-    agent_id: &str,
-    profile_id: &str,
-    delivery: ApiKeyDelivery,
-    confirm_plaintext: bool,
-) -> Result<crate::resources::model::ModelApplyResult, String> {
-    super::gate::write(|| {
-        crate::resources::model::set_model_credential_delivery(
-            agent_id,
-            profile_id,
-            delivery,
-            confirm_plaintext,
-        )
-    })
 }

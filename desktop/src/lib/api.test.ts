@@ -3,7 +3,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   listModelProfiles,
   revealModelProviderCredential,
-  setModelCredentialDelivery,
   validateModelCredentialSource,
 } from "./api";
 
@@ -62,14 +61,4 @@ describe("Model Profile wire contract", () => {
     });
   });
 
-  it("passes plaintext confirmation only to the scoped delivery command", async () => {
-    invokeMock.mockResolvedValueOnce({});
-    await setModelCredentialDelivery("opencode", "max-ai", "plaintext", true);
-    expect(invokeMock).toHaveBeenCalledWith("set_model_credential_delivery", {
-      agentId: "opencode",
-      profileId: "max-ai",
-      delivery: "plaintext",
-      confirmPlaintext: true,
-    });
-  });
 });

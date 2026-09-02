@@ -204,17 +204,6 @@ export interface ModelAgentView {
   active_profile: string | null;
   supports_multiple: boolean;
   credential_mode: "keychain-command" | "environment-reference" | "guided" | string;
-  credential_capabilities?: {
-    native_sources: Array<ApiKeySource["kind"]>;
-    mux_keychain_helper: boolean;
-    agent_store: boolean;
-    plaintext: boolean;
-    note?: string;
-  };
-  credential_policies?: Record<string, {
-    source_override?: ApiKeySource | null;
-    delivery: ApiKeyDelivery;
-  }>;
   supported_protocols: ModelProtocol[];
   note: string;
 }

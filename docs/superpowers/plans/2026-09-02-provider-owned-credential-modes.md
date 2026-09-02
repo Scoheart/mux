@@ -1,5 +1,7 @@
 # Provider-owned Credential Modes Implementation Plan
 
+> Historical plan for the v1.8.163 implementation. Its Provider four-mode UI was superseded by the final design in `../specs/2026-09-02-provider-owned-credential-modes-design.md`: new Providers accept only an API Key stored in Keychain, while delivery belongs to Agent adapters.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Make Provider the only credential configuration surface and make every Agent consume it through automatic safe routing.

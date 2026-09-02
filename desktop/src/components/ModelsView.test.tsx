@@ -503,30 +503,28 @@ it("renders model details as one continuous field list without section cards", a
   expect(within(inspector).getByRole("button", { name: "复制模型 ID" })).toBeVisible();
 });
 
-it("keeps all credential source metadata on Provider rather than Model forms", () => {
+it("keeps new Provider forms API-key-only while preserving legacy sources internally", () => {
   const modelDialog = source.slice(
     source.indexOf("function ModelProfileDialog"),
     source.indexOf("function ModelProviderDialog"),
   );
   const providerDialog = source.slice(source.indexOf("function ModelProviderDialog"));
   expect(modelDialog).not.toMatch(/models\.apiKeyEnv|models\.apiKey"\)/);
-  expect(providerDialog).toMatch(/credentialSourceOptions/);
-  for (const kind of ["mux-store", "env", "file", "helper"]) {
-    expect(providerDialog).toContain(`value: "${kind}"`);
-  }
-  expect(i18nSource).toContain('credentialMuxStore: "明文"');
-  expect(i18nSource).toContain('credentialEnv: "环境变量"');
-  expect(i18nSource).toContain('credentialFile: "文件"');
-  expect(i18nSource).toContain('credentialHelper: "命令"');
-  expect(i18nSource).not.toContain('credentialMuxStore: "MUX 安全存储"');
-  expect(i18nSource).not.toContain('credentialHelper: "凭据助手"');
-  expect(providerDialog).toMatch(/auth_requirement/);
-  expect(providerDialog).toMatch(/api_key_source/);
-  expect(providerDialog).toMatch(/command/);
-  expect(providerDialog).toMatch(/ttl_ms/);
-  expect(agentSource).not.toMatch(/modelAgent\.credential_mode === "environment-reference"/);
-  expect(agentSource).not.toMatch(/ENV · \$\{profile\.env_key\}/);
-  expect(agentSource).not.toMatch(/需要 ENV/);
+  expect(providerDialog).toMatch(/initial\?\.api_key_source/);
+  expect(providerDialog).toMatch(/models\.apiKey/);
+  expect(providerDialog).toMatch(/kind: "mux-store"/);
+  expect(providerDialog).not.toMatch(/credentialSourceOptions/);
+  expect(providerDialog).not.toMatch(/authRequirementOptions/);
+  expect(providerDialog).not.toMatch(/changeCredentialSource/);
+  expect(providerDialog).not.toMatch(/testCredentialSource/);
+  expect(providerDialog).not.toMatch(/models\.authRequirement/);
+  expect(providerDialog).not.toMatch(/models\.credentialSource/);
+  expect(providerDialog).not.toMatch(/models\.apiKeyEnv/);
+  expect(providerDialog).not.toMatch(/models\.credentialFilePath/);
+  expect(providerDialog).not.toMatch(/models\.credentialHelperCommand/);
+  expect(providerDialog).toMatch(/authWithoutCredential/);
+  expect(providerDialog).toMatch(/hasNewCredential[\s\S]*?"required"[\s\S]*?clearCredential[\s\S]*?authWithoutCredential[\s\S]*?initialSource \|\| preservedCredential[\s\S]*?initialAuthRequirement/);
+  expect(i18nSource).toContain('credentialHelp: "API Key 安全保存到系统 Keychain。"');
 });
 
 it("requires Model forms to select a persisted Provider relationship", () => {

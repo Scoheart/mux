@@ -24,6 +24,17 @@ impl fmt::Debug for PreparedAuthFile {
     }
 }
 
+impl PreparedAuthFile {
+    pub fn from_model_file(file: super::adapters::PreparedModelFile) -> Self {
+        Self {
+            path: file.path,
+            original: file.original.map(Zeroizing::new),
+            content: file.content.map(Zeroizing::new),
+            sensitive: true,
+        }
+    }
+}
+
 fn read_root(path: &Path) -> Result<(Option<Zeroizing<String>>, Map<String, Value>), String> {
     match fs::symlink_metadata(path) {
         Ok(metadata) => {
@@ -112,6 +123,27 @@ pub fn prepare_auth(
         path: path.to_path_buf(),
         original,
         content: Some(Zeroizing::new(format!("{content}\n"))),
+        sensitive: true,
+    })
+}
+
+pub fn prepare_remove_auth(path: &Path, provider_id: &str) -> Result<PreparedAuthFile, String> {
+    let (original, mut root) = read_root(path)?;
+    root.remove(provider_id);
+    let content = if original.is_none() && root.is_empty() {
+        None
+    } else {
+        Some(Zeroizing::new(format!(
+            "{}\n",
+            serde_json::to_string_pretty(&Value::Object(root)).map_err(|_| {
+                "agent_store_conflicted: OpenCode auth candidate could not be encoded".to_string()
+            })?
+        )))
+    };
+    Ok(PreparedAuthFile {
+        path: path.to_path_buf(),
+        original,
+        content,
         sensitive: true,
     })
 }

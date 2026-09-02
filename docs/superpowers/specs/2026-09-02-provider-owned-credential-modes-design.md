@@ -1,42 +1,37 @@
-# Provider-owned credential modes
+# Provider API Key and Agent-owned delivery
 
 ## Decision
 
-Credential configuration belongs exclusively to a Provider. Agent screens must not expose credential-source or delivery choices. For every Model consumption, core derives the safest compatible Agent projection from the Provider source and the verified Agent capability matrix.
+Providers own one API Key. MUX stores newly entered keys in the system Keychain. Agents own the delivery decision: core selects the best verified route automatically, and an Agent shows a dedicated selector only when it has more than one reliable route.
 
 ## Provider form
 
-The source dropdown contains exactly four user-facing modes:
-
-| UI label | Persisted source | Behavior |
-|---|---|---|
-| 明文 | `mux-store` | The user types the API Key; MUX stores its bytes in system Keychain. “明文” describes the input form, not MUX JSON or Agent output. |
-| 环境变量 | `env` | MUX stores only the variable name. |
-| 文件 | `file` | MUX stores only an absolute path and validates an owned, regular, non-symlink `0600` file. |
-| 命令 | `helper` | MUX stores structured `command`, `args`, and optional TTL; no shell expression is accepted. |
-
-The adaptive fields and file/command validation remain in the Provider editor. Existing `mux-store`, `env`, `file`, and `helper` wire values stay compatible.
+- The form exposes one optional or required API Key field, according to the Provider template.
+- It exposes no authentication-requirement selector and no generic source-method selector.
+- A newly entered key persists as `mux-store`, with bytes only in Keychain.
+- Known local Providers remain unauthenticated. Custom Providers may remain keyless.
+- Existing `env`, `file`, and `helper` records remain readable and operational. Leaving the API Key blank preserves them; entering a key migrates that Provider to Keychain.
 
 ## Agent behavior
 
-- Remove the Agent-row “自动 / Agent 凭据存储 / 明文配置” dropdown.
-- Remove the global plaintext-danger dialog and its public Tauri/API mutation command.
-- Ignore any historical per-consumption source override or delivery value and always use the Provider source with `auto` routing.
-- Keep internal legacy fields readable so settings written by `v1.8.162` do not fail to deserialize; new UI cannot create non-auto Agent policy.
-- `auto` may use a native env/file/helper reference, a MUX Keychain helper, or a verified Agent-owned credential store. It must never write literal credentials into an Agent config.
-- OpenCode automatically uses its verified `auth.json` store when the Provider mode is 明文 or 命令 and uses native env/file references for those Provider modes.
+- New consumptions default to `auto`; core chooses the safest verified adapter.
+- Agents with only one reliable route show no credential control.
+- Agents with multiple reliable routes expose only their own concrete options, never one cross-Agent source form.
+- OpenCode currently offers automatic Agent credential storage and explicit plaintext configuration.
+- Plaintext requires an explicit danger confirmation, writes only the verified target, enforces `0600`, uses atomic compare-and-swap, and keeps rollback payloads out of ordinary files.
+- Historical per-consumption source overrides remain deserializable but are ignored. Historical delivery choices remain effective.
 
 ## Security and compatibility
 
-- API Key bytes remain out of Provider JSON, consumption JSON, plans, logs, backups, tests, screenshots, and Git.
-- Changing a Provider away from 明文 removes its now-unused Provider Keychain value.
+- Provider API Key bytes remain out of Provider JSON, consumption JSON, plans, logs, ordinary backups, screenshots, and Git.
 - Required Providers without a resolvable source remain blocked before Agent configuration is written.
-- Existing Agents and Provider records continue to deserialize; only the mistaken per-Agent control surface and mutation path are removed.
+- Plaintext is never an automatic fallback.
+- Existing Provider sources and Agent policy records continue to deserialize.
 
 ## Acceptance
 
-- Provider source UI shows exactly 明文、环境变量、文件、命令.
-- Agent Model rows contain no credential delivery selector and no plaintext dialog.
-- Core routing uses `ApiKeyDelivery::Auto` regardless of stored legacy per-Agent policy.
-- OpenCode明文 mode resolves through `auth.json`, not literal `options.apiKey`.
-- Focused Rust and React regression tests plus production builds pass.
+- Provider UI contains only the API Key field.
+- New keys save to Keychain; existing external sources survive an untouched edit.
+- Agent Model rows show no selector unless at least two verified routes exist.
+- OpenCode automatic mode uses `auth.json`; explicit plaintext mode uses literal `options.apiKey` in a private `0600` config.
+- Provider source wins over every historical Agent source override.

@@ -2285,32 +2285,6 @@ body {
 .mux-provider-section-head strong { color: var(--text-primary); font-size: 13px; font-weight: 650; }
 .mux-provider-section-head small { margin: 0; font-size: 9px; }
 .mux-provider-credential { border-radius: 0; background: transparent; }
-.mux-provider-credential-layout {
-  display: grid; min-width: 0; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: end; gap: 10px;
-}
-.mux-provider-helper-grid {
-  display: grid; min-width: 0; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr) 150px; gap: 10px;
-}
-.mux-provider-credential-validation { display: flex; align-items: center; gap: 9px; }
-.mux-provider-credential-validation small { color: var(--text-secondary); font-size: 10px; }
-.mux-provider-credential-validation[data-status="success"] small { color: var(--color-green); }
-.mux-provider-credential-validation[data-status="error"] small { color: var(--color-red); }
-.mux-provider-credential-mode {
-  display: inline-grid; height: 34px; grid-template-columns: 1fr 1fr; gap: 3px; padding: 3px;
-  border: 1px solid color-mix(in srgb, var(--text-primary) 9%, var(--border-hairline)); border-radius: 8px;
-  background: color-mix(in srgb, var(--text-primary) 7%, var(--surface-overlay));
-}
-.mux-provider-credential-mode button {
-  display: inline-flex; min-width: 80px; align-items: center; justify-content: center; gap: 6px; padding: 0 10px;
-  border: 1px solid transparent; border-radius: 5px; background: transparent; color: var(--text-secondary);
-  font: 600 11px/1 var(--font-sans); cursor: pointer; transition: color .14s ease, background-color .14s ease;
-}
-.mux-provider-credential-mode button:hover:not([aria-selected="true"]) { background: color-mix(in srgb, var(--surface-raised) 58%, transparent); color: var(--text-primary); }
-.mux-provider-credential-mode button[aria-selected="true"] {
-  border-color: color-mix(in srgb, var(--color-blue) 18%, var(--border-hairline));
-  background: var(--surface-raised); color: var(--color-blue); box-shadow: 0 1px 4px rgba(24, 29, 43, .14);
-}
-.mux-provider-credential-mode button:focus-visible { outline: 2px solid color-mix(in srgb, var(--color-blue) 72%, transparent); outline-offset: 1px; }
 .mux-provider-credential-field { min-width: 0; }
 .mux-provider-credential-input {
   display: flex; width: 100%; height: 32px; min-width: 0; align-items: center; gap: 7px; padding: 0 6px 0 10px;
@@ -2326,8 +2300,18 @@ body {
   width: 100%; height: 100%; min-width: 0; padding: 0; border: 0; outline: 0;
   background: transparent; color: var(--text-primary); font: 12px/1 var(--font-sans);
 }
-.mux-provider-credential-input[data-mode="env"] input { font-family: var(--font-mono); }
 .mux-provider-credential-input input:disabled { opacity: .5; cursor: not-allowed; }
+.mux-model-row-actions { display: flex; min-width: 126px; align-items: center; justify-content: flex-end; gap: 7px; }
+.mux-model-row-actions .mux-form-select { min-width: 118px; }
+.mux-model-row-actions .mux-form-select-trigger { height: 28px; font-size: 10px; }
+.mux-model-row-actions[data-busy="true"] { opacity: .55; pointer-events: none; }
+.mux-plaintext-confirmation-body { display: grid; gap: 10px; padding: 4px 0; }
+.mux-plaintext-confirmation-body strong { color: var(--text-primary); font-size: 13px; line-height: 1.55; }
+.mux-plaintext-confirmation-body code {
+  overflow: hidden; padding: 9px 10px; border: 1px solid var(--border-hairline); border-radius: 7px;
+  background: var(--surface-quiet); color: var(--text-secondary); font: 10px/1.4 var(--font-mono); text-overflow: ellipsis;
+}
+.mux-plaintext-confirmation-body span { color: var(--text-secondary); font-size: 11px; }
 .mux-provider-credential-clear { justify-self: start; }
 .mux-provider-icon-button {
   display: inline-flex; width: 24px; height: 24px; flex: 0 0 24px; align-items: center; justify-content: center;
@@ -2435,10 +2419,7 @@ body {
 @media (max-width: 620px) {
   .mux-model-form-grid,
   .mux-provider-basic-grid,
-  .mux-provider-credential-layout,
-  .mux-provider-helper-grid,
   .mux-provider-protocol-list { grid-template-columns: minmax(0, 1fr); }
-  .mux-provider-credential-mode { width: 100%; }
 }
 
 @media (prefers-reduced-motion: reduce) {

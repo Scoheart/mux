@@ -6,12 +6,10 @@ import {
   listModelProviderInstances,
   listModelProviders,
   revealModelProviderCredential,
-  validateModelCredentialSource,
 } from "../lib/api";
 import type { ConsumptionState } from "../hooks/useConsumptionState";
 import type {
   ApiKeySource,
-  AuthRequirement,
   ModelProfile,
   ModelProfileView,
   ModelProviderConfig,
@@ -1434,7 +1432,7 @@ function ModelProviderDialog({
   const initialSource = initial?.api_key_source
     ?? (initial?.env_key ? { kind: "env", name: initial.env_key } satisfies ApiKeySource : undefined)
     ?? (initial?.credential_saved ? { kind: "mux-store" } satisfies ApiKeySource : undefined);
-  const initialAuthRequirement: AuthRequirement = initial?.auth_requirement
+  const initialAuthRequirement: ModelProviderConfig["auth_requirement"] = initial?.auth_requirement
     ?? (["ollama", "lm-studio", "vllm"].includes(initialProviderType) ? "none" : initialProviderType === "custom" ? "optional" : "required");
   const [draft, setDraft] = useState<ModelProviderConfig>({
     id: initial?.id ?? "",
@@ -1444,7 +1442,7 @@ function ModelProviderDialog({
     model_catalog_url: initial?.model_catalog_url,
     protocols: initialProtocols,
     auth_requirement: initialAuthRequirement,
-    api_key_source: initialSource ?? (initialAuthRequirement === "none" ? undefined : { kind: "mux-store" }),
+    api_key_source: initialSource,
   });
   const [protocolPaths, setProtocolPaths] = useState<Record<ModelProtocol, string>>(
     Object.fromEntries(
@@ -1460,15 +1458,8 @@ function ModelProviderDialog({
   const [credential, setCredential] = useState("");
   const [credentialDirty, setCredentialDirty] = useState(false);
   const [credentialLoading, setCredentialLoading] = useState(false);
-  const [credentialSourceKind, setCredentialSourceKind] = useState<ApiKeySource["kind"]>(
-    initialSource?.kind ?? "mux-store",
-  );
   const [credentialVisible, setCredentialVisible] = useState(false);
   const [clearCredential, setClearCredential] = useState(false);
-  const [credentialValidation, setCredentialValidation] = useState<{
-    status: "idle" | "busy" | "success" | "error";
-    message?: string;
-  }>({ status: "idle" });
   const [busy, setBusy] = useState(false);
   const enabledProtocols = PROTOCOLS.filter(({ id }) => Boolean(draft.protocols[id]));
   const selectedProtocolInfo = PROTOCOLS.find(({ id }) => id === selectedProtocol) ?? PROTOCOLS[0];
@@ -1484,20 +1475,19 @@ function ModelProviderDialog({
       const path = draft.protocols[id]?.endpoint_path ?? "";
       return Boolean(normalizeEndpointPath(path) && fullRequestUrl(draft.base_url, path));
     });
-  const sourceValid = (() => {
-    if (draft.auth_requirement === "none") return true;
-    const source = draft.api_key_source;
-    if (!source) return draft.auth_requirement === "optional";
-    if (source.kind === "mux-store") {
-      return draft.auth_requirement === "optional"
-        || Boolean((initial?.credential_saved && !clearCredential) || credential.trim());
-    }
-    if (source.kind === "env") return /^[A-Za-z_][A-Za-z0-9_]*$/.test(source.name.trim());
-    if (source.kind === "file") return source.path.trim().startsWith("/");
-    return Boolean(source.command.trim())
-      && (source.command.trim().startsWith("/") || ["security", "op", "pass", "secret-tool"].includes(source.command.trim()))
-      && (!source.ttl_ms || (source.ttl_ms >= 1_000 && source.ttl_ms <= 3_600_000));
-  })();
+  const enteredCredential = Boolean(credential.trim());
+  const preservedCredential = Boolean(initial?.credential_saved && !clearCredential);
+  const preservesLegacySource = Boolean(initialSource && initialSource.kind !== "mux-store");
+  const authWithoutCredential: ModelProviderConfig["auth_requirement"] =
+    ["ollama", "lm-studio", "vllm"].includes(initialProviderType)
+      ? "none"
+      : initialProviderType === "custom"
+        ? "optional"
+        : "required";
+  const sourceValid = authWithoutCredential !== "required"
+    || enteredCredential
+    || preservedCredential
+    || preservesLegacySource;
   const valid = Boolean(
     draft.name.trim()
       && draft.provider.trim()
@@ -1547,6 +1537,19 @@ function ModelProviderDialog({
             { endpoint_path: normalizeEndpointPath(config!.endpoint_path)! },
           ]),
       ) as ModelProviderConfig["protocols"];
+      const hasNewCredential = credentialDirty && enteredCredential;
+      const apiKeySource = clearCredential
+        ? undefined
+        : hasNewCredential
+          ? { kind: "mux-store" as const }
+          : initialSource;
+      const authRequirement = hasNewCredential
+        ? "required"
+        : clearCredential
+          ? authWithoutCredential
+          : initialSource || preservedCredential
+            ? initialAuthRequirement
+            : authWithoutCredential;
       await onReview({
         ...draft,
         name: draft.name.trim(),
@@ -1554,14 +1557,12 @@ function ModelProviderDialog({
         base_url: normalizedBaseUrl!,
         model_catalog_url: normalizedModelCatalogUrl,
         protocols,
-        auth_requirement: draft.auth_requirement ?? "optional",
-        api_key_source: draft.auth_requirement === "none"
-          ? undefined
-          : draft.api_key_source,
+        auth_requirement: authRequirement,
+        api_key_source: authRequirement === "none" ? undefined : apiKeySource,
         env_key: undefined,
-      }, draft.auth_requirement === "none" || credentialSourceKind !== "mux-store"
+      }, authRequirement === "none"
         ? initial?.credential_saved ? "" : undefined
-        : clearCredential ? "" : credentialDirty && credential ? credential : undefined);
+        : clearCredential ? "" : hasNewCredential ? credential : undefined);
     } catch (error) {
       toast.show({ kind: "error", msg: t("models.saveFailed", { error: formatError(error) }) });
     } finally {
@@ -1570,49 +1571,6 @@ function ModelProviderDialog({
   };
 
   const dialogName = initial?.name || providerTemplate?.name || draft.name || t("models.provider");
-  const credentialSourceOptions = [
-    { value: "mux-store", label: t("models.credentialMuxStore") },
-    { value: "env", label: t("models.credentialEnv") },
-    { value: "file", label: t("models.credentialFile") },
-    { value: "helper", label: t("models.credentialHelper") },
-  ];
-  const authRequirementOptions = [
-    { value: "required", label: t("models.authRequired") },
-    { value: "optional", label: t("models.authOptional") },
-    { value: "none", label: t("models.authNone") },
-  ];
-
-  const changeCredentialSource = (kind: ApiKeySource["kind"]) => {
-    setCredentialSourceKind(kind);
-    setCredentialVisible(false);
-    setCredentialValidation({ status: "idle" });
-    setDraft((current) => ({
-      ...current,
-      api_key_source: kind === "mux-store"
-        ? { kind: "mux-store" }
-        : kind === "env"
-          ? { kind: "env", name: current.api_key_source?.kind === "env" ? current.api_key_source.name : "" }
-          : kind === "file"
-            ? { kind: "file", path: current.api_key_source?.kind === "file" ? current.api_key_source.path : "" }
-            : {
-                kind: "helper",
-                command: current.api_key_source?.kind === "helper" ? current.api_key_source.command : "",
-                args: current.api_key_source?.kind === "helper" ? current.api_key_source.args : [],
-                ttl_ms: current.api_key_source?.kind === "helper" ? current.api_key_source.ttl_ms : 300_000,
-              },
-    }));
-  };
-
-  const testCredentialSource = async () => {
-    if (!draft.api_key_source) return;
-    setCredentialValidation({ status: "busy" });
-    try {
-      const result = await validateModelCredentialSource(draft.api_key_source);
-      setCredentialValidation({ status: "success", message: result.message });
-    } catch (error) {
-      setCredentialValidation({ status: "error", message: formatError(error) });
-    }
-  };
 
   return (
     <DialogShell
@@ -1678,45 +1636,15 @@ function ModelProviderDialog({
           </label>
         </div>
 
-        <section className="mux-provider-form-section mux-provider-credential" aria-label={t("models.credentialSection")}>
+        {initialAuthRequirement !== "none" && (
+        <section className="mux-provider-form-section mux-provider-credential" aria-label={t("models.apiKey")}>
           <div className="mux-provider-section-head">
-            <strong>{t("models.credentialSection")}</strong>
-          </div>
-          <div className="mux-provider-credential-layout">
-            <label className="mux-model-form-field">
-              <span>{t("models.authRequirement")}</span>
-              <FormSelect
-                ariaLabel={t("models.authRequirement")}
-                value={draft.auth_requirement ?? "optional"}
-                options={authRequirementOptions}
-                onChange={(value) => {
-                  const requirement = value as AuthRequirement;
-                  setDraft((current) => ({
-                    ...current,
-                    auth_requirement: requirement,
-                    api_key_source: requirement === "none"
-                      ? undefined
-                      : current.api_key_source ?? { kind: "mux-store" },
-                  }));
-                }}
-              />
-            </label>
-            {draft.auth_requirement !== "none" && (
-              <label className="mux-model-form-field">
-                <span>{t("models.credentialSource")}</span>
-                <FormSelect
-                  ariaLabel={t("models.credentialSource")}
-                  value={credentialSourceKind}
-                  options={credentialSourceOptions}
-                  onChange={(value) => changeCredentialSource(value as ApiKeySource["kind"])}
-                />
-              </label>
-            )}
+            <strong>{t("models.apiKey")}</strong>
+            <small>{t("models.credentialHelp")}</small>
           </div>
 
-          {draft.auth_requirement !== "none" && draft.api_key_source?.kind === "mux-store" && (
-            <div className="mux-model-form-field mux-provider-credential-field">
-              <div className="mux-provider-credential-input" data-mode="mux-store">
+          <div className="mux-model-form-field mux-provider-credential-field">
+            <div className="mux-provider-credential-input" data-mode="mux-store">
                 <input
                   type={!credentialVisible ? "password" : "text"}
                   autoComplete="new-password"
@@ -1727,7 +1655,11 @@ function ModelProviderDialog({
                     setCredential(event.target.value);
                     setCredentialDirty(true);
                   }}
-                  placeholder={initial?.credential_saved ? t("models.keepCredential") : t("models.optionalCredential")}
+                  placeholder={initial?.credential_saved
+                    ? t("models.keepCredential")
+                    : preservesLegacySource
+                      ? t("models.legacyCredentialPreserved")
+                      : t("models.optionalCredential")}
                 />
                   <button
                     type="button"
@@ -1742,113 +1674,10 @@ function ModelProviderDialog({
                       ? <EyeOffIcon className="w-4 h-4" />
                       : <EyeIcon className="w-4 h-4" />}
                   </button>
-              </div>
             </div>
-          )}
+          </div>
 
-          {draft.auth_requirement !== "none" && draft.api_key_source?.kind === "env" && (
-            <label className="mux-model-form-field mux-provider-credential-field">
-              <span>{t("models.apiKeyEnv")}</span>
-              <input
-                className="mux-model-field"
-                value={draft.api_key_source.name}
-                onChange={(event) => setDraft({
-                  ...draft,
-                  api_key_source: { kind: "env", name: event.currentTarget.value },
-                })}
-                placeholder="OPENROUTER_API_KEY"
-                spellCheck={false}
-              />
-            </label>
-          )}
-
-          {draft.auth_requirement !== "none" && draft.api_key_source?.kind === "file" && (
-            <label className="mux-model-form-field mux-provider-credential-field">
-              <span>{t("models.credentialFilePath")}</span>
-              <input
-                className="mux-model-field"
-                value={draft.api_key_source.path}
-                onChange={(event) => setDraft({
-                  ...draft,
-                  api_key_source: { kind: "file", path: event.currentTarget.value },
-                })}
-                placeholder="/Users/you/.config/keys/provider.key"
-                spellCheck={false}
-              />
-              <small>{t("models.credentialFileHelp")}</small>
-            </label>
-          )}
-
-          {draft.auth_requirement !== "none" && draft.api_key_source?.kind === "helper" && (
-            <div className="mux-provider-helper-grid">
-              <label className="mux-model-form-field">
-                <span>{t("models.credentialHelperCommand")}</span>
-                <input
-                  className="mux-model-field"
-                  value={draft.api_key_source.command}
-                  onChange={(event) => setDraft({
-                    ...draft,
-                    api_key_source: { ...draft.api_key_source as Extract<ApiKeySource, { kind: "helper" }>, command: event.currentTarget.value },
-                  })}
-                  placeholder="/usr/local/bin/read-provider-key"
-                  spellCheck={false}
-                />
-              </label>
-              <label className="mux-model-form-field">
-                <span>{t("models.credentialHelperArgs")}</span>
-                <input
-                  className="mux-model-field"
-                  value={draft.api_key_source.args.join(" ")}
-                  onChange={(event) => setDraft({
-                    ...draft,
-                    api_key_source: {
-                      ...draft.api_key_source as Extract<ApiKeySource, { kind: "helper" }>,
-                      args: event.currentTarget.value.split(/\s+/).filter(Boolean),
-                    },
-                  })}
-                  placeholder="--profile coding"
-                  spellCheck={false}
-                />
-              </label>
-              <label className="mux-model-form-field">
-                <span>{t("models.credentialHelperTtl")}</span>
-                <input
-                  className="mux-model-field"
-                  type="number"
-                  min={1000}
-                  max={3600000}
-                  value={draft.api_key_source.ttl_ms ?? 300000}
-                  onChange={(event) => setDraft({
-                    ...draft,
-                    api_key_source: {
-                      ...draft.api_key_source as Extract<ApiKeySource, { kind: "helper" }>,
-                      ttl_ms: Number(event.currentTarget.value) || undefined,
-                    },
-                  })}
-                />
-              </label>
-            </div>
-          )}
-
-          {draft.auth_requirement !== "none" && ["file", "helper"].includes(draft.api_key_source?.kind ?? "") && (
-            <div className="mux-provider-credential-validation" data-status={credentialValidation.status}>
-              <button
-                type="button"
-                className="btn-secondary"
-                disabled={!sourceValid || credentialValidation.status === "busy"}
-                onClick={() => void testCredentialSource()}
-              >
-                {credentialValidation.status === "busy"
-                  ? t("models.credentialValidating")
-                  : draft.api_key_source?.kind === "helper"
-                    ? t("models.credentialTestHelper")
-                    : t("models.credentialValidateFile")}
-              </button>
-              {credentialValidation.message && <small>{credentialValidation.message}</small>}
-            </div>
-          )}
-
-          {initial?.credential_saved && draft.api_key_source?.kind === "mux-store" && (
+          {initial?.credential_saved && initialSource?.kind === "mux-store" && (
             <label className="mux-model-check mux-provider-credential-clear">
               <input
                 type="checkbox"
@@ -1862,6 +1691,7 @@ function ModelProviderDialog({
             </label>
           )}
         </section>
+        )}
 
         <section className="mux-provider-form-section mux-provider-protocols" aria-label={t("models.supportedProtocols")}>
           <div className="mux-provider-section-head">

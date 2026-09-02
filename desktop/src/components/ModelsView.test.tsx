@@ -344,7 +344,8 @@ it("keeps the sidebar limited to the model library and configured Providers", as
 
   expect(sidebarElement?.querySelectorAll(".mux-sidebar-section")).toHaveLength(2);
   expect(sidebar.getByText("模型库")).toBeVisible();
-  expect(sidebar.getByText("My Providers")).toBeVisible();
+  expect(sidebar.getByText("官方 Provider")).toBeVisible();
+  expect(sidebar.queryByText("自定义 Provider")).not.toBeInTheDocument();
   expect(sidebar.getByText("全部模型")).toBeVisible();
   expect(sidebar.queryByText("协议")).not.toBeInTheDocument();
   expect(sidebar.queryByText("全部协议")).not.toBeInTheDocument();
@@ -361,6 +362,153 @@ it("keeps the sidebar limited to the model library and configured Providers", as
   await user.click(sidebar.getByRole("button", { name: /全部模型/ }));
   expect(screen.getByRole("button", { name: "打开模型 Responses Model 详情" })).toBeVisible();
   expect(screen.getByRole("button", { name: "打开模型 Completions Model 详情" })).toBeVisible();
+});
+
+it("splits configured Providers into custom then official sidebar groups", async () => {
+  vi.mocked(api.listModelProviderInstances).mockResolvedValue([
+    {
+      id: "openai-personal",
+      name: "OpenAI Personal",
+      provider: "openai",
+      base_url: "https://api.openai.com",
+      protocols: { "openai-responses": { endpoint_path: "/v1/responses" } },
+      credential_saved: true,
+      model_count: 1,
+      model_discovery_supported: true,
+    },
+    {
+      id: "custom-idealab",
+      name: "Idealab",
+      provider: "custom",
+      base_url: "https://idealab.alibaba-inc.com",
+      protocols: { "openai-completions": { endpoint_path: "/api/openai/v1/chat/completions" } },
+      credential_saved: true,
+      model_count: 1,
+      model_discovery_supported: false,
+    },
+  ]);
+  vi.mocked(api.listModelProfiles).mockResolvedValue([
+    {
+      id: "responses-model",
+      name: "Responses Model",
+      provider_id: "openai-personal",
+      provider: "openai",
+      protocol: "openai-responses",
+      base_url: "https://api.openai.com/v1",
+      model: "gpt-responses",
+      reasoning: true,
+      catalog_key: "openai/gpt-responses",
+      credential_saved: true,
+    },
+    {
+      id: "idealab-model",
+      name: "Idealab Model",
+      provider_id: "custom-idealab",
+      provider: "custom",
+      protocol: "openai-completions",
+      base_url: "https://idealab.alibaba-inc.com/api/openai/v1",
+      model: "Peach-07-17-DogFooding",
+      reasoning: false,
+      catalog_key: "custom/peach",
+      credential_saved: true,
+    },
+  ]);
+  const user = userEvent.setup();
+  const view = render(
+    <ToastProvider>
+      <ModelsView />
+    </ToastProvider>,
+  );
+
+  await screen.findByRole("button", { name: "打开模型 Idealab Model 详情" });
+  const sidebarElement = view.container.querySelector(".mux-workspace-sidebar");
+  expect(sidebarElement).not.toBeNull();
+  const sidebar = within(sidebarElement as HTMLElement);
+  const sections = [...(sidebarElement?.querySelectorAll(".mux-sidebar-section") ?? [])];
+
+  expect(sections).toHaveLength(3);
+  expect(within(sections[0] as HTMLElement).getByText("模型库")).toBeVisible();
+  expect(within(sections[1] as HTMLElement).getByText("自定义 Provider")).toBeVisible();
+  expect(within(sections[1] as HTMLElement).getByRole("button", { name: /Idealab/ })).toBeVisible();
+  expect(within(sections[2] as HTMLElement).getByText("官方 Provider")).toBeVisible();
+  expect(within(sections[2] as HTMLElement).getByRole("button", { name: /OpenAI Personal/ })).toBeVisible();
+
+  await user.click(sidebar.getByRole("button", { name: /Idealab/ }));
+  expect(screen.getByRole("button", { name: "打开模型 Idealab Model 详情" })).toBeVisible();
+  expect(screen.queryByRole("button", { name: "打开模型 Responses Model 详情" })).not.toBeInTheDocument();
+});
+
+it("collapses long official Provider lists behind show more", async () => {
+  const official = ["Anthropic", "Cerebras", "Cohere", "Google", "Groq", "Mistral", "Ollama"].map((name) => ({
+    id: `${name.toLowerCase()}-instance`,
+    name,
+    provider: name.toLowerCase(),
+    base_url: `https://${name.toLowerCase()}.example.test`,
+    protocols: { "openai-completions": { endpoint_path: "/v1/chat/completions" } },
+    credential_saved: true,
+    model_count: 1,
+    model_discovery_supported: true,
+  }));
+  vi.mocked(api.listModelProviderInstances).mockResolvedValue([
+    {
+      id: "custom-idealab",
+      name: "Idealab",
+      provider: "custom",
+      base_url: "https://idealab.alibaba-inc.com",
+      protocols: { "openai-completions": { endpoint_path: "/api/openai/v1/chat/completions" } },
+      credential_saved: true,
+      model_count: 1,
+      model_discovery_supported: false,
+    },
+    ...official,
+  ]);
+  vi.mocked(api.listModelProfiles).mockResolvedValue(official.map((provider) => ({
+    id: `${provider.id}-model`,
+    name: `${provider.name} Model`,
+    provider_id: provider.id,
+    provider: provider.provider,
+    protocol: "openai-completions",
+    base_url: provider.base_url,
+    model: `${provider.provider}-latest`,
+    reasoning: false,
+    catalog_key: `${provider.provider}/latest`,
+    credential_saved: true,
+  })));
+  const user = userEvent.setup();
+  const { container } = render(
+    <ToastProvider>
+      <ModelsView />
+    </ToastProvider>,
+  );
+
+  await screen.findByRole("button", { name: "打开模型 Anthropic Model 详情" });
+  const sidebarElement = container.querySelector(".mux-workspace-sidebar");
+  expect(sidebarElement).not.toBeNull();
+  const sidebar = within(sidebarElement as HTMLElement);
+  const sections = [...(sidebarElement?.querySelectorAll(".mux-sidebar-section") ?? [])];
+  const officialSection = within(sections[2] as HTMLElement);
+
+  expect(within(sections[1] as HTMLElement).getByText("自定义 Provider")).toBeVisible();
+  expect(sidebar.getByRole("button", { name: /Idealab/ })).toBeVisible();
+  expect(officialSection.getByRole("button", { name: /Anthropic/ })).toBeVisible();
+  expect(officialSection.getByRole("button", { name: /Groq/ })).toBeVisible();
+  expect(officialSection.queryByRole("button", { name: /Mistral/ })).not.toBeInTheDocument();
+  expect(officialSection.queryByRole("button", { name: /Ollama/ })).not.toBeInTheDocument();
+  expect(officialSection.getByRole("button", { name: /显示更多 · 2/ })).toBeVisible();
+
+  await user.click(officialSection.getByRole("button", { name: /显示更多 · 2/ }));
+  expect(officialSection.getByRole("button", { name: /Mistral/ })).toBeVisible();
+  expect(officialSection.getByRole("button", { name: /Ollama/ })).toBeVisible();
+  expect(officialSection.getByRole("button", { name: /收起/ })).toBeVisible();
+
+  await user.click(officialSection.getByRole("button", { name: /Ollama/ }));
+  expect(screen.getByRole("button", { name: "打开模型 Ollama Model 详情" })).toBeVisible();
+  expect(screen.queryByRole("button", { name: "打开模型 Anthropic Model 详情" })).not.toBeInTheDocument();
+
+  await user.click(officialSection.getByRole("button", { name: /收起/ }));
+  expect(officialSection.getByRole("button", { name: /Ollama/ })).toBeVisible();
+  expect(officialSection.queryByRole("button", { name: /Mistral/ })).not.toBeInTheDocument();
+  expect(officialSection.getByRole("button", { name: /显示更多 · 2/ })).toBeVisible();
 });
 
 it("keeps the built-in Provider Catalog unfiltered, searchable, and keyboard-selectable", async () => {

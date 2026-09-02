@@ -33,6 +33,7 @@ import { FormSelect } from "./FormSelect";
 import { ProviderGlyph } from "./providerIcons";
 import {
   CalendarIcon,
+  ChevronDownIcon,
   CopyIcon,
   EditIcon,
   EyeIcon,
@@ -98,6 +99,88 @@ function protocolLabel(protocol: ModelProtocol) {
 
 function providerLabel(providers: ModelProviderView[], provider: string) {
   return providers.find((item) => item.id === provider)?.name ?? (provider || "Custom Provider");
+}
+
+function isCustomProviderInstance(
+  instance: ModelProviderInstanceView,
+  templates: ModelProviderView[],
+) {
+  return instance.provider === "custom"
+    || templates.find((template) => template.id === instance.provider)?.category === "custom";
+}
+
+function partitionProviderInstances(
+  instances: ModelProviderInstanceView[],
+  templates: ModelProviderView[],
+) {
+  const official: ModelProviderInstanceView[] = [];
+  const custom: ModelProviderInstanceView[] = [];
+  for (const instance of instances) {
+    (isCustomProviderInstance(instance, templates) ? custom : official).push(instance);
+  }
+  return { official, custom };
+}
+
+const SIDEBAR_PROVIDER_PREVIEW = 5;
+
+function previewProviderInstances(
+  items: ModelProviderInstanceView[],
+  expanded: boolean,
+  selectedId: string | null,
+) {
+  if (expanded || items.length <= SIDEBAR_PROVIDER_PREVIEW) return items;
+  const preview = items.slice(0, SIDEBAR_PROVIDER_PREVIEW);
+  const selected = selectedId ? items.find((item) => item.id === selectedId) : undefined;
+  if (selected && !preview.some((item) => item.id === selected.id)) {
+    return [...preview, selected];
+  }
+  return preview;
+}
+
+function ProviderSidebarGroup({
+  title,
+  items,
+  selectedId,
+  onSelect,
+}: {
+  title: string;
+  items: ModelProviderInstanceView[];
+  selectedId: string | null;
+  onSelect: (id: string) => void;
+}) {
+  const { t } = useTranslation();
+  const [expanded, setExpanded] = useState(false);
+  const visible = previewProviderInstances(items, expanded, selectedId);
+  if (items.length === 0) return null;
+  const hiddenCount = Math.max(0, items.length - SIDEBAR_PROVIDER_PREVIEW);
+
+  return (
+    <SidebarSection title={title}>
+      {visible.map((provider) => (
+        <SidebarItem
+          key={provider.id}
+          active={selectedId === provider.id}
+          icon={<ProviderGlyph id={provider.provider} name={provider.name} size={18} />}
+          label={provider.name}
+          count={provider.model_count}
+          onClick={() => onSelect(provider.id)}
+        />
+      ))}
+      {hiddenCount > 0 && (
+        <button
+          type="button"
+          className="mux-sidebar-more"
+          aria-expanded={expanded}
+          onClick={() => setExpanded((value) => !value)}
+        >
+          <ChevronDownIcon className="mux-sidebar-more-icon" />
+          {expanded
+            ? t("models.showLessProviders")
+            : t("models.showMoreProviders", { count: hiddenCount })}
+        </button>
+      )}
+    </SidebarSection>
+  );
 }
 
 function providerTemplateConnection(provider: ModelProviderView | null | undefined) {
@@ -311,6 +394,10 @@ export function ModelsView({
 
   const selectedProfile = profiles.find((profile) => profile.id === selectedProfileId) ?? null;
   const selectedProvider = providerInstances.find((provider) => provider.id === providerFilter) ?? null;
+  const { official: officialProviders, custom: customProviders } = useMemo(
+    () => partitionProviderInstances(providerInstances, providers),
+    [providerInstances, providers],
+  );
 
   useEffect(() => {
     if (!intent || loading || lastConsumedIntentId.current === intent.id) return;
@@ -335,6 +422,10 @@ export function ModelsView({
     setCreatingForProviderId(null);
     setCreatingProviderTemplate(null);
   }, []);
+  const selectProvider = (id: string | null) => {
+    clearSelection();
+    setProviderFilter(id);
+  };
   const planProfileDelete = async (profile: ModelProfileView) => {
     if (!consumptionState) return;
     try {
@@ -357,23 +448,21 @@ export function ModelsView({
                 icon={<LayersIcon className="w-3.5 h-3.5" />}
                 label={t("models.allModels")}
                 count={profiles.length}
-                onClick={() => { clearSelection(); setProviderFilter(null); }}
+                onClick={() => selectProvider(null)}
               />
             </SidebarSection>
-            {providerInstances.length > 0 && (
-              <SidebarSection title={t("models.myProviders")}>
-                {providerInstances.map((provider) => (
-                  <SidebarItem
-                    key={provider.id}
-                    active={providerFilter === provider.id}
-                    icon={<ProviderGlyph id={provider.provider} name={provider.name} size={18} />}
-                    label={provider.name}
-                    count={provider.model_count}
-                    onClick={() => { clearSelection(); setProviderFilter(provider.id); }}
-                  />
-                ))}
-              </SidebarSection>
-            )}
+            <ProviderSidebarGroup
+              title={t("models.customProviders")}
+              items={customProviders}
+              selectedId={providerFilter}
+              onSelect={selectProvider}
+            />
+            <ProviderSidebarGroup
+              title={t("models.officialProviders")}
+              items={officialProviders}
+              selectedId={providerFilter}
+              onSelect={selectProvider}
+            />
           </WorkspaceSidebar>
         }
         query={query}

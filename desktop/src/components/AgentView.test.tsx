@@ -20,7 +20,6 @@ import { ToastProvider } from "./Toast";
 const apiMocks = vi.hoisted(() => ({
   listModelAgents: vi.fn().mockResolvedValue([]),
   listModelProfiles: vi.fn().mockResolvedValue([]),
-  setModelCredentialDelivery: vi.fn().mockResolvedValue({}),
   listMcpIconPreferences: vi.fn().mockResolvedValue({
     "github::stdio": { kind: "builtin", value: "database" },
   }),
@@ -45,15 +44,15 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-it("offers Agent delivery choices and keeps plaintext confirmation global and compact", async () => {
+it("keeps credential source configuration out of Agent rows", async () => {
   const source = await readFile(resolve(process.cwd(), "src/components/AgentView.tsx"), "utf8");
-  expect(source).toContain("setModelCredentialDelivery");
-  expect(source).toContain('{ value: "auto", label: "自动" }');
-  expect(source).toContain('{ value: "agent-store", label: "Agent 凭据存储" }');
-  expect(source).toContain('{ value: "plaintext", label: "明文配置" }');
-  expect(source).toContain("将把 {plaintextConfirmation.profileName} API Key 明文写入 {agent.name} 私有配置");
-  expect(source).toContain("文件权限将设为 0600");
-  expect(source).not.toContain("确认更新配置");
+  expect(source).not.toContain("setModelCredentialDelivery");
+  expect(source).not.toContain("credential_policies");
+  expect(source).not.toContain("Agent 凭据存储");
+  expect(source).not.toContain("明文配置");
+  expect(source).not.toContain("plaintextConfirmation");
+  expect(source).not.toContain('credential_mode === "environment-reference"');
+  expect(source).not.toContain("需要 ENV");
 });
 
 const skillsOnlyAgent: AgentInfo = {

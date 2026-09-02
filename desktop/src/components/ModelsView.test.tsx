@@ -32,6 +32,7 @@ vi.mock("../lib/modelsDev", async () => {
 });
 
 const source = await readFile(resolve(process.cwd(), "src/components/ModelsView.tsx"), "utf8");
+const i18nSource = await readFile(resolve(process.cwd(), "src/i18n/index.ts"), "utf8");
 const agentSource = await readFile(resolve(process.cwd(), "src/components/AgentView.tsx"), "utf8");
 const css = await readFile(resolve(process.cwd(), "src/index.css"), "utf8");
 
@@ -513,13 +514,19 @@ it("keeps all credential source metadata on Provider rather than Model forms", (
   for (const kind of ["mux-store", "env", "file", "helper"]) {
     expect(providerDialog).toContain(`value: "${kind}"`);
   }
+  expect(i18nSource).toContain('credentialMuxStore: "明文"');
+  expect(i18nSource).toContain('credentialEnv: "环境变量"');
+  expect(i18nSource).toContain('credentialFile: "文件"');
+  expect(i18nSource).toContain('credentialHelper: "命令"');
+  expect(i18nSource).not.toContain('credentialMuxStore: "MUX 安全存储"');
+  expect(i18nSource).not.toContain('credentialHelper: "凭据助手"');
   expect(providerDialog).toMatch(/auth_requirement/);
   expect(providerDialog).toMatch(/api_key_source/);
   expect(providerDialog).toMatch(/command/);
   expect(providerDialog).toMatch(/ttl_ms/);
-  expect(agentSource).toMatch(/modelAgent\.credential_mode === "environment-reference"/);
-  expect(agentSource).toMatch(/ENV · \$\{profile\.env_key\}/);
-  expect(agentSource).toMatch(/需要 ENV/);
+  expect(agentSource).not.toMatch(/modelAgent\.credential_mode === "environment-reference"/);
+  expect(agentSource).not.toMatch(/ENV · \$\{profile\.env_key\}/);
+  expect(agentSource).not.toMatch(/需要 ENV/);
 });
 
 it("requires Model forms to select a persisted Provider relationship", () => {

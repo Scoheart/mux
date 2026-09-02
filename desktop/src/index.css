@@ -2328,17 +2328,6 @@ body {
 }
 .mux-provider-credential-input[data-mode="env"] input { font-family: var(--font-mono); }
 .mux-provider-credential-input input:disabled { opacity: .5; cursor: not-allowed; }
-.mux-model-row-actions { display: flex; min-width: 126px; align-items: center; justify-content: flex-end; gap: 7px; }
-.mux-model-row-actions .mux-form-select { min-width: 118px; }
-.mux-model-row-actions .mux-form-select-trigger { height: 28px; font-size: 10px; }
-.mux-model-row-actions[data-busy="true"] { opacity: .55; pointer-events: none; }
-.mux-plaintext-confirmation-body { display: grid; gap: 10px; padding: 4px 0; }
-.mux-plaintext-confirmation-body strong { color: var(--text-primary); font-size: 13px; line-height: 1.55; }
-.mux-plaintext-confirmation-body code {
-  overflow: hidden; padding: 9px 10px; border: 1px solid var(--border-hairline); border-radius: 7px;
-  background: var(--surface-quiet); color: var(--text-secondary); font: 10px/1.4 var(--font-mono); text-overflow: ellipsis;
-}
-.mux-plaintext-confirmation-body span { color: var(--text-secondary); font-size: 11px; }
 .mux-provider-credential-clear { justify-self: start; }
 .mux-provider-icon-button {
   display: inline-flex; width: 24px; height: 24px; flex: 0 0 24px; align-items: center; justify-content: center;

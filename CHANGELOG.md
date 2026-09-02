@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.167](https://github.com/Scoheart/mux/compare/v1.8.166...v1.8.167) (2026-09-02)
+
+### Changes
+
+* docs(agents): route MUX landing through two independent skills (#160) ([b4ef612](https://github.com/Scoheart/mux/commit/b4ef6127c9d4f29dfb946ed65776a1b3e00c5e27))
+
 ## [1.8.166](https://github.com/Scoheart/mux/compare/v1.8.165...v1.8.166) (2026-09-02)
 
 ### Changes

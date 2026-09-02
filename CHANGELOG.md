@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.165](https://github.com/Scoheart/mux/compare/v1.8.164...v1.8.165) (2026-09-02)
+
+### Changes
+
+* feat(desktop): group model providers and collapse long lists (#158) ([4b2be96](https://github.com/Scoheart/mux/commit/4b2be96735252f734d698ef6f022491ba3d2c211))
+
 ## [1.8.164](https://github.com/Scoheart/mux/compare/v1.8.163...v1.8.164) (2026-09-02)
 
 ### Changes

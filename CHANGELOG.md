@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.163](https://github.com/Scoheart/mux/compare/v1.8.162...v1.8.163) (2026-09-02)
+
+### Changes
+
+* fix(models): keep credential methods on providers (#156) ([37de4b1](https://github.com/Scoheart/mux/commit/37de4b10b718262b8f88b68029a6a4f577682834))
+
 ## [1.8.162](https://github.com/Scoheart/mux/compare/v1.8.161...v1.8.162) (2026-09-02)
 
 ### Changes

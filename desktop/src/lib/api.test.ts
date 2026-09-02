@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   listModelProfiles,
   revealModelProviderCredential,
+  setModelCredentialDelivery,
   validateModelCredentialSource,
 } from "./api";
 
@@ -58,6 +59,19 @@ describe("Model Profile wire contract", () => {
     await validateModelCredentialSource({ kind: "file", path: "/private/provider.key" });
     expect(invokeMock).toHaveBeenCalledWith("validate_model_credential_source", {
       source: { kind: "file", path: "/private/provider.key" },
+    });
+  });
+
+  it("updates one Agent-specific credential delivery policy", async () => {
+    invokeMock.mockResolvedValueOnce({ agent: "opencode", profile: "work" });
+
+    await setModelCredentialDelivery("opencode", "work", "plaintext", true);
+
+    expect(invokeMock).toHaveBeenCalledWith("set_model_credential_delivery", {
+      agentId: "opencode",
+      profileId: "work",
+      delivery: "plaintext",
+      confirmPlaintext: true,
     });
   });
 

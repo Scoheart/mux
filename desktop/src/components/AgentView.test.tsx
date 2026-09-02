@@ -44,13 +44,15 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-it("keeps credential source configuration out of Agent rows", async () => {
+it("shows credential delivery only for Agents with multiple reliable routes", async () => {
   const source = await readFile(resolve(process.cwd(), "src/components/AgentView.tsx"), "utf8");
-  expect(source).not.toContain("setModelCredentialDelivery");
-  expect(source).not.toContain("credential_policies");
+  expect(source).toContain("setModelCredentialDelivery");
+  expect(source).toContain("credential_policies");
+  expect(source).toContain("自动适配（推荐）");
   expect(source).not.toContain("Agent 凭据存储");
-  expect(source).not.toContain("明文配置");
-  expect(source).not.toContain("plaintextConfirmation");
+  expect(source).toContain("明文配置");
+  expect(source).toContain("plaintextConfirmation");
+  expect(source).toContain("deliveryOptions.length > 1");
   expect(source).not.toContain('credential_mode === "environment-reference"');
   expect(source).not.toContain("需要 ENV");
 });

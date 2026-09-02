@@ -42,7 +42,7 @@ pub fn prepare_apply(
     active: bool,
 ) -> Result<Vec<PreparedModelFile>, String> {
     let prepared = match agent_id {
-        "opencode" | "kilo-code" => prepare_open_code(agent_id, &paths[0], profile, active)?,
+        "opencode" | "kilo-code" => prepare_open_code(agent_id, &paths[0], profile, active, None)?,
         "qwen-code" => prepare_qwen(&paths[0], profile, active)?,
         "crush" => prepare_crush(&paths[0], profile, active)?,
         "mistral-vibe" => prepare_vibe(&paths[0], profile, active)?,
@@ -52,6 +52,23 @@ pub fn prepare_apply(
         _ => return Err(format!("unsupported multi-model Agent: {agent_id}")),
     };
     Ok(vec![prepared])
+}
+
+pub fn prepare_apply_plaintext(
+    agent_id: &str,
+    paths: &[PathBuf],
+    profile: &ModelProfile,
+    active: bool,
+    credential: &[u8],
+) -> Result<PreparedModelFile, String> {
+    if agent_id != "opencode" {
+        return Err(format!(
+            "credential_delivery_unsupported: {agent_id} plaintext adapter is not verified"
+        ));
+    }
+    let credential = std::str::from_utf8(credential)
+        .map_err(|_| "plaintext_target_insecure: API Key must be UTF-8".to_string())?;
+    prepare_open_code(agent_id, &paths[0], profile, active, Some(credential))
 }
 
 pub fn prepare_clear(
@@ -431,6 +448,7 @@ fn open_code_provider(
     profile: &ModelProfile,
     existing: Option<Value>,
     path: &Path,
+    literal_api_key: Option<&str>,
 ) -> Result<Value, String> {
     let package = match profile.protocol {
         ModelProtocol::AnthropicMessages => "@ai-sdk/anthropic",
@@ -459,7 +477,9 @@ fn open_code_provider(
         }
     };
     options.insert("baseURL".into(), Value::String(profile.base_url.clone()));
-    if let Some(path) = profile.native_ids.get(CREDENTIAL_FILE_NATIVE_ID) {
+    if let Some(credential) = literal_api_key {
+        options.insert("apiKey".into(), Value::String(credential.into()));
+    } else if let Some(path) = profile.native_ids.get(CREDENTIAL_FILE_NATIVE_ID) {
         options.insert("apiKey".into(), Value::String(format!("{{file:{path}}}")));
     } else if let Some(value) = env_ref(profile, "{env:", "}") {
         options.insert("apiKey".into(), Value::String(value));
@@ -518,6 +538,7 @@ fn prepare_open_code(
     path: &Path,
     profile: &ModelProfile,
     active: bool,
+    literal_api_key: Option<&str>,
 ) -> Result<PreparedModelFile, String> {
     let (root, original) = read_jsonc(path)?;
     let object = root_object(&root, path)?;
@@ -537,7 +558,7 @@ fn prepare_open_code(
     set_json(
         &providers,
         &provider_id,
-        Some(open_code_provider(profile, existing, path)?),
+        Some(open_code_provider(profile, existing, path, literal_api_key)?),
     );
     if active {
         set_json(

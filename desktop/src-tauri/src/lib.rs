@@ -92,6 +92,7 @@ pub fn run() {
             commands::infer_model_provider,
             commands::validate_model_credential_source,
             commands::list_model_agents,
+            commands::set_model_credential_delivery,
             commands::list_registry_all,
             commands::list_custom_registry_keys,
             commands::import_pasted_config,

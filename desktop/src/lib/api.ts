@@ -6,6 +6,7 @@ import type {
   AgentConsumptionSelection,
   AgentCapabilityView,
   AgentInfo,
+  ApiKeyDelivery,
   AssetCommandError,
   AssetOperationPlan,
   AssetRef,
@@ -18,6 +19,7 @@ import type {
   InstalledMcp,
   ModelAdoptionCandidate,
   ModelAgentView,
+  ModelApplyResult,
   ModelProviderView,
   ProviderModelSummary,
   ModelProfileView,
@@ -148,6 +150,17 @@ export const validateModelCredentialSource = (source: import("./types").ApiKeySo
   invoke<CredentialValidationView>("validate_model_credential_source", { source });
 export const listModelAgents = () =>
   invoke<ModelAgentView[]>("list_model_agents");
+export const setModelCredentialDelivery = (
+  agentId: string,
+  profileId: string,
+  delivery: ApiKeyDelivery,
+  confirmPlaintext = false,
+) => invoke<ModelApplyResult>("set_model_credential_delivery", {
+  agentId,
+  profileId,
+  delivery,
+  confirmPlaintext,
+});
 /** All entry copies across sources (not deduped), each flagged in_effect. */
 export const listRegistryAll = () => invoke<CatalogItem[]>("list_registry_all");
 /** 桌面包内 mux CLI 的安装状态（sidecar → ~/.local/bin 软链）。 */

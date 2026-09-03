@@ -20,6 +20,7 @@ import { ToastProvider } from "./Toast";
 const apiMocks = vi.hoisted(() => ({
   listModelAgents: vi.fn().mockResolvedValue([]),
   listModelProfiles: vi.fn().mockResolvedValue([]),
+  setAgentCredentialDelivery: vi.fn().mockResolvedValue({ agent: "pi", profile: "" }),
   listMcpIconPreferences: vi.fn().mockResolvedValue({
     "github::stdio": { kind: "builtin", value: "database" },
   }),
@@ -44,16 +45,17 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-it("shows credential delivery only for Agents with multiple reliable routes", async () => {
+it("shows an Agent-level credential strategy next to config locations", async () => {
   const source = await readFile(resolve(process.cwd(), "src/components/AgentView.tsx"), "utf8");
-  expect(source).toContain("setModelCredentialDelivery");
-  expect(source).toContain("credential_policies");
-  expect(source).toContain("自动适配（推荐）");
-  expect(source).not.toContain("Agent 凭据存储");
+  expect(source).toContain("setAgentCredentialDelivery");
+  expect(source).toContain("凭据策略");
   expect(source).toContain("明文配置");
   expect(source).toContain("plaintextConfirmation");
-  expect(source).toContain("deliveryOptions.length > 1");
-  expect(source).not.toContain('credential_mode === "environment-reference"');
+  expect(source).toContain("available_deliveries");
+  expect(source).toContain("ProviderGlyph");
+  expect(source).toContain("modelProviderIcon");
+  expect(source).not.toContain("setModelCredentialDelivery");
+  expect(source).not.toContain("自动适配（推荐）");
   expect(source).not.toContain("需要 ENV");
 });
 
@@ -777,6 +779,103 @@ it("renders external Skills as read-only cards", async () => {
   expect(within(card!).getByRole("button", { name: "收录 MUX" })).toBeVisible();
 });
 
+it("shows each Model's Provider icon in the picker and assigned cards", async () => {
+  const piAgent: AgentInfo = {
+    ...skillsOnlyAgent,
+    id: "pi",
+    name: "Pi Coding Agent",
+    format: "json",
+    key: "mcpServers",
+    has_global: true,
+    global: "~/.pi/agent/mcp.json",
+    supported_transports: ["stdio", "http"],
+    skills_global_dir: "~/.pi/agent/skills",
+  };
+  const piModelAgent: ModelAgentView = {
+    id: "pi",
+    name: piAgent.name,
+    mode: "managed",
+    storage_authority: "native-registry",
+    installed: true,
+    config_path: "~/.pi/agent/models.json + ~/.pi/agent/settings.json",
+    config_paths: ["~/.pi/agent/models.json", "~/.pi/agent/settings.json"],
+    docs: "https://github.com/earendil-works/pi",
+    assigned_profile: "qwen",
+    assigned_profiles: ["qwen"],
+    active_profile: "qwen",
+    supports_multiple: true,
+    credential_mode: "keychain-command",
+    supported_protocols: ["openai-responses"],
+    note: "",
+  };
+  apiMocks.listModelAgents.mockResolvedValue([piModelAgent]);
+  apiMocks.listModelProfiles.mockResolvedValue([
+    {
+      id: "qwen",
+      name: "Qwen3 7 Plus",
+      provider: "alibaba",
+      protocol: "openai-responses",
+      base_url: "https://dashscope.example.test/v1",
+      model: "qwen3.7-plus",
+      reasoning: true,
+      catalog_key: "alibaba/qwen3.7-plus",
+      credential_saved: true,
+    },
+    {
+      id: "gpt",
+      name: "GPT OSS",
+      provider: "openai",
+      protocol: "openai-responses",
+      base_url: "https://api.openai.com/v1",
+      model: "gpt-oss",
+      reasoning: true,
+      catalog_key: "openai/gpt-oss",
+      credential_saved: true,
+    },
+  ]);
+  const consumptionState = {
+    agents: [],
+    inventory: {
+      consumptions: [{
+        agent_id: "pi",
+        asset: { domain: "model" as const, profile_id: "qwen" },
+        desired: true,
+        observed: true,
+        enabled: true,
+        active: true,
+        desired_active: true,
+        status: "synced" as const,
+        reason: null,
+        available_actions: [],
+        affected_agent_ids: ["pi"],
+      }],
+      external: [],
+    },
+    plan: null,
+  } as unknown as ConsumptionState;
+
+  render(
+    <ToastProvider>
+      <AgentView
+        state={{ ...state, agents: [piAgent] } as unknown as InstallState}
+        skillsState={skillsState}
+        consumptionState={consumptionState}
+        agentId="pi"
+      />
+    </ToastProvider>,
+  );
+
+  await userEvent.click(await screen.findByRole("tab", { name: /Models/ }));
+  const assigned = await screen.findByText("Qwen3 7 Plus").then((node) => node.closest<HTMLElement>("li"));
+  expect(assigned?.querySelector('[data-provider-icon="alibaba"]')).toBeInTheDocument();
+
+  await userEvent.click(screen.getByRole("button", { name: "添加 Model" }));
+  const picker = screen.getByRole("dialog", { name: "添加 Model" });
+  expect(within(picker).getByRole("button", { name: /GPT OSS/ })
+    .querySelector('[data-provider-icon="openai"]')).toBeInTheDocument();
+  expect(within(picker).queryByRole("button", { name: /Qwen3 7 Plus/ })).not.toBeInTheDocument();
+});
+
 it("uses one current-Model switch and activates a disabled backup atomically", async () => {
   const piAgent: AgentInfo = {
     ...skillsOnlyAgent,
@@ -851,7 +950,7 @@ it("uses one current-Model switch and activates a disabled backup atomically", a
         agent_id: "pi",
         asset: { domain: "model" as const, profile_id: "qwen" },
         desired: true,
-        observed: false,
+        observed: true,
         enabled: false,
         active: false,
         desired_active: false,
@@ -887,7 +986,7 @@ it("uses one current-Model switch and activates a disabled backup atomically", a
   );
 
   await userEvent.click(await screen.findByRole("tab", { name: /Models/ }));
-  expect(screen.getByText("配置中 2 个 · 同一时间使用其中一个")).toBeVisible();
+  expect(await screen.findByText("配置中 2 个 · 同一时间使用其中一个")).toBeVisible();
   expect(screen.queryByRole("button", { name: "设为当前" })).not.toBeInTheDocument();
   const current = screen.getByRole("switch", {
     name: "idealab 当前正在使用；请选择其他 Model 切换",

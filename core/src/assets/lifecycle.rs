@@ -130,6 +130,7 @@ fn remap_model_selection(
     Ok(ModelAgentSelection {
         profiles,
         active_profile_id,
+        default_delivery: selection.default_delivery,
     })
 }
 
@@ -807,9 +808,12 @@ fn model_unchanged_consumers(
         if let Some((code, message)) = profile_endpoint_compatibility_issue(&agent_id, profile) {
             return Err(format!("{code}: {message}"));
         }
-        if let Some((code, message)) =
-            profile_credential_issue(&agent_id, profile, desired_credential_present)
-        {
+        if let Some((code, message)) = profile_credential_issue(
+            &agent_id,
+            profile,
+            desired_credential_present,
+            &selection.delivery_for(&profile.id),
+        ) {
             return Err(format!("{code}: {message}"));
         }
         super::planner::validate_model_selection_contract(
@@ -873,9 +877,12 @@ fn model_bundle_unchanged_consumers(
             {
                 return Err(format!("{code}: {message}"));
             }
-            if let Some((code, message)) =
-                profile_credential_issue(&agent_id, profile, desired_credential_present)
-            {
+            if let Some((code, message)) = profile_credential_issue(
+                &agent_id,
+                profile,
+                desired_credential_present,
+                &selection.delivery_for(&profile.id),
+            ) {
                 return Err(format!("{code}: {message}"));
             }
         }

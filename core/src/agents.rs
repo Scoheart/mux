@@ -1600,6 +1600,7 @@ mod tests {
                         },
                     )]),
                     active_profile_id: Some("fixture".into()),
+                    ..Default::default()
                 },
             );
         })

@@ -241,6 +241,7 @@ fn plan_agent_consumption(
             after
                 .profiles
                 .retain(|profile_id, _| desired.contains(profile_id));
+            let inherited = after.inherited_credential();
             for profile_id in desired {
                 after
                     .profiles
@@ -248,7 +249,7 @@ fn plan_agent_consumption(
                     .or_insert(ModelConsumptionRecord {
                         profile_id,
                         enabled: true,
-                        credential: Default::default(),
+                        credential: inherited.clone(),
                         last_selected_at: None,
                     });
             }
@@ -1587,13 +1588,14 @@ fn plan_asset_consumers(
                 let existing = settings.model_selection(&agent_id);
                 let mut desired = existing.clone();
                 if selected.contains(&agent_id) {
+                    let inherited = desired.inherited_credential();
                     desired
                         .profiles
                         .entry(profile_id.clone())
                         .or_insert(ModelConsumptionRecord {
                             profile_id: profile_id.clone(),
                             enabled: true,
-                            credential: Default::default(),
+                            credential: inherited,
                             last_selected_at: None,
                         });
                 } else {
@@ -3820,6 +3822,7 @@ mod tests {
                         },
                     )]),
                     active_profile_id: Some("fixture".into()),
+                    ..Default::default()
                 },
             );
         })
@@ -3946,6 +3949,7 @@ mod tests {
                         },
                     )]),
                     active_profile_id: Some("work".into()),
+                    ..Default::default()
                 },
             );
         })
@@ -4040,6 +4044,7 @@ mod tests {
                         },
                     )]),
                     active_profile_id: Some("current".into()),
+                    ..Default::default()
                 },
             );
         })
@@ -4123,6 +4128,7 @@ mod tests {
                         },
                     )]),
                     active_profile_id: Some("current".into()),
+                    ..Default::default()
                 },
             );
         })
@@ -4186,6 +4192,7 @@ mod tests {
                         ),
                     ]),
                     active_profile_id: Some("current".into()),
+                    ..Default::default()
                 },
             );
         })
@@ -4314,6 +4321,7 @@ mod tests {
                         },
                     )]),
                     active_profile_id: Some(profile.id.clone()),
+                    ..Default::default()
                 },
             );
         })
@@ -4480,6 +4488,7 @@ mod tests {
                         },
                     )]),
                     active_profile_id: Some(profile.id.clone()),
+                    ..Default::default()
                 },
             );
         })
@@ -4526,6 +4535,7 @@ mod tests {
                         },
                     )]),
                     active_profile_id: Some(first.id),
+                    ..Default::default()
                 },
             );
         })
@@ -4573,6 +4583,7 @@ mod tests {
                         },
                     )]),
                     active_profile_id: None,
+                    ..Default::default()
                 },
             );
         })
@@ -4721,6 +4732,54 @@ mod tests {
             crate::agents::load_agents()["codex"].key,
             "custom.mcpServers"
         );
+    }
+
+    #[test]
+    fn new_model_consumptions_inherit_agent_plaintext_default() {
+        use crate::domain::assets::ApiKeyDelivery;
+
+        let _home = TestHome::new("consume-model-inherit-plaintext");
+        crate::resources::model::save_profile(
+            ModelProfile {
+                id: "work".into(),
+                provider_id: Some("custom-provider".into()),
+                name: "Work".into(),
+                provider: "custom".into(),
+                model_vendor: None,
+                native_ids: Default::default(),
+                protocol: ModelProtocol::OpenaiCompletions,
+                base_url: "https://example.invalid".into(),
+                endpoint_path: String::new(),
+                model: "model".into(),
+                env_key: None,
+                context_window: None,
+                max_output_tokens: None,
+                reasoning: Some(false),
+            },
+            None,
+        )
+        .unwrap();
+        crate::resources::model::apply_credential_update("work", Some("secret")).unwrap();
+
+        let plan = plan_set_agent_consumption(PlanSetAgentConsumptionRequest {
+            agent_id: "opencode".into(),
+            selection: AgentConsumptionSelection::Model {
+                profile_ids: vec!["work".into()],
+            },
+        })
+        .unwrap();
+
+        match plan.domain_plan {
+            DomainPlan::Model { after, .. } => {
+                let selection = after.get("opencode").expect("opencode selection");
+                assert_eq!(selection.default_delivery, ApiKeyDelivery::Plaintext);
+                assert_eq!(
+                    selection.profiles["work"].credential.delivery,
+                    ApiKeyDelivery::Plaintext
+                );
+            }
+            other => panic!("expected model plan, got {other:?}"),
+        }
     }
 
     #[test]

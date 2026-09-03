@@ -22,7 +22,7 @@ import { formatError } from "../lib/format";
 import { keyOf, transportOf } from "../lib/mcp";
 import { consumptionsForAgent, externalForAgent } from "../lib/consumption";
 import { requiresAgentReview } from "../lib/agentOperation";
-import { listModelAgents, listModelProfiles, setModelCredentialDelivery } from "../lib/api";
+import { listModelAgents, listModelProfiles, setAgentCredentialDelivery } from "../lib/api";
 import {
   EditIcon,
   ExternalLinkIcon,
@@ -35,6 +35,7 @@ import {
 } from "./icons";
 import { Avatar, Badge } from "./ui";
 import { AgentGlyph } from "./brandIcons";
+import { ProviderGlyph } from "./providerIcons";
 import { AgentConfigurationDialog } from "./AgentConfigurationDialog";
 import { useToast } from "./Toast";
 import { AgentResourcePanel, type AgentResourceTab } from "./AgentResourcePanel";
@@ -76,10 +77,30 @@ function modelProtocolLabel(protocol: ModelProfileView["protocol"]) {
   return "OpenAI Chat Completions";
 }
 
+function modelProviderIcon(provider: string | undefined, name: string, size = 28) {
+  return <ProviderGlyph id={provider?.trim() || "custom"} name={name} size={size} />;
+}
+
 function modelCompatibilityReason(profile: ModelProfileView, agent: ModelAgentView | null) {
   if (!agent || agent.mode !== "managed") return "此 Agent 不支持 MUX Model 管理";
   if (!agent.supported_protocols.includes(profile.protocol)) return "协议不兼容";
   return null;
+}
+
+function deliveryLabel(value: ApiKeyDelivery) {
+  if (value === "env") return "环境变量";
+  if (value === "command") return "命令";
+  if (value === "agent-store") return "Agent 凭据库";
+  if (value === "plaintext") return "明文配置";
+  return "自动适配";
+}
+
+function resolvedAgentDelivery(agent: ModelAgentView): ApiKeyDelivery {
+  const available = agent.available_deliveries ?? [];
+  const stored = agent.default_delivery ?? "plaintext";
+  if (available.includes(stored)) return stored;
+  if (available.includes("plaintext")) return "plaintext";
+  return available[0] ?? "auto";
 }
 
 interface AgentViewProps {
@@ -148,10 +169,8 @@ export function AgentView({
     enabled: boolean;
   } | null>(null);
   const [changingModel, setChangingModel] = useState<{ profileId: string } | null>(null);
-  const [changingCredential, setChangingCredential] = useState<string | null>(null);
+  const [changingCredential, setChangingCredential] = useState(false);
   const [plaintextConfirmation, setPlaintextConfirmation] = useState<{
-    profileId: string;
-    profileName: string;
     target: string;
   } | null>(null);
   const [skillConvergencePlan, setSkillConvergencePlan] = useState<OperationPlan | null>(null);
@@ -404,6 +423,7 @@ export function AgentView({
               id: profile.id,
               name: profile.name,
               description: profile.model,
+              icon: modelProviderIcon(profile.provider, profile.name),
               meta: <TransportMark transport={modelProtocolLabel(profile.protocol)} />,
               disabled: reason !== null,
               reason: reason ?? undefined,
@@ -584,20 +604,19 @@ export function AgentView({
     showToast({ kind: "error", msg: "请先选择其他当前 Model。" });
   };
 
-  const applyCredentialDelivery = async (
-    profileId: string,
+  const applyAgentDelivery = async (
     delivery: ApiKeyDelivery,
     confirmPlaintext = false,
   ) => {
-    setChangingCredential(profileId);
+    setChangingCredential(true);
     try {
-      await setModelCredentialDelivery(agentId, profileId, delivery, confirmPlaintext);
+      await setAgentCredentialDelivery(agentId, delivery, confirmPlaintext);
       await Promise.all([refreshModels(), consumptionState.refresh()]);
-      showToast({ kind: "success", msg: "API Key 使用方式已更新。" });
+      showToast({ kind: "success", msg: "凭据策略已更新。" });
     } catch (error) {
-      showToast({ kind: "error", msg: `更新 API Key 使用方式失败：${formatError(error)}` });
+      showToast({ kind: "error", msg: `更新凭据策略失败：${formatError(error)}` });
     } finally {
-      setChangingCredential(null);
+      setChangingCredential(false);
     }
   };
 
@@ -694,6 +713,37 @@ export function AgentView({
                 onOpen={openConfigLocation}
               />
             </div>
+            {modelAgent?.mode === "managed" && (modelAgent.available_deliveries?.length ?? 0) > 0 && (
+              <div
+                className="mux-agent-credential-strategy"
+                data-busy={changingCredential ? "true" : undefined}
+              >
+                <div>
+                  <strong>凭据策略</strong>
+                  <span>添加 Model 时按此方式写入该 Agent 自己的配置，可随时改</span>
+                </div>
+                <FormSelect
+                  ariaLabel={`${agent.name} 凭据策略`}
+                  value={resolvedAgentDelivery(modelAgent)}
+                  options={(modelAgent.available_deliveries ?? []).map((value) => ({
+                    value,
+                    label: deliveryLabel(value),
+                  }))}
+                  onChange={(value) => {
+                    const next = value as ApiKeyDelivery;
+                    const current = resolvedAgentDelivery(modelAgent);
+                    if (next === current) return;
+                    if (next === "plaintext") {
+                      setPlaintextConfirmation({
+                        target: modelAgent.config_paths[0] ?? modelAgent.config_path,
+                      });
+                    } else {
+                      void applyAgentDelivery(next);
+                    }
+                  }}
+                />
+              </div>
+            )}
           </section>
         </section>
 
@@ -848,50 +898,17 @@ export function AgentView({
                   enabledChangeDisabled={(item) => changingModel !== null
                     || item.status === "ambiguous"}
                   renderAction={(item) => {
-                    const profileId = item.asset.domain === "model" ? item.asset.profile_id : "";
-                    const profile = modelProfiles.find((candidate) => candidate.id === profileId);
-                    const deliveryOptions = modelAgent.credential_capabilities?.plaintext
-                      ? [
-                          {
-                            value: "auto",
-                            label: "自动适配（推荐）",
-                          },
-                          { value: "plaintext", label: "明文配置" },
-                        ]
-                      : [];
-                    const statusBadge = item.desired_active ? (
-                      <Badge tone={item.active === false ? "warning" : "success"}>
-                        {item.active === false ? "期望当前" : "当前"}
-                      </Badge>
-                    ) : item.active ? (
-                      <Badge tone="warning">Agent 实际当前</Badge>
-                    ) : null;
-                    const storedDelivery = modelAgent.credential_policies?.[profileId]?.delivery ?? "auto";
-                    const selectedDelivery = storedDelivery === "agent-store"
-                      ? "auto"
-                      : storedDelivery;
-                    return deliveryOptions.length > 1 ? (
-                      <div className="mux-model-row-actions" data-busy={changingCredential === profileId ? "true" : undefined}>
-                        {statusBadge}
-                        <FormSelect
-                          ariaLabel={`${profile?.name ?? profileId} API Key 使用方式`}
-                          value={selectedDelivery}
-                          options={deliveryOptions}
-                          onChange={(value) => {
-                            const next = value as ApiKeyDelivery;
-                            if (next === "plaintext") {
-                              setPlaintextConfirmation({
-                                profileId,
-                                profileName: profile?.name ?? profileId,
-                                target: modelAgent.config_paths[0] ?? modelAgent.config_path,
-                              });
-                            } else {
-                              void applyCredentialDelivery(profileId, next);
-                            }
-                          }}
-                        />
-                      </div>
-                    ) : statusBadge;
+                    if (item.desired_active) {
+                      return (
+                        <Badge tone={item.active === false ? "warning" : "success"}>
+                          {item.active === false ? "期望当前" : "当前"}
+                        </Badge>
+                      );
+                    }
+                    if (item.active) {
+                      return <Badge tone="warning">Agent 实际当前</Badge>;
+                    }
+                    return null;
                   }}
                   onRemove={(asset) => void planRemoval(asset)}
                   onConverge={(item, action) => void converge(item, action)}
@@ -919,10 +936,11 @@ export function AgentView({
                       )
                       : undefined;
                     if (externalCandidate) {
+                      const name = externalCandidate.name || externalCandidate.model;
                       return {
-                        name: externalCandidate.name || externalCandidate.model,
+                        name,
                         description: `${externalCandidate.model} · ${modelProtocolLabel(externalCandidate.protocol)} · ${externalCandidate.provider}`,
-                        icon: <Avatar seed={externalCandidate.name || externalCandidate.model} kind="model" size={28} />,
+                        icon: modelProviderIcon(externalCandidate.provider, name),
                       };
                     }
                     const profile = modelProfiles.find((candidate) => candidate.id === profileId);
@@ -931,7 +949,7 @@ export function AgentView({
                       description: profile
                         ? `${profile.model} · ${modelProtocolLabel(profile.protocol)} · ${profile.provider}`
                         : "MUX 中央模型资产已缺失",
-                      icon: <Avatar seed={profile?.name ?? profileId} kind="model" size={28} />,
+                      icon: modelProviderIcon(profile?.provider, profile?.name ?? profileId),
                     };
                   }}
                 />
@@ -1044,7 +1062,7 @@ export function AgentView({
           className="mux-plaintext-confirmation"
           title="明文写入 API Key"
           subtitle={agent.name}
-          busy={changingCredential === plaintextConfirmation.profileId}
+          busy={changingCredential}
           onClose={() => setPlaintextConfirmation(null)}
           footerEnd={(
             <>
@@ -1055,8 +1073,7 @@ export function AgentView({
                 type="button"
                 className="btn-danger"
                 onClick={async () => {
-                  const pending = plaintextConfirmation;
-                  await applyCredentialDelivery(pending.profileId, "plaintext", true);
+                  await applyAgentDelivery("plaintext", true);
                   setPlaintextConfirmation(null);
                 }}
               >
@@ -1066,9 +1083,9 @@ export function AgentView({
           )}
         >
           <div className="mux-plaintext-confirmation-body">
-            <strong>将把 {plaintextConfirmation.profileName} 的 API Key 明文写入 {agent.name} 配置</strong>
+            <strong>将把 Provider API Key 明文写入 {agent.name} 配置</strong>
             <code>{plaintextConfirmation.target}</code>
-            <span>仅对该 Agent 生效，文件权限将收紧为 0600。</span>
+            <span>仅对该 Agent 生效，文件权限将收紧为 0600。之后添加的 Model 都按此策略写入。</span>
           </div>
         </DialogShell>
       )}

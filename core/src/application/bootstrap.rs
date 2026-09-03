@@ -412,6 +412,7 @@ mod tests {
                         },
                     )]),
                     active_profile_id: Some(profile.id.clone()),
+                    ..Default::default()
                 },
             );
         })

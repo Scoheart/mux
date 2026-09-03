@@ -107,7 +107,7 @@ export type ApiKeySource =
   | { kind: "file"; path: string }
   | { kind: "helper"; command: string; args: string[]; ttl_ms?: number };
 
-export type ApiKeyDelivery = "auto" | "agent-store" | "plaintext";
+export type ApiKeyDelivery = "auto" | "env" | "command" | "agent-store" | "plaintext";
 
 export interface CredentialValidationView {
   source_kind: ApiKeySource["kind"];
@@ -215,6 +215,8 @@ export interface ModelAgentView {
     source_override?: ApiKeySource | null;
     delivery: ApiKeyDelivery;
   }>;
+  default_delivery?: ApiKeyDelivery;
+  available_deliveries?: ApiKeyDelivery[];
   supported_protocols: ModelProtocol[];
   note: string;
 }
@@ -685,6 +687,7 @@ export interface ModelConsumptionRecord {
 export interface ModelAgentSelection {
   profiles: Record<string, ModelConsumptionRecord>;
   active_profile_id?: string | null;
+  default_delivery?: ApiKeyDelivery;
 }
 
 export type DomainPlan =

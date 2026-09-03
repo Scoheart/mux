@@ -195,9 +195,12 @@ fn model_compatibility(agent_id: &str, profile_id: &str) -> Result<Compatibility
     if let Some((code, message)) = profile_endpoint_compatibility_issue(agent_id, profile) {
         return Ok(CompatibilityView::unsupported(&code, message));
     }
-    if let Some((code, message)) =
-        profile_credential_issue(agent_id, profile, credential_present(profile_id))
-    {
+    if let Some((code, message)) = profile_credential_issue(
+        agent_id,
+        profile,
+        credential_present(profile_id),
+        &settings.model_selection(agent_id).delivery_for(profile_id),
+    ) {
         return Ok(CompatibilityView::unsupported(code, message));
     }
     Ok(CompatibilityView::supported(vec![agent_id.to_string()]))
@@ -419,18 +422,39 @@ mod tests {
         );
 
         mutate_settings(|settings| {
-            settings
+            let provider = settings
                 .model_providers
                 .as_mut()
                 .unwrap()
                 .get_mut("custom-provider")
-                .unwrap()
-                .env_key = Some("OPENROUTER_API_KEY".into());
+                .unwrap();
+            provider.api_key_source = Some(crate::domain::types::ApiKeySource::Env {
+                name: "OPENROUTER_API_KEY".into(),
+            });
+            provider.env_key = Some("OPENROUTER_API_KEY".into());
         })
         .unwrap();
         assert!(
             compatibility_for(
                 "grok-build",
+                &AssetRef::Model {
+                    profile_id: "work".into(),
+                },
+            )
+            .unwrap()
+            .compatible
+        );
+    }
+
+    #[test]
+    fn opencode_accepts_a_keychain_only_credential_with_default_plaintext() {
+        let _home = TestHome::new("compat-model-opencode-keychain");
+        add_profile(ModelProtocol::OpenaiCompletions);
+        crate::resources::model::apply_credential_update("work", Some("secret")).unwrap();
+
+        assert!(
+            compatibility_for(
+                "opencode",
                 &AssetRef::Model {
                     profile_id: "work".into(),
                 },

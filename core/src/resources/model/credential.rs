@@ -1,5 +1,5 @@
-use crate::domain::types::ApiKeySource;
 use crate::domain::assets::ApiKeyDelivery;
+use crate::domain::types::ApiKeySource;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::fmt;
@@ -69,6 +69,7 @@ pub fn agent_capabilities(agent_id: &str) -> AgentCredentialCapabilities {
         "pi" => {
             capabilities.native_sources.push("helper".into());
             capabilities.mux_keychain_helper = true;
+            capabilities.plaintext = true;
         }
         "claude-desktop" => capabilities.agent_store = true,
         "opencode" => {
@@ -78,6 +79,7 @@ pub fn agent_capabilities(agent_id: &str) -> AgentCredentialCapabilities {
         }
         "kilo-code" => {
             capabilities.native_sources = vec!["env".into(), "file".into()];
+            capabilities.plaintext = true;
         }
         "qwen-code" | "grok-build" | "crush" | "hermes" | "factory-droid" => {
             capabilities.native_sources.push("env".into());
@@ -87,10 +89,51 @@ pub fn agent_capabilities(agent_id: &str) -> AgentCredentialCapabilities {
             capabilities.note = Some("credential delivery requires guided Agent setup".into());
         }
         _ => {
-            capabilities.note = Some("credential delivery has not been verified for this Agent".into());
+            capabilities.note =
+                Some("credential delivery has not been verified for this Agent".into());
         }
     }
     capabilities
+}
+
+pub fn available_deliveries(agent_id: &str) -> Vec<ApiKeyDelivery> {
+    let capabilities = agent_capabilities(agent_id);
+    let mut deliveries = vec![ApiKeyDelivery::Auto];
+    if capabilities.native_sources.iter().any(|kind| kind == "env") {
+        deliveries.push(ApiKeyDelivery::Env);
+    }
+    if capabilities.mux_keychain_helper
+        || capabilities
+            .native_sources
+            .iter()
+            .any(|kind| kind == "helper")
+    {
+        deliveries.push(ApiKeyDelivery::Command);
+    }
+    if capabilities.agent_store {
+        deliveries.push(ApiKeyDelivery::AgentStore);
+    }
+    if capabilities.plaintext {
+        deliveries.push(ApiKeyDelivery::Plaintext);
+    }
+    deliveries
+}
+
+/// Map a stored Agent default onto a delivery that Agent can actually write.
+/// Unset settings are plaintext; Agents without a plaintext writer fall back
+/// to Auto so Grok-style env-only Agents keep working.
+pub fn resolve_delivery(agent_id: &str, requested: &ApiKeyDelivery) -> ApiKeyDelivery {
+    let available = available_deliveries(agent_id);
+    if available.iter().any(|delivery| delivery == requested) {
+        return requested.clone();
+    }
+    if available
+        .iter()
+        .any(|delivery| *delivery == ApiKeyDelivery::Plaintext)
+    {
+        return ApiKeyDelivery::Plaintext;
+    }
+    ApiKeyDelivery::Auto
 }
 
 pub fn select_delivery(
@@ -110,6 +153,22 @@ pub fn select_delivery(
             Ok(PreparedCredentialRoute::Plaintext)
         }
         ApiKeyDelivery::Plaintext => Err(unsupported_delivery(agent_id, "plaintext")),
+        ApiKeyDelivery::Env if capabilities.native_sources.iter().any(|kind| kind == "env") => {
+            Ok(PreparedCredentialRoute::NativeEnvReference)
+        }
+        ApiKeyDelivery::Env => Err(unsupported_delivery(agent_id, "env")),
+        ApiKeyDelivery::Command if capabilities.mux_keychain_helper => {
+            Ok(PreparedCredentialRoute::MuxKeychainHelper)
+        }
+        ApiKeyDelivery::Command
+            if capabilities
+                .native_sources
+                .iter()
+                .any(|kind| kind == "helper") =>
+        {
+            Ok(PreparedCredentialRoute::NativeHelper)
+        }
+        ApiKeyDelivery::Command => Err(unsupported_delivery(agent_id, "command")),
         ApiKeyDelivery::Auto => {
             let source_kind = match source {
                 ApiKeySource::MuxStore => "mux-store",
@@ -199,7 +258,8 @@ pub fn resolve_source(
     match source {
         ApiKeySource::MuxStore => resolved_bytes(
             mux_store_value.ok_or_else(|| {
-                "credential_missing: MUX secure storage has no API Key for this Provider".to_string()
+                "credential_missing: MUX secure storage has no API Key for this Provider"
+                    .to_string()
             })?,
             "mux-store",
             "system-keychain".into(),
@@ -283,7 +343,15 @@ fn validate_helper(command: &str, args: &[String], ttl_ms: Option<u64>) -> Resul
         .unwrap_or(command);
     let is_shell = matches!(
         executable_name,
-        "sh" | "bash" | "zsh" | "dash" | "fish" | "csh" | "tcsh" | "cmd.exe" | "powershell.exe" | "pwsh"
+        "sh" | "bash"
+            | "zsh"
+            | "dash"
+            | "fish"
+            | "csh"
+            | "tcsh"
+            | "cmd.exe"
+            | "powershell.exe"
+            | "pwsh"
     );
     if !(Path::new(command).is_absolute() || trusted_system_command)
         || command.contains('\0')
@@ -315,9 +383,7 @@ pub fn resolve_file(path: &Path) -> Result<ResolvedCredential, String> {
     #[cfg(unix)]
     let file: std::fs::File = rustix::fs::open(
         path,
-        rustix::fs::OFlags::RDONLY
-            | rustix::fs::OFlags::CLOEXEC
-            | rustix::fs::OFlags::NOFOLLOW,
+        rustix::fs::OFlags::RDONLY | rustix::fs::OFlags::CLOEXEC | rustix::fs::OFlags::NOFOLLOW,
         rustix::fs::Mode::empty(),
     )
     .map(std::fs::File::from)
@@ -340,7 +406,9 @@ pub fn resolve_file(path: &Path) -> Result<ResolvedCredential, String> {
             return Err("credential_file_insecure: key file permissions must be 0600".into());
         }
         if metadata.uid() != rustix::process::getuid().as_raw() {
-            return Err("credential_file_insecure: key file must be owned by the current user".into());
+            return Err(
+                "credential_file_insecure: key file must be owned by the current user".into(),
+            );
         }
     }
 
@@ -355,7 +423,9 @@ pub fn resolve_file(path: &Path) -> Result<ResolvedCredential, String> {
         }
     }
     if bytes.is_empty() || bytes.contains(&b'\n') || bytes.contains(&b'\r') || bytes.contains(&0) {
-        return Err("credential_file_insecure: key file must contain exactly one non-empty line".into());
+        return Err(
+            "credential_file_insecure: key file must contain exactly one non-empty line".into(),
+        );
     }
     resolved_bytes(bytes.to_vec(), "file", path.display().to_string())
 }
@@ -430,8 +500,7 @@ pub fn resolve_helper(source: &ApiKeySource) -> Result<ResolvedCredential, Strin
     }
     if bytes.is_empty() || bytes.contains(&b'\n') || bytes.contains(&b'\r') || bytes.contains(&0) {
         return Err(
-            "credential_helper_invalid_output: helper must emit exactly one non-empty line"
-                .into(),
+            "credential_helper_invalid_output: helper must emit exactly one non-empty line".into(),
         );
     }
     resolved_bytes(bytes.to_vec(), "helper", command.clone())
@@ -446,7 +515,8 @@ mod tests {
     use std::path::PathBuf;
 
     fn isolated_dir(name: &str) -> PathBuf {
-        let path = std::env::temp_dir().join(format!("mux-credential-{name}-{}", uuid::Uuid::new_v4()));
+        let path =
+            std::env::temp_dir().join(format!("mux-credential-{name}-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&path).unwrap();
         path
     }
@@ -499,7 +569,10 @@ mod tests {
     #[test]
     fn file_source_rejects_empty_and_multiline_values() {
         let root = isolated_dir("shape");
-        for (name, bytes) in [("empty", b"".as_slice()), ("multi", b"first\nsecond".as_slice())] {
+        for (name, bytes) in [
+            ("empty", b"".as_slice()),
+            ("multi", b"first\nsecond".as_slice()),
+        ] {
             let path = root.join(name);
             fs::write(&path, bytes).unwrap();
             fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
@@ -546,7 +619,14 @@ mod tests {
         use crate::domain::assets::ApiKeyDelivery;
 
         assert_eq!(
-            select_delivery("opencode", &ApiKeySource::Env { name: "OPENROUTER_API_KEY".into() }, &ApiKeyDelivery::Auto).unwrap(),
+            select_delivery(
+                "opencode",
+                &ApiKeySource::Env {
+                    name: "OPENROUTER_API_KEY".into()
+                },
+                &ApiKeyDelivery::Auto
+            )
+            .unwrap(),
             PreparedCredentialRoute::NativeEnvReference
         );
         assert_eq!(
@@ -557,9 +637,11 @@ mod tests {
             select_delivery("opencode", &ApiKeySource::MuxStore, &ApiKeyDelivery::Auto).unwrap(),
             PreparedCredentialRoute::OpenCodeAuthStore
         );
-        assert!(select_delivery("goose", &ApiKeySource::MuxStore, &ApiKeyDelivery::Auto)
-            .unwrap_err()
-            .starts_with("credential_delivery_unsupported:"));
+        assert!(
+            select_delivery("goose", &ApiKeySource::MuxStore, &ApiKeyDelivery::Auto)
+                .unwrap_err()
+                .starts_with("credential_delivery_unsupported:")
+        );
     }
 
     #[test]
@@ -567,15 +649,60 @@ mod tests {
         use crate::domain::assets::ApiKeyDelivery;
 
         assert_eq!(
-            select_delivery("opencode", &ApiKeySource::File { path: "/private/key".into() }, &ApiKeyDelivery::AgentStore).unwrap(),
+            select_delivery(
+                "opencode",
+                &ApiKeySource::File {
+                    path: "/private/key".into()
+                },
+                &ApiKeyDelivery::AgentStore
+            )
+            .unwrap(),
             PreparedCredentialRoute::OpenCodeAuthStore
         );
         assert_eq!(
-            select_delivery("opencode", &ApiKeySource::MuxStore, &ApiKeyDelivery::Plaintext).unwrap(),
+            select_delivery(
+                "opencode",
+                &ApiKeySource::MuxStore,
+                &ApiKeyDelivery::Plaintext
+            )
+            .unwrap(),
             PreparedCredentialRoute::Plaintext
         );
-        assert!(select_delivery("goose", &ApiKeySource::MuxStore, &ApiKeyDelivery::Plaintext)
-            .unwrap_err()
-            .starts_with("credential_delivery_unsupported:"));
+        assert!(
+            select_delivery("goose", &ApiKeySource::MuxStore, &ApiKeyDelivery::Plaintext)
+                .unwrap_err()
+                .starts_with("credential_delivery_unsupported:")
+        );
+        assert_eq!(
+            select_delivery("opencode", &ApiKeySource::MuxStore, &ApiKeyDelivery::Env).unwrap(),
+            PreparedCredentialRoute::NativeEnvReference
+        );
+        assert_eq!(
+            select_delivery("pi", &ApiKeySource::MuxStore, &ApiKeyDelivery::Command).unwrap(),
+            PreparedCredentialRoute::MuxKeychainHelper
+        );
+    }
+
+    #[test]
+    fn default_plaintext_resolves_per_agent_capability() {
+        use crate::domain::assets::ApiKeyDelivery;
+
+        assert!(available_deliveries("opencode").contains(&ApiKeyDelivery::Plaintext));
+        assert!(available_deliveries("pi").contains(&ApiKeyDelivery::Plaintext));
+        assert!(available_deliveries("kilo-code").contains(&ApiKeyDelivery::Plaintext));
+        assert!(!available_deliveries("grok-build").contains(&ApiKeyDelivery::Plaintext));
+        assert_eq!(
+            resolve_delivery("opencode", &ApiKeyDelivery::Plaintext),
+            ApiKeyDelivery::Plaintext
+        );
+        assert_eq!(
+            resolve_delivery("grok-build", &ApiKeyDelivery::Plaintext),
+            ApiKeyDelivery::Auto
+        );
+        assert_eq!(
+            resolve_delivery("claude-code", &ApiKeyDelivery::Plaintext),
+            ApiKeyDelivery::Auto
+        );
+        assert!(available_deliveries("claude-code").contains(&ApiKeyDelivery::Command));
     }
 }

@@ -237,13 +237,23 @@ pub struct SkillConsumptionRecord {
     pub enabled: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "kebab-case")]
 pub enum ApiKeyDelivery {
     #[default]
     Auto,
+    Env,
+    Command,
     AgentStore,
     Plaintext,
+}
+
+fn plaintext_delivery() -> ApiKeyDelivery {
+    ApiKeyDelivery::Plaintext
+}
+
+fn is_plaintext_delivery(value: &ApiKeyDelivery) -> bool {
+    matches!(value, ApiKeyDelivery::Plaintext)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
@@ -273,12 +283,45 @@ pub struct ModelConsumptionRecord {
 }
 
 /// Complete desired Model state for one Agent.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ModelAgentSelection {
     #[serde(default)]
     pub profiles: BTreeMap<String, ModelConsumptionRecord>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub active_profile_id: Option<String>,
+    /// How this Agent receives Provider API Keys when a Model is added.
+    /// Unset settings resolve to plaintext; the user can change it per Agent.
+    #[serde(
+        default = "plaintext_delivery",
+        skip_serializing_if = "is_plaintext_delivery"
+    )]
+    pub default_delivery: ApiKeyDelivery,
+}
+
+impl Default for ModelAgentSelection {
+    fn default() -> Self {
+        Self {
+            profiles: BTreeMap::new(),
+            active_profile_id: None,
+            default_delivery: ApiKeyDelivery::Plaintext,
+        }
+    }
+}
+
+impl ModelAgentSelection {
+    pub fn delivery_for(&self, profile_id: &str) -> ApiKeyDelivery {
+        self.profiles
+            .get(profile_id)
+            .map(|record| record.credential.delivery.clone())
+            .unwrap_or_else(|| self.default_delivery.clone())
+    }
+
+    pub fn inherited_credential(&self) -> ModelCredentialPolicy {
+        ModelCredentialPolicy {
+            source_override: None,
+            delivery: self.default_delivery.clone(),
+        }
+    }
 }
 
 impl ModelAgentSelection {
@@ -834,6 +877,7 @@ mod tests {
                 ),
             ]),
             active_profile_id: None,
+            ..Default::default()
         };
 
         selection.normalize_active();
@@ -857,5 +901,17 @@ mod tests {
             serde_json::to_value(record).unwrap()["credential"]["delivery"],
             "auto"
         );
+    }
+
+    #[test]
+    fn agent_selection_defaults_to_plaintext_delivery() {
+        let selection: ModelAgentSelection = serde_json::from_value(json!({
+            "profiles": {},
+        }))
+        .unwrap();
+        assert_eq!(selection.default_delivery, ApiKeyDelivery::Plaintext);
+        assert_eq!(selection.delivery_for("missing"), ApiKeyDelivery::Plaintext);
+        let encoded = serde_json::to_value(&selection).unwrap();
+        assert!(encoded.get("default_delivery").is_none());
     }
 }

@@ -132,6 +132,9 @@ pub struct Settings {
     /// `model_assignments` and persisted on the next Model mutation.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model_consumptions: Option<BTreeMap<String, BTreeMap<String, ModelConsumptionRecord>>>,
+    /// Per-Agent default API Key delivery. Missing entries mean plaintext.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_delivery_defaults: Option<BTreeMap<String, crate::domain::assets::ApiKeyDelivery>>,
     /// Per-Agent runtime state needed to restore externally owned model state.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model_agent_runtime: Option<BTreeMap<String, ModelAgentRuntimeState>>,
@@ -300,15 +303,21 @@ impl Settings {
                 .as_ref()
                 .and_then(|all| all.get(agent_id))
                 .cloned(),
+            default_delivery: self
+                .model_delivery_defaults
+                .as_ref()
+                .and_then(|defaults| defaults.get(agent_id).cloned())
+                .unwrap_or(crate::domain::assets::ApiKeyDelivery::Plaintext),
         };
         if let Some(profile_id) = selection.active_profile_id.clone() {
+            let credential = selection.inherited_credential();
             selection
                 .profiles
                 .entry(profile_id.clone())
                 .or_insert(ModelConsumptionRecord {
                     profile_id,
                     enabled: true,
-                    credential: Default::default(),
+                    credential,
                     last_selected_at: None,
                 });
         }
@@ -336,6 +345,15 @@ impl Settings {
             None => {
                 assignments.remove(agent_id);
             }
+        }
+        let defaults = self.model_delivery_defaults.get_or_insert_default();
+        if selection.default_delivery == crate::domain::assets::ApiKeyDelivery::Plaintext {
+            defaults.remove(agent_id);
+            if defaults.is_empty() {
+                self.model_delivery_defaults = None;
+            }
+        } else {
+            defaults.insert(agent_id.to_string(), selection.default_delivery);
         }
     }
 }
@@ -1377,6 +1395,45 @@ mod tests {
         let after = fs::metadata(path).unwrap();
         assert_eq!(before.dev(), after.dev());
         assert_eq!(before.ino(), after.ino());
+    }
+
+    #[test]
+    fn model_delivery_defaults_omit_plaintext_and_restore_it() {
+        use crate::domain::assets::ApiKeyDelivery;
+
+        let _home = TestHome::new("settings-delivery-default");
+        mutate_settings(|settings| {
+            let mut selection = settings.model_selection("opencode");
+            selection.default_delivery = ApiKeyDelivery::Env;
+            settings.set_model_selection("opencode", selection);
+        })
+        .unwrap();
+        let loaded = load_settings();
+        assert_eq!(
+            loaded.model_selection("opencode").default_delivery,
+            ApiKeyDelivery::Env
+        );
+        assert_eq!(
+            loaded
+                .model_delivery_defaults
+                .as_ref()
+                .and_then(|defaults| defaults.get("opencode"))
+                .copied(),
+            Some(ApiKeyDelivery::Env)
+        );
+
+        mutate_settings(|settings| {
+            let mut selection = settings.model_selection("opencode");
+            selection.default_delivery = ApiKeyDelivery::Plaintext;
+            settings.set_model_selection("opencode", selection);
+        })
+        .unwrap();
+        let loaded = load_settings();
+        assert_eq!(
+            loaded.model_selection("opencode").default_delivery,
+            ApiKeyDelivery::Plaintext
+        );
+        assert!(loaded.model_delivery_defaults.is_none());
     }
 
     #[cfg(unix)]

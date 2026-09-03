@@ -161,6 +161,15 @@ export const setModelCredentialDelivery = (
   delivery,
   confirmPlaintext,
 });
+export const setAgentCredentialDelivery = (
+  agentId: string,
+  delivery: ApiKeyDelivery,
+  confirmPlaintext = false,
+) => invoke<ModelApplyResult>("set_agent_credential_delivery", {
+  agentId,
+  delivery,
+  confirmPlaintext,
+});
 /** All entry copies across sources (not deduped), each flagged in_effect. */
 export const listRegistryAll = () => invoke<CatalogItem[]>("list_registry_all");
 /** 桌面包内 mux CLI 的安装状态（sidecar → ~/.local/bin 软链）。 */

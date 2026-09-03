@@ -1536,6 +1536,10 @@ pub struct ModelAgentView {
     pub credential_capabilities: credential::AgentCredentialCapabilities,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub credential_policies: BTreeMap<String, crate::domain::assets::ModelCredentialPolicy>,
+    #[serde(default)]
+    pub default_delivery: crate::domain::assets::ApiKeyDelivery,
+    #[serde(default)]
+    pub available_deliveries: Vec<crate::domain::assets::ApiKeyDelivery>,
     pub supported_protocols: Vec<ModelProtocol>,
     pub note: String,
 }
@@ -2728,15 +2732,43 @@ pub fn reveal_provider_credential(provider_id: &str) -> Result<String, String> {
 }
 
 /// Return the credential contract that prevents an Agent from consuming a
-/// Profile safely. Environment-reference Agents cannot read MUX's per-Profile
-/// Keychain item, so an authenticated Profile must name an environment variable
-/// that the Agent can read in its own process instead.
+/// Profile safely. The Agent's current delivery strategy decides whether a
+/// Keychain-only Provider is enough, or whether an environment variable name
+/// is still required.
 pub(crate) fn profile_credential_issue(
     agent_id: &str,
     profile: &ModelProfile,
     has_credential: bool,
+    delivery: &crate::domain::assets::ApiKeyDelivery,
 ) -> Option<(&'static str, &'static str)> {
-    if matches!(
+    let source = profile
+        .env_key
+        .clone()
+        .map(|name| ApiKeySource::Env { name })
+        .or_else(|| has_credential.then_some(ApiKeySource::MuxStore));
+    let Some(source) = source else {
+        return None;
+    };
+    let resolved = credential::resolve_delivery(agent_id, delivery);
+    match credential::select_delivery(agent_id, &source, &resolved) {
+        Ok(credential::PreparedCredentialRoute::NativeEnvReference)
+            if profile.env_key.is_none() && !matches!(source, ApiKeySource::Env { .. }) =>
+        {
+            Some(env_key_required_issue(agent_id).unwrap_or((
+                "credential_delivery_unsupported",
+                "This Agent cannot deliver the stored API Key using the current credential strategy.",
+            )))
+        }
+        Ok(_) => None,
+        Err(_) => Some(env_key_required_issue(agent_id).unwrap_or((
+            "credential_delivery_unsupported",
+            "This Agent cannot deliver the stored API Key using the current credential strategy.",
+        ))),
+    }
+}
+
+fn env_key_required_issue(agent_id: &str) -> Option<(&'static str, &'static str)> {
+    if !matches!(
         agent_id,
         "grok-build"
             | "opencode"
@@ -2747,20 +2779,17 @@ pub(crate) fn profile_credential_issue(
             | "hermes"
             | "factory-droid"
             | "goose"
-    ) && has_credential
-        && profile.env_key.is_none()
-    {
-        Some((
-            if agent_id == "grok-build" {
-                "grok_build_env_key_required"
-            } else {
-                "model_env_key_required"
-            },
-            "This Agent cannot read the API Key stored in MUX Keychain; set an external environment variable name on this Profile before switching.",
-        ))
-    } else {
-        None
+    ) {
+        return None;
     }
+    Some((
+        if agent_id == "grok-build" {
+            "grok_build_env_key_required"
+        } else {
+            "model_env_key_required"
+        },
+        "This Agent cannot read the API Key stored in MUX Keychain; set an external environment variable name on this Profile before switching.",
+    ))
 }
 
 pub(crate) fn apply_credential_update(
@@ -2846,7 +2875,7 @@ pub fn list_agents() -> Vec<ModelAgentView> {
     let (pi_config_path, pi_config_paths) = path_view(&settings, "pi");
     let (minimax_config_path, minimax_config_paths) = path_view(&settings, "minimax-code");
     let (qoder_config_path, qoder_config_paths) = path_view(&settings, "qoder");
-    vec![
+    let mut agents = vec![
         ModelAgentView {
             id: "claude-code".into(),
             name: "Claude Code".into(),
@@ -2863,6 +2892,8 @@ pub fn list_agents() -> Vec<ModelAgentView> {
             credential_mode: "keychain-command".into(),
             credential_capabilities: credential::agent_capabilities("claude-code"),
             credential_policies: credential_policies("claude-code"),
+            default_delivery: Default::default(),
+            available_deliveries: Vec::new(),
             supported_protocols: vec![ModelProtocol::AnthropicMessages],
             note: "Anthropic-compatible endpoint; restart the session after applying.".into(),
         },
@@ -2882,6 +2913,8 @@ pub fn list_agents() -> Vec<ModelAgentView> {
             credential_mode: "keychain-export".into(),
             credential_capabilities: credential::agent_capabilities(claude_desktop::AGENT_ID),
             credential_policies: credential_policies(claude_desktop::AGENT_ID),
+            default_delivery: Default::default(),
+            available_deliveries: Vec::new(),
             supported_protocols: vec![ModelProtocol::AnthropicMessages],
             note: "Exports the selected Provider credential into Claude Desktop's private Profile; restart Claude Desktop after applying.".into(),
         },
@@ -2901,6 +2934,8 @@ pub fn list_agents() -> Vec<ModelAgentView> {
             credential_mode: "keychain-command".into(),
             credential_capabilities: credential::agent_capabilities("codex"),
             credential_policies: credential_policies("codex"),
+            default_delivery: Default::default(),
+            available_deliveries: Vec::new(),
             supported_protocols: vec![ModelProtocol::OpenaiResponses],
             note: "Custom providers currently use the Responses API.".into(),
         },
@@ -2920,6 +2955,8 @@ pub fn list_agents() -> Vec<ModelAgentView> {
             credential_mode: "environment-reference".into(),
             credential_capabilities: credential::agent_capabilities("grok-build"),
             credential_policies: credential_policies("grok-build"),
+            default_delivery: Default::default(),
+            available_deliveries: Vec::new(),
             supported_protocols: vec![
                 ModelProtocol::AnthropicMessages,
                 ModelProtocol::OpenaiResponses,
@@ -2943,6 +2980,8 @@ pub fn list_agents() -> Vec<ModelAgentView> {
             credential_mode: "keychain-command".into(),
             credential_capabilities: credential::agent_capabilities("pi"),
             credential_policies: credential_policies("pi"),
+            default_delivery: Default::default(),
+            available_deliveries: Vec::new(),
             supported_protocols: vec![
                 ModelProtocol::AnthropicMessages,
                 ModelProtocol::OpenaiResponses,
@@ -2970,6 +3009,8 @@ pub fn list_agents() -> Vec<ModelAgentView> {
             credential_mode: "guided".into(),
             credential_capabilities: credential::agent_capabilities("minimax-code"),
             credential_policies: BTreeMap::new(),
+            default_delivery: Default::default(),
+            available_deliveries: Vec::new(),
             supported_protocols: vec![
                 ModelProtocol::AnthropicMessages,
                 ModelProtocol::OpenaiResponses,
@@ -2997,6 +3038,8 @@ pub fn list_agents() -> Vec<ModelAgentView> {
             credential_mode: "guided".into(),
             credential_capabilities: credential::agent_capabilities("qoder"),
             credential_policies: BTreeMap::new(),
+            default_delivery: Default::default(),
+            available_deliveries: Vec::new(),
             supported_protocols: Vec::new(),
             note: "Qoder has no public secure non-interactive BYOK writer; configure it through /model.".into(),
         },
@@ -3040,7 +3083,13 @@ pub fn list_agents() -> Vec<ModelAgentView> {
             "https://block.github.io/goose/docs/getting-started/providers",
             "原生 providers/active_provider 与 declarative custom provider；密钥由外部环境变量提供。",
         ),
-    ]
+    ];
+    for agent in &mut agents {
+        let selection = settings.model_selection(&agent.id);
+        agent.default_delivery = selection.default_delivery.clone();
+        agent.available_deliveries = credential::available_deliveries(&agent.id);
+    }
+    agents
 }
 
 fn managed_agent_view(
@@ -3075,6 +3124,8 @@ fn managed_agent_view(
         credential_mode: "environment-reference".into(),
         credential_capabilities: credential::agent_capabilities(id),
         credential_policies,
+        default_delivery: Default::default(),
+        available_deliveries: Vec::new(),
         supported_protocols: match id {
             "opencode" | "kilo-code" => vec![
                 ModelProtocol::AnthropicMessages,
@@ -3262,13 +3313,17 @@ pub fn observe_profile(
         "codex" => observe_prepared(prepare_codex(&paths[0], &profile, has_credential)),
         "grok-build" => observe_prepared(prepare_grok_build(&paths[0], &profile)),
         "pi" => {
-            let models = observe_prepared(prepare_pi_models(&paths[0], &profile, has_credential));
+            let models = observe_prepared(prepare_pi_models_with_api_key(
+                &paths[0],
+                &profile,
+                pi_api_key_value(&profile, has_credential)?,
+            ));
             let settings = observe_prepared(prepare_pi_settings(&paths[1], &profile));
             combine_observed(models, settings)
         }
         "opencode" | "kilo-code" | "qwen-code" | "crush" | "mistral-vibe" | "hermes"
         | "factory-droid" | "goose" => Ok(adapters::observe_prepared_files(
-            adapters::prepare_apply(agent_id, &paths, &profile, true),
+            prepare_observed_native_files(agent_id, &paths, &profile, true, has_credential),
         )),
         _ => Ok(ModelObservedState::Conflicted),
     }?;
@@ -3309,10 +3364,14 @@ pub fn observe_profile_consumption(
     }
     match agent_id {
         "grok-build" => observe_prepared(prepare_grok_model(&paths[0], &profile)),
-        "pi" => observe_prepared(prepare_pi_models(&paths[0], &profile, has_credential)),
+        "pi" => observe_prepared(prepare_pi_models_with_api_key(
+            &paths[0],
+            &profile,
+            pi_api_key_value(&profile, has_credential)?,
+        )),
         "opencode" | "kilo-code" | "qwen-code" | "crush" | "mistral-vibe" | "hermes"
         | "factory-droid" | "goose" => Ok(adapters::observe_prepared_files(
-            adapters::prepare_apply(agent_id, &paths, &profile, false),
+            prepare_observed_native_files(agent_id, &paths, &profile, false, has_credential),
         )),
         _ => observe_profile(agent_id, &profile),
     }
@@ -3610,6 +3669,75 @@ pub fn set_model_credential_delivery(
     }
 }
 
+pub fn set_agent_credential_delivery(
+    agent_id: &str,
+    delivery: crate::domain::assets::ApiKeyDelivery,
+    confirm_plaintext: bool,
+) -> Result<ModelApplyResult, String> {
+    if !credential::available_deliveries(agent_id)
+        .iter()
+        .any(|available| available == &delivery)
+    {
+        return Err(format!(
+            "credential_delivery_unsupported: {agent_id} does not support {delivery:?}"
+        ));
+    }
+    let before = load_settings().model_selection(agent_id);
+    if delivery == crate::domain::assets::ApiKeyDelivery::Plaintext
+        && before.default_delivery != crate::domain::assets::ApiKeyDelivery::Plaintext
+        && !confirm_plaintext
+    {
+        return Err(
+            "plaintext_confirmation_required: confirm the private plaintext Agent write".into(),
+        );
+    }
+    mutate_settings(|settings| {
+        let mut selection = settings.model_selection(agent_id);
+        selection.default_delivery = delivery.clone();
+        for record in selection.profiles.values_mut() {
+            record.credential.delivery = delivery.clone();
+        }
+        settings.set_model_selection(agent_id, selection);
+    })
+    .map_err(|error| error.to_string())?;
+
+    let after = load_settings().model_selection(agent_id);
+    let mut files = Vec::new();
+    let mut last_profile = String::new();
+    let mut restart_required = false;
+    for (profile_id, record) in &after.profiles {
+        if !record.enabled {
+            continue;
+        }
+        match apply_profile(agent_id, profile_id) {
+            Ok(result) => {
+                files.extend(result.files);
+                last_profile = profile_id.clone();
+                restart_required |= result.restart_required;
+            }
+            Err(error) => {
+                let rollback = mutate_settings(|settings| {
+                    settings.set_model_selection(agent_id, before.clone());
+                })
+                .map_err(|rollback| rollback.to_string());
+                return match rollback {
+                    Ok(()) => Err(error),
+                    Err(rollback) => Err(format!(
+                        "target_recovery_required: credential delivery failed ({error}); policy rollback failed ({rollback})"
+                    )),
+                };
+            }
+        }
+    }
+    Ok(ModelApplyResult {
+        agent: agent_id.into(),
+        profile: last_profile,
+        files,
+        restart_required,
+        message: format!("{agent_id} credential delivery updated."),
+    })
+}
+
 pub(crate) fn apply_profile_target(
     agent_id: &str,
     profile_id: &str,
@@ -3654,8 +3782,11 @@ pub(crate) fn apply_profile_consumption_with_credential_presence_target(
     let route_has_credential = credential_route.is_some();
     let profile = materialize_profile_for_agent(agent_id, &profile)?;
     if credential_route.is_none() {
+        let delivery = crate::settings::load_settings()
+            .model_selection(agent_id)
+            .delivery_for(&profile.id);
         if let Some((code, message)) =
-            profile_credential_issue(agent_id, &profile, has_credential)
+            profile_credential_issue(agent_id, &profile, has_credential, &delivery)
         {
             return Err(format!("{code}: {message}").into());
         }
@@ -3663,7 +3794,9 @@ pub(crate) fn apply_profile_consumption_with_credential_presence_target(
     let paths =
         configured_paths(agent_id).ok_or_else(|| format!("unsupported model Agent: {agent_id}"))?;
     let result = match agent_id {
-        "claude-code" => apply_claude(&paths[0], &profile, route_has_credential).map_err(Into::into),
+        "claude-code" => {
+            apply_claude(&paths[0], &profile, route_has_credential).map_err(Into::into)
+        }
         claude_desktop::AGENT_ID => {
             let source = credential_route
                 .as_ref()
@@ -3689,13 +3822,20 @@ pub(crate) fn apply_profile_consumption_with_credential_presence_target(
         "codex" => apply_codex(&paths[0], &profile, route_has_credential).map_err(Into::into),
         "grok-build" if active => apply_grok_build(&paths[0], &profile).map_err(Into::into),
         "grok-build" => apply_grok_model(&paths[0], &profile).map_err(Into::into),
-        "pi" => {
-            apply_pi(&paths[0], &paths[1], &profile, route_has_credential, active).map_err(Into::into)
-        }
-        "opencode" => {
+        "pi" => apply_pi(
+            &paths[0],
+            &paths[1],
+            &profile,
+            pi_api_key_value(&profile, route_has_credential)?,
+            active,
+        )
+        .map_err(Into::into),
+        "opencode" | "kilo-code" => {
             let prepared = adapters::prepare_apply(agent_id, &paths, &profile, active)?;
             match credential_route.as_ref() {
-                Some((source, credential::PreparedCredentialRoute::OpenCodeAuthStore)) => {
+                Some((source, credential::PreparedCredentialRoute::OpenCodeAuthStore))
+                    if agent_id == "opencode" =>
+                {
                     let resolved = credential::resolve_source(
                         source,
                         matches!(source, ApiKeySource::MuxStore)
@@ -3709,11 +3849,7 @@ pub(crate) fn apply_profile_consumption_with_credential_presence_target(
                         resolved.expose_for_delivery(),
                     )?;
                     apply_native_multi_model_with_private_auth(
-                        agent_id,
-                        &profile,
-                        prepared,
-                        auth,
-                        active,
+                        agent_id, &profile, prepared, auth, active,
                     )
                     .map_err(Into::into)
                 }
@@ -3733,31 +3869,32 @@ pub(crate) fn apply_profile_consumption_with_credential_presence_target(
                             resolved.expose_for_delivery(),
                         )?,
                     );
-                    let auth_path = home().join(".local/share/opencode/auth.json");
-                    let auth_cleanup = open_code_auth::prepare_remove_auth(
-                        &auth_path,
-                        &adapters::native_provider_id(agent_id, &profile),
-                    )?;
-                    apply_native_multi_model_private(
-                        agent_id,
-                        &profile,
-                        vec![private_model, auth_cleanup],
-                        active,
-                    )
-                    .map_err(Into::into)
+                    let files = if agent_id == "opencode" {
+                        let auth_path = home().join(".local/share/opencode/auth.json");
+                        let auth_cleanup = open_code_auth::prepare_remove_auth(
+                            &auth_path,
+                            &adapters::native_provider_id(agent_id, &profile),
+                        )?;
+                        vec![private_model, auth_cleanup]
+                    } else {
+                        vec![private_model]
+                    };
+                    apply_native_multi_model_private(agent_id, &profile, files, active)
+                        .map_err(Into::into)
                 }
                 _ => apply_native_multi_model(agent_id, &profile, prepared, active)
                     .map_err(Into::into),
             }
         }
-        "kilo-code" | "qwen-code" | "crush" | "mistral-vibe" | "hermes"
-        | "factory-droid" | "goose" => apply_native_multi_model(
-            agent_id,
-            &profile,
-            adapters::prepare_apply(agent_id, &paths, &profile, active)?,
-            active,
-        )
-        .map_err(Into::into),
+        "qwen-code" | "crush" | "mistral-vibe" | "hermes" | "factory-droid" | "goose" => {
+            apply_native_multi_model(
+                agent_id,
+                &profile,
+                adapters::prepare_apply(agent_id, &paths, &profile, active)?,
+                active,
+            )
+            .map_err(Into::into)
+        }
         _ => unreachable!("ensure_supported filtered unknown agents"),
     }?;
 
@@ -3788,12 +3925,8 @@ fn credential_route_for(
     has_mux_credential: bool,
 ) -> Result<Option<(ApiKeySource, credential::PreparedCredentialRoute)>, String> {
     let settings = load_settings();
-    let delivery = settings
-        .model_selection(agent_id)
-        .profiles
-        .get(&profile.id)
-        .map(|record| record.credential.delivery.clone())
-        .unwrap_or_default();
+    let requested = settings.model_selection(agent_id).delivery_for(&profile.id);
+    let delivery = credential::resolve_delivery(agent_id, &requested);
     let provider = profile.provider_id.as_deref().and_then(|provider_id| {
         settings
             .model_providers
@@ -3826,8 +3959,18 @@ fn credential_route_for(
             Ok(None)
         };
     }
-    let route = credential::select_delivery(agent_id, &source, &delivery)?;
-    Ok(Some((source, route)))
+    match credential::select_delivery(agent_id, &source, &delivery) {
+        Ok(route) => Ok(Some((source, route))),
+        Err(error) => {
+            if let Some((code, message)) =
+                profile_credential_issue(agent_id, profile, has_mux_credential, &delivery)
+            {
+                Err(format!("{code}: {message}"))
+            } else {
+                Err(error)
+            }
+        }
+    }
 }
 
 /// Remove only the fields owned by a previously assigned MUX Profile, then
@@ -4053,15 +4196,19 @@ fn apply_native_multi_model_with_private_auth(
         .map(|file| file.path.display().to_string())
         .collect::<Vec<_>>();
     commit_native_model_files(agent_id, files.clone())?;
-    let auth_write = auth.content.as_deref().ok_or_else(|| {
-        "agent_store_conflicted: OpenCode auth candidate is unexpectedly empty".to_string()
-    }).and_then(|content| {
-        write_if_unchanged(
-            &auth.path,
-            auth.original.as_deref().map(String::as_str),
-            content.as_str(),
-        )
-    });
+    let auth_write = auth
+        .content
+        .as_deref()
+        .ok_or_else(|| {
+            "agent_store_conflicted: OpenCode auth candidate is unexpectedly empty".to_string()
+        })
+        .and_then(|content| {
+            write_if_unchanged(
+                &auth.path,
+                auth.original.as_deref().map(String::as_str),
+                content.as_str(),
+            )
+        });
     if let Err(error) = auth_write {
         let rollback = rollback_native_model_files(&files);
         return Err(if rollback.is_empty() {
@@ -4101,7 +4248,9 @@ fn apply_native_multi_model_with_private_auth(
         files: written,
         restart_required: true,
         message: if active {
-            format!("{agent_id} Model Profile, primary selection, and Agent credential store updated.")
+            format!(
+                "{agent_id} Model Profile, primary selection, and Agent credential store updated."
+            )
         } else {
             format!("{agent_id} backup Model Profile and Agent credential store updated.")
         },
@@ -4118,7 +4267,10 @@ fn apply_native_multi_model_private(
     Ok(ModelApplyResult {
         agent: agent_id.into(),
         profile: profile.id.clone(),
-        files: files.iter().map(|file| file.path.display().to_string()).collect(),
+        files: files
+            .iter()
+            .map(|file| file.path.display().to_string())
+            .collect(),
         restart_required: true,
         message: if active {
             format!("{agent_id} private plaintext Model configuration updated.")
@@ -4128,17 +4280,13 @@ fn apply_native_multi_model_private(
     })
 }
 
-fn commit_private_model_files(
-    files: &[open_code_auth::PreparedAuthFile],
-) -> Result<(), String> {
+fn commit_private_model_files(files: &[open_code_auth::PreparedAuthFile]) -> Result<(), String> {
     let mut applied = Vec::new();
     for (index, file) in files.iter().enumerate() {
         let result = match (file.original.as_deref(), file.content.as_deref()) {
-            (original, Some(content)) => write_if_unchanged(
-                &file.path,
-                original.map(String::as_str),
-                content.as_str(),
-            ),
+            (original, Some(content)) => {
+                write_if_unchanged(&file.path, original.map(String::as_str), content.as_str())
+            }
             (Some(original), None) => remove_if_unchanged(&file.path, original.as_str()),
             (None, None) => Ok(()),
         };
@@ -4146,7 +4294,11 @@ fn commit_private_model_files(
             let rollback = rollback_private_model_files(files, &applied);
             return Err(format!(
                 "plaintext_target_insecure: private Agent write failed ({error}); rollback: {}",
-                if rollback.is_empty() { "complete".into() } else { rollback.join("; ") }
+                if rollback.is_empty() {
+                    "complete".into()
+                } else {
+                    rollback.join("; ")
+                }
             ));
         }
         #[cfg(unix)]
@@ -4158,7 +4310,11 @@ fn commit_private_model_files(
                 let rollback = rollback_private_model_files(files, &rollback_indexes);
                 return Err(format!(
                     "plaintext_target_insecure: could not enforce 0600 ({error}); rollback: {}",
-                    if rollback.is_empty() { "complete".into() } else { rollback.join("; ") }
+                    if rollback.is_empty() {
+                        "complete".into()
+                    } else {
+                        rollback.join("; ")
+                    }
                 ));
             }
         }
@@ -4175,15 +4331,11 @@ fn rollback_private_model_files(
     for index in applied.iter().rev() {
         let file = &files[*index];
         let rollback = match (file.original.as_deref(), file.content.as_deref()) {
-            (Some(original), Some(content)) => write_if_unchanged(
-                &file.path,
-                Some(content.as_str()),
-                original.as_str(),
-            ),
-            (None, Some(content)) => remove_if_unchanged(&file.path, content.as_str()),
-            (Some(original), None) => {
-                write_if_unchanged(&file.path, None, original.as_str())
+            (Some(original), Some(content)) => {
+                write_if_unchanged(&file.path, Some(content.as_str()), original.as_str())
             }
+            (None, Some(content)) => remove_if_unchanged(&file.path, content.as_str()),
+            (Some(original), None) => write_if_unchanged(&file.path, None, original.as_str()),
             (None, None) => Ok(()),
         };
         if let Err(error) = rollback {
@@ -4881,7 +5033,7 @@ fn upsert_pi_provider(
     providers: &CstObject,
     provider_id: &str,
     profile: &ModelProfile,
-    has_credential: bool,
+    api_key: Option<String>,
     path: &Path,
 ) -> Result<(), String> {
     ensure_unique(providers, provider_id, path, "providers")?;
@@ -4957,7 +5109,7 @@ fn upsert_pi_provider(
     set_json_property(
         &provider,
         "apiKey",
-        has_credential.then(|| Value::String(format!("!{}", profile_credential_shell_command(profile)))),
+        api_key.map(Value::String),
         path,
         &provider_context,
     )?;
@@ -5064,6 +5216,18 @@ fn prepare_pi_models(
     profile: &ModelProfile,
     has_credential: bool,
 ) -> Result<(Option<String>, String), String> {
+    prepare_pi_models_with_api_key(
+        path,
+        profile,
+        has_credential.then(|| format!("!{}", profile_credential_shell_command(profile))),
+    )
+}
+
+fn prepare_pi_models_with_api_key(
+    path: &Path,
+    profile: &ModelProfile,
+    api_key: Option<String>,
+) -> Result<(Option<String>, String), String> {
     let (root, original) = read_jsonc(path)?;
     let object = json_root_object(&root, path)?;
     ensure_unique_keys(&object, path, "$root")?;
@@ -5076,9 +5240,62 @@ fn prepare_pi_models(
     })?;
     ensure_unique_keys(&providers, path, "providers")?;
     let provider_id = pi_provider_id(profile);
-    upsert_pi_provider(&providers, &provider_id, profile, has_credential, path)?;
+    upsert_pi_provider(&providers, &provider_id, profile, api_key, path)?;
     clear_legacy_pi_profile_provider(&providers, &provider_id, profile, path)?;
     Ok((original, root.to_string()))
+}
+
+fn pi_api_key_value(
+    profile: &ModelProfile,
+    has_credential: bool,
+) -> Result<Option<String>, String> {
+    match credential_route_for("pi", profile, has_credential)? {
+        Some((source, credential::PreparedCredentialRoute::Plaintext)) => {
+            let resolved = credential::resolve_source(
+                &source,
+                matches!(source, ApiKeySource::MuxStore)
+                    .then(|| read_credential(&profile.id))
+                    .flatten(),
+            )?;
+            String::from_utf8(resolved.expose_for_delivery().to_vec())
+                .map(Some)
+                .map_err(|_| "plaintext_target_insecure: API Key must be UTF-8".to_string())
+        }
+        _ if has_credential => Ok(Some(format!(
+            "!{}",
+            profile_credential_shell_command(profile)
+        ))),
+        _ => Ok(None),
+    }
+}
+
+fn prepare_observed_native_files(
+    agent_id: &str,
+    paths: &[PathBuf],
+    profile: &ModelProfile,
+    active: bool,
+    has_credential: bool,
+) -> Result<Vec<adapters::PreparedModelFile>, String> {
+    if matches!(agent_id, "opencode" | "kilo-code") {
+        if let Some((source, credential::PreparedCredentialRoute::Plaintext)) =
+            credential_route_for(agent_id, profile, has_credential)?
+        {
+            let resolved = credential::resolve_source(
+                &source,
+                matches!(source, ApiKeySource::MuxStore)
+                    .then(|| read_credential(&profile.id))
+                    .flatten(),
+            )?;
+            return Ok(vec![adapters::prepare_apply_plaintext(
+                agent_id,
+                paths,
+                profile,
+                active,
+                resolved.expose_for_delivery(),
+            )?]);
+        }
+    }
+    adapters::prepare_apply(agent_id, paths, profile, active)
 }
 
 fn prepare_pi_settings(
@@ -5293,11 +5510,11 @@ fn apply_pi(
     models_path: &Path,
     settings_path: &Path,
     profile: &ModelProfile,
-    has_credential: bool,
+    api_key: Option<String>,
     active: bool,
 ) -> Result<ModelApplyResult, String> {
     let (models_original, models_content) =
-        prepare_pi_models(models_path, profile, has_credential)?;
+        prepare_pi_models_with_api_key(models_path, profile, api_key)?;
     if !active {
         backup_config(models_path, "pi-models", &backup_timestamp())?;
         write_if_unchanged(models_path, models_original.as_deref(), &models_content)?;
@@ -5410,6 +5627,7 @@ fn clear_all_pi(models_path: &Path, settings_path: &Path) -> Result<(), String> 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::assets::ApiKeyDelivery;
     use crate::testenv::TestHome;
     use std::sync::mpsc;
     use std::thread;
@@ -5515,6 +5733,12 @@ mod tests {
             reasoning: Some(true),
         };
         save_profile(profile.clone(), None).unwrap();
+        mutate_settings(|settings| {
+            let mut selection = settings.model_selection("opencode");
+            selection.default_delivery = ApiKeyDelivery::Auto;
+            settings.set_model_selection("opencode", selection);
+        })
+        .unwrap();
 
         apply_profile("opencode", &profile.id).unwrap();
 
@@ -5857,10 +6081,17 @@ mod tests {
             b"opencode-private-secret",
         )
         .unwrap();
+        mutate_settings(|settings| {
+            let mut selection = settings.model_selection("opencode");
+            selection.default_delivery = ApiKeyDelivery::Auto;
+            settings.set_model_selection("opencode", selection);
+        })
+        .unwrap();
 
         apply_profile("opencode", &profile.id).unwrap();
 
-        let model_config = fs::read_to_string(home().join(".config/opencode/opencode.json")).unwrap();
+        let model_config =
+            fs::read_to_string(home().join(".config/opencode/opencode.json")).unwrap();
         assert!(model_config.contains("mux_"));
         assert!(!model_config.contains("opencode-private-secret"));
         let auth_path = home().join(".local/share/opencode/auth.json");
@@ -5868,7 +6099,10 @@ mod tests {
         let native_id = adapters::native_provider_id("opencode", &profile);
         assert_eq!(auth[&native_id]["type"], "api");
         assert_eq!(auth[&native_id]["key"], "opencode-private-secret");
-        assert_eq!(fs::metadata(auth_path).unwrap().permissions().mode() & 0o777, 0o600);
+        assert_eq!(
+            fs::metadata(auth_path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
 
         let backups = home().join(".mux/backups");
         if backups.exists() {
@@ -5929,6 +6163,7 @@ mod tests {
                         },
                     )]),
                     active_profile_id: Some(profile.id.clone()),
+                    ..Default::default()
                 },
             );
         })
@@ -5940,7 +6175,10 @@ mod tests {
         let model_config = fs::read_to_string(&model_path).unwrap();
         assert!(model_config.contains("provider-owned-secret"));
         assert!(!model_config.contains("SHOULD_NOT_BE_READ"));
-        assert_eq!(fs::metadata(model_path).unwrap().permissions().mode() & 0o777, 0o600);
+        assert_eq!(
+            fs::metadata(model_path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
         assert!(!home().join(".local/share/opencode/auth.json").exists());
     }
 
@@ -5989,6 +6227,7 @@ mod tests {
                         },
                     )]),
                     active_profile_id: Some(profile.id.clone()),
+                    ..Default::default()
                 },
             );
         })
@@ -5996,7 +6235,8 @@ mod tests {
 
         apply_profile("opencode", &profile.id).unwrap();
 
-        let model_config = fs::read_to_string(home().join(".config/opencode/opencode.json")).unwrap();
+        let model_config =
+            fs::read_to_string(home().join(".config/opencode/opencode.json")).unwrap();
         assert!(!model_config.contains("/legacy/provider.key"));
         assert!(!model_config.contains("provider-materialized-secret"));
         let auth: Value = serde_json::from_str(
@@ -6034,6 +6274,12 @@ mod tests {
             BTreeMap::from([(profile.id.clone(), profile.clone())]),
         )
         .unwrap();
+        mutate_settings(|settings| {
+            let mut selection = settings.model_selection("opencode");
+            selection.default_delivery = ApiKeyDelivery::Auto;
+            settings.set_model_selection("opencode", selection);
+        })
+        .unwrap();
 
         let error = apply_profile("opencode", &profile.id).unwrap_err();
         assert!(error.starts_with("credential_file_insecure:"));
@@ -6041,7 +6287,8 @@ mod tests {
 
         fs::set_permissions(&key_path, fs::Permissions::from_mode(0o600)).unwrap();
         apply_profile("opencode", &profile.id).unwrap();
-        let model_config = fs::read_to_string(home().join(".config/opencode/opencode.json")).unwrap();
+        let model_config =
+            fs::read_to_string(home().join(".config/opencode/opencode.json")).unwrap();
         assert!(model_config.contains(&format!("{{file:{}}}", key_path.display())));
         assert!(!model_config.contains("file-secret"));
     }
@@ -6076,7 +6323,10 @@ mod tests {
             .as_table()
             .unwrap();
         let auth = provider["auth"].as_table().unwrap();
-        assert_eq!(auth["command"].as_str(), Some("/usr/local/bin/read-provider-key"));
+        assert_eq!(
+            auth["command"].as_str(),
+            Some("/usr/local/bin/read-provider-key")
+        );
         assert_eq!(
             auth["args"]
                 .as_array()
@@ -6854,7 +7104,7 @@ wire_api = "responses"
         assert!(content.contains("user provider"));
         assert!(content.contains("\"local\""));
         assert!(content.contains("\"openrouter\""));
-        assert!(content.contains("!/usr/bin/security"));
+        assert!(content.contains("/usr/bin/security"));
     }
 
     #[test]
@@ -7043,7 +7293,7 @@ wire_api = "responses"
             &models_path,
             &settings_path,
             &pi_profile("team-openai", "gpt-custom", "Team OpenAI"),
-            true,
+            Some("!/usr/bin/security".into()),
             false,
         )
         .unwrap();

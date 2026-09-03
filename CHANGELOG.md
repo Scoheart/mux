@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.168](https://github.com/Scoheart/mux/compare/v1.8.167...v1.8.168) (2026-09-03)
+
+### Changes
+
+* feat(models): default Agent credential delivery to plaintext (#161) ([6419c18](https://github.com/Scoheart/mux/commit/6419c18e25a1ed67b8a7615fd34ae0b3411c0648))
+
 ## [1.8.167](https://github.com/Scoheart/mux/compare/v1.8.166...v1.8.167) (2026-09-02)
 
 ### Changes

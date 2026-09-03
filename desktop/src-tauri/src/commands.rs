@@ -572,6 +572,23 @@ pub async fn set_model_credential_delivery(
 }
 
 #[tauri::command]
+pub async fn set_agent_credential_delivery(
+    agent_id: String,
+    delivery: mux_core::application::models::ApiKeyDelivery,
+    confirm_plaintext: bool,
+) -> Result<mux_core::resources::model::ModelApplyResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        mux_core::application::models::set_agent_credential_delivery(
+            &agent_id,
+            delivery,
+            confirm_plaintext,
+        )
+    })
+    .await
+    .map_err(|_| "model_credential_worker_failed: credential delivery worker failed".to_owned())?
+}
+
+#[tauri::command]
 pub fn list_registry() -> Vec<RegistryEntry> {
     // Read user overrides from settings.registry merged over builtin — same source
     // scan_installed / apply_install resolve against, so the UI stays consistent.

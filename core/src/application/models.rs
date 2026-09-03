@@ -58,3 +58,17 @@ pub fn set_credential_delivery(
         )
     })
 }
+
+pub fn set_agent_credential_delivery(
+    agent_id: &str,
+    delivery: ApiKeyDelivery,
+    confirm_plaintext: bool,
+) -> Result<crate::resources::model::ModelApplyResult, String> {
+    super::gate::write(|| {
+        crate::resources::model::set_agent_credential_delivery(
+            agent_id,
+            delivery,
+            confirm_plaintext,
+        )
+    })
+}

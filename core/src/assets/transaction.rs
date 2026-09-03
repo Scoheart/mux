@@ -4606,6 +4606,7 @@ mod tests {
                         },
                     )]),
                     active_profile_id: Some(profile.id.clone()),
+                    ..Default::default()
                 },
             );
         })
@@ -4691,6 +4692,7 @@ mod tests {
                         },
                     )]),
                     active_profile_id: Some(profile.id.clone()),
+                    ..Default::default()
                 },
             );
         })
@@ -6175,6 +6177,9 @@ mod tests {
     fn provider_update_repairs_only_its_reviewed_child_profiles() {
         let home = TestHome::new("consume-provider-scoped-children");
         let (mut provider, mut first, mut second) = install_shared_provider_models();
+        provider.api_key_source = Some(crate::domain::types::ApiKeySource::Env {
+            name: "SHARED_PROVIDER_API_KEY".into(),
+        });
         provider.env_key = Some("SHARED_PROVIDER_API_KEY".into());
         first.env_key = provider.env_key.clone();
         second.env_key = provider.env_key.clone();
@@ -6261,6 +6266,9 @@ mod tests {
     fn provider_update_skips_a_disabled_child_consumer_and_preserves_its_payload() {
         let home = TestHome::new("consume-provider-disabled-child");
         let (mut provider, mut first, mut second) = install_shared_provider_models();
+        provider.api_key_source = Some(crate::domain::types::ApiKeySource::Env {
+            name: "SHARED_PROVIDER_API_KEY".into(),
+        });
         provider.env_key = Some("SHARED_PROVIDER_API_KEY".into());
         first.env_key = provider.env_key.clone();
         second.env_key = provider.env_key.clone();

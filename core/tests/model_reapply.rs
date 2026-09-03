@@ -112,6 +112,12 @@ fn setup_unsupported_releasable_profile(test_name: &str) -> (TestHome, String) {
             .get_mut("releasable")
             .unwrap()
             .env_key = None;
+        let mut selection = settings.model_selection("opencode");
+        selection.default_delivery = mux_core::domain::assets::ApiKeyDelivery::Env;
+        if let Some(record) = selection.profiles.get_mut("releasable") {
+            record.credential.delivery = mux_core::domain::assets::ApiKeyDelivery::Env;
+        }
+        settings.set_model_selection("opencode", selection);
     })
     .unwrap();
 

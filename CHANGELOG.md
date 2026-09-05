@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.169](https://github.com/Scoheart/mux/compare/v1.8.168...v1.8.169) (2026-09-05)
+
+### Changes
+
+* feat(qoder): distinguish Desktop, IDE and CLI integrations ([2d430aa](https://github.com/Scoheart/mux/commit/2d430aa6eef2e3e2659cd3b190719699de15a742))
+
 ## [1.8.168](https://github.com/Scoheart/mux/compare/v1.8.167...v1.8.168) (2026-09-03)
 
 ### Changes

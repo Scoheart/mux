@@ -856,7 +856,7 @@ export function AgentView({
             modelAgent?.mode === "guided" ? (
               <section className="mux-agent-section mux-agent-resource-content">
                 <div className="mux-agent-guided-model">
-                  <div><strong>由 Agent 管理</strong><span>请在 {agent.name} 内切换。</span></div>
+                  <div><strong>由 Agent 管理</strong><span>{modelAgent.note || `请在 ${agent.name} 内切换。`}</span></div>
                   <button type="button" className="btn-secondary" onClick={() => openUrl(modelAgent.docs)}>
                     <LinkIcon className="w-4 h-4" />打开设置文档
                   </button>

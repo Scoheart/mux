@@ -2,5 +2,6 @@
   "claude-code": "cli",
   "claude-desktop": "desktop",
   "qoder-cli": "cli",
-  "qoder": "ide"
+  "qoder": "ide",
+  "qoder-desktop": "desktop"
 }

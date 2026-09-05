@@ -4,5 +4,6 @@
   "codex": "openai",
   "copilot-cli": "copilot",
   "junie": "jetbrains",
-  "qoder-cli": "qoder"
+  "qoder-cli": "qoder",
+  "qoder-desktop": "qoder"
 }

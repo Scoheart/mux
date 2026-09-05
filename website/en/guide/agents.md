@@ -2,8 +2,8 @@
 
 MUX's agent data comes in two layers:
 
-- **Audited definitions**: 56 individually verified Agent definitions, 46 of which have a stable user-level global MCP config file that MUX can safely read and write; another nine are Skills-only targets, while Devin is read-only.
-- **Client directory**: sourced from public MCP client directories and the official client matrix, used for discovery only. Its **201 entries** combine with the audited definitions into **211 unique Agent identities** after deduplication.
+- **Audited definitions**: 57 individually verified Agent definitions, 47 of which have a stable user-level global MCP config file that MUX can safely read and write; another nine are Skills-only targets, while Devin is read-only.
+- **Client directory**: sourced from public MCP client directories and the official client matrix, used for discovery only. Its **201 entries** combine with the audited definitions into **212 unique Agent identities** after deduplication.
 
 For MCP capability, clients whose global file path, top-level key, and entry structure have not been confirmed never become writable MCP targets. Skills-only Agents appear only after their user-level directory contract is verified independently. This keeps expanding coverage without writing a generic JSON guess into an unknown product's config.
 
@@ -17,7 +17,9 @@ MUX currently exposes **15 Model targets**: 13 are managed, while MiniMax Code a
 
 The results below are based on official docs, official source, or signed application bundles through **2026-07-22**. Grok Build was verified against xAI's official documentation; MiniMax Code was verified from the official signed `3.0.51` macOS bundle.
 
-The table focuses on MCP contracts: it lists the 46 writable targets and retains Devin as an explicit read-only comparison. See Skills capabilities below and [User-level Skills](/en/guide/skills#verified-agent-paths) for the Skills-only definitions.
+The table focuses on MCP contracts: it lists the 47 writable targets and retains Devin as an explicit read-only comparison. See Skills capabilities below and [User-level Skills](/en/guide/skills#verified-agent-paths) for the Skills-only definitions.
+
+The new Qoder Desktop MCP contract was verified against its official documentation on 2026-09-05.
 
 | Agent | Format | Config key | User-level global path | Native transports |
 |---|---|---|---|---|
@@ -55,7 +57,8 @@ The table focuses on MCP contracts: it lists the 46 writable targets and retains
 | [OpenCode](https://opencode.ai/docs/mcp-servers/) | JSON | `mcp` | `~/.config/opencode/opencode.json` | stdio / http |
 | [OpenHands CLI](https://docs.openhands.dev/openhands/usage/cli/mcp-servers) | JSON | `mcpServers` | `~/.openhands/mcp.json` | stdio / http |
 | [Pi Coding Agent](https://github.com/nicobailon/pi-mcp-adapter) | JSON | `mcpServers` | `~/.pi/agent/mcp.json` | stdio / http |
-| [Qoder Desktop](https://docs.qoder.com/user-guide/chat/model-context-protocol) | JSON | `mcpServers` | `~/.qoder/mcp.json` | stdio / http |
+| [Qoder IDE](https://docs.qoder.com/user-guide/chat/model-context-protocol) | JSON | `mcpServers` | `~/.qoder/mcp.json` | stdio / http |
+| [Qoder Desktop](https://docs.qoder.com/qoder/connectors) | JSON | `mcpServers` | `~/.qoder/settings.json` | stdio / http |
 | [Qoder CLI](https://docs.qoder.com/en/cli/mcp-servers) | JSON | `mcpServers` | `~/.qoder/settings.json` | stdio / http |
 | [QoderWork](https://docs.qoder.com/qoderwork/connectors) | JSON | `mcpServers` | `~/.qoderwork/mcp.json` | stdio / http |
 | [Qwen Code](https://qwenlm.github.io/qwen-code-docs/en/users/features/mcp/) | JSON | `mcpServers` | `~/.qwen/settings.json` | stdio / http |
@@ -72,7 +75,7 @@ The table focuses on MCP contracts: it lists the 46 writable targets and retains
 ### Targets that need special distinction
 
 - **Pi**: Pi's core does not include MCP. MUX's definition applies only to environments with the community `pi-mcp-adapter` installed, so the UI clearly labels it a community extension.
-- **Qoder Desktop / Qoder CLI**: these are separate Agents. Qoder Desktop edits `~/.qoder/mcp.json`, while Qoder CLI's user scope uses `~/.qoder/settings.json`; MUX scans and writes them independently and never silently merges the two MCP lists. `SharedClientCache/mcp.json` may still contain a runtime mirror, but it is not the user-editable source of truth.
+- **Qoder IDE / CLI / Desktop**: three separate entries. IDE (`qoder`) keeps `~/.qoder/mcp.json`; new Desktop (`qoder-desktop`, 0.1.x) and CLI (`qoder-cli`) share `~/.qoder/settings.json`, so edits to the same MCP entry affect both. Configure Desktop models in Settings → Models and CLI models in `/model`. The new Desktop Skills write contract has not been verified.
 - **Devin**: the product supports MCP, but no stable user-level global file contract was verified, so it can only be viewed for discovery and not written to.
 - **QoderWork**: user-defined MCP servers live in `~/.qoderwork/mcp.json`; MUX does not modify the client's built-in MCP data.
 - **Claude Desktop / BoltAI**: the local files listed natively support stdio only. Remote MCP is managed by Claude Connectors or BoltAI's `mcp-remote` approach, respectively.

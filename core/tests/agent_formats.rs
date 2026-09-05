@@ -22,6 +22,7 @@ fn temp_file(name: &str, extension: &str) -> PathBuf {
 
 fn fixture(name: &str) -> &'static str {
     match name {
+        "qoder-desktop" => include_str!("fixtures/qoder-desktop.json"),
         "opencode" => include_str!("fixtures/opencode.json"),
         "codex" => include_str!("fixtures/codex.toml"),
         "gemini" => include_str!("fixtures/gemini.json"),
@@ -422,6 +423,30 @@ fn standard_agent_update_preserves_target_policy_fields() {
 }
 
 #[test]
+fn qoder_desktop_round_trip_preserves_shared_cli_settings() {
+    let path = write_fixture("qoder-desktop", "json");
+    let adapter = get_agent_adapter("json", "mcpServers", "qoder-desktop");
+    let before: Value = serde_json::from_str(fixture("qoder-desktop")).unwrap();
+    assert!(matches!(adapter.read(&path)["local-tools"], McpConfig::Stdio(_)));
+    adapter.upsert(&path, "docs", &http("https://new.example/mcp")).unwrap();
+    let after: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    for key in ["model", "permissions", "unknownPreference"] {
+        assert_eq!(after[key], before[key]);
+    }
+    assert_eq!(after["mcpServers"]["local-tools"], before["mcpServers"]["local-tools"]);
+    assert_eq!(after["mcpServers"]["docs"]["type"], "http");
+    assert_eq!(after["mcpServers"]["docs"]["disabled"], true);
+    assert_eq!(after["mcpServers"]["docs"]["customPolicy"], before["mcpServers"]["docs"]["customPolicy"]);
+    let cli = get_agent_adapter("json", "mcpServers", "qoder-cli").read(&path);
+    assert_eq!(adapter.read(&path), cli);
+    adapter.remove(&path, &["docs".into()]).unwrap();
+    assert!(adapter.read(&path).contains_key("local-tools"));
+    let remaining: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    assert_eq!(remaining["model"], before["model"]);
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
 fn qoderwork_update_preserves_file_metadata_and_uses_documented_http_type() {
     let path = temp_file("qoderwork-mcp", "json");
     std::fs::write(
@@ -518,6 +543,7 @@ fn builtin_global_paths_match_current_product_docs() {
         ("pi", "~/.pi/agent/mcp.json"),
         ("qoder", "~/.qoder/mcp.json"),
         ("qoder-cli", "~/.qoder/settings.json"),
+        ("qoder-desktop", "~/.qoder/settings.json"),
         ("qoderwork", "~/.qoderwork/mcp.json"),
         ("qwen-code", "~/.qwen/settings.json"),
         (
@@ -554,16 +580,16 @@ fn verified_and_catalog_definitions_have_auditable_boundaries() {
     let all_ids: std::collections::BTreeSet<_> =
         verified_ids.union(&catalog_ids).cloned().collect();
 
-    assert_eq!(verified.len(), 56);
+    assert_eq!(verified.len(), 57);
     assert_eq!(catalog.len(), 201);
     assert_eq!(verified_ids.intersection(&catalog_ids).count(), 46);
-    assert_eq!(all_ids.len(), 211);
+    assert_eq!(all_ids.len(), 212);
     assert_eq!(
         verified
             .values()
             .filter(|item| item.global.is_some())
             .count(),
-        46
+        47
     );
     assert!(catalog.len() >= 170);
     for (id, definition) in verified {

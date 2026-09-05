@@ -1061,7 +1061,7 @@ mod tests {
         let catalog: BTreeMap<String, AgentDefinition> =
             serde_json::from_str(CATALOG_AGENTS_JSON).unwrap();
         assert_eq!(catalog.len(), 201);
-        assert_eq!(a.len(), 211);
+        assert_eq!(a.len(), 212);
         assert_eq!(a["claude-code"].key, "mcpServers");
         assert_eq!(a["codex"].format, "toml");
         assert_eq!(

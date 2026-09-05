@@ -106,7 +106,7 @@ Agent 页面只显示已建立 desired relationship 的中央资产，即使目�
 - 进入内置 Agent 页面后可覆盖 MCP 全局路径与配置键；官方格式、布局和 codec 仍由核验目录锁定，避免产生不兼容配置。
 - 位于用户主目录内的路径保存为 `~/…`；主目录外的绝对路径保持原值。
 
-MUX 当前有 56 个核验定义、46 个 MCP 可写目标、45 个 Skills 目标和 15 个 Model target（13 个 managed、2 个 guided）；201 条发现目录记录与核验定义合并后共有 211 个唯一 identity。完整口径见 [支持的 Agent](/guide/agents)。
+MUX 当前有 57 个核验定义、47 个 MCP 可写目标、45 个 Skills 目标和 17 个 Model target（13 个 managed、4 个 guided）；201 条发现目录记录与核验定义合并后共有 212 个唯一 identity。完整口径见 [支持的 Agent](/guide/agents)。
 
 ## Models（Beta）
 

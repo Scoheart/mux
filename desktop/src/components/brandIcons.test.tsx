@@ -15,7 +15,8 @@ it("distinguishes Claude and Qoder variants that share a logo", () => {
     ["claude-code", "Claude Code", "cli"],
     ["claude-desktop", "Claude Desktop", "desktop"],
     ["qoder-cli", "Qoder CLI", "cli"],
-    ["qoder", "Qoder Desktop", "ide"],
+    ["qoder", "Qoder IDE", "ide"],
+    ["qoder-desktop", "Qoder Desktop", "desktop"],
   ] as const;
 
   for (const [id, name, surface] of cases) {

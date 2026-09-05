@@ -230,7 +230,7 @@ mod tests {
         for agent_id in ["claude-code", "claude-desktop", "codex"] {
             assert_eq!(authority(agent_id), Some(ModelStorageAuthority::MuxMapping));
         }
-        for agent_id in ["minimax-code", "qoder"] {
+        for agent_id in ["minimax-code", "qoder", "qoder-desktop", "qoder-cli"] {
             assert_eq!(authority(agent_id), Some(ModelStorageAuthority::Guided));
         }
     }

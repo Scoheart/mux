@@ -67,7 +67,7 @@ MUX declares verified user-level Skills support for **45 Agents**. It shows an A
 | OpenHands CLI | `~/.openhands/skills` | — |
 | Pi Coding Agent | `~/.pi/agent/skills` | `~/.agents/skills` |
 | Poolside | `~/.agents/skills` | — |
-| Qoder Desktop | `~/.qoder/skills` | — |
+| Qoder IDE | `~/.qoder/skills` | — |
 | Qoder CLI | `~/.qoder/skills` | — |
 | QoderWork | `~/.qoderwork/skills` | — |
 | Qwen Code | `~/.qwen/skills` | — |

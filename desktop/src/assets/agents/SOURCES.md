@@ -29,3 +29,5 @@ New assets are copied from official product sites, official repositories, or the
 | `stakpak.svg` | <https://github.com/agentclientprotocol/registry/tree/main/stakpak> (provider-submitted registry icon) |
 | `tabnine.png` | <https://www.tabnine.com/wp-content/uploads/2024/09/cropped-tabnine-favicon-192x192.png> |
 | `vt-code.svg` | <https://github.com/agentclientprotocol/registry/tree/main/vtcode> (provider-submitted registry icon) |
+
+- `qoder-desktop` reuses the Qoder brand mark (`qoder.svg`) through `aliases.json`; `surfaces.json` distinguishes the new Desktop from IDE and CLI. Product identity: https://docs.qoder.com/qoder/overview (2026-09-05).

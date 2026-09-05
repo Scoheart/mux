@@ -1,6 +1,6 @@
 # Models（Beta）
 
-MUX 桌面端把模型端点保存为中央 Model Profile，再由多个兼容 Agent 消费。创建 Profile 本身不会写 Agent 配置；支持多模型的 Agent 可以保留多个已添加 Profile，但同时只有一个 current profile。当前有 13 个自动写入目标；Qoder 与 MiniMax Code 保留安全引导。
+MUX 桌面端把模型端点保存为中央 Model Profile，再由多个兼容 Agent 消费。创建 Profile 本身不会写 Agent 配置；支持多模型的 Agent 可以保留多个已添加 Profile，但同时只有一个 current profile。当前有 13 个自动写入目标；Qoder IDE、CLI、Desktop 与 MiniMax Code 保留安全引导。
 
 ## Profile、Provider 与状态
 
@@ -37,7 +37,9 @@ MUX 会只读扫描受支持 Agent 的历史自定义模型配置，在“历史
 | Factory Droid | 自动配置 | `~/.factory/settings.json`（JSONC） | `customModels[]`、`model` |
 | Goose | 自动配置 | `~/Library/Application Support/Block/goose/config/config.yaml` + `custom_providers/<mux-id>.json` | `providers.<mux-id>`、`active_provider`、declarative provider 文件 |
 | MiniMax Code | 安全引导 | `~/.mavis/config.yaml`（MUX 自动管理独立的 `~/.mavis/mcp.json`） | 不自动写 Model；当前 provider 流程会保存明文 `options.apiKey` |
-| Qoder | 官方引导 | `~/.qoder/settings.json`（MUX 不写） | 在 Qoder 的 `/model` 中选择 |
+| Qoder IDE | 官方引导 | Agent 内管理 | Settings → Models |
+| Qoder CLI | 官方引导 | Agent 内管理 | `/model` → Custom |
+| Qoder Desktop | 官方引导 | Agent 内管理 | Settings → Models；0.1.8 起个人计划支持 OpenAI / Anthropic 兼容服务自定义 Base URL |
 
 Claude Desktop 与 Claude Code 只接收 Anthropic Messages，Codex 只接收 Responses；其余自动目标按各自能力接受一种或多种 Anthropic Messages、OpenAI Responses、OpenAI Chat Completions。OpenCode 与 Kilo 还可通过 `@ai-sdk/google` 使用 Gemini 原生 GenerateContent；不支持该协议的 Agent 会在建立关系前被局部拒绝，不影响 MCP、Skill 或其他 Model。Claude Desktop 是明确审阅的例外：应用 Model 时，MUX 会把所选 Provider Key 从 Keychain 导出到 Claude Desktop 的 MUX 专属 `0600` Profile；非 Claude 路由名会自动关闭 Claude Desktop 模型名校验。Grok Build、OpenCode/Kilo、Qwen、Crush、Vibe、Hermes、Factory 与 Goose 使用环境变量引用，不导出 Keychain 密钥正文。Qwen 当前 stable 0.20.0 的发布包仍要求 `modelProviders.<auth>` 是数组；MUX 会把自己旧版写出的精确 `{ protocol, models }` wrapper 安全迁移为数组，带未知字段的 wrapper 则拒绝覆盖。Qoder 没有公开安全的非交互凭据写入接口；MiniMax Code 当前自定义 provider 会把 `options.apiKey` 作为字面量保存，因此两者仍由自身界面管理。
 
@@ -88,6 +90,7 @@ Claude Code 已启用 Bedrock、Vertex 或 Foundry 路由时，MUX 会拒绝接�
 - [Crush 自定义 Provider](https://github.com/charmbracelet/crush#configuration)与[Mistral Vibe API profiles](https://docs.mistral.ai/vibe/code/cli/api-keys-profiles)
 - [Hermes 模型配置](https://hermes-agent.nousresearch.com/docs/user-guide/configuring-models)与[Factory BYOK](https://docs.factory.ai/cli/byok/overview)
 - [Goose Provider 配置](https://goose-docs.ai/docs/guides/config-files/)
-- [Qoder 自定义模型](https://docs.qoder.com/user-guide/chat/custom-models)与[CLI `/model`](https://docs.qoder.com/en/cli/model)
+- [新 Qoder Desktop 自定义模型](https://docs.qoder.com/qoder/custom-models)与[0.1.8 发布说明](https://docs.qoder.com/release-notes/qoder)：自定义 Base URL 不等于公开的非交互凭据写入接口，MUX 当前提供官方配置引导。
+- [Qoder IDE 自定义模型](https://docs.qoder.com/user-guide/chat/custom-models)与[CLI `/model`](https://docs.qoder.com/en/cli/model)
 - [Grok Build 自定义模型](https://docs.x.ai/build/overview#custom-models)与[设置参考](https://docs.x.ai/build/settings/reference#model-id)
 - [MiniMax Code 官方下载与产品说明](https://agent.minimax.io/download)

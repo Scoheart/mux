@@ -2,8 +2,8 @@
 
 MUX 的 Agent 数据分为两层：
 
-- **核验定义**：56 个逐项核验的 Agent 定义，其中 46 个有稳定的用户级全局 MCP 配置文件，可由 MUX 安全读写；另有 9 个 Skills-only 目标和只读的 Devin。
-- **发现目录**：来自公开 MCP 客户端目录与官方客户端矩阵，只作为后续核验的数据储备。目录包含 **201 条**记录，与核验定义合并去重后共保留 **211 个** Agent identity，但不再作为单独标签页展示。
+- **核验定义**：57 个逐项核验的 Agent 定义，其中 47 个有稳定的用户级全局 MCP 配置文件，可由 MUX 安全读写；另有 9 个 Skills-only 目标和只读的 Devin。
+- **发现目录**：来自公开 MCP 客户端目录与官方客户端矩阵，只作为后续核验的数据储备。目录包含 **201 条**记录，与核验定义合并去重后共保留 **212 个** Agent identity，但不再作为单独标签页展示。
 
 对于 MCP 能力，没有确认全局文件路径、顶层键和条目结构的客户端只保留来源数据，不会成为 MCP 可写目标。Skills-only Agent 只有在用户级目录契约另行核验后才会出现。这样可以持续扩大覆盖面，又不会把通用 JSON 猜测写进未知产品配置。
 
@@ -17,7 +17,9 @@ MUX 的 Agent 数据分为两层：
 
 以下结果基于截至 **2026-07-22** 的官方文档、官方源码或签名应用包；Grok Build 使用 xAI 官方文档核验，MiniMax Code 使用官方签名的 `3.0.51` macOS 应用包核验。
 
-下表聚焦 MCP 契约：列出 46 个可写目标，并保留 Devin 作为明确的只读对照；Skills-only 定义见下方 Skills 能力与 [用户级 Skills](/guide/skills#已核验的-agent-路径)。
+下表聚焦 MCP 契约：列出 47 个可写目标，并保留 Devin 作为明确的只读对照；Skills-only 定义见下方 Skills 能力与 [用户级 Skills](/guide/skills#已核验的-agent-路径)。
+
+新 Qoder Desktop 的 MCP 契约于 2026-09-05 按新版官方文档核验。
 
 | Agent | 格式 | 配置键 | 用户级全局路径 | 原生传输 |
 |---|---|---|---|---|
@@ -55,7 +57,8 @@ MUX 的 Agent 数据分为两层：
 | [OpenCode](https://opencode.ai/docs/mcp-servers/) | JSON | `mcp` | `~/.config/opencode/opencode.json` | stdio / http |
 | [OpenHands CLI](https://docs.openhands.dev/openhands/usage/cli/mcp-servers) | JSON | `mcpServers` | `~/.openhands/mcp.json` | stdio / http |
 | [Pi Coding Agent](https://github.com/nicobailon/pi-mcp-adapter) | JSON | `mcpServers` | `~/.pi/agent/mcp.json` | stdio / http |
-| [Qoder Desktop](https://docs.qoder.com/user-guide/chat/model-context-protocol) | JSON | `mcpServers` | `~/.qoder/mcp.json` | stdio / http |
+| [Qoder IDE](https://docs.qoder.com/user-guide/chat/model-context-protocol) | JSON | `mcpServers` | `~/.qoder/mcp.json` | stdio / http |
+| [Qoder Desktop](https://docs.qoder.com/qoder/connectors) | JSON | `mcpServers` | `~/.qoder/settings.json` | stdio / http |
 | [Qoder CLI](https://docs.qoder.com/en/cli/mcp-servers) | JSON | `mcpServers` | `~/.qoder/settings.json` | stdio / http |
 | [QoderWork](https://docs.qoder.com/qoderwork/connectors) | JSON | `mcpServers` | `~/.qoderwork/mcp.json` | stdio / http |
 | [Qwen Code](https://qwenlm.github.io/qwen-code-docs/en/users/features/mcp/) | JSON | `mcpServers` | `~/.qwen/settings.json` | stdio / http |
@@ -74,7 +77,7 @@ MUX 的 Agent 数据分为两层：
 - **Pi**：Pi 核心不内置 MCP。MUX 的定义只适用于已安装社区 `pi-mcp-adapter` 的环境，因此界面明确标为社区扩展。
 - **Devin**：产品支持 MCP，但没有核验到稳定的用户级全局文件契约，因此保留在发现数据中，不进入 Agent 选择器。
 - **QoderWork**：用户自定义 MCP 保存在 `~/.qoderwork/mcp.json`，使用 `mcpServers`；MUX 不修改客户端数据目录中的内置 MCP。远程连接按官方导入格式写为 `streamable-http` 或 `sse`。
-- **Qoder Desktop / Qoder CLI**：两者是独立 Agent。Qoder Desktop 的 MCP 页面编辑 `~/.qoder/mcp.json`；Qoder CLI 的 user scope 使用 `~/.qoder/settings.json`，MUX 分别扫描和写入，不会静默合并两份 MCP 列表。`SharedClientCache/mcp.json` 可能仍包含运行时镜像，但不是用户可编辑的权威配置。
+- **Qoder IDE / CLI / Desktop**：三个独立入口。IDE（原 `qoder`）继续使用 `~/.qoder/mcp.json`；新 Desktop（`qoder-desktop`，0.1.x）与 CLI（`qoder-cli`）共用 `~/.qoder/settings.json`，修改同名 MCP 会影响两者。Desktop 的 Models 通过 Settings → Models 配置，CLI 通过 `/model`；新版 Desktop Skills 的本地写入契约尚未核验。
 - **Claude Desktop / BoltAI**：列出的本地文件只原生支持 stdio。远程 MCP 分别由 Claude Connectors 或 BoltAI 的 `mcp-remote` 方案管理。
 - **Goose**：通用文档示例使用 `~/.config/goose/config.yaml`，当前 macOS 源码实际采用 `~/Library/Application Support/Block/goose/config/config.yaml`；MUX 按运行时代码定位。
 - **Grok Build**：MCP 与自定义模型共用 `~/.grok/config.toml`。MUX 分别局部管理 `mcp_servers`、`[models].default` 和独立的 MUX 模型表，支持三种官方 API backend，并保留其他模型、认证、超时、权限和工具策略。认证只写 `env_key` 变量名，不写密钥正文。

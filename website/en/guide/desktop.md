@@ -87,7 +87,7 @@ The source model itself supports enable/disable, which the TUI's "Sources" scree
 - Inside a built-in agent's page you may override the global MCP path and section key; the official format, layout, and codec remain catalog-owned, to avoid producing incompatible configs.
 - Paths inside the home directory are saved as `~/…`; absolute paths outside it keep their original value.
 
-MUX currently has 56 audited Agent definitions, 46 writable MCP targets, 45 Skills targets, and 15 Model targets (13 managed and 2 guided). Its 201 discovery-catalog entries combine with the audited definitions into 211 unique identities. See [Supported agents](/en/guide/agents) for the full matrix.
+MUX currently has 57 audited Agent definitions, 47 writable MCP targets, 45 Skills targets, and 17 Model targets (13 managed and 4 guided). Its 201 discovery-catalog entries combine with the audited definitions into 212 unique identities. See [Supported agents](/en/guide/agents) for the full matrix.
 
 ## Models (Beta)
 

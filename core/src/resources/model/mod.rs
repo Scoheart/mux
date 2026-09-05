@@ -54,6 +54,8 @@ const CREDENTIAL_ROLLBACK_PREFIX: &str = "__asset-operation-rollback__";
 const PRIVATE_FILE_SNAPSHOT_SERVICE_PREFIX: &str = "com.scoheart.mux.private-file-snapshot";
 const PRIVATE_FILE_SNAPSHOT_VERSION: &str = "v1";
 const QODER_DOCS: &str = "https://docs.qoder.com/user-guide/chat/custom-models";
+const QODER_CLI_DOCS: &str = "https://docs.qoder.com/cli/custom-models";
+const QODER_DESKTOP_DOCS: &str = "https://docs.qoder.com/qoder/custom-models";
 const GROK_BUILD_MODEL_DOCS: &str = "https://docs.x.ai/build/settings#model-id";
 const MINIMAX_CODE_DOCS: &str = "https://agent.minimax.io/download";
 const CREDENTIAL_FILE_NATIVE_ID: &str = "__mux_credential_file";
@@ -1631,7 +1633,6 @@ pub fn default_config_paths(agent_id: &str) -> Option<Vec<String>> {
         "factory-droid" => &["~/.factory/settings.json"],
         "goose" => &["~/Library/Application Support/Block/goose/config/config.yaml"],
         "minimax-code" => &["~/.mavis/config.yaml"],
-        "qoder" => &["~/.qoder/settings.json"],
         _ => return None,
     };
     Some(paths.iter().map(|path| (*path).to_string()).collect())
@@ -2874,7 +2875,6 @@ pub fn list_agents() -> Vec<ModelAgentView> {
     let (grok_config_path, grok_config_paths) = path_view(&settings, "grok-build");
     let (pi_config_path, pi_config_paths) = path_view(&settings, "pi");
     let (minimax_config_path, minimax_config_paths) = path_view(&settings, "minimax-code");
-    let (qoder_config_path, qoder_config_paths) = path_view(&settings, "qoder");
     let mut agents = vec![
         ModelAgentView {
             id: "claude-code".into(),
@@ -3020,16 +3020,16 @@ pub fn list_agents() -> Vec<ModelAgentView> {
         },
         ModelAgentView {
             id: "qoder".into(),
-            name: "Qoder".into(),
+            name: "Qoder IDE".into(),
             mode: "guided".into(),
             storage_authority: ModelStorageAuthority::Guided,
             installed: agent_installed(
-                &["qoder", "qodercli"],
-                &[".qoder"],
+                &[],
+                &["Library/Application Support/Qoder"],
                 &["/Applications/Qoder.app"],
             ),
-            config_path: qoder_config_path,
-            config_paths: qoder_config_paths,
+            config_path: String::new(),
+            config_paths: Vec::new(),
             docs: QODER_DOCS.into(),
             assigned_profile: None,
             assigned_profiles: Vec::new(),
@@ -3041,7 +3041,52 @@ pub fn list_agents() -> Vec<ModelAgentView> {
             default_delivery: Default::default(),
             available_deliveries: Vec::new(),
             supported_protocols: Vec::new(),
-            note: "Qoder has no public secure non-interactive BYOK writer; configure it through /model.".into(),
+            note: "请在 Qoder IDE Settings → Models 中添加和切换自定义模型。MUX 当前提供配置引导，不自动写入模型。".into(),
+        },
+        ModelAgentView {
+            id: "qoder-desktop".into(),
+            name: "Qoder Desktop".into(),
+            mode: "guided".into(),
+            storage_authority: ModelStorageAuthority::Guided,
+            installed: agent_installed(&[], &[], &["/Applications/Qoder.app"]),
+            config_path: String::new(),
+            config_paths: Vec::new(),
+            docs: QODER_DESKTOP_DOCS.into(),
+            assigned_profile: None,
+            assigned_profiles: Vec::new(),
+            active_profile: None,
+            supports_multiple: false,
+            credential_mode: "guided".into(),
+            credential_capabilities: credential::agent_capabilities("qoder-desktop"),
+            credential_policies: BTreeMap::new(),
+            default_delivery: Default::default(),
+            available_deliveries: Vec::new(),
+            supported_protocols: vec![
+                ModelProtocol::OpenaiCompletions,
+                ModelProtocol::AnthropicMessages,
+            ],
+            note: "Qoder Desktop 0.1.8 起，个人计划支持 OpenAI / Anthropic 兼容服务的自定义 Base URL。请在 Settings → Models → Add model 中配置。MUX 当前提供配置引导，不自动写入模型。".into(),
+        },
+        ModelAgentView {
+            id: "qoder-cli".into(),
+            name: "Qoder CLI".into(),
+            mode: "guided".into(),
+            storage_authority: ModelStorageAuthority::Guided,
+            installed: agent_installed(&["qoder", "qodercli"], &[], &[]),
+            config_path: String::new(),
+            config_paths: Vec::new(),
+            docs: QODER_CLI_DOCS.into(),
+            assigned_profile: None,
+            assigned_profiles: Vec::new(),
+            active_profile: None,
+            supports_multiple: false,
+            credential_mode: "guided".into(),
+            credential_capabilities: credential::agent_capabilities("qoder-cli"),
+            credential_policies: BTreeMap::new(),
+            default_delivery: Default::default(),
+            available_deliveries: Vec::new(),
+            supported_protocols: Vec::new(),
+            note: "在 Qoder CLI 的 /model → Custom 向导中配置 BYOK；可用服务商和模型以当前账号目录为准，不要手动写入 settings.json。".into(),
         },
         managed_agent_view(
             &settings, "opencode", "OpenCode", &["opencode"], &[".config/opencode"],
@@ -3588,9 +3633,17 @@ fn ensure_supported(agent_id: &str, protocol: &ModelProtocol) -> Result<(), Stri
             ModelProtocol::AnthropicMessages | ModelProtocol::OpenaiCompletions
         ),
         "mistral-vibe" => matches!(protocol, ModelProtocol::OpenaiCompletions),
+        "qoder-cli" => {
+            return Err(format!("Configure Qoder CLI BYOK through /model → Custom; see {QODER_CLI_DOCS}"))
+        }
+        "qoder-desktop" => {
+            return Err(format!(
+                "Configure Qoder Desktop BYOK in Settings → Models (custom Base URLs require 0.1.8+); no public secure non-interactive credential writer is available; see {QODER_DESKTOP_DOCS}"
+            ))
+        }
         "qoder" => {
             return Err(format!(
-                "Qoder custom models must currently be configured through /model; see {QODER_DOCS}"
+                "Qoder IDE custom models must be configured through Settings → Models; see {QODER_DOCS}"
             ))
         }
         "minimax-code" => {
@@ -7304,6 +7357,32 @@ wire_api = "responses"
             .contains("\"openrouter\""));
         assert_eq!(result.files, vec![models_path.display().to_string()]);
         assert!(result.message.contains("without changing the default"));
+    }
+
+    #[test]
+    fn qoder_variants_have_separate_guides_and_never_offer_a_model_writer() {
+        let _home = TestHome::new("qoder-model-guides");
+        let agents = list_agents();
+        for (id, name, docs) in [
+            ("qoder", "Qoder IDE", QODER_DOCS),
+            ("qoder-cli", "Qoder CLI", QODER_CLI_DOCS),
+            ("qoder-desktop", "Qoder Desktop", QODER_DESKTOP_DOCS),
+        ] {
+            let agent = agents.iter().find(|agent| agent.id == id).unwrap();
+            assert_eq!(agent.name, name);
+            assert_eq!(agent.docs, docs);
+            assert_eq!(agent.mode, "guided");
+            assert!(agent.config_paths.is_empty());
+            assert!(agent.credential_capabilities.native_sources.is_empty());
+            assert!(!agent.credential_capabilities.plaintext);
+            assert!(!agent.credential_capabilities.agent_store);
+            for protocol in [ModelProtocol::OpenaiCompletions, ModelProtocol::AnthropicMessages] {
+                assert!(ensure_supported(id, &protocol).is_err());
+            }
+        }
+        let desktop = agents.iter().find(|agent| agent.id == "qoder-desktop").unwrap();
+        assert!(desktop.note.contains("0.1.8"));
+        assert!(desktop.note.contains("Base URL"));
     }
 
     #[test]

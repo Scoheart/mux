@@ -69,7 +69,7 @@ MUX 按物理目录归一化消费关系。某些 Agent 会兼容读取另一个
 | OpenHands CLI | `~/.openhands/skills` | — |
 | Pi Coding Agent | `~/.pi/agent/skills` | `~/.agents/skills` |
 | Poolside | `~/.agents/skills` | — |
-| Qoder Desktop | `~/.qoder/skills` | — |
+| Qoder IDE | `~/.qoder/skills` | — |
 | Qoder CLI | `~/.qoder/skills` | — |
 | QoderWork | `~/.qoderwork/skills` | — |
 | Qwen Code | `~/.qwen/skills` | — |

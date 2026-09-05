@@ -1,0 +1,9 @@
+{
+  "model": "native-default",
+  "permissions": { "defaultMode": "default" },
+  "unknownPreference": { "keep": true },
+  "mcpServers": {
+    "local-tools": { "type": "stdio", "command": "echo", "args": ["fixture"], "timeout": 45 },
+    "docs": { "type": "http", "url": "https://old.example/mcp", "disabled": true, "customPolicy": { "keep": true } }
+  }
+}

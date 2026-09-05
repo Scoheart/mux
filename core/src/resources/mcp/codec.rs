@@ -177,7 +177,7 @@ pub fn for_agent(agent_id: &str) -> Codec {
         "opencode" => Codec::OpenCode,
         "gemini" => Codec::Gemini,
         "windsurf" => Codec::Windsurf,
-        "qoder" | "qoder-cli" => Codec::Qoder,
+        "qoder" | "qoder-cli" | "qoder-desktop" => Codec::Qoder,
         "qoderwork" => Codec::QoderWork,
         "copilot-cli" => Codec::Copilot,
         "cline" => Codec::Cline,

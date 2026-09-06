@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.172](https://github.com/Scoheart/mux/compare/v1.8.171...v1.8.172) (2026-09-06)
+
+### Changes
+
+* feat(models): manage Qoder Desktop native custom providers ([953b806](https://github.com/Scoheart/mux/commit/953b806d8a2a66fb57f5c3b077ab9f9ea87d32b3))
+
 ## [1.8.171](https://github.com/Scoheart/mux/compare/v1.8.170...v1.8.171) (2026-09-06)
 
 ### Changes

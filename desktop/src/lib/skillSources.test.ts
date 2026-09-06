@@ -39,10 +39,13 @@ it("shows only installed Agents with observed readable targets, deduplicating sh
   const base = inventory.items[0];
   const target = (states: SkillInventoryItem["states"], ids: string[]): SkillInventoryItem => ({
     ...base, location: { kind: "agent_target", target_id: "agents-user", global_dir: "~/.agents/skills" },
-    states, affected_agent_ids: ids,
+    states, affected_agent_ids: ids, content_hash: null,
+    consumer_agent_ids: states.some((state) => ["assigned", "external"].includes(state))
+      ? ids.filter((id) => id !== "not-installed") : [],
   });
   inventory.items.push(target(["assigned"], ["codex", "cursor", "not-installed"]));
   inventory.items.push(target(["external"], ["cursor", "claude-code"]));
+  inventory.items.push({ ...target(["external"], ["gemini"]), consumer_agent_ids: [] });
   inventory.items.push(target(["missing"], ["gemini"]));
   inventory.items.push(target(["broken_link"], ["opencode"]));
   inventory.items.push(target(["conflicting_link"], ["copilot-cli"]));

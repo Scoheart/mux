@@ -533,10 +533,29 @@ fn external_list_scan_reads_only_the_bounded_manifest_but_detail_walks_the_tree(
         .find(|item| item.identity == "target:agents-user:external")
         .unwrap();
     assert_eq!(item.description, "Bounded external summary");
+    assert!(item.content_hash.is_none());
+    assert!(item.consumer_agent_ids.contains(&"codex".to_string()));
 
     let error = get_skill_detail(&item.identity).unwrap_err();
     let rendered = serde_json::to_string(&error).unwrap();
     assert!(!rendered.contains(th.home.to_string_lossy().as_ref()));
+}
+
+#[test]
+fn malformed_external_targets_never_claim_consumers() {
+    let th = TestHome::new("inventory-malformed-external-consumers");
+    fs::create_dir_all(th.home.join(".codex")).unwrap();
+    let root = th.home.join(".agents/skills/invalid");
+    fs::create_dir_all(&root).unwrap();
+    fs::write(root.join("SKILL.md"), "No manifest").unwrap();
+    mutate_settings(|settings| {
+        settings.managed_skills.get_or_insert_default()
+            .insert("invalid".into(), managed_record("invalid", "recorded"));
+    }).unwrap();
+    let inventory = list_inventory().unwrap();
+    let item = inventory.items.iter()
+        .find(|item| item.identity == "target:agents-user:invalid").unwrap();
+    assert!(item.consumer_agent_ids.is_empty());
 }
 
 #[test]

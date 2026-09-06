@@ -449,6 +449,8 @@ pub struct SkillInventoryItem {
     pub update: SkillUpdateState,
     pub assigned_target_ids: Vec<String>,
     pub affected_agent_ids: Vec<String>,
+    /// Installed Agents with a readable Skill observed at this physical target.
+    pub consumer_agent_ids: Vec<String>,
     pub installed_at: Option<String>,
     pub updated_at: Option<String>,
 }

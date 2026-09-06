@@ -527,6 +527,7 @@ export interface SkillInventoryItem {
   update: SkillUpdateState;
   assigned_target_ids: string[];
   affected_agent_ids: string[];
+  consumer_agent_ids: string[];
   installed_at: string | null;
   updated_at: string | null;
 }

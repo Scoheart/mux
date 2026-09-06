@@ -659,12 +659,14 @@ fn scan_targets(
                 seen.insert(name.clone());
                 let (states, external_summary) =
                     classify_target_entry(paths, central, root, &name, &entry_name)?;
+                let readable = states.contains(&InventoryState::Assigned)
+                    || external_summary.is_some();
                 let metadata = records
                     .and_then(|records| records.get(&name))
                     .map(metadata_from_record)
                     .or_else(|| metadata_by_name.get(&name).cloned())
                     .unwrap_or_else(|| metadata_from_external(external_summary));
-                let item = make_item(
+                let mut item = make_item(
                     &name,
                     location.clone(),
                     states,
@@ -672,6 +674,12 @@ fn scan_targets(
                     assigned_target_ids(settings, graph, &name),
                     affected.clone(),
                 );
+                if readable {
+                    item.consumer_agent_ids = graph.agents.iter()
+                        .filter(|agent| affected.contains(&agent.id))
+                        .map(|agent| agent.id.clone())
+                        .collect();
+                }
                 budget.push_item(items, item)?;
             }
         }
@@ -1144,6 +1152,7 @@ fn make_item(
         update: metadata.update,
         assigned_target_ids,
         affected_agent_ids,
+        consumer_agent_ids: Vec::new(),
         installed_at: metadata.installed_at,
         updated_at: metadata.updated_at,
     }

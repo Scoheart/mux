@@ -52,6 +52,7 @@ const reviewItem = (): SkillInventoryItem => ({
   },
   assigned_target_ids: ["agents-user"],
   affected_agent_ids: ["codex", "cursor", "gemini"],
+  consumer_agent_ids: [],
   installed_at: "2026-07-16T00:00:00Z",
   updated_at: "2026-07-16T00:00:00Z",
 });
@@ -82,6 +83,7 @@ const unassignedItem = (): SkillInventoryItem => ({
   },
   assigned_target_ids: [],
   affected_agent_ids: [],
+  consumer_agent_ids: [],
   installed_at: "2026-07-16T00:00:00Z",
   updated_at: "2026-07-16T00:00:00Z",
 });

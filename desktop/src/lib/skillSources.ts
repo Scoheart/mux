@@ -52,14 +52,10 @@ export function groupSkillSources(items: SkillInventoryItem[]): SkillSourceGroup
 /** Observed readable targets, not central desired assignments or missing links. */
 export function skillConsumerAgents(inventory: SkillsInventory | null): Map<string, string[]> {
   const result = new Map<string, Set<string>>();
-  const installed = new Set(inventory?.agents.map((agent) => agent.id));
   for (const item of inventory?.items ?? []) {
-    if (item.location.kind !== "agent_target") continue;
-    if (item.states.some((state) => ["missing", "broken_link", "conflicting_link"].includes(state))) continue;
-    if (!item.states.includes("assigned")
-      && !(item.states.includes("external") && item.content_hash !== null)) continue;
+    if (!item.consumer_agent_ids.length) continue;
     const agents = result.get(item.name) ?? new Set<string>();
-    for (const id of item.affected_agent_ids) if (installed.has(id)) agents.add(id);
+    for (const id of item.consumer_agent_ids) agents.add(id);
     result.set(item.name, agents);
   }
   return new Map([...result].map(([name, ids]) => [name, [...ids].sort()]));

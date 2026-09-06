@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.171](https://github.com/Scoheart/mux/compare/v1.8.170...v1.8.171) (2026-09-06)
+
+### Changes
+
+* test(qoder): align badge expectations with distinct Desktop logo ([55ec081](https://github.com/Scoheart/mux/commit/55ec0815629ae63603b7e3b934fd70c439703d1c))
+
 ## [1.8.170](https://github.com/Scoheart/mux/compare/v1.8.169...v1.8.170) (2026-09-06)
 
 ### Changes

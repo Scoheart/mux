@@ -28,6 +28,6 @@
 
 ## 兼容性
 
-启动 migration 会移动旧目录和旧 metadata；旧 `~/.mux/skills` 变为指向新正文
-目录的兼容软链接，使早期 MUX 创建的 Agent Skill 链接继续有效。Desktop、CLI
-与 TUI 共用同一 Core bootstrap，因此二进制升级后会使用相同的新布局。
+启动 migration 保留 MCP 旧来源目录和 metadata 的迁移。Skills 只使用
+`assets/skills/items`，不读取、迁移旧中央目录，也不创建兼容软链接。
+Agent Skill 链接应直接指向当前中央目录。Desktop、CLI 与 TUI 共用 Core。

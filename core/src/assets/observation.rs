@@ -31,11 +31,6 @@ pub fn observation_watch_targets() -> Vec<ObservationWatchTarget> {
         path: crate::paths::settings_file(),
         recursive: false,
     });
-    targets.insert(ObservationWatchTarget {
-        domain: ObservationDomain::Skill,
-        path: crate::paths::mux_dir().join("skills"),
-        recursive: true,
-    });
     for (domain, path, recursive) in [
         (ObservationDomain::Central, crate::paths::mcp_catalog_file(), false),
         (ObservationDomain::Central, crate::paths::model_catalog_file(), false),

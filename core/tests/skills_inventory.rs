@@ -105,7 +105,7 @@ fn inventory_distinguishes_external_broken_conflicting_and_modified() {
     let th = TestHome::new("inventory-states");
     fs::create_dir_all(th.home.join(".codex")).unwrap();
     install_cursor(&th.home);
-    let central = th.home.join(".mux/skills/managed");
+    let central = th.home.join(".mux/assets/skills/items/managed");
     write_skill(&central, "managed", "Managed fixture");
     let original_hash = hash_tree(&central).unwrap();
     mutate_settings(|settings| {
@@ -154,7 +154,7 @@ fn inventory_distinguishes_external_broken_conflicting_and_modified() {
 #[test]
 fn assigned_target_remains_visible_after_its_agent_probe_disappears() {
     let th = TestHome::new("inventory-orphaned-target");
-    let central = th.home.join(".mux/skills/safe");
+    let central = th.home.join(".mux/assets/skills/items/safe");
     write_skill(&central, "safe", "Managed fixture");
     let hash = hash_tree(&central).unwrap();
     mutate_settings(|settings| {
@@ -331,7 +331,7 @@ fn selection_rejects_duplicates_unknown_ids_and_agents_without_current_evidence(
 #[test]
 fn detail_uses_opaque_identity_and_truncates_skill_md_at_a_utf8_boundary() {
     let th = TestHome::new("inventory-detail-bound");
-    let central = th.home.join(".mux/skills/large");
+    let central = th.home.join(".mux/assets/skills/items/large");
     fs::create_dir_all(&central).unwrap();
     let mut skill_md = "---\nname: large\ndescription: Large fixture\n---\n\n".to_string();
     skill_md.push_str(&"界".repeat(400_000));
@@ -414,7 +414,7 @@ fn missing_installed_target_roots_remain_absent_after_listing() {
 #[test]
 fn invalid_managed_tree_is_visible_but_is_not_marked_managed() {
     let th = TestHome::new("inventory-corrupt-managed-tree");
-    let central = th.home.join(".mux/skills/corrupt");
+    let central = th.home.join(".mux/assets/skills/items/corrupt");
     write_skill(&central, "wrong-name", "Mismatched manifest fixture");
     let hash = hash_tree(&central).unwrap();
     mutate_settings(|settings| {
@@ -439,7 +439,7 @@ fn invalid_managed_tree_is_visible_but_is_not_marked_managed() {
 #[test]
 fn managed_central_link_failures_are_broken_and_never_managed() {
     let th = TestHome::new("inventory-managed-central-links");
-    let central_root = th.home.join(".mux/skills");
+    let central_root = th.home.join(".mux/assets/skills/items");
     fs::create_dir_all(&central_root).unwrap();
     symlink(
         th.home.join("missing/dangling"),
@@ -497,8 +497,8 @@ fn target_self_loop_is_reported_as_broken_instead_of_aborting_inventory() {
 #[test]
 fn inventory_root_errors_do_not_expose_the_private_home() {
     let th = TestHome::new("inventory-private-root-error");
-    fs::create_dir_all(th.home.join(".mux")).unwrap();
-    fs::write(th.home.join(".mux/skills"), "not a directory").unwrap();
+    fs::create_dir_all(th.home.join(".mux/assets/skills")).unwrap();
+    fs::write(th.home.join(".mux/assets/skills/items"), "not a directory").unwrap();
 
     let error = list_inventory().unwrap_err();
     let rendered = serde_json::to_string(&error).unwrap();

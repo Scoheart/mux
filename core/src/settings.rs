@@ -696,7 +696,7 @@ where
     Ok(out)
 }
 
-/// Move central payload directories below `~/.mux/assets` and extract central
+/// Move legacy MCP sources below `~/.mux/assets` and extract central
 /// metadata from the legacy consolidated settings document into one catalog per
 /// asset domain. The operation is idempotent. If a crash leaves both the old
 /// fields and a new catalog, the strict loader accepts them only when they are
@@ -705,7 +705,7 @@ pub fn migrate_asset_layout_if_needed() -> std::io::Result<bool> {
     let path = settings_file();
     let _filesystem_guard = acquire_settings_lock(&path).map_err(Error::other)?;
     let _guard = LOCK.lock().unwrap_or_else(|error| error.into_inner());
-    let moved = crate::paths::migrate_legacy_asset_directories()?;
+    let moved = crate::paths::migrate_legacy_mcp_sources()?;
     let (mut settings, original) = parse_for_update(&path)?;
     let legacy_asset_fields = original
         .settings

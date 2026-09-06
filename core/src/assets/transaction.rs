@@ -5516,7 +5516,7 @@ mod tests {
         let parent = home.home.join(".agents/skills");
         fs::create_dir_all(&parent).unwrap();
         let target = parent.join("reviewed-skill");
-        let central = home.home.join(".mux/skills/reviewed-skill");
+        let central = home.home.join(".mux/assets/skills/items/reviewed-skill");
         let original = PathSnapshot::capture_link(&target).unwrap();
         let paths = vec![target.clone()];
         let tracker = begin_transaction_write_tracking(
@@ -5560,7 +5560,7 @@ mod tests {
         let parent = home.home.join(".agents/skills");
         fs::create_dir_all(&parent).unwrap();
         let target = parent.join("reviewed-skill");
-        let central = home.home.join(".mux/skills/reviewed-skill");
+        let central = home.home.join(".mux/assets/skills/items/reviewed-skill");
         fs::create_dir_all(&central).unwrap();
         let paths = vec![target.clone()];
         let tracker = begin_transaction_write_tracking(

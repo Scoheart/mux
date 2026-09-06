@@ -67,7 +67,7 @@ fn runtime_failure_restores_a_reviewed_real_directory_link() {
 fn runtime_failure_restores_a_relative_managed_link_byte_for_byte() {
     let fixture = TransactionFixture::managed("relative-managed");
     let link = fixture.spec.link_mutations[0].path.clone();
-    let raw_target = std::path::PathBuf::from("../../.mux/skills/relative-managed");
+    let raw_target = std::path::PathBuf::from("../../.mux/assets/skills/items/relative-managed");
     fs::remove_file(&link).unwrap();
     symlink(&raw_target, &link).unwrap();
     assert_eq!(
@@ -92,7 +92,7 @@ fn runtime_failure_restores_a_relative_managed_link_byte_for_byte() {
 fn relative_managed_link_can_be_safely_disabled() {
     let fixture = TransactionFixture::managed("relative-disable");
     let link = fixture.spec.link_mutations[0].path.clone();
-    let raw_target = std::path::PathBuf::from("../../.mux/skills/relative-disable");
+    let raw_target = std::path::PathBuf::from("../../.mux/assets/skills/items/relative-disable");
     fs::remove_file(&link).unwrap();
     symlink(&raw_target, &link).unwrap();
     let mut spec = fixture.update_spec();
@@ -117,7 +117,7 @@ fn relative_managed_link_can_be_safely_disabled() {
 fn changing_only_managed_link_raw_bytes_after_review_is_stale() {
     let fixture = TransactionFixture::managed("relative-stale");
     let link = fixture.spec.link_mutations[0].path.clone();
-    let reviewed_raw = std::path::PathBuf::from("../../.mux/skills/relative-stale");
+    let reviewed_raw = std::path::PathBuf::from("../../.mux/assets/skills/items/relative-stale");
     fs::remove_file(&link).unwrap();
     symlink(&reviewed_raw, &link).unwrap();
     let mut spec = fixture.update_spec();

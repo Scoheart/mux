@@ -152,7 +152,7 @@ mux skill assign review-changes source-explainer --agent codex
 mux skill disable review-changes --agent codex
 ```
 
-Skill relationship 把 `~/.mux/skills/` 中央副本链接到已核验用户级 target。多个 Agent 可能共用同一物理目录，因此计划会列出完整 `affected_agent_ids`。`restore` 只重建可证明安全的受管链接；外部目录、普通文件或异向链接不会被覆盖。`detach` 会保留这些外部内容。
+Skill relationship 把 `~/.mux/assets/skills/items/` 中央副本链接到已核验用户级 target。多个 Agent 可能共用同一物理目录，因此计划会列出完整 `affected_agent_ids`。`restore` 只重建可证明安全的受管链接；外部目录、普通文件或异向链接不会被覆盖。`detach` 会保留这些外部内容。
 
 ## 只读发现
 

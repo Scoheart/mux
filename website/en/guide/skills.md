@@ -6,7 +6,7 @@ The CLI provides `mux skill list/show/status/assign/unassign/enable/disable/conv
 
 ## Add to the central library
 
-Open **Skills** in the top bar and choose **Add Skill**. A GitHub source downloads directly; a local folder or archive imports directly. When a source contains multiple Skills, select only the ones you want. Central intake no longer opens review, risk-evidence, or file-diff screens. It only writes the central copy under `~/.mux/skills/`; it selects no Agent, creates no link, and establishes no consumption relationship.
+Open **Skills** in the top bar and choose **Add Skill**. A GitHub source downloads directly; a local folder or archive imports directly. When a source contains multiple Skills, select only the ones you want. Central intake no longer opens review, risk-evidence, or file-diff screens. It only writes the central copy under `~/.mux/assets/skills/items/`; it selects no Agent, creates no link, and establishes no consumption relationship.
 
 MUX still validates source identity, directory boundaries, archive structure, content hashes, and concurrent changes, then writes through a recoverable atomic transaction. These checks add no interaction step. A same-name central asset is replaced only after choosing the explicit backup-and-continue action.
 
@@ -25,7 +25,7 @@ Private GitHub repositories, GitLab, SSH Git, and remote archive URLs are not su
 After download or import completes, MUX stores the single managed copy of each Skill at:
 
 ```text
-~/.mux/skills/<skill-name>/
+~/.mux/assets/skills/items/<skill-name>/
 ```
 
 When a consumption relationship is established, selected Agent directories contain only managed links to that central copy. Every consumer therefore sees one update, while removing one relationship only removes its link and does not delete the central content.

@@ -1323,7 +1323,7 @@ mod tests {
             "~/.agents//skills",
             "~/.agents/./skills",
             "~/.agents/../skills",
-            "~/.mux/skills",
+            "~/.mux/assets/skills/items",
         ] {
             let agents = BTreeMap::from([(
                 "unsafe".into(),
@@ -1341,7 +1341,7 @@ mod tests {
         let mut unsafe_alias = skills_capability("safe-user", "~/.safe/skills");
         unsafe_alias.aliases.push(AgentSkillsDirectory {
             target_id: "unsafe-alias".into(),
-            global_dir: "~/.mux/skills".into(),
+            global_dir: "~/.mux/assets/skills/items".into(),
         });
         let agents = BTreeMap::from([(
             "unsafe-alias".into(),

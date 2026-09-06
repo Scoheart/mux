@@ -6,7 +6,7 @@ CLI 提供 `mux skill list/show/status/assign/unassign/enable/disable/converge`�
 
 ## 添加到中央资产库
 
-在顶部打开 **Skills**，点击 **添加 Skill**。选择 GitHub 来源后直接下载，选择本地文件夹或压缩包后直接导入；一个来源包含多个 Skill 时，只需勾选需要的项目。中央入库不再展示审核、风险证据或文件差异页面。这个流程只写 `~/.mux/skills/` 中央副本，不选择 Agent、不创建 link，也不建立消费关系。入库完成后，从对应 Agent 页的 Skills 标签单独选择消费者。
+在顶部打开 **Skills**，点击 **添加 Skill**。选择 GitHub 来源后直接下载，选择本地文件夹或压缩包后直接导入；一个来源包含多个 Skill 时，只需勾选需要的项目。中央入库不再展示审核、风险证据或文件差异页面。这个流程只写 `~/.mux/assets/skills/items/` 中央副本，不选择 Agent、不创建 link，也不建立消费关系。入库完成后，从对应 Agent 页的 Skills 标签单独选择消费者。
 
 底层仍会校验来源、目录边界、压缩包结构、内容哈希和并发变化，并通过临时目录与原子事务写入；这些检查不再增加用户操作步骤。同名中央资产不会被静默覆盖，只有用户选择“备份并下载/导入”后才替换。
 
@@ -25,7 +25,7 @@ CLI 提供 `mux skill list/show/status/assign/unassign/enable/disable/converge`�
 下载或导入完成后，MUX 把每个 Skill 的唯一托管副本放在：
 
 ```text
-~/.mux/skills/<skill-name>/
+~/.mux/assets/skills/items/<skill-name>/
 ```
 
 随后建立消费关系时，选中的 Agent 目录中只创建指向中央副本的受管链接。这样一次更新会被所有消费者看到，而解除某个消费关系只移除对应链接，不会删除中央内容。

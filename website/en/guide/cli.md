@@ -152,7 +152,7 @@ mux skill assign review-changes source-explainer --agent codex
 mux skill disable review-changes --agent codex
 ```
 
-A Skill relationship links the central copy under `~/.mux/skills/` into a verified user-level target. Several Agents may share one physical directory, so plans include the complete `affected_agent_ids`. `restore` rebuilds only a provably safe managed link; an external directory, regular file, or foreign symlink is never overwritten. `detach` preserves that external content.
+A Skill relationship links the central copy under `~/.mux/assets/skills/items/` into a verified user-level target. Several Agents may share one physical directory, so plans include the complete `affected_agent_ids`. `restore` rebuilds only a provably safe managed link; an external directory, regular file, or foreign symlink is never overwritten. `detach` preserves that external content.
 
 ## Read-only discovery
 

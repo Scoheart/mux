@@ -59,13 +59,7 @@ impl SkillsPaths {
     }
 
     pub fn skills_dir(&self) -> PathBuf {
-        let current = crate::paths::skill_contents_dir();
-        let legacy = crate::paths::legacy_skills_dir();
-        if !current.exists() && legacy.exists() {
-            legacy
-        } else {
-            current
-        }
+        crate::paths::skill_contents_dir()
     }
 
     pub fn staging_skills_dir(&self) -> PathBuf {
@@ -132,6 +126,27 @@ fn create_private_root(_path: &Path) -> Result<(), SkillError> {
 mod tests {
     use super::*;
     use crate::testenv::TestHome;
+
+    #[test]
+    fn old_skill_root_is_ignored_and_no_alias_is_created() {
+        let th = TestHome::new("skill-canonical-root");
+        let old_root = th.home.join(".mux/skills");
+        std::fs::create_dir_all(&old_root).unwrap();
+        std::fs::write(old_root.join("sentinel"), "untouched").unwrap();
+
+        let paths = SkillsPaths::resolve_from_env().unwrap();
+        assert_eq!(paths.skills_dir(), crate::paths::skill_contents_dir());
+        assert!(!paths.skills_dir().exists());
+        SkillsPaths::from_env().unwrap();
+        assert!(paths.skills_dir().is_dir());
+        assert!(std::fs::symlink_metadata(&old_root).unwrap().is_dir());
+        assert_eq!(std::fs::read_to_string(old_root.join("sentinel")).unwrap(), "untouched");
+
+        std::fs::remove_file(old_root.join("sentinel")).unwrap();
+        std::fs::remove_dir(&old_root).unwrap();
+        crate::settings::migrate_asset_layout_if_needed().unwrap();
+        assert!(std::fs::symlink_metadata(&old_root).is_err());
+    }
 
     #[test]
     fn user_expansion_rejects_paths_that_escape_the_user_home() {

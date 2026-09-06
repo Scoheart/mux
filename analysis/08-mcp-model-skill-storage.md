@@ -23,13 +23,12 @@
 │   └── skills/
 │       ├── catalog.json       # Skill 来源、hash、risk 等 metadata
 │       └── items/<name>/      # Skill 唯一中央正文
-├── skills -> assets/skills/items
 ├── staging/                   # 审阅计划与事务暂存
 ├── backups/                   # 可恢复备份
 └── journals/                  # 崩溃恢复 journal
 ```
 
-`~/.mux/skills` 是旧版本 Agent 链接的兼容别名，不是第二份正文。
+Skills 只读取 `assets/skills/items`，不保留旧中央目录回退、迁移或兼容链接。
 
 ## 数据归属
 
@@ -44,7 +43,7 @@
 ## 迁移与一致性
 
 启动顺序先完成既有 Model schema migration，再执行资产目录迁移和 MCP
-registry migration。旧 `~/.mux/sources` 与 `~/.mux/skills` 会幂等迁移；旧字段与
+registry migration。旧 MCP `~/.mux/sources` 会幂等迁移；Skills 只使用当前目录。旧字段与
 新 catalog 同时存在时只有语义一致才允许继续，否则 fail closed。中央 catalog
 与 `settings.json` 使用 CAS 写入和逆序回滚，并纳入跨域资产事务快照。
 

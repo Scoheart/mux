@@ -65,10 +65,6 @@ pub(crate) fn legacy_sources_dir() -> PathBuf {
     mux_dir().join("sources")
 }
 
-pub(crate) fn legacy_skills_dir() -> PathBuf {
-    mux_dir().join("skills")
-}
-
 /// MCP source payload root. Before the startup migration completes, readers
 /// transparently resolve the legacy `~/.mux/sources` location so recovery and
 /// upgrades never observe an empty catalog merely because the binary changed.
@@ -127,67 +123,10 @@ fn migrate_directory(legacy: &std::path::Path, current: &std::path::Path) -> std
     }
 }
 
-#[cfg(unix)]
-fn create_directory_alias(
-    target: &std::path::Path,
-    alias: &std::path::Path,
-) -> std::io::Result<()> {
-    std::os::unix::fs::symlink(target, alias)
-}
-
-#[cfg(windows)]
-fn create_directory_alias(
-    target: &std::path::Path,
-    alias: &std::path::Path,
-) -> std::io::Result<()> {
-    std::os::windows::fs::symlink_dir(target, alias)
-}
-
-/// Atomically move legacy central asset directories under `~/.mux/assets`.
-/// The settings lock must be held by the caller. A simultaneous legacy and new
-/// directory is ambiguous and therefore fails closed instead of merging trees.
-/// The old Skill root becomes a compatibility symlink so links created by an
-/// earlier MUX release keep resolving to the one physical central copy.
-pub(crate) fn migrate_legacy_asset_directories() -> std::io::Result<bool> {
-    let mut changed = migrate_directory(&legacy_sources_dir(), &mcp_sources_dir())?;
-
-    let legacy = legacy_skills_dir();
-    let current = skill_contents_dir();
-    match std::fs::symlink_metadata(&legacy) {
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            if !current.exists() {
-                return Ok(changed);
-            }
-        }
-        Err(error) => return Err(error),
-        Ok(metadata) if metadata.file_type().is_dir() => {
-            migrate_directory(&legacy, &current)?;
-        }
-        Ok(metadata) if metadata.file_type().is_symlink() => {
-            let resolved = std::fs::canonicalize(&legacy)?;
-            let expected = std::fs::canonicalize(&current)?;
-            if resolved != expected {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::AlreadyExists,
-                    format!(
-                        "legacy Skill alias {} does not resolve to {}",
-                        legacy.display(),
-                        current.display()
-                    ),
-                ));
-            }
-            return Ok(changed);
-        }
-        Ok(_) => {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::AlreadyExists,
-                format!("legacy Skill path {} is not a directory", legacy.display()),
-            ));
-        }
-    }
-    create_directory_alias(&current, &legacy)?;
-    changed = true;
-    Ok(changed)
+/// Move the legacy MCP source directory under `~/.mux/assets`.
+/// The settings lock must be held by the caller.
+pub(crate) fn migrate_legacy_mcp_sources() -> std::io::Result<bool> {
+    migrate_directory(&legacy_sources_dir(), &mcp_sources_dir())
 }
 
 /// Filename-safe local timestamp (`%Y-%m-%dT%H-%M-%S`) used for backup artifacts.

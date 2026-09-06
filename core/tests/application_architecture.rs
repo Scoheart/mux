@@ -83,7 +83,8 @@ fn workspace_snapshot_is_read_only() {
     let snapshot = MuxCore::snapshot().unwrap();
     assert_eq!(snapshot.revision.len(), 64);
     assert!(!home.home.join(".mux/settings.json").exists());
-    assert!(!home.home.join(".mux/skills").exists());
+    assert!(!home.home.join(".mux/assets/skills/items").exists());
+    assert!(std::fs::symlink_metadata(home.home.join(".mux/skills")).is_err());
 }
 
 #[test]

@@ -2484,7 +2484,7 @@ fn managed_skill_is_available(settings: &Settings, name: &str) -> bool {
     {
         return false;
     }
-    fs::symlink_metadata(mux_dir().join("skills").join(name))
+    fs::symlink_metadata(crate::paths::skill_contents_dir().join(name))
         .is_ok_and(|metadata| metadata.is_dir() && !metadata.file_type().is_symlink())
 }
 

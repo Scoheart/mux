@@ -434,7 +434,8 @@ fn unavailable_skill_inventory_does_not_hide_or_block_mcp() {
     write_manual_entry(&mcp("isolated-server")).unwrap();
     let outside = home.home.join("external-skills-root");
     fs::create_dir_all(&outside).unwrap();
-    symlink(&outside, home.home.join(".mux/skills")).unwrap();
+    fs::create_dir_all(home.home.join(".mux/assets/skills")).unwrap();
+    symlink(&outside, home.home.join(".mux/assets/skills/items")).unwrap();
 
     let inventory = commit(
         MuxCore::plan(PlanOperationRequest::SetAgentConsumption(

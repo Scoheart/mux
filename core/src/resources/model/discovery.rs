@@ -11,6 +11,7 @@ use zeroize::Zeroizing;
 const MAX_RESPONSE_BYTES: u64 = 4 * 1024 * 1024;
 const MAX_MODELS: usize = 2_000;
 const MAX_PAGES: usize = 10;
+const CLOUDFLARE_PAGE_SIZE: usize = 200;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ProviderModelSummary {
@@ -26,6 +27,9 @@ enum DiscoveryAdapter {
     Gemini,
     Cohere,
     Fireworks,
+    Cloudflare,
+    DeepInfra,
+    Vercel,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -46,8 +50,17 @@ struct DecodedPage {
     next_token: Option<String>,
 }
 
-pub(super) fn model_discovery_supported(_provider_type: &str) -> bool {
-    true
+pub(super) fn model_discovery_supported(provider_type: &str) -> bool {
+    // Chat API compatibility does not imply a Models API. Azure model names
+    // are deployment aliases, not entries in the public model catalog.
+    !matches!(provider_type,
+        "github-models" | "azure-openai" | "perplexity" | "volcengine" | "volcengine-coding-plan"
+        | "baidu-qianfan" | "baidu-qianfan-coding-plan" | "zhipuai"
+        | "stepfun" | "stepfun-global")
+}
+
+pub(super) fn provider_model_discovery_supported(provider: &ModelProviderConfig) -> bool {
+    provider.model_catalog_url.is_some() || model_discovery_supported(&provider.provider)
 }
 
 /// Capture central inputs while the application read gate is held. External
@@ -101,13 +114,28 @@ pub(crate) fn execute_provider_discovery(input: ModelDiscoveryInput) -> Result<V
             return Err("model_discovery_timeout: model catalog deadline exceeded".into());
         }
         let agent = discovery_agent_with_timeout(remaining.min(Duration::from_secs(15)))?;
-        let page = fetch_page(
+        let mut page = fetch_page(
             &agent,
             &url,
             spec.adapter,
             credential.as_ref().map(|value| value.as_str()),
         )?;
+        // The Workers AI marketplace endpoint has page/per_page parameters,
+        // but no documented continuation envelope. A full page requires the
+        // next page; repeated pages fail closed instead of returning a partial
+        // catalog when a proxy ignores pagination.
+        if spec.adapter == DiscoveryAdapter::Cloudflare
+            && page.models.len() == CLOUDFLARE_PAGE_SIZE
+        {
+            page.next_token = Some((page_index + 2).to_string());
+        }
+        let prior_count = models.len();
         merge_models(&mut models, page.models)?;
+        if spec.adapter == DiscoveryAdapter::Cloudflare
+            && page.next_token.is_some() && models.len() == prior_count
+        {
+            return Err("model_discovery_invalid_response: Provider catalog pagination did not advance".into());
+        }
         let Some(next_token) = page.next_token else {
             return Ok(models);
         };
@@ -130,6 +158,13 @@ fn reviewed_discovery_spec(provider_type: &str) -> Option<DiscoverySpec> {
         | "deepseek"
         | "groq"
         | "alibaba"
+        | "alibaba-international"
+        | "amazon-bedrock-mantle"
+        | "sambanova"
+        | "minimax"
+        | "minimax-cn"
+        | "moonshotai-cn"
+        | "siliconflow-cn"
         | "alibaba-coding-plan-cn"
         | "alibaba-coding-plan"
         | "alibaba-token-plan-cn"
@@ -171,6 +206,9 @@ fn reviewed_discovery_spec(provider_type: &str) -> Option<DiscoverySpec> {
         "google" => DiscoveryAdapter::Gemini,
         "cohere" => DiscoveryAdapter::Cohere,
         "fireworks" => DiscoveryAdapter::Fireworks,
+        "cloudflare-workers-ai" => DiscoveryAdapter::Cloudflare,
+        "deepinfra" => DiscoveryAdapter::DeepInfra,
+        "vercel-ai-gateway" => DiscoveryAdapter::Vercel,
         _ => return None,
     };
     let credential = if matches!(
@@ -200,6 +238,12 @@ fn reviewed_discovery_spec(provider_type: &str) -> Option<DiscoverySpec> {
 fn discovery_spec_for_provider(
     provider: &ModelProviderConfig,
 ) -> Result<DiscoverySpec, String> {
+    if !provider_model_discovery_supported(provider) {
+        return Err("model_discovery_unsupported: Enter the model or deployment name manually, or configure a Models list URL".into());
+    }
+    if provider.provider == "cloudflare-workers-ai" && provider.model_catalog_url.is_some() {
+        return Ok(DiscoverySpec { adapter: DiscoveryAdapter::OpenAi, credential: CredentialPolicy::Required });
+    }
     if let Some(spec) = reviewed_discovery_spec(&provider.provider) {
         return Ok(spec);
     }
@@ -240,7 +284,7 @@ fn discovery_url(provider: &ModelProviderConfig, adapter: DiscoveryAdapter) -> R
         });
     }
     match adapter {
-        DiscoveryAdapter::OpenAi => [
+        DiscoveryAdapter::OpenAi | DiscoveryAdapter::Vercel | DiscoveryAdapter::DeepInfra => [
             ModelProtocol::OpenaiResponses,
             ModelProtocol::OpenaiCompletions,
         ]
@@ -253,6 +297,12 @@ fn discovery_url(provider: &ModelProviderConfig, adapter: DiscoveryAdapter) -> R
         })
         .unwrap_or_else(|| {
             Err("model_discovery_endpoint_invalid: Provider has no reviewed OpenAI endpoint".into())
+        })
+        .map(|mut url| {
+            if provider.provider == "siliconflow-cn" {
+                url.query_pairs_mut().append_pair("sub_type", "chat");
+            }
+            url
         }),
         DiscoveryAdapter::Anthropic => {
             let mut url =
@@ -272,6 +322,20 @@ fn discovery_url(provider: &ModelProviderConfig, adapter: DiscoveryAdapter) -> R
             url.query_pairs_mut()
                 .append_pair("filter", "supports_serverless=true")
                 .append_pair("pageSize", "200");
+            Ok(url)
+        }
+        DiscoveryAdapter::Cloudflare => {
+            let mut url = derived_protocol_url(provider, ModelProtocol::OpenaiCompletions, "/models")?;
+            let path = url.path().strip_suffix("/ai/v1/models").ok_or_else(|| {
+                "model_discovery_endpoint_invalid: Workers AI requires an account endpoint ending in /ai/v1".to_owned()
+            })?;
+            let catalog_path = format!("{path}/ai/models/search");
+            url.set_path(&catalog_path);
+            url.query_pairs_mut()
+                .append_pair("format", "openrouter")
+                .append_pair("task", "Text Generation")
+                .append_pair("per_page", &CLOUDFLARE_PAGE_SIZE.to_string())
+                .append_pair("page", "1");
             Ok(url)
         }
     }
@@ -323,7 +387,7 @@ fn decode_page(adapter: DiscoveryAdapter, value: Value) -> Result<DecodedPage, S
         _ => None,
     };
     let entries = match adapter {
-        DiscoveryAdapter::OpenAi => {
+        DiscoveryAdapter::OpenAi | DiscoveryAdapter::Vercel | DiscoveryAdapter::DeepInfra | DiscoveryAdapter::Cloudflare => {
             if let Some(entries) = value.as_array() {
                 entries
             } else {
@@ -348,8 +412,15 @@ fn decode_page(adapter: DiscoveryAdapter, value: Value) -> Result<DecodedPage, S
             })?,
     };
 
-    let models = entries
+    let models: Vec<_> = entries
         .iter()
+        .filter(|entry| adapter != DiscoveryAdapter::Vercel
+            || entry.get("type").and_then(Value::as_str).is_none_or(|kind| kind == "language"))
+        .filter(|entry| {
+            adapter != DiscoveryAdapter::DeepInfra
+                || entry.pointer("/metadata/tags").and_then(Value::as_array)
+                    .is_none_or(|tags| tags.iter().any(|tag| tag.as_str() == Some("chat")))
+        })
         .filter(|entry| {
             adapter != DiscoveryAdapter::Gemini
                 || entry
@@ -363,12 +434,18 @@ fn decode_page(adapter: DiscoveryAdapter, value: Value) -> Result<DecodedPage, S
         })
         .filter_map(|entry| model_summary(adapter, entry))
         .collect();
+    // A malformed Cloudflare ID must not make a full page appear to be the
+    // final short page. This adapter requests the documented marketplace shape.
+    if adapter == DiscoveryAdapter::Cloudflare && models.len() != entries.len() {
+        return Err("model_discovery_invalid_response: Workers AI returned an invalid marketplace model ID".into());
+    }
     Ok(DecodedPage { models, next_token })
 }
 
 fn model_summary(adapter: DiscoveryAdapter, value: &Value) -> Option<ProviderModelSummary> {
     let id = match adapter {
-        DiscoveryAdapter::OpenAi | DiscoveryAdapter::Anthropic => string_field(value, &["id"]),
+        DiscoveryAdapter::OpenAi | DiscoveryAdapter::Anthropic
+        | DiscoveryAdapter::Cloudflare | DiscoveryAdapter::Vercel | DiscoveryAdapter::DeepInfra => string_field(value, &["id"]),
         DiscoveryAdapter::Gemini => string_field(value, &["baseModelId"]).or_else(|| {
             string_field(value, &["name"]).map(|name| {
                 name.strip_prefix("models/")
@@ -390,7 +467,9 @@ fn model_summary(adapter: DiscoveryAdapter, value: &Value) -> Option<ProviderMod
             "inputTokenLimit",
             "contextLength",
         ],
-    );
+    ).or_else(|| (adapter == DiscoveryAdapter::DeepInfra)
+        .then(|| value.get("metadata").and_then(|metadata| integer_field(metadata, &["context_length"])))
+        .flatten());
     Some(ProviderModelSummary {
         id,
         name,
@@ -520,6 +599,7 @@ fn fetch_page(
     let authorization = matches!(
         adapter,
         DiscoveryAdapter::OpenAi | DiscoveryAdapter::Cohere | DiscoveryAdapter::Fireworks
+        | DiscoveryAdapter::Cloudflare | DiscoveryAdapter::Vercel | DiscoveryAdapter::DeepInfra
     )
     .then(|| credential.map(|credential| Zeroizing::new(format!("Bearer {credential}"))))
     .flatten();
@@ -561,7 +641,8 @@ fn next_page_url(mut url: Url, adapter: DiscoveryAdapter, token: &str) -> Result
         DiscoveryAdapter::Anthropic => "after_id",
         DiscoveryAdapter::Gemini | DiscoveryAdapter::Fireworks => "pageToken",
         DiscoveryAdapter::Cohere => "page_token",
-        DiscoveryAdapter::OpenAi => {
+        DiscoveryAdapter::Cloudflare => "page",
+        DiscoveryAdapter::OpenAi | DiscoveryAdapter::Vercel | DiscoveryAdapter::DeepInfra => {
             return Err(
                 "model_discovery_invalid_response: OpenAI-compatible catalog returned an unsupported continuation token"
                     .into(),
@@ -592,6 +673,87 @@ mod tests {
     use std::net::TcpListener;
     use std::sync::mpsc;
     use std::thread;
+
+    #[test]
+    fn workers_ai_uses_account_catalog_marketplace_ids_and_bearer_auth() {
+        let _home = TestHome::new("cloudflare-model-catalog");
+        let mut config = provider("cloudflare-workers-ai", "https://api.cloudflare.com/client/v4/accounts/tenant/ai/v1",
+            ModelProtocol::OpenaiCompletions, "/chat/completions");
+        let spec = discovery_spec_for_provider(&config).unwrap();
+        assert_eq!(spec.adapter, DiscoveryAdapter::Cloudflare);
+        let url = discovery_url(&config, spec.adapter).unwrap();
+        assert_eq!(url.path(), "/client/v4/accounts/tenant/ai/models/search");
+        let query: BTreeMap<_, _> = url.query_pairs().into_owned().collect();
+        assert_eq!(query["format"], "openrouter");
+        assert_eq!(query["task"], "Text Generation");
+        let next = next_page_url(url.clone(), spec.adapter, "2").unwrap();
+        assert_eq!(next.host_str(), url.host_str());
+        assert_eq!(next.query_pairs().filter(|(key, _)| key == "page").count(), 1);
+        assert!(next.query_pairs().any(|(key, value)| key == "page" && value == "2"));
+
+        let (local, request, server) = serve_once("200 OK", &[],
+            r#"{"data":[{"id":"@cf/vendor/model","name":"Model","context_length":32768}]}"#);
+        let page = fetch_page(&discovery_agent().unwrap(), &local, spec.adapter, Some("fixture-token")).unwrap();
+        assert_eq!(page.models[0].id, "@cf/vendor/model");
+        assert_eq!(page.models[0].context_length, Some(32768));
+        assert!(request.recv().unwrap().to_lowercase().contains("authorization: bearer fixture-token"));
+        server.join().unwrap();
+        assert!(decode_page(spec.adapter, serde_json::json!({"data":[{"name":"no-id"}]})).is_err());
+        assert!(decode_page(spec.adapter, serde_json::json!({"success":false,"errors":[]})).is_err());
+
+        config.model_catalog_url = Some("https://proxy.example.test/catalog".into());
+        let overridden = discovery_spec_for_provider(&config).unwrap();
+        assert_eq!(overridden.adapter, DiscoveryAdapter::OpenAi);
+        assert_eq!(discovery_url(&config, overridden.adapter).unwrap().as_str(), "https://proxy.example.test/catalog");
+    }
+
+    #[test]
+    fn deepinfra_reads_nested_context_and_omits_non_chat_models() {
+        let page = decode_page(DiscoveryAdapter::DeepInfra, serde_json::json!({"data":[
+            {"id":"vendor/chat","metadata":{"context_length":131072,"tags":["chat","reasoning"]}},
+            {"id":"vendor/image","metadata":{"tags":["text-to-image"]}}
+        ]})).unwrap();
+        assert_eq!(page.models.len(), 1);
+        assert_eq!(page.models[0].id, "vendor/chat");
+        assert_eq!(page.models[0].context_length, Some(131072));
+    }
+
+    #[test]
+    fn vercel_catalog_excludes_non_language_models_and_keeps_context() {
+        let page = decode_page(DiscoveryAdapter::Vercel, serde_json::json!({"data":[
+            {"id":"vendor/chat","type":"language","context_window":200000},
+            {"id":"vendor/video","type":"video"},
+            {"id":"vendor/embed","type":"embedding"},
+            {"id":"vendor/speech","type":"speech"}
+        ]})).unwrap();
+        assert_eq!(page.models.len(), 1);
+        assert_eq!(page.models[0].id, "vendor/chat");
+        assert_eq!(page.models[0].context_length, Some(200000));
+    }
+
+    #[test]
+    fn siliconflow_china_requests_chat_catalog_without_changing_explicit_urls() {
+        let mut config = provider("siliconflow-cn", "https://api.siliconflow.cn/v1",
+            ModelProtocol::OpenaiCompletions, "/chat/completions");
+        let url = discovery_url(&config, DiscoveryAdapter::OpenAi).unwrap();
+        assert_eq!(url.as_str(), "https://api.siliconflow.cn/v1/models?sub_type=chat");
+        config.model_catalog_url = Some("https://catalog.example.test/models?scope=personal".into());
+        assert_eq!(discovery_url(&config, DiscoveryAdapter::OpenAi).unwrap().as_str(),
+            "https://catalog.example.test/models?scope=personal");
+    }
+
+    #[test]
+    fn manual_catalogs_require_an_explicit_override_before_discovery() {
+        for id in ["azure-openai", "perplexity", "baidu-qianfan-coding-plan"] {
+            let mut config = provider(id, "https://tenant.example.test/openai/v1",
+                ModelProtocol::OpenaiResponses, "/responses");
+            assert!(discovery_spec_for_provider(&config).unwrap_err().contains("model_discovery_unsupported"));
+            config.model_catalog_url = Some("https://tenant.example.test/deployment-models".into());
+            assert!(provider_model_discovery_supported(&config));
+            let spec = discovery_spec_for_provider(&config).unwrap();
+            assert_eq!(discovery_url(&config, spec.adapter).unwrap().path(), "/deployment-models");
+        }
+    }
 
     const EXPECTED_OPENAI_COMPATIBLE: &[&str] = &[
         "openrouter",
@@ -714,11 +876,11 @@ mod tests {
     }
 
     #[test]
-    fn allows_every_builtin_and_custom_provider_to_attempt_model_discovery() {
-        assert!(super::super::MODEL_PROVIDERS
-            .iter()
-            .all(|provider| model_discovery_supported(provider.id)));
-        for provider_type in ["github-models", "wandb", "custom", "private-gateway"] {
+    fn distinguishes_manual_catalogs_from_compatible_custom_providers() {
+        for id in ["github-models", "azure-openai", "perplexity", "volcengine-coding-plan", "baidu-qianfan"] {
+            assert!(!model_discovery_supported(id), "{id}");
+        }
+        for provider_type in ["wandb", "custom", "private-gateway", "deepinfra", "amazon-bedrock-mantle"] {
             assert!(model_discovery_supported(provider_type), "{provider_type}");
         }
     }

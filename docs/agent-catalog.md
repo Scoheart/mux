@@ -6,10 +6,10 @@ MUX deliberately separates client discovery from writable configuration support.
 
 | File | Purpose | Current size |
 |---|---|---:|
-| `data/agents.json` | Deep-audited definitions with product-specific MCP and/or Skills capabilities and evidence | 56 |
+| `data/agents.json` | Deep-audited definitions with product-specific MCP and/or Skills capabilities and evidence | 61 |
 | `data/agent-catalog.json` | Discovery-only client records; unknown paths and formats always fail closed | 201 |
 
-There are 46 overlapping IDs. Audited definitions override directory records, producing 211 distinct retained Agent identities. Of the 56 audited definitions, 46 expose a writable user-level MCP target, nine are Skills-only targets, and Devin remains explicitly read-only. Catalog-only records remain available to the core for future promotion but never gain a writer by inference.
+There are 46 overlapping IDs. Audited definitions override directory records, producing 216 distinct retained Agent identities. Of the 61 audited definitions, 50 expose a writable user-level MCP target, ten are Skills-only targets, and Devin remains explicitly read-only. Catalog-only records remain available to the core for future promotion but never gain a writer by inference.
 
 ## Discovery sources
 
@@ -50,7 +50,7 @@ Skills support is audited separately from MCP configuration. Only definitions fr
 | `verified_at` | Date the Skills-specific evidence was last checked. |
 | `probes` | Read-only command, path, or macOS bundle checks that indicate the Agent is installed. Probe paths are evidence only and may be absolute application paths. |
 
-All preferred directories and aliases are validated before the built-in catalog is returned. The same `target_id` must always name the same path, and a physical path cannot be assigned contradictory target IDs. The current audited data declares 45 Skills-capable Agents; missing definitions, evidence outside the reviewed `official` / `official-source` levels, blank documentation or verification dates, and empty probe lists reject the built-in catalog. Shared directories such as `~/.agents/skills` are never treated as installation evidence by themselves.
+All preferred directories and aliases are validated before the built-in catalog is returned. The same `target_id` must always name the same path, and a physical path cannot be assigned contradictory target IDs. The current audited data declares 46 Skills-capable Agents; missing definitions, evidence outside the reviewed `official` / `official-source` levels, blank documentation or verification dates, and empty probe lists reject the built-in catalog. Shared directories such as `~/.agents/skills` are never treated as installation evidence by themselves.
 
 ## Evidence levels
 
@@ -61,7 +61,7 @@ All preferred directories and aliases are validated before the built-in catalog 
 | `community-extension` | MCP support belongs to a named third-party extension, not the core product. |
 | `catalog` | Public discovery only; never writable. |
 
-Every audited definition records a verification date and evidence URL; MCP-capable definitions additionally record transports, codec, and layout. The current set was rechecked through 2026-07-22; Grok Build was verified against its newly published official source and MiniMax Code against its signed `3.0.51` application bundle.
+Every audited definition records a verification date and evidence URL; MCP-capable definitions additionally record transports, codec, and layout. The latest CLI and OpenClaw additions were verified on 2026-09-07; existing records retain their individual evidence dates. Grok Build was verified against its newly published official source and MiniMax Code against its signed `3.0.51` application bundle.
 
 ## Fail-closed rules
 
@@ -80,3 +80,12 @@ bash desktop/scripts/prepare-sidecar.sh
 cargo test --manifest-path desktop/src-tauri/Cargo.toml --locked
 cd desktop && npm run build
 ```
+
+## September 2026 additions
+
+- Antigravity CLI shares `~/.gemini/config/mcp_config.json` with the IDE, with `serverUrl` for remote MCP. Its flat Markdown slash-command Skills are not advertised as directory-based Skills.
+- Continue CLI (`cn`) shares `~/.continue/config.yaml` and the reviewed list codec with Continue IDE. Explicit `--config` selections require a user path override.
+- TRAE CLI 2.0 uses `~/.trae/traecli.toml`, `mcp_servers`, and reviewed stdio entries. MUX does not fall back to the old YAML format or infer remote transport fields.
+- OpenClaw exposes the verified `~/.openclaw/skills` directory and command/config installation probes. Its JSON5 MCP/Models configuration is not writable until `$include` and SecretRef ownership are handled.
+
+Full source-linked market review: [Agent and Provider coverage](agent-provider-research-2026-09-07.md).

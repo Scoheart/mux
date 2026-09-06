@@ -1,0 +1,11 @@
+# TRAE CLI 2.0 default profile, not the retired YAML shape.
+model = "default"
+approval_policy = "on-request"
+default_permissions = "workspace"
+
+[mcp_servers.docs]
+command = "node"
+args = ["docs-server.mjs"]
+
+[projects."/work/review"]
+trust_level = "trusted"

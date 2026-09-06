@@ -262,3 +262,5 @@ node scripts/update-agent-catalog.mjs # refresh the public client discovery cata
 ## License
 
 [MIT](LICENSE) © Scoheart
+
+Agent and Provider coverage, supported endpoints, and remaining integration gaps: [September 2026 review](docs/agent-provider-research-2026-09-07.md).

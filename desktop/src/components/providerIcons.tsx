@@ -1,6 +1,6 @@
 import minimaxIconUrl from "../assets/agents/minimax-code.png";
 
-const providerIconModules = import.meta.glob("../assets/providers/*.{png,svg,webp}", {
+const providerIconModules = import.meta.glob("../assets/providers/*.{png,svg,webp,ico}", {
   eager: true,
   query: "?url",
   import: "default",
@@ -11,6 +11,14 @@ const EXTRA_PROVIDER_LOGOS: Record<string, string> = {
 };
 
 const PROVIDER_ICON_ALIASES: Record<string, string> = {
+  "minimax-cn": "minimax",
+  "stepfun-global": "stepfun",
+  "zhipuai": "zai",
+  "moonshotai-cn": "moonshotai",
+  "alibaba-international": "alibaba",
+  "siliconflow-cn": "siliconflow",
+  "volcengine-coding-plan": "volcengine",
+  "baidu-qianfan-coding-plan": "baidu-qianfan",
   "alibaba-coding-plan-cn": "alibaba",
   "alibaba-coding-plan": "alibaba",
   "alibaba-token-plan-cn": "alibaba",
@@ -38,6 +46,16 @@ const PROVIDER_LOGOS = Object.fromEntries(
 ) as Record<string, string>;
 
 export const NAMED_PROVIDER_ICON_IDS = [
+  "azure-openai",
+  "amazon-bedrock-mantle",
+  "cloudflare-workers-ai",
+  "deepinfra",
+  "sambanova",
+  "vercel-ai-gateway",
+  "stepfun",
+  "perplexity",
+  "volcengine",
+  "baidu-qianfan",
   "openrouter",
   "anthropic",
   "openai",

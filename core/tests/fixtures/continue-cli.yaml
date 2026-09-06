@@ -1,0 +1,12 @@
+# Continue CLI and IDE share this user configuration.
+name: My Continue Config
+version: 1.2.3
+schema: v1
+models: []
+mcpServers:
+  - name: docs
+    type: streamable-http
+    url: https://docs.example.test/mcp
+    connectionTimeout: 9000
+rules:
+  - Keep my review rules

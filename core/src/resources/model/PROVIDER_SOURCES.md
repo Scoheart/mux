@@ -18,7 +18,7 @@ its API key and endpoint must not be mixed with the vendor's pay-as-you-go API.
 | `xiaomi-token-plan-ams` | `https://token-plan-ams.xiaomimimo.com/v1` | `https://token-plan-ams.xiaomimimo.com/anthropic` | <https://mimo.mi.com/docs/zh-CN/price/tokenplan/quick-access> |
 | `kimi-for-coding` | `https://api.kimi.com/coding/v1` | `https://api.kimi.com/coding` | <https://www.kimi.com/code/docs/en/> |
 | `minimax-coding-plan` | `https://api.minimax.io/v1` | `https://api.minimax.io/anthropic` | <https://platform.minimax.io/docs/token-plan/quickstart> |
-| `minimax-cn-coding-plan` | `https://api.minimaxi.com/v1` | `https://api.minimaxi.com/anthropic` | <https://platform.minimaxi.com/docs/token-plan/quickstart> |
+| `minimax-cn-coding-plan` | `https://api.minimax.cn/v1` | `https://api.minimax.cn/anthropic` | <https://platform.minimaxi.com/docs/token-plan/quickstart> |
 | `stepfun-step-plan` | `https://api.stepfun.com/step_plan/v1` | `https://api.stepfun.com/step_plan` | <https://platform.stepfun.com/docs/zh/step-plan/quick-start> |
 | `stepfun-ai-step-plan` | `https://api.stepfun.ai/step_plan/v1` | `https://api.stepfun.ai/step_plan` | <https://platform.stepfun.ai/docs/en/step-plan/quick-start> |
 | `tencent-coding-plan` | `https://api.lkeap.cloud.tencent.com/coding/v3` | `https://api.lkeap.cloud.tencent.com/coding/anthropic` | <https://cloud.tencent.com/document/product/1823/130092> |
@@ -28,3 +28,7 @@ its API key and endpoint must not be mixed with the vendor's pay-as-you-go API.
 Many plan products are restricted to interactive coding tools and supported
 agents. MUX only stores the user-selected connection and credentials locally;
 users remain responsible for the vendor's plan eligibility and usage policy.
+
+The China MiniMax template endpoints were reverified on 2026-09-07 against the current official Token Plan and OpenAI/Anthropic SDK guides (`api.minimax.cn`). Existing saved connections are not rewritten.
+
+The September 2026 expansion adds 19 templates and removes the retired GitHub Models new-connection template. See the [full endpoint/source matrix](../../../../docs/agent-provider-research-2026-09-07.md). Shared MiniMax PAYG/plan addresses do not identify billing mode; explicit plan selections are preserved.

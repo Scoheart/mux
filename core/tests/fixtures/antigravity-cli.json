@@ -1,0 +1,13 @@
+{
+  // CLI and IDE share this physical file.
+  "mcpServers": {
+    "docs": {
+      "serverUrl": "https://docs.example.test/mcp",
+      "headers": { "X-Workspace": "docs" },
+      "disabledTools": ["publish"],
+      "disabled": false,
+      "authProviderType": "none"
+    }
+  },
+  "userPolicy": { "keep": true }
+}

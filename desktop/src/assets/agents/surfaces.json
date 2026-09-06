@@ -3,5 +3,11 @@
   "claude-desktop": "desktop",
   "qoder-cli": "cli",
   "qoder": "ide",
-  "qoder-desktop": "desktop"
+  "qoder-desktop": "desktop",
+  "antigravity": "ide",
+  "antigravity-cli": "cli",
+  "continue": "ide",
+  "continue-cli": "cli",
+  "trae-ide": "ide",
+  "trae-cli": "cli"
 }

@@ -1170,7 +1170,7 @@ it("tries discovery for a custom Provider and keeps manual save available after 
     protocols: { "openai-responses": { endpoint_path: "/v1/responses" } },
     credential_saved: false,
     model_count: 0,
-    model_discovery_supported: false,
+    model_discovery_supported: true,
   }]);
   vi.mocked(api.discoverProviderModels).mockRejectedValue(
     new Error("model_discovery_http: Provider model catalog returned HTTP 404"),
@@ -1198,6 +1198,49 @@ it("tries discovery for a custom Provider and keeps manual save available after 
   await waitFor(() => expect(planUpdate).toHaveBeenCalledWith(expect.objectContaining({
     profile: expect.objectContaining({ model: "gpt-manual-fallback" }),
   })));
+});
+
+it("keeps Azure deployment names manual and never probes an unsupported catalog", async () => {
+  vi.mocked(api.listModelProviderInstances).mockResolvedValue([{
+    id: "azure-resource", name: "Azure resource", provider: "azure-openai",
+    base_url: "https://resource.openai.azure.com/openai/v1",
+    protocols: { "openai-responses": { endpoint_path: "/responses" } },
+    credential_saved: true, model_count: 0, model_discovery_supported: false,
+  }]);
+  const user = userEvent.setup();
+  const planUpdate = vi.fn().mockResolvedValue({ operation_id: "azure-model" });
+  render(<ToastProvider><ModelsView consumptionState={{ plan: null, planUpdate } as unknown as ConsumptionState} /></ToastProvider>);
+  await user.click(await screen.findByRole("button", { name: "添加模型" }));
+  expect(screen.getByText(/填写 Azure 中已创建的部署名称/)).toBeVisible();
+  expect(screen.queryByRole("button", { name: "刷新模型列表" })).not.toBeInTheDocument();
+  await user.type(screen.getByRole("textbox", { name: "模型 ID" }), "production-deployment");
+  expect(api.discoverProviderModels).not.toHaveBeenCalled();
+  await user.click(screen.getByRole("button", { name: "添加" }));
+  await waitFor(() => expect(planUpdate).toHaveBeenCalledWith(expect.objectContaining({
+    profile: expect.objectContaining({ model: "production-deployment", provider_id: "azure-resource" }),
+  })));
+});
+
+it("shows cloud setup guidance without saving an account placeholder as an endpoint", async () => {
+  vi.mocked(api.listModelProviders).mockResolvedValue([{
+    id: "azure-openai", name: "Azure OpenAI", default_base_url: null,
+    default_protocol: "openai-responses", additional_endpoints: [], base_url: null,
+    protocols: { "openai-responses": { endpoint_path: "/responses" } },
+    category: "official", model_discovery_supported: false,
+    setup: { base_url_placeholder: "https://<resource>.openai.azure.com/openai/v1", hint: "azure" },
+  }]);
+  const user = userEvent.setup();
+  render(<ToastProvider><ModelsView consumptionState={{ plan: null, planUpdate: vi.fn() } as unknown as ConsumptionState} /></ToastProvider>);
+  await openProviderTemplate(user, "Azure OpenAI");
+  const base = screen.getByLabelText("Base URL");
+  expect(base).toHaveValue("");
+  expect(base).toHaveAttribute("placeholder", "https://<resource>.openai.azure.com/openai/v1");
+  expect(screen.getByText(/填写 Azure 资源的/)).toBeVisible();
+  await user.type(screen.getByLabelText("API Key"), "fixture-only-key");
+  fireEvent.change(base, { target: { value: "https://<resource>.openai.azure.com/openai/v1" } });
+  expect(screen.getByRole("button", { name: "保存" })).toBeDisabled();
+  fireEvent.change(base, { target: { value: "https://resource.openai.azure.com/openai/v1" } });
+  expect(screen.getByRole("button", { name: "保存" })).toBeEnabled();
 });
 
 it("discovers provider models on refresh but never lets a stale Provider response win", async () => {

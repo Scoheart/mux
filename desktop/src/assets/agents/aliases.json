@@ -4,5 +4,9 @@
   "codex": "openai",
   "copilot-cli": "copilot",
   "junie": "jetbrains",
-  "qoder-cli": "qoder"
+  "qoder-cli": "qoder",
+  "antigravity-cli": "antigravity",
+  "continue-cli": "continue",
+  "trae-cli": "trae",
+  "trae-ide": "trae"
 }

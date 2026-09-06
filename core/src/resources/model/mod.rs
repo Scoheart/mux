@@ -140,6 +140,24 @@ pub struct ModelProviderEndpointView {
     pub base_url: &'static str,
 }
 
+/// Display-only setup metadata. Account/region placeholders never become a
+/// connection default or get persisted in a Provider instance.
+#[derive(Debug, Clone, Serialize)]
+pub struct ModelProviderSetupView {
+    pub base_url_placeholder: &'static str,
+    pub hint: &'static str,
+}
+
+fn provider_setup(id: &str) -> Option<ModelProviderSetupView> {
+    let (base_url_placeholder, hint) = match id {
+        "azure-openai" => ("https://<resource>.openai.azure.com/openai/v1", "azure"),
+        "amazon-bedrock-mantle" => ("https://bedrock-mantle.<region>.api.aws/v1", "bedrock"),
+        "cloudflare-workers-ai" => ("https://api.cloudflare.com/client/v4/accounts/<account-id>/ai/v1", "cloudflare"),
+        _ => return None,
+    };
+    Some(ModelProviderSetupView { base_url_placeholder, hint })
+}
+
 impl Serialize for ModelProviderView {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -147,7 +165,7 @@ impl Serialize for ModelProviderView {
     {
         let (base_url, protocols) =
             provider_template_connection(self).map_err(serde::ser::Error::custom)?;
-        let mut view = serializer.serialize_struct("ModelProviderView", 9)?;
+        let mut view = serializer.serialize_struct("ModelProviderView", 10)?;
         view.serialize_field("id", self.id)?;
         view.serialize_field("name", self.name)?;
         view.serialize_field("default_base_url", &self.default_base_url)?;
@@ -159,6 +177,7 @@ impl Serialize for ModelProviderView {
         view.serialize_field("base_url", &base_url)?;
         view.serialize_field("protocols", &protocols)?;
         view.serialize_field("category", self.category)?;
+        view.serialize_field("setup", &provider_setup(self.id))?;
         view.serialize_field(
             "model_discovery_supported",
             &discovery::model_discovery_supported(self.id),
@@ -179,12 +198,22 @@ fn provider_template_connection(
     let Some(default_base_url) = provider.default_base_url else {
         return Ok((
             None,
-            BTreeMap::from([(
-                provider.default_protocol.clone(),
-                ModelProviderProtocolConfig {
-                    endpoint_path: provider.default_protocol.default_endpoint_path().into(),
-                },
-            )]),
+            if provider.id == "azure-openai" {
+                [ModelProtocol::OpenaiResponses, ModelProtocol::OpenaiCompletions]
+                    .into_iter()
+                    .map(|protocol| {
+                        let endpoint_path = protocol.default_endpoint_path().into();
+                        (protocol, ModelProviderProtocolConfig { endpoint_path })
+                    })
+                    .collect()
+            } else {
+                BTreeMap::from([(
+                    provider.default_protocol.clone(),
+                    ModelProviderProtocolConfig {
+                        endpoint_path: provider.default_protocol.default_endpoint_path().into(),
+                    },
+                )])
+            },
         ));
     };
     let mut legacy = BTreeMap::from([(
@@ -201,9 +230,33 @@ fn provider_template_connection(
 }
 
 pub fn provider_additional_endpoints(id: &str) -> &'static [ModelProviderEndpointView] {
-    use ModelProtocol::{AnthropicMessages, OpenaiCompletions};
+    use ModelProtocol::{AnthropicMessages, OpenaiCompletions, OpenaiResponses};
 
     match id {
+        "vercel-ai-gateway" => &[ModelProviderEndpointView {
+            protocol: OpenaiCompletions,
+            base_url: "https://ai-gateway.vercel.sh/v1",
+        }],
+        "minimax" => &[ModelProviderEndpointView {
+            protocol: AnthropicMessages,
+            base_url: "https://api.minimax.io/anthropic",
+        }],
+        "minimax-cn" => &[ModelProviderEndpointView {
+            protocol: AnthropicMessages,
+            base_url: "https://api.minimax.cn/anthropic",
+        }],
+        "volcengine" => &[ModelProviderEndpointView {
+            protocol: OpenaiResponses,
+            base_url: "https://ark.cn-beijing.volces.com/api/v3",
+        }],
+        "volcengine-coding-plan" => &[ModelProviderEndpointView {
+            protocol: AnthropicMessages,
+            base_url: "https://ark.cn-beijing.volces.com/api/coding",
+        }],
+        "baidu-qianfan-coding-plan" => &[ModelProviderEndpointView {
+            protocol: AnthropicMessages,
+            base_url: "https://qianfan.baidubce.com/anthropic/coding",
+        }],
         "google" => &[ModelProviderEndpointView {
             protocol: OpenaiCompletions,
             base_url: "https://generativelanguage.googleapis.com/v1beta/openai",
@@ -254,7 +307,7 @@ pub fn provider_additional_endpoints(id: &str) -> &'static [ModelProviderEndpoin
         }],
         "minimax-cn-coding-plan" => &[ModelProviderEndpointView {
             protocol: AnthropicMessages,
-            base_url: "https://api.minimaxi.com/anthropic",
+            base_url: "https://api.minimax.cn/anthropic",
         }],
         "stepfun-step-plan" => &[ModelProviderEndpointView {
             protocol: AnthropicMessages,
@@ -283,6 +336,139 @@ pub fn provider_additional_endpoints(id: &str) -> &'static [ModelProviderEndpoin
 // Plan-specific endpoints and their official references are audited in
 // `core/src/resources/model/PROVIDER_SOURCES.md`.
 const MODEL_PROVIDERS: &[ModelProviderView] = &[
+    ModelProviderView {
+        id: "vercel-ai-gateway",
+        name: "Vercel AI Gateway",
+        default_base_url: Some("https://ai-gateway.vercel.sh/v1"),
+        default_protocol: ModelProtocol::OpenaiResponses,
+        category: "gateway",
+    },
+    ModelProviderView {
+        id: "azure-openai",
+        name: "Azure OpenAI",
+        default_base_url: None,
+        default_protocol: ModelProtocol::OpenaiResponses,
+        category: "official",
+    },
+    ModelProviderView {
+        id: "amazon-bedrock-mantle",
+        name: "Amazon Bedrock Mantle",
+        default_base_url: None,
+        default_protocol: ModelProtocol::OpenaiResponses,
+        category: "official",
+    },
+    ModelProviderView {
+        id: "cloudflare-workers-ai",
+        name: "Cloudflare Workers AI",
+        default_base_url: None,
+        default_protocol: ModelProtocol::OpenaiCompletions,
+        category: "gateway",
+    },
+    ModelProviderView {
+        id: "deepinfra",
+        name: "DeepInfra",
+        default_base_url: Some("https://api.deepinfra.com/v1/openai"),
+        default_protocol: ModelProtocol::OpenaiCompletions,
+        category: "gateway",
+    },
+    ModelProviderView {
+        id: "sambanova",
+        name: "SambaNova",
+        default_base_url: Some("https://api.sambanova.ai/v1"),
+        default_protocol: ModelProtocol::OpenaiCompletions,
+        category: "gateway",
+    },
+    ModelProviderView {
+        id: "perplexity",
+        name: "Perplexity Sonar",
+        default_base_url: Some("https://api.perplexity.ai"),
+        default_protocol: ModelProtocol::OpenaiCompletions,
+        category: "official",
+    },
+    ModelProviderView {
+        id: "volcengine",
+        name: "Volcengine Ark (火山方舟)",
+        default_base_url: Some("https://ark.cn-beijing.volces.com/api/v3"),
+        default_protocol: ModelProtocol::OpenaiCompletions,
+        category: "official",
+    },
+    ModelProviderView {
+        id: "volcengine-coding-plan",
+        name: "Volcengine Coding Plan (火山方舟)",
+        default_base_url: Some("https://ark.cn-beijing.volces.com/api/coding/v3"),
+        default_protocol: ModelProtocol::OpenaiCompletions,
+        category: "official",
+    },
+    ModelProviderView {
+        id: "baidu-qianfan",
+        name: "Baidu Qianfan (百度千帆)",
+        default_base_url: Some("https://qianfan.baidubce.com/v2"),
+        default_protocol: ModelProtocol::OpenaiCompletions,
+        category: "official",
+    },
+    ModelProviderView {
+        id: "baidu-qianfan-coding-plan",
+        name: "Baidu Qianfan Coding Plan (百度千帆)",
+        default_base_url: Some("https://qianfan.baidubce.com/v2/coding"),
+        default_protocol: ModelProtocol::OpenaiCompletions,
+        category: "official",
+    },
+    ModelProviderView {
+        id: "minimax",
+        name: "MiniMax (Global)",
+        default_base_url: Some("https://api.minimax.io/v1"),
+        default_protocol: ModelProtocol::OpenaiCompletions,
+        category: "official",
+    },
+    ModelProviderView {
+        id: "minimax-cn",
+        name: "MiniMax (China)",
+        default_base_url: Some("https://api.minimax.cn/v1"),
+        default_protocol: ModelProtocol::OpenaiCompletions,
+        category: "official",
+    },
+    ModelProviderView {
+        id: "stepfun",
+        name: "StepFun (China)",
+        default_base_url: Some("https://api.stepfun.com/v1"),
+        default_protocol: ModelProtocol::OpenaiCompletions,
+        category: "official",
+    },
+    ModelProviderView {
+        id: "stepfun-global",
+        name: "StepFun (Global)",
+        default_base_url: Some("https://api.stepfun.ai/v1"),
+        default_protocol: ModelProtocol::OpenaiCompletions,
+        category: "official",
+    },
+    ModelProviderView {
+        id: "zhipuai",
+        name: "Zhipu AI (智谱)",
+        default_base_url: Some("https://open.bigmodel.cn/api/paas/v4"),
+        default_protocol: ModelProtocol::OpenaiCompletions,
+        category: "official",
+    },
+    ModelProviderView {
+        id: "moonshotai-cn",
+        name: "Moonshot AI (China)",
+        default_base_url: Some("https://api.moonshot.cn/v1"),
+        default_protocol: ModelProtocol::OpenaiCompletions,
+        category: "official",
+    },
+    ModelProviderView {
+        id: "alibaba-international",
+        name: "Alibaba Cloud (Singapore)",
+        default_base_url: Some("https://dashscope-intl.aliyuncs.com/compatible-mode/v1"),
+        default_protocol: ModelProtocol::OpenaiCompletions,
+        category: "official",
+    },
+    ModelProviderView {
+        id: "siliconflow-cn",
+        name: "SiliconFlow (China)",
+        default_base_url: Some("https://api.siliconflow.cn/v1"),
+        default_protocol: ModelProtocol::OpenaiCompletions,
+        category: "gateway",
+    },
     ModelProviderView {
         id: "openrouter",
         name: "OpenRouter",
@@ -458,7 +644,7 @@ const MODEL_PROVIDERS: &[ModelProviderView] = &[
     ModelProviderView {
         id: "minimax-cn-coding-plan",
         name: "MiniMax Token Plan (China)",
-        default_base_url: Some("https://api.minimaxi.com/v1"),
+        default_base_url: Some("https://api.minimax.cn/v1"),
         default_protocol: ModelProtocol::OpenaiCompletions,
         category: "official",
     },
@@ -544,13 +730,6 @@ const MODEL_PROVIDERS: &[ModelProviderView] = &[
         name: "Hugging Face",
         default_base_url: Some("https://router.huggingface.co/v1"),
         default_protocol: ModelProtocol::OpenaiResponses,
-        category: "gateway",
-    },
-    ModelProviderView {
-        id: "github-models",
-        name: "GitHub Models",
-        default_base_url: Some("https://models.github.ai/inference"),
-        default_protocol: ModelProtocol::OpenaiCompletions,
         category: "gateway",
     },
     ModelProviderView {
@@ -706,7 +885,7 @@ pub fn list_provider_instances() -> Vec<ModelProviderInstanceView> {
             ModelProviderInstanceView {
                 credential_saved: provider_credential_present(&provider.id),
                 model_count: linked.len(),
-                model_discovery_supported: discovery::model_discovery_supported(&provider.provider),
+                model_discovery_supported: discovery::provider_model_discovery_supported(&provider),
                 provider,
             }
         })
@@ -744,26 +923,54 @@ fn normalize_slug(value: &str) -> String {
 
 pub fn infer_provider(base_url: &str) -> String {
     let normalized = base_url.trim().trim_end_matches('/');
+    // Match the complete reviewed endpoint or request URL, not an arbitrary
+    // host/path prefix. Shared PAYG/plan URLs deliberately prefer the neutral
+    // PAYG template; explicit user-selected plan IDs are never inferred here.
+    let matches_endpoint = |endpoint: &str, protocol: &ModelProtocol| {
+        endpoint.eq_ignore_ascii_case(normalized)
+            || format!("{endpoint}{}", protocol.default_endpoint_path())
+                .eq_ignore_ascii_case(normalized)
+    };
     if let Some(provider) = MODEL_PROVIDERS.iter().find(|provider| {
         provider
             .default_base_url
-            .is_some_and(|endpoint| endpoint.eq_ignore_ascii_case(normalized))
+            .is_some_and(|endpoint| matches_endpoint(endpoint, &provider.default_protocol))
             || provider_additional_endpoints(provider.id)
                 .iter()
-                .any(|endpoint| endpoint.base_url.eq_ignore_ascii_case(normalized))
+                .any(|endpoint| matches_endpoint(endpoint.base_url, &endpoint.protocol))
     }) {
         return provider.id.to_string();
     }
 
-    let host = url::Url::parse(base_url)
-        .ok()
+    let parsed = url::Url::parse(normalized).ok();
+    let host = parsed.as_ref()
         .and_then(|url| url.host_str().map(str::to_ascii_lowercase))
         .unwrap_or_default();
+    let path = parsed.as_ref().map(|url| url.path()).unwrap_or("");
+    let in_path = |prefix: &str| path == prefix || path.starts_with(&format!("{prefix}/"));
+    if (host.ends_with(".openai.azure.com") || host.ends_with(".services.ai.azure.com"))
+        && in_path("/openai/v1")
+    {
+        return "azure-openai".into();
+    }
+    if host.starts_with("bedrock-mantle.") && host.ends_with(".api.aws")
+        && in_path("/v1")
+    {
+        return "amazon-bedrock-mantle".into();
+    }
+    if host == "api.cloudflare.com" {
+        let parts: Vec<_> = path.trim_matches('/').split('/').collect();
+        if parts.len() >= 6 && parts[..3] == ["client", "v4", "accounts"]
+            && !parts[3].is_empty() && parts[4..6] == ["ai", "v1"]
+        {
+            return "cloudflare-workers-ai".into();
+        }
+    }
     match host.as_str() {
         "openrouter.ai" | "api.openrouter.ai" => "openrouter",
         "api.anthropic.com" => "anthropic",
         "api.openai.com" => "openai",
-        "generativelanguage.googleapis.com" | "aiplatform.googleapis.com" => "google",
+        "generativelanguage.googleapis.com" => "google",
         "api.x.ai" => "xai",
         "api.mistral.ai" => "mistral",
         "api.cohere.ai" => "cohere",
@@ -777,6 +984,18 @@ pub fn infer_provider(base_url: &str) -> String {
         "models.github.ai" => "github-models",
         "router.huggingface.co" => "huggingface",
         "api.moonshot.ai" => "moonshotai",
+        "api.moonshot.cn" => "moonshotai-cn",
+        "api.minimax.io" => "minimax",
+        "api.minimax.cn" => "minimax-cn",
+        "api.stepfun.com" => "stepfun",
+        "api.stepfun.ai" => "stepfun-global",
+        "open.bigmodel.cn" => "zhipuai",
+        "api.deepinfra.com" => "deepinfra",
+        "ai-gateway.vercel.sh" => "vercel-ai-gateway",
+        "api.sambanova.ai" => "sambanova",
+        "api.perplexity.ai" => "perplexity",
+        "ark.cn-beijing.volces.com" => "volcengine",
+        "qianfan.baidubce.com" => "baidu-qianfan",
         "api.z.ai" => "zai",
         "api-inference.modelscope.cn" => "modelscope",
         "api.scaleway.ai" => "scaleway",
@@ -784,11 +1003,13 @@ pub fn infer_provider(base_url: &str) -> String {
         "router.requesty.ai" => "requesty",
         "inference.baseten.co" => "baseten",
         "api.inference.wandb.ai" => "wandb",
-        "api.siliconflow.cn" | "api.siliconflow.com" => "siliconflow",
+        "api.siliconflow.cn" => "siliconflow-cn",
+        "api.siliconflow.com" => "siliconflow",
         "api.together.xyz" => "together",
         "api.fireworks.ai" => "fireworks",
         "api.cerebras.ai" => "cerebras",
         "dashscope.aliyuncs.com" => "alibaba",
+        "dashscope-intl.aliyuncs.com" => "alibaba-international",
         "api.xiaomimimo.com"
         | "token-plan-cn.xiaomimimo.com"
         | "token-plan-sgp.xiaomimimo.com"
@@ -891,6 +1112,12 @@ fn normalized_endpoint_origin(base_url: &str) -> String {
 
 pub fn normalize_provider_base_url(base_url: &str) -> Result<String, String> {
     let base_url = base_url.trim().trim_end_matches('/');
+    let lower = base_url.to_ascii_lowercase();
+    if base_url.contains(['<', '>', '{', '}'])
+        || ["%3c", "%3e", "%7b", "%7d"].iter().any(|marker| lower.contains(marker))
+    {
+        return Err("Provider Base URL contains a placeholder; enter your account or region endpoint".into());
+    }
     if base_url.is_empty() || base_url.chars().any(char::is_whitespace) {
         return Err("Provider Base URL is required and cannot contain whitespace".into());
     }
@@ -5813,7 +6040,45 @@ mod tests {
     }
 
     #[test]
-    fn provider_default_base_urls_are_unique_valid_and_inferable() {
+    fn account_templates_never_persist_display_placeholders() {
+        for id in ["azure-openai", "amazon-bedrock-mantle", "cloudflare-workers-ai"] {
+            let template = list_providers().iter().find(|p| p.id == id).unwrap();
+            let value = serde_json::to_value(template).unwrap();
+            assert!(value["base_url"].is_null());
+            assert!(value["default_base_url"].is_null());
+            let placeholder = value["setup"]["base_url_placeholder"].as_str().unwrap();
+            assert!(normalize_provider_base_url(placeholder).is_err());
+        }
+        assert!(normalize_provider_base_url("https://api.cloudflare.com/accounts/%3Caccount%3E/ai/v1").is_err());
+        let azure = list_providers().iter().find(|p| p.id == "azure-openai").unwrap();
+        let value = serde_json::to_value(azure).unwrap();
+        assert_eq!(value["protocols"]["openai-responses"]["endpoint_path"], "/responses");
+        assert_eq!(value["protocols"]["openai-completions"]["endpoint_path"], "/chat/completions");
+    }
+
+    #[test]
+    fn infers_regions_full_requests_and_distinct_coding_plans_without_guessing_auth() {
+        for (url, expected) in [
+            ("https://resource.openai.azure.com/openai/v1", "azure-openai"),
+            ("https://resource.services.ai.azure.com/openai/v1/responses", "azure-openai"),
+            ("https://bedrock-mantle.us-east-1.api.aws/v1/responses", "amazon-bedrock-mantle"),
+            ("https://api.cloudflare.com/client/v4/accounts/tenant/ai/v1", "cloudflare-workers-ai"),
+            ("https://api.cloudflare.com/client/v4/accounts/tenant/ai/v1/chat/completions", "cloudflare-workers-ai"),
+            ("https://api.siliconflow.cn/v1/chat/completions", "siliconflow-cn"),
+            ("https://api.minimax.io/v1", "minimax"),
+            ("https://api.minimax.cn/anthropic/v1/messages", "minimax-cn"),
+            ("https://ark.cn-beijing.volces.com/api/coding/v3/chat/completions", "volcengine-coding-plan"),
+            ("https://qianfan.baidubce.com/anthropic/coding/v1/messages", "baidu-qianfan-coding-plan"),
+            ("https://aiplatform.googleapis.com/v1", "custom"),
+            ("https://resource.openai.azure.com.evil.test/openai/v1", "custom"),
+            ("https://api.cloudflare.com/client/v4/zones/tenant/ai/v1", "custom"),
+        ] {
+            assert_eq!(infer_provider(url), expected, "{url}");
+        }
+    }
+
+    #[test]
+    fn provider_endpoints_are_valid_and_only_reviewed_plans_share_urls() {
         let mut ids = BTreeSet::new();
         let mut endpoints = BTreeSet::new();
         for provider in list_providers() {
@@ -5826,7 +6091,8 @@ mod tests {
                 continue;
             };
             assert!(
-                endpoints.insert(default_base_url),
+                endpoints.insert((default_base_url, provider.default_protocol.clone()))
+                    || matches!(provider.id, "minimax-coding-plan" | "minimax-cn-coding-plan"),
                 "duplicate provider endpoint: {default_base_url}"
             );
             assert!(
@@ -5842,12 +6108,18 @@ mod tests {
                 "https"
             };
             assert_eq!(parsed.scheme(), expected_scheme);
-            assert_eq!(infer_provider(default_base_url), provider.id);
+            let inferred = match provider.id {
+                "minimax-coding-plan" => "minimax",
+                "minimax-cn-coding-plan" => "minimax-cn",
+                id => id,
+            };
+            assert_eq!(infer_provider(default_base_url), inferred);
 
             for endpoint in provider_additional_endpoints(provider.id) {
                 assert_ne!(endpoint.protocol, provider.default_protocol);
                 assert!(
-                    endpoints.insert(endpoint.base_url),
+                    endpoints.insert((endpoint.base_url, endpoint.protocol.clone()))
+                        || matches!(provider.id, "minimax-coding-plan" | "minimax-cn-coding-plan"),
                     "duplicate provider endpoint: {}",
                     endpoint.base_url
                 );
@@ -5860,7 +6132,7 @@ mod tests {
                     panic!("invalid provider endpoint {}: {error}", endpoint.base_url)
                 });
                 assert_eq!(parsed.scheme(), expected_scheme);
-                assert_eq!(infer_provider(endpoint.base_url), provider.id);
+                assert_eq!(infer_provider(endpoint.base_url), inferred);
             }
         }
 
@@ -5875,9 +6147,10 @@ mod tests {
             .iter()
             .filter(|provider| provider.default_base_url.is_none())
             .collect::<Vec<_>>();
-        assert_eq!(endpointless.len(), 1);
-        assert_eq!(endpointless[0].id, "custom");
-        assert_eq!(list_providers().len(), 51);
+        assert_eq!(endpointless.iter().map(|p| p.id).collect::<BTreeSet<_>>(),
+            BTreeSet::from(["azure-openai", "amazon-bedrock-mantle", "cloudflare-workers-ai", "custom"]));
+        assert_eq!(list_providers().len(), 69);
+        assert!(!list_providers().iter().any(|p| p.id == "github-models"));
         let openrouter = list_providers()
             .iter()
             .find(|provider| provider.id == "openrouter")
@@ -5973,7 +6246,6 @@ mod tests {
             "qiniu-ai",
             "nvidia",
             "digitalocean",
-            "github-models",
             "moonshotai",
             "zai",
             "modelscope",

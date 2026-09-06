@@ -40,3 +40,17 @@ the artwork. All trademarks remain the property of their respective owners.
 | `ollama.png` | <https://ollama.com/public/ollama.png> |
 | `lm-studio.png` | <https://lmstudio.ai/assets/marketing/logo-192x192.png> (reused from the Agent asset set) |
 | `vllm.svg` | <https://github.com/vllm-project/media-kit/blob/main/vLLM-Logo.svg> |
+
+Official assets retrieved 2026-09-07 (original bytes; ICO retained without conversion):
+
+- `deepinfra.png`: <https://deepinfra.com/fav-192.png>
+- `sambanova.png`: <https://sambanova.ai/hubfs/sambanova-favicon.png>
+- `azure-openai.ico`: <https://azure.microsoft.com/favicon.ico?v2>
+- `amazon-bedrock-mantle.png`: <https://a0.awsstatic.com/libra-css/images/site/touch-icon-ipad-144-smile.png>
+- `cloudflare-workers-ai.ico`: <https://www.cloudflare.com/favicon.ico>
+- `volcengine.png`: <https://portal.volccdn.com/obj/volcfe/misc/favicon.png>
+- `baidu-qianfan.ico`: <https://bce.bdstatic.com/img/newfavicon.ico>
+- `perplexity.png`: <https://docs.perplexity.ai/mintlify-assets/_mintlify/favicons/perplexity/rSPP83rcZL_iw-xo/_generated/favicon/android-chrome-192x192.png> (linked by official Sonar docs).
+- `vercel-ai-gateway.png`: <https://assets.vercel.com/image/upload/q_auto/front/favicon/vercel/apple-touch-icon-72x72.png> (linked by vercel.com).
+
+- `stepfun.png` — https://platform.stepfun.com/images/title-logo.png (official platform favicon, original bytes; 2026-09-07).

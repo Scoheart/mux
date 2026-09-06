@@ -11,7 +11,7 @@ import {
 it("bundles one traceable local asset for every named Provider template", async () => {
   const files = await readdir(resolve(process.cwd(), "src/assets/providers"));
   const assetIds = files
-    .filter((file) => /\.(png|svg|webp)$/.test(file))
+    .filter((file) => /\.(png|svg|webp|ico)$/.test(file))
     .map((file) => file.replace(/\.[^.]+$/, ""))
     .sort();
 

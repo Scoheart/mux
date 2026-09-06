@@ -22,6 +22,9 @@ fn temp_file(name: &str, extension: &str) -> PathBuf {
 
 fn fixture(name: &str) -> &'static str {
     match name {
+        "antigravity-cli" => include_str!("fixtures/antigravity-cli.json"),
+        "continue-cli" => include_str!("fixtures/continue-cli.yaml"),
+        "trae-cli" => include_str!("fixtures/trae-cli.toml"),
         "qoder-desktop" => include_str!("fixtures/qoder-desktop.json"),
         "opencode" => include_str!("fixtures/opencode.json"),
         "codex" => include_str!("fixtures/codex.toml"),
@@ -32,6 +35,70 @@ fn fixture(name: &str) -> &'static str {
         "cline" => include_str!("fixtures/cline.json"),
         _ => panic!("unknown fixture"),
     }
+}
+
+#[test]
+fn new_cli_writers_roundtrip_official_shapes_and_keep_unowned_policy() {
+    let home = mux_core::testenv::TestHome::new("new-cli-formats");
+    let agents = builtin_agents();
+    for (id, extension, marker) in [
+        ("antigravity-cli", "json", "\"disabledTools\": [\"publish\"]"),
+        ("continue-cli", "yaml", "connectionTimeout: 9000"),
+    ] {
+        let path = home.home.join(format!("{id}.{extension}"));
+        std::fs::write(&path, fixture(id)).unwrap();
+        let adapter = get_agent_adapter_for(&agents[id], id);
+        assert!(matches!(adapter.read(&path)["docs"], McpConfig::Http(_)));
+        let cfg = http("https://updated.example.test/mcp");
+        adapter.upsert(&path, "docs", &cfg).unwrap();
+        assert_eq!(adapter.read(&path)["docs"], cfg);
+        let written = std::fs::read_to_string(&path).unwrap();
+        assert!(written.contains(marker), "{id}: policy changed");
+        if id == "antigravity-cli" {
+            assert!(written.contains("// CLI and IDE"));
+            assert!(written.contains("\"serverUrl\""));
+            assert!(!written.contains("\"url\""));
+            assert!(written.contains("\"userPolicy\""));
+        } else {
+            assert!(written.contains("# Continue CLI and IDE"));
+            assert!(written.contains("Keep my review rules"));
+        }
+        adapter.remove(&path, &["docs".into()]).unwrap();
+        assert!(adapter.read(&path).is_empty());
+    }
+
+    let path = home.home.join("traecli.toml");
+    std::fs::write(&path, fixture("trae-cli")).unwrap();
+    let adapter = get_agent_adapter_for(&agents["trae-cli"], "trae-cli");
+    let cfg = McpConfig::Stdio(StdioConfig {
+        command: "node".into(), args: Some(vec!["new-server.mjs".into()]), env: None, cwd: None,
+    });
+    adapter.upsert(&path, "docs", &cfg).unwrap();
+    assert_eq!(adapter.read(&path)["docs"], cfg);
+    let before = std::fs::read(&path).unwrap();
+    assert!(String::from_utf8_lossy(&before).contains("trust_level = \"trusted\""));
+    assert!(String::from_utf8_lossy(&before).contains("approval_policy = \"on-request\""));
+    assert!(adapter.upsert(&path, "remote", &http("https://remote.example.test/mcp")).is_err());
+    assert_eq!(std::fs::read(&path).unwrap(), before, "unsupported transport must not alter TOML");
+    adapter.remove(&path, &["docs".into()]).unwrap();
+    assert!(adapter.read(&path).is_empty());
+    assert!(std::fs::read_to_string(path).unwrap().contains("trust_level = \"trusted\""));
+}
+
+#[test]
+fn new_agent_capabilities_do_not_infer_unsupported_skill_or_model_layouts() {
+    let agents = builtin_agents();
+    for id in ["antigravity-cli", "continue-cli", "trae-cli"] {
+        assert!(agents[id].skills.is_none(), "{id}");
+    }
+    assert_eq!(agents["antigravity-cli"].global, agents["antigravity"].global);
+    assert_eq!(agents["continue-cli"].global, agents["continue"].global);
+    let openclaw = &agents["openclaw"];
+    assert!(openclaw.global.is_none());
+    let skills = openclaw.skills.as_ref().unwrap();
+    assert_eq!(skills.global_dir, "~/.openclaw/skills");
+    assert!(skills.aliases.is_empty());
+    assert_eq!(skills.probes.len(), 2);
 }
 
 fn is_iso_date(value: &str) -> bool {
@@ -580,16 +647,16 @@ fn verified_and_catalog_definitions_have_auditable_boundaries() {
     let all_ids: std::collections::BTreeSet<_> =
         verified_ids.union(&catalog_ids).cloned().collect();
 
-    assert_eq!(verified.len(), 57);
+    assert_eq!(verified.len(), 61);
     assert_eq!(catalog.len(), 201);
     assert_eq!(verified_ids.intersection(&catalog_ids).count(), 46);
-    assert_eq!(all_ids.len(), 212);
+    assert_eq!(all_ids.len(), 216);
     assert_eq!(
         verified
             .values()
             .filter(|item| item.global.is_some())
             .count(),
-        47
+        50
     );
     assert!(catalog.len() >= 170);
     for (id, definition) in verified {

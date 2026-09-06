@@ -186,6 +186,11 @@ export interface ModelProviderView {
   }>>;
   category: "official" | "gateway" | "local" | "custom";
   model_discovery_supported: boolean;
+  /** Display-only instructions for account/region-specific connections. */
+  setup?: {
+    base_url_placeholder: string;
+    hint: "azure" | "bedrock" | "cloudflare";
+  } | null;
 }
 
 export type ModelStorageAuthority = "native-registry" | "mux-mapping" | "guided";

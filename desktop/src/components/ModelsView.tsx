@@ -205,7 +205,7 @@ function providerTemplatePath(
 
 function normalizeBaseUrl(value: string) {
   const normalized = value.trim().replace(/\/+$/, "");
-  if (!normalized || /\s/.test(normalized)) return null;
+  if (!normalized || /[\s<>{}]/.test(normalized) || /%(?:3c|3e|7b|7d)/i.test(normalized)) return null;
   try {
     const url = new URL(normalized);
     if (
@@ -1079,7 +1079,7 @@ function ModelProfileDialog({
   const providerInstance = providerInstances.find(
     (provider) => provider.id === draft.provider_id,
   ) ?? null;
-  const modelDiscoveryAvailable = providerInstance !== null;
+  const modelDiscoveryAvailable = providerInstance?.model_discovery_supported === true;
   const availableProtocols = providerInstance
     ? PROTOCOLS.filter((protocol) => Boolean(providerInstance.protocols[protocol.id]))
     : [];
@@ -1100,7 +1100,7 @@ function ModelProfileDialog({
 
   const loadProviderModels = useCallback(async (providerId: string, force = false) => {
     const provider = providerInstances.find((candidate) => candidate.id === providerId);
-    if (!provider) return;
+    if (!provider?.model_discovery_supported) return;
     if (!force && modelDiscoveryRequested.current.has(providerId)) return;
     modelDiscoveryRequested.current.add(providerId);
     const requestId = (modelDiscoveryRequests.current[providerId] ?? 0) + 1;
@@ -1319,7 +1319,7 @@ function ModelProfileDialog({
               placeholder="model-name"
               spellCheck={false}
             />
-            {providerInstance && (
+            {providerInstance && modelDiscoveryAvailable && (
               <button
                 type="button"
                 className="mux-provider-model-refresh"
@@ -1333,6 +1333,12 @@ function ModelProfileDialog({
               </button>
             )}
           </div>
+          {providerInstance && !modelDiscoveryAvailable && (
+            <small className="mux-provider-model-status">
+              {t(providerInstance.provider === "azure-openai"
+                ? "models.azureDeploymentHint" : "models.manualModelCatalogHint")}
+            </small>
+          )}
           {providerInstance
             && activeModelDiscovery
             && activeModelDiscovery.status !== "success" && (
@@ -1709,10 +1715,11 @@ function ModelProviderDialog({
               className="mux-model-field"
               value={draft.base_url}
               onChange={(event) => setDraft({ ...draft, base_url: event.currentTarget.value })}
-              placeholder="https://gateway.example.com/api/v2"
+              placeholder={template?.setup?.base_url_placeholder ?? "https://gateway.example.com/api/v2"}
               spellCheck={false}
             />
             {draft.base_url && !normalizedBaseUrl && <small>{t("models.invalidBaseUrl")}</small>}
+            {template?.setup && <small>{t(`models.providerSetup.${template.setup.hint}`)}</small>}
           </label>
           <label className="mux-provider-model-catalog-field">
             <span>{t("models.modelCatalogUrl")}</span>

@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.173](https://github.com/Scoheart/mux/compare/v1.8.172...v1.8.173) (2026-09-06)
+
+### Changes
+
+* fix(core): preserve target state and reconcile credential and observation flows ([cf41dbe](https://github.com/Scoheart/mux/commit/cf41dbe36bd9bdf680f7ce76654eef9342d2b23d))
+
 ## [1.8.172](https://github.com/Scoheart/mux/compare/v1.8.171...v1.8.172) (2026-09-06)
 
 ### Changes

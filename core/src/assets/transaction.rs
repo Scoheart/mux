@@ -4508,6 +4508,10 @@ mod tests {
         assert_eq!(load_settings_strict().unwrap().model_selection("opencode"), before);
         for (path, bytes) in &files { assert_eq!(fs::read(path).ok(), *bytes); }
         fs::write(&key_paths[1], b"fixture-key-b").unwrap();
+        #[cfg(unix)] {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&key_paths[1], fs::Permissions::from_mode(0o600)).unwrap();
+        }
         crate::resources::model::set_agent_credential_delivery("opencode", ApiKeyDelivery::Plaintext, true).unwrap();
         let after = load_settings_strict().unwrap().model_selection("opencode");
         assert_eq!(after.active_profile_id, before.active_profile_id);

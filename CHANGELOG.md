@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.178](https://github.com/Scoheart/mux/compare/v1.8.177...v1.8.178) (2026-09-06)
+
+### Changes
+
+* fix(skills): show three lines of card descriptions ([21fb0ca](https://github.com/Scoheart/mux/commit/21fb0ca415fa083fd1c09e5d7504ef6b1cb5dba7))
+
 ## [1.8.177](https://github.com/Scoheart/mux/compare/v1.8.176...v1.8.177) (2026-09-06)
 
 ### Changes

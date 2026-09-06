@@ -1271,8 +1271,8 @@ body {
   color: var(--text-primary); font: 680 15px/1.4 var(--font-sans);
 }
 .mux-skill-card-description {
-  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden;
-  min-height: 39px; margin-top: 8px; color: var(--text-secondary); font: 12px/1.65 var(--font-sans);
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden;
+  min-height: 4.95em; margin-top: 8px; color: var(--text-secondary); font: 12px/1.65 var(--font-sans);
   overflow-wrap: anywhere;
 }
 .mux-skill-card-footer {

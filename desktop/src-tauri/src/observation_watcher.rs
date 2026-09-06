@@ -3,8 +3,9 @@ use notify::{Config, Event, EventKind, RecommendedWatcher, RecursiveMode, Watche
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
-use std::sync::mpsc;
-use std::time::Duration;
+use std::sync::{mpsc, Arc};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter};
 
 const EVENT_NAME: &str = "asset-observation-changed";
@@ -15,10 +16,17 @@ struct ObservationChange {
 }
 
 pub fn start(app: AppHandle) -> Result<(), String> {
-    let (sender, receiver) = mpsc::channel();
+    let (sender, receiver) = mpsc::sync_channel(256);
+    let overflow = Arc::new(AtomicBool::new(false));
+    let callback_overflow = overflow.clone();
     let mut watcher = RecommendedWatcher::new(
-        move |event| {
-            let _ = sender.send(event);
+        move |event: notify::Result<Event>| {
+            if event.as_ref().is_ok_and(|event| matches!(event.kind, EventKind::Access(_))) {
+                return;
+            }
+            if let Err(mpsc::TrySendError::Full(_)) = sender.try_send(event) {
+                callback_overflow.store(true, Ordering::Release);
+            }
         },
         Config::default(),
     )
@@ -35,12 +43,22 @@ pub fn start(app: AppHandle) -> Result<(), String> {
             // Keep the watcher owned by this thread. Coalesce editor temp-file
             // sequences and MUX's own atomic writes into one projection refresh.
             while let Ok(first) = receiver.recv() {
-                let mut events = vec![first];
-                while let Ok(event) = receiver.recv_timeout(Duration::from_millis(250)) {
-                    events.push(event);
-                }
                 let targets = mux_core::assets::observation_watch_targets();
-                let domains = affected_domains(&events, &targets);
+                let deadline = Instant::now() + Duration::from_secs(1);
+                let mut domains = affected_domains(&[first], &targets);
+                loop {
+                    let remaining = deadline.saturating_duration_since(Instant::now());
+                    if remaining.is_zero() { break; }
+                    match receiver.recv_timeout(remaining.min(Duration::from_millis(250))) {
+                        Ok(event) => domains.extend(affected_domains(&[event], &targets)),
+                        Err(_) => break,
+                    }
+                }
+                // A bounded queue may discard paths, but never the fact that
+                // observation was lost. Reconcile all domains on overflow.
+                if overflow.swap(false, Ordering::AcqRel) {
+                    domains.insert(ObservationDomain::Central);
+                }
                 if domains.is_empty() {
                     continue;
                 }
@@ -50,7 +68,7 @@ pub fn start(app: AppHandle) -> Result<(), String> {
                 // Agent capability paths are themselves mutable central state.
                 // Rebuild targets as well as roots so changing a configured
                 // path takes effect without restarting MUX.
-                let next = desired_roots(&targets);
+                let next = desired_roots(&mux_core::assets::observation_watch_targets());
                 if next != roots {
                     for root in roots.keys() {
                         let _ = watcher.unwatch(root);

@@ -23,6 +23,7 @@ describe("observation refresh routing", () => {
       "agent-capabilities",
       "relationships",
       "external-models",
+      "models",
     ]);
   });
 

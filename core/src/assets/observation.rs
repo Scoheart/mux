@@ -36,6 +36,15 @@ pub fn observation_watch_targets() -> Vec<ObservationWatchTarget> {
         path: crate::paths::mux_dir().join("skills"),
         recursive: true,
     });
+    for (domain, path, recursive) in [
+        (ObservationDomain::Central, crate::paths::mcp_catalog_file(), false),
+        (ObservationDomain::Central, crate::paths::model_catalog_file(), false),
+        (ObservationDomain::Central, crate::paths::skill_catalog_file(), false),
+        (ObservationDomain::Central, crate::paths::mcp_sources_dir(), true),
+        (ObservationDomain::Skill, crate::paths::skill_contents_dir(), true),
+    ] {
+        targets.insert(ObservationWatchTarget { domain, path, recursive });
+    }
     for definition in crate::agents::load_agents().into_values() {
         if let Some(path) = definition.global {
             targets.insert(ObservationWatchTarget {

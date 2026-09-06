@@ -1,10 +1,10 @@
 use super::{full_request_url, provider_credential_subject, read_credential};
-use crate::domain::types::{ModelProtocol, ModelProviderConfig};
+use crate::domain::types::{ApiKeySource, AuthRequirement, ModelProtocol, ModelProviderConfig};
 use serde::Serialize;
 use serde_json::Value;
 use std::collections::BTreeSet;
 use std::io::Read;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use url::Url;
 use zeroize::Zeroizing;
 
@@ -50,36 +50,57 @@ pub(super) fn model_discovery_supported(_provider_type: &str) -> bool {
     true
 }
 
-pub fn discover_provider_models(provider_id: &str) -> Result<Vec<ProviderModelSummary>, String> {
+/// Capture central inputs while the application read gate is held. External
+/// credential helpers and HTTP run only after that gate has been released.
+pub(crate) struct ModelDiscoveryInput {
+    provider: ModelProviderConfig,
+    stored_credential: Option<Zeroizing<Vec<u8>>>,
+}
+
+pub(crate) fn prepare_provider_discovery(provider_id: &str) -> Result<ModelDiscoveryInput, String> {
     let settings = crate::settings::load_settings_strict().map_err(|error| error.to_string())?;
-    let provider = settings
-        .model_providers
-        .as_ref()
-        .and_then(|providers| providers.get(provider_id))
-        .ok_or_else(|| {
-            format!("model_provider_not_found: Provider '{provider_id}' does not exist")
-        })?;
+    let provider = settings.model_providers.as_ref()
+        .and_then(|providers| providers.get(provider_id)).cloned()
+        .ok_or_else(|| format!("model_provider_not_found: Provider '{provider_id}' does not exist"))?;
+    let stored_credential = if provider.auth_requirement != AuthRequirement::None
+        && matches!(provider.api_key_source, None | Some(ApiKeySource::MuxStore)) {
+        read_credential(&provider_credential_subject(provider_id)).map(Zeroizing::new)
+    } else { None };
+    Ok(ModelDiscoveryInput { provider, stored_credential })
+}
+
+pub fn discover_provider_models(provider_id: &str) -> Result<Vec<ProviderModelSummary>, String> {
+    execute_provider_discovery(prepare_provider_discovery(provider_id)?)
+}
+
+pub(crate) fn execute_provider_discovery(input: ModelDiscoveryInput) -> Result<Vec<ProviderModelSummary>, String> {
+    let provider = &input.provider;
     let spec = discovery_spec_for_provider(provider)?;
+    let source = provider.api_key_source.clone().or_else(||
+        input.stored_credential.is_some().then_some(ApiKeySource::MuxStore));
+    let credential = if provider.auth_requirement == AuthRequirement::None {
+        None
+    } else if matches!(source, Some(ApiKeySource::MuxStore))
+        && input.stored_credential.is_none() && provider.auth_requirement == AuthRequirement::Optional {
+        None
+    } else if let Some(source) = source.as_ref() {
+        let resolved = super::credential::resolve_source(source,
+            input.stored_credential.as_ref().map(|bytes| bytes.to_vec()))?;
+        Some(Zeroizing::new(String::from_utf8(resolved.expose_for_delivery().to_vec())
+            .map_err(|_| "model_provider_credential_invalid: API Key is not UTF-8".to_string())?))
+    } else if provider.auth_requirement == AuthRequirement::Required {
+        return Err("model_provider_credential_missing: Configure a credential source before loading the model catalog".into());
+    } else { None };
 
-    let credential = read_credential(&provider_credential_subject(provider_id))
-        .map(String::from_utf8)
-        .transpose()
-        .map_err(|_| {
-            format!(
-                "model_provider_credential_invalid: Provider '{provider_id}' has a non-UTF-8 API Key"
-            )
-        })?
-        .map(Zeroizing::new);
-    if spec.credential == CredentialPolicy::Required && credential.is_none() {
-        return Err(format!(
-            "model_provider_credential_missing: Save an API Key for Provider '{provider_id}' before loading its model catalog"
-        ));
-    }
-
-    let agent = discovery_agent()?;
+    let deadline = Instant::now() + Duration::from_secs(30);
     let mut url = discovery_url(provider, spec.adapter)?;
     let mut models = Vec::new();
     for page_index in 0..MAX_PAGES {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            return Err("model_discovery_timeout: model catalog deadline exceeded".into());
+        }
+        let agent = discovery_agent_with_timeout(remaining.min(Duration::from_secs(15)))?;
         let page = fetch_page(
             &agent,
             &url,
@@ -475,12 +496,17 @@ fn read_bounded(mut reader: impl Read, maximum: u64) -> Result<Vec<u8>, String> 
     }
 }
 
+#[cfg(test)]
 fn discovery_agent() -> Result<ureq::Agent, String> {
+    discovery_agent_with_timeout(Duration::from_secs(15))
+}
+
+fn discovery_agent_with_timeout(timeout: Duration) -> Result<ureq::Agent, String> {
     crate::network::build_ureq_agent(
         ureq::Agent::config_builder()
             .max_redirects(0)
             .http_status_as_error(false)
-            .timeout_global(Some(Duration::from_secs(15)))
+            .timeout_global(Some(timeout))
             .user_agent("mux-provider-model-discovery"),
     )
 }
@@ -1007,6 +1033,27 @@ mod tests {
             error.starts_with("model_discovery_too_many_models:"),
             "{error}"
         );
+    }
+
+    #[test]
+    fn discovery_uses_file_source_and_honors_explicit_no_auth() {
+        let home = TestHome::new("discovery-file-source");
+        let path = home.home.join("key");
+        std::fs::write(&path, b"fixture-file-key").unwrap();
+        #[cfg(unix)] {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+        }
+        for requirement in [AuthRequirement::Required, AuthRequirement::None] {
+            let (url, request, handle) = serve_once("200 OK", &[], r#"{"data": []}"#);
+            let mut config = provider("openai", url.as_str(), ModelProtocol::OpenaiResponses, "/responses");
+            config.auth_requirement = requirement.clone();
+            config.api_key_source = Some(ApiKeySource::File { path: path.to_string_lossy().into_owned() });
+            execute_provider_discovery(ModelDiscoveryInput { provider: config, stored_credential: None }).unwrap();
+            let request = request.recv().unwrap().to_ascii_lowercase();
+            handle.join().unwrap();
+            assert_eq!(request.contains("authorization: bearer fixture-file-key"), requirement == AuthRequirement::Required);
+        }
     }
 
     #[test]

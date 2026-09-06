@@ -70,6 +70,98 @@ const TARGET_INCIDENT_MARKER: &str = "target-incident";
 const ROLLBACK_COMPLETE_MARKER: &str = "rollback-complete";
 const CLEANUP_AUTHORIZED_MARKER: &str = "cleanup-authorized";
 
+const CENTRAL_COMMITTED_MARKER: &str = "central-committed";
+
+fn central_snapshot_path(path: &Path) -> bool {
+    path == settings_file() || path == model_catalog_file() || path == skill_catalog_file()
+        || path.starts_with(crate::paths::mcp_assets_dir())
+        || path.starts_with(crate::paths::legacy_sources_dir())
+}
+
+fn target_completion_marker(path: &Path) -> String {
+    format!("target-complete-{}", hex::encode(Sha256::digest(path.to_string_lossy().as_bytes())))
+}
+
+fn target_state_digest(state: Option<&TransactionPathState>) -> Result<Vec<u8>, String> {
+    let bytes = serde_json::to_vec(&state).map_err(|error| error.to_string())?;
+    Ok(hex::encode(Sha256::digest(bytes)).into_bytes())
+}
+
+fn mark_central_committed(plan: &AssetOperationPlan) -> Result<(), String> {
+    mark_operation_state(&plan.operation_id, CENTRAL_COMMITTED_MARKER, b"central-committed\n")
+}
+
+fn mark_target_completed(plan: &AssetOperationPlan, agent_id: &str) -> Result<(), String> {
+    if !operation_state_marker_exists(&plan.operation_id, CENTRAL_COMMITTED_MARKER)? { return Ok(()); }
+    let manifest = load_rollback_manifest(&plan.operation_id)?
+        .ok_or_else(|| "target_recovery_required: rollback manifest is missing".to_string())?;
+    let private = manifest.snapshots.iter().filter(|item| item.privacy == SnapshotPrivacy::Private)
+        .map(|item| item.path.clone()).collect();
+    let states = load_transaction_write_states_with_private_paths(
+        &transaction_write_evidence_dir(&plan.operation_id), &private)?;
+    let completed = target_paths_for_agent(plan, agent_id).iter().map(|target| expand_tilde_path(target))
+        .filter(|path| !central_snapshot_path(path))
+        .map(|path| target_state_digest(states.get(&path)).map(|digest| (path, digest)))
+        .collect::<Result<BTreeMap<_, _>, _>>()?;
+    // One durable marker covers all files in an Agent write set. A crash while
+    // publishing it cannot preserve only half of a multi-file target.
+    let bytes = serde_json::to_vec(&completed).map_err(|error| error.to_string())?;
+    mark_operation_state(&plan.operation_id, &target_completion_marker(Path::new(agent_id)), &bytes)
+}
+
+/// Restore only incomplete physical write sets. Central authority and completed
+/// target versions remain durable. Completion is bound to the final write state
+/// so a later partial write to the same shared file cannot reuse an old marker.
+fn settle_checkpoint_targets(
+    plan: &AssetOperationPlan,
+    snapshots: Vec<PathSnapshot>,
+    states: &BTreeMap<PathBuf, TransactionPathState>,
+) -> Result<(), String> {
+    let mut completed_paths = BTreeSet::new();
+    for agent_id in &plan.affected_agent_ids {
+        let marker = target_completion_marker(Path::new(agent_id));
+        if !operation_state_marker_exists(&plan.operation_id, &marker)? { continue; }
+        let completed: BTreeMap<PathBuf, Vec<u8>> = serde_json::from_slice(
+            &fs::read(operation_root(&plan.operation_id).join(marker)).map_err(|error| error.to_string())?
+        ).map_err(|_| "target_recovery_required: invalid target completion record".to_string())?;
+        let expected = target_paths_for_agent(plan, agent_id).iter().map(|target| expand_tilde_path(target))
+            .filter(|path| !central_snapshot_path(path)).collect::<BTreeSet<_>>();
+        if completed.keys().cloned().collect::<BTreeSet<_>>() != expected {
+            return Err("target_recovery_required: completion target set changed".into());
+        }
+        let mut matches = true;
+        for (path, digest) in &completed {
+            matches &= *digest == target_state_digest(states.get(path))?;
+        }
+        if matches { completed_paths.extend(completed.into_keys()); }
+    }
+    let pending = snapshots.into_iter().filter(|snapshot| !central_snapshot_path(&snapshot.path)
+        && !completed_paths.contains(&snapshot.path)).collect::<Vec<_>>();
+    let errors = restore_snapshots_if_unchanged(&pending, states);
+    if !errors.is_empty() {
+        return Err(format!("target_recovery_required: {}", errors.join("; ")));
+    }
+    if !pending.is_empty() {
+        let mut incomplete = plan.clone();
+        incomplete.target_files.retain(|target| pending.iter().any(|snapshot| snapshot.path == expand_tilde_path(target)));
+        incomplete.affected_agent_ids.retain(|agent_id| target_paths_for_agent(plan, agent_id).iter()
+            .any(|target| incomplete.target_files.contains(target)));
+        record_recovery_incidents(&incomplete)?;
+    }
+    Ok(())
+}
+
+fn settle_live_checkpoints(plan: &AssetOperationPlan) -> Result<(), String> {
+    if !operation_state_marker_exists(&plan.operation_id, CENTRAL_COMMITTED_MARKER)? { return Ok(()); }
+    let snapshots = load_rollback_snapshots(&plan.operation_id)?
+        .ok_or_else(|| "target_recovery_required: rollback snapshots are missing".to_string())?;
+    let private = snapshots.iter().filter(|item| item.privacy == SnapshotPrivacy::Private)
+        .map(|item| item.path.clone()).collect();
+    let states = load_transaction_write_states_with_private_paths(
+        &transaction_write_evidence_dir(&plan.operation_id), &private)?;
+    settle_checkpoint_targets(plan, snapshots, &states)
+}
+
 #[cfg(test)]
 thread_local! {
     static AFTER_PRIVATE_SNAPSHOT_PERSIST_HOOK:
@@ -210,7 +302,8 @@ fn clear_target_incidents(plan: &AssetOperationPlan, agent_id: &str) -> Result<(
             }
         }
     })
-    .map_err(|error| error.to_string())
+    .map_err(|error| error.to_string())?;
+    mark_target_completed(plan, agent_id)
 }
 
 fn incident_operation_ids_for_plan(plan: &AssetOperationPlan) -> BTreeSet<String> {
@@ -509,6 +602,7 @@ where
     let blocked_agents = BTreeSet::new();
     let applied = apply_operation(&persisted, &skills_guard, &blocked_agents)
         .and_then(|_| verify_operation(&persisted).map_err(ModelTargetError::from))
+        .and_then(|_| settle_live_checkpoints(&persisted.plan).map_err(ModelTargetError::from))
         .and_then(|_| {
             mark_operation_committed(&request.operation_id).map_err(ModelTargetError::from)
         });
@@ -535,6 +629,11 @@ where
         }
     };
     if let Some(error) = convergence_error {
+        if operation_state_marker_exists(&request.operation_id, CENTRAL_COMMITTED_MARKER)? {
+            drop(write_tracker);
+            recover_pending_asset_operation(&persisted, &operation_root(&request.operation_id))?;
+            return Err(format!("target_convergence_failed: central state was saved; incomplete targets require retry ({error})"));
+        }
         if let Err(recovery) = recover_transaction_mutation_intents_with_private_paths(
             &transaction_mutation_intent_dir(&request.operation_id),
             &tracked_parent_snapshots,
@@ -769,7 +868,7 @@ fn recover_pending_asset_operation(
                 .plan
                 .affected_agent_ids
                 .iter()
-                .any(|agent_id| agent_id == "claude-desktop"))
+                .any(|agent_id| matches!(agent_id.as_str(), "claude-desktop" | "qoder-desktop" | "qoder-cli")))
     {
         return Err(
             "recovery_required: reviewed private transaction paths do not match rollback manifest"
@@ -849,6 +948,13 @@ fn recover_pending_asset_operation(
         }
         None
     };
+    if operation_state_marker_exists(operation_id, CENTRAL_COMMITTED_MARKER)? {
+        settle_checkpoint_targets(&persisted.plan, snapshots, &written_states)?;
+        ensure_no_transaction_mutation_intents(&transaction_mutation_intent_dir(operation_id))?;
+        mark_operation_committed(operation_id)?;
+        drop(write_tracker);
+        return finalize_completed_operation_cleanup(operation_id, operation_path, &manifest, &profile_ids);
+    }
     let mut rollback_errors = restore_snapshots_if_unchanged(&snapshots, &written_states);
     if let Err(error) =
         ensure_no_transaction_mutation_intents(&transaction_mutation_intent_dir(operation_id))
@@ -1262,15 +1368,15 @@ fn apply_operation(
                     "asset_operation_stale: MCP rename source is unavailable".to_string()
                 })?;
                 migrate_mcp_consumption_records(previous_key, key)?;
+                delete_mcp_source_copy(previous_key, previous_source_id)?;
                 apply_domain_plan(
                     &persisted.plan,
                     releases_relationship_ownership(&persisted.plan),
                     skills_lock,
                     blocked_agents,
-                )?;
-                delete_mcp_source_copy(previous_key, previous_source_id)
-                    .map_err(ModelTargetError::from)
+                )
             } else {
+                mark_central_committed(&persisted.plan)?;
                 reapply_mcp_consumers(&persisted.plan, key, blocked_agents)
                     .map_err(ModelTargetError::from)
             }
@@ -1459,17 +1565,15 @@ fn apply_operation(
                 CredentialAction::Clear => false,
             };
             save_profile(*profile, None)?;
+            apply_credential_update(profile_id, credential.as_deref().map(String::as_str))?;
+            mark_central_committed(&persisted.plan)?;
             reapply_model_consumers(
                 &persisted.plan,
                 profile_id,
                 desired_credential_present,
                 blocked_agents,
             )?;
-            // Keychain mutation is deliberately last. A crash before this line
-            // leaves the old credential intact and can roll files/settings back;
-            // a crash after it has a fully verifiable committed state.
-            apply_credential_update(profile_id, credential.as_deref().map(String::as_str))
-                .map_err(ModelTargetError::from)
+            Ok(())
         }
         LifecycleBinding::ModelProviderUpsert {
             provider_id,
@@ -1501,19 +1605,11 @@ fn apply_operation(
                 CredentialAction::Clear => false,
             };
             save_provider_bundle(*provider, profiles)?;
-            for profile_id in profile_ids {
-                reapply_model_consumers(
-                    &persisted.plan,
-                    profile_id,
-                    desired_credential_present,
-                    blocked_agents,
-                )?;
-            }
-            apply_credential_update(
-                &provider_credential_subject(provider_id),
-                credential.as_deref().map(String::as_str),
-            )
-            .map_err(ModelTargetError::from)
+            apply_credential_update(&provider_credential_subject(provider_id),
+                credential.as_deref().map(String::as_str))?;
+            mark_central_committed(&persisted.plan)?;
+            reapply_model_consumer_bundle(&persisted.plan, profile_ids,
+                desired_credential_present, blocked_agents)
         }
         LifecycleBinding::ModelProviderDelete { provider_id } => {
             delete_provider(provider_id).map_err(ModelTargetError::from)
@@ -2196,33 +2292,36 @@ fn reapply_model_consumers(
     credential_present: bool,
     blocked_agents: &BTreeSet<String>,
 ) -> Result<(), ModelTargetError> {
+    reapply_model_consumer_bundle(operation, &BTreeSet::from([profile_id.to_string()]),
+        credential_present, blocked_agents)
+}
+
+fn reapply_model_consumer_bundle(
+    operation: &AssetOperationPlan,
+    profile_ids: &BTreeSet<String>,
+    credential_present: bool,
+    blocked_agents: &BTreeSet<String>,
+) -> Result<(), ModelTargetError> {
     let DomainPlan::Model { after, .. } = &operation.domain_plan else {
-        return Err(ModelTargetError::ConvergenceFailed(
-            "asset operation domain mismatch".into(),
-        ));
+        return Err("asset operation domain mismatch".into());
     };
     for (agent_id, desired) in after {
-        if blocked_agents.contains(agent_id) {
-            continue;
-        }
-        if desired
-            .profiles
-            .get(profile_id)
-            .is_some_and(|record| record.enabled)
-        {
-            let result = apply_profile_consumption_with_credential_presence_target(
-                agent_id,
-                profile_id,
-                credential_present,
-                desired.active_profile_id.as_deref() == Some(profile_id),
-            );
-            match result {
-                Ok(_) => clear_target_incidents(operation, agent_id)?,
-                Err(ModelTargetError::ConvergenceFailed(_)) => {
-                    record_target_incident(operation, agent_id, "target_convergence_failed")?;
+        if blocked_agents.contains(agent_id) { continue; }
+        let result = (|| {
+            for profile_id in profile_ids {
+                if desired.profiles.get(profile_id).is_some_and(|record| record.enabled) {
+                    apply_profile_consumption_with_credential_presence_target(agent_id, profile_id,
+                        credential_present, desired.active_profile_id.as_deref() == Some(profile_id))?;
                 }
-                Err(error @ ModelTargetError::RecoveryRequired(_)) => return Err(error),
             }
+            Ok::<_, ModelTargetError>(())
+        })();
+        match result {
+            Ok(_) => clear_target_incidents(operation, agent_id)?,
+            Err(ModelTargetError::ConvergenceFailed(_)) => {
+                record_target_incident(operation, agent_id, "target_convergence_failed")?;
+            }
+            Err(error @ ModelTargetError::RecoveryRequired(_)) => return Err(error),
         }
     }
     Ok(())
@@ -2526,6 +2625,7 @@ fn apply_mcp(
         }
     })
     .map_err(|error| error.to_string())?;
+    if operation.kind == AssetOperationKind::SetConsumption { mark_central_committed(operation)?; }
     let central_keys: BTreeSet<String> = read_registry()
         .into_iter()
         .map(|entry| entry.key())
@@ -2813,6 +2913,16 @@ fn apply_model(
         }
     })
     .map_err(|error| error.to_string())?;
+    let credential_policy_change = union_keys(before, after).iter().any(|agent_id| {
+        let left = before.get(*agent_id).cloned().unwrap_or_default();
+        let right = after.get(*agent_id).cloned().unwrap_or_default();
+        left.default_delivery != right.default_delivery
+            || right.profiles.keys().any(|id| left.delivery_for(id) != right.delivery_for(id))
+    });
+    // Credential policy updates retain their single-target atomic rollback.
+    if !credential_policy_change && operation.kind == AssetOperationKind::SetConsumption {
+        mark_central_committed(operation)?;
+    }
     for agent_id in union_keys(before, after) {
         let left = before.get(agent_id).cloned().unwrap_or_default();
         let right = after.get(agent_id).cloned().unwrap_or_default();
@@ -2861,7 +2971,8 @@ fn apply_model(
                     .profiles
                     .get(profile_id)
                     .is_some_and(|previous| previous.enabled);
-                if record.enabled && !was_enabled {
+                let credential_changed = left.delivery_for(profile_id) != right.delivery_for(profile_id);
+                if record.enabled && (!was_enabled || credential_changed) {
                     apply_profile_consumption_target(
                         agent_id,
                         profile_id,
@@ -2883,7 +2994,14 @@ fn apply_model(
         })();
         match result {
             Ok(()) => clear_target_incidents(operation, agent_id)?,
-            Err(ModelTargetError::ConvergenceFailed(_)) => {
+            Err(ModelTargetError::ConvergenceFailed(message)) => {
+                // This is one reviewed credential-policy write set. A later
+                // profile failure must restore earlier writes, not merely the
+                // central policy. The outer durable transaction owns rollback.
+                if left.default_delivery != right.default_delivery
+                    || right.profiles.keys().any(|id| left.delivery_for(id) != right.delivery_for(id)) {
+                    return Err(ModelTargetError::ConvergenceFailed(message));
+                }
                 record_target_incident(operation, agent_id, "target_convergence_failed")?;
             }
             Err(error @ ModelTargetError::RecoveryRequired(_)) => return Err(error),
@@ -4312,6 +4430,128 @@ mod tests {
     use crate::resources::model::save_profile;
     use crate::testenv::TestHome;
     use serde_json::Value;
+
+    #[test]
+    fn qoder_private_journal_recovers_before_commit_and_after_commit() {
+        let home = TestHome::new("qoder-private-recovery");
+        let target = home.home.join(".qoder/settings.json");
+        fs::create_dir_all(target.parent().unwrap()).unwrap();
+        fs::write(&target, b"{\"providers\":{}}").unwrap();
+        for agent in ["qoder-cli", "qoder-desktop"] {
+            for committed in [false, true] {
+                let mut plan = private_transaction_plan(vec![target.to_string_lossy().into_owned()]);
+                plan.affected_agent_ids = vec![agent.into()];
+                let persisted = PersistedAssetOperation {
+                    schema_version: 3, plan,
+                    settings_hash: None, state_preconditions: vec![],
+                    settings_target_hash: String::new(), target_hashes: BTreeMap::new(),
+                    mcp_catalog_hash: None, skill_target_graph_hash: None, lifecycle: None,
+                };
+                let operation_id = &persisted.plan.operation_id;
+                persist_rollback_snapshots(operation_id, &[PathSnapshot::capture_private(&target).unwrap()]).unwrap();
+                if committed { mark_operation_committed(operation_id).unwrap(); }
+                recover_pending_asset_operation(&persisted, &operation_root(operation_id)).unwrap();
+                assert!(!operation_root(operation_id).exists());
+                assert_eq!(fs::read(&target).unwrap(), b"{\"providers\":{}}");
+            }
+        }
+    }
+
+    #[test]
+    fn credential_delivery_preserves_current_and_rolls_back_all_profile_writes() {
+        use crate::domain::assets::ApiKeyDelivery;
+        use crate::domain::types::{ApiKeySource, AuthRequirement};
+        let home = TestHome::new("credential-policy-atomic");
+        let mut key_paths = Vec::new();
+        for id in ["a", "b"] {
+            let key_path = home.home.join(format!("key-{id}"));
+            fs::write(&key_path, format!("fixture-key-{id}")).unwrap();
+            #[cfg(unix)] {
+                use std::os::unix::fs::PermissionsExt;
+                fs::set_permissions(&key_path, fs::Permissions::from_mode(0o600)).unwrap();
+            }
+            let mut profile = model(id);
+            profile.id = id.into();
+            profile.provider_id = Some(format!("provider-{id}"));
+            save_profile(profile.clone(), None).unwrap();
+            mutate_settings(|settings| {
+                let provider = settings.model_providers.as_mut().unwrap()
+                    .get_mut(profile.provider_id.as_ref().unwrap()).unwrap();
+                provider.api_key_source = Some(ApiKeySource::File { path: key_path.to_string_lossy().into_owned() });
+                provider.auth_requirement = AuthRequirement::Required;
+            }).unwrap();
+            key_paths.push(key_path);
+        }
+        mutate_settings(|settings| {
+            let mut selection = settings.model_selection("opencode");
+            selection.default_delivery = ApiKeyDelivery::Auto;
+            settings.set_model_selection("opencode", selection);
+        }).unwrap();
+        let install = plan_set_agent_consumption(PlanSetAgentConsumptionRequest {
+            agent_id: "opencode".into(),
+            selection: AgentConsumptionSelection::Model { profile_ids: vec!["a".into(), "b".into()] },
+        }).unwrap();
+        commit_asset_operation(AssetCommitRequest { operation_id: install.operation_id, candidate_hash: install.candidate_hash }).unwrap();
+        let active = plan_set_active_model(PlanSetActiveModelRequest { agent_id: "opencode".into(), profile_id: "a".into() }).unwrap();
+        commit_asset_operation(AssetCommitRequest { operation_id: active.operation_id, candidate_hash: active.candidate_hash }).unwrap();
+        let before = load_settings_strict().unwrap().model_selection("opencode");
+        let plan = crate::assets::planner::plan_model_credential_delivery("opencode", None, ApiKeyDelivery::Plaintext, true).unwrap();
+        let files = plan.target_files.iter().map(|path| {
+            let path = expand_tilde_path(path);
+            let bytes = fs::read(&path).ok();
+            (path, bytes)
+        }).collect::<Vec<_>>();
+        let error = commit_asset_operation_with_hook(AssetCommitRequest {
+            operation_id: plan.operation_id, candidate_hash: plan.candidate_hash,
+        }, || { fs::remove_file(&key_paths[1]).map_err(|error| error.to_string()) }).unwrap_err();
+        assert!(!error.is_empty());
+        assert_eq!(load_settings_strict().unwrap().model_selection("opencode"), before);
+        for (path, bytes) in &files { assert_eq!(fs::read(path).ok(), *bytes); }
+        fs::write(&key_paths[1], b"fixture-key-b").unwrap();
+        crate::resources::model::set_agent_credential_delivery("opencode", ApiKeyDelivery::Plaintext, true).unwrap();
+        let after = load_settings_strict().unwrap().model_selection("opencode");
+        assert_eq!(after.active_profile_id, before.active_profile_id);
+        assert!(after.profiles.values().all(|record| record.enabled));
+    }
+
+    #[test]
+    fn checkpoint_recovery_preserves_central_and_completed_target_only() {
+        let home = TestHome::new("target-checkpoint-recovery");
+        mutate_settings(|_| ()).unwrap();
+        let first = home.home.join("a/first.json");
+        let second = home.home.join("b/second.json");
+        fs::create_dir_all(first.parent().unwrap()).unwrap();
+        fs::create_dir_all(second.parent().unwrap()).unwrap();
+        fs::write(&first, b"first-before").unwrap();
+        fs::write(&second, b"second-before").unwrap();
+        let paths = vec![settings_file(), first.clone(), second.clone()];
+        let snapshots = paths.iter().map(|path| PathSnapshot::capture(path).unwrap()).collect::<Vec<_>>();
+        let mut plan = private_transaction_plan(vec![first.to_string_lossy().into_owned(), second.to_string_lossy().into_owned()]);
+        plan.affected_agent_ids = vec!["qoder-desktop".into(), "grok-build".into()];
+        mutate_settings(|settings| {
+            let paths = settings.agent_config_paths.get_or_insert_default();
+            for (id, path) in [("qoder-desktop", &first), ("grok-build", &second)] {
+                paths.insert(id.into(), crate::settings::AgentConfigPathOverride {
+                    model_paths: Some(vec![path.to_string_lossy().into_owned()]), ..Default::default()
+                });
+            }
+        }).unwrap();
+        persist_rollback_snapshots(&plan.operation_id, &snapshots).unwrap();
+        let tracker = begin_transaction_write_tracking(&transaction_write_evidence_dir(&plan.operation_id), &paths,
+            &parent_snapshots_for_snapshots(&snapshots)).unwrap();
+        mutate_settings(|settings| settings.model_assignments = Some(BTreeMap::from([("codex".into(), "durable".into())]))).unwrap();
+        mark_central_committed(&plan).unwrap();
+        crate::safe_write::write_if_unchanged(&first, Some("first-before"), "first-after").unwrap();
+        mark_target_completed(&plan, "qoder-desktop").unwrap();
+        crate::safe_write::write_if_unchanged(&second, Some("second-before"), "second-partial").unwrap();
+        settle_checkpoint_targets(&plan, snapshots, &tracker.states()).unwrap();
+        assert_eq!(fs::read(&first).unwrap(), b"first-after");
+        assert_eq!(fs::read(&second).unwrap(), b"second-before");
+        let settings = load_settings_strict().unwrap();
+        assert_eq!(settings.model_assignments.unwrap()["codex"], "durable");
+        assert!(settings.target_incidents.unwrap().values().all(|incident| incident.target_path == second.to_string_lossy()));
+        drop(tracker);
+    }
 
     #[test]
     fn clear_agent_models_removes_native_pi_registry_even_without_mux_relationships() {

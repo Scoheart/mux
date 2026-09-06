@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { useModelObservationRevision } from "../lib/modelObservation";
 import { useTranslation } from "react-i18next";
 import {
   discoverProviderModels,
@@ -332,12 +333,16 @@ export function ModelsView({
   const { t } = useTranslation();
   const lastConsumedIntentId = useRef<number | null>(null);
 
+  const modelRevision = useModelObservationRevision();
+  const queryGeneration = useRef(0);
   const refresh = useCallback(async () => {
+    const generation = ++queryGeneration.current;
     const [nextProfiles, nextProviders, nextProviderInstances] = await Promise.all([
       listModelProfiles(),
       listModelProviders(),
       listModelProviderInstances(),
     ]);
+    if (generation !== queryGeneration.current) return;
     setProfiles(nextProfiles);
     setProviders(nextProviders);
     setProviderInstances(nextProviderInstances);
@@ -350,15 +355,18 @@ export function ModelsView({
   }, []);
 
   useEffect(() => {
+    let active = true;
     refresh()
-      .then(() => setReadError(null))
+      .then(() => { if (active) setReadError(null); })
       .catch((error) => {
+        if (!active) return;
         const message = formatError(error);
         setReadError(message);
         showToast({ kind: "error", msg: t("models.readFailed", { error: message }) });
       })
-      .finally(() => setLoading(false));
-  }, [refresh, showToast, t]);
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; queryGeneration.current += 1; };
+  }, [refresh, showToast, t, modelRevision]);
 
   useEffect(() => {
     let active = true;

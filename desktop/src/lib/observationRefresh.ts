@@ -7,7 +7,8 @@ export type ObservationTaskId =
   | "skills"
   | "registry"
   | "sources"
-  | "external-models";
+  | "external-models"
+  | "models";
 
 export interface ObservationChange {
   domains?: ObservationDomain[];
@@ -21,11 +22,12 @@ export const ALL_OBSERVATION_TASK_IDS: readonly ObservationTaskId[] = [
   "registry",
   "sources",
   "external-models",
+  "models",
 ];
 
 const DOMAIN_TASKS: Record<Exclude<ObservationDomain, "central">, readonly ObservationTaskId[]> = {
   mcp: ["agents", "agent-capabilities", "relationships"],
-  model: ["agents", "agent-capabilities", "relationships", "external-models"],
+  model: ["agents", "agent-capabilities", "relationships", "external-models", "models"],
   skill: ["agents", "agent-capabilities", "relationships", "skills"],
 };
 

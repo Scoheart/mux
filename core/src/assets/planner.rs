@@ -566,6 +566,41 @@ pub fn plan_set_model_enabled(
     })
 }
 
+/// Credential delivery changes preserve the independent enabled/current state.
+pub(crate) fn plan_model_credential_delivery(
+    agent_id: &str,
+    profile_id: Option<&str>,
+    delivery: crate::domain::assets::ApiKeyDelivery,
+    confirm_plaintext: bool,
+) -> Result<AssetOperationPlan, String> {
+    validate_agent_id(agent_id)?;
+    require_enabled_agent(agent_id)?;
+    if !crate::resources::model::credential::available_deliveries(agent_id).contains(&delivery) {
+        return Err(format!("credential_delivery_unsupported: {agent_id} does not support {delivery:?}"));
+    }
+    if delivery == crate::domain::assets::ApiKeyDelivery::Plaintext && !confirm_plaintext {
+        return Err("plaintext_confirmation_required: confirm the private plaintext Agent write".into());
+    }
+    let settings = load_settings_strict().map_err(|error| error.to_string())?;
+    let before = settings.model_selection(agent_id);
+    let mut after = before.clone();
+    if let Some(profile_id) = profile_id {
+        let record = after.profiles.get_mut(profile_id)
+            .ok_or_else(|| format!("model_consumption_missing: {profile_id} is not added to {agent_id}"))?;
+        record.credential.delivery = delivery;
+    } else {
+        after.default_delivery = delivery.clone();
+        for record in after.profiles.values_mut() {
+            record.credential.delivery = delivery.clone();
+        }
+    }
+    validate_model_selection_contract(&settings, agent_id, &after)?;
+    finalize_plan(DomainPlan::Model {
+        before: BTreeMap::from([(agent_id.to_string(), before)]),
+        after: BTreeMap::from([(agent_id.to_string(), after)]),
+    })
+}
+
 pub fn plan_set_active_model(
     request: PlanSetActiveModelRequest,
 ) -> Result<AssetOperationPlan, String> {
@@ -1970,6 +2005,57 @@ fn skill_selection_from_settings(
         .collect())
 }
 
+/// Shared MCP fields cannot satisfy conflicting per-Agent intentions. Reject
+/// destructive partial plans before any write; the central consumer selector
+/// can remove all owners together in one reviewed operation.
+fn shared_mcp_conflicts(
+    plan: &DomainPlan,
+    lifecycle: Option<&LifecycleBinding>,
+) -> Result<(Vec<String>, BTreeSet<StateSubject>), String> {
+    let DomainPlan::Mcp { before, after } = plan else {
+        return Ok((Vec::new(), BTreeSet::new()));
+    };
+    let settings = load_settings_strict().map_err(|error| error.to_string())?;
+    let definitions = load_agents();
+    let mut conflicts = Vec::new();
+    let mut subjects = BTreeSet::new();
+    for agent_id in union_keys(before, after) {
+        let Some(agent) = definitions.get(agent_id) else { continue; };
+        let Some(path) = agent.global.as_deref() else { continue; };
+        for (peer_id, peer) in &definitions {
+            if peer_id == agent_id || peer.key != agent.key
+                || !peer.global.as_deref().is_some_and(|other| expand_tilde(other) == expand_tilde(path)) {
+                continue;
+            }
+            subjects.insert(StateSubject::AgentConsumption {
+                capability: crate::domain::assets::AssetCapability::Mcp, agent_id: peer_id.clone(),
+            });
+            subjects.insert(StateSubject::AgentConfiguration {
+                capability: crate::domain::assets::AssetCapability::Mcp, agent_id: peer_id.clone(),
+            });
+            let records = settings.mcp_consumptions.as_ref().and_then(|all| all.get(peer_id));
+            for (key, record) in records.into_iter().flatten() {
+                let peer_retains = after.get(peer_id).map_or(true, |keys| keys.contains(key));
+                if !peer_retains { continue; }
+                let removed = before.get(agent_id).is_some_and(|keys| keys.contains(key))
+                    && !after.get(agent_id).is_some_and(|keys| keys.contains(key));
+                let conflicts_with_peer = match lifecycle {
+                    Some(LifecycleBinding::McpClear { agent_id: owner }) if owner == agent_id => true,
+                    Some(LifecycleBinding::McpEnabled { agent_id: owner, asset_key, after, .. })
+                        if owner == agent_id && asset_key == key => *after != record.enabled,
+                    Some(LifecycleBinding::McpEnabledBulk { agent_id: owner, before, after })
+                        if owner == agent_id && before.contains_key(key) => *after != record.enabled,
+                    _ => removed && record.enabled,
+                };
+                if conflicts_with_peer {
+                    conflicts.push(format!("shared_mcp_target_conflict: {agent_id} 与 {peer_id} 共用 {path}；{key} 仍被另一 Agent 使用。请在中央 MCP 的消费者选择器中统一解除消费。"));
+                }
+            }
+        }
+    }
+    Ok((conflicts, subjects))
+}
+
 fn finalize_plan(domain_plan: DomainPlan) -> Result<AssetOperationPlan, String> {
     finalize_plan_with(
         AssetOperationKind::SetConsumption,
@@ -2128,6 +2214,8 @@ fn finalize_plan_with_inventory(
             }
         }
     }
+    let (shared_conflicts, shared_subjects) = shared_mcp_conflicts(&domain_plan, lifecycle.as_ref())?;
+    blocked.extend(shared_conflicts);
     let mut removal_warnings = Vec::new();
     append_missing_skill_removal_warnings(&domain_plan, &effects, &mut removal_warnings)?;
     blocked.sort();
@@ -2157,11 +2245,9 @@ fn finalize_plan_with_inventory(
     // Materialize the stable MUX root before parent fingerprints are captured
     // so that persisting this very plan cannot make its own target hash stale.
     fs::create_dir_all(mux_dir()).map_err(|error| error.to_string())?;
-    let state_preconditions = AssetStateStore::load()?.capture(state_subjects(
-        &domain_plan,
-        &central_changes,
-        lifecycle.as_ref(),
-    ))?;
+    let mut subjects = state_subjects(&domain_plan, &central_changes, lifecycle.as_ref());
+    subjects.extend(shared_subjects);
+    let state_preconditions = AssetStateStore::load()?.capture(subjects)?;
     let settings_target_hash = hash_settings_target(&settings_file());
     let target_hashes = hash_targets(&target_files);
     let mut persisted = PersistedAssetOperation {
@@ -2924,7 +3010,10 @@ pub(crate) fn effect_assets(
                 // Switching current writes the new current Profile and the
                 // shared pointer. The old current payload is not a physical
                 // effect unless its relationship/enabled record also changed.
-                (left_record != right_record || became_active)
+                let enabled_payload_changed = left_record != right_record
+                    && (left_record.is_some_and(|record| record.enabled)
+                        || right_record.is_some_and(|record| record.enabled));
+                (enabled_payload_changed || became_active)
                     .then(|| (agent_id.clone(), AssetRef::Model { profile_id }))
             }));
         }
@@ -3355,6 +3444,33 @@ mod tests {
     use crate::resources::mcp::registry::write_manual_entry;
     use crate::settings::mutate_settings;
     use crate::testenv::TestHome;
+
+    #[test]
+    fn shared_qoder_mcp_requires_a_closed_removal_plan() {
+        let _home = TestHome::new("shared-qoder-removal");
+        let key = "shared::stdio".to_string();
+        let agents = ["qoder-cli", "qoder-desktop"];
+        mutate_settings(|settings| {
+            settings.mcp_consumptions = Some(agents.iter().map(|id| (id.to_string(),
+                BTreeMap::from([(key.clone(), McpConsumptionRecord {
+                    asset_key: key.clone(), enabled: true, overrides: Default::default(),
+                })]))).collect());
+        }).unwrap();
+        let partial = DomainPlan::Mcp {
+            before: BTreeMap::from([("qoder-desktop".into(), vec![key.clone()])]),
+            after: BTreeMap::from([("qoder-desktop".into(), vec![])]),
+        };
+        let (conflicts, subjects) = shared_mcp_conflicts(&partial, None).unwrap();
+        assert!(!conflicts.is_empty());
+        assert!(subjects.contains(&StateSubject::AgentConsumption {
+            capability: crate::domain::assets::AssetCapability::Mcp, agent_id: "qoder-cli".into(),
+        }));
+        let closed = DomainPlan::Mcp {
+            before: agents.iter().map(|id| (id.to_string(), vec![key.clone()])).collect(),
+            after: agents.iter().map(|id| (id.to_string(), vec![])).collect(),
+        };
+        assert!(shared_mcp_conflicts(&closed, None).unwrap().0.is_empty());
+    }
 
     #[test]
     fn legacy_v2_reviewed_operations_remain_loadable_and_committable() {

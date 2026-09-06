@@ -1,4 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { invalidateModelObservation } from "./lib/modelObservation";
 import { Layout } from "./components/Layout";
 import { RegistryView } from "./components/RegistryView";
 import { RegistryEditPage } from "./components/RegistryEditPage";
@@ -163,6 +164,7 @@ function App() {
       registry: state.refreshRegistry,
       sources: state.refreshSources,
       "external-models": refreshExternalModels,
+      models: invalidateModelObservation,
     }),
     [
       consumptionState.refresh,

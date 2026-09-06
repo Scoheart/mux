@@ -21,7 +21,8 @@ pub fn list_provider_instances() -> Vec<ModelProviderInstanceView> {
 }
 
 pub fn discover_provider_models(provider_id: &str) -> Result<Vec<ProviderModelSummary>, String> {
-    super::gate::read(|| crate::resources::model::discover_provider_models(provider_id))
+    let input = super::gate::read(|| crate::resources::model::prepare_provider_discovery(provider_id))?;
+    crate::resources::model::execute_provider_discovery(input)
 }
 
 pub fn reveal_provider_credential(provider_id: &str) -> Result<String, String> {

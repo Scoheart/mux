@@ -13,6 +13,7 @@ mod discovery;
 mod open_code_auth;
 
 pub use discovery::{discover_provider_models, ProviderModelSummary};
+pub(crate) use discovery::{prepare_provider_discovery, execute_provider_discovery};
 
 #[cfg(test)]
 pub(crate) use claude_desktop::set_config_write_hook as set_claude_desktop_config_write_hook;
@@ -3692,43 +3693,7 @@ pub fn set_model_credential_delivery(
     delivery: crate::domain::assets::ApiKeyDelivery,
     confirm_plaintext: bool,
 ) -> Result<ModelApplyResult, String> {
-    if delivery == crate::domain::assets::ApiKeyDelivery::Plaintext && !confirm_plaintext {
-        return Err(
-            "plaintext_confirmation_required: confirm the private plaintext Agent write".into(),
-        );
-    }
-    let before = load_settings().model_selection(agent_id);
-    if !before.profiles.contains_key(profile_id) {
-        return Err(format!(
-            "model_consumption_missing: {profile_id} is not added to {agent_id}"
-        ));
-    }
-    mutate_settings(|settings| {
-        let mut selection = settings.model_selection(agent_id);
-        let record = selection
-            .profiles
-            .get_mut(profile_id)
-            .expect("consumption presence was checked before the locked update");
-        record.credential.delivery = delivery.clone();
-        settings.set_model_selection(agent_id, selection);
-    })
-    .map_err(|error| error.to_string())?;
-
-    match apply_profile(agent_id, profile_id) {
-        Ok(result) => Ok(result),
-        Err(error) => {
-            let rollback = mutate_settings(|settings| {
-                settings.set_model_selection(agent_id, before.clone());
-            })
-            .map_err(|rollback| rollback.to_string());
-            match rollback {
-                Ok(()) => Err(error),
-                Err(rollback) => Err(format!(
-                    "target_recovery_required: credential delivery failed ({error}); policy rollback failed ({rollback})"
-                )),
-            }
-        }
-    }
+    commit_credential_delivery(agent_id, Some(profile_id), delivery, confirm_plaintext)
 }
 
 pub fn set_agent_credential_delivery(
@@ -3736,66 +3701,31 @@ pub fn set_agent_credential_delivery(
     delivery: crate::domain::assets::ApiKeyDelivery,
     confirm_plaintext: bool,
 ) -> Result<ModelApplyResult, String> {
-    if !credential::available_deliveries(agent_id)
-        .iter()
-        .any(|available| available == &delivery)
-    {
-        return Err(format!(
-            "credential_delivery_unsupported: {agent_id} does not support {delivery:?}"
-        ));
-    }
-    let before = load_settings().model_selection(agent_id);
-    if delivery == crate::domain::assets::ApiKeyDelivery::Plaintext
-        && before.default_delivery != crate::domain::assets::ApiKeyDelivery::Plaintext
-        && !confirm_plaintext
-    {
-        return Err(
-            "plaintext_confirmation_required: confirm the private plaintext Agent write".into(),
-        );
-    }
-    mutate_settings(|settings| {
-        let mut selection = settings.model_selection(agent_id);
-        selection.default_delivery = delivery.clone();
-        for record in selection.profiles.values_mut() {
-            record.credential.delivery = delivery.clone();
-        }
-        settings.set_model_selection(agent_id, selection);
-    })
-    .map_err(|error| error.to_string())?;
+    commit_credential_delivery(agent_id, None, delivery, confirm_plaintext)
+}
 
-    let after = load_settings().model_selection(agent_id);
-    let mut files = Vec::new();
-    let mut last_profile = String::new();
-    let mut restart_required = false;
-    for (profile_id, record) in &after.profiles {
-        if !record.enabled {
-            continue;
-        }
-        match apply_profile(agent_id, profile_id) {
-            Ok(result) => {
-                files.extend(result.files);
-                last_profile = profile_id.clone();
-                restart_required |= result.restart_required;
-            }
-            Err(error) => {
-                let rollback = mutate_settings(|settings| {
-                    settings.set_model_selection(agent_id, before.clone());
-                })
-                .map_err(|rollback| rollback.to_string());
-                return match rollback {
-                    Ok(()) => Err(error),
-                    Err(rollback) => Err(format!(
-                        "target_recovery_required: credential delivery failed ({error}); policy rollback failed ({rollback})"
-                    )),
-                };
-            }
-        }
+fn commit_credential_delivery(
+    agent_id: &str,
+    profile_id: Option<&str>,
+    delivery: crate::domain::assets::ApiKeyDelivery,
+    confirm_plaintext: bool,
+) -> Result<ModelApplyResult, String> {
+    let plan = crate::assets::planner::plan_model_credential_delivery(
+        agent_id, profile_id, delivery, confirm_plaintext,
+    )?;
+    let files = plan.target_files.clone();
+    let inventory = crate::assets::commit_asset_operation(crate::assets::AssetCommitRequest {
+        operation_id: plan.operation_id.clone(),
+        candidate_hash: plan.candidate_hash,
+    })?;
+    if inventory.target_incidents.iter().any(|incident| incident.operation_id == plan.operation_id) {
+        return Err("target_convergence_failed: credential policy saved but Agent projection requires recovery".into());
     }
     Ok(ModelApplyResult {
         agent: agent_id.into(),
-        profile: last_profile,
+        profile: profile_id.unwrap_or_default().into(),
+        restart_required: !files.is_empty(),
         files,
-        restart_required,
         message: format!("{agent_id} credential delivery updated."),
     })
 }

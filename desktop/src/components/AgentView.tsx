@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useModelObservationRevision } from "../lib/modelObservation";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { homeDir } from "@tauri-apps/api/path";
 import { openPath, openUrl } from "@tauri-apps/plugin-opener";
 import type { InstallState } from "../hooks/useInstallState";
@@ -212,25 +213,32 @@ export function AgentView({
     }
   }, [agent?.has_global, agent?.id, agent?.skills_global_dir]);
 
+  const modelRevision = useModelObservationRevision();
+  const modelQueryGeneration = useRef(0);
   const refreshModels = useCallback(async () => {
+    const generation = ++modelQueryGeneration.current;
     try {
       const [profiles, nextAgents] = await Promise.all([listModelProfiles(), listModelAgents()]);
+      if (generation !== modelQueryGeneration.current) return;
       setModelProfiles(profiles);
       setModelAgents(nextAgents);
       setModelsError(null);
     } catch (error) {
+      if (generation !== modelQueryGeneration.current) return;
       setModelsError(formatError(error));
       throw error;
     }
   }, []);
 
   useEffect(() => {
+    let active = true;
     setModelsLoading(true);
     setModelsError(null);
     refreshModels()
-      .catch((error) => showToast({ kind: "error", msg: "读取模型配置失败：" + formatError(error) }))
-      .finally(() => setModelsLoading(false));
-  }, [refreshModels, showToast]);
+      .catch((error) => { if (active) showToast({ kind: "error", msg: "读取模型配置失败：" + formatError(error) }); })
+      .finally(() => { if (active) setModelsLoading(false); });
+    return () => { active = false; modelQueryGeneration.current += 1; };
+  }, [refreshModels, showToast, modelRevision]);
 
   const modelAgent = useMemo(
     () => modelAgents.find((item) => item.id === agentId) ?? null,

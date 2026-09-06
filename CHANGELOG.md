@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.174](https://github.com/Scoheart/mux/compare/v1.8.173...v1.8.174) (2026-09-06)
+
+### Changes
+
+* test(core): restore private mode on recreated credential fixture ([c4befc0](https://github.com/Scoheart/mux/commit/c4befc0464fc8c2f212f12390de8bde4280b6dc9))
+
 ## [1.8.173](https://github.com/Scoheart/mux/compare/v1.8.172...v1.8.173) (2026-09-06)
 
 ### Changes

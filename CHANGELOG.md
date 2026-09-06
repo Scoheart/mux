@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.179](https://github.com/Scoheart/mux/compare/v1.8.178...v1.8.179) (2026-09-06)
+
+### Changes
+
+* feat(catalog): expand agent and provider integrations ([8819d90](https://github.com/Scoheart/mux/commit/8819d90d3f1a6fd05fefcbeb0ee3670d51e3675d))
+
 ## [1.8.178](https://github.com/Scoheart/mux/compare/v1.8.177...v1.8.178) (2026-09-06)
 
 ### Changes

@@ -90,7 +90,7 @@ const AGENT_META: Record<string, { name: string; color: string }> = {
   "grok-build": { name: "Grok Build", color: "#111111" },
   "minimax-code": { name: "MiniMax Code", color: "#75B9EA" },
   qoder: { name: "Qoder IDE", color: "#6E56CF" },
-  "qoder-desktop": { name: "Qoder Desktop", color: "#6E56CF" },
+  "qoder-desktop": { name: "Qoder Desktop", color: "#11100E" },
   "qoder-cli": { name: "Qoder CLI", color: "#6E56CF" },
   qoderwork: { name: "QoderWork", color: "#25D959" },
   devin: { name: "Devin", color: "#1F2937" },

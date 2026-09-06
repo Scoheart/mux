@@ -10,7 +10,7 @@ function surfaceFor(container: HTMLElement): string | null {
     ?.getAttribute("data-agent-surface") ?? null;
 }
 
-it("distinguishes Claude and Qoder variants that share a logo", () => {
+it("distinguishes Claude and Qoder product surfaces", () => {
   const cases = [
     ["claude-code", "Claude Code", "cli"],
     ["claude-desktop", "Claude Desktop", "desktop"],

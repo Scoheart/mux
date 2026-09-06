@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.176](https://github.com/Scoheart/mux/compare/v1.8.175...v1.8.176) (2026-09-06)
+
+### Changes
+
+* feat(skills): browse sources with interactive agent card hands ([6c8ecfb](https://github.com/Scoheart/mux/commit/6c8ecfb759d5c8734a2cfd7a67b9fc3f1039fad3))
+
 ## [1.8.175](https://github.com/Scoheart/mux/compare/v1.8.174...v1.8.175) (2026-09-06)
 
 ### Changes

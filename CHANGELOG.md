@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.170](https://github.com/Scoheart/mux/compare/v1.8.169...v1.8.170) (2026-09-06)
+
+### Changes
+
+* fix(qoder): use the new Desktop brand icon ([e9523e4](https://github.com/Scoheart/mux/commit/e9523e445345a872faa867c20bb4e046f0bb7e68))
+
 ## [1.8.169](https://github.com/Scoheart/mux/compare/v1.8.168...v1.8.169) (2026-09-05)
 
 ### Changes

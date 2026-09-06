@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.175](https://github.com/Scoheart/mux/compare/v1.8.174...v1.8.175) (2026-09-06)
+
+### Changes
+
+* refactor(skills): remove legacy central directory compatibility ([7a36759](https://github.com/Scoheart/mux/commit/7a36759f82f0a604ae64f42fc1fa1b5d5054afe5))
+
 ## [1.8.174](https://github.com/Scoheart/mux/compare/v1.8.173...v1.8.174) (2026-09-06)
 
 ### Changes

@@ -147,6 +147,7 @@ impl ExtractedModel {
         }
         let keychain_capable = matches!(self.agent_id.as_str(), "claude-code" | "codex" | "pi");
         match (&self.credential, keychain_capable) {
+            (ExtractedCredential::Env(_) | ExtractedCredential::Literal(_), _) if self.agent_id == "qoder-desktop" => (ModelAdoptionStatus::Adoptable, None),
             (ExtractedCredential::Command, _) => (
                 ModelAdoptionStatus::NeedsCredential,
                 Some(
@@ -401,7 +402,12 @@ pub fn plan_model_adoption(
             ModelConsumptionRecord {
                 profile_id: profile.id.clone(),
                 enabled: true,
-                credential: Default::default(),
+                credential: if candidate.agent_id == "qoder-desktop" && matches!(candidate.credential, ExtractedCredential::Env(_)) {
+                    crate::domain::assets::ModelCredentialPolicy {
+                        source_override: None,
+                        delivery: crate::domain::assets::ApiKeyDelivery::Env,
+                    }
+                } else { Default::default() },
                 last_selected_at: candidate
                     .active
                     .then(|| chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true)),
@@ -410,7 +416,7 @@ pub fn plan_model_adoption(
         if candidate.active || desired.active_profile_id.is_none() {
             desired.active_profile_id = Some(profile.id.clone());
         }
-        desired.normalize_active();
+        crate::resources::model::normalize_model_selection(&candidate.agent_id, &mut desired);
         before.insert(candidate.agent_id.clone(), current);
         after.insert(candidate.agent_id.clone(), desired);
     }
@@ -486,6 +492,7 @@ fn extract_models(settings: &Settings) -> Result<Vec<ExtractedModel>, String> {
             "grok-build" => extract_grok(&paths[0]),
             "pi" => extract_pi(&paths[0], &paths[1]),
             "opencode" | "kilo-code" => extract_open_code(&agent_id, &paths[0]),
+            "qoder-desktop" => extract_qoder(&paths[0]),
             "qwen-code" => extract_qwen(&paths[0]),
             "crush" => extract_crush(&paths[0]),
             "mistral-vibe" => extract_vibe(&paths[0]),
@@ -513,6 +520,7 @@ fn agent_uses_native_id(agent_id: &str) -> bool {
             | "pi"
             | "opencode"
             | "kilo-code"
+            | "qoder-desktop"
             | "crush"
             | "mistral-vibe"
             | "hermes"
@@ -869,6 +877,52 @@ fn extract_open_code(agent_id: &str, path: &Path) -> Result<Vec<ExtractedModel>,
                 reasoning: model_value.get("reasoning").and_then(Value::as_bool),
                 active: active.as_deref() == Some(format!("{native_id}/{model}").as_str()),
                 credential: credential.clone(),
+                target_paths: vec![path.into()],
+            });
+        }
+    }
+    Ok(rows)
+}
+
+fn extract_qoder(path: &Path) -> Result<Vec<ExtractedModel>, String> {
+    let Some(root) = crate::resources::model::adapters::read_qoder_registry(path)? else { return Ok(Vec::new()); };
+    let Some(providers_value) = root.get("providers") else { return Ok(Vec::new()); };
+    let providers = providers_value.as_object().ok_or("Qoder providers must be an object")?;
+    let mut rows = Vec::new();
+    for (native_id, provider) in providers {
+        let Some(base_url) = provider.get("baseUrl").and_then(Value::as_str) else { continue; };
+        let Some(models) = provider.get("models").and_then(Value::as_array) else { continue; };
+        let protocol = match provider.get("protocol").and_then(Value::as_str).unwrap_or("openai") {
+            "openai" => ModelProtocol::OpenaiCompletions,
+            "openai-responses" => ModelProtocol::OpenaiResponses,
+            "anthropic" => ModelProtocol::AnthropicMessages,
+            _ => return Err("Qoder provider protocol is unsupported".into()),
+        };
+        let (env_key, credential) = match provider.get("apiKey").and_then(Value::as_str) {
+            Some("") => (None, ExtractedCredential::None),
+            Some(key) => env_or_literal(key),
+            None => (None, ExtractedCredential::Invalid("Qoder apiKey is missing".into())),
+        };
+        let mut ids = BTreeSet::new();
+        for entry in models {
+            let model = entry.get("model").and_then(Value::as_str).ok_or("Qoder model id missing")?;
+            if !ids.insert(model) { return Err("Qoder contains duplicate model ids".into()); }
+            rows.push(ExtractedModel {
+                agent_id: "qoder-desktop".into(),
+                native_id: native_id.clone(),
+                name: entry.get("displayName").and_then(Value::as_str).unwrap_or(model).into(),
+                protocol: protocol.clone(),
+                base_url: base_url.into(),
+                model: model.into(),
+                env_key: env_key.clone(),
+                context_window: entry.get("contextWindow").and_then(Value::as_u64),
+                max_output_tokens: entry.get("maxOutputTokens").and_then(Value::as_u64),
+                reasoning: entry.pointer("/capabilities/thinking/modes").and_then(Value::as_array)
+                    .map(|modes| modes.iter().any(|mode| mode.as_str() == Some("enabled"))),
+                active: false,
+                credential: if models.len() > 1 {
+                    ExtractedCredential::Invalid("此 Qoder provider 共用多个模型；保留只读，避免接管时改动其他模型的连接与凭据".into())
+                } else { credential.clone() },
                 target_paths: vec![path.into()],
             });
         }
@@ -1326,7 +1380,7 @@ fn profile_owns_candidate(
     explicit_native_id.is_none()
         || !matches!(
             candidate.agent_id.as_str(),
-            "pi" | "opencode" | "kilo-code" | "crush" | "goose"
+            "pi" | "opencode" | "kilo-code" | "qoder-desktop" | "crush" | "goose"
         )
         || profile.model == candidate.model
 }

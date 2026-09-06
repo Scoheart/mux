@@ -203,6 +203,7 @@ export interface ModelAgentView {
   assigned_profiles: string[];
   active_profile: string | null;
   supports_multiple: boolean;
+  supports_global_selection?: boolean;
   credential_mode: "keychain-command" | "environment-reference" | "guided" | string;
   credential_capabilities?: {
     native_sources: Array<ApiKeySource["kind"]>;

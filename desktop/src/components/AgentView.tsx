@@ -287,12 +287,13 @@ export function AgentView({
   const displayedModelRows = useMemo(
     () => authorityModelRows.map((item) => {
       const profileId = item.asset.domain === "model" ? item.asset.profile_id : "";
+      if (modelAgent?.supports_global_selection === false) return item;
       const current = changingModel
         ? profileId === changingModel.profileId
         : item.desired_active ?? item.active ?? false;
       return { ...item, enabled: current };
     }),
-    [authorityModelRows, changingModel],
+    [authorityModelRows, changingModel, modelAgent?.supports_global_selection],
   );
 
   if (!agent) return <div className="mux-agent-state">未找到该 Agent</div>;
@@ -874,7 +875,7 @@ export function AgentView({
                   domain="model"
                   title="Models"
                   description={modelAgent.storage_authority === "native-registry"
-                    ? `配置中 ${modelVisibleCount} 个${modelAgent.supports_multiple ? " · 同一时间使用其中一个" : ""}`
+                    ? `配置中 ${modelVisibleCount} 个${modelAgent.supports_global_selection === false ? " · 重启 Qoder 后在会话中选用" : modelAgent.supports_multiple ? " · 同一时间使用其中一个" : ""}`
                     : `MUX 管理 ${modelVisibleCount} 个`}
                   manageLabel="添加 Model"
                   rows={displayedModelRows}
@@ -893,7 +894,7 @@ export function AgentView({
                   onManage={() => setPickerDomain("model")}
                   manageDisabled={preparingChange || compatibleProfiles.length === 0}
                   onOpenAsset={openAsset}
-                  onEnabledChange={switchActiveModel}
+                  onEnabledChange={modelAgent.supports_global_selection === false ? undefined : switchActiveModel}
                   toggleKind="current"
                   enabledChangeDisabled={(item) => changingModel !== null
                     || item.status === "ambiguous"}

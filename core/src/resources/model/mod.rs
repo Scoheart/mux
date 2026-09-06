@@ -1,7 +1,7 @@
 //! Shared Provider connections, reusable Model records, and safe per-Agent
 //! configuration writers.
 //!
-//! Managed Agents are written only through documented user-level configuration
+//! Managed Agents are written only through verified user-level configuration
 //! surfaces. Multi-model Agents keep MUX provider entries independently from
 //! their one active primary pointer; unsupported or insecure surfaces remain
 //! guidance-only.
@@ -1533,6 +1533,8 @@ pub struct ModelAgentView {
     pub assigned_profiles: Vec<String>,
     pub active_profile: Option<String>,
     pub supports_multiple: bool,
+    /// False for clients that select a model separately in each conversation.
+    pub supports_global_selection: bool,
     /// `keychain-command`, `keychain-export`, `environment-reference`, or `guided`.
     pub credential_mode: String,
     pub credential_capabilities: credential::AgentCredentialCapabilities,
@@ -1627,6 +1629,7 @@ pub fn default_config_paths(agent_id: &str) -> Option<Vec<String>> {
         "opencode" => &["~/.config/opencode/opencode.json"],
         "kilo-code" => &["~/.config/kilo/kilo.jsonc"],
         "qwen-code" => &["~/.qwen/settings.json"],
+        "qoder-desktop" => &["~/.qoder/settings.json"],
         "crush" => &["~/.config/crush/crush.json"],
         "mistral-vibe" => &["~/.vibe/config.toml"],
         "hermes" => &["~/.hermes/config.yaml"],
@@ -2889,6 +2892,7 @@ pub fn list_agents() -> Vec<ModelAgentView> {
             assigned_profiles: assigned_profiles("claude-code"),
             active_profile: assignments.get("claude-code").cloned(),
             supports_multiple: false,
+            supports_global_selection: true,
             credential_mode: "keychain-command".into(),
             credential_capabilities: credential::agent_capabilities("claude-code"),
             credential_policies: credential_policies("claude-code"),
@@ -2910,6 +2914,7 @@ pub fn list_agents() -> Vec<ModelAgentView> {
             assigned_profiles: assigned_profiles(claude_desktop::AGENT_ID),
             active_profile: assignments.get(claude_desktop::AGENT_ID).cloned(),
             supports_multiple: false,
+            supports_global_selection: true,
             credential_mode: "keychain-export".into(),
             credential_capabilities: credential::agent_capabilities(claude_desktop::AGENT_ID),
             credential_policies: credential_policies(claude_desktop::AGENT_ID),
@@ -2931,6 +2936,7 @@ pub fn list_agents() -> Vec<ModelAgentView> {
             assigned_profiles: assigned_profiles("codex"),
             active_profile: assignments.get("codex").cloned(),
             supports_multiple: false,
+            supports_global_selection: true,
             credential_mode: "keychain-command".into(),
             credential_capabilities: credential::agent_capabilities("codex"),
             credential_policies: credential_policies("codex"),
@@ -2952,6 +2958,7 @@ pub fn list_agents() -> Vec<ModelAgentView> {
             assigned_profiles: assigned_profiles("grok-build"),
             active_profile: assignments.get("grok-build").cloned(),
             supports_multiple: true,
+            supports_global_selection: true,
             credential_mode: "environment-reference".into(),
             credential_capabilities: credential::agent_capabilities("grok-build"),
             credential_policies: credential_policies("grok-build"),
@@ -2977,6 +2984,7 @@ pub fn list_agents() -> Vec<ModelAgentView> {
             assigned_profiles: assigned_profiles("pi"),
             active_profile: assignments.get("pi").cloned(),
             supports_multiple: true,
+            supports_global_selection: true,
             credential_mode: "keychain-command".into(),
             credential_capabilities: credential::agent_capabilities("pi"),
             credential_policies: credential_policies("pi"),
@@ -3006,6 +3014,7 @@ pub fn list_agents() -> Vec<ModelAgentView> {
             assigned_profiles: Vec::new(),
             active_profile: None,
             supports_multiple: false,
+            supports_global_selection: true,
             credential_mode: "guided".into(),
             credential_capabilities: credential::agent_capabilities("minimax-code"),
             credential_policies: BTreeMap::new(),
@@ -3035,6 +3044,7 @@ pub fn list_agents() -> Vec<ModelAgentView> {
             assigned_profiles: Vec::new(),
             active_profile: None,
             supports_multiple: false,
+            supports_global_selection: true,
             credential_mode: "guided".into(),
             credential_capabilities: credential::agent_capabilities("qoder"),
             credential_policies: BTreeMap::new(),
@@ -3043,29 +3053,17 @@ pub fn list_agents() -> Vec<ModelAgentView> {
             supported_protocols: Vec::new(),
             note: "请在 Qoder IDE Settings → Models 中添加和切换自定义模型。MUX 当前提供配置引导，不自动写入模型。".into(),
         },
-        ModelAgentView {
-            id: "qoder-desktop".into(),
-            name: "Qoder Desktop".into(),
-            mode: "guided".into(),
-            storage_authority: ModelStorageAuthority::Guided,
-            installed: agent_installed(&[], &[], &["/Applications/Qoder.app"]),
-            config_path: String::new(),
-            config_paths: Vec::new(),
-            docs: QODER_DESKTOP_DOCS.into(),
-            assigned_profile: None,
-            assigned_profiles: Vec::new(),
-            active_profile: None,
-            supports_multiple: false,
-            credential_mode: "guided".into(),
-            credential_capabilities: credential::agent_capabilities("qoder-desktop"),
-            credential_policies: BTreeMap::new(),
-            default_delivery: Default::default(),
-            available_deliveries: Vec::new(),
-            supported_protocols: vec![
-                ModelProtocol::OpenaiCompletions,
-                ModelProtocol::AnthropicMessages,
-            ],
-            note: "Qoder Desktop 0.1.8 起，个人计划支持 OpenAI / Anthropic 兼容服务的自定义 Base URL。请在 Settings → Models → Add model 中配置。MUX 当前提供配置引导，不自动写入模型。".into(),
+        {
+            let mut view = managed_agent_view(
+                &settings, "qoder-desktop", "Qoder Desktop", &[], &[],
+                QODER_DESKTOP_DOCS,
+                "支持 Qoder Desktop 0.1.8 的自定义端点和多模型。添加后重启 Qoder，在会话中选择模型；API Key 按下方策略交付。与 Qoder CLI 共用 settings.json。",
+            );
+            view.installed = agent_installed(&[], &[], &["/Applications/Qoder.app"]);
+            view.supports_global_selection = supports_global_model_selection("qoder-desktop");
+            view.active_profile = None;
+            view.assigned_profile = None;
+            view
         },
         ModelAgentView {
             id: "qoder-cli".into(),
@@ -3080,6 +3078,7 @@ pub fn list_agents() -> Vec<ModelAgentView> {
             assigned_profiles: Vec::new(),
             active_profile: None,
             supports_multiple: false,
+            supports_global_selection: true,
             credential_mode: "guided".into(),
             credential_capabilities: credential::agent_capabilities("qoder-cli"),
             credential_policies: BTreeMap::new(),
@@ -3137,6 +3136,19 @@ pub fn list_agents() -> Vec<ModelAgentView> {
     agents
 }
 
+/// Desktop has per-conversation selection; CLI settings.model is not its current model.
+pub(crate) fn supports_global_model_selection(agent_id: &str) -> bool {
+    agent_id != "qoder-desktop"
+}
+
+pub(crate) fn normalize_model_selection(agent_id: &str, selection: &mut crate::domain::assets::ModelAgentSelection) {
+    if supports_global_model_selection(agent_id) {
+        selection.normalize_active();
+    } else {
+        selection.active_profile_id = None;
+    }
+}
+
 fn managed_agent_view(
     settings: &crate::settings::Settings,
     id: &str,
@@ -3166,6 +3178,7 @@ fn managed_agent_view(
         assigned_profiles: selection.profiles.keys().cloned().collect(),
         active_profile: selection.active_profile_id,
         supports_multiple: true,
+        supports_global_selection: supports_global_model_selection(id),
         credential_mode: "environment-reference".into(),
         credential_capabilities: credential::agent_capabilities(id),
         credential_policies,
@@ -3247,7 +3260,7 @@ pub(crate) fn observe_active_model_for_settings(
                 .map(str::to_string)
         }
         "claude-code" | "codex" => settings.model_selection(agent_id).active_profile_id,
-        "opencode" | "kilo-code" | "qwen-code" | "crush" | "mistral-vibe" | "hermes"
+        "qoder-desktop" | "opencode" | "kilo-code" | "qwen-code" | "crush" | "mistral-vibe" | "hermes"
         | "factory-droid" | "goose" => {
             return match adapters::observe_active(agent_id, &paths, &profiles) {
                 adapters::ObservedActiveModel::Managed(id) => ObservedActiveModel::Managed(id),
@@ -3366,7 +3379,7 @@ pub fn observe_profile(
             let settings = observe_prepared(prepare_pi_settings(&paths[1], &profile));
             combine_observed(models, settings)
         }
-        "opencode" | "kilo-code" | "qwen-code" | "crush" | "mistral-vibe" | "hermes"
+        "qoder-desktop" | "opencode" | "kilo-code" | "qwen-code" | "crush" | "mistral-vibe" | "hermes"
         | "factory-droid" | "goose" => Ok(adapters::observe_prepared_files(
             prepare_observed_native_files(agent_id, &paths, &profile, true, has_credential),
         )),
@@ -3396,7 +3409,7 @@ pub fn observe_profile_consumption(
     let absent = match agent_id {
         "grok-build" => cleared_toml_profile_absent(prepare_clear_grok_build(&paths[0], &profile)),
         "pi" => cleared_toml_profile_absent(prepare_clear_pi_models(&paths[0], &profile)),
-        "opencode" | "kilo-code" | "qwen-code" | "crush" | "mistral-vibe" | "hermes"
+        "qoder-desktop" | "opencode" | "kilo-code" | "qwen-code" | "crush" | "mistral-vibe" | "hermes"
         | "factory-droid" | "goose" => {
             adapters::cleared_profile_absent(adapters::prepare_clear(agent_id, &paths, &profile))
         }
@@ -3414,7 +3427,7 @@ pub fn observe_profile_consumption(
             &profile,
             pi_api_key_value(&profile, has_credential)?,
         )),
-        "opencode" | "kilo-code" | "qwen-code" | "crush" | "mistral-vibe" | "hermes"
+        "qoder-desktop" | "opencode" | "kilo-code" | "qwen-code" | "crush" | "mistral-vibe" | "hermes"
         | "factory-droid" | "goose" => Ok(adapters::observe_prepared_files(
             prepare_observed_native_files(agent_id, &paths, &profile, false, has_credential),
         )),
@@ -3444,7 +3457,7 @@ pub fn observe_external_model(agent_id: &str) -> Result<ExternalModelObservedSta
         "codex" => observe_external_codex(&paths[0]),
         "grok-build" => observe_external_grok_build(&paths[0]),
         "pi" => observe_external_pi(&paths[0], &paths[1]),
-        "opencode" | "kilo-code" | "qwen-code" | "crush" | "mistral-vibe" | "hermes"
+        "qoder-desktop" | "opencode" | "kilo-code" | "qwen-code" | "crush" | "mistral-vibe" | "hermes"
         | "factory-droid" | "goose" => Ok(adapters::observe_external(agent_id, &paths[0])),
         _ => Ok(ExternalModelObservedState::Absent),
     }
@@ -3636,11 +3649,7 @@ fn ensure_supported(agent_id: &str, protocol: &ModelProtocol) -> Result<(), Stri
         "qoder-cli" => {
             return Err(format!("Configure Qoder CLI BYOK through /model → Custom; see {QODER_CLI_DOCS}"))
         }
-        "qoder-desktop" => {
-            return Err(format!(
-                "Configure Qoder Desktop BYOK in Settings → Models (custom Base URLs require 0.1.8+); no public secure non-interactive credential writer is available; see {QODER_DESKTOP_DOCS}"
-            ))
-        }
+        "qoder-desktop" => !matches!(protocol, ModelProtocol::GeminiGenerateContent),
         "qoder" => {
             return Err(format!(
                 "Qoder IDE custom models must be configured through Settings → Models; see {QODER_DOCS}"
@@ -3824,6 +3833,7 @@ pub(crate) fn apply_profile_consumption_with_credential_presence_target(
     has_credential: bool,
     active: bool,
 ) -> Result<ModelApplyResult, ModelTargetError> {
+    let active = active && supports_global_model_selection(agent_id);
     let profile = profile_for_apply(profile_id)?;
     ensure_supported(agent_id, &profile.protocol)?;
     let credential_route = credential_route_for(agent_id, &profile, has_credential)?;
@@ -3883,7 +3893,7 @@ pub(crate) fn apply_profile_consumption_with_credential_presence_target(
             active,
         )
         .map_err(Into::into),
-        "opencode" | "kilo-code" => {
+        "qoder-desktop" | "opencode" | "kilo-code" => {
             let prepared = adapters::prepare_apply(agent_id, &paths, &profile, active)?;
             match credential_route.as_ref() {
                 Some((source, credential::PreparedCredentialRoute::OpenCodeAuthStore))
@@ -4054,7 +4064,7 @@ pub(crate) fn clear_all_configured_models_for_targets(
     match agent_id {
         "pi" => clear_all_pi(&paths[0], &paths[1]),
         "grok-build" => clear_one_model_file(&paths[0], "grok-build", prepare_clear_all_grok_build),
-        "opencode" | "kilo-code" | "qwen-code" | "crush" | "mistral-vibe" | "hermes"
+        "qoder-desktop" | "opencode" | "kilo-code" | "qwen-code" | "crush" | "mistral-vibe" | "hermes"
         | "factory-droid" | "goose" => {
             let reviewed = reviewed_targets
                 .iter()
@@ -4099,7 +4109,7 @@ pub(crate) fn agent_has_configured_models(agent_id: &str) -> Result<bool, String
                 .as_deref()
                 .is_some_and(|value| value != content.as_str()))
         }
-        "opencode" | "kilo-code" | "qwen-code" | "crush" | "mistral-vibe" | "hermes"
+        "qoder-desktop" | "opencode" | "kilo-code" | "qwen-code" | "crush" | "mistral-vibe" | "hermes"
         | "factory-droid" | "goose" => adapters::has_configured_models(agent_id, &paths),
         _ => Ok(false),
     }
@@ -4186,7 +4196,7 @@ pub(crate) fn clear_profile_consumption_target(
         )
         .map_err(ModelTargetError::from)?,
         "pi" => clear_pi(&paths[0], &paths[1], &profile, active).map_err(ModelTargetError::from)?,
-        "opencode" | "kilo-code" | "qwen-code" | "crush" | "mistral-vibe" | "hermes"
+        "qoder-desktop" | "opencode" | "kilo-code" | "qwen-code" | "crush" | "mistral-vibe" | "hermes"
         | "factory-droid" | "goose" => {
             commit_native_model_files(
                 agent_id,
@@ -4420,6 +4430,11 @@ fn commit_native_model_files(
     agent_id: &str,
     files: Vec<adapters::PreparedModelFile>,
 ) -> Result<(), String> {
+    if agent_id == "qoder-desktop" {
+        return commit_private_model_files(
+            &files.into_iter().map(open_code_auth::PreparedAuthFile::from_model_file).collect::<Vec<_>>()
+        );
+    }
     let stamp = backup_timestamp();
     for file in &files {
         backup_config(&file.path, agent_id, &stamp)?;
@@ -5329,7 +5344,7 @@ fn prepare_observed_native_files(
     active: bool,
     has_credential: bool,
 ) -> Result<Vec<adapters::PreparedModelFile>, String> {
-    if matches!(agent_id, "opencode" | "kilo-code") {
+    if matches!(agent_id, "qoder-desktop" | "opencode" | "kilo-code") {
         if let Some((source, credential::PreparedCredentialRoute::Plaintext)) =
             credential_route_for(agent_id, profile, has_credential)?
         {
@@ -7360,13 +7375,12 @@ wire_api = "responses"
     }
 
     #[test]
-    fn qoder_variants_have_separate_guides_and_never_offer_a_model_writer() {
+    fn qoder_desktop_is_managed_while_ide_and_cli_keep_their_guides() {
         let _home = TestHome::new("qoder-model-guides");
         let agents = list_agents();
         for (id, name, docs) in [
             ("qoder", "Qoder IDE", QODER_DOCS),
             ("qoder-cli", "Qoder CLI", QODER_CLI_DOCS),
-            ("qoder-desktop", "Qoder Desktop", QODER_DESKTOP_DOCS),
         ] {
             let agent = agents.iter().find(|agent| agent.id == id).unwrap();
             assert_eq!(agent.name, name);
@@ -7382,7 +7396,16 @@ wire_api = "responses"
         }
         let desktop = agents.iter().find(|agent| agent.id == "qoder-desktop").unwrap();
         assert!(desktop.note.contains("0.1.8"));
-        assert!(desktop.note.contains("Base URL"));
+        assert_eq!(desktop.mode, "managed");
+        assert_eq!(desktop.config_paths, vec!["~/.qoder/settings.json"]);
+        assert!(desktop.supports_multiple);
+        assert!(!desktop.supports_global_selection);
+        assert!(desktop.credential_capabilities.plaintext);
+        assert_eq!(desktop.credential_capabilities.native_sources, vec!["env"]);
+        for protocol in [ModelProtocol::OpenaiCompletions, ModelProtocol::OpenaiResponses, ModelProtocol::AnthropicMessages] {
+            assert!(ensure_supported("qoder-desktop", &protocol).is_ok());
+        }
+        assert!(ensure_supported("qoder-desktop", &ModelProtocol::GeminiGenerateContent).is_err());
     }
 
     #[test]

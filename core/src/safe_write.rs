@@ -332,6 +332,14 @@ fn valid_private_transaction_content_hash(content_hash: &str) -> bool {
             .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }
 
+/// A private target already has an encrypted rollback snapshot owned by the
+/// active asset transaction. Callers must not make a second plaintext backup.
+pub(crate) fn has_private_transaction_snapshot(path: &Path) -> bool {
+    ACTIVE_TRANSACTION_WRITES.with(|slot| {
+        slot.borrow().as_ref().is_some_and(|active| active.borrow().private_paths.contains(path))
+    })
+}
+
 pub(crate) fn transaction_private_file_state(
     bytes: &[u8],
     mode: Option<u32>,

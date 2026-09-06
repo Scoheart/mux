@@ -253,7 +253,7 @@ fn plan_agent_consumption(
                         last_selected_at: None,
                     });
             }
-            after.normalize_active();
+            crate::resources::model::normalize_model_selection(&agent_id, &mut after);
             validate_model_selection_contract(settings, &agent_id, &after)?;
             DomainPlan::Model {
                 before: BTreeMap::from([(agent_id.clone(), before)]),
@@ -558,7 +558,7 @@ pub fn plan_set_model_enabled(
         );
     }
     record.enabled = request.enabled;
-    after.normalize_active();
+    crate::resources::model::normalize_model_selection(&request.agent_id, &mut after);
     validate_model_selection_contract(&settings, &request.agent_id, &after)?;
     finalize_plan(DomainPlan::Model {
         before: BTreeMap::from([(request.agent_id.clone(), before)]),
@@ -569,6 +569,9 @@ pub fn plan_set_model_enabled(
 pub fn plan_set_active_model(
     request: PlanSetActiveModelRequest,
 ) -> Result<AssetOperationPlan, String> {
+    if !crate::resources::model::supports_global_model_selection(&request.agent_id) {
+        return Err("model_selection_per_conversation: choose the model inside a Qoder Desktop conversation".into());
+    }
     validate_agent_id(&request.agent_id)?;
     require_enabled_agent(&request.agent_id)?;
     let settings = load_settings_strict().map_err(|error| error.to_string())?;
@@ -1601,7 +1604,7 @@ fn plan_asset_consumers(
                 } else {
                     desired.profiles.remove(profile_id);
                 }
-                desired.normalize_active();
+                crate::resources::model::normalize_model_selection(&agent_id, &mut desired);
                 validate_model_selection_contract(&settings, &agent_id, &desired)?;
                 before.insert(agent_id.clone(), existing);
                 after.insert(agent_id, desired);

@@ -2,7 +2,12 @@
 //!
 //! Each adapter owns only MUX-prefixed provider entries plus the documented
 //! primary/current pointer. Unknown fields remain untouched and credentials are
-//! represented only by the Agent's official environment-variable syntax.
+//! use native references unless the selected delivery policy explicitly exports
+//! to a private plaintext target.
+
+mod qoder;
+
+pub(crate) use qoder::read_registry as read_qoder_registry;
 
 use crate::domain::types::{ModelProfile, ModelProtocol};
 use crate::resources::mcp::scanner::expand_tilde;
@@ -43,6 +48,7 @@ pub fn prepare_apply(
 ) -> Result<Vec<PreparedModelFile>, String> {
     let prepared = match agent_id {
         "opencode" | "kilo-code" => prepare_open_code(agent_id, &paths[0], profile, active, None)?,
+        "qoder-desktop" => qoder::prepare(&paths[0], profile, None)?,
         "qwen-code" => prepare_qwen(&paths[0], profile, active)?,
         "crush" => prepare_crush(&paths[0], profile, active)?,
         "mistral-vibe" => prepare_vibe(&paths[0], profile, active)?,
@@ -61,13 +67,16 @@ pub fn prepare_apply_plaintext(
     active: bool,
     credential: &[u8],
 ) -> Result<PreparedModelFile, String> {
-    if !matches!(agent_id, "opencode" | "kilo-code") {
+    if !matches!(agent_id, "qoder-desktop" | "opencode" | "kilo-code") {
         return Err(format!(
             "credential_delivery_unsupported: {agent_id} plaintext adapter is not verified"
         ));
     }
     let credential = std::str::from_utf8(credential)
         .map_err(|_| "plaintext_target_insecure: API Key must be UTF-8".to_string())?;
+    if agent_id == "qoder-desktop" {
+        return qoder::prepare(&paths[0], profile, Some(credential));
+    }
     prepare_open_code(agent_id, &paths[0], profile, active, Some(credential))
 }
 
@@ -78,6 +87,7 @@ pub fn prepare_clear(
 ) -> Result<Vec<PreparedModelFile>, String> {
     let prepared = match agent_id {
         "opencode" | "kilo-code" => prepare_clear_open_code(agent_id, &paths[0], profile)?,
+        "qoder-desktop" => qoder::clear(&paths[0], profile)?,
         "qwen-code" => prepare_clear_qwen(&paths[0], profile)?,
         "crush" => prepare_clear_crush(&paths[0], profile)?,
         "mistral-vibe" => prepare_clear_vibe(&paths[0], profile)?,
@@ -103,6 +113,7 @@ pub fn prepare_clear_all_for_targets(
 ) -> Result<Vec<PreparedModelFile>, String> {
     match agent_id {
         "opencode" | "kilo-code" => Ok(vec![prepare_clear_all_open_code(&paths[0])?]),
+        "qoder-desktop" => Ok(vec![qoder::clear_all(&paths[0])?]),
         "qwen-code" => Ok(vec![prepare_clear_all_qwen(&paths[0])?]),
         "crush" => Ok(vec![prepare_clear_all_crush(&paths[0])?]),
         "mistral-vibe" => Ok(vec![prepare_clear_all_vibe(&paths[0])?]),
@@ -258,6 +269,7 @@ pub fn observe_external(
                             .and_then(Value::as_object)
                             .is_some_and(|value| !value.is_empty())
                 }
+                "qoder-desktop" => root.get("providers").and_then(Value::as_object).is_some_and(|providers| !providers.is_empty()),
                 "crush" => {
                     root.get("providers")
                         .and_then(Value::as_object)

@@ -650,7 +650,7 @@ fn plan_model_delete(profile_id: String) -> Result<AssetOperationPlan, String> {
         }
         let mut desired = existing.clone();
         desired.profiles.remove(&profile_id);
-        desired.normalize_active();
+        crate::resources::model::normalize_model_selection(&agent_id, &mut desired);
         before.insert(agent_id.clone(), existing);
         after.insert(agent_id, desired);
     }

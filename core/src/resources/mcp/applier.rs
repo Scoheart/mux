@@ -49,6 +49,17 @@ pub(crate) fn backup(
     agent: &str,
     scope: &str,
 ) -> Result<(), String> {
+    if crate::safe_write::has_private_transaction_snapshot(path) {
+        return Ok(());
+    }
+    if matches!(agent, "qoder-desktop" | "qoder-cli") && path.exists() {
+        let content = fs::read_to_string(path).map_err(|_| "qoder_config_unreadable".to_string())?;
+        let root = jsonc_parser::cst::CstRootNode::parse(&content, &jsonc_parser::ParseOptions::default())
+            .map_err(|_| "qoder_config_unparseable".to_string())?;
+        if root.object_value().is_some_and(|root| root.get("providers").is_some()) {
+            return Err("qoder_private_transaction_required: edit shared Qoder settings through a reviewed asset operation".into());
+        }
+    }
     if !path.exists() {
         return Ok(());
     }
@@ -131,6 +142,9 @@ pub(crate) fn backup_bytes(
     agent: &str,
     scope: &str,
 ) -> Result<(), String> {
+    if crate::safe_write::has_private_transaction_snapshot(path) {
+        return Ok(());
+    }
     fs::create_dir_all(backups_dir)
         .map_err(|error| format!("failed to create backup directory: {error}"))?;
     #[cfg(unix)]

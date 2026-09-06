@@ -77,15 +77,18 @@ pub fn agent_capabilities(agent_id: &str) -> AgentCredentialCapabilities {
             capabilities.agent_store = true;
             capabilities.plaintext = true;
         }
-        "kilo-code" => {
-            capabilities.native_sources = vec!["env".into(), "file".into()];
+        "kilo-code" | "qoder-desktop" => {
+            capabilities.native_sources = vec!["env".into()];
+            if agent_id == "kilo-code" {
+                capabilities.native_sources.push("file".into());
+            }
             capabilities.plaintext = true;
         }
         "qwen-code" | "grok-build" | "crush" | "hermes" | "factory-droid" => {
             capabilities.native_sources.push("env".into());
         }
         "mistral-vibe" | "goose" => capabilities.native_sources.push("env".into()),
-        "qoder" | "qoder-desktop" | "qoder-cli" | "minimax-code" => {
+        "qoder" | "qoder-cli" | "minimax-code" => {
             capabilities.note = Some("credential delivery requires guided Agent setup".into());
         }
         _ => {

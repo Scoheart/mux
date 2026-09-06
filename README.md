@@ -82,11 +82,12 @@ MUX tracks **212 unique Agent identities** across its reviewed sources: **57 dee
 
 Audited targets include Claude Code/Desktop, Codex, Cursor, VS Code, Zed, Windsurf, Gemini CLI, Google Antigravity, Amazon Q, OpenCode, Grok Build, MiniMax Code, Copilot CLI, Cline, Continue, Goose, Hermes, Kimi Code, Qwen Code, Qoder IDE, Qoder Desktop, Qoder CLI, QoderWork, Mistral Vibe, Rovo Dev, Tabnine, LM Studio, and others. For MCP, Claude Desktop and BoltAI local files accept stdio only. Pi is explicitly labeled as a community `pi-mcp-adapter` target because Pi core does not ship MCP support. Devin remains an audited read-only record because no stable user-level global config file is documented.
 
-MUX exposes **15 Model targets**. Managed Model Profile configuration is available
+MUX exposes **17 Model targets**. Managed Model Profile configuration is available
 for Claude Desktop, Claude Code, Codex, Grok Build, Pi, OpenCode, Kilo Code CLI, Qwen Code,
-Crush, Mistral Vibe, Hermes Agent, Factory Droid, and Goose. MiniMax Code and
-Qoder are the two guided targets because their available
-configuration surfaces do not provide a safe equivalent writer for this flow.
+Crush, Mistral Vibe, Hermes Agent, Factory Droid, Goose, and Qoder Desktop 0.1.8.
+Qoder Desktop uses native custom providers in `~/.qoder/settings.json`; select the
+installed model in a Qoder conversation after restarting the app. MiniMax Code,
+Qoder IDE, and Qoder CLI remain guided targets.
 
 Models use a shared Provider architecture: one Provider owns its name, type,
 single Base URL, enabled protocol Endpoint Paths, environment reference, and

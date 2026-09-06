@@ -328,6 +328,22 @@ fn private_transaction_paths(
     plan: &AssetOperationPlan,
     settings: &Settings,
 ) -> Result<BTreeSet<PathBuf>, String> {
+    let mut private = claude_desktop_private_transaction_paths(plan, settings)?;
+    // Models and MCP share this file. Protect the whole file even when only
+    // mcpServers is edited, or when the last managed model is removed.
+    let mut qoder_paths = settings.agent_config_paths.as_ref()
+        .and_then(|paths| paths.get("qoder-desktop"))
+        .and_then(|entry| entry.model_paths.clone()).unwrap_or_default();
+    qoder_paths.push("~/.qoder/settings.json".into());
+    let qoder_paths = qoder_paths.iter().map(|path| crate::resources::mcp::scanner::expand_tilde(path)).collect::<BTreeSet<_>>();
+    private.extend(plan.target_files.iter().map(|path| crate::resources::mcp::scanner::expand_tilde(path)).filter(|path| qoder_paths.contains(path)));
+    Ok(private)
+}
+
+fn claude_desktop_private_transaction_paths(
+    plan: &AssetOperationPlan,
+    settings: &Settings,
+) -> Result<BTreeSet<PathBuf>, String> {
     const CLAUDE_DESKTOP: &str = "claude-desktop";
     if !plan
         .affected_agent_ids

@@ -30,4 +30,4 @@ New assets are copied from official product sites, official repositories, or the
 | `tabnine.png` | <https://www.tabnine.com/wp-content/uploads/2024/09/cropped-tabnine-favicon-192x192.png> |
 | `vt-code.svg` | <https://github.com/agentclientprotocol/registry/tree/main/vtcode> (provider-submitted registry icon) |
 
-- `qoder-desktop.svg`: https://qoder.com/favIcon.svg, linked by the official https://qoder.com/download page (retrieved 2026-09-06). New Desktop uses the black outline on a light tile, independently of the legacy IDE/CLI `qoder.svg`. `surfaces.json` retains its Desktop badge.
+- `qoder-desktop.svg`: https://qoder.com/favIcon.svg, linked by the official https://qoder.com/download page (retrieved 2026-09-06). New Desktop uses the black outline on a light tile, independently of the legacy IDE/CLI `qoder.svg`. `surfaces.json` retains its Desktop identity; the distinct logo needs no collision badge.

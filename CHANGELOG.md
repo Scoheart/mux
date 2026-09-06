@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.177](https://github.com/Scoheart/mux/compare/v1.8.176...v1.8.177) (2026-09-06)
+
+### Changes
+
+* fix(skills): expose observed consumers for external skills ([9b52049](https://github.com/Scoheart/mux/commit/9b52049b37887d9d444082b355cd82372b221067))
+
 ## [1.8.176](https://github.com/Scoheart/mux/compare/v1.8.175...v1.8.176) (2026-09-06)
 
 ### Changes

@@ -109,6 +109,7 @@ interface AgentViewProps {
   skillsState: SkillsState;
   consumptionState: ConsumptionState;
   agentId: string;
+  initialTab?: AgentResourceTab;
   externalModelCandidates?: ModelAdoptionCandidate[];
   onOpenResource?(request: ResourceNavigationRequest): void;
 }
@@ -145,6 +146,7 @@ export function AgentView({
   skillsState,
   consumptionState,
   agentId,
+  initialTab = "mcps",
   externalModelCandidates = [],
   onOpenResource,
 }: AgentViewProps) {
@@ -158,7 +160,7 @@ export function AgentView({
   const [modelAgents, setModelAgents] = useState<ModelAgentView[]>([]);
   const [modelsLoading, setModelsLoading] = useState(true);
   const [modelsError, setModelsError] = useState<string | null>(null);
-  const [resourceTab, setResourceTab] = useState<AgentResourceTab>("mcps");
+  const [resourceTab, setResourceTab] = useState<AgentResourceTab>(initialTab);
   const [preparingChange, setPreparingChange] = useState(false);
   const [togglingMcp, setTogglingMcp] = useState<{
     key: string;

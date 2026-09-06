@@ -379,6 +379,7 @@ export function SidebarItem({
   active,
   icon,
   label,
+  title,
   count,
   actions,
   onClick,
@@ -386,6 +387,7 @@ export function SidebarItem({
   active: boolean;
   icon: ReactNode;
   label: string;
+  title?: string;
   count?: number;
   actions?: ReactNode;
   onClick: () => void;
@@ -394,7 +396,7 @@ export function SidebarItem({
     <div
       className="mux-sidebar-item group"
       data-active={active ? "true" : undefined}
-      title={label}
+      title={title ?? label}
       role="button"
       tabIndex={0}
       aria-pressed={active}

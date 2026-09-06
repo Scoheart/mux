@@ -258,8 +258,8 @@ describe("SkillsView", () => {
     );
 
     expect(screen.getAllByRole("heading", { name: "dws" })).toHaveLength(1);
-    expect(screen.getByRole("button", { name: /全部来源.*1/ })).toBeVisible();
-    expect(screen.getByRole("button", { name: /本地.*1/ })).toBeVisible();
+    expect(screen.getByRole("button", { name: /全部 Skills.*1/ })).toBeVisible();
+    expect(screen.getByRole("button", { name: /^skills\s*1$/ })).toBeVisible();
   });
 
   it("renders the app-owned inventory inside the Skills workspace", () => {
@@ -270,10 +270,10 @@ describe("SkillsView", () => {
     ).toBeVisible();
     expect(screen.queryByRole("tablist", { name: "Skill 状态" })).not.toBeInTheDocument();
     expect(screen.getByRole("separator", { name: "调整侧边栏宽度" })).toBeVisible();
-    expect(screen.getByRole("list", { name: "Skill 资产" })).toHaveClass("mux-asset-list", "mux-skill-list");
-    expect(screen.getByText("名称与说明")).toBeVisible();
-    expect(screen.getByText("来源与版本")).toBeVisible();
-    expect(screen.getByText("风险")).toBeVisible();
+    expect(screen.getByRole("list", { name: "Skill 资产" })).toHaveClass("mux-skill-card-grid");
+    expect(screen.getByText("Review repository changes")).toBeVisible();
+    expect(screen.getByText("acme/skills")).toBeVisible();
+    expect(screen.queryByText("风险")).not.toBeInTheDocument();
     expect(screen.getByPlaceholderText("搜索 Skills")).toBeVisible();
   });
 
@@ -282,8 +282,8 @@ describe("SkillsView", () => {
 
     expect(screen.queryByText("内容类型")).not.toBeInTheDocument();
     expect(screen.getByText("来源")).toBeVisible();
-    expect(screen.getByText("全部来源")).toBeVisible();
-    expect(screen.getByText("来源与版本")).toBeVisible();
+    expect(screen.getByText("全部 Skills")).toBeVisible();
+    expect(screen.getByText("acme/skills")).toBeVisible();
     expect(
       screen.queryByRole("button", { name: /说明型/ }),
     ).not.toBeInTheDocument();
@@ -295,15 +295,15 @@ describe("SkillsView", () => {
     inventory.items.push(importedItem());
     render(<SkillsView state={stateWith(inventory)} />);
 
-    await user.click(screen.getByRole("button", { name: /本地\s*2/ }));
+    await user.click(screen.getByRole("button", { name: /fixtures\s*1/ }));
     expect(screen.getByRole("heading", { name: "unassigned-skill" })).toBeVisible();
-    expect(screen.getByRole("heading", { name: "imported-legacy" })).toBeVisible();
+    expect(screen.queryByRole("heading", { name: "imported-legacy" })).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "review-changes" })).not.toBeInTheDocument();
     expect(screen.queryByRole("tablist", { name: "Skill 状态" })).not.toBeInTheDocument();
 
-    await user.type(screen.getByPlaceholderText("搜索 Skills"), "review");
-    expect(screen.getByRole("button", { name: /GitHub\s*1/ })).toBeVisible();
-    expect(screen.getByRole("button", { name: /本地\s*0/ })).toBeVisible();
+    await user.type(screen.getByPlaceholderText("搜索当前来源的 Skills…"), "review");
+    expect(screen.getByRole("button", { name: /acme\/skills\s*1/ })).toBeVisible();
+    expect(screen.getByRole("button", { name: /fixtures\s*1/ })).toBeVisible();
     expect(screen.getByText("没有匹配项")).toBeVisible();
   });
 

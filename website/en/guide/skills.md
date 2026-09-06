@@ -121,3 +121,9 @@ This version does not support:
 - creating or editing `SKILL.md` in MUX.
 
 Return to the [Desktop app guide](/en/guide/desktop#skills) or see [Supported agents](/en/guide/agents#skills-capabilities).
+
+## Browse by source
+
+The sidebar lists individual GitHub repositories, local folders, archives, and imported sources. Repository subdirectories share one group; local roots with identical names remain distinct. Selecting a source filters the Skill cards, and search applies within that source.
+
+Cards show the name, description, and Agent icons for currently readable targets. Icons form a small overlapping hand that expands on hover or keyboard focus. Each icon lifts and reveals its Agent name; clicking opens that Agent's Skills tab. A `+N` button opens all consumers when there are more than four. Missing or broken targets do not count as active usage. Full provenance, risk information, and repair actions remain in the detail view. Reduced-motion settings disable the transitions.

@@ -262,6 +262,7 @@ function App() {
         {view.kind === "skills" ? (
           <SkillsView
             state={skillsState}
+            onOpenAgent={(id) => setView({ kind: "agent", id, tab: "skills" })}
             intent={view.intent}
             onIntentConsumed={consumeResourceIntent}
           />
@@ -277,6 +278,7 @@ function App() {
             skillsState={skillsState}
             consumptionState={consumptionState}
             agentId={view.id}
+            initialTab={view.tab}
             externalModelCandidates={externalModelCandidates}
             onOpenResource={openResource}
           />

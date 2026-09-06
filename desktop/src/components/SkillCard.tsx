@@ -4,7 +4,7 @@ import type {
   SkillSource,
 } from "../lib/types";
 import { useTranslation } from "react-i18next";
-import { ResourceKindIcon } from "./ResourceCard";
+import { SkillAgentHand } from "./SkillAgentHand";
 import { Badge } from "./ui";
 
 function appendSubpath(base: string, subpath: string) {
@@ -68,66 +68,35 @@ function skillAssetState(item: SkillInventoryItem) {
   return { labelKey: "normal" as const, tone: "success" as const };
 }
 
-function skillUpdateState(item: SkillInventoryItem) {
-  if (item.update.available) return { labelKey: "updateAvailable" as const, tone: "info" as const };
-  if (item.update.error) return { labelKey: "updateFailed" as const, tone: "warning" as const };
-  if (item.update.checked_at) return { labelKey: "upToDate" as const, tone: "success" as const };
-  return { labelKey: "notChecked" as const, tone: "neutral" as const };
-}
-
-export function SkillCard({
-  item,
-  selected,
-  onOpen,
-}: {
+export function SkillCard({ item, selected, onOpen, agentIds = [], agentNames = new Map(), onOpenAgent }: {
   item: SkillInventoryItem;
   selected: boolean;
   onOpen: () => void;
+  agentIds?: string[];
+  agentNames?: ReadonlyMap<string, string>;
+  onOpenAgent?: (id: string) => void;
 }) {
   const { t } = useTranslation();
-  const source = skillSourceText(item.source);
   const assetState = skillAssetState(item);
-  const updateState = skillUpdateState(item);
-
+  const status = item.update.error
+    ? { labelKey: "updateFailed" as const, tone: "warning" as const }
+    : item.update.available
+      ? { labelKey: "updateAvailable" as const, tone: "info" as const }
+      : assetState.labelKey !== "normal" ? assetState : null;
   return (
-    <button
-      type="button"
-      className="mux-asset-list-row mux-skill-list-row"
-      data-selected={selected ? "true" : undefined}
-      data-attention={assetState.labelKey === "needsAttention" ? "warning" : undefined}
-      aria-label={t("centralAssets.openSkillDetails", { name: item.name })}
-      aria-pressed={selected}
-      onClick={onOpen}
-    >
-      <span className="mux-asset-list-identity">
-        <ResourceKindIcon kind="skill" seed={item.name} />
-        <span className="mux-asset-list-copy">
-          <h2 title={item.name}>{item.name}</h2>
-          <span className="mux-skill-list-description" title={item.description}>
-            {item.description || t("centralAssets.noDescription")}
-          </span>
+    <article className="mux-skill-card" data-selected={selected ? "true" : undefined}>
+      <button type="button" className="mux-skill-card-main"
+        aria-label={t("centralAssets.openSkillDetails", { name: item.name })}
+        aria-pressed={selected} onClick={onOpen}>
+        <h2 title={item.name}>{item.name}</h2>
+        <span className="mux-skill-card-description" title={item.description}>
+          {item.description || t("centralAssets.noDescription")}
         </span>
-      </span>
-      <span className="mux-asset-list-stack mux-asset-list-source" title={source}>
-        <span>{source}</span>
-        {item.resolved_revision && <code>rev {item.resolved_revision.slice(0, 10)}</code>}
-      </span>
-      <span className="mux-skill-list-risk">
-        <SkillRiskBadge
-          level={item.risk?.level ?? null}
-          label={item.risk?.level === "low" ? t("centralAssets.lowRisk") : undefined}
-        />
-      </span>
-      <span className="mux-skill-list-update">
-        <Badge tone={updateState.tone}>
-          {t(`centralAssets.${updateState.labelKey}`)}
-        </Badge>
-      </span>
-      <span className="mux-asset-list-status">
-        <Badge tone={assetState.tone}>
-          {t(`centralAssets.${assetState.labelKey}`)}
-        </Badge>
-      </span>
-    </button>
+      </button>
+      <div className="mux-skill-card-footer">
+        <SkillAgentHand ids={agentIds} names={agentNames} onOpenAgent={onOpenAgent} />
+        {status && <Badge tone={status.tone}>{t(`centralAssets.${status.labelKey}`)}</Badge>}
+      </div>
+    </article>
   );
 }

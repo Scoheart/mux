@@ -15,8 +15,8 @@ import * as api from "../lib/api";
 import {
   aggregateSkillsByName,
   filterSkills,
-  type SkillSourceFilter,
 } from "../lib/skills";
+import { groupSkillSources, skillSourceGroup, skillConsumerAgents, type SkillSourceCategory } from "../lib/skillSources";
 import type {
   OperationPlan,
   SkillCommandError,
@@ -48,20 +48,19 @@ import {
   WorkspaceSidebar,
 } from "./ResourceWorkspace";
 
-const sourceOptions: Array<{
-  value: SkillSourceFilter;
-  label: string;
-  icon: ReactNode;
-}> = [
-  { value: "all", label: "全部来源", icon: <LayersIcon className="w-3.5 h-3.5" /> },
-  { value: "github", label: "GitHub", icon: <LinkIcon className="w-3.5 h-3.5" /> },
-  { value: "local", label: "本地", icon: <FolderIcon className="w-3.5 h-3.5" /> },
+const sourceCategories: { category: SkillSourceCategory; icon: ReactNode }[] = [
+  { category: "github", icon: <LinkIcon className="w-3.5 h-3.5" /> },
+  { category: "local", icon: <FolderIcon className="w-3.5 h-3.5" /> },
+  { category: "archive", icon: <PackageIcon className="w-3.5 h-3.5" /> },
+  { category: "imported", icon: <FolderIcon className="w-3.5 h-3.5" /> },
+  { category: "unknown", icon: <PackageIcon className="w-3.5 h-3.5" /> },
 ];
 
 interface SkillsViewProps {
   state: SkillsState;
   intent?: SkillNavigationIntent;
   onIntentConsumed?(id: number): void;
+  onOpenAgent?(id: string): void;
 }
 
 interface LifecycleReview {
@@ -72,11 +71,12 @@ export function SkillsView({
   state,
   intent,
   onIntentConsumed,
+  onOpenAgent,
 }: SkillsViewProps) {
   const { t } = useTranslation();
   const toast = useToast();
   const [query, setQuery] = useState("");
-  const [source, setSource] = useState<SkillSourceFilter>("all");
+  const [source, setSource] = useState("all");
   const [checking, setChecking] = useState(false);
   const [selectedIdentity, setSelectedIdentity] = useState<string | null>(null);
   const [detail, setDetail] = useState<SkillDetail | null>(null);
@@ -109,19 +109,23 @@ export function SkillsView({
     () => aggregateSkillsByName(state.inventory?.items ?? []),
     [state.inventory?.items],
   );
-  const filters = { status: "all" as const, source, query };
-  const filtered = useMemo(
-    () => filterSkills(items, filters),
-    [items, query, source],
-  );
+  const sources = useMemo(() => groupSkillSources(items), [items]);
+  const selectedSource = sources.find((group) => group.id === source);
+  const activeSource = selectedSource?.id ?? "all";
+  const consumers = useMemo(() => skillConsumerAgents(state.inventory), [state.inventory]);
+  const agentNames = useMemo(() => new Map(
+    state.inventory?.agents.map((agent) => [agent.id, agent.name]) ?? [],
+  ), [state.inventory?.agents]);
+  const filtered = useMemo(() => filterSkills(
+    items.filter((item) => activeSource === "all" || skillSourceGroup(item).id === activeSource),
+    { status: "all", source: "all", query },
+  ), [items, activeSource, query]);
   const selected = selectedIdentity
     ? items.find((item) => item.identity === selectedIdentity) ?? null
     : null;
-  const countWith = (
-    override: Partial<{
-      source: SkillSourceFilter;
-    }>,
-  ) => filterSkills(items, { ...filters, ...override }).length;
+  useEffect(() => {
+    if (source !== "all" && !selectedSource) setSource("all");
+  }, [source, selectedSource]);
   const recoveryError =
     recoveryRequired ??
     state.inventory?.recovery_error ??
@@ -359,7 +363,7 @@ export function SkillsView({
     setQuery(value);
   };
 
-  const changeSource = (value: SkillSourceFilter) => {
+  const changeSource = (value: string) => {
     closeInspector();
     setSource(value);
   };
@@ -491,27 +495,35 @@ export function SkillsView({
   return (
     <div className="mux-skill-workspace">
       <ResourceWorkspace
-        title="Skills"
-        description="集中管理可复用的工作流与参考资料"
+        title={selectedSource
+          ? selectedSource.label || t("skillLibrary.unknown")
+          : "Skills"}
+        description={selectedSource
+          ? `${selectedSource.count} Skills · ${t(`skillLibrary.${selectedSource.category}`)}`
+          : t("skillLibrary.description")}
         sidebar={
           <WorkspaceSidebar title="Skills" count={items.length}>
-            <SidebarSection title="来源">
-              {sourceOptions.map((option) => (
-                <SidebarItem
-                  key={option.value}
-                  active={source === option.value}
-                  icon={option.icon}
-                  label={option.label}
-                  count={countWith({ source: option.value })}
-                  onClick={() => changeSource(option.value)}
-                />
-              ))}
+            <SidebarSection title={t("skillLibrary.sources")}>
+              <SidebarItem active={activeSource === "all"}
+                icon={<LayersIcon className="w-3.5 h-3.5" />}
+                label={t("skillLibrary.all")} count={items.length}
+                onClick={() => changeSource("all")} />
             </SidebarSection>
+            {sourceCategories.map(({ category, icon }) => {
+              const groups = sources.filter((group) => group.category === category);
+              if (!groups.length) return null;
+              return <SidebarSection key={category} title={t(`skillLibrary.${category}`)}>
+                {groups.map((group) => <SidebarItem key={group.id}
+                  active={activeSource === group.id} icon={icon}
+                  label={group.label || t("skillLibrary.unknown")} title={group.path || undefined}
+                  count={group.count} onClick={() => changeSource(group.id)} />)}
+              </SidebarSection>;
+            })}
           </WorkspaceSidebar>
         }
         query={query}
         onQueryChange={changeQuery}
-        searchPlaceholder="搜索 Skills"
+        searchPlaceholder={activeSource === "all" ? "搜索 Skills" : t("skillLibrary.searchSource")}
         toolbarActions={
           <>
             <button
@@ -602,7 +614,7 @@ export function SkillsView({
           <>
             {inventoryNotice}
             <div
-              className="mux-asset-list mux-skill-list"
+              className="mux-skill-card-grid"
               role="list"
               aria-label={t("centralAssets.skillList")}
             >
@@ -612,6 +624,9 @@ export function SkillsView({
                     item={item}
                     selected={item.identity === selectedIdentity}
                     onOpen={() => openSkill(item.identity)}
+                    agentIds={consumers.get(item.name) ?? []}
+                    agentNames={agentNames}
+                    onOpenAgent={onOpenAgent}
                   />
                 </div>
               ))}

@@ -20,6 +20,13 @@ const zhCN = {
     notSet: "未设置",
     loading: "加载中…",
   },
+  skillLibrary: {
+    sources: "来源", all: "全部 Skills", github: "GitHub", local: "本地文件夹",
+    archive: "压缩包", imported: "导入副本", unknown: "来源未知",
+    description: "按来源整理工作流与参考资料", searchSource: "搜索当前来源的 Skills…",
+    unassigned: "尚未分配", agents: "使用此 Skill 的 Agent", allAgents: "全部 Agent",
+    openAgent: "打开 {{name}} 的 Skills", moreAgents: "查看另外 {{count}} 个 Agent",
+  },
   centralAssets: {
     mcpList: "MCP 资产",
     skillList: "Skill 资产",
@@ -351,6 +358,13 @@ const enUS: TranslationShape<typeof zhCN> = {
     close: "Close",
     notSet: "Not set",
     loading: "Loading…",
+  },
+  skillLibrary: {
+    sources: "Sources", all: "All Skills", github: "GitHub", local: "Local folders",
+    archive: "Archives", imported: "Imported copies", unknown: "Unknown source",
+    description: "Workflows and references organized by source", searchSource: "Search Skills in this source…",
+    unassigned: "Not assigned", agents: "Agents using this Skill", allAgents: "All Agents",
+    openAgent: "Open Skills for {{name}}", moreAgents: "View {{count}} more Agents",
   },
   centralAssets: {
     mcpList: "MCP assets",

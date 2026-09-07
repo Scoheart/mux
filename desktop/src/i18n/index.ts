@@ -26,6 +26,7 @@ const zhCN = {
     description: "按来源整理工作流与参考资料", searchSource: "搜索当前来源的 Skills…",
     unassigned: "尚未分配", agents: "使用此 Skill 的 Agent", allAgents: "全部 Agent",
     openAgent: "打开 {{name}} 的 Skills", moreAgents: "查看另外 {{count}} 个 Agent",
+    collapseAgents: "收起", agentCount: "{{count}} 个 Agent",
   },
   centralAssets: {
     mcpList: "MCP 资产",
@@ -370,6 +371,7 @@ const enUS: TranslationShape<typeof zhCN> = {
     description: "Workflows and references organized by source", searchSource: "Search Skills in this source…",
     unassigned: "Not assigned", agents: "Agents using this Skill", allAgents: "All Agents",
     openAgent: "Open Skills for {{name}}", moreAgents: "View {{count}} more Agents",
+    collapseAgents: "Collapse", agentCount: "{{count}} Agents",
   },
   centralAssets: {
     mcpList: "MCP assets",

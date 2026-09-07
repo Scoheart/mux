@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.186](https://github.com/Scoheart/mux/compare/v1.8.185...v1.8.186) (2026-09-07)
+
+### Changes
+
+* feat(agents): add ZCode Desktop support (#177) ([93738f6](https://github.com/Scoheart/mux/commit/93738f6b6c3c1cbb897403603fede4a2ca698075))
+
 ## [1.8.185](https://github.com/Scoheart/mux/compare/v1.8.184...v1.8.185) (2026-09-07)
 
 ### Changes

@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.185](https://github.com/Scoheart/mux/compare/v1.8.184...v1.8.185) (2026-09-07)
+
+### Changes
+
+* fix(ui): simplify asset saves and use readable OpenCode providers (#176) ([67f4117](https://github.com/Scoheart/mux/commit/67f4117722ab84796d98cecbcd46d13d5e408ae3))
+
 ## [1.8.184](https://github.com/Scoheart/mux/compare/v1.8.183...v1.8.184) (2026-09-07)
 
 ### Changes

@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.182](https://github.com/Scoheart/mux/compare/v1.8.181...v1.8.182) (2026-09-07)
+
+### Changes
+
+* feat(ui): group Agents by built-in and custom origins (#173) ([8213e19](https://github.com/Scoheart/mux/commit/8213e19c526e172f62a68ac83547dcbf3ff508b8))
+
 ## [1.8.181](https://github.com/Scoheart/mux/compare/v1.8.180...v1.8.181) (2026-09-07)
 
 ### Changes

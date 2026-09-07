@@ -22,6 +22,7 @@ fn temp_file(name: &str, extension: &str) -> PathBuf {
 
 fn fixture(name: &str) -> &'static str {
     match name {
+        "zcode" => include_str!("fixtures/zcode.json"),
         "antigravity-cli" => include_str!("fixtures/antigravity-cli.json"),
         "continue-cli" => include_str!("fixtures/continue-cli.yaml"),
         "trae-cli" => include_str!("fixtures/trae-cli.toml"),
@@ -35,6 +36,39 @@ fn fixture(name: &str) -> &'static str {
         "cline" => include_str!("fixtures/cline.json"),
         _ => panic!("unknown fixture"),
     }
+}
+
+#[test]
+fn zcode_native_mcp_keeps_policy_and_refuses_disabled_entries() {
+    let home = mux_core::testenv::TestHome::new("zcode-native-mcp");
+    let path = home.home.join("config.json");
+    std::fs::write(&path, fixture("zcode")).unwrap();
+    let agents = builtin_agents();
+    let adapter = get_agent_adapter_for(&agents["zcode"], "zcode");
+    let config = http("https://updated.example.test/mcp");
+    adapter.upsert(&path, "docs", &config).unwrap();
+    assert_eq!(adapter.read(&path)["docs"], config);
+    let saved = std::fs::read_to_string(&path).unwrap();
+    let value: Value = serde_json::from_str(&saved).unwrap();
+    assert_eq!(value["theme"], "system");
+    assert_eq!(value["mcp"]["servers"]["docs"]["timeout"], 9000);
+    assert_eq!(value["mcp"]["servers"]["docs"]["enable"], true);
+    assert!(adapter.upsert(&path, "paused", &config).is_err());
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), saved);
+}
+
+#[test]
+fn zcode_does_not_hide_shared_fallback_when_creating_native_config() {
+    let home = mux_core::testenv::TestHome::new("zcode-fallback");
+    std::fs::create_dir_all(home.home.join(".agents")).unwrap();
+    std::fs::write(home.home.join(".agents/mcp.json"), r#"{"mcpServers":{"shared":{"command":"example"}}}"#).unwrap();
+    let path = home.home.join(".zcode/cli/config.json");
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    let agents = builtin_agents();
+    let adapter = get_agent_adapter_for(&agents["zcode"], "zcode");
+    let error = adapter.upsert(&path, "docs", &http("https://example.test/mcp")).unwrap_err();
+    assert!(error.contains("zcode_mcp_fallback_conflict"));
+    assert!(!path.exists());
 }
 
 #[test]

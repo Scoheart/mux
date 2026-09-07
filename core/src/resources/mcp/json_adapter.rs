@@ -73,6 +73,23 @@ impl JsonAdapter {
         original: Option<&str>,
     ) -> Result<(), String> {
         let content = root.to_string();
+        if self.codec == Codec::ZCode {
+            let has_native = |value: Option<Value>| value
+                .and_then(|root| root.get("mcp")?.get("servers")?.as_object().cloned())
+                .is_some_and(|servers| !servers.is_empty());
+            let before = original.and_then(|text| CstRootNode::parse(text, &ParseOptions::default()).ok())
+                .and_then(|root| root.to_serde_value());
+            if has_native(before) != has_native(root.to_serde_value()) {
+                let fallback = crate::resources::mcp::scanner::expand_tilde("~/.agents/mcp.json");
+                let (fallback_root, _) = self.read_document(&fallback)?;
+                let has_fallback = fallback_root.to_serde_value()
+                    .and_then(|root| root.get("mcpServers")?.as_object().cloned())
+                    .is_some_and(|servers| !servers.is_empty());
+                if has_fallback {
+                    return Err("zcode_mcp_fallback_conflict: ZCode 的原生 MCP 配置会切换 ~/.agents/mcp.json 的生效状态。请先在 ZCode 中将共享服务导入原生配置，再应用此操作。".into());
+                }
+            }
+        }
         if self.codec == Codec::Cline {
             write_if_unchanged_with_settings_lock(path, original, &content)
         } else {

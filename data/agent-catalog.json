@@ -3365,6 +3365,55 @@
     "layout": "map",
     "transports": []
   },
+  "zcode": {
+    "global": "~/.zcode/cli/config.json",
+    "project": null,
+    "format": "json",
+    "key": "mcp.servers",
+    "key_path": true,
+    "enabled": true,
+    "builtin": true,
+    "name": "ZCode Desktop",
+    "docs": "https://zcode.z.ai/cn/docs/mcp-services",
+    "note": "智谱官方桌面 Agent。MUX 管理原生用户级 MCP 与 Skills；Models 通过 ZCode 设置配置。若使用 ~/.agents/mcp.json 回退，请先在 ZCode 中导入原生配置。",
+    "category": "desktop",
+    "evidence": "official",
+    "verified_at": "2026-09-07",
+    "codec": "zcode",
+    "layout": "map",
+    "transports": [
+      "stdio",
+      "http"
+    ],
+    "probes": [
+      {
+        "kind": "path",
+        "path": "/Applications/ZCode.app"
+      },
+      {
+        "kind": "path",
+        "path": "~/.zcode/v2"
+      }
+    ],
+    "skills": {
+      "target_id": "zcode-user",
+      "global_dir": "~/.zcode/skills",
+      "aliases": [],
+      "docs": "https://zcode.z.ai/cn/docs/skill",
+      "evidence": "official",
+      "verified_at": "2026-09-07",
+      "probes": [
+        {
+          "kind": "path",
+          "path": "/Applications/ZCode.app"
+        },
+        {
+          "kind": "path",
+          "path": "~/.zcode/v2"
+        }
+      ]
+    }
+  },
   "zed": {
     "global": null,
     "project": null,

@@ -147,6 +147,7 @@ pub enum Codec {
     Vibe,
     VtCode,
     AgentKube,
+    ZCode,
     ChatMcp,
     StdioOnly,
 }
@@ -212,6 +213,7 @@ pub fn from_name(name: Option<&str>, agent_id: &str) -> Codec {
         Some("vibe") => Codec::Vibe,
         Some("vtcode") => Codec::VtCode,
         Some("agentkube") => Codec::AgentKube,
+        Some("zcode") => Codec::ZCode,
         Some("chatmcp") => Codec::ChatMcp,
         Some("server_url") => Codec::Windsurf,
         Some("url_transport") => Codec::Kimi,
@@ -252,6 +254,7 @@ impl Codec {
             .as_object()
             .ok_or_else(|| "MCP entry is not an object".to_string())?;
         match self {
+            Codec::ZCode => validate_active_field(object.get("enable"), true, "enable")?,
             Codec::AgentKube | Codec::VtCode => {
                 validate_active_field(object.get("enabled"), true, "enabled")?
             }
@@ -393,10 +396,13 @@ impl Codec {
         }
         let mut fields = Vec::new();
         let mut defaults = Vec::new();
+        if self == Codec::ZCode {
+            defaults.push(("enable".into(), Value::Bool(true)));
+        }
         let mut object_patches = Vec::new();
         match config {
             McpConfig::Stdio(stdio) => match self {
-                Codec::ExplicitType | Codec::Qoder | Codec::QoderWork => {
+                Codec::ExplicitType | Codec::ZCode | Codec::Qoder | Codec::QoderWork => {
                     fields.push(("type".into(), Value::String("stdio".into())));
                     push_stdio_fields(&mut fields, stdio, "cwd");
                 }
@@ -505,7 +511,7 @@ impl Codec {
                 _ => push_stdio_fields(&mut fields, stdio, "cwd"),
             },
             McpConfig::Http(http) => match self {
-                Codec::ExplicitType => {
+                Codec::ExplicitType | Codec::ZCode => {
                     fields.push((
                         "type".into(),
                         Value::String(if http.kind == "sse" { "sse" } else { "http" }.into()),

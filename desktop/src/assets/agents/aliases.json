@@ -8,5 +8,6 @@
   "antigravity-cli": "antigravity",
   "continue-cli": "continue",
   "trae-cli": "trae",
-  "trae-ide": "trae"
+  "trae-ide": "trae",
+  "zcode": "zcode"
 }

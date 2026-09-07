@@ -9,5 +9,6 @@
   "continue": "ide",
   "continue-cli": "cli",
   "trae-ide": "ide",
-  "trae-cli": "cli"
+  "trae-cli": "cli",
+  "zcode": "desktop"
 }

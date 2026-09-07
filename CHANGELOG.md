@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.183](https://github.com/Scoheart/mux/compare/v1.8.182...v1.8.183) (2026-09-07)
+
+### Changes
+
+* feat(ui): expand skill agents into a centered card orbit (#174) ([812c44a](https://github.com/Scoheart/mux/commit/812c44acc366b5d32316f97544509b1b97b52b55))
+
 ## [1.8.182](https://github.com/Scoheart/mux/compare/v1.8.181...v1.8.182) (2026-09-07)
 
 ### Changes

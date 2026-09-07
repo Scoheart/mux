@@ -319,22 +319,16 @@ export function RegistryEditPage({
       }}
     />
   ) : null;
-  const close = () => {
-    if (!review) {
-      onBack();
-      return;
-    }
-    void consumptionState.cancel().finally(onBack);
-  };
+  if (review) return review;
 
   if (presentation === "inspector" && existing) {
     return (
       <ResourceInspector
         title={existing.name}
         avatar={<McpAvatar assetKey={keyOf(existing)} entry={existing} preference={iconPreference} size={40} />}
-        subtitle={review ? "检查变更 · 全局配置" : `编辑 · ${transport === "stdio" ? "stdio" : "HTTP"} · 全局配置`}
-        onClose={close}
-        footer={review ? undefined :
+        subtitle={`编辑 · ${transport === "stdio" ? "stdio" : "HTTP"} · 全局配置`}
+        onClose={onBack}
+        footer={
           <>
             {footerStart}
             <div className="flex-1" />
@@ -342,7 +336,7 @@ export function RegistryEditPage({
           </>
         }
       >
-        {review ?? form}
+        {form}
       </ResourceInspector>
     );
   }
@@ -353,13 +347,13 @@ export function RegistryEditPage({
       kind="editor"
       size="lg"
       title={isNew ? "新建 MCP" : "编辑 MCP"}
-      subtitle={review ? "检查变更 · 确认后写入" : transport === "stdio" ? "stdio · 全局配置" : "HTTP · 全局配置"}
+      subtitle={transport === "stdio" ? "stdio · 全局配置" : "HTTP · 全局配置"}
       busy={saving || consumptionState.committing}
-      onClose={close}
-      footerStart={review ? undefined : footerStart}
-      footerEnd={review ? undefined : footerEnd}
+      onClose={onBack}
+      footerStart={footerStart}
+      footerEnd={footerEnd}
     >
-      {review ?? form}
+      {form}
     </DialogShell>
   );
 }

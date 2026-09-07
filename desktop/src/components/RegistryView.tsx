@@ -392,7 +392,8 @@ export function RegistryView({ state, consumptionState, intent, onIntentConsumed
             });
           }}
         />
-      ) : state.loading || minimumSkeleton ? (
+      ) : null}
+      {state.loading || minimumSkeleton ? (
         <ResourceState kind="loading" title="正在读取 MCP…" />
       ) : state.registryError && catalog.length === 0 ? (
         <ResourceState

@@ -72,7 +72,7 @@ export interface ConsumptionState {
   planForAsset(asset: AssetRef, agentIds: string[]): Promise<AssetOperationPlan>;
   planUpdate(draft: CentralAssetDraft): Promise<AssetOperationPlan>;
   planDelete(asset: AssetRef, sourceId?: string): Promise<AssetOperationPlan>;
-  commit(): Promise<ConsumptionInventory>;
+  commit(options?: { background?: boolean }): Promise<ConsumptionInventory>;
   cancel(): Promise<void>;
 }
 
@@ -113,7 +113,6 @@ export function useConsumptionState({ autoLoad = true }: { autoLoad?: boolean } 
   const planRef = useRef(plan);
   const planningRef = useRef(false);
   const committingRef = useRef(false);
-  planRef.current = plan;
 
   useEffect(() => {
     mounted.current = true;
@@ -374,11 +373,14 @@ export function useConsumptionState({ autoLoad = true }: { autoLoad?: boolean } 
     [startPlan],
   );
 
-  const commit = useCallback(async () => {
+  const commit = useCallback(async ({ background = false }: { background?: boolean } = {}) => {
     const active = planRef.current;
     if (!active || committingRef.current) throw new Error("没有可提交的资产操作");
     committingRef.current = true;
     setCommitting(true);
+    // A routine action owns the operation slot without opening a review UI.
+    // Keep the ref until commit settles so a second action cannot race it.
+    if (background) setPlan(null);
     try {
       const committed = await commitOperation({
         domain: "asset",
@@ -406,6 +408,14 @@ export function useConsumptionState({ autoLoad = true }: { autoLoad?: boolean } 
       }
       return next;
     } catch (cause) {
+      if (background && planRef.current?.operation_id === active.operation_id) {
+        // Core retains any recovery evidence it cannot safely cancel. A failed
+        // automatic commit must not become a stale confirmation in the UI.
+        await cancelOperation({ domain: "asset", operation_id: active.operation_id })
+          .catch(() => undefined);
+        planRef.current = null;
+        if (mounted.current) setPlan(null);
+      }
       if (mounted.current) setError(commandError(cause));
       throw cause;
     } finally {

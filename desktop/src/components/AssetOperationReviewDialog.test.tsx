@@ -474,8 +474,7 @@ it("presents a Model removal as a readable danger summary", () => {
   expect(screen.getByText("移除")).toHaveAttribute("data-action", "remove");
   expect(screen.getByText("Model · OpenRouter 自用")).toBeVisible();
   expect(screen.getByRole("button", { name: "移除 Model" })).toHaveClass("btn-danger");
-  expect(screen.getByRole("region", { name: "确认移除 Model" })).toBeVisible();
-  expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  expect(screen.getByRole("dialog", { name: "确认移除 Model" })).toHaveAttribute("aria-modal", "true");
 });
 
 it("maps a stale Model removal conflict to a concise retry state", () => {
@@ -521,8 +520,7 @@ it("maps a stale Model removal conflict to a concise retry state", () => {
   );
   expect(screen.queryByText(/requested model/i)).not.toBeInTheDocument();
   expect(screen.getByRole("button", { name: "重试移除 Model" })).toBeEnabled();
-  expect(screen.getByRole("region", { name: "确认移除 Model" })).toBeVisible();
-  expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  expect(screen.getByRole("dialog", { name: "确认移除 Model" })).toHaveAttribute("aria-modal", "true");
 });
 
 it("separates direct Skill assignment from compatible visibility", () => {
@@ -807,4 +805,28 @@ it("explains that changing Model paths does not move existing configuration", ()
     "只更新 MUX 后续使用的 Model 配置位置；旧文件不会删除，现有 Model 配置不会复制到新位置。",
   )).toBeVisible();
   expect(screen.queryByText(/后续使用的 MCP/)).not.toBeInTheDocument();
+});
+
+it("opens review above the whole application and leaves page content in place", async () => {
+  const onCancel = vi.fn();
+  const { container } = render(
+    <main style={{ transform: "translateZ(0)", overflow: "hidden" }}>
+      <p>Agent asset list</p>
+      <AssetOperationReviewDialog
+        plan={assetOperationPlanFixture()}
+        busy={false}
+        agentName="Claude Code"
+        onCommit={vi.fn()}
+        onCancel={onCancel}
+      />
+    </main>,
+  );
+  const dialog = screen.getByRole("dialog", { name: "确认添加 MCP" });
+  expect(dialog).toHaveAttribute("aria-modal", "true");
+  expect(dialog.parentElement?.parentElement).toBe(document.body);
+  expect(container).not.toContainElement(dialog);
+  expect(screen.getByText("Agent asset list")).toBeVisible();
+  expect(screen.queryByText("检查并应用")).not.toBeInTheDocument();
+  await userEvent.keyboard("{Escape}");
+  expect(onCancel).toHaveBeenCalledOnce();
 });

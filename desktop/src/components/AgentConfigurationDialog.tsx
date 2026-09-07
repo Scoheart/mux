@@ -150,25 +150,15 @@ export function AgentConfigurationDialog({
 
   if (plan) {
     return (
-      <DialogShell
-        className="mux-dialog-agent-config-review"
-        kind="editor"
-        size="md"
-        title="编辑配置"
-        subtitle={`${agent.name} · 检查变更`}
+      <AssetOperationReviewDialog
+        plan={plan}
         busy={busy}
-        onClose={() => void cancelPlan()}
-      >
-        <AssetOperationReviewDialog
-          plan={plan}
-          busy={busy}
-          error={error}
-          agentName={agent.name}
-          cancelLabel="返回编辑"
-          onCommit={commit}
-          onCancel={cancelPlan}
-        />
-      </DialogShell>
+        error={error}
+        agentName={agent.name}
+        cancelLabel="返回编辑"
+        onCommit={commit}
+        onCancel={cancelPlan}
+      />
     );
   }
 

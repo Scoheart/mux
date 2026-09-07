@@ -19,6 +19,7 @@
 
 ## 产品与验证
 
+- 资产操作不得以内嵌确认面板替换页面列表。普通添加/移除直接执行，失败使用全局通知；必要确认统一通过 `DialogShell` / `Modal` 挂到 `document.body`，覆盖整个应用，禁止局部弹窗或重复弹窗外壳。
 - 顶层为 `MCPs`、`Models`、`Skills` 中央资产库；Agent 页面统一显示已添加资产与中央选择器，多模型 Agent 还需区分“已添加 / 已启用 / 当前模型”，三类状态由 core 的 desired/observed inventory 提供。UI 保持不透明、克制，并覆盖 `1200x820` 与 `900x600`。
 - 用户要求本地启动验证时，`npm run tauri dev` 默认使用真实 `HOME` 与 `~/.mux`，从而验证同一套 MCP、Model、Skill 和 Agent 配置；不得用空白临时数据冒充本地启动。只有自动化测试继续隔离 `HOME`/`MUX_HOME`，或用户明确要求隔离环境时才覆盖这些路径。
 - 当前使用极速交付模式：除非用户在当前任务中明确要求，不运行 `cargo test`、`npm test`、fmt、clippy、图标检查、changed-surface validator 或 push preflight。落地链路由用户指定，见 Git 节；检查 diff 后由对应 Skill 把普通功能提交落到 `main`，由 Direct Stable 自动发布。

@@ -623,6 +623,7 @@ it("adds an Agent asset as a delta with inline progress and no routine review di
       asset_keys: ["github::stdio"],
     });
     expect(commit).toHaveBeenCalledOnce();
+    expect(commit).toHaveBeenCalledWith({ background: true });
   });
   expect(screen.queryByRole("dialog", { name: /确认添加/ })).not.toBeInTheDocument();
   expect(screen.getByRole("status")).toHaveTextContent("正在检查并同步 Codex 的资产");

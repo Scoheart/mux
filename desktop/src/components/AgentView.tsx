@@ -536,7 +536,7 @@ export function AgentView({
   ) => {
     const activePlan = preparedPlan ?? consumptionState.plan;
     try {
-      await consumptionState.commit();
+      await consumptionState.commit(preparedPlan ? { background: true } : undefined);
       showToast({
         kind: "success",
         msg: successMessage
@@ -798,7 +798,7 @@ export function AgentView({
               onCommit={() => commitPlan()}
               onCancel={consumptionState.cancel}
             />
-          ) : <>
+          ) : null}
           {visibleIncidents.map((incident) => (
             <div className="mux-target-incident" role="status" key={incident.id}>
               <div>
@@ -1011,7 +1011,6 @@ export function AgentView({
               }}
             />
           )}
-          </>}
         </AgentResourcePanel>
       </div>
 

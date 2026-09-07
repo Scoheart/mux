@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.181](https://github.com/Scoheart/mux/compare/v1.8.180...v1.8.181) (2026-09-07)
+
+### Changes
+
+* fix(ui): remove the Agent target recovery banner (#172) ([5f65491](https://github.com/Scoheart/mux/commit/5f65491cd92791748ca92dd8090f9c0aa64de975))
+
 ## [1.8.180](https://github.com/Scoheart/mux/compare/v1.8.179...v1.8.180) (2026-09-07)
 
 ### Changes

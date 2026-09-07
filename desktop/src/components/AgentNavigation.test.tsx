@@ -47,6 +47,54 @@ const agents = [
   agent("amp", "Amp"),
 ];
 
+it("groups unpinned Agents by origin and keeps pinned Agents out of both groups", () => {
+  const custom = { ...agent("team-workbench", "Team Workbench"), builtin: false };
+  const { container } = render(
+    <AgentNavigation agents={[...agents, custom]} selectedAgentId="codex" onSelectAgent={vi.fn()} />,
+  );
+  fireEvent.click(container.querySelector<HTMLButtonElement>(".mux-agent-picker-trigger")!);
+
+  const picker = within(screen.getByRole("dialog", { name: "选择和置顶 Agent" }));
+  const customGroup = within(picker.getByRole("group", { name: "自定义 Agent" }));
+  const builtinGroup = within(picker.getByRole("group", { name: "内置 Agent" }));
+  expect(customGroup.getByText("Team Workbench")).toBeVisible();
+  expect(customGroup.queryByText("Amp")).not.toBeInTheDocument();
+  expect(builtinGroup.getByText("Amp")).toBeVisible();
+  expect(builtinGroup.queryByText("Team Workbench")).not.toBeInTheDocument();
+  expect(builtinGroup.queryByText("Codex")).not.toBeInTheDocument();
+  expect(picker.getAllByText("Codex")).toHaveLength(1);
+  expect(picker.queryByText("全部 Agent")).not.toBeInTheDocument();
+});
+
+it("groups search matches, retains pin state, and hides empty categories", () => {
+  const onSelectAgent = vi.fn();
+  const custom = { ...agent("code-workbench", "Code Workbench"), builtin: false };
+  const { container } = render(
+    <AgentNavigation agents={[...agents, custom]} selectedAgentId="codex" onSelectAgent={onSelectAgent} />,
+  );
+  fireEvent.click(container.querySelector<HTMLButtonElement>(".mux-agent-picker-trigger")!);
+  const picker = within(screen.getByRole("dialog", { name: "选择和置顶 Agent" }));
+  const search = picker.getByRole("searchbox", { name: "搜索 Agent" });
+
+  fireEvent.change(search, { target: { value: "code" } });
+  expect(within(picker.getByRole("group", { name: "自定义 Agent" })).getByText("Code Workbench")).toBeVisible();
+  expect(within(picker.getByRole("group", { name: "内置 Agent" })).getByRole("button", { name: "取消置顶 Codex" })).toBeEnabled();
+  expect(picker.getAllByText("Codex")).toHaveLength(1);
+
+  fireEvent.change(search, { target: { value: "workbench" } });
+  expect(picker.queryByRole("group", { name: "内置 Agent" })).not.toBeInTheDocument();
+  expect(picker.getByRole("group", { name: "自定义 Agent" })).toBeVisible();
+
+  fireEvent.change(search, { target: { value: "no-such-agent" } });
+  expect(picker.queryByRole("group", { name: "自定义 Agent" })).not.toBeInTheDocument();
+  expect(picker.getByText("未找到匹配项")).toBeVisible();
+
+  fireEvent.change(search, { target: { value: "workbench" } });
+  fireEvent.click(picker.getByText("Code Workbench").closest("button")!);
+  expect(onSelectAgent).toHaveBeenCalledWith("code-workbench");
+  expect(screen.queryByRole("dialog", { name: "选择和置顶 Agent" })).not.toBeInTheDocument();
+});
+
 it("distinguishes shared Claude logos in the Agent picker", () => {
   const { container } = render(
     <AgentNavigation

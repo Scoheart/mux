@@ -153,7 +153,6 @@ export function AgentView({
   const { t } = useTranslation();
   const { entries, refreshAgents } = state;
   const { show: showToast } = useToast();
-  const mcpIcons = useMcpIconPreferences();
   const [editingAgent, setEditingAgent] = useState(false);
   const [pickerDomain, setPickerDomain] = useState<PickerDomain | null>(null);
   const [modelProfiles, setModelProfiles] = useState<ModelProfileView[]>([]);
@@ -161,6 +160,7 @@ export function AgentView({
   const [modelsLoading, setModelsLoading] = useState(true);
   const [modelsError, setModelsError] = useState<string | null>(null);
   const [resourceTab, setResourceTab] = useState<AgentResourceTab>(initialTab);
+  const mcpIcons = useMcpIconPreferences(resourceTab === "mcps");
   const [preparingChange, setPreparingChange] = useState(false);
   const [togglingMcp, setTogglingMcp] = useState<{
     key: string;
@@ -210,26 +210,47 @@ export function AgentView({
 
   const modelRevision = useModelObservationRevision();
   const modelQueryGeneration = useRef(0);
-  const refreshModels = useCallback(async () => {
+  const needsModelProfiles = resourceTab === "models" || pickerDomain === "model";
+  const pendingModelQuery = useRef<{
+    includeProfiles: boolean;
+    revision: number;
+    promise: Promise<[ModelProfileView[] | null, ModelAgentView[]]>;
+  } | null>(null);
+  const refreshModels = useCallback(async (reusePending = false) => {
     const generation = ++modelQueryGeneration.current;
+    let request = pendingModelQuery.current;
+    if (!reusePending || !request || request.includeProfiles !== needsModelProfiles
+      || request.revision !== modelRevision) {
+      request = {
+        includeProfiles: needsModelProfiles,
+        revision: modelRevision,
+        promise: Promise.all([
+          needsModelProfiles ? listModelProfiles() : Promise.resolve(null),
+          listModelAgents(),
+        ]),
+      };
+      pendingModelQuery.current = request;
+    }
     try {
-      const [profiles, nextAgents] = await Promise.all([listModelProfiles(), listModelAgents()]);
+      const [profiles, nextAgents] = await request.promise;
       if (generation !== modelQueryGeneration.current) return;
-      setModelProfiles(profiles);
+      if (profiles !== null) setModelProfiles(profiles);
       setModelAgents(nextAgents);
       setModelsError(null);
     } catch (error) {
       if (generation !== modelQueryGeneration.current) return;
       setModelsError(formatError(error));
       throw error;
+    } finally {
+      if (pendingModelQuery.current === request) pendingModelQuery.current = null;
     }
-  }, []);
+  }, [needsModelProfiles, modelRevision]);
 
   useEffect(() => {
     let active = true;
     setModelsLoading(true);
     setModelsError(null);
-    refreshModels()
+    refreshModels(true)
       .catch((error) => { if (active) showToast({ kind: "error", msg: "读取模型配置失败：" + formatError(error) }); })
       .finally(() => { if (active) setModelsLoading(false); });
     return () => { active = false; modelQueryGeneration.current += 1; };
@@ -249,9 +270,14 @@ export function AgentView({
     [modelAgent, modelProfiles],
   );
   const inventory = consumptionState.inventory;
-  const mcpRows = consumptionsForAgent(inventory, agentId, "mcp");
-  const modelRows = consumptionsForAgent(inventory, agentId, "model");
-  const skillRows = consumptionsForAgent(inventory, agentId, "skill");
+  const { mcpRows, modelRows, skillRows, mcpExternal, skillExternal, modelExternal } = useMemo(() => ({
+    mcpRows: consumptionsForAgent(inventory, agentId, "mcp"),
+    modelRows: consumptionsForAgent(inventory, agentId, "model"),
+    skillRows: consumptionsForAgent(inventory, agentId, "skill"),
+    mcpExternal: externalForAgent(inventory, agentId, "mcp"),
+    skillExternal: externalForAgent(inventory, agentId, "skill"),
+    modelExternal: externalForAgent(inventory, agentId, "model"),
+  }), [inventory, agentId]);
   const displayedMcpRows = useMemo(
     () => mcpRows.map((item) => (
       togglingAllMcp
@@ -270,9 +296,6 @@ export function AgentView({
     )),
     [skillRows, togglingSkill],
   );
-  const mcpExternal = externalForAgent(inventory, agentId, "mcp");
-  const skillExternal = externalForAgent(inventory, agentId, "skill");
-  const modelExternal = externalForAgent(inventory, agentId, "model");
   const authorityModelRows = modelAgent?.storage_authority === "native-registry"
     ? modelRows.filter((item) => item.observed)
     : modelRows;
@@ -298,6 +321,34 @@ export function AgentView({
     }),
     [authorityModelRows, changingModel, modelAgent?.supports_global_selection],
   );
+
+  const centralSkills = useMemo(() => (skillsState.inventory?.items ?? []).filter(
+    (item) => item.location.kind === "central" && item.states.includes("managed"),
+  ), [skillsState.inventory]);
+  const centralSkillsByName = useMemo(() => new Map(
+    centralSkills.map((skill) => [skill.name, skill]),
+  ), [centralSkills]);
+  const externalSkillsByName = useMemo(() => {
+    const byName = new Map<string, NonNullable<typeof skillsState.inventory>["items"][number]>();
+    for (const skill of skillsState.inventory?.items ?? []) {
+      if (skill.location.kind === "agent_target" && skill.states.includes("external")
+        && skill.affected_agent_ids.includes(agentId) && !byName.has(skill.name)) byName.set(skill.name, skill);
+    }
+    return byName;
+  }, [skillsState.inventory, agentId]);
+  const sharedSkillCounts = useMemo(() => new Map(skillRows.flatMap((row) =>
+    row.asset.domain === "skill" ? [[row.asset.name, row.affected_agent_ids.length] as const] : [],
+  )), [skillRows]);
+  const mcpEntriesByKey = useMemo(() => new Map(entries.map((entry) => [keyOf(entry), entry])), [entries]);
+  const modelProfilesById = useMemo(() => new Map(modelProfiles.map((profile) => [profile.id, profile])), [modelProfiles]);
+  const agentDisplayNames = useMemo(() => Object.fromEntries(
+    agents.map((item) => [item.id, item.name]),
+  ), [agents]);
+  const assetDisplayNames = useMemo(() => Object.fromEntries([
+    ...entries.map((entry) => [`mcp:${keyOf(entry)}`, entry.name] as const),
+    ...modelProfiles.map((profile) => [`model:${profile.id}`, profile.name] as const),
+    ...centralSkills.map((skill) => [`skill:${skill.name}`, skill.name] as const),
+  ]), [entries, modelProfiles, centralSkills]);
 
   if (!agent) return <div className="mux-agent-state">未找到该 Agent</div>;
 
@@ -342,17 +393,6 @@ export function AgentView({
           ? `用户目录 · 共用 ${runtimeSkillAgent.affected_agent_ids.length}`
           : "用户目录";
 
-  const centralSkills = (skillsState.inventory?.items ?? []).filter(
-    (item) => item.location.kind === "central" && item.states.includes("managed"),
-  );
-  const agentDisplayNames = Object.fromEntries(
-    agents.map((item) => [item.id, item.name]),
-  );
-  const assetDisplayNames = Object.fromEntries([
-    ...entries.map((entry) => [`mcp:${keyOf(entry)}`, entry.name] as const),
-    ...modelProfiles.map((profile) => [`model:${profile.id}`, profile.name] as const),
-    ...centralSkills.map((skill) => [`skill:${skill.name}`, skill.name] as const),
-  ]);
 
   const openConfigLocation = async (path: string, kind: ConfigLocationKind) => {
     try {
@@ -832,7 +872,7 @@ export function AgentView({
               emptyTitle="暂无 MCP"
               present={(asset) => {
                 const key = asset.domain === "mcp" ? asset.key : "";
-                const entry = entries.find((candidate) => keyOf(candidate) === key);
+                const entry = mcpEntriesByKey.get(key);
                 const iconEntry = entry ?? {
                   name: key.replace(/::(?:stdio|http)$/, ""),
                   description: "",
@@ -938,7 +978,7 @@ export function AgentView({
                         icon: modelProviderIcon(externalCandidate.provider, name),
                       };
                     }
-                    const profile = modelProfiles.find((candidate) => candidate.id === profileId);
+                    const profile = modelProfilesById.get(profileId);
                     return {
                       name: profile?.name ?? profileId,
                       description: profile
@@ -974,16 +1014,9 @@ export function AgentView({
               emptyTitle="暂无 Skill"
               present={(asset) => {
                 const name = asset.domain === "skill" ? asset.name : "";
-                const skill = centralSkills.find((candidate) => candidate.name === name);
-                const externalSkill = (skillsState.inventory?.items ?? []).find(
-                  (candidate) => candidate.name === name
-                    && candidate.location.kind === "agent_target"
-                    && candidate.states.includes("external")
-                    && candidate.affected_agent_ids.includes(agentId),
-                );
-                const sharedCount = skillRows.find(
-                  (row) => row.asset.domain === "skill" && row.asset.name === name,
-                )?.affected_agent_ids.length ?? 0;
+                const skill = centralSkillsByName.get(name);
+                const externalSkill = externalSkillsByName.get(name);
+                const sharedCount = sharedSkillCounts.get(name) ?? 0;
                 return {
                   name,
                   description: skill?.description ?? externalSkill?.description ?? "Skill 资产已缺失",

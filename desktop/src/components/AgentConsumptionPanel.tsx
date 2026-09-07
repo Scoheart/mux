@@ -22,6 +22,12 @@ export interface ConsumptionAssetPresentation {
   meta?: ReactNode;
 }
 
+function rowKey(item: ConsumptionView, external: boolean) {
+  // One Skill can be observed at several physical targets for the same Agent.
+  return JSON.stringify([item.agent_id, item.asset.domain, assetIdentity(item.asset), external,
+    item.target?.target_id, item.target?.global_dir, item.observation_id]);
+}
+
 function ConvergenceActionIcon({ action }: { action: ConvergenceAction }) {
   if (action === "adopt-observed") return <DownloadIcon className="w-3.5 h-3.5" />;
   if (action === "restore-desired") return <RefreshIcon className="w-3.5 h-3.5" />;
@@ -257,7 +263,7 @@ export function AgentConsumptionPanel({
             {domainExternal.slice(0, 3).map((item) => {
               const shared = item.asset.domain === "skill" && item.affected_agent_ids.length > 1;
               return (
-                <li key={`${item.agent_id}:${item.asset.domain}:${assetIdentity(item.asset)}`}>
+                <li key={rowKey(item, true)}>
                   {present(item.asset).name}
                   {shared && <small>外部 · 共用 {item.affected_agent_ids.length}</small>}
                 </li>
@@ -292,7 +298,7 @@ export function AgentConsumptionPanel({
                 : `启用 ${presentation.name}`;
             return (
               <li
-                key={`${item.agent_id}:${item.asset.domain}:${assetIdentity(item.asset)}`}
+                key={rowKey(item, isExternal)}
                 data-status={item.status}
                 data-enabled={isExternal || enabled === false ? "false" : undefined}
               >

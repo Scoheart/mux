@@ -500,8 +500,12 @@ pub async fn cancel_skill_operation(operation_id: String) -> Result<(), SkillCom
 // ── Model endpoint profiles ─────────────────────────────────────────────
 
 #[tauri::command]
-pub fn list_model_profiles() -> Vec<mux_core::application::models::ModelProfileView> {
-    mux_core::application::models::list_profiles()
+pub async fn list_model_profiles() -> Result<Vec<mux_core::application::models::ModelProfileView>, String> {
+    // Profile enumeration checks Keychain and may wait for the workspace gate.
+    // Never perform that work on the WebView event thread.
+    tauri::async_runtime::spawn_blocking(mux_core::application::models::list_profiles)
+        .await
+        .map_err(|_| "model_profiles_worker_failed: Background profile query failed".to_owned())
 }
 
 #[tauri::command]
@@ -548,8 +552,10 @@ pub async fn validate_model_credential_source(
 }
 
 #[tauri::command]
-pub fn list_model_agents() -> Result<Vec<mux_core::application::models::ModelAgentView>, String> {
-    mux_core::application::models::list_agent_capabilities()
+pub async fn list_model_agents() -> Result<Vec<mux_core::application::models::ModelAgentView>, String> {
+    tauri::async_runtime::spawn_blocking(mux_core::application::models::list_agent_capabilities)
+        .await
+        .map_err(|_| "model_agents_worker_failed: Background capability query failed".to_owned())?
 }
 
 #[tauri::command]
@@ -805,10 +811,13 @@ pub fn set_ui_locale(locale: Option<String>) -> CoreResult<Option<String>> {
 }
 
 #[tauri::command]
-pub fn list_mcp_icon_preferences(
+pub async fn list_mcp_icon_preferences(
 ) -> CoreResult<BTreeMap<String, mux_core::application::ui::McpIconPreferenceView>> {
-    mux_core::application::ui::list_mcp_icon_preferences()
-        .map_err(|error| core_error_from_legacy(error, "ui_preference_failed"))
+    core_blocking(|| {
+        mux_core::application::ui::list_mcp_icon_preferences()
+            .map_err(|error| core_error_from_legacy(error, "ui_preference_failed"))
+    })
+    .await
 }
 
 #[tauri::command]

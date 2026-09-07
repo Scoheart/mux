@@ -36,8 +36,13 @@ export function SkillAgentHand({ ids, names, skillName, onOpenAgent }: {
       })}
       {remaining > 0 && <button type="button" className="mux-skill-agent-card mux-skill-agent-more"
         style={cardStyle(visible.length)} data-agent-name={t("skillLibrary.allAgents")}
-        aria-label={t("skillLibrary.moreAgents", { count: remaining })} aria-haspopup="dialog"
-        aria-expanded={expanded} onClick={(event) => { event.currentTarget.focus(); setExpanded(true); }}>
+        aria-label={t("skillLibrary.moreAgents", { count: remaining })}
+        aria-expanded={expanded} onClick={(event) => {
+          // Warm the same module used by App's lazy AgentView while the cards are dealt.
+          void import("./AgentView").catch(() => undefined);
+          event.currentTarget.focus();
+          setExpanded(true);
+        }}>
         +{remaining}
       </button>}
     </div>

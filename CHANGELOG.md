@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.180](https://github.com/Scoheart/mux/compare/v1.8.179...v1.8.180) (2026-09-07)
+
+### Changes
+
+* fix(ui): replace inline asset reviews with global dialogs (#171) ([ec6fce2](https://github.com/Scoheart/mux/commit/ec6fce2f41228c1696ecd47b9a8cc2abbf15ff9c))
+
 ## [1.8.179](https://github.com/Scoheart/mux/compare/v1.8.178...v1.8.179) (2026-09-06)
 
 ### Changes

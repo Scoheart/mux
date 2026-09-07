@@ -84,6 +84,7 @@ const AGENT_META: Record<string, { name: string; color: string }> = {
   vscode: { name: "VS Code", color: "#0A7ACA" },
   codex: { name: "Codex", color: "#10A37F" },
   zed: { name: "Zed", color: "#084CCF" },
+  zcode: { name: "ZCode Desktop", color: "#356DFF" },
   windsurf: { name: "Windsurf", color: "#09B6A2" },
   "roo-code": { name: "Roo Code", color: "#6C47FF" },
   gemini: { name: "Gemini", color: "#4285F4" },

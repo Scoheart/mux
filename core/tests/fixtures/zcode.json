@@ -1,0 +1,18 @@
+{
+  "theme": "system",
+  "mcp": {
+    "servers": {
+      "docs": {
+        "type": "http",
+        "url": "https://example.test/mcp",
+        "enable": true,
+        "timeout": 9000
+      },
+      "paused": {
+        "command": "npx",
+        "args": ["-y", "example-mcp"],
+        "enable": false
+      }
+    }
+  }
+}

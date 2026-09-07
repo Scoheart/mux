@@ -36,3 +36,10 @@ Official assets retrieved 2026-09-07 (original bytes; ICO retained without conve
 
 - `trae.png`: <https://lf-cdn.trae.com.cn/obj/trae-com-cn/trae_website_prod_cn/favicon.png>
 - `openclaw.svg`: <https://openclaw.ai/favicon.svg>
+# ZCode Desktop
+
+- Official product: https://zcode.z.ai/cn
+- Icon: https://zcode.z.ai/favicon-192x192.png?v=20260707-transparent
+- MCP: https://zcode.z.ai/cn/docs/mcp-services
+- Skills: https://zcode.z.ai/cn/docs/skill
+- Verified 2026-09-07. Desktop surface only; community CLI packages are not official ZCode releases.

@@ -103,6 +103,7 @@ const VERIFIED_SKILL_AGENT_IDS: &[&str] = &[
     "vt-code",
     "warp",
     "windsurf",
+    "zcode",
     "zed",
     "zencoder",
 ];

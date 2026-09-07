@@ -1,7 +1,7 @@
-import { useId } from "react";
 import type { AssetCommandError, AssetOperationPlan, AssetRef } from "../lib/types";
 import { assetIdentity } from "../lib/consumption";
 import { TrashIcon } from "./icons";
+import { DialogShell } from "./DialogShell";
 
 function assetKey(asset: AssetRef) {
   return `${asset.domain}:${assetIdentity(asset)}`;
@@ -261,7 +261,6 @@ export function AssetOperationReviewDialog({
   onCommit(): Promise<unknown> | unknown;
   onCancel(): Promise<unknown> | unknown;
 }) {
-  const headingId = useId();
   if (plan.kind === "clear-mcp" || plan.kind === "clear-models") return null;
   const isConfiguration = plan.kind === "update-configuration";
   const isAgentSkillPlan = Boolean(
@@ -317,28 +316,42 @@ export function AssetOperationReviewDialog({
       : agentName
     : `${plan.affected_agent_ids.length} 个 Agent · ${plan.target_files.length} 个目标`;
   return (
-    <section
-      className="mux-asset-operation-review"
-      aria-labelledby={headingId}
-      aria-busy={busy || undefined}
-    >
-      <header className="mux-asset-operation-review-header">
-        <div>
-          <h2 id={headingId}>{title}</h2>
-          <p>{subtitle}</p>
-        </div>
-        <span className="mux-asset-operation-review-step">检查并应用</span>
-      </header>
-      {!plan.can_commit ? (
-        <div className="mux-asset-operation-review-status mux-review-error" role="alert">
-          存在冲突，暂不可继续。
-        </div>
+    <DialogShell
+      kind="review"
+      size="md"
+      title={title}
+      subtitle={subtitle}
+      busy={busy}
+      onClose={() => void onCancel()}
+      status={!plan.can_commit ? (
+        <div className="mux-review-error" role="alert">存在冲突，暂不可继续。</div>
       ) : reviewError ? (
-        <div className="mux-asset-operation-review-status mux-asset-review-error" role="alert">
+        <div className="mux-asset-review-error" role="alert">
           <strong>操作未完成</strong>
           <span>{reviewError}</span>
         </div>
-      ) : null}
+      ) : undefined}
+      footerEnd={(
+        <>
+          <button type="button" className="btn-ghost" disabled={busy} onClick={() => void onCancel()}>
+            {cancelLabel}
+          </button>
+          <button
+            type="button"
+            className={isDanger ? "btn-danger" : "btn-primary"}
+            disabled={busy || !plan.can_commit}
+            onClick={() => void onCommit()}
+          >
+            {!busy && isDanger && <TrashIcon className="w-4 h-4" />}
+            {busy
+              ? (isConfiguration ? "保存中…" : agentCopy?.busy ?? "处理中…")
+              : reviewError && isRemoveOnly
+                ? `重试${commitLabel}`
+                : commitLabel}
+          </button>
+        </>
+      )}
+    >
       <div className="mux-review-content mux-asset-review">
         {isRemoveOnly && (
           <section className="mux-asset-review-summary">
@@ -549,24 +562,6 @@ export function AssetOperationReviewDialog({
           </section>
         )}
       </div>
-      <footer className="mux-asset-operation-review-footer">
-        <button type="button" className="btn-ghost" disabled={busy} onClick={() => void onCancel()}>
-          {cancelLabel}
-        </button>
-        <button
-          type="button"
-          className={isDanger ? "btn-danger" : "btn-primary"}
-          disabled={busy || !plan.can_commit}
-          onClick={() => void onCommit()}
-        >
-          {!busy && isDanger && <TrashIcon className="w-4 h-4" />}
-          {busy
-            ? (isConfiguration ? "保存中…" : agentCopy?.busy ?? "处理中…")
-            : reviewError && isRemoveOnly
-              ? `重试${commitLabel}`
-              : commitLabel}
-        </button>
-      </footer>
-    </section>
+    </DialogShell>
   );
 }

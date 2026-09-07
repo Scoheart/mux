@@ -2226,31 +2226,6 @@ body {
 .mux-language-menu > button[data-active="true"] { background: var(--surface-section); color: var(--text-primary); }
 .mux-language-menu > button[data-active="true"] { color: var(--color-blue); }
 .mux-language-menu > button:disabled { opacity: .5; cursor: default; }
-.mux-asset-operation-review {
-  display: flex; width: 100%; min-width: 0; max-width: 780px; min-height: 0; margin: 0 auto;
-  flex-direction: column; gap: 12px; padding: 18px; border: 1px solid var(--border-hairline);
-  border-radius: var(--radius-canvas); background: var(--surface-item); box-shadow: var(--shadow-card);
-}
-.mux-asset-operation-review-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
-.mux-asset-operation-review-header > div { min-width: 0; }
-.mux-asset-operation-review-header h2 { margin: 0; color: var(--text-primary); font-size: 16px; font-weight: 720; line-height: 1.35; }
-.mux-asset-operation-review-header p { margin: 4px 0 0; color: var(--text-secondary); font-size: 11px; line-height: 1.45; }
-.mux-asset-operation-review-step {
-  flex: 0 0 auto; padding: 5px 8px; border-radius: 999px;
-  background: color-mix(in srgb, var(--color-blue) 10%, var(--surface-control)); color: var(--color-blue);
-  font-size: 9px; font-weight: 680;
-}
-.mux-asset-operation-review-status { padding: 9px 10px; border-radius: 7px; background: var(--surface-section); }
-.mux-asset-operation-review-footer {
-  display: flex; flex: 0 0 auto; align-items: center; justify-content: flex-end; gap: 8px;
-  padding: 10px; border-radius: var(--radius-row); background: var(--surface-section);
-}
-.mux-dialog-shell-body > .mux-asset-operation-review { max-width: none; gap: 14px; padding: 0; border: 0; background: transparent; box-shadow: none; }
-.mux-dialog-shell-body > .mux-asset-operation-review .mux-asset-operation-review-header h2 { font-size: 13px; }
-.mux-dialog-shell-body > .mux-asset-operation-review .mux-asset-operation-review-footer {
-  min-height: var(--mux-dialog-footer-height); padding: 9px 0 0; border-top: 1px solid var(--border-hairline);
-  border-radius: 0; background: transparent;
-}
 .mux-asset-review { display: grid; gap: 10px; }
 .mux-asset-review > section { padding: 0 0 12px; border-bottom: 1px solid var(--border-hairline); border-radius: 0; background: transparent; }
 .mux-asset-review > section:last-child { padding-bottom: 0; border-bottom: 0; }

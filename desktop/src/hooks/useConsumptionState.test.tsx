@@ -405,3 +405,56 @@ it("reserves the operation slot while a plan request is still in flight", async 
   expect(api.planOperation).toHaveBeenCalledOnce();
   expect(result.current.plan?.candidate_hash).toBe("candidate");
 });
+
+it("hides a background commit and releases its UI slot even when recovery prevents cancellation", async () => {
+  let failCommit!: (cause: unknown) => void;
+  vi.mocked(api.commitOperation).mockImplementationOnce(() => new Promise((_, reject) => {
+    failCommit = reject;
+  }));
+  vi.mocked(api.cancelOperation).mockRejectedValueOnce(new Error("recovery evidence retained"));
+  const failure = { code: "recovery_required", message: "private snapshot unavailable" };
+  const { result } = renderHook(() => useConsumptionState({ autoLoad: false }));
+  await act(async () => {
+    await result.current.planAdditionsForAgent("qoder-desktop", {
+      domain: "mcp", asset_keys: ["filesystem::stdio"],
+    });
+  });
+  let pending!: Promise<unknown>;
+  await act(async () => {
+    pending = result.current.commit({ background: true }).catch((cause) => cause);
+  });
+  expect(result.current.plan).toBeNull();
+  expect(result.current.committing).toBe(true);
+  await expect(result.current.planAdditionsForAgent("codex", {
+    domain: "mcp", asset_keys: ["github::stdio"],
+  })).rejects.toThrow("已有待确认的资产操作");
+  await act(async () => {
+    failCommit(failure);
+    expect(await pending).toEqual(failure);
+  });
+  expect(api.cancelOperation).toHaveBeenCalledOnce();
+  expect(result.current.plan).toBeNull();
+  expect(result.current.committing).toBe(false);
+  expect(result.current.error).toEqual(failure);
+  await act(async () => {
+    await result.current.planAdditionsForAgent("codex", {
+      domain: "mcp", asset_keys: ["github::stdio"],
+    });
+  });
+  expect(result.current.plan).not.toBeNull();
+});
+
+it("keeps an explicitly reviewed plan available after a failed commit", async () => {
+  const failure = { code: "conflict", message: "target changed" };
+  vi.mocked(api.commitOperation).mockRejectedValueOnce(failure);
+  const { result } = renderHook(() => useConsumptionState({ autoLoad: false }));
+  await act(async () => {
+    await result.current.planDelete({ domain: "mcp", key: "github::stdio" });
+  });
+  await act(async () => {
+    await expect(result.current.commit()).rejects.toEqual(failure);
+  });
+  expect(result.current.plan).not.toBeNull();
+  expect(result.current.error).toEqual(failure);
+  expect(api.cancelOperation).not.toHaveBeenCalled();
+});

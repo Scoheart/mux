@@ -556,7 +556,7 @@ export function ModelsView({
               });
             }}
           />
-        ) : <>
+        ) : null}
         {selectedProvider && (
           <ProviderBanner
             provider={selectedProvider}
@@ -618,7 +618,6 @@ export function ModelsView({
             }}
           />
         )}
-        </>}
       </ResourceWorkspace>
 
       {providerCatalogOpen && (

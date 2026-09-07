@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.184](https://github.com/Scoheart/mux/compare/v1.8.183...v1.8.184) (2026-09-07)
+
+### Changes
+
+* fix(ui): refine agent card motion and prevent detail loading stalls (#175) ([b32f991](https://github.com/Scoheart/mux/commit/b32f991cac6ad2ca60e83e62b10847d56a8bd850))
+
 ## [1.8.183](https://github.com/Scoheart/mux/compare/v1.8.182...v1.8.183) (2026-09-07)
 
 ### Changes

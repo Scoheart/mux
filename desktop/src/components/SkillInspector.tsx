@@ -5,6 +5,7 @@ import type {
   SkillCommandError,
   SkillDetail,
   SkillInventoryItem,
+  SkillRiskFinding,
 } from "../lib/types";
 import {
   InspectorField,
@@ -12,7 +13,7 @@ import {
   ResourceInspector,
 } from "./ResourceWorkspace";
 import { SkillRiskBadge, skillSourceText } from "./SkillCard";
-import { agentName } from "./brandIcons";
+import { AgentGlyph, agentName } from "./brandIcons";
 import { Avatar, Badge } from "./ui";
 import {
   CalendarIcon,
@@ -55,6 +56,24 @@ function sourceKindLabel(item: SkillInventoryItem) {
   if (item.source.kind === "local") return "本地";
   if (item.source.kind === "archive") return "压缩包";
   return "Imported";
+}
+
+function groupFindings(findings: SkillRiskFinding[]) {
+  const groups = new Map<string, { path: string; level: SkillRiskFinding["level"]; reasons: Set<string> }>();
+  const rank = { low: 0, medium: 1, high: 2 };
+  for (const finding of findings) {
+    const group = groups.get(finding.path) ?? { path: finding.path, level: finding.level, reasons: new Set<string>() };
+    if (rank[finding.level] > rank[group.level]) group.level = finding.level;
+    group.reasons.add(finding.reason);
+    groups.set(finding.path, group);
+  }
+  return [...groups.values()].sort((a, b) => rank[b.level] - rank[a.level] || a.path.localeCompare(b.path));
+}
+
+function shortDate(value: string | null) {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString();
 }
 
 export function SkillInspector({
@@ -100,6 +119,7 @@ export function SkillInspector({
         ? ({ kind: "target", target_id: item.location.target_id } as const)
         : null;
   const disabled = planning || readOnly;
+  const findings = groupFindings(item.risk?.findings ?? []);
   const footer = onPlan ? (
     <div className="mux-skill-inspector-actions">
       {external && (
@@ -197,128 +217,112 @@ export function SkillInspector({
       onClose={onClose}
       footer={footer}
     >
-      <p className="mux-skill-inspector-description">{item.description}</p>
-
-      <InspectorSection title="来源与版本" icon={<LinkIcon className="w-4 h-4" />}>
-        <InspectorField icon={<LinkIcon className="w-4 h-4" />} label="来源" mono>
-          {skillSourceText(item.source)}
-        </InspectorField>
-        <InspectorField icon={<RefreshIcon className="w-4 h-4" />} label="Revision" mono>
-          {item.resolved_revision ?? "未记录"}
-        </InspectorField>
-        <InspectorField icon={<TerminalIcon className="w-4 h-4" />} label="内容哈希" mono>
-          {item.content_hash ?? "未记录"}
-        </InspectorField>
-        <InspectorField icon={<CalendarIcon className="w-4 h-4" />} label="安装时间" mono>
-          {item.installed_at ?? "未记录"}
-        </InspectorField>
-        <InspectorField icon={<CalendarIcon className="w-4 h-4" />} label="更新时间" mono>
-          {item.updated_at ?? "未记录"}
-        </InspectorField>
-        {item.affected_agent_ids.length > 0 && (
-          <InspectorField icon={<LayersIcon className="w-4 h-4" />} label="关联 Agent">
-            {item.affected_agent_ids.length} 个 · {item.affected_agent_ids.map((id) => agentName(id)).join("、")}
-          </InspectorField>
-        )}
-      </InspectorSection>
-
-      <InspectorSection title="状态与风险" icon={<LayersIcon className="w-4 h-4" />}>
+      <div className="mux-skill-detail-summary" key={item.identity}>
+        <p className="mux-skill-inspector-description">{item.description || "暂无说明"}</p>
+        <div className="mux-skill-detail-source">
+          <LinkIcon className="w-3.5 h-3.5" />
+          <span>{item.source?.kind === "github" ? `${item.source.owner}/${item.source.repo}` : skillSourceText(item.source)}</span>
+          {item.updated_at && <small>更新于 {shortDate(item.updated_at)}</small>}
+        </div>
         <div className="mux-skill-inspector-state-list">
           <SkillRiskBadge level={item.risk?.level ?? null} />
           {item.states.filter((state) => state !== "assigned").map((state) => (
-            <Badge
-              key={state}
-              tone={state === "managed" ? "success" : state === "external" ? "neutral" : "warning"}
-            >
+            <Badge key={state} tone={state === "managed" ? "success" : state === "external" ? "neutral" : "warning"}>
               {stateLabels[state]}
             </Badge>
           ))}
         </div>
+        {item.update.error && <p className="mux-skill-inspector-update-error">更新检查失败：{item.update.error}</p>}
 
-        {item.update.error && (
-          <p className="mux-skill-inspector-update-error">
-            更新检查失败：{item.update.error}
-            {item.update.retry_at ? ` · 可重试：${item.update.retry_at}` : ""}
-          </p>
+        {item.affected_agent_ids.length > 0 && (
+          <InspectorSection title={`关联 Agent · ${item.affected_agent_ids.length}`} icon={<LayersIcon className="w-4 h-4" />}>
+            <div className="mux-skill-detail-agent-chips">
+              {item.affected_agent_ids.slice(0, 5).map((id) => (
+                <span key={id}><AgentGlyph id={id} size={18} />{agentName(id)}</span>
+              ))}
+            </div>
+            {item.affected_agent_ids.length > 5 && (
+              <details className="mux-skill-detail-more-agents">
+                <summary>另外 {item.affected_agent_ids.length - 5} 个</summary>
+                <div className="mux-skill-detail-agent-chips">
+                  {item.affected_agent_ids.slice(5).map((id) => (
+                    <span key={id}><AgentGlyph id={id} size={18} />{agentName(id)}</span>
+                  ))}
+                </div>
+              </details>
+            )}
+          </InspectorSection>
         )}
 
-        {item.risk ? (
-          <div className="mux-skill-inspector-findings">
-            {item.risk.findings.length === 0 ? (
-              <p>未发现需要展示的风险证据。</p>
-            ) : (
-              <ul>
-                {item.risk.findings.map((finding, index) => (
-                  <li key={`${finding.rule_id}:${finding.path}:${finding.line ?? "file"}:${index}`}>
+        <div className="mux-skill-detail-disclosures">
+          <details className="mux-skill-detail-disclosure">
+            <summary><LayersIcon className="w-4 h-4" /><strong>风险详情</strong>
+              <span>{item.risk ? `${item.risk.finding_count} 条 · ${findings.length} 个文件` : "尚未检查"}</span>
+            </summary>
+            <div className="mux-skill-inspector-findings">
+              {!item.risk ? <p>尚未完成风险检查。</p> : findings.length === 0 ? <p>未发现风险提示。</p> : (
+                <ul>{findings.map((finding) => (
+                  <li key={finding.path}>
                     <div className="mux-skill-inspector-finding-head">
-                      <code>
-                        {finding.path}
-                        {finding.line === null ? "" : `:${finding.line}`}
-                      </code>
-                      <SkillRiskBadge
-                        level={finding.level}
-                        label={finding.level === "low" ? "提示" : undefined}
-                      />
+                      <code>{finding.path}</code><SkillRiskBadge level={finding.level} />
                     </div>
-                    <p>{finding.reason}</p>
-                    <code>{finding.rule_id} · v{finding.rule_version}</code>
+                    <p>{[...finding.reasons].join("；")}</p>
                   </li>
-                ))}
-              </ul>
-            )}
-            {item.risk.findings_truncated && (
-              <p className="mux-skill-inspector-truncation">
-                已显示 {item.risk.findings.length} / {item.risk.finding_count} 条证据
-              </p>
-            )}
-          </div>
-        ) : (
-          <p className="mux-skill-inspector-unreviewed">尚未完成风险检查。</p>
-        )}
-      </InspectorSection>
+                ))}</ul>
+              )}
+              {item.risk?.findings_truncated && <p className="mux-skill-inspector-truncation">
+                当前包含 {item.risk.findings.length} / {item.risk.finding_count} 条检查结果
+              </p>}
+            </div>
+          </details>
 
-      {loading ? (
-        <InspectorSection title="内容" icon={<TerminalIcon className="w-4 h-4" />}>
-          <p className="mux-skill-inspector-loading" role="status">正在读取 Skill 详情…</p>
-        </InspectorSection>
-      ) : error ? (
-        <InspectorSection title="内容" icon={<TerminalIcon className="w-4 h-4" />}>
-          <p className="mux-skill-inspector-error" role="alert">
-            读取详情失败：{error.message}
-            {error.retry_at ? ` · 可重试：${error.retry_at}` : ""}
-          </p>
-        </InspectorSection>
-      ) : detail ? (
-        <>
-          <InspectorSection title="文件" icon={<FolderIcon className="w-4 h-4" />}>
-            <ul className="mux-skill-file-tree" aria-label="Skill 文件树">
+          <details className="mux-skill-detail-disclosure">
+            <summary><TerminalIcon className="w-4 h-4" /><strong>查看正文</strong><span>SKILL.md</span></summary>
+            {loading ? <p className="mux-skill-inspector-loading" role="status">正在读取…</p>
+              : error ? <p className="mux-skill-inspector-error" role="alert">读取失败：{error.message}</p>
+              : detail ? <>
+                {detail.skill_md_truncated && <p className="mux-skill-inspector-truncation">正文预览已截断</p>}
+                <pre className="mux-skill-preview" aria-label="SKILL.md 纯文本预览">{detail.skill_md}</pre>
+              </> : <p className="mux-skill-inspector-empty">尚未加载正文。</p>}
+          </details>
+
+          <details className="mux-skill-detail-disclosure">
+            <summary><FolderIcon className="w-4 h-4" /><strong>文件</strong><span>{detail ? `${detail.files.length} 个` : loading ? "读取中…" : "未加载"}</span></summary>
+            {detail && <ul className="mux-skill-file-tree mux-skill-detail-files" aria-label="Skill 文件树">
               {detail.files.map((file) => (
                 <li key={file.path}>
-                  <code>{file.path}</code>
-                  <span>
-                    {file.kind === "symlink" ? `符号链接 → ${file.link_target ?? "未知目标"}` : `${file.size} bytes`}
-                    {file.executable ? " · 可执行" : ""}
-                  </span>
-                  <code title={file.sha256}>{file.sha256}</code>
+                  <code title={file.path}>{file.path}</code>
+                  <span>{file.kind === "symlink" ? `链接 → ${file.link_target ?? "未知目标"}`
+                    : file.size < 1024 ? `${file.size} B` : `${Math.round(file.size / 1024)} KB`}</span>
                 </li>
               ))}
-            </ul>
-          </InspectorSection>
+            </ul>}
+            {error && <p className="mux-skill-inspector-error" role="alert">读取失败：{error.message}</p>}
+          </details>
 
-          <InspectorSection title="SKILL.md" icon={<TerminalIcon className="w-4 h-4" />}>
-            {detail.skill_md_truncated && (
-              <p className="mux-skill-inspector-truncation">SKILL.md 预览已截断</p>
+          <details className="mux-skill-detail-disclosure">
+            <summary><RefreshIcon className="w-4 h-4" /><strong>技术信息</strong><span>版本与校验值</span></summary>
+            <InspectorField icon={<LinkIcon className="w-4 h-4" />} label="完整来源" mono>{skillSourceText(item.source)}</InspectorField>
+            <InspectorField icon={<RefreshIcon className="w-4 h-4" />} label="Revision" mono>{item.resolved_revision ?? "未记录"}</InspectorField>
+            <InspectorField icon={<TerminalIcon className="w-4 h-4" />} label="内容哈希" mono>{item.content_hash ?? "未记录"}</InspectorField>
+            <InspectorField icon={<CalendarIcon className="w-4 h-4" />} label="安装时间" mono>{item.installed_at ?? "未记录"}</InspectorField>
+            <InspectorField icon={<CalendarIcon className="w-4 h-4" />} label="更新时间" mono>{item.updated_at ?? "未记录"}</InspectorField>
+            {item.risk && item.risk.findings.length > 0 && (
+              <details className="mux-skill-detail-raw"><summary>原始检查记录</summary>
+                <ul>{item.risk.findings.map((finding, index) => (
+                  <li key={`${finding.rule_id}:${finding.path}:${index}`}>
+                    <code>{finding.path}{finding.line === null ? "" : `:${finding.line}`} · {finding.rule_id} · v{finding.rule_version}</code>
+                    <p>{finding.reason}</p>
+                  </li>
+                ))}</ul>
+              </details>
             )}
-            <pre className="mux-skill-preview" aria-label="SKILL.md 纯文本预览">
-              {detail.skill_md}
-            </pre>
-          </InspectorSection>
-        </>
-      ) : (
-        <InspectorSection title="内容" icon={<TerminalIcon className="w-4 h-4" />}>
-          <p className="mux-skill-inspector-empty">尚未加载 Skill 详情。</p>
-        </InspectorSection>
-      )}
+            {detail && <details className="mux-skill-detail-raw"><summary>文件校验值</summary>
+              <ul>{detail.files.map((file) => <li key={file.path}><code>{file.path}</code><code>{file.sha256}</code></li>)}</ul>
+            </details>}
+          </details>
+        </div>
+      </div>
     </ResourceInspector>
   );
 }

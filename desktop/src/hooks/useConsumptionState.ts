@@ -8,6 +8,7 @@ import {
 } from "../lib/api";
 import i18n from "../i18n";
 import { assetIdentity } from "../lib/consumption";
+import { requiresAgentReview } from "../lib/agentOperation";
 import type {
   AgentConsumptionSelection,
   AgentCapabilityView,
@@ -70,7 +71,7 @@ export interface ConsumptionState {
     action: ConvergenceAction,
   ): Promise<UnifiedOperationPlan>;
   planForAsset(asset: AssetRef, agentIds: string[]): Promise<AssetOperationPlan>;
-  planUpdate(draft: CentralAssetDraft): Promise<AssetOperationPlan>;
+  planUpdate(draft: CentralAssetDraft, options?: { reviewOnlyWhenNeeded?: boolean }): Promise<AssetOperationPlan>;
   planDelete(asset: AssetRef, sourceId?: string): Promise<AssetOperationPlan>;
   commit(options?: { background?: boolean }): Promise<ConsumptionInventory>;
   cancel(): Promise<void>;
@@ -162,19 +163,20 @@ export function useConsumptionState({ autoLoad = true }: { autoLoad?: boolean } 
     void Promise.allSettled([refresh(), refreshAgents()]);
   }, [autoLoad, refresh, refreshAgents]);
 
-  const ownPlan = useCallback((next: AssetOperationPlan) => {
+  const ownPlan = useCallback((next: AssetOperationPlan, showReview = true) => {
     planRef.current = next;
     if (!mounted.current) return next;
-    setPlan(next);
+    setPlan(showReview ? next : null);
     setError(null);
     return next;
   }, []);
 
-  const startPlan = useCallback(async (request: PlanOperationRequest) => {
+  const startPlan = useCallback(async (request: PlanOperationRequest, reviewOnlyWhenNeeded = false) => {
     if (planRef.current || planningRef.current) throw new Error("已有待确认的资产操作");
     planningRef.current = true;
     try {
-      return ownPlan(await planAsset(request));
+      const next = await planAsset(request);
+      return ownPlan(next, !reviewOnlyWhenNeeded || requiresAgentReview(next));
     } catch (cause) {
       if (mounted.current) setError(commandError(cause));
       throw cause;
@@ -358,10 +360,10 @@ export function useConsumptionState({ autoLoad = true }: { autoLoad?: boolean } 
   }, [inventory?.revision, ownPlan, refresh]);
 
   const planUpdate = useCallback(
-    (draft: CentralAssetDraft) => startPlan({
+    (draft: CentralAssetDraft, { reviewOnlyWhenNeeded = false }: { reviewOnlyWhenNeeded?: boolean } = {}) => startPlan({
       operation: "update_central_asset",
       request: { draft },
-    }),
+    }, reviewOnlyWhenNeeded),
     [startPlan],
   );
 

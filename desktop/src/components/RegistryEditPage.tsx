@@ -3,6 +3,7 @@ import type { InstallState } from "../hooks/useInstallState";
 import type { ConsumptionState } from "../hooks/useConsumptionState";
 import type { McpIconPreference, RegistryEntry } from "../lib/types";
 import { keyOf, type Transport } from "../lib/mcp";
+import { requiresAgentReview } from "../lib/agentOperation";
 import { EnvEditor } from "./EnvEditor";
 import { AssetOperationReviewDialog } from "./AssetOperationReviewDialog";
 import { DialogShell } from "./DialogShell";
@@ -128,11 +129,19 @@ export function RegistryEditPage({
     }
     setSaving(true);
     try {
-      await consumptionState.planUpdate({
+      const plan = await consumptionState.planUpdate({
         domain: "mcp",
         existing_key: existing ? keyOf(existing) : undefined,
         entry: draft,
-      });
+      }, { reviewOnlyWhenNeeded: true });
+      if (!requiresAgentReview(plan)) {
+        await consumptionState.commit({ background: true });
+        toast.show({ kind: "success", msg: "MCP 资产已保存。" });
+        onBack();
+        void state.refreshRegistry().catch((error) => {
+          toast.show({ kind: "error", msg: `已保存，但列表刷新失败：${String(error)}` });
+        });
+      }
     } catch (err) {
       toast.show({ kind: "error", msg: `无法保存：${String(err)}` });
     } finally {
@@ -310,7 +319,9 @@ export function RegistryEditPage({
       onCommit={async () => {
         const kind = consumptionState.plan?.kind;
         await consumptionState.commit();
-        await state.refreshRegistry();
+        void state.refreshRegistry().catch((error) => {
+          toast.show({ kind: "error", msg: `操作已完成，但列表刷新失败：${String(error)}` });
+        });
         toast.show({
           kind: "success",
           msg: kind === "delete-asset" ? "MCP 资产已删除。" : "MCP 资产已保存。",

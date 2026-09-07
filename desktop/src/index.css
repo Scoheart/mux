@@ -1420,6 +1420,37 @@ body {
 .mux-skill-inspector-badges,
 .mux-skill-inspector-state-list { display: flex; min-width: 0; flex-wrap: wrap; align-items: center; gap: 4px; }
 .mux-skill-inspector-description { margin: 0 0 18px; color: var(--text-secondary); font-size: 12px; line-height: 1.55; }
+.mux-skill-detail-summary { min-width: 0; }
+.mux-skill-detail-summary > .mux-skill-inspector-description { margin: 0 0 12px; color: var(--text-primary); }
+.mux-skill-detail-source { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 12px; color: var(--text-secondary); font-size: 11px; }
+.mux-skill-detail-source > span { min-width: 0; overflow-wrap: anywhere; }
+.mux-skill-detail-source > small { margin-left: auto; font-size: 10px; }
+.mux-skill-detail-summary > .mux-skill-inspector-state-list { margin-bottom: 18px; gap: 6px; }
+.mux-skill-detail-agent-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.mux-skill-detail-agent-chips > span { display: inline-flex; align-items: center; gap: 6px; padding: 5px 8px; border-radius: 8px; background: var(--surface-item); color: var(--text-primary); font-size: 11px; }
+.mux-skill-detail-more-agents { margin-top: 8px; color: var(--text-secondary); font-size: 11px; }
+.mux-skill-detail-more-agents > summary, .mux-skill-detail-raw > summary { cursor: pointer; padding: 5px 0; }
+.mux-skill-detail-more-agents[open] > summary { margin-bottom: 6px; }
+.mux-skill-detail-disclosures { display: grid; gap: 8px; margin-top: 16px; }
+.mux-skill-detail-disclosure { min-width: 0; border: 1px solid var(--border-hairline); border-radius: 10px; background: var(--surface-raised); }
+.mux-skill-detail-disclosure > summary { display: flex; align-items: center; gap: 9px; min-height: 44px; padding: 11px 12px; cursor: pointer; list-style: none; color: var(--text-primary); }
+.mux-skill-detail-disclosure > summary::-webkit-details-marker { display: none; }
+.mux-skill-detail-disclosure > summary > svg { flex: 0 0 auto; color: var(--text-secondary); }
+.mux-skill-detail-disclosure > summary > strong { font-size: 12px; font-weight: 550; }
+.mux-skill-detail-disclosure > summary > span { margin-left: auto; color: var(--text-secondary); font-size: 10px; }
+.mux-skill-detail-disclosure > summary::after { content: ""; width: 6px; height: 6px; margin-left: 4px; border-right: 1.5px solid var(--text-secondary); border-bottom: 1.5px solid var(--text-secondary); transform: rotate(-45deg); transition: transform .16s ease; }
+.mux-skill-detail-disclosure[open] > summary::after { transform: rotate(45deg); }
+.mux-skill-detail-disclosure[open] { padding: 0 12px 12px; }
+.mux-skill-detail-disclosure[open] > summary { margin: 0 -12px 8px; border-bottom: 1px solid var(--border-hairline); }
+.mux-skill-detail-disclosure > summary:hover { background: var(--surface-quiet); border-radius: 10px; }
+.mux-skill-detail-raw { margin-top: 10px; font-size: 10px; color: var(--text-secondary); }
+.mux-skill-detail-raw ul { padding: 0; list-style: none; }
+.mux-skill-detail-raw li { padding: 8px 0; border-bottom: 1px solid var(--border-hairline); }
+.mux-skill-detail-raw code { display: block; overflow-wrap: anywhere; font: 9px/1.5 var(--font-mono); }
+.mux-skill-detail-files li > code:first-child { grid-column: auto; overflow-wrap: anywhere; }
+@media (prefers-reduced-motion: reduce) {
+  .mux-skill-detail-disclosure > summary::after { transition: none; }
+}
 .mux-skill-inspector-findings { min-width: 0; margin-top: 10px; }
 .mux-skill-inspector-findings > p,
 .mux-skill-inspector-unreviewed,

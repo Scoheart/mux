@@ -11,6 +11,7 @@ import {
 import type { ConsumptionState } from "../hooks/useConsumptionState";
 import type {
   ApiKeySource,
+  CentralAssetDraft,
   ModelProfile,
   ModelProfileView,
   ModelProviderConfig,
@@ -21,6 +22,7 @@ import type {
   ResourceNavigationIntent,
 } from "../lib/types";
 import { formatError } from "../lib/format";
+import { requiresAgentReview } from "../lib/agentOperation";
 import {
   getCachedModelsDevMetadata,
   loadModelsDevMetadata,
@@ -400,6 +402,20 @@ export function ModelsView({
     });
   }, [profiles, providerFilter, providerInstances, providers, query]);
 
+  const refreshAfterSave = () => {
+    void refresh().catch((error) => {
+      setReadError(formatError(error));
+    });
+  };
+  const saveDraft = async (draft: CentralAssetDraft) => {
+    if (!consumptionState) throw new Error(t("models.saveUnavailable"));
+    const plan = await consumptionState.planUpdate(draft, { reviewOnlyWhenNeeded: true });
+    if (requiresAgentReview(plan)) return;
+    await consumptionState.commit({ background: true });
+    toast.show({ kind: "success", msg: t("models.saved") });
+    refreshAfterSave();
+  };
+
   const selectedProfile = profiles.find((profile) => profile.id === selectedProfileId) ?? null;
   const selectedProvider = providerInstances.find((provider) => provider.id === providerFilter) ?? null;
   const { official: officialProviders, custom: customProviders } = useMemo(
@@ -509,7 +525,7 @@ export function ModelsView({
             onClose={clearSelection}
             onReview={async (profile) => {
               if (!consumptionState) throw new Error(t("models.saveUnavailable"));
-              await consumptionState.planUpdate({
+              await saveDraft({
                 domain: "model",
                 existing_id: editing.id,
                 profile,
@@ -548,7 +564,7 @@ export function ModelsView({
             onCommit={async () => {
               const kind = consumptionState.plan?.kind;
               await consumptionState.commit();
-              await refresh();
+              refreshAfterSave();
               if (kind === "delete-asset") setSelectedProfileId(null);
               toast.show({
                 kind: "success",
@@ -649,7 +665,7 @@ export function ModelsView({
           }}
           onReview={async (profile) => {
             if (!consumptionState) throw new Error(t("models.saveUnavailable"));
-            await consumptionState.planUpdate({
+            await saveDraft({
               domain: "model",
               existing_id: undefined,
               profile,
@@ -672,7 +688,7 @@ export function ModelsView({
           }}
           onReview={async (provider, credential) => {
             if (!consumptionState) throw new Error(t("models.saveUnavailable"));
-            await consumptionState.planUpdate({
+            await saveDraft({
               domain: "model-provider",
               existing_id: editingProvider?.id,
               provider,

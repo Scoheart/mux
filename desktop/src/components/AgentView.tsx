@@ -178,13 +178,6 @@ export function AgentView({
   } | null>(null);
   const [skillConvergencePlan, setSkillConvergencePlan] = useState<OperationPlan | null>(null);
   const [userHome, setUserHome] = useState("");
-  const visibleIncidents = useMemo(() => {
-    const capability = resourceTab === "mcps" ? "mcp" : resourceTab === "models" ? "model" : "skill";
-    return (consumptionState.inventory?.target_incidents ?? []).filter(
-      (incident) => incident.capability === capability
-        && incident.affected_agent_ids.includes(agentId),
-    );
-  }, [agentId, consumptionState.inventory?.target_incidents, resourceTab]);
 
   const navigateResource = useCallback((request: ResourceNavigationRequest) => {
     onOpenResource?.(request);
@@ -799,15 +792,6 @@ export function AgentView({
               onCancel={consumptionState.cancel}
             />
           ) : null}
-          {visibleIncidents.map((incident) => (
-            <div className="mux-target-incident" role="status" key={incident.id}>
-              <div>
-                <strong>{t("observations.targetIncidentTitle")}</strong>
-                <span>{t("observations.targetIncidentMessage")}</span>
-              </div>
-              <code title={incident.target_path}>{incident.target_path}</code>
-            </div>
-          ))}
           {preparingChange && (
             <div className="mux-agent-operation-progress" role="status" aria-live="polite">
               <RefreshIcon data-spinning="true" />

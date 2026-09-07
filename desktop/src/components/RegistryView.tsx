@@ -384,7 +384,9 @@ export function RegistryView({ state, consumptionState, intent, onIntentConsumed
           onCommit={async () => {
             const kind = consumptionState.plan?.kind;
             await consumptionState.commit();
-            await state.refreshRegistry();
+            void state.refreshRegistry().catch((error) => {
+              toast.show({ kind: "error", msg: `操作已完成，但列表刷新失败：${String(error)}` });
+            });
             if (kind === "delete-asset") setDetail(null);
             toast.show({
               kind: "success",

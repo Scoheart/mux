@@ -248,7 +248,14 @@ export function SkillsView({
         return;
       }
       lifecyclePlanRef.current = plan;
-      if (intent.kind === "import") {
+      const routineUpdate = intent.kind === "update"
+        && !intent.replaceLocalChanges
+        && !plan.requires_risk_override
+        && plan.warnings.length === 0
+        && plan.skills.every((skill) => !skill.existing_states.some((value) =>
+          value === "locally_modified" || value === "conflicting_link" || value === "broken_link"))
+        && plan.targets.every((target) => target.expected === "managed" || target.expected === "missing");
+      if (intent.kind === "import" || routineUpdate) {
         const inventory = await commitLifecycle(
           plan,
           plan.requires_risk_override ? plan.findings_hash : null,
@@ -257,11 +264,11 @@ export function SkillsView({
           lifecyclePlanRef.current = null;
         }
         if (mounted.current && lifecycleGeneration.current === generation) {
-          toast.show({ kind: "success", msg: "Skill 已导入。" });
+          toast.show({ kind: "success", msg: routineUpdate ? "Skill 已更新。" : "Skill 已导入。" });
           const selectedName = selected?.name;
           if (
             selectedName &&
-            !inventory.items.some((item) => item.name === selectedName)
+            (routineUpdate || !inventory.items.some((item) => item.name === selectedName))
           ) {
             closeInspector();
           }

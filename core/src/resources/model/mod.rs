@@ -1277,6 +1277,18 @@ fn materialize_profile_for_agent(
             .native_ids
             .insert("pi".into(), generated_pi_provider_id(&settings, profile));
     }
+    if agent_id == "opencode" {
+        if let Some(provider) = profile.provider_id.as_ref()
+            .and_then(|id| settings.model_providers.as_ref()?.get(id)) {
+            materialized.native_ids.insert("__mux_provider_name".into(), provider.name.clone());
+        }
+        if materialized.native_ids.get("opencode")
+            .is_none_or(|id| id == &mux_profile_id(&profile.id)) {
+            let id = generated_open_code_provider_id(&settings, profile);
+            materialized.native_ids.insert("opencode".into(), id.clone());
+            materialized.native_ids.insert("__mux_generated_opencode_provider".into(), id);
+        }
+    }
     if agent_id != claude_desktop::AGENT_ID && !profile.endpoint_path.is_empty() {
         materialized.base_url =
             protocol_client_base_url(&profile.base_url, &profile.protocol, &profile.endpoint_path)
@@ -2266,9 +2278,16 @@ fn read_credential(profile_id: &str) -> Option<Vec<u8>> {
 
 fn credential_exists(profile_id: &str) -> bool {
     let service = keychain_service(profile_id);
-    let keychain_exists = credential_service_exists(&service)
-        || (service != legacy_keychain_service(profile_id)
-            && credential_service_exists(&legacy_keychain_service(profile_id)));
+    credential_exists_for_service(profile_id, &service, credential_service_exists)
+}
+
+fn credential_exists_for_service(
+    profile_id: &str,
+    service: &str,
+    mut exists: impl FnMut(&str) -> bool,
+) -> bool {
+    let legacy = legacy_keychain_service(profile_id);
+    let keychain_exists = exists(service) || (service != legacy && exists(&legacy));
     #[cfg(any(test, debug_assertions))]
     {
         keychain_exists
@@ -2770,14 +2789,28 @@ pub(crate) fn restore_credential_snapshot(
 }
 
 pub fn list_profiles() -> Vec<ModelProfileView> {
-    load_settings()
-        .model_profiles
-        .unwrap_or_default()
-        .into_values()
-        .map(|profile| ModelProfileView {
-            catalog_key: catalog_key(&profile),
-            credential_saved: credential_exists(&profile.id),
-            profile,
+    let profiles = load_settings().model_profiles.unwrap_or_default();
+    // Presence only, scoped to this read. Shared Providers need one Keychain
+    // probe, while each legacy profile service is still checked independently.
+    // Mutation-time credential and snapshot validation remain uncached.
+    let mut presence = BTreeMap::<String, bool>::new();
+    profiles.values()
+        .map(|profile| {
+            let service = profile.id.strip_prefix(PROVIDER_CREDENTIAL_SUBJECT_PREFIX)
+                .map(provider_keychain_service)
+                .or_else(|| profiles.get(&profile.id)
+                    .and_then(|stored| stored.provider_id.as_deref())
+                    .map(provider_keychain_service))
+                .unwrap_or_else(|| legacy_keychain_service(&profile.id));
+            let credential_saved = credential_exists_for_service(&profile.id, &service, |service| {
+                *presence.entry(service.to_owned())
+                    .or_insert_with(|| credential_service_exists(service))
+            });
+            ModelProfileView {
+                catalog_key: catalog_key(profile),
+                credential_saved,
+                profile: profile.clone(),
+            }
         })
         .collect()
 }
@@ -5007,6 +5040,37 @@ pub(crate) fn generated_pi_provider_id(
     } else {
         format!("{base}-{suffix}")
     }
+}
+
+pub(crate) fn generated_open_code_provider_id(
+    settings: &crate::settings::Settings,
+    profile: &ModelProfile,
+) -> String {
+    let Some(provider) = profile.provider_id.as_ref()
+        .and_then(|id| settings.model_providers.as_ref()?.get(id)) else {
+        return mux_profile_id(&profile.id);
+    };
+    let mut id = generated_pi_provider_id(settings, profile);
+    if !id.is_ascii() {
+        id = pi_provider_slug(&provider.id);
+    }
+    // OpenCode has one SDK/base URL per provider. Different protocols cannot
+    // share that object even when they originate from the same MUX Provider.
+    if settings.model_profiles.as_ref().is_some_and(|profiles| profiles.values().any(|other| {
+        other.provider_id == profile.provider_id && other.protocol != profile.protocol
+    })) {
+        let protocol = match profile.protocol {
+            ModelProtocol::AnthropicMessages => "anthropic",
+            ModelProtocol::OpenaiResponses => "responses",
+            ModelProtocol::OpenaiCompletions => "openai",
+            ModelProtocol::GeminiGenerateContent => "gemini",
+        };
+        id = format!("{id}-{protocol}");
+    }
+    if id.is_empty() || id.len() > 128 || !id.is_ascii() {
+        return mux_profile_id(&profile.id);
+    }
+    id
 }
 
 fn grok_api_backend(protocol: &ModelProtocol) -> &'static str {

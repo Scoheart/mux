@@ -331,6 +331,8 @@ pub fn observe_active(
         .filter(|profile| match agent_id {
             "opencode" | "kilo-code" => {
                 selected == format!("{}/{}", provider_id_for(agent_id, profile), profile.model)
+                    || (agent_id == "opencode"
+                        && selected == format!("{}/{}", provider_id(&profile.id), profile.model))
             }
             "qwen-code" => selected == format!("{}::{}", qwen_auth_type(profile), profile.model),
             "factory-droid" => selected == profile.model,
@@ -378,7 +380,14 @@ fn provider_id_for(agent_id: &str, profile: &ModelProfile) -> String {
         .native_ids
         .get(agent_id)
         .cloned()
-        .unwrap_or_else(|| provider_id(&profile.id))
+        .filter(|id| agent_id != "opencode" || id != &provider_id(&profile.id))
+        .unwrap_or_else(|| {
+            if agent_id == "opencode" {
+                super::generated_open_code_provider_id(&crate::settings::load_settings(), profile)
+            } else {
+                provider_id(&profile.id)
+            }
+        })
 }
 
 pub(crate) fn native_provider_id(agent_id: &str, profile: &ModelProfile) -> String {
@@ -494,18 +503,34 @@ fn prepared_json(path: &Path, original: Option<String>, root: CstRootNode) -> Pr
     }
 }
 
+fn open_code_package(protocol: &ModelProtocol) -> &'static str {
+    match protocol {
+        ModelProtocol::AnthropicMessages => "@ai-sdk/anthropic",
+        ModelProtocol::OpenaiResponses => "@ai-sdk/openai",
+        ModelProtocol::OpenaiCompletions => "@ai-sdk/openai-compatible",
+        ModelProtocol::GeminiGenerateContent => "@ai-sdk/google",
+    }
+}
+
+fn merge_missing_json(target: &mut Value, source: &Value) {
+    if let (Some(target), Some(source)) = (target.as_object_mut(), source.as_object()) {
+        for (key, value) in source {
+            if let Some(existing) = target.get_mut(key) {
+                merge_missing_json(existing, value);
+            } else {
+                target.insert(key.clone(), value.clone());
+            }
+        }
+    }
+}
+
 fn open_code_provider(
     profile: &ModelProfile,
     existing: Option<Value>,
     path: &Path,
     literal_api_key: Option<&str>,
 ) -> Result<Value, String> {
-    let package = match profile.protocol {
-        ModelProtocol::AnthropicMessages => "@ai-sdk/anthropic",
-        ModelProtocol::OpenaiResponses => "@ai-sdk/openai",
-        ModelProtocol::OpenaiCompletions => "@ai-sdk/openai-compatible",
-        ModelProtocol::GeminiGenerateContent => "@ai-sdk/google",
-    };
+    let package = open_code_package(&profile.protocol);
     let mut provider = match existing {
         None => Map::new(),
         Some(Value::Object(provider)) => provider,
@@ -576,7 +601,9 @@ fn open_code_provider(
         model.remove("limit");
     }
     models.insert(profile.model.clone(), Value::Object(model));
-    provider.insert("name".into(), Value::String(profile.name.clone()));
+    provider.insert("name".into(), Value::String(
+        profile.native_ids.get("__mux_provider_name").unwrap_or(&profile.name).clone(),
+    ));
     provider.insert("npm".into(), Value::String(package.into()));
     provider.insert("options".into(), Value::Object(options));
     provider.insert("models".into(), Value::Object(models));
@@ -600,14 +627,53 @@ fn prepare_open_code(
         )
     })?;
     ensure_unique(&providers, path, "provider")?;
-    let provider_id = provider_id_for(agent_id, profile);
-    let existing = providers
-        .get(&provider_id)
+    let native_id = provider_id_for(agent_id, profile);
+    let mut existing = providers
+        .get(&native_id)
         .and_then(|property| property.value())
         .and_then(|value| value.to_serde_value());
+    if agent_id == "opencode" && profile.native_ids.contains_key("__mux_generated_opencode_provider") {
+        if let Some(value) = existing.as_ref() {
+            let incompatible_package = value.get("npm").and_then(Value::as_str)
+                .is_some_and(|npm| npm != open_code_package(&profile.protocol));
+            let incompatible_endpoint = value.get("options").and_then(|options| options.get("baseURL"))
+                .and_then(Value::as_str)
+                .is_some_and(|url| url.trim_end_matches('/') != profile.base_url.trim_end_matches('/'));
+            if incompatible_package || incompatible_endpoint {
+                return Err(format!("provider_name_conflict: OpenCode provider '{native_id}' already uses another connection; refusing to overwrite it"));
+            }
+        }
+    }
+    let legacy_id = provider_id(&profile.id);
+    if agent_id == "opencode" && legacy_id != native_id {
+        if let Some(mut legacy) = providers.get(&legacy_id)
+            .and_then(|property| property.value()).and_then(|value| value.to_serde_value()) {
+            let mut inherited = legacy.clone();
+            let models = legacy.get_mut("models").and_then(Value::as_object_mut)
+                .ok_or_else(|| "provider_migration_conflict: Legacy OpenCode models is not an object".to_string())?;
+            if let Some(model) = models.remove(&profile.model) {
+                let empty = models.is_empty();
+                inherited["models"] = serde_json::json!({ (profile.model.clone()): model });
+                if let Some(current) = existing.as_mut() {
+                    merge_missing_json(current, &inherited);
+                } else {
+                    existing = Some(inherited);
+                }
+                set_json(&providers, &legacy_id, if empty { None } else { Some(legacy) });
+                let old_selection = format!("{legacy_id}/{}", profile.model);
+                for key in ["model", "small_model"] {
+                    let value = object.get(key).and_then(|property| property.value())
+                        .and_then(|value| value.to_serde_value());
+                    if value.as_ref().and_then(Value::as_str) == Some(old_selection.as_str()) {
+                        set_json(&object, key, Some(Value::String(format!("{native_id}/{}", profile.model))));
+                    }
+                }
+            }
+        }
+    }
     set_json(
         &providers,
-        &provider_id,
+        &native_id,
         Some(open_code_provider(
             profile,
             existing,
@@ -619,7 +685,7 @@ fn prepare_open_code(
         set_json(
             &object,
             "model",
-            Some(Value::String(format!("{}/{}", provider_id, profile.model))),
+            Some(Value::String(format!("{}/{}", native_id, profile.model))),
         );
     }
     Ok(prepared_json(path, original, root))
@@ -633,48 +699,50 @@ fn prepare_clear_open_code(
     let (root, original) = read_jsonc(path)?;
     let object = root_object(&root, path)?;
     ensure_unique(&object, path, "$root")?;
-    let provider_id = provider_id_for(agent_id, profile);
-    if let Some(providers) = object.object_value("provider") {
-        ensure_unique(&providers, path, "provider")?;
-        if let Some(property) = providers.get(&provider_id) {
-            let mut provider = property
-                .value()
-                .and_then(|value| value.to_serde_value())
-                .and_then(|value| value.as_object().cloned())
-                .ok_or_else(|| {
-                    format!(
-                        "refusing to modify {}: OpenCode provider entry is not an object",
-                        path.display()
-                    )
-                })?;
-            let mut models = provider
-                .remove("models")
-                .and_then(|value| value.as_object().cloned())
-                .ok_or_else(|| {
-                    format!(
-                        "refusing to modify {}: OpenCode provider models is not an object",
-                        path.display()
-                    )
-                })?;
-            models.remove(&profile.model);
-            if models.is_empty() {
-                set_json(&providers, &provider_id, None);
-            } else {
-                provider.insert("models".into(), Value::Object(models));
-                set_json(&providers, &provider_id, Some(Value::Object(provider)));
+    let mut ids = vec![provider_id_for(agent_id, profile)];
+    let legacy = provider_id(&profile.id);
+    if agent_id == "opencode" && !ids.contains(&legacy) { ids.push(legacy); }
+    for provider_id in ids {
+        if let Some(providers) = object.object_value("provider") {
+            ensure_unique(&providers, path, "provider")?;
+            if let Some(property) = providers.get(&provider_id) {
+                let mut provider = property
+                    .value()
+                    .and_then(|value| value.to_serde_value())
+                    .and_then(|value| value.as_object().cloned())
+                    .ok_or_else(|| {
+                        format!(
+                            "refusing to modify {}: OpenCode provider entry is not an object",
+                            path.display()
+                        )
+                    })?;
+                let mut models = provider
+                    .remove("models")
+                    .and_then(|value| value.as_object().cloned())
+                    .ok_or_else(|| {
+                        format!(
+                            "refusing to modify {}: OpenCode provider models is not an object",
+                            path.display()
+                        )
+                    })?;
+                models.remove(&profile.model);
+                if models.is_empty() {
+                    set_json(&providers, &provider_id, None);
+                } else {
+                    provider.insert("models".into(), Value::Object(models));
+                    set_json(&providers, &provider_id, Some(Value::Object(provider)));
+                }
             }
         }
-    }
-    let selected = format!("{provider_id}/{}", profile.model);
-    let is_selected = object
-        .get("model")
-        .and_then(|p| p.value())
-        .and_then(|n| n.to_serde_value())
-        .and_then(|v| v.as_str().map(str::to_string))
-        .as_deref()
-        == Some(selected.as_str());
-    if is_selected {
-        set_json(&object, "model", None);
+        let selected = format!("{provider_id}/{}", profile.model);
+        let pointer_keys: &[&str] = if agent_id == "opencode" { &["model", "small_model"] } else { &["model"] };
+        for key in pointer_keys {
+            let value = object.get(key).and_then(|property| property.value())
+                .and_then(|value| value.to_serde_value());
+            if value.as_ref().and_then(Value::as_str) == Some(selected.as_str()) {
+                set_json(&object, key, None);
+            }
+        }
     }
     Ok(prepared_json(path, original, root))
 }

@@ -1311,12 +1311,79 @@ body {
 }
 .mux-skill-agent-card:is(:hover, :focus-visible)::before { opacity: 1; transform: translate(-50%, 0); }
 .mux-skill-agent-more { font: 11px var(--font-sans); }
-.mux-skill-agent-picker { display: grid; gap: 6px; padding: 8px 20px 20px; }
-.mux-skill-agent-picker button {
-  display: flex; align-items: center; gap: 12px; padding: 10px; text-align: left;
-  border: 0; border-radius: 8px; background: var(--surface-control); color: var(--text-primary); cursor: pointer;
+.mux-skill-agent-hand[data-expanded="true"] { width: calc(var(--card-count) * 39px); }
+.mux-skill-agent-hand[data-expanded="true"] .mux-skill-agent-card {
+  visibility: hidden; left: calc(var(--card-index) * 39px); transform: translateY(0) rotate(0);
 }
-.mux-skill-agent-picker button:is(:hover, :focus-visible) { background: var(--surface-selected); }
+.mux-skill-agent-orbit { position: relative; width: 100%; height: 100%; isolation: isolate; }
+.mux-skill-agent-orbit-scrim {
+  position: absolute; inset: 0; pointer-events: none;
+  background: color-mix(in srgb, var(--surface-app) 82%, transparent);
+  animation: mux-skill-orbit-scrim-in .28s ease-out both;
+}
+.mux-skill-agent-orbit[data-closing="true"] .mux-skill-agent-orbit-scrim {
+  animation: mux-skill-orbit-scrim-out .38s ease-in both;
+}
+.mux-skill-agent-orbit-heading {
+  position: absolute; z-index: 2; top: 50%; left: 50%; width: 180px;
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  transform: translate(-50%, -50%); text-align: center; color: var(--text-primary);
+  animation: mux-skill-orbit-label-in .24s .18s ease-out both;
+}
+.mux-skill-agent-orbit-heading h2 {
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden;
+  max-width: 100%; margin: 0; overflow-wrap: anywhere; font: 650 15px/20px var(--font-sans);
+}
+.mux-skill-agent-orbit-heading > span { color: var(--text-secondary); font: 12px/16px var(--font-sans); }
+.mux-skill-agent-orbit-heading button {
+  margin-top: 8px; min-width: 72px; min-height: 32px; padding: 6px 14px;
+  border: 1px solid var(--border-hairline); border-radius: 10px; cursor: pointer;
+  background: var(--surface-raised); color: var(--text-primary); font: 550 12px/18px var(--font-sans);
+}
+.mux-skill-agent-orbit-heading button:hover { color: var(--color-blue); border-color: var(--color-blue); }
+.mux-skill-agent-orbit-scroll { position: absolute; inset: 0; pointer-events: none; }
+.mux-skill-agent-orbit-cards { position: relative; width: 100%; pointer-events: none; }
+.mux-skill-agent-orbit-card {
+  position: absolute; top: 0; left: 0; min-height: 104px; padding: 0; border: 0;
+  background: transparent; color: var(--text-primary); cursor: pointer; pointer-events: auto;
+  transform-origin: center; will-change: transform, opacity;
+}
+.mux-skill-agent-orbit-tile {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
+  width: 100%; min-height: 104px; padding: 10px;
+  border: 1px solid var(--border-hairline); border-radius: 16px; background: var(--surface-raised);
+  box-shadow: 0 5px 14px rgb(0 0 0 / .08), 0 1px 3px rgb(0 0 0 / .05);
+  transition: transform .2s cubic-bezier(.2,.75,.2,1), border-color .18s ease, box-shadow .18s ease;
+}
+.mux-skill-agent-orbit-name {
+  display: block; min-height: 36px; width: 100%; overflow-wrap: anywhere; text-align: center;
+  color: var(--text-primary); font: 550 13px/18px var(--font-sans);
+  animation: mux-skill-orbit-label-in .22s .16s ease-out both;
+}
+.mux-skill-agent-orbit-card:is(:hover, :focus-visible) { z-index: 3; }
+.mux-skill-agent-orbit-card:is(:hover, :focus-visible) .mux-skill-agent-orbit-tile {
+  transform: translateY(-5px) scale(1.035); border-color: var(--color-blue);
+  box-shadow: 0 10px 24px rgb(0 0 0 / .12), 0 2px 5px rgb(0 0 0 / .06);
+}
+.mux-skill-agent-orbit-card:focus-visible,
+.mux-skill-agent-orbit-heading button:focus-visible { outline: 2px solid var(--color-blue); outline-offset: 3px; border-radius: 16px; }
+.mux-skill-agent-orbit[data-closing="true"] .mux-skill-agent-orbit-heading,
+.mux-skill-agent-orbit[data-closing="true"] .mux-skill-agent-orbit-name {
+  animation: mux-skill-orbit-label-out .12s ease-in both;
+}
+.mux-skill-agent-orbit[data-closing="true"] .mux-skill-agent-orbit-tile { transform: none; }
+.mux-skill-agent-orbit[data-layout="grid"] .mux-skill-agent-orbit-heading { top: 20px; transform: translateX(-50%); }
+.mux-skill-agent-orbit[data-layout="grid"] .mux-skill-agent-orbit-scroll {
+  inset: 140px 20px 20px; overflow: auto; overscroll-behavior: contain; pointer-events: auto;
+}
+@keyframes mux-skill-orbit-scrim-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes mux-skill-orbit-scrim-out { from { opacity: 1; } to { opacity: 0; } }
+@keyframes mux-skill-orbit-label-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes mux-skill-orbit-label-out { from { opacity: 1; } to { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .mux-skill-agent-orbit *, .mux-skill-agent-orbit[data-closing="true"] * { animation: none; transition: none; }
+  .mux-skill-agent-orbit-card:is(:hover, :focus-visible) .mux-skill-agent-orbit-tile { transform: none; }
+}
 @container resource-stage (max-width: 660px) {
   .mux-skill-card-grid { grid-template-columns: minmax(0, 1fr); }
 }

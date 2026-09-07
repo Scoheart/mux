@@ -299,6 +299,7 @@ export function Modal({
   borderRadius = "20px",
   ariaLabel = "对话框",
   layer,
+  presentation = "sheet",
   onClose,
   children,
 }: {
@@ -307,6 +308,7 @@ export function Modal({
   borderRadius?: CSSProperties["borderRadius"];
   ariaLabel?: string;
   layer?: string;
+  presentation?: "sheet" | "canvas";
   onClose: () => void;
   children: ReactNode;
 }) {
@@ -378,7 +380,7 @@ export function Modal({
       className="fixed inset-0 flex items-center justify-center z-40"
       data-modal-overlay="true"
       data-modal-layer={layer}
-      style={{ background: "var(--surface-modal-scrim)", zIndex: 700 }}
+      style={{ background: presentation === "canvas" ? "transparent" : "var(--surface-modal-scrim)", zIndex: 700 }}
       onClick={(event) => {
         if (event.target === event.currentTarget) event.stopPropagation();
         if (
@@ -397,12 +399,13 @@ export function Modal({
         data-modal-layer={layer}
         tabIndex={-1}
         style={{
-          width,
-          maxHeight,
-          background: "var(--surface-overlay)",
+          width: presentation === "canvas" ? "100%" : width,
+          height: presentation === "canvas" ? "100%" : undefined,
+          maxHeight: presentation === "canvas" ? "100%" : maxHeight,
+          background: presentation === "canvas" ? "transparent" : "var(--surface-overlay)",
           border: 0,
-          borderRadius,
-          boxShadow: "var(--shadow-sheet)",
+          borderRadius: presentation === "canvas" ? 0 : borderRadius,
+          boxShadow: presentation === "canvas" ? "none" : "var(--shadow-sheet)",
         }}
         onClick={(event) => event.stopPropagation()}
       >

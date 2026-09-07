@@ -94,7 +94,7 @@ export function SkillCard({ item, selected, onOpen, agentIds = [], agentNames = 
         </span>
       </button>
       <div className="mux-skill-card-footer">
-        <SkillAgentHand ids={agentIds} names={agentNames} onOpenAgent={onOpenAgent} />
+        <SkillAgentHand ids={agentIds} names={agentNames} skillName={item.name} onOpenAgent={onOpenAgent} />
         {status && <Badge tone={status.tone}>{t(`centralAssets.${status.labelKey}`)}</Badge>}
       </div>
     </article>

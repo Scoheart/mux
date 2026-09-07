@@ -8,7 +8,7 @@ import {
 import type { McpIconPreferences } from "../lib/types";
 import { formatError } from "../lib/format";
 
-export function useMcpIconPreferences() {
+export function useMcpIconPreferences(enabled = true) {
   const [preferences, setPreferences] = useState<McpIconPreferences>({});
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -26,8 +26,8 @@ export function useMcpIconPreferences() {
   }, []);
 
   useEffect(() => {
-    void refresh();
-  }, [refresh]);
+    if (enabled) void refresh();
+  }, [enabled, refresh]);
 
   const mutate = useCallback(async (
     assetKey: string,

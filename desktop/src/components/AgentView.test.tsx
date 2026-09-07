@@ -191,7 +191,7 @@ it("opens a projection-only Skills Agent without a legacy MCP-shaped row", async
   expect(screen.queryByRole("button", { name: "添加 MCP" })).not.toBeInTheDocument();
 });
 
-it("shows one target-scoped incident only on its affected Agent capability", async () => {
+it("keeps Agent resources visible without a target recovery banner", async () => {
   const consumptionState = {
     ...emptyConsumptionState,
     agents: [skillsOnlyProjection],
@@ -222,10 +222,11 @@ it("shows one target-scoped incident only on its affected Agent capability", asy
   await waitFor(() => {
     expect(screen.getByRole("tab", { name: /Skills/ })).toHaveAttribute("aria-selected", "true");
   });
-  expect(screen.getAllByText("此配置位置待收敛")).toHaveLength(1);
-  expect(within(screen.getByRole("status")).getByText("~/.snowflake/cortex/skills")).toBeVisible();
+  expect(screen.queryByText("此配置位置待收敛")).not.toBeInTheDocument();
+  expect(screen.queryByRole("status")).not.toBeInTheDocument();
 
   await userEvent.click(screen.getByRole("tab", { name: /MCPs/ }));
+  expect(screen.getByText("此 Agent 未接入 MCP。")).toBeVisible();
   expect(screen.queryByText("此配置位置待收敛")).not.toBeInTheDocument();
 });
 

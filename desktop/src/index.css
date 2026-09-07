@@ -506,6 +506,7 @@ body {
 .mux-agent-picker-list { min-height: 220px; overflow-y: auto; padding: 4px 8px 8px; border-top: 0; }
 .mux-agent-picker-section-heading { display: flex; height: 28px; align-items: center; justify-content: space-between; padding: 0 8px; color: var(--text-secondary); font-size: 10px; font-weight: 650; }
 .mux-agent-picker-section-heading:not(:first-child) { margin-top: 8px; }
+.mux-agent-picker-group:not(:first-child) { margin-top: 8px; }
 .mux-agent-picker-hint { padding: 12px 8px; color: var(--text-secondary); font-size: 11px; }
 .mux-agent-picker-slot { position: relative; min-height: 48px; }
 .mux-agent-picker-row {

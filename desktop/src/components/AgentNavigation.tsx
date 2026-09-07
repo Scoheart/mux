@@ -64,6 +64,13 @@ export function AgentNavigation({
     () => buildAgentPickerSections(agents, agentIds, query),
     [agentIds, agents, query],
   );
+  const pickerGroups = useMemo(() => {
+    const rows = sections.searchResults ?? sections.available;
+    return [
+      { id: "custom", title: "自定义 Agent", agents: rows.filter((agent) => !agent.builtin) },
+      { id: "builtin", title: "内置 Agent", agents: rows.filter((agent) => agent.builtin) },
+    ].filter((group) => group.agents.length > 0);
+  }, [sections]);
   const pinnedIds = sections.pinned.map(({ id }) => id);
   const previewOrder = draggedId && previewIds ? previewIds : pinnedIds;
   const selectedAgent = agents.find(({ id }) => id === selectedAgentId) ?? null;
@@ -382,15 +389,7 @@ export function AgentNavigation({
               className="mux-agent-picker-list"
               data-settling={settling ? "true" : undefined}
             >
-              {sections.searchResults ? (
-                sections.searchResults.length > 0 ? (
-                  sections.searchResults.map((agent) =>
-                    agentRow(agent, pinnedIds.includes(agent.id), false),
-                  )
-                ) : (
-                  <div className="mux-agent-picker-empty">未找到匹配项</div>
-                )
-              ) : (
+              {sections.searchResults === null && (
                 <>
                   <div className="mux-agent-picker-section-heading">
                     <span>已置顶</span><span>{sections.pinned.length}/{MAX_PINNED_AGENTS}</span>
@@ -400,9 +399,23 @@ export function AgentNavigation({
                   ) : (
                     <div className="mux-agent-picker-hint">在常用 Agent 右侧点击 Pin</div>
                   )}
-                  <div className="mux-agent-picker-section-heading"><span>全部 Agent</span></div>
-                  {sections.available.map((agent) => agentRow(agent, false, false))}
                 </>
+              )}
+              {pickerGroups.map((group) => (
+                <div
+                  key={group.id}
+                  className="mux-agent-picker-group"
+                  role="group"
+                  aria-label={group.title}
+                >
+                  <div className="mux-agent-picker-section-heading">
+                    <span>{group.title}</span><span>{group.agents.length}</span>
+                  </div>
+                  {group.agents.map((agent) => agentRow(agent, pinnedIds.includes(agent.id), false))}
+                </div>
+              ))}
+              {sections.searchResults?.length === 0 && (
+                <div className="mux-agent-picker-empty">未找到匹配项</div>
               )}
             </div>
 

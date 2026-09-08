@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.187](https://github.com/Scoheart/mux/compare/v1.8.186...v1.8.187) (2026-09-08)
+
+### Changes
+
+* feat(agents): improve configuration UX and native model synchronization (#178) ([2e310ae](https://github.com/Scoheart/mux/commit/2e310ae6815ab3892db396f01288195c1dd851bf))
+
 ## [1.8.186](https://github.com/Scoheart/mux/compare/v1.8.185...v1.8.186) (2026-09-07)
 
 ### Changes

@@ -235,9 +235,7 @@ fn reviewed_discovery_spec(provider_type: &str) -> Option<DiscoverySpec> {
     })
 }
 
-fn discovery_spec_for_provider(
-    provider: &ModelProviderConfig,
-) -> Result<DiscoverySpec, String> {
+fn discovery_spec_for_provider(provider: &ModelProviderConfig) -> Result<DiscoverySpec, String> {
     if !provider_model_discovery_supported(provider) {
         return Err("model_discovery_unsupported: Enter the model or deployment name manually, or configure a Models list URL".into());
     }
@@ -267,8 +265,7 @@ fn discovery_spec_for_provider(
         DiscoveryAdapter::Gemini
     } else {
         return Err(
-            "model_discovery_endpoint_invalid: Provider has no configured protocol endpoint"
-                .into(),
+            "model_discovery_endpoint_invalid: Provider has no configured protocol endpoint".into(),
         );
     };
     Ok(DiscoverySpec {
@@ -948,7 +945,9 @@ mod tests {
         assert_eq!(openai_spec.adapter, DiscoveryAdapter::OpenAi);
         assert_eq!(openai_spec.credential, CredentialPolicy::Optional);
         assert_eq!(
-            discovery_url(&openai, openai_spec.adapter).unwrap().as_str(),
+            discovery_url(&openai, openai_spec.adapter)
+                .unwrap()
+                .as_str(),
             "https://gateway.example.test/tenant/v1/models",
         );
 
@@ -978,7 +977,9 @@ mod tests {
         assert_eq!(gemini_spec.adapter, DiscoveryAdapter::Gemini);
         assert_eq!(gemini_spec.credential, CredentialPolicy::Optional);
         assert_eq!(
-            discovery_url(&gemini, gemini_spec.adapter).unwrap().as_str(),
+            discovery_url(&gemini, gemini_spec.adapter)
+                .unwrap()
+                .as_str(),
             "https://gateway.example.test/v1beta/models?pageSize=1000",
         );
     }

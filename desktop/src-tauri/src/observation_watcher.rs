@@ -80,6 +80,15 @@ pub fn start(app: AppHandle) -> Result<(), String> {
                         }
                     }
                 }
+                if domains.contains(&ObservationDomain::Model)
+                    || domains.contains(&ObservationDomain::Central)
+                {
+                    // Reconcile before notifying readers so the fresh snapshot
+                    // does not label a normal native /model switch as drift.
+                    if let Err(error) = mux_core::application::models::reconcile_native_selection() {
+                        eprintln!("MUX native model selection reconciliation: {error}");
+                    }
+                }
                 let _ = app.emit(
                     EVENT_NAME,
                     ObservationChange {

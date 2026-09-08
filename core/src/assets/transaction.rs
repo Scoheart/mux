@@ -6488,7 +6488,7 @@ mod tests {
             },
         })
         .unwrap();
-        assert!(!plan.can_commit, "{:?}", plan.warnings);
+        assert!(plan.can_commit, "{:?}", plan.warnings);
         assert!(plan.central_changes.iter().any(|change| change.asset
             == (AssetRef::Model {
                 profile_id: first.id.clone(),
@@ -6501,7 +6501,7 @@ mod tests {
             == (AssetRef::Model {
                 profile_id: third.id.clone(),
             })));
-        assert!(plan
+        assert!(!plan
             .warnings
             .iter()
             .any(|warning| warning.contains(&format!("model:{}", first.id))));
@@ -6510,14 +6510,15 @@ mod tests {
             .iter()
             .any(|warning| warning.contains(&format!("model:{}", third.id))));
 
-        let error = commit_asset_operation(AssetCommitRequest {
+        commit_asset_operation(AssetCommitRequest {
             operation_id: plan.operation_id,
             candidate_hash: plan.candidate_hash,
         })
-        .unwrap_err();
-        assert!(error.starts_with("asset_operation_blocked:"));
+        .unwrap();
         let updated = fs::read_to_string(target).unwrap();
-        assert!(updated.contains("first-reviewed-drift"));
+        assert!(!updated.contains("first-reviewed-drift"));
+        assert!(updated.contains("gpt-shared"));
+        assert!(updated.contains("https://new.example.test"));
         assert!(updated.contains("third-unreviewed-drift"));
         assert!(!updated.contains("third-model"));
     }

@@ -20,6 +20,7 @@ import type { LocalePreference } from "../i18n";
 import { useToast } from "./Toast";
 import type { UpdaterState } from "../hooks/useUpdater";
 import { AgentNavigation } from "./AgentNavigation";
+import { FileEditorSelect } from "./FileEditorSelect";
 import { ProxySettingsDialog } from "./ProxySettingsDialog";
 import { StartupSyncBar } from "./StartupSyncBar";
 import type { StartupSyncState } from "../hooks/useStartupSync";
@@ -205,6 +206,8 @@ export function Layout({
         >
           {theme === "dark" ? <SunIcon className="w-4 h-4" /> : <MoonIcon className="w-4 h-4" />}
         </button>
+
+        <FileEditorSelect />
 
         <div className="mux-language-menu-wrap flex-shrink-0" ref={languageMenuRef}>
           <button

@@ -9,5 +9,6 @@
   "continue-cli": "continue",
   "trae-cli": "trae",
   "trae-ide": "trae",
-  "zcode": "zcode"
+  "zcode": "zcode",
+  "codebuddy-ide": "codebuddy-code"
 }

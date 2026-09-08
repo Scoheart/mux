@@ -1,0 +1,12 @@
+{
+  "codebuddy-ide": {
+    "mcp": "https://www.codebuddy.ai/docs/ide/User-guide/MCP",
+    "model": "https://www.codebuddy.ai/docs/ide/Features/models",
+    "skill": "https://www.codebuddy.ai/docs/ide/Features/Skills"
+  },
+  "workbuddy": {
+    "mcp": "https://www.codebuddy.ai/docs/workbuddy/From-Beginner-to-Expert-Guide/Function-Description/Connector",
+    "model": "https://www.codebuddy.ai/docs/workbuddy/From-Beginner-to-Expert-Guide/Function-Description/Model",
+    "skill": "https://www.codebuddy.ai/docs/workbuddy/From-Beginner-to-Expert-Guide/Function-Description/Skills-Market"
+  }
+}

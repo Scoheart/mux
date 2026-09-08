@@ -273,3 +273,12 @@ mod tests {
         assert_eq!(skill.global_dir, "~/.custom-skill/skills");
     }
 }
+
+/// Read-only application/CLI discovery; absent runtime probes mean unknown.
+pub fn runtime_detected(agent_id: &str) -> Option<bool> {
+    super::gate::read(|| {
+        let definitions = crate::agents::load_agents();
+        let capability = definitions.get(agent_id)?.skills.as_ref()?;
+        crate::resources::skill::detect_agent_runtime(&capability.probes)
+    })
+}

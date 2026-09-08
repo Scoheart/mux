@@ -19,6 +19,12 @@ still validates paths, archive structure, hashes, and concurrent changes in the
 background. Assigning that copy to verified Agent directories remains a
 separate operation, so an Agent page never asks you to reinstall the same Skill.
 
+In the desktop Agent page, use the editor menu beside the theme and language controls to choose
+VS Code, Cursor, Zed, Sublime Text, TextEdit, or another installed macOS app.
+MUX remembers the choice for configuration files across Agents and app restarts.
+Folder links still use Finder. Selecting **系统默认** restores the system file association;
+if a selected editor cannot launch, MUX reports the error without silently switching apps.
+
 MUX ships as **two front-ends that share the same data** (`~/.mux/`):
 
 - 🖥️ a **macOS desktop app** (Tauri + React) — a visual manager, and
@@ -264,3 +270,19 @@ node scripts/update-agent-catalog.mjs # refresh the public client discovery cata
 [MIT](LICENSE) © Scoheart
 
 Agent and Provider coverage, supported endpoints, and remaining integration gaps: [September 2026 review](docs/agent-provider-research-2026-09-07.md).
+
+The Agent page’s title and icon open its documentation home (maintained in
+`data/agent-docs-home.json`). Capability-specific documentation remains separate.
+
+In configuration cards, click the MCPs, Models, or Skills title/icon to open
+that capability’s documentation. File and folder paths remain separate local
+open actions; a title without a documentation URL is not clickable.
+
+Agent pages include an installation status and an official download or installation
+guide link. Detection checks declared executable/application probes, not configuration
+directories; unavailable probes show an unknown state. Refocus MUX after installation to refresh detection. MUX opens the vendor page and does not run installers.
+
+CodeBuddy is listed as three products: CodeBuddy CLI (existing `codebuddy-code` ID),
+CodeBuddy IDE, and WorkBuddy. IDE and WorkBuddy currently provide official download
+and capability guides only. Their user-level writable storage contracts are not
+verified; MUX does not reuse CLI paths or write project-level Skills for them.

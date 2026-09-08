@@ -10,5 +10,8 @@
   "continue-cli": "cli",
   "trae-ide": "ide",
   "trae-cli": "cli",
-  "zcode": "desktop"
+  "zcode": "desktop",
+  "codebuddy-code": "cli",
+  "codebuddy-ide": "ide",
+  "workbuddy": "desktop"
 }

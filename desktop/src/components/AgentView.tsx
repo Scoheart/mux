@@ -1,7 +1,12 @@
+import capabilityGuides from "../../../data/agent-capability-guides.json";
+import { AgentInstallAction } from "./AgentInstallAction";
+import agentDefinitions from "../../../data/agents.json";
+import agentDocsHome from "../../../data/agent-docs-home.json";
 import { useModelObservationRevision } from "../lib/modelObservation";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { homeDir } from "@tauri-apps/api/path";
 import { openPath, openUrl } from "@tauri-apps/plugin-opener";
+import { preferredFileEditor } from "./FileEditorSelect";
 import type { InstallState } from "../hooks/useInstallState";
 import type { SkillsState } from "../hooks/useSkillsState";
 import type { ConsumptionState } from "../hooks/useConsumptionState";
@@ -358,15 +363,24 @@ export function AgentView({
         <div className="mux-agent-shell">
           <section className="mux-agent-context" aria-label={`${agent.name} 参考信息`}>
             <AgentHeader agent={agent} tone="reference" />
+            <div className="mux-agent-reference-install">{agent.builtin && <AgentInstallAction key={agent.id} agentId={agent.id} />}</div>
             <div className="mux-agent-reference">
               <strong>{agent.note ?? "未提供可写的用户级全局配置。"}</strong>
             </div>
+            {(capabilityGuides as Record<string, Record<string, string>>)[agentId] && <div className="mux-agent-file-map mux-agent-guided-cards">
+              {Object.entries((capabilityGuides as Record<string, Record<string, string>>)[agentId]).map(([domain, url]) => <ConfigPath
+                key={domain} label={domain === "mcp" ? "MCPs" : domain === "model" ? "Models" : "Skills"}
+                icon={domain === "mcp" ? <PackageIcon className="w-4 h-4" /> : domain === "model" ? <LayersIcon className="w-4 h-4" /> : <SparklesIcon className="w-4 h-4" />}
+                docsUrl={url} description="应用内配置" paths={[]} kind="file" home={userHome}
+                onOpen={() => {}} unavailableLabel="查看设置文档" />)}
+            </div>}
           </section>
         </div>
       </div>
     );
   }
 
+  const skillDocs = (agentDefinitions as Record<string, { skills?: { docs?: string } }>)[agentId]?.skills?.docs;
   const mcpConfigPaths = agent.has_global && agent.global ? [agent.global] : [];
   const mcpDescription = agent.has_global
     ? `${agent.format.toUpperCase()} · ${agent.key}`
@@ -397,7 +411,10 @@ export function AgentView({
   const openConfigLocation = async (path: string, kind: ConfigLocationKind) => {
     try {
       const home = userHome || await homeDir();
-      await openPath(absoluteConfigLocation(path, home));
+      const location = absoluteConfigLocation(path, home);
+      const editor = kind === "file" ? preferredFileEditor() : undefined;
+      if (editor) await openPath(location, editor);
+      else await openPath(location);
     } catch (error) {
       showToast({
         kind: "error",
@@ -704,67 +721,17 @@ export function AgentView({
 
           <section
             className="mux-agent-section mux-agent-config-locations"
-            aria-labelledby="agent-files-title"
             aria-label="配置位置"
           >
             <div className="mux-agent-section-head">
-              <div>
-                <h3 id="agent-files-title">配置位置</h3>
-                <p>这些是 MUX 为当前 Agent 读取或写入的实际位置</p>
-              </div>
-              {(agent.docs || canEditConfiguration) && (
-                <div className="mux-agent-section-actions">
-                  {agent.docs && (
-                    <button type="button" className="btn-secondary" onClick={() => openUrl(agent.docs!)}>
-                      <LinkIcon className="w-3.5 h-3.5" />官方文档
-                    </button>
-                  )}
-                  {canEditConfiguration && (
-                    <button type="button" className="btn-secondary" onClick={() => setEditingAgent(true)}>
-                      <EditIcon className="w-3.5 h-3.5" />编辑配置
-                    </button>
-                  )}
-                </div>
-              )}
-            </div>
-            <div className="mux-agent-file-map">
-              <ConfigPath
-                icon={<PackageIcon className="w-4 h-4" />}
-                label="MCPs"
-                description={mcpDescription}
-                paths={mcpConfigPaths}
-                kind="file"
-                home={userHome}
-                onOpen={openConfigLocation}
-                unavailableLabel={agent.has_global ? undefined : "未接入"}
-              />
-              <ConfigPath
-                icon={<LayersIcon className="w-4 h-4" />}
-                label="Models"
-                description={modelDescription}
-                paths={modelConfigPaths}
-                kind="file"
-                home={userHome}
-                onOpen={openConfigLocation}
-              />
-              <ConfigPath
-                icon={<SparklesIcon className="w-4 h-4" />}
-                label="Skills"
-                description={skillsDescription}
-                paths={skillsConfigPaths}
-                kind="folder"
-                home={userHome}
-                onOpen={openConfigLocation}
-              />
-            </div>
+              <div className="mux-agent-section-actions">
             {modelAgent?.mode === "managed" && (modelAgent.available_deliveries?.length ?? 0) > 0 && (
               <div
                 className="mux-agent-credential-strategy"
                 data-busy={changingCredential ? "true" : undefined}
               >
                 <div>
-                  <strong>凭据策略</strong>
-                  <span>添加 Model 时按此方式写入该 Agent 自己的配置，可随时改</span>
+                  <strong title="添加模型时使用的凭据保存方式，可随时修改">凭据方式</strong>
                 </div>
                 <FormSelect
                   ariaLabel={`${agent.name} 凭据策略`}
@@ -788,6 +755,48 @@ export function AgentView({
                 />
               </div>
             )}
+                  {agent.builtin && <AgentInstallAction key={agent.id} agentId={agent.id} />}
+                  {canEditConfiguration && (
+                    <button type="button" className="btn-secondary" onClick={() => setEditingAgent(true)}>
+                      <EditIcon className="w-3.5 h-3.5" />编辑配置
+                    </button>
+                  )}
+              </div>
+            </div>
+            <div className="mux-agent-file-map">
+              <ConfigPath
+                icon={<PackageIcon className="w-4 h-4" />}
+                label="MCPs"
+                docsUrl={agent.docs ?? undefined}
+                description={mcpDescription}
+                paths={mcpConfigPaths}
+                kind="file"
+                home={userHome}
+                onOpen={openConfigLocation}
+                unavailableLabel={agent.has_global ? undefined : "未接入"}
+              />
+              <ConfigPath
+                icon={<LayersIcon className="w-4 h-4" />}
+                label="Models"
+                docsUrl={modelAgent?.docs}
+                description={modelDescription}
+                paths={modelConfigPaths}
+                kind="file"
+                home={userHome}
+                onOpen={openConfigLocation}
+              />
+              <ConfigPath
+                icon={<SparklesIcon className="w-4 h-4" />}
+                label="Skills"
+                docsUrl={skillDocs}
+                description={skillsDescription}
+                paths={skillsConfigPaths}
+                kind="folder"
+                home={userHome}
+                onOpen={openConfigLocation}
+              />
+            </div>
+
           </section>
         </section>
 
@@ -1132,23 +1141,27 @@ function AgentHeader({
   agent: InstallState["agents"][number];
   tone?: "reference";
 }) {
-  return (
-    <header
-      className="mux-agent-header"
-      data-tone={tone}
-      aria-label={`Agent ${agent.name} (${agent.id})`}
-    >
-      <div className="mux-agent-header-identity">
-        <AgentGlyph id={agent.id} name={agent.name} size={44} />
-        <div className="mux-agent-header-copy">
-          <div>
-            <h2>{agent.name}</h2>
-            {tone === "reference" ? <Badge>仅供参考</Badge> : agent.evidence === "community-extension" ? (
-              <Badge tone="warning">社区扩展</Badge>
-            ) : !agent.builtin ? <Badge>自定义</Badge> : null}
-          </div>
-        </div>
+  const { show } = useToast();
+  const docsHome = (agentDocsHome as Record<string, string>)[agent.id] ?? agent.docs;
+  const identity = <>
+    <AgentGlyph id={agent.id} name={agent.name} size={44} />
+    <div className="mux-agent-header-copy">
+      <div>
+        <h2>{agent.name}</h2>
+        {tone === "reference" ? <Badge>仅供参考</Badge> : agent.evidence === "community-extension" ? (
+          <Badge tone="warning">社区扩展</Badge>
+        ) : !agent.builtin ? <Badge>自定义</Badge> : null}
       </div>
+    </div>
+  </>;
+  return (
+    <header className="mux-agent-header" data-tone={tone} aria-label={`Agent ${agent.name} (${agent.id})`}>
+      {docsHome ? <a className="mux-agent-header-identity mux-agent-docs-link"
+        href={docsHome} title={`打开 ${agent.name} 官方文档`} aria-label={`打开 ${agent.name} 官方文档`}
+        onClick={(event) => {
+          event.preventDefault();
+          void openUrl(docsHome).catch((error) => show({ kind: "error", msg: `无法打开官方文档：${formatError(error)}` }));
+        }}>{identity}</a> : <div className="mux-agent-header-identity">{identity}</div>}
     </header>
   );
 }
@@ -1161,6 +1174,7 @@ function ConfigPath({
   kind,
   home,
   onOpen,
+  docsUrl,
   unavailableLabel = "不可用",
 }: {
   icon: ReactNode;
@@ -1170,13 +1184,27 @@ function ConfigPath({
   kind: ConfigLocationKind;
   home: string;
   onOpen(path: string, kind: ConfigLocationKind): Promise<unknown> | unknown;
+  docsUrl?: string;
   unavailableLabel?: string;
 }) {
+  const { show } = useToast();
+  const openDocs = () => {
+    if (!docsUrl) return;
+    void openUrl(docsUrl).catch((error) => show({ kind: "error", msg: `无法打开 ${label} 文档：${formatError(error)}` }));
+  };
   return (
     <div className="mux-agent-file-row">
-      <span className="mux-agent-file-icon">{icon}</span>
       <div className="mux-agent-file-copy">
-        <div><strong>{label}</strong><span>{description}</span></div>
+        <div className="mux-capability-heading">
+          {docsUrl ? <button type="button" className="mux-capability-doc-link"
+            title={`查看 ${label} 文档`} aria-label={`查看 ${label} 文档`} onClick={openDocs}>
+            <span className="mux-agent-file-icon">{icon}</span><strong>{label}</strong>
+            <ExternalLinkIcon className="w-3 h-3 mux-capability-doc-arrow" />
+          </button> : <div className="mux-capability-doc-label">
+            <span className="mux-agent-file-icon">{icon}</span><strong>{label}</strong>
+          </div>}
+          <span className="mux-capability-description">{description}</span>
+        </div>
         {paths.length > 0 ? (
           <div className="mux-agent-file-paths">
             {paths.map((path) => {
@@ -1186,8 +1214,8 @@ function ConfigPath({
                   type="button"
                   className="mux-agent-file-path"
                   key={path}
-                  title={kind === "folder" ? `在 Finder 中打开 ${absolutePath}` : `使用默认应用打开 ${absolutePath}`}
-                  aria-label={`${kind === "folder" ? "打开文件夹" : "使用默认应用打开文件"}：${absolutePath}`}
+                  title={kind === "folder" ? `在 Finder 中打开 ${absolutePath}` : `使用所选编辑器打开 ${absolutePath}`}
+                  aria-label={`${kind === "folder" ? "打开文件夹" : "使用所选编辑器打开文件"}：${absolutePath}`}
                   onClick={() => void onOpen(path, kind)}
                 >
                   <code>{absolutePath}</code>

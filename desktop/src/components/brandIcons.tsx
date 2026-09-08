@@ -54,6 +54,7 @@ function visibleSurface(id: string): AgentSurface | null {
 const FULL_BLEED = new Set<string>([
   "boltai",
   "codebuddy-code",
+  "workbuddy",
   "factory-droid",
   "firebender",
   "hermes",
@@ -81,6 +82,9 @@ const AGENT_META: Record<string, { name: string; color: string }> = {
   "claude-code": { name: "Claude Code", color: "#D97757" },
   "claude-desktop": { name: "Claude Desktop", color: "#C15F3C" },
   cursor: { name: "Cursor", color: "#111827" },
+  "codebuddy-code": { name: "CodeBuddy CLI", color: "#7257FF" },
+  "codebuddy-ide": { name: "CodeBuddy IDE", color: "#7257FF" },
+  workbuddy: { name: "WorkBuddy", color: "#7257FF" },
   vscode: { name: "VS Code", color: "#0A7ACA" },
   codex: { name: "Codex", color: "#10A37F" },
   zed: { name: "Zed", color: "#084CCF" },

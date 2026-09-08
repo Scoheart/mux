@@ -73,3 +73,12 @@ pub fn set_agent_credential_delivery(
         )
     })
 }
+
+/// Follow native model selections through the normal model mutation gate.
+/// This only updates MUX metadata; it never writes Agent configuration.
+pub fn reconcile_native_selection() -> Result<(), String> {
+    super::gate::write_for(
+        super::gate::CapabilityDomain::Model,
+        crate::resources::model::reconcile_active_models,
+    )
+}

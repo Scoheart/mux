@@ -1,5 +1,6 @@
 import type { AssetCommandError, AssetOperationPlan, AssetRef } from "../lib/types";
 import { assetIdentity } from "../lib/consumption";
+import { AgentGlyph } from "./brandIcons";
 import { TrashIcon } from "./icons";
 import { DialogShell } from "./DialogShell";
 
@@ -134,7 +135,9 @@ function agentActionCopy(plan: AssetOperationPlan) {
 }
 
 function warningCopy(warning: string) {
-  const [agent, reason] = warning.split(/:\s*/, 2);
+  const separator = warning.lastIndexOf(":");
+  const agent = warning.slice(0, separator).split(" / ")[0];
+  const reason = warning.slice(separator + 1).trim();
   const labels: Record<string, string> = {
     model_active_state_drift: "当前 Model 与 MUX 记录不一致，请先刷新或重新选择当前 Model",
     model_external_current: "当前 Model 由 Agent 外部配置管理，切换前需要先让 MUX 接管",
@@ -315,6 +318,31 @@ export function AssetOperationReviewDialog({
       ? `${agentName} · 另影响 ${plan.affected_agent_ids.length - 1} 个 Agent`
       : agentName
     : `${plan.affected_agent_ids.length} 个 Agent · ${plan.target_files.length} 个目标`;
+  const providerChange = plan.central_changes.find((change) => change.asset.domain === "model-provider" && change.action === "update");
+  if (providerChange) {
+    const name = displayAssetName(providerChange.asset, assetDisplayNames);
+    return <DialogShell kind="review" size="sm" title={`更新 ${name}`}
+      subtitle={plan.affected_agent_ids.length ? `同步到 ${plan.affected_agent_ids.length} 个 Agent` : "保存 Provider 设置"}
+      busy={busy} onClose={() => void onCancel()}
+      footerEnd={<><button type="button" className="btn-secondary" disabled={busy} onClick={() => void onCancel()}>取消</button>
+        <button type="button" className="btn-primary" disabled={busy || !plan.can_commit} onClick={() => void onCommit()}>{busy ? "更新中…" : "保存并同步"}</button></>}>
+      <div className="mux-provider-update-summary">
+        {plan.affected_agent_ids.length > 0 && <div className="mux-provider-update-agents">
+          {plan.affected_agent_ids.map((id) => {
+            const label = displayAgentName(id, agentId, agentName, agentDisplayNames);
+            return <span key={id} title={label} role="img" aria-label={label} tabIndex={0}>
+              <AgentGlyph id={id} name={label} size={36} />
+            </span>;
+          })}
+        </div>}
+        {reviewError && <p role="alert" className="mux-review-error">{reviewError}</p>}
+        {!plan.can_commit && <p role="alert" className="mux-review-error">部分配置暂时无法更新，请查看原因。</p>}
+        {plan.warnings.length > 0 && <section className="mux-provider-update-issues">
+          {plan.warnings.map((warning) => <p key={warning}>{warningCopy(warning)}</p>)}
+        </section>}
+      </div>
+    </DialogShell>;
+  }
   return (
     <DialogShell
       kind="review"

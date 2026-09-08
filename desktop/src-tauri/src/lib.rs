@@ -1,6 +1,7 @@
 pub mod cli_tool;
 pub mod commands;
 mod observation_watcher;
+mod file_editors;
 pub mod updater_guard;
 
 use tauri::Manager;
@@ -26,6 +27,10 @@ pub fn run() {
         // Needed to relaunch the app after an update is installed.
         .plugin(tauri_plugin_process::init())
         .setup(move |app| {
+            // Catch native selections changed while MUX was closed.
+            if let Err(error) = mux_core::application::models::reconcile_native_selection() {
+                eprintln!("MUX native model selection reconciliation: {error}");
+            }
             if let Err(error) = observation_watcher::start(app.handle().clone()) {
                 eprintln!("MUX observation watcher warning: {error}");
             }
@@ -44,6 +49,8 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            file_editors::list_file_editors,
+            file_editors::detect_agent_installation,
             commands::get_backend_status,
             commands::get_workspace_snapshot,
             commands::list_agent_capabilities,

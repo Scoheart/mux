@@ -3618,6 +3618,13 @@ pub fn reconcile_active_models() -> Result<(), String> {
         {
             continue;
         }
+        let profiles = settings.model_profiles.as_ref();
+        let Some(profile) = profiles.and_then(|profiles| profiles.get(&profile_id)) else {
+            continue;
+        };
+        if !matches!(observe_profile_consumption(&agent_id, profile, true), Ok(ModelObservedState::Synced)) {
+            continue;
+        }
         updates.push((agent_id, profile_id));
     }
     if updates.is_empty() {

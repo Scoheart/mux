@@ -1,0 +1,258 @@
+{
+  "agentkube": {
+    "url": "https://docs.agentkube.com/introduction",
+    "label": "安装文档"
+  },
+  "amp": {
+    "url": "https://ampcode.com/manual",
+    "label": "安装文档"
+  },
+  "amazon-q": {
+    "url": "https://docs.aws.amazon.com/amazonq/latest/qdeveloper-ug/what-is.html",
+    "label": "安装文档"
+  },
+  "antigravity": {
+    "url": "https://antigravity.google/download",
+    "label": "官方下载"
+  },
+  "antigravity-cli": {
+    "url": "https://antigravity.google/docs/",
+    "label": "安装文档"
+  },
+  "augment": {
+    "url": "https://docs.augmentcode.com/",
+    "label": "安装文档"
+  },
+  "boltai": {
+    "url": "https://docs.boltai.com/",
+    "label": "安装文档"
+  },
+  "claude-code": {
+    "url": "https://code.claude.com/docs/en/quickstart",
+    "label": "安装文档"
+  },
+  "claude-desktop": {
+    "url": "https://claude.ai/download",
+    "label": "官方下载"
+  },
+  "chatmcp": {
+    "url": "https://github.com/daodao97/chatmcp",
+    "label": "安装文档"
+  },
+  "cline": {
+    "url": "https://docs.cline.bot/",
+    "label": "安装文档"
+  },
+  "codebuddy-code": {
+    "url": "https://www.codebuddy.ai/docs/cli/installation",
+    "label": "安装文档"
+  },
+  "codewhale": {
+    "url": "https://github.com/Hmbown/CodeWhale",
+    "label": "安装文档"
+  },
+  "codex": {
+    "url": "https://developers.openai.com/codex/quickstart",
+    "label": "安装文档"
+  },
+  "continue": {
+    "url": "https://docs.continue.dev/",
+    "label": "安装文档"
+  },
+  "continue-cli": {
+    "url": "https://docs.continue.dev/",
+    "label": "安装文档"
+  },
+  "copilot-cli": {
+    "url": "https://docs.github.com/en/copilot",
+    "label": "安装文档"
+  },
+  "cortex-code": {
+    "url": "https://docs.snowflake.com/en/user-guide/cortex-code/cortex-code",
+    "label": "安装文档"
+  },
+  "crush": {
+    "url": "https://github.com/charmbracelet/crush",
+    "label": "安装文档"
+  },
+  "cursor": {
+    "url": "https://cursor.com/download",
+    "label": "官方下载"
+  },
+  "devin": {
+    "url": "https://docs.devin.ai/",
+    "label": "安装文档"
+  },
+  "dirac": {
+    "url": "https://github.com/dirac-run/dirac",
+    "label": "安装文档"
+  },
+  "docker-agent": {
+    "url": "https://github.com/docker/docker-agent",
+    "label": "安装文档"
+  },
+  "factory-droid": {
+    "url": "https://docs.factory.ai/",
+    "label": "安装文档"
+  },
+  "firebender": {
+    "url": "https://docs.firebender.com/",
+    "label": "安装文档"
+  },
+  "gemini": {
+    "url": "https://geminicli.com/docs/",
+    "label": "安装文档"
+  },
+  "goose": {
+    "url": "https://goose-docs.ai/docs/",
+    "label": "安装文档"
+  },
+  "grok-build": {
+    "url": "https://docs.x.ai/build/overview",
+    "label": "安装文档"
+  },
+  "hermes": {
+    "url": "https://hermes-agent.nousresearch.com/docs/",
+    "label": "安装文档"
+  },
+  "junie": {
+    "url": "https://www.jetbrains.com/help/junie/",
+    "label": "安装文档"
+  },
+  "kilo-code": {
+    "url": "https://kilo.ai/docs/",
+    "label": "安装文档"
+  },
+  "kimi-code": {
+    "url": "https://moonshotai.github.io/kimi-code/en/",
+    "label": "安装文档"
+  },
+  "kiro": {
+    "url": "https://kiro.dev/downloads/",
+    "label": "官方下载"
+  },
+  "lmstudio": {
+    "url": "https://lmstudio.ai/download",
+    "label": "官方下载"
+  },
+  "minimax-code": {
+    "url": "https://agent.minimax.io/download",
+    "label": "官方下载"
+  },
+  "minion-code": {
+    "url": "https://github.com/femto/minion-code",
+    "label": "安装文档"
+  },
+  "mistral-vibe": {
+    "url": "https://docs.mistral.ai/vibe/",
+    "label": "安装文档"
+  },
+  "opencode": {
+    "url": "https://opencode.ai/docs/",
+    "label": "安装文档"
+  },
+  "openclaw": {
+    "url": "https://docs.openclaw.ai/",
+    "label": "安装文档"
+  },
+  "openhands": {
+    "url": "https://docs.openhands.dev/",
+    "label": "安装文档"
+  },
+  "pi": {
+    "url": "https://pi.dev/docs/latest",
+    "label": "安装文档"
+  },
+  "poolside": {
+    "url": "https://github.com/poolsideai/pool",
+    "label": "安装文档"
+  },
+  "qoder": {
+    "url": "https://qoder.com/en/download",
+    "label": "官方下载"
+  },
+  "qoder-desktop": {
+    "url": "https://qoder.com/en/download",
+    "label": "官方下载"
+  },
+  "qoder-cli": {
+    "url": "https://qoder.com/en/download",
+    "label": "官方下载"
+  },
+  "qoderwork": {
+    "url": "https://qoder.com/en/download",
+    "label": "官方下载"
+  },
+  "qwen-code": {
+    "url": "https://qwenlm.github.io/qwen-code-docs/en/",
+    "label": "安装文档"
+  },
+  "raycast": {
+    "url": "https://manual.raycast.com/",
+    "label": "安装文档"
+  },
+  "roo-code": {
+    "url": "https://docs.roocode.com/",
+    "label": "安装文档"
+  },
+  "rovo-dev": {
+    "url": "https://support.atlassian.com/rovo/",
+    "label": "安装文档"
+  },
+  "stakpak": {
+    "url": "https://github.com/stakpak/agent",
+    "label": "安装文档"
+  },
+  "tabnine": {
+    "url": "https://docs.tabnine.com/",
+    "label": "安装文档"
+  },
+  "theiaai-theiaide": {
+    "url": "https://theia-ide.org/docs/",
+    "label": "安装文档"
+  },
+  "trae-ide": {
+    "url": "https://docs.trae.ai/",
+    "label": "安装文档"
+  },
+  "trae-cli": {
+    "url": "https://docs.trae.cn/",
+    "label": "安装文档"
+  },
+  "vt-code": {
+    "url": "https://github.com/vinhnx/VTCode",
+    "label": "安装文档"
+  },
+  "vscode": {
+    "url": "https://code.visualstudio.com/download",
+    "label": "官方下载"
+  },
+  "warp": {
+    "url": "https://www.warp.dev/download",
+    "label": "官方下载"
+  },
+  "windsurf": {
+    "url": "https://windsurf.com/download",
+    "label": "官方下载"
+  },
+  "zed": {
+    "url": "https://zed.dev/download",
+    "label": "官方下载"
+  },
+  "zcode": {
+    "url": "https://zcode.z.ai/cn/docs/install",
+    "label": "官方下载"
+  },
+  "zencoder": {
+    "url": "https://docs.zencoder.ai/",
+    "label": "安装文档"
+  },
+  "codebuddy-ide": {
+    "url": "https://www.codebuddy.ai/docs/ide/Getting-Started/Installation",
+    "label": "安装文档"
+  },
+  "workbuddy": {
+    "url": "https://www.codebuddy.ai/docs/workbuddy/Quickstart",
+    "label": "安装文档"
+  }
+}

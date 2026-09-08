@@ -2385,3 +2385,14 @@ mod tests {
         plist::to_file_xml(path, &plist::Value::Dictionary(dictionary)).unwrap();
     }
 }
+
+/// Runtime detection excludes configuration directories that MUX itself can create.
+pub(crate) fn detect_agent_runtime(probes: &[AgentInstallProbe]) -> Option<bool> {
+    let paths = SkillsPaths::resolve_from_env().ok()?;
+    let runtime: Vec<_> = probes.iter().filter(|probe| match probe {
+        AgentInstallProbe::Command { .. } | AgentInstallProbe::MacBundle { .. } => true,
+        AgentInstallProbe::Path { path } => path.ends_with(".app"),
+    }).collect();
+    if runtime.is_empty() { return None; }
+    Some(runtime.into_iter().any(|probe| probe_installed(probe, &paths)))
+}

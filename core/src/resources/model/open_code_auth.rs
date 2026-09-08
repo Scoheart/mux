@@ -65,16 +65,16 @@ fn read_root(path: &Path) -> Result<(Option<Zeroizing<String>>, Map<String, Valu
     let original = match fs::read_to_string(path) {
         Ok(value) => Some(Zeroizing::new(value)),
         Err(error) if error.kind() == ErrorKind::NotFound => None,
-        Err(_) => {
-            return Err("agent_store_conflicted: OpenCode auth.json cannot be read".into())
-        }
+        Err(_) => return Err("agent_store_conflicted: OpenCode auth.json cannot be read".into()),
     };
     let root = match original.as_deref() {
         Some(content) => serde_json::from_str::<Value>(content)
             .map_err(|_| "agent_store_conflicted: OpenCode auth.json is invalid JSON".to_string())?
             .as_object()
             .cloned()
-            .ok_or_else(|| "agent_store_conflicted: OpenCode auth.json root must be an object".to_string())?,
+            .ok_or_else(|| {
+                "agent_store_conflicted: OpenCode auth.json root must be an object".to_string()
+            })?,
         None => Map::new(),
     };
     Ok((original, root))
@@ -93,8 +93,9 @@ pub fn prepare_auth(
     {
         return Err("agent_store_conflicted: invalid OpenCode credential input".into());
     }
-    let credential = std::str::from_utf8(credential)
-        .map_err(|_| "agent_store_conflicted: OpenCode API credentials must be UTF-8".to_string())?;
+    let credential = std::str::from_utf8(credential).map_err(|_| {
+        "agent_store_conflicted: OpenCode API credentials must be UTF-8".to_string()
+    })?;
     let (original, mut root) = read_root(path)?;
     let mut entry = match root.remove(provider_id) {
         None => Map::new(),
@@ -117,8 +118,9 @@ pub fn prepare_auth(
     entry.insert("type".into(), Value::String("api".into()));
     entry.insert("key".into(), Value::String(credential.into()));
     root.insert(provider_id.into(), Value::Object(entry));
-    let content = serde_json::to_string_pretty(&Value::Object(root))
-        .map_err(|_| "agent_store_conflicted: OpenCode auth candidate could not be encoded".to_string())?;
+    let content = serde_json::to_string_pretty(&Value::Object(root)).map_err(|_| {
+        "agent_store_conflicted: OpenCode auth candidate could not be encoded".to_string()
+    })?;
     Ok(PreparedAuthFile {
         path: path.to_path_buf(),
         original,
@@ -155,10 +157,7 @@ mod tests {
     use std::path::PathBuf;
 
     fn isolated_file() -> PathBuf {
-        let root = std::env::temp_dir().join(format!(
-            "mux-opencode-auth-{}",
-            uuid::Uuid::new_v4()
-        ));
+        let root = std::env::temp_dir().join(format!("mux-opencode-auth-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&root).unwrap();
         root.join("auth.json")
     }
@@ -185,7 +184,8 @@ mod tests {
 
         let prepared = prepare_auth(&path, "mux_existing", b"new-secret").unwrap();
         assert!(prepared.sensitive);
-        let value: serde_json::Value = serde_json::from_str(prepared.content.as_deref().unwrap()).unwrap();
+        let value: serde_json::Value =
+            serde_json::from_str(prepared.content.as_deref().unwrap()).unwrap();
         assert_eq!(value["mux_existing"]["type"], "api");
         assert_eq!(value["mux_existing"]["key"], "new-secret");
         assert_eq!(value["mux_existing"]["futureField"], "preserved");

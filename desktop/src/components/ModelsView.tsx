@@ -1656,10 +1656,10 @@ function ModelProviderDialog({
           ]),
       ) as ModelProviderConfig["protocols"];
       const hasNewCredential = credentialDirty && enteredCredential;
-      const apiKeySource = clearCredential
-        ? undefined
-        : hasNewCredential
-          ? { kind: "mux-store" as const }
+      const apiKeySource = hasNewCredential
+        ? { kind: "mux-store" as const }
+        : clearCredential
+          ? undefined
           : initialSource;
       const authRequirement = hasNewCredential
         ? "required"
@@ -1680,7 +1680,7 @@ function ModelProviderDialog({
         env_key: undefined,
       }, authRequirement === "none"
         ? initial?.credential_saved ? "" : undefined
-        : clearCredential ? "" : hasNewCredential ? credential : undefined);
+        : hasNewCredential ? credential : clearCredential ? "" : undefined);
     } catch (error) {
       toast.show({ kind: "error", msg: t("models.saveFailed", { error: formatError(error) }) });
     } finally {
@@ -1769,10 +1769,11 @@ function ModelProviderDialog({
                   autoComplete="new-password"
                   aria-label={t("models.apiKey")}
                   value={credential}
-                  disabled={clearCredential || credentialLoading}
+                  disabled={credentialLoading}
                   onChange={(event) => {
                     setCredential(event.target.value);
                     setCredentialDirty(true);
+                    if (event.target.value.trim()) setClearCredential(false);
                   }}
                   placeholder={initial?.credential_saved
                     ? t("models.keepCredential")
@@ -1803,7 +1804,11 @@ function ModelProviderDialog({
                 checked={clearCredential}
                 onChange={(event) => {
                   setClearCredential(event.target.checked);
-                  if (event.target.checked) setCredentialVisible(false);
+                  if (event.target.checked) {
+                    setCredentialVisible(false);
+                    setCredential("");
+                    setCredentialDirty(false);
+                  }
                 }}
               />
               {t("models.clearCredential")}

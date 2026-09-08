@@ -2110,11 +2110,23 @@ fn finalize_plan_with_inventory(
     target_files.dedup();
     order_model_target_files(&domain_plan, &mut target_files)?;
     validate_transaction_targets(&domain_plan, &target_files)?;
+    // A Provider save explicitly updates its own enabled child projections.
+    // Existing owned-field differences are replaced by that desired state;
+    // malformed/ambiguous targets and unrelated profiles remain blocked.
+    let provider_replaces_owned_fields = |item: &super::types::ConsumptionView| {
+        if let (Some(LifecycleBinding::ModelProviderUpsert { profile_ids, .. }),
+                AssetRef::Model { profile_id }) = (lifecycle.as_ref(), &item.asset) {
+            profile_ids.contains(profile_id)
+                && item.status == ConsumptionStatus::ExternalChanged
+                && item.reason.as_deref() == Some("model_owned_fields_drift")
+        } else { false }
+    };
     let observations: Vec<_> = current_inventory
         .consumptions
         .iter()
         .filter(|item| {
             effects.contains(&(item.agent_id.clone(), item.asset.clone()))
+                && !provider_replaces_owned_fields(item)
                 && matches!(
                     item.status,
                     ConsumptionStatus::ExternalChanged
@@ -2162,6 +2174,7 @@ fn finalize_plan_with_inventory(
                 .iter()
                 .filter(|item| {
                     effects.contains(&(item.agent_id.clone(), item.asset.clone()))
+                        && !provider_replaces_owned_fields(item)
                         && if explicit_restore {
                             matches!(
                                 item.status,

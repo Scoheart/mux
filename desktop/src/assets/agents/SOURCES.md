@@ -43,3 +43,5 @@ Official assets retrieved 2026-09-07 (original bytes; ICO retained without conve
 - MCP: https://zcode.z.ai/cn/docs/mcp-services
 - Skills: https://zcode.z.ai/cn/docs/skill
 - Verified 2026-09-07. Desktop surface only; community CLI packages are not official ZCode releases.
+
+- WorkBuddy: official favicon from https://download.codebuddy.ai/web/workbuddy/00aa368996ce0f8793afd87db1bcdf458d8ba952/assets/logo.svg (2026-09-08). CodeBuddy IDE shares the official CodeBuddy logo with CLI and uses the IDE surface marker.

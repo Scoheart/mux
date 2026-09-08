@@ -14,7 +14,7 @@ mod update;
 pub use audit::*;
 pub use files::*;
 pub(crate) use inventory::{
-    canonical_skill_assignments, canonical_skill_target_path, declared_targets_for_agents,
+    detect_agent_runtime, canonical_skill_assignments, canonical_skill_target_path, declared_targets_for_agents,
     list_inventory_for_settings, skill_agent_capability_for_settings,
 };
 pub use inventory::{

@@ -32,7 +32,6 @@ import { McpAvatar } from "./McpIcon";
 import { McpIconPickerDialog } from "./McpIconPickerDialog";
 import { ResourceState } from "./ResourceState";
 import { useToast } from "./Toast";
-import { PasteConfigDialog } from "./PasteConfigDialog";
 import { AssetOperationReviewDialog } from "./AssetOperationReviewDialog";
 import { RegistryEditPage } from "./RegistryEditPage";
 import {
@@ -158,7 +157,6 @@ export function RegistryView({ state, consumptionState, intent, onIntentConsumed
   const [selectedSource, setSelectedSource] = useState<string | null>(null);
   const [detail, setDetail] = useState<CatalogItem | null>(null);
   const [editingDetail, setEditingDetail] = useState(false);
-  const [pasteOpen, setPasteOpen] = useState(false);
   const [iconPickerEntry, setIconPickerEntry] = useState<RegistryEntry | null>(null);
   const lastConsumedIntentId = useRef<number | null>(null);
   const agentsForServer = useCallback(
@@ -256,10 +254,20 @@ export function RegistryView({ state, consumptionState, intent, onIntentConsumed
     setEditingDetail(false);
   }, []);
 
+  useEffect(() => {
+    if (!detail || state.loading || state.registryError) return;
+    const stillExists = catalog.some((item) => keyOf(item.entry) === keyOf(detail.entry)
+      && item.entry.origin?.kind === detail.entry.origin?.kind
+      && item.entry.origin?.source === detail.entry.origin?.source);
+    if (!stillExists) closeDetail();
+  }, [catalog, detail, state.loading, state.registryError, closeDetail]);
+
   const copyConfig = useCallback(
     (entry: RegistryEntry) => {
       navigator.clipboard
-        .writeText(JSON.stringify(entry.config, null, 2))
+        .writeText(JSON.stringify({
+          mcpServers: { [entry.name]: entry.config.stdio ?? entry.config.http },
+        }, null, 2))
         .then(() => toast.show({ kind: "success", msg: `已复制 ${entry.name} 配置` }))
         .catch(() => toast.show({ kind: "error", msg: "复制失败" }));
     },
@@ -296,6 +304,10 @@ export function RegistryView({ state, consumptionState, intent, onIntentConsumed
     [consumptionState, deletable, toast]
   );
 
+  const reviewingMcpDeletion = !editingDetail && !suppressOperationReview
+    && consumptionState?.plan?.kind === "delete-asset"
+    && consumptionState.plan.domain_plan.domain === "mcp";
+
   return (
     <div className="mux-registry-workspace">
       <ResourceWorkspace
@@ -313,16 +325,6 @@ export function RegistryView({ state, consumptionState, intent, onIntentConsumed
       searchPlaceholder="搜索 MCP"
       toolbarActions={
         <>
-          <button
-            onClick={() => {
-              closeDetail();
-              setPasteOpen(true);
-            }}
-            className="btn-ghost"
-            title="粘贴 MCP 配置"
-          >
-            粘贴配置
-          </button>
           <IconButton title="导出生效配置" onClick={doExport} disabled={entries.length === 0}>
             <DownloadIcon className="w-4 h-4" />
           </IconButton>
@@ -334,12 +336,12 @@ export function RegistryView({ state, consumptionState, intent, onIntentConsumed
             className="btn-primary"
           >
             <PlusIcon className="w-4 h-4" />
-            新建 MCP
+            添加 MCP
           </button>
         </>
       }
       inspector={
-        detail && editingDetail && consumptionState ? (
+        reviewingMcpDeletion ? undefined : detail && editingDetail && consumptionState ? (
           <RegistryEditPage
             state={state}
             consumptionState={consumptionState}
@@ -378,19 +380,39 @@ export function RegistryView({ state, consumptionState, intent, onIntentConsumed
       {consumptionState?.plan && !editingDetail && !suppressOperationReview ? (
         <AssetOperationReviewDialog
           plan={consumptionState.plan}
+          assetDisplayNames={detail ? { [`mcp:${keyOf(detail.entry)}`]: detail.entry.name } : undefined}
+          agentDisplayNames={Object.fromEntries(consumptionState.plan.affected_agent_ids.map((id) => [id, agentName(id)]))}
           busy={consumptionState.committing}
           error={consumptionState.error}
           onCancel={consumptionState.cancel}
           onCommit={async () => {
             const kind = consumptionState.plan?.kind;
-            await consumptionState.commit();
+            let pendingConvergence = false;
+            try {
+              await consumptionState.commit();
+            } catch (error) {
+              if (typeof error !== "object" || error === null
+                || !("code" in error) || error.code !== "pending_convergence") {
+                // A failed central commit keeps the review and its error visible.
+                return;
+              }
+              // Core committed the central deletion; only Agent projection is pending.
+              pendingConvergence = true;
+            }
+            if (kind === "delete-asset") {
+              closeDetail();
+              setIconPickerEntry(null);
+            }
             void state.refreshRegistry().catch((error) => {
-              toast.show({ kind: "error", msg: `操作已完成，但列表刷新失败：${String(error)}` });
+              toast.show({ kind: "error", msg: `操作已完成，但列表刷新失败：${formatError(error)}` });
             });
-            if (kind === "delete-asset") setDetail(null);
             toast.show({
-              kind: "success",
-              msg: kind === "delete-asset" ? "MCP 资产已删除。" : "MCP 资产已保存。",
+              kind: pendingConvergence ? "error" : "success",
+              msg: pendingConvergence
+                ? kind === "delete-asset"
+                  ? "MCP 已从中央库删除，部分 Agent 尚未同步完成，请在对应 Agent 页面处理。"
+                  : "MCP 已保存，部分 Agent 尚未同步完成，请在对应 Agent 页面处理。"
+                : kind === "delete-asset" ? "MCP 资产已删除。" : "MCP 资产已保存。",
             });
           }}
         />
@@ -454,7 +476,6 @@ export function RegistryView({ state, consumptionState, intent, onIntentConsumed
         </div>
       )}
 
-      {pasteOpen && <PasteConfigDialog state={state} onClose={() => setPasteOpen(false)} />}
       </ResourceWorkspace>
       {iconPickerEntry && (
         <McpIconPickerDialog

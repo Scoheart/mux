@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import type { InstallState } from "../hooks/useInstallState";
 import type { ConsumptionState } from "../hooks/useConsumptionState";
-import type { McpIconPreference, RegistryEntry } from "../lib/types";
+import type { AssetCommandError, McpIconPreference, RegistryEntry } from "../lib/types";
 import { keyOf, type Transport } from "../lib/mcp";
 import { requiresAgentReview } from "../lib/agentOperation";
 import { EnvEditor } from "./EnvEditor";
@@ -11,6 +11,8 @@ import { ResourceInspector } from "./ResourceWorkspace";
 import { LayersIcon, SaveIcon } from "./icons";
 import { useToast } from "./Toast";
 import { McpAvatar } from "./McpIcon";
+import { McpPasteInput } from "./McpPasteInput";
+import { formatError } from "../lib/format";
 
 interface RegistryEditPageProps {
   state: InstallState;
@@ -85,6 +87,30 @@ export function RegistryEditPage({
   const [repo, setRepo] = useState(existing?.repo ?? "");
 
   const [saving, setSaving] = useState(false);
+  const [addMode, setAddMode] = useState<"paste" | "manual">("paste");
+  const [pasteText, setPasteText] = useState("");
+  const isPaste = isNew && addMode === "paste";
+
+  const handlePaste = async () => {
+    if (!pasteText.trim() || saving) return;
+    setSaving(true);
+    try {
+      const names = await state.importPaste(pasteText);
+      toast.show({ kind: "success", msg: `已添加 ${names.length} 个 MCP` });
+      onBack();
+    } catch (error) {
+      const failure = error as AssetCommandError | null;
+      if (failure?.code === "target_convergence_failed" && failure.details?.central_saved === true) {
+        const remaining = Number(failure.details.remaining_count ?? 0);
+        toast.show({ kind: "error", msg: `已保存 ${failure.details.saved_count} 个 MCP，但后续校验或同步未完成。${remaining > 0 ? `另有 ${remaining} 个尚未添加。` : "可在 MCP 列表中查看。"}` });
+        if (remaining === 0) onBack();
+      } else {
+        toast.show({ kind: "error", msg: `添加失败：${formatError(error)}` });
+      }
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const compact = (o: Record<string, string>) => (Object.keys(o).length > 0 ? o : undefined);
 
@@ -302,9 +328,9 @@ export function RegistryEditPage({
   const footerEnd = (
     <>
       <button onClick={onBack} disabled={saving} className="btn-ghost">取消</button>
-      <button onClick={handleSave} disabled={!valid || saving} className="btn-primary">
+      <button onClick={isPaste ? handlePaste : handleSave} disabled={(isPaste ? !pasteText.trim() : !valid) || saving} className="btn-primary">
         <SaveIcon className="w-4 h-4" />
-        {saving ? "保存中…" : createsLocalOverride ? "创建本地覆盖" : "保存"}
+        {saving ? isNew ? "添加中…" : "保存中…" : isNew ? isPaste ? "识别并添加" : "添加" : createsLocalOverride ? "创建本地覆盖" : "保存"}
       </button>
     </>
   );
@@ -356,15 +382,19 @@ export function RegistryEditPage({
     <DialogShell
       className="mux-dialog-mcp-editor"
       kind="editor"
-      size="lg"
-      title={isNew ? "新建 MCP" : "编辑 MCP"}
-      subtitle={transport === "stdio" ? "stdio · 全局配置" : "HTTP · 全局配置"}
+      size={isNew ? "md" : "lg"}
+      title={isNew ? "添加 MCP" : "编辑 MCP"}
+      subtitle={isNew ? undefined : transport === "stdio" ? "stdio · 全局配置" : "HTTP · 全局配置"}
       busy={saving || consumptionState.committing}
       onClose={onBack}
       footerStart={footerStart}
       footerEnd={footerEnd}
     >
-      {form}
+      {isNew && <div className="mux-seg mux-mcp-add-modes" role="group" aria-label="添加方式">
+        <button type="button" className="mux-seg-item" aria-pressed={addMode === "paste"} data-active={addMode === "paste" ? "true" : undefined} disabled={saving} onClick={() => setAddMode("paste")}>粘贴配置</button>
+        <button type="button" className="mux-seg-item" aria-pressed={addMode === "manual"} data-active={addMode === "manual" ? "true" : undefined} disabled={saving} onClick={() => setAddMode("manual")}>手动填写</button>
+      </div>}
+      {isPaste ? <McpPasteInput value={pasteText} onChange={setPasteText} disabled={saving} /> : form}
     </DialogShell>
   );
 }

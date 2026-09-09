@@ -1714,9 +1714,7 @@ fn hash_target_paths(paths: &[PathBuf]) -> String {
 }
 
 fn hash_serializable<T: Serialize>(value: &T) -> Result<String, String> {
-    serde_json::to_vec(value)
-        .map(|bytes| hash(&bytes))
-        .map_err(|error| error.to_string())
+    super::payload_hash::hash(value)
 }
 
 #[cfg(test)]

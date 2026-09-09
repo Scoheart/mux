@@ -1144,10 +1144,10 @@ function AgentHeader({
   const { show } = useToast();
   const docsHome = (agentDocsHome as Record<string, string>)[agent.id] ?? agent.docs;
   const identity = <>
-    <AgentGlyph id={agent.id} name={agent.name} size={44} />
+    <span data-agent-entry-glyph className="inline-flex flex-shrink-0"><AgentGlyph id={agent.id} name={agent.name} size={44} /></span>
     <div className="mux-agent-header-copy">
       <div>
-        <h2>{agent.name}</h2>
+        <h2 data-agent-entry-name>{agent.name}</h2>
         {tone === "reference" ? <Badge>仅供参考</Badge> : agent.evidence === "community-extension" ? (
           <Badge tone="warning">社区扩展</Badge>
         ) : !agent.builtin ? <Badge>自定义</Badge> : null}
@@ -1155,7 +1155,7 @@ function AgentHeader({
     </div>
   </>;
   return (
-    <header className="mux-agent-header" data-tone={tone} aria-label={`Agent ${agent.name} (${agent.id})`}>
+    <header className="mux-agent-header" data-tone={tone} data-agent-entry-id={agent.id} aria-label={`Agent ${agent.name} (${agent.id})`}>
       {docsHome ? <a className="mux-agent-header-identity mux-agent-docs-link"
         href={docsHome} title={`打开 ${agent.name} 官方文档`} aria-label={`打开 ${agent.name} 官方文档`}
         onClick={(event) => {

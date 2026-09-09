@@ -10,6 +10,7 @@ pub mod lifecycle;
 pub mod migration;
 pub mod model_migration;
 pub mod observation;
+mod payload_hash;
 pub mod planner;
 pub(crate) mod store;
 pub mod transaction;
@@ -57,3 +58,5 @@ pub use types::{
     PlanUpdateCentralAssetRequest, RelationshipAction, RelationshipChange, SelectionError,
     SkillConsumptionRecord, TargetIncident,
 };
+
+pub(crate) use transaction::commit_asset_operation_without_inventory;

@@ -205,7 +205,7 @@ pub fn plan_mcp_adoption(request: PlanMcpAdoptionRequest) -> Result<AssetOperati
         .as_ref()
         .is_none_or(|current| current.config != entry.config);
     let pending_entry = if central_changed {
-        let hash = hash_serializable(&entry);
+        let hash = super::payload_hash::hash(&entry)?;
         draft_hash = Some(hash);
         central_changes.push(CentralAssetChange {
             asset: AssetRef::Mcp {

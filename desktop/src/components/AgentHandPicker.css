@@ -1,0 +1,88 @@
+[data-modal-overlay="true"][data-modal-layer="agent-hand"] {
+  background: color-mix(in srgb, var(--surface-overlay) 58%, transparent) !important;
+  backdrop-filter: blur(7px); -webkit-backdrop-filter: blur(7px);
+  padding: 60px 0 16px; overscroll-behavior: contain;
+}
+[role="dialog"][data-modal-layer="agent-hand"] {
+  background: transparent !important; box-shadow: none !important; overflow: visible;
+}
+.mux-agent-hand-picker { min-width: 0; color: var(--text-primary); }
+.mux-agent-hand-picker > :is(.mux-agent-hand-topbar, .mux-agent-hand-footer, .mux-agent-hand-pagination) { transition: opacity .12s ease; }
+.mux-agent-hand-picker[data-entering="true"] > :is(.mux-agent-hand-topbar, .mux-agent-hand-footer, .mux-agent-hand-pagination) { opacity: 0; pointer-events: none; }
+.mux-agent-hand-picker[data-entering="true"] .mux-agent-hand-page { opacity: 0; pointer-events: none; }
+.mux-agent-hand-picker[data-entering="true"] .mux-agent-hand-card[data-playing] { visibility: hidden; }
+.mux-agent-entry-layer { position: fixed; inset: 0; z-index: 750; pointer-events: none; }
+.mux-agent-entry-card { position: absolute; left: 0; top: 0; transform-origin: center; color: var(--text-primary); }
+.mux-agent-entry-surface { position: absolute; inset: 0; transform-origin: top left; border: 1px solid var(--border-hairline); border-radius: 10px; background: var(--surface-raised); box-shadow: 0 15px 38px rgb(0 0 0 / .2), 0 3px 8px rgb(0 0 0 / .12); }
+.mux-agent-entry-glyph { position: absolute; left: 8px; top: 10px; display: inline-flex; width: 30px; height: 30px; transform-origin: top left; }
+.mux-agent-entry-name { position: absolute; left: 8px; right: 8px; bottom: 10px; overflow: hidden; text-align: center; text-overflow: ellipsis; white-space: nowrap; transform-origin: top left; font: 500 11px/14px var(--font-sans); }
+.mux-agent-hand-topbar { position: fixed; z-index: 5; display: flex; width: min(590px, calc(100vw - 48px)); align-items: center; gap: 14px; }
+.mux-agent-hand-pinned { flex: 0 0 auto; }
+.mux-agent-hand-footer { position: fixed; bottom: max(28px, env(safe-area-inset-bottom)); left: 50%; z-index: 5; transform: translateX(-50%); display: flex; max-width: calc(100vw - 48px); flex-direction: column; align-items: center; }
+.mux-hand-dock { height: 44px; padding: 4px 6px; gap: 5px; overflow: visible; background: var(--surface-overlay); box-shadow: var(--shadow-card); }
+.mux-hand-dock .mux-pinned-agent { width: 36px; height: 36px; flex-basis: 36px; background: var(--surface-raised); border: 1px solid var(--border-hairline); border-radius: 9px; }
+.mux-hand-dock .mux-pinned-agent[data-empty] { border-style: dashed; background: transparent; color: var(--text-secondary); }
+.mux-hand-dock[data-replacing="true"] .mux-pinned-agent { border-color: var(--color-blue); box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-blue) 12%, transparent); }
+.mux-hand-dock[data-replacing="true"] .mux-pinned-agent:hover { background: var(--surface-selected); transform: translateY(-3px); }
+.mux-pinned-agent[draggable="true"] { cursor: grab; }
+.mux-pinned-agent[draggable="true"]:active { cursor: grabbing; }
+.mux-agent-hand-toolbar { display: flex; flex: 1; min-width: 0; align-items: center; gap: 10px; }
+.mux-agent-hand-search { display: flex; height: 42px; flex: 1; min-width: 0; align-items: center; gap: 10px; padding: 0 13px; border: 1px solid var(--border-hairline); border-radius: 12px; background: var(--surface-raised); color: var(--text-secondary); box-shadow: var(--shadow-card); }
+.mux-agent-hand-search:focus-within { border-color: color-mix(in srgb, var(--color-blue) 50%, var(--border-hairline)); box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-blue) 9%, transparent); }
+.mux-agent-hand-search input { width: 100%; min-width: 0; height: 100%; border: 0; outline: 0; background: transparent; color: var(--text-primary); font: 13px var(--font-sans); }
+.mux-agent-hand-filters { display: flex; align-items: center; gap: 4px; margin: 0; padding: 5px; border: 1px solid var(--border-hairline); border-radius: 16px; background: var(--surface-overlay); box-shadow: var(--shadow-card); }
+.mux-agent-hand-filters button { padding: 6px 12px; border: 0; border-radius: 9px; background: transparent; color: var(--text-secondary); font: 600 12px var(--font-sans); cursor: pointer; }
+.mux-agent-hand-filters button:hover { background: var(--surface-section); }
+.mux-agent-hand-filters button[aria-pressed="true"] { background: var(--surface-selected); color: var(--color-blue); }
+.mux-agent-hand-stage { position: relative; }
+.mux-agent-hand-board { position: relative; width: 100%; height: 234px; margin: 5px 0 0; overflow: visible; }
+.mux-agent-hand-card { position: absolute; top: 0; left: 0; transform-origin: center; z-index: calc(10 + var(--hand-order)); }
+.mux-agent-hand-card[data-highlighted], .mux-agent-hand-card[data-playing] { z-index: 100; }
+.mux-agent-hand-card[data-dealing] { pointer-events: none; }
+.mux-agent-hand-tile { position: relative; height: 100%; background: var(--surface-raised); border: 1px solid var(--border-hairline); border-radius: 10px; box-shadow: -4px 5px 16px rgb(0 0 0 / .18), 0 1px 3px rgb(0 0 0 / .12); transition: transform .2s cubic-bezier(.2,.75,.2,1), border-color .18s, box-shadow .18s, opacity .12s; }
+.mux-agent-hand-card[data-highlighted] .mux-agent-hand-tile { transform: translateY(-26px); border-color: color-mix(in srgb, var(--color-blue) 70%, var(--border-hairline)); box-shadow: 0 12px 23px color-mix(in srgb, var(--text-primary) 15%, transparent); }
+.mux-agent-hand-picker[data-playing] .mux-agent-hand-card:not([data-playing]) .mux-agent-hand-tile { opacity: .35; }
+.mux-agent-hand-select { display: flex; width: 100%; height: 100%; flex-direction: column; justify-content: space-between; align-items: flex-start; padding: 10px 8px; border: 0; border-radius: inherit; background: transparent; color: var(--text-primary); text-align: left; cursor: pointer; }
+.mux-agent-hand-select > span:last-child { width: 100%; min-width: 0; }
+.mux-agent-hand-select strong { display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; text-align: center; font: 500 11px/14px var(--font-sans); }
+.mux-agent-hand-pin { position: absolute; top: 4px; right: 4px; display: grid; place-items: center; width: 23px; height: 23px; padding: 0; border: 0; border-radius: 6px; background: var(--surface-section); color: var(--text-secondary); cursor: pointer; opacity: 0; pointer-events: none; transition: opacity .12s; }
+.mux-agent-hand-card[data-highlighted] .mux-agent-hand-pin, .mux-agent-hand-pin:focus-visible, .mux-agent-hand-pin[aria-pressed="true"] { opacity: 1; pointer-events: auto; }
+@media (hover: none) { .mux-agent-hand-pin { opacity: 1; pointer-events: auto; } }
+.mux-agent-hand-pin[aria-pressed="true"] { color: var(--color-blue); background: var(--surface-selected); }
+.mux-agent-hand-pin:hover:not(:disabled) { color: var(--color-blue); }
+.mux-agent-hand-card[data-new] .mux-agent-hand-tile { border-style: dashed; background: var(--surface-overlay); }
+.mux-agent-hand-card[data-new] .mux-agent-hand-select > svg { color: var(--color-blue); }
+.mux-agent-hand-pagination { display: flex; align-items: center; justify-content: center; gap: 15px; }
+.mux-agent-hand-pagination > span { color: var(--text-secondary); font: 12px var(--font-sans); font-variant-numeric: tabular-nums; }
+.mux-agent-hand-page { position: absolute; top: 128px; z-index: 110; transform: translateY(-50%); display: grid; place-items: center; width: 56px; height: 76px; padding: 0; background: var(--surface-raised); color: var(--text-primary); border: 1px solid var(--border-hairline); border-radius: 28px; box-shadow: 0 5px 18px color-mix(in srgb, var(--text-primary) 9%, transparent); cursor: pointer; touch-action: manipulation; transition: background .16s ease, border-color .16s ease, box-shadow .16s ease, transform .16s ease; }
+.mux-agent-hand-page > svg { width: 24px; height: 24px; transition: translate .16s ease; }
+.mux-agent-hand-page-prev { left: max(calc((100% - 100vw) / 2 + 24px), -120px); }
+.mux-agent-hand-page-next { right: max(calc((100% - 100vw) / 2 + 24px), -120px); }
+.mux-agent-hand-page:hover:not(:disabled) { transform: translateY(-50%) scale(1.04); color: var(--color-blue); border-color: color-mix(in srgb, var(--color-blue) 45%, var(--border-hairline)); background: var(--surface-selected); box-shadow: 0 8px 24px color-mix(in srgb, var(--color-blue) 14%, transparent); }
+.mux-agent-hand-page-prev:hover:not(:disabled) > svg { translate: -3px 0; }
+.mux-agent-hand-page-next:hover:not(:disabled) > svg { translate: 3px 0; }
+.mux-agent-hand-page:active:not(:disabled) { transform: translateY(-50%) scale(.97); }
+.mux-agent-hand-page:disabled { opacity: .38; cursor: default; box-shadow: none; }
+@media (max-width: 600px) { .mux-agent-hand-page { width: 48px; height: 64px; border-radius: 24px; } }
+.mux-agent-hand-filters button:disabled, .mux-agent-hand-pin:disabled { cursor: default; opacity: .45; }
+.mux-agent-hand-select:disabled { cursor: default; }
+.mux-agent-hand-picker :is(button, input):focus-visible { outline: 2px solid var(--color-blue); outline-offset: 3px; }
+.mux-agent-hand-search input:focus-visible { outline: 0; }
+.mux-agent-hand-empty { padding-top: 95px; text-align: center; color: var(--text-secondary); font-size: 13px; }
+.mux-agent-hand-announcement { margin: 10px 0 0; text-align: center; font: 12px/1.5 var(--font-sans); color: var(--color-blue); overflow-wrap: anywhere; }
+.mux-agent-hand-announcement:empty { margin: 0; }
+@media (max-width: 600px) {
+  .mux-agent-hand-topbar { flex-wrap: wrap; justify-content: center; gap: 10px; }
+  .mux-agent-hand-toolbar { flex-basis: 100%; }
+  .mux-agent-hand-footer { bottom: 18px; }
+}
+@media (max-height: 540px) {
+  [data-modal-overlay="true"][data-modal-layer="agent-hand"] { padding-top: 72px; }
+  .mux-agent-hand-board { height: 220px; }
+  .mux-agent-hand-announcement { min-height: 18px; margin-top: 5px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .mux-agent-hand-tile, .mux-hand-dock .mux-pinned-agent, .mux-agent-hand-page, .mux-agent-hand-page > svg { transition: none; }
+  .mux-agent-hand-page:hover:not(:disabled), .mux-agent-hand-page:active:not(:disabled) { transform: translateY(-50%); }
+  .mux-agent-hand-page:hover:not(:disabled) > svg { translate: none; }
+}

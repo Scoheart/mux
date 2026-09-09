@@ -18,6 +18,9 @@ pub(crate) use discovery::{prepare_provider_discovery, execute_provider_discover
 #[cfg(test)]
 pub(crate) use claude_desktop::set_config_write_hook as set_claude_desktop_config_write_hook;
 
+#[cfg(target_os = "macos")]
+mod keychain;
+
 use crate::domain::agents::ModelStorageAuthority;
 use crate::domain::types::{
     migrate_legacy_provider_endpoints, ApiKeySource, AuthRequirement, ModelProfile, ModelProtocol,
@@ -39,8 +42,6 @@ use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::io::ErrorKind;
-#[cfg(target_os = "macos")]
-use std::io::Write;
 use std::path::{Path, PathBuf};
 #[cfg(target_os = "macos")]
 use std::process::{Command, Stdio};
@@ -2123,46 +2124,7 @@ fn set_credential_service(service: &str, credential: &[u8]) -> Result<(), String
     if credential.contains(&b'\n') || credential.contains(&b'\r') {
         return Err("API key cannot contain a newline".into());
     }
-    let mut child = Command::new("/usr/bin/security")
-        .args([
-            "add-generic-password",
-            "-s",
-            service,
-            "-a",
-            KEYCHAIN_ACCOUNT,
-            "-T",
-            "/usr/bin/security",
-            "-U",
-            "-w",
-        ])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::null())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|error| format!("failed to start macOS Keychain helper: {error}"))?;
-    let stdin = child
-        .stdin
-        .as_mut()
-        .ok_or_else(|| "failed to open macOS Keychain helper input".to_string())?;
-    // `security ... -w` prompts twice for a new item. Sending the value through
-    // stdin keeps it out of argv, process listings, logs, and shell history.
-    stdin
-        .write_all(credential)
-        .and_then(|_| stdin.write_all(b"\n"))
-        .and_then(|_| stdin.write_all(credential))
-        .and_then(|_| stdin.write_all(b"\n"))
-        .map_err(|error| format!("failed to send API key to macOS Keychain: {error}"))?;
-    let output = child
-        .wait_with_output()
-        .map_err(|error| format!("macOS Keychain helper failed: {error}"))?;
-    if output.status.success() {
-        Ok(())
-    } else {
-        Err(format!(
-            "failed to save API key in macOS Keychain: {}",
-            String::from_utf8_lossy(&output.stderr).trim()
-        ))
-    }
+    keychain::set_password(service, KEYCHAIN_ACCOUNT, credential)
 }
 
 #[cfg(not(target_os = "macos"))]

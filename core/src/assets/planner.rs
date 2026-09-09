@@ -2073,7 +2073,14 @@ pub(crate) fn finalize_plan_with(
     extra_target_files: Vec<String>,
     lifecycle: Option<LifecycleBinding>,
 ) -> Result<AssetOperationPlan, String> {
-    let current_inventory = list_consumption_inventory()?;
+    let central_mcp_only = matches!(&domain_plan, DomainPlan::Mcp { before, after }
+        if before.is_empty() && after.is_empty())
+        && matches!(lifecycle.as_ref(), Some(LifecycleBinding::McpUpsert { .. }));
+    let current_inventory = if central_mcp_only {
+        ConsumptionInventory::default()
+    } else {
+        list_consumption_inventory()?
+    };
     finalize_plan_with_inventory(
         kind,
         domain_plan,

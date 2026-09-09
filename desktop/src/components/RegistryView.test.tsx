@@ -113,9 +113,9 @@ it("renders effective and shadowed MCP rows and opens the existing Inspector", a
   expect(within(list).getByText("状态")).toBeVisible();
   expect(within(list).getByText("生效")).toBeVisible();
   expect(within(list).getByText("被覆盖")).toBeVisible();
-  expect(screen.getByRole("button", { name: "粘贴配置" })).toBeVisible();
+  expect(screen.queryByRole("button", { name: "粘贴配置" })).not.toBeInTheDocument();
   expect(screen.getByRole("button", { name: "导出生效配置" })).toBeVisible();
-  expect(screen.getByRole("button", { name: "新建 MCP" })).toBeVisible();
+  expect(screen.getByRole("button", { name: "添加 MCP" })).toBeVisible();
   expect(screen.queryByRole("tablist", { name: "MCP 状态" })).not.toBeInTheDocument();
   expect(screen.getByRole("separator", { name: "调整侧边栏宽度" })).toBeVisible();
   expect(screen.getByRole("button", { name: "添加订阅" })).toBeVisible();
@@ -161,7 +161,7 @@ it("keeps MCP workspace actions visible through loading, error retry, and empty 
   );
 
   expect(screen.getByRole("status", { name: "正在读取 MCP…" })).toBeVisible();
-  expect(screen.getByRole("button", { name: "新建 MCP" })).toBeVisible();
+  expect(screen.getByRole("button", { name: "添加 MCP" })).toBeVisible();
   loadingView.unmount();
 
   const errorView = render(

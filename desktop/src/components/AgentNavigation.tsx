@@ -1,440 +1,52 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { CSSProperties, DragEvent, KeyboardEvent } from "react";
+import { useMemo, useRef, useState } from "react";
 import type { AgentInfo } from "../lib/types";
-import {
-  buildAgentPickerSections,
-  MAX_PINNED_AGENTS,
-  movePinnedAgentBy,
-  previewPinnedAgentOrder,
-  projectedPinnedAgentOffset,
-  togglePinnedAgent,
-  type PinnedDropPlacement,
-} from "../lib/pinnedAgents";
+import { buildAgentPickerSections } from "../lib/pinnedAgents";
 import { usePinnedAgents } from "../hooks/usePinnedAgents";
 import { AgentGlyph } from "./brandIcons";
-import {
-  CheckIcon,
-  ChevronDownIcon,
-  GripVerticalIcon,
-  PackageIcon,
-  PinIcon,
-  PinOffIcon,
-  PlusIcon,
-  SearchIcon,
-  XIcon,
-} from "./icons";
-import {
-  claimLayerKeyboardEvent,
-  MODAL_DIALOG_SELECTOR,
-  wasHandledByLayer,
-} from "./ui";
+import { ChevronDownIcon, PackageIcon } from "./icons";
+import { PinnedAgentDock } from "./PinnedAgentDock";
+import { AgentHandPicker } from "./AgentHandPicker";
 
-const PIN_LIMIT_DESCRIPTION_ID = "mux-agent-pin-limit-description";
-
-interface AgentNavigationProps {
+export function AgentNavigation({ agents, selectedAgentId, onSelectAgent, onAddAgent }: {
   agents: AgentInfo[];
   selectedAgentId: string | null;
   onSelectAgent(id: string): void;
   onAddAgent?: () => void;
-}
-
-interface AgentDropTarget {
-  id: string;
-  placement: PinnedDropPlacement;
-}
-
-export function AgentNavigation({
-  agents,
-  selectedAgentId,
-  onSelectAgent,
-  onAddAgent,
-}: AgentNavigationProps) {
+}) {
   const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState("");
-  const [draggedId, setDraggedId] = useState<string | null>(null);
-  const [previewIds, setPreviewIds] = useState<string[] | null>(null);
-  const [dropTarget, setDropTarget] = useState<AgentDropTarget | null>(null);
-  const [settling, setSettling] = useState(false);
   const [announcement, setAnnouncement] = useState("");
   const anchorRef = useRef<HTMLDivElement>(null);
-  const previewIdsRef = useRef<string[] | null>(null);
-  const settlingFrameRef = useRef<number | null>(null);
-  const { agentIds, ready, saving, commit } = usePinnedAgents();
-  const sections = useMemo(
-    () => buildAgentPickerSections(agents, agentIds, query),
-    [agentIds, agents, query],
-  );
-  const pickerGroups = useMemo(() => {
-    const rows = sections.searchResults ?? sections.available;
-    return [
-      { id: "custom", title: "自定义 Agent", agents: rows.filter((agent) => !agent.builtin) },
-      { id: "builtin", title: "内置 Agent", agents: rows.filter((agent) => agent.builtin) },
-    ].filter((group) => group.agents.length > 0);
-  }, [sections]);
-  const pinnedIds = sections.pinned.map(({ id }) => id);
-  const previewOrder = draggedId && previewIds ? previewIds : pinnedIds;
-  const selectedAgent = agents.find(({ id }) => id === selectedAgentId) ?? null;
-  const pinLimitReached = pinnedIds.length >= MAX_PINNED_AGENTS;
-
-  const clearDragPreview = useCallback(() => {
-    previewIdsRef.current = null;
-    setDraggedId(null);
-    setPreviewIds(null);
-    setDropTarget(null);
-  }, []);
-
-  useEffect(() => {
-    if (!open) {
-      clearDragPreview();
-      return;
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const pinned = usePinnedAgents();
+  const sections = useMemo(() => buildAgentPickerSections(agents, pinned.agentIds, ""), [agents, pinned.agentIds]);
+  const pinnedIds = useMemo(() => sections.pinned.map(({ id }) => id), [sections]);
+  const available = useMemo(() => [...sections.pinned, ...sections.available], [sections]);
+  const selected = agents.find(({ id }) => id === selectedAgentId);
+  const saveOrder = async (ids: string[], movedId: string) => {
+    if (!pinned.ready || pinned.saving || ids.join("\0") === pinnedIds.join("\0")) return;
+    if (await pinned.commit(ids)) {
+      setAnnouncement(`${agents.find(({ id }) => id === movedId)?.name ?? movedId} 已移动到第 ${ids.indexOf(movedId) + 1} 位`);
     }
-    const closeOnEscape = (event: globalThis.KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      const blockingModal = document.querySelector(
-        `${MODAL_DIALOG_SELECTOR}:not([data-modal-layer="detail"])`,
-      );
-      if (wasHandledByLayer(event) || blockingModal) return;
-      claimLayerKeyboardEvent(event);
-      setOpen(false);
-    };
-    const closeOnPointerDown = (event: PointerEvent) => {
-      if (document.querySelector(MODAL_DIALOG_SELECTOR)) return;
-      if (!anchorRef.current?.contains(event.target as Node)) setOpen(false);
-    };
-    document.addEventListener("keydown", closeOnEscape, true);
-    document.addEventListener("pointerdown", closeOnPointerDown);
-    return () => {
-      document.removeEventListener("keydown", closeOnEscape, true);
-      document.removeEventListener("pointerdown", closeOnPointerDown);
-    };
-  }, [clearDragPreview, open]);
-
-  useEffect(() => () => {
-    if (settlingFrameRef.current !== null) {
-      cancelAnimationFrame(settlingFrameRef.current);
-    }
-  }, []);
-
-  const selectAgent = (id: string) => {
-    onSelectAgent(id);
-    setOpen(false);
   };
 
-  const sameOrder = (left: string[], right: string[]) =>
-    left.join("\u0000") === right.join("\u0000");
-
-  const saveOrder = (next: string[], movedId: string) => {
-    if (!ready || saving || sameOrder(next, pinnedIds)) return;
-    void commit(next).then((saved) => {
-      if (!saved) return;
-      const moved = agents.find(({ id }) => id === movedId);
-      setAnnouncement(`${moved?.name ?? movedId} 已移动到第 ${next.indexOf(movedId) + 1} 位`);
-    });
-  };
-
-  const togglePin = (id: string) => {
-    if (!ready || saving) return;
-    const wasPinned = pinnedIds.includes(id);
-    if (!wasPinned && pinLimitReached) return;
-    const next = togglePinnedAgent(pinnedIds, id);
-    if (sameOrder(next, pinnedIds)) return;
-    void commit(next).then((saved) => {
-      if (!saved) return;
-      const changed = agents.find((agent) => agent.id === id);
-      setAnnouncement(`${changed?.name ?? id} 已${wasPinned ? "取消置顶" : "置顶"}`);
-    });
-  };
-
-  const moveByKeyboard = (event: KeyboardEvent<HTMLButtonElement>, id: string) => {
-    if (
-      !ready ||
-      saving ||
-      !event.altKey ||
-      (event.key !== "ArrowUp" && event.key !== "ArrowDown")
-    ) return;
-    event.preventDefault();
-    const next = movePinnedAgentBy(pinnedIds, id, event.key === "ArrowUp" ? -1 : 1);
-    saveOrder(next, id);
-  };
-
-  const previewAtRow = (event: DragEvent<HTMLDivElement>, targetId: string) => {
-    event.preventDefault();
-    event.dataTransfer.dropEffect = "move";
-    if (!ready || saving || !draggedId) return;
-    if (targetId === draggedId) {
-      previewIdsRef.current = pinnedIds;
-      setPreviewIds((current) =>
-        current && sameOrder(current, pinnedIds) ? current : pinnedIds,
-      );
-      setDropTarget(null);
-      return;
-    }
-    const bounds = event.currentTarget.getBoundingClientRect();
-    const placement: PinnedDropPlacement =
-      event.clientY >= bounds.top + bounds.height / 2 ? "after" : "before";
-    setDropTarget((current) =>
-      current?.id === targetId && current.placement === placement
-        ? current
-        : { id: targetId, placement },
-    );
-    const next = previewPinnedAgentOrder(pinnedIds, draggedId, targetId, placement);
-    const current = previewIdsRef.current ?? pinnedIds;
-    if (sameOrder(current, next)) return;
-    previewIdsRef.current = next;
-    setPreviewIds(next);
-  };
-
-  const finishDrop = (event: DragEvent<HTMLDivElement>) => {
-    event.preventDefault();
-    if (!ready || saving || !draggedId) return;
-    const next = previewIdsRef.current ?? pinnedIds;
-    const movedId = draggedId;
-    setSettling(true);
-    clearDragPreview();
-    saveOrder(next, movedId);
-    if (settlingFrameRef.current !== null) {
-      cancelAnimationFrame(settlingFrameRef.current);
-    }
-    settlingFrameRef.current = requestAnimationFrame(() => {
-      settlingFrameRef.current = null;
-      setSettling(false);
-    });
-  };
-
-  const agentRow = (agent: AgentInfo, isPinned: boolean, sortable: boolean) => {
-    const active = selectedAgentId === agent.id;
-    const mutationUnavailable = !ready || saving;
-    const pinLimitBlocked = !isPinned && pinLimitReached;
-    const orderOffset = sortable && draggedId !== agent.id
-      ? projectedPinnedAgentOffset(pinnedIds, previewOrder, agent.id)
-      : 0;
-    return (
-      <div
-        key={agent.id}
-        className="mux-agent-picker-slot"
-        data-sorting={sortable && draggedId ? "true" : undefined}
-        data-drag-source={sortable && draggedId === agent.id ? "true" : undefined}
-        onDragOver={sortable ? (event) => previewAtRow(event, agent.id) : undefined}
-        onDrop={sortable ? finishDrop : undefined}
-      >
-        <div
-          className="mux-agent-picker-row"
-          data-active={active ? "true" : undefined}
-          data-dragging={draggedId === agent.id ? "true" : undefined}
-          data-drop-position={dropTarget?.id === agent.id ? dropTarget.placement : undefined}
-          style={
-            sortable
-              ? ({
-                  "--mux-agent-order-offset": `${orderOffset * 100}%`,
-                } as CSSProperties)
-              : undefined
-          }
-        >
-          {sortable && (
-            <button
-              type="button"
-              className="mux-agent-order-handle"
-              draggable={ready && !saving}
-              disabled={mutationUnavailable}
-              title="拖拽排序；Option + 上下方向键调整"
-              aria-label={`调整 ${agent.name} 的置顶顺序`}
-              aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"
-              onDragStart={(event) => {
-                event.dataTransfer.effectAllowed = "move";
-                event.dataTransfer.setData("text/plain", agent.id);
-                const bounds = event.currentTarget.getBoundingClientRect();
-                event.dataTransfer.setDragImage(
-                  event.currentTarget,
-                  bounds.width / 2,
-                  bounds.height / 2,
-                );
-                setDraggedId(agent.id);
-                previewIdsRef.current = pinnedIds;
-                setPreviewIds(pinnedIds);
-                setDropTarget(null);
-              }}
-              onDragEnd={clearDragPreview}
-              onKeyDown={(event) => moveByKeyboard(event, agent.id)}
-            >
-              <GripVerticalIcon className="w-4 h-4" />
-            </button>
-          )}
-          <button
-            type="button"
-            className="mux-agent-picker-select"
-            aria-current={active ? "page" : undefined}
-            onClick={() => selectAgent(agent.id)}
-          >
-            <AgentGlyph id={agent.id} name={agent.name} size={32} />
-            <span className="min-w-0 flex-1">
-              <span className="mux-agent-picker-name">{agent.name}</span>
-            </span>
-            {active && <CheckIcon className="mux-agent-picker-check" />}
-          </button>
-          <button
-            type="button"
-            className="mux-agent-pin-action"
-            data-pinned={isPinned ? "true" : undefined}
-            disabled={mutationUnavailable}
-            aria-disabled={pinLimitBlocked || undefined}
-            aria-describedby={pinLimitBlocked ? PIN_LIMIT_DESCRIPTION_ID : undefined}
-            title={isPinned ? "取消置顶" : "置顶"}
-            aria-label={`${isPinned ? "取消置顶" : "置顶"} ${agent.name}`}
-            aria-pressed={isPinned}
-            onClick={(event) => {
-              if (pinLimitBlocked) {
-                event.preventDefault();
-                return;
-              }
-              togglePin(agent.id);
-            }}
-          >
-            {isPinned ? (
-              <PinOffIcon className="w-3.5 h-3.5" />
-            ) : (
-              <PinIcon className="w-3.5 h-3.5" />
-            )}
-          </button>
-        </div>
-      </div>
-    );
-  };
-
-  return (
-    <div className="mux-agent-navigation">
-      <span className="sr-only" aria-live="polite">{announcement}</span>
-      <span id={PIN_LIMIT_DESCRIPTION_ID} className="sr-only">
-        最多可置顶六个 Agent，请先取消一个置顶后再添加。
-      </span>
-      <div className="mux-agent-picker-cluster" ref={anchorRef}>
-        {sections.pinned.length > 0 && (
-          <nav className="mux-pinned-agent-bar" aria-label="置顶 Agent">
-            {sections.pinned.map((agent) => (
-              <button
-                type="button"
-                key={agent.id}
-                className="mux-pinned-agent"
-                data-active={selectedAgentId === agent.id ? "true" : undefined}
-                aria-current={selectedAgentId === agent.id ? "page" : undefined}
-                aria-label={agent.name}
-                title={agent.name}
-                onClick={() => onSelectAgent(agent.id)}
-              >
-                <span className="mux-pinned-agent-glyph">
-                  <AgentGlyph id={agent.id} name={agent.name} size={30} />
-                </span>
-              </button>
-            ))}
-          </nav>
-        )}
-
-        <div className="mux-agent-picker-anchor">
-          <button
-            type="button"
-            className="mux-agent-picker-trigger"
-            data-active={selectedAgent ? "true" : undefined}
-            data-open={open ? "true" : undefined}
-            aria-haspopup="dialog"
-            aria-expanded={open}
-            aria-label={selectedAgent?.name ?? "选择 Agent"}
-            title={selectedAgent?.name ?? "选择 Agent"}
-            onClick={() => {
-              setOpen((wasOpen) => {
-                if (!wasOpen) setQuery("");
-                return !wasOpen;
-              });
-            }}
-          >
-            {selectedAgent ? (
-              <AgentGlyph id={selectedAgent.id} name={selectedAgent.name} size={24} />
-            ) : (
-              <PackageIcon className="w-5 h-5 flex-shrink-0" />
-            )}
-            <span className="mux-agent-picker-trigger-name">
-              {selectedAgent?.name ?? "选择 Agent"}
-            </span>
-            <ChevronDownIcon className="mux-agent-picker-chevron" />
-          </button>
-        </div>
-
-        {open && (
-          <section className="mux-agent-picker" role="dialog" aria-label="选择和置顶 Agent">
-            <div className="mux-agent-picker-search">
-              <SearchIcon className="w-4 h-4 flex-shrink-0" />
-              <input
-                type="search"
-                autoFocus
-                spellCheck={false}
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder="按名称或 ID 搜索"
-                aria-label="搜索 Agent"
-              />
-              <button
-                type="button"
-                className="mux-agent-picker-search-clear"
-                data-visible={query ? "true" : undefined}
-                disabled={!query}
-                tabIndex={query ? 0 : -1}
-                aria-label="清除搜索"
-                title="清除搜索"
-                onPointerDown={(event) => event.preventDefault()}
-                onClick={() => setQuery("")}
-              >
-                <XIcon className="w-3.5 h-3.5" />
-              </button>
-            </div>
-
-            <div
-              className="mux-agent-picker-list"
-              data-settling={settling ? "true" : undefined}
-            >
-              {sections.searchResults === null && (
-                <>
-                  <div className="mux-agent-picker-section-heading">
-                    <span>已置顶</span><span>{sections.pinned.length}/{MAX_PINNED_AGENTS}</span>
-                  </div>
-                  {sections.pinned.length > 0 ? (
-                    sections.pinned.map((agent) => agentRow(agent, true, true))
-                  ) : (
-                    <div className="mux-agent-picker-hint">在常用 Agent 右侧点击 Pin</div>
-                  )}
-                </>
-              )}
-              {pickerGroups.map((group) => (
-                <div
-                  key={group.id}
-                  className="mux-agent-picker-group"
-                  role="group"
-                  aria-label={group.title}
-                >
-                  <div className="mux-agent-picker-section-heading">
-                    <span>{group.title}</span><span>{group.agents.length}</span>
-                  </div>
-                  {group.agents.map((agent) => agentRow(agent, pinnedIds.includes(agent.id), false))}
-                </div>
-              ))}
-              {sections.searchResults?.length === 0 && (
-                <div className="mux-agent-picker-empty">未找到匹配项</div>
-              )}
-            </div>
-
-            {onAddAgent && (
-              <button
-                type="button"
-                className="mux-agent-picker-footer"
-                onClick={() => {
-                  setOpen(false);
-                  onAddAgent();
-                }}
-              >
-                <PlusIcon className="w-4 h-4" />
-                添加自定义 Agent
-              </button>
-            )}
-          </section>
-        )}
+  return <div className="mux-agent-navigation">
+    <span className="sr-only" aria-live="polite">{announcement}</span>
+    <div className="mux-agent-picker-cluster" ref={anchorRef}>
+      {pinnedIds.length > 0 && <PinnedAgentDock agents={agents} ids={pinnedIds} selectedId={selectedAgentId}
+        disabled={!pinned.ready || pinned.saving} onSelect={onSelectAgent} onReorder={(ids, id) => void saveOrder(ids, id)} />}
+      <div className="mux-agent-picker-anchor">
+        <button ref={triggerRef} type="button" className="mux-agent-picker-trigger" data-active={selected ? "true" : undefined}
+          data-open={open ? "true" : undefined} aria-haspopup="dialog" aria-expanded={open}
+          aria-label={selected?.name ?? "选择 Agent"} title={selected?.name ?? "选择 Agent"} onClick={() => setOpen(true)}>
+          {selected ? <AgentGlyph id={selected.id} name={selected.name} size={24} /> : <PackageIcon className="w-5 h-5 flex-shrink-0" />}
+          <span className="mux-agent-picker-trigger-name">{selected?.name ?? "选择 Agent"}</span>
+          <ChevronDownIcon className="mux-agent-picker-chevron" />
+        </button>
       </div>
     </div>
-  );
+    {open && <AgentHandPicker agents={available} pinnedIds={pinnedIds} ready={pinned.ready} saving={pinned.saving}
+      anchorRef={anchorRef} triggerRef={triggerRef} onSavePins={pinned.commit}
+      onClose={() => setOpen(false)} onSelect={onSelectAgent}
+      onAdd={onAddAgent ? () => { setOpen(false); onAddAgent(); } : undefined} />}
+  </div>;
 }

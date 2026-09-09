@@ -207,10 +207,14 @@ fn target_paths_for_agent(plan: &AssetOperationPlan, agent_id: &str) -> Vec<Stri
     }
     let settings = load_settings_strict().ok();
     let agents = crate::agents::load_agents();
-    let skill_targets = crate::resources::skill::list_inventory()
-        .ok()
-        .map(|inventory| inventory.targets)
-        .unwrap_or_default();
+    let skill_targets = if matches!(&plan.domain_plan, DomainPlan::Skill { .. } | DomainPlan::AgentCapabilities { .. }) {
+        crate::resources::skill::list_inventory()
+            .ok()
+            .map(|inventory| inventory.targets)
+            .unwrap_or_default()
+    } else {
+        Vec::new()
+    };
     let mut matched = plan
         .target_files
         .iter()
@@ -486,6 +490,22 @@ fn commit_asset_operation_with_hook<F>(
 where
     F: FnOnce() -> Result<(), String>,
 {
+    commit_asset_operation_inner(request, after_preconditions, true)
+}
+
+/// Imports need a durable receipt, not an unused full workspace projection.
+pub(crate) fn commit_asset_operation_without_inventory(request: AssetCommitRequest) -> Result<(), String> {
+    commit_asset_operation_inner(request, || Ok(()), false).map(|_| ())
+}
+
+fn commit_asset_operation_inner<F>(
+    request: AssetCommitRequest,
+    after_preconditions: F,
+    include_inventory: bool,
+) -> Result<ConsumptionInventory, String>
+where
+    F: FnOnce() -> Result<(), String>,
+{
     let _guard = COMMIT_LOCK
         .lock()
         .unwrap_or_else(|error| error.into_inner());
@@ -748,7 +768,7 @@ where
     )
     .map_err(|error| format!("asset operation committed but cleanup failed: {error}"))?;
     cleanup_resolved_incident_operations(&incident_operation_ids, &request.operation_id);
-    list_consumption_inventory()
+    if include_inventory { list_consumption_inventory() } else { Ok(ConsumptionInventory::default()) }
 }
 
 /// Recover every operation that had begun mutating durable state. Reviewed but
@@ -2124,9 +2144,7 @@ fn require_pending_payload(operation_id: &str) -> Result<PendingAssetPayload, St
 }
 
 fn verify_payload_hash<T: serde::Serialize>(value: &T, expected: &str) -> Result<(), String> {
-    let bytes = serde_json::to_vec(value).map_err(|error| error.to_string())?;
-    let actual = hex::encode(Sha256::digest(bytes));
-    if actual == expected {
+    if super::payload_hash::matches(value, expected)? {
         Ok(())
     } else {
         Err("asset_operation_stale: central draft changed after review".into())
@@ -3231,7 +3249,12 @@ fn verify_postcondition(
     plan: &AssetOperationPlan,
     lifecycle: Option<&LifecycleBinding>,
 ) -> Result<(), String> {
-    let inventory = list_consumption_inventory()?;
+    // No Agent relationships are written by a central-only MCP import.
+    // Central payload verification and CAS still run in the transaction.
+    let central_mcp_only = matches!(&plan.domain_plan, DomainPlan::Mcp { before, after }
+        if before.is_empty() && after.is_empty());
+    let inventory = if central_mcp_only { ConsumptionInventory::default() }
+        else { list_consumption_inventory()? };
     match &plan.domain_plan {
         DomainPlan::Mcp { after, .. } => {
             for (agent_id, expected) in after {

@@ -1289,6 +1289,7 @@ name = "mux-core"
 version = "1.8.188"
 dependencies = [
  "chrono",
+ "core-foundation",
  "dirs",
  "flate2",
  "fs2",
@@ -1297,6 +1298,7 @@ dependencies = [
  "plist",
  "regex",
  "rustix",
+ "security-framework-sys",
  "serde",
  "serde_json",
  "serde_yaml_ng",

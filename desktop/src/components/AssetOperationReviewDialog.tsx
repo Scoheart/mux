@@ -345,7 +345,8 @@ export function AssetOperationReviewDialog({
             </strong>
           ))}
           <p className="mux-mcp-delete-caption">
-            {affectedAgents.length ? `同时从 ${affectedAgents.length} 个 Agent 移除` : "从 MCP 库中删除"}
+            {deletedAssets.flatMap((change) => change.summary.slice(1, 2)).join("；")
+              || (affectedAgents.length ? `更新 ${affectedAgents.length} 个 Agent 的 MCP 配置` : "删除这份 MCP 配置")}
           </p>
           {affectedAgents.length > 0 && <div className="mux-provider-update-agents">
             {affectedAgents.map((id) => {

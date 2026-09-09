@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.188](https://github.com/Scoheart/mux/compare/v1.8.187...v1.8.188) (2026-09-09)
+
+### Changes
+
+* feat(models): manage ZCode custom model registry (#179) ([06f5ff0](https://github.com/Scoheart/mux/commit/06f5ff0eb264398c0f73e839ed9e5077e151a798))
+
 ## [1.8.187](https://github.com/Scoheart/mux/compare/v1.8.186...v1.8.187) (2026-09-08)
 
 ### Changes

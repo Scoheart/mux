@@ -66,6 +66,8 @@ pub struct ModelAdoptionCandidate {
     pub model: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub env_key: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub enabled: Option<bool>,
     pub active: bool,
     pub credential_kind: ModelCredentialKind,
     pub status: ModelAdoptionStatus,
@@ -105,6 +107,7 @@ struct ExtractedModel {
     context_window: Option<u64>,
     max_output_tokens: Option<u64>,
     reasoning: Option<bool>,
+    enabled: Option<bool>,
     active: bool,
     credential: ExtractedCredential,
     target_paths: Vec<PathBuf>,
@@ -147,7 +150,7 @@ impl ExtractedModel {
         }
         let keychain_capable = matches!(self.agent_id.as_str(), "claude-code" | "codex" | "pi");
         match (&self.credential, keychain_capable) {
-            (ExtractedCredential::Env(_) | ExtractedCredential::Literal(_), _) if self.agent_id == "qoder-desktop" => (ModelAdoptionStatus::Adoptable, None),
+            (ExtractedCredential::Env(_) | ExtractedCredential::Literal(_), _) if matches!(self.agent_id.as_str(), "qoder-desktop" | "zcode") => (ModelAdoptionStatus::Adoptable, None),
             (ExtractedCredential::Command, _) => (
                 ModelAdoptionStatus::NeedsCredential,
                 Some(
@@ -198,6 +201,11 @@ impl ExtractedModel {
                 None => b"reasoning:auto".as_slice(),
                 Some(true) => b"reasoning:on".as_slice(),
                 Some(false) => b"reasoning:off".as_slice(),
+            },
+            match self.enabled {
+                None => b"enabled:unknown".as_slice(),
+                Some(true) => b"enabled:true".as_slice(),
+                Some(false) => b"enabled:false".as_slice(),
             },
             self.credential_identity().as_bytes(),
         ])
@@ -250,6 +258,7 @@ pub fn list_model_adoption_candidates() -> Result<Vec<ModelAdoptionCandidate>, S
             base_url: profile.base_url,
             model: profile.model,
             env_key: profile.env_key,
+            enabled: extracted.enabled,
             active: extracted.active,
             credential_kind,
             status,
@@ -372,7 +381,9 @@ pub fn plan_model_adoption(
     let mut draft = selected[0].profile();
     draft.native_ids.clear();
     for candidate in &selected {
-        if agent_uses_native_id(&candidate.agent_id) {
+        // ZCode imports get a new MUX-owned provider, preserving the external
+        // provider and every sibling model instead of adopting its identity.
+        if agent_uses_native_id(&candidate.agent_id) && candidate.agent_id != "zcode" {
             draft
                 .native_ids
                 .insert(candidate.agent_id.clone(), candidate.native_id.clone());
@@ -396,6 +407,13 @@ pub fn plan_model_adoption(
     let mut after = BTreeMap::new();
     for candidate in &selected {
         let current = settings.model_selection(&candidate.agent_id);
+        if candidate.agent_id == "zcode" {
+            // ModelAdopt intentionally never writes native configuration. Import
+            // only the central asset; an explicit Add later creates its MUX slot.
+            before.insert(candidate.agent_id.clone(), current.clone());
+            after.insert(candidate.agent_id.clone(), current);
+            continue;
+        }
         let mut desired = current.clone();
         desired.profiles.insert(
             profile.id.clone(),
@@ -440,7 +458,13 @@ pub fn plan_model_adoption(
     if credential_action == CredentialAction::Set {
         summary.push("将 API Key 保存到钥匙串".into());
     }
-    summary.push(format!("关联 {} 个 Agent 中的现有模型配置", selected.len()));
+    if managed_profile_id.is_none() && selected.iter().any(|candidate| candidate.agent_id == "zcode") {
+        summary.push("仅导入中央模型库，保留 ZCode 原 Provider 及其模型；请到 ZCode 页面选择中央模型并添加".into());
+    }
+    let linked_agents = selected.iter().filter(|candidate| candidate.agent_id != "zcode").count();
+    if linked_agents > 0 {
+        summary.push(format!("关联 {} 个 Agent 中的现有模型配置", linked_agents));
+    }
     let plan = finalize_plan_with(
         AssetOperationKind::Adopt,
         domain_plan,
@@ -493,6 +517,7 @@ fn extract_models(settings: &Settings) -> Result<Vec<ExtractedModel>, String> {
             "pi" => extract_pi(&paths[0], &paths[1]),
             "opencode" | "kilo-code" => extract_open_code(&agent_id, &paths[0]),
             "qoder-desktop" => extract_qoder(&paths[0]),
+            "zcode" => extract_zcode(&paths[0]),
             "qwen-code" => extract_qwen(&paths[0]),
             "crush" => extract_crush(&paths[0]),
             "mistral-vibe" => extract_vibe(&paths[0]),
@@ -521,6 +546,7 @@ fn agent_uses_native_id(agent_id: &str) -> bool {
             | "opencode"
             | "kilo-code"
             | "qoder-desktop"
+            | "zcode"
             | "crush"
             | "mistral-vibe"
             | "hermes"
@@ -552,7 +578,9 @@ fn mark_unsafe_native_identities(extracted: &mut [ExtractedModel]) {
 fn mark_shared_native_provider_models(extracted: &mut [ExtractedModel]) {
     let mut groups = BTreeMap::<(String, String), Vec<usize>>::new();
     for (index, candidate) in extracted.iter().enumerate() {
-        if matches!(candidate.credential, ExtractedCredential::Invalid(_)) {
+        if candidate.agent_id == "zcode"
+            || matches!(candidate.credential, ExtractedCredential::Invalid(_))
+        {
             continue;
         }
         groups
@@ -587,6 +615,7 @@ fn invalid_candidate(agent_id: &str, reason: String, target_paths: Vec<PathBuf>)
         context_window: None,
         max_output_tokens: None,
         reasoning: None,
+        enabled: None,
         active: false,
         credential: ExtractedCredential::Invalid(reason),
         target_paths,
@@ -622,6 +651,7 @@ fn extract_claude(path: &Path) -> Result<Vec<ExtractedModel>, String> {
         context_window: None,
         max_output_tokens: None,
         reasoning: None,
+        enabled: None,
         active: true,
         credential,
         target_paths: vec![path.into()],
@@ -692,6 +722,7 @@ fn extract_codex(path: &Path) -> Result<Vec<ExtractedModel>, String> {
         context_window: None,
         max_output_tokens: None,
         reasoning: None,
+        enabled: None,
         active: true,
         credential,
         target_paths: vec![path.into()],
@@ -755,6 +786,7 @@ fn extract_grok(path: &Path) -> Result<Vec<ExtractedModel>, String> {
                 .and_then(toml::Value::as_integer)
                 .and_then(|v| u64::try_from(v).ok()),
             reasoning: None,
+            enabled: None,
             active: active.as_deref() == Some(native_id.as_str()),
             credential,
             target_paths: vec![path.into()],
@@ -811,6 +843,7 @@ fn extract_pi(models_path: &Path, settings_path: &Path) -> Result<Vec<ExtractedM
                 context_window: model_value.get("contextWindow").and_then(Value::as_u64),
                 max_output_tokens: model_value.get("maxTokens").and_then(Value::as_u64),
                 reasoning: model_value.get("reasoning").and_then(Value::as_bool),
+                enabled: None,
                 active: active_provider.as_deref() == Some(native_id.as_str())
                     && active_model.as_deref().is_none_or(|active| active == model),
                 credential: credential.clone(),
@@ -875,6 +908,7 @@ fn extract_open_code(agent_id: &str, path: &Path) -> Result<Vec<ExtractedModel>,
                     .and_then(Value::as_u64),
                 max_output_tokens: model_value.pointer("/limit/output").and_then(Value::as_u64),
                 reasoning: model_value.get("reasoning").and_then(Value::as_bool),
+                enabled: None,
                 active: active.as_deref() == Some(format!("{native_id}/{model}").as_str()),
                 credential: credential.clone(),
                 target_paths: vec![path.into()],
@@ -919,10 +953,65 @@ fn extract_qoder(path: &Path) -> Result<Vec<ExtractedModel>, String> {
                 max_output_tokens: entry.get("maxOutputTokens").and_then(Value::as_u64),
                 reasoning: entry.pointer("/capabilities/thinking/modes").and_then(Value::as_array)
                     .map(|modes| modes.iter().any(|mode| mode.as_str() == Some("enabled"))),
+                enabled: None,
                 active: false,
                 credential: if models.len() > 1 {
                     ExtractedCredential::Invalid("此 Qoder provider 共用多个模型；保留只读，避免接管时改动其他模型的连接与凭据".into())
                 } else { credential.clone() },
+                target_paths: vec![path.into()],
+            });
+        }
+    }
+    Ok(rows)
+}
+
+fn extract_zcode(path: &Path) -> Result<Vec<ExtractedModel>, String> {
+    let Some(root) = crate::resources::model::adapters::read_zcode_registry(path)? else {
+        return Ok(Vec::new());
+    };
+    let Some(providers_value) = root.get("provider") else { return Ok(Vec::new()); };
+    let providers = providers_value.as_object().ok_or("ZCode provider must be an object")?;
+    let mut rows = Vec::new();
+    for (native_id, provider) in providers {
+        if native_id.starts_with("builtin:")
+            || provider.get("source").and_then(Value::as_str) != Some("custom")
+        {
+            continue;
+        }
+        // Only the verified desktop Chat Completions contract is importable.
+        if provider.get("kind").and_then(Value::as_str) != Some("openai-compatible") {
+            continue;
+        }
+        let base_url = provider.pointer("/options/baseURL").and_then(Value::as_str)
+            .ok_or("ZCode custom provider baseURL is missing")?;
+        let models = provider.get("models").and_then(Value::as_object)
+            .ok_or("ZCode custom provider models must be an object")?;
+        let credential = match provider.pointer("/options/apiKey").and_then(Value::as_str) {
+            Some(key) if !key.is_empty() => ExtractedCredential::Literal(Zeroizing::new(key.into())),
+            _ if provider.pointer("/options/apiKeyRequired").and_then(Value::as_bool) == Some(false) => {
+                ExtractedCredential::None
+            }
+            _ => ExtractedCredential::Invalid("ZCode apiKey is missing".into()),
+        };
+        for (model, entry) in models {
+            if model.is_empty() || !entry.is_object() {
+                return Err("ZCode model entry is invalid".into());
+            }
+            rows.push(ExtractedModel {
+                agent_id: "zcode".into(),
+                native_id: native_id.clone(),
+                name: entry.get("name").and_then(Value::as_str).unwrap_or(model).into(),
+                protocol: ModelProtocol::OpenaiCompletions,
+                base_url: base_url.into(),
+                model: model.clone(),
+                env_key: None,
+                context_window: entry.pointer("/limit/context").and_then(Value::as_u64),
+                max_output_tokens: entry.pointer("/limit/output").and_then(Value::as_u64),
+                reasoning: entry.pointer("/reasoning/enabled").and_then(Value::as_bool),
+                // Provider enablement is not a global/session model selection.
+                enabled: Some(provider.get("enabled").and_then(Value::as_bool).unwrap_or(true)),
+                active: false,
+                credential: credential.clone(),
                 target_paths: vec![path.into()],
             });
         }
@@ -979,6 +1068,7 @@ fn extract_qwen(path: &Path) -> Result<Vec<ExtractedModel>, String> {
                     .and_then(Value::as_u64),
                 max_output_tokens: None,
                 reasoning: None,
+                enabled: None,
                 active: active_auth.as_deref() == Some(auth.as_str())
                     && active_model.as_deref() == Some(model),
                 target_paths: vec![path.into()],
@@ -1068,6 +1158,7 @@ fn extract_crush(path: &Path) -> Result<Vec<ExtractedModel>, String> {
                 context_window: None,
                 max_output_tokens: None,
                 reasoning: None,
+                enabled: None,
                 active: active_provider.as_deref() == Some(native_id.as_str())
                     && active_model.as_deref() == Some(model),
                 credential: credential.clone(),
@@ -1133,6 +1224,7 @@ fn extract_vibe(path: &Path) -> Result<Vec<ExtractedModel>, String> {
             context_window: None,
             max_output_tokens: None,
             reasoning: None,
+            enabled: None,
             active: active.as_deref() == Some(alias),
             credential: env_key
                 .map(ExtractedCredential::Env)
@@ -1186,6 +1278,7 @@ fn extract_hermes(path: &Path) -> Result<Vec<ExtractedModel>, String> {
             context_window: None,
             max_output_tokens: None,
             reasoning: None,
+            enabled: None,
             active: active_provider.as_deref() == Some(native_id.as_str())
                 && active_model.as_deref().is_none_or(|active| active == model),
             credential: env_key
@@ -1244,6 +1337,7 @@ fn extract_factory(path: &Path) -> Result<Vec<ExtractedModel>, String> {
             context_window: None,
             max_output_tokens: value.get("maxOutputTokens").and_then(Value::as_u64),
             reasoning: None,
+            enabled: None,
             active: active.as_deref() == Some(model),
             credential,
             target_paths: vec![path.into()],
@@ -1277,6 +1371,7 @@ fn extract_goose(path: &Path) -> Result<Vec<ExtractedModel>, String> {
                 context_window: None,
                 max_output_tokens: None,
                 reasoning: None,
+                enabled: None,
                 active: active.as_deref() == Some(native_id.as_str()),
                 credential: ExtractedCredential::Invalid(
                     "Goose provider identity 不能安全映射到 custom_providers 文件名".into(),
@@ -1330,6 +1425,7 @@ fn extract_goose(path: &Path) -> Result<Vec<ExtractedModel>, String> {
                 context_window: value.get("context_limit").and_then(Value::as_u64),
                 max_output_tokens: None,
                 reasoning: provider.get("preserves_thinking").and_then(Value::as_bool),
+                enabled: None,
                 active: active.as_deref() == Some(native_id.as_str())
                     && state
                         .get("model")
@@ -1374,13 +1470,13 @@ fn profile_owns_candidate(
     // Pi Provider names are shared by every MUX Model under the same Provider,
     // while adopted provider containers may also hold several models. In both
     // cases the provider id alone is not asset identity; the model id completes it.
-    if candidate.agent_id == "pi" {
+    if matches!(candidate.agent_id.as_str(), "pi" | "zcode") {
         return profile.model == candidate.model;
     }
     explicit_native_id.is_none()
         || !matches!(
             candidate.agent_id.as_str(),
-            "pi" | "opencode" | "kilo-code" | "qoder-desktop" | "crush" | "goose"
+            "pi" | "opencode" | "kilo-code" | "qoder-desktop" | "zcode" | "crush" | "goose"
         )
         || profile.model == candidate.model
 }
@@ -1648,6 +1744,63 @@ api_backend = "chat_completions"
             ),
         )
         .unwrap();
+    }
+
+    #[test]
+    fn zcode_shared_provider_models_are_importable_and_secret_free() {
+        let home = TestHome::new("model-adoption-zcode-shared");
+        let path = home.home.join(".zcode/v2/config.json");
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, serde_json::to_vec_pretty(&serde_json::json!({
+            "provider": {
+                "external": {
+                    "name": "External provider",
+                    "source": "custom",
+                    "kind": "openai-compatible",
+                    "enabled": false,
+                    "options": {"baseURL": "https://example.invalid/v1", "apiKey": "synthetic-zcode-test-key"},
+                    "models": {
+                        "first": {"limit": {"context": 100000, "output": 8000}, "reasoning": {"enabled": true}},
+                        "second": {}
+                    }
+                },
+                "builtin:example": {
+                    "source": "custom", "kind": "openai-compatible", "models": {}
+                },
+                "unsupported": {"source": "custom", "kind": "anthropic", "models": {}}
+            }
+        })).unwrap()).unwrap();
+        let mut extracted = extract_zcode(&path).unwrap();
+        mark_shared_native_provider_models(&mut extracted);
+        assert_eq!(extracted.len(), 2);
+        assert!(extracted.iter().all(|row| !row.active));
+        assert!(extracted.iter().all(|row| row.enabled == Some(false)));
+        let mut enabled_copy = extracted[0].clone();
+        enabled_copy.enabled = Some(true);
+        assert_ne!(extracted[0].fingerprint(), enabled_copy.fingerprint());
+        assert!(extracted.iter().all(|row| row.status().0 == ModelAdoptionStatus::Adoptable));
+        let first = extracted.iter().find(|row| row.model == "first").unwrap();
+        assert_eq!(first.context_window, Some(100000));
+        assert_eq!(first.max_output_tokens, Some(8000));
+        assert_eq!(first.reasoning, Some(true));
+        let candidates = list_model_adoption_candidates().unwrap();
+        assert_eq!(candidates.iter().filter(|row| row.agent_id == "zcode").count(), 2);
+        assert!(candidates.iter().filter(|row| row.agent_id == "zcode").all(|row| row.enabled == Some(false)));
+        assert!(!serde_json::to_string(&candidates).unwrap().contains("synthetic-zcode-test-key"));
+        let candidate = candidates.iter().find(|row| row.agent_id == "zcode").unwrap();
+        let original = fs::read(&path).unwrap();
+        let plan = plan_model_adoption(PlanModelAdoptionRequest {
+            candidate_fingerprints: BTreeMap::from([(
+                candidate.candidate_id.clone(), candidate.fingerprint.clone(),
+            )]),
+        }).unwrap();
+        let DomainPlan::Model { before, after } = &plan.domain_plan else {
+            panic!("expected model plan");
+        };
+        assert_eq!(before, after);
+        assert!(after.get("zcode").unwrap().profiles.is_empty());
+        assert!(plan.central_changes[0].summary.iter().any(|line| line.contains("仅导入中央模型库")));
+        assert_eq!(fs::read(&path).unwrap(), original);
     }
 
     #[test]

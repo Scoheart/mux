@@ -6,6 +6,8 @@
 //! to a private plaintext target.
 
 mod qoder;
+mod zcode;
+pub(crate) use zcode::read_registry as read_zcode_registry;
 
 pub(crate) use qoder::read_registry as read_qoder_registry;
 
@@ -48,6 +50,7 @@ pub fn prepare_apply(
 ) -> Result<Vec<PreparedModelFile>, String> {
     let prepared = match agent_id {
         "opencode" | "kilo-code" => prepare_open_code(agent_id, &paths[0], profile, active, None)?,
+        "zcode" => zcode::prepare(&paths[0], profile, None)?,
         "qoder-desktop" => qoder::prepare(&paths[0], profile, None)?,
         "qwen-code" => prepare_qwen(&paths[0], profile, active)?,
         "crush" => prepare_crush(&paths[0], profile, active)?,
@@ -67,13 +70,14 @@ pub fn prepare_apply_plaintext(
     active: bool,
     credential: &[u8],
 ) -> Result<PreparedModelFile, String> {
-    if !matches!(agent_id, "qoder-desktop" | "opencode" | "kilo-code") {
+    if !matches!(agent_id, "zcode" | "qoder-desktop" | "opencode" | "kilo-code") {
         return Err(format!(
             "credential_delivery_unsupported: {agent_id} plaintext adapter is not verified"
         ));
     }
     let credential = std::str::from_utf8(credential)
         .map_err(|_| "plaintext_target_insecure: API Key must be UTF-8".to_string())?;
+    if agent_id == "zcode" { return zcode::prepare(&paths[0], profile, Some(credential)); }
     if agent_id == "qoder-desktop" {
         return qoder::prepare(&paths[0], profile, Some(credential));
     }
@@ -87,6 +91,7 @@ pub fn prepare_clear(
 ) -> Result<Vec<PreparedModelFile>, String> {
     let prepared = match agent_id {
         "opencode" | "kilo-code" => prepare_clear_open_code(agent_id, &paths[0], profile)?,
+        "zcode" => zcode::clear(&paths[0], profile)?,
         "qoder-desktop" => qoder::clear(&paths[0], profile)?,
         "qwen-code" => prepare_clear_qwen(&paths[0], profile)?,
         "crush" => prepare_clear_crush(&paths[0], profile)?,
@@ -113,6 +118,7 @@ pub fn prepare_clear_all_for_targets(
 ) -> Result<Vec<PreparedModelFile>, String> {
     match agent_id {
         "opencode" | "kilo-code" => Ok(vec![prepare_clear_all_open_code(&paths[0])?]),
+        "zcode" => Ok(vec![zcode::clear_all(&paths[0])?]),
         "qoder-desktop" => Ok(vec![qoder::clear_all(&paths[0])?]),
         "qwen-code" => Ok(vec![prepare_clear_all_qwen(&paths[0])?]),
         "crush" => Ok(vec![prepare_clear_all_crush(&paths[0])?]),
@@ -213,6 +219,16 @@ pub fn observe_external(
     path: &Path,
 ) -> crate::resources::model::ExternalModelObservedState {
     use crate::resources::model::ExternalModelObservedState::{Absent, Conflicted, Present};
+    if agent_id == "zcode" {
+        return match zcode::read_registry(path) {
+            Err(_) => Conflicted,
+            Ok(None) => Absent,
+            Ok(Some(root)) => if root.get("provider").and_then(Value::as_object).is_some_and(|providers| providers.iter().any(|(id, provider)|
+                !id.starts_with("builtin:") && provider.get("source").and_then(Value::as_str) == Some("custom")
+                && provider.get("kind").and_then(Value::as_str) == Some("openai-compatible")
+                && provider.get("models").and_then(Value::as_object).is_some_and(|models| !models.is_empty()))) { Present } else { Absent },
+        };
+    }
     let content = match fs::read_to_string(path) {
         Ok(content) => content,
         Err(error) if error.kind() == ErrorKind::NotFound => return Absent,

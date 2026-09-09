@@ -12,7 +12,7 @@
 ## 安全不变量
 
 - 配置修改必须保留未知字段、注释、格式和非目标策略；损坏、歧义或并发变化时 fail closed，并经过备份、权限收紧和 CAS。已存在且被 Agent 监听的配置文件必须原地改写并保留路径与 inode；仅 MUX 私有文件和新建目标使用同目录临时文件与原子发布。
-- MCP 与 model writer 只能修改各自拥有的字段。API key/token 只存系统 Keychain，不进入配置、日志、fixture、截图或仓库。
+- MCP 与 model writer 只能修改各自拥有的字段。API key/token 只存系统 Keychain，不进入配置、日志、fixture、截图或仓库。ZCode 原生 Models 为用户明确授权的例外：仅在显式选择 plaintext delivery 时向其私有配置导出凭据，中央密钥仍存 Keychain；必须使用权限收紧、CAS 和加密回滚快照，禁止明文备份或日志。
 - Skills 只保留 `~/.mux/assets/skills/items/` 中央副本并通过已核验用户级目录链接分配；不保留旧中央目录回退、迁移或兼容链接。生命周期写操作必须由 core 先 plan，再以原 operation id、候选哈希和风险确认 commit。
 - 中央 desired state 与 Agent 投影必须分离提交：中央变更先持久化，每个 `Agent × capability × physical target` 再独立收敛。跨 target 不得回滚已经成功的目标；失败只形成与最小物理 write set 绑定的 incident，并允许无关 Agent、无关能力和无关偏好继续写入。单个 target 内仍必须 fail closed、CAS、备份，并按上一条的目标类型选择原地改写或原子发布。MCP/Skills 每个 Agent 为 `0..N`；原生支持多模型的 Agent 可安装 `0..N` 个 Model Profile 且最多一个为当前模型，单模型 Agent 仍为 `0..1`。
 - 测试必须隔离 `HOME`/`MUX_HOME`，不得访问真实用户配置、Skills 或 Keychain。
@@ -37,7 +37,7 @@
 
 在本独立仓执行 status、commit、tag 和 push；父仓不得跟踪其内部文件。提交使用 `<type>(<scope>): <summary>` 并在 body 解释原因。不要提交 `target/`、`dist/`、临时 App、截图或本机配置。
 
-MUX 功能提交有两条独立链路，由当前任务指定，不是脏工作树的自动降级：
+MUX 功能提交有两条独立链路；发布前的用户选型确认遵守父仓 [`memory/USER.md`](../../../memory/USER.md) 的 MUX 发布规则，不能自行默认选型，也不是脏工作树的自动降级：
 
 - 本地 commit & push：父仓 `mux-local-push`
 - Remote PR：父仓 `mux-remote-pr-delivery`

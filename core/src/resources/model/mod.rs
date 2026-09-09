@@ -1870,6 +1870,7 @@ pub fn default_config_paths(agent_id: &str) -> Option<Vec<String>> {
         "kilo-code" => &["~/.config/kilo/kilo.jsonc"],
         "qwen-code" => &["~/.qwen/settings.json"],
         "qoder-desktop" => &["~/.qoder/settings.json"],
+        "zcode" => &["~/.zcode/v2/config.json"],
         "crush" => &["~/.config/crush/crush.json"],
         "mistral-vibe" => &["~/.vibe/config.toml"],
         "hermes" => &["~/.hermes/config.yaml"],
@@ -3314,27 +3315,17 @@ pub fn list_agents() -> Vec<ModelAgentView> {
             supported_protocols: Vec::new(),
             note: "请在 Qoder IDE Settings → Models 中添加和切换自定义模型。MUX 当前提供配置引导，不自动写入模型。".into(),
         },
-        ModelAgentView {
-            id: "zcode".into(),
-            name: "ZCode Desktop".into(),
-            mode: "guided".into(),
-            storage_authority: ModelStorageAuthority::Guided,
-            installed: agent_installed(&[], &[".zcode/v2"], &["/Applications/ZCode.app"]),
-            config_path: String::new(),
-            config_paths: Vec::new(),
-            docs: "https://zcode.z.ai/cn/docs/configuration".into(),
-            assigned_profile: None,
-            assigned_profiles: Vec::new(),
-            active_profile: None,
-            supports_multiple: true,
-            supports_global_selection: false,
-            credential_mode: "guided".into(),
-            credential_capabilities: credential::agent_capabilities("zcode"),
-            credential_policies: BTreeMap::new(),
-            default_delivery: Default::default(),
-            available_deliveries: Vec::new(),
-            supported_protocols: Vec::new(),
-            note: "请在 ZCode 设置 → 模型设置中添加 Provider 和模型；完整存储契约尚未核验，MUX 暂不自动写入 Models。".into(),
+        {
+            let mut view = managed_agent_view(
+                &settings, "zcode", "ZCode Desktop", &[], &[".zcode/v2"],
+                "https://zcode.z.ai/cn/docs/configuration",
+                "支持 ZCode 自定义 Chat Completions 多模型。添加后重启 ZCode，在会话中选择模型；API Key 仅按显式明文交付策略写入私有配置。",
+            );
+            view.installed = agent_installed(&[], &[".zcode/v2"], &["/Applications/ZCode.app"]);
+            view.credential_mode = "explicit-plaintext".into();
+            view.active_profile = None;
+            view.assigned_profile = None;
+            view
         },
         {
             let mut view = managed_agent_view(
@@ -3421,7 +3412,7 @@ pub fn list_agents() -> Vec<ModelAgentView> {
 
 /// Desktop has per-conversation selection; CLI settings.model is not its current model.
 pub(crate) fn supports_global_model_selection(agent_id: &str) -> bool {
-    agent_id != "qoder-desktop"
+    !matches!(agent_id, "qoder-desktop" | "zcode")
 }
 
 pub(crate) fn normalize_model_selection(agent_id: &str, selection: &mut crate::domain::assets::ModelAgentSelection) {
@@ -3478,7 +3469,7 @@ fn managed_agent_view(
                 ModelProtocol::AnthropicMessages,
                 ModelProtocol::OpenaiCompletions,
             ],
-            "mistral-vibe" => vec![ModelProtocol::OpenaiCompletions],
+            "mistral-vibe" | "zcode" => vec![ModelProtocol::OpenaiCompletions],
             _ => vec![
                 ModelProtocol::AnthropicMessages,
                 ModelProtocol::OpenaiResponses,
@@ -3543,7 +3534,7 @@ pub(crate) fn observe_active_model_for_settings(
                 .map(str::to_string)
         }
         "claude-code" | "codex" => settings.model_selection(agent_id).active_profile_id,
-        "qoder-desktop" | "opencode" | "kilo-code" | "qwen-code" | "crush" | "mistral-vibe" | "hermes"
+        "zcode" | "qoder-desktop" | "opencode" | "kilo-code" | "qwen-code" | "crush" | "mistral-vibe" | "hermes"
         | "factory-droid" | "goose" => {
             return match adapters::observe_active(agent_id, &paths, &profiles) {
                 adapters::ObservedActiveModel::Managed(id) => ObservedActiveModel::Managed(id),
@@ -3669,7 +3660,7 @@ pub fn observe_profile(
             let settings = observe_prepared(prepare_pi_settings(&paths[1], &profile));
             combine_observed(models, settings)
         }
-        "qoder-desktop" | "opencode" | "kilo-code" | "qwen-code" | "crush" | "mistral-vibe" | "hermes"
+        "zcode" | "qoder-desktop" | "opencode" | "kilo-code" | "qwen-code" | "crush" | "mistral-vibe" | "hermes"
         | "factory-droid" | "goose" => Ok(adapters::observe_prepared_files(
             prepare_observed_native_files(agent_id, &paths, &profile, true, has_credential),
         )),
@@ -3699,7 +3690,7 @@ pub fn observe_profile_consumption(
     let absent = match agent_id {
         "grok-build" => cleared_toml_profile_absent(prepare_clear_grok_build(&paths[0], &profile)),
         "pi" => cleared_toml_profile_absent(prepare_clear_pi_models(&paths[0], &profile)),
-        "qoder-desktop" | "opencode" | "kilo-code" | "qwen-code" | "crush" | "mistral-vibe" | "hermes"
+        "zcode" | "qoder-desktop" | "opencode" | "kilo-code" | "qwen-code" | "crush" | "mistral-vibe" | "hermes"
         | "factory-droid" | "goose" => {
             adapters::cleared_profile_absent(adapters::prepare_clear(agent_id, &paths, &profile))
         }
@@ -3717,7 +3708,7 @@ pub fn observe_profile_consumption(
             &profile,
             pi_api_key_value(&profile, has_credential)?,
         )),
-        "qoder-desktop" | "opencode" | "kilo-code" | "qwen-code" | "crush" | "mistral-vibe" | "hermes"
+        "zcode" | "qoder-desktop" | "opencode" | "kilo-code" | "qwen-code" | "crush" | "mistral-vibe" | "hermes"
         | "factory-droid" | "goose" => Ok(adapters::observe_prepared_files(
             prepare_observed_native_files(agent_id, &paths, &profile, false, has_credential),
         )),
@@ -3747,7 +3738,7 @@ pub fn observe_external_model(agent_id: &str) -> Result<ExternalModelObservedSta
         "codex" => observe_external_codex(&paths[0]),
         "grok-build" => observe_external_grok_build(&paths[0]),
         "pi" => observe_external_pi(&paths[0], &paths[1]),
-        "qoder-desktop" | "opencode" | "kilo-code" | "qwen-code" | "crush" | "mistral-vibe" | "hermes"
+        "zcode" | "qoder-desktop" | "opencode" | "kilo-code" | "qwen-code" | "crush" | "mistral-vibe" | "hermes"
         | "factory-droid" | "goose" => Ok(adapters::observe_external(agent_id, &paths[0])),
         _ => Ok(ExternalModelObservedState::Absent),
     }
@@ -3935,7 +3926,7 @@ fn ensure_supported(agent_id: &str, protocol: &ModelProtocol) -> Result<(), Stri
             protocol,
             ModelProtocol::AnthropicMessages | ModelProtocol::OpenaiCompletions
         ),
-        "mistral-vibe" => matches!(protocol, ModelProtocol::OpenaiCompletions),
+        "mistral-vibe" | "zcode" => matches!(protocol, ModelProtocol::OpenaiCompletions),
         "qoder-cli" => {
             return Err(format!("Configure Qoder CLI BYOK through /model → Custom; see {QODER_CLI_DOCS}"))
         }
@@ -4112,7 +4103,7 @@ pub(crate) fn apply_profile_consumption_with_credential_presence_target(
             active,
         )
         .map_err(Into::into),
-        "qoder-desktop" | "opencode" | "kilo-code" => {
+        "zcode" | "qoder-desktop" | "opencode" | "kilo-code" => {
             let prepared = adapters::prepare_apply(agent_id, &paths, &profile, active)?;
             match credential_route.as_ref() {
                 Some((source, credential::PreparedCredentialRoute::OpenCodeAuthStore))
@@ -4283,7 +4274,7 @@ pub(crate) fn clear_all_configured_models_for_targets(
     match agent_id {
         "pi" => clear_all_pi(&paths[0], &paths[1]),
         "grok-build" => clear_one_model_file(&paths[0], "grok-build", prepare_clear_all_grok_build),
-        "qoder-desktop" | "opencode" | "kilo-code" | "qwen-code" | "crush" | "mistral-vibe" | "hermes"
+        "zcode" | "qoder-desktop" | "opencode" | "kilo-code" | "qwen-code" | "crush" | "mistral-vibe" | "hermes"
         | "factory-droid" | "goose" => {
             let reviewed = reviewed_targets
                 .iter()
@@ -4328,7 +4319,7 @@ pub(crate) fn agent_has_configured_models(agent_id: &str) -> Result<bool, String
                 .as_deref()
                 .is_some_and(|value| value != content.as_str()))
         }
-        "qoder-desktop" | "opencode" | "kilo-code" | "qwen-code" | "crush" | "mistral-vibe" | "hermes"
+        "zcode" | "qoder-desktop" | "opencode" | "kilo-code" | "qwen-code" | "crush" | "mistral-vibe" | "hermes"
         | "factory-droid" | "goose" => adapters::has_configured_models(agent_id, &paths),
         _ => Ok(false),
     }
@@ -4415,7 +4406,7 @@ pub(crate) fn clear_profile_consumption_target(
         )
         .map_err(ModelTargetError::from)?,
         "pi" => clear_pi(&paths[0], &paths[1], &profile, active).map_err(ModelTargetError::from)?,
-        "qoder-desktop" | "opencode" | "kilo-code" | "qwen-code" | "crush" | "mistral-vibe" | "hermes"
+        "zcode" | "qoder-desktop" | "opencode" | "kilo-code" | "qwen-code" | "crush" | "mistral-vibe" | "hermes"
         | "factory-droid" | "goose" => {
             commit_native_model_files(
                 agent_id,
@@ -4649,7 +4640,7 @@ fn commit_native_model_files(
     agent_id: &str,
     files: Vec<adapters::PreparedModelFile>,
 ) -> Result<(), String> {
-    if agent_id == "qoder-desktop" {
+    if matches!(agent_id, "qoder-desktop" | "zcode") {
         return commit_private_model_files(
             &files.into_iter().map(open_code_auth::PreparedAuthFile::from_model_file).collect::<Vec<_>>()
         );
@@ -5594,7 +5585,7 @@ fn prepare_observed_native_files(
     active: bool,
     has_credential: bool,
 ) -> Result<Vec<adapters::PreparedModelFile>, String> {
-    if matches!(agent_id, "qoder-desktop" | "opencode" | "kilo-code") {
+    if matches!(agent_id, "zcode" | "qoder-desktop" | "opencode" | "kilo-code") {
         if let Some((source, credential::PreparedCredentialRoute::Plaintext)) =
             credential_route_for(agent_id, profile, has_credential)?
         {

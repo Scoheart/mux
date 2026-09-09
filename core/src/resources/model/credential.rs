@@ -72,6 +72,10 @@ pub fn agent_capabilities(agent_id: &str) -> AgentCredentialCapabilities {
             capabilities.plaintext = true;
         }
         "claude-desktop" => capabilities.agent_store = true,
+        "zcode" => {
+            capabilities.plaintext = true;
+            capabilities.note = Some("ZCode requires explicit plaintext delivery to its private native config; central credentials remain in Keychain".into());
+        }
         "opencode" => {
             capabilities.native_sources = vec!["env".into(), "file".into()];
             capabilities.agent_store = true;
@@ -127,6 +131,8 @@ pub fn available_deliveries(agent_id: &str) -> Vec<ApiKeyDelivery> {
 /// to Auto so Grok-style env-only Agents keep working.
 pub fn resolve_delivery(agent_id: &str, requested: &ApiKeyDelivery) -> ApiKeyDelivery {
     let available = available_deliveries(agent_id);
+    // A stale/unsupported ZCode policy must not silently become plaintext.
+    if agent_id == "zcode" { return requested.clone(); }
     if available.iter().any(|delivery| delivery == requested) {
         return requested.clone();
     }

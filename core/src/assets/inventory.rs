@@ -487,7 +487,7 @@ fn project_models(
             desired: false,
             observed: true,
             enabled: None,
-            observed_enabled: Some(true),
+            observed_enabled: candidate.enabled.or(Some(true)),
             active: Some(candidate.active),
             desired_active: Some(false),
             status,

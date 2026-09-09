@@ -430,6 +430,12 @@ fn private_transaction_paths(
     qoder_paths.push("~/.qoder/settings.json".into());
     let qoder_paths = qoder_paths.iter().map(|path| crate::resources::mcp::scanner::expand_tilde(path)).collect::<BTreeSet<_>>();
     private.extend(plan.target_files.iter().map(|path| crate::resources::mcp::scanner::expand_tilde(path)).filter(|path| qoder_paths.contains(path)));
+    let mut zcode_paths = settings.agent_config_paths.as_ref()
+        .and_then(|paths| paths.get("zcode"))
+        .and_then(|entry| entry.model_paths.clone()).unwrap_or_default();
+    zcode_paths.push("~/.zcode/v2/config.json".into());
+    let zcode_paths = zcode_paths.iter().map(|path| crate::resources::mcp::scanner::expand_tilde(path)).collect::<BTreeSet<_>>();
+    private.extend(plan.target_files.iter().map(|path| crate::resources::mcp::scanner::expand_tilde(path)).filter(|path| zcode_paths.contains(path)));
     Ok(private)
 }
 
@@ -868,7 +874,7 @@ fn recover_pending_asset_operation(
                 .plan
                 .affected_agent_ids
                 .iter()
-                .any(|agent_id| matches!(agent_id.as_str(), "claude-desktop" | "qoder-desktop" | "qoder-cli")))
+                .any(|agent_id| matches!(agent_id.as_str(), "zcode" | "claude-desktop" | "qoder-desktop" | "qoder-cli")))
     {
         return Err(
             "recovery_required: reviewed private transaction paths do not match rollback manifest"

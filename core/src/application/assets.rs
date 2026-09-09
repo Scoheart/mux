@@ -295,3 +295,13 @@ pub fn migrate_model_profiles_v2_if_needed() -> Result<bool, String> {
         crate::assets::migrate_model_profiles_v2_if_needed,
     )
 }
+
+/// Import callers consume names only; avoid building an unused inventory after each entry.
+pub fn commit_mcp_import(request: AssetCommitRequest) -> Result<(), String> {
+    super::gate::mutate_for(CapabilityDomain::Mcp, "asset_commit", || {
+        if operation_capability(&request.operation_id)? != Some(CapabilityDomain::Mcp) {
+            return Err("asset_operation_stale: expected an MCP import operation".into());
+        }
+        crate::assets::commit_asset_operation_without_inventory(request)
+    })
+}

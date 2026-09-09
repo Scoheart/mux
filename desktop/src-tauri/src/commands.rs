@@ -619,15 +619,20 @@ pub fn list_custom_registry_keys() -> Vec<String> {
 /// Parse a pasted config blob (JSON or TOML) and add every MCP server it contains
 /// to the managed "manual" source. Returns the names that were added.
 #[tauri::command]
-pub fn import_pasted_config(text: String) -> CoreResult<Vec<String>> {
+pub async fn import_pasted_config(text: String) -> CoreResult<Vec<String>> {
+    tauri::async_runtime::spawn_blocking(move || import_pasted_config_blocking(text))
+        .await.map_err(|_| CoreError::new("worker_failed", "后台导入任务失败，请重试。"))?
+}
+
+fn import_pasted_config_blocking(text: String) -> CoreResult<Vec<String>> {
     let entries = mux_core::application::mcp::operations::parse_pasted_entries(&text)
         .map_err(|error| core_error_from_legacy(error, "invalid_config"))?;
+    let mut known_keys: std::collections::BTreeSet<_> = read_registry().iter().map(|entry| entry.key()).collect();
     let mut names = Vec::new();
-    for entry in entries {
-        let existing_key = read_registry()
-            .iter()
-            .any(|candidate| candidate.key() == entry.key())
-            .then(|| entry.key());
+    let entry_count = entries.len();
+    for (index, entry) in entries.into_iter().enumerate() {
+        let key = entry.key();
+        let existing_key = known_keys.contains(&key).then(|| key.clone());
         let plan = mux_core::application::assets::plan_update_central_asset(
             PlanUpdateCentralAssetRequest {
                 draft: mux_core::application::assets::CentralAssetDraft::Mcp {
@@ -644,21 +649,29 @@ pub fn import_pasted_config(text: String) -> CoreResult<Vec<String>> {
                 "粘贴导入与当前资产状态冲突；请先在资源界面收敛对应消费关系",
             ));
         }
-        names.extend(
-            plan.central_changes
+        let saved_names = plan.central_changes
                 .iter()
                 .filter_map(|change| match &change.asset {
                     mux_core::application::assets::AssetRef::Mcp { key } => {
                         key.rsplit_once("::").map(|(name, _)| name.to_string())
                     }
                     _ => None,
-                }),
-        );
-        mux_core::application::assets::commit_asset_operation(AssetCommitRequest {
+                }).collect::<Vec<_>>();
+        if let Err(error) = mux_core::application::assets::commit_mcp_import(AssetCommitRequest {
             operation_id: plan.operation_id,
             candidate_hash: plan.candidate_hash,
-        })
-        .map_err(|error| core_error_from_legacy(error, "asset_operation_failed"))?;
+        }) {
+            let mut error = core_error_from_legacy(error, "asset_operation_failed");
+            if error.code == "target_convergence_failed" {
+                names.extend(saved_names);
+                error.details.insert("central_saved".into(), Value::Bool(true));
+                error.details.insert("saved_count".into(), serde_json::json!(names.len()));
+                error.details.insert("remaining_count".into(), serde_json::json!(entry_count - index - 1));
+            }
+            return Err(error);
+        }
+        names.extend(saved_names);
+        known_keys.insert(key);
     }
     names.sort();
     names.dedup();

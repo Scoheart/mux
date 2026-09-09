@@ -1,6 +1,10 @@
 // Pasting a config blob (e.g. a `mcpServers` JSON/YAML object) adds its servers to the
 // managed "manual" source.
-use desktop_lib::commands::{import_pasted_config, list_registry};
+use desktop_lib::commands::list_registry;
+
+fn import_pasted_config(text: String) -> mux_core::domain::error::CoreResult<Vec<String>> {
+    tauri::async_runtime::block_on(desktop_lib::commands::import_pasted_config(text))
+}
 
 #[test]
 fn paste_import_recognizes_and_adds_manual_entries() {

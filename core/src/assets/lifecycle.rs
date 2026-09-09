@@ -15,7 +15,6 @@ use crate::resources::model::{
     provider_credential_present, provider_profiles, restore_credential_snapshot,
 };
 use crate::settings::{load_settings_strict, Settings};
-use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use std::sync::{LazyLock, Mutex};
@@ -1029,8 +1028,7 @@ fn agent_sync_summary(consumer_count: usize) -> String {
 }
 
 fn hash_serializable<T: serde::Serialize>(value: &T) -> Result<String, String> {
-    let bytes = serde_json::to_vec(value).map_err(|error| error.to_string())?;
-    Ok(hex::encode(Sha256::digest(bytes)))
+    super::payload_hash::hash(value)
 }
 
 fn display_path(path: &Path) -> String {

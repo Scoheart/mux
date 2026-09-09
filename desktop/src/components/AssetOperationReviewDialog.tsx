@@ -319,6 +319,51 @@ export function AssetOperationReviewDialog({
       : agentName
     : `${plan.affected_agent_ids.length} 个 Agent · ${plan.target_files.length} 个目标`;
   const providerChange = plan.central_changes.find((change) => change.asset.domain === "model-provider" && change.action === "update");
+  if (plan.kind === "delete-asset" && plan.domain_plan.domain === "mcp") {
+    const deletedAssets = plan.central_changes.filter((change) => change.asset.domain === "mcp");
+    const affectedAgents = [...new Set(plan.affected_agent_ids)];
+    return (
+      <DialogShell
+        kind="review"
+        size="sm"
+        className="mux-mcp-delete-dialog"
+        title="删除 MCP"
+        leading={<span className="mux-dialog-shell-glyph" aria-hidden="true"><TrashIcon /></span>}
+        busy={busy}
+        onClose={() => void onCancel()}
+        footerEnd={<>
+          <button type="button" className="btn-secondary" disabled={busy} onClick={() => void onCancel()}>{cancelLabel}</button>
+          <button type="button" className="btn-danger-solid" disabled={busy || !plan.can_commit} onClick={() => void onCommit()}>
+            {busy ? "删除中…" : reviewError ? "重试删除" : "删除"}
+          </button>
+        </>}
+      >
+        <div className="mux-mcp-delete-content">
+          {deletedAssets.map((change) => (
+            <strong className="mux-mcp-delete-name" key={assetKey(change.asset)}>
+              {displayAssetName(change.asset, assetDisplayNames)}
+            </strong>
+          ))}
+          <p className="mux-mcp-delete-caption">
+            {affectedAgents.length ? `同时从 ${affectedAgents.length} 个 Agent 移除` : "从 MCP 库中删除"}
+          </p>
+          {affectedAgents.length > 0 && <div className="mux-provider-update-agents">
+            {affectedAgents.map((id) => {
+              const label = displayAgentName(id, agentId, agentName, agentDisplayNames);
+              return <span key={id} title={label} role="img" aria-label={label} tabIndex={0}>
+                <AgentGlyph id={id} name={label} size={32} />
+              </span>;
+            })}
+          </div>}
+          {reviewError && <p role="alert" className="mux-review-error">{reviewError}</p>}
+          {!plan.can_commit && <p role="alert" className="mux-review-error">暂时无法删除，请查看原因。</p>}
+          {plan.warnings.length > 0 && <section className="mux-provider-update-issues">
+            {plan.warnings.map((warning) => <p key={warning}>{warningCopy(warning)}</p>)}
+          </section>}
+        </div>
+      </DialogShell>
+    );
+  }
   if (providerChange) {
     const name = displayAssetName(providerChange.asset, assetDisplayNames);
     return <DialogShell kind="review" size="sm" title={`更新 ${name}`}

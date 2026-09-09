@@ -493,6 +493,20 @@ fn extract_servers(
             return Some((m.clone(), codec));
         }
     }
+    // Older MUX copies contained only its internal transport wrapper, without
+    // the server name. Accept those as a single server, not a server named stdio.
+    let single = if obj.len() == 1 {
+        obj.get("stdio").or_else(|| obj.get("http")).unwrap_or(v)
+    } else {
+        v
+    };
+    if decode_any(single).is_some() {
+        let name = obj.get("name").and_then(|name| name.as_str())
+            .filter(|name| !name.trim().is_empty())
+            .map(str::to_owned)
+            .unwrap_or_else(|| pasted_server_name(single));
+        return Some((serde_json::Map::from_iter([(name, single.clone())]), None));
+    }
     let looks_like_map = !obj.is_empty()
         && obj.values().all(|val| {
             val.as_object()
@@ -509,26 +523,77 @@ fn extract_servers(
     None
 }
 
+fn pasted_server_name(config: &serde_json::Value) -> String {
+    if let Some(command) = config.get("command").and_then(|value| value.as_str()) {
+        let binary = command.rsplit(['/', '\\']).next().unwrap_or(command);
+        let package = if matches!(binary, "npx" | "npx.cmd" | "uvx" | "bunx") {
+            config.get("args").and_then(|value| value.as_array())
+                .into_iter().flatten().filter_map(|value| value.as_str())
+                .find(|arg| !matches!(*arg, "-y" | "--yes"))
+                .filter(|arg| !arg.starts_with('-'))
+        } else { None };
+        return package.unwrap_or(binary).to_owned();
+    }
+    config.get("url").or_else(|| config.get("httpUrl")).or_else(|| config.get("serverUrl"))
+        .and_then(|value| value.as_str())
+        .and_then(|url| url.split_once("://"))
+        .map(|(_, rest)| rest.split('/').next().unwrap_or("imported-mcp"))
+        .filter(|host| !host.is_empty() && !host.contains('@'))
+        .unwrap_or("imported-mcp").to_owned()
+}
+
+// Rich-text/Markdown copies sometimes escape indentation and punctuation.
+// Only use this recovery after strict JSON fails; never rewrite valid values.
+fn recover_pasted_json(text: &str) -> Option<serde_json::Value> {
+    let mut normalized = String::with_capacity(text.len());
+    for line in text.lines() {
+        let mut rest = line;
+        loop {
+            if let Some(next) = rest.strip_prefix("&#x20;").or_else(|| rest.strip_prefix("&#32;")) {
+                normalized.push(' ');
+                rest = next;
+            } else if rest.starts_with(' ') || rest.starts_with('\t') {
+                normalized.push(rest.chars().next()?);
+                rest = &rest[1..];
+            } else { break; }
+        }
+        normalized.push_str(rest);
+        normalized.push('\n');
+    }
+    let mut recovered = String::with_capacity(normalized.len());
+    let mut chars = normalized.chars();
+    while let Some(ch) = chars.next() {
+        if ch == '\\' {
+            let next = chars.next()?;
+            if !matches!(next, '_' | ':') { recovered.push(ch); }
+            recovered.push(next);
+        } else { recovered.push(ch); }
+    }
+    serde_json::from_str(&recovered).ok()
+}
+
 /// Parse a pasted config blob without mutating the catalog. Application
 /// frontends feed these drafts through the central asset transaction.
 pub fn parse_pasted_entries(text: &str) -> Result<Vec<RegistryEntry>, String> {
     let text = text.trim();
+    let text = if text.starts_with("```") && text.ends_with("```") {
+        text.split_once('\n').map(|(_, body)| body[..body.len() - 3].trim()).unwrap_or(text)
+    } else { text };
     if text.is_empty() {
         return Err("粘贴内容为空".into());
     }
     let value: serde_json::Value = match serde_json::from_str(text) {
         Ok(v) => v,
-        Err(_) => match toml::from_str::<toml::Value>(text) {
+        Err(_) => match recover_pasted_json(text) {
+            Some(value) => value,
+            None => match toml::from_str::<toml::Value>(text) {
             Ok(value) => serde_json::to_value(value).map_err(|e| e.to_string())?,
-            Err(toml_error) => {
+            Err(_) => {
                 let value: serde_yaml::Value =
-                    serde_yaml::from_str(text).map_err(|yaml_error| {
-                        format!(
-                            "内容不是有效的 JSON、TOML 或 YAML：TOML: {toml_error}; YAML: {yaml_error}"
-                        )
-                    })?;
+                    serde_yaml::from_str(text).map_err(|_| "内容不是有效的 JSON、TOML 或 YAML，请检查格式。".to_string())?;
                 serde_json::to_value(value).map_err(|e| e.to_string())?
             }
+            },
         },
     };
     let (servers, codec) = extract_servers(&value).ok_or(

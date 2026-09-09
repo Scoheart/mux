@@ -167,9 +167,13 @@ export function useInstallState({ autoLoad = true }: { autoLoad?: boolean } = {}
   }, [afterSourceChange]);
 
   const importPaste = useCallback(async (text: string) => {
-    const names = await importPastedConfig(text);
-    await afterSourceChange();
-    return names;
+    try {
+      return await importPastedConfig(text);
+    } finally {
+      // Save completion must not wait for unrelated source/catalog reads.
+      // Refresh on partial failure too, since earlier entries may have committed.
+      void afterSourceChange().catch(console.error);
+    }
   }, [afterSourceChange]);
 
   return {

@@ -329,7 +329,7 @@ export function Modal({
         dialog.querySelector<HTMLElement>("[data-modal-title]") ??
         modalFocusableElements(dialog)[0] ??
         dialog;
-      initialTarget.focus();
+      initialTarget.focus({ preventScroll: true });
     });
 
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -368,7 +368,7 @@ export function Modal({
       requestAnimationFrame(() => {
         if (!opener?.isConnected) return;
         const remainingModal = topmostModal();
-        if (!remainingModal || remainingModal.contains(opener)) opener.focus();
+        if (!remainingModal || remainingModal.contains(opener)) opener.focus({ preventScroll: true });
       });
     };
   }, []);

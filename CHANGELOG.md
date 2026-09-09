@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.189](https://github.com/Scoheart/mux/compare/v1.8.188...v1.8.189) (2026-09-09)
+
+### Changes
+
+* feat(desktop): refine Agent hand navigation and asset reliability (#180) ([ed25a7f](https://github.com/Scoheart/mux/commit/ed25a7f1ca89714909ee78892f20b4a160bc89cc))
+
 ## [1.8.188](https://github.com/Scoheart/mux/compare/v1.8.187...v1.8.188) (2026-09-09)
 
 ### Changes

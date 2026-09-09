@@ -286,3 +286,5 @@ CodeBuddy is listed as three products: CodeBuddy CLI (existing `codebuddy-code` 
 CodeBuddy IDE, and WorkBuddy. IDE and WorkBuddy currently provide official download
 and capability guides only. Their user-level writable storage contracts are not
 verified; MUX does not reuse CLI paths or write project-level Skills for them.
+
+ZCode Desktop 自定义模型接入与凭据交付说明见 [ZCode Models](docs/zcode-models.md)。

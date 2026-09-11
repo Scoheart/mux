@@ -119,3 +119,20 @@ pub struct AgentCapabilityView {
     pub installed: bool,
     pub capabilities: AgentCapabilitySet,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
+pub enum LaunchTarget {
+    App { path: String },
+    Cli { command: String, #[serde(default)] args: Vec<String> },
+    Web { url: String },
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct LaunchPreferences {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target: Option<LaunchTarget>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub directory: Option<String>,
+}
+

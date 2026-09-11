@@ -104,6 +104,9 @@ pub struct Settings {
     /// changes a codec, target identity, evidence, or install probe.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_config_paths: Option<BTreeMap<String, AgentConfigPathOverride>>,
+    /// Explicit runtime launch preferences; independent of managed assets.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_launch: Option<BTreeMap<String, crate::domain::agents::LaunchPreferences>>,
     /// User/custom/override registry entries (manual + discovered + overrides),
     /// layered over the entries contributed by `sources` on read.
     #[serde(default, skip_serializing_if = "Option::is_none")]

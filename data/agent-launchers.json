@@ -1,0 +1,391 @@
+{
+  "agentkube": {
+    "kind": "app",
+    "candidates": [
+      "Agentkube",
+      "AgentKube"
+    ]
+  },
+  "amazon-q": {
+    "kind": "app",
+    "candidates": [
+      "Visual Studio Code"
+    ],
+    "host_name": "VS Code"
+  },
+  "amp": {
+    "kind": "cli",
+    "candidates": [
+      "amp"
+    ],
+    "args": []
+  },
+  "antigravity": {
+    "kind": "app",
+    "candidates": [
+      "Antigravity"
+    ]
+  },
+  "augment": {
+    "kind": "cli",
+    "candidates": [
+      "auggie"
+    ],
+    "args": []
+  },
+  "boltai": {
+    "kind": "app",
+    "candidates": [
+      "BoltAI"
+    ]
+  },
+  "chatmcp": {
+    "kind": "app",
+    "candidates": [
+      "ChatMCP",
+      "chatmcp"
+    ]
+  },
+  "claude-code": {
+    "kind": "cli",
+    "candidates": [
+      "claude"
+    ],
+    "args": []
+  },
+  "claude-desktop": {
+    "kind": "app",
+    "candidates": [
+      "Claude"
+    ]
+  },
+  "cline": {
+    "kind": "app",
+    "candidates": [
+      "Visual Studio Code"
+    ],
+    "host_name": "VS Code"
+  },
+  "codebuddy-code": {
+    "kind": "cli",
+    "candidates": [
+      "codebuddy"
+    ],
+    "args": []
+  },
+  "codebuddy-ide": {
+    "kind": "app",
+    "candidates": [
+      "CodeBuddy"
+    ]
+  },
+  "codewhale": {
+    "kind": "cli",
+    "candidates": [
+      "codewhale",
+      "codewhale-tui"
+    ],
+    "args": []
+  },
+  "codex": {
+    "kind": "cli",
+    "candidates": [
+      "codex"
+    ],
+    "args": []
+  },
+  "continue": {
+    "kind": "app",
+    "candidates": [
+      "Visual Studio Code"
+    ],
+    "host_name": "VS Code"
+  },
+  "copilot-cli": {
+    "kind": "cli",
+    "candidates": [
+      "copilot"
+    ],
+    "args": []
+  },
+  "cortex-code": {
+    "kind": "cli",
+    "candidates": [
+      "cortex"
+    ],
+    "args": []
+  },
+  "crush": {
+    "kind": "cli",
+    "candidates": [
+      "crush"
+    ],
+    "args": []
+  },
+  "cursor": {
+    "kind": "app",
+    "candidates": [
+      "Cursor"
+    ]
+  },
+  "devin": {
+    "kind": "web",
+    "url": "https://app.devin.ai/"
+  },
+  "dirac": {
+    "kind": "cli",
+    "candidates": [
+      "dirac"
+    ],
+    "args": []
+  },
+  "docker-agent": {
+    "kind": "cli",
+    "candidates": [
+      "docker-agent"
+    ],
+    "args": []
+  },
+  "factory-droid": {
+    "kind": "cli",
+    "candidates": [
+      "droid"
+    ],
+    "args": []
+  },
+  "firebender": {
+    "kind": "app",
+    "candidates": [
+      "Firebender"
+    ]
+  },
+  "gemini": {
+    "kind": "cli",
+    "candidates": [
+      "gemini"
+    ],
+    "args": []
+  },
+  "goose": {
+    "kind": "cli",
+    "candidates": [
+      "goose"
+    ],
+    "args": [
+      "session"
+    ]
+  },
+  "grok-build": {
+    "kind": "cli",
+    "candidates": [
+      "grok"
+    ],
+    "args": []
+  },
+  "hermes": {
+    "kind": "cli",
+    "candidates": [
+      "hermes"
+    ],
+    "args": []
+  },
+  "kilo-code": {
+    "kind": "cli",
+    "candidates": [
+      "kilo"
+    ],
+    "args": []
+  },
+  "kimi-code": {
+    "kind": "cli",
+    "candidates": [
+      "kimi"
+    ],
+    "args": []
+  },
+  "kiro": {
+    "kind": "app",
+    "candidates": [
+      "Kiro"
+    ]
+  },
+  "lmstudio": {
+    "kind": "app",
+    "candidates": [
+      "LM Studio"
+    ]
+  },
+  "minion-code": {
+    "kind": "cli",
+    "candidates": [
+      "mcode",
+      "minion-code"
+    ],
+    "args": []
+  },
+  "mistral-vibe": {
+    "kind": "cli",
+    "candidates": [
+      "vibe"
+    ],
+    "args": []
+  },
+  "openclaw": {
+    "kind": "cli",
+    "candidates": [
+      "openclaw"
+    ],
+    "args": [
+      "tui"
+    ]
+  },
+  "opencode": {
+    "kind": "cli",
+    "candidates": [
+      "opencode"
+    ],
+    "args": []
+  },
+  "openhands": {
+    "kind": "cli",
+    "candidates": [
+      "openhands"
+    ],
+    "args": []
+  },
+  "pi": {
+    "kind": "cli",
+    "candidates": [
+      "pi"
+    ],
+    "args": []
+  },
+  "poolside": {
+    "kind": "cli",
+    "candidates": [
+      "pool"
+    ],
+    "args": []
+  },
+  "qoder": {
+    "kind": "app",
+    "candidates": [
+      "Qoder IDE",
+      "Qoder"
+    ]
+  },
+  "qoder-cli": {
+    "kind": "cli",
+    "candidates": [
+      "qoder"
+    ],
+    "args": []
+  },
+  "qoder-desktop": {
+    "kind": "app",
+    "candidates": [
+      "Qoder Desktop"
+    ]
+  },
+  "qoderwork": {
+    "kind": "app",
+    "candidates": [
+      "QoderWork"
+    ]
+  },
+  "qwen-code": {
+    "kind": "cli",
+    "candidates": [
+      "qwen"
+    ],
+    "args": []
+  },
+  "raycast": {
+    "kind": "app",
+    "candidates": [
+      "Raycast"
+    ]
+  },
+  "roo-code": {
+    "kind": "app",
+    "candidates": [
+      "Visual Studio Code"
+    ],
+    "host_name": "VS Code"
+  },
+  "stakpak": {
+    "kind": "cli",
+    "candidates": [
+      "stakpak"
+    ],
+    "args": []
+  },
+  "tabnine": {
+    "kind": "app",
+    "candidates": [
+      "Visual Studio Code"
+    ],
+    "host_name": "VS Code"
+  },
+  "theiaai-theiaide": {
+    "kind": "app",
+    "candidates": [
+      "TheiaIDE"
+    ]
+  },
+  "trae-ide": {
+    "kind": "app",
+    "candidates": [
+      "TRAE"
+    ]
+  },
+  "vscode": {
+    "kind": "app",
+    "candidates": [
+      "Visual Studio Code"
+    ]
+  },
+  "vt-code": {
+    "kind": "cli",
+    "candidates": [
+      "vtcode"
+    ],
+    "args": []
+  },
+  "warp": {
+    "kind": "app",
+    "candidates": [
+      "Warp"
+    ]
+  },
+  "windsurf": {
+    "kind": "app",
+    "candidates": [
+      "Windsurf"
+    ]
+  },
+  "workbuddy": {
+    "kind": "app",
+    "candidates": [
+      "WorkBuddy"
+    ]
+  },
+  "zcode": {
+    "kind": "app",
+    "candidates": [
+      "ZCode"
+    ]
+  },
+  "zed": {
+    "kind": "app",
+    "candidates": [
+      "Zed"
+    ]
+  },
+  "zencoder": {
+    "kind": "app",
+    "candidates": [
+      "Zenflow"
+    ]
+  }
+}

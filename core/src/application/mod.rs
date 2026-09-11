@@ -4,6 +4,7 @@
 //! composing storage, recovery, adapters, or domain engines themselves.
 
 pub mod agents;
+pub mod agent_launch;
 pub mod assets;
 pub mod bootstrap;
 pub mod convergence;

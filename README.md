@@ -25,6 +25,30 @@ MUX remembers the choice for configuration files across Agents and app restarts.
 Folder links still use Finder. Selecting **系统默认** restores the system file association;
 if a selected editor cannot launch, MUX reports the error without silently switching apps.
 
+To launch an Agent on macOS, use **▶ 运行** in the upper-right corner of its
+workspace, or right-click
+a pinned Agent icon. Desktop applications open through the system launcher; CLI
+Agents open in Terminal and ask for a working directory on first use. MUX remembers
+that directory per Agent. The run dropdown lets CLI Agents use another directory;
+**安装文档** is a separate toolbar button. Configure the application, executable
+with arguments, or website through **编辑配置**. Extension entries name the host editor they open. Missing
+built-in runtimes offer their official installation page. On the first CLI launch,
+macOS may ask for permission to let MUX control Terminal.
+
+Agent details use one workspace with a centered identity, compact launch and
+credential controls, and a single MCPs / Models / Skills tab bar. **配置** expands
+the selected capability's paths and documentation inline. MCP resources use compact
+rows with controls on the right. Skill cards separate the title, two-line
+description, and footer so shared-state badges and controls stay readable. Their
+**…** menu exposes details and removal when supported. Narrow windows reduce the
+number of columns.
+
+**编辑配置** includes application / CLI / website launch settings alongside the
+MCP, Model and Skills paths. Changing only the launcher saves directly; path edits
+retain the impact review. Cancelling that review leaves launch preferences
+unchanged. Configurable Agents keep launch settings in this editor instead of
+duplicating the settings entry in the run dropdown.
+
 MUX ships as **two front-ends that share the same data** (`~/.mux/`):
 
 - 🖥️ a **macOS desktop app** (Tauri + React) — a visual manager, and

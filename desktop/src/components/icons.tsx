@@ -2,6 +2,26 @@ import { CSSProperties } from "react";
 
 interface IconProps { className?: string; style?: CSSProperties; }
 
+export function SlidersIcon({ className, style }: IconProps) {
+  return <svg viewBox="0 0 24 24" className={className} style={style} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
+    <path d="M6 3v5m0 4v9M12 3v10m0 4v4M18 3v2m0 4v12M3 8h6m0 5h6m0-8h6" />
+  </svg>;
+}
+
+export function PlayIcon({ className, style }: IconProps) {
+  return <svg viewBox="0 0 24 24" className={className} style={style} fill="currentColor" aria-hidden="true">
+    <path d="M8 4.5a1 1 0 0 0-1.5.86v13.28a1 1 0 0 0 1.5.86l11-6.64a1 1 0 0 0 0-1.72Z" />
+  </svg>;
+}
+
+export function DocumentIcon({ className, style }: IconProps) {
+  return <svg viewBox="0 0 24 24" className={className} style={style} stroke="currentColor" fill="none"
+    strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z" />
+    <path d="M14 2v6h6M8 13h8M8 17h5" />
+  </svg>;
+}
+
 export function SearchIcon({ className, style }: IconProps) {
   return (
     <svg viewBox="0 0 24 24" className={className} style={style} stroke="currentColor" fill="none"

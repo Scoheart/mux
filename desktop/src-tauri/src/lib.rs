@@ -2,6 +2,7 @@ pub mod cli_tool;
 pub mod commands;
 mod observation_watcher;
 mod file_editors;
+mod agent_launch;
 mod trackpad_gestures;
 pub mod updater_guard;
 
@@ -55,6 +56,9 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             trackpad_gestures::trackpad_gestures_available,
+            agent_launch::get_agent_launch_info,
+            agent_launch::configure_agent_launch,
+            agent_launch::launch_agent,
             file_editors::list_file_editors,
             file_editors::detect_agent_installation,
             commands::get_backend_status,

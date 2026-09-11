@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.190](https://github.com/Scoheart/mux/compare/v1.8.189...v1.8.190) (2026-09-11)
+
+### Changes
+
+* fix(desktop): stabilize Agent gestures and configuration updates (#181) ([44bc3b2](https://github.com/Scoheart/mux/commit/44bc3b2dae9384d3693e699cb187b7a1e2456197))
+
 ## [1.8.189](https://github.com/Scoheart/mux/compare/v1.8.188...v1.8.189) (2026-09-09)
 
 ### Changes

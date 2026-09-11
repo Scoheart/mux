@@ -1,0 +1,58 @@
+# Agent launcher
+
+The Agent picker and pinned-icon primary click continue to navigate MUX configuration. A compact split action in Agent details launches the runtime; pinned icons expose the same action in a context menu.
+
+Agent details use one unframed workspace directly on the page, without an outer
+background block, border or rounded shell. The icon sits above the centered name; credential,
+edit and launch controls sit at the upper right. A single resource tab bar shares
+one row with bulk actions, configuration and add controls. The current tab's paths
+and documentation expand inline through the configuration button. Displayed home
+paths use `~` while the opener receives the original target.
+
+Resources use three columns, reducing to two on narrower desktop windows. MCPs
+use short rows with name/transport beside the icon and fixed-width controls on
+the right. Skills and Models separate the description from the footer; footer
+controls occupy a nonshrinking grid column, so long text and shared-state badges
+cannot push switches outside the card. External items retain their read-only and
+convergence contracts. Model selection caveats remain visible. Preserve MUX's
+existing palette: blue actions and selection, green enabled switches, and the
+original semantic warning colors. The primary launch action is labeled briefly; missing runtimes offer
+installation, and icon-only actions retain tooltips and accessible names.
+
+Consumption panels render their existing controls into a shared toolbar slot,
+keeping the same handlers and disabling conditions. The configuration section and
+the resource list follow the same tab state. Changing Agent resets the open
+configuration panel; changing resource tab updates its contents in place.
+
+The configuration editor embeds the same controlled launch fields used by the
+pinned-icon launcher. Launch-only edits call the existing launch-preference API.
+Combined edits first review/commit capability paths, then persist launch settings.
+No launch preference is written before review confirmation. If path commit
+succeeds but launch save fails, the editor records the new path baseline, retains
+the launch draft and reports the partial result; retry only saves the pending
+launch settings. Configurable Agents expose launch settings through this editor
+only; the workspace run menu keeps the CLI directory action. Installation docs are
+a separate toolbar button before the credential selector. Desktop launchers with
+no remaining run actions omit the dropdown arrow.
+
+- Desktop / IDE: resolve an actual installed application and use the OS launcher, activating an existing instance.
+- CLI: resolve an executable, select a working directory on first use, and launch in macOS Terminal. Remember the per-Agent directory after successful dispatch; allow choosing another directory.
+- Web: open the runtime website, not its documentation.
+- Missing runtime: offer the existing official installation link. No automatic installation.
+- Unmapped / custom Agent: configure an app path, executable plus separate arguments, or HTTP(S) URL. Saving these preferences never launches a process.
+
+Core owns the built-in launch catalog, executable/application discovery, validation, persisted preferences and launch orchestration. Tauri commands run blocking work off the UI thread. The UI uses a shared launcher provider for detail and context-menu actions. Launch state does not mutate MCPs, Models, Skills or credentials.
+
+Use exact process arguments for app/URL dispatch. CLI shell and AppleScript strings are encoded separately; commands, paths and arguments are treated as data. Never run discovery commands or install packages. Terminal actions happen only on a user click.
+
+The macOS bundle declares the Apple Events automation entitlement and a Terminal usage description. On first CLI launch, macOS may ask the user to allow MUX to control Terminal. A successful dispatch confirms that the launch request was sent, not that the Agent has authenticated or initialized successfully.
+
+This iteration targets the shipped macOS desktop. Unsupported hosts report that explicitly. CLI entry points without verified metadata remain configurable rather than guessed. Existing installation probes supply declared command candidates; explicit data overrides distinguish IDE/desktop products and extension hosts.
+
+Validation: user requested no test suites, formatters or preflight. Inspect the diff and compile the desktop for local delivery; do not launch third-party Agents as a test. No publication without a new release request and lane selection.
+
+Devin web entry verified against https://docs.devin.ai/get-started/devin-intro (app.devin.ai).
+
+Launch argument references: https://docs.augmentcode.com/cli/interactive (auggie); https://docs.openclaw.ai/cli/tui (openclaw tui).
+
+Goose session entry: https://github.com/block/goose/blob/main/documentation/docs/quickstart.md (goose session).

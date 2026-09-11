@@ -1,5 +1,7 @@
 import capabilityGuides from "../../../data/agent-capability-guides.json";
-import { AgentInstallAction } from "./AgentInstallAction";
+import { AgentLaunchAction } from "./AgentLaunchAction";
+import { useAgentLauncher } from "../lib/agentLauncherContext";
+import "./AgentOverview.css";
 import agentDefinitions from "../../../data/agents.json";
 import agentDocsHome from "../../../data/agent-docs-home.json";
 import { useModelObservationRevision } from "../lib/modelObservation";
@@ -31,7 +33,10 @@ import { requiresAgentReview } from "../lib/agentOperation";
 import { listModelAgents, listModelProfiles, setAgentCredentialDelivery } from "../lib/api";
 import {
   EditIcon,
+  ChevronDownIcon,
+  DocumentIcon,
   ExternalLinkIcon,
+  FolderIcon,
   LayersIcon,
   LinkIcon,
   PackageIcon,
@@ -101,6 +106,13 @@ function deliveryLabel(value: ApiKeyDelivery) {
   return "自动适配";
 }
 
+function compactDeliveryLabel(value: ApiKeyDelivery) {
+  if (value === "plaintext") return "明文";
+  if (value === "agent-store") return "凭据库";
+  if (value === "auto") return "自动";
+  return deliveryLabel(value);
+}
+
 function resolvedAgentDelivery(agent: ModelAgentView): ApiKeyDelivery {
   const available = agent.available_deliveries ?? [];
   const stored = agent.default_delivery ?? "plaintext";
@@ -158,7 +170,9 @@ export function AgentView({
   const { t } = useTranslation();
   const { entries, refreshAgents } = state;
   const { show: showToast } = useToast();
+  const agentLauncher = useAgentLauncher();
   const [editingAgent, setEditingAgent] = useState(false);
+  const [editLaunchFirst, setEditLaunchFirst] = useState(false);
   const [pickerDomain, setPickerDomain] = useState<PickerDomain | null>(null);
   const [modelProfiles, setModelProfiles] = useState<ModelProfileView[]>([]);
   const [modelAgents, setModelAgents] = useState<ModelAgentView[]>([]);
@@ -362,8 +376,7 @@ export function AgentView({
       <div className="mux-agent-page">
         <div className="mux-agent-shell">
           <section className="mux-agent-context" aria-label={`${agent.name} 参考信息`}>
-            <AgentHeader agent={agent} tone="reference" />
-            <div className="mux-agent-reference-install">{agent.builtin && <AgentInstallAction key={agent.id} agentId={agent.id} />}</div>
+            <AgentHeader agent={agent} tone="reference" actions={<AgentLaunchAction key={agent.id} agentId={agent.id} />} />
             <div className="mux-agent-reference">
               <strong>{agent.note ?? "未提供可写的用户级全局配置。"}</strong>
             </div>
@@ -713,28 +726,33 @@ export function AgentView({
     }
   };
 
+  const activeConfig = resourceTab === "mcps" ? {
+    icon: <PackageIcon className="w-4 h-4" />, label: "MCPs", description: mcpDescription,
+    paths: mcpConfigPaths, kind: "file" as const, docsUrl: agent.docs ?? undefined,
+    unavailableLabel: agent.has_global ? undefined : "未接入",
+  } : resourceTab === "models" ? {
+    icon: <LayersIcon className="w-4 h-4" />, label: "Models", description: modelDescription,
+    paths: modelConfigPaths, kind: "file" as const, docsUrl: modelAgent?.docs,
+  } : {
+    icon: <SparklesIcon className="w-4 h-4" />, label: "Skills", description: skillsDescription,
+    paths: skillsConfigPaths, kind: "folder" as const, docsUrl: skillDocs,
+  };
+
   return (
     <div className="mux-agent-page">
       <div className="mux-agent-shell">
-        <section className="mux-agent-context" aria-label={`${agent.name} 配置范围`}>
-          <AgentHeader agent={agent} />
-
-          <section
-            className="mux-agent-section mux-agent-config-locations"
-            aria-label="配置位置"
-          >
-            <div className="mux-agent-section-head">
-              <div className="mux-agent-section-actions">
+        <section className="mux-agent-workbench" aria-label={`${agent.name} 工作区`}>
+          <AgentHeader agent={agent} actions={<>
             {modelAgent?.mode === "managed" && (modelAgent.available_deliveries?.length ?? 0) > 0 && (
               <div
                 className="mux-agent-credential-strategy"
                 data-busy={changingCredential ? "true" : undefined}
               >
-                <div>
-                  <strong title="添加模型时使用的凭据保存方式，可随时修改">凭据方式</strong>
-                </div>
                 <FormSelect
-                  ariaLabel={`${agent.name} 凭据策略`}
+                  ariaLabel={`${agent.name} 凭据方式：${deliveryLabel(resolvedAgentDelivery(modelAgent))}`}
+                  title={`凭据方式：${deliveryLabel(resolvedAgentDelivery(modelAgent))}`}
+                  disabled={changingCredential}
+                  triggerContent={<span>{compactDeliveryLabel(resolvedAgentDelivery(modelAgent))}</span>}
                   value={resolvedAgentDelivery(modelAgent)}
                   options={(modelAgent.available_deliveries ?? []).map((value) => ({
                     value,
@@ -755,52 +773,17 @@ export function AgentView({
                 />
               </div>
             )}
-                  {agent.builtin && <AgentInstallAction key={agent.id} agentId={agent.id} />}
-                  {canEditConfiguration && (
-                    <button type="button" className="btn-secondary" onClick={() => setEditingAgent(true)}>
-                      <EditIcon className="w-3.5 h-3.5" />编辑配置
-                    </button>
-                  )}
-              </div>
-            </div>
-            <div className="mux-agent-file-map">
-              <ConfigPath
-                icon={<PackageIcon className="w-4 h-4" />}
-                label="MCPs"
-                docsUrl={agent.docs ?? undefined}
-                description={mcpDescription}
-                paths={mcpConfigPaths}
-                kind="file"
-                home={userHome}
-                onOpen={openConfigLocation}
-                unavailableLabel={agent.has_global ? undefined : "未接入"}
-              />
-              <ConfigPath
-                icon={<LayersIcon className="w-4 h-4" />}
-                label="Models"
-                docsUrl={modelAgent?.docs}
-                description={modelDescription}
-                paths={modelConfigPaths}
-                kind="file"
-                home={userHome}
-                onOpen={openConfigLocation}
-              />
-              <ConfigPath
-                icon={<SparklesIcon className="w-4 h-4" />}
-                label="Skills"
-                docsUrl={skillDocs}
-                description={skillsDescription}
-                paths={skillsConfigPaths}
-                kind="folder"
-                home={userHome}
-                onOpen={openConfigLocation}
-              />
-            </div>
-
-          </section>
-        </section>
+            {canEditConfiguration && (
+              <button type="button" className="mux-agent-tool" title="编辑配置" aria-label="编辑配置" onClick={() => { setEditLaunchFirst(false); setEditingAgent(true); }}>
+                <EditIcon className="w-3.5 h-3.5" /><span>编辑</span>
+              </button>
+            )}
+            <AgentLaunchAction key={agent.id} agentId={agent.id} showLabel
+              onConfigure={canEditConfiguration ? () => { setEditLaunchFirst(true); setEditingAgent(true); } : undefined} />
+          </>} />
 
         <AgentResourcePanel
+          key={agent.id}
           value={resourceTab}
           onChange={setResourceTab}
           counts={{
@@ -808,6 +791,7 @@ export function AgentView({
             models: modelVisibleCount,
             skills: skillRows.length + skillExternal.length,
           }}
+          configuration={<ConfigPath key={`${agent.id}-${resourceTab}`} {...activeConfig} inline home={userHome} onOpen={openConfigLocation} />}
         >
           {consumptionState.plan?.kind === "clear-models" && !preparingChange && (
             <ReviewDialog
@@ -1038,6 +1022,7 @@ export function AgentView({
             />
           )}
         </AgentResourcePanel>
+        </section>
       </div>
 
       {pickerDomain && picker && (
@@ -1078,6 +1063,8 @@ export function AgentView({
         <AgentConfigurationDialog
           agent={agent}
           modelAgent={modelAgent}
+          initialSection={editLaunchFirst ? "launch" : "paths"}
+          onLaunchSaved={agentLauncher.refresh}
           onClose={() => setEditingAgent(false)}
           onSaved={async () => {
             await Promise.allSettled([
@@ -1137,9 +1124,11 @@ function TransportMark({ transport }: { transport: string }) {
 function AgentHeader({
   agent,
   tone,
+  actions,
 }: {
   agent: InstallState["agents"][number];
   tone?: "reference";
+  actions?: ReactNode;
 }) {
   const { show } = useToast();
   const docsHome = (agentDocsHome as Record<string, string>)[agent.id] ?? agent.docs;
@@ -1155,13 +1144,14 @@ function AgentHeader({
     </div>
   </>;
   return (
-    <header className="mux-agent-header" data-tone={tone} data-agent-entry-id={agent.id} aria-label={`Agent ${agent.name} (${agent.id})`}>
+    <header className="mux-agent-header mux-agent-overview-header" data-tone={tone} data-agent-entry-id={agent.id} aria-label={`Agent ${agent.name} (${agent.id})`}>
       {docsHome ? <a className="mux-agent-header-identity mux-agent-docs-link"
         href={docsHome} title={`打开 ${agent.name} 官方文档`} aria-label={`打开 ${agent.name} 官方文档`}
         onClick={(event) => {
           event.preventDefault();
           void openUrl(docsHome).catch((error) => show({ kind: "error", msg: `无法打开官方文档：${formatError(error)}` }));
         }}>{identity}</a> : <div className="mux-agent-header-identity">{identity}</div>}
+      {actions && <div className="mux-agent-overview-actions" role="group" aria-label="Agent 操作">{actions}</div>}
     </header>
   );
 }
@@ -1176,6 +1166,7 @@ function ConfigPath({
   onOpen,
   docsUrl,
   unavailableLabel = "不可用",
+  inline = false,
 }: {
   icon: ReactNode;
   label: string;
@@ -1186,29 +1177,39 @@ function ConfigPath({
   onOpen(path: string, kind: ConfigLocationKind): Promise<unknown> | unknown;
   docsUrl?: string;
   unavailableLabel?: string;
+  inline?: boolean;
 }) {
   const { show } = useToast();
   const openDocs = () => {
     if (!docsUrl) return;
     void openUrl(docsUrl).catch((error) => show({ kind: "error", msg: `无法打开 ${label} 文档：${formatError(error)}` }));
   };
+  const state = description.includes("失败") ? "error" : description.includes("读取中") ? "loading" : paths.length ? "ready" : "unavailable";
   return (
-    <div className="mux-agent-file-row">
-      <div className="mux-agent-file-copy">
-        <div className="mux-capability-heading">
-          {docsUrl ? <button type="button" className="mux-capability-doc-link"
-            title={`查看 ${label} 文档`} aria-label={`查看 ${label} 文档`} onClick={openDocs}>
-            <span className="mux-agent-file-icon">{icon}</span><strong>{label}</strong>
-            <ExternalLinkIcon className="w-3 h-3 mux-capability-doc-arrow" />
-          </button> : <div className="mux-capability-doc-label">
-            <span className="mux-agent-file-icon">{icon}</span><strong>{label}</strong>
-          </div>}
-          <span className="mux-capability-description">{description}</span>
+    <details className="mux-config-disclosure" data-state={state} data-inline={inline || undefined} open={inline || undefined} aria-label={`${label} 配置位置`}>
+      <summary aria-label={`${label} 配置位置 · ${state === "error" || state === "loading" ? description : paths.length ? `${paths.length} 个${kind === "folder" ? "文件夹" : "文件"}` : description}`}>
+        <span className="mux-config-symbol" aria-hidden="true">{icon}</span>
+        <strong>{label}</strong>
+        <span className="mux-config-indicator" title={state === "error" || state === "loading" ? description : paths.length ? `${paths.length} 个配置${kind === "folder" ? "目录" : "文件"}` : unavailableLabel} aria-hidden="true">
+          {state === "error" ? "!" : state === "loading" ? <RefreshIcon className="mux-config-loading" /> : paths.length ? <>
+            {kind === "folder" ? <FolderIcon /> : <DocumentIcon />}<span>{paths.length}</span>
+          </> : "—"}
+        </span>
+        <ChevronDownIcon className="mux-config-chevron" />
+      </summary>
+      <div className="mux-config-body">
+        <div className="mux-config-description">
+          <span>{description}</span>
+          {docsUrl && <button type="button" className="mux-config-docs" title={`查看 ${label} 文档`} aria-label={`查看 ${label} 文档`} onClick={openDocs}>
+            <ExternalLinkIcon className="w-3.5 h-3.5" />
+          </button>}
         </div>
         {paths.length > 0 ? (
           <div className="mux-agent-file-paths">
             {paths.map((path) => {
               const absolutePath = absoluteConfigLocation(path, home);
+              const root = home.replace(/\/$/, "");
+              const displayPath = root && absolutePath.startsWith(`${root}/`) ? `~/${absolutePath.slice(root.length + 1)}` : absolutePath;
               return (
                 <button
                   type="button"
@@ -1218,16 +1219,16 @@ function ConfigPath({
                   aria-label={`${kind === "folder" ? "打开文件夹" : "使用所选编辑器打开文件"}：${absolutePath}`}
                   onClick={() => void onOpen(path, kind)}
                 >
-                  <code>{absolutePath}</code>
+                  <code>{displayPath}</code>
                   <ExternalLinkIcon className="w-3 h-3" />
                 </button>
               );
             })}
           </div>
         ) : (
-          <span className="mux-agent-file-unavailable">{unavailableLabel}</span>
+          description !== unavailableLabel && <span className="mux-agent-file-unavailable">{unavailableLabel}</span>
         )}
       </div>
-    </div>
+    </details>
   );
 }

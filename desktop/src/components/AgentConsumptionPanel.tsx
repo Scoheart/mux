@@ -14,6 +14,7 @@ import {
 import { ConsumptionStatus } from "./ConsumptionStatus";
 import { Switch } from "./ui";
 import { useTranslation } from "react-i18next";
+import { AgentResourceActions } from "./AgentResourcePanel";
 
 export interface ConsumptionAssetPresentation {
   name: string;
@@ -128,6 +129,45 @@ function ConvergenceActions({
   );
 }
 
+function ConsumptionCardMenu({ name, onOpen, onRemove, removeDisabled, removeLabel }: {
+  name: string;
+  onOpen?: () => void;
+  onRemove?: () => void;
+  removeDisabled: boolean;
+  removeLabel: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const root = useRef<HTMLDivElement>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    root.current?.querySelector<HTMLButtonElement>('[role="menuitem"]:not(:disabled)')?.focus();
+    const close = (event: PointerEvent) => { if (!root.current?.contains(event.target as Node)) setOpen(false); };
+    document.addEventListener("pointerdown", close);
+    return () => document.removeEventListener("pointerdown", close);
+  }, [open]);
+  return <div ref={root} className="mux-consumption-card-menu" data-open={open || undefined} onKeyDown={(event) => {
+    if (!open) return;
+    if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); setOpen(false); trigger.current?.focus(); }
+    if (event.key === "Tab") setOpen(false);
+    if (["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) {
+      event.preventDefault();
+      const items = Array.from(root.current?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]:not(:disabled)') ?? []);
+      const index = items.indexOf(document.activeElement as HTMLButtonElement);
+      const next = event.key === "Home" ? 0 : event.key === "End" ? items.length - 1 : (index + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length;
+      items[next]?.focus();
+    }
+  }}>
+    <button ref={trigger} type="button" className="mux-consumption-open" aria-label={`${name} 操作`} aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((value) => !value)}>
+      <MoreHorizontalIcon className="w-4 h-4" />
+    </button>
+    {open && <div role="menu" className="mux-consumption-card-menu-items" aria-label={`${name} 操作`}>
+      {onOpen && <button type="button" role="menuitem" onClick={() => { setOpen(false); onOpen(); }}><LinkIcon className="w-3.5 h-3.5" />查看详情</button>}
+      {onRemove && <button type="button" role="menuitem" disabled={removeDisabled} aria-label={removeLabel} className="mux-consumption-remove" onClick={() => { setOpen(false); onRemove(); }}><TrashIcon className="w-3.5 h-3.5" />移除</button>}
+    </div>}
+  </div>;
+}
+
 export function AgentConsumptionPanel({
   domain,
   title,
@@ -209,13 +249,13 @@ export function AgentConsumptionPanel({
   ];
 
   return (
-    <section className="mux-agent-section mux-agent-resource-content mux-consumption-panel">
+    <section className="mux-agent-section mux-agent-resource-content mux-consumption-panel" aria-label={title}>
       <div className="mux-agent-section-head">
         <div>
           <h3>{title}</h3>
           {description && <p>{description}</p>}
         </div>
-        <div className="mux-agent-section-actions">
+        <AgentResourceActions><div className="mux-agent-section-actions">
           {bulkToggleLabel && bulkEnabled !== undefined && onBulkEnabledChange && (
             <div className="mux-agent-bulk-toggle">
               <span>{bulkToggleLabel}</span>
@@ -234,25 +274,28 @@ export function AgentConsumptionPanel({
               type="button"
               className="btn-danger"
               disabled={bulkRemoveDisabled}
-              title={bulkRemoveTitle}
+              title={bulkRemoveTitle ?? bulkRemoveLabel}
+              aria-label={bulkRemoveLabel}
               onClick={onBulkRemove}
             >
               <TrashIcon className="w-3.5 h-3.5" />
-              {bulkRemoveLabel}
+              <span className="mux-consumption-bulk-label">{bulkRemoveLabel}</span>
             </button>
           )}
           <button
             type="button"
             className="btn-primary"
+            aria-label={manageLabel}
             disabled={manageDisabled}
             onClick={onManage}
           >
             {manageIcon}
-            {manageLabel}
+            <span className="mux-consumption-manage-label">{manageLabel}</span><span className="mux-consumption-manage-short" aria-hidden="true">添加</span>
           </button>
-        </div>
+        </div></AgentResourceActions>
       </div>
 
+      {domain === "model" && description && <p className="mux-consumption-model-note">{description}</p>}
       {externalMode === "summary" && domainExternal.length > 0 && (
         <div className="mux-consumption-external" role="status">
           <div>
@@ -299,27 +342,38 @@ export function AgentConsumptionPanel({
             return (
               <li
                 key={rowKey(item, isExternal)}
+                data-domain={domain}
                 data-status={item.status}
                 data-enabled={isExternal || enabled === false ? "false" : undefined}
               >
                 <span className="mux-consumption-icon">{presentation.icon}</span>
                 <span className="mux-consumption-copy">
                   <span className="mux-consumption-title">
-                    <strong>{presentation.name}</strong>
-                    {presentation.meta && (
-                      <span className="mux-consumption-meta">{presentation.meta}</span>
-                    )}
+                    <strong title={presentation.name}>{presentation.name}</strong>
                   </span>
-                  {presentationDescription && <small>{presentationDescription}</small>}
+                  {domain === "mcp" && <span className="mux-consumption-secondary">
+                    <ConsumptionStatus status={item.status} reason={item.reason} compact />
+                    {presentation.meta && <span className="mux-consumption-meta">{presentation.meta}</span>}
+                    {presentationDescription && <small title={presentationDescription}>{presentationDescription}</small>}
+                  </span>}
                 </span>
+                {!isExternal && (onOpenAsset || onRemove) && <ConsumptionCardMenu
+                  name={presentation.name}
+                  onOpen={onOpenAsset ? () => onOpenAsset(item.asset) : undefined}
+                  onRemove={onRemove ? () => onRemove(item.asset) : undefined}
+                  removeDisabled={removeDisabled}
+                  removeLabel={removeLabel?.(presentation.name) ?? `从 Agent 移除 ${presentation.name}`}
+                />}
+                {domain !== "mcp" && presentationDescription && <p className="mux-consumption-card-description" title={presentationDescription}>{presentationDescription}</p>}
+                <div className="mux-consumption-card-footer">
+                  {domain !== "mcp" && <div className="mux-consumption-card-summary">
+                    <ConsumptionStatus status={item.status} reason={item.reason} compact />
+                    {presentation.meta && <span className="mux-consumption-meta">{presentation.meta}</span>}
+                  </div>}
                 {(item.status !== "synced" && !(isExternal && item.status === "external-added")
                   || item.available_actions.length > 0
                   || !isExternal && (renderAction || onEnabledChange && enabled !== null || onOpenAsset || onRemove)) && (
                   <span className="mux-consumption-controls">
-                    {item.status !== "synced"
-                      && !(isExternal && item.status === "external-added") && (
-                      <ConsumptionStatus status={item.status} reason={item.reason} compact />
-                    )}
                     <span className="mux-consumption-actions">
                       {onConverge && item.available_actions.length > 0 && (
                         <ConvergenceActions
@@ -339,30 +393,10 @@ export function AgentConsumptionPanel({
                           onChange={(next) => onEnabledChange(item, next)}
                         />
                       )}
-                      {!isExternal && onOpenAsset && (
-                        <button
-                          type="button"
-                          className="mux-consumption-open"
-                          aria-label={`查看 ${presentation.name}`}
-                          onClick={() => onOpenAsset(item.asset)}
-                        >
-                          <LinkIcon className="w-4 h-4" />
-                        </button>
-                      )}
-                      {!isExternal && onRemove && (
-                        <button
-                          type="button"
-                          className="mux-consumption-open mux-consumption-remove"
-                          aria-label={removeLabel?.(presentation.name) ?? `从 Agent 移除 ${presentation.name}`}
-                          disabled={removeDisabled}
-                          onClick={() => onRemove(item.asset)}
-                        >
-                          <TrashIcon className="w-4 h-4" />
-                        </button>
-                      )}
                     </span>
                   </span>
                 )}
+                </div>
               </li>
             );
           })}

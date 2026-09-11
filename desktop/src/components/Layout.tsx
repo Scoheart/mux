@@ -19,6 +19,7 @@ import { useLocale } from "../i18n/LocaleProvider";
 import type { LocalePreference } from "../i18n";
 import { useToast } from "./Toast";
 import type { UpdaterState } from "../hooks/useUpdater";
+import { AgentLauncherProvider } from "./AgentLauncherProvider";
 import { AgentNavigation } from "./AgentNavigation";
 import { FileEditorSelect } from "./FileEditorSelect";
 import { ProxySettingsDialog } from "./ProxySettingsDialog";
@@ -119,7 +120,7 @@ export function Layout({
   };
 
   return (
-    <div className="flex flex-col h-full">
+    <AgentLauncherProvider><div className="flex flex-col h-full">
       {/* Top bar */}
       <header
         className="mux-topbar flex-shrink-0 flex items-center gap-3 px-5"
@@ -299,6 +300,6 @@ export function Layout({
           onSave={onSaveProxy}
         />
       )}
-    </div>
+    </div></AgentLauncherProvider>
   );
 }

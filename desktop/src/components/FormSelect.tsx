@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { ChevronDownIcon } from "./icons";
 
 export interface FormSelectOption {
@@ -13,6 +13,9 @@ export function FormSelect({
   onChange,
   autoFocus = false,
   placeholder,
+  triggerContent,
+  title,
+  disabled = false,
 }: {
   ariaLabel: string;
   value: string;
@@ -20,6 +23,9 @@ export function FormSelect({
   onChange: (value: string) => void;
   autoFocus?: boolean;
   placeholder?: string;
+  triggerContent?: ReactNode;
+  title?: string;
+  disabled?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const selectedIndex = Math.max(0, options.findIndex((option) => option.value === value));
@@ -68,6 +74,8 @@ export function FormSelect({
         type="button"
         role="combobox"
         aria-label={ariaLabel}
+        title={title}
+        disabled={disabled}
         aria-controls={listboxId}
         aria-expanded={open}
         aria-haspopup="listbox"
@@ -121,7 +129,7 @@ export function FormSelect({
           }
         }}
       >
-        <span className="mux-form-select-value">{selected?.label ?? placeholder ?? ""}</span>
+        <span className="mux-form-select-value">{triggerContent ?? selected?.label ?? placeholder ?? ""}</span>
         <ChevronDownIcon className="mux-form-select-chevron" />
       </button>
 
@@ -132,6 +140,7 @@ export function FormSelect({
               id={`${listboxId}-option-${index}`}
               key={option.value}
               type="button"
+              disabled={disabled}
               role="option"
               aria-selected={option.value === value}
               className="mux-form-select-option"

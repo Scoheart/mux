@@ -2,6 +2,7 @@ pub mod cli_tool;
 pub mod commands;
 mod observation_watcher;
 mod file_editors;
+mod trackpad_gestures;
 pub mod updater_guard;
 
 use tauri::Manager;
@@ -43,12 +44,17 @@ pub fn run() {
             // macOS may keep the process alive after the last window closes.
             // Always restore the configured main window on a fresh launch.
             if let Some(window) = app.get_webview_window("main") {
+                #[cfg(target_os = "macos")]
+                if let Err(error) = trackpad_gestures::install(window.clone()) {
+                    eprintln!("MUX trackpad phase bridge unavailable: {error}");
+                }
                 window.show()?;
                 window.set_focus()?;
             }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            trackpad_gestures::trackpad_gestures_available,
             file_editors::list_file_editors,
             file_editors::detect_agent_installation,
             commands::get_backend_status,
@@ -135,6 +141,8 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app, event| {
+            #[cfg(target_os = "macos")]
+            if matches!(&event, tauri::RunEvent::Exit) { trackpad_gestures::stop(); }
             if let tauri::RunEvent::Reopen {
                 has_visible_windows: false,
                 ..

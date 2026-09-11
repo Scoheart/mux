@@ -1595,6 +1595,8 @@ function ModelProviderDialog({
     });
   const enteredCredential = Boolean(credential.trim());
   const preservedCredential = Boolean(initial?.credential_saved && !clearCredential);
+  // Presence is enough to show a mask; never put a fake secret into form state.
+  const showSavedCredentialMask = preservedCredential && !credentialDirty && !credentialVisible;
   const preservesLegacySource = Boolean(initialSource && initialSource.kind !== "mux-store");
   const authWithoutCredential: ModelProviderConfig["auth_requirement"] =
     ["ollama", "lm-studio", "vllm"].includes(initialProviderType)
@@ -1775,11 +1777,14 @@ function ModelProviderDialog({
                     setCredentialDirty(true);
                     if (event.target.value.trim()) setClearCredential(false);
                   }}
-                  placeholder={initial?.credential_saved
-                    ? t("models.keepCredential")
-                    : preservesLegacySource
-                      ? t("models.legacyCredentialPreserved")
-                      : t("models.optionalCredential")}
+                  title={showSavedCredentialMask ? t("models.keepCredential") : undefined}
+                  placeholder={showSavedCredentialMask
+                    ? "••••••••"
+                    : preservedCredential
+                      ? t("models.keepCredential")
+                      : preservesLegacySource && !clearCredential
+                        ? t("models.legacyCredentialPreserved")
+                        : t("models.optionalCredential")}
                 />
                   <button
                     type="button"

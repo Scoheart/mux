@@ -772,11 +772,14 @@ dependencies = [
 name = "desktop"
 version = "1.8.189"
 dependencies = [
+ "block2",
  "chrono",
  "dirs 6.0.0",
  "libc",
  "mux-core",
  "notify",
+ "objc2",
+ "objc2-app-kit",
  "reqwest",
  "serde",
  "serde_json",

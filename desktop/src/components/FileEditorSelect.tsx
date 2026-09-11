@@ -7,11 +7,25 @@ import { useToast } from "./Toast";
 import { AgentGlyph } from "./brandIcons";
 import { ChevronDownIcon, EditIcon, FolderIcon } from "./icons";
 
+import textEditIcon from "../assets/editors/textedit.png";
+import xcodeIcon from "../assets/editors/xcode.png";
+import androidStudioIcon from "../assets/editors/android-studio.png";
+import webStormIcon from "../assets/editors/webstorm.png";
+
+const EDITOR_ICONS: Record<string, string> = {
+  TextEdit: textEditIcon,
+  Xcode: xcodeIcon,
+  "Android Studio": androidStudioIcon,
+  WebStorm: webStormIcon,
+};
+
 const STORAGE_KEY = "mux.file-editor";
 const EDITORS = ["Visual Studio Code", "Cursor", "Sublime Text", "Zed", "TextEdit"];
 const ICONS: Record<string, string> = { "Visual Studio Code": "vscode", Cursor: "cursor", Zed: "zed", Qoder: "qoder", "Qoder IDE": "qoder", Windsurf: "windsurf", Antigravity: "antigravity", ZCode: "zcode" };
 function EditorIcon({ editor }: { editor: string }) {
   editor = editorLabel(editor);
+  if (EDITOR_ICONS[editor]) return <img src={EDITOR_ICONS[editor]} alt="" aria-hidden="true" draggable={false}
+    style={{ width: 20, height: 20, objectFit: "contain", flexShrink: 0 }} />;
   if (ICONS[editor]) return <AgentGlyph id={ICONS[editor]} size={20} />;
   if (editor === "Sublime Text") return <span className="mux-editor-sublime" aria-hidden="true">S</span>;
   return editor ? <EditIcon className="w-4 h-4" /> : <FolderIcon className="w-4 h-4" />;

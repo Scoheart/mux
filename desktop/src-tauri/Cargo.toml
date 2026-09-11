@@ -36,6 +36,11 @@ libc = "0.2"
 mux-core = { path = "../../core" }
 notify = "8"
 
+[target.'cfg(target_os = "macos")'.dependencies]
+block2 = "0.6.2"
+objc2 = "0.6.4"
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "block2", "NSEvent", "NSView", "NSWindow", "NSResponder"] }
+
 # Tuned for CI build time (and a smaller dmg). Runtime perf is irrelevant for a
 # config-manager GUI, so we trade a little optimization for faster compiles.
 [profile.release]

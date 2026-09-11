@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.191](https://github.com/Scoheart/mux/compare/v1.8.190...v1.8.191) (2026-09-11)
+
+### Changes
+
+* feat(desktop): launch Agents and unify workspace controls (#182) ([437c05e](https://github.com/Scoheart/mux/commit/437c05e3dffd338d3b35d4b97e690cf80b1f53a8))
+
 ## [1.8.190](https://github.com/Scoheart/mux/compare/v1.8.189...v1.8.190) (2026-09-11)
 
 ### Changes

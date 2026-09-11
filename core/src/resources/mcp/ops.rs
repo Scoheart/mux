@@ -680,7 +680,11 @@ pub struct InstalledMcp {
 }
 
 fn observation_fingerprint(config: &McpConfig) -> String {
-    let bytes = serde_json::to_vec(config).expect("MCP configuration serializes");
+    // env/headers are HashMaps: their iteration order changes on every scan.
+    // Bind observations to configuration content, not incidental key order.
+    let mut value = serde_json::to_value(config).expect("MCP configuration serializes");
+    value.sort_all_objects();
+    let bytes = serde_json::to_vec(&value).expect("MCP configuration serializes");
     hex::encode(Sha256::digest(bytes))
 }
 

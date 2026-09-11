@@ -24,9 +24,13 @@ export function PinnedAgentDock({ agents, ids, selectedId, expanded = false, dis
   const dock = useRef<HTMLElement>(null);
   const positions = useRef(new Map<string, number>());
   const order = preview ?? ids;
+  // Fresh inventory arrays do not mean the pin order changed.
+  const orderKey = order.join("\0");
 
   useLayoutEffect(() => {
-    const buttons = Array.from(dock.current?.querySelectorAll<HTMLElement>("[data-agent-id]") ?? []);
+    // AgentGlyph also exposes data-agent-id. Measure only the direct slot
+    // buttons, otherwise each inner glyph overwrites its button's position.
+    const buttons = Array.from(dock.current?.querySelectorAll<HTMLElement>(":scope > button[data-pin-slot][data-agent-id]") ?? []);
     const measured = buttons.map((button) => ({ button, id: button.dataset.agentId!, left: button.offsetLeft }));
     const motions: Animation[] = [];
     const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -40,7 +44,7 @@ export function PinnedAgentDock({ agents, ids, selectedId, expanded = false, dis
     }
     positions.current = new Map(measured.map(({ id, left }) => [id, left]));
     return () => motions.forEach((motion) => motion.cancel());
-  }, [order]);
+  }, [orderKey]);
 
   const clearDrag = () => { dragged.current = null; previewRef.current = null; setPreview(null); };
   return <nav ref={dock} className={`mux-pinned-agent-bar${expanded ? " mux-hand-dock" : ""}`}
@@ -52,8 +56,8 @@ export function PinnedAgentDock({ agents, ids, selectedId, expanded = false, dis
       const label = replacementName ? `用 ${replacementName} 替换 ${agent?.name ?? "空位"}` : agent?.name ?? "空置顶位";
       return <button key={id ?? `empty-${index}`} type="button" className="mux-pinned-agent"
         data-agent-id={id} data-pin-slot={index} data-empty={!agent || undefined}
-        data-active={selectedId === id && !expanded ? "true" : undefined}
-        aria-current={selectedId === id && !expanded ? "page" : undefined}
+        data-active={selectedId === id ? "true" : undefined}
+        aria-current={selectedId === id ? "page" : undefined}
         aria-label={label} title={replacementName ? label : agent ? `${agent.name} · 拖动排序，Option + 左右方向键调整` : label}
         aria-keyshortcuts="Alt+ArrowLeft Alt+ArrowRight" disabled={disabled}
         draggable={Boolean(agent) && !disabled && !replacementName}

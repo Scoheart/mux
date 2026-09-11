@@ -438,7 +438,7 @@ body {
 .mux-agent-navigation { display: flex; width: 100%; min-width: 0; flex: 1 1 auto; align-items: center; justify-content: flex-end; gap: 8px; }
 .mux-agent-picker-cluster { position: relative; display: flex; max-width: 100%; min-width: 0; flex: 0 1 auto; align-items: center; gap: 8px; }
 .mux-pinned-agent-bar {
-  display: flex; min-width: 0; height: 40px; flex: 0 0 auto; align-items: center; gap: 3px; padding: 3px 5px;
+  position: relative; display: flex; min-width: 0; height: 40px; flex: 0 0 auto; align-items: center; gap: 3px; padding: 3px 5px;
   overflow: hidden;
   border: 0; border-radius: 14px; background: var(--surface-section); box-shadow: none; scrollbar-width: none;
 }
@@ -455,7 +455,7 @@ body {
   container-name: mux-agent-picker-anchor; container-type: inline-size;
 }
 .mux-agent-picker-trigger { display: inline-flex; width: 100%; height: 40px; align-items: center; gap: 7px; padding: 0 10px; border: 0; border-radius: 12px; background: var(--surface-section); color: var(--text-primary); box-shadow: none; cursor: pointer; }
-.mux-agent-picker-trigger:hover, .mux-agent-picker-trigger[data-active="true"] { background: var(--surface-selected); }
+.mux-agent-picker-trigger:hover { background: color-mix(in srgb, var(--text-primary) 7%, var(--surface-section)); }
 .mux-agent-picker-trigger[data-open="true"] { background: var(--surface-raised); box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-blue) 16%, transparent); }
 .mux-agent-picker-trigger-name { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; font: 650 12px/1 var(--font-sans); }
 .mux-agent-picker-chevron { width: 14px; height: 14px; flex: 0 0 auto; color: var(--text-secondary); transition: transform .14s ease, color .14s ease; }

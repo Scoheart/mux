@@ -808,7 +808,10 @@ pub fn recover_pending_asset_operations() -> Result<Vec<String>, String> {
         let persisted =
             load_operation(&operation_id).map_err(|error| format!("recovery_required: {error}"))?;
         if operation_should_pause_for_target_incident(&operation_id)? {
-            record_recovery_incidents(&persisted.plan)?;
+            // Incidents are persisted before this marker. A later operation may
+            // already have repaired some targets while peers remain pending.
+            // Recreating every original incident would resurrect those resolved
+            // targets (and overwrite newer incidents) on each startup.
             continue;
         }
         match recover_pending_asset_operation(&persisted, &entry.path()) {

@@ -2,8 +2,9 @@ import { startTransition, useEffect, useLayoutEffect, useMemo, useRef, useState,
 import type { AgentInfo } from "../lib/types";
 import { MAX_PINNED_AGENTS } from "../lib/pinnedAgents";
 import { agentHandMetrics } from "../lib/agentHandLayout";
+import { useHandTrackpadPaging } from "../hooks/useHandTrackpadPaging";
 import { AgentGlyph } from "./brandIcons";
-import { ArrowLeftIcon, PinIcon, PinOffIcon, PlusIcon, SearchIcon } from "./icons";
+import { ArrowLeftIcon, ChevronDownIcon, PackageIcon, PinIcon, PinOffIcon, PlusIcon, SearchIcon } from "./icons";
 import { Modal } from "./ui";
 import { PinnedAgentDock } from "./PinnedAgentDock";
 import { AgentEntryTransition, type AgentEntryOrigin } from "./AgentEntryTransition";
@@ -15,9 +16,10 @@ const ADD_ID = "__mux_add_agent__";
 const reducedMotion = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 const pose = (x: number, y: number, angle = 0, scale = 1) => `translate3d(${x}px,${y}px,0) rotate(${angle}deg) scale(${scale})`;
 
-export function AgentHandPicker({ agents, pinnedIds, ready, saving, anchorRef, triggerRef, onSavePins, onSelect, onAdd, onClose }: {
+export function AgentHandPicker({ agents, pinnedIds, selectedAgentId, ready, saving, anchorRef, triggerRef, onSavePins, onSelect, onAdd, onClose }: {
   agents: AgentInfo[];
   pinnedIds: string[];
+  selectedAgentId: string | null;
   ready: boolean;
   saving: boolean;
   anchorRef: RefObject<HTMLDivElement | null>;
@@ -32,13 +34,16 @@ export function AgentHandPicker({ agents, pinnedIds, ready, saving, anchorRef, t
   const [page, setPage] = useState(0);
   const [width, setWidth] = useState(Math.min(window.innerWidth * .6 + 96, window.innerWidth - 144));
   const [viewportWidth, setViewportWidth] = useState(window.innerWidth);
-  const [dockPosition, setDockPosition] = useState({ left: 16, top: 16 });
+  const [dockPosition, setDockPosition] = useState({ left: 16, top: 16, width: 460, dockWidth: 0 });
   const [highlighted, setHighlighted] = useState<string | null>(null);
   const [replacement, setReplacement] = useState<AgentInfo | null>(null);
   const [announcement, setAnnouncement] = useState("");
   const [busy, setBusy] = useState(false);
+  const [closing, setClosing] = useState(false);
+  const selectedAgent = agents.find((agent) => agent.id === selectedAgentId);
   const [playing, setPlaying] = useState<string | null>(null);
   const [entryTransition, setEntryTransition] = useState<{ agent: AgentInfo; origin: AgentEntryOrigin; overlay: HTMLElement | null } | null>(null);
+  const stageRef = useRef<HTMLDivElement>(null);
   const boardRef = useRef<HTMLDivElement>(null);
   const dockRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
@@ -47,6 +52,7 @@ export function AgentHandPicker({ agents, pinnedIds, ready, saving, anchorRef, t
   const lock = useRef(false);
   const mounted = useRef(true);
   const entered = useRef(false);
+  const previousPage = useRef(0);
   const keyboard = useRef(false);
   const focusFrame = useRef<number | null>(null);
 
@@ -63,6 +69,11 @@ export function AgentHandPicker({ agents, pinnedIds, ready, saving, anchorRef, t
   const pageSize = width < 430 ? 3 : width < 620 ? 6 : width < 780 ? 9 : 10;
   const pageCount = Math.max(1, Math.ceil(items.length / pageSize));
   const actualPage = Math.min(page, pageCount - 1);
+  useHandTrackpadPaging(stageRef, pageCount > 1 && !busy && !saving && !replacement, (pages) => {
+    if (lock.current) return;
+    setPage((current) => Math.max(0, Math.min(pageCount - 1, Math.min(current, pageCount - 1) + pages)));
+    setHighlighted(null);
+  });
   const visible = items.slice(actualPage * pageSize, (actualPage + 1) * pageSize);
   const handSpan = Math.min(viewportWidth * .6, width - 32);
   const cardWidth = width < 430 ? 76 : Math.max(84, Math.min(112, handSpan / 8.5));
@@ -103,10 +114,15 @@ export function AgentHandPicker({ agents, pinnedIds, ready, saving, anchorRef, t
       if (boardRef.current) setWidth(boardRef.current.clientWidth);
       setViewportWidth(window.innerWidth);
       const bounds = anchorRef.current?.getBoundingClientRect();
-      const topbarWidth = Math.min(590, window.innerWidth - 48);
-      const next = { left: Math.max(24, Math.min(bounds?.left ?? (window.innerWidth - topbarWidth) / 2, window.innerWidth - topbarWidth - 24)),
-        top: Math.max(8, bounds?.top ?? 16) };
-      setDockPosition((previous) => previous.left === next.left && previous.top === next.top ? previous : next);
+      const sourceDock = anchorRef.current?.querySelector<HTMLElement>(".mux-pinned-agent-bar");
+      const dockWidth = sourceDock?.getBoundingClientRect().width ?? 0;
+      const left = bounds?.left ?? 24;
+      // Borrow the actual toolbar geometry, including responsive pin slots.
+      // Only a collapsed icon-only selector needs extra room to type a query.
+      const next = { left, top: bounds?.top ?? 16, dockWidth,
+        width: Math.min(Math.max(bounds?.width ?? 220, dockWidth + (dockWidth ? 8 : 0) + 160), window.innerWidth - left - 16) };
+      setDockPosition((previous) => previous.left === next.left && previous.top === next.top &&
+        previous.width === next.width && previous.dockWidth === next.dockWidth ? previous : next);
     };
     const scheduleMeasure = () => {
       if (frame !== null) return;
@@ -115,6 +131,7 @@ export function AgentHandPicker({ agents, pinnedIds, ready, saving, anchorRef, t
     measure();
     const observer = new ResizeObserver(scheduleMeasure);
     if (boardRef.current) observer.observe(boardRef.current);
+    if (anchorRef.current) observer.observe(anchorRef.current);
     window.addEventListener("resize", scheduleMeasure);
     return () => {
       if (frame !== null) cancelAnimationFrame(frame);
@@ -122,9 +139,9 @@ export function AgentHandPicker({ agents, pinnedIds, ready, saving, anchorRef, t
     };
   }, [anchorRef]);
 
-  const animate = (element: HTMLElement, frames: Keyframe[], duration: number, delay = 0) => {
+  const animate = (element: HTMLElement, frames: Keyframe[], duration: number, delay = 0, easing = "cubic-bezier(.22,.7,.25,1)") => {
     if (reducedMotion()) return Promise.resolve();
-    const motion = element.animate(frames, { duration, delay, easing: "cubic-bezier(.22,.7,.25,1)", fill: "both" });
+    const motion = element.animate(frames, { duration, delay, easing, fill: "both" });
     motions.current.add(motion);
     return motion.finished.catch(() => undefined).then(() => { motions.current.delete(motion); });
   };
@@ -137,15 +154,25 @@ export function AgentHandPicker({ agents, pinnedIds, ready, saving, anchorRef, t
     const bounds = board.getBoundingClientRect();
     const source = triggerRef.current?.getBoundingClientRect();
     const first = !entered.current;
+    const pageDirection = actualPage < previousPage.current ? -1 : 1;
+    previousPage.current = actualPage;
     const pile = pose(first && source ? source.left + source.width / 2 - bounds.left - cardWidth / 2 : width / 2 - cardWidth / 2,
       first && source ? source.top + source.height / 2 - bounds.top - cardHeight / 2 : 115, -10, .4);
     const deals: Animation[] = [];
     visible.forEach(({ id }, index) => {
       const card = cardRefs.current.get(id);
       if (!card || reducedMotion()) return;
-      card.dataset.dealing = "true";
-      const motion = card.animate([{ transform: pile, opacity: 0 }, { transform: card.style.transform, opacity: 1 }], {
-        duration: 250, delay: index * Math.min(28, 168 / Math.max(1, visible.length - 1)), easing: "cubic-bezier(.2,.8,.2,1)", fill: "backwards",
+      if (first) card.dataset.dealing = "true";
+      const point = positions[index];
+      // Only opening deals from a pile. Paging keeps the hand in place and
+      // never disables its hit area or restarts a staggered entrance.
+      const frames = first
+        ? [{ transform: pile, opacity: 0 }, { transform: card.style.transform, opacity: 1 }]
+        : [{ transform: pose(point.x + pageDirection * 24, point.y, point.angle) }, { transform: card.style.transform }];
+      const motion = card.animate(frames, {
+        duration: first ? 250 : 130,
+        delay: first ? index * Math.min(28, 168 / Math.max(1, visible.length - 1)) : 0,
+        easing: "cubic-bezier(.2,.8,.2,1)", fill: "backwards",
       });
       deals.push(motion); motions.current.add(motion);
       motion.onfinish = () => { delete card.dataset.dealing; motions.current.delete(motion); };
@@ -155,7 +182,7 @@ export function AgentHandPicker({ agents, pinnedIds, ready, saving, anchorRef, t
       deals.forEach((motion) => { motion.cancel(); motions.current.delete(motion); });
       cardRefs.current.forEach((card) => { delete card.dataset.dealing; });
     };
-    // The hand redeals only when its identities or measured layout change.
+    // Slot contents/layout can change without replaying the opening deal.
     // Pin/save/highlight renders must not replay the entrance animation.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [handKey]);
@@ -174,16 +201,28 @@ export function AgentHandPicker({ agents, pinnedIds, ready, saving, anchorRef, t
   const close = async () => {
     if (replacement && !lock.current) { setReplacement(null); searchRef.current?.focus(); setAnnouncement(""); return; }
     if (!begin()) return;
+    setClosing(true);
     const board = boardRef.current?.getBoundingClientRect();
     const source = triggerRef.current?.getBoundingClientRect();
     const target = pose(source && board ? source.left + source.width / 2 - board.left - cardWidth / 2 : width / 2 - cardWidth / 2,
       source && board ? source.top + source.height / 2 - board.top - cardHeight / 2 : 120, -10, .35);
     const cards = freezeCards();
-    await Promise.all(cards.map(({ card, transform, opacity }, index) => animate(card, [{ transform, opacity }, { transform: target, opacity: 0 }], 150, (cards.length - index - 1) * Math.min(12, 72 / Math.max(1, cards.length - 1)))));
+    // Keep the cards readable as they gather; fade only near the end of the
+    // flight, then reveal the page without abruptly removing the backdrop.
+    const stagger = Math.min(20, 120 / Math.max(1, cards.length - 1));
+    const flights = cards.map(({ card, transform, opacity }, index) => animate(card, [
+      { transform, opacity, offset: 0 },
+      { opacity, offset: .65 },
+      { transform: target, opacity: 0, offset: 1 },
+    ], 380, (cards.length - index - 1) * stagger, "cubic-bezier(.4,0,.2,1)"));
+    const overlay = boardRef.current?.closest<HTMLElement>("[data-modal-overlay]");
+    if (overlay) flights.push(animate(overlay, [{ opacity: 1 }, { opacity: 0 }], 180, 360));
+    await Promise.all(flights);
     if (mounted.current) onClose();
   };
   const select = (id: string) => {
     if (replacement || !begin()) return;
+    setClosing(true);
     const cards = freezeCards();
     const current = cards.find(({ card }) => card.dataset.handId === id);
     const agent = agents.find((agent) => agent.id === id);
@@ -225,7 +264,7 @@ export function AgentHandPicker({ agents, pinnedIds, ready, saving, anchorRef, t
     const card = cardRefs.current.get(agent.id);
     const target = slot !== undefined ? dockRef.current?.querySelector<HTMLElement>(`[data-pin-slot="${slot}"]`) : null;
     let flight = Promise.resolve();
-    if (card && target && boardRef.current) {
+    if (card && target && target.getClientRects().length && boardRef.current) {
       const bounds = boardRef.current.getBoundingClientRect(), destination = target.getBoundingClientRect();
       setPlaying(agent.id);
       flight = animate(card, [{ transform: getComputedStyle(card).transform, opacity: 1 }, {
@@ -262,11 +301,18 @@ export function AgentHandPicker({ agents, pinnedIds, ready, saving, anchorRef, t
   };
   const changeGroup = (next: Group) => { if (busy || saving) return; setGroup(next); setQuery(""); setPage(0); setReplacement(null); setAnnouncement(""); setHighlighted(null); };
 
+  // Pin replacement must expose every slot even when the main toolbar is compact.
+  const shownDockWidth = replacement ? MAX_PINNED_AGENTS * 34 + (MAX_PINNED_AGENTS - 1) * 3 + 10 : dockPosition.dockWidth;
+  const shownTopbarWidth = replacement
+    ? Math.min(Math.max(dockPosition.width, shownDockWidth + 168), viewportWidth - 32)
+    : dockPosition.width;
+  const shownTopbarLeft = replacement ? Math.min(dockPosition.left, viewportWidth - shownTopbarWidth - 16) : dockPosition.left;
+
   return <Modal width="min(calc(60vw + 96px), calc(100vw - 144px))" maxHeight="calc(100dvh - 120px)" ariaLabel="选择和置顶 Agent" layer="agent-hand" onClose={() => void close()}>
-    <div className="mux-agent-hand-picker" data-busy={busy || saving || undefined} data-playing={playing || undefined} data-entering={entryTransition ? "true" : undefined}>
-      <div className="mux-agent-hand-topbar" style={dockPosition}>
-      <div ref={dockRef} className="mux-agent-hand-pinned">
-        <PinnedAgentDock expanded agents={agents} ids={pinnedIds} disabled={!ready || saving || busy}
+    <div className="mux-agent-hand-picker" data-busy={busy || saving || undefined} data-playing={playing || undefined} data-entering={entryTransition ? "true" : undefined} data-closing={closing || undefined}>
+      <div className="mux-agent-hand-topbar" style={{ left: shownTopbarLeft, top: dockPosition.top, width: shownTopbarWidth }}>
+      <div ref={dockRef} className="mux-agent-hand-pinned" style={{ width: shownDockWidth, display: shownDockWidth ? undefined : "none" }}>
+        <PinnedAgentDock expanded agents={agents} ids={pinnedIds} selectedId={selectedAgentId} disabled={!ready || saving || busy}
           replacementName={replacement?.name} onReplace={(index) => {
             if (!replacement) return;
             const next = [...pinnedIds]; next[index] = replacement.id;
@@ -279,19 +325,36 @@ export function AgentHandPicker({ agents, pinnedIds, ready, saving, anchorRef, t
           }} />
       </div>
       <div className="mux-agent-hand-toolbar">
-        <label className="mux-agent-hand-search"><SearchIcon className="w-4 h-4" />
+        <label className="mux-agent-hand-search" data-active={selectedAgent ? "true" : undefined}>
+          <span className="mux-agent-hand-search-content"><SearchIcon className="w-4 h-4" />
           <input ref={searchRef} data-modal-initial-focus type="search" autoComplete="off" spellCheck={false} placeholder="搜索名称或 ID" aria-label="搜索 Agent"
             value={query} disabled={busy || saving} onChange={(event) => { setQuery(event.target.value); setPage(0); setReplacement(null); setAnnouncement(""); }} />
+          </span>
+          <span className="mux-agent-hand-return" aria-hidden="true">
+            {selectedAgent ? <AgentGlyph id={selectedAgent.id} name={selectedAgent.name} size={24} /> : <PackageIcon className="w-5 h-5 flex-shrink-0" />}
+            <span className="mux-agent-picker-trigger-name">{selectedAgent?.name ?? "选择 Agent"}</span>
+            <ChevronDownIcon className="mux-agent-picker-chevron" />
+          </span>
         </label>
       </div>
       </div>
-      <div className="mux-agent-hand-stage">
-      <button type="button" className="mux-agent-hand-page mux-agent-hand-page-prev" aria-label="上一手 Agent" title="上一页"
-        disabled={actualPage === 0 || busy || saving || Boolean(replacement)} onClick={() => { setPage(actualPage - 1); setHighlighted(null); }}><ArrowLeftIcon className="w-5 h-5" /></button>
+      <div ref={stageRef} className="mux-agent-hand-stage">
+      {pageCount > 1 && <button type="button" className="mux-agent-hand-page mux-agent-hand-page-prev" aria-label="上一手 Agent" title="上一页"
+        disabled={actualPage === 0 || busy || saving || Boolean(replacement)} onClick={() => { setPage(actualPage - 1); setHighlighted(null); }}><ArrowLeftIcon className="w-5 h-5" /></button>}
       <div ref={boardRef} className="mux-agent-hand-board" style={{ height: Math.max(234, cardHeight + metrics.rise + 76) }} onPointerLeave={() => { if (!keyboard.current) setHighlighted(null); }}
         onPointerMove={(event) => {
-          if (busy || replacement || (!event.movementX && !event.movementY)) return;
+          if (busy || replacement || event.buttons !== 0 || (!event.movementX && !event.movementY)) return;
           keyboard.current = false;
+          // The raised, rotated card can extend into its neighbour's horizontal
+          // lane. Keep its actual hit area (especially the pin) interactive.
+          const target = event.target instanceof Element ? event.target : null;
+          const hitCard = target?.closest<HTMLElement>(".mux-agent-hand-card");
+          const hitId = hitCard?.dataset.handId;
+          if (hitCard && hitId && event.currentTarget.contains(hitCard) &&
+              (hitId === highlighted || target?.closest(".mux-agent-hand-pin"))) {
+            setHighlighted(hitId);
+            return;
+          }
           const bounds = event.currentTarget.getBoundingClientRect();
           const x = event.clientX - bounds.left, y = event.clientY - bounds.top;
           let nearest = -1, distance = Infinity;
@@ -299,7 +362,7 @@ export function AgentHandPicker({ agents, pinnedIds, ready, saving, anchorRef, t
           const point = positions[nearest];
           setHighlighted(point && distance < cardWidth * .65 && y > point.y - 32 && y < point.y + cardHeight + 5 ? visible[nearest].id : null);
         }}>
-        {visible.map(({ id, agent }, index) => <article key={id} ref={(node) => { if (node) cardRefs.current.set(id, node); else cardRefs.current.delete(id); }}
+        {visible.map(({ id, agent }, index) => <article key={`hand-slot-${index}`} ref={(node) => { if (node) cardRefs.current.set(id, node); else cardRefs.current.delete(id); }}
           data-hand-id={id} className="mux-agent-hand-card" data-highlighted={highlighted === id || undefined} data-playing={playing === id || undefined}
           data-new={!agent || undefined} style={{ width: cardWidth, height: cardHeight, transform: pose(positions[index].x, positions[index].y, positions[index].angle), "--hand-order": index } as CSSProperties}>
           <div className="mux-agent-hand-tile">
@@ -325,13 +388,17 @@ export function AgentHandPicker({ agents, pinnedIds, ready, saving, anchorRef, t
         </article>)}
         {!visible.length && <p className="mux-agent-hand-empty">{query ? "未找到匹配的 Agent" : "点击卡片上的图钉，将常用 Agent 放到这里"}</p>}
       </div>
-      <button type="button" className="mux-agent-hand-page mux-agent-hand-page-next" aria-label="下一手 Agent" title="下一页"
-        disabled={actualPage + 1 === pageCount || busy || saving || Boolean(replacement)} onClick={() => { setPage(actualPage + 1); setHighlighted(null); }}><ArrowLeftIcon className="w-5 h-5 rotate-180" /></button>
+      {pageCount > 1 && <button type="button" className="mux-agent-hand-page mux-agent-hand-page-next" aria-label="下一手 Agent" title="下一页"
+        disabled={actualPage + 1 === pageCount || busy || saving || Boolean(replacement)} onClick={() => { setPage(actualPage + 1); setHighlighted(null); }}><ArrowLeftIcon className="w-5 h-5 rotate-180" /></button>}
       </div>
       <div className="mux-agent-hand-pagination">
-        <span>{actualPage + 1} / {pageCount}</span>
-        <span aria-hidden="true">·</span>
-        <span>{rows.length} 个 Agent</span>
+        {pageCount > 1 && <nav aria-label="Agent 分页">
+          {Array.from({ length: pageCount }, (_, index) => <button key={index} type="button"
+            className="mux-agent-hand-dot" aria-label={`第 ${index + 1} 页，共 ${pageCount} 页`}
+            aria-current={actualPage === index ? "page" : undefined} title={`第 ${index + 1} 页`}
+            disabled={busy || saving || Boolean(replacement)}
+            onClick={() => { setPage(index); setHighlighted(null); }} />)}
+        </nav>}
       </div>
       <div className="mux-agent-hand-footer">
       <div className="mux-agent-hand-filters" role="group" aria-label="Agent 分类">

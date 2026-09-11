@@ -44,7 +44,7 @@ export function AgentNavigation({ agents, selectedAgentId, onSelectAgent, onAddA
         </button>
       </div>
     </div>
-    {open && <AgentHandPicker agents={available} pinnedIds={pinnedIds} ready={pinned.ready} saving={pinned.saving}
+    {open && <AgentHandPicker agents={available} pinnedIds={pinnedIds} selectedAgentId={selectedAgentId} ready={pinned.ready} saving={pinned.saving}
       anchorRef={anchorRef} triggerRef={triggerRef} onSavePins={pinned.commit}
       onClose={() => setOpen(false)} onSelect={onSelectAgent}
       onAdd={onAddAgent ? () => { setOpen(false); onAddAgent(); } : undefined} />}

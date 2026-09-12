@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import type {
   AgentConfigurationPatch,
   AgentInfo,
+  ApiKeyDelivery,
   AssetOperationPlan,
   ModelAgentView,
 } from "../lib/types";
@@ -9,15 +10,33 @@ import {
   cancelOperation,
   commitOperation,
   planOperation,
+  setAgentCredentialDelivery,
 } from "../lib/api";
 import { formatError } from "../lib/format";
 import { DialogShell } from "./DialogShell";
 import { AssetOperationReviewDialog } from "./AssetOperationReviewDialog";
-import { LayersIcon, PackageIcon, PlusIcon, SparklesIcon, TrashIcon } from "./icons";
+import { KeyIcon, LayersIcon, PackageIcon, PlusIcon, SparklesIcon, TrashIcon } from "./icons";
 import { useToast } from "./Toast";
 import { configureAgentLaunch, getAgentLaunchInfo, type AgentLaunchInfo } from "../lib/agentLaunch";
 import { AgentLaunchFields, agentLaunchDraftChanged, agentLaunchDraftTarget, agentLaunchDraftValid, createAgentLaunchDraft, type AgentLaunchDraft } from "./AgentLaunchFields";
+import { FormSelect } from "./FormSelect";
 import "./AgentLaunch.css";
+
+function deliveryLabel(value: ApiKeyDelivery) {
+  if (value === "env") return "环境变量";
+  if (value === "command") return "命令";
+  if (value === "agent-store") return "Agent 凭据库";
+  if (value === "plaintext") return "明文配置";
+  return "自动适配";
+}
+
+function resolvedAgentDelivery(agent: ModelAgentView): ApiKeyDelivery {
+  const available = agent.available_deliveries ?? [];
+  const stored = agent.default_delivery ?? "plaintext";
+  if (available.includes(stored)) return stored;
+  if (available.includes("plaintext")) return "plaintext";
+  return available[0] ?? "auto";
+}
 
 export function AgentConfigurationDialog({
   agent,
@@ -47,6 +66,12 @@ export function AgentConfigurationDialog({
       ? agent.skills_global_dirs
       : agent.skills_global_dir ? [agent.skills_global_dir] : [],
   );
+  const hasDelivery = modelAgent?.mode === "managed" && (modelAgent.available_deliveries?.length ?? 0) > 0;
+  const [delivery, setDelivery] = useState<ApiKeyDelivery>(() => modelAgent ? resolvedAgentDelivery(modelAgent) : "auto");
+  const [savedDelivery, setSavedDelivery] = useState(delivery);
+  const [confirmingPlaintext, setConfirmingPlaintext] = useState(false);
+  const plaintextApproved = useRef(false);
+  const deliveryChanged = hasDelivery && delivery !== savedDelivery;
   const [busy, setBusy] = useState(false);
   const [plan, setPlan] = useState<AssetOperationPlan | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -77,7 +102,7 @@ export function AgentConfigurationDialog({
       && modelPaths.every((path) => path.trim().length > 0)))
     && (!hasSkills || (skillsPaths.length > 0
       && skillsPaths.every((path) => path.trim().length > 0)));
-  const canSubmit = !busy && !browsing && !launchLoading && (configurationChanged || launchChanged)
+  const canSubmit = !busy && !browsing && !launchLoading && (configurationChanged || launchChanged || deliveryChanged)
     && (!configurationChanged || configurationValid) && (!launchChanged || launchDraft && agentLaunchDraftValid(launchDraft));
 
   useEffect(() => {
@@ -105,14 +130,27 @@ export function AgentConfigurationDialog({
     onLaunchSaved?.();
   };
 
+  const savePreferences = async () => {
+    if (deliveryChanged) {
+      await setAgentCredentialDelivery(agent.id, delivery, plaintextApproved.current);
+      setSavedDelivery(delivery);
+    }
+    await saveLaunch();
+  };
+
   const save = async () => {
     if (!canSubmit) return;
+    if (deliveryChanged && delivery === "plaintext" && !plaintextApproved.current) {
+      setConfirmingPlaintext(true);
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
       if (!configurationChanged) {
-        await saveLaunch();
-        toast.show({ kind: "success", msg: `${agent.name} 启动设置已更新。` });
+        await savePreferences();
+        await onSaved();
+        toast.show({ kind: "success", msg: `${agent.name} 配置已更新。` });
         onClose();
         return;
       }
@@ -159,18 +197,17 @@ export function AgentConfigurationDialog({
       configurationCommitted = true;
       setSavedConfiguration(reviewedConfiguration.current ?? JSON.stringify(configurationPatch()));
       setPlan(null);
-      await saveLaunch();
+      await savePreferences();
       launchCommitted = true;
       await onSaved();
       toast.show({ kind: "success", msg: `${agent.name} 配置已更新。` });
       onClose();
     } catch (commitError) {
       setError(configurationCommitted
-        ? `${launchCommitted ? "配置已保存，刷新失败" : "配置路径已保存，启动设置未保存，可重试"}：${formatError(commitError)}`
+        ? `${launchCommitted ? "配置已保存，刷新失败" : "配置路径已保存，凭据或启动设置尚未全部保存，可重试"}：${formatError(commitError)}`
         : formatError(commitError));
       if (configurationCommitted && !launchCommitted) {
-        // Refresh saved paths, but keep the launch draft so retry cannot repeat
-        // the already committed capability operation.
+        // Keep unsaved preferences so retry does not repeat committed changes.
         try { await onSaved(); } catch { /* The original save error stays visible. */ }
       }
     } finally {
@@ -187,6 +224,7 @@ export function AgentConfigurationDialog({
         operation_id: plan.operation_id,
       });
       setPlan(null);
+      plaintextApproved.current = false;
       setError(null);
     } catch (cancelError) {
       setError(formatError(cancelError));
@@ -206,6 +244,29 @@ export function AgentConfigurationDialog({
       candidate === index ? value : path
     )));
   };
+
+  if (confirmingPlaintext) {
+    return (
+      <DialogShell kind="review" size="sm" className="mux-plaintext-confirmation"
+        title="明文写入 API Key" subtitle={agent.name}
+        onClose={() => setConfirmingPlaintext(false)}
+        footerEnd={<>
+          <button type="button" className="btn-secondary" onClick={() => setConfirmingPlaintext(false)}>返回编辑</button>
+          <button type="button" className="btn-danger" onClick={() => {
+            plaintextApproved.current = true;
+            setConfirmingPlaintext(false);
+            void save();
+          }}>确认明文写入</button>
+        </>}
+      >
+        <div className="mux-plaintext-confirmation-body">
+          <strong>将把 Provider API Key 明文写入 {agent.name} 配置</strong>
+          <code>{modelPaths[0]?.trim() || modelAgent?.config_path}</code>
+          <span>仅对该 Agent 生效，文件权限将收紧为 0600。之后添加的 Model 都按此策略写入。</span>
+        </div>
+      </DialogShell>
+    );
+  }
 
   if (plan) {
     return (
@@ -316,6 +377,17 @@ export function AgentConfigurationDialog({
           </button>
         )}
       </fieldset>
+      {hasDelivery && (
+        <section className="mux-agent-config-launch" aria-label="凭据设置">
+          <div className="mux-agent-config-field">
+            <span className="mux-agent-config-field-icon"><KeyIcon className="w-4 h-4" /></span>
+            <strong>凭据方式</strong>
+            <FormSelect ariaLabel="凭据方式" value={delivery} disabled={busy || browsing}
+              options={(modelAgent?.available_deliveries ?? []).map((value) => ({ value, label: deliveryLabel(value) }))}
+              onChange={(value) => { setDelivery(value as ApiKeyDelivery); plaintextApproved.current = false; }} />
+          </div>
+        </section>
+      )}
       <section ref={launchSection} className="mux-agent-config-launch" aria-label="启动设置">
         <h3>启动方式</h3>
         {launchLoading ? <p className="mux-launch-hint" role="status">读取中…</p>

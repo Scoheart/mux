@@ -40,3 +40,7 @@
 .mux-launch-install-status { width: 5px; height: 5px; flex: 0 0 5px; border-radius: 50%; background: var(--text-tertiary); }
 .mux-launch-install-status[data-ready="true"] { background: var(--color-green); }
 .mux-launch-action[data-split="false"] .mux-launch-primary { border-radius: inherit; }
+
+@media (max-width: 620px) {
+  .mux-agent-config-field > .mux-form-select { grid-column: 1 / -1; }
+}

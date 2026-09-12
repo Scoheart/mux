@@ -15,7 +15,6 @@ import type { ConsumptionState } from "../hooks/useConsumptionState";
 import { useMcpIconPreferences } from "../hooks/useMcpIconPreferences";
 import type {
   AgentConsumptionSelection,
-  ApiKeyDelivery,
   AssetOperationPlan,
   AssetRef,
   ConsumptionView,
@@ -30,7 +29,7 @@ import { formatError } from "../lib/format";
 import { keyOf, transportOf } from "../lib/mcp";
 import { consumptionsForAgent, externalForAgent } from "../lib/consumption";
 import { requiresAgentReview } from "../lib/agentOperation";
-import { listModelAgents, listModelProfiles, setAgentCredentialDelivery } from "../lib/api";
+import { listModelAgents, listModelProfiles } from "../lib/api";
 import {
   EditIcon,
   ChevronDownIcon,
@@ -61,8 +60,6 @@ import { mergeAgentInfos } from "../lib/agentCapabilities";
 import { SkillReviewDialog } from "./SkillReviewDialog";
 import { useTranslation } from "react-i18next";
 import { McpAvatar } from "./McpIcon";
-import { FormSelect } from "./FormSelect";
-import { DialogShell } from "./DialogShell";
 
 type PickerDomain = "mcp" | "model" | "skill";
 type ConfigLocationKind = "file" | "folder";
@@ -96,29 +93,6 @@ function modelCompatibilityReason(profile: ModelProfileView, agent: ModelAgentVi
   if (!agent || agent.mode !== "managed") return "此 Agent 不支持 MUX Model 管理";
   if (!agent.supported_protocols.includes(profile.protocol)) return "协议不兼容";
   return null;
-}
-
-function deliveryLabel(value: ApiKeyDelivery) {
-  if (value === "env") return "环境变量";
-  if (value === "command") return "命令";
-  if (value === "agent-store") return "Agent 凭据库";
-  if (value === "plaintext") return "明文配置";
-  return "自动适配";
-}
-
-function compactDeliveryLabel(value: ApiKeyDelivery) {
-  if (value === "plaintext") return "明文";
-  if (value === "agent-store") return "凭据库";
-  if (value === "auto") return "自动";
-  return deliveryLabel(value);
-}
-
-function resolvedAgentDelivery(agent: ModelAgentView): ApiKeyDelivery {
-  const available = agent.available_deliveries ?? [];
-  const stored = agent.default_delivery ?? "plaintext";
-  if (available.includes(stored)) return stored;
-  if (available.includes("plaintext")) return "plaintext";
-  return available[0] ?? "auto";
 }
 
 interface AgentViewProps {
@@ -191,10 +165,6 @@ export function AgentView({
     enabled: boolean;
   } | null>(null);
   const [changingModel, setChangingModel] = useState<{ profileId: string } | null>(null);
-  const [changingCredential, setChangingCredential] = useState(false);
-  const [plaintextConfirmation, setPlaintextConfirmation] = useState<{
-    target: string;
-  } | null>(null);
   const [skillConvergencePlan, setSkillConvergencePlan] = useState<OperationPlan | null>(null);
   const [userHome, setUserHome] = useState("");
 
@@ -678,22 +648,6 @@ export function AgentView({
     showToast({ kind: "error", msg: "请先选择其他当前 Model。" });
   };
 
-  const applyAgentDelivery = async (
-    delivery: ApiKeyDelivery,
-    confirmPlaintext = false,
-  ) => {
-    setChangingCredential(true);
-    try {
-      await setAgentCredentialDelivery(agentId, delivery, confirmPlaintext);
-      await Promise.all([refreshModels(), consumptionState.refresh()]);
-      showToast({ kind: "success", msg: "凭据策略已更新。" });
-    } catch (error) {
-      showToast({ kind: "error", msg: `更新凭据策略失败：${formatError(error)}` });
-    } finally {
-      setChangingCredential(false);
-    }
-  };
-
   const converge = async (item: ConsumptionView, action: ConvergenceAction) => {
     if (preparingChange) return;
     setPreparingChange(true);
@@ -743,36 +697,6 @@ export function AgentView({
       <div className="mux-agent-shell">
         <section className="mux-agent-workbench" aria-label={`${agent.name} 工作区`}>
           <AgentHeader agent={agent} actions={<>
-            {modelAgent?.mode === "managed" && (modelAgent.available_deliveries?.length ?? 0) > 0 && (
-              <div
-                className="mux-agent-credential-strategy"
-                data-busy={changingCredential ? "true" : undefined}
-              >
-                <FormSelect
-                  ariaLabel={`${agent.name} 凭据方式：${deliveryLabel(resolvedAgentDelivery(modelAgent))}`}
-                  title={`凭据方式：${deliveryLabel(resolvedAgentDelivery(modelAgent))}`}
-                  disabled={changingCredential}
-                  triggerContent={<span>{compactDeliveryLabel(resolvedAgentDelivery(modelAgent))}</span>}
-                  value={resolvedAgentDelivery(modelAgent)}
-                  options={(modelAgent.available_deliveries ?? []).map((value) => ({
-                    value,
-                    label: deliveryLabel(value),
-                  }))}
-                  onChange={(value) => {
-                    const next = value as ApiKeyDelivery;
-                    const current = resolvedAgentDelivery(modelAgent);
-                    if (next === current) return;
-                    if (next === "plaintext") {
-                      setPlaintextConfirmation({
-                        target: modelAgent.config_paths[0] ?? modelAgent.config_path,
-                      });
-                    } else {
-                      void applyAgentDelivery(next);
-                    }
-                  }}
-                />
-              </div>
-            )}
             {canEditConfiguration && (
               <button type="button" className="mux-agent-tool" title="编辑配置" aria-label="编辑配置" onClick={() => { setEditLaunchFirst(false); setEditingAgent(true); }}>
                 <EditIcon className="w-3.5 h-3.5" /><span>编辑</span>
@@ -902,7 +826,7 @@ export function AgentView({
                   domain="model"
                   title="Models"
                   description={modelAgent.storage_authority === "native-registry"
-                    ? `配置中 ${modelVisibleCount} 个${modelAgent.supports_global_selection === false ? " · 重启 Qoder 后在会话中选用" : modelAgent.supports_multiple ? " · 同一时间使用其中一个" : ""}`
+                    ? `配置中 ${modelVisibleCount} 个${modelAgent.supports_global_selection === false ? ` · 重启 ${agent.name} 后在会话中选用` : modelAgent.supports_multiple ? " · 同一时间使用其中一个" : ""}`
                     : `MUX 管理 ${modelVisibleCount} 个`}
                   manageLabel="添加 Model"
                   rows={displayedModelRows}
@@ -1078,40 +1002,6 @@ export function AgentView({
         />
       )}
 
-      {plaintextConfirmation && (
-        <DialogShell
-          kind="review"
-          size="sm"
-          className="mux-plaintext-confirmation"
-          title="明文写入 API Key"
-          subtitle={agent.name}
-          busy={changingCredential}
-          onClose={() => setPlaintextConfirmation(null)}
-          footerEnd={(
-            <>
-              <button type="button" className="btn-secondary" onClick={() => setPlaintextConfirmation(null)}>
-                取消
-              </button>
-              <button
-                type="button"
-                className="btn-danger"
-                onClick={async () => {
-                  await applyAgentDelivery("plaintext", true);
-                  setPlaintextConfirmation(null);
-                }}
-              >
-                明文写入
-              </button>
-            </>
-          )}
-        >
-          <div className="mux-plaintext-confirmation-body">
-            <strong>将把 Provider API Key 明文写入 {agent.name} 配置</strong>
-            <code>{plaintextConfirmation.target}</code>
-            <span>仅对该 Agent 生效，文件权限将收紧为 0600。之后添加的 Model 都按此策略写入。</span>
-          </div>
-        </DialogShell>
-      )}
 
     </div>
   );

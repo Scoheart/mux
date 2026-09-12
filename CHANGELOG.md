@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.194](https://github.com/Scoheart/mux/compare/v1.8.193...v1.8.194) (2026-09-12)
+
+### Changes
+
+* fix(desktop): unify agent credential configuration (#183) ([8a908b6](https://github.com/Scoheart/mux/commit/8a908b69bdd8e0090e7121e09295e57ecf170e7c))
+
 ## [1.8.193](https://github.com/Scoheart/mux/compare/v1.8.192...v1.8.193) (2026-09-12)
 
 ### Changes

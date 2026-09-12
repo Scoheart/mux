@@ -10,13 +10,14 @@ use mux_core::application::MuxCore;
 use serde_json::{json, Value};
 
 use crate::output::{CliError, CommandOutput, Palette};
-use crate::projection::{safe_consumption_inventory, safe_path, safe_skill_inventory};
+use crate::projection::{safe_consumption_inventory, safe_path, safe_skill_inventory, safe_target_incident};
 
 #[derive(Debug, Clone, Copy)]
 pub struct MutationOptions {
     pub json: bool,
     pub yes: bool,
     pub dry_run: bool,
+    pub accept_risk: bool,
     pub no_color: bool,
 }
 
@@ -48,29 +49,20 @@ impl MutationOptions {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum NoopPolicy {
-    Detect,
-    AlwaysChange,
-}
-
 pub fn execute_operation(
     command: &'static str,
     plan: OperationPlan,
     options: MutationOptions,
-    noop_policy: NoopPolicy,
 ) -> Result<CommandOutput, CliError> {
-    options.validate()?;
+    if let Err(error) = options.validate() {
+        return Err(cancel_preserving(&plan, error));
+    }
     if let Some(error) = blocked_error(&plan) {
         return Err(cancel_preserving(&plan, error));
     }
 
     let summary = plan_summary(&plan);
-    let would_change = match noop_policy {
-        NoopPolicy::AlwaysChange => true,
-        NoopPolicy::Detect => operation_has_changes(&plan),
-    };
-    if !would_change {
+    if !plan.has_changes() {
         cancel(&plan)?;
         return Ok(CommandOutput::new(
             command,
@@ -97,6 +89,10 @@ pub fn execute_operation(
         ));
     }
 
+    if let Some(error) = risk_confirmation_error(&plan, options.accept_risk) {
+        return Err(cancel_preserving(&plan, error));
+    }
+
     if !options.yes {
         println!("{}", render_plan(&plan, Palette::new(options.no_color)));
         if !confirm("Apply this plan? [y/N] ") {
@@ -111,8 +107,9 @@ pub fn execute_operation(
     }
 
     let cancel_request = cancel_request(&plan);
-    let inventory = match commit(plan) {
-        Ok(inventory) => inventory,
+    let operation_id = plan.operation_id().to_string();
+    let result = match commit(plan, options.accept_risk) {
+        Ok(result) => result,
         Err(mut error) => {
             if let Err(cleanup_error) = MuxCore::cancel(cancel_request) {
                 error.details.insert(
@@ -124,6 +121,9 @@ pub fn execute_operation(
             return Err(error);
         }
     };
+    // A successful core commit can still leave individual targets pending.
+    // Its durable desired state must not be treated as an uncommitted plan.
+    let inventory = commit_output(result, &operation_id)?;
     Ok(CommandOutput::new(
         command,
         true,
@@ -148,7 +148,7 @@ where
         return Ok(CommandOutput::new(
             command,
             false,
-            json!({"dry_run": false, "would_change": false, "plan": summary}),
+            json!({"dry_run": options.dry_run, "would_change": false, "plan": summary}),
             "No changes needed.",
         ));
     }
@@ -230,8 +230,21 @@ fn cancel_preserving(plan: &OperationPlan, mut error: CliError) -> CliError {
     error
 }
 
-fn commit(plan: OperationPlan) -> Result<Value, CliError> {
-    let result = match plan {
+fn risk_confirmation_error(plan: &OperationPlan, accept_risk: bool) -> Option<CliError> {
+    match plan {
+        OperationPlan::Skill { plan } if plan.requires_risk_override && !accept_risk => Some(
+            CliError::new(
+                "risk_confirmation_required",
+                "review the Skill findings with --dry-run, then explicitly use --accept-risk to apply",
+            )
+            .with_detail("findings_hash", plan.findings_hash.clone()),
+        ),
+        _ => None,
+    }
+}
+
+fn commit(plan: OperationPlan, accept_risk: bool) -> Result<OperationCommitResult, CliError> {
+    match plan {
         OperationPlan::Asset { plan } => MuxCore::commit(CommitOperationRequest::Asset {
             request: AssetCommitRequest {
                 operation_id: plan.operation_id,
@@ -239,8 +252,7 @@ fn commit(plan: OperationPlan) -> Result<Value, CliError> {
             },
         }),
         OperationPlan::Skill { plan } => {
-            let findings_confirmation = plan
-                .requires_risk_override
+            let findings_confirmation = (plan.requires_risk_override && accept_risk)
                 .then(|| plan.findings_hash.clone());
             MuxCore::commit(CommitOperationRequest::Skill {
                 kind: plan.kind.clone(),
@@ -252,51 +264,34 @@ fn commit(plan: OperationPlan) -> Result<Value, CliError> {
             })
         }
     }
-    .map_err(CliError::from_core)?;
+    .map_err(CliError::from_core)
+}
 
+fn commit_output(result: OperationCommitResult, operation_id: &str) -> Result<Value, CliError> {
     match result {
         OperationCommitResult::Asset {
             inventory,
             converged: true,
         } => Ok(safe_consumption_inventory(&inventory)),
         OperationCommitResult::Asset {
-            converged: false, ..
+            inventory, converged: false,
         } => Err(CliError::new(
             "pending_convergence",
             "MUX saved the desired configuration, but the Agent target has not converged",
-        )),
+        )
+        .with_detail("changed", true)
+        .with_detail("operation_id", operation_id)
+        .with_detail("target_incidents", json!(inventory.target_incidents.iter()
+            .filter(|incident| incident.operation_id == operation_id)
+            .map(safe_target_incident).collect::<Vec<_>>()))),
         OperationCommitResult::Skill { inventory } => Ok(safe_skill_inventory(&inventory)),
-    }
-}
-
-fn operation_has_changes(plan: &OperationPlan) -> bool {
-    match plan {
-        OperationPlan::Asset { plan } => asset_plan_has_changes(plan),
-        OperationPlan::Skill { .. } => true,
-    }
-}
-
-fn asset_plan_has_changes(plan: &AssetOperationPlan) -> bool {
-    if plan.kind == mux_core::application::assets::AssetOperationKind::ClearMcp {
-        return true;
-    }
-    if !plan.central_changes.is_empty()
-        || !plan.relationship_changes.is_empty()
-        || !plan.model_state_changes.is_empty()
-        || !plan.consumption_state_changes.is_empty()
-    {
-        return true;
-    }
-    match &plan.domain_plan {
-        DomainPlan::Mcp { before, after } | DomainPlan::Skill { before, after } => before != after,
-        DomainPlan::Model { before, after } => before != after,
-        DomainPlan::AgentCapabilities { before, after, .. } => before != after,
     }
 }
 
 fn plan_summary(plan: &OperationPlan) -> Value {
     match plan {
         OperationPlan::Asset { plan } => json!({
+            "operation_id": plan.operation_id,
             "domain": asset_domain(plan),
             "affected_agents": plan.affected_agent_ids,
             "target_files": plan.target_files.iter().map(|path| safe_path(path)).collect::<Vec<_>>(),
@@ -325,6 +320,7 @@ fn plan_summary(plan: &OperationPlan) -> Value {
                 .flat_map(|target| target.affected_agent_ids.iter().cloned())
                 .collect::<BTreeSet<_>>();
             json!({
+                "operation_id": plan.operation_id,
                 "domain": "skill",
                 "kind": plan.kind,
                 "skills": plan.skills.iter().map(|skill| json!({
@@ -563,6 +559,7 @@ mod tests {
             json: true,
             yes: false,
             dry_run: false,
+            accept_risk: false,
             no_color: true,
         }
         .validate()
@@ -576,6 +573,7 @@ mod tests {
             json: false,
             yes: true,
             dry_run: true,
+            accept_risk: false,
             no_color: true,
         }
         .validate()
@@ -586,7 +584,7 @@ mod tests {
     #[test]
     fn state_only_asset_plan_is_a_change_and_json_redacts_its_target() {
         let plan = state_only_plan();
-        assert!(operation_has_changes(&plan));
+        assert!(plan.has_changes());
 
         let summary = plan_summary(&plan);
         assert_eq!(
@@ -654,6 +652,66 @@ mod tests {
             after: BTreeMap::new(),
         };
         plan.consumption_state_changes.clear();
-        assert!(!asset_plan_has_changes(&plan));
+        assert!(!plan.has_changes());
+    }
+
+    #[test]
+    fn native_model_clear_detects_physical_changes_without_desired_relationships() {
+        let OperationPlan::Asset { mut plan } = state_only_plan() else { unreachable!() };
+        plan.kind = AssetOperationKind::ClearModels;
+        plan.domain_plan = DomainPlan::Model { before: BTreeMap::new(), after: BTreeMap::new() };
+        plan.consumption_state_changes.clear();
+        assert!(plan.has_changes());
+        plan.target_files.clear();
+        assert!(!plan.has_changes());
+    }
+
+    #[test]
+    fn generic_confirmation_does_not_authorize_skill_risk() {
+        let mut plan = mux_core::application::skills::OperationPlan {
+            operation_id: "skill-operation".into(),
+            kind: mux_core::application::skills::SkillOperationKind::Install,
+            skills: Vec::new(), targets: Vec::new(), settings_hash: "settings".into(),
+            candidate_hash: "candidate".into(), findings_hash: "reviewed-findings".into(),
+            requires_risk_override: true, warnings: Vec::new(),
+        };
+        let error = risk_confirmation_error(&OperationPlan::Skill { plan: plan.clone() }, false).unwrap();
+        assert_eq!(error.code, "risk_confirmation_required");
+        assert_eq!(error.details["findings_hash"], "reviewed-findings");
+        assert!(risk_confirmation_error(&OperationPlan::Skill { plan: plan.clone() }, true).is_none());
+        plan.requires_risk_override = false;
+        assert!(risk_confirmation_error(&OperationPlan::Skill { plan }, false).is_none());
+    }
+
+    #[test]
+    fn pending_commit_reports_durable_change_and_only_its_own_redacted_incidents() {
+        use mux_core::application::assets::{AssetCapability, ConsumptionInventory, TargetIncident};
+        let incident = TargetIncident {
+            id: "failed-target".into(), operation_id: "committed".into(),
+            capability: AssetCapability::Model, target_id: "codex-model".into(),
+            target_path: "/private/provider-secret/config.toml".into(),
+            affected_agent_ids: vec!["codex".into()], code: "target_write_failed".into(), retryable: true,
+        };
+        let mut unrelated = incident.clone();
+        unrelated.operation_id = "other-operation".into();
+        let error = commit_output(OperationCommitResult::Asset {
+            inventory: ConsumptionInventory { target_incidents: vec![incident, unrelated], ..Default::default() },
+            converged: false,
+        }, "committed").unwrap_err();
+        assert_eq!(error.code, "pending_convergence");
+        assert_eq!(error.details["changed"], true);
+        assert_eq!(error.details["operation_id"], "committed");
+        assert_eq!(error.details["target_incidents"].as_array().unwrap().len(), 1);
+        assert!(!json!(error.details).to_string().contains("provider-secret"));
+    }
+
+    #[test]
+    fn direct_noop_preserves_dry_run_receipt_without_calling_mutation() {
+        let output = execute_direct_mutation("agent.enable", MutationOptions {
+            json: true, yes: false, dry_run: true, accept_risk: false, no_color: true,
+        }, json!({}), "noop", true, || panic!("no-op must not mutate")).unwrap();
+        assert!(!output.changed);
+        assert_eq!(output.data["dry_run"], true);
+        assert_eq!(output.data["would_change"], false);
     }
 }

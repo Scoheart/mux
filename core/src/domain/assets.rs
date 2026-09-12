@@ -495,6 +495,30 @@ pub struct AssetOperationPlan {
     pub candidate_hash: String,
 }
 
+impl AssetOperationPlan {
+    /// Whether committing this plan has a logical or explicitly reviewed
+    /// physical effect. Frontends must not infer this from assignments alone.
+    pub fn has_changes(&self) -> bool {
+        if self.kind == AssetOperationKind::ClearMcp
+            || (self.kind == AssetOperationKind::ClearModels && !self.target_files.is_empty())
+        {
+            return true;
+        }
+        if !self.central_changes.is_empty()
+            || !self.relationship_changes.is_empty()
+            || !self.model_state_changes.is_empty()
+            || !self.consumption_state_changes.is_empty()
+        {
+            return true;
+        }
+        match &self.domain_plan {
+            DomainPlan::Mcp { before, after } | DomainPlan::Skill { before, after } => before != after,
+            DomainPlan::Model { before, after } => before != after,
+            DomainPlan::AgentCapabilities { before, after, .. } => before != after,
+        }
+    }
+}
+
 /// Drafts are accepted only by the central asset workspaces. MCP configuration
 /// may contain headers or environment values, and Model credentials are secret,
 /// so the planner binds them by hash and keeps the values out of persisted plans.

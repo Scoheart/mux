@@ -567,6 +567,28 @@ mod tests {
     }
 
     #[test]
+    fn model_credential_entrypoints_remain_available_during_unrelated_capability_failures() {
+        let _home = crate::testenv::TestHome::new("gate-model-credential-isolation");
+        for capability in [CapabilityDomain::Mcp, CapabilityDomain::Skill] {
+            set_status(BackendStatus::CapabilityUnavailable {
+                capability, stage: "unrelated_stage".into(), code: "unrelated_failure".into(),
+                message: "unrelated capability unavailable".into(),
+            });
+            super::super::models::set_agent_credential_delivery(
+                "opencode", crate::domain::assets::ApiKeyDelivery::Auto, false,
+            ).unwrap();
+            let error = super::super::models::set_credential_delivery(
+                "opencode", "missing-profile", crate::domain::assets::ApiKeyDelivery::Auto, false,
+            ).unwrap_err();
+            assert!(error.starts_with("model_consumption_missing:"), "{error}");
+            let plan = super::super::models::plan_credential_delivery(
+                "opencode", None, crate::domain::assets::ApiKeyDelivery::Auto, false,
+            ).unwrap();
+            super::super::assets::cancel_asset_operation(&plan.operation_id).unwrap();
+        }
+    }
+
+    #[test]
     fn every_supported_error_shape_identifies_recovery_required() {
         let core: CoreResult<()> = Err(CoreError::new("recovery_required", "core"));
         assert_eq!(core.recovery_required().as_deref(), Some("core"));

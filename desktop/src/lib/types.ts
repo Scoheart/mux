@@ -80,6 +80,7 @@ export interface AgentCapabilityView {
       assigned_profiles: string[];
       active_profile?: string | null;
       supports_multiple: boolean;
+      supports_global_selection: boolean;
       credential_mode: string;
       supported_protocols: ModelProtocol[];
     } | null;

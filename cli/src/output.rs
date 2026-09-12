@@ -87,6 +87,12 @@ impl std::fmt::Display for CliError {
 
 impl std::error::Error for CliError {}
 
+pub fn query_output(command: &'static str, data: Value) -> Result<CommandOutput, CliError> {
+    let human = serde_json::to_string_pretty(&data)
+        .map_err(|error| CliError::private("output_failed", error.to_string()))?;
+    Ok(CommandOutput::new(command, false, data, human))
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct CommandOutput {
     pub command: &'static str,

@@ -44,13 +44,28 @@ pub fn list_agent_capabilities() -> Result<Vec<ModelAgentView>, String> {
     Ok(super::gate::read(crate::resources::model::list_agents))
 }
 
+/// Prepare the same credential policy operation used by Desktop, without
+/// committing it so noninteractive clients can review its bound write set.
+pub fn plan_credential_delivery(
+    agent_id: &str,
+    profile_id: Option<&str>,
+    delivery: ApiKeyDelivery,
+    confirm_plaintext: bool,
+) -> Result<crate::domain::assets::AssetOperationPlan, String> {
+    super::gate::prepare_for(super::gate::CapabilityDomain::Model, "asset_plan", || {
+        crate::assets::planner::plan_model_credential_delivery(
+            agent_id, profile_id, delivery, confirm_plaintext,
+        )
+    })
+}
+
 pub fn set_credential_delivery(
     agent_id: &str,
     profile_id: &str,
     delivery: ApiKeyDelivery,
     confirm_plaintext: bool,
 ) -> Result<crate::resources::model::ModelApplyResult, String> {
-    super::gate::write(|| {
+    super::gate::write_for(super::gate::CapabilityDomain::Model, || {
         crate::resources::model::set_model_credential_delivery(
             agent_id,
             profile_id,
@@ -65,7 +80,7 @@ pub fn set_agent_credential_delivery(
     delivery: ApiKeyDelivery,
     confirm_plaintext: bool,
 ) -> Result<crate::resources::model::ModelApplyResult, String> {
-    super::gate::write(|| {
+    super::gate::write_for(super::gate::CapabilityDomain::Model, || {
         crate::resources::model::set_agent_credential_delivery(
             agent_id,
             delivery,

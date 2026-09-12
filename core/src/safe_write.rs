@@ -843,6 +843,7 @@ pub(crate) fn begin_transaction_write_tracking(
     )
 }
 
+#[cfg(test)]
 pub(crate) fn begin_transaction_write_tracking_with_states(
     directory: &Path,
     tracked_paths: &[PathBuf],
@@ -944,6 +945,7 @@ fn begin_transaction_write_tracking_with_reviewed_states(
     })
 }
 
+#[cfg(test)]
 pub(crate) fn resume_transaction_write_tracking(
     directory: &Path,
     tracked_paths: &[PathBuf],
@@ -1168,6 +1170,7 @@ pub(crate) fn ensure_no_transaction_mutation_intents(directory: &Path) -> Result
     }
 }
 
+#[cfg(test)]
 pub(crate) fn load_transaction_write_states(
     directory: &Path,
 ) -> Result<BTreeMap<PathBuf, TransactionPathState>, String> {

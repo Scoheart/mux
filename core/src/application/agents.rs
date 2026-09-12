@@ -140,6 +140,7 @@ pub(crate) fn list_capabilities_with_skills(
             assigned_profiles: model.assigned_profiles,
             active_profile: model.active_profile,
             supports_multiple: model.supports_multiple,
+            supports_global_selection: model.supports_global_selection,
             credential_mode: model.credential_mode,
             supported_protocols: model.supported_protocols,
         });
@@ -198,6 +199,18 @@ mod tests {
         assert_eq!(ids.len(), views.len());
         assert!(views.iter().any(|view| view.capabilities.model.is_some()));
         assert!(views.iter().any(|view| view.capabilities.skill.is_some()));
+    }
+
+    #[test]
+    fn model_capability_projection_preserves_native_selection_contract() {
+        let _home = crate::testenv::TestHome::new("agent-model-selection-capability");
+        let views = list_capabilities().unwrap();
+        let cli = views.iter().find(|view| view.identity.id == "qoder-cli").unwrap()
+            .capabilities.model.as_ref().unwrap();
+        let desktop = views.iter().find(|view| view.identity.id == "qoder-desktop").unwrap()
+            .capabilities.model.as_ref().unwrap();
+        assert!(cli.supports_multiple && cli.supports_global_selection);
+        assert!(desktop.supports_multiple && !desktop.supports_global_selection);
     }
 
     #[test]

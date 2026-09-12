@@ -173,10 +173,13 @@ script invokes `mux` without arguments.
 Or drive it non-interactively with subcommands:
 
 ```text
-mux mcp {list,show,status,assign,unassign,enable,disable,converge,add,delete,export}
-mux model {list,show,status,assign,unassign,enable,disable,converge,use}
-mux skill {list,show,status,assign,unassign,enable,disable,converge}
-mux agent {list,enable,disable}
+mux mcp {list,show,status,assign,unassign,enable,disable,converge,add,save,delete,export,source}
+mux mcp source {list,subscribe,add-local,add-builtin,refresh,enable,disable,remove}
+mux model {list,show,status,save,delete,import,assign,unassign,enable,disable,converge,use,delivery,provider}
+mux model provider {list,show,templates,models,save,delete}
+mux skill {list,show,status,inspect-source,install,import,update,remove,repair,check-updates,assign,unassign,enable,disable,converge}
+mux agent {list,save,configure,enable,disable}
+mux network proxy {show,set,clear}
 mux discover [mcp|model|skill]
 mux workspace
 mux upgrade
@@ -185,9 +188,12 @@ mux upgrade
 All Agent-relationship writes use exact stable asset IDs and exactly one explicit
 `--agent <id>`. `assign` adds only the named relationships; `unassign` removes
 only those relationships; `enable` and `disable` preserve the relationship.
-For MCP only, `mux mcp unassign --all --agent <id>` performs a reviewed,
+`mux mcp unassign --all --agent <id>` performs a reviewed,
 target-scoped clear of managed, disabled, and external MCP entries while
 leaving the central catalog and every other Agent unchanged.
+`mux model unassign --all --agent <id>` uses the same Model clear operation as
+Desktop, including external Models on native-registry Agents. Core protects
+shared physical stores and retains central Profiles, Providers and credentials.
 `mux model use <profile-id> --agent <id>` selects the current Model independently
 of assignment. `converge <asset-id> --agent <id> <adopt|restore|detach>` is the
 shared explicit reconciliation verb; repeating `assign`, `enable`, or `use`
@@ -202,7 +208,16 @@ The global `--json`, `--yes`, `--dry-run`, and `--no-color` options support
 machine output, reviewed automation, plan-only runs, and deterministic terminal
 output. Any command that writes—including `mux mcp export --out`—requires
 interactive confirmation or an explicit `--yes` / `--dry-run`. See the
-[complete CLI guide](website/guide/cli.md).
+[complete CLI guide](website/guide/cli.md). High-risk Skill plans additionally require
+`--accept-risk`; ordinary `--yes` does not grant a risk override. A partially
+converged commit exits with `pending_convergence`, retaining the operation ID,
+`changed: true` and the affected target incidents for recovery.
+
+Central Model, Provider, MCP and Agent edits accept typed JSON documents via
+`--file` (or `--file -` for stdin). Provider credentials can be supplied through
+`--credential-stdin` and are stored by Core in Keychain; they never enter argv
+or ordinary JSON output. Skill source inspection and installation support the
+same GitHub, local directory and archive resolver as Desktop.
 
 Model schema upgrades migrate central MUX data and credentials without rewriting
 the Agent's current files. Those files are scanned afterward as ordinary observed
@@ -264,7 +279,7 @@ credentials remain in macOS Keychain.
 5. **Converge external state explicitly, one item at a time** — MUX detects unmanaged and externally changed MCPs, Model Profiles, and user-level Skills without changing ownership. Adopt, restore, or detach one exact revision-bound observation through a recoverable transaction.
 6. **Propagate central lifecycle changes** — updates reach every desired consumer; deletion clears all managed targets and relationships instead of leaving implicit orphan copies.
 
-Skills in this version are user-level only. Project-level Skills, private repositories, and Skill editing are not supported. The CLI can query and manage Agent consumption for MCPs, Models, and Skills, and explicitly converge one detected change at a time. Central Model and Skill authoring remains in Desktop, while the no-argument TUI is MCP-focused.
+Skills in this version are user-level only. Project-level Skills, private repositories, and Skill editing are not supported. The CLI can query and manage Agent consumption for MCPs, Models, and Skills, and explicitly converge one detected change at a time. CLI commands also cover central Model/Provider/MCP authoring, Skill lifecycle, MCP sources, Agent configuration and proxy settings. Desktop retains file dialogs, icon/locale/pinning preferences, launch integration and credential reveal/validation UI; the no-argument TUI is MCP-focused. See the [source-backed parity audit](analysis/11-cli-desktop-parity-and-bug-audit-2026-09-12.md) for remaining differences.
 
 ## Development
 

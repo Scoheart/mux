@@ -181,6 +181,7 @@ it("loads the Agent capability projection independently from relationships", asy
           assigned_profiles: [],
           active_profile: null,
           supports_multiple: false,
+          supports_global_selection: true,
           credential_mode: "guided",
           supported_protocols: ["openai-responses"],
         },

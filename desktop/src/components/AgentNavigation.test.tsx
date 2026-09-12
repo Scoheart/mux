@@ -255,6 +255,7 @@ it("lists and opens a projection-only Model Agent", () => {
         config_paths: ["~/.model-only/config.json"],
         assigned_profiles: [],
         supports_multiple: false,
+        supports_global_selection: true,
         credential_mode: "guided",
         supported_protocols: ["openai-responses"],
       },

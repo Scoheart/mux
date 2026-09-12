@@ -52,6 +52,23 @@ pub enum OperationPlan {
     Skill { plan: SkillOperationPlan },
 }
 
+impl OperationPlan {
+    pub fn operation_id(&self) -> &str {
+        match self {
+            Self::Asset { plan } => &plan.operation_id,
+            Self::Skill { plan } => &plan.operation_id,
+        }
+    }
+
+    pub fn has_changes(&self) -> bool {
+        match self {
+            Self::Asset { plan } => plan.has_changes(),
+            // Skill lifecycle plans already carry an explicit validated intent.
+            Self::Skill { .. } => true,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "domain", rename_all = "snake_case")]
 pub enum CommitOperationRequest {

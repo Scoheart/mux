@@ -8,7 +8,7 @@ use std::os::unix::fs::OpenOptionsExt;
 use clap::{Parser, Subcommand, ValueEnum};
 use mux_core::application::assets::{
     AgentConsumptionSelection, AssetRef, CentralAssetDraft, ConvergenceAction, McpAdoptionStatus,
-    ModelAdoptionStatus, PlanClearAgentMcpRequest, PlanConvergeConsumptionRequest,
+    ModelAdoptionStatus, PlanClearAgentMcpRequest, PlanClearAgentModelsRequest, PlanConvergeConsumptionRequest,
     PlanDeleteCentralAssetRequest, PlanEnsureAgentConsumptionRequest,
     PlanRemoveAgentConsumptionRequest, PlanSetActiveModelRequest, PlanSetAgentConsumptionRequest,
     PlanSetMcpEnabledRequest, PlanSetModelEnabledRequest, PlanSetSkillEnabledRequest,
@@ -29,7 +29,7 @@ use crate::projection::{
     safe_agent_view, safe_consumption_inventory, safe_consumption_view, safe_model_candidate,
     safe_path, safe_skill_inventory, safe_skill_item, safe_url,
 };
-use crate::review::{execute_direct_mutation, execute_operation, MutationOptions, NoopPolicy};
+use crate::review::{execute_direct_mutation, execute_operation, MutationOptions};
 
 #[derive(Debug, Parser)]
 #[command(
@@ -48,6 +48,9 @@ pub struct Cli {
     /// Plan and review a mutation, then cancel it without writing.
     #[arg(long, global = true)]
     pub dry_run: bool,
+    /// Explicitly accept the risk findings of the reviewed Skill plan.
+    #[arg(long, global = true)]
+    pub accept_risk: bool,
     /// Disable ANSI styling in human-readable output.
     #[arg(long, global = true)]
     pub no_color: bool,
@@ -61,15 +64,16 @@ impl Cli {
             json: self.json,
             yes: self.yes,
             dry_run: self.dry_run,
+            accept_risk: self.accept_risk,
             no_color: self.no_color || self.json,
         }
     }
 
-    fn reject_mutation_options(&self) -> Result<(), CliError> {
-        if self.yes || self.dry_run {
+    pub(crate) fn reject_mutation_options(&self) -> Result<(), CliError> {
+        if self.yes || self.dry_run || self.accept_risk {
             return Err(CliError::new(
                 "option_not_applicable",
-                "--yes and --dry-run are only valid for mutation commands",
+                "--yes, --dry-run and --accept-risk are only valid for mutation commands",
             ));
         }
         Ok(())
@@ -83,12 +87,12 @@ pub enum Command {
         #[command(subcommand)]
         command: McpCommand,
     },
-    /// Query central Model Profiles and manage their Agent relationships.
+    /// Manage central Models, Providers, credentials, and Agent relationships.
     Model {
         #[command(subcommand)]
         command: ModelCommand,
     },
-    /// Query central Skills and manage their Agent relationships.
+    /// Install, update, repair, and assign central Skills.
     Skill {
         #[command(subcommand)]
         command: SkillCommand,
@@ -97,6 +101,11 @@ pub enum Command {
     Agent {
         #[command(subcommand)]
         command: AgentCommand,
+    },
+    /// Inspect or configure the shared MUX network proxy.
+    Network {
+        #[command(subcommand)]
+        command: crate::network_management::NetworkCommand,
     },
     /// Discover external configurations without changing them.
     Discover {
@@ -118,6 +127,19 @@ pub enum AssetDomain {
 
 #[derive(Debug, Subcommand)]
 pub enum McpCommand {
+    /// Manage subscribed, local and built-in MCP catalogs.
+    Source {
+        #[command(subcommand)]
+        command: crate::source_management::SourceCommand,
+    },
+    /// Create or edit a central MCP from a RegistryEntry JSON document.
+    Save {
+        #[arg(long)]
+        file: PathBuf,
+        /// Exact existing name::transport key to edit. Omit to create.
+        #[arg(long, value_parser = parse_mcp_key)]
+        key: Option<String>,
+    },
     /// List every MCP asset in the central catalog.
     List,
     /// Show one central MCP asset by its exact name::transport key.
@@ -203,6 +225,8 @@ pub enum McpCommand {
 
 #[derive(Debug, Subcommand)]
 pub enum ModelCommand {
+    #[command(flatten)]
+    Manage(crate::model_management::ModelManagementCommand),
     /// List every central Model Profile.
     List,
     /// Show one central Model Profile by its exact profile ID.
@@ -227,8 +251,11 @@ pub enum ModelCommand {
     },
     /// Remove Model Profile assignments without deleting central Profiles.
     Unassign {
-        #[arg(required = true, num_args = 1.., value_parser = parse_identity)]
+        #[arg(num_args = 1.., required_unless_present = "all", conflicts_with = "all", value_parser = parse_identity)]
         profile_ids: Vec<String>,
+        /// Clear this Agent's complete Model source, including external native Models.
+        #[arg(long)]
+        all: bool,
         #[arg(long, required = true)]
         agent: String,
     },
@@ -266,6 +293,8 @@ pub enum ModelCommand {
 
 #[derive(Debug, Subcommand)]
 pub enum SkillCommand {
+    #[command(flatten)]
+    Manage(crate::skill_management::SkillManagementCommand),
     /// List every Skill in the central library.
     List,
     /// Show one central Skill by its exact name.
@@ -319,6 +348,8 @@ pub enum SkillCommand {
 
 #[derive(Debug, Subcommand)]
 pub enum AgentCommand {
+    #[command(flatten)]
+    Manage(crate::agent_management::AgentManagementCommand),
     /// List configured Agents and their supported resource capabilities.
     List,
     /// Enable one configured Agent for MUX operations.
@@ -358,7 +389,7 @@ fn parse_mcp_key(raw: &str) -> Result<String, String> {
     Ok(raw.to_string())
 }
 
-fn parse_identity(raw: &str) -> Result<String, String> {
+pub(crate) fn parse_identity(raw: &str) -> Result<String, String> {
     if raw.trim().is_empty() {
         Err("identity must not be empty".into())
     } else {
@@ -378,6 +409,7 @@ pub fn dispatch(cli: &Cli) -> Result<CommandOutput, CliError> {
         Command::Model { command } => dispatch_model(cli, command),
         Command::Skill { command } => dispatch_skill(cli, command),
         Command::Agent { command } => dispatch_agent(cli, command),
+        Command::Network { command } => crate::network_management::dispatch(cli, command),
         Command::Discover { domain } => {
             cli.reject_mutation_options()?;
             discover(*domain, Palette::new(cli.no_color || cli.json))
@@ -393,6 +425,17 @@ pub fn dispatch(cli: &Cli) -> Result<CommandOutput, CliError> {
 fn dispatch_mcp(cli: &Cli, command: &McpCommand) -> Result<CommandOutput, CliError> {
     let palette = Palette::new(cli.no_color || cli.json);
     match command {
+        McpCommand::Source { command } => crate::source_management::dispatch(cli, command),
+        McpCommand::Save { file, key } => {
+            let options = cli.mutation_options();
+            options.validate()?;
+            let entry: RegistryEntry = serde_json::from_value(crate::input::json_file(file)?)
+                .map_err(|error| CliError::private("invalid_mcp_entry", error.to_string()))?;
+            let plan = MuxCore::plan(PlanOperationRequest::UpdateCentralAsset(PlanUpdateCentralAssetRequest {
+                draft: CentralAssetDraft::Mcp { existing_key: key.clone(), entry: Box::new(entry) },
+            })).map_err(CliError::from_core)?;
+            execute_operation("mcp.save", plan, options)
+        }
         McpCommand::List => {
             cli.reject_mutation_options()?;
             mcp_list(palette)
@@ -455,6 +498,7 @@ fn dispatch_mcp(cli: &Cli, command: &McpCommand) -> Result<CommandOutput, CliErr
 fn dispatch_model(cli: &Cli, command: &ModelCommand) -> Result<CommandOutput, CliError> {
     let palette = Palette::new(cli.no_color || cli.json);
     match command {
+        ModelCommand::Manage(command) => crate::model_management::dispatch(cli, command),
         ModelCommand::List => {
             cli.reject_mutation_options()?;
             model_list(palette)
@@ -478,10 +522,10 @@ fn dispatch_model(cli: &Cli, command: &ModelCommand) -> Result<CommandOutput, Cl
             *replace,
             cli.mutation_options(),
         ),
-        ModelCommand::Unassign { profile_ids, agent } => unassign(
+        ModelCommand::Unassign { profile_ids, all, agent } => unassign(
             AssetDomain::Model,
             profile_ids,
-            false,
+            *all,
             agent,
             cli.mutation_options(),
         ),
@@ -520,6 +564,7 @@ fn dispatch_model(cli: &Cli, command: &ModelCommand) -> Result<CommandOutput, Cl
 fn dispatch_skill(cli: &Cli, command: &SkillCommand) -> Result<CommandOutput, CliError> {
     let palette = Palette::new(cli.no_color || cli.json);
     match command {
+        SkillCommand::Manage(command) => crate::skill_management::dispatch(cli, command),
         SkillCommand::List => {
             cli.reject_mutation_options()?;
             skill_list(palette)
@@ -575,6 +620,7 @@ fn dispatch_skill(cli: &Cli, command: &SkillCommand) -> Result<CommandOutput, Cl
 
 fn dispatch_agent(cli: &Cli, command: &AgentCommand) -> Result<CommandOutput, CliError> {
     match command {
+        AgentCommand::Manage(command) => crate::agent_management::dispatch(cli, command),
         AgentCommand::List => {
             cli.reject_mutation_options()?;
             agent_list(Palette::new(cli.no_color || cli.json))
@@ -883,7 +929,7 @@ fn converge(
         },
     ))
     .map_err(CliError::from_core)?;
-    execute_operation("converge", plan, options, NoopPolicy::AlwaysChange)
+    execute_operation("converge", plan, options)
 }
 
 fn assign(
@@ -913,7 +959,6 @@ fn assign(
         domain_command(domain, "assign"),
         plan,
         options,
-        NoopPolicy::Detect,
     )
 }
 
@@ -930,6 +975,10 @@ fn unassign(
         PlanOperationRequest::ClearAgentMcp(PlanClearAgentMcpRequest {
             agent_id: agent.to_string(),
         })
+    } else if domain == AssetDomain::Model && clear_all {
+        PlanOperationRequest::ClearAgentModels(PlanClearAgentModelsRequest {
+            agent_id: agent.to_string(),
+        })
     } else {
         PlanOperationRequest::RemoveAgentConsumption(PlanRemoveAgentConsumptionRequest {
             agent_id: agent.to_string(),
@@ -941,7 +990,6 @@ fn unassign(
         domain_command(domain, "unassign"),
         plan,
         options,
-        NoopPolicy::Detect,
     )
 }
 
@@ -974,7 +1022,7 @@ fn set_enabled(
         }),
     };
     let plan = MuxCore::plan(request).map_err(CliError::from_core)?;
-    execute_operation(command, plan, options, NoopPolicy::Detect)
+    execute_operation(command, plan, options)
 }
 
 fn model_use(
@@ -992,7 +1040,7 @@ fn model_use(
         },
     ))
     .map_err(CliError::from_core)?;
-    execute_operation("model.use", plan, options, NoopPolicy::Detect)
+    execute_operation("model.use", plan, options)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1083,7 +1131,7 @@ fn mcp_add(
         },
     ))
     .map_err(CliError::from_core)?;
-    execute_operation("mcp.add", plan, options, NoopPolicy::AlwaysChange)
+    execute_operation("mcp.add", plan, options)
 }
 
 fn mcp_delete(key: &str, options: MutationOptions) -> Result<CommandOutput, CliError> {
@@ -1103,7 +1151,7 @@ fn mcp_delete(key: &str, options: MutationOptions) -> Result<CommandOutput, CliE
         },
     ))
     .map_err(CliError::from_core)?;
-    execute_operation("mcp.delete", plan, options, NoopPolicy::AlwaysChange)
+    execute_operation("mcp.delete", plan, options)
 }
 
 fn mcp_export_stdout() -> Result<CommandOutput, CliError> {
@@ -1611,7 +1659,7 @@ fn skill_inventory() -> Result<mux_core::application::skills::SkillsInventory, C
     mux_core::application::skills::list_inventory().map_err(skill_error)
 }
 
-fn skill_error(error: mux_core::application::skills::SkillError) -> CliError {
+pub(crate) fn skill_error(error: mux_core::application::skills::SkillError) -> CliError {
     let parts = error.into_command_parts();
     let mut result = CliError::private(parts.code, parts.message);
     if let Some(retry_at) = parts.retry_at {
@@ -1743,6 +1791,29 @@ fn model_status_label(status: &ModelAdoptionStatus) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn model_clear_requires_explicit_all_or_exact_profiles() {
+        assert!(Cli::try_parse_from(["mux", "model", "unassign", "--agent", "qoder-cli"]).is_err());
+        assert!(Cli::try_parse_from(["mux", "model", "unassign", "work", "--all", "--agent", "qoder-cli"]).is_err());
+        let cli = Cli::try_parse_from(["mux", "model", "unassign", "--all", "--agent", "qoder-cli"]).unwrap();
+        assert!(matches!(cli.command, Some(Command::Model { command: ModelCommand::Unassign { all: true, .. } })));
+    }
+
+    #[test]
+    fn skill_install_requires_one_source_and_explicit_names() {
+        for args in [
+            vec!["mux", "skill", "install", "--name", "review"],
+            vec!["mux", "skill", "install", "--path", "/tmp/skills"],
+            vec!["mux", "skill", "install", "--path", "/tmp/skills", "--github", "owner/repo", "--name", "review"],
+        ] {
+            assert!(Cli::try_parse_from(args).is_err());
+        }
+        let cli = Cli::try_parse_from(["mux", "skill", "install", "--path", "/tmp/skills", "--name", "review", "--yes"]).unwrap();
+        assert!(!cli.accept_risk);
+        let cli = Cli::try_parse_from(["mux", "skill", "install", "--path", "/tmp/skills", "--name", "review", "--accept-risk", "--yes"]).unwrap();
+        assert!(cli.accept_risk);
+    }
 
     #[test]
     fn disabled_agents_remain_queryable_but_are_rejected_for_mutations() {

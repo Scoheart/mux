@@ -14,10 +14,13 @@
 ## 统一命令模型
 
 ```text
-mux mcp {list,show,status,assign,unassign,enable,disable,converge,add,delete,export}
-mux model {list,show,status,assign,unassign,enable,disable,converge,use}
-mux skill {list,show,status,assign,unassign,enable,disable,converge}
-mux agent {list,enable,disable}
+mux mcp {list,show,status,assign,unassign,enable,disable,converge,add,save,delete,export,source}
+mux mcp source {list,subscribe,add-local,add-builtin,refresh,enable,disable,remove}
+mux model {list,show,status,save,delete,import,assign,unassign,enable,disable,converge,use,delivery,provider}
+mux model provider {list,show,templates,models,save,delete}
+mux skill {list,show,status,inspect-source,install,import,update,remove,repair,check-updates,assign,unassign,enable,disable,converge}
+mux agent {list,save,configure,enable,disable}
+mux network proxy {show,set,clear}
 mux discover [mcp|model|skill]
 mux workspace
 mux upgrade
@@ -34,7 +37,7 @@ mux upgrade
 | `enable` / `disable` | 保留关系，只改变 desired 启停状态 |
 | `converge` | 对一个准确 observation 执行采用外部、恢复 MUX 或解除管理 |
 
-域专属命令只表达真实差异：MCP 有中央手动条目与完整配置导出；Model 用 `use` 选择 current。中央 Model、Provider 和 Skill 的完整创建、编辑、来源解析与删除目前由 Desktop 提供。
+域专属命令表达真实差异：MCP 支持中央条目、来源和完整配置导出；Model 支持 Profile、共享 Provider、凭据交付方式与 current；Skill 支持来源解析、安装、导入、更新、删除和修复。这些命令调用 Desktop 使用的 Core 用例。
 
 ## 外部变更与收敛
 
@@ -92,7 +95,7 @@ JSON 状态中的 `capability_errors` 表示能力域局部不可用；`recovery
 | Agent | Agent ID | `claude-code`、`codex` |
 
 关系命令必须显式带一个 `--agent <id>`。`assign` / `unassign` 可在一次命令中处理多个准确资产 ID；`enable` / `disable` / `use` / `converge` 一次处理一个。
-MCP 另支持 `unassign --all`：审阅后清空这一个 Agent 的全部 MCP，包括受管项、停用快照和外部项；中央 MCP 资产与其他 Agent 不受影响。
+MCP 的 `unassign --all` 审阅后清空该 Agent 的受管项、停用快照和外部项。Model 也支持 `unassign --all`，按 Core 声明的 storage authority 清空；原生注册表 Agent 包括外部模型。中央资产、Provider 和凭据保留；共享物理配置冲突由 Core 拒绝。
 
 ```bash
 mux mcp assign github::stdio filesystem::stdio --agent claude-code
@@ -119,12 +122,27 @@ mux mcp disable github::stdio --agent claude-code
 ```bash
 mux mcp add github::stdio --command npx --arg -y --arg @example/server
 mux mcp add docs::http --url https://mcp.example.com --http-type streamable-http
+mux mcp save --file mcp.json --key github::stdio --dry-run
 mux mcp delete github::stdio
 mux mcp export
 mux mcp export --out mcp.json --yes
 ```
 
 `export --out` 只创建权限为 `0600` 的新文件，拒绝覆盖已有目标。stdout 导出按命令定义包含完整 MCP 配置，其他 JSON 投影保持脱敏。
+
+MCP 来源管理：
+
+```bash
+mux mcp source list
+mux mcp source subscribe --url https://example.com/mcp.json --name work --yes
+mux mcp source add-local --path /path/to/mcp.json --yes
+mux mcp source add-builtin --yes
+mux mcp source refresh <source-id> --yes
+mux mcp source disable <source-id> --yes
+mux mcp source remove <source-id> --yes
+```
+
+`manual` / `discovered` 是自动管理来源，Core 拒绝通过来源删除或刷新接口改写它们。重新发现外部 MCP 使用 `mux discover mcp`。有消费关系的来源变更仍受 Core 的影响校验约束。
 
 ## Model
 
@@ -142,6 +160,53 @@ mux model use work --agent pi
 
 外部 Model 按 candidate identity 分别显示。无法安全搬入 Keychain、需要环境变量改造或存在身份歧义的候选会显示 `unsupported` / `ambiguous`，不会猜测接管。
 
+创建 Provider 后再创建引用它的 Model Profile：
+
+```json
+{
+  "id": "work-provider",
+  "name": "Work",
+  "provider": "custom",
+  "base_url": "https://api.example.com/v1",
+  "protocols": {"openai-completions": {"endpoint_path": "/chat/completions"}},
+  "auth_requirement": "required",
+  "api_key_source": {"kind": "env", "name": "WORK_API_KEY"}
+}
+```
+
+将上面的文档保存为 `provider.json`。Profile 文档 `model.json`：
+
+```json
+{
+  "id": "work",
+  "name": "Work model",
+  "provider_id": "work-provider",
+  "protocol": "openai-completions",
+  "model": "your-model-id"
+}
+```
+
+```bash
+mux model provider templates
+mux model provider save --file provider.json --dry-run
+mux model provider save --file provider.json --yes
+mux model provider list
+mux model provider models work-provider
+mux model save --file model.json --yes
+mux model save --file model.json --id work --dry-run
+mux model delivery env --agent qoder-cli --profile work --dry-run
+mux model unassign --all --agent qoder-cli --dry-run
+mux model delete work --dry-run
+mux model provider delete work-provider --dry-run
+mux model import <candidate-id> --dry-run
+```
+
+`save` 不带 `--id` 表示创建；编辑必须指定准确旧 ID。Profile 引用已存在 Provider，连接地址和凭据归 Provider 管理。`provider show` 输出脱敏概览，不能直接充当完整编辑文档。`import` 的 candidate ID 来自 `mux discover model`，Core 会绑定当前 fingerprint。
+
+如果使用 Keychain，将 Provider 的 `api_key_source` 设置为 `{"kind":"mux-store"}`，通过 `--credential-stdin` 从管道接收凭据。该选项不能与 `--file -` 共用 stdin；没有凭据选项时保留原密钥，只有 `--clear-credential` 才请求清除。不要把密钥放进命令参数。`delivery plaintext` 仅对 Core 支持的 Agent 生效，并且额外要求 `--confirm-plaintext`。
+
+`mux agent list --json` 现在包含 `storage_authority` 和 `supports_global_selection`。例如 Qoder Desktop 在会话里选模型，Qoder CLI 可全局选模型；多模型能力不等于全局 current 能力。
+
 ## Skill
 
 ```bash
@@ -153,6 +218,38 @@ mux skill disable review-changes --agent codex
 ```
 
 Skill relationship 把 `~/.mux/assets/skills/items/` 中央副本链接到已核验用户级 target。多个 Agent 可能共用同一物理目录，因此计划会列出完整 `affected_agent_ids`。`restore` 只重建可证明安全的受管链接；外部目录、普通文件或异向链接不会被覆盖。`detach` 会保留这些外部内容。
+
+Skill 中央生命周期：
+
+```bash
+mux skill inspect-source --github owner/repo
+mux skill inspect-source --path /path/to/skills
+mux skill inspect-source --archive /path/to/skills.zip
+mux skill install --github owner/repo --name review-changes --dry-run
+mux skill install --github owner/repo --name review-changes --yes
+mux skill import <external-identity> --dry-run
+mux skill check-updates --yes
+mux skill update review-changes --dry-run
+mux skill repair review-changes --dry-run
+mux skill repair review-changes --target <target-id> --dry-run
+mux skill remove review-changes --dry-run
+```
+
+先用 `inspect-source` 获得准确候选名称，再用一个或多个 `--name` 明确选择安装项。来源只能指定 GitHub、本地目录、压缩包中的一种。解析暂存会在查询结束、取消或失败后清理；安装和外部导入先进入中央库，分配 Agent 使用单独的 `assign`。
+
+存在本地修改或冲突时，只有明确的 `--replace-local-changes` / `--replace-conflicts` 才允许生成对应替换计划。高风险计划先用 `--dry-run` 阅读 findings；决定接受后，在提交命令中额外传 `--accept-risk`，Core 仍以本次实际计划的 findings hash 校验。普通 `--yes` 不再自动同意风险。
+
+## Agent 与网络设置
+
+```bash
+mux agent save my-agent --file agent.json --dry-run
+mux agent configure codex --file agent-patch.json --dry-run
+mux network proxy show
+mux network proxy set socks5://127.0.0.1:7890 --yes
+mux network proxy clear --yes
+```
+
+`agent save` 接收 Core 的 `AgentDefinition`，修改已有 ID 还需 `--replace`。`agent configure` 接收 `AgentConfigurationPatch`，仅修改文档中出现的能力，例如 `{"model":{"paths":["~/.codex/config.toml"]}}`。Core 校验路径、共享目录影响和已消费资源；CLI 不自行拼 Agent 文件。代理配置由 CLI 与 Desktop 共用，不接受 URL 中的凭据。
 
 ## 只读发现
 
@@ -170,7 +267,8 @@ mux discover skill
 | 选项 | 作用 |
 |---|---|
 | `--json` | 输出稳定 JSON envelope；mutation 仍必须同时选择 `--yes` 或 `--dry-run` |
-| `--yes` | 跳过交互提示，但不绕过安全校验 |
+| `--yes` | 跳过交互提示，但不绕过安全校验或自动同意 Skill 风险 |
+| `--accept-risk` | 明确接受当前 Skill 计划的风险 findings；仍需正常提交确认 |
 | `--dry-run` | 生成并展示计划，随后取消，不提交当前 mutation |
 | `--no-color` | 关闭 ANSI 颜色 |
 
@@ -195,7 +293,7 @@ mux --json workspace
 }
 ```
 
-失败写 stderr，并包含稳定的 `error.code` 与脱敏 details。API key、token、原始配置值和绝对私有路径不会进入普通状态 JSON。
+失败写 stderr，并包含稳定的 `error.code` 与脱敏 details。若中央配置已保存而部分 Agent 尚未收敛，退出码仍为 1，`error.code` 是 `pending_convergence`，`error.details` 包含 `changed: true`、`operation_id` 和本次操作的 `target_incidents`。先查看对应域的 `status`，再使用列出的恢复动作，不能把它当作“什么都没保存”直接重复创建资产。API key、token、原始配置值和绝对私有路径不会进入普通状态 JSON。
 
 ## TUI 键位
 
@@ -213,7 +311,7 @@ mux --json workspace
 | `?` | 帮助 |
 | `q` | 退出 |
 
-TUI、CLI 和 Desktop 都调用同一个 core planner，不各自实现写入语义。
+资源变更调用同一个 Core planner；来源注册、Agent 定义和代理偏好使用共享 Core 用例。后者的 `--dry-run` 展示操作意图，不会进行远程刷新或声称已完成写入时才执行的完整校验。CLI 无参数 TUI 仍聚焦 MCP；图标、固定 Agent、语言、桌面启动、文件选择和凭据显示／校验界面留在 Desktop。
 
 ## 更新
 

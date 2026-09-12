@@ -4196,6 +4196,7 @@ pub fn clear_profile(agent_id: &str, profile_id: &str) -> Result<(), String> {
     clear_profile_consumption(agent_id, profile_id, true)
 }
 
+#[cfg(test)]
 pub(crate) fn clear_all_configured_models(agent_id: &str) -> Result<(), String> {
     clear_all_configured_models_for_targets(agent_id, &[])
 }
@@ -5482,6 +5483,7 @@ fn clear_legacy_pi_profile_provider(
     clear_pi_profile_from_provider(providers, &legacy_id, profile, path)
 }
 
+#[cfg(test)]
 fn prepare_pi_models(
     path: &Path,
     profile: &ModelProfile,

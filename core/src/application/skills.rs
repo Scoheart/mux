@@ -3,7 +3,7 @@
 use super::gate::CapabilityDomain;
 pub use crate::resources::skill::{
     GithubEndpoints, InventoryState, OperationPlan, PlanAssignmentRequest, PlanImportRequest,
-    PlanRemoveRequest, PlanRepairRequest, PlanSkillAssetImportRequest,
+    PlanRemoveRequest, PlanRepairRequest, RepairKind, PlanSkillAssetImportRequest,
     PlanSkillAssetInstallRequest, PlanUpdateRequest, SkillAgentView, SkillCommitRequest,
     SkillDetail, SkillError, SkillInventoryItem, SkillLocation, SkillOperationKind,
     SkillSourceInput, SkillSourceResolution, SkillsInventory, UpdateCheckOutcome,

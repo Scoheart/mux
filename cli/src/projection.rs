@@ -25,11 +25,13 @@ pub fn safe_agent_view(agent: &mux_core::application::agents::AgentCapabilityVie
             })),
             "model": agent.capabilities.model.as_ref().map(|model| json!({
                 "mode": model.mode,
+                "storage_authority": model.storage_authority,
                 "installed": model.installed,
                 "config_paths": model.config_paths.iter().map(|path| safe_path(path)).collect::<Vec<_>>(),
                 "assigned_profiles": model.assigned_profiles,
                 "active_profile": model.active_profile,
                 "supports_multiple": model.supports_multiple,
+                "supports_global_selection": model.supports_global_selection,
                 "credential_mode": model.credential_mode,
                 "supported_protocols": model.supported_protocols,
             })),

@@ -422,6 +422,7 @@ it("keeps a Model-only Agent in the full resource workspace", async () => {
         assigned_profiles: [],
         active_profile: null,
         supports_multiple: false,
+        supports_global_selection: true,
         credential_mode: "guided",
         supported_protocols: ["openai-responses"],
       },

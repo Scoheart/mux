@@ -85,6 +85,7 @@ pub struct ModelAgentCapabilityView {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub active_profile: Option<String>,
     pub supports_multiple: bool,
+    pub supports_global_selection: bool,
     pub credential_mode: String,
     #[serde(default)]
     pub supported_protocols: Vec<ModelProtocol>,

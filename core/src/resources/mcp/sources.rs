@@ -619,8 +619,16 @@ pub fn add_official() -> Result<SourceView, String> {
     Ok(to_view(def, count))
 }
 
+fn require_user_managed_source(id: &str) -> Result<(), String> {
+    if id == MANUAL_ID || id == DISCOVERED_ID {
+        return Err("source_managed: MUX maintains this source; edit individual central MCP assets instead".into());
+    }
+    Ok(())
+}
+
 /// Re-fetch (remote) or re-copy (local) a source's file and update its status.
 pub fn refresh(id: String) -> Result<SourceView, String> {
+    require_user_managed_source(&id)?;
     let settings = load_settings_strict().map_err(|error| error.to_string())?;
     let Some(original) = settings
         .sources
@@ -770,6 +778,7 @@ pub fn set_enabled(id: String, enabled: bool) -> Result<(), String> {
 
 /// Remove a source and delete its cached file.
 pub fn remove(id: String) -> Result<(), String> {
+    require_user_managed_source(&id)?;
     let settings = load_settings_strict().map_err(|error| error.to_string())?;
     let expected = settings
         .sources
@@ -1103,6 +1112,31 @@ args = ["-y", "github-mcp"]
         assert!(add_error.contains("desired consumption"), "{add_error}");
         assert_eq!(load_settings().sources.unwrap().len(), 1);
         assert_eq!(fs::read_dir(local_sources_dir()).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn automatic_sources_cannot_be_deleted_or_refreshed_through_core() {
+        let _home = TestHome::new("src-managed-protection");
+        let entry = builtin_registry().into_iter().next().unwrap();
+        crate::resources::mcp::registry::write_manual_entry(&entry).unwrap();
+        crate::resources::mcp::registry::write_discovered_entry(&entry).unwrap();
+        let settings_before = fs::read(settings_file()).unwrap();
+        let caches = load_settings().sources.unwrap().iter()
+            .filter(|source| source.id == MANUAL_ID || source.id == DISCOVERED_ID)
+            .map(|source| {
+                let path = cached_path(source).unwrap();
+                let content = fs::read(&path).unwrap();
+                (path, content)
+            }).collect::<Vec<_>>();
+        assert_eq!(caches.len(), 2);
+        for id in [MANUAL_ID, DISCOVERED_ID] {
+            assert!(remove(id.into()).unwrap_err().starts_with("source_managed:"));
+            assert!(refresh(id.into()).unwrap_err().starts_with("source_managed:"));
+        }
+        assert_eq!(fs::read(settings_file()).unwrap(), settings_before);
+        for (path, content) in caches {
+            assert_eq!(fs::read(path).unwrap(), content);
+        }
     }
 
     #[test]

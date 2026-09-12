@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.192](https://github.com/Scoheart/mux/compare/v1.8.191...v1.8.192) (2026-09-12)
+
+### Changes
+
+* feat(models): manage Qoder CLI custom model registry ([8d17bf6](https://github.com/Scoheart/mux/commit/8d17bf6d329f151a9a6d17e007f6e6b4744d28a0))
+
 ## [1.8.191](https://github.com/Scoheart/mux/compare/v1.8.190...v1.8.191) (2026-09-11)
 
 ### Changes

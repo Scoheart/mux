@@ -139,6 +139,9 @@ impl ExtractedModel {
     }
 
     fn status(&self) -> (ModelAdoptionStatus, Option<String>) {
+        if self.agent_id == "qoder-desktop" && self.native_id.starts_with("mux_cli_") {
+            return (ModelAdoptionStatus::Unsupported, Some("此条目由 Qoder CLI 管理，请在 CLI 页面操作".into()));
+        }
         if matches!(self.credential, ExtractedCredential::Conflict) {
             return (
                 ModelAdoptionStatus::Conflicted,
@@ -381,9 +384,9 @@ pub fn plan_model_adoption(
     let mut draft = selected[0].profile();
     draft.native_ids.clear();
     for candidate in &selected {
-        // ZCode imports get a new MUX-owned provider, preserving the external
+        // ZCode and Qoder CLI imports get a new MUX-owned provider, preserving the external
         // provider and every sibling model instead of adopting its identity.
-        if agent_uses_native_id(&candidate.agent_id) && candidate.agent_id != "zcode" {
+        if agent_uses_native_id(&candidate.agent_id) && !matches!(candidate.agent_id.as_str(), "zcode" | "qoder-cli") {
             draft
                 .native_ids
                 .insert(candidate.agent_id.clone(), candidate.native_id.clone());
@@ -407,7 +410,7 @@ pub fn plan_model_adoption(
     let mut after = BTreeMap::new();
     for candidate in &selected {
         let current = settings.model_selection(&candidate.agent_id);
-        if candidate.agent_id == "zcode" {
+        if matches!(candidate.agent_id.as_str(), "zcode" | "qoder-cli") {
             // ModelAdopt intentionally never writes native configuration. Import
             // only the central asset; an explicit Add later creates its MUX slot.
             before.insert(candidate.agent_id.clone(), current.clone());
@@ -461,7 +464,10 @@ pub fn plan_model_adoption(
     if managed_profile_id.is_none() && selected.iter().any(|candidate| candidate.agent_id == "zcode") {
         summary.push("仅导入中央模型库，保留 ZCode 原 Provider 及其模型；请到 ZCode 页面选择中央模型并添加".into());
     }
-    let linked_agents = selected.iter().filter(|candidate| candidate.agent_id != "zcode").count();
+    if managed_profile_id.is_none() && selected.iter().any(|candidate| candidate.agent_id == "qoder-cli") {
+        summary.push("仅导入中央模型库，保留共享的 Qoder 原配置；请到 Qoder CLI 页面添加中央模型".into());
+    }
+    let linked_agents = selected.iter().filter(|candidate| !matches!(candidate.agent_id.as_str(), "zcode" | "qoder-cli")).count();
     if linked_agents > 0 {
         summary.push(format!("关联 {} 个 Agent 中的现有模型配置", linked_agents));
     }
@@ -516,7 +522,7 @@ fn extract_models(settings: &Settings) -> Result<Vec<ExtractedModel>, String> {
             "grok-build" => extract_grok(&paths[0]),
             "pi" => extract_pi(&paths[0], &paths[1]),
             "opencode" | "kilo-code" => extract_open_code(&agent_id, &paths[0]),
-            "qoder-desktop" => extract_qoder(&paths[0]),
+            "qoder-desktop" | "qoder-cli" => extract_qoder(&agent_id, &paths[0]),
             "zcode" => extract_zcode(&paths[0]),
             "qwen-code" => extract_qwen(&paths[0]),
             "crush" => extract_crush(&paths[0]),
@@ -546,6 +552,7 @@ fn agent_uses_native_id(agent_id: &str) -> bool {
             | "opencode"
             | "kilo-code"
             | "qoder-desktop"
+            | "qoder-cli"
             | "zcode"
             | "crush"
             | "mistral-vibe"
@@ -918,7 +925,7 @@ fn extract_open_code(agent_id: &str, path: &Path) -> Result<Vec<ExtractedModel>,
     Ok(rows)
 }
 
-fn extract_qoder(path: &Path) -> Result<Vec<ExtractedModel>, String> {
+fn extract_qoder(agent_id: &str, path: &Path) -> Result<Vec<ExtractedModel>, String> {
     let Some(root) = crate::resources::model::adapters::read_qoder_registry(path)? else { return Ok(Vec::new()); };
     let Some(providers_value) = root.get("providers") else { return Ok(Vec::new()); };
     let providers = providers_value.as_object().ok_or("Qoder providers must be an object")?;
@@ -942,7 +949,7 @@ fn extract_qoder(path: &Path) -> Result<Vec<ExtractedModel>, String> {
             let model = entry.get("model").and_then(Value::as_str).ok_or("Qoder model id missing")?;
             if !ids.insert(model) { return Err("Qoder contains duplicate model ids".into()); }
             rows.push(ExtractedModel {
-                agent_id: "qoder-desktop".into(),
+                agent_id: agent_id.into(),
                 native_id: native_id.clone(),
                 name: entry.get("displayName").and_then(Value::as_str).unwrap_or(model).into(),
                 protocol: protocol.clone(),
@@ -954,7 +961,8 @@ fn extract_qoder(path: &Path) -> Result<Vec<ExtractedModel>, String> {
                 reasoning: entry.pointer("/capabilities/thinking/modes").and_then(Value::as_array)
                     .map(|modes| modes.iter().any(|mode| mode.as_str() == Some("enabled"))),
                 enabled: None,
-                active: false,
+                active: agent_id == "qoder-cli" && root.pointer("/model/name").and_then(Value::as_str)
+                    == Some(format!("{native_id}/{model}").as_str()),
                 credential: if models.len() > 1 {
                     ExtractedCredential::Invalid("此 Qoder provider 共用多个模型；保留只读，避免接管时改动其他模型的连接与凭据".into())
                 } else { credential.clone() },
@@ -1476,7 +1484,7 @@ fn profile_owns_candidate(
     explicit_native_id.is_none()
         || !matches!(
             candidate.agent_id.as_str(),
-            "pi" | "opencode" | "kilo-code" | "qoder-desktop" | "zcode" | "crush" | "goose"
+            "pi" | "opencode" | "kilo-code" | "qoder-desktop" | "qoder-cli" | "zcode" | "crush" | "goose"
         )
         || profile.model == candidate.model
 }
@@ -1484,6 +1492,7 @@ fn profile_owns_candidate(
 fn generated_native_id(settings: &Settings, agent_id: &str, profile: &ModelProfile) -> String {
     match agent_id {
         "claude-code" => "claude-settings".into(),
+        "qoder-cli" => crate::resources::model::adapters::native_provider_id(agent_id, profile),
         "pi" => crate::resources::model::generated_pi_provider_id(settings, profile),
         "qwen-code" => format!(
             "{}:{}:{}",
@@ -1722,6 +1731,44 @@ mod tests {
     use super::*;
     use crate::assets::{commit_asset_operation, AssetCommitRequest};
     use crate::testenv::TestHome;
+
+    #[test]
+    fn qoder_cli_observes_selection_and_matches_its_distinct_native_identity() {
+        let home = TestHome::new("qoder-cli-discovery");
+        let path = home.home.join("settings.json");
+        fs::write(&path, r#"{"providers":{"mux_cli_66697874757265":{"baseUrl":"https://example.invalid/v1","apiKey":"${QODER_FIXTURE_KEY}","protocol":"openai-responses","models":[{"model":"vendor/model"}]}},"model":{"name":"mux_cli_66697874757265/vendor/model"}}"#).unwrap();
+        let rows = extract_qoder("qoder-cli", &path).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert!(rows[0].active);
+        assert_eq!(rows[0].status().0, ModelAdoptionStatus::Adoptable);
+        let mut profile = rows[0].profile();
+        profile.id = "fixture".into();
+        profile.native_ids.clear();
+        assert!(profile_owns_candidate(&Settings::default(), &profile, &rows[0]));
+        let desktop = extract_qoder("qoder-desktop", &path).unwrap();
+        assert!(!desktop[0].active);
+        assert_eq!(desktop[0].status().0, ModelAdoptionStatus::Unsupported);
+        assert!(!profile_owns_candidate(&Settings::default(), &profile, &desktop[0]));
+    }
+
+    #[test]
+    fn qoder_cli_import_preserves_shared_native_config_and_waits_for_explicit_add() {
+        let home = TestHome::new("qoder-cli-import");
+        let path = home.home.join(".qoder/settings.json");
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let original = r#"{"providers":{"external":{"baseUrl":"https://example.invalid/v1","apiKey":"${QODER_FIXTURE_KEY}","models":[{"model":"model"}]}},"model":{"name":"external/model"}}"#;
+        fs::write(&path, original).unwrap();
+        let candidate = list_model_adoption_candidates().unwrap().into_iter()
+            .find(|candidate| candidate.agent_id == "qoder-cli").unwrap();
+        let plan = plan_model_adoption(PlanModelAdoptionRequest {
+            candidate_fingerprints: BTreeMap::from([(candidate.candidate_id, candidate.fingerprint)]),
+        }).unwrap();
+        commit_asset_operation(AssetCommitRequest { operation_id: plan.operation_id, candidate_hash: plan.candidate_hash }).unwrap();
+        let settings = load_settings_strict().unwrap();
+        assert!(settings.model_selection("qoder-cli").profiles.is_empty());
+        assert!(!settings.model_profiles.unwrap().values().next().unwrap().native_ids.contains_key("qoder-cli"));
+        assert_eq!(fs::read_to_string(path).unwrap(), original);
+    }
 
     fn write_grok(home: &TestHome, credential_line: &str) {
         let path = home.home.join(".grok/config.toml");

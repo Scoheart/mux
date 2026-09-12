@@ -428,9 +428,10 @@ fn private_transaction_paths(
     let mut private = claude_desktop_private_transaction_paths(plan, settings)?;
     // Models and MCP share this file. Protect the whole file even when only
     // mcpServers is edited, or when the last managed model is removed.
-    let mut qoder_paths = settings.agent_config_paths.as_ref()
-        .and_then(|paths| paths.get("qoder-desktop"))
-        .and_then(|entry| entry.model_paths.clone()).unwrap_or_default();
+    let mut qoder_paths = ["qoder-desktop", "qoder-cli"].iter().flat_map(|agent| {
+        settings.agent_config_paths.as_ref().and_then(|paths| paths.get(*agent))
+            .and_then(|entry| entry.model_paths.clone()).unwrap_or_default()
+    }).collect::<Vec<_>>();
     qoder_paths.push("~/.qoder/settings.json".into());
     let qoder_paths = qoder_paths.iter().map(|path| crate::resources::mcp::scanner::expand_tilde(path)).collect::<BTreeSet<_>>();
     private.extend(plan.target_files.iter().map(|path| crate::resources::mcp::scanner::expand_tilde(path)).filter(|path| qoder_paths.contains(path)));
@@ -4462,6 +4463,19 @@ mod tests {
     use crate::resources::model::save_profile;
     use crate::testenv::TestHome;
     use serde_json::Value;
+
+    #[test]
+    fn qoder_cli_model_path_override_uses_private_snapshots() {
+        let home = TestHome::new("qoder-cli-private-override");
+        let target = home.home.join("custom-qoder/settings.json");
+        let mut settings = Settings::default();
+        settings.agent_config_paths = Some(BTreeMap::from([("qoder-cli".into(), crate::settings::AgentConfigPathOverride {
+            model_paths: Some(vec![target.to_string_lossy().into_owned()]),
+            ..Default::default()
+        })]));
+        let plan = private_transaction_plan(vec![target.to_string_lossy().into_owned()]);
+        assert!(private_transaction_paths(&plan, &settings).unwrap().contains(&target));
+    }
 
     #[test]
     fn qoder_private_journal_recovers_before_commit_and_after_commit() {

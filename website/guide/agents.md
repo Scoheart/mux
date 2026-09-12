@@ -77,7 +77,7 @@ MUX 的 Agent 数据分为两层：
 - **Pi**：Pi 核心不内置 MCP。MUX 的定义只适用于已安装社区 `pi-mcp-adapter` 的环境，因此界面明确标为社区扩展。
 - **Devin**：产品支持 MCP，但没有核验到稳定的用户级全局文件契约，因此保留在发现数据中，不进入 Agent 选择器。
 - **QoderWork**：用户自定义 MCP 保存在 `~/.qoderwork/mcp.json`，使用 `mcpServers`；MUX 不修改客户端数据目录中的内置 MCP。远程连接按官方导入格式写为 `streamable-http` 或 `sse`。
-- **Qoder IDE / CLI / Desktop**：三个独立入口。IDE（原 `qoder`）继续使用 `~/.qoder/mcp.json`；新 Desktop（`qoder-desktop`，0.1.x）与 CLI（`qoder-cli`）共用 `~/.qoder/settings.json`，修改同名 MCP 会影响两者。Desktop 0.1.8 的自定义 Models 可由 MUX 写入同文件的 `providers`，重启后在会话中选用；CLI 仍通过 `/model` 配置；新版 Desktop Skills 的本地写入契约尚未核验。
+- **Qoder IDE / CLI / Desktop**：三个独立入口。IDE（原 `qoder`）继续使用 `~/.qoder/mcp.json`；新 Desktop（`qoder-desktop`，0.1.x）与 CLI（`qoder-cli`）共用 `~/.qoder/settings.json`，修改同名 MCP 会影响两者。Desktop 0.1.8 的自定义 Models 可由 MUX 写入同文件的 `providers`，重启后在会话中选用；CLI 1.1.50+ 同样支持自动写入自定义 Models，并通过 `model.name` 切换当前模型；新版 Desktop Skills 的本地写入契约尚未核验。
 - **Claude Desktop / BoltAI**：列出的本地文件只原生支持 stdio。远程 MCP 分别由 Claude Connectors 或 BoltAI 的 `mcp-remote` 方案管理。
 - **Goose**：通用文档示例使用 `~/.config/goose/config.yaml`，当前 macOS 源码实际采用 `~/Library/Application Support/Block/goose/config/config.yaml`；MUX 按运行时代码定位。
 - **Grok Build**：MCP 与自定义模型共用 `~/.grok/config.toml`。MUX 分别局部管理 `mcp_servers`、`[models].default` 和独立的 MUX 模型表，支持三种官方 API backend，并保留其他模型、认证、超时、权限和工具策略。认证只写 `env_key` 变量名，不写密钥正文。

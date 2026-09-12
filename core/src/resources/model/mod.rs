@@ -1870,7 +1870,7 @@ pub fn default_config_paths(agent_id: &str) -> Option<Vec<String>> {
         "opencode" => &["~/.config/opencode/opencode.json"],
         "kilo-code" => &["~/.config/kilo/kilo.jsonc"],
         "qwen-code" => &["~/.qwen/settings.json"],
-        "qoder-desktop" => &["~/.qoder/settings.json"],
+        "qoder-desktop" | "qoder-cli" => &["~/.qoder/settings.json"],
         "zcode" => &["~/.zcode/v2/config.json"],
         "crush" => &["~/.config/crush/crush.json"],
         "mistral-vibe" => &["~/.vibe/config.toml"],
@@ -2998,7 +2998,8 @@ pub(crate) fn profile_credential_issue(
 fn env_key_required_issue(agent_id: &str) -> Option<(&'static str, &'static str)> {
     if !matches!(
         agent_id,
-        "grok-build"
+        "qoder-cli"
+            | "grok-build"
             | "opencode"
             | "kilo-code"
             | "qwen-code"
@@ -3301,28 +3302,11 @@ pub fn list_agents() -> Vec<ModelAgentView> {
             view.assigned_profile = None;
             view
         },
-        ModelAgentView {
-            id: "qoder-cli".into(),
-            name: "Qoder CLI".into(),
-            mode: "guided".into(),
-            storage_authority: ModelStorageAuthority::Guided,
-            installed: agent_installed(&["qoder", "qodercli"], &[], &[]),
-            config_path: String::new(),
-            config_paths: Vec::new(),
-            docs: QODER_CLI_DOCS.into(),
-            assigned_profile: None,
-            assigned_profiles: Vec::new(),
-            active_profile: None,
-            supports_multiple: false,
-            supports_global_selection: true,
-            credential_mode: "guided".into(),
-            credential_capabilities: credential::agent_capabilities("qoder-cli"),
-            credential_policies: BTreeMap::new(),
-            default_delivery: Default::default(),
-            available_deliveries: Vec::new(),
-            supported_protocols: Vec::new(),
-            note: "在 Qoder CLI 的 /model → Custom 向导中配置 BYOK；可用服务商和模型以当前账号目录为准，不要手动写入 settings.json。".into(),
-        },
+        managed_agent_view(
+            &settings, "qoder-cli", "Qoder CLI", &["qoder", "qodercli"], &[],
+            QODER_CLI_DOCS,
+            "支持 Qoder CLI 1.1.50 起的自定义端点、多模型和当前模型切换。重启 CLI 后生效；API Key 使用环境变量引用，启动 CLI 时须提供该变量。与 Desktop 共用 settings.json。",
+        ),
         managed_agent_view(
             &settings, "opencode", "OpenCode", &["opencode"], &[".config/opencode"],
             "https://opencode.ai/docs/models/",
@@ -3496,7 +3480,7 @@ pub(crate) fn observe_active_model_for_settings(
                 .map(str::to_string)
         }
         "claude-code" | "codex" => settings.model_selection(agent_id).active_profile_id,
-        "zcode" | "qoder-desktop" | "opencode" | "kilo-code" | "qwen-code" | "crush" | "mistral-vibe" | "hermes"
+        "zcode" | "qoder-desktop" | "qoder-cli" | "opencode" | "kilo-code" | "qwen-code" | "crush" | "mistral-vibe" | "hermes"
         | "factory-droid" | "goose" => {
             return match adapters::observe_active(agent_id, &paths, &profiles) {
                 adapters::ObservedActiveModel::Managed(id) => ObservedActiveModel::Managed(id),
@@ -3622,7 +3606,7 @@ pub fn observe_profile(
             let settings = observe_prepared(prepare_pi_settings(&paths[1], &profile));
             combine_observed(models, settings)
         }
-        "zcode" | "qoder-desktop" | "opencode" | "kilo-code" | "qwen-code" | "crush" | "mistral-vibe" | "hermes"
+        "zcode" | "qoder-desktop" | "qoder-cli" | "opencode" | "kilo-code" | "qwen-code" | "crush" | "mistral-vibe" | "hermes"
         | "factory-droid" | "goose" => Ok(adapters::observe_prepared_files(
             prepare_observed_native_files(agent_id, &paths, &profile, true, has_credential),
         )),
@@ -3652,7 +3636,7 @@ pub fn observe_profile_consumption(
     let absent = match agent_id {
         "grok-build" => cleared_toml_profile_absent(prepare_clear_grok_build(&paths[0], &profile)),
         "pi" => cleared_toml_profile_absent(prepare_clear_pi_models(&paths[0], &profile)),
-        "zcode" | "qoder-desktop" | "opencode" | "kilo-code" | "qwen-code" | "crush" | "mistral-vibe" | "hermes"
+        "zcode" | "qoder-desktop" | "qoder-cli" | "opencode" | "kilo-code" | "qwen-code" | "crush" | "mistral-vibe" | "hermes"
         | "factory-droid" | "goose" => {
             adapters::cleared_profile_absent(adapters::prepare_clear(agent_id, &paths, &profile))
         }
@@ -3670,7 +3654,7 @@ pub fn observe_profile_consumption(
             &profile,
             pi_api_key_value(&profile, has_credential)?,
         )),
-        "zcode" | "qoder-desktop" | "opencode" | "kilo-code" | "qwen-code" | "crush" | "mistral-vibe" | "hermes"
+        "zcode" | "qoder-desktop" | "qoder-cli" | "opencode" | "kilo-code" | "qwen-code" | "crush" | "mistral-vibe" | "hermes"
         | "factory-droid" | "goose" => Ok(adapters::observe_prepared_files(
             prepare_observed_native_files(agent_id, &paths, &profile, false, has_credential),
         )),
@@ -3700,7 +3684,7 @@ pub fn observe_external_model(agent_id: &str) -> Result<ExternalModelObservedSta
         "codex" => observe_external_codex(&paths[0]),
         "grok-build" => observe_external_grok_build(&paths[0]),
         "pi" => observe_external_pi(&paths[0], &paths[1]),
-        "zcode" | "qoder-desktop" | "opencode" | "kilo-code" | "qwen-code" | "crush" | "mistral-vibe" | "hermes"
+        "zcode" | "qoder-desktop" | "qoder-cli" | "opencode" | "kilo-code" | "qwen-code" | "crush" | "mistral-vibe" | "hermes"
         | "factory-droid" | "goose" => Ok(adapters::observe_external(agent_id, &paths[0])),
         _ => Ok(ExternalModelObservedState::Absent),
     }
@@ -3889,10 +3873,7 @@ fn ensure_supported(agent_id: &str, protocol: &ModelProtocol) -> Result<(), Stri
             ModelProtocol::AnthropicMessages | ModelProtocol::OpenaiCompletions
         ),
         "mistral-vibe" | "zcode" => matches!(protocol, ModelProtocol::OpenaiCompletions),
-        "qoder-cli" => {
-            return Err(format!("Configure Qoder CLI BYOK through /model → Custom; see {QODER_CLI_DOCS}"))
-        }
-        "qoder-desktop" => !matches!(protocol, ModelProtocol::GeminiGenerateContent),
+        "qoder-desktop" | "qoder-cli" => !matches!(protocol, ModelProtocol::GeminiGenerateContent),
         "qoder" => {
             return Err(format!(
                 "Qoder IDE custom models must be configured through Settings → Models; see {QODER_DOCS}"
@@ -4065,7 +4046,7 @@ pub(crate) fn apply_profile_consumption_with_credential_presence_target(
             active,
         )
         .map_err(Into::into),
-        "zcode" | "qoder-desktop" | "opencode" | "kilo-code" => {
+        "zcode" | "qoder-desktop" | "qoder-cli" | "opencode" | "kilo-code" => {
             let prepared = adapters::prepare_apply(agent_id, &paths, &profile, active)?;
             match credential_route.as_ref() {
                 Some((source, credential::PreparedCredentialRoute::OpenCodeAuthStore))
@@ -4223,6 +4204,7 @@ pub(crate) fn clear_all_configured_models_for_targets(
     agent_id: &str,
     reviewed_targets: &[String],
 ) -> Result<(), String> {
+    guard_shared_qoder_clear(&crate::settings::load_settings_strict().map_err(|error| error.to_string())?, agent_id)?;
     let authority = model_agent_capability(agent_id)
         .ok_or_else(|| format!("unsupported model Agent: {agent_id}"))?
         .storage_authority;
@@ -4236,7 +4218,7 @@ pub(crate) fn clear_all_configured_models_for_targets(
     match agent_id {
         "pi" => clear_all_pi(&paths[0], &paths[1]),
         "grok-build" => clear_one_model_file(&paths[0], "grok-build", prepare_clear_all_grok_build),
-        "zcode" | "qoder-desktop" | "opencode" | "kilo-code" | "qwen-code" | "crush" | "mistral-vibe" | "hermes"
+        "zcode" | "qoder-desktop" | "qoder-cli" | "opencode" | "kilo-code" | "qwen-code" | "crush" | "mistral-vibe" | "hermes"
         | "factory-droid" | "goose" => {
             let reviewed = reviewed_targets
                 .iter()
@@ -4281,14 +4263,32 @@ pub(crate) fn agent_has_configured_models(agent_id: &str) -> Result<bool, String
                 .as_deref()
                 .is_some_and(|value| value != content.as_str()))
         }
-        "zcode" | "qoder-desktop" | "opencode" | "kilo-code" | "qwen-code" | "crush" | "mistral-vibe" | "hermes"
+        "zcode" | "qoder-desktop" | "qoder-cli" | "opencode" | "kilo-code" | "qwen-code" | "crush" | "mistral-vibe" | "hermes"
         | "factory-droid" | "goose" => adapters::has_configured_models(agent_id, &paths),
         _ => Ok(false),
     }
 }
 
+/// A reviewed clear-all includes external records, so shared Qoder registries
+/// cannot be emptied while the sibling Agent still consumes a managed model.
+fn guard_shared_qoder_clear(settings: &crate::settings::Settings, agent_id: &str) -> Result<(), String> {
+    let sibling = match agent_id {
+        "qoder-cli" => "qoder-desktop",
+        "qoder-desktop" => "qoder-cli",
+        _ => return Ok(()),
+    };
+    if settings.model_selection(sibling).profiles.is_empty() { return Ok(()); }
+    let targets = configured_path_strings_checked(settings, agent_id)?.unwrap_or_default();
+    let sibling_targets = configured_path_strings_checked(settings, sibling)?.unwrap_or_default();
+    if targets.iter().any(|path| sibling_targets.iter().any(|other| expand_tilde(path) == expand_tilde(other))) {
+        return Err(format!("qoder_shared_registry: {sibling} also uses this settings.json; remove individual models instead of clearing the shared registry"));
+    }
+    Ok(())
+}
+
 pub(crate) fn clear_all_configured_model_paths(agent_id: &str) -> Result<Vec<String>, String> {
     let settings = crate::settings::load_settings_strict().map_err(|error| error.to_string())?;
+    guard_shared_qoder_clear(&settings, agent_id)?;
     let paths = configured_path_strings_checked(&settings, agent_id)?
         .ok_or_else(|| format!("unsupported model Agent: {agent_id}"))?;
     if agent_id != "goose" {
@@ -4368,7 +4368,7 @@ pub(crate) fn clear_profile_consumption_target(
         )
         .map_err(ModelTargetError::from)?,
         "pi" => clear_pi(&paths[0], &paths[1], &profile, active).map_err(ModelTargetError::from)?,
-        "zcode" | "qoder-desktop" | "opencode" | "kilo-code" | "qwen-code" | "crush" | "mistral-vibe" | "hermes"
+        "zcode" | "qoder-desktop" | "qoder-cli" | "opencode" | "kilo-code" | "qwen-code" | "crush" | "mistral-vibe" | "hermes"
         | "factory-droid" | "goose" => {
             commit_native_model_files(
                 agent_id,
@@ -4602,7 +4602,7 @@ fn commit_native_model_files(
     agent_id: &str,
     files: Vec<adapters::PreparedModelFile>,
 ) -> Result<(), String> {
-    if matches!(agent_id, "qoder-desktop" | "zcode") {
+    if matches!(agent_id, "qoder-desktop" | "qoder-cli" | "zcode") {
         return commit_private_model_files(
             &files.into_iter().map(open_code_auth::PreparedAuthFile::from_model_file).collect::<Vec<_>>()
         );
@@ -5547,7 +5547,7 @@ fn prepare_observed_native_files(
     active: bool,
     has_credential: bool,
 ) -> Result<Vec<adapters::PreparedModelFile>, String> {
-    if matches!(agent_id, "zcode" | "qoder-desktop" | "opencode" | "kilo-code") {
+    if matches!(agent_id, "zcode" | "qoder-desktop" | "qoder-cli" | "opencode" | "kilo-code") {
         if let Some((source, credential::PreparedCredentialRoute::Plaintext)) =
             credential_route_for(agent_id, profile, has_credential)?
         {
@@ -7623,12 +7623,11 @@ wire_api = "responses"
     }
 
     #[test]
-    fn qoder_desktop_is_managed_while_ide_and_cli_keep_their_guides() {
+    fn qoder_desktop_and_cli_are_managed_while_ide_keeps_its_guide() {
         let _home = TestHome::new("qoder-model-guides");
         let agents = list_agents();
         for (id, name, docs) in [
             ("qoder", "Qoder IDE", QODER_DOCS),
-            ("qoder-cli", "Qoder CLI", QODER_CLI_DOCS),
         ] {
             let agent = agents.iter().find(|agent| agent.id == id).unwrap();
             assert_eq!(agent.name, name);
@@ -7642,6 +7641,18 @@ wire_api = "responses"
                 assert!(ensure_supported(id, &protocol).is_err());
             }
         }
+        let cli = agents.iter().find(|agent| agent.id == "qoder-cli").unwrap();
+        assert_eq!(cli.mode, "managed");
+        assert_eq!(cli.config_paths, vec!["~/.qoder/settings.json"]);
+        assert!(cli.supports_multiple && cli.supports_global_selection);
+        assert_eq!(cli.credential_capabilities.native_sources, vec!["env"]);
+        assert!(!cli.credential_capabilities.plaintext);
+        assert!(credential::select_delivery("qoder-cli", &ApiKeySource::MuxStore, &crate::domain::assets::ApiKeyDelivery::Auto).is_err());
+        assert!(credential::select_delivery("qoder-cli", &ApiKeySource::Env { name: "QODER_FIXTURE_KEY".into() }, &crate::domain::assets::ApiKeyDelivery::Auto).is_ok());
+        for protocol in [ModelProtocol::OpenaiCompletions, ModelProtocol::OpenaiResponses, ModelProtocol::AnthropicMessages] {
+            assert!(ensure_supported("qoder-cli", &protocol).is_ok());
+        }
+        assert!(ensure_supported("qoder-cli", &ModelProtocol::GeminiGenerateContent).is_err());
         let desktop = agents.iter().find(|agent| agent.id == "qoder-desktop").unwrap();
         assert!(desktop.note.contains("0.1.8"));
         assert_eq!(desktop.mode, "managed");
@@ -7654,6 +7665,19 @@ wire_api = "responses"
             assert!(ensure_supported("qoder-desktop", &protocol).is_ok());
         }
         assert!(ensure_supported("qoder-desktop", &ModelProtocol::GeminiGenerateContent).is_err());
+    }
+
+    #[test]
+    fn qoder_clear_all_blocks_shared_consumers_but_allows_separate_config_paths() {
+        let _home = TestHome::new("qoder-shared-clear");
+        let mut settings = crate::settings::Settings::default();
+        settings.model_assignments = Some(BTreeMap::from([("qoder-desktop".into(), "fixture".into())]));
+        assert!(guard_shared_qoder_clear(&settings, "qoder-cli").is_err());
+        settings.agent_config_paths = Some(BTreeMap::from([("qoder-cli".into(), crate::settings::AgentConfigPathOverride {
+            model_paths: Some(vec!["~/.qoder-cli-isolated/settings.json".into()]),
+            ..Default::default()
+        })]));
+        assert!(guard_shared_qoder_clear(&settings, "qoder-cli").is_ok());
     }
 
     #[test]

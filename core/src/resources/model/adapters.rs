@@ -51,7 +51,7 @@ pub fn prepare_apply(
     let prepared = match agent_id {
         "opencode" | "kilo-code" => prepare_open_code(agent_id, &paths[0], profile, active, None)?,
         "zcode" => zcode::prepare(&paths[0], profile, None)?,
-        "qoder-desktop" => qoder::prepare(&paths[0], profile, None)?,
+        "qoder-desktop" | "qoder-cli" => qoder::prepare(agent_id, &paths[0], profile, active, None)?,
         "qwen-code" => prepare_qwen(&paths[0], profile, active)?,
         "crush" => prepare_crush(&paths[0], profile, active)?,
         "mistral-vibe" => prepare_vibe(&paths[0], profile, active)?,
@@ -79,7 +79,7 @@ pub fn prepare_apply_plaintext(
         .map_err(|_| "plaintext_target_insecure: API Key must be UTF-8".to_string())?;
     if agent_id == "zcode" { return zcode::prepare(&paths[0], profile, Some(credential)); }
     if agent_id == "qoder-desktop" {
-        return qoder::prepare(&paths[0], profile, Some(credential));
+        return qoder::prepare(agent_id, &paths[0], profile, active, Some(credential));
     }
     prepare_open_code(agent_id, &paths[0], profile, active, Some(credential))
 }
@@ -92,7 +92,7 @@ pub fn prepare_clear(
     let prepared = match agent_id {
         "opencode" | "kilo-code" => prepare_clear_open_code(agent_id, &paths[0], profile)?,
         "zcode" => zcode::clear(&paths[0], profile)?,
-        "qoder-desktop" => qoder::clear(&paths[0], profile)?,
+        "qoder-desktop" | "qoder-cli" => qoder::clear(agent_id, &paths[0], profile)?,
         "qwen-code" => prepare_clear_qwen(&paths[0], profile)?,
         "crush" => prepare_clear_crush(&paths[0], profile)?,
         "mistral-vibe" => prepare_clear_vibe(&paths[0], profile)?,
@@ -119,7 +119,7 @@ pub fn prepare_clear_all_for_targets(
     match agent_id {
         "opencode" | "kilo-code" => Ok(vec![prepare_clear_all_open_code(&paths[0])?]),
         "zcode" => Ok(vec![zcode::clear_all(&paths[0])?]),
-        "qoder-desktop" => Ok(vec![qoder::clear_all(&paths[0])?]),
+        "qoder-desktop" | "qoder-cli" => Ok(vec![qoder::clear_all(&paths[0])?]),
         "qwen-code" => Ok(vec![prepare_clear_all_qwen(&paths[0])?]),
         "crush" => Ok(vec![prepare_clear_all_crush(&paths[0])?]),
         "mistral-vibe" => Ok(vec![prepare_clear_all_vibe(&paths[0])?]),
@@ -219,6 +219,20 @@ pub fn observe_external(
     path: &Path,
 ) -> crate::resources::model::ExternalModelObservedState {
     use crate::resources::model::ExternalModelObservedState::{Absent, Conflicted, Present};
+    if matches!(agent_id, "qoder-cli" | "qoder-desktop") {
+        return match qoder::read_registry(path) {
+            Err(_) => Conflicted,
+            Ok(None) => Absent,
+            Ok(Some(root)) => match root.get("providers") {
+                None => Absent,
+                Some(value) => match value.as_object() {
+                    None => Conflicted,
+                    Some(providers) if providers.is_empty() => Absent,
+                    Some(_) => Present,
+                },
+            },
+        };
+    }
     if agent_id == "zcode" {
         return match zcode::read_registry(path) {
             Err(_) => Conflicted,
@@ -285,7 +299,6 @@ pub fn observe_external(
                             .and_then(Value::as_object)
                             .is_some_and(|value| !value.is_empty())
                 }
-                "qoder-desktop" => root.get("providers").and_then(Value::as_object).is_some_and(|providers| !providers.is_empty()),
                 "crush" => {
                     root.get("providers")
                         .and_then(Value::as_object)
@@ -318,6 +331,10 @@ pub fn observe_active(
     profiles: &std::collections::BTreeMap<String, ModelProfile>,
 ) -> ObservedActiveModel {
     let selected = match agent_id {
+        "qoder-cli" => match qoder::read_registry(&paths[0]) {
+            Err(_) => return ObservedActiveModel::Conflicted,
+            Ok(root) => root.and_then(|root| root.pointer("/model/name").and_then(Value::as_str).map(str::to_string)),
+        },
         "opencode" | "kilo-code" => json_string(&paths[0], &["model"]),
         "qwen-code" => json_string(&paths[0], &["model", "name"])
             .zip(json_string(
@@ -345,7 +362,7 @@ pub fn observe_active(
     let matches: Vec<_> = profiles
         .values()
         .filter(|profile| match agent_id {
-            "opencode" | "kilo-code" => {
+            "qoder-cli" | "opencode" | "kilo-code" => {
                 selected == format!("{}/{}", provider_id_for(agent_id, profile), profile.model)
                     || (agent_id == "opencode"
                         && selected == format!("{}/{}", provider_id(&profile.id), profile.model))
@@ -400,6 +417,8 @@ fn provider_id_for(agent_id: &str, profile: &ModelProfile) -> String {
         .unwrap_or_else(|| {
             if agent_id == "opencode" {
                 super::generated_open_code_provider_id(&crate::settings::load_settings(), profile)
+            } else if agent_id == "qoder-cli" {
+                format!("mux_cli_{}", &provider_id(&profile.id)[4..])
             } else {
                 provider_id(&profile.id)
             }

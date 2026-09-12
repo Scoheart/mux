@@ -88,11 +88,11 @@ pub fn agent_capabilities(agent_id: &str) -> AgentCredentialCapabilities {
             }
             capabilities.plaintext = true;
         }
-        "qwen-code" | "grok-build" | "crush" | "hermes" | "factory-droid" => {
+        "qoder-cli" | "qwen-code" | "grok-build" | "crush" | "hermes" | "factory-droid" => {
             capabilities.native_sources.push("env".into());
         }
         "mistral-vibe" | "goose" => capabilities.native_sources.push("env".into()),
-        "qoder" | "qoder-cli" | "minimax-code" => {
+        "qoder" | "minimax-code" => {
             capabilities.note = Some("credential delivery requires guided Agent setup".into());
         }
         _ => {

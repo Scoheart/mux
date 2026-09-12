@@ -1,8 +1,9 @@
-//! Qoder Desktop 0.1.8 native custom-endpoint registry.
-//! See docs/qoder-desktop-models.md for the audited storage contract.
+//! Qoder Desktop 0.1.8 and CLI 1.1.50 native custom-endpoint registry.
+//! See docs/qoder-desktop-models.md and docs/qoder-cli-models.md for the audits.
 
 use super::*;
 
+#[cfg(test)]
 const AGENT: &str = "qoder-desktop";
 
 pub(crate) fn read_registry(path: &Path) -> Result<Option<Value>, String> {
@@ -47,8 +48,10 @@ fn validate_string(value: &str) -> Result<(), String> {
 }
 
 pub(super) fn prepare(
+    agent_id: &str,
     path: &Path,
     profile: &ModelProfile,
+    active: bool,
     literal_key: Option<&str>,
 ) -> Result<PreparedModelFile, String> {
     for value in [&profile.base_url, &profile.model, &profile.name] {
@@ -57,11 +60,12 @@ pub(super) fn prepare(
     if let Some(key) = literal_key {
         validate_string(key)?;
     }
+    read_registry(path)?;
     let (root, original) = read_jsonc(path).map_err(|_| "qoder_config_conflicted: configuration must be valid JSON/JSONC".to_string())?;
     let top = root_object(&root, path)?;
     ensure_unique(&top, path, "$root")?;
     let providers = object(&top, "providers", path)?;
-    let id = provider_id_for(AGENT, profile);
+    let id = provider_id_for(agent_id, profile);
     if !safe_provider_id(&id) || !id.as_bytes()[0].is_ascii_alphanumeric() || id == "qoder" {
         return Err("qoder_provider_id_invalid: unsupported provider identity".into());
     }
@@ -92,8 +96,7 @@ pub(super) fn prepare(
     ] {
         set_json(&provider, key, Some(json!(value)));
     }
-    // Each MUX-created provider owns one model. Adopted providers retain sibling
-    // models and their provider-level default; no conversation selection is written.
+    // Each MUX-created provider owns one model; preserve provider metadata.
     if provider.get("displayName").is_none() {
         set_json(&provider, "displayName", Some(json!(profile.name)));
     }
@@ -131,17 +134,22 @@ pub(super) fn prepare(
         let thinking = object(&capabilities, "thinking", path)?;
         set_json(&thinking, "modes", Some(if reasoning { json!(["enabled"]) } else { json!([]) }));
     }
+    if agent_id == "qoder-cli" && active {
+        let selection = object(&top, "model", path)?;
+        set_json(&selection, "name", Some(json!(format!("{id}/{}", profile.model))));
+    }
     Ok(prepared_json(path, original, root))
 }
 
-pub(super) fn clear(path: &Path, profile: &ModelProfile) -> Result<PreparedModelFile, String> {
+pub(super) fn clear(agent_id: &str, path: &Path, profile: &ModelProfile) -> Result<PreparedModelFile, String> {
+    read_registry(path)?;
     let (root, original) = read_jsonc(path).map_err(|_| "qoder_config_conflicted: configuration must be valid JSON/JSONC".to_string())?;
     if original.is_none() { return Ok(PreparedModelFile { path: path.into(), original, content: None }); }
     let top = root_object(&root, path)?;
     ensure_unique(&top, path, "$root")?;
     if top.get("providers").is_none() { return Ok(prepared_json(path, original, root)); }
     let providers = object(&top, "providers", path)?;
-    let id = provider_id_for(AGENT, profile);
+    let id = provider_id_for(agent_id, profile);
     if providers.get(&id).is_none() { return Ok(prepared_json(path, original, root)); }
     let provider = object(&providers, &id, path)?;
     let models = provider.get("models").and_then(|p| p.array_value())
@@ -156,12 +164,23 @@ pub(super) fn clear(path: &Path, profile: &ModelProfile) -> Result<PreparedModel
         if id == profile.model { element.remove(); removed = true; } else { remaining.push(id.to_string()); }
     }
     if !removed { return Ok(prepared_json(path, original, root)); }
+    clear_selection(&top, path, &BTreeSet::from([format!("{id}/{}", profile.model)]))?;
     if remaining.is_empty() {
         set_json(&providers, &id, None);
     } else if provider.get("model").and_then(|p| p.value()).and_then(|v| v.to_serde_value()).as_ref() == Some(&json!(profile.model)) {
         set_json(&provider, "model", Some(json!(remaining[0])));
     }
     Ok(prepared_json(path, original, root))
+}
+
+fn clear_selection(top: &CstObject, path: &Path, removed: &BTreeSet<String>) -> Result<(), String> {
+    if top.get("model").is_none() { return Ok(()); }
+    let selection = object(top, "model", path)?;
+    if selection.get("name").and_then(|p| p.value()).and_then(|v| v.to_serde_value())
+        .and_then(|v| v.as_str().map(str::to_string)).is_some_and(|name| removed.contains(&name)) {
+        set_json(&selection, "name", None);
+    }
+    Ok(())
 }
 
 pub(super) fn clear_all(path: &Path) -> Result<PreparedModelFile, String> {
@@ -171,6 +190,7 @@ pub(super) fn clear_all(path: &Path) -> Result<PreparedModelFile, String> {
     if original.is_none() { return Ok(PreparedModelFile { path: path.into(), original, content: None }); }
     let top = root_object(&root, path)?;
     ensure_unique(&top, path, "$root")?;
+    let mut removed = BTreeSet::new();
     if top.get("providers").is_some() {
         let providers = object(&top, "providers", path)?;
         // Delete only records represented by the custom-endpoint observer.
@@ -187,9 +207,13 @@ pub(super) fn clear_all(path: &Path) -> Result<PreparedModelFile, String> {
             if !matches!(value.get("protocol").and_then(Value::as_str).unwrap_or("openai"), "openai" | "openai-responses" | "anthropic") {
                 return Err("qoder_config_conflicted: unsupported provider protocol".into());
             }
+            let provider_id = property.name().and_then(|name| name.decoded_value().ok())
+                .ok_or("qoder_config_conflicted: invalid provider identity")?;
+            for id in ids { removed.insert(format!("{provider_id}/{id}")); }
             if !models.is_empty() { property.remove(); }
         }
     }
+    clear_selection(&top, path, &removed)?;
     Ok(prepared_json(path, original, root))
 }
 
@@ -219,6 +243,57 @@ mod tests {
     }
 
     #[test]
+    fn cli_selection_and_removal_preserve_desktop_and_other_cli_models() {
+        let dir = TempDir::new();
+        let path = dir.path().join("settings.json");
+        fs::write(&path, "{\n// preserve\n\"mcpServers\":{},\"model\":{\"preferences\":{\"keep\":true}}}").unwrap();
+        let first = profile();
+        let mut second = profile();
+        second.id = "second".into();
+        second.model = "vendor/second".into();
+        for (agent, profile, active) in [(AGENT, &first, false), ("qoder-cli", &first, true), ("qoder-cli", &second, false)] {
+            fs::write(&path, prepare(agent, &path, profile, active, None).unwrap().content.unwrap()).unwrap();
+        }
+        let profiles = std::collections::BTreeMap::from([(first.id.clone(), first.clone()), (second.id.clone(), second.clone())]);
+        assert_eq!(observe_active("qoder-cli", &[path.clone()], &profiles), ObservedActiveModel::Managed(first.id.clone()));
+        assert_ne!(provider_id_for(AGENT, &first), provider_id_for("qoder-cli", &first));
+        fs::write(&path, prepare("qoder-cli", &path, &second, true, None).unwrap().content.unwrap()).unwrap();
+        fs::write(&path, clear("qoder-cli", &path, &first).unwrap().content.unwrap()).unwrap();
+        assert_eq!(observe_active("qoder-cli", &[path.clone()], &profiles), ObservedActiveModel::Managed(second.id.clone()));
+        let root = read_registry(&path).unwrap().unwrap();
+        assert!(root["providers"].get(provider_id_for(AGENT, &first)).is_some());
+        assert_eq!(root["model"]["preferences"]["keep"], true);
+        fs::write(&path, clear("qoder-cli", &path, &second).unwrap().content.unwrap()).unwrap();
+        assert_eq!(observe_active("qoder-cli", &[path.clone()], &profiles), ObservedActiveModel::None);
+        assert!(fs::read_to_string(path).unwrap().contains("// preserve"));
+    }
+
+    #[test]
+    fn clear_all_removes_only_deleted_model_selection_and_preserves_preferences() {
+        let dir = TempDir::new();
+        let path = dir.path().join("settings.json");
+        for (selected, cleared) in [("external/model", true), ("qoder/builtin", false)] {
+            fs::write(&path, json!({"providers":{"external":{"baseUrl":"https://example.invalid", "models":[{"model":"model"}]}}, "model":{"name":selected,"preferences":{"keep":true}}, "mcpServers":{}}).to_string()).unwrap();
+            fs::write(&path, clear_all(&path).unwrap().content.unwrap()).unwrap();
+            let root = read_registry(&path).unwrap().unwrap();
+            assert_eq!(root["model"].get("name").is_none(), cleared);
+            assert_eq!(root["model"]["preferences"]["keep"], true);
+            assert!(root.get("mcpServers").is_some());
+        }
+    }
+
+    #[test]
+    fn cli_rejects_ambiguous_nested_config_without_writing() {
+        let dir = TempDir::new();
+        let path = dir.path().join("settings.json");
+        let original = r#"{"model":{"name":"one","name":"two"}}"#;
+        fs::write(&path, original).unwrap();
+        assert!(prepare("qoder-cli", &path, &profile(), true, None).is_err());
+        assert_eq!(observe_active("qoder-cli", &[path.clone()], &Default::default()), ObservedActiveModel::Conflicted);
+        assert_eq!(fs::read_to_string(path).unwrap(), original);
+    }
+
+    #[test]
     fn round_trip_preserves_mcp_comments_and_cli_selection_for_each_protocol() {
         let dir = TempDir::new();
         let path = dir.path().join("settings.json");
@@ -231,7 +306,7 @@ mod tests {
             fs::write(&path, original).unwrap();
             let mut profile = profile();
             profile.protocol = protocol;
-            let prepared = prepare(&path, &profile, None).unwrap();
+            let prepared = prepare(AGENT, &path, &profile, false, None).unwrap();
             let content = prepared.content.unwrap();
             assert!(content.contains("// keep this MCP and CLI selection"));
             fs::write(&path, &content).unwrap();
@@ -241,8 +316,8 @@ mod tests {
             assert_eq!(provider["apiKey"], "${MUX_QODER_FIXTURE_KEY}");
             assert_eq!(root["model"]["name"], "cli-selection");
             assert_eq!(root["mcpServers"]["keep"]["command"], "fixture");
-            assert_eq!(prepare(&path, &profile, None).unwrap().content.as_deref(), Some(content.as_str()));
-            let cleared = clear(&path, &profile).unwrap().content.unwrap();
+            assert_eq!(prepare(AGENT, &path, &profile, false, None).unwrap().content.as_deref(), Some(content.as_str()));
+            let cleared = clear(AGENT, &path, &profile).unwrap().content.unwrap();
             fs::write(&path, cleared).unwrap();
             let root = read_jsonc(&path).unwrap().0.to_serde_value().unwrap();
             assert!(root["providers"].as_object().unwrap().is_empty());
@@ -257,10 +332,10 @@ mod tests {
         let path = dir.path().join("settings.json");
         let original = "{\"providers\": {}, \"providers\": {}}";
         fs::write(&path, original).unwrap();
-        assert!(prepare(&path, &profile(), None).is_err());
+        assert!(prepare(AGENT, &path, &profile(), false, None).is_err());
         assert_eq!(fs::read_to_string(&path).unwrap(), original);
         fs::write(&path, "{}").unwrap();
-        assert!(prepare(&path, &profile(), Some("fixture-$SUBSTITUTION")).is_err());
+        assert!(prepare(AGENT, &path, &profile(), false, Some("fixture-$SUBSTITUTION")).is_err());
         assert_eq!(fs::read_to_string(&path).unwrap(), "{}");
     }
 
@@ -271,7 +346,7 @@ mod tests {
         let mut profile = profile();
         profile.native_ids.insert(AGENT.into(), "external".into());
         fs::write(&path, r#"{"providers":{"external":{"baseUrl":"https://example.invalid/v1","apiKey":"${FIXTURE_KEY}","model":"fixture-model","models":[{"model":"fixture-model"},{"model":"sibling","custom":true}]}},"mcpServers":{}}"#).unwrap();
-        let content = clear(&path, &profile).unwrap().content.unwrap();
+        let content = clear(AGENT, &path, &profile).unwrap().content.unwrap();
         fs::write(&path, content).unwrap();
         let root = read_jsonc(&path).unwrap().0.to_serde_value().unwrap();
         assert_eq!(root["providers"]["external"]["model"], "sibling");

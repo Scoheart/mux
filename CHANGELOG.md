@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.193](https://github.com/Scoheart/mux/compare/v1.8.192...v1.8.193) (2026-09-12)
+
+### Changes
+
+* feat(cli): align resource lifecycle with desktop core ([664bb30](https://github.com/Scoheart/mux/commit/664bb307db5496b9989dc2c85fe04290efe9d48d))
+
 ## [1.8.192](https://github.com/Scoheart/mux/compare/v1.8.191...v1.8.192) (2026-09-12)
 
 ### Changes

@@ -107,6 +107,9 @@ pub struct Settings {
     /// Explicit runtime launch preferences; independent of managed assets.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_launch: Option<BTreeMap<String, crate::domain::agents::LaunchPreferences>>,
+    /// Global terminal used when launching CLI Agents.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cli_terminal: Option<String>,
     /// User/custom/override registry entries (manual + discovered + overrides),
     /// layered over the entries contributed by `sources` on read.
     #[serde(default, skip_serializing_if = "Option::is_none")]

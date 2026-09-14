@@ -171,11 +171,7 @@ fn dispatch(target: &LaunchTarget, directory: Option<&Path>) -> Result<(), Strin
             let bin = Path::new(program).parent().ok_or("无效的可执行程序路径")?;
             let line = format!("cd -- {} && PATH={}:\"$PATH\" {}{}", quote_shell(&directory.to_string_lossy()),
                 quote_shell(&bin.to_string_lossy()), quote_shell(program), args.iter().map(|arg| format!(" {}", quote_shell(arg))).collect::<String>());
-            // Pass shell text as an AppleScript argument, never interpolate it
-            // into AppleScript source. No Agent command executes during discovery.
-            let script = "on run argv\ntell application \"Terminal\"\nactivate\ndo script (item 1 of argv)\nend tell\nend run";
-            command = Command::new("/usr/bin/osascript");
-            command.args(["-e", script, "--", &line]);
+            return super::terminals::dispatch(&line);
         }
     }
     let result = command.output().map_err(|_| "无法调用系统启动器")?;

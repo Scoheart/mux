@@ -4,6 +4,7 @@ import { ChevronDownIcon } from "./icons";
 export interface FormSelectOption {
   value: string;
   label: string;
+  icon?: ReactNode;
 }
 
 export function FormSelect({
@@ -149,7 +150,7 @@ export function FormSelect({
               onPointerMove={() => setActiveIndex(index)}
               onClick={() => choose(index)}
             >
-              <span>{option.label}</span>
+              <span className="mux-form-select-option-content">{option.icon}{option.label}</span>
               <span className="mux-form-select-option-mark" aria-hidden="true">
                 {option.value === value ? "✓" : ""}
               </span>

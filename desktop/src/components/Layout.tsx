@@ -1,4 +1,4 @@
-import { ReactNode, useEffect, useRef, useState } from "react";
+import { ReactNode, useEffect, useState } from "react";
 import { getVersion } from "@tauri-apps/api/app";
 import { useTranslation } from "react-i18next";
 import type { AgentInfo, ProxySettings, View } from "../lib/types";
@@ -12,6 +12,9 @@ import {
   RefreshIcon,
   SparklesIcon,
   SunIcon,
+  SlidersIcon,
+  TerminalIcon,
+  EditIcon,
 } from "./icons";
 import { applyTheme, getInitialTheme, type Theme } from "../lib/theme";
 import { formatError } from "../lib/format";
@@ -21,6 +24,10 @@ import { useToast } from "./Toast";
 import type { UpdaterState } from "../hooks/useUpdater";
 import { AgentLauncherProvider } from "./AgentLauncherProvider";
 import { AgentNavigation } from "./AgentNavigation";
+import { DialogShell } from "./DialogShell";
+import { FormSelect } from "./FormSelect";
+import { TerminalSelect } from "./TerminalSelect";
+import "./WorkspaceSettings.css";
 import { FileEditorSelect } from "./FileEditorSelect";
 import { ProxySettingsDialog } from "./ProxySettingsDialog";
 import { StartupSyncBar } from "./StartupSyncBar";
@@ -63,8 +70,7 @@ export function Layout({
   const [theme, setTheme] = useState<Theme>(getInitialTheme);
   const [version, setVersion] = useState("");
   const [proxySettingsOpen, setProxySettingsOpen] = useState(false);
-  const [languageMenuOpen, setLanguageMenuOpen] = useState(false);
-  const languageMenuRef = useRef<HTMLDivElement>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const toast = useToast();
   const { t } = useTranslation();
   const localeState = useLocale();
@@ -72,15 +78,6 @@ export function Layout({
   useEffect(() => {
     getVersion().then(setVersion).catch(() => {});
   }, []);
-
-  useEffect(() => {
-    if (!languageMenuOpen) return;
-    const close = (event: PointerEvent) => {
-      if (!languageMenuRef.current?.contains(event.target as Node)) setLanguageMenuOpen(false);
-    };
-    window.addEventListener("pointerdown", close);
-    return () => window.removeEventListener("pointerdown", close);
-  }, [languageMenuOpen]);
 
   const checkingUpdate = updater?.phase.kind === "checking";
   const handleCheckUpdate = async () => {
@@ -98,7 +95,6 @@ export function Layout({
   };
 
   const selectLocale = async (preference: LocalePreference) => {
-    setLanguageMenuOpen(false);
     try {
       await localeState.setPreference(preference);
     } catch (error) {
@@ -184,104 +180,10 @@ export function Layout({
           />
         </div>
 
-        {/* Right action group */}
-        <button
-          type="button"
-          className="mux-icon-btn mux-network-button flex-shrink-0"
-          data-active={proxyUrl ? "true" : undefined}
-          title={proxyUrl ? `${t("layout.networkProxy")} · ${proxyUrl}` : t("layout.networkProxy")}
-          aria-label={proxyUrl ? t("layout.networkProxyEnabled") : t("layout.configureNetworkProxy")}
-          disabled={proxySettingsLoading}
-          onClick={() => setProxySettingsOpen(true)}
-        >
-          <NetworkIcon className="w-4 h-4" />
-          {proxyUrl && <span className="mux-network-status-dot" aria-hidden="true" />}
-        </button>
-
-        <button
-          type="button"
-          className="mux-icon-btn flex-shrink-0"
-          title={theme === "dark" ? t("layout.lightTheme") : t("layout.darkTheme")}
-          aria-label={t("layout.switchTheme")}
-          onClick={toggleTheme}
-        >
-          {theme === "dark" ? <SunIcon className="w-4 h-4" /> : <MoonIcon className="w-4 h-4" />}
-        </button>
-
-        <FileEditorSelect />
-
-        <div className="mux-language-menu-wrap flex-shrink-0" ref={languageMenuRef}>
-          <button
-            type="button"
-            className="mux-icon-btn"
-            title={t("layout.language")}
-            aria-label={t("layout.languageMenu")}
-            aria-expanded={languageMenuOpen}
-            onClick={() => setLanguageMenuOpen((open) => !open)}
-          >
-            <LanguageIcon className="w-4 h-4" />
-          </button>
-          {languageMenuOpen && (
-            <div className="mux-language-menu" role="menu" aria-label={t("layout.languageMenu")}>
-              {([
-                [null, t("layout.followSystem")],
-                ["zh-CN", t("layout.simplifiedChinese")],
-                ["en-US", t("layout.english")],
-              ] as Array<[LocalePreference, string]>).map(([value, label]) => (
-                <button
-                  type="button"
-                  role="menuitemradio"
-                  aria-checked={localeState.preference === value}
-                  data-active={localeState.preference === value ? "true" : undefined}
-                  disabled={localeState.saving}
-                  key={value ?? "system"}
-                  onClick={() => void selectLocale(value)}
-                >
-                  <span>{label}</span>
-                  {localeState.preference === value && <span aria-hidden="true">✓</span>}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {onRescan && (
-          <button
-            type="button"
-            className="mux-icon-btn flex-shrink-0"
-            title={rescanning ? t("layout.scanning") : t("layout.rescan")}
-            aria-label={rescanning ? t("layout.scanning") : t("layout.rescan")}
-            disabled={rescanning}
-            onClick={() => void handleRescan()}
-          >
-            <RefreshIcon
-              className="w-4 h-4"
-              style={rescanning ? { animation: "spin 0.8s linear infinite" } : undefined}
-            />
-          </button>
-        )}
-
-        {/* Explicit update action: keep the installed version visible without
-            relying on users to discover that a bare version label is clickable. */}
-        <button
-          type="button"
-          className="mux-update-check flex-shrink-0"
-          title={version ? t("layout.currentVersion", { version }) : t("layout.checkUpdate")}
-          aria-label={version ? t("layout.checkUpdateVersion", { version }) : t("layout.checkUpdate")}
-          disabled={checkingUpdate}
-          onClick={() => void handleCheckUpdate()}
-        >
-          <span
-            className="mux-update-check-icon"
-            data-busy={checkingUpdate ? "true" : undefined}
-            aria-hidden="true"
-          >
-            {checkingUpdate
-              ? <RefreshIcon className="w-full h-full" />
-              : <DownloadIcon className="w-full h-full" />}
-          </span>
-          <span className="mux-update-check-label">{checkingUpdate ? t("layout.checking") : t("layout.checkUpdate")}</span>
-          {version && <span className="mux-update-version">v{version}</span>}
+        <button type="button" className="mux-settings-trigger" aria-label="设置" title="设置"
+          aria-haspopup="dialog" aria-expanded={settingsOpen} onClick={() => setSettingsOpen(true)}>
+          <SlidersIcon className="w-4 h-4" /><span>设置</span>
+          {updater?.phase.kind === "available" && <span className="mux-settings-update-dot" aria-label="有可用更新" />}
         </button>
       </header>
 
@@ -292,6 +194,36 @@ export function Layout({
       <main className="flex-1 min-h-0 overflow-hidden" style={{ background: "transparent" }}>
         {children}
       </main>
+
+      {settingsOpen && !proxySettingsOpen && (
+        <DialogShell kind="editor" size="sm" title="设置" className="mux-workspace-settings" leading={<SlidersIcon className="w-5 h-5" />}
+          onClose={() => setSettingsOpen(false)}>
+          <div className="mux-settings-section">
+            <div className="mux-settings-row"><span className="mux-settings-label"><EditIcon className="w-4 h-4" />文件编辑器</span><FileEditorSelect showLabel /></div>
+            <div className="mux-settings-row"><span className="mux-settings-label"><TerminalIcon className="w-4 h-4" />默认终端</span><TerminalSelect /></div>
+          </div>
+          <div className="mux-settings-section">
+            <div className="mux-settings-row"><span className="mux-settings-label"><SunIcon className="w-4 h-4" />外观</span>
+              <div className="mux-seg"><button type="button" className="mux-seg-item" data-active={theme === "light" || undefined} aria-label={t("layout.lightTheme")} aria-pressed={theme === "light"} onClick={() => { if (theme !== "light") toggleTheme(); }}><SunIcon className="w-4 h-4" /></button>
+                <button type="button" className="mux-seg-item" data-active={theme === "dark" || undefined} aria-label={t("layout.darkTheme")} aria-pressed={theme === "dark"} onClick={() => { if (theme !== "dark") toggleTheme(); }}><MoonIcon className="w-4 h-4" /></button></div>
+            </div>
+            <div className="mux-settings-row"><span className="mux-settings-label"><LanguageIcon className="w-4 h-4" />{t("layout.language")}</span>
+              <FormSelect ariaLabel={t("layout.language")} value={localeState.preference ?? "system"} disabled={localeState.saving}
+                options={[{ value: "system", label: t("layout.followSystem") }, { value: "zh-CN", label: t("layout.simplifiedChinese") }, { value: "en-US", label: t("layout.english") }]}
+                onChange={(value) => void selectLocale(value === "system" ? null : value as LocalePreference)} />
+            </div>
+            <div className="mux-settings-row"><span className="mux-settings-label"><NetworkIcon className="w-4 h-4" />{t("layout.networkProxy")}</span>
+              <button type="button" className="mux-settings-value" disabled={proxySettingsLoading} onClick={() => setProxySettingsOpen(true)}><span className="mux-settings-status" data-active={Boolean(proxyUrl)} />{proxyUrl ? "已配置" : "未配置"}<span aria-hidden="true">›</span></button>
+            </div>
+          </div>
+          <div className="mux-settings-section">
+            {onRescan && <button type="button" className="mux-settings-action" disabled={rescanning} onClick={() => void handleRescan().catch((error) => toast.show({ kind: "error", msg: formatError(error) }))}>
+              <RefreshIcon className="w-4 h-4" /><span>{rescanning ? t("layout.scanning") : t("layout.rescan")}</span></button>}
+            <button type="button" className="mux-settings-action" disabled={!updater || checkingUpdate} onClick={() => { setSettingsOpen(false); void handleCheckUpdate(); }}>
+              <DownloadIcon className="w-4 h-4" /><span>{checkingUpdate ? t("layout.checking") : t("layout.checkUpdate")}</span><small>{version && `v${version}`}</small></button>
+          </div>
+        </DialogShell>
+      )}
 
       {proxySettingsOpen && (
         <ProxySettingsDialog

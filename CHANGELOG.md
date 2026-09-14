@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.195](https://github.com/Scoheart/mux/compare/v1.8.194...v1.8.195) (2026-09-14)
+
+### Changes
+
+* feat(desktop): consolidate settings and select default CLI terminal (#187) ([dd9cbd4](https://github.com/Scoheart/mux/commit/dd9cbd43989e0fc36ba61383a316694944ec2c4a))
+
 ## [1.8.194](https://github.com/Scoheart/mux/compare/v1.8.193...v1.8.194) (2026-09-12)
 
 ### Changes

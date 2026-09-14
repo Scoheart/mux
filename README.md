@@ -328,3 +328,5 @@ and capability guides only. Their user-level writable storage contracts are not
 verified; MUX does not reuse CLI paths or write project-level Skills for them.
 
 ZCode Desktop 自定义模型接入与凭据交付说明见 [ZCode Models](docs/zcode-models.md)。
+
+默认打开方式：顶部「设置」集中管理文件编辑器、Agent CLI 默认终端、外观、语言、网络及更新。默认终端支持已安装的 Terminal、iTerm2、Ghostty（1.3+）和 Warp，设置对所有 CLI Agent 生效。

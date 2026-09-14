@@ -36,7 +36,7 @@ a separate toolbar button before the credential selector. Desktop launchers with
 no remaining run actions omit the dropdown arrow.
 
 - Desktop / IDE: resolve an actual installed application and use the OS launcher, activating an existing instance.
-- CLI: resolve an executable, select a working directory on first use, and launch in macOS Terminal. Remember the per-Agent directory after successful dispatch; allow choosing another directory.
+- CLI: resolve an executable, select a working directory on first use, and launch in the globally selected terminal (Terminal, iTerm2, Ghostty, or Warp). Remember the per-Agent directory after successful dispatch; allow choosing another directory.
 - Web: open the runtime website, not its documentation.
 - Missing runtime: offer the existing official installation link. No automatic installation.
 - Unmapped / custom Agent: configure an app path, executable plus separate arguments, or HTTP(S) URL. Saving these preferences never launches a process.
@@ -45,7 +45,7 @@ Core owns the built-in launch catalog, executable/application discovery, validat
 
 Use exact process arguments for app/URL dispatch. CLI shell and AppleScript strings are encoded separately; commands, paths and arguments are treated as data. Never run discovery commands or install packages. Terminal actions happen only on a user click.
 
-The macOS bundle declares the Apple Events automation entitlement and a Terminal usage description. On first CLI launch, macOS may ask the user to allow MUX to control Terminal. A successful dispatch confirms that the launch request was sent, not that the Agent has authenticated or initialized successfully.
+The macOS bundle declares the Apple Events automation entitlement and a Terminal usage description. On first CLI launch, macOS may ask the user to allow MUX to control the selected terminal. A successful dispatch confirms that the launch request was sent, not that the Agent has authenticated or initialized successfully.
 
 This iteration targets the shipped macOS desktop. Unsupported hosts report that explicitly. CLI entry points without verified metadata remain configurable rather than guessed. Existing installation probes supply declared command candidates; explicit data overrides distinguish IDE/desktop products and extension hosts.
 
@@ -56,3 +56,13 @@ Devin web entry verified against https://docs.devin.ai/get-started/devin-intro (
 Launch argument references: https://docs.augmentcode.com/cli/interactive (auggie); https://docs.openclaw.ai/cli/tui (openclaw tui).
 
 Goose session entry: https://github.com/block/goose/blob/main/documentation/docs/quickstart.md (goose session).
+
+## Workspace settings
+
+The top bar has one Settings entry. Its dialog groups file editor and default CLI terminal, appearance/language/network, and rescan/update actions. Existing palette and update banners remain unchanged. Network configuration temporarily replaces the settings dialog and returns to it on close.
+
+`settings.json` stores the global `cli_terminal` ID independently of each Agent’s launch target and working directory. The Core lists installed adapters, rejects unavailable choices, and resolves the preference on every CLI launch; missing applications do not silently fall back. Default remains macOS Terminal. App and web Agents are unaffected.
+
+Terminal and iTerm2 use a fresh AppleScript session. Ghostty uses its native surface-configuration AppleScript API (1.3+); Warp opens a private, uniquely named executable `.command` handoff which removes itself before running the Agent. Commands retain shell-quoted arguments and working directories. Discovery and preference changes never execute Agent commands.
+
+Adapter references: [Ghostty AppleScript](https://ghostty.org/docs/features/applescript), [Warp executable scripts](https://docs.warp.dev/terminal/more-features/files-and-links).

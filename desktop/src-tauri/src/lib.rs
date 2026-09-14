@@ -59,6 +59,8 @@ pub fn run() {
             agent_launch::get_agent_launch_info,
             agent_launch::configure_agent_launch,
             agent_launch::launch_agent,
+            agent_launch::get_terminal_settings,
+            agent_launch::set_terminal_preference,
             file_editors::list_file_editors,
             file_editors::detect_agent_installation,
             commands::get_backend_status,

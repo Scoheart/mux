@@ -5,6 +5,7 @@
 
 pub mod agents;
 pub mod agent_launch;
+pub mod terminals;
 pub mod assets;
 pub mod bootstrap;
 pub mod convergence;

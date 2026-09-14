@@ -43,7 +43,7 @@ function editorLabel(editor: string): string {
   return editor.split(/[\\/]/).pop()?.replace(/\.app$/i, "") || editor;
 }
 
-export function FileEditorSelect() {
+export function FileEditorSelect({ showLabel = false }: { showLabel?: boolean }) {
   const [editor, setEditor] = useState(() => preferredFileEditor() ?? "");
   const [installed, setInstalled] = useState<Array<{name: string; path: string}>>([]);
   const [choosing, setChoosing] = useState(false);
@@ -114,7 +114,7 @@ export function FileEditorSelect() {
         title="选择打开文件的编辑器" aria-haspopup="menu" aria-expanded={expanded}
         disabled={choosing} onClick={() => setExpanded((value) => !value)}
         onKeyDown={(event) => { if (!expanded && event.key === "ArrowDown") { event.preventDefault(); setExpanded(true); } }}>
-        <EditorIcon editor={editor} /><ChevronDownIcon className="w-3 h-3" />
+        <EditorIcon editor={editor} />{showLabel && <span className="mux-editor-selected-label">{editor ? editorLabel(editor) : "系统默认"}</span>}<ChevronDownIcon className="w-3 h-3" />
       </button>
       {expanded && <div className="mux-editor-menu" role="menu" aria-label="打开文件的编辑器">
         {options.map((value) => <button type="button" role="menuitemradio" aria-checked={value === editor}

@@ -1,0 +1,50 @@
+import { useEffect, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
+import { FormSelect } from "./FormSelect";
+import { formatError } from "../lib/format";
+import { useToast } from "./Toast";
+import { TerminalIcon } from "./icons";
+import terminalIcon from "../assets/terminals/terminal.png";
+import ghosttyIcon from "../assets/terminals/ghostty.png";
+import warpIcon from "../assets/terminals/warp.png";
+const terminalIcons: Record<string, string> = { terminal: terminalIcon, ghostty: ghosttyIcon, warp: warpIcon };
+function TerminalGlyph({ id }: { id: string }) {
+  const src = terminalIcons[id];
+  return src ? <img className="mux-terminal-icon" src={src} alt="" aria-hidden="true" draggable={false} />
+    : <TerminalIcon className="mux-terminal-icon" />;
+}
+interface TerminalSettings { selected: string; options: { id: string; name: string; installed: boolean }[] }
+export function TerminalSelect() {
+  const [settings, setSettings] = useState<TerminalSettings | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [revision, setRevision] = useState(0);
+  const toast = useToast();
+  useEffect(() => {
+    let active = true;
+    setError("");
+    void invoke<TerminalSettings>("get_terminal_settings").then((result) => { if (active) setSettings(result); })
+      .catch((error) => { if (active) setError(formatError(error)); });
+    return () => { active = false; };
+  }, [revision]);
+  async function choose(terminalId: string) {
+    if (busy || terminalId === settings?.selected) return;
+    setBusy(true); setError("");
+    try {
+      const result = await invoke<TerminalSettings>("set_terminal_preference", { terminalId });
+      setSettings(result);
+      toast.show({ kind: "success", msg: `CLI 将使用 ${result.options.find((item) => item.id === result.selected)?.name ?? result.selected} 启动` });
+    } catch (error) { setError(formatError(error)); }
+    finally { setBusy(false); }
+  }
+  return <div className="mux-terminal-select">
+    {settings && <FormSelect ariaLabel="默认终端" value={settings.selected} disabled={busy}
+      triggerContent={<span className="mux-terminal-selection"><TerminalGlyph id={settings.selected} />
+        <span>{settings.options.find((item) => item.id === settings.selected)?.name ?? settings.selected}</span></span>}
+      options={settings.options.filter((item) => item.installed || item.id === settings.selected)
+        .map((item) => ({ value: item.id, label: item.name + (item.installed ? "" : " · 未安装"), icon: <TerminalGlyph id={item.id} /> }))}
+      onChange={(value) => void choose(value)} />}
+    {!settings && !error && <span role="status">读取中…</span>}
+    {error && <span className="mux-launch-error" role="alert">{error}<button type="button" className="btn-ghost" disabled={busy} onClick={() => setRevision((value) => value + 1)}>重试</button></span>}
+  </div>;
+}

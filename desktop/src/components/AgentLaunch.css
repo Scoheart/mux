@@ -44,3 +44,56 @@
 @media (max-width: 620px) {
   .mux-agent-config-field > .mux-form-select { grid-column: 1 / -1; }
 }
+
+.mux-agent-config-field[data-path-field] { grid-template-columns: 30px 72px minmax(0, 1fr) auto; }
+.mux-agent-config-field-actions { display: inline-flex; gap: 4px; align-items: center; }
+@media (max-width: 620px) {
+  .mux-agent-config-field[data-path-field] { grid-template-columns: 30px minmax(0, 1fr) auto; }
+  .mux-agent-config-field[data-path-field] > input { grid-column: 1 / 3; }
+}
+
+.mux-launch-instance-option { display: flex; align-items: center; justify-content: space-between; gap: 16px; font-size: 12px; color: var(--text-primary); }
+.mux-launch-instance-option p { margin: 4px 0 0; color: var(--text-tertiary); }
+.mux-launch-instance-option > button { flex-shrink: 0; }
+
+.mux-launch-environment { display: grid; gap: 8px; }
+.mux-launch-environment-heading { display: flex; align-items: center; justify-content: space-between; color: var(--text-primary); font-size: 12px; }
+.mux-launch-environment-heading button { display: inline-flex; align-items: center; gap: 4px; }
+.mux-launch-env-row { display: grid; grid-template-columns: minmax(0, 1.4fr) auto minmax(0, 1fr) 28px; gap: 8px; align-items: center; }
+.mux-launch-env-row > span { color: var(--text-tertiary); }
+.mux-launch-env-row input { min-width: 0; font-family: var(--font-mono); }
+
+/* Unified editor: persistent section navigation and compact, aligned fields. */
+.mux-dialog-agent-config .mux-dialog-shell-header { padding-top: 16px; padding-bottom: 14px; }
+.mux-dialog-agent-config .mux-dialog-shell-status { margin-top: 0; padding: 0; background: transparent; }
+.mux-agent-config-tabs { display: flex; gap: 20px; border-bottom: 1px solid var(--border-hairline); }
+.mux-agent-config-tabs button { display: inline-flex; align-items: center; gap: 6px; padding: 11px 2px; margin-bottom: -1px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--text-secondary); font: 500 13px var(--font-sans); cursor: pointer; }
+.mux-agent-config-tabs button[aria-selected="true"] { color: var(--color-blue); border-bottom-color: var(--color-blue); }
+.mux-agent-config-tabs button:focus-visible { outline: 2px solid var(--color-blue); outline-offset: -2px; border-radius: 4px; }
+.mux-agent-config-tabs i { width: 5px; height: 5px; border-radius: 50%; background: var(--color-blue); }
+.mux-dialog-agent-config .mux-dialog-shell-body { min-height: min(360px, calc(100dvh - 220px)); padding-top: 20px; padding-bottom: 20px; }
+.mux-dialog-agent-config [role="tabpanel"][hidden] { display: none; }
+.mux-dialog-agent-config .mux-agent-config-launch { margin: 0; padding: 0; border: 0; }
+.mux-dialog-agent-config .mux-agent-config-fields { gap: 16px; }
+.mux-agent-config-mcp { display: grid; grid-template-columns: minmax(0, 1fr) 152px; gap: 12px; }
+.mux-dialog-agent-config .mux-agent-config-field { display: flex; flex-direction: column; align-items: stretch; gap: 7px; }
+.mux-agent-field-caption { display: inline-flex; align-items: center; gap: 7px; color: var(--text-secondary); font-size: 12px; font-weight: 500; }
+.mux-agent-field-caption svg { width: 15px; height: 15px; color: var(--text-tertiary); flex-shrink: 0; }
+.mux-agent-field-control { display: flex; align-items: center; min-width: 0; border: 1px solid var(--border-hairline); border-radius: 9px; background: var(--surface-control); }
+.mux-agent-field-control:focus-within { outline: 2px solid color-mix(in srgb, var(--color-blue) 45%, transparent); outline-offset: 1px; }
+.mux-agent-field-control > input.mux-model-field { flex: 1; min-width: 0; width: 0; min-height: 36px; border: 0; background: transparent; box-shadow: none; outline: none; font-size: 12px; }
+.mux-agent-config-field-actions { padding-right: 5px; }
+.mux-dialog-agent-config .mux-agent-config-remove { width: 28px; height: 28px; border: 0; background: transparent; }
+.mux-agent-config-unavailable { display: flex; align-items: center; justify-content: space-between; padding: 2px 0; font-size: 11px; color: var(--text-tertiary); }
+.mux-dialog-agent-config .mux-agent-config-add { margin-left: 0; justify-self: start; padding: 0; }
+.mux-agent-config-credential { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--border-hairline); }
+.mux-agent-config-credential-row { display: grid; grid-template-columns: 1fr minmax(150px, 220px); align-items: center; gap: 12px; }
+.mux-dialog-agent-config .mux-launch-settings { gap: 16px; }
+.mux-launch-label-line { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+.mux-launch-label-line .mux-launch-hint { color: var(--text-tertiary); }
+.mux-dialog-agent-config .mux-launch-arguments { min-height: 62px; max-height: 160px; }
+.mux-dialog-agent-config .mux-launch-path-input { align-items: center; gap: 0; border: 1px solid var(--border-hairline); border-radius: 9px; background: var(--surface-control); }
+.mux-dialog-agent-config .mux-launch-path-input > input { min-width: 0; width: 0; border: 0; background: transparent; box-shadow: none; }
+.mux-dialog-agent-config .mux-launch-path-input > button { flex-shrink: 0; border: 0; background: transparent; box-shadow: none; margin-right: 3px; padding: 7px; }
+.mux-dialog-agent-config .mux-launch-instance-option { padding-top: 12px; border-top: 1px solid var(--border-hairline); }
+@media (max-width: 520px) { .mux-agent-config-mcp { grid-template-columns: minmax(0, 1fr); } }

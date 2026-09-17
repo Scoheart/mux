@@ -2,13 +2,11 @@ import capabilityGuides from "../../../data/agent-capability-guides.json";
 import { AgentLaunchAction } from "./AgentLaunchAction";
 import { useAgentLauncher } from "../lib/agentLauncherContext";
 import "./AgentOverview.css";
-import agentDefinitions from "../../../data/agents.json";
 import agentDocsHome from "../../../data/agent-docs-home.json";
 import { useModelObservationRevision } from "../lib/modelObservation";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { homeDir } from "@tauri-apps/api/path";
-import { openPath, openUrl } from "@tauri-apps/plugin-opener";
-import { preferredFileEditor } from "./FileEditorSelect";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import type { InstallState } from "../hooks/useInstallState";
 import type { SkillsState } from "../hooks/useSkillsState";
 import type { ConsumptionState } from "../hooks/useConsumptionState";
@@ -70,12 +68,6 @@ function absoluteConfigLocation(path: string, home: string) {
   if (value === "~" && normalizedHome) return normalizedHome;
   if (value.startsWith("~/") && normalizedHome) return `${normalizedHome}/${value.slice(2)}`;
   return value;
-}
-
-function configLocations(paths: string[] | undefined, fallback?: string | null) {
-  const values = (paths ?? []).map((path) => path.trim()).filter(Boolean);
-  if (values.length > 0) return [...new Set(values)];
-  return [...new Set((fallback ?? "").split(/\s+(?:\+|·)\s+/).map((path) => path.trim()).filter(Boolean))];
 }
 
 function modelProtocolLabel(protocol: ModelProfileView["protocol"]) {
@@ -363,48 +355,7 @@ export function AgentView({
     );
   }
 
-  const skillDocs = (agentDefinitions as Record<string, { skills?: { docs?: string } }>)[agentId]?.skills?.docs;
-  const mcpConfigPaths = agent.has_global && agent.global ? [agent.global] : [];
-  const mcpDescription = agent.has_global
-    ? `${agent.format.toUpperCase()} · ${agent.key}`
-    : "此 Agent 未接入 MCP";
-  const skillsConfigPaths = configLocations(agent.skills_global_dirs, agent.skills_global_dir);
-  const modelConfigPaths = configLocations(modelAgent?.config_paths, modelAgent?.config_path);
   const runtimeSkillAgent = skillsState.inventory?.agents.find((item) => item.id === agentId) ?? null;
-  const modelDescription = modelsLoading
-    ? "读取中…"
-    : modelsError
-      ? "读取失败"
-      : modelAgent?.mode === "guided"
-        ? "Agent 内管理"
-        : modelAgent?.storage_authority === "native-registry"
-          ? `真实配置${modelAgent.supports_multiple ? " · 多模型" : ""}`
-          : modelAgent ? "MUX 映射" : "未接入";
-  const skillsDescription = skillsConfigPaths.length === 0
-    ? "未接入"
-    : skillsState.loading
-      ? "读取中…"
-      : skillsState.error
-        ? "读取失败"
-        : runtimeSkillAgent && runtimeSkillAgent.affected_agent_ids.length > 1
-          ? `用户目录 · 共用 ${runtimeSkillAgent.affected_agent_ids.length}`
-          : "用户目录";
-
-
-  const openConfigLocation = async (path: string, kind: ConfigLocationKind) => {
-    try {
-      const home = userHome || await homeDir();
-      const location = absoluteConfigLocation(path, home);
-      const editor = kind === "file" ? preferredFileEditor() : undefined;
-      if (editor) await openPath(location, editor);
-      else await openPath(location);
-    } catch (error) {
-      showToast({
-        kind: "error",
-        msg: `无法打开${kind === "folder" ? "文件夹" : "文件"}：${formatError(error)}`,
-      });
-    }
-  };
 
   const currentIds = (domain: PickerDomain): string[] => {
     if (domain === "mcp") {
@@ -680,18 +631,6 @@ export function AgentView({
     }
   };
 
-  const activeConfig = resourceTab === "mcps" ? {
-    icon: <PackageIcon className="w-4 h-4" />, label: "MCPs", description: mcpDescription,
-    paths: mcpConfigPaths, kind: "file" as const, docsUrl: agent.docs ?? undefined,
-    unavailableLabel: agent.has_global ? undefined : "未接入",
-  } : resourceTab === "models" ? {
-    icon: <LayersIcon className="w-4 h-4" />, label: "Models", description: modelDescription,
-    paths: modelConfigPaths, kind: "file" as const, docsUrl: modelAgent?.docs,
-  } : {
-    icon: <SparklesIcon className="w-4 h-4" />, label: "Skills", description: skillsDescription,
-    paths: skillsConfigPaths, kind: "folder" as const, docsUrl: skillDocs,
-  };
-
   return (
     <div className="mux-agent-page">
       <div className="mux-agent-shell">
@@ -715,7 +654,6 @@ export function AgentView({
             models: modelVisibleCount,
             skills: skillRows.length + skillExternal.length,
           }}
-          configuration={<ConfigPath key={`${agent.id}-${resourceTab}`} {...activeConfig} inline home={userHome} onOpen={openConfigLocation} />}
         >
           {consumptionState.plan?.kind === "clear-models" && !preparingChange && (
             <ReviewDialog

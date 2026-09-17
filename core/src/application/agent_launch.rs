@@ -23,6 +23,7 @@ pub struct LaunchInfo {
     pub host_name: Option<String>,
     pub install_url: Option<String>,
     pub directory: Option<String>,
+    pub default_directory: Option<String>,
     pub directory_exists: bool,
     pub configured_target: Option<LaunchTarget>,
     pub resolved_target: Option<LaunchTarget>,
@@ -35,6 +36,7 @@ fn require_agent(id: &str) -> Result<String, String> {
 
 fn home() -> Result<PathBuf, String> { dirs::home_dir().ok_or_else(|| "无法找到用户目录".into()) }
 fn expand(value: &str) -> PathBuf {
+    if value == "~" { return dirs::home_dir().unwrap_or_else(|| PathBuf::from(value)); }
     value.strip_prefix("~/").and_then(|suffix| dirs::home_dir().map(|root| root.join(suffix)))
         .unwrap_or_else(|| PathBuf::from(value))
 }
@@ -80,13 +82,31 @@ fn find_command(name: &str) -> Option<PathBuf> {
     paths.into_iter().filter(|p| p.is_absolute()).map(|p| p.join(name)).find(|p| executable(p))
 }
 
+fn validate_environment(env: &BTreeMap<String, String>) -> Result<(), String> {
+    if env.len() > 64 { return Err("环境变量最多 64 项".into()); }
+    for (name, value) in env {
+        let mut bytes = name.bytes();
+        let valid_first = bytes.next().is_some_and(|ch| ch.is_ascii_alphabetic() || ch == b'_');
+        if !valid_first || !bytes.all(|ch| ch.is_ascii_alphanumeric() || ch == b'_') || name.len() > 256 {
+            return Err("环境变量名需以字母或下划线开头，且仅包含字母、数字和下划线".into());
+        }
+        if value.contains('\0') || value.len() > 8192 { return Err("环境变量值无效或过长".into()); }
+    }
+    Ok(())
+}
+
 fn validate_target(target: &LaunchTarget) -> Result<(), String> {
+    match target {
+        LaunchTarget::App { env, .. } | LaunchTarget::Cli { env, .. } => validate_environment(env)?,
+        LaunchTarget::Web { .. } => {},
+    }
     let no_nul = |v: &str| !v.is_empty() && !v.contains('\0') && v.len() <= 8192;
     match target {
-        LaunchTarget::App { path } => {
+        LaunchTarget::App { path, args, .. } => {
+            if args.len() > 64 || args.iter().any(|arg| arg.contains('\0') || arg.len() > 8192) { return Err("启动参数无效".into()); }
             if !no_nul(path) || !app_exists(&expand(path)) { return Err("请选择已安装的 .app 应用".into()); }
         }
-        LaunchTarget::Cli { command, args } => {
+        LaunchTarget::Cli { command, args, .. } => {
             if !no_nul(command) || find_command(command).is_none() { return Err("找不到可执行程序，请选择文件或输入已安装的命令名称".into()); }
             if args.len() > 64 || args.iter().any(|arg| arg.contains('\0') || arg.len() > 8192) { return Err("启动参数无效".into()); }
         }
@@ -103,8 +123,8 @@ fn validate_target(target: &LaunchTarget) -> Result<(), String> {
 
 fn resolve(target: &LaunchTarget) -> Option<LaunchTarget> {
     match target {
-        LaunchTarget::App { path } => app_exists(&expand(path)).then(|| LaunchTarget::App { path: expand(path).to_string_lossy().into_owned() }),
-        LaunchTarget::Cli { command, args } => find_command(command).map(|path| LaunchTarget::Cli { command: path.to_string_lossy().into_owned(), args: args.clone() }),
+        LaunchTarget::App { path, args, new_instance, env } => validate_target(target).is_ok().then(|| LaunchTarget::App { path: expand(path).to_string_lossy().into_owned(), args: args.clone(), new_instance: *new_instance, env: env.clone() }),
+        LaunchTarget::Cli { command, args, env } => find_command(command).map(|path| LaunchTarget::Cli { command: path.to_string_lossy().into_owned(), args: args.clone(), env: env.clone() }),
         LaunchTarget::Web { .. } => validate_target(target).is_ok().then(|| target.clone()),
     }
 }
@@ -125,32 +145,46 @@ pub fn info(agent_id: &str) -> Result<LaunchInfo, String> {
             match catalog.get(agent_id) {
                 Some(CatalogTarget::App { candidates, host_name: host }) => {
                     kind = Some("app".into()); host_name = host.clone();
-                    application(candidates).map(|path| LaunchTarget::App { path: path.to_string_lossy().into_owned() })
+                    application(candidates).map(|path| LaunchTarget::App { path: path.to_string_lossy().into_owned(), args: Vec::new(), new_instance: false, env: BTreeMap::new() })
                 }
                 Some(CatalogTarget::Cli { candidates, args }) => {
                     kind = Some("cli".into());
-                    candidates.iter().find_map(|name| find_command(name)).map(|command| LaunchTarget::Cli { command: command.to_string_lossy().into_owned(), args: args.clone() })
+                    candidates.iter().find_map(|name| find_command(name)).map(|command| LaunchTarget::Cli { command: command.to_string_lossy().into_owned(), args: args.clone(), env: BTreeMap::new() })
                 }
                 Some(CatalogTarget::Web { url }) => { kind = Some("web".into()); resolve(&LaunchTarget::Web { url: url.clone() }) }
                 None => None,
             }
         };
         let supported = cfg!(target_os = "macos");
+        let directory = prefs.default_directory.clone().or(prefs.directory);
         Ok(LaunchInfo { agent_id: agent_id.into(), name, kind, supported, host_name,
             available: supported && resolved_target.is_some(),
             install_url: links.get(agent_id).and_then(|v| v.get("url")).and_then(|v| v.as_str()).map(str::to_owned),
-            directory_exists: prefs.directory.as_ref().is_some_and(|p| expand(p).is_dir()),
-            directory: prefs.directory, configured_target: prefs.target, resolved_target,
+            directory_exists: directory.as_ref().is_some_and(|p| expand(p).is_dir()),
+            directory, default_directory: prefs.default_directory, configured_target: prefs.target, resolved_target,
         })
     })
 }
 
 pub fn configure(agent_id: &str, target: Option<LaunchTarget>) -> Result<LaunchInfo, String> {
+    configure_with_directory(agent_id, target, None)
+}
+
+pub fn configure_with_directory(agent_id: &str, target: Option<LaunchTarget>, default_directory: Option<String>) -> Result<LaunchInfo, String> {
+    let directory = default_directory.map(|value| {
+        let value = value.trim();
+        if value.is_empty() { return Ok(None); }
+        let path = expand(value);
+        if !path.is_absolute() || !path.is_dir() { return Err("默认工作目录不存在，请选择有效文件夹".to_string()); }
+        Ok(Some(path.to_string_lossy().into_owned()))
+    }).transpose()?;
     super::gate::write_independent(|| {
         require_agent(agent_id)?;
         if let Some(target) = &target { validate_target(target)?; }
         mutate_settings_checked(|settings| {
-            settings.agent_launch.get_or_insert_default().entry(agent_id.into()).or_default().target = target;
+            let preferences = settings.agent_launch.get_or_insert_default().entry(agent_id.into()).or_default();
+            preferences.target = target;
+            if let Some(directory) = directory { preferences.default_directory = directory; }
             Ok(())
         }).map_err(|e| e.to_string())
     })?;
@@ -164,13 +198,20 @@ fn dispatch(target: &LaunchTarget, directory: Option<&Path>) -> Result<(), Strin
     validate_target(target)?;
     let mut command;
     match target {
-        LaunchTarget::App { path } => { command = Command::new("/usr/bin/open"); command.arg("-a").arg(path); }
+        LaunchTarget::App { path, args, new_instance, env } => {
+            command = Command::new("/usr/bin/open");
+            if *new_instance { command.arg("-n"); }
+            command.arg("-a").arg(path);
+            for (name, value) in env { command.arg("--env").arg(format!("{name}={value}")); }
+            if !args.is_empty() { command.arg("--args").args(args); }
+        }
         LaunchTarget::Web { url } => { command = Command::new("/usr/bin/open"); command.arg(url); }
-        LaunchTarget::Cli { command: program, args } => {
+        LaunchTarget::Cli { command: program, args, env } => {
             let directory = directory.ok_or("请先选择工作目录")?;
             let bin = Path::new(program).parent().ok_or("无效的可执行程序路径")?;
-            let line = format!("cd -- {} && PATH={}:\"$PATH\" {}{}", quote_shell(&directory.to_string_lossy()),
-                quote_shell(&bin.to_string_lossy()), quote_shell(program), args.iter().map(|arg| format!(" {}", quote_shell(arg))).collect::<String>());
+            let environment = env.iter().map(|(name, value)| format!("{name}={} ", quote_shell(value))).collect::<String>();
+            let line = format!("cd -- {} && PATH={}:\"$PATH\" {}{}{}", quote_shell(&directory.to_string_lossy()),
+                quote_shell(&bin.to_string_lossy()), environment, quote_shell(program), args.iter().map(|arg| format!(" {}", quote_shell(arg))).collect::<String>());
             return super::terminals::dispatch(&line);
         }
     }

@@ -66,3 +66,19 @@ The top bar has one Settings entry. Its dialog groups file editor and default CL
 Terminal and iTerm2 use a fresh AppleScript session. Ghostty uses its native surface-configuration AppleScript API (1.3+); Warp opens a private, uniquely named executable `.command` handoff which removes itself before running the Agent. Commands retain shell-quoted arguments and working directories. Discovery and preference changes never execute Agent commands.
 
 Adapter references: [Ghostty AppleScript](https://ghostty.org/docs/features/applescript), [Warp executable scripts](https://docs.warp.dev/terminal/more-features/files-and-links).
+
+## Unified configuration and default directory
+
+The Agent page no longer expands resource paths inline. Its Edit dialog owns MCP/Model/Skills paths, file/folder open actions, credential delivery, and launch settings. CLI launch settings include a per-Agent default working directory with a native folder chooser. A configured default takes priority over the last-used directory; an explicit one-off directory takes priority for that launch only. Clearing the default resumes the remembered-directory behavior. Core validates and stores the default together with the launch target. Editing only the directory preserves automatic target discovery.
+
+## Application arguments
+
+Application launch targets accept an optional argument array and a `new_instance` boolean, both backwards-compatible defaults. The editor keeps app arguments separate from CLI arguments and treats each non-empty line as one literal argument. Core validates argument count, size and NUL bytes, then uses `/usr/bin/open [-n] -a <app> [--args <arguments>...]` with process arguments rather than shell interpolation. New-instance mode is opt-in; the target application decides which arguments and multi-instance behavior it supports. Existing applications may only activate without consuming new arguments when new-instance mode is off.
+
+## Launch environment
+
+App and CLI targets accept an optional `env` string map (empty for older settings). The editor exposes editable name/value rows and rejects duplicates, invalid names, NUL values, and oversized values. Core repeats validation before save/launch. Values are literal, including spaces, quotes and equals signs. App launches pass each entry with `open --env NAME=VALUE` before `--args`; terminal CLI launches use shell-quoted command-scoped assignments. Existing parent environment is inherited for unspecified names; no system environment, shell startup file, or global terminal profile is changed. Ordinary launch variables are stored with launch preferences; Provider API credentials remain independently managed in Keychain.
+
+For ZCode, select `/Applications/ZCode.app` and add `NODE_USE_SYSTEM_CA` with value `1`. The launch environment only applies to new processes; restart the App or request a new instance. Recognition of this Node setting depends on ZCode's bundled runtime.
+
+The unified editor uses persistent Launch and Configuration Files tabs with a shared save footer. Switching tabs retains all drafts. Path labels sit above compact input/open-action controls; unsupported capabilities show a status row. Startup arguments use a smaller textarea and environment variables remain editable rows, reducing the default dialog height without removing settings.

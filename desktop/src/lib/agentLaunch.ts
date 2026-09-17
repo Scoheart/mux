@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 
-export type LaunchTarget = { kind: "app"; path: string }
-  | { kind: "cli"; command: string; args: string[] }
+export type LaunchTarget = { kind: "app"; path: string; args?: string[]; new_instance?: boolean; env?: Record<string, string> }
+  | { kind: "cli"; command: string; args: string[]; env?: Record<string, string> }
   | { kind: "web"; url: string };
 export interface AgentLaunchInfo {
   agent_id: string;
@@ -12,10 +12,11 @@ export interface AgentLaunchInfo {
   host_name: string | null;
   install_url: string | null;
   directory: string | null;
+  default_directory?: string | null;
   directory_exists: boolean;
   configured_target: LaunchTarget | null;
   resolved_target: LaunchTarget | null;
 }
 export const getAgentLaunchInfo = (agentId: string) => invoke<AgentLaunchInfo>("get_agent_launch_info", { agentId });
-export const configureAgentLaunch = (agentId: string, target: LaunchTarget | null) => invoke<AgentLaunchInfo>("configure_agent_launch", { agentId, target });
+export const configureAgentLaunch = (agentId: string, target: LaunchTarget | null, defaultDirectory?: string) => invoke<AgentLaunchInfo>("configure_agent_launch", { agentId, target, defaultDirectory });
 export const launchAgent = (agentId: string, directory: string | null) => invoke<{ directory_saved: boolean }>("launch_agent", { agentId, directory });

@@ -124,8 +124,16 @@ pub struct AgentCapabilityView {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
 pub enum LaunchTarget {
-    App { path: String },
-    Cli { command: String, #[serde(default)] args: Vec<String> },
+    App {
+        path: String,
+        #[serde(default)]
+        args: Vec<String>,
+        #[serde(default)]
+        new_instance: bool,
+        #[serde(default)]
+        env: std::collections::BTreeMap<String, String>,
+    },
+    Cli { command: String, #[serde(default)] args: Vec<String>, #[serde(default)] env: std::collections::BTreeMap<String, String> },
     Web { url: String },
 }
 
@@ -135,5 +143,7 @@ pub struct LaunchPreferences {
     pub target: Option<LaunchTarget>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub directory: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_directory: Option<String>,
 }
 

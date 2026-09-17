@@ -1,6 +1,6 @@
 import { createContext, useContext, useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { LayersIcon, PackageIcon, SlidersIcon, SparklesIcon } from "./icons";
+import { LayersIcon, PackageIcon, SparklesIcon } from "./icons";
 
 const ToolbarTarget = createContext<HTMLDivElement | null | undefined>(undefined);
 
@@ -23,20 +23,17 @@ export function AgentResourcePanel({
   onChange,
   counts,
   children,
-  configuration,
 }: {
   value: AgentResourceTab;
   onChange: (value: AgentResourceTab) => void;
   counts: Record<AgentResourceTab, number>;
   children: ReactNode;
-  configuration?: ReactNode;
 }) {
   const id = useId();
   const refs = useRef<Array<HTMLButtonElement | null>>([]);
   const selectedIndex = TABS.findIndex((tab) => tab.id === value);
   const panelId = `${id}-panel`;
   const [toolbarTarget, setToolbarTarget] = useState<HTMLDivElement | null>(null);
-  const [configurationOpen, setConfigurationOpen] = useState(false);
 
   const handleKeyDown = (event: KeyboardEvent<HTMLButtonElement>, index: number) => {
     let nextIndex: number | null = null;
@@ -76,16 +73,9 @@ export function AgentResourcePanel({
         </div>
         <div className="mux-agent-toolbar-actions">
           <div className="mux-agent-toolbar-target" ref={setToolbarTarget} />
-          {configuration && <button type="button" className="mux-agent-config-toggle btn-secondary"
-            aria-expanded={configurationOpen} aria-controls={`${id}-configuration`}
-            onClick={() => setConfigurationOpen((open) => !open)}>
-            <SlidersIcon className="w-3.5 h-3.5" />配置
-          </button>}
+
         </div>
       </div>
-      {configuration && <div id={`${id}-configuration`} className="mux-agent-active-config" hidden={!configurationOpen}>
-        {configuration}
-      </div>}
       <div
         className="mux-agent-resource-panel-body"
         id={panelId}

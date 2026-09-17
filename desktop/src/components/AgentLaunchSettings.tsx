@@ -15,7 +15,7 @@ export function AgentLaunchSettings({ info, onClose, onSaved }: {
     if (busy || !agentLaunchDraftValid(draft)) return;
     setBusy(true); setError("");
     try {
-      await configureAgentLaunch(info.agent_id, agentLaunchDraftTarget(draft));
+      await configureAgentLaunch(info.agent_id, agentLaunchDraftTarget(draft, info), draft.directory.trim());
       onSaved(); onClose();
     } catch (failure) { setError(formatError(failure)); }
     finally { setBusy(false); }

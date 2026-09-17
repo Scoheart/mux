@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import type {
   AgentConfigurationPatch,
   AgentInfo,
@@ -15,12 +15,16 @@ import {
 import { formatError } from "../lib/format";
 import { DialogShell } from "./DialogShell";
 import { AssetOperationReviewDialog } from "./AssetOperationReviewDialog";
-import { KeyIcon, LayersIcon, PackageIcon, PlusIcon, SparklesIcon, TrashIcon } from "./icons";
+import { ExternalLinkIcon, KeyIcon, LayersIcon, PackageIcon, PlusIcon, SparklesIcon, TrashIcon } from "./icons";
 import { useToast } from "./Toast";
 import { configureAgentLaunch, getAgentLaunchInfo, type AgentLaunchInfo } from "../lib/agentLaunch";
 import { AgentLaunchFields, agentLaunchDraftChanged, agentLaunchDraftTarget, agentLaunchDraftValid, createAgentLaunchDraft, type AgentLaunchDraft } from "./AgentLaunchFields";
+import { AgentGlyph } from "./brandIcons";
 import { FormSelect } from "./FormSelect";
 import "./AgentLaunch.css";
+import { homeDir } from "@tauri-apps/api/path";
+import { openPath } from "@tauri-apps/plugin-opener";
+import { preferredFileEditor } from "./FileEditorSelect";
 
 function deliveryLabel(value: ApiKeyDelivery) {
   if (value === "env") return "环境变量";
@@ -53,6 +57,9 @@ export function AgentConfigurationDialog({
   onLaunchSaved?(): void;
   initialSection?: "paths" | "launch";
 }) {
+  const [section, setSection] = useState<"launch" | "paths">(initialSection);
+  const sectionId = useId();
+  const sectionButtons = useRef<Array<HTMLButtonElement | null>>([]);
   const initialModelPaths = modelAgent?.config_paths?.length
     ? modelAgent.config_paths
     : modelAgent?.config_path
@@ -117,15 +124,15 @@ export function AgentConfigurationDialog({
   }, [agent.id, launchRequest]);
 
   useEffect(() => {
-    if (initialSection !== "launch" || launchLoading || didFocusLaunch.current) return;
+    if (initialSection !== "launch" || section !== "launch" || launchLoading || didFocusLaunch.current) return;
     didFocusLaunch.current = true;
     launchSection.current?.scrollIntoView({ block: "nearest" });
     launchSection.current?.querySelector<HTMLInputElement>("input:not(:disabled)")?.focus({ preventScroll: true });
-  }, [initialSection, launchLoading]);
+  }, [initialSection, section, launchLoading]);
 
   const saveLaunch = async () => {
     if (!launchChanged || !launchDraft) return;
-    const info = await configureAgentLaunch(agent.id, agentLaunchDraftTarget(launchDraft));
+    const info = await configureAgentLaunch(agent.id, agentLaunchDraftTarget(launchDraft, launchInfo ?? undefined), launchDraft.directory.trim());
     setLaunchInfo(info); setLaunchDraft(createAgentLaunchDraft(info));
     onLaunchSaved?.();
   };
@@ -286,9 +293,23 @@ export function AgentConfigurationDialog({
     <DialogShell
       className="mux-dialog-agent-config"
       kind="editor"
-      size="md"
-      title="编辑配置"
-      subtitle={agent.name}
+      size="wide"
+      title={agent.name}
+      leading={<AgentGlyph id={agent.id} name={agent.name} size={32} />}
+      status={<div className="mux-agent-config-tabs" role="tablist" aria-label="配置分类">
+        {([['launch', '启动'], ['paths', '配置文件']] as const).map(([value, label], index) => <button
+          key={value} ref={(node) => { sectionButtons.current[index] = node; }} type="button" role="tab"
+          id={`${sectionId}-${value}-tab`} aria-controls={`${sectionId}-${value}-panel`} aria-selected={section === value}
+          tabIndex={section === value ? 0 : -1} disabled={busy || browsing} onClick={() => setSection(value)}
+          onKeyDown={(event) => {
+            if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+            event.preventDefault();
+            const next = event.key === "Home" ? 0 : event.key === "End" ? 1 : 1 - index;
+            setSection(next === 0 ? "launch" : "paths"); sectionButtons.current[next]?.focus();
+          }}>
+          {label}{(value === "launch" ? launchChanged : configurationChanged || deliveryChanged) && <i aria-label="未保存" />}
+        </button>)}
+      </div>}
       busy={busy || browsing}
       onClose={onClose}
       footerStart={configurationChanged ? <span className="mux-agent-config-hint">配置路径变更将显示影响范围</span> : null}
@@ -301,22 +322,24 @@ export function AgentConfigurationDialog({
         </>
       )}
     >
+      <div hidden={section !== "paths"} role="tabpanel" id={`${sectionId}-paths-panel`} aria-labelledby={`${sectionId}-paths-tab`}>
       <fieldset className="mux-agent-config-form mux-agent-config-fields" disabled={busy || browsing}>
         {hasMcp ? (
-          <>
+          <div className="mux-agent-config-mcp">
             <ConfigField
               icon={<PackageIcon className="w-4 h-4" />}
-              label="MCP 文件路径"
+              label="MCP 配置文件"
+              openKind="file"
               value={mcpPath}
               onChange={setMcpPath}
             />
             <ConfigField
               icon={null}
-              label="MCP 配置键"
+              label="配置键"
               value={mcpKey}
               onChange={setMcpKey}
             />
-          </>
+          </div>
         ) : (
           <ConfigField
             icon={<PackageIcon className="w-4 h-4" />}
@@ -331,6 +354,7 @@ export function AgentConfigurationDialog({
             icon={index === 0 ? <LayersIcon className="w-4 h-4" /> : null}
             label={modelPaths.length > 1 ? `Model ${index + 1}` : "Model"}
             value={path}
+            openKind="file"
             onChange={(value) => updateModelPath(index, value)}
           />
         )) : (
@@ -347,6 +371,7 @@ export function AgentConfigurationDialog({
             icon={index === 0 ? <SparklesIcon className="w-4 h-4" /> : null}
             label={skillsPaths.length > 1 ? `Skills ${index + 1}` : "Skills"}
             value={path}
+            openKind="folder"
             onChange={(value) => updateSkillsPath(index, value)}
             action={index > 0 ? (
               <button
@@ -378,18 +403,18 @@ export function AgentConfigurationDialog({
         )}
       </fieldset>
       {hasDelivery && (
-        <section className="mux-agent-config-launch" aria-label="凭据设置">
-          <div className="mux-agent-config-field">
-            <span className="mux-agent-config-field-icon"><KeyIcon className="w-4 h-4" /></span>
-            <strong>凭据方式</strong>
+        <section className="mux-agent-config-credential" aria-label="凭据设置">
+          <div className="mux-agent-config-credential-row">
+            <span className="mux-agent-field-caption"><KeyIcon className="w-4 h-4" />凭据方式</span>
             <FormSelect ariaLabel="凭据方式" value={delivery} disabled={busy || browsing}
               options={(modelAgent?.available_deliveries ?? []).map((value) => ({ value, label: deliveryLabel(value) }))}
               onChange={(value) => { setDelivery(value as ApiKeyDelivery); plaintextApproved.current = false; }} />
           </div>
         </section>
       )}
+      </div>
+      <div hidden={section !== "launch"} role="tabpanel" id={`${sectionId}-launch-panel`} aria-labelledby={`${sectionId}-launch-tab`}>
       <section ref={launchSection} className="mux-agent-config-launch" aria-label="启动设置">
-        <h3>启动方式</h3>
         {launchLoading ? <p className="mux-launch-hint" role="status">读取中…</p>
           : launchInfo && launchDraft ? <AgentLaunchFields info={launchInfo} draft={launchDraft} disabled={busy || browsing}
             onChange={setLaunchDraft} onBusyChange={setBrowsing} onError={setLaunchError} /> : null}
@@ -397,6 +422,7 @@ export function AgentConfigurationDialog({
           {!launchInfo && <button type="button" className="btn-ghost" disabled={busy || browsing || launchLoading} onClick={() => setLaunchRequest((value) => value + 1)}>重试</button>}
         </div>}
       </section>
+      </div>
       {error && <p className="mux-launch-error" role="alert">{error}</p>}
     </DialogShell>
   );
@@ -409,6 +435,7 @@ function ConfigField({
   disabled = false,
   onChange,
   action,
+  openKind,
 }: {
   icon: ReactNode;
   label: string;
@@ -416,11 +443,25 @@ function ConfigField({
   disabled?: boolean;
   onChange?(value: string): void;
   action?: ReactNode;
+  openKind?: "file" | "folder";
 }) {
+  const toast = useToast();
+  const openLocation = async () => {
+    try {
+      const home = (await homeDir()).replace(/\/$/, "");
+      const path = value.trim();
+      const absolute = path === "~" ? home : path.startsWith("~/") ? `${home}/${path.slice(2)}` : path;
+      const editor = openKind === "file" ? preferredFileEditor() : undefined;
+      if (editor) await openPath(absolute, editor); else await openPath(absolute);
+    } catch (error) { toast.show({ kind: "error", msg: `无法打开：${formatError(error)}` }); }
+  };
+  if (disabled && value === "未接入") return <div className="mux-agent-config-unavailable">
+    <span className="mux-agent-field-caption">{icon}{label}</span><span>未接入</span>
+  </div>;
   return (
-    <label className="mux-agent-config-field" data-disabled={disabled || undefined}>
-      <span className="mux-agent-config-field-icon">{icon}</span>
-      <strong>{label}</strong>
+    <label data-path-field={openKind || undefined} className="mux-agent-config-field" data-disabled={disabled || undefined}>
+      <span className="mux-agent-field-caption">{icon}{label}</span>
+      <span className="mux-agent-field-control">
       <input
         className="mux-model-field"
         value={value}
@@ -428,7 +469,13 @@ function ConfigField({
         spellCheck={false}
         onChange={(event) => onChange?.(event.target.value)}
       />
-      {action}
+      {(openKind || action) && <span className="mux-agent-config-field-actions">
+        {openKind && <button type="button" className="mux-agent-config-remove" disabled={disabled || !value.trim()}
+          title={openKind === "file" ? "使用编辑器打开" : "打开文件夹"} aria-label={`打开 ${label}`}
+          onClick={(event) => { event.preventDefault(); void openLocation(); }}><ExternalLinkIcon className="w-4 h-4" /></button>}
+        {action}
+      </span>}
+      </span>
     </label>
   );
 }

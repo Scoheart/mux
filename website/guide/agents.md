@@ -2,8 +2,8 @@
 
 MUX 的 Agent 数据分为两层：
 
-- **核验定义**：57 个逐项核验的 Agent 定义，其中 47 个有稳定的用户级全局 MCP 配置文件，可由 MUX 安全读写；另有 9 个 Skills-only 目标和只读的 Devin。
-- **发现目录**：来自公开 MCP 客户端目录与官方客户端矩阵，只作为后续核验的数据储备。目录包含 **201 条**记录，与核验定义合并去重后共保留 **212 个** Agent identity，但不再作为单独标签页展示。
+- **核验定义**：`data/agents.json` 保存逐项核验的配置契约；仅有已确认全局路径和格式的 MCP 可写，其余按已核验 Skills 或原生配置引导展示。
+- **发现目录**：来自公开 MCP 客户端目录与官方客户端矩阵，只作为后续核验的数据储备。完整清单以 `data/agent-catalog.json` 为准，与核验定义按身份合并，不再作为单独标签页展示。
 
 对于 MCP 能力，没有确认全局文件路径、顶层键和条目结构的客户端只保留来源数据，不会成为 MCP 可写目标。Skills-only Agent 只有在用户级目录契约另行核验后才会出现。这样可以持续扩大覆盖面，又不会把通用 JSON 猜测写进未知产品配置。
 
@@ -11,13 +11,13 @@ MUX 的 Agent 数据分为两层：
 
 消费关系可在 Agent 页面或统一 CLI 中管理：MCP 与 Skills 每个 Agent 可选择多个；原生多模型 Agent 可分配多个 Profile、最多一个 current，单模型 Agent 仍最多一个。中央资产详情只负责资产生命周期和只读影响范围，不反向修改 Agent。MUX 再把 Agent 文件或 Skill link 作为 observed state 对账；仅在 Agent 中发现的外部配置保持只读，扫描不会静默接管。检测到历史 MCP / Skill 时，可显式纳管并把中央资产与原有消费关系作为同一项可恢复事务导入。
 
-当前共有 **15 个 Model target**：13 个由 MUX 管理，MiniMax Code 与 Qoder 这 2 个因缺少等价的安全 writer 而保留为 guided target。
+Model 能力由 Rust Core 统一提供；MiniMax Code、Qoder IDE、Kimi Code CLI/Desktop 保留为 guided target，其他已核验 writer 可管理中央 Model Profile。
 
 ## 已核验列表
 
 以下结果基于截至 **2026-07-22** 的官方文档、官方源码或签名应用包；Grok Build 使用 xAI 官方文档核验，MiniMax Code 使用官方签名的 `3.0.51` macOS 应用包核验。
 
-下表聚焦 MCP 契约：列出 47 个可写目标，并保留 Devin 作为明确的只读对照；Skills-only 定义见下方 Skills 能力与 [用户级 Skills](/guide/skills#已核验的-agent-路径)。
+下表聚焦 MCP 契约：列出已核验可写目标，并保留 Devin 作为明确的只读对照；Skills-only 定义见下方 Skills 能力与 [用户级 Skills](/guide/skills#已核验的-agent-路径)。
 
 新 Qoder Desktop 的 MCP 契约于 2026-09-05 按新版官方文档核验。
 
@@ -49,7 +49,8 @@ MUX 的 Agent 数据分为两层：
 | [Hermes Agent](https://github.com/NousResearch/hermes-agent/blob/main/website/docs/user-guide/features/mcp.md) | YAML | `mcp_servers` | `~/.hermes/config.yaml` | stdio / http |
 | [JetBrains Junie](https://www.jetbrains.com/help/junie/model-context-protocol-mcp.html) | JSON | `mcpServers` | `~/.junie/mcp/mcp.json` | stdio / http |
 | [Kilo Code CLI](https://kilo.ai/docs/automate/mcp/using-in-kilo-code) | JSON | `mcp` | `~/.config/kilo/kilo.jsonc` | stdio / http |
-| [Kimi Code CLI](https://moonshotai.github.io/kimi-code/en/customization/mcp) | JSON | `mcpServers` | `~/.kimi-code/mcp.json` | stdio / http |
+| [Kimi Code CLI](https://www.kimi.com/code/docs/en/kimi-code-cli/customization/mcp.html) | JSON | `mcpServers` | `~/.kimi-code/mcp.json` | stdio / http |
+| [Kimi Code Desktop](https://www.kimi.com/code/docs/en/kimi-code-desktop/getting-started.html) | JSON | `mcpServers` | `~/.kimi-code/mcp.json` | stdio / http / sse |
 | [Kiro](https://kiro.dev/docs/mcp/configuration/) | JSON | `mcpServers` | `~/.kiro/settings/mcp.json` | stdio / http |
 | [LM Studio](https://lmstudio.ai/docs/app/plugins/mcp) | JSON | `mcpServers` | `~/.lmstudio/mcp.json` | stdio / http |
 | [MiniMax Code](https://agent.minimax.io/download) | JSON | `mcpServers` | `~/.mavis/mcp.json` | stdio / http |
@@ -120,3 +121,11 @@ MUX 当前只管理用户级全局配置，不提供项目级写入。
 桌面 App 的 Agent 选择器旁点 `+`，或在 TUI 的 Agents 屏幕按 `n`，可添加 JSON、TOML 或 YAML 的自定义全局目标。自定义目标使用标准 map 布局；只有已核验内置目标会启用产品专属字段转换。内置目标只允许覆盖路径，避免把官方 schema 意外改成不兼容格式。
 
 下一步 → [常见问题](/guide/faq)
+
+## Kimi Code Desktop
+
+2026-09-17 按官方文档与 Desktop 1.0.1 安装包核验。`kimi-code-desktop` 与 `kimi-code` 是独立身份，共用 MCP 文件和 Skills 目录；同一物理配置上的变更会影响两者，MUX 复用共享目标冲突保护。新增 MCP 后需创建新会话。
+
+用户级 Skills 为 `~/.kimi-code/skills`，也读取 `~/.agents/skills`。若客户端设置 `KIMI_CODE_HOME`，请在 MUX Agent 配置中同步修改 MCP 和 Skills 路径。MUX 不修改项目配置、插件目录、OAuth 凭据或会话。
+
+Models 提供原生配置引导：Desktop 在 Settings → Providers 添加，CLI 使用 `/provider`。两者默认共用 `~/.kimi-code/config.toml`；`api_key` 与 `providers.env` 都是明文值，不是环境变量引用，当前不自动导出 MUX Keychain 密钥。

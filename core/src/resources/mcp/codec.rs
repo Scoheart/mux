@@ -177,6 +177,7 @@ pub fn for_agent(agent_id: &str) -> Codec {
         "codex" => Codec::Codex,
         "opencode" => Codec::OpenCode,
         "gemini" => Codec::Gemini,
+        "kimi-code" | "kimi-code-desktop" => Codec::Kimi,
         "windsurf" => Codec::Windsurf,
         "qoder" | "qoder-cli" | "qoder-desktop" => Codec::Qoder,
         "qoderwork" => Codec::QoderWork,
@@ -255,7 +256,7 @@ impl Codec {
             .ok_or_else(|| "MCP entry is not an object".to_string())?;
         match self {
             Codec::ZCode => validate_active_field(object.get("enable"), true, "enable")?,
-            Codec::AgentKube | Codec::VtCode => {
+            Codec::AgentKube | Codec::VtCode | Codec::Kimi => {
                 validate_active_field(object.get("enabled"), true, "enabled")?
             }
             Codec::ChatMcp if contains_sensitive_auth(value) => {

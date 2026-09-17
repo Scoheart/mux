@@ -81,6 +81,7 @@ const VERIFIED_SKILL_AGENT_IDS: &[&str] = &[
     "hermes",
     "kilo-code",
     "kimi-code",
+    "kimi-code-desktop",
     "kiro",
     "minion-code",
     "mistral-vibe",
@@ -1059,11 +1060,11 @@ mod tests {
     #[test]
     fn builtin_catalog_and_transport_metadata_load() {
         let a = builtin_agents();
-        assert_eq!(audited_agents().len(), 61);
+        assert_eq!(audited_agents().len(), 62);
         let catalog: BTreeMap<String, AgentDefinition> =
             serde_json::from_str(CATALOG_AGENTS_JSON).unwrap();
         assert_eq!(catalog.len(), 201);
-        assert_eq!(a.len(), 216);
+        assert_eq!(a.len(), 217);
         assert_eq!(a["claude-code"].key, "mcpServers");
         assert_eq!(a["codex"].format, "toml");
         assert_eq!(

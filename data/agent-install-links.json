@@ -124,8 +124,12 @@
     "label": "安装文档"
   },
   "kimi-code": {
-    "url": "https://moonshotai.github.io/kimi-code/en/",
+    "url": "https://www.kimi.com/code/docs/en/kimi-code-cli/guides/getting-started.html",
     "label": "安装文档"
+  },
+  "kimi-code-desktop": {
+    "url": "https://www.kimi.com/code/docs/en/kimi-code-desktop/getting-started.html",
+    "label": "官方下载"
   },
   "kiro": {
     "url": "https://kiro.dev/downloads/",

@@ -61,7 +61,7 @@ MUX 按物理目录归一化消费关系。某些 Agent 会兼容读取另一个
 | Grok Build | `~/.grok/skills` | — |
 | Hermes Agent | `~/.hermes/skills` | — |
 | Kilo Code CLI | `~/.kilo/skills` | — |
-| Kimi Code CLI | `~/.kimi-code/skills` | `~/.agents/skills` |
+| Kimi Code CLI / Desktop（共享目录） | `~/.kimi-code/skills` | `~/.agents/skills` |
 | Kiro | `~/.kiro/skills` | — |
 | Minion Code | `~/.minion/skills` | `~/.claude/skills` |
 | Mistral Vibe | `~/.vibe/skills` | — |

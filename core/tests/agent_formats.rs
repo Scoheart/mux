@@ -22,6 +22,7 @@ fn temp_file(name: &str, extension: &str) -> PathBuf {
 
 fn fixture(name: &str) -> &'static str {
     match name {
+        "kimi-code-desktop" => include_str!("fixtures/kimi-code-desktop.json"),
         "zcode" => include_str!("fixtures/zcode.json"),
         "antigravity-cli" => include_str!("fixtures/antigravity-cli.json"),
         "continue-cli" => include_str!("fixtures/continue-cli.yaml"),
@@ -35,6 +36,53 @@ fn fixture(name: &str) -> &'static str {
         "windsurf" => include_str!("fixtures/windsurf.json"),
         "cline" => include_str!("fixtures/cline.json"),
         _ => panic!("unknown fixture"),
+    }
+}
+
+#[test]
+fn kimi_desktop_and_cli_share_lossless_mcp_and_skill_contracts() {
+    let home = mux_core::testenv::TestHome::new("kimi-desktop-formats");
+    let agents = builtin_agents();
+    let desktop = &agents["kimi-code-desktop"];
+    let cli = &agents["kimi-code"];
+    assert_eq!(desktop.global, cli.global);
+    assert_eq!(desktop.skills.as_ref().unwrap().target_id, cli.skills.as_ref().unwrap().target_id);
+    assert_eq!(desktop.skills.as_ref().unwrap().global_dir, cli.skills.as_ref().unwrap().global_dir);
+    assert!(desktop.project.is_none());
+
+    for id in ["kimi-code", "kimi-code-desktop"] {
+        let path = home.home.join(format!("{id}.json"));
+        std::fs::write(&path, fixture("kimi-code-desktop")).unwrap();
+        let adapter = get_agent_adapter_for(&agents[id], id);
+        let configs = adapter.read(&path);
+        assert!(!configs.contains_key("paused"));
+        assert!(matches!(&configs["legacy"], McpConfig::Http(config) if config.kind == "sse"));
+        assert!(matches!(&configs["local"], McpConfig::Stdio(_)));
+
+        let config = http("https://updated.example.test/mcp");
+        adapter.upsert(&path, "docs", &config).unwrap();
+        assert_eq!(adapter.read(&path)["docs"], normalize_with_codec(from_name(Some("kimi"), id), &config));
+        let saved = std::fs::read_to_string(&path).unwrap();
+        let value: Value = serde_json::from_str(&saved).unwrap();
+        let original: Value = serde_json::from_str(fixture("kimi-code-desktop")).unwrap();
+        for field in ["enabled", "deferred", "bearerTokenEnvVar", "startupTimeoutMs", "toolTimeoutMs", "enabledTools", "disabledTools"] {
+            assert_eq!(value["mcpServers"]["docs"][field], original["mcpServers"]["docs"][field]);
+        }
+        assert!(value["mcpServers"]["docs"].get("transport").is_none());
+        assert!(value["mcpServers"]["docs"].get("type").is_none());
+        assert!(adapter.upsert(&path, "paused", &config).is_err());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), saved);
+        adapter.remove(&path, &["docs".into()]).unwrap();
+        let remaining: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(remaining["userPolicy"], original["userPolicy"]);
+        for name in ["local", "legacy", "paused"] {
+            assert_eq!(remaining["mcpServers"][name], original["mcpServers"][name]);
+        }
+        for invalid in [r#"{"mcpServers": []}"#, r#"{"mcpServers":{"docs":{"enabled":"false","url":"https://example.test"}}}"#, r#"{"mcpServers":{"docs":{},"docs":{}}}"#] {
+            std::fs::write(&path, invalid).unwrap();
+            assert!(adapter.upsert(&path, "docs", &config).is_err());
+            assert_eq!(std::fs::read_to_string(&path).unwrap(), invalid);
+        }
     }
 }
 
@@ -635,6 +683,7 @@ fn builtin_global_paths_match_current_product_docs() {
         ("junie", "~/.junie/mcp/mcp.json"),
         ("kilo-code", "~/.config/kilo/kilo.jsonc"),
         ("kimi-code", "~/.kimi-code/mcp.json"),
+        ("kimi-code-desktop", "~/.kimi-code/mcp.json"),
         ("kiro", "~/.kiro/settings/mcp.json"),
         ("lmstudio", "~/.lmstudio/mcp.json"),
         ("minimax-code", "~/.mavis/mcp.json"),
@@ -681,16 +730,16 @@ fn verified_and_catalog_definitions_have_auditable_boundaries() {
     let all_ids: std::collections::BTreeSet<_> =
         verified_ids.union(&catalog_ids).cloned().collect();
 
-    assert_eq!(verified.len(), 61);
+    assert_eq!(verified.len(), 62);
     assert_eq!(catalog.len(), 201);
     assert_eq!(verified_ids.intersection(&catalog_ids).count(), 46);
-    assert_eq!(all_ids.len(), 216);
+    assert_eq!(all_ids.len(), 217);
     assert_eq!(
         verified
             .values()
             .filter(|item| item.global.is_some())
             .count(),
-        50
+        51
     );
     assert!(catalog.len() >= 170);
     for (id, definition) in verified {

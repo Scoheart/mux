@@ -203,6 +203,12 @@
     ],
     "args": []
   },
+  "kimi-code-desktop": {
+    "kind": "app",
+    "candidates": [
+      "Kimi Code"
+    ]
+  },
   "kiro": {
     "kind": "app",
     "candidates": [

@@ -1,0 +1,30 @@
+{
+  "mcpServers": {
+    "docs": {
+      "url": "https://docs.example.test/mcp",
+      "headers": { "X-Workspace": "docs" },
+      "enabled": true,
+      "deferred": true,
+      "bearerTokenEnvVar": "EXAMPLE_MCP_TOKEN",
+      "startupTimeoutMs": 15000,
+      "toolTimeoutMs": 60000,
+      "enabledTools": ["search"],
+      "disabledTools": ["publish"]
+    },
+    "legacy": {
+      "transport": "sse",
+      "url": "https://events.example.test/sse"
+    },
+    "local": {
+      "command": "example-server",
+      "args": ["--readonly"],
+      "env": { "MODE": "readonly" },
+      "cwd": "/tmp"
+    },
+    "paused": {
+      "url": "https://paused.example.test/mcp",
+      "enabled": false
+    }
+  },
+  "userPolicy": { "keep": true }
+}

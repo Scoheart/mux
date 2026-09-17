@@ -1878,6 +1878,7 @@ pub fn default_config_paths(agent_id: &str) -> Option<Vec<String>> {
         "factory-droid" => &["~/.factory/settings.json"],
         "goose" => &["~/Library/Application Support/Block/goose/config/config.yaml"],
         "minimax-code" => &["~/.mavis/config.yaml"],
+        "kimi-code" | "kimi-code-desktop" => &["~/.kimi-code/config.toml"],
         _ => return None,
     };
     Some(paths.iter().map(|path| (*path).to_string()).collect())
@@ -3075,7 +3076,7 @@ fn agent_installed(names: &[&str], config_locations: &[&str], app_locations: &[&
             .any(|location| config_path(location).exists())
         || app_locations
             .iter()
-            .any(|location| Path::new(location).exists())
+            .any(|location| expand_tilde(location).exists())
 }
 
 pub fn list_agents() -> Vec<ModelAgentView> {
@@ -3348,6 +3349,50 @@ pub fn list_agents() -> Vec<ModelAgentView> {
             "原生 providers/active_provider 与 declarative custom provider；密钥由外部环境变量提供。",
         ),
     ];
+    // Both clients share native providers, but their api_key/env fields contain
+    // literal credentials. Do not advertise an environment-reference writer.
+    for (id, name, commands, apps, docs, note) in [
+        (
+            "kimi-code", "Kimi Code CLI", vec!["kimi"], vec![],
+            "https://www.kimi.com/code/docs/en/kimi-code-cli/configuration/providers.html",
+            "请在 Kimi /provider 中配置模型。providers.env 保存的是凭据值，不是系统环境变量引用；MUX 不向此文件导出 Keychain 密钥。",
+        ),
+        (
+            "kimi-code-desktop", "Kimi Code Desktop", vec![],
+            vec!["/Applications/Kimi Code.app", "~/Applications/Kimi Code.app"],
+            "https://www.kimi.com/code/docs/en/kimi-code-desktop/getting-started.html",
+            "请在 Kimi Settings → Providers 中配置模型，再从会话选择。与 CLI 共用 config.toml；当前凭据字段要求明文值，MUX 不自动写入。",
+        ),
+    ] {
+        let (config_path, config_paths) = path_view(&settings, id);
+        agents.push(ModelAgentView {
+            id: id.into(),
+            name: name.into(),
+            mode: "guided".into(),
+            storage_authority: ModelStorageAuthority::Guided,
+            installed: agent_installed(&commands, &[], &apps),
+            config_path,
+            config_paths,
+            docs: docs.into(),
+            assigned_profile: None,
+            assigned_profiles: Vec::new(),
+            active_profile: None,
+            supports_multiple: true,
+            supports_global_selection: false,
+            credential_mode: "guided".into(),
+            credential_capabilities: credential::agent_capabilities(id),
+            credential_policies: BTreeMap::new(),
+            default_delivery: Default::default(),
+            available_deliveries: Vec::new(),
+            supported_protocols: vec![
+                ModelProtocol::AnthropicMessages,
+                ModelProtocol::OpenaiResponses,
+                ModelProtocol::OpenaiCompletions,
+                ModelProtocol::GeminiGenerateContent,
+            ],
+            note: note.into(),
+        });
+    }
     for agent in &mut agents {
         let selection = settings.model_selection(&agent.id);
         agent.default_delivery = selection.default_delivery.clone();
@@ -7833,6 +7878,25 @@ fork_secondary_model = "private-fork"
         let mut profile = responses_profile();
         profile.env_key = Some("not-valid-key".into());
         assert!(validate_profile(&profile).is_err());
+    }
+
+    #[test]
+    fn kimi_clients_expose_native_model_guides_without_credential_writers() {
+        let _home = TestHome::new("kimi-model-guides");
+        let agents = list_agents();
+        for id in ["kimi-code", "kimi-code-desktop"] {
+            let agent = agents.iter().find(|agent| agent.id == id).unwrap();
+            assert_eq!(agent.mode, "guided");
+            assert_eq!(agent.storage_authority, ModelStorageAuthority::Guided);
+            assert_eq!(agent.config_paths, vec!["~/.kimi-code/config.toml"]);
+            assert!(agent.assigned_profiles.is_empty());
+            assert!(agent.credential_capabilities.native_sources.is_empty());
+            assert!(!agent.credential_capabilities.plaintext);
+            assert!(!agent.credential_capabilities.mux_keychain_helper);
+            for protocol in &agent.supported_protocols {
+                assert!(ensure_supported(id, protocol).is_err());
+            }
+        }
     }
 
     #[test]

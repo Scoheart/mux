@@ -3466,30 +3466,31 @@ mod tests {
     use crate::testenv::TestHome;
 
     #[test]
-    fn shared_qoder_mcp_requires_a_closed_removal_plan() {
-        let _home = TestHome::new("shared-qoder-removal");
-        let key = "shared::stdio".to_string();
-        let agents = ["qoder-cli", "qoder-desktop"];
-        mutate_settings(|settings| {
-            settings.mcp_consumptions = Some(agents.iter().map(|id| (id.to_string(),
-                BTreeMap::from([(key.clone(), McpConsumptionRecord {
-                    asset_key: key.clone(), enabled: true, overrides: Default::default(),
-                })]))).collect());
-        }).unwrap();
-        let partial = DomainPlan::Mcp {
-            before: BTreeMap::from([("qoder-desktop".into(), vec![key.clone()])]),
-            after: BTreeMap::from([("qoder-desktop".into(), vec![])]),
-        };
-        let (conflicts, subjects) = shared_mcp_conflicts(&partial, None).unwrap();
-        assert!(!conflicts.is_empty());
-        assert!(subjects.contains(&StateSubject::AgentConsumption {
-            capability: crate::domain::assets::AssetCapability::Mcp, agent_id: "qoder-cli".into(),
-        }));
-        let closed = DomainPlan::Mcp {
-            before: agents.iter().map(|id| (id.to_string(), vec![key.clone()])).collect(),
-            after: agents.iter().map(|id| (id.to_string(), vec![])).collect(),
-        };
-        assert!(shared_mcp_conflicts(&closed, None).unwrap().0.is_empty());
+    fn shared_client_mcp_requires_a_closed_removal_plan() {
+        for agents in [["qoder-cli", "qoder-desktop"], ["kimi-code", "kimi-code-desktop"]] {
+            let _home = TestHome::new("shared-client-removal");
+            let key = "shared::stdio".to_string();
+            mutate_settings(|settings| {
+                settings.mcp_consumptions = Some(agents.iter().map(|id| (id.to_string(),
+                    BTreeMap::from([(key.clone(), McpConsumptionRecord {
+                        asset_key: key.clone(), enabled: true, overrides: Default::default(),
+                    })]))).collect());
+            }).unwrap();
+            let partial = DomainPlan::Mcp {
+                before: BTreeMap::from([(agents[1].into(), vec![key.clone()])]),
+                after: BTreeMap::from([(agents[1].into(), vec![])]),
+            };
+            let (conflicts, subjects) = shared_mcp_conflicts(&partial, None).unwrap();
+            assert!(!conflicts.is_empty());
+            assert!(subjects.contains(&StateSubject::AgentConsumption {
+                capability: crate::domain::assets::AssetCapability::Mcp, agent_id: agents[0].into(),
+            }));
+            let closed = DomainPlan::Mcp {
+                before: agents.iter().map(|id| (id.to_string(), vec![key.clone()])).collect(),
+                after: agents.iter().map(|id| (id.to_string(), vec![])).collect(),
+            };
+            assert!(shared_mcp_conflicts(&closed, None).unwrap().0.is_empty());
+        }
     }
 
     #[test]

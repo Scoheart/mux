@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.196](https://github.com/Scoheart/mux/compare/v1.8.195...v1.8.196) (2026-09-17)
+
+### Changes
+
+* feat(agents): integrate Kimi Code Desktop ([7721d5f](https://github.com/Scoheart/mux/commit/7721d5f49eb9827ada695fa2a20757ab279be8d5))
+
 ## [1.8.195](https://github.com/Scoheart/mux/compare/v1.8.194...v1.8.195) (2026-09-14)
 
 ### Changes

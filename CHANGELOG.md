@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.197](https://github.com/Scoheart/mux/compare/v1.8.196...v1.8.197) (2026-09-17)
+
+### Changes
+
+* feat(desktop): unify agent configuration and launch options (#188) ([172811e](https://github.com/Scoheart/mux/commit/172811e433bf5a5516230bd074578347244cb6d2))
+
 ## [1.8.196](https://github.com/Scoheart/mux/compare/v1.8.195...v1.8.196) (2026-09-17)
 
 ### Changes

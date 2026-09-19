@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.199](https://github.com/Scoheart/mux/compare/v1.8.198...v1.8.199) (2026-09-19)
+
+### Changes
+
+* fix(desktop): show all Agents in picker ([9309bec](https://github.com/Scoheart/mux/commit/9309bece67f1acd7256e20a15456318af3b748fa))
+
 ## [1.8.198](https://github.com/Scoheart/mux/compare/v1.8.197...v1.8.198) (2026-09-19)
 
 ### Changes

@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.198](https://github.com/Scoheart/mux/compare/v1.8.197...v1.8.198) (2026-09-19)
+
+### Changes
+
+* feat(agents): add Freebuff and Cline Desktop ([61bc3c7](https://github.com/Scoheart/mux/commit/61bc3c77bd8ab5a2c3c20dbd60bfbf71cdfb73f2))
+
 ## [1.8.197](https://github.com/Scoheart/mux/compare/v1.8.196...v1.8.197) (2026-09-17)
 
 ### Changes

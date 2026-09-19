@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.200](https://github.com/Scoheart/mux/compare/v1.8.199...v1.8.200) (2026-09-19)
+
+### Changes
+
+* fix(desktop): use brand icons for Cline and Freebuff ([aa2f140](https://github.com/Scoheart/mux/commit/aa2f140ef98b8ec415b75c49ba8c3c540a9be672))
+
 ## [1.8.199](https://github.com/Scoheart/mux/compare/v1.8.198...v1.8.199) (2026-09-19)
 
 ### Changes

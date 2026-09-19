@@ -730,16 +730,16 @@ fn verified_and_catalog_definitions_have_auditable_boundaries() {
     let all_ids: std::collections::BTreeSet<_> =
         verified_ids.union(&catalog_ids).cloned().collect();
 
-    assert_eq!(verified.len(), 62);
-    assert_eq!(catalog.len(), 201);
-    assert_eq!(verified_ids.intersection(&catalog_ids).count(), 46);
-    assert_eq!(all_ids.len(), 217);
+    assert_eq!(verified.len(), 67);
+    assert_eq!(catalog.len(), 204);
+    assert_eq!(verified_ids.intersection(&catalog_ids).count(), 49);
+    assert_eq!(all_ids.len(), 222);
     assert_eq!(
         verified
             .values()
             .filter(|item| item.global.is_some())
             .count(),
-        51
+        52
     );
     assert!(catalog.len() >= 170);
     for (id, definition) in verified {

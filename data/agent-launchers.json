@@ -66,6 +66,13 @@
     ],
     "host_name": "VS Code"
   },
+  "cline-desktop": {
+    "kind": "app",
+    "candidates": [
+      "Cline Desktop",
+      "Cline"
+    ]
+  },
   "codebuddy-code": {
     "kind": "cli",
     "candidates": [
@@ -158,6 +165,13 @@
     "candidates": [
       "Firebender"
     ]
+  },
+  "freebuff": {
+    "kind": "cli",
+    "candidates": [
+      "freebuff"
+    ],
+    "args": []
   },
   "gemini": {
     "kind": "cli",

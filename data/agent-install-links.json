@@ -43,6 +43,10 @@
     "url": "https://docs.cline.bot/",
     "label": "安装文档"
   },
+  "cline-desktop": {
+    "url": "https://cline.bot/desktop",
+    "label": "官方下载"
+  },
   "codebuddy-code": {
     "url": "https://www.codebuddy.ai/docs/cli/installation",
     "label": "安装文档"
@@ -97,6 +101,10 @@
   },
   "firebender": {
     "url": "https://docs.firebender.com/",
+    "label": "安装文档"
+  },
+  "freebuff": {
+    "url": "https://www.npmjs.com/package/freebuff",
     "label": "安装文档"
   },
   "gemini": {

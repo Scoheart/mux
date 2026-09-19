@@ -6,10 +6,10 @@ MUX deliberately separates client discovery from writable configuration support.
 
 | File | Purpose | Current size |
 |---|---|---:|
-| `data/agents.json` | Deep-audited definitions with product-specific MCP and/or Skills capabilities and evidence | 61 |
-| `data/agent-catalog.json` | Discovery-only client records; unknown paths and formats always fail closed | 201 |
+| `data/agents.json` | Deep-audited definitions with product-specific MCP and/or Skills capabilities and evidence | 67 |
+| `data/agent-catalog.json` | Discovery-only client records; unknown paths and formats always fail closed | 204 |
 
-There are 46 overlapping IDs. Audited definitions override directory records, producing 216 distinct retained Agent identities. Of the 61 audited definitions, 50 expose a writable user-level MCP target, ten are Skills-only targets, and Devin remains explicitly read-only. Catalog-only records remain available to the core for future promotion but never gain a writer by inference.
+There are 49 overlapping IDs. Audited definitions override directory records, producing 222 distinct retained Agent identities. Of the 67 audited definitions, 52 expose a writable user-level MCP target, ten are Skills-only targets, and Devin, Cline Desktop, and Freebuff remain explicitly read-only. Catalog-only records remain available to the core for future promotion but never gain a writer by inference.
 
 ## Discovery sources
 

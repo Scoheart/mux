@@ -2,8 +2,8 @@
 
 MUX's agent data comes in two layers:
 
-- **Audited definitions**: 57 individually verified Agent definitions, 47 of which have a stable user-level global MCP config file that MUX can safely read and write; another nine are Skills-only targets, while Devin is read-only.
-- **Client directory**: sourced from public MCP client directories and the official client matrix, used for discovery only. Its **201 entries** combine with the audited definitions into **212 unique Agent identities** after deduplication.
+- **Audited definitions**: 67 individually verified Agent definitions, 52 of which have a stable user-level global MCP config file that MUX can safely read and write; another ten are Skills-only targets, while Devin, Cline Desktop, CodeBuddy IDE, Freebuff, and WorkBuddy are read-only.
+- **Client directory**: sourced from public MCP client directories and the official client matrix, used for discovery only. Its **204 entries** combine with the audited definitions into **222 unique Agent identities** after deduplication.
 
 For MCP capability, clients whose global file path, top-level key, and entry structure have not been confirmed never become writable MCP targets. Skills-only Agents appear only after their user-level directory contract is verified independently. This keeps expanding coverage without writing a generic JSON guess into an unknown product's config.
 
@@ -15,9 +15,9 @@ MUX currently exposes **15 Model targets**: 13 are managed, while MiniMax Code a
 
 ## Verified list
 
-The results below are based on official docs, official source, or signed application bundles through **2026-07-22**. Grok Build was verified against xAI's official documentation; MiniMax Code was verified from the official signed `3.0.51` macOS bundle.
+The results below are based on official docs, official source, or signed application bundles through **2026-09-19**. Grok Build was verified against xAI's official documentation; MiniMax Code was verified from the official signed `3.0.51` macOS bundle.
 
-The table focuses on MCP contracts: it lists the 47 writable targets and retains Devin as an explicit read-only comparison. See Skills capabilities below and [User-level Skills](/en/guide/skills#verified-agent-paths) for the Skills-only definitions.
+The table focuses on MCP contracts: it lists the 52 writable targets and retains Devin, Cline Desktop, and Freebuff as explicit read-only comparisons. See Skills capabilities below and [User-level Skills](/en/guide/skills#verified-agent-paths) for the Skills-only definitions.
 
 The new Qoder Desktop MCP contract was verified against its official documentation on 2026-09-05.
 
@@ -33,6 +33,7 @@ The new Qoder Desktop MCP contract was verified against its official documentati
 | [Claude Desktop](https://modelcontextprotocol.io/quickstart/user) | JSON | `mcpServers` | `~/Library/Application Support/Claude/claude_desktop_config.json` | stdio |
 | [ChatMCP](https://github.com/daodao97/chatmcp) | JSON | `mcpServers` | `~/Library/Application Support/ChatMcp/mcp_server.json` | stdio / http |
 | [Cline](https://docs.cline.bot/mcp/configuring-mcp-servers) | JSON | `mcpServers` | `~/.cline/data/settings/cline_mcp_settings.json` | stdio / http |
+| [Cline Desktop](https://cline.bot/desktop) | - | - | discovery only | - |
 | [CodeBuddy Code](https://www.codebuddy.ai/docs/cli/mcp) | JSON | `mcpServers` | `~/.codebuddy/.mcp.json` | stdio / http |
 | [CodeWhale](https://github.com/Hmbown/CodeWhale/blob/main/docs/MCP.md) | JSON | `servers` | `~/.codewhale/mcp.json` | stdio / http |
 | [Codex](https://developers.openai.com/codex/mcp) | TOML | `mcp_servers` | `~/.codex/config.toml` | stdio / http |
@@ -43,6 +44,7 @@ The new Qoder Desktop MCP contract was verified against its official documentati
 | [Devin](https://docs.devin.ai/work-with-devin/mcp) | - | - | discovery only | - |
 | [Factory Droid](https://docs.factory.ai/cli/configuration/mcp) | JSON | `mcpServers` | `~/.factory/mcp.json` | stdio / http |
 | [Firebender](https://docs.firebender.com/context/mcp/overview) | JSON | `mcpServers` | `~/.firebender/firebender.json` | stdio / http |
+| [Freebuff](https://freebuff.com/) | - | - | discovery only | - |
 | [Gemini CLI](https://geminicli.com/docs/tools/mcp-server/) | JSON | `mcpServers` | `~/.gemini/settings.json` | stdio / http |
 | [Goose](https://goose-docs.ai/docs/guides/config-files/) | YAML | `extensions` | `~/Library/Application Support/Block/goose/config/config.yaml` | stdio / http |
 | [Grok Build](https://docs.x.ai/build/features/mcp-servers) | TOML | `mcp_servers` | `~/.grok/config.toml` | stdio / http |
@@ -76,7 +78,7 @@ The new Qoder Desktop MCP contract was verified against its official documentati
 
 - **Pi**: Pi's core does not include MCP. MUX's definition applies only to environments with the community `pi-mcp-adapter` installed, so the UI clearly labels it a community extension.
 - **Qoder IDE / CLI / Desktop**: three separate entries. IDE (`qoder`) keeps `~/.qoder/mcp.json`; new Desktop (`qoder-desktop`, 0.1.x) and CLI (`qoder-cli`) share `~/.qoder/settings.json`, so edits to the same MCP entry affect both. Configure Desktop models in Settings → Models and CLI models in `/model`. The new Desktop Skills write contract has not been verified.
-- **Devin**: the product supports MCP, but no stable user-level global file contract was verified, so it can only be viewed for discovery and not written to.
+- **Devin / Cline Desktop / Freebuff**: these products provide Agent capabilities, but no stable user-level global file contract was verified, so MUX provides discovery and launch entry points without configuration writes.
 - **QoderWork**: user-defined MCP servers live in `~/.qoderwork/mcp.json`; MUX does not modify the client's built-in MCP data.
 - **Claude Desktop / BoltAI**: the local files listed natively support stdio only. Remote MCP is managed by Claude Connectors or BoltAI's `mcp-remote` approach, respectively.
 - **Goose**: the generic docs example uses `~/.config/goose/config.yaml`, but the current macOS source actually uses `~/Library/Application Support/Block/goose/config/config.yaml`; MUX locates it by the runtime code.

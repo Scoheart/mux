@@ -1,6 +1,7 @@
 {
   "claude-code": "claude",
   "claude-desktop": "claude",
+  "cline-desktop": "cline",
   "codex": "openai",
   "copilot-cli": "copilot",
   "junie": "jetbrains",

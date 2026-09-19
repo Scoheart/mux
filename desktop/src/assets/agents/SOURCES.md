@@ -15,6 +15,7 @@ New assets are copied from official product sites, official repositories, or the
 | `crush.png` | <https://stuff.charm.sh/crush/charm-crush.png> |
 | `factory-droid.svg` | <https://www.factory.ai/favicon.svg> |
 | `firebender.svg` | <https://firebender.com/icon.svg> |
+| `freebuff.svg` | <https://freebuff.com/favicon.svg> |
 | `goose.png` | <https://github.com/block/goose/blob/main/documentation/docs/assets/logo.png> |
 | `grok-build.png` | <https://github.com/xai-org/grok-build> (official README asset, retrieved 2026-07-16) |
 | `hermes.png` | <https://github.com/NousResearch/hermes-agent/blob/main/apps/desktop/assets/icon.png> |

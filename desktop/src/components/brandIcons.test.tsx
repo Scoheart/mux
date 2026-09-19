@@ -43,6 +43,17 @@ it("keeps unique, custom, and fallback Agent icons unbadged", () => {
   }
 });
 
+it("uses brand assets for Cline Desktop and Freebuff", () => {
+  for (const [id, name] of [
+    ["cline-desktop", "Cline Desktop"],
+    ["freebuff", "Freebuff"],
+  ]) {
+    const view = render(<AgentGlyph id={id} name={name} size={30} />);
+    expect(view.getByAltText(name)).toBeVisible();
+    view.unmount();
+  }
+});
+
 it("uses the compact, regular, and large badge size tiers", () => {
   const cases = [
     [20, "10px"],

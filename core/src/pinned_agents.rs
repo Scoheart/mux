@@ -5,13 +5,11 @@ use std::io::Error;
 
 pub const MAX_PINNED_AGENTS: usize = 6;
 
-fn configurable_agent_ids(settings: &Settings) -> BTreeSet<String> {
-    let mut ids: BTreeSet<String> = load_agents_from_settings(settings)
-        .into_iter()
-        .filter_map(|(id, definition)| {
-            (definition.global.is_some() || definition.skills.is_some()).then_some(id)
-        })
-        .collect();
+fn known_agent_ids(settings: &Settings) -> BTreeSet<String> {
+    // Pinning belongs to the Agent directory, so read-only/catalog-only
+    // definitions are valid targets too. Their configuration and launch
+    // capabilities are resolved independently on the Agent page.
+    let mut ids: BTreeSet<String> = load_agents_from_settings(settings).into_keys().collect();
     ids.extend(
         crate::resources::model::list_agents()
             .into_iter()
@@ -20,16 +18,16 @@ fn configurable_agent_ids(settings: &Settings) -> BTreeSet<String> {
     ids
 }
 
-fn normalize_loaded(ids: Vec<String>, configurable: &BTreeSet<String>) -> Vec<String> {
+fn normalize_loaded(ids: Vec<String>, known: &BTreeSet<String>) -> Vec<String> {
     let mut seen = BTreeSet::new();
     ids.into_iter()
-        .filter(|id| configurable.contains(id))
+        .filter(|id| known.contains(id))
         .filter(|id| seen.insert(id.clone()))
         .take(MAX_PINNED_AGENTS)
         .collect()
 }
 
-fn validate_requested(ids: &[String], configurable: &BTreeSet<String>) -> Result<(), String> {
+fn validate_requested(ids: &[String], known: &BTreeSet<String>) -> Result<(), String> {
     if ids.len() > MAX_PINNED_AGENTS {
         return Err(format!("最多只能置顶 {MAX_PINNED_AGENTS} 个 Agent"));
     }
@@ -38,8 +36,8 @@ fn validate_requested(ids: &[String], configurable: &BTreeSet<String>) -> Result
         if !seen.insert(id.as_str()) {
             return Err(format!("置顶 Agent 不能重复: {id}"));
         }
-        if !configurable.contains(id) {
-            return Err(format!("Agent 不存在或没有可配置资源能力: {id}"));
+        if !known.contains(id) {
+            return Err(format!("Agent 不存在: {id}"));
         }
     }
     Ok(())
@@ -47,9 +45,9 @@ fn validate_requested(ids: &[String], configurable: &BTreeSet<String>) -> Result
 
 pub fn get_pinned_agents() -> Result<Vec<String>, String> {
     let settings = load_settings_strict().map_err(|error| error.to_string())?;
-    let configurable = configurable_agent_ids(&settings);
+    let known = known_agent_ids(&settings);
     let ids = settings.ui.unwrap_or_default().pinned_agents;
-    Ok(normalize_loaded(ids, &configurable))
+    Ok(normalize_loaded(ids, &known))
 }
 
 pub fn set_pinned_agents(ids: Vec<String>) -> Result<Vec<String>, String> {
@@ -61,8 +59,8 @@ fn set_pinned_agents_in_settings(
     settings: &mut Settings,
     ids: Vec<String>,
 ) -> std::io::Result<Vec<String>> {
-    let configurable = configurable_agent_ids(settings);
-    validate_requested(&ids, &configurable).map_err(Error::other)?;
+    let known = known_agent_ids(settings);
+    validate_requested(&ids, &known).map_err(Error::other)?;
     let saved = ids.clone();
     settings
         .ui
@@ -108,17 +106,17 @@ mod tests {
     #[test]
     fn write_rejects_limit_duplicates_and_unknown_agents() {
         let _home = TestHome::new("pinned-validation");
-        let configurable: Vec<String> = configurable_agent_ids(&Settings::default())
+        let known: Vec<String> = known_agent_ids(&Settings::default())
             .into_iter()
             .collect();
-        assert!(configurable.len() > MAX_PINNED_AGENTS);
-        assert!(set_pinned_agents(configurable[..MAX_PINNED_AGENTS + 1].to_vec()).is_err());
+        assert!(known.len() > MAX_PINNED_AGENTS);
+        assert!(set_pinned_agents(known[..MAX_PINNED_AGENTS + 1].to_vec()).is_err());
         assert!(set_pinned_agents(vec!["codex".into(), "codex".into()]).is_err());
         assert!(set_pinned_agents(vec!["missing-agent".into()]).is_err());
     }
 
     #[test]
-    fn skill_only_and_model_capable_agents_are_configurable() {
+    fn catalog_skill_and_model_agents_can_be_pinned() {
         let _home = TestHome::new("pinned-non-mcp");
         let agents = load_agents();
         let skill_only = agents
@@ -131,15 +129,26 @@ mod tests {
             .into_iter()
             .map(|agent| agent.id)
             .collect();
-        let configurable = configurable_agent_ids(&Settings::default());
-        assert!(model_ids.iter().all(|id| configurable.contains(id)));
+        let known = known_agent_ids(&Settings::default());
+        assert!(model_ids.iter().all(|id| known.contains(id)));
+        let catalog_only = agents
+            .iter()
+            .find_map(|(id, definition)| {
+                (definition.global.is_none() && definition.skills.is_none()).then(|| id.clone())
+            })
+            .expect("catalog must retain at least one read-only Agent");
         let model_agent = model_ids
             .into_iter()
-            .find(|id| id != &skill_only)
+            .find(|id| id != &skill_only && id != &catalog_only)
             .expect("model catalog must not be empty");
 
-        let saved = set_pinned_agents(vec![skill_only.clone(), model_agent.clone()]).unwrap();
-        assert_eq!(saved, vec![skill_only, model_agent]);
+        let saved = set_pinned_agents(vec![
+            catalog_only.clone(),
+            skill_only.clone(),
+            model_agent.clone(),
+        ])
+        .unwrap();
+        assert_eq!(saved, vec![catalog_only, skill_only, model_agent]);
         assert_eq!(get_pinned_agents().unwrap(), saved);
     }
 
@@ -193,7 +202,7 @@ mod tests {
             )])),
             ..Default::default()
         };
-        assert!(configurable_agent_ids(&stale).contains("snapshot-agent"));
+        assert!(known_agent_ids(&stale).contains("snapshot-agent"));
 
         let mut current = Settings::default();
         let result = set_pinned_agents_in_settings(&mut current, vec!["snapshot-agent".into()]);

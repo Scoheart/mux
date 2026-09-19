@@ -41,14 +41,14 @@ const agents = [
   agent("catalog-only", "Catalog Only", false),
 ];
 
-it("sections preserve pinned order and exclude read-only or duplicate rows", () => {
+it("sections preserve pinned order and include every Agent definition", () => {
   const sections = buildAgentPickerSections(
     agents,
     ["qoder", "missing", "codex", "qoder"],
     "",
   );
   expect(sections.pinned.map(({ id }) => id)).toEqual(["qoder", "codex"]);
-  expect(sections.available.map(({ id }) => id)).toEqual(["claude-code"]);
+  expect(sections.available.map(({ id }) => id)).toEqual(["catalog-only", "claude-code"]);
   expect(sections.searchResults).toBeNull();
 });
 
@@ -57,7 +57,20 @@ it("search merges pinned and available matches without duplicates", () => {
   expect(sections.searchResults?.map(({ id }) => id)).toEqual(["claude-code", "codex"]);
 });
 
-it("includes verified Skills-only Agents but keeps catalog-only rows out", () => {
+it("search exposes read-only catalog entries such as Cline Desktop and Freebuff", () => {
+  const entries = [
+    agent("cline-desktop", "Cline Desktop", false),
+    agent("freebuff", "Freebuff", false),
+  ];
+  expect(buildAgentPickerSections(entries, [], "").available.map(({ id }) => id)).toEqual([
+    "cline-desktop",
+    "freebuff",
+  ]);
+  expect(buildAgentPickerSections(entries, [], "freebuff").searchResults?.map(({ id }) => id))
+    .toEqual(["freebuff"]);
+});
+
+it("includes Skills-only and catalog-only Agent definitions", () => {
   const skillsOnly = [
     { ...agent("cortex-code", "Cortex Code", false), skills_global_dir: "~/.snowflake/cortex/skills" },
     { ...agent("dirac", "Dirac", false), skills_global_dir: "~/.agents/skills" },
@@ -74,8 +87,8 @@ it("includes verified Skills-only Agents but keeps catalog-only rows out", () =>
   );
 
   expect(sections.pinned.map(({ id }) => id)).toEqual(["cortex-code", "dirac", "minion-code"]);
-  expect(sections.available.map(({ id }) => id)).not.toContain("catalog-only");
-  expect(sections.available.map(({ id }) => id)).not.toContain("blank-skills");
+  expect(sections.available.map(({ id }) => id)).toContain("catalog-only");
+  expect(sections.available.map(({ id }) => id)).toContain("blank-skills");
 });
 
 it("toggle removes existing pins, appends new pins, and enforces the limit", () => {

@@ -17,13 +17,11 @@ export function buildAgentPickerSections(
   pinnedIds: string[],
   query: string,
 ): AgentPickerSections {
-  const configurable = agents.filter(
-    (agent) =>
-      agent.has_global ||
-      Boolean(agent.skills_global_dir?.trim()) ||
-      agent.has_model === true,
-  );
-  const byId = new Map(configurable.map((agent) => [agent.id, agent]));
+  // This is an Agent directory, not an installed/configurable resource list.
+  // Read-only catalog entries (for example desktop apps whose config contract
+  // is not managed by MUX) still need to be discoverable here; their launch
+  // and configuration state is shown on the Agent page instead.
+  const byId = new Map(agents.map((agent) => [agent.id, agent]));
   const seen = new Set<string>();
   const pinned = pinnedIds.flatMap((id) => {
     const match = byId.get(id);
@@ -31,12 +29,12 @@ export function buildAgentPickerSections(
     seen.add(id);
     return [match];
   });
-  const available = configurable
+  const available = agents
     .filter((agent) => !seen.has(agent.id))
     .sort(compareAgents);
   const normalizedQuery = query.trim().toLocaleLowerCase();
   if (!normalizedQuery) return { pinned, available, searchResults: null };
-  const searchResults = configurable
+  const searchResults = agents
     .filter((agent) =>
       [agent.name, agent.id, agent.category]
         .join(" ")

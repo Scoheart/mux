@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.202](https://github.com/Scoheart/mux/compare/v1.8.201...v1.8.202) (2026-09-20)
+
+### Changes
+
+* feat(agents): add Cursor CLI target ([4eaf16d](https://github.com/Scoheart/mux/commit/4eaf16d3ce45f52c20085d402bc7dfbd23ac4f56))
+
 ## [1.8.201](https://github.com/Scoheart/mux/compare/v1.8.200...v1.8.201) (2026-09-20)
 
 ### Changes

@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.203](https://github.com/Scoheart/mux/compare/v1.8.202...v1.8.203) (2026-09-20)
+
+### Changes
+
+* feat(desktop): refresh resource icons ([633a02e](https://github.com/Scoheart/mux/commit/633a02eddb4fa056bc4d0515807a372b346de9d7))
+
 ## [1.8.202](https://github.com/Scoheart/mux/compare/v1.8.201...v1.8.202) (2026-09-20)
 
 ### Changes

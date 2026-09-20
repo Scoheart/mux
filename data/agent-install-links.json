@@ -83,6 +83,10 @@
     "url": "https://cursor.com/download",
     "label": "官方下载"
   },
+  "cursor-cli": {
+    "url": "https://cursor.com/install",
+    "label": "CLI 安装"
+  },
   "devin": {
     "url": "https://docs.devin.ai/",
     "label": "安装文档"

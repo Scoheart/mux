@@ -30,11 +30,11 @@ After download or import completes, MUX stores the single managed copy of each S
 
 When a consumption relationship is established, selected Agent directories contain only managed links to that central copy. Every consumer therefore sees one update, while removing one relationship only removes its link and does not delete the central content.
 
-MUX normalizes consumption by physical directory. Some Agents also read a compatibility directory: Cursor, Gemini CLI, OpenCode, and GitHub Copilot CLI can all read `~/.agents/skills`. A link written to Codex's preferred directory may therefore grant access to those other installed Agents too. Agents sharing one physical target are selected as an inseparable group; the review lists every Agent actually affected and removes redundant links that would make one Skill appear twice.
+MUX normalizes consumption by physical directory. Cursor IDE and Cursor CLI share `~/.cursor/skills` and can also read the `~/.agents/skills` compatibility directory; Gemini CLI, OpenCode, and GitHub Copilot CLI can read that compatibility directory too. A link written to Codex's preferred directory may therefore grant access to those other installed Agents too. Agents sharing one physical target are selected as an inseparable group; the review lists every Agent actually affected and removes redundant links that would make one Skill appear twice.
 
 ## Verified Agent paths
 
-MUX declares verified user-level Skills support for **45 Agents**. It shows an Agent only when an installation probe succeeds and its capability data is verified; the existence of a shared directory alone does not prove that Agent is installed.
+MUX declares verified user-level Skills support for **49 Agents**. It shows an Agent only when an installation probe succeeds and its capability data is verified; the existence of a shared directory alone does not prove that Agent is installed.
 
 | Agent | Preferred user-level directory | Compatibility directories |
 |---|---|---|
@@ -49,6 +49,7 @@ MUX declares verified user-level Skills support for **45 Agents**. It shows an A
 | GitHub Copilot CLI | `~/.copilot/skills` | `~/.agents/skills` |
 | Crush | `~/.config/crush/skills` | `~/.config/agents/skills`, `~/.agents/skills`, `~/.claude/skills` |
 | Cursor | `~/.cursor/skills` | `~/.agents/skills` |
+| Cursor CLI | `~/.cursor/skills` | `~/.agents/skills` |
 | Dirac | `~/.agents/skills` | `~/.dirac/skills`, `~/.claude/skills`, `~/.ai/skills` |
 | Docker Agent | `~/.agents/skills` | — |
 | Eclipse Theia IDE | `~/.agents/skills` | — |

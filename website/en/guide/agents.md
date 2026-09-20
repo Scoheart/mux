@@ -2,8 +2,8 @@
 
 MUX's agent data comes in two layers:
 
-- **Audited definitions**: 67 individually verified Agent definitions, 52 of which have a stable user-level global MCP config file that MUX can safely read and write; another ten are Skills-only targets, while Devin, Cline Desktop, CodeBuddy IDE, Freebuff, and WorkBuddy are read-only.
-- **Client directory**: sourced from public MCP client directories and the official client matrix, used for discovery only. Its **204 entries** combine with the audited definitions into **222 unique Agent identities** after deduplication.
+- **Audited definitions**: 68 individually verified Agent definitions, 53 of which have a stable user-level global MCP config file that MUX can safely read and write; another ten are Skills-only targets, while Devin, Cline Desktop, CodeBuddy IDE, Freebuff, and WorkBuddy are read-only.
+- **Client directory**: sourced from public MCP client directories and the official client matrix, used for discovery only. Its **204 entries** combine with the audited definitions into **223 unique Agent identities** after deduplication.
 
 For MCP capability, clients whose global file path, top-level key, and entry structure have not been confirmed never become writable MCP targets. Skills-only Agents appear only after their user-level directory contract is verified independently. This keeps expanding coverage without writing a generic JSON guess into an unknown product's config.
 
@@ -15,9 +15,9 @@ MUX currently exposes **15 Model targets**: 13 are managed, while MiniMax Code a
 
 ## Verified list
 
-The results below are based on official docs, official source, or signed application bundles through **2026-09-19**. Grok Build was verified against xAI's official documentation; MiniMax Code was verified from the official signed `3.0.51` macOS bundle.
+The results below are based on official docs, official source, or signed application bundles through **2026-09-20**. Grok Build was verified against xAI's official documentation; MiniMax Code was verified from the official signed `3.0.51` macOS bundle.
 
-The table focuses on MCP contracts: it lists the 52 writable targets and retains Devin, Cline Desktop, and Freebuff as explicit read-only comparisons. See Skills capabilities below and [User-level Skills](/en/guide/skills#verified-agent-paths) for the Skills-only definitions.
+The table focuses on MCP contracts: it lists the 53 writable targets and retains Devin, Cline Desktop, and Freebuff as explicit read-only comparisons. See Skills capabilities below and [User-level Skills](/en/guide/skills#verified-agent-paths) for the Skills-only definitions.
 
 The new Qoder Desktop MCP contract was verified against its official documentation on 2026-09-05.
 
@@ -41,6 +41,7 @@ The new Qoder Desktop MCP contract was verified against its official documentati
 | [GitHub Copilot CLI](https://docs.github.com/en/copilot/how-tos/use-copilot-agents/coding-agent/extend-coding-agent-with-mcp) | JSON | `mcpServers` | `~/.copilot/mcp-config.json` | stdio / http |
 | [Crush](https://github.com/charmbracelet/crush#model-context-protocol-mcp) | JSON | `mcp` | `~/.config/crush/crush.json` | stdio / http |
 | [Cursor](https://docs.cursor.com/context/model-context-protocol) | JSON | `mcpServers` | `~/.cursor/mcp.json` | stdio / http |
+| [Cursor CLI](https://cursor.com/docs/cli/overview) | JSON | `mcpServers` | `~/.cursor/mcp.json` | stdio / http |
 | [Devin](https://docs.devin.ai/work-with-devin/mcp) | - | - | discovery only | - |
 | [Factory Droid](https://docs.factory.ai/cli/configuration/mcp) | JSON | `mcpServers` | `~/.factory/mcp.json` | stdio / http |
 | [Firebender](https://docs.firebender.com/context/mcp/overview) | JSON | `mcpServers` | `~/.firebender/firebender.json` | stdio / http |
@@ -78,6 +79,7 @@ The new Qoder Desktop MCP contract was verified against its official documentati
 
 - **Pi**: Pi's core does not include MCP. MUX's definition applies only to environments with the community `pi-mcp-adapter` installed, so the UI clearly labels it a community extension.
 - **Qoder IDE / CLI / Desktop**: three separate entries. IDE (`qoder`) keeps `~/.qoder/mcp.json`; new Desktop (`qoder-desktop`, 0.1.x) and CLI (`qoder-cli`) share `~/.qoder/settings.json`, so edits to the same MCP entry affect both. Configure Desktop models in Settings → Models and CLI models in `/model`. The new Desktop Skills write contract has not been verified.
+- **Cursor IDE / CLI**: two separate launch identities share `~/.cursor/mcp.json` and `~/.cursor/skills`; the current CLI command is `agent`, with `cursor-agent` retained as a legacy fallback. MUX therefore merges their physical MCP/Skills impact while keeping their launch entries separate; Models and API credentials remain Cursor-managed.
 - **Devin / Cline Desktop / Freebuff**: these products provide Agent capabilities, but no stable user-level global file contract was verified, so MUX provides discovery and launch entry points without configuration writes.
 - **QoderWork**: user-defined MCP servers live in `~/.qoderwork/mcp.json`; MUX does not modify the client's built-in MCP data.
 - **Claude Desktop / BoltAI**: the local files listed natively support stdio only. Remote MCP is managed by Claude Connectors or BoltAI's `mcp-remote` approach, respectively.
@@ -87,9 +89,9 @@ The new Qoder Desktop MCP contract was verified against its official documentati
 
 ## Skills capabilities
 
-Skills paths are verified separately from the MCP config paths in the table above; MUX never infers one from the other. MUX currently declares Skills capabilities for **45 audited Agents** with stable user-level contracts, and shows only Agents whose local installation probes succeed.
+Skills paths are verified separately from the MCP config paths in the table above; MUX never infers one from the other. MUX currently declares Skills capabilities for **49 audited Agents** with stable user-level contracts, and shows only Agents whose local installation probes succeed.
 
-Skills assignments operate on physical directories, not Agent names. Cursor, Gemini CLI, OpenCode, and GitHub Copilot CLI may all read the `~/.agents/skills` compatibility directory, so an operation on Codex's preferred directory can affect several installed Agents. MUX shows the real impact during review and normalizes duplicate links. See [User-level Skills](/en/guide/skills#verified-agent-paths) for the path matrix, installation sources, background safety checks, and current boundaries.
+Skills assignments operate on physical directories, not Agent names. Cursor IDE and Cursor CLI share `~/.cursor/skills` and may both read the `~/.agents/skills` compatibility directory; Gemini CLI, OpenCode, and GitHub Copilot CLI may also read that compatibility directory. An operation on Codex's preferred directory can therefore affect several installed Agents. MUX shows the real impact during review and normalizes duplicate links. See [User-level Skills](/en/guide/skills#verified-agent-paths) for the path matrix, installation sources, background safety checks, and current boundaries.
 
 ## Format differences across agents
 

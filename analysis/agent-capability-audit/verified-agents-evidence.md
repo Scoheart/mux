@@ -1,8 +1,8 @@
 # MUX 已审计 Agent：MCP / Models / Skills 全量证据账本
 
-> 审计日期：2026-07-22（Asia/Shanghai）
-> 范围：`data/agents.json` 中 45 个深度审计 Agent。
-> 状态：45/45 全量核验完成；新增 writer 仍须按本文门槛与 fixture 逐项落测试后才能进入 managed。
+> 审计日期：2026-09-20（Asia/Shanghai）
+> 范围：本账本中的 46 个深度审计 Agent；其余身份继续由 A-M / N-Z 分片覆盖。
+> 状态：46/46 全量核验完成；新增 writer 仍须按本文门槛与 fixture 逐项落测试后才能进入 managed。
 
 ## 判定规则
 
@@ -45,6 +45,7 @@
 | `copilot-cli` | GitHub Copilot CLI | `~/.copilot/mcp-config.json` | `.github/mcp.json` | `json` / `mcpServers` / map / `copilot` | stdio/http | [GitHub 文档](https://docs.github.com/en/copilot/how-tos/use-copilot-agents/coding-agent/extend-coding-agent-with-mcp) | `~/.copilot/skills`; [GitHub 文档](https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-command-reference#skills-reference) | 官方文档；**已证实** | 2026-07-22 |
 | `crush` | Crush | `~/.config/crush/crush.json` | — | `json` / `mcp` / map / `explicit_type` | stdio/http | [官方仓库](https://github.com/charmbracelet/crush/blob/9c4e2f673aeacd92040cad4981d832335ea0ad23/README.md#model-context-protocol-mcp) | `~/.config/crush/skills`; [官方仓库](https://github.com/charmbracelet/crush/blob/9c4e2f673aeacd92040cad4981d832335ea0ad23/README.md#skills) | 官方源码/README；**已证实** | 2026-07-22 |
 | `cursor` | Cursor | `~/.cursor/mcp.json` | `.cursor/mcp.json` | `json` / `mcpServers` / map / `url_inferred` | stdio/http | [官方文档](https://docs.cursor.com/context/model-context-protocol) | `~/.cursor/skills`; [官方文档](https://cursor.com/docs/skills) | 官方文档；**已证实** | 2026-07-22 |
+| `cursor-cli` | Cursor CLI | `~/.cursor/mcp.json` | `.cursor/mcp.json` | `json` / `mcpServers` / map / `url_inferred` | stdio/http | [官方 CLI MCP](https://cursor.com/docs/cli/mcp) | `~/.cursor/skills`、`~/.agents/skills`; [官方 Skills](https://cursor.com/docs/skills) | 官方文档；CLI 与 IDE 共用物理配置，**已证实** | 2026-09-20 |
 | `devin` | Devin | — | — | 无稳定文件契约 | — | [官方文档](https://docs.devin.ai/work-with-devin/mcp) | **未找到** | 官方文档；产品支持 MCP，但 user-level writer **未找到** | 2026-07-22 |
 | `factory-droid` | Factory Droid | `~/.factory/mcp.json` | — | `json` / `mcpServers` / map / `explicit_type` | stdio/http | [官方文档](https://docs.factory.ai/cli/configuration/mcp) | `~/.factory/skills`; [官方文档](https://docs.factory.ai/cli/configuration/skills) | 官方文档；**已证实** | 2026-07-22 |
 | `firebender` | Firebender | `~/.firebender/firebender.json` | — | `json` / `mcpServers` / map / `explicit_type` | stdio/http | [官方文档](https://docs.firebender.com/context/mcp/overview) | `~/.firebender/skills`; [官方文档](https://docs.firebender.com/multi-agent/skills) | 官方文档；**已证实** | 2026-07-22 |
@@ -97,6 +98,7 @@
 | `copilot-cli` | `copilot` command；`~/.copilot` path | `~/.agents/skills` |
 | `crush` | `crush` command；`~/.config/crush` path | `~/.config/agents/skills`、`~/.agents/skills`、`~/.claude/skills` |
 | `cursor` | `cursor` command；`/Applications/Cursor.app` path；`~/Library/Application Support/Cursor` path | `~/.agents/skills` |
+| `cursor-cli` | `~/.local/share/cursor-agent` path；`cursor-agent` command | `~/.agents/skills` |
 | `devin` | 无 Skills writer，因此无 Skills 安装探针 | — |
 | `factory-droid` | `droid` command；`~/.factory` path | — |
 | `firebender` | `/Applications/Firebender.app` path；`~/.firebender` path | `~/.goose/skills`、`~/.claude/skills`、`~/.codex/skills`、`~/.cursor/skills`、`~/.agents/skills` |
@@ -267,7 +269,7 @@ refresh_interval_ms = 300000
 
 断言：只管理一个 stable `custom_providers.name` 与 `[agent]` 两指针；凭据缺失时不要创建 command auth；命令 argv 必须精确来自 MUX 的 `security_command(profile_id)`，不能接受用户拼接 shell；显式 workspace override 时不谎报 active；非 Chat-Completions profile 必须拒绝。[官方 command-auth schema](https://github.com/vinhnx/VTCode/blob/3f921f423d6bf1d08529badf8d27e9716371e245/crates/codegen/vtcode-config/src/core/custom_provider.rs#L13-L131)；**已证实**。
 
-## Models：45 个 Agent 全量证据矩阵
+## Models：46 个 Agent 全量证据矩阵
 
 “不实施”只表示当前没有满足 MUX managed writer 门槛的公开稳定契约，不否定 Agent 自身支持模型切换。`guided/partial` 表示可以给用户打开官方入口、展示要求或在严格子集下生成配置，但 MUX 不应声称已统一托管凭据与当前指针。
 
@@ -288,6 +290,7 @@ refresh_interval_ms = 300000
 | `copilot-cli` | `/model`/CLI model picker；未找到稳定 BYOK provider file contract | GitHub Copilot hosted models | [GitHub CLI Reference](https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-command-reference#model) | **不实施** | 2026-07-22 |
 | `crush` | `~/.config/crush/crush.json`；`providers` + `models.large` | Anthropic Messages / OpenAI Chat；`$VAR` 环境引用 | [官方仓库](https://github.com/charmbracelet/crush) | **已 managed** | 2026-07-22 |
 | `cursor` | UI 支持 API keys/model selector；未找到官方支持的安全 user-level writer | 多 hosted/BYOK；凭据由 Cursor UI 管理 | [官方 API Keys](https://docs.cursor.com/settings/api-keys) | **不实施** | 2026-07-22 |
+| `cursor-cli` | CLI 支持 `--model` 与 Cursor 登录/API key；未找到官方支持的安全 user-level writer | 多 hosted/BYOK；凭据与模型由 Cursor CLI 管理 | [官方 CLI](https://cursor.com/docs/cli/overview)、[官方认证](https://cursor.com/docs/cli/acp) | **不实施** | 2026-09-20 |
 | `devin` | hosted Agent；未找到本机 user-level Model 配置 | Cognition 托管 | [官方文档](https://docs.devin.ai/) | **不实施** | 2026-07-22 |
 | `factory-droid` | `~/.factory/settings.json`；`customModels[]` + `model` | Messages / Responses / Chat；`${VAR}` 环境引用 | [官方 BYOK](https://docs.factory.ai/cli/byok/overview) | **已 managed** | 2026-07-22 |
 | `firebender` | 产品内模型设置；未找到官方稳定 user-level schema/credential reference | hosted/UI-managed | [官方文档](https://docs.firebender.com/) | **不实施** | 2026-07-22 |
@@ -349,7 +352,7 @@ refresh_interval_ms = 300000
 
 ### 当前不要实施 Model writer
 
-- hosted/账号托管且无 BYOK 文件合同：`amp`、`amazon-q`、`antigravity`、`augment`、`claude-desktop`、`codebuddy-code`、`copilot-cli`、`cursor`、`devin`、`firebender`、`kiro`、`qoder-cli`、`qoderwork`、`rovo-dev`、`tabnine`、`warp`、`windsurf`。
+- hosted/账号托管且无 BYOK 文件合同：`amp`、`amazon-q`、`antigravity`、`augment`、`claude-desktop`、`codebuddy-code`、`copilot-cli`、`cursor`、`cursor-cli`、`devin`、`firebender`、`kiro`、`qoder-cli`、`qoderwork`、`rovo-dev`、`tabnine`、`warp`、`windsurf`。
 - 产品角色不是“消费中央远程 profile”：`lmstudio` 应作为 endpoint/runtime 来源，不应反向写 Agent Model。
 - 只允许自身 native catalog、没有中央 provider endpoint 合同：`gemini`。可以继续展示/切换 Gemini 自身 `model.name`，但那不是把 MUX Model 资产添加给 Agent。
 

@@ -32,11 +32,11 @@ CLI 提供 `mux skill list/show/status/assign/unassign/enable/disable/converge`�
 
 > 受管链接是实时共享入口，不是只读副本。任何会跟随符号链接且拥有当前用户写权限的 Agent，都可能直接修改或删除中央 Skill；Hermes 等产品还明确提供 Skill 修改能力。MUX 不替消费者做沙箱隔离，但会把后续内容偏移标记为本地修改，并在更新或替换前要求审阅与备份。
 
-MUX 按物理目录归一化消费关系。某些 Agent 会兼容读取另一个目录，例如 Cursor、Gemini CLI、OpenCode 和 GitHub Copilot CLI 都可以读取 `~/.agents/skills`。因此向 Codex 的首选目录写入链接时，其他已安装 Agent 也可能同时获得访问。共享同一物理 target 的 Agent 会作为不可拆分组一起选择，审阅页列出实际受影响的全部 Agent，并去掉会导致同一 Skill 被重复发现的冗余链接。
+MUX 按物理目录归一化消费关系。Cursor IDE 与 Cursor CLI 共用 `~/.cursor/skills`，并可兼容读取 `~/.agents/skills`；Gemini CLI、OpenCode 和 GitHub Copilot CLI 也可以读取 `~/.agents/skills`。因此向 Codex 的首选目录写入链接时，其他已安装 Agent 也可能同时获得访问。共享同一物理 target 的 Agent 会作为不可拆分组一起选择，审阅页列出实际受影响的全部 Agent，并去掉会导致同一 Skill 被重复发现的冗余链接。
 
 ## 已核验的 Agent 路径
 
-当前为以下 **45 个 Agent** 提供经过官方文档或官方源码核验的用户级 Skills 能力。MUX 只显示本机安装探针命中且能力资料已核验的 Agent；目录本身存在不等于对应 Agent 已安装。
+当前为以下 **49 个 Agent** 提供经过官方文档或官方源码核验的用户级 Skills 能力。MUX 只显示本机安装探针命中且能力资料已核验的 Agent；目录本身存在不等于对应 Agent 已安装。
 
 | Agent | 首选用户级目录 | 兼容读取目录 |
 |---|---|---|
@@ -51,6 +51,7 @@ MUX 按物理目录归一化消费关系。某些 Agent 会兼容读取另一个
 | GitHub Copilot CLI | `~/.copilot/skills` | `~/.agents/skills` |
 | Crush | `~/.config/crush/skills` | `~/.config/agents/skills`、`~/.agents/skills`、`~/.claude/skills` |
 | Cursor | `~/.cursor/skills` | `~/.agents/skills` |
+| Cursor CLI | `~/.cursor/skills` | `~/.agents/skills` |
 | Dirac | `~/.agents/skills` | `~/.dirac/skills`、`~/.claude/skills`、`~/.ai/skills` |
 | Docker Agent | `~/.agents/skills` | — |
 | Eclipse Theia IDE | `~/.agents/skills` | — |

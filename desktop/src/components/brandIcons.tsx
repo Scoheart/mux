@@ -85,6 +85,7 @@ const AGENT_META: Record<string, { name: string; color: string }> = {
   "claude-code": { name: "Claude Code", color: "#D97757" },
   "claude-desktop": { name: "Claude Desktop", color: "#C15F3C" },
   cursor: { name: "Cursor", color: "#111827" },
+  "cursor-cli": { name: "Cursor CLI", color: "#111827" },
   "codebuddy-code": { name: "CodeBuddy CLI", color: "#7257FF" },
   "codebuddy-ide": { name: "CodeBuddy IDE", color: "#7257FF" },
   workbuddy: { name: "WorkBuddy", color: "#7257FF" },

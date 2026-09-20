@@ -45,6 +45,7 @@ const VERIFIED_SKILL_AGENT_IDS: &[&str] = &[
     "cortex-code",
     "crush",
     "cursor",
+    "cursor-cli",
     "dirac",
     "docker-agent",
     "factory-droid",
@@ -111,6 +112,17 @@ impl SkillsFixture {
                 "cortex-code" => home.home.join(".snowflake/cortex"),
                 "crush" => home.home.join(".config/crush"),
                 "cursor" => home.home.join("Library/Application Support/Cursor"),
+                "cursor-cli" => {
+                    let install_dir = home.home.join(".local/share/cursor-agent");
+                    fs::create_dir_all(&install_dir).unwrap();
+                    let bin = home.home.join(".local/bin");
+                    fs::create_dir_all(&bin).unwrap();
+                    let command = bin.join("cursor-agent");
+                    fs::write(&command, "#!/bin/sh\n").unwrap();
+                    #[cfg(unix)]
+                    fs::set_permissions(&command, fs::Permissions::from_mode(0o755)).unwrap();
+                    bin
+                }
                 "docker-agent" => home.home.join(".config/cagent"),
                 "dirac" => home.home.join(".dirac"),
                 "factory-droid" => home.home.join(".factory"),

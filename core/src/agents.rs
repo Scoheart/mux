@@ -71,6 +71,7 @@ const VERIFIED_SKILL_AGENT_IDS: &[&str] = &[
     "cortex-code",
     "crush",
     "cursor",
+    "cursor-cli",
     "dirac",
     "docker-agent",
     "factory-droid",
@@ -1060,11 +1061,11 @@ mod tests {
     #[test]
     fn builtin_catalog_and_transport_metadata_load() {
         let a = builtin_agents();
-        assert_eq!(audited_agents().len(), 62);
+        assert_eq!(audited_agents().len(), 68);
         let catalog: BTreeMap<String, AgentDefinition> =
             serde_json::from_str(CATALOG_AGENTS_JSON).unwrap();
-        assert_eq!(catalog.len(), 201);
-        assert_eq!(a.len(), 217);
+        assert_eq!(catalog.len(), 204);
+        assert_eq!(a.len(), 223);
         assert_eq!(a["claude-code"].key, "mcpServers");
         assert_eq!(a["codex"].format, "toml");
         assert_eq!(
@@ -1126,6 +1127,21 @@ mod tests {
         assert_eq!(cursor.global_dir, "~/.cursor/skills");
         assert_eq!(cursor.aliases[0].target_id, "agents-user");
         assert_eq!(cursor.aliases[0].global_dir, "~/.agents/skills");
+
+        let cursor_cli = agents["cursor-cli"].skills.as_ref().unwrap();
+        assert_eq!(cursor_cli.global_dir, "~/.cursor/skills");
+        assert_eq!(
+            cursor_cli
+                .probes
+                .iter()
+                .map(|probe| match probe {
+                    AgentInstallProbe::Command { name } => name.as_str(),
+                    AgentInstallProbe::Path { .. } => "path",
+                    AgentInstallProbe::MacBundle { .. } => "bundle",
+                })
+                .collect::<Vec<_>>(),
+            vec!["path", "cursor-agent"]
+        );
 
         let warp = agents["warp"].skills.as_ref().unwrap();
         assert_eq!(warp.global_dir, "~/.agents/skills");
@@ -1200,6 +1216,14 @@ mod tests {
         let cursor = infos.iter().find(|agent| agent.id == "cursor").unwrap();
         assert_eq!(
             cursor.skills_global_dirs,
+            ["~/.cursor/skills", "~/.agents/skills"]
+        );
+        let cursor_cli = infos
+            .iter()
+            .find(|agent| agent.id == "cursor-cli")
+            .unwrap();
+        assert_eq!(
+            cursor_cli.skills_global_dirs,
             ["~/.cursor/skills", "~/.agents/skills"]
         );
         assert_eq!(claude_desktop.skills_global_dir, None);

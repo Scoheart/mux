@@ -20,6 +20,7 @@
   "cortex-code": "https://docs.snowflake.com/en/user-guide/cortex-code/cortex-code",
   "crush": "https://github.com/charmbracelet/crush",
   "cursor": "https://cursor.com/docs",
+  "cursor-cli": "https://cursor.com/docs/cli/overview",
   "devin": "https://docs.devin.ai/",
   "dirac": "https://github.com/dirac-run/dirac",
   "docker-agent": "https://github.com/docker/docker-agent",

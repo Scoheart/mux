@@ -135,6 +135,13 @@
       "Cursor"
     ]
   },
+  "cursor-cli": {
+    "kind": "cli",
+    "candidates": [
+      "cursor-agent"
+    ],
+    "args": []
+  },
   "devin": {
     "kind": "web",
     "url": "https://app.devin.ai/"

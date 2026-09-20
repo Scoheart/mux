@@ -15,7 +15,7 @@ Model 能力由 Rust Core 统一提供；MiniMax Code、Qoder IDE、Kimi Code CL
 
 ## 已核验列表
 
-以下结果基于截至 **2026-09-19** 的官方文档、官方源码或签名应用包；Grok Build 使用 xAI 官方文档核验，MiniMax Code 使用官方签名的 `3.0.51` macOS 应用包核验。
+以下结果基于截至 **2026-09-20** 的官方文档、官方源码或签名应用包；Grok Build 使用 xAI 官方文档核验，MiniMax Code 使用官方签名的 `3.0.51` macOS 应用包核验。
 
 下表聚焦 MCP 契约：列出已核验可写目标，并保留 Devin、Cline Desktop 与 Freebuff 作为明确的只读对照；Skills-only 定义见下方 Skills 能力与 [用户级 Skills](/guide/skills#已核验的-agent-路径)。
 
@@ -41,6 +41,7 @@ Model 能力由 Rust Core 统一提供；MiniMax Code、Qoder IDE、Kimi Code CL
 | [GitHub Copilot CLI](https://docs.github.com/en/copilot/how-tos/use-copilot-agents/coding-agent/extend-coding-agent-with-mcp) | JSON | `mcpServers` | `~/.copilot/mcp-config.json` | stdio / http |
 | [Crush](https://github.com/charmbracelet/crush#model-context-protocol-mcp) | JSON | `mcp` | `~/.config/crush/crush.json` | stdio / http |
 | [Cursor](https://docs.cursor.com/context/model-context-protocol) | JSON | `mcpServers` | `~/.cursor/mcp.json` | stdio / http |
+| [Cursor CLI](https://cursor.com/docs/cli/overview) | JSON | `mcpServers` | `~/.cursor/mcp.json` | stdio / http |
 | [Devin](https://docs.devin.ai/work-with-devin/mcp) | - | - | 只读目录 | - |
 | [Factory Droid](https://docs.factory.ai/cli/configuration/mcp) | JSON | `mcpServers` | `~/.factory/mcp.json` | stdio / http |
 | [Firebender](https://docs.firebender.com/context/mcp/overview) | JSON | `mcpServers` | `~/.firebender/firebender.json` | stdio / http |
@@ -81,6 +82,7 @@ Model 能力由 Rust Core 统一提供；MiniMax Code、Qoder IDE、Kimi Code CL
 - **Devin / Cline Desktop / Freebuff**：产品提供 Agent 能力，但没有核验到稳定的用户级全局文件契约，因此只提供目录展示和启动入口，不提供配置写入。
 - **QoderWork**：用户自定义 MCP 保存在 `~/.qoderwork/mcp.json`，使用 `mcpServers`；MUX 不修改客户端数据目录中的内置 MCP。远程连接按官方导入格式写为 `streamable-http` 或 `sse`。
 - **Qoder IDE / CLI / Desktop**：三个独立入口。IDE（原 `qoder`）继续使用 `~/.qoder/mcp.json`；新 Desktop（`qoder-desktop`，0.1.x）与 CLI（`qoder-cli`）共用 `~/.qoder/settings.json`，修改同名 MCP 会影响两者。Desktop 0.1.8 的自定义 Models 可由 MUX 写入同文件的 `providers`，重启后在会话中选用；CLI 1.1.50+ 同样支持自动写入自定义 Models，并通过 `model.name` 切换当前模型；新版 Desktop Skills 的本地写入契约尚未核验。
+- **Cursor IDE / CLI**：两个独立启动入口，但共用 `~/.cursor/mcp.json` 与 `~/.cursor/skills`；Cursor CLI 当前使用 `agent` 命令，MUX 同时兼容旧版 `cursor-agent`。因此 MCP 与 Skills 的物理文件影响会合并显示，启动与 Agent 身份仍保持分开；Models 和 API 凭据继续由 Cursor 自身管理。
 - **Claude Desktop / BoltAI**：列出的本地文件只原生支持 stdio。远程 MCP 分别由 Claude Connectors 或 BoltAI 的 `mcp-remote` 方案管理。
 - **Goose**：通用文档示例使用 `~/.config/goose/config.yaml`，当前 macOS 源码实际采用 `~/Library/Application Support/Block/goose/config/config.yaml`；MUX 按运行时代码定位。
 - **Grok Build**：MCP 与自定义模型共用 `~/.grok/config.toml`。MUX 分别局部管理 `mcp_servers`、`[models].default` 和独立的 MUX 模型表，支持三种官方 API backend，并保留其他模型、认证、超时、权限和工具策略。认证只写 `env_key` 变量名，不写密钥正文。
@@ -88,9 +90,9 @@ Model 能力由 Rust Core 统一提供；MiniMax Code、Qoder IDE、Kimi Code CL
 
 ## Skills 能力
 
-Skills 路径与上表的 MCP 配置路径分别核验，不能互相推断。当前为 **45 个**具有稳定 user-level 契约的已审计 Agent 声明 Skills 能力；运行时只显示本机安装探针命中的 Agent。没有公开稳定用户级目录、只有项目级目录或仅提供 rules/prompts 的产品继续保持只读或不接入 Skills writer。
+Skills 路径与上表的 MCP 配置路径分别核验，不能互相推断。当前为 **49 个**具有稳定 user-level 契约的已审计 Agent 声明 Skills 能力；运行时只显示本机安装探针命中的 Agent。没有公开稳定用户级目录、只有项目级目录或仅提供 rules/prompts 的产品继续保持只读或不接入 Skills writer。
 
-Skills 分配按物理目录而不是 Agent 名称执行。`~/.agents/skills` 现在同时是 Codex、Goose、Warp 与 Zed 的首选目录，也是多个 Agent 的兼容读取目录，因此一次写入可能影响更多已安装产品。MUX 会在审阅页展示真实影响并归一化重复链接。链接指向同一份可写中央内容，消费者侧修改会形成中央 drift；路径矩阵、安装来源、后台安全校验和当前边界见 [用户级 Skills](/guide/skills#已核验的-agent-路径)。
+Skills 分配按物理目录而不是 Agent 名称执行。Cursor IDE 与 Cursor CLI 共用 `~/.cursor/skills`，并可读取 `~/.agents/skills` 兼容目录；后者现在同时是 Codex、Goose、Warp 与 Zed 的首选目录，也是多个 Agent 的兼容读取目录，因此一次写入可能影响更多已安装产品。MUX 会在审阅页展示真实影响并归一化重复链接。链接指向同一份可写中央内容，消费者侧修改会形成中央 drift；路径矩阵、安装来源、后台安全校验和当前边界见 [用户级 Skills](/guide/skills#已核验的-agent-路径)。
 
 ## 不同 Agent 的格式差异
 

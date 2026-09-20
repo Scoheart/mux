@@ -9,7 +9,7 @@ import type { AgentDefinitionInput } from "../lib/types";
 import { formatError } from "../lib/format";
 import { AgentGlyph } from "./brandIcons";
 import { DialogShell } from "./DialogShell";
-import { PackageIcon, SparklesIcon } from "./icons";
+import { McpMarkIcon, SkillMarkIcon } from "./icons";
 import { useToast } from "./Toast";
 
 const FORMATS = [
@@ -283,7 +283,7 @@ export function AddAgentDialog({
               onClick={() => setActiveCapability("mcp")}
             >
               <span className="mux-agent-capability-tab-icon">
-                <PackageIcon className="w-4 h-4" />
+                <McpMarkIcon className="w-4 h-4" />
               </span>
               <span className="mux-agent-capability-tab-copy">
                 <strong>MCP</strong>
@@ -305,7 +305,7 @@ export function AddAgentDialog({
               onClick={() => setActiveCapability("skills")}
             >
               <span className="mux-agent-capability-tab-icon">
-                <SparklesIcon className="w-4 h-4" />
+                <SkillMarkIcon className="w-4 h-4" />
               </span>
               <span className="mux-agent-capability-tab-copy">
                 <strong>Skills</strong>

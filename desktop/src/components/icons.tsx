@@ -2,6 +2,42 @@ import { CSSProperties } from "react";
 
 interface IconProps { className?: string; style?: CSSProperties; }
 
+/** Official MCP mark: three interlocking strokes, kept as a line icon so it
+ * remains crisp in the compact navigation and resource tabs. */
+export function McpMarkIcon({ className, style }: IconProps) {
+  return (
+    <svg viewBox="0 0 190 190" className={className} style={style} fill="none" aria-hidden="true">
+      <path d="M18 94 69 43c7-7 18-7 25 0s7 18 0 25L56 106" stroke="currentColor" strokeWidth="12" strokeLinecap="round" />
+      <path d="m57 105 38-38c7-7 18-7 25 0l.3.3c7 7 7 18 0 25l-46 46c-2.5 2.5-2.5 6.5 0 9l9.5 9.5" stroke="currentColor" strokeWidth="12" strokeLinecap="round" />
+      <path d="m82 56-38 38c-7 7-7 18 0 25s18 7 25 0l38-38" stroke="currentColor" strokeWidth="12" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+/** Agent Skills mark: a restrained hexagonal badge with an inner capability
+ * node, matching the official site's geometric favicon at small sizes. */
+export function SkillMarkIcon({ className, style }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} style={style} fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="m12 2.2 8.5 4.9v9.8L12 21.8l-8.5-4.9V7.1z" />
+      <path d="m8.3 9.2 3.7-2.1 3.7 2.1v5.6L12 16.9l-3.7-2.1z" />
+      <path d="M12 7.1v9.8M8.3 9.2l7.4 4.2M15.7 9.2l-7.4 4.2" opacity=".6" />
+    </svg>
+  );
+}
+
+/** Brain mark for model resources. The two lobes and central stem stay
+ * recognizable at 14–24px without turning the tab into a filled glyph. */
+export function BrainIcon({ className, style }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} style={style} fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M12 20.5V5.1a3 3 0 0 0-5.6-1.5A3.2 3.2 0 0 0 3.5 6.5c0 .5.1 1 .3 1.4A3.6 3.6 0 0 0 4.8 15a3.1 3.1 0 0 0 4.6 3.7A3 3 0 0 0 12 20.5Z" />
+      <path d="M12 20.5V5.1a3 3 0 0 1 5.6-1.5 3.2 3.2 0 0 1 2.9 2.9c0 .5-.1 1-.3 1.4a3.6 3.6 0 0 1-1 7.1 3.1 3.1 0 0 1-4.6 3.7A3 3 0 0 1 12 20.5Z" />
+      <path d="M8.3 7.1c1 .2 1.7 1 1.7 2M6.1 11.2c1 .1 1.8.7 2.2 1.6M15.7 7.1c-1 .2-1.7 1-1.7 2M17.9 11.2c-1 .1-1.8.7-2.2 1.6" />
+    </svg>
+  );
+}
+
 export function SlidersIcon({ className, style }: IconProps) {
   return <svg viewBox="0 0 24 24" className={className} style={style} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
     <path d="M6 3v5m0 4v9M12 3v10m0 4v4M18 3v2m0 4v12M3 8h6m0 5h6m0-8h6" />

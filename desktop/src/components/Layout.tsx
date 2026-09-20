@@ -5,12 +5,12 @@ import type { AgentInfo, ProxySettings, View } from "../lib/types";
 import {
   DownloadIcon,
   LanguageIcon,
-  LayersIcon,
+  BrainIcon,
+  McpMarkIcon,
   MoonIcon,
   NetworkIcon,
-  PackageIcon,
   RefreshIcon,
-  SparklesIcon,
+  SkillMarkIcon,
   SunIcon,
   SlidersIcon,
   TerminalIcon,
@@ -143,7 +143,7 @@ export function Layout({
             onClick={onSelectModels}
           >
             <span className="flex items-center gap-1.5">
-              <LayersIcon className="w-3.5 h-3.5" />
+              <BrainIcon className="w-3.5 h-3.5" />
               <span className="mux-resource-label">Models</span>
             </span>
           </button>
@@ -153,7 +153,7 @@ export function Layout({
             onClick={onSelectRegistry}
           >
             <span className="flex items-center gap-1.5">
-              <PackageIcon className="w-3.5 h-3.5" />
+              <McpMarkIcon className="w-3.5 h-3.5" />
               <span className="mux-resource-label">MCPs</span>
             </span>
           </button>
@@ -163,7 +163,7 @@ export function Layout({
             onClick={onSelectSkills}
           >
             <span className="flex items-center gap-1.5">
-              <SparklesIcon className="w-3.5 h-3.5" />
+              <SkillMarkIcon className="w-3.5 h-3.5" />
               <span className="mux-resource-label">Skills</span>
             </span>
           </button>

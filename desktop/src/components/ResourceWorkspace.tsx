@@ -12,7 +12,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { AgentGlyph, agentName } from "./brandIcons";
+import { AgentGlyph, agentName, isAgentVisible } from "./brandIcons";
 import { MODAL_DIALOG_SELECTOR, Modal, SearchBar, wasHandledByLayer } from "./ui";
 import { XIcon } from "./icons";
 import {
@@ -571,7 +571,9 @@ export function InspectorField({
   );
 }
 
-export function AgentStack({ ids, max = 4 }: { ids: string[]; max?: number }) {
+export function AgentStack({ ids: allIds, max = 4 }: { ids: string[]; max?: number }) {
+  const ids = allIds.filter(isAgentVisible);
+  if (allIds.length > 0 && ids.length === 0) return null;
   if (ids.length === 0) return <span className="mux-resource-usage-empty">未连接</span>;
   const visible = ids.slice(0, max);
   return (

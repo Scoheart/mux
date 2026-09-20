@@ -1,5 +1,24 @@
 # Agent icon sources
 
+## Built-in catalog audit — 2026-09-20
+
+The full built-in directory merges 204 entries from `data/agent-catalog.json` with 68 audited entries from `data/agents.json`, with audited entries taking precedence, matching `core::agents::builtin_agents`. This produces 223 unique Agents. Of these, 68 have bundled images and 155 have no verified bundled image and are hidden from navigation, search and pagination. The initial 68-entry audit incorrectly omitted the broader catalog; it was not a complete directory audit. Hidden does not mean the product has no logo, only that MUX has no verified asset yet.
+
+Within the 68 audited definitions, 60 previously had an image and 8 used monograms. All 8 missing marks below are now bundled. No substitute artwork or generated initials were used for these additions.
+
+| Added asset | Retrieved source | Identity |
+|---|---|---|
+| `cortex-code.svg` | <https://docs.snowflake.com/images/favicon/favicon.svg> | Snowflake mark linked by the Cortex Code documentation |
+| `dirac.svg` | <https://github.com/dirac-run/dirac/blob/master/agent-registry/dirac/icon.svg> | Product's own ACP entry mark |
+| `docker-agent.png` | <https://www.docker.com/app/uploads/2024/02/cropped-docker-logo-favicon-192x192.png> | Docker vendor mark |
+| `minion-code.svg` | <https://github.com/agentclientprotocol/registry/blob/main/minion-code/icon.svg> | ACP Registry entry points to `femto/minion-code`; the product repository itself has no image logo |
+| `poolside.png` | <https://docs.poolside.ai/mintlify-assets/_mintlify/favicons/poolside/9TIRP1d6OHt2GpzJ/_generated/favicon/android-chrome-192x192.png> | Poolside mark linked by its pool CLI documentation |
+| `raycast.png` | <https://www.raycast.com/favicon-production.png> | Official site favicon |
+| `theiaai-theiaide.svg` | <https://theia-ide.org/> | Original SVG decoded from the site's embedded `rel="icon"` data URL |
+| `zencoder.png` | <https://zencoder.ai/hubfs/export.png> | Official site favicon; direct page requests initially returned 403, then the rendered page confirmed this URL |
+
+Navigation and the hand picker use the runtime `builtin` flag and bundled icon availability, including persisted built-ins absent from the current catalog. ID-only display cards use both catalogs. Missing built-ins are hidden until an asset is added. Custom Agents keep their existing fallback. Core catalog entries, configuration, consumption relationships and hidden pinned IDs are retained; operational impact/review records must still disclose affected Agents.
+
 New assets are copied from official product sites, official repositories, or the vendor's own brand package. Sources were retrieved on or after 2026-07-14.
 
 | Asset | Official source |

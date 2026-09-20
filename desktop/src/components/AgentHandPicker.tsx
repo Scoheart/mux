@@ -3,7 +3,7 @@ import type { AgentInfo } from "../lib/types";
 import { MAX_PINNED_AGENTS } from "../lib/pinnedAgents";
 import { agentHandMetrics } from "../lib/agentHandLayout";
 import { useHandTrackpadPaging } from "../hooks/useHandTrackpadPaging";
-import { AgentGlyph } from "./brandIcons";
+import { AgentGlyph, isAgentEntryVisible } from "./brandIcons";
 import { ArrowLeftIcon, ChevronDownIcon, PackageIcon, PinIcon, PinOffIcon, PlusIcon, SearchIcon } from "./icons";
 import { Modal } from "./ui";
 import { PinnedAgentDock } from "./PinnedAgentDock";
@@ -16,7 +16,7 @@ const ADD_ID = "__mux_add_agent__";
 const reducedMotion = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 const pose = (x: number, y: number, angle = 0, scale = 1) => `translate3d(${x}px,${y}px,0) rotate(${angle}deg) scale(${scale})`;
 
-export function AgentHandPicker({ agents, pinnedIds, selectedAgentId, ready, saving, anchorRef, triggerRef, onSavePins, onSelect, onAdd, onClose }: {
+export function AgentHandPicker({ agents: allAgents, pinnedIds, selectedAgentId, ready, saving, anchorRef, triggerRef, onSavePins, onSelect, onAdd, onClose }: {
   agents: AgentInfo[];
   pinnedIds: string[];
   selectedAgentId: string | null;
@@ -29,6 +29,7 @@ export function AgentHandPicker({ agents, pinnedIds, selectedAgentId, ready, sav
   onAdd?: () => void;
   onClose(): void;
 }) {
+  const agents = useMemo(() => allAgents.filter(isAgentEntryVisible), [allAgents]);
   const [group, setGroup] = useState<Group>("builtin");
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(0);

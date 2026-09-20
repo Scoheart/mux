@@ -1,9 +1,9 @@
-import { useRef, useState, type CSSProperties } from "react";
+import { useMemo, useRef, useState, type CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
-import { AgentGlyph, agentName } from "./brandIcons";
+import { AgentGlyph, agentName, isAgentVisible } from "./brandIcons";
 import { SkillAgentOrbit } from "./SkillAgentOrbit";
 
-export function SkillAgentHand({ ids, names, skillName, onOpenAgent }: {
+export function SkillAgentHand({ ids: allIds, names, skillName, onOpenAgent }: {
   ids: string[];
   names: ReadonlyMap<string, string>;
   skillName?: string;
@@ -12,6 +12,8 @@ export function SkillAgentHand({ ids, names, skillName, onOpenAgent }: {
   const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
   const handRef = useRef<HTMLDivElement>(null);
+  const ids = useMemo(() => allIds.filter(isAgentVisible), [allIds]);
+  if (allIds.length > 0 && ids.length === 0) return null;
   if (!ids.length) return <span className="mux-skill-unassigned">{t("skillLibrary.unassigned")}</span>;
   const visible = ids.slice(0, 4);
   const remaining = ids.length - visible.length;

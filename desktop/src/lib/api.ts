@@ -140,6 +140,8 @@ export const listModelProviders = () =>
   invoke<ModelProviderView[]>("list_model_providers");
 export const listModelProviderInstances = () =>
   invoke<ModelProviderInstanceView[]>("list_model_provider_instances");
+export const copyToClipboard = (text: string) =>
+  invoke<void>("copy_to_clipboard", { text });
 export const discoverProviderModels = (providerId: string) =>
   invoke<ProviderModelSummary[]>("discover_provider_models", { providerId });
 export const revealModelProviderCredential = (providerId: string) =>

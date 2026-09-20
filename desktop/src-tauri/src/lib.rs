@@ -64,6 +64,7 @@ pub fn run() {
             file_editors::list_file_editors,
             file_editors::detect_agent_installation,
             commands::get_backend_status,
+            commands::copy_to_clipboard,
             commands::get_workspace_snapshot,
             commands::list_agent_capabilities,
             commands::plan_operation,

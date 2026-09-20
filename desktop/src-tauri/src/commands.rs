@@ -21,6 +21,10 @@ use mux_core::domain::error::{CoreError, CoreResult};
 use mux_core::domain::types::RegistryEntry;
 use serde_json::Value;
 use std::collections::BTreeMap;
+#[cfg(target_os = "macos")]
+use std::io::Write;
+#[cfg(target_os = "macos")]
+use std::process::{Command, Stdio};
 
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct AssetCommandError {
@@ -122,6 +126,46 @@ pub async fn get_workspace_snapshot(
 #[tauri::command]
 pub fn get_backend_status() -> BackendStatus {
     MuxCore::backend_status()
+}
+
+/// Write user-requested text to the native clipboard. macOS WebViews can
+/// reject `navigator.clipboard` for a dev origin, while `pbcopy` uses the
+/// system clipboard service directly. The text is never logged or persisted.
+#[tauri::command]
+pub fn copy_to_clipboard(text: String) -> Result<(), String> {
+    if text.contains('\0') {
+        return Err("clipboard_invalid: text contains a NUL byte".into());
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let mut process = Command::new("/usr/bin/pbcopy")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .map_err(|error| format!("clipboard_unavailable: {error}"))?;
+        let mut input = process
+            .stdin
+            .take()
+            .ok_or_else(|| "clipboard_unavailable: pbcopy stdin unavailable".to_string())?;
+        input
+            .write_all(text.as_bytes())
+            .map_err(|error| format!("clipboard_write_failed: {error}"))?;
+        drop(input);
+        let status = process
+            .wait()
+            .map_err(|error| format!("clipboard_unavailable: {error}"))?;
+        if status.success() {
+            Ok(())
+        } else {
+            Err("clipboard_write_failed: pbcopy exited unsuccessfully".into())
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = text;
+        Err("clipboard_unsupported: native clipboard integration is unavailable".into())
+    }
 }
 
 #[tauri::command]

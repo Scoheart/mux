@@ -1,4 +1,5 @@
 import type { AgentInfo } from "./types";
+import { isAgentEntryVisible } from "../components/brandIcons";
 
 export const MAX_PINNED_AGENTS = 6;
 
@@ -13,10 +14,11 @@ function compareAgents(left: AgentInfo, right: AgentInfo): number {
 }
 
 export function buildAgentPickerSections(
-  agents: AgentInfo[],
+  allAgents: AgentInfo[],
   pinnedIds: string[],
   query: string,
 ): AgentPickerSections {
+  const agents = allAgents.filter(isAgentEntryVisible);
   // This is an Agent directory, not an installed/configurable resource list.
   // Read-only catalog entries (for example desktop apps whose config contract
   // is not managed by MUX) still need to be discoverable here; their launch

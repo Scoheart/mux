@@ -3,6 +3,7 @@ import { useModelObservationRevision } from "../lib/modelObservation";
 import { useTranslation } from "react-i18next";
 import {
   discoverProviderModels,
+  copyToClipboard,
   listModelProfiles,
   listModelProviderInstances,
   listModelProviders,
@@ -271,6 +272,43 @@ function fullRequestUrl(baseUrl: string, endpointPath: string) {
   const base = normalizeBaseUrl(baseUrl);
   const path = normalizeEndpointPath(endpointPath);
   return base && path ? `${base}${path}` : "";
+}
+
+function shellQuote(value: string) {
+  return `'${value.replaceAll("'", "'\\''")}'`;
+}
+
+function modelCurlCommand(protocol: ModelProtocol, requestUrl: string, model: string, apiKey: string) {
+  const url = requestUrl.replaceAll("{model}", encodeURIComponent(model));
+  const headers = ["Content-Type: application/json"];
+  let body: Record<string, unknown>;
+  if (protocol === "anthropic-messages") {
+    headers.push(`x-api-key: ${apiKey}`, "anthropic-version: 2023-06-01");
+    body = {
+      model,
+      max_tokens: 1024,
+      messages: [{ role: "user", content: "Hello" }],
+    };
+  } else if (protocol === "gemini-generate-content") {
+    headers.push(`x-goog-api-key: ${apiKey}`);
+    body = {
+      contents: [{ role: "user", parts: [{ text: "Hello" }] }],
+    };
+  } else if (protocol === "openai-responses") {
+    headers.push(`Authorization: Bearer ${apiKey}`);
+    body = { model, input: "Hello" };
+  } else {
+    headers.push(`Authorization: Bearer ${apiKey}`);
+    body = {
+      model,
+      messages: [{ role: "user", content: "Hello" }],
+    };
+  }
+  return [
+    `curl --request POST ${shellQuote(url)}`,
+    ...headers.map((header) => `  --header ${shellQuote(header)}`),
+    `  --data-raw ${shellQuote(JSON.stringify(body, null, 2))}`,
+  ].join(" \\\n");
 }
 
 function profileProviderName(
@@ -844,7 +882,7 @@ function ModelInspector({
   ].filter(Boolean).join(" · ");
   const copyValue = async (label: string, value: string) => {
     try {
-      await navigator.clipboard.writeText(value);
+      await copyToClipboard(value);
       toast.show({ kind: "success", msg: t("models.copiedValue", { label }) });
     } catch (error) {
       toast.show({ kind: "error", msg: t("models.copyValueFailed", { error: formatError(error) }) });
@@ -860,6 +898,17 @@ function ModelInspector({
       <CopyIcon className="w-3.5 h-3.5" />
     </button>
   );
+  const copyCurl = async () => {
+    if (!requestUrl || !provider?.id) return;
+    try {
+      const apiKey = await revealModelProviderCredential(provider.id);
+      if (!apiKey) throw new Error(t("models.curlCredentialUnavailable"));
+      await copyToClipboard(modelCurlCommand(profile.protocol, requestUrl, profile.model, apiKey));
+      toast.show({ kind: "success", msg: t("models.curlCopied") });
+    } catch (error) {
+      toast.show({ kind: "error", msg: t("models.curlCopyFailed", { error: formatError(error) }) });
+    }
+  };
   return (
     <ResourceInspector
       title={readableModelName(profile, providerName, metadata)}
@@ -919,6 +968,24 @@ function ModelInspector({
           action={requestUrl ? copyAction(t("models.fullRequestUrl"), requestUrl) : undefined}
         >
           {requestUrl || t("common.notSet")}
+        </InspectorField>
+        <InspectorField
+          icon={<TerminalIcon />}
+          label={t("models.curlCommand")}
+          mono
+          wide
+          action={requestUrl && provider?.id ? (
+            <button
+              type="button"
+              aria-label={t("models.copyCurl")}
+              title={t("models.copyCurl")}
+              onClick={() => void copyCurl()}
+            >
+              <CopyIcon className="w-3.5 h-3.5" />
+            </button>
+          ) : undefined}
+        >
+          {requestUrl ? t("models.copyCurlHint") : t("common.notSet")}
         </InspectorField>
         {profile.env_key && <InspectorField icon={<KeyIcon />} label={t("models.environmentVariable")} mono wide>{profile.env_key}</InspectorField>}
       </section>

@@ -4,7 +4,11 @@ import { fileURLToPath } from "node:url";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const assetDir = resolve(root, "desktop/src/assets/agents");
-const agents = JSON.parse(readFileSync(resolve(root, "data/agents.json"), "utf8"));
+// Match core::agents::builtin_agents: audited definitions override broad catalog entries.
+const agents = {
+  ...JSON.parse(readFileSync(resolve(root, "data/agent-catalog.json"), "utf8")),
+  ...JSON.parse(readFileSync(resolve(root, "data/agents.json"), "utf8")),
+};
 const aliases = JSON.parse(readFileSync(resolve(assetDir, "aliases.json"), "utf8"));
 const extensions = new Set([".png", ".svg", ".webp"]);
 const assets = new Set(
@@ -16,19 +20,18 @@ const assets = new Set(
 const missingAliasTargets = Object.entries(aliases)
   .filter(([, target]) => !assets.has(target))
   .map(([id, target]) => `${id} -> ${target}`);
-const configurable = Object.entries(agents).filter(([, agent]) => agent.enabled && agent.global);
-const missingIcons = configurable
+// Include read-only and Skills-only entries; they also appear in the directory.
+const builtin = Object.entries(agents).filter(([, agent]) => agent.builtin);
+const missingIcons = builtin
   .filter(([id]) => !assets.has(aliases[id] ?? id))
   .map(([id, agent]) => `${id} (${agent.name})`);
 
-if (missingAliasTargets.length || missingIcons.length) {
-  if (missingAliasTargets.length) {
-    console.error(`Icon aliases reference missing assets:\n- ${missingAliasTargets.join("\n- ")}`);
-  }
-  if (missingIcons.length) {
-    console.error(`Configurable agents without icons:\n- ${missingIcons.join("\n- ")}`);
-  }
+if (missingAliasTargets.length) {
+  console.error(`Icon aliases reference missing assets:\n- ${missingAliasTargets.join("\n- ")}`);
   process.exit(1);
 }
 
-console.log(`Verified icons for all ${configurable.length} configurable agents.`);
+if (missingIcons.length) {
+  console.log(`Built-in agents hidden until an icon is supplied:\n- ${missingIcons.join("\n- ")}`);
+}
+console.log(`Audited ${builtin.length} built-in agents: ${builtin.length - missingIcons.length} visible, ${missingIcons.length} hidden.`);

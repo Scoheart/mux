@@ -1,8 +1,8 @@
 import { useMemo, useRef, useState } from "react";
 import type { AgentInfo } from "../lib/types";
-import { buildAgentPickerSections } from "../lib/pinnedAgents";
+import { buildAgentPickerSections, MAX_PINNED_AGENTS } from "../lib/pinnedAgents";
 import { usePinnedAgents } from "../hooks/usePinnedAgents";
-import { AgentGlyph } from "./brandIcons";
+import { AgentGlyph, isAgentVisible, isAgentEntryVisible } from "./brandIcons";
 import { ChevronDownIcon, PackageIcon } from "./icons";
 import { PinnedAgentDock } from "./PinnedAgentDock";
 import { AgentHandPicker } from "./AgentHandPicker";
@@ -21,10 +21,22 @@ export function AgentNavigation({ agents, selectedAgentId, onSelectAgent, onAddA
   const sections = useMemo(() => buildAgentPickerSections(agents, pinned.agentIds, ""), [agents, pinned.agentIds]);
   const pinnedIds = useMemo(() => sections.pinned.map(({ id }) => id), [sections]);
   const available = useMemo(() => [...sections.pinned, ...sections.available], [sections]);
-  const selected = agents.find(({ id }) => id === selectedAgentId);
+  const selected = available.find(({ id }) => id === selectedAgentId);
+  const saveVisiblePins = async (ids: string[]) => {
+    const hidden = pinned.agentIds.filter((id) => {
+      const agent = agents.find((entry) => entry.id === id);
+      return !(agent ? isAgentEntryVisible(agent) : isAgentVisible(id));
+    });
+    const next = [...ids, ...hidden];
+    if (next.length > MAX_PINNED_AGENTS) {
+      setAnnouncement("置顶位置已满，隐藏 Agent 的置顶记录仍然保留。");
+      return false;
+    }
+    return pinned.commit(next);
+  };
   const saveOrder = async (ids: string[], movedId: string) => {
     if (!pinned.ready || pinned.saving || ids.join("\0") === pinnedIds.join("\0")) return;
-    if (await pinned.commit(ids)) {
+    if (await saveVisiblePins(ids)) {
       setAnnouncement(`${agents.find(({ id }) => id === movedId)?.name ?? movedId} 已移动到第 ${ids.indexOf(movedId) + 1} 位`);
     }
   };
@@ -45,7 +57,7 @@ export function AgentNavigation({ agents, selectedAgentId, onSelectAgent, onAddA
       </div>
     </div>
     {open && <AgentHandPicker agents={available} pinnedIds={pinnedIds} selectedAgentId={selectedAgentId} ready={pinned.ready} saving={pinned.saving}
-      anchorRef={anchorRef} triggerRef={triggerRef} onSavePins={pinned.commit}
+      anchorRef={anchorRef} triggerRef={triggerRef} onSavePins={saveVisiblePins}
       onClose={() => setOpen(false)} onSelect={onSelectAgent}
       onAdd={onAddAgent ? () => { setOpen(false); onAddAgent(); } : undefined} />}
   </div>;

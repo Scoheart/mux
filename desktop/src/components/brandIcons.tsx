@@ -1,5 +1,7 @@
 import iconAliases from "../assets/agents/aliases.json";
 import agentSurfaces from "../assets/agents/surfaces.json";
+import builtinAgents from "../../../data/agents.json";
+import catalogAgents from "../../../data/agent-catalog.json";
 import type { ReactNode } from "react";
 
 type AgentSurface = "cli" | "desktop" | "ide" | "web";
@@ -19,6 +21,21 @@ const AGENT_SURFACES: Record<string, string> = agentSurfaces;
 
 function resolvedLogoKey(id: string): string {
   return ICON_ALIASES[id] ?? id;
+}
+
+/** Availability follows bundled assets, so adding a logo restores visibility. */
+export function hasAgentIcon(id: string): boolean {
+  return Boolean(LOGOS[resolvedLogoKey(id)]);
+}
+
+/** Presentation only: never remove a hidden Agent's stored configuration. */
+export function isAgentVisible(id: string): boolean {
+  return (!Object.hasOwn(builtinAgents, id) && !Object.hasOwn(catalogAgents, id)) || hasAgentIcon(id);
+}
+
+/** Runtime provenance also covers older persisted built-ins and custom catalog-ID overrides. */
+export function isAgentEntryVisible(agent: { id: string; builtin: boolean }): boolean {
+  return !agent.builtin || hasAgentIcon(agent.id);
 }
 
 function declaredSurface(id: string): AgentSurface | null {
@@ -72,6 +89,8 @@ const FULL_BLEED = new Set<string>([
   "qoder-cli",
   "qoder-desktop",
   "qoderwork",
+  "raycast",
+  "cortex-code",
   "roo-code",
   "rovo-dev",
   "warp",

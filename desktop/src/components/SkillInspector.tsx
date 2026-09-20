@@ -13,7 +13,7 @@ import {
   ResourceInspector,
 } from "./ResourceWorkspace";
 import { SkillRiskBadge, skillSourceText } from "./SkillCard";
-import { AgentGlyph, agentName } from "./brandIcons";
+import { AgentGlyph, agentName, isAgentVisible } from "./brandIcons";
 import { Avatar, Badge } from "./ui";
 import {
   CalendarIcon,
@@ -96,6 +96,7 @@ export function SkillInspector({
   readOnly?: boolean;
 }) {
   const [replaceConflicts, setReplaceConflicts] = useState(false);
+  const visibleAgentIds = item.affected_agent_ids.filter(isAgentVisible);
   const [replaceLocalChanges, setReplaceLocalChanges] = useState(false);
   useEffect(() => {
     setReplaceConflicts(false);
@@ -234,18 +235,18 @@ export function SkillInspector({
         </div>
         {item.update.error && <p className="mux-skill-inspector-update-error">更新检查失败：{item.update.error}</p>}
 
-        {item.affected_agent_ids.length > 0 && (
-          <InspectorSection title={`关联 Agent · ${item.affected_agent_ids.length}`} icon={<LayersIcon className="w-4 h-4" />}>
+        {visibleAgentIds.length > 0 && (
+          <InspectorSection title={`关联 Agent · ${visibleAgentIds.length}`} icon={<LayersIcon className="w-4 h-4" />}>
             <div className="mux-skill-detail-agent-chips">
-              {item.affected_agent_ids.slice(0, 5).map((id) => (
+              {visibleAgentIds.slice(0, 5).map((id) => (
                 <span key={id}><AgentGlyph id={id} size={18} />{agentName(id)}</span>
               ))}
             </div>
-            {item.affected_agent_ids.length > 5 && (
+            {visibleAgentIds.length > 5 && (
               <details className="mux-skill-detail-more-agents">
-                <summary>另外 {item.affected_agent_ids.length - 5} 个</summary>
+                <summary>另外 {visibleAgentIds.length - 5} 个</summary>
                 <div className="mux-skill-detail-agent-chips">
-                  {item.affected_agent_ids.slice(5).map((id) => (
+                  {visibleAgentIds.slice(5).map((id) => (
                     <span key={id}><AgentGlyph id={id} size={18} />{agentName(id)}</span>
                   ))}
                 </div>

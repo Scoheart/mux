@@ -32,3 +32,22 @@ users remain responsible for the vendor's plan eligibility and usage policy.
 The China MiniMax template endpoints were reverified on 2026-09-07 against the current official Token Plan and OpenAI/Anthropic SDK guides (`api.minimax.cn`). Existing saved connections are not rewritten.
 
 The September 2026 expansion adds 19 templates and removes the retired GitHub Models new-connection template. See the [full endpoint/source matrix](../../../../docs/agent-provider-research-2026-09-07.md). Shared MiniMax PAYG/plan addresses do not identify billing mode; explicit plan selections are preserved.
+
+## Gateway Provider templates
+
+These gateway templates were reviewed on 2026-09-20. They are selectable
+first-class MUX Providers, not aliases for the underlying model vendors. MUX
+keeps the OpenAI Responses/Completions and Anthropic Messages paths as separate
+protocol entries so one Provider can be reused by Agents with different
+protocol requirements.
+
+| MUX Provider ID | OpenAI-compatible Base URL | Anthropic-compatible Base URL | Official source |
+|---|---|---|---|
+| `routeway` | `https://api.routeway.ai/v1` | `https://api.routeway.ai` | [Codex integration](https://docs.routeway.ai/integrations/agents/codex), [Claude Code integration](https://docs.routeway.ai/integrations/agents/claude-code) |
+| `infron` | `https://llm.onerouter.pro/v1` | `https://llm.onerouter.pro` | [API reference](https://infron.ai/models/deepseek/deepseek-v4-flash:free/api-reference) |
+| `apinex` | `https://api.apinex.bond/v1` | `https://api.apinex.bond` | [Chat API](https://apinex.bond/developers/models/chat), [Messages API](https://apinex.bond/developers/models/messages) |
+
+APInex is currently exposed with Chat Completions and Anthropic Messages only;
+its public documentation does not establish a separate Responses endpoint.
+Model IDs remain dynamic and are loaded from each Provider's `/models` catalog
+when available rather than being hard-coded from social media posts.

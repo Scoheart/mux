@@ -154,6 +154,9 @@ fn reviewed_discovery_spec(provider_type: &str) -> Option<DiscoverySpec> {
         "openrouter"
         | "openai"
         | "xai"
+        | "routeway"
+        | "infron"
+        | "apinex"
         | "mistral"
         | "deepseek"
         | "groq"
@@ -756,6 +759,9 @@ mod tests {
         "openrouter",
         "openai",
         "xai",
+        "routeway",
+        "infron",
+        "apinex",
         "mistral",
         "deepseek",
         "groq",

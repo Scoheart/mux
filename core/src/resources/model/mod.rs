@@ -238,6 +238,30 @@ pub fn provider_additional_endpoints(id: &str) -> &'static [ModelProviderEndpoin
             protocol: OpenaiCompletions,
             base_url: "https://ai-gateway.vercel.sh/v1",
         }],
+        "routeway" => &[
+            ModelProviderEndpointView {
+                protocol: OpenaiCompletions,
+                base_url: "https://api.routeway.ai/v1",
+            },
+            ModelProviderEndpointView {
+                protocol: AnthropicMessages,
+                base_url: "https://api.routeway.ai",
+            },
+        ],
+        "infron" => &[
+            ModelProviderEndpointView {
+                protocol: OpenaiCompletions,
+                base_url: "https://llm.onerouter.pro/v1",
+            },
+            ModelProviderEndpointView {
+                protocol: AnthropicMessages,
+                base_url: "https://llm.onerouter.pro",
+            },
+        ],
+        "apinex" => &[ModelProviderEndpointView {
+            protocol: AnthropicMessages,
+            base_url: "https://api.apinex.bond",
+        }],
         "minimax" => &[ModelProviderEndpointView {
             protocol: AnthropicMessages,
             base_url: "https://api.minimax.io/anthropic",
@@ -342,6 +366,27 @@ const MODEL_PROVIDERS: &[ModelProviderView] = &[
         name: "Vercel AI Gateway",
         default_base_url: Some("https://ai-gateway.vercel.sh/v1"),
         default_protocol: ModelProtocol::OpenaiResponses,
+        category: "gateway",
+    },
+    ModelProviderView {
+        id: "routeway",
+        name: "Routeway",
+        default_base_url: Some("https://api.routeway.ai/v1"),
+        default_protocol: ModelProtocol::OpenaiResponses,
+        category: "gateway",
+    },
+    ModelProviderView {
+        id: "infron",
+        name: "Infron",
+        default_base_url: Some("https://llm.onerouter.pro/v1"),
+        default_protocol: ModelProtocol::OpenaiResponses,
+        category: "gateway",
+    },
+    ModelProviderView {
+        id: "apinex",
+        name: "APInex",
+        default_base_url: Some("https://api.apinex.bond/v1"),
+        default_protocol: ModelProtocol::OpenaiCompletions,
         category: "gateway",
     },
     ModelProviderView {
@@ -993,6 +1038,9 @@ pub fn infer_provider(base_url: &str) -> String {
         "open.bigmodel.cn" => "zhipuai",
         "api.deepinfra.com" => "deepinfra",
         "ai-gateway.vercel.sh" => "vercel-ai-gateway",
+        "api.routeway.ai" => "routeway",
+        "llm.onerouter.pro" => "infron",
+        "api.apinex.bond" => "apinex",
         "api.sambanova.ai" => "sambanova",
         "api.perplexity.ai" => "perplexity",
         "ark.cn-beijing.volces.com" => "volcengine",
@@ -6160,6 +6208,14 @@ mod tests {
             ("https://api.siliconflow.cn/v1/chat/completions", "siliconflow-cn"),
             ("https://api.minimax.io/v1", "minimax"),
             ("https://api.minimax.cn/anthropic/v1/messages", "minimax-cn"),
+            ("https://api.routeway.ai/v1/responses", "routeway"),
+            ("https://api.routeway.ai/v1/chat/completions", "routeway"),
+            ("https://api.routeway.ai/v1/messages", "routeway"),
+            ("https://llm.onerouter.pro/v1/responses", "infron"),
+            ("https://llm.onerouter.pro/v1/chat/completions", "infron"),
+            ("https://llm.onerouter.pro/v1/messages", "infron"),
+            ("https://api.apinex.bond/v1/chat/completions", "apinex"),
+            ("https://api.apinex.bond/v1/messages", "apinex"),
             ("https://ark.cn-beijing.volces.com/api/coding/v3/chat/completions", "volcengine-coding-plan"),
             ("https://qianfan.baidubce.com/anthropic/coding/v1/messages", "baidu-qianfan-coding-plan"),
             ("https://aiplatform.googleapis.com/v1", "custom"),
@@ -6242,7 +6298,7 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(endpointless.iter().map(|p| p.id).collect::<BTreeSet<_>>(),
             BTreeSet::from(["azure-openai", "amazon-bedrock-mantle", "cloudflare-workers-ai", "custom"]));
-        assert_eq!(list_providers().len(), 69);
+        assert_eq!(list_providers().len(), 72);
         assert!(!list_providers().iter().any(|p| p.id == "github-models"));
         let openrouter = list_providers()
             .iter()

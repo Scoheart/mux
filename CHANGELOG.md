@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.201](https://github.com/Scoheart/mux/compare/v1.8.200...v1.8.201) (2026-09-20)
+
+### Changes
+
+* feat(models): add gateway providers to catalog ([fc972b1](https://github.com/Scoheart/mux/commit/fc972b159ed20e7eda4a46e02c68895dd52ffe3c))
+
 ## [1.8.200](https://github.com/Scoheart/mux/compare/v1.8.199...v1.8.200) (2026-09-19)
 
 ### Changes

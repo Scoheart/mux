@@ -1,6 +1,6 @@
 import { createContext, useContext, useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { LayersIcon, PackageIcon, SparklesIcon } from "./icons";
+import { BrainIcon, McpMarkIcon, SkillMarkIcon } from "./icons";
 
 const ToolbarTarget = createContext<HTMLDivElement | null | undefined>(undefined);
 
@@ -12,10 +12,10 @@ export function AgentResourceActions({ children }: { children: ReactNode }) {
 
 export type AgentResourceTab = "mcps" | "models" | "skills";
 
-const TABS: Array<{ id: AgentResourceTab; label: string; icon: typeof PackageIcon }> = [
-  { id: "mcps", label: "MCPs", icon: PackageIcon },
-  { id: "models", label: "Models", icon: LayersIcon },
-  { id: "skills", label: "Skills", icon: SparklesIcon },
+const TABS: Array<{ id: AgentResourceTab; label: string; icon: typeof McpMarkIcon }> = [
+  { id: "mcps", label: "MCPs", icon: McpMarkIcon },
+  { id: "models", label: "Models", icon: BrainIcon },
+  { id: "skills", label: "Skills", icon: SkillMarkIcon },
 ];
 
 export function AgentResourcePanel({

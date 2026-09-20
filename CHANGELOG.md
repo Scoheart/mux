@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.204](https://github.com/Scoheart/mux/compare/v1.8.203...v1.8.204) (2026-09-20)
+
+### Changes
+
+* feat(desktop): refine agent icons and copy model curl requests (#190) ([7bdf2a6](https://github.com/Scoheart/mux/commit/7bdf2a693042d413a3db9c51d4bd0d1af17ac43b))
+
 ## [1.8.203](https://github.com/Scoheart/mux/compare/v1.8.202...v1.8.203) (2026-09-20)
 
 ### Changes

@@ -1,5 +1,11 @@
 # Agent icon sources
 
+## QwenWork editions — 2026-09-21
+
+- `qwenwork.png`: original 128px PNG (`ic07`) extracted losslessly from the official QwenWork 1.0.4 macOS bundle's `Contents/Resources/icon.icns`; bundle ID `com.qwenwork.desktop.mac`, download <https://qwenwork.ai/>.
+- `qwenwork-cn.png`: corresponding original PNG from the official QwenWorkCN 1.1.0 bundle; bundle ID `cn.qwenwork.desktop.mac`, download <https://qwenwork.cn/>. The two bundled images differ and are intentionally retained separately.
+- Both IDs have their own assets and desktop surface metadata; they do not fall back to Qwen Code's logo. With these two additions the merged catalog contains 225 entries, 70 with bundled icons and 155 hidden pending verified artwork.
+
 ## Built-in catalog audit — 2026-09-20
 
 The full built-in directory merges 204 entries from `data/agent-catalog.json` with 68 audited entries from `data/agents.json`, with audited entries taking precedence, matching `core::agents::builtin_agents`. This produces 223 unique Agents. Of these, 68 have bundled images and 155 have no verified bundled image and are hidden from navigation, search and pagination. The initial 68-entry audit incorrectly omitted the broader catalog; it was not a complete directory audit. Hidden does not mean the product has no logo, only that MUX has no verified asset yet.

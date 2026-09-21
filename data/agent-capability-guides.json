@@ -4,6 +4,14 @@
     "model": "https://www.codebuddy.ai/docs/ide/Features/models",
     "skill": "https://www.codebuddy.ai/docs/ide/Features/Skills"
   },
+  "qwenwork": {
+    "mcp": "https://docs.qwenwork.ai/desktop/connectors",
+    "skill": "https://docs.qwenwork.ai/desktop/skills"
+  },
+  "qwenwork-cn": {
+    "mcp": "https://qwenwork.cn/docs/features/connectors",
+    "skill": "https://qwenwork.cn/docs/features/skills"
+  },
   "workbuddy": {
     "mcp": "https://www.codebuddy.ai/docs/workbuddy/From-Beginner-to-Expert-Guide/Function-Description/Connector",
     "model": "https://www.codebuddy.ai/docs/workbuddy/From-Beginner-to-Expert-Guide/Function-Description/Model",

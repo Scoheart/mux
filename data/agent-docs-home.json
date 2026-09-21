@@ -66,5 +66,7 @@
   "zcode": "https://zcode.z.ai/cn/docs/",
   "zencoder": "https://docs.zencoder.ai/",
   "codebuddy-ide": "https://www.codebuddy.ai/docs/ide/Introduction",
-  "workbuddy": "https://www.codebuddy.ai/docs/workbuddy/Overview"
+  "workbuddy": "https://www.codebuddy.ai/docs/workbuddy/Overview",
+  "qwenwork": "https://docs.qwenwork.ai/",
+  "qwenwork-cn": "https://qwenwork.cn/docs/"
 }

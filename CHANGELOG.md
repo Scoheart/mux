@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.205](https://github.com/Scoheart/mux/compare/v1.8.204...v1.8.205) (2026-09-21)
+
+### Changes
+
+* feat(agents): add QwenWork international and CN editions (#192) ([f38b417](https://github.com/Scoheart/mux/commit/f38b4173367485461f23cdfea8e3d354d9143f9b))
+
 ## [1.8.204](https://github.com/Scoheart/mux/compare/v1.8.203...v1.8.204) (2026-09-20)
 
 ### Changes

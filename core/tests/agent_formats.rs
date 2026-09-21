@@ -28,6 +28,7 @@ fn fixture(name: &str) -> &'static str {
         "continue-cli" => include_str!("fixtures/continue-cli.yaml"),
         "trae-cli" => include_str!("fixtures/trae-cli.toml"),
         "qoder-desktop" => include_str!("fixtures/qoder-desktop.json"),
+        "qwenwork" => include_str!("fixtures/qwenwork.json"),
         "opencode" => include_str!("fixtures/opencode.json"),
         "codex" => include_str!("fixtures/codex.toml"),
         "gemini" => include_str!("fixtures/gemini.json"),
@@ -596,6 +597,55 @@ fn qoder_desktop_round_trip_preserves_shared_cli_settings() {
 }
 
 #[test]
+fn qwenwork_editions_keep_separate_paths_and_round_trip_custom_mcp() {
+    let home = mux_core::testenv::TestHome::new("qwenwork-formats");
+    let agents = builtin_agents();
+    for (id, directory, app) in [
+        ("qwenwork", ".qwenwork", "QwenWork"),
+        ("qwenwork-cn", ".qwenworkcn", "QwenWorkCN"),
+    ] {
+        let definition = &agents[id];
+        assert_eq!(definition.global, Some(format!("~/{directory}/mcp.json")));
+        let skills = definition.skills.as_ref().unwrap();
+        assert_eq!(skills.global_dir, format!("~/{directory}/skills"));
+        assert_eq!(skills.target_id, format!("{id}-user"));
+        assert!(skills.aliases.is_empty());
+        let launchers: Value = serde_json::from_str(include_str!("../../data/agent-launchers.json")).unwrap();
+        assert_eq!(launchers[id]["candidates"], serde_json::json!([app]));
+
+        let path = home.home.join(directory).join("mcp.json");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, fixture("qwenwork")).unwrap();
+        let adapter = get_agent_adapter_for(definition, id);
+        let before = adapter.read(&path);
+        assert!(matches!(&before["local"], McpConfig::Stdio(_)));
+        assert!(matches!(&before["events"], McpConfig::Http(config) if config.kind == "sse"));
+        assert!(!before.contains_key("paused"));
+        assert!(!before.contains_key("organization"));
+        let original = std::fs::read(&path).unwrap();
+        assert!(adapter.upsert(&path, "paused", &http("https://example.invalid/new")).is_err());
+        assert!(adapter.upsert(&path, "organization", &http("https://example.invalid/new")).is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), original);
+
+        let updated = http("https://example.invalid/new");
+        adapter.upsert(&path, "docs", &updated).unwrap();
+        adapter.upsert(&path, "local-copy", &before["local"]).unwrap();
+        assert_eq!(adapter.read(&path)["docs"], updated);
+        assert_eq!(adapter.read(&path)["local-copy"], before["local"]);
+        let saved: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        assert_eq!(saved["schemaVersion"], 1);
+        assert_eq!(saved["privateMetadata"]["preserve"], true);
+        assert_eq!(saved["mcpServers"]["docs"]["timeout"], 45);
+        assert_eq!(saved["mcpServers"]["docs"]["type"], "streamable-http");
+        assert_eq!(saved["mcpServers"]["local-copy"]["type"], "stdio");
+        adapter.remove(&path, &["docs".into(), "local-copy".into()]).unwrap();
+        let remaining: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        assert_eq!(remaining["mcpServers"]["organization"], saved["mcpServers"]["organization"]);
+        assert_eq!(remaining["mcpServers"]["paused"], saved["mcpServers"]["paused"]);
+    }
+}
+
+#[test]
 fn qoderwork_update_preserves_file_metadata_and_uses_documented_http_type() {
     let path = temp_file("qoderwork-mcp", "json");
     std::fs::write(
@@ -697,6 +747,8 @@ fn builtin_global_paths_match_current_product_docs() {
         ("qoder-desktop", "~/.qoder/settings.json"),
         ("qoderwork", "~/.qoderwork/mcp.json"),
         ("qwen-code", "~/.qwen/settings.json"),
+        ("qwenwork", "~/.qwenwork/mcp.json"),
+        ("qwenwork-cn", "~/.qwenworkcn/mcp.json"),
         (
             "roo-code",
             "~/Library/Application Support/Code/User/globalStorage/rooveterinaryinc.roo-cline/settings/mcp_settings.json",
@@ -731,16 +783,16 @@ fn verified_and_catalog_definitions_have_auditable_boundaries() {
     let all_ids: std::collections::BTreeSet<_> =
         verified_ids.union(&catalog_ids).cloned().collect();
 
-    assert_eq!(verified.len(), 68);
+    assert_eq!(verified.len(), 70);
     assert_eq!(catalog.len(), 204);
     assert_eq!(verified_ids.intersection(&catalog_ids).count(), 49);
-    assert_eq!(all_ids.len(), 223);
+    assert_eq!(all_ids.len(), 225);
     assert_eq!(
         verified
             .values()
             .filter(|item| item.global.is_some())
         .count(),
-        53
+        55
     );
     assert!(catalog.len() >= 170);
     for (id, definition) in verified {
@@ -760,6 +812,7 @@ fn verified_and_catalog_definitions_have_auditable_boundaries() {
                         | "windsurf"
                         | "qoder"
                         | "qoderwork"
+                        | "qwenwork"
                         | "copilot"
                         | "cline"
                         | "roo"

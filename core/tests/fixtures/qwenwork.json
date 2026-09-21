@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "privateMetadata": { "preserve": true },
+  "mcpServers": {
+    "local": { "type": "stdio", "command": "example-tool", "args": ["--stdio"], "enabled": true },
+    "docs": { "type": "streamable-http", "url": "https://example.invalid/mcp", "enabled": true, "timeout": 45 },
+    "events": { "type": "sse", "url": "https://example.invalid/sse" },
+    "paused": { "type": "stdio", "command": "example-tool", "enabled": false },
+    "organization": { "type": "streamable-http", "url": "https://example.invalid/managed", "_source": "enterprise", "v2": { "url": "https://example.invalid/policy" } }
+  }
+}

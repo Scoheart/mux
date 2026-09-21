@@ -14,5 +14,7 @@
   "zcode": "desktop",
   "codebuddy-code": "cli",
   "codebuddy-ide": "ide",
-  "workbuddy": "desktop"
+  "workbuddy": "desktop",
+  "qwenwork": "desktop",
+  "qwenwork-cn": "desktop"
 }

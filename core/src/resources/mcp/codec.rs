@@ -135,6 +135,7 @@ pub enum Codec {
     Windsurf,
     Qoder,
     QoderWork,
+    QwenWork,
     Copilot,
     Cline,
     Roo,
@@ -181,6 +182,7 @@ pub fn for_agent(agent_id: &str) -> Codec {
         "windsurf" => Codec::Windsurf,
         "qoder" | "qoder-cli" | "qoder-desktop" => Codec::Qoder,
         "qoderwork" => Codec::QoderWork,
+        "qwenwork" | "qwenwork-cn" => Codec::QwenWork,
         "copilot-cli" => Codec::Copilot,
         "cline" => Codec::Cline,
         "roo-code" => Codec::Roo,
@@ -202,6 +204,7 @@ pub fn from_name(name: Option<&str>, agent_id: &str) -> Codec {
         Some("windsurf") => Codec::Windsurf,
         Some("qoder") => Codec::Qoder,
         Some("qoderwork") => Codec::QoderWork,
+        Some("qwenwork") => Codec::QwenWork,
         Some("copilot") => Codec::Copilot,
         Some("cline") => Codec::Cline,
         Some("roo") => Codec::Roo,
@@ -255,6 +258,14 @@ impl Codec {
             .as_object()
             .ok_or_else(|| "MCP entry is not an object".to_string())?;
         match self {
+            Codec::QwenWork => {
+                validate_active_field(object.get("enabled"), true, "enabled")?;
+                if object.contains_key("_builtinId")
+                    || matches!(object.get("_source").and_then(Value::as_str), Some("enterprise" | "market"))
+                {
+                    return Err("QwenWork managed connectors must be edited in QwenWork".into());
+                }
+            }
             Codec::ZCode => validate_active_field(object.get("enable"), true, "enable")?,
             Codec::AgentKube | Codec::VtCode | Codec::Kimi => {
                 validate_active_field(object.get("enabled"), true, "enabled")?
@@ -403,7 +414,7 @@ impl Codec {
         let mut object_patches = Vec::new();
         match config {
             McpConfig::Stdio(stdio) => match self {
-                Codec::ExplicitType | Codec::ZCode | Codec::Qoder | Codec::QoderWork => {
+                Codec::ExplicitType | Codec::ZCode | Codec::Qoder | Codec::QoderWork | Codec::QwenWork => {
                     fields.push(("type".into(), Value::String("stdio".into())));
                     push_stdio_fields(&mut fields, stdio, "cwd");
                 }
@@ -532,7 +543,10 @@ impl Codec {
                     "headers",
                 ),
                 Codec::Windsurf => push_http_fields(&mut fields, http, "serverUrl", "headers"),
-                Codec::QoderWork => {
+                Codec::QoderWork | Codec::QwenWork => {
+                    if self == Codec::QwenWork {
+                        require_http_kind(http, "QwenWork", &["http", "streamable-http", "sse"])?;
+                    }
                     fields.push((
                         "type".into(),
                         Value::String(

@@ -327,6 +327,18 @@
     ],
     "args": []
   },
+  "qwenwork": {
+    "kind": "app",
+    "candidates": [
+      "QwenWork"
+    ]
+  },
+  "qwenwork-cn": {
+    "kind": "app",
+    "candidates": [
+      "QwenWorkCN"
+    ]
+  },
   "raycast": {
     "kind": "app",
     "candidates": [

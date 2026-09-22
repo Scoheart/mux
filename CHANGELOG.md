@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.207](https://github.com/Scoheart/mux/compare/v1.8.206...v1.8.207) (2026-09-22)
+
+### Changes
+
+* fix(ui): unify resource presentation and compact sync review (#194) ([43a5bc3](https://github.com/Scoheart/mux/commit/43a5bc31c1a86b54d63f46a375ae6c68d44b1bcb))
+
 ## [1.8.206](https://github.com/Scoheart/mux/compare/v1.8.205...v1.8.206) (2026-09-22)
 
 ### Changes

@@ -12,6 +12,10 @@
     "mcp": "https://qwenwork.cn/docs/features/connectors",
     "skill": "https://qwenwork.cn/docs/features/skills"
   },
+  "step-code": {
+    "mcp": "https://platform.stepfun.com/docs/zh/step-code/customization/mcp",
+    "skill": "https://platform.stepfun.com/docs/zh/step-code/customization/skills"
+  },
   "workbuddy": {
     "mcp": "https://www.codebuddy.ai/docs/workbuddy/From-Beginner-to-Expert-Guide/Function-Description/Connector",
     "model": "https://www.codebuddy.ai/docs/workbuddy/From-Beginner-to-Expert-Guide/Function-Description/Model",

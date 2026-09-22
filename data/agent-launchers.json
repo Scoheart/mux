@@ -359,6 +359,13 @@
     ],
     "args": []
   },
+  "step-code": {
+    "kind": "cli",
+    "candidates": [
+      "~/.stepcode/bin/step"
+    ],
+    "args": []
+  },
   "tabnine": {
     "kind": "app",
     "candidates": [

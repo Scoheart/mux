@@ -1,0 +1,25 @@
+# keep Step Code settings and comments
+theme = "step-blue"
+defaultProvider = "step"
+defaultModel = "step-3.7-flash"
+
+[mcp_servers.docs]
+url = "https://old.example.com/mcp"
+bearer_token_env_var = "DOCS_TOKEN"
+enabled_tools = ["search"] # keep policy and comment
+startup_timeout_sec = 30
+
+[mcp_servers.docs.http_headers]
+X-Old = "remove-me"
+
+[mcp_servers.docs.oauth]
+callback_port = 8976
+
+[mcp_servers.paused]
+url = "https://paused.example.com/mcp"
+enabled = false
+
+[mcp_servers.local]
+command = "node"
+args = ["/tmp/server.js"]
+env = { LOG_LEVEL = "info" }

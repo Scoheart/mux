@@ -102,6 +102,7 @@ const VERIFIED_SKILL_AGENT_IDS: &[&str] = &[
     "roo-code",
     "rovo-dev",
     "stakpak",
+    "step-code",
     "theiaai-theiaide",
     "trae-ide",
     "vscode",

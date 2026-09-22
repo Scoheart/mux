@@ -219,6 +219,10 @@
     "url": "https://github.com/stakpak/agent",
     "label": "安装文档"
   },
+  "step-code": {
+    "url": "https://platform.stepfun.com/docs/zh/step-code/quickstart",
+    "label": "CLI 安装"
+  },
   "tabnine": {
     "url": "https://docs.tabnine.com/",
     "label": "安装文档"

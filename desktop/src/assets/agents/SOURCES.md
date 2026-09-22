@@ -1,5 +1,9 @@
 # Agent icon sources
 
+## Step Code — 2026-09-23
+
+- `step-code.png`: the mascot region of the official Step Code README banner at <https://static-openapi.stepfun.com/resource/test.jpg> (pixels x=1070–1249 of the 1260×180 RGBA source). Pixels are unchanged; only the square mascot was cut out. It is not the StepFun provider mark.
+
 ## QwenWork editions — 2026-09-21
 
 - `qwenwork.png`: original 128px PNG (`ic07`) extracted losslessly from the official QwenWork 1.0.4 macOS bundle's `Contents/Resources/icon.icns`; bundle ID `com.qwenwork.desktop.mac`, download <https://qwenwork.ai/>.

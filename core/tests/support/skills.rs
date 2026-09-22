@@ -73,6 +73,7 @@ const VERIFIED_SKILL_AGENT_IDS: &[&str] = &[
     "roo-code",
     "rovo-dev",
     "stakpak",
+    "step-code",
     "theiaai-theiaide",
     "trae-ide",
     "vscode",
@@ -152,6 +153,15 @@ impl SkillsFixture {
                 "roo-code" => home.home.join(".roo"),
                 "rovo-dev" => home.home.join(".rovodev"),
                 "stakpak" => home.home.join(".stakpak"),
+                "step-code" => {
+                    let bin = home.home.join(".stepcode/bin");
+                    fs::create_dir_all(&bin).unwrap();
+                    let command = bin.join("step");
+                    fs::write(&command, "#!/bin/sh\n").unwrap();
+                    #[cfg(unix)]
+                    fs::set_permissions(&command, fs::Permissions::from_mode(0o755)).unwrap();
+                    bin
+                }
                 "theiaai-theiaide" => home.home.join("Applications/TheiaIDE.app"),
                 "trae-ide" => home.home.join(".trae"),
                 "vscode" => home.home.join("Library/Application Support/Code"),
@@ -593,6 +603,7 @@ fn primary_agent_for_target(target_id: &str) -> &'static str {
         "roo-user" => "roo-code",
         "rovodev-user" => "rovo-dev",
         "stakpak-user" => "stakpak",
+        "step-code-user" => "step-code",
         "warp-user" | "github-user" | "opencode-compat-user" => "warp",
         "windsurf-user" => "windsurf",
         other => panic!("unknown verified Skill target fixture id: {other}"),

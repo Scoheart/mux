@@ -69,6 +69,7 @@ Model 能力由 Rust Core 统一提供；MiniMax Code、Qoder IDE、Kimi Code CL
 | [Roo Code](https://docs.roocode.com/features/mcp/using-mcp-in-roo) | JSON | `mcpServers` | `~/Library/Application Support/Code/User/globalStorage/rooveterinaryinc.roo-cline/settings/mcp_settings.json` | stdio / http |
 | [Atlassian Rovo Dev CLI](https://support.atlassian.com/rovo/docs/connect-to-an-mcp-server-in-rovo-dev-cli/) | JSON | `mcpServers` | `~/.rovodev/mcp.json` | stdio / http |
 | [Stakpak](https://github.com/stakpak/agent#mcp-proxy-server) | TOML | `mcpServers` | `~/.stakpak/mcp.toml` | stdio / http |
+| [Step Code](https://platform.stepfun.com/docs/zh/step-code/customization/mcp) | TOML | `mcp_servers` | `~/.stepcode/config.toml` | stdio / http |
 | [Tabnine](https://docs.tabnine.com/main/getting-started/tabnine-agent/mcp-intro-and-setup) | JSON | `mcpServers` | `~/.tabnine/mcp_servers.json` | stdio / http |
 | [Visual Studio Code](https://code.visualstudio.com/docs/copilot/chat/mcp-servers) | JSON | `servers` | `~/Library/Application Support/Code/User/mcp.json` | stdio / http |
 | [VT Code](https://github.com/vinhnx/VTCode/blob/main/docs/guides/mcp-integration.md) | TOML | `mcp.providers` | `~/.vtcode/vtcode.toml` | stdio / http |
@@ -86,6 +87,7 @@ Model 能力由 Rust Core 统一提供；MiniMax Code、Qoder IDE、Kimi Code CL
 - **Claude Desktop / BoltAI**：列出的本地文件只原生支持 stdio。远程 MCP 分别由 Claude Connectors 或 BoltAI 的 `mcp-remote` 方案管理。
 - **Goose**：通用文档示例使用 `~/.config/goose/config.yaml`，当前 macOS 源码实际采用 `~/Library/Application Support/Block/goose/config/config.yaml`；MUX 按运行时代码定位。
 - **Grok Build**：MCP 与自定义模型共用 `~/.grok/config.toml`。MUX 分别局部管理 `mcp_servers`、`[models].default` 和独立的 MUX 模型表，支持三种官方 API backend，并保留其他模型、认证、超时、权限和工具策略。认证只写 `env_key` 变量名，不写密钥正文。
+- **Step Code**：2026-09-23 按阶跃星辰官方文档核验。MCP 只写 `~/.stepcode/config.toml` 的 `mcp_servers`，远程连接使用 `url` 与 `http_headers`，不写旧 SSE。`auth.json` 与 `models.json` 继续由 Step Code 管理。Skills 首选 `~/.stepcode/agent/skills`，并兼容读取 `~/.agents/skills`。启动使用 `~/.stepcode/bin/step`，不探测裸 `step` 命令。
 - **MiniMax Code**：主配置与 MCP 配置分离，分别是 `~/.mavis/config.yaml` 和 `~/.mavis/mcp.json`。MUX 可安全管理 `mcpServers`；Models 只提供引导，因为当前自定义 provider 会把 `options.apiKey` 明文写入 YAML。
 
 ## Skills 能力

@@ -29,6 +29,7 @@ fn fixture(name: &str) -> &'static str {
         "trae-cli" => include_str!("fixtures/trae-cli.toml"),
         "qoder-desktop" => include_str!("fixtures/qoder-desktop.json"),
         "qwenwork" => include_str!("fixtures/qwenwork.json"),
+        "step-code" => include_str!("fixtures/step-code.toml"),
         "opencode" => include_str!("fixtures/opencode.json"),
         "codex" => include_str!("fixtures/codex.toml"),
         "gemini" => include_str!("fixtures/gemini.json"),
@@ -274,6 +275,68 @@ fn opencode_update_preserves_private_settings_and_entry_policy() {
 }
 
 #[test]
+fn step_code_preserves_settings_and_refuses_disabled_or_sse_entries() {
+    let agents = builtin_agents();
+    let definition = &agents["step-code"];
+    assert_eq!(definition.global.as_deref(), Some("~/.stepcode/config.toml"));
+    assert!(definition.project.is_none());
+    let skills = definition.skills.as_ref().unwrap();
+    assert_eq!(skills.global_dir, "~/.stepcode/agent/skills");
+    assert_eq!(skills.aliases[0].global_dir, "~/.agents/skills");
+    assert!(skills.probes.iter().all(|probe| !matches!(
+        probe,
+        mux_core::types::AgentInstallProbe::Command { name } if name == "step"
+    )));
+    let launchers: Value =
+        serde_json::from_str(include_str!("../../data/agent-launchers.json")).unwrap();
+    assert_eq!(
+        launchers["step-code"]["candidates"],
+        serde_json::json!(["~/.stepcode/bin/step"])
+    );
+
+    let path = write_fixture("step-code", "toml");
+    let adapter = get_agent_adapter_for(definition, "step-code");
+    let scanned = adapter.read(&path);
+    assert!(matches!(scanned["local"], McpConfig::Stdio(_)));
+    assert!(matches!(scanned["docs"], McpConfig::Http(_)));
+    assert!(!scanned.contains_key("paused"));
+
+    let original = std::fs::read_to_string(&path).unwrap();
+    assert!(adapter
+        .upsert(&path, "paused", &http("https://new.example.com/mcp"))
+        .is_err());
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), original);
+    let sse = McpConfig::Http(HttpConfig {
+        kind: "sse".into(),
+        url: "https://sse.example.com/mcp".into(),
+        headers: None,
+    });
+    assert!(adapter.upsert(&path, "docs", &sse).is_err());
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), original);
+
+    adapter
+        .upsert(&path, "docs", &http("https://new.example.com/mcp"))
+        .unwrap();
+    let written = std::fs::read_to_string(&path).unwrap();
+    let root: toml::Value = toml::from_str(&written).unwrap();
+    let target = &root["mcp_servers"]["docs"];
+    assert_eq!(root["theme"].as_str(), Some("step-blue"));
+    assert_eq!(root["defaultProvider"].as_str(), Some("step"));
+    assert_eq!(root["defaultModel"].as_str(), Some("step-3.7-flash"));
+    assert_eq!(target["url"].as_str(), Some("https://new.example.com/mcp"));
+    assert_eq!(target["http_headers"]["X-New"].as_str(), Some("value"));
+    assert_eq!(target["bearer_token_env_var"].as_str(), Some("DOCS_TOKEN"));
+    assert_eq!(target["startup_timeout_sec"].as_integer(), Some(30));
+    assert_eq!(target["oauth"]["callback_port"].as_integer(), Some(8976));
+    assert_eq!(root["mcp_servers"]["paused"]["enabled"].as_bool(), Some(false));
+    assert!(written.contains("enabled_tools = [\"search\"] # keep policy and comment"));
+    assert!(written.contains("# keep Step Code settings and comments"));
+    assert!(!target.as_table().unwrap().contains_key("type"));
+    assert!(!target.as_table().unwrap().contains_key("headers"));
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
 fn codex_update_preserves_tool_policy_and_uses_http_headers() {
     let path = write_fixture("codex", "toml");
     let adapter = get_agent_adapter("toml", "mcp_servers", "codex");
@@ -446,7 +509,7 @@ fn every_writable_builtin_roundtrips_through_its_wire_format() {
         .values()
         .filter(|agent| agent.global.is_some())
         .count();
-    assert_eq!(writable, 46);
+    assert_eq!(writable, 56);
 
     for (agent_id, definition) in agents {
         if definition.global.is_none() {
@@ -755,6 +818,7 @@ fn builtin_global_paths_match_current_product_docs() {
         ),
         ("rovo-dev", "~/.rovodev/mcp.json"),
         ("stakpak", "~/.stakpak/mcp.toml"),
+        ("step-code", "~/.stepcode/config.toml"),
         ("tabnine", "~/.tabnine/mcp_servers.json"),
         (
             "vscode",
@@ -783,16 +847,16 @@ fn verified_and_catalog_definitions_have_auditable_boundaries() {
     let all_ids: std::collections::BTreeSet<_> =
         verified_ids.union(&catalog_ids).cloned().collect();
 
-    assert_eq!(verified.len(), 70);
+    assert_eq!(verified.len(), 71);
     assert_eq!(catalog.len(), 204);
     assert_eq!(verified_ids.intersection(&catalog_ids).count(), 49);
-    assert_eq!(all_ids.len(), 225);
+    assert_eq!(all_ids.len(), 226);
     assert_eq!(
         verified
             .values()
             .filter(|item| item.global.is_some())
         .count(),
-        55
+        56
     );
     assert!(catalog.len() >= 170);
     for (id, definition) in verified {
@@ -829,6 +893,7 @@ fn verified_and_catalog_definitions_have_auditable_boundaries() {
                         | "server_url"
                         | "url_transport"
                         | "stdio_only"
+                        | "stepcode"
                 )
             ),
             "{id}: unknown codec {:?}",

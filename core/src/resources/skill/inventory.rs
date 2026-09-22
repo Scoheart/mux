@@ -2387,11 +2387,13 @@ mod tests {
 }
 
 /// Runtime detection excludes configuration directories that MUX itself can create.
+/// An installed executable under a product `bin` directory still counts, because
+/// writing that product's config does not create the binary.
 pub(crate) fn detect_agent_runtime(probes: &[AgentInstallProbe]) -> Option<bool> {
     let paths = SkillsPaths::resolve_from_env().ok()?;
     let runtime: Vec<_> = probes.iter().filter(|probe| match probe {
         AgentInstallProbe::Command { .. } | AgentInstallProbe::MacBundle { .. } => true,
-        AgentInstallProbe::Path { path } => path.ends_with(".app"),
+        AgentInstallProbe::Path { path } => path.ends_with(".app") || path.contains("/bin/"),
     }).collect();
     if runtime.is_empty() { return None; }
     Some(runtime.into_iter().any(|probe| probe_installed(probe, &paths)))

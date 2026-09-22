@@ -177,6 +177,13 @@ impl Adapter for TomlAdapter {
                 )
             })?;
         let patch = self.codec.patch(cfg)?;
+        if let Some(item) = section.get(name) {
+            let current = serde_json::to_value(
+                toml::from_str::<Toml>(&item.to_string()).map_err(|error| error.to_string())?,
+            )
+            .map_err(|error| error.to_string())?;
+            self.codec.validate_update(&current, cfg)?;
+        }
         if let Some(item) = section.get_mut(name) {
             let target = item.as_table_mut().ok_or_else(|| {
                 format!(

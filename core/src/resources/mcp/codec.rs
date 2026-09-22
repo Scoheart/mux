@@ -150,6 +150,7 @@ pub enum Codec {
     AgentKube,
     ZCode,
     ChatMcp,
+    StepCode,
     StdioOnly,
 }
 
@@ -183,6 +184,7 @@ pub fn for_agent(agent_id: &str) -> Codec {
         "qoder" | "qoder-cli" | "qoder-desktop" => Codec::Qoder,
         "qoderwork" => Codec::QoderWork,
         "qwenwork" | "qwenwork-cn" => Codec::QwenWork,
+        "step-code" => Codec::StepCode,
         "copilot-cli" => Codec::Copilot,
         "cline" => Codec::Cline,
         "roo-code" => Codec::Roo,
@@ -222,6 +224,7 @@ pub fn from_name(name: Option<&str>, agent_id: &str) -> Codec {
         Some("server_url") => Codec::Windsurf,
         Some("url_transport") => Codec::Kimi,
         Some("stdio_only") => Codec::StdioOnly,
+        Some("stepcode") => Codec::StepCode,
         _ => for_agent(agent_id),
     }
 }
@@ -267,7 +270,7 @@ impl Codec {
                 }
             }
             Codec::ZCode => validate_active_field(object.get("enable"), true, "enable")?,
-            Codec::AgentKube | Codec::VtCode | Codec::Kimi => {
+            Codec::AgentKube | Codec::VtCode | Codec::Kimi | Codec::StepCode => {
                 validate_active_field(object.get("enabled"), true, "enabled")?
             }
             Codec::ChatMcp if contains_sensitive_auth(value) => {
@@ -384,7 +387,7 @@ impl Codec {
         }
         .to_string();
         let headers = match self {
-            Codec::Codex => string_map(object.get("http_headers")),
+            Codec::Codex | Codec::StepCode => string_map(object.get("http_headers")),
             Codec::Continue => nested_string_map(object, "requestOptions", "headers"),
             Codec::Tabnine => nested_string_map(object, "requestInit", "headers"),
             _ => string_map(object.get("headers")),
@@ -536,6 +539,10 @@ impl Codec {
                     push_http_fields(&mut fields, http, "url", "headers");
                 }
                 Codec::Codex => push_http_fields(&mut fields, http, "url", "http_headers"),
+                Codec::StepCode => {
+                    require_http_kind(http, "Step Code", &["http", "streamable-http"])?;
+                    push_http_fields(&mut fields, http, "url", "http_headers");
+                }
                 Codec::Gemini => push_http_fields(
                     &mut fields,
                     http,
@@ -752,7 +759,7 @@ impl Codec {
 
     fn controlled_fields(self) -> &'static [&'static str] {
         match self {
-            Codec::Codex => CODEX_FIELDS,
+            Codec::Codex | Codec::StepCode => CODEX_FIELDS,
             Codec::OpenCode => OPENCODE_FIELDS,
             Codec::Gemini => GEMINI_FIELDS,
             Codec::Windsurf => WINDSURF_FIELDS,

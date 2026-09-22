@@ -79,6 +79,7 @@ MUX 按物理目录归一化消费关系。Cursor IDE 与 Cursor CLI 共用 `~/.
 | Atlassian Rovo Dev CLI | `~/.rovodev/skills` | `~/.agents/skills` |
 | Snowflake Cortex Code | `~/.snowflake/cortex/skills` | `~/.claude/skills` |
 | Stakpak | `~/.stakpak/skills` | — |
+| Step Code | `~/.stepcode/agent/skills` | `~/.agents/skills` |
 | TRAE IDE | `~/.trae/skills` | — |
 | Visual Studio Code | `~/.copilot/skills` | `~/.claude/skills`、`~/.agents/skills` |
 | VT Code | `~/.agents/skills` | — |

@@ -7,6 +7,7 @@ import { requiresAgentReview } from "../lib/agentOperation";
 import { EnvEditor } from "./EnvEditor";
 import { AssetOperationReviewDialog } from "./AssetOperationReviewDialog";
 import { DialogShell } from "./DialogShell";
+import { DialogDisclosure } from "./DialogDisclosure";
 import { ResourceInspector } from "./ResourceWorkspace";
 import { LayersIcon, SaveIcon } from "./icons";
 import { useToast } from "./Toast";
@@ -79,6 +80,8 @@ export function RegistryEditPage({
 
   const [command, setCommand] = useState(existing?.config.stdio?.command ?? "");
   const [argsText, setArgsText] = useState((existing?.config.stdio?.args ?? []).join("\n"));
+  const [argsEdited, setArgsEdited] = useState(false);
+  const [cwd, setCwd] = useState(existing?.config.stdio?.cwd ?? "");
   const [env, setEnv] = useState<Record<string, string>>(existing?.config.stdio?.env ?? {});
 
   const [httpType, setHttpType] = useState<string>(existing?.config.http?.type ?? "http");
@@ -124,9 +127,11 @@ export function RegistryEditPage({
       transport === "stdio"
         ? {
             stdio: {
+              ...existing?.config.stdio,
               command: command.trim(),
-              args: argsText.split("\n").map((a) => a.trim()).filter(Boolean),
+              args: argsEdited || isNew ? argsText.split(/\r?\n/).filter((arg) => arg.length > 0) : existing?.config.stdio?.args,
               env: compact(env),
+              cwd: cwd.trim() || undefined,
             },
           }
         : { http: { type: httpType.trim() || "http", url: url.trim(), headers: compact(headers) } },
@@ -227,17 +232,6 @@ export function RegistryEditPage({
               </div>
             </div>
 
-            {/* Repo / homepage */}
-            <div className="mb-4">
-              <label className={labelCls} style={labelStyle}>仓库 / 主页（可选）</label>
-              <input
-                style={{ ...inputStyle, fontFamily: "var(--font-mono)" }}
-                value={repo}
-                onChange={(e) => setRepo(e.target.value)}
-                placeholder="https://github.com/owner/repo"
-              />
-            </div>
-
             {/* Transport */}
             <div className="mb-4">
               <label className={labelCls} style={labelStyle}>传输方式</label>
@@ -265,16 +259,23 @@ export function RegistryEditPage({
                 <div className="mb-4">
                   <label className={labelCls} style={labelStyle}>参数 args（每行一个）</label>
                   <textarea
+                    aria-label="启动参数"
                     style={{ ...inputStyle, fontFamily: "var(--font-mono)", minHeight: 80, resize: "vertical" }}
                     value={argsText}
-                    onChange={(e) => setArgsText(e.target.value)}
+                    onChange={(e) => { setArgsText(e.target.value); setArgsEdited(true); }}
                     placeholder={"-y\n@modelcontextprotocol/server-filesystem"}
                   />
                 </div>
+                <DialogDisclosure title="运行设置" summary={cwd || Object.keys(env).length ? "已配置" : "目录、环境变量"}>
+                <label className={labelCls} style={labelStyle}>工作目录
+                  <input style={{ ...inputStyle, marginTop: 6, fontFamily: "var(--font-mono)" }}
+                    value={cwd} onChange={(event) => setCwd(event.target.value)} placeholder="留空使用默认目录" />
+                </label>
                 <div>
                   <label className={labelCls} style={labelStyle}>环境变量 env</label>
                   <EnvEditor value={env} onChange={setEnv} />
                 </div>
+                </DialogDisclosure>
               </>
             ) : (
               <>
@@ -311,12 +312,28 @@ export function RegistryEditPage({
                     placeholder="https://example.com/mcp"
                   />
                 </div>
+                <DialogDisclosure title="请求头" summary={Object.keys(headers).length ? `${Object.keys(headers).length} 项` : "可选"}>
                 <div>
                   <label className={labelCls} style={labelStyle}>请求头 headers</label>
                   <EnvEditor value={headers} onChange={setHeaders} />
                 </div>
+                </DialogDisclosure>
               </>
             )}
+            <DialogDisclosure title="更多信息" summary="仓库 / 主页">
+            {/* Repo / homepage */}
+            <div className="mb-4">
+              <label className={labelCls} style={labelStyle}>仓库 / 主页（可选）</label>
+              <input
+                style={{ ...inputStyle, fontFamily: "var(--font-mono)" }}
+                value={repo}
+                onChange={(e) => setRepo(e.target.value)}
+                placeholder="https://github.com/owner/repo"
+              />
+            </div>
+
+
+            </DialogDisclosure>
     </div>
   );
 

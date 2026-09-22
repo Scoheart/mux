@@ -890,6 +890,19 @@ body {
   margin: 6px auto 0;
 }
 .mux-model-list-row .mux-model-list-identity { grid-area: identity; }
+.mux-model-card { position: relative; }
+.mux-models-workspace .mux-model-card .mux-model-list-row { padding-right: 86px; }
+.mux-model-card-actions { position: absolute; top: 10px; right: 10px; display: flex; gap: 4px; }
+.mux-model-card-action {
+  display: inline-flex; width: 30px; height: 30px; align-items: center; justify-content: center;
+  border: 0; border-radius: 7px; background: transparent; color: var(--text-tertiary); cursor: pointer;
+  transition: color .12s ease, background-color .12s ease;
+}
+.mux-model-card-action:hover:not(:disabled) { color: var(--color-blue); background: var(--surface-control); }
+.mux-model-card-delete:hover:not(:disabled) { color: var(--color-red); background: color-mix(in srgb, var(--color-red) 9%, transparent); }
+.mux-model-card-action:focus-visible { outline: 2px solid var(--color-blue); outline-offset: 2px; }
+.mux-model-card-action:disabled { opacity: .4; cursor: default; }
+.mux-model-card-action[aria-busy="true"] { opacity: .55; }
 .mux-model-list-subline {
   display: flex !important; min-width: 0; align-items: center; gap: 6px; margin-top: 4px;
   overflow: hidden; color: var(--text-secondary); font: 9px/1.25 var(--font-mono); white-space: nowrap;
@@ -1038,6 +1051,27 @@ body {
 .mux-dialog-shell-footer-start,
 .mux-dialog-shell-footer-end { display: flex; align-items: center; gap: 7px; }
 .mux-dialog-shell-footer-end { margin-left: auto; }
+.mux-dialog-disclosure { min-width: 0; border-top: 1px solid var(--border-hairline); }
+.mux-dialog-disclosure > summary {
+  display: flex; align-items: center; gap: 8px; padding: 12px 0;
+  color: var(--text-secondary); font-size: 11px; font-weight: 600; cursor: pointer; list-style: none;
+}
+.mux-dialog-disclosure > summary::-webkit-details-marker { display: none; }
+.mux-dialog-disclosure > summary > small { margin-left: auto; font-size: 10px; font-weight: 400; color: var(--text-tertiary); }
+.mux-dialog-disclosure > summary > svg { margin-left: auto; transition: transform .15s ease; }
+.mux-dialog-disclosure > summary > small + svg { margin-left: 0; }
+.mux-dialog-disclosure[open] > summary > svg { transform: rotate(180deg); }
+.mux-dialog-disclosure > summary:focus-visible { outline: 2px solid var(--color-blue); outline-offset: 2px; border-radius: 5px; }
+.mux-dialog-disclosure-body { display: grid; min-width: 0; gap: 14px; padding: 2px 0 12px; }
+.mux-dialog-disclosure-body > .mux-provider-form-section { border-top: 0; padding-top: 0; }
+:is(.mux-agent-identity-fields, .mux-agent-detail-fields) > .mux-dialog-disclosure { grid-column: 1 / -1; }
+.mux-dialog-shell-footer-start { min-width: 0; flex: 1; color: var(--text-secondary); font-size: 10px; }
+.mux-dialog-shell-footer-end { flex: 0 0 auto; }
+.mux-dialog-shell-body :is(input, textarea, select) { max-width: 100%; }
+@media (max-width: 600px), (max-height: 640px) {
+  .mux-dialog-shell { --mux-dialog-inline: 16px; --mux-dialog-block: 14px; }
+  .mux-dialog-shell-subtitle { max-width: 48ch; }
+}
 .mux-proxy-form { display: grid; gap: 10px; padding: 0; border-radius: 0; background: transparent; }
 .mux-proxy-form label { color: var(--text-primary); font-size: 10px; font-weight: 680; }
 .mux-proxy-form input {
@@ -1097,7 +1131,7 @@ body {
 }
 .mux-review-dialog-glyph svg { width: 15px; height: 15px; }
 .mux-review-dialog-danger .mux-dialog-shell-status { margin: 0 var(--mux-dialog-inline) 8px; background: color-mix(in srgb, var(--color-red) 7%, var(--surface-raised)); }
-.mux-review-dialog-danger .mux-dialog-shell-body { padding: var(--mux-dialog-block) var(--mux-dialog-inline); overflow: visible; overscroll-behavior: contain; }
+.mux-review-dialog-danger .mux-dialog-shell-body { padding: var(--mux-dialog-block) var(--mux-dialog-inline); overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; }
 .mux-review-dialog-danger .mux-review-content { display: grid; gap: 10px; }
 .mux-review-dialog-danger .mux-dialog-shell-footer {
   min-height: var(--mux-dialog-footer-height); margin: 0; padding: 9px var(--mux-dialog-inline);
@@ -1205,6 +1239,21 @@ body {
   padding: 6px; align-items: stretch;
 }
 .mux-skill-card-grid > [role="listitem"] { min-width: 0; }
+/* Retain searchable/focusable cards while skipping offscreen layout and paint.
+   Hover/focus removes containment so the Agent fan and focus rings can extend. */
+@supports (content-visibility: auto) {
+  .mux-asset-list > [role="listitem"] {
+    content-visibility: auto;
+    contain-intrinsic-block-size: auto 78px;
+  }
+  .mux-skill-card-grid > [role="listitem"] {
+    content-visibility: auto;
+    contain-intrinsic-block-size: auto 174px;
+  }
+  :is(.mux-asset-list, .mux-skill-card-grid) > [role="listitem"]:is(:hover, :focus-within) {
+    content-visibility: visible;
+  }
+}
 .mux-skill-card {
   position: relative; display: flex; flex-direction: column; min-width: 0; height: 100%; min-height: 160px;
   border: 1px solid var(--border-hairline); border-radius: 12px; background: var(--surface-raised);
@@ -2400,7 +2449,6 @@ body {
   background: var(--surface-quiet); color: var(--text-secondary); font: 10px/1.4 var(--font-mono); text-overflow: ellipsis;
 }
 .mux-plaintext-confirmation-body span { color: var(--text-secondary); font-size: 11px; }
-.mux-provider-credential-clear { justify-self: start; }
 .mux-provider-icon-button {
   display: inline-flex; width: 24px; height: 24px; flex: 0 0 24px; align-items: center; justify-content: center;
   padding: 0; border: 0; border-radius: 4px; background: transparent; color: var(--text-secondary); cursor: pointer;

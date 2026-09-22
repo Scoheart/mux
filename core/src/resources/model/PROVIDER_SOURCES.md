@@ -1,5 +1,13 @@
 # Provider Catalog sources
 
+## Clickable official documentation — 2026-09-21
+
+`data/provider-docs.json` is the display-only documentation URL catalog for all 71 built-in Provider templates. Core serializes it as `docs_url`; custom connections have no vendor documentation link. It is independent of user-supplied API endpoints and never derives a website from a Base URL or includes credentials.
+
+The desktop exposes the same link in the selected Provider banner, the Provider picker selection footer, and the Provider editor footer. Links open via the native system-browser opener without selecting a template or submitting a form; failures use the existing toast UI.
+
+URLs were checked against the official pages on this date, using the existing source matrices and models.dev for discovery only. Regions and Coding/Token Plans retain their specific documentation. Direct requests to some vendors encountered network-policy or anti-bot pages; official page retrieval separately confirmed MiniMax CN, Kimi Code, Requesty, Together AI, Scaleway and StepFun Global. Network interception URLs are not stored in the catalog. MiMo Token Plan uses the current `/tokenplan/Token%20Plan/quick-access` route rather than the outdated `/price/tokenplan/quick-access` route.
+
 Plan-specific Provider templates were audited on 2026-07-28 against
 `https://models.dev/api.json` for discovery and the vendors' official
 documentation for authority. A Coding/Token Plan is a separate connection:

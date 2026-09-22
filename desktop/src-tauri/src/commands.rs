@@ -117,6 +117,23 @@ where
         .map_err(|_| CoreError::new("worker_failed", "后台任务失败，请重试。"))?
 }
 
+async fn blocking_command<T: Send + 'static>(
+    operation: impl FnOnce() -> T + Send + 'static,
+) -> Result<T, String> {
+    tauri::async_runtime::spawn_blocking(operation).await
+        .map_err(|_| "worker_failed: Background query failed".to_owned())
+}
+
+#[tauri::command]
+pub async fn get_registry_snapshot() -> Result<mux_core::application::mcp::catalog::RegistrySnapshot, String> {
+    blocking_command(mux_core::application::mcp::catalog::read_registry_snapshot).await
+}
+
+#[tauri::command]
+pub async fn get_resource_observation() -> Result<mux_core::application::assets::ResourceObservation, String> {
+    blocking_command(mux_core::application::assets::observe_resources).await
+}
+
 #[tauri::command]
 pub async fn get_workspace_snapshot(
 ) -> CoreResult<mux_core::application::workspace::WorkspaceSnapshot> {
@@ -124,48 +141,52 @@ pub async fn get_workspace_snapshot(
 }
 
 #[tauri::command]
-pub fn get_backend_status() -> BackendStatus {
-    MuxCore::backend_status()
+pub async fn get_backend_status() -> Result<BackendStatus, String> {
+    blocking_command(move || {
+        MuxCore::backend_status()
+    }).await
 }
 
 /// Write user-requested text to the native clipboard. macOS WebViews can
 /// reject `navigator.clipboard` for a dev origin, while `pbcopy` uses the
 /// system clipboard service directly. The text is never logged or persisted.
 #[tauri::command]
-pub fn copy_to_clipboard(text: String) -> Result<(), String> {
-    if text.contains('\0') {
-        return Err("clipboard_invalid: text contains a NUL byte".into());
-    }
-    #[cfg(target_os = "macos")]
-    {
-        let mut process = Command::new("/usr/bin/pbcopy")
-            .stdin(Stdio::piped())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
-            .map_err(|error| format!("clipboard_unavailable: {error}"))?;
-        let mut input = process
-            .stdin
-            .take()
-            .ok_or_else(|| "clipboard_unavailable: pbcopy stdin unavailable".to_string())?;
-        input
-            .write_all(text.as_bytes())
-            .map_err(|error| format!("clipboard_write_failed: {error}"))?;
-        drop(input);
-        let status = process
-            .wait()
-            .map_err(|error| format!("clipboard_unavailable: {error}"))?;
-        if status.success() {
-            Ok(())
-        } else {
-            Err("clipboard_write_failed: pbcopy exited unsuccessfully".into())
+pub async fn copy_to_clipboard(text: String) -> Result<(), String> {
+    blocking_command(move || {
+        if text.contains('\0') {
+            return Err("clipboard_invalid: text contains a NUL byte".into());
         }
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        let _ = text;
-        Err("clipboard_unsupported: native clipboard integration is unavailable".into())
-    }
+        #[cfg(target_os = "macos")]
+        {
+            let mut process = Command::new("/usr/bin/pbcopy")
+                .stdin(Stdio::piped())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+                .map_err(|error| format!("clipboard_unavailable: {error}"))?;
+            let mut input = process
+                .stdin
+                .take()
+                .ok_or_else(|| "clipboard_unavailable: pbcopy stdin unavailable".to_string())?;
+            input
+                .write_all(text.as_bytes())
+                .map_err(|error| format!("clipboard_write_failed: {error}"))?;
+            drop(input);
+            let status = process
+                .wait()
+                .map_err(|error| format!("clipboard_unavailable: {error}"))?;
+            if status.success() {
+                Ok(())
+            } else {
+                Err("clipboard_write_failed: pbcopy exited unsuccessfully".into())
+            }
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            let _ = text;
+            Err("clipboard_unsupported: native clipboard integration is unavailable".into())
+        }
+    }).await?
 }
 
 #[tauri::command]
@@ -544,6 +565,11 @@ pub async fn cancel_skill_operation(operation_id: String) -> Result<(), SkillCom
 // ── Model endpoint profiles ─────────────────────────────────────────────
 
 #[tauri::command]
+pub async fn export_model_curl(profile_id: String, include_api_key: bool) -> Result<String, String> {
+    blocking_command(move || mux_core::application::models::export_curl(&profile_id, include_api_key)).await?
+}
+
+#[tauri::command]
 pub async fn list_model_profiles() -> Result<Vec<mux_core::application::models::ModelProfileView>, String> {
     // Profile enumeration checks Keychain and may wait for the workspace gate.
     // Never perform that work on the WebView event thread.
@@ -558,9 +584,11 @@ pub fn list_model_providers() -> &'static [mux_core::application::models::ModelP
 }
 
 #[tauri::command]
-pub fn list_model_provider_instances(
-) -> Vec<mux_core::application::models::ModelProviderInstanceView> {
-    mux_core::application::models::list_provider_instances()
+pub async fn list_model_provider_instances(
+) -> Result<Vec<mux_core::application::models::ModelProviderInstanceView>, String> {
+    blocking_command(move || {
+        mux_core::application::models::list_provider_instances()
+    }).await
 }
 
 #[tauri::command]
@@ -575,8 +603,10 @@ pub async fn discover_provider_models(
 }
 
 #[tauri::command]
-pub fn reveal_model_provider_credential(provider_id: String) -> Result<String, String> {
-    mux_core::application::models::reveal_provider_credential(&provider_id)
+pub async fn reveal_model_provider_credential(provider_id: String) -> Result<String, String> {
+    blocking_command(move || {
+        mux_core::application::models::reveal_provider_credential(&provider_id)
+    }).await?
 }
 
 #[tauri::command]
@@ -639,25 +669,31 @@ pub async fn set_agent_credential_delivery(
 }
 
 #[tauri::command]
-pub fn list_registry() -> Vec<RegistryEntry> {
-    // Read user overrides from settings.registry merged over builtin — same source
-    // scan_installed / apply_install resolve against, so the UI stays consistent.
-    read_registry()
+pub async fn list_registry() -> Result<Vec<RegistryEntry>, String> {
+    blocking_command(move || {
+        // Read user overrides from settings.registry merged over builtin — same source
+        // scan_installed / apply_install resolve against, so the UI stays consistent.
+        read_registry()
+    }).await
 }
 
 /// Every entry copy from all enabled sources (not deduped), each flagged with
 /// whether it's the in-effect (winning) copy. Drives the Registry's "全部" /
 /// per-source views that must show shadowed copies too.
 #[tauri::command]
-pub fn list_registry_all() -> Vec<CatalogItem> {
-    read_registry_all()
+pub async fn list_registry_all() -> Result<Vec<CatalogItem>, String> {
+    blocking_command(move || {
+        read_registry_all()
+    }).await
 }
 
 /// Composite keys (`name::transport`) of registry entries that currently have a
 /// user override.
 #[tauri::command]
-pub fn list_custom_registry_keys() -> Vec<String> {
-    user_override_keys()
+pub async fn list_custom_registry_keys() -> Result<Vec<String>, String> {
+    blocking_command(move || {
+        user_override_keys()
+    }).await
 }
 
 /// Parse a pasted config blob (JSON or TOML) and add every MCP server it contains
@@ -728,21 +764,27 @@ fn import_pasted_config_blocking(text: String) -> CoreResult<Vec<String>> {
 use mux_core::application::mcp::sources::{self, SourceView};
 
 #[tauri::command]
-pub fn list_sources() -> Vec<SourceView> {
-    sources::list_views()
+pub async fn list_sources() -> Result<Vec<SourceView>, String> {
+    blocking_command(move || {
+        sources::list_views()
+    }).await
 }
 
 #[tauri::command]
-pub fn subscribe_source(url: String, name: Option<String>) -> CoreResult<SourceView> {
-    sources::subscribe(url, name)
-        .map_err(|error| core_error_from_legacy(error, "source_operation_failed"))
+pub async fn subscribe_source(url: String, name: Option<String>) -> CoreResult<SourceView> {
+    core_blocking(move || {
+        sources::subscribe(url, name)
+            .map_err(|error| core_error_from_legacy(error, "source_operation_failed"))
+    }).await
 }
 
 /// Add a local source from an explicit path.
 #[tauri::command]
-pub fn add_local_source(path: String, name: Option<String>) -> CoreResult<SourceView> {
-    sources::add_local(path, name)
-        .map_err(|error| core_error_from_legacy(error, "source_operation_failed"))
+pub async fn add_local_source(path: String, name: Option<String>) -> CoreResult<SourceView> {
+    core_blocking(move || {
+        sources::add_local(path, name)
+            .map_err(|error| core_error_from_legacy(error, "source_operation_failed"))
+    }).await
 }
 
 /// Open a native file picker and add the chosen file as a local source. Returns
@@ -801,25 +843,33 @@ pub async fn export_effective_dialog(app: tauri::AppHandle) -> CoreResult<Option
 
 /// Add the bundled curated collection as an opt-in local source.
 #[tauri::command]
-pub fn add_builtin_collection() -> CoreResult<SourceView> {
-    sources::add_official()
-        .map_err(|error| core_error_from_legacy(error, "source_operation_failed"))
+pub async fn add_builtin_collection() -> CoreResult<SourceView> {
+    core_blocking(move || {
+        sources::add_official()
+            .map_err(|error| core_error_from_legacy(error, "source_operation_failed"))
+    }).await
 }
 
 #[tauri::command]
-pub fn refresh_source(id: String) -> CoreResult<SourceView> {
-    sources::refresh(id).map_err(|error| core_error_from_legacy(error, "source_operation_failed"))
+pub async fn refresh_source(id: String) -> CoreResult<SourceView> {
+    core_blocking(move || {
+        sources::refresh(id).map_err(|error| core_error_from_legacy(error, "source_operation_failed"))
+    }).await
 }
 
 #[tauri::command]
-pub fn set_source_enabled(id: String, enabled: bool) -> CoreResult<()> {
-    sources::set_enabled(id, enabled)
-        .map_err(|error| core_error_from_legacy(error, "source_operation_failed"))
+pub async fn set_source_enabled(id: String, enabled: bool) -> CoreResult<()> {
+    core_blocking(move || {
+        sources::set_enabled(id, enabled)
+            .map_err(|error| core_error_from_legacy(error, "source_operation_failed"))
+    }).await
 }
 
 #[tauri::command]
-pub fn remove_source(id: String) -> CoreResult<()> {
-    sources::remove(id).map_err(|error| core_error_from_legacy(error, "source_operation_failed"))
+pub async fn remove_source(id: String) -> CoreResult<()> {
+    core_blocking(move || {
+        sources::remove(id).map_err(|error| core_error_from_legacy(error, "source_operation_failed"))
+    }).await
 }
 
 use mux_core::application::agents::{load_agents, AgentInfo};
@@ -828,43 +878,57 @@ use mux_core::domain::types::AgentDefinition;
 /// 新增一个自定义 agent，持久化到 settings.agents（在内置/已有定义之上合并）。
 /// id 为空或已存在时报错，避免误覆盖内置 agent。
 #[tauri::command]
-pub fn add_agent(id: String, def: AgentDefinition) -> CoreResult<()> {
-    mux_core::application::agents::put(id, def, false)
-        .map_err(|error| core_error_from_legacy(error, "agent_operation_failed"))
+pub async fn add_agent(id: String, def: AgentDefinition) -> CoreResult<()> {
+    core_blocking(move || {
+        mux_core::application::agents::put(id, def, false)
+            .map_err(|error| core_error_from_legacy(error, "agent_operation_failed"))
+    }).await
 }
 
 /// 编辑一个已存在 agent 的配置（路径 / 格式 / key），覆盖写回 settings.agents。
 #[tauri::command]
-pub fn update_agent(id: String, def: AgentDefinition) -> CoreResult<()> {
-    mux_core::application::agents::put(id, def, true)
-        .map_err(|error| core_error_from_legacy(error, "agent_operation_failed"))
+pub async fn update_agent(id: String, def: AgentDefinition) -> CoreResult<()> {
+    core_blocking(move || {
+        mux_core::application::agents::put(id, def, true)
+            .map_err(|error| core_error_from_legacy(error, "agent_operation_failed"))
+    }).await
 }
 
 #[tauri::command]
-pub fn list_agents() -> Vec<AgentInfo> {
-    mux_core::application::agents::list_infos()
+pub async fn list_agents() -> Result<Vec<AgentInfo>, String> {
+    blocking_command(move || {
+        mux_core::application::agents::list_infos()
+    }).await
 }
 
 #[tauri::command]
-pub fn get_pinned_agents() -> Result<Vec<String>, String> {
-    mux_core::application::ui::get_pinned_agents()
+pub async fn get_pinned_agents() -> Result<Vec<String>, String> {
+    blocking_command(move || {
+        mux_core::application::ui::get_pinned_agents()
+    }).await?
 }
 
 #[tauri::command]
-pub fn set_pinned_agents(agent_ids: Vec<String>) -> CoreResult<Vec<String>> {
-    mux_core::application::ui::set_pinned_agents(agent_ids)
-        .map_err(|error| core_error_from_legacy(error, "ui_preference_failed"))
+pub async fn set_pinned_agents(agent_ids: Vec<String>) -> CoreResult<Vec<String>> {
+    core_blocking(move || {
+        mux_core::application::ui::set_pinned_agents(agent_ids)
+            .map_err(|error| core_error_from_legacy(error, "ui_preference_failed"))
+    }).await
 }
 
 #[tauri::command]
-pub fn get_ui_locale() -> Result<Option<String>, String> {
-    mux_core::application::ui::get_ui_locale()
+pub async fn get_ui_locale() -> Result<Option<String>, String> {
+    blocking_command(move || {
+        mux_core::application::ui::get_ui_locale()
+    }).await?
 }
 
 #[tauri::command]
-pub fn set_ui_locale(locale: Option<String>) -> CoreResult<Option<String>> {
-    mux_core::application::ui::set_ui_locale(locale)
-        .map_err(|error| core_error_from_legacy(error, "ui_preference_failed"))
+pub async fn set_ui_locale(locale: Option<String>) -> CoreResult<Option<String>> {
+    core_blocking(move || {
+        mux_core::application::ui::set_ui_locale(locale)
+            .map_err(|error| core_error_from_legacy(error, "ui_preference_failed"))
+    }).await
 }
 
 #[tauri::command]
@@ -878,20 +942,24 @@ pub async fn list_mcp_icon_preferences(
 }
 
 #[tauri::command]
-pub fn set_mcp_builtin_icon(
+pub async fn set_mcp_builtin_icon(
     asset_key: String,
     icon_id: String,
 ) -> CoreResult<BTreeMap<String, mux_core::application::ui::McpIconPreferenceView>> {
-    mux_core::application::ui::set_mcp_builtin_icon(asset_key, icon_id)
-        .map_err(|error| core_error_from_legacy(error, "ui_preference_failed"))
+    core_blocking(move || {
+        mux_core::application::ui::set_mcp_builtin_icon(asset_key, icon_id)
+            .map_err(|error| core_error_from_legacy(error, "ui_preference_failed"))
+    }).await
 }
 
 #[tauri::command]
-pub fn reset_mcp_icon(
+pub async fn reset_mcp_icon(
     asset_key: String,
 ) -> CoreResult<BTreeMap<String, mux_core::application::ui::McpIconPreferenceView>> {
-    mux_core::application::ui::reset_mcp_icon(asset_key)
-        .map_err(|error| core_error_from_legacy(error, "ui_preference_failed"))
+    core_blocking(move || {
+        mux_core::application::ui::reset_mcp_icon(asset_key)
+            .map_err(|error| core_error_from_legacy(error, "ui_preference_failed"))
+    }).await
 }
 
 #[tauri::command]
@@ -925,27 +993,33 @@ pub struct ProxySettingsView {
 }
 
 #[tauri::command]
-pub fn get_proxy_settings() -> Result<ProxySettingsView, String> {
-    mux_core::application::network::get_proxy_settings().map(|settings| ProxySettingsView {
-        proxy_url: settings.proxy_url,
-    })
+pub async fn get_proxy_settings() -> Result<ProxySettingsView, String> {
+    blocking_command(move || {
+        mux_core::application::network::get_proxy_settings().map(|settings| ProxySettingsView {
+            proxy_url: settings.proxy_url,
+        })
+    }).await?
 }
 
 #[tauri::command]
-pub fn set_proxy_settings(proxy_url: Option<String>) -> CoreResult<ProxySettingsView> {
-    mux_core::application::network::set_proxy_url(proxy_url)
-        .map(|settings| ProxySettingsView {
-            proxy_url: settings.proxy_url,
-        })
-        .map_err(|error| core_error_from_legacy(error, "network_settings_failed"))
+pub async fn set_proxy_settings(proxy_url: Option<String>) -> CoreResult<ProxySettingsView> {
+    core_blocking(move || {
+        mux_core::application::network::set_proxy_url(proxy_url)
+            .map(|settings| ProxySettingsView {
+                proxy_url: settings.proxy_url,
+            })
+            .map_err(|error| core_error_from_legacy(error, "network_settings_failed"))
+    }).await
 }
 
 pub use mux_core::application::mcp::operations::InstalledMcp;
 
 /// 扫描全局配置文件，返回「谁装在哪」。MUX 当前不管理项目级配置。
 #[tauri::command]
-pub fn scan_installed() -> Vec<InstalledMcp> {
-    mux_core::application::mcp::operations::scan_installed(None)
+pub async fn scan_installed() -> Result<Vec<InstalledMcp>, String> {
+    blocking_command(move || {
+        mux_core::application::mcp::operations::scan_installed(None)
+    }).await
 }
 
 use mux_core::application::mcp::operations::effective_config;
@@ -995,32 +1069,34 @@ pub struct PlannedWrite {
 }
 
 #[tauri::command]
-pub fn preview_install(req: InstallRequest) -> Result<Vec<PlannedWrite>, String> {
-    let entry = resolve_entry(&req.server_name, &req.transport)?;
-    let agents = load_agents();
-    let mut out = Vec::new();
-    for agent_id in &req.agents {
-        let def = agents
-            .get(agent_id)
-            .ok_or_else(|| format!("{agent_id}: unknown Agent"))?;
-        if !mux_core::application::agents::supports_transport(agent_id, &req.transport) {
-            return Err(format!(
-                "{agent_id}: {} transport is not supported by this agent",
-                req.transport
-            ));
+pub async fn preview_install(req: InstallRequest) -> Result<Vec<PlannedWrite>, String> {
+    blocking_command(move || {
+        let entry = resolve_entry(&req.server_name, &req.transport)?;
+        let agents = load_agents();
+        let mut out = Vec::new();
+        for agent_id in &req.agents {
+            let def = agents
+                .get(agent_id)
+                .ok_or_else(|| format!("{agent_id}: unknown Agent"))?;
+            if !mux_core::application::agents::supports_transport(agent_id, &req.transport) {
+                return Err(format!(
+                    "{agent_id}: {} transport is not supported by this agent",
+                    req.transport
+                ));
+            }
+            let path = target_file(def, "global", None)
+                .ok_or_else(|| format!("{agent_id}: global config path is unavailable"))?;
+            let patch = req.overrides.get(agent_id).map(|p| p.to_patch());
+            let cfg = effective_config(&entry, patch.as_ref())
+                .ok_or_else(|| format!("no config for {}", req.server_name))?;
+            out.push(PlannedWrite {
+                agent: agent_id.clone(),
+                file_path: path.display().to_string(),
+                config_json: serde_json::to_string_pretty(&cfg).map_err(|e| e.to_string())?,
+            });
         }
-        let path = target_file(def, "global", None)
-            .ok_or_else(|| format!("{agent_id}: global config path is unavailable"))?;
-        let patch = req.overrides.get(agent_id).map(|p| p.to_patch());
-        let cfg = effective_config(&entry, patch.as_ref())
-            .ok_or_else(|| format!("no config for {}", req.server_name))?;
-        out.push(PlannedWrite {
-            agent: agent_id.clone(),
-            file_path: path.display().to_string(),
-            config_json: serde_json::to_string_pretty(&cfg).map_err(|e| e.to_string())?,
-        });
-    }
-    Ok(out)
+        Ok(out)
+    }).await?
 }
 
 #[cfg(test)]

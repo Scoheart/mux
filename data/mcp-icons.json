@@ -1,0 +1,74 @@
+[
+  {
+    "id": "mcp",
+    "tone": "blue"
+  },
+  {
+    "id": "search",
+    "tone": "orange"
+  },
+  {
+    "id": "browser",
+    "tone": "blue"
+  },
+  {
+    "id": "document",
+    "tone": "blue"
+  },
+  {
+    "id": "knowledge",
+    "tone": "violet"
+  },
+  {
+    "id": "files",
+    "tone": "amber"
+  },
+  {
+    "id": "database",
+    "tone": "teal"
+  },
+  {
+    "id": "terminal",
+    "tone": "green"
+  },
+  {
+    "id": "code",
+    "tone": "green"
+  },
+  {
+    "id": "api",
+    "tone": "blue"
+  },
+  {
+    "id": "cloud",
+    "tone": "teal"
+  },
+  {
+    "id": "automation",
+    "tone": "violet"
+  },
+  {
+    "id": "observability",
+    "tone": "violet"
+  },
+  {
+    "id": "map",
+    "tone": "teal"
+  },
+  {
+    "id": "communication",
+    "tone": "blue"
+  },
+  {
+    "id": "media",
+    "tone": "violet"
+  },
+  {
+    "id": "security",
+    "tone": "amber"
+  },
+  {
+    "id": "ai",
+    "tone": "green"
+  }
+]

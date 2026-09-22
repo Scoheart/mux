@@ -9,6 +9,7 @@ import type { AgentDefinitionInput } from "../lib/types";
 import { formatError } from "../lib/format";
 import { AgentGlyph } from "./brandIcons";
 import { DialogShell } from "./DialogShell";
+import { DialogDisclosure } from "./DialogDisclosure";
 import { McpMarkIcon, SkillMarkIcon } from "./icons";
 import { useToast } from "./Toast";
 
@@ -240,6 +241,7 @@ export function AddAgentDialog({
                   </small>
                 )}
               </label>
+              <DialogDisclosure title={t("common.advancedSettings")}>
               <label className="mux-agent-create-field" data-wide>
                 <span>{t("agents.categoryLabel")}</span>
                 <select
@@ -254,6 +256,7 @@ export function AddAgentDialog({
                   ))}
                 </select>
               </label>
+              </DialogDisclosure>
             </div>
           </div>
         </section>
@@ -335,6 +338,7 @@ export function AddAgentDialog({
                     onChange={(event) => setGlobal(event.target.value)}
                   />
                 </label>
+                <DialogDisclosure title={t("common.advancedSettings")} summary={`${format.toUpperCase()} · ${key}`}>
                 <div className="mux-agent-create-field">
                   <span>{t("agents.formatLabel")}</span>
                   <div className="mux-agent-format-picker" role="group" aria-label={t("agents.formatLabel")}>
@@ -360,6 +364,7 @@ export function AddAgentDialog({
                     onChange={(event) => setKey(event.target.value)}
                   />
                 </label>
+                </DialogDisclosure>
               </div>
             </section>
           ) : (

@@ -8,6 +8,7 @@ use crate::settings::{load_settings, mutate_settings_checked, AgentConfigPathOve
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::{Error, ErrorKind};
+use std::sync::LazyLock;
 
 /// An agent definition as surfaced to a UI: its stored config plus derived
 /// has-path flags. `global`/`project` keep the raw stored `~/…` paths so the UI
@@ -117,10 +118,15 @@ fn audited_agents() -> BTreeMap<String, AgentDefinition> {
 }
 
 pub fn builtin_agents() -> BTreeMap<String, AgentDefinition> {
-    let catalog: BTreeMap<String, AgentDefinition> =
-        serde_json::from_str(CATALOG_AGENTS_JSON).expect("agent-catalog.json must be valid");
-    merge_builtin_definitions(catalog, audited_agents())
-        .expect("builtin Agent Skills capabilities must be valid")
+    // Only immutable embedded definitions are cached. User overrides and install
+    // probes are still read on every observation and before every mutation.
+    static BUILTINS: LazyLock<BTreeMap<String, AgentDefinition>> = LazyLock::new(|| {
+        let catalog = serde_json::from_str(CATALOG_AGENTS_JSON)
+            .expect("agent-catalog.json must be valid");
+        merge_builtin_definitions(catalog, audited_agents())
+            .expect("builtin Agent Skills capabilities must be valid")
+    });
+    BUILTINS.clone()
 }
 
 fn merge_builtin_definitions(

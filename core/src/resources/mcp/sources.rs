@@ -353,7 +353,7 @@ pub struct SourceView {
     pub managed: bool,
 }
 
-fn to_view(def: SourceDef, count: u32) -> SourceView {
+pub(crate) fn to_view(def: SourceDef, count: u32) -> SourceView {
     let managed = def.id == MANUAL_ID || def.id == DISCOVERED_ID;
     let name = if def.name == LEGACY_CURATED_SOURCE_NAME {
         CURATED_SOURCE_NAME.to_string()

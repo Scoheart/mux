@@ -1,6 +1,7 @@
 import {
   type ReactNode,
   useCallback,
+  useDeferredValue,
   useEffect,
   useMemo,
   useRef,
@@ -14,7 +15,6 @@ import {
 import * as api from "../lib/api";
 import {
   aggregateSkillsByName,
-  filterSkills,
 } from "../lib/skills";
 import { groupSkillSources, skillSourceGroup, skillConsumerAgents, type SkillSourceCategory } from "../lib/skillSources";
 import type {
@@ -116,10 +116,17 @@ export function SkillsView({
   const agentNames = useMemo(() => new Map(
     state.inventory?.agents.map((agent) => [agent.id, agent.name]) ?? [],
   ), [state.inventory?.agents]);
-  const filtered = useMemo(() => filterSkills(
-    items.filter((item) => activeSource === "all" || skillSourceGroup(item).id === activeSource),
-    { status: "all", source: "all", query },
-  ), [items, activeSource, query]);
+  const deferredQuery = useDeferredValue(query);
+  const searchIndex = useMemo(() => items.map((item) => ({
+    item, source: skillSourceGroup(item).id,
+    text: `${item.name} ${item.description}`.toLowerCase(),
+  })), [items]);
+  const filtered = useMemo(() => {
+    const needle = deferredQuery.trim().toLowerCase();
+    return searchIndex.filter((row) =>
+      (activeSource === "all" || row.source === activeSource) && (!needle || row.text.includes(needle)),
+    ).map((row) => row.item);
+  }, [searchIndex, activeSource, deferredQuery]);
   const selected = selectedIdentity
     ? items.find((item) => item.identity === selectedIdentity) ?? null
     : null;
@@ -375,10 +382,17 @@ export function SkillsView({
     setSource(value);
   };
 
-  const openSkill = (identity: string) => {
+  const openSkill = useCallback((identity: string) => {
     setNavigationNotice(null);
     setSelectedIdentity(identity);
-  };
+  }, []);
+  const cards = useMemo(() => filtered.map((item) => (
+    <div role="listitem" key={item.identity}>
+      <SkillCard item={item} selected={item.identity === selectedIdentity}
+        onOpen={() => openSkill(item.identity)} agentIds={consumers.get(item.name) ?? []}
+        agentNames={agentNames} onOpenAgent={onOpenAgent} />
+    </div>
+  )), [filtered, selectedIdentity, openSkill, consumers, agentNames, onOpenAgent]);
 
   useEffect(() => {
     if (!recoveryError) return;
@@ -625,18 +639,7 @@ export function SkillsView({
               role="list"
               aria-label={t("centralAssets.skillList")}
             >
-              {filtered.map((item) => (
-                <div role="listitem" key={item.identity}>
-                  <SkillCard
-                    item={item}
-                    selected={item.identity === selectedIdentity}
-                    onOpen={() => openSkill(item.identity)}
-                    agentIds={consumers.get(item.name) ?? []}
-                    agentNames={agentNames}
-                    onOpenAgent={onOpenAgent}
-                  />
-                </div>
-              ))}
+              {cards}
             </div>
           </>
         )}

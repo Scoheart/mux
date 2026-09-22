@@ -1,5 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invalidateModelObservation } from "./lib/modelObservation";
+import { invalidatePreferences } from "./lib/preferenceObservation";
 import { Layout } from "./components/Layout";
 import { RegistryView } from "./components/RegistryView";
 import { RegistryEditPage } from "./components/RegistryEditPage";
@@ -13,6 +14,8 @@ import { useNetworkSettings } from "./hooks/useNetworkSettings";
 import { UpdateBanner } from "./components/UpdateBanner";
 import {
   getBackendStatus,
+  getResourceObservation,
+  observationValue,
   listModelAdoptionCandidates,
 } from "./lib/api";
 import type {
@@ -111,22 +114,29 @@ function App() {
   const refreshExternalModels = useCallback(async () => {
     setExternalModelCandidates(await listModelAdoptionCandidates());
   }, []);
+  const refreshResourceInventory = useCallback(async () => {
+    // Start both hook generations now. A later mutation/read still supersedes
+    // either result, while this pair shares exactly one filesystem scan.
+    const observation = getResourceObservation();
+    const results = await Promise.allSettled([
+      consumptionState.refresh(async () => observationValue((await observation).relationships)),
+      skillsState.refreshSilently(async () => observationValue((await observation).skills)),
+    ]);
+    const failure = results.find((result) => result.status === "rejected");
+    if (failure?.status === "rejected") throw failure.reason;
+  }, [consumptionState.refresh, skillsState.refreshSilently]);
   const foregroundStartupTasks = useMemo<StartupTask[]>(
     () => [
+      { id: "registry", label: "registry", run: state.refreshRegistry },
       { id: "agents", label: "agents", run: state.refreshAgents },
       { id: "agent-capabilities", label: "agent-capabilities", run: consumptionState.refreshAgents },
-      { id: "relationships", label: "relationships", run: consumptionState.refresh },
-      { id: "skills", label: "skills", run: skillsState.refresh },
-      { id: "registry", label: "registry", run: state.refreshRegistry },
-      { id: "sources", label: "sources", run: state.refreshSources },
+      { id: "relationships", label: "relationships", run: refreshResourceInventory },
     ],
     [
-      consumptionState.refresh,
       consumptionState.refreshAgents,
-      skillsState.refresh,
+      refreshResourceInventory,
       state.refreshAgents,
       state.refreshRegistry,
-      state.refreshSources,
     ],
   );
 
@@ -157,6 +167,7 @@ function App() {
 
   const observationTasks = useMemo<Record<ObservationTaskId, () => Promise<unknown>>>(
     () => ({
+      preferences: invalidatePreferences,
       agents: state.refreshAgents,
       "agent-capabilities": consumptionState.refreshAgents,
       relationships: consumptionState.refresh,
@@ -178,10 +189,18 @@ function App() {
   );
   const refreshObservedTasks = useCallback(
     async (taskIds: readonly ObservationTaskId[]) => {
-      const selected = [...new Set(taskIds)].map((taskId) => observationTasks[taskId]);
+      const ids = new Set(taskIds);
+      if (ids.has("registry")) ids.delete("sources");
+      const selected: (() => Promise<unknown>)[] = [];
+      if (ids.has("skills") && ids.has("relationships")) {
+        ids.delete("skills");
+        ids.delete("relationships");
+        selected.push(refreshResourceInventory);
+      }
+      selected.push(...[...ids].map((taskId) => observationTasks[taskId]));
       await runRefreshes(selected);
     },
-    [observationTasks],
+    [observationTasks, refreshResourceInventory],
   );
 
   useEffect(() => {
@@ -303,8 +322,7 @@ function App() {
             await Promise.allSettled([
               state.refreshAgents(),
               consumptionState.refreshAgents(),
-              consumptionState.refresh(),
-              skillsState.refresh(),
+              refreshResourceInventory(),
             ]);
           }}
         />

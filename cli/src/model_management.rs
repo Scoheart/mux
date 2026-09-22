@@ -22,6 +22,13 @@ use crate::review::{execute_operation, MutationOptions};
 
 #[derive(Debug, Subcommand)]
 pub enum ModelManagementCommand {
+    /// Print a ready-to-edit cURL command. Secret export requires --include-api-key.
+    Curl {
+        #[arg(value_parser = parse_identity)]
+        profile_id: String,
+        #[arg(long)]
+        include_api_key: bool,
+    },
     /// Create a central Model Profile, or edit one with --id, from a ModelProfile JSON file.
     Save {
         #[arg(long)]
@@ -62,14 +69,16 @@ pub enum ModelManagementCommand {
 
 impl ModelManagementCommand {
     fn is_mutation(&self) -> bool {
-        !matches!(self, Self::Provider { command: ProviderCommand::List
+        !matches!(self, Self::Curl { .. } | Self::Provider { command: ProviderCommand::List
             | ProviderCommand::Show { .. } | ProviderCommand::Templates
-            | ProviderCommand::Models { .. } })
+            | ProviderCommand::Models { .. } | ProviderCommand::Docs { .. } })
     }
 }
 
 #[derive(Debug, Subcommand)]
 pub enum ProviderCommand {
+    /// Show the official documentation URL for a template or configured Provider.
+    Docs { id: String },
     /// List configured Provider instances without revealing credentials.
     List,
     /// Show one configured Provider, with private connection details redacted.
@@ -134,6 +143,10 @@ pub fn dispatch(cli: &Cli, command: &ModelManagementCommand) -> Result<CommandOu
         cli.reject_mutation_options()?;
     }
     match command {
+        ModelManagementCommand::Curl { profile_id, include_api_key } => {
+            let command = models::export_curl(profile_id, *include_api_key).map_err(CliError::from_legacy)?;
+            Ok(CommandOutput::new("model.curl", false, json!({"profile_id": profile_id, "curl": command}), command))
+        }
         ModelManagementCommand::Save { file, id } => {
             let profile: ModelProfile = serde_json::from_value(json_file(file)?)
                 .map_err(|error| CliError::private("invalid_model_profile", error.to_string()))?;
@@ -179,6 +192,11 @@ fn delete(command: &'static str, asset: AssetRef, options: MutationOptions) -> R
 
 fn provider(command: &ProviderCommand, options: MutationOptions) -> Result<CommandOutput, CliError> {
     match command {
+        ProviderCommand::Docs { id } => {
+            let url = models::provider_documentation(id).map_err(CliError::from_legacy)?
+                .ok_or_else(|| CliError::new("provider_docs_unavailable", "no official documentation is registered for this Provider"))?;
+            Ok(CommandOutput::new("model.provider.docs", false, json!({"provider": id, "url": url}), url))
+        }
         ProviderCommand::List => query_output("model.provider.list", json!({
             "providers": models::list_provider_instances().iter().map(safe_provider).collect::<Vec<_>>()
         })),
@@ -223,5 +241,6 @@ fn safe_provider(view: &ModelProviderInstanceView) -> Value {
         "auth_requirement": provider.auth_requirement, "api_key_source": source,
         "credential_saved": view.credential_saved, "model_count": view.model_count,
         "model_discovery_supported": view.model_discovery_supported,
+        "docs_url": models::provider_docs_url(&provider.provider),
     })
 }

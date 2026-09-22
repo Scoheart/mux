@@ -31,7 +31,7 @@ export interface ConsumptionState {
   agentsError: AssetCommandError | null;
   plan: AssetOperationPlan | null;
   committing: boolean;
-  refresh(): Promise<ConsumptionInventory>;
+  refresh(read?: () => Promise<ConsumptionInventory>): Promise<ConsumptionInventory>;
   refreshAgents(): Promise<AgentCapabilityView[]>;
   planForAgent(
     agentId: string,
@@ -122,10 +122,10 @@ export function useConsumptionState({ autoLoad = true }: { autoLoad?: boolean } 
     };
   }, []);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (read = listConsumptionInventory) => {
     const ownGeneration = ++inventoryGeneration.current;
     try {
-      const next = await listConsumptionInventory();
+      const next = await read();
       if (mounted.current && ownGeneration === inventoryGeneration.current) {
         setInventory(next);
         setError(null);

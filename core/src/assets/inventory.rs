@@ -23,10 +23,19 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 
 pub fn list_consumption_inventory() -> Result<ConsumptionInventory, String> {
-    match list_skills_inventory() {
-        Ok(skills) => list_consumption_inventory_with_skills(&skills),
+    list_inventory_with_skills().1
+}
+
+pub(crate) fn list_inventory_with_skills() -> (
+    Result<SkillsInventory, crate::resources::skill::SkillError>,
+    Result<ConsumptionInventory, String>,
+) {
+    let skills = list_skills_inventory();
+    let relationships = match &skills {
+        Ok(skills) => list_consumption_inventory_with_skills(skills),
         Err(_) => list_consumption_inventory_inner(None, true),
-    }
+    };
+    (skills, relationships)
 }
 
 /// Build the relationship projection from an already loaded Skill inventory.

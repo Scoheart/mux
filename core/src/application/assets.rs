@@ -63,6 +63,24 @@ pub fn list_inventory() -> Result<ConsumptionInventory, String> {
     super::gate::read(crate::assets::list_consumption_inventory)
 }
 
+/// Both projections share one Skill scan, but retain independent failures so a
+/// broken Skill directory cannot hide otherwise readable MCP/Model relations.
+#[derive(serde::Serialize)]
+pub struct ResourceObservation {
+    pub skills: crate::domain::error::CoreResult<crate::resources::skill::SkillsInventory>,
+    pub relationships: crate::domain::error::CoreResult<ConsumptionInventory>,
+}
+
+pub fn observe_resources() -> ResourceObservation {
+    super::gate::read(|| {
+        let (skills, relationships) = crate::assets::inventory::list_inventory_with_skills();
+        ResourceObservation {
+            skills: skills.map_err(super::error::from_skill),
+            relationships: relationships.map_err(super::error::from_legacy),
+        }
+    })
+}
+
 pub fn list_mcp_adoption_candidates() -> Result<Vec<McpAdoptionCandidate>, String> {
     super::gate::read(crate::assets::list_mcp_adoption_candidates)
 }

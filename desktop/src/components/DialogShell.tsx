@@ -20,7 +20,7 @@ const DEFAULT_LEADING: Record<DialogShellKind, ReactNode> = {
 
 export function DialogShell({
   kind,
-  size = kind === "review" ? "sm" : kind === "picker" ? "md" : "lg",
+  size = kind === "review" ? "sm" : kind === "picker" ? "md" : "wide",
   width,
   className,
   borderRadius,
@@ -63,7 +63,7 @@ export function DialogShell({
   return (
     <Modal
       width={width ?? `min(${SIZE_WIDTH[size]}px, calc(100vw - 32px))`}
-      maxHeight="calc(100vh - 32px)"
+      maxHeight="calc(100dvh - 32px)"
       borderRadius={borderRadius}
       ariaLabel={title}
       layer={kind}
@@ -93,7 +93,7 @@ export function DialogShell({
           </button>
         </header>
         {status != null && <div className="mux-dialog-shell-status">{status}</div>}
-        <div className="mux-dialog-shell-body">{children}</div>
+        <div className="mux-dialog-shell-body" inert={busy || undefined}>{children}</div>
         {(footerStart != null || footerEnd != null) && (
           <footer className="mux-dialog-shell-footer">
             <div className="mux-dialog-shell-footer-start">{footerStart}</div>

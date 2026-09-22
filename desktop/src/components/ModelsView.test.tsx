@@ -6,6 +6,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { ConsumptionState } from "../hooks/useConsumptionState";
 import * as api from "../lib/api";
 import * as modelsDev from "../lib/modelsDev";
+import { invalidateModelObservation } from "../lib/modelObservation";
 import { ModelsView } from "./ModelsView";
 import { ToastProvider } from "./Toast";
 
@@ -37,6 +38,7 @@ const agentSource = await readFile(resolve(process.cwd(), "src/components/AgentV
 const css = await readFile(resolve(process.cwd(), "src/index.css"), "utf8");
 
 beforeEach(() => {
+  void invalidateModelObservation();
   vi.mocked(api.listModelProfiles).mockResolvedValue([]);
   vi.mocked(api.listModelProviders).mockResolvedValue([
     {
@@ -646,7 +648,8 @@ it("renders model details as one continuous field list without section cards", a
   expect(within(inspector).queryByRole("heading", { name: "资产信息" })).not.toBeInTheDocument();
   expect(within(inspector).queryByRole("heading", { name: "接口" })).not.toBeInTheDocument();
   expect(within(inspector).queryByRole("heading", { name: "技术详情" })).not.toBeInTheDocument();
-  expect(within(inspector).getByRole("button", { name: "删除" })).toBeVisible();
+  expect(within(inspector).queryByRole("button", { name: "删除" })).not.toBeInTheDocument();
+  expect(within(inspector).queryByText("cURL 请求")).not.toBeInTheDocument();
   expect(within(inspector).getByRole("button", { name: "编辑" })).toBeVisible();
   expect(within(inspector).getByRole("button", { name: "复制模型 ID" })).toBeVisible();
 });
@@ -924,7 +927,7 @@ it("rejects absolute, fragmented, and traversal Endpoint Paths in the Provider f
   }
 });
 
-it("reveals a saved Provider API key only after an explicit request", async () => {
+it("loads a saved Provider API key masked and preserves it when unchanged", async () => {
   vi.mocked(api.listModelProviderInstances).mockResolvedValue([{
     id: "openrouter-team",
     name: "OpenRouter Team",
@@ -950,16 +953,15 @@ it("reveals a saved Provider API key only after an explicit request", async () =
   await user.click(await sidebar.findByTitle("OpenRouter Team"));
   await user.click(screen.getByRole("button", { name: "编辑 Provider" }));
 
-  const credential = screen.getByRole("region", { name: "凭据" });
+  const credential = screen.getByRole("region", { name: "API Key" });
   const apiKey = within(credential).getByLabelText("API Key");
   expect(apiKey).toHaveAttribute("type", "password");
-  expect(apiKey).toHaveValue("");
-  expect(api.revealModelProviderCredential).not.toHaveBeenCalled();
-
-  await user.click(within(credential).getByRole("button", { name: "显示 API Key" }));
   await waitFor(() =>
     expect(api.revealModelProviderCredential).toHaveBeenCalledWith("openrouter-team")
   );
+  await waitFor(() => expect(apiKey).toHaveValue("saved-test-value"));
+  expect(apiKey).toHaveAttribute("type", "password");
+  await user.click(within(credential).getByRole("button", { name: "显示 API Key" }));
   expect(apiKey).toHaveAttribute("type", "text");
   expect(apiKey).toHaveValue("saved-test-value");
 
@@ -971,7 +973,67 @@ it("reveals a saved Provider API key only after an explicit request", async () =
   await waitFor(() => expect(planUpdate).toHaveBeenCalledWith(expect.objectContaining({
     domain: "model-provider",
     credential: undefined,
-  })));
+  }), { reviewOnlyWhenNeeded: true }));
+});
+
+async function openSavedProviderEditor(user: ReturnType<typeof userEvent.setup>) {
+  vi.mocked(api.listModelProviderInstances).mockResolvedValue([{
+    id: "saved-provider", name: "Saved Provider", provider: "openrouter",
+    base_url: "https://openrouter.ai/api/v1",
+    protocols: { "openai-responses": { endpoint_path: "/responses" } },
+    auth_requirement: "required", api_key_source: { kind: "mux-store" },
+    credential_saved: true, model_count: 0, model_discovery_supported: true,
+  }]);
+  const planUpdate = vi.fn().mockResolvedValue({ operation_id: "credential-plan", can_commit: true,
+    warnings: [], relationship_changes: [], affected_agent_ids: [], model_state_changes: [] });
+  const commit = vi.fn().mockResolvedValue(undefined);
+  const consumptionState = { plan: null, planUpdate, commit } as unknown as ConsumptionState;
+  const view = render(<ToastProvider><ModelsView consumptionState={consumptionState} /></ToastProvider>);
+  const sidebar = within(view.container.querySelector(".mux-workspace-sidebar") as HTMLElement);
+  await user.click(await sidebar.findByTitle("Saved Provider"));
+  await user.click(screen.getByRole("button", { name: "编辑 Provider" }));
+  const credentialSection = screen.getByRole("region", { name: "API Key" });
+  return { planUpdate, commit, input: within(credentialSection).getByLabelText("API Key") };
+}
+
+it.each(["", "   ", "replacement-test-key"])("saves the edited API key value %j without a clear checkbox", async (value) => {
+  vi.mocked(api.revealModelProviderCredential).mockResolvedValue("saved-test-key");
+  const user = userEvent.setup();
+  const { input, planUpdate, commit } = await openSavedProviderEditor(user);
+  await waitFor(() => expect(input).toHaveValue("saved-test-key"));
+  expect(screen.queryByRole("checkbox", { name: "清除已存密钥" })).not.toBeInTheDocument();
+  await user.clear(input);
+  if (value) await user.type(input, value);
+  expect(screen.getByRole("button", { name: "保存" })).toBeEnabled();
+  await user.click(screen.getByRole("button", { name: "保存" }));
+  await waitFor(() => expect(planUpdate).toHaveBeenCalledWith(expect.objectContaining({
+    domain: "model-provider", existing_id: "saved-provider",
+    credential: value.trim() ? value : "",
+    provider: expect.objectContaining({
+      auth_requirement: "required",
+      api_key_source: value.trim() ? { kind: "mux-store" } : undefined,
+    }),
+  }), { reviewOnlyWhenNeeded: true }));
+  await waitFor(() => expect(commit).toHaveBeenCalled());
+});
+
+it("blocks saving after a failed key read and allows retry without clearing the stored key", async () => {
+  vi.mocked(api.revealModelProviderCredential)
+    .mockRejectedValueOnce(new Error("Keychain unavailable"))
+    .mockResolvedValueOnce("saved-test-key");
+  const user = userEvent.setup();
+  const { input, planUpdate } = await openSavedProviderEditor(user);
+  await screen.findByRole("alert");
+  expect(input).toBeDisabled();
+  expect(screen.getByRole("button", { name: "保存" })).toBeDisabled();
+  expect(planUpdate).not.toHaveBeenCalled();
+  await user.click(screen.getByRole("button", { name: "重试" }));
+  await waitFor(() => expect(input).toHaveValue("saved-test-key"));
+  await user.click(screen.getByRole("button", { name: "保存" }));
+  await waitFor(() => expect(planUpdate).toHaveBeenCalledWith(expect.objectContaining({
+    credential: undefined,
+    provider: expect.objectContaining({ api_key_source: { kind: "mux-store" } }),
+  }), { reviewOnlyWhenNeeded: true }));
 });
 
 it("filters Model protocols by Provider and previews the selected request URL", async () => {

@@ -16,6 +16,17 @@ use std::path::{Component, Path, PathBuf};
 pub const SUPPORTED_UI_LOCALES: [&str; 2] = ["zh-CN", "en-US"];
 pub const MAX_MCP_ICON_BYTES: usize = 1_048_576;
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct McpIconDefinition { pub id: String, pub tone: String }
+
+pub fn mcp_icon_catalog() -> &'static [McpIconDefinition] {
+    static CATALOG: std::sync::LazyLock<Vec<McpIconDefinition>> = std::sync::LazyLock::new(|| {
+        serde_json::from_str(include_str!("../../../data/mcp-icons.json"))
+            .expect("built-in MCP icon catalog must be valid")
+    });
+    &CATALOG
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct McpIconPreferenceView {
     pub kind: String,
@@ -192,6 +203,7 @@ fn require_asset(asset_key: &str) -> Result<(), String> {
 fn normalize_builtin_icon_id(value: &str) -> Result<String, String> {
     let value = value.trim();
     if value.is_empty()
+        || !mcp_icon_catalog().iter().any(|icon| icon.id == value)
         || value.len() > 32
         || !value
             .bytes()

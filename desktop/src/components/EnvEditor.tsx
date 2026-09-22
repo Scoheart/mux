@@ -12,11 +12,7 @@ interface EnvEditorProps {
 }
 
 function rowsToEnv(rows: Row[]): Record<string, string> {
-  const env: Record<string, string> = {};
-  rows.forEach((r) => {
-    if (r.k.trim()) env[r.k.trim()] = r.v;
-  });
-  return env;
+  return Object.fromEntries(rows.filter((row) => row.k.trim()).map((row) => [row.k.trim(), row.v]));
 }
 
 function envToRows(env: Record<string, string>): Row[] {

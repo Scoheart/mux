@@ -1,3 +1,4 @@
+import iconCatalog from "../../../data/mcp-icons.json";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type { McpIconPreference, RegistryEntry } from "../lib/types";
@@ -12,26 +13,7 @@ export type McpIconOption = {
   tone: "blue" | "teal" | "green" | "amber" | "orange" | "violet";
 };
 
-export const MCP_ICON_OPTIONS: McpIconOption[] = [
-  { id: "mcp", tone: "blue" },
-  { id: "search", tone: "orange" },
-  { id: "browser", tone: "blue" },
-  { id: "document", tone: "blue" },
-  { id: "knowledge", tone: "violet" },
-  { id: "files", tone: "amber" },
-  { id: "database", tone: "teal" },
-  { id: "terminal", tone: "green" },
-  { id: "code", tone: "green" },
-  { id: "api", tone: "blue" },
-  { id: "cloud", tone: "teal" },
-  { id: "automation", tone: "violet" },
-  { id: "observability", tone: "violet" },
-  { id: "map", tone: "teal" },
-  { id: "communication", tone: "blue" },
-  { id: "media", tone: "violet" },
-  { id: "security", tone: "amber" },
-  { id: "ai", tone: "green" },
-];
+export const MCP_ICON_OPTIONS = iconCatalog as McpIconOption[];
 
 const OPTION_BY_ID = new Map(MCP_ICON_OPTIONS.map((option) => [option.id, option]));
 

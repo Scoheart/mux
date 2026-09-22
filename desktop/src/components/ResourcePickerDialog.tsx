@@ -1,4 +1,5 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useMemo, useRef, useState, type ReactNode } from "react";
+import { formatError } from "../lib/format";
 import { DialogShell } from "./DialogShell";
 import { RefreshIcon } from "./icons";
 import { SearchBar } from "./ui";
@@ -30,6 +31,8 @@ export function ResourcePickerDialog({
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const pending = useRef(false);
+  const [error, setError] = useState<string | null>(null);
   const filtered = useMemo(() => {
     const needle = query.trim().toLocaleLowerCase();
     if (!needle) return options;
@@ -40,11 +43,16 @@ export function ResourcePickerDialog({
   const selected = options.find((option) => option.id === selectedId) ?? null;
 
   const add = async () => {
-    if (!selected || selected.disabled || busy) return;
+    if (!selected || selected.disabled || pending.current) return;
+    pending.current = true;
+    setError(null);
     setBusy(true);
     try {
       await onAdd(selected);
+    } catch (cause) {
+      setError(formatError(cause));
     } finally {
+      pending.current = false;
       setBusy(false);
     }
   };
@@ -60,7 +68,7 @@ export function ResourcePickerDialog({
           <RefreshIcon data-spinning="true" />
           正在检查并添加…
         </span>
-      ) : undefined}
+      ) : error ? <span role="alert">{error}</span> : undefined}
       onClose={onClose}
       footerStart={<span className="mux-picker-count">{filtered.length} 个可选项</span>}
       footerEnd={

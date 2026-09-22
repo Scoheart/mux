@@ -1,3 +1,4 @@
+import { readLocalSetting, writeLocalSetting } from "../lib/localSettings";
 import { useEffect } from "react";
 import { cliStatus, installCli } from "../lib/api";
 import { useToast } from "../components/Toast";
@@ -24,13 +25,13 @@ export function useCliTool({ start = true }: { start?: boolean } = {}) {
         if (!status.installed) {
           const after = await installCli();
           inPath = after.in_path;
-          if (localStorage.getItem(INSTALLED_KEY) !== "1") {
-            localStorage.setItem(INSTALLED_KEY, "1");
+          if (readLocalSetting(INSTALLED_KEY) !== "1") {
+            writeLocalSetting(INSTALLED_KEY, "1");
             toast.show({ kind: "success", msg: `命令行工具已就绪：终端里直接运行 mux（${after.link_path}）` });
           }
         }
-        if (!inPath && localStorage.getItem(PATH_HINT_KEY) !== "1") {
-          localStorage.setItem(PATH_HINT_KEY, "1");
+        if (!inPath && readLocalSetting(PATH_HINT_KEY) !== "1") {
+          writeLocalSetting(PATH_HINT_KEY, "1");
           toast.show({
             kind: "error",
             msg: "mux CLI 已安装到 ~/.local/bin，但该目录不在 PATH — 在 shell 配置里加入：export PATH=\"$HOME/.local/bin:$PATH\"",

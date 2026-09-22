@@ -12,6 +12,22 @@ pub fn list_profiles() -> Vec<ModelProfileView> {
     super::gate::read(crate::resources::model::list_profiles)
 }
 
+pub fn export_curl(profile_id: &str, include_api_key: bool) -> Result<String, String> {
+    super::gate::read(|| crate::resources::model::curl::for_profile(profile_id, include_api_key))
+}
+
+pub fn provider_docs_url(provider: &str) -> Option<&'static str> {
+    crate::resources::model::provider_docs_url(provider)
+}
+
+pub fn provider_documentation(id: &str) -> Result<Option<&'static str>, String> {
+    super::gate::read(|| {
+        let settings = crate::settings::load_settings_strict().map_err(|error| error.to_string())?;
+        let provider = settings.model_providers.as_ref().and_then(|providers| providers.get(id));
+        Ok(provider_docs_url(provider.map(|provider| provider.provider.as_str()).unwrap_or(id)))
+    })
+}
+
 pub fn list_providers() -> &'static [ModelProviderView] {
     crate::resources::model::list_providers()
 }

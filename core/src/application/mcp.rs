@@ -1,7 +1,11 @@
 //! MCP-specific asset capabilities behind the shared application boundary.
 
 pub mod catalog {
-    pub use crate::resources::mcp::registry::CatalogItem;
+    pub use crate::resources::mcp::registry::{CatalogItem, RegistrySnapshot};
+
+    pub fn read_registry_snapshot() -> RegistrySnapshot {
+        super::super::gate::read(crate::resources::mcp::registry::read_registry_snapshot)
+    }
 
     pub fn read_registry() -> Vec<crate::domain::types::RegistryEntry> {
         super::super::gate::read(crate::resources::mcp::registry::read_registry)

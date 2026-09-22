@@ -70,6 +70,23 @@ export function observedAgentIdsForAsset(
     .sort((left, right) => left.localeCompare(right));
 }
 
+/** Build once per inventory instead of scanning every relationship per card. */
+export function observedAgentIndex(inventory: ConsumptionInventory | null, domain: AssetRef["domain"]): Map<string, string[]> {
+  const byAsset = new Map<string, Set<string>>();
+  for (const rows of [inventory?.consumptions ?? [], inventory?.external ?? []]) {
+    for (const item of rows) {
+      if (item.asset.domain !== domain || !item.observed || item.enabled === false) continue;
+      const key = assetIdentity(item.asset);
+      let agents = byAsset.get(key);
+      if (!agents) byAsset.set(key, agents = new Set());
+      agents.add(item.agent_id);
+    }
+  }
+  return new Map([...byAsset].map(([key, agents]) => [
+    key, [...agents].sort((left, right) => left.localeCompare(right)),
+  ]));
+}
+
 function stable(items: ConsumptionView[]): ConsumptionView[] {
   return [...items].sort(
     (left, right) =>

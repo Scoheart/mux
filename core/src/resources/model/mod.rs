@@ -13,6 +13,7 @@ mod discovery;
 mod open_code_auth;
 
 pub use discovery::{discover_provider_models, ProviderModelSummary};
+pub mod curl;
 pub(crate) use discovery::{prepare_provider_discovery, execute_provider_discovery};
 
 #[cfg(test)]
@@ -46,7 +47,8 @@ use std::path::{Path, PathBuf};
 #[cfg(target_os = "macos")]
 use std::process::{Command, Stdio};
 #[cfg(any(test, debug_assertions))]
-use std::sync::{LazyLock, Mutex};
+use std::sync::Mutex;
+use std::sync::LazyLock;
 use toml_edit::{Array, Document, Item, Table};
 use uuid::Uuid;
 use zeroize::{Zeroize, Zeroizing};
@@ -159,6 +161,14 @@ fn provider_setup(id: &str) -> Option<ModelProviderSetupView> {
     Some(ModelProviderSetupView { base_url_placeholder, hint })
 }
 
+pub fn provider_docs_url(id: &str) -> Option<&'static str> {
+    static DOCS: LazyLock<BTreeMap<String, String>> = LazyLock::new(|| {
+        serde_json::from_str(include_str!("../../../../data/provider-docs.json"))
+            .expect("provider documentation catalog must be valid")
+    });
+    DOCS.get(id).map(String::as_str)
+}
+
 impl Serialize for ModelProviderView {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -166,9 +176,10 @@ impl Serialize for ModelProviderView {
     {
         let (base_url, protocols) =
             provider_template_connection(self).map_err(serde::ser::Error::custom)?;
-        let mut view = serializer.serialize_struct("ModelProviderView", 10)?;
+        let mut view = serializer.serialize_struct("ModelProviderView", 11)?;
         view.serialize_field("id", self.id)?;
         view.serialize_field("name", self.name)?;
+        view.serialize_field("docs_url", &provider_docs_url(self.id))?;
         view.serialize_field("default_base_url", &self.default_base_url)?;
         view.serialize_field("default_protocol", &self.default_protocol)?;
         view.serialize_field(
@@ -919,18 +930,20 @@ fn unique_provider_name(settings: &crate::settings::Settings, provider: &str) ->
 pub fn list_provider_instances() -> Vec<ModelProviderInstanceView> {
     let settings = load_settings();
     let profiles = settings.model_profiles.unwrap_or_default();
+    let mut model_counts = BTreeMap::<&str, usize>::new();
+    for profile in profiles.values() {
+        if let Some(provider_id) = profile.provider_id.as_deref() {
+            *model_counts.entry(provider_id).or_default() += 1;
+        }
+    }
     let mut providers = settings
         .model_providers
         .unwrap_or_default()
         .into_values()
         .map(|provider| {
-            let linked = profiles
-                .values()
-                .filter(|profile| profile.provider_id.as_deref() == Some(provider.id.as_str()))
-                .collect::<Vec<_>>();
             ModelProviderInstanceView {
                 credential_saved: provider_credential_present(&provider.id),
-                model_count: linked.len(),
+                model_count: model_counts.get(provider.id.as_str()).copied().unwrap_or_default(),
                 model_discovery_supported: discovery::provider_model_discovery_supported(&provider),
                 provider,
             }

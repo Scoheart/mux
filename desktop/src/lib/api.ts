@@ -61,6 +61,16 @@ export const cancelOperation = (request: CancelOperationRequest) =>
 
 export const listConsumptionInventory = () =>
   invoke<ConsumptionInventory>("list_consumption_inventory");
+
+type ObservationResult<T> = { Ok: T } | { Err: AssetCommandError };
+export const getResourceObservation = () => invoke<{
+  skills: ObservationResult<SkillsInventory>;
+  relationships: ObservationResult<ConsumptionInventory>;
+}>("get_resource_observation");
+export function observationValue<T>(result: ObservationResult<T>): T {
+  if ("Err" in result) throw result.Err;
+  return result.Ok;
+}
 export const listModelAdoptionCandidates = () =>
   invoke<ModelAdoptionCandidate[]>("list_model_adoption_candidates");
 export const planSetAgentConsumption = (
@@ -124,6 +134,12 @@ export const cancelAssetOperation = (operationId: string) =>
 export type { AssetCommandError };
 
 export const listRegistry = () => invoke<RegistryEntry[]>("list_registry");
+export const getRegistrySnapshot = () => invoke<{
+  entries: RegistryEntry[];
+  catalog: CatalogItem[];
+  custom_keys: string[];
+  sources: SourceView[];
+}>("get_registry_snapshot");
 export const listModelProfiles = () =>
   invoke<Array<ModelProfileView & { provider?: string; base_url?: string }>>(
     "list_model_profiles",
@@ -136,6 +152,9 @@ export const listModelProfiles = () =>
       base_url: profile.base_url ?? "",
     }))
   );
+
+export const exportModelCurl = (profileId: string, includeApiKey = true) =>
+  invoke<string>("export_model_curl", { profileId, includeApiKey });
 export const listModelProviders = () =>
   invoke<ModelProviderView[]>("list_model_providers");
 export const listModelProviderInstances = () =>

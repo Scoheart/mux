@@ -1,4 +1,5 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useMemo, useRef, useState, type ReactNode } from "react";
+import { formatError } from "../lib/format";
 import { DialogShell } from "./DialogShell";
 import { RefreshIcon } from "./icons";
 import { SearchBar } from "./ui";
@@ -39,6 +40,10 @@ export function ConsumptionPickerDialog({
   const [query, setQuery] = useState("");
   const [selectedIds, setSelectedIds] = useState(() => new Set<string>());
   const [busy, setBusy] = useState(false);
+  const pending = useRef(false);
+  const [error, setError] = useState<string | null>(null);
+  const selected = useMemo(() => options.filter((option) => selectedIds.has(option.id) && !option.disabled)
+    .map((option) => option.id).sort(), [options, selectedIds]);
   const filtered = useMemo(() => {
     const needle = query.trim().toLocaleLowerCase();
     return options.filter((option) =>
@@ -57,11 +62,16 @@ export function ConsumptionPickerDialog({
   };
 
   const apply = async () => {
-    if (selectedIds.size === 0) return;
+    if (selected.length === 0 || pending.current) return;
+    pending.current = true;
+    setError(null);
     setBusy(true);
     try {
-      await onSelect([...selectedIds].sort());
+      await onSelect(selected);
+    } catch (cause) {
+      setError(formatError(cause));
     } finally {
+      pending.current = false;
       setBusy(false);
     }
   };
@@ -77,17 +87,17 @@ export function ConsumptionPickerDialog({
           <RefreshIcon data-spinning="true" />
           正在检查兼容性并同步到 Agent…
         </span>
-      ) : undefined}
+      ) : error ? <span role="alert">{error}</span> : undefined}
       onClose={onClose}
       footerStart={
         <span className="mux-picker-count">
-          {selectedIds.size > 0 ? `已选 ${selectedIds.size} · ` : ""}{filtered.length} 项
+          {selected.length > 0 ? `已选 ${selected.length} · ` : ""}{filtered.length} 项
         </span>
       }
       footerEnd={
         <>
           <button type="button" className="btn-ghost" disabled={busy} onClick={onClose}>取消</button>
-          <button type="button" className="btn-primary" disabled={selectedIds.size === 0 || busy} onClick={() => void apply()}>
+          <button type="button" className="btn-primary" disabled={selected.length === 0 || busy} onClick={() => void apply()}>
             {busy && <RefreshIcon className="mux-button-progress-icon" data-spinning="true" />}
             {busy
               ? (busyLabel ?? `${actionLabel}中…`)

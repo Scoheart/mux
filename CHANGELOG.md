@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.206](https://github.com/Scoheart/mux/compare/v1.8.205...v1.8.206) (2026-09-22)
+
+### Changes
+
+* feat(workspace): align CLI capabilities and simplify desktop workflows (#193) ([716dea4](https://github.com/Scoheart/mux/commit/716dea4ecd06a5329c8ff0d8a129d72b65e1761b))
+
 ## [1.8.205](https://github.com/Scoheart/mux/compare/v1.8.204...v1.8.205) (2026-09-21)
 
 ### Changes

@@ -54,6 +54,7 @@ protocol requirements.
 | `routeway` | `https://api.routeway.ai/v1` | `https://api.routeway.ai` | [Codex integration](https://docs.routeway.ai/integrations/agents/codex), [Claude Code integration](https://docs.routeway.ai/integrations/agents/claude-code) |
 | `infron` | `https://llm.onerouter.pro/v1` | `https://llm.onerouter.pro` | [API reference](https://infron.ai/models/deepseek/deepseek-v4-flash:free/api-reference) |
 | `apinex` | `https://api.apinex.bond/v1` | `https://api.apinex.bond` | [Chat API](https://apinex.bond/developers/models/chat), [Messages API](https://apinex.bond/developers/models/messages) |
+| `tokenharbor` | `https://tokenharbor.ai/v1` | `https://tokenharbor.ai` | [Chat and Messages](https://tokenharbor.ai/docs/api/curl), [Codex integration](https://tokenharbor.ai/docs/integrations/codex) |
 
 APInex is currently exposed with Chat Completions and Anthropic Messages only;
 its public documentation does not establish a separate Responses endpoint.

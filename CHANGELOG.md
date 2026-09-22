@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.209](https://github.com/Scoheart/mux/compare/v1.8.208...v1.8.209) (2026-09-22)
+
+### Changes
+
+* feat(agents): add Step Code target ([afb8f22](https://github.com/Scoheart/mux/commit/afb8f221e4f0f540d5eeb9dbe7d4c404dc1be773))
+
 ## [1.8.208](https://github.com/Scoheart/mux/compare/v1.8.207...v1.8.208) (2026-09-22)
 
 ### Changes

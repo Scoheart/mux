@@ -55,6 +55,9 @@ export function AgentEntryTransition({ agent, origin, overlay, onDone }: {
       doneRef.current();
     };
     const onVisibility = () => { if (document.hidden) finish(); };
+    // WebKit can leave Animation.finished pending when its compositor pauses.
+    // Navigation has already completed; decorative motion must not hold the UI.
+    const completionDeadline = window.setTimeout(finish, 1000);
     window.addEventListener("resize", finish);
     document.addEventListener("visibilitychange", onVisibility);
 
@@ -114,6 +117,7 @@ export function AgentEntryTransition({ agent, origin, overlay, onDone }: {
     // Cancellation and unavailable animation APIs must never strand the modal.
     void run().catch(finish);
     return () => {
+      window.clearTimeout(completionDeadline);
       active = false; restore();
       // Layout cleanup runs inside the same commit that removes the modal,
       // so restoring borrowed styles here cannot paint an opaque extra frame.

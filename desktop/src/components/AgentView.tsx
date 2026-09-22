@@ -1,3 +1,4 @@
+import { RESOURCE_CATEGORIES, RESOURCE_PRESENTATION } from "./resourcePresentation";
 import capabilityGuides from "../../../data/agent-capability-guides.json";
 import { AgentLaunchAction } from "./AgentLaunchAction";
 import { useAgentLauncher } from "../lib/agentLauncherContext";
@@ -34,12 +35,9 @@ import {
   DocumentIcon,
   ExternalLinkIcon,
   FolderIcon,
-  LayersIcon,
   LinkIcon,
-  PackageIcon,
   PlusIcon,
   RefreshIcon,
-  SparklesIcon,
 } from "./icons";
 import { Avatar, Badge } from "./ui";
 import { AgentGlyph } from "./brandIcons";
@@ -157,6 +155,7 @@ export function AgentView({
     enabled: boolean;
   } | null>(null);
   const [changingModel, setChangingModel] = useState<{ profileId: string } | null>(null);
+  const [assetConvergence, setAssetConvergence] = useState<{ operationId: string; action: ConvergenceAction } | null>(null);
   const [skillConvergencePlan, setSkillConvergencePlan] = useState<OperationPlan | null>(null);
   const [userHome, setUserHome] = useState("");
 
@@ -343,10 +342,10 @@ export function AgentView({
               <strong>{agent.note ?? "未提供可写的用户级全局配置。"}</strong>
             </div>
             {(capabilityGuides as Record<string, Record<string, string>>)[agentId] && <div className="mux-agent-file-map mux-agent-guided-cards">
-              {Object.entries((capabilityGuides as Record<string, Record<string, string>>)[agentId]).map(([domain, url]) => <ConfigPath
-                key={domain} label={domain === "mcp" ? "MCPs" : domain === "model" ? "Models" : "Skills"}
-                icon={domain === "mcp" ? <PackageIcon className="w-4 h-4" /> : domain === "model" ? <LayersIcon className="w-4 h-4" /> : <SparklesIcon className="w-4 h-4" />}
-                docsUrl={url} description="应用内配置" paths={[]} kind="file" home={userHome}
+              {RESOURCE_CATEGORIES.filter((resource) => (capabilityGuides as Record<string, Record<string, string>>)[agentId][resource.domain]).map((resource) => <ConfigPath
+                key={resource.domain} label={resource.label}
+                icon={<resource.Icon className="w-4 h-4" />}
+                docsUrl={(capabilityGuides as Record<string, Record<string, string>>)[agentId][resource.domain]} description="应用内配置" paths={[]} kind="file" home={userHome}
                 onOpen={() => {}} unavailableLabel="查看设置文档" />)}
             </div>}
           </section>
@@ -380,12 +379,12 @@ export function AgentView({
     const assigned = new Set(currentIds(domain));
     if (domain === "mcp") {
       return {
-        title: "添加 MCP",
+        title: "添加 MCPs",
         mode: "multiple",
-        actionLabel: "添加 MCP",
+        actionLabel: "添加 MCPs",
         busyLabel: "添加中…",
         emptyMessage: "没有可添加的 MCP",
-        searchPlaceholder: "搜索 MCP",
+        searchPlaceholder: "搜索 MCPs",
         options: entries
           .filter((entry) => agent?.supported_transports.includes(transportOf(entry)) && !assigned.has(keyOf(entry)))
           .map((entry) => ({
@@ -404,12 +403,12 @@ export function AgentView({
     }
     if (domain === "model") {
       return {
-        title: "添加 Model",
+        title: "添加 Models",
         mode: modelAgent?.supports_multiple ? "multiple" : "single",
-        actionLabel: "添加 Model",
+        actionLabel: "添加 Models",
         busyLabel: "添加中…",
         emptyMessage: "没有可添加的兼容 Model",
-        searchPlaceholder: "搜索 Model",
+        searchPlaceholder: "搜索 Models",
         options: modelProfiles
           .filter((profile) => !assigned.has(profile.id))
           .map((profile) => {
@@ -427,12 +426,12 @@ export function AgentView({
       };
     }
     return {
-      title: "添加 Skill",
+      title: "添加 Skills",
       mode: "multiple",
-      actionLabel: "添加 Skill",
+      actionLabel: "添加 Skills",
       busyLabel: "添加中…",
       emptyMessage: "没有可添加的 Skill",
-      searchPlaceholder: "搜索 Skill",
+      searchPlaceholder: "搜索 Skills",
       options: centralSkills.filter((item) => !assigned.has(item.name)).map((item) => ({
         id: item.name,
         name: item.name,
@@ -605,6 +604,7 @@ export function AgentView({
     try {
       const result = await consumptionState.planConvergence(item, action);
       if (result.domain === "skill") setSkillConvergencePlan(result.plan);
+      else setAssetConvergence({ operationId: result.plan.operation_id, action });
     } catch (error) {
       showToast({
         kind: "error",
@@ -677,6 +677,7 @@ export function AgentView({
             && !preparingChange ? (
             <AssetOperationReviewDialog
               plan={consumptionState.plan}
+              convergenceAction={assetConvergence?.operationId === consumptionState.plan.operation_id ? assetConvergence.action : undefined}
               busy={consumptionState.committing}
               error={consumptionState.error}
               agentId={agent.id}
@@ -698,9 +699,9 @@ export function AgentView({
           ) : (
             <AgentConsumptionPanel
               domain="mcp"
-              title="MCP"
+              title={RESOURCE_PRESENTATION.mcp.label}
               description={`${mcpRows.length} 项`}
-              manageLabel="添加 MCP"
+              manageLabel="添加 MCPs"
               rows={displayedMcpRows}
               columns={3}
               external={mcpExternal}
@@ -724,7 +725,7 @@ export function AgentView({
               convergenceDisabled={preparingChange}
               removeLabel={(name) => `从 ${agent.name} 移除 ${name}`}
               removeDisabled={preparingChange}
-              emptyTitle="暂无 MCP"
+              emptyTitle="暂无 MCPs"
               present={(asset) => {
                 const key = asset.domain === "mcp" ? asset.key : "";
                 const entry = mcpEntriesByKey.get(key);
@@ -762,11 +763,11 @@ export function AgentView({
               ) : (
                 <AgentConsumptionPanel
                   domain="model"
-                  title="Models"
+                  title={RESOURCE_PRESENTATION.model.label}
                   description={modelAgent.storage_authority === "native-registry"
                     ? `配置中 ${modelVisibleCount} 个${modelAgent.supports_global_selection === false ? ` · 重启 ${agent.name} 后在会话中选用` : modelAgent.supports_multiple ? " · 同一时间使用其中一个" : ""}`
                     : `MUX 管理 ${modelVisibleCount} 个`}
-                  manageLabel="添加 Model"
+                  manageLabel="添加 Models"
                   rows={displayedModelRows}
                   columns={3}
                   external={modelAgent.storage_authority === "native-registry" ? modelExternal : []}
@@ -805,7 +806,7 @@ export function AgentView({
                   convergenceDisabled={preparingChange}
                   removeLabel={(name) => `从 ${agent.name} 移除 ${name}`}
                   removeDisabled={preparingChange || changingModel !== null}
-                  emptyTitle="暂无 Model"
+                  emptyTitle="暂无 Models"
                   emptyDescription={compatibleProfiles.length === 0
                     ? "模型库中没有兼容资产。"
                     : `从 Models 资产库添加到 ${agent.name}。`}
@@ -815,7 +816,7 @@ export function AgentView({
                       className="btn-secondary"
                       onClick={() => navigateResource({ domain: "model", kind: "create" })}
                     >
-                      <PlusIcon className="w-4 h-4" />添加模型
+                      <PlusIcon className="w-4 h-4" />添加 Models
                     </button>
                   ) : undefined}
                   present={(asset) => {
@@ -848,9 +849,9 @@ export function AgentView({
           ) : (
             <AgentConsumptionPanel
               domain="skill"
-              title="Skills"
+              title={RESOURCE_PRESENTATION.skill.label}
               description={`${skillRows.length} 项`}
-              manageLabel="添加 Skill"
+              manageLabel="添加 Skills"
               rows={displayedSkillRows}
               columns={3}
               external={skillExternal}
@@ -866,7 +867,7 @@ export function AgentView({
               convergenceDisabled={preparingChange}
               removeLabel={(name) => `从 ${agent.name} 移除 ${name}`}
               removeDisabled={preparingChange}
-              emptyTitle="暂无 Skill"
+              emptyTitle="暂无 Skills"
               present={(asset) => {
                 const name = asset.domain === "skill" ? asset.name : "";
                 const skill = centralSkillsByName.get(name);
@@ -889,6 +890,7 @@ export function AgentView({
 
       {pickerDomain && picker && (
         <ConsumptionPickerDialog
+          domain={pickerDomain ?? undefined}
           title={picker.title}
           mode={picker.mode}
           subtitle={agent.name}

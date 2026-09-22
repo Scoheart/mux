@@ -1,3 +1,4 @@
+import { ResourceIcon } from "./resourcePresentation";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { AssetRef, ConsumptionView, ConvergenceAction } from "../lib/types";
 import { assetIdentity } from "../lib/consumption";
@@ -6,7 +7,6 @@ import {
   LinkIcon,
   LinkOffIcon,
   MoreHorizontalIcon,
-  PackageIcon,
   PlusIcon,
   RefreshIcon,
   TrashIcon,
@@ -318,7 +318,7 @@ export function AgentConsumptionPanel({
 
       {items.length === 0 ? (
         <div className="mux-consumption-empty">
-          <PackageIcon className="w-7 h-7" />
+          <ResourceIcon domain={domain === "model-provider" ? "model" : domain} className="w-7 h-7" />
           <strong>{emptyTitle}</strong>
           {emptyDescription && <span>{emptyDescription}</span>}
           {emptyAction}

@@ -1,3 +1,4 @@
+import { ResourceIcon } from "./resourcePresentation";
 import { useMemo, useState } from "react";
 import type { InstallState } from "../hooks/useInstallState";
 import type { ConsumptionState } from "../hooks/useConsumptionState";
@@ -397,10 +398,11 @@ export function RegistryEditPage({
 
   return (
     <DialogShell
+      leading={<span className="mux-dialog-shell-glyph"><ResourceIcon domain="mcp" /></span>}
       className="mux-dialog-mcp-editor"
       kind="editor"
       size={isNew ? "md" : "lg"}
-      title={isNew ? "添加 MCP" : "编辑 MCP"}
+      title={isNew ? "添加 MCPs" : "编辑 MCP"}
       subtitle={isNew ? undefined : transport === "stdio" ? "stdio · 全局配置" : "HTTP · 全局配置"}
       busy={saving || consumptionState.committing}
       onClose={onBack}

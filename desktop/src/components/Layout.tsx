@@ -1,3 +1,4 @@
+import { RESOURCE_CATEGORIES } from "./resourcePresentation";
 import { ReactNode, useEffect, useState } from "react";
 import { getVersion } from "@tauri-apps/api/app";
 import { useTranslation } from "react-i18next";
@@ -5,12 +6,9 @@ import type { AgentInfo, ProxySettings, View } from "../lib/types";
 import {
   DownloadIcon,
   LanguageIcon,
-  BrainIcon,
-  McpMarkIcon,
   MoonIcon,
   NetworkIcon,
   RefreshIcon,
-  SkillMarkIcon,
   SunIcon,
   SlidersIcon,
   TerminalIcon,
@@ -137,36 +135,17 @@ export function Layout({
 
         {/* Top-level resources (also the way back from an Agent view) */}
         <div className="mux-seg mux-skill-seg flex-shrink-0">
-          <button
+          {RESOURCE_CATEGORIES.map((resource) => <button
+            key={resource.id}
             className="mux-seg-item"
-            data-active={view.kind === "models" ? "true" : undefined}
-            onClick={onSelectModels}
+            data-active={view.kind === resource.view ? "true" : undefined}
+            onClick={{ models: onSelectModels, mcps: onSelectRegistry, skills: onSelectSkills }[resource.id]}
           >
             <span className="flex items-center gap-1.5">
-              <BrainIcon className="w-3.5 h-3.5" />
-              <span className="mux-resource-label">Models</span>
+              <resource.Icon className="w-3.5 h-3.5" />
+              <span className="mux-resource-label">{resource.label}</span>
             </span>
-          </button>
-          <button
-            className="mux-seg-item"
-            data-active={view.kind === "registry" ? "true" : undefined}
-            onClick={onSelectRegistry}
-          >
-            <span className="flex items-center gap-1.5">
-              <McpMarkIcon className="w-3.5 h-3.5" />
-              <span className="mux-resource-label">MCPs</span>
-            </span>
-          </button>
-          <button
-            className="mux-seg-item"
-            data-active={view.kind === "skills" ? "true" : undefined}
-            onClick={onSelectSkills}
-          >
-            <span className="flex items-center gap-1.5">
-              <SkillMarkIcon className="w-3.5 h-3.5" />
-              <span className="mux-resource-label">Skills</span>
-            </span>
-          </button>
+          </button>)}
         </div>
 
         {/* The picker settles at one icon, then pinned Agents disappear one

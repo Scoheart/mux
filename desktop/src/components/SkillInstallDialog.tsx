@@ -1,3 +1,4 @@
+import { ResourceIcon } from "./resourcePresentation";
 import {
   useCallback,
   useEffect,
@@ -366,10 +367,11 @@ export function SkillInstallDialog({
 
   return (
     <DialogShell
+      leading={<span className="mux-dialog-shell-glyph"><ResourceIcon domain="skill" /></span>}
       className="mux-dialog-skill-flow"
       kind="editor"
       size="md"
-      title="添加 Skill"
+      title="添加 Skills"
       subtitle="从 GitHub 下载，或从本地直接导入。"
       busy={busy}
       closeLabel="关闭"

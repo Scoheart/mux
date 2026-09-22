@@ -1,6 +1,6 @@
 import { createContext, useContext, useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { BrainIcon, McpMarkIcon, SkillMarkIcon } from "./icons";
+import { RESOURCE_CATEGORIES, type ResourceCategoryId } from "./resourcePresentation";
 
 const ToolbarTarget = createContext<HTMLDivElement | null | undefined>(undefined);
 
@@ -10,13 +10,8 @@ export function AgentResourceActions({ children }: { children: ReactNode }) {
   return target ? createPortal(children, target) : null;
 }
 
-export type AgentResourceTab = "mcps" | "models" | "skills";
-
-const TABS: Array<{ id: AgentResourceTab; label: string; icon: typeof McpMarkIcon }> = [
-  { id: "mcps", label: "MCPs", icon: McpMarkIcon },
-  { id: "models", label: "Models", icon: BrainIcon },
-  { id: "skills", label: "Skills", icon: SkillMarkIcon },
-];
+export type AgentResourceTab = ResourceCategoryId;
+const TABS = RESOURCE_CATEGORIES;
 
 export function AgentResourcePanel({
   value,
@@ -65,7 +60,7 @@ export function AgentResourcePanel({
               onClick={() => onChange(tab.id)}
               onKeyDown={(event) => handleKeyDown(event, index)}
             >
-              <span className="mux-agent-resource-tab-icon" aria-hidden="true"><tab.icon className="w-4 h-4" /></span>
+              <span className="mux-agent-resource-tab-icon" aria-hidden="true"><tab.Icon className="w-4 h-4" /></span>
               <span>{tab.label}</span>
               <span>{counts[tab.id]}</span>
             </button>

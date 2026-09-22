@@ -7,6 +7,23 @@ import type { SupportedLocale } from ".";
  * untouched. New and actively edited surfaces should use `useTranslation`.
  */
 const english: Record<string, string> = {
+  "删除 MCPs": "Delete MCPs",
+  "Models 状态变化": "Models state changes",
+  "确认添加 MCPs": "Confirm adding MCPs",
+  "确认移除 MCPs": "Confirm removing MCPs",
+  "确认更新 MCPs": "Confirm updating MCPs",
+  "确认添加 Skills": "Confirm adding Skills",
+  "确认移除 Skills": "Confirm removing Skills",
+  "确认更新 Skills": "Confirm updating Skills",
+  "MCPs 配置键": "MCPs configuration key",
+  "MCPs 配置文件": "MCPs configuration file",
+  "添加 Skills": "Add Skills",
+  "暂无 Models": "No Models",
+  "搜索 Models": "Search Models",
+  "添加 Models": "Add Models",
+  "暂无 MCPs": "No MCPs",
+  "搜索 MCPs": "Search MCPs",
+  "添加 MCPs": "Add MCPs",
   "加载中…": "Loading…",
   "关闭": "Close",
   "取消": "Cancel",

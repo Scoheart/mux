@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.208](https://github.com/Scoheart/mux/compare/v1.8.207...v1.8.208) (2026-09-22)
+
+### Changes
+
+* feat(models): add Token Harbor as a built-in gateway (#195) ([988f9be](https://github.com/Scoheart/mux/commit/988f9be375e19e9d4a98ffeaa669bd31bd2b81fb))
+
 ## [1.8.207](https://github.com/Scoheart/mux/compare/v1.8.206...v1.8.207) (2026-09-22)
 
 ### Changes

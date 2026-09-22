@@ -82,6 +82,11 @@ impl Cli {
 
 #[derive(Debug, Subcommand)]
 pub enum Command {
+    /// Inspect or change preferences shared with MUX Desktop.
+    Settings {
+        #[command(subcommand)]
+        command: crate::preferences::SettingsCommand,
+    },
     /// Manage central MCP assets and their Agent relationships.
     Mcp {
         #[command(subcommand)]
@@ -127,6 +132,15 @@ pub enum AssetDomain {
 
 #[derive(Debug, Subcommand)]
 pub enum McpCommand {
+    /// Customize MCP icons shared with Desktop.
+    Icon {
+        #[command(subcommand)]
+        command: crate::mcp_preferences::IconCommand,
+    },
+    /// Enable every assigned MCP for one Agent in one reviewed operation.
+    EnableAll { #[arg(long)] agent: String },
+    /// Disable every assigned MCP for one Agent in one reviewed operation.
+    DisableAll { #[arg(long)] agent: String },
     /// Manage subscribed, local and built-in MCP catalogs.
     Source {
         #[command(subcommand)]
@@ -405,6 +419,7 @@ pub fn dispatch(cli: &Cli) -> Result<CommandOutput, CliError> {
         )
     })?;
     match command {
+        Command::Settings { command } => crate::preferences::dispatch(cli, command),
         Command::Mcp { command } => dispatch_mcp(cli, command),
         Command::Model { command } => dispatch_model(cli, command),
         Command::Skill { command } => dispatch_skill(cli, command),
@@ -425,6 +440,16 @@ pub fn dispatch(cli: &Cli) -> Result<CommandOutput, CliError> {
 fn dispatch_mcp(cli: &Cli, command: &McpCommand) -> Result<CommandOutput, CliError> {
     let palette = Palette::new(cli.no_color || cli.json);
     match command {
+        McpCommand::Icon { command } => crate::mcp_preferences::dispatch(cli, command),
+        McpCommand::EnableAll { agent } | McpCommand::DisableAll { agent } => {
+            let enabled = matches!(command, McpCommand::EnableAll { .. });
+            let options = cli.mutation_options();
+            options.validate()?;
+            let plan = MuxCore::plan(PlanOperationRequest::SetAllMcpEnabled(
+                mux_core::domain::assets::PlanSetAllMcpEnabledRequest { agent_id: agent.clone(), enabled },
+            )).map_err(CliError::from_core)?;
+            execute_operation(if enabled { "mcp.enable-all" } else { "mcp.disable-all" }, plan, options)
+        }
         McpCommand::Source { command } => crate::source_management::dispatch(cli, command),
         McpCommand::Save { file, key } => {
             let options = cli.mutation_options();

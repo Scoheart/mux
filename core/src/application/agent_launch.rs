@@ -51,9 +51,9 @@ fn executable(path: &Path) -> bool {
     #[cfg(not(unix))] { true }
 }
 fn application(names: &[String]) -> Option<PathBuf> {
-    let mut roots = vec![PathBuf::from("/Applications")];
+    let mut roots = vec![crate::paths::system_probe_path("/Applications")];
     if let Ok(home) = home() { roots.push(home.join("Applications")); }
-    roots.push(PathBuf::from("/System/Applications"));
+    roots.push(crate::paths::system_probe_path("/System/Applications"));
     names.iter().flat_map(|name| roots.iter().map(move |root| root.join(format!("{name}.app"))))
         .find(|path| app_exists(path))
 }
@@ -78,7 +78,7 @@ fn find_command(name: &str) -> Option<PathBuf> {
             }
         }
     }
-    paths.extend([PathBuf::from("/opt/homebrew/bin"), PathBuf::from("/usr/local/bin"), PathBuf::from("/usr/bin")]);
+    paths.extend(["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin"].map(crate::paths::system_probe_path));
     paths.into_iter().filter(|p| p.is_absolute()).map(|p| p.join(name)).find(|p| executable(p))
 }
 
@@ -194,6 +194,10 @@ pub fn configure_with_directory(agent_id: &str, target: Option<LaunchTarget>, de
 fn quote_shell(value: &str) -> String { format!("'{}'", value.replace('\'', "'\\''")) }
 
 fn dispatch(target: &LaunchTarget, directory: Option<&Path>) -> Result<(), String> {
+    #[cfg(any(test, debug_assertions))]
+    if std::env::var_os("MUX_TEST_PROBE_ROOT").is_some() {
+        return Err("test_launch_blocked: isolated fixtures cannot start host applications".into());
+    }
     if !cfg!(target_os = "macos") { return Err("当前平台暂不支持启动 Agent".into()); }
     validate_target(target)?;
     let mut command;

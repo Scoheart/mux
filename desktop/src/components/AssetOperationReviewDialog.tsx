@@ -3,6 +3,7 @@ import { assetIdentity } from "../lib/consumption";
 import { AgentGlyph } from "./brandIcons";
 import { TrashIcon } from "./icons";
 import { DialogShell } from "./DialogShell";
+import { DialogDisclosure } from "./DialogDisclosure";
 
 function assetKey(asset: AssetRef) {
   return `${asset.domain}:${assetIdentity(asset)}`;
@@ -624,10 +625,9 @@ export function AssetOperationReviewDialog({
             </section>
           )}
         {plan.target_files.length > 0 && (
-          <section>
-            <h3>{isAgentSkillPlan ? "实际写入位置" : agentName ? "将更新的位置" : "写入目标"}</h3>
+          <DialogDisclosure title="写入位置" summary={`${plan.target_files.length} 个文件`}>
             <ul>{plan.target_files.map((path) => <li key={path}><code>{path}</code></li>)}</ul>
-          </section>
+          </DialogDisclosure>
         )}
         {plan.warnings.length > 0 && (
           <section className="mux-asset-review-warnings">

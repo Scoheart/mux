@@ -174,6 +174,8 @@ export interface ModelProfileView extends ModelProfile {
 export interface ModelProviderView {
   id: string;
   name: string;
+  /** Official, provider-specific documentation; absent for custom connections. */
+  docs_url?: string | null;
   default_base_url: string | null;
   default_protocol: ModelProtocol;
   additional_endpoints: Array<{

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useToast } from "../components/Toast";
 import { formatError } from "../lib/format";
 import { getPinnedAgents, setPinnedAgents } from "../lib/api";
+import { usePreferenceRevision } from "../lib/preferenceObservation";
 
 export interface PinnedAgentsState {
   agentIds: string[];
@@ -18,29 +19,34 @@ export function usePinnedAgents(): PinnedAgentsState {
   const readyRef = useRef(false);
   const savingRef = useRef(false);
   const { show } = useToast();
+  const revision = usePreferenceRevision();
+  const generation = useRef(0);
 
   useEffect(() => {
     let active = true;
+    const request = ++generation.current;
+    if (savingRef.current) return;
     getPinnedAgents()
       .then((loaded) => {
-        if (!active) return;
+        if (!active || request !== generation.current || savingRef.current) return;
         savedRef.current = loaded;
         readyRef.current = true;
         setAgentIds(loaded);
         setReady(true);
       })
       .catch((error) => {
-        if (active) show({ kind: "error", msg: `读取置顶 Agent 失败: ${formatError(error)}` });
+        if (active && request === generation.current) show({ kind: "error", msg: `读取置顶 Agent 失败: ${formatError(error)}` });
       });
     return () => {
       active = false;
     };
-  }, [show]);
+  }, [show, revision]);
 
   const commit = useCallback(async (nextIds: string[]) => {
     if (!readyRef.current || savingRef.current) return false;
     const previous = savedRef.current;
     savingRef.current = true;
+    ++generation.current;
     setSaving(true);
     setAgentIds(nextIds);
     try {

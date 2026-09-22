@@ -28,8 +28,8 @@ export interface SkillsState {
   pendingOperation: string | null;
   error: SkillCommandError | null;
   hydrate(inventory: SkillsInventory): void;
-  refresh(): Promise<SkillsInventory>;
-  refreshSilently(): Promise<SkillsInventory>;
+  refresh(read?: () => Promise<SkillsInventory>): Promise<SkillsInventory>;
+  refreshSilently(read?: () => Promise<SkillsInventory>): Promise<SkillsInventory>;
   plan(request: SkillPlanOperationRequest): Promise<OperationPlan>;
   commit(
     plan: OperationPlan,
@@ -95,13 +95,13 @@ export function useSkillsState({ autoLoad = true }: { autoLoad?: boolean } = {})
   }, []);
 
   const loadInventory = useCallback(
-    async (generation: number, showLoading: boolean) => {
+    async (generation: number, showLoading: boolean, read = api.listSkillsInventory) => {
       const loadingRequest = showLoading ? ++loadingGeneration.current : null;
       if (mounted.current) {
         if (showLoading) setLoading(true);
       }
       try {
-        const next = await api.listSkillsInventory();
+        const next = await read();
         if (
           mounted.current &&
           cacheGeneration.current === generation
@@ -122,8 +122,9 @@ export function useSkillsState({ autoLoad = true }: { autoLoad?: boolean } = {})
       } finally {
         if (
           mounted.current &&
-          loadingRequest !== null &&
-          loadingGeneration.current === loadingRequest
+          (loadingRequest !== null
+            ? loadingGeneration.current === loadingRequest
+            : cacheGeneration.current === generation)
         ) {
           setLoading(false);
         }
@@ -132,14 +133,14 @@ export function useSkillsState({ autoLoad = true }: { autoLoad?: boolean } = {})
     [],
   );
 
-  const refresh = useCallback(() => {
+  const refresh = useCallback((read = api.listSkillsInventory) => {
     const generation = ++cacheGeneration.current;
-    return loadInventory(generation, true);
+    return loadInventory(generation, true, read);
   }, [loadInventory]);
 
-  const refreshSilently = useCallback(() => {
+  const refreshSilently = useCallback((read = api.listSkillsInventory) => {
     const generation = ++cacheGeneration.current;
-    return loadInventory(generation, false);
+    return loadInventory(generation, false, read);
   }, [loadInventory]);
 
   const hydrate = useCallback((next: SkillsInventory) => {

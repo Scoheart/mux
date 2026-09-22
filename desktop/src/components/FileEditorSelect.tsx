@@ -1,3 +1,4 @@
+import { readLocalSetting, writeLocalSetting } from "../lib/localSettings";
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -33,7 +34,7 @@ function EditorIcon({ editor }: { editor: string }) {
 
 export function preferredFileEditor(): string | undefined {
   try {
-    return localStorage.getItem(STORAGE_KEY) || undefined;
+    return readLocalSetting(STORAGE_KEY) || undefined;
   } catch {
     return undefined;
   }
@@ -80,8 +81,8 @@ export function FileEditorSelect({ showLabel = false }: { showLabel?: boolean })
         if (!path) return;
         selected = path;
       }
-      if (selected) localStorage.setItem(STORAGE_KEY, selected);
-      else localStorage.removeItem(STORAGE_KEY);
+      if (selected) writeLocalSetting(STORAGE_KEY, selected);
+      else writeLocalSetting(STORAGE_KEY, null);
       setEditor(selected);
       showToast({ kind: "success", msg: selected ? `文件将使用 ${editorLabel(selected)} 打开` : "已恢复系统默认应用" });
     } catch (error) {

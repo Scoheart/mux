@@ -1,12 +1,12 @@
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useDeferredValue, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useModelObservationRevision } from "../lib/modelObservation";
+import { cachedModelLibrary, loadModelLibrary } from "../lib/modelLibrary";
 import { useTranslation } from "react-i18next";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import {
   discoverProviderModels,
   copyToClipboard,
-  listModelProfiles,
-  listModelProviderInstances,
-  listModelProviders,
+  exportModelCurl,
   revealModelProviderCredential,
 } from "../lib/api";
 import type { ConsumptionState } from "../hooks/useConsumptionState";
@@ -32,6 +32,7 @@ import {
 import { Avatar, Badge } from "./ui";
 import { ResourceState } from "./ResourceState";
 import { DialogShell } from "./DialogShell";
+import { DialogDisclosure } from "./DialogDisclosure";
 import { AssetOperationReviewDialog } from "./AssetOperationReviewDialog";
 import { FormSelect } from "./FormSelect";
 import { ProviderGlyph } from "./providerIcons";
@@ -40,6 +41,7 @@ import {
   ChevronDownIcon,
   CopyIcon,
   EditIcon,
+  ExternalLinkIcon,
   EyeIcon,
   EyeOffIcon,
   GaugeIcon,
@@ -274,43 +276,6 @@ function fullRequestUrl(baseUrl: string, endpointPath: string) {
   return base && path ? `${base}${path}` : "";
 }
 
-function shellQuote(value: string) {
-  return `'${value.replaceAll("'", "'\\''")}'`;
-}
-
-function modelCurlCommand(protocol: ModelProtocol, requestUrl: string, model: string, apiKey: string) {
-  const url = requestUrl.replaceAll("{model}", encodeURIComponent(model));
-  const headers = ["Content-Type: application/json"];
-  let body: Record<string, unknown>;
-  if (protocol === "anthropic-messages") {
-    headers.push(`x-api-key: ${apiKey}`, "anthropic-version: 2023-06-01");
-    body = {
-      model,
-      max_tokens: 1024,
-      messages: [{ role: "user", content: "Hello" }],
-    };
-  } else if (protocol === "gemini-generate-content") {
-    headers.push(`x-goog-api-key: ${apiKey}`);
-    body = {
-      contents: [{ role: "user", parts: [{ text: "Hello" }] }],
-    };
-  } else if (protocol === "openai-responses") {
-    headers.push(`Authorization: Bearer ${apiKey}`);
-    body = { model, input: "Hello" };
-  } else {
-    headers.push(`Authorization: Bearer ${apiKey}`);
-    body = {
-      model,
-      messages: [{ role: "user", content: "Hello" }],
-    };
-  }
-  return [
-    `curl --request POST ${shellQuote(url)}`,
-    ...headers.map((header) => `  --header ${shellQuote(header)}`),
-    `  --data-raw ${shellQuote(JSON.stringify(body, null, 2))}`,
-  ].join(" \\\n");
-}
-
 function profileProviderName(
   profile: ModelProfileView,
   instances: ModelProviderInstanceView[],
@@ -354,9 +319,10 @@ export function ModelsView({
   intent?: Extract<ResourceNavigationIntent, { domain: "model" }>;
   onIntentConsumed?(id: number): void;
 } = {}) {
-  const [profiles, setProfiles] = useState<ModelProfileView[]>([]);
-  const [providers, setProviders] = useState<ModelProviderView[]>([]);
-  const [providerInstances, setProviderInstances] = useState<ModelProviderInstanceView[]>([]);
+  const [initialLibrary] = useState(cachedModelLibrary);
+  const [profiles, setProfiles] = useState<ModelProfileView[]>(initialLibrary?.profiles ?? []);
+  const [providers, setProviders] = useState<ModelProviderView[]>(initialLibrary?.providers ?? []);
+  const [providerInstances, setProviderInstances] = useState<ModelProviderInstanceView[]>(initialLibrary?.instances ?? []);
   const [providerFilter, setProviderFilter] = useState<string | null>(null);
   const [providerCatalogOpen, setProviderCatalogOpen] = useState(false);
   const [creatingForProviderId, setCreatingForProviderId] = useState<string | null>(null);
@@ -364,9 +330,10 @@ export function ModelsView({
   const [editingProvider, setEditingProvider] = useState<ModelProviderInstanceView | null | undefined>(undefined);
   const [selectedProfileId, setSelectedProfileId] = useState<string | null>(null);
   const [editing, setEditing] = useState<ModelProfileView | null | undefined>(undefined);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!initialLibrary);
   const [readError, setReadError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
+  const deferredQuery = useDeferredValue(query);
   const [modelsDevByProfileId, setModelsDevByProfileId] = useState<Record<string, ModelsDevMetadata>>({});
   const toast = useToast();
   const showToast = toast.show;
@@ -375,13 +342,9 @@ export function ModelsView({
 
   const modelRevision = useModelObservationRevision();
   const queryGeneration = useRef(0);
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (force = false) => {
     const generation = ++queryGeneration.current;
-    const [nextProfiles, nextProviders, nextProviderInstances] = await Promise.all([
-      listModelProfiles(),
-      listModelProviders(),
-      listModelProviderInstances(),
-    ]);
+    const { profiles: nextProfiles, providers: nextProviders, instances: nextProviderInstances } = await loadModelLibrary(force);
     if (generation !== queryGeneration.current) return;
     setProfiles(nextProfiles);
     setProviders(nextProviders);
@@ -419,29 +382,31 @@ export function ModelsView({
     return () => { active = false; };
   }, [profiles]);
 
-  const filteredProfiles = useMemo(() => {
-    const needle = query.trim().toLocaleLowerCase();
-    return profiles.filter((profile) => {
-      if (providerFilter && profile.provider_id !== providerFilter) return false;
-      if (!needle) return true;
-      return [
+  const searchIndex = useMemo(() => {
+    const instanceNames = new Map(providerInstances.map((item) => [item.id, item.name]));
+    const templateNames = new Map(providers.map((item) => [item.id, item.name]));
+    return profiles.map((profile) => ({ profile, text: [
         profile.name,
         profile.id,
         profile.model,
         profile.base_url,
         profile.provider,
-        profileProviderName(profile, providerInstances, providers),
+        instanceNames.get(profile.provider_id ?? "") ?? templateNames.get(profile.provider) ?? profile.provider,
         profile.catalog_key,
         protocolLabel(profile.protocol),
       ]
         .join(" ")
-        .toLocaleLowerCase()
-        .includes(needle);
-    });
-  }, [profiles, providerFilter, providerInstances, providers, query]);
+        .toLocaleLowerCase() }));
+  }, [profiles, providerInstances, providers]);
+  const filteredProfiles = useMemo(() => {
+    const needle = deferredQuery.trim().toLocaleLowerCase();
+    return searchIndex.filter(({ profile, text }) =>
+      (!providerFilter || profile.provider_id === providerFilter) && (!needle || text.includes(needle)),
+    ).map(({ profile }) => profile);
+  }, [searchIndex, providerFilter, deferredQuery]);
 
   const refreshAfterSave = () => {
-    void refresh().catch((error) => {
+    void refresh(true).catch((error) => {
       setReadError(formatError(error));
     });
   };
@@ -488,14 +453,14 @@ export function ModelsView({
     clearSelection();
     setProviderFilter(id);
   };
-  const planProfileDelete = async (profile: ModelProfileView) => {
+  const planProfileDelete = useCallback(async (profile: ModelProfileView) => {
     if (!consumptionState) return;
     try {
       await consumptionState.planDelete({ domain: "model", profile_id: profile.id });
     } catch (error) {
       toast.show({ kind: "error", msg: t("models.cannotDelete", { error: formatError(error) }) });
     }
-  };
+  }, [consumptionState?.planDelete, toast.show, t]);
 
   return (
     <div className="mux-models-workspace">
@@ -579,7 +544,6 @@ export function ModelsView({
             metadata={modelsDevByProfileId[selectedProfile.id]}
             onClose={clearSelection}
             onEdit={consumptionState ? () => setEditing(selectedProfile) : undefined}
-            onDelete={consumptionState ? () => void planProfileDelete(selectedProfile) : undefined}
           />
         ) : undefined}
         onInspectorClose={clearSelection}
@@ -614,6 +578,7 @@ export function ModelsView({
         {selectedProvider && (
           <ProviderBanner
             provider={selectedProvider}
+            docsUrl={providers.find((template) => template.id === selectedProvider.provider)?.docs_url}
             onEdit={consumptionState ? () => setEditingProvider(selectedProvider) : undefined}
             onDelete={consumptionState ? async () => {
               try {
@@ -641,7 +606,7 @@ export function ModelsView({
             action={<button className="btn-primary" type="button" onClick={() => {
               setLoading(true);
               setReadError(null);
-              void refresh()
+              void refresh(true)
                 .catch((error) => setReadError(formatError(error)))
                 .finally(() => setLoading(false));
             }}>{t("common.retry")}</button>}
@@ -666,6 +631,7 @@ export function ModelsView({
             providers={providers}
             metadata={modelsDevByProfileId}
             selectedProfileId={selectedProfileId}
+            onDelete={consumptionState ? planProfileDelete : undefined}
             onOpen={(profileId) => {
               setEditing(undefined);
               setSelectedProfileId(profileId);
@@ -742,12 +708,30 @@ export function ModelsView({
   );
 }
 
+function ProviderDocsButton({ url }: { url?: string | null }) {
+  const { t } = useTranslation();
+  const toast = useToast();
+  if (!url || !url.startsWith("https://")) return null;
+  return (
+    <button type="button" className="btn-ghost shrink-0 whitespace-nowrap" title={url}
+      aria-label={t("models.officialDocs")}
+      onClick={() => void openUrl(url).catch((error) => {
+        toast.show({ kind: "error", msg: t("models.openDocsFailed", { error: formatError(error) }) });
+      })}>
+      <ExternalLinkIcon className="w-4 h-4" />
+      {t("models.officialDocs")}
+    </button>
+  );
+}
+
 function ProviderBanner({
   provider,
+  docsUrl,
   onEdit,
   onDelete,
 }: {
   provider: ModelProviderInstanceView;
+  docsUrl?: string | null;
   onEdit?: () => void;
   onDelete?: () => void;
 }) {
@@ -771,6 +755,7 @@ function ProviderBanner({
         </div>
       </div>
       <div className="flex items-center gap-2">
+        <ProviderDocsButton url={docsUrl} />
         <button className="btn-danger" type="button" disabled={!onDelete} onClick={onDelete}>
           <TrashIcon className="w-4 h-4" />
           {t("common.delete")}
@@ -784,13 +769,14 @@ function ProviderBanner({
   );
 }
 
-function ModelList({
+const ModelList = memo(function ModelList({
   profiles,
   providerInstances,
   providers,
   metadata,
   selectedProfileId,
   onOpen,
+  onDelete,
 }: {
   profiles: ModelProfileView[];
   providerInstances: ModelProviderInstanceView[];
@@ -798,17 +784,40 @@ function ModelList({
   metadata: Record<string, ModelsDevMetadata>;
   selectedProfileId: string | null;
   onOpen: (profileId: string) => void;
+  onDelete?: (profile: ModelProfileView) => Promise<void>;
 }) {
   const { t } = useTranslation();
+  const toast = useToast();
+  const [copyingId, setCopyingId] = useState<string | null>(null);
+  const copyPending = useRef(false);
+  const instanceIndex = useMemo(() => new Map(providerInstances.map((item) => [item.id, item])), [providerInstances]);
+  const templateIndex = useMemo(() => new Map(providers.map((item) => [item.id, item.name])), [providers]);
+  const copyCurl = async (profile: ModelProfileView) => {
+    if (copyPending.current) return;
+    copyPending.current = true;
+    setCopyingId(profile.id);
+    try {
+      await copyToClipboard(await exportModelCurl(profile.id, true));
+      toast.show({ kind: "success", msg: t("models.curlCopied") });
+    } catch (error) {
+      toast.show({ kind: "error", msg: t("models.curlCopyFailed", { error: formatError(error) }) });
+    } finally {
+      copyPending.current = false;
+      setCopyingId(null);
+    }
+  };
   return (
     <div className="mux-asset-list mux-model-list" role="list" aria-label={t("models.asset")}>
       {profiles.map((profile) => {
-        const providerName = profileProviderName(profile, providerInstances, providers);
+        const provider = instanceIndex.get(profile.provider_id ?? "");
+        const providerName = provider?.name ?? templateIndex.get(profile.provider) ?? profile.provider;
         const profileMetadata = metadata[profile.id];
         const displayName = readableModelName(profile, providerName, profileMetadata);
         const contextWindow = profile.context_window ?? profileMetadata?.contextWindow;
+        const copyLabel = `${t("models.copyCurl")} · ${displayName}`;
+        const deleteLabel = `${t("common.delete")} · ${displayName}`;
         return (
-          <div role="listitem" key={profile.id}>
+          <div role="listitem" key={profile.id} className="mux-model-card">
             <button
               type="button"
               className="mux-asset-list-row mux-model-list-row"
@@ -836,12 +845,27 @@ function ModelList({
                 </span>
               </span>
             </button>
+            <div className="mux-model-card-actions">
+              <button type="button" className="mux-model-card-action"
+                aria-label={copyLabel} title={copyLabel}
+                aria-busy={copyingId === profile.id}
+                disabled={copyingId !== null}
+                onClick={() => void copyCurl(profile)}>
+                <TerminalIcon className="w-4 h-4" />
+              </button>
+              <button type="button" className="mux-model-card-action mux-model-card-delete"
+                aria-label={deleteLabel} title={deleteLabel}
+                disabled={!onDelete || copyingId === profile.id}
+                onClick={() => void onDelete?.(profile)}>
+                <TrashIcon className="w-4 h-4" />
+              </button>
+            </div>
           </div>
         );
       })}
     </div>
   );
-}
+});
 
 function ModelInspector({
   profile,
@@ -850,7 +874,6 @@ function ModelInspector({
   metadata,
   onClose,
   onEdit,
-  onDelete,
 }: {
   profile: ModelProfileView;
   providerName: string;
@@ -858,7 +881,6 @@ function ModelInspector({
   metadata?: ModelsDevMetadata;
   onClose: () => void;
   onEdit?: () => void;
-  onDelete?: () => void;
 }) {
   const { t } = useTranslation();
   const toast = useToast();
@@ -898,17 +920,6 @@ function ModelInspector({
       <CopyIcon className="w-3.5 h-3.5" />
     </button>
   );
-  const copyCurl = async () => {
-    if (!requestUrl || !provider?.id) return;
-    try {
-      const apiKey = await revealModelProviderCredential(provider.id);
-      if (!apiKey) throw new Error(t("models.curlCredentialUnavailable"));
-      await copyToClipboard(modelCurlCommand(profile.protocol, requestUrl, profile.model, apiKey));
-      toast.show({ kind: "success", msg: t("models.curlCopied") });
-    } catch (error) {
-      toast.show({ kind: "error", msg: t("models.curlCopyFailed", { error: formatError(error) }) });
-    }
-  };
   return (
     <ResourceInspector
       title={readableModelName(profile, providerName, metadata)}
@@ -917,10 +928,6 @@ function ModelInspector({
       onClose={onClose}
       footer={
         <>
-          <button className="btn-danger" type="button" disabled={!onDelete} onClick={onDelete}>
-            <TrashIcon className="w-4 h-4" />
-            {t("common.delete")}
-          </button>
           <div className="flex-1" />
           <button className="btn-primary" type="button" disabled={!onEdit} onClick={onEdit}>
             <EditIcon className="w-4 h-4" />
@@ -968,24 +975,6 @@ function ModelInspector({
           action={requestUrl ? copyAction(t("models.fullRequestUrl"), requestUrl) : undefined}
         >
           {requestUrl || t("common.notSet")}
-        </InspectorField>
-        <InspectorField
-          icon={<TerminalIcon />}
-          label={t("models.curlCommand")}
-          mono
-          wide
-          action={requestUrl && provider?.id ? (
-            <button
-              type="button"
-              aria-label={t("models.copyCurl")}
-              title={t("models.copyCurl")}
-              onClick={() => void copyCurl()}
-            >
-              <CopyIcon className="w-3.5 h-3.5" />
-            </button>
-          ) : undefined}
-        >
-          {requestUrl ? t("models.copyCurlHint") : t("common.notSet")}
         </InspectorField>
         {profile.env_key && <InspectorField icon={<KeyIcon />} label={t("models.environmentVariable")} mono wide>{profile.env_key}</InspectorField>}
       </section>
@@ -1041,6 +1030,7 @@ function ProviderCatalogDialog({
         <span className="mux-provider-catalog-selection">
           <span aria-hidden="true">✓</span>
           <strong>{selected.name}</strong>
+          <ProviderDocsButton url={selected.docs_url} />
         </span>
       ) : undefined}
       footerEnd={(
@@ -1491,6 +1481,8 @@ function ModelProfileDialog({
         </div>
       </div>
 
+      <DialogDisclosure title={t("common.advancedSettings")} summary={t("models.modelOptionsSummary")}
+        invalid={Boolean((draft.context_window != null && (!Number.isInteger(draft.context_window) || draft.context_window < 1)) || (draft.max_output_tokens != null && (!Number.isInteger(draft.max_output_tokens) || draft.max_output_tokens < 1)))}>
       <label className="mux-model-form-wide">
         <span>{t("models.fullRequestUrl")}</span>
         <input
@@ -1550,6 +1542,7 @@ function ModelProfileDialog({
           })}
         />
       </div>
+      </DialogDisclosure>
     </div>
   );
 
@@ -1642,10 +1635,34 @@ function ModelProviderDialog({
   );
   const [credential, setCredential] = useState("");
   const [credentialDirty, setCredentialDirty] = useState(false);
-  const [credentialLoading, setCredentialLoading] = useState(false);
+  const [credentialLoading, setCredentialLoading] = useState(Boolean(initial?.credential_saved));
+  const [credentialReadError, setCredentialReadError] = useState<string | null>(null);
+  const [credentialLoadAttempt, setCredentialLoadAttempt] = useState(0);
   const [credentialVisible, setCredentialVisible] = useState(false);
-  const [clearCredential, setClearCredential] = useState(false);
   const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    setCredential("");
+    setCredentialDirty(false);
+    setCredentialVisible(false);
+    setCredentialReadError(null);
+    if (!initial?.credential_saved) {
+      setCredentialLoading(false);
+      return;
+    }
+    setCredentialLoading(true);
+    void revealModelProviderCredential(initial.id)
+      .then((savedCredential) => {
+        if (!cancelled) setCredential(savedCredential);
+      })
+      .catch((error) => {
+        if (!cancelled) setCredentialReadError(formatError(error));
+      })
+      .finally(() => {
+        if (!cancelled) setCredentialLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [initial?.id, initial?.credential_saved, credentialLoadAttempt]);
   const enabledProtocols = PROTOCOLS.filter(({ id }) => Boolean(draft.protocols[id]));
   const selectedProtocolInfo = PROTOCOLS.find(({ id }) => id === selectedProtocol) ?? PROTOCOLS[0];
   const selectedProtocolPath = protocolPaths[selectedProtocol];
@@ -1661,9 +1678,10 @@ function ModelProviderDialog({
       return Boolean(normalizeEndpointPath(path) && fullRequestUrl(draft.base_url, path));
     });
   const enteredCredential = Boolean(credential.trim());
-  const preservedCredential = Boolean(initial?.credential_saved && !clearCredential);
-  // Presence is enough to show a mask; never put a fake secret into form state.
-  const showSavedCredentialMask = preservedCredential && !credentialDirty && !credentialVisible;
+  const clearCredential = credentialDirty && !enteredCredential;
+  const preservedCredential = Boolean(initial?.credential_saved && !credentialDirty);
+  // A pending/failed read must never look like an editable empty credential.
+  const showSavedCredentialMask = Boolean(initial?.credential_saved && (credentialLoading || credentialReadError));
   const preservesLegacySource = Boolean(initialSource && initialSource.kind !== "mux-store");
   const authWithoutCredential: ModelProviderConfig["auth_requirement"] =
     ["ollama", "lm-studio", "vllm"].includes(initialProviderType)
@@ -1674,7 +1692,8 @@ function ModelProviderDialog({
   const sourceValid = authWithoutCredential !== "required"
     || enteredCredential
     || preservedCredential
-    || preservesLegacySource;
+    || preservesLegacySource
+    || Boolean(initial && clearCredential);
   const valid = Boolean(
     draft.name.trim()
       && draft.provider.trim()
@@ -1683,34 +1702,9 @@ function ModelProviderDialog({
       && protocolsValid
       && sourceValid
       && !busy
-      && !credentialLoading,
+      && !credentialLoading
+      && !credentialReadError,
   );
-
-  const toggleCredentialVisibility = async () => {
-    if (credentialVisible) {
-      setCredentialVisible(false);
-      return;
-    }
-    if (!initial?.credential_saved || credential || credentialDirty) {
-      setCredentialVisible(true);
-      return;
-    }
-
-    setCredentialLoading(true);
-    try {
-      const savedCredential = await revealModelProviderCredential(initial.id);
-      setCredential(savedCredential);
-      setCredentialDirty(false);
-      setCredentialVisible(true);
-    } catch (error) {
-      toast.show({
-        kind: "error",
-        msg: t("models.revealApiKeyFailed", { error: formatError(error) }),
-      });
-    } finally {
-      setCredentialLoading(false);
-    }
-  };
 
   const save = async () => {
     if (!valid) return;
@@ -1770,6 +1764,7 @@ function ModelProviderDialog({
         : t("models.addProviderNamed", { name: dialogName })}
       busy={busy}
       onClose={onClose}
+      footerStart={template?.docs_url ? <ProviderDocsButton url={template.docs_url} /> : undefined}
       footerEnd={(
         <>
           <button type="button" className="btn-secondary" disabled={busy} onClick={onClose}>
@@ -1805,6 +1800,63 @@ function ModelProviderDialog({
             {draft.base_url && !normalizedBaseUrl && <small>{t("models.invalidBaseUrl")}</small>}
             {template?.setup && <small>{t(`models.providerSetup.${template.setup.hint}`)}</small>}
           </label>
+
+        </div>
+
+        {initialAuthRequirement !== "none" && (
+        <section className="mux-provider-form-section mux-provider-credential" aria-label={t("models.apiKey")}>
+          <div className="mux-provider-section-head">
+            <strong>{t("models.apiKey")}</strong>
+            <small>{t("models.credentialHelp")}</small>
+          </div>
+
+          <div className="mux-model-form-field mux-provider-credential-field">
+            <div className="mux-provider-credential-input" data-mode="mux-store">
+                <input
+                  type={!credentialVisible ? "password" : "text"}
+                  autoComplete="new-password"
+                  aria-label={t("models.apiKey")}
+                  value={credential}
+                  disabled={busy || credentialLoading || Boolean(credentialReadError)}
+                  onChange={(event) => {
+                    setCredential(event.target.value);
+                    setCredentialDirty(true);
+                  }}
+                  placeholder={showSavedCredentialMask
+                    ? "••••••••"
+                    : preservesLegacySource && !clearCredential
+                        ? t("models.legacyCredentialPreserved")
+                        : initial ? t("models.emptyCredentialDeletes") : t("models.optionalCredential")}
+                />
+                  <button
+                    type="button"
+                    className="mux-provider-icon-button"
+                    aria-label={credentialVisible ? t("models.hideApiKey") : t("models.showApiKey")}
+                    title={credentialVisible ? t("models.hideApiKey") : t("models.showApiKey")}
+                    disabled={busy || credentialLoading || Boolean(credentialReadError)}
+                    aria-busy={credentialLoading}
+                    onClick={() => setCredentialVisible((visible) => !visible)}
+                  >
+                    {credentialVisible
+                      ? <EyeOffIcon className="w-4 h-4" />
+                      : <EyeIcon className="w-4 h-4" />}
+                  </button>
+            </div>
+          </div>
+
+          {credentialReadError && (
+            <div role="alert" className="flex items-center gap-2">
+              <small>{t("models.revealApiKeyFailed", { error: credentialReadError })}</small>
+              <button type="button" className="btn-ghost" onClick={() => setCredentialLoadAttempt((attempt) => attempt + 1)}>
+                <RefreshIcon className="w-4 h-4" />{t("common.retry")}
+              </button>
+            </div>
+          )}
+        </section>
+        )}
+
+        <DialogDisclosure title={t("common.advancedSettings")} summary={t("models.protocolCount", { count: enabledProtocols.length })}
+          invalid={enabledProtocols.length === 0 || Boolean(draft.model_catalog_url && !normalizedModelCatalogUrl) || enabledProtocols.some((protocol) => !normalizeEndpointPath(protocolPaths[protocol.id]))}>
           <label className="mux-provider-model-catalog-field">
             <span>{t("models.modelCatalogUrl")}</span>
             <input
@@ -1822,73 +1874,6 @@ function ModelProviderDialog({
               <small>{t("models.invalidModelCatalogUrl")}</small>
             )}
           </label>
-        </div>
-
-        {initialAuthRequirement !== "none" && (
-        <section className="mux-provider-form-section mux-provider-credential" aria-label={t("models.apiKey")}>
-          <div className="mux-provider-section-head">
-            <strong>{t("models.apiKey")}</strong>
-            <small>{t("models.credentialHelp")}</small>
-          </div>
-
-          <div className="mux-model-form-field mux-provider-credential-field">
-            <div className="mux-provider-credential-input" data-mode="mux-store">
-                <input
-                  type={!credentialVisible ? "password" : "text"}
-                  autoComplete="new-password"
-                  aria-label={t("models.apiKey")}
-                  value={credential}
-                  disabled={credentialLoading}
-                  onChange={(event) => {
-                    setCredential(event.target.value);
-                    setCredentialDirty(true);
-                    if (event.target.value.trim()) setClearCredential(false);
-                  }}
-                  title={showSavedCredentialMask ? t("models.keepCredential") : undefined}
-                  placeholder={showSavedCredentialMask
-                    ? "••••••••"
-                    : preservedCredential
-                      ? t("models.keepCredential")
-                      : preservesLegacySource && !clearCredential
-                        ? t("models.legacyCredentialPreserved")
-                        : t("models.optionalCredential")}
-                />
-                  <button
-                    type="button"
-                    className="mux-provider-icon-button"
-                    aria-label={credentialVisible ? t("models.hideApiKey") : t("models.showApiKey")}
-                    title={credentialVisible ? t("models.hideApiKey") : t("models.showApiKey")}
-                    disabled={credentialLoading || clearCredential}
-                    aria-busy={credentialLoading}
-                    onClick={() => void toggleCredentialVisibility()}
-                  >
-                    {credentialVisible
-                      ? <EyeOffIcon className="w-4 h-4" />
-                      : <EyeIcon className="w-4 h-4" />}
-                  </button>
-            </div>
-          </div>
-
-          {initial?.credential_saved && initialSource?.kind === "mux-store" && (
-            <label className="mux-model-check mux-provider-credential-clear">
-              <input
-                type="checkbox"
-                checked={clearCredential}
-                onChange={(event) => {
-                  setClearCredential(event.target.checked);
-                  if (event.target.checked) {
-                    setCredentialVisible(false);
-                    setCredential("");
-                    setCredentialDirty(false);
-                  }
-                }}
-              />
-              {t("models.clearCredential")}
-            </label>
-          )}
-        </section>
-        )}
-
         <section className="mux-provider-form-section mux-provider-protocols" aria-label={t("models.supportedProtocols")}>
           <div className="mux-provider-section-head">
             <strong>{t("models.protocolsShort")}</strong>
@@ -1992,6 +1977,7 @@ function ModelProviderDialog({
             )}
           </div>
         </section>
+        </DialogDisclosure>
       </div>
     </DialogShell>
   );

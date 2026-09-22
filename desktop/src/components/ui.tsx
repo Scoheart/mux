@@ -241,13 +241,20 @@ function topmostModal(): HTMLElement | null {
   return dialogs.item(dialogs.length - 1);
 }
 
+function modalElementVisible(element: HTMLElement, dialog: HTMLElement): boolean {
+  if (element.closest('[hidden], [inert], [aria-hidden="true"]') || element.matches(":disabled")) return false;
+  for (let current: HTMLElement | null = element; current && current !== dialog; current = current.parentElement) {
+    if (current.tagName === "DETAILS" && !current.hasAttribute("open")
+      && !current.querySelector(":scope > summary")?.contains(element)) return false;
+    const style = window.getComputedStyle(current);
+    if (style.display === "none" || style.visibility === "hidden" || style.visibility === "collapse") return false;
+  }
+  return true;
+}
+
 function modalFocusableElements(dialog: HTMLElement): HTMLElement[] {
   return Array.from(dialog.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)).filter(
-    (element) =>
-      !element.hidden &&
-      element.tabIndex >= 0 &&
-      !element.closest('[aria-hidden="true"]') &&
-      !element.closest("[inert]"),
+    (element) => element.tabIndex >= 0 && modalElementVisible(element, dialog),
   );
 }
 
@@ -325,7 +332,8 @@ export function Modal({
     const releaseRootInert = acquireRootInert();
     const focusFrame = requestAnimationFrame(() => {
       const initialTarget =
-        dialog.querySelector<HTMLElement>("[data-modal-initial-focus]") ??
+        Array.from(dialog.querySelectorAll<HTMLElement>("[data-modal-initial-focus]"))
+          .find((element) => modalElementVisible(element, dialog)) ??
         dialog.querySelector<HTMLElement>("[data-modal-title]") ??
         modalFocusableElements(dialog)[0] ??
         dialog;

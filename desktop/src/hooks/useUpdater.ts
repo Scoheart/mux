@@ -1,3 +1,4 @@
+import { readLocalSetting, writeLocalSetting } from "../lib/localSettings";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { check } from "@tauri-apps/plugin-updater";
 import type { Update } from "@tauri-apps/plugin-updater";
@@ -52,7 +53,7 @@ export function useUpdater(
       try {
         const update = await check({ proxy: proxyUrlRef.current ?? undefined });
         if (update) {
-          if (!manual && localStorage.getItem(DISMISS_KEY) === update.version) {
+          if (!manual && readLocalSetting(DISMISS_KEY) === update.version) {
             // User already said "稍后" to this exact version — stay quiet.
             setPhase({ kind: "idle" });
             return "latest" as const;
@@ -138,7 +139,7 @@ export function useUpdater(
 
   const dismiss = useCallback(() => {
     const v = updateRef.current?.version;
-    if (v) localStorage.setItem(DISMISS_KEY, v);
+    if (v) writeLocalSetting(DISMISS_KEY, v);
     setPhase({ kind: "idle" });
   }, []);
 

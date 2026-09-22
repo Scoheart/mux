@@ -2,6 +2,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import type { AgentLaunchInfo, LaunchTarget } from "../lib/agentLaunch";
 import { formatError } from "../lib/format";
 import { Switch } from "./ui";
+import { DialogDisclosure } from "./DialogDisclosure";
 import { FolderIcon, LanguageIcon, PlusIcon, TerminalIcon, TrashIcon } from "./icons";
 
 export interface AgentLaunchDraft {
@@ -112,10 +113,13 @@ export function AgentLaunchFields({ info, draft, disabled, onChange, onBusyChang
         <input className="mux-dialog-input" value={draft.directory} placeholder="留空沿用上次目录" onChange={(event) => change({ directory: event.target.value })} />
         <button type="button" className="btn-secondary" aria-label="选择默认工作目录" title="选择文件夹" onClick={() => void browseDirectory()}><FolderIcon className="w-4 h-4" /></button>
       </div></label>}
-      {(draft.kind === "cli" || draft.kind === "app") && <label><span className="mux-launch-label-line">启动参数 <span className="mux-launch-hint">每行一个参数</span></span>
+      {(draft.kind === "cli" || draft.kind === "app") && <DialogDisclosure title="高级选项"
+        summary={[draft.kind === "app" ? draft.appArgs : draft.args, draft.environment.length > 0 && "环境变量", draft.newInstance && draft.kind === "app" && "新实例"].filter(Boolean).length > 0 ? "已配置" : "参数、环境变量"}
+        invalid={Boolean(environmentError(draft))}>
+      <label><span className="mux-launch-label-line">启动参数 <span className="mux-launch-hint">每行一个参数</span></span>
         <textarea className="mux-dialog-input mux-launch-arguments" rows={2} value={draft.kind === "app" ? draft.appArgs : draft.args}
           onChange={(event) => change(draft.kind === "app" ? { appArgs: event.target.value } : { args: event.target.value })} />
-      </label>}
+      </label>
       {(draft.kind === "cli" || draft.kind === "app") && <div className="mux-launch-environment">
         <div className="mux-launch-environment-heading"><span>环境变量</span>
           <button type="button" className="btn-ghost" disabled={draft.environment.length >= 64}
@@ -137,6 +141,7 @@ export function AgentLaunchFields({ info, draft, disabled, onChange, onBusyChang
         <div><span>新实例启动</span><p className="mux-launch-hint">另开进程接收参数，需应用支持。</p></div>
         <Switch ariaLabel="新实例启动" checked={draft.newInstance} disabled={disabled} onChange={(value) => change({ newInstance: value })} />
       </div>}
+      </DialogDisclosure>}
     </>}
   </fieldset>;
 }

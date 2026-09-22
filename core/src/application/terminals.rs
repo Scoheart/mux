@@ -17,7 +17,7 @@ pub struct TerminalSettings { pub selected: String, pub options: Vec<TerminalOpt
 
 fn app_path(id: &str) -> Option<PathBuf> {
     let (_, _, name) = TERMINALS.iter().find(|(key, _, _)| *key == id)?;
-    let mut roots = vec![PathBuf::from("/Applications"), PathBuf::from("/System/Applications/Utilities")];
+    let mut roots = vec![crate::paths::system_probe_path("/Applications"), crate::paths::system_probe_path("/System/Applications/Utilities")];
     if let Some(home) = dirs::home_dir() { roots.push(home.join("Applications")); }
     roots.into_iter().map(|root| root.join(format!("{name}.app")))
         .find(|path| path.join("Contents/Info.plist").is_file())

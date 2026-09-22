@@ -14,12 +14,15 @@
 ## 统一命令模型
 
 ```text
-mux mcp {list,show,status,assign,unassign,enable,disable,converge,add,save,delete,export,source}
+mux mcp {list,show,status,assign,unassign,enable,disable,enable-all,disable-all,converge,add,save,delete,export,source,icon}
 mux mcp source {list,subscribe,add-local,add-builtin,refresh,enable,disable,remove}
-mux model {list,show,status,save,delete,import,assign,unassign,enable,disable,converge,use,delivery,provider}
-mux model provider {list,show,templates,models,save,delete}
+mux model {list,show,status,save,delete,import,assign,unassign,enable,disable,converge,use,delivery,provider,curl}
+mux model provider {list,show,templates,models,save,delete,docs}
 mux skill {list,show,status,inspect-source,install,import,update,remove,repair,check-updates,assign,unassign,enable,disable,converge}
-mux agent {list,save,configure,enable,disable}
+mux agent {list,save,configure,enable,disable,run,launch}
+mux agent launch {show,configure,reset}
+mux settings {show,terminal,locale,pins}
+mux mcp icon {list,set,import,reset}
 mux network proxy {show,set,clear}
 mux discover [mcp|model|skill]
 mux workspace
@@ -322,3 +325,51 @@ mux upgrade
 独立下载或 `cargo install` 的 CLI 可用 `mux upgrade` 跟随 Stable；Desktop 内置 CLI 随 App 更新。设置 `MUX_NO_UPDATE_CHECK=1` 可关闭普通命令后的每日版本检查。
 
 下一步 → [支持的 Agent](/guide/agents)
+
+
+## 启动 Agent 与共享设置
+
+CLI 和 Desktop 读取同一套启动设置，不需要分别配置：
+
+```bash
+mux agent launch show opencode
+mux agent launch configure opencode --file launch.json --default-directory ~/Code --yes
+mux agent run opencode --directory ~/Code --yes
+mux agent run opencode --dry-run --json
+mux agent launch reset opencode --yes
+mux settings terminal
+mux settings terminal ghostty --yes
+mux settings locale zh-CN --yes
+mux settings pins codex opencode --yes
+```
+
+`launch.json` 使用 `app`、`cli` 或 `web` 类型，例如：
+
+```json
+{"kind":"app","path":"/Applications/ZCode.app","args":[],"env":{"NODE_USE_SYSTEM_CA":"1"},"new_instance":true}
+```
+
+仅设置目录时可以省略 `--file`；`--default-directory ''` 清除固定目录，省略此参数则保留原设置。`launch reset` 恢复自动检测。参数和环境变量通过文件或 `--file -` 输入；查询仅显示参数数量与变量名称。
+
+## 复制请求与官方文档
+
+```bash
+mux model provider docs openai
+mux model curl PROFILE_ID
+mux model curl PROFILE_ID --include-api-key
+```
+
+cURL 默认使用 `$MUX_API_KEY` 占位；`--include-api-key` 明确导出配置的凭据。无需认证的模型不添加认证请求头。Desktop 的复制操作和 CLI 共用同一协议、URL、JSON 与 shell 转义实现；命令只生成文本，不会发送请求。
+
+## 批量开关与图标
+
+```bash
+mux mcp disable-all --agent opencode --yes
+mux mcp enable-all --agent opencode --yes
+mux mcp icon list
+mux mcp icon set 'filesystem::stdio' files --yes
+mux mcp icon import 'filesystem::stdio' --file ./icon.png --yes
+mux mcp icon reset 'filesystem::stdio' --yes
+```
+
+批量开关保留分配关系，复用 Desktop 同一份 core 计划与提交。图标导入支持 PNG、JPEG、WebP，最大 1 MiB。

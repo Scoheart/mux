@@ -184,6 +184,50 @@ pub struct CatalogItem {
     pub in_effect: bool,
 }
 
+#[derive(Debug, Serialize)]
+pub struct RegistrySnapshot {
+    pub entries: Vec<RegistryEntry>,
+    pub catalog: Vec<CatalogItem>,
+    pub custom_keys: Vec<String>,
+    pub sources: Vec<super::sources::SourceView>,
+}
+
+/// Read each source once, then derive all three library views from that read.
+/// This is a point-in-time observation, not a cache used by mutation planning.
+pub fn read_registry_snapshot() -> RegistrySnapshot {
+    let defs = load_settings().sources.unwrap_or_default();
+    let manual = managed_entries(MANUAL_ID);
+    let custom_keys = manual.iter().map(RegistryEntry::key).collect();
+    let mut sources = Vec::new();
+    let mut ordered = Vec::new();
+    let mut discovered = None;
+    let mut enabled_manual = None;
+    for def in defs {
+        let entries = if def.id == MANUAL_ID && def.kind == "local"
+            && def.format == "json" && def.key == "mcpServers" {
+            manual.clone()
+        } else {
+            source_entries(&def)
+        };
+        let count = entries.len() as u32;
+        if def.enabled {
+            match def.id.as_str() {
+                DISCOVERED_ID => { discovered.get_or_insert(entries); }
+                MANUAL_ID => { enabled_manual.get_or_insert(entries); }
+                _ => ordered.extend(entries),
+            }
+        }
+        sources.push(super::sources::to_view(def, count));
+    }
+    ordered.extend(discovered.into_iter().flatten());
+    ordered.extend(enabled_manual.into_iter().flatten());
+    let catalog = flag_in_effect(ordered);
+    let mut entries: Vec<_> = catalog.iter().filter(|item| item.in_effect)
+        .map(|item| item.entry.clone()).collect();
+    entries.sort_by_cached_key(RegistryEntry::key);
+    RegistrySnapshot { entries, catalog, custom_keys, sources }
+}
+
 /// Every copy of every entry from all enabled sources (**not** deduped), each
 /// flagged with whether it's the in-effect (winning) copy for its composite key.
 /// For display only — lets the Registry show shadowed copies that `read_registry`

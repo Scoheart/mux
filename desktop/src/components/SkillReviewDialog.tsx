@@ -11,6 +11,7 @@ import type {
 import { agentName } from "./brandIcons";
 import { SkillRiskBadge, skillSourceText } from "./SkillCard";
 import { DialogShell } from "./DialogShell";
+import { DialogDisclosure } from "./DialogDisclosure";
 
 export interface SkillAssignmentContext {
   enabled: boolean;
@@ -154,6 +155,7 @@ function PlannedSkillReview({
         <SkillRiskBadge level={skill.risk.level} />
       </header>
 
+      <DialogDisclosure title="文件与来源详情" summary={`${skill.files.length} 个文件`}>
       <dl className="mux-skill-review-metadata">
         {replacesCentral ? (
           <>
@@ -231,7 +233,9 @@ function PlannedSkillReview({
         </ul>
       </section>
 
-      <RiskEvidence risk={skill.risk} />
+      </DialogDisclosure>
+
+      {skill.risk.findings.length > 0 && <RiskEvidence risk={skill.risk} />}
     </article>
   );
 }
@@ -336,13 +340,62 @@ export function SkillReviewDialog({
     assignmentTargetIds.has(target.target_id),
   );
 
+  if (riskHash) return (
+        <DialogShell
+          className="mux-dialog-skill-risk"
+          key="risk"
+          kind="review"
+          size="md"
+          title="确认高风险覆盖"
+          subtitle="以下证据来自当前待确认的更改。"
+          busy={busy}
+          onClose={closeRiskReview}
+          footerEnd={
+            <>
+              <button type="button" className="btn-ghost" disabled={busy} onClick={closeRiskReview}>返回</button>
+              <button
+                type="button"
+                className="btn-danger"
+                disabled={busy || !riskAcknowledged}
+                onClick={() => void submit(riskHash)}
+              >
+                {busy ? "正在提交…" : overrideLabels[plan.kind]}
+              </button>
+            </>
+          }
+        >
+          <div className="mux-skill-risk-dialog">
+            <div className="mux-skill-review-body">
+              {error && <p className="mux-skill-review-error" role="alert">{error.message}</p>}
+              {highRiskFindings.map((skill) => (
+                <section key={skill.manifest.name}>
+                  <h3>{skill.manifest.name}</h3>
+                  {skill.risk.findings.length > 0 && <RiskEvidence risk={skill.risk} />}
+                </section>
+              ))}
+              <label className="mux-skill-risk-acknowledgment">
+                <input
+                  type="checkbox"
+                  checked={riskAcknowledged}
+                  disabled={busy}
+                  onChange={(event) => setRiskAcknowledged(event.target.checked)}
+                />
+                <span>我已了解高风险内容及其影响</span>
+              </label>
+            </div>
+
+          </div>
+        </DialogShell>
+  );
+
   return (
     <DialogShell
       className="mux-dialog-skill-review"
+      key="review"
       kind="review"
       size="lg"
       title="确认 Skill 更改"
-      subtitle={`${operationLabels[plan.kind]} · ${plan.skills.length} 个 Skill · 以下内容由 MUX Core 固化`}
+      subtitle={`${operationLabels[plan.kind]} · ${plan.skills.length} 个 Skill`}
       busy={busy}
       onClose={closeReview}
       footerEnd={
@@ -396,6 +449,7 @@ export function SkillReviewDialog({
             </section>
           )}
 
+          <DialogDisclosure title="目标与 Agent 影响" summary={`${plan.targets.length} 个目标`}>
           <section className="mux-skill-review-section mux-skill-review-targets">
             <div className="mux-skill-review-section-title">
               <h3>目标与 Agent 影响</h3>
@@ -424,6 +478,7 @@ export function SkillReviewDialog({
               </ul>
             )}
           </section>
+          </DialogDisclosure>
 
           {plan.warnings.length > 0 && (
             <section className="mux-skill-review-section mux-skill-review-warnings">
@@ -439,52 +494,7 @@ export function SkillReviewDialog({
 
       </div>
 
-      {riskHash && (
-        <DialogShell
-          className="mux-dialog-skill-risk"
-          kind="review"
-          size="md"
-          title="确认高风险覆盖"
-          subtitle="以下证据来自当前待确认的更改。"
-          busy={busy}
-          onClose={closeRiskReview}
-          footerEnd={
-            <>
-              <button type="button" className="btn-ghost" disabled={busy} onClick={closeRiskReview}>返回</button>
-              <button
-                type="button"
-                className="btn-danger"
-                disabled={busy || !riskAcknowledged}
-                onClick={() => void submit(riskHash)}
-              >
-                {busy ? "正在提交…" : overrideLabels[plan.kind]}
-              </button>
-            </>
-          }
-        >
-          <div className="mux-skill-risk-dialog">
-            <div className="mux-skill-review-body">
-              {error && <p className="mux-skill-review-error" role="alert">{error.message}</p>}
-              {highRiskFindings.map((skill) => (
-                <section key={skill.manifest.name}>
-                  <h3>{skill.manifest.name}</h3>
-                  <RiskEvidence risk={skill.risk} />
-                </section>
-              ))}
-              <label className="mux-skill-risk-acknowledgment">
-                <input
-                  type="checkbox"
-                  checked={riskAcknowledged}
-                  disabled={busy}
-                  onChange={(event) => setRiskAcknowledged(event.target.checked)}
-                />
-                <span>我已了解高风险内容及其影响</span>
-              </label>
-            </div>
 
-          </div>
-        </DialogShell>
-      )}
     </DialogShell>
   );
 }

@@ -5,6 +5,32 @@ export const MODELS_DEV_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 
 const CACHE_KEY = "mux.models-dev.metadata.v1";
 const REQUEST_TIMEOUT_MS = 8_000;
+const CATALOG_MEMORY_TTL_MS = 5 * 60 * 1000;
+const catalogRequests = new WeakMap<typeof fetch, { expiresAt: number; request: Promise<{ catalog: unknown; fetchedAt: number }> }>();
+
+function loadCatalog(fetchImpl: typeof fetch, now: () => number) {
+  const previous = catalogRequests.get(fetchImpl);
+  if (previous && now() < previous.expiresAt) return previous.request;
+  const controller = new AbortController();
+  const timeout = globalThis.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const request = (async () => {
+    const response = await fetchImpl(MODELS_DEV_API_URL, {
+      headers: { Accept: "application/json" }, signal: controller.signal,
+    });
+    if (!response.ok) throw new Error(`models.dev returned ${response.status}`);
+    return { catalog: await response.json() as unknown, fetchedAt: now() };
+  })().catch((error: unknown) => {
+    if (catalogRequests.get(fetchImpl)?.request === request) catalogRequests.delete(fetchImpl);
+    throw error;
+  }).finally(() => globalThis.clearTimeout(timeout));
+  const entry = { expiresAt: now() + CATALOG_MEMORY_TTL_MS, request };
+  catalogRequests.set(fetchImpl, entry);
+  // Bound memory even if no subsequent request arrives to evict the catalog.
+  globalThis.setTimeout(() => {
+    if (catalogRequests.get(fetchImpl) === entry) catalogRequests.delete(fetchImpl);
+  }, CATALOG_MEMORY_TTL_MS);
+  return request;
+}
 
 export interface ModelsDevMetadata {
   name?: string;
@@ -198,15 +224,8 @@ export async function loadModelsDevMetadata(
 
   const fetchImpl = options.fetchImpl ?? globalThis.fetch;
   if (!fetchImpl) return mapCachedProfiles(profiles, cache);
-  const controller = new AbortController();
-  const timeout = globalThis.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   try {
-    const response = await fetchImpl(MODELS_DEV_API_URL, {
-      headers: { Accept: "application/json" },
-      signal: controller.signal,
-    });
-    if (!response.ok) throw new Error(`models.dev returned ${response.status}`);
-    const catalog: unknown = await response.json();
+    const { catalog, fetchedAt } = await loadCatalog(fetchImpl, now);
     const providerIndexes = new Map<string, Map<string, unknown> | null>();
     for (const profile of profiles) {
       const provider = normalizedProvider(profile);
@@ -223,7 +242,12 @@ export async function loadModelsDevMetadata(
         ];
       }),
     );
-    const nextCache: ModelsDevCache = { version: 1, fetchedAt: now(), entries };
+    // Another caller may have saved a different profile subset while this one
+    // awaited the same download. Merge only metadata from the same generation.
+    const latest = readCache(storage);
+    const nextCache: ModelsDevCache = { version: 1, fetchedAt, entries: {
+      ...(latest?.fetchedAt === fetchedAt ? latest.entries : {}), ...entries,
+    } };
     try {
       storage?.setItem(CACHE_KEY, JSON.stringify(nextCache));
     } catch {
@@ -232,7 +256,5 @@ export async function loadModelsDevMetadata(
     return mapCachedProfiles(profiles, nextCache);
   } catch {
     return mapCachedProfiles(profiles, cache);
-  } finally {
-    globalThis.clearTimeout(timeout);
   }
 }

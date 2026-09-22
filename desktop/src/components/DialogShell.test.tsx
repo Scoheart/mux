@@ -22,7 +22,7 @@ describe("DialogShell", () => {
   });
 
   it.each([
-    ["editor", "lg"],
+    ["editor", "wide"],
     ["picker", "md"],
     ["review", "sm"],
   ] as const)("maps %s to the %s preset", async (kind, size) => {

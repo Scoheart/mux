@@ -10,6 +10,7 @@ export function systemLocale(): SupportedLocale {
 
 const zhCN = {
   common: {
+    advancedSettings: "高级设置",
     cancel: "取消",
     save: "保存",
     saving: "保存中…",
@@ -212,6 +213,7 @@ const zhCN = {
     addFailed: "添加 Agent 失败：{{error}}",
   },
   models: {
+    modelOptionsSummary: "请求详情、额度与推理",
     title: "Models",
     description: "集中管理模型连接、协议与凭据引用",
     protocol: "协议",
@@ -331,14 +333,15 @@ const zhCN = {
     fullRequestUrl: "完整请求 URL",
     fullRequestUrlUnavailable: "填写有效的 Base URL 和 Endpoint Path 后显示",
     curlCommand: "cURL 请求",
+    officialDocs: "官方文档",
+    openDocsFailed: "无法打开官方文档：{{error}}",
     copyCurl: "复制 cURL（含 API Key）",
     copyCurlHint: "点击复制可直接调用的请求命令",
     curlCopied: "已复制 cURL 请求（含 API Key）。",
     curlCopyFailed: "复制 cURL 失败：{{error}}",
     curlCredentialUnavailable: "Provider 没有可读取的 Keychain API Key",
-    keepCredential: "留空保留现有密钥",
     optionalCredential: "本地无鉴权接口可留空",
-    clearCredential: "清除已存密钥",
+    emptyCredentialDeletes: "留空并保存将删除 API Key",
     apiKeyEnv: "API Key 环境变量",
     apiKeyEnvHelp: "Grok Build 使用；变量值由启动环境提供，不从 Keychain 导出。",
     contextWindow: "上下文窗口",
@@ -360,6 +363,7 @@ type TranslationShape<T> = {
 
 const enUS: TranslationShape<typeof zhCN> = {
   common: {
+    advancedSettings: "Advanced settings",
     cancel: "Cancel",
     save: "Save",
     saving: "Saving…",
@@ -562,6 +566,7 @@ const enUS: TranslationShape<typeof zhCN> = {
     addFailed: "Could not add Agent: {{error}}",
   },
   models: {
+    modelOptionsSummary: "Request details, limits and reasoning",
     title: "Models",
     description: "Manage reusable model connections, protocols, and credential references",
     protocol: "Protocol",
@@ -681,14 +686,15 @@ const enUS: TranslationShape<typeof zhCN> = {
     fullRequestUrl: "Complete request URL",
     fullRequestUrlUnavailable: "Enter a valid Base URL and Endpoint Path to preview",
     curlCommand: "cURL request",
+    officialDocs: "Official docs",
+    openDocsFailed: "Could not open official docs: {{error}}",
     copyCurl: "Copy cURL (with API Key)",
     copyCurlHint: "Copy a ready-to-run request command",
     curlCopied: "Copied cURL request with API Key.",
     curlCopyFailed: "Could not copy cURL: {{error}}",
     curlCredentialUnavailable: "The Provider has no readable API Key in MUX Keychain",
-    keepCredential: "Leave blank to keep the saved key",
     optionalCredential: "Leave blank for local endpoints without authentication",
-    clearCredential: "Clear saved key",
+    emptyCredentialDeletes: "Save empty to delete the API key",
     apiKeyEnv: "API Key environment variable",
     apiKeyEnvHelp: "Used by Grok Build; the launch environment supplies the value, not Keychain.",
     contextWindow: "Context window",

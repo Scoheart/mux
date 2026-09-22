@@ -1,10 +1,10 @@
-import { useState, useMemo, useCallback, useEffect, useRef } from "react";
+import { useState, useMemo, useCallback, useEffect, useRef, useDeferredValue } from "react";
 import { useTranslation } from "react-i18next";
 import type { InstallState } from "../hooks/useInstallState";
 import type { ConsumptionState } from "../hooks/useConsumptionState";
 import type { McpIconPreference, RegistryEntry, RegistryOrigin, CatalogItem, ResourceNavigationIntent } from "../lib/types";
 import { keyOf, transportOf } from "../lib/mcp";
-import { observedAgentIdsForAsset } from "../lib/consumption";
+import { assetIdentity, observedAgentIndex } from "../lib/consumption";
 import { exportEffectiveDialog } from "../lib/api";
 import { useMcpIconPreferences } from "../hooks/useMcpIconPreferences";
 import { formatError } from "../lib/format";
@@ -151,27 +151,20 @@ export function RegistryView({ state, consumptionState, intent, onIntentConsumed
   const { catalog, entries, sources } = state;
   const toast = useToast();
   const mcpIcons = useMcpIconPreferences();
-  const [minimumSkeleton, setMinimumSkeleton] = useState(state.loading);
 
   const [q, setQ] = useState("");
+  const deferredQuery = useDeferredValue(q);
   const [selectedSource, setSelectedSource] = useState<string | null>(null);
   const [detail, setDetail] = useState<CatalogItem | null>(null);
   const [editingDetail, setEditingDetail] = useState(false);
   const [iconPickerEntry, setIconPickerEntry] = useState<RegistryEntry | null>(null);
   const lastConsumedIntentId = useRef<number | null>(null);
-  const agentsForServer = useCallback(
-    (key: string) => observedAgentIdsForAsset(
-      consumptionState?.inventory ?? null,
-      { domain: "mcp", key },
-    ),
+  const observedAgents = useMemo(
+    () => observedAgentIndex(consumptionState?.inventory ?? null, "mcp"),
     [consumptionState?.inventory],
   );
-
-  useEffect(() => {
-    if (!minimumSkeleton) return;
-    const timer = setTimeout(() => setMinimumSkeleton(false), 420);
-    return () => clearTimeout(timer);
-  }, [minimumSkeleton]);
+  const agentsForServer = useCallback((key: string) =>
+    observedAgents.get(assetIdentity({ domain: "mcp", key })) ?? [], [observedAgents]);
 
   const sourceName = useCallback(
     (id: string) => sources.find((s) => s.id === id)?.name ?? id,
@@ -193,23 +186,28 @@ export function RegistryView({ state, consumptionState, intent, onIntentConsumed
     return catalog.filter((item) => inSource(item.entry, selectedSource));
   }, [catalog, selectedSource]);
 
-  const scoped = useMemo(() => {
-    const s = q.trim().toLowerCase();
-    let list = sourceScoped;
-    if (s)
-      list = list.filter(
-        (it) => it.entry.name.toLowerCase().includes(s) || it.entry.description.toLowerCase().includes(s)
-      );
+  const searchIndex = useMemo(() => {
+    const collator = new Intl.Collator(undefined, { sensitivity: "base" });
     // Alphabetical by name, then transport; in-effect copy first within a group.
-    return [...list].sort(
+    return [...sourceScoped].sort(
       (a, b) =>
-        a.entry.name.localeCompare(b.entry.name, undefined, { sensitivity: "base" }) ||
+        collator.compare(a.entry.name, b.entry.name) ||
         transportOf(a.entry).localeCompare(transportOf(b.entry)) ||
         Number(b.in_effect) - Number(a.in_effect)
-    );
-  }, [q, sourceScoped]);
+    ).map((item) => ({ item, text: `${item.entry.name}\n${item.entry.description}`.toLowerCase() }));
+  }, [sourceScoped]);
 
-  const filtered = scoped;
+  const filtered = useMemo(() => {
+    const needle = deferredQuery.trim().toLowerCase();
+    return searchIndex.filter((row) => !needle || row.text.includes(needle)).map((row) => row.item);
+  }, [deferredQuery, searchIndex]);
+  const cards = useMemo(() => filtered.map((item) => (
+    <div role="listitem" key={`${keyOf(item.entry)}@${item.entry.origin?.source ?? item.entry.origin?.kind ?? ""}`}>
+      <RegistryCard item={item} iconPreference={mcpIcons.preferences[keyOf(item.entry)]}
+        selected={detail === item} installedAgents={agentsForServer(keyOf(item.entry))}
+        sourceName={sourceName} onOpen={() => { setEditingDetail(false); setDetail(item); }} />
+    </div>
+  )), [filtered, mcpIcons.preferences, detail, agentsForServer, sourceName]);
 
   useEffect(() => {
     if (!intent || state.loading || lastConsumedIntentId.current === intent.id) return;
@@ -417,7 +415,7 @@ export function RegistryView({ state, consumptionState, intent, onIntentConsumed
           }}
         />
       ) : null}
-      {state.loading || minimumSkeleton ? (
+      {state.loading ? (
         <ResourceState kind="loading" title="正在读取 MCP…" />
       ) : state.registryError && catalog.length === 0 ? (
         <ResourceState
@@ -455,24 +453,7 @@ export function RegistryView({ state, consumptionState, intent, onIntentConsumed
           role="list"
           aria-label={t("centralAssets.mcpList")}
         >
-          {filtered.map((item) => (
-            <div
-              role="listitem"
-              key={`${keyOf(item.entry)}@${item.entry.origin?.source ?? item.entry.origin?.kind ?? ""}`}
-            >
-              <RegistryCard
-                item={item}
-                iconPreference={mcpIcons.preferences[keyOf(item.entry)]}
-                selected={detail === item}
-                installedAgents={agentsForServer(keyOf(item.entry))}
-                sourceName={sourceName}
-                onOpen={() => {
-                  setEditingDetail(false);
-                  setDetail(item);
-                }}
-              />
-            </div>
-          ))}
+          {cards}
         </div>
       )}
 

@@ -59,9 +59,9 @@ Both frontends enter through the same revisioned workspace, capability graph,
 startup recovery, and plan/commit/cancel application boundary. External MCP,
 Model, and Skill changes use the same explicit per-item contract: `mux discover`
 is read-only, while each domain's `converge` command adopts, restores, or detaches
-one exact observation. The no-argument TUI is an MCP-focused terminal workspace;
-Desktop remains the richer visual editor for central Model and Skill lifecycle
-operations.
+one exact observation. Desktop and CLI share central asset lifecycles, Agent
+launch configuration, default terminals, and credential rules. The no-argument
+TUI remains an MCP-focused terminal workspace.
 
 ---
 
@@ -173,12 +173,15 @@ script invokes `mux` without arguments.
 Or drive it non-interactively with subcommands:
 
 ```text
-mux mcp {list,show,status,assign,unassign,enable,disable,converge,add,save,delete,export,source}
+mux mcp {list,show,status,assign,unassign,enable,disable,enable-all,disable-all,converge,add,save,delete,export,source,icon}
+mux mcp icon {list,set,import,reset}
 mux mcp source {list,subscribe,add-local,add-builtin,refresh,enable,disable,remove}
-mux model {list,show,status,save,delete,import,assign,unassign,enable,disable,converge,use,delivery,provider}
-mux model provider {list,show,templates,models,save,delete}
+mux model {list,show,status,save,delete,import,assign,unassign,enable,disable,converge,use,delivery,provider,curl}
+mux model provider {list,show,templates,models,save,delete,docs}
 mux skill {list,show,status,inspect-source,install,import,update,remove,repair,check-updates,assign,unassign,enable,disable,converge}
-mux agent {list,save,configure,enable,disable}
+mux agent {list,save,configure,enable,disable,run,launch}
+mux agent launch {show,configure,reset}
+mux settings {show,terminal,locale,pins}
 mux network proxy {show,set,clear}
 mux discover [mcp|model|skill]
 mux workspace

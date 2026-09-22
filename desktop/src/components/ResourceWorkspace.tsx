@@ -1,3 +1,4 @@
+import { readLocalSetting, writeLocalSetting } from "../lib/localSettings";
 import {
   createContext,
   type CSSProperties,
@@ -156,7 +157,7 @@ export function ResourceWorkspace({
   const hasSidebar = sidebar !== null && sidebar !== undefined;
   const [sidebarWidth, setSidebarWidth] = useState(() =>
     hasSidebar
-      ? parseSidebarWidth(localStorage.getItem(SIDEBAR_WIDTH_STORAGE_KEY))
+      ? parseSidebarWidth(readLocalSetting(SIDEBAR_WIDTH_STORAGE_KEY))
       : MIN_SIDEBAR_WIDTH
   );
   const sidebarWidthRef = useRef(sidebarWidth);
@@ -173,7 +174,7 @@ export function ResourceWorkspace({
 
   const persistSidebarWidth = useCallback((width: number) => {
     if (!hasSidebar) return;
-    localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(width));
+    writeLocalSetting(SIDEBAR_WIDTH_STORAGE_KEY, String(width));
   }, [hasSidebar]);
 
   const updateSidebarWidth = useCallback((width: number) => {

@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { usePreferenceRevision } from "../lib/preferenceObservation";
 import { invoke } from "@tauri-apps/api/core";
 import { FormSelect } from "./FormSelect";
 import { formatError } from "../lib/format";
@@ -19,23 +20,30 @@ export function TerminalSelect() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [revision, setRevision] = useState(0);
+  const sharedRevision = usePreferenceRevision();
+  const pending = useRef(false);
+  const generation = useRef(0);
   const toast = useToast();
   useEffect(() => {
     let active = true;
+    const request = ++generation.current;
+    if (pending.current) return;
     setError("");
-    void invoke<TerminalSettings>("get_terminal_settings").then((result) => { if (active) setSettings(result); })
-      .catch((error) => { if (active) setError(formatError(error)); });
+    void invoke<TerminalSettings>("get_terminal_settings").then((result) => { if (active && request === generation.current) setSettings(result); })
+      .catch((error) => { if (active && request === generation.current) setError(formatError(error)); });
     return () => { active = false; };
-  }, [revision]);
+  }, [revision, sharedRevision]);
   async function choose(terminalId: string) {
-    if (busy || terminalId === settings?.selected) return;
+    if (pending.current || terminalId === settings?.selected) return;
+    pending.current = true;
+    ++generation.current;
     setBusy(true); setError("");
     try {
       const result = await invoke<TerminalSettings>("set_terminal_preference", { terminalId });
       setSettings(result);
       toast.show({ kind: "success", msg: `CLI 将使用 ${result.options.find((item) => item.id === result.selected)?.name ?? result.selected} 启动` });
     } catch (error) { setError(formatError(error)); }
-    finally { setBusy(false); }
+    finally { pending.current = false; setBusy(false); }
   }
   return <div className="mux-terminal-select">
     {settings && <FormSelect ariaLabel="默认终端" value={settings.selected} disabled={busy}

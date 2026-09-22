@@ -7,10 +7,12 @@ import { AgentLaunchSettings } from "./AgentLaunchSettings";
 import { useToast } from "./Toast";
 import "./AgentLaunch.css";
 import { AgentLauncherContext } from "../lib/agentLauncherContext";
+import { usePreferenceRevision } from "../lib/preferenceObservation";
 
 export function AgentLauncherProvider({ children }: { children: ReactNode }) {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [revision, setRevision] = useState(0);
+  const sharedRevision = usePreferenceRevision();
   const [editing, setEditing] = useState<AgentLaunchInfo | null>(null);
   const running = useRef(false);
   const { show } = useToast();
@@ -46,7 +48,7 @@ export function AgentLauncherProvider({ children }: { children: ReactNode }) {
     } catch (error) { show({ kind: "error", msg: `无法打开 Agent：${formatError(error)}` }); }
     finally { running.current = false; setBusyId(null); }
   }, [show]);
-  return <AgentLauncherContext.Provider value={{ busyId, revision, launch, configure, refresh }}>
+  return <AgentLauncherContext.Provider value={{ busyId, revision: revision + sharedRevision, launch, configure, refresh }}>
     {children}
     {editing && <AgentLaunchSettings key={editing.agent_id} info={editing} onClose={() => setEditing(null)} onSaved={() => setRevision((value) => value + 1)} />}
   </AgentLauncherContext.Provider>;

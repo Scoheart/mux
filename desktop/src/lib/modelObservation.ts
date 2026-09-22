@@ -9,6 +9,7 @@ const subscribe = (listener: () => void) => {
   return () => { listeners.delete(listener); };
 };
 const snapshot = () => revision;
+export const modelObservationRevision = snapshot;
 export function useModelObservationRevision() {
   return useSyncExternalStore(subscribe, snapshot, snapshot);
 }

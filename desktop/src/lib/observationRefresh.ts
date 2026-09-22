@@ -1,6 +1,7 @@
 export type ObservationDomain = "mcp" | "model" | "skill" | "central";
 
 export type ObservationTaskId =
+  | "preferences"
   | "agents"
   | "agent-capabilities"
   | "relationships"
@@ -15,6 +16,7 @@ export interface ObservationChange {
 }
 
 export const ALL_OBSERVATION_TASK_IDS: readonly ObservationTaskId[] = [
+  "preferences",
   "agents",
   "agent-capabilities",
   "relationships",

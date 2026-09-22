@@ -1,5 +1,15 @@
 use std::path::PathBuf;
 
+/// System installation probes use the same sandbox root as TestHome. Production
+/// builds always inspect the actual system paths.
+pub(crate) fn system_probe_path(path: &str) -> PathBuf {
+    #[cfg(any(test, debug_assertions))]
+    if let Some(root) = std::env::var_os("MUX_TEST_PROBE_ROOT") {
+        return PathBuf::from(root).join(path.trim_start_matches('/'));
+    }
+    PathBuf::from(path)
+}
+
 /// `~/.mux` —— 与 CLI 共用的数据目录。
 ///
 /// `MUX_HOME` 环境变量可整体重定向该目录（值即数据目录本身，类似

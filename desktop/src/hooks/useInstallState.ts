@@ -1,12 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   addLocalSourceDialog,
   subscribeSource,
   importPastedConfig,
   listAgents,
-  listCustomRegistryKeys,
-  listRegistry,
-  listRegistryAll,
+  getRegistrySnapshot,
   listSources,
   refreshSource,
   removeSource,
@@ -60,61 +58,71 @@ export function useInstallState({ autoLoad = true }: { autoLoad?: boolean } = {}
   const [registryError, setRegistryError] = useState<string | null>(null);
   const [customKeys, setCustomKeys] = useState<Set<string>>(new Set());
   const [sources, setSources] = useState<SourceView[]>([]);
+  const generations = useRef({ registry: 0, sources: 0, agents: 0, installed: 0 });
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
 
   const rescan = useCallback(async () => {
+    const generation = ++generations.current.installed;
     const next = await scanInstalled();
-    setInstalled(next);
+    if (mounted.current && generation === generations.current.installed) setInstalled(next);
     return next;
   }, []);
 
   const refreshAgents = useCallback(async () => {
+    const generation = ++generations.current.agents;
     const next = await listAgents();
-    setAgents(next);
+    if (mounted.current && generation === generations.current.agents) setAgents(next);
     return next;
   }, []);
 
   const refreshRegistry = useCallback(async () => {
+    const generation = ++generations.current.registry;
+    const sourceGeneration = ++generations.current.sources;
+    const current = () => mounted.current && generation === generations.current.registry;
     setRegistryError(null);
     try {
-      // Keep these reads sequential. Each command walks the same source files,
-      // so parallel calls only add disk contention during the critical first
-      // interaction without making any individual result fresher.
-      const next = await listRegistry();
-      setEntries(next);
-      setCatalog(await listRegistryAll());
-      setCustomKeys(new Set(await listCustomRegistryKeys()));
-      return next;
+      const next = await getRegistrySnapshot();
+      if (current()) {
+        setEntries(next.entries);
+        setCatalog(next.catalog);
+        setCustomKeys(new Set(next.custom_keys));
+      }
+      if (mounted.current && sourceGeneration === generations.current.sources) setSources(next.sources);
+      return next.entries;
     } catch (error) {
-      setRegistryError(String(error));
+      if (current()) setRegistryError(String(error));
       throw error;
     } finally {
-      setLoading(false);
+      if (current()) setLoading(false);
     }
   }, []);
 
   const refreshSources = useCallback(async () => {
+    const generation = ++generations.current.sources;
     const next = await listSources();
-    setSources(next);
+    if (mounted.current && generation === generations.current.sources) setSources(next);
     return next;
   }, []);
 
   const refreshAll = useCallback(async () => {
     await Promise.all([
       refreshRegistry().catch(console.error),
-      refreshSources().catch(console.error),
       rescan().catch(console.error),
     ]);
-  }, [refreshRegistry, refreshSources, rescan]);
+  }, [refreshRegistry, rescan]);
 
   useEffect(() => {
     if (!autoLoad) return;
     Promise.all([
       refreshRegistry().catch(console.error),
-      refreshSources().catch(console.error),
       refreshAgents().catch(console.error),
       rescan().catch(console.error),
     ]).catch(() => undefined);
-  }, [autoLoad, refreshAgents, refreshRegistry, refreshSources, rescan]);
+  }, [autoLoad, refreshAgents, refreshRegistry, rescan]);
 
   const serverToAgents = useMemo(() => {
     const result = new Map<string, string[]>();
@@ -132,8 +140,8 @@ export function useInstallState({ autoLoad = true }: { autoLoad?: boolean } = {}
   );
 
   const afterSourceChange = useCallback(async () => {
-    await Promise.all([refreshSources(), refreshRegistry()]);
-  }, [refreshRegistry, refreshSources]);
+    await refreshRegistry();
+  }, [refreshRegistry]);
 
   const subscribe = useCallback(async (url: string, name?: string) => {
     const source = await subscribeSource(url, name);

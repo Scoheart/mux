@@ -273,6 +273,16 @@ pub fn provider_additional_endpoints(id: &str) -> &'static [ModelProviderEndpoin
             protocol: AnthropicMessages,
             base_url: "https://api.apinex.bond",
         }],
+        "tokenharbor" => &[
+            ModelProviderEndpointView {
+                protocol: OpenaiCompletions,
+                base_url: "https://tokenharbor.ai/v1",
+            },
+            ModelProviderEndpointView {
+                protocol: AnthropicMessages,
+                base_url: "https://tokenharbor.ai",
+            },
+        ],
         "minimax" => &[ModelProviderEndpointView {
             protocol: AnthropicMessages,
             base_url: "https://api.minimax.io/anthropic",
@@ -398,6 +408,13 @@ const MODEL_PROVIDERS: &[ModelProviderView] = &[
         name: "APInex",
         default_base_url: Some("https://api.apinex.bond/v1"),
         default_protocol: ModelProtocol::OpenaiCompletions,
+        category: "gateway",
+    },
+    ModelProviderView {
+        id: "tokenharbor",
+        name: "Token Harbor",
+        default_base_url: Some("https://tokenharbor.ai/v1"),
+        default_protocol: ModelProtocol::OpenaiResponses,
         category: "gateway",
     },
     ModelProviderView {
@@ -1054,6 +1071,7 @@ pub fn infer_provider(base_url: &str) -> String {
         "api.routeway.ai" => "routeway",
         "llm.onerouter.pro" => "infron",
         "api.apinex.bond" => "apinex",
+        "tokenharbor.ai" => "tokenharbor",
         "api.sambanova.ai" => "sambanova",
         "api.perplexity.ai" => "perplexity",
         "ark.cn-beijing.volces.com" => "volcengine",
@@ -6229,6 +6247,9 @@ mod tests {
             ("https://llm.onerouter.pro/v1/messages", "infron"),
             ("https://api.apinex.bond/v1/chat/completions", "apinex"),
             ("https://api.apinex.bond/v1/messages", "apinex"),
+            ("https://tokenharbor.ai/v1/responses", "tokenharbor"),
+            ("https://tokenharbor.ai/v1/chat/completions", "tokenharbor"),
+            ("https://tokenharbor.ai/v1/messages", "tokenharbor"),
             ("https://ark.cn-beijing.volces.com/api/coding/v3/chat/completions", "volcengine-coding-plan"),
             ("https://qianfan.baidubce.com/anthropic/coding/v1/messages", "baidu-qianfan-coding-plan"),
             ("https://aiplatform.googleapis.com/v1", "custom"),
@@ -6311,7 +6332,7 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(endpointless.iter().map(|p| p.id).collect::<BTreeSet<_>>(),
             BTreeSet::from(["azure-openai", "amazon-bedrock-mantle", "cloudflare-workers-ai", "custom"]));
-        assert_eq!(list_providers().len(), 72);
+        assert_eq!(list_providers().len(), 73);
         assert!(!list_providers().iter().any(|p| p.id == "github-models"));
         let openrouter = list_providers()
             .iter()

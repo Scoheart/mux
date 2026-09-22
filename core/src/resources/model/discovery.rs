@@ -157,6 +157,7 @@ fn reviewed_discovery_spec(provider_type: &str) -> Option<DiscoverySpec> {
         | "routeway"
         | "infron"
         | "apinex"
+        | "tokenharbor"
         | "mistral"
         | "deepseek"
         | "groq"
@@ -762,6 +763,7 @@ mod tests {
         "routeway",
         "infron",
         "apinex",
+        "tokenharbor",
         "mistral",
         "deepseek",
         "groq",

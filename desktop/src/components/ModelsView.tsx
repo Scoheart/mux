@@ -1,3 +1,4 @@
+import { ResourceIcon } from "./resourcePresentation";
 import { memo, useCallback, useDeferredValue, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useModelObservationRevision } from "../lib/modelObservation";
 import { cachedModelLibrary, loadModelLibrary } from "../lib/modelLibrary";
@@ -472,7 +473,7 @@ export function ModelsView({
             <SidebarSection title={t("models.library")}>
               <SidebarItem
                 active={providerFilter === null}
-                icon={<LayersIcon className="w-3.5 h-3.5" />}
+                icon={<ResourceIcon domain="model" className="w-3.5 h-3.5" />}
                 label={t("models.allModels")}
                 count={profiles.length}
                 onClick={() => selectProvider(null)}
@@ -600,7 +601,7 @@ export function ModelsView({
         ) : readError ? (
           <ResourceState
             kind="read-error"
-            icon={<LayersIcon className="w-6 h-6" />}
+            icon={<ResourceIcon domain="model" className="w-6 h-6" />}
             title={t("models.readFailedTitle")}
             detail={readError}
             action={<button className="btn-primary" type="button" onClick={() => {
@@ -614,7 +615,7 @@ export function ModelsView({
         ) : filteredProfiles.length === 0 ? (
           <ResourceState
             kind={profiles.length === 0 ? "empty" : "no-match"}
-            icon={<LayersIcon className="w-6 h-6" />}
+            icon={<ResourceIcon domain="model" className="w-6 h-6" />}
             title={profiles.length === 0 ? t("models.empty") : t("models.noMatches")}
             detail={profiles.length === 0 ? t("models.emptyDetail") : t("models.noMatchesDetail")}
             action={profiles.length === 0 ? undefined : (
@@ -1570,6 +1571,7 @@ function ModelProfileDialog({
       className="mux-dialog-model-editor"
       kind="editor"
       size="md"
+      leading={<span className="mux-dialog-shell-glyph"><ResourceIcon domain="model" /></span>}
       title={initial ? t("models.editTitle") : t("models.createTitle")}
       subtitle={t("models.modelRelationshipSubtitle")}
       busy={busy}

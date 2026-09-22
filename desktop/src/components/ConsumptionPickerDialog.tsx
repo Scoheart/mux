@@ -1,3 +1,4 @@
+import { ResourceIcon, type ResourceDomain } from "./resourcePresentation";
 import { useMemo, useRef, useState, type ReactNode } from "react";
 import { formatError } from "../lib/format";
 import { DialogShell } from "./DialogShell";
@@ -16,6 +17,7 @@ export interface ConsumptionPickerOption {
 
 export function ConsumptionPickerDialog({
   title,
+  domain,
   subtitle,
   mode,
   options,
@@ -27,6 +29,7 @@ export function ConsumptionPickerDialog({
   onClose,
 }: {
   title: string;
+  domain?: ResourceDomain;
   subtitle: ReactNode;
   mode: "single" | "multiple";
   options: ConsumptionPickerOption[];
@@ -78,6 +81,7 @@ export function ConsumptionPickerDialog({
 
   return (
     <DialogShell
+      leading={domain ? <span className="mux-dialog-shell-glyph"><ResourceIcon domain={domain} /></span> : undefined}
       kind="picker"
       title={title}
       subtitle={subtitle}

@@ -1,3 +1,4 @@
+import { ResourceIcon, RESOURCE_PRESENTATION } from "./resourcePresentation";
 import {
   useRef,
   useState,
@@ -10,7 +11,6 @@ import { formatError } from "../lib/format";
 import { AgentGlyph } from "./brandIcons";
 import { DialogShell } from "./DialogShell";
 import { DialogDisclosure } from "./DialogDisclosure";
-import { McpMarkIcon, SkillMarkIcon } from "./icons";
 import { useToast } from "./Toast";
 
 const FORMATS = [
@@ -286,10 +286,10 @@ export function AddAgentDialog({
               onClick={() => setActiveCapability("mcp")}
             >
               <span className="mux-agent-capability-tab-icon">
-                <McpMarkIcon className="w-4 h-4" />
+                <ResourceIcon domain="mcp" />
               </span>
               <span className="mux-agent-capability-tab-copy">
-                <strong>MCP</strong>
+                <strong>{RESOURCE_PRESENTATION.mcp.label}</strong>
                 <small>{t(`agents.capabilityState.${mcpState}`)}</small>
               </span>
               <i aria-hidden="true" />
@@ -308,10 +308,10 @@ export function AddAgentDialog({
               onClick={() => setActiveCapability("skills")}
             >
               <span className="mux-agent-capability-tab-icon">
-                <SkillMarkIcon className="w-4 h-4" />
+                <ResourceIcon domain="skill" />
               </span>
               <span className="mux-agent-capability-tab-copy">
-                <strong>Skills</strong>
+                <strong>{RESOURCE_PRESENTATION.skill.label}</strong>
                 <small>{t(`agents.capabilityState.${skillsState}`)}</small>
               </span>
               <i aria-hidden="true" />

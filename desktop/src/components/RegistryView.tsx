@@ -1,3 +1,4 @@
+import { ResourceIcon } from "./resourcePresentation";
 import { useState, useMemo, useCallback, useEffect, useRef, useDeferredValue } from "react";
 import { useTranslation } from "react-i18next";
 import type { InstallState } from "../hooks/useInstallState";
@@ -21,7 +22,6 @@ import {
   DownloadIcon,
   FolderIcon,
   LayersIcon,
-  PackageIcon,
   NetworkIcon,
   SparklesIcon,
   TerminalIcon,
@@ -320,7 +320,7 @@ export function RegistryView({ state, consumptionState, intent, onIntentConsumed
       }
       query={q}
       onQueryChange={changeQuery}
-      searchPlaceholder="搜索 MCP"
+      searchPlaceholder="搜索 MCPs"
       toolbarActions={
         <>
           <IconButton title="导出生效配置" onClick={doExport} disabled={entries.length === 0}>
@@ -334,7 +334,7 @@ export function RegistryView({ state, consumptionState, intent, onIntentConsumed
             className="btn-primary"
           >
             <PlusIcon className="w-4 h-4" />
-            添加 MCP
+            添加 MCPs
           </button>
         </>
       }
@@ -420,7 +420,7 @@ export function RegistryView({ state, consumptionState, intent, onIntentConsumed
       ) : state.registryError && catalog.length === 0 ? (
         <ResourceState
           kind="read-error"
-          icon={<PackageIcon className="w-6 h-6" />}
+          icon={<ResourceIcon domain="mcp" className="w-6 h-6" />}
           title="读取 MCP 失败"
           detail={state.registryError}
           action={(
@@ -437,8 +437,8 @@ export function RegistryView({ state, consumptionState, intent, onIntentConsumed
       ) : filtered.length === 0 ? (
         <ResourceState
           kind={catalog.length === 0 ? "empty" : "no-match"}
-          icon={<PackageIcon className="w-6 h-6" />}
-          title={catalog.length === 0 ? "暂无 MCP" : "没有匹配项"}
+          icon={<ResourceIcon domain="mcp" className="w-6 h-6" />}
+          title={catalog.length === 0 ? "暂无 MCPs" : "没有匹配项"}
           detail={catalog.length === 0 ? "添加订阅、导入配置或新建 MCP" : "调整搜索或来源筛选后重试。"}
           action={catalog.length === 0 ? undefined : (
             <button type="button" className="btn-secondary" onClick={() => {

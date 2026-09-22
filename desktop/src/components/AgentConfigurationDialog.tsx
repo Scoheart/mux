@@ -1,4 +1,5 @@
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { RESOURCE_CATEGORIES, ResourceIcon } from "./resourcePresentation";
+import { Fragment, useEffect, useId, useRef, useState, type ReactNode } from "react";
 import type {
   AgentConfigurationPatch,
   AgentInfo,
@@ -15,7 +16,7 @@ import {
 import { formatError } from "../lib/format";
 import { DialogShell } from "./DialogShell";
 import { AssetOperationReviewDialog } from "./AssetOperationReviewDialog";
-import { ExternalLinkIcon, KeyIcon, LayersIcon, PackageIcon, PlusIcon, SparklesIcon, TrashIcon } from "./icons";
+import { ExternalLinkIcon, KeyIcon, PlusIcon, TrashIcon } from "./icons";
 import { useToast } from "./Toast";
 import { configureAgentLaunch, getAgentLaunchInfo, type AgentLaunchInfo } from "../lib/agentLaunch";
 import { AgentLaunchFields, agentLaunchDraftChanged, agentLaunchDraftTarget, agentLaunchDraftValid, createAgentLaunchDraft, type AgentLaunchDraft } from "./AgentLaunchFields";
@@ -324,11 +325,32 @@ export function AgentConfigurationDialog({
     >
       <div hidden={section !== "paths"} role="tabpanel" id={`${sectionId}-paths-panel`} aria-labelledby={`${sectionId}-paths-tab`}>
       <fieldset className="mux-agent-config-form mux-agent-config-fields" disabled={busy || browsing}>
+        {RESOURCE_CATEGORIES.map((resource) => <Fragment key={resource.id}>
+          {resource.id === "models" && <>
+        {modelPaths.length > 0 ? modelPaths.map((path, index) => (
+          <ConfigField
+            key={index}
+            icon={<ResourceIcon domain="model" />}
+            label={modelPaths.length > 1 ? `${resource.label} ${index + 1}` : resource.label}
+            value={path}
+            openKind="file"
+            onChange={(value) => updateModelPath(index, value)}
+          />
+        )) : (
+          <ConfigField
+            icon={<ResourceIcon domain="model" />}
+            label={resource.label}
+            value="未接入"
+            disabled
+          />
+        )}
+          </>}
+          {resource.id === "mcps" && <>
         {hasMcp ? (
           <div className="mux-agent-config-mcp">
             <ConfigField
-              icon={<PackageIcon className="w-4 h-4" />}
-              label="MCP 配置文件"
+              icon={<ResourceIcon domain="mcp" />}
+              label={resource.label}
               openKind="file"
               value={mcpPath}
               onChange={setMcpPath}
@@ -342,34 +364,19 @@ export function AgentConfigurationDialog({
           </div>
         ) : (
           <ConfigField
-            icon={<PackageIcon className="w-4 h-4" />}
-            label="MCP"
+            icon={<ResourceIcon domain="mcp" />}
+            label={resource.label}
             value="未接入"
             disabled
           />
         )}
-        {modelPaths.length > 0 ? modelPaths.map((path, index) => (
-          <ConfigField
-            key={index}
-            icon={index === 0 ? <LayersIcon className="w-4 h-4" /> : null}
-            label={modelPaths.length > 1 ? `Model ${index + 1}` : "Model"}
-            value={path}
-            openKind="file"
-            onChange={(value) => updateModelPath(index, value)}
-          />
-        )) : (
-          <ConfigField
-            icon={<LayersIcon className="w-4 h-4" />}
-            label="Model"
-            value="未接入"
-            disabled
-          />
-        )}
+          </>}
+          {resource.id === "skills" && <>
         {skillsPaths.length > 0 ? skillsPaths.map((path, index) => (
           <ConfigField
             key={index}
-            icon={index === 0 ? <SparklesIcon className="w-4 h-4" /> : null}
-            label={skillsPaths.length > 1 ? `Skills ${index + 1}` : "Skills"}
+            icon={<ResourceIcon domain="skill" />}
+            label={skillsPaths.length > 1 ? `${resource.label} ${index + 1}` : resource.label}
             value={path}
             openKind="folder"
             onChange={(value) => updateSkillsPath(index, value)}
@@ -386,8 +393,8 @@ export function AgentConfigurationDialog({
           />
         )) : (
           <ConfigField
-            icon={<SparklesIcon className="w-4 h-4" />}
-            label="Skills"
+            icon={<ResourceIcon domain="skill" />}
+            label={resource.label}
             value="未接入"
             disabled
           />
@@ -401,6 +408,8 @@ export function AgentConfigurationDialog({
             <PlusIcon className="w-3.5 h-3.5" />添加 Skills 目录
           </button>
         )}
+          </>}
+        </Fragment>)}
       </fieldset>
       {hasDelivery && (
         <section className="mux-agent-config-credential" aria-label="凭据设置">

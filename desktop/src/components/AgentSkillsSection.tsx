@@ -1,6 +1,6 @@
+import { ResourceIcon } from "./resourcePresentation";
 import type { SkillsState } from "../hooks/useSkillsState";
 import type { SkillNavigationRequest } from "../lib/types";
-import { PackageIcon } from "./icons";
 
 /**
  * Compatibility shell for older embedders. Production Agent pages use
@@ -19,7 +19,7 @@ export function AgentSkillsSection({
   return (
     <section className="mux-agent-section mux-agent-resource-content">
       <div className="mux-consumption-empty">
-        <PackageIcon className="w-7 h-7" />
+        <ResourceIcon domain="skill" className="w-7 h-7" />
         <strong>请使用中央 Skills 选择器</strong>
         <span>
           {agent

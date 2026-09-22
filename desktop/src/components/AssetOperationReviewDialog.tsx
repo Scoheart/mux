@@ -1,8 +1,10 @@
-import type { AssetCommandError, AssetOperationPlan, AssetRef } from "../lib/types";
+import { RESOURCE_PRESENTATION } from "./resourcePresentation";
+import type { AssetCommandError, AssetOperationPlan, AssetRef, ConvergenceAction } from "../lib/types";
 import { assetIdentity } from "../lib/consumption";
 import { AgentGlyph } from "./brandIcons";
 import { TrashIcon } from "./icons";
 import { DialogShell } from "./DialogShell";
+import { AssetSyncReviewDialog } from "./AssetSyncReviewDialog";
 import { DialogDisclosure } from "./DialogDisclosure";
 
 function assetKey(asset: AssetRef) {
@@ -33,13 +35,8 @@ function displayAgentName(
 }
 
 function assetLabel(asset: AssetRef, names: Record<string, string>) {
-  const domain = asset.domain === "mcp"
-    ? "MCP"
-    : asset.domain === "model"
-      ? "Model"
-      : asset.domain === "model-provider"
-        ? "Provider"
-        : "Skill";
+  const domain = asset.domain === "model-provider"
+    ? "Provider" : RESOURCE_PRESENTATION[asset.domain].label;
   return `${domain} · ${displayAssetName(asset, names)}`;
 }
 
@@ -86,7 +83,7 @@ export function assetReviewErrorMessage(
       || /^[\[{].*[\]}]$/s.test(message.trim())
     )
   ) {
-    const asset = domain === "mcp" ? "MCP" : domain === "model" ? "Model" : "Skill";
+    const asset = domain === "agent-capabilities" ? "配置" : RESOURCE_PRESENTATION[domain].label;
     return `当前 ${asset} 状态已变化，无法按此计划移除。请关闭后刷新再试。`;
   }
   return message;
@@ -94,7 +91,7 @@ export function assetReviewErrorMessage(
 
 function agentActionCopy(plan: AssetOperationPlan) {
   const domain = plan.domain_plan.domain;
-  const asset = domain === "mcp" ? "MCP" : domain === "model" ? "Model" : "Skill";
+  const asset = domain === "agent-capabilities" ? "配置" : RESOURCE_PRESENTATION[domain].label;
   const hasAdd = plan.relationship_changes.some((change) => change.action === "add");
   const hasRemove = plan.relationship_changes.some((change) => change.action === "remove");
   const stateChanges = plan.consumption_state_changes ?? [];
@@ -140,6 +137,9 @@ function warningCopy(warning: string) {
   const agent = warning.slice(0, separator).split(" / ")[0];
   const reason = warning.slice(separator + 1).trim();
   const labels: Record<string, string> = {
+    mcp_config_drift: "MCP 配置与 MUX 不一致",
+    mcp_enabled_state_drift: "MCP 启用状态与 MUX 不一致",
+    mcp_target_missing: "Agent 中缺少这份 MCP 配置",
     model_active_state_drift: "当前 Model 与 MUX 记录不一致，请先刷新或重新选择当前 Model",
     model_external_current: "当前 Model 由 Agent 外部配置管理，切换前需要先让 MUX 接管",
     model_active_conflicted: "当前 Model 配置存在歧义，请先修复配置",
@@ -211,9 +211,14 @@ function configurationChanges(plan: AssetOperationPlan) {
   if (!configuration) return [];
   const { before, after } = configuration;
   const rows: Array<{ label: string; before: string; after: string }> = [];
+  const beforeModels = before.modelPaths.join(" · ");
+  const afterModels = after.modelPaths.join(" · ");
+  if (beforeModels !== afterModels) {
+    rows.push({ label: RESOURCE_PRESENTATION.model.label, before: beforeModels, after: afterModels });
+  }
   if (before.mcpPath !== after.mcpPath) {
     rows.push({
-      label: "MCP 文件路径",
+      label: `${RESOURCE_PRESENTATION.mcp.label} 配置文件`,
       before: before.mcpPath ?? "未接入",
       after: after.mcpPath ?? "未接入",
     });
@@ -221,12 +226,7 @@ function configurationChanges(plan: AssetOperationPlan) {
   const beforeMcpKey = before.mcpKey ?? "";
   const afterMcpKey = after.mcpKey ?? "";
   if (beforeMcpKey !== afterMcpKey) {
-    rows.push({ label: "MCP 配置键", before: beforeMcpKey, after: afterMcpKey });
-  }
-  const beforeModels = before.modelPaths.join(" · ");
-  const afterModels = after.modelPaths.join(" · ");
-  if (beforeModels !== afterModels) {
-    rows.push({ label: "Model", before: beforeModels, after: afterModels });
+    rows.push({ label: `${RESOURCE_PRESENTATION.mcp.label} 配置键`, before: beforeMcpKey, after: afterMcpKey });
   }
   const beforeSkills = [before.skillsGlobalDir, ...before.skillsAliasDirs]
     .filter(Boolean).join(" · ");
@@ -234,7 +234,7 @@ function configurationChanges(plan: AssetOperationPlan) {
     .filter(Boolean).join(" · ");
   if (beforeSkills !== afterSkills) {
     rows.push({
-      label: "Skills",
+      label: RESOURCE_PRESENTATION.skill.label,
       before: beforeSkills || "未接入",
       after: afterSkills || "未接入",
     });
@@ -248,6 +248,7 @@ export function AssetOperationReviewDialog({
   error,
   agentId,
   agentName,
+  convergenceAction,
   agentDisplayNames = {},
   assetDisplayNames = {},
   cancelLabel = "取消",
@@ -259,6 +260,7 @@ export function AssetOperationReviewDialog({
   error?: AssetCommandError | string | null;
   agentId?: string;
   agentName?: string;
+  convergenceAction?: ConvergenceAction;
   agentDisplayNames?: Record<string, string>;
   assetDisplayNames?: Record<string, string>;
   cancelLabel?: string;
@@ -319,6 +321,25 @@ export function AssetOperationReviewDialog({
       ? `${agentName} · 另影响 ${plan.affected_agent_ids.length - 1} 个 Agent`
       : agentName
     : `${plan.affected_agent_ids.length} 个 Agent · ${plan.target_files.length} 个目标`;
+  // Only the explicit restore action uses this copy; an ordinary central edit
+  // can have the same before/after selections and must not be called a resync.
+  if (convergenceAction === "restore-desired"
+    && plan.kind === "update-asset" && plan.domain_plan.domain === "mcp"
+    && plan.central_changes.length > 0
+    && plan.central_changes.every((change) => change.asset.domain === "mcp" && change.action === "update")
+    && plan.relationship_changes.length === 0
+    && consumptionStateChanges.length === 0 && plan.model_state_changes.length === 0) {
+    return <AssetSyncReviewDialog
+      plan={plan} busy={busy} error={reviewError} cancelLabel={cancelLabel}
+      assets={plan.central_changes.map((change) => ({
+        key: assetKey(change.asset), name: displayAssetName(change.asset, assetDisplayNames),
+      }))}
+      agents={[...new Set(plan.affected_agent_ids)].map((id) => ({
+        id, name: displayAgentName(id, agentId, agentName, agentDisplayNames),
+      }))}
+      onCommit={onCommit} onCancel={onCancel}
+    />;
+  }
   const providerChange = plan.central_changes.find((change) => change.asset.domain === "model-provider" && change.action === "update");
   if (plan.kind === "delete-asset" && plan.domain_plan.domain === "mcp") {
     const deletedAssets = plan.central_changes.filter((change) => change.asset.domain === "mcp");
@@ -328,7 +349,7 @@ export function AssetOperationReviewDialog({
         kind="review"
         size="sm"
         className="mux-mcp-delete-dialog"
-        title="删除 MCP"
+        title="删除 MCPs"
         leading={<span className="mux-dialog-shell-glyph" aria-hidden="true"><TrashIcon /></span>}
         busy={busy}
         onClose={() => void onCancel()}
@@ -515,7 +536,7 @@ export function AssetOperationReviewDialog({
         )}
         {plan.model_state_changes.length > 0 && (
           <section>
-            <h3>Model 状态变化</h3>
+            <h3>Models 状态变化</h3>
             <ul>
               {plan.model_state_changes.map((change) => (
                 <li key={`${change.agent_id}:${change.profile_id}`}>
@@ -581,16 +602,14 @@ export function AssetOperationReviewDialog({
             </ul>
           </section>
         )}
-        {(!isConfiguration || plan.relationship_changes.length > 0)
-          && (plan.relationship_changes.length > 0 || consumptionStateChanges.length === 0)
-          && <section>
+        {plan.relationship_changes.length > 0 && <section>
           <h3>{isConfiguration ? "Skills 影响" : isAgentSkillPlan ? "生效范围" : agentName ? "Agent 变更" : "关系变化"}</h3>
           {isAgentSkillPlan && compatibleAgentCount > 0 && (
             <p className="mux-asset-review-note">
               只写入一个目录；兼容 Agent 会读取同一份 Skill，不会重复安装。
             </p>
           )}
-          {plan.relationship_changes.length === 0 ? <p>无变化</p> : (
+          {(
             <ul className={isAgentSkillPlan ? "mux-skill-impact-list" : undefined}>
               {plan.relationship_changes.map((change, index) => {
                 const isDirect = !isAgentSkillPlan || change.agent_id === agentId;

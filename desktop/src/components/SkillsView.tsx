@@ -1,3 +1,4 @@
+import { ResourceIcon } from "./resourcePresentation";
 import {
   type ReactNode,
   useCallback,
@@ -26,7 +27,6 @@ import type {
 } from "../lib/types";
 import {
   FolderIcon,
-  LayersIcon,
   LinkIcon,
   PackageIcon,
   PlusIcon,
@@ -526,7 +526,7 @@ export function SkillsView({
           <WorkspaceSidebar title="Skills" count={items.length}>
             <SidebarSection title={t("skillLibrary.sources")}>
               <SidebarItem active={activeSource === "all"}
-                icon={<LayersIcon className="w-3.5 h-3.5" />}
+                icon={<ResourceIcon domain="skill" className="w-3.5 h-3.5" />}
                 label={t("skillLibrary.all")} count={items.length}
                 onClick={() => changeSource("all")} />
             </SidebarSection>
@@ -571,7 +571,7 @@ export function SkillsView({
               }}
             >
               <PlusIcon className="w-4 h-4" />
-              添加 Skill
+              添加 Skills
             </button>
           </>
         }
@@ -599,14 +599,14 @@ export function SkillsView({
         ) : !state.inventory && recoveryError ? (
           <ResourceState
             kind="recovery"
-            icon={<PackageIcon className="w-6 h-6" />}
+            icon={<ResourceIcon domain="skill" className="w-6 h-6" />}
             title="Skills 已进入只读恢复状态"
             detail={recoveryError}
           />
         ) : !state.inventory && state.error ? (
           <ResourceState
             kind="read-error"
-            icon={<PackageIcon className="w-6 h-6" />}
+            icon={<ResourceIcon domain="skill" className="w-6 h-6" />}
             title="读取 Skills 失败"
             detail={state.error.message}
             action={
@@ -620,7 +620,7 @@ export function SkillsView({
             {inventoryNotice}
             <ResourceState
               kind={items.length === 0 ? "empty" : "no-match"}
-              icon={<PackageIcon className="w-6 h-6" />}
+              icon={<ResourceIcon domain="skill" className="w-6 h-6" />}
               title={items.length === 0 ? "暂无 Skills" : "没有匹配项"}
               detail={items.length === 0 ? "从 GitHub、本地文件夹或压缩包添加。" : "调整搜索或来源筛选后重试。"}
               action={items.length === 0 ? undefined : (

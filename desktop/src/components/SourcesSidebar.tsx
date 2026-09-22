@@ -1,8 +1,9 @@
+import { ResourceIcon } from "./resourcePresentation";
 import { useMemo, useState } from "react";
 import type { InstallState } from "../hooks/useInstallState";
 import type { SourceView } from "../lib/types";
 import { IconButton } from "./ui";
-import { CloudIcon, FolderIcon, RefreshIcon, TrashIcon, LayersIcon, EditIcon, SearchIcon } from "./icons";
+import { CloudIcon, FolderIcon, RefreshIcon, TrashIcon, EditIcon, SearchIcon } from "./icons";
 import { SubscribeDialog } from "./SubscribeDialog";
 import { useToast } from "./Toast";
 import { formatError } from "../lib/format";
@@ -112,7 +113,7 @@ export function SourcesSidebar({
       >
         <SidebarItem
           active={selectedId === null}
-          icon={<LayersIcon className="w-3.5 h-3.5" />}
+          icon={<ResourceIcon domain="mcp" className="w-3.5 h-3.5" />}
           label="全部来源"
           count={catalog.length}
           onClick={() => onSelect(null)}

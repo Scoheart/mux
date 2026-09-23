@@ -56,12 +56,7 @@
 .mux-launch-instance-option p { margin: 4px 0 0; color: var(--text-tertiary); }
 .mux-launch-instance-option > button { flex-shrink: 0; }
 
-.mux-launch-environment { display: grid; gap: 8px; }
-.mux-launch-environment-heading { display: flex; align-items: center; justify-content: space-between; color: var(--text-primary); font-size: 12px; }
-.mux-launch-environment-heading button { display: inline-flex; align-items: center; gap: 4px; }
-.mux-launch-env-row { display: grid; grid-template-columns: minmax(0, 1.4fr) auto minmax(0, 1fr) 28px; gap: 8px; align-items: center; }
-.mux-launch-env-row > span { color: var(--text-tertiary); }
-.mux-launch-env-row input { min-width: 0; font-family: var(--font-mono); }
+.mux-launch-environment-block { min-height: 132px; }
 
 /* Unified editor: persistent section navigation and compact, aligned fields. */
 .mux-dialog-agent-config .mux-dialog-shell-header { padding-top: 16px; padding-bottom: 14px; }

@@ -59,6 +59,10 @@
     "url": "https://developers.openai.com/codex/quickstart",
     "label": "安装文档"
   },
+  "codex-desktop": {
+    "url": "https://developers.openai.com/codex",
+    "label": "安装文档"
+  },
   "continue": {
     "url": "https://docs.continue.dev/",
     "label": "安装文档"
@@ -86,10 +90,6 @@
   "cursor-cli": {
     "url": "https://cursor.com/install",
     "label": "CLI 安装"
-  },
-  "devin": {
-    "url": "https://docs.devin.ai/",
-    "label": "安装文档"
   },
   "dirac": {
     "url": "https://github.com/dirac-run/dirac",

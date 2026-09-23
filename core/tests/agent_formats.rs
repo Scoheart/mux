@@ -780,6 +780,7 @@ fn builtin_global_paths_match_current_product_docs() {
         ("codebuddy-code", "~/.codebuddy/.mcp.json"),
         ("codewhale", "~/.codewhale/mcp.json"),
         ("codex", "~/.codex/config.toml"),
+        ("codex-desktop", "~/.codex/config.toml"),
         ("continue", "~/.continue/config.yaml"),
         ("copilot-cli", "~/.copilot/mcp-config.json"),
         ("crush", "~/.config/crush/crush.json"),
@@ -849,14 +850,14 @@ fn verified_and_catalog_definitions_have_auditable_boundaries() {
 
     assert_eq!(verified.len(), 71);
     assert_eq!(catalog.len(), 204);
-    assert_eq!(verified_ids.intersection(&catalog_ids).count(), 49);
-    assert_eq!(all_ids.len(), 226);
+    assert_eq!(verified_ids.intersection(&catalog_ids).count(), 48);
+    assert_eq!(all_ids.len(), 227);
     assert_eq!(
         verified
             .values()
             .filter(|item| item.global.is_some())
         .count(),
-        56
+        57
     );
     assert!(catalog.len() >= 170);
     for (id, definition) in verified {

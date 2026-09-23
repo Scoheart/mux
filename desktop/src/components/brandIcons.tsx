@@ -4,7 +4,7 @@ import builtinAgents from "../../../data/agents.json";
 import catalogAgents from "../../../data/agent-catalog.json";
 import type { ReactNode } from "react";
 
-type AgentSurface = "cli" | "desktop" | "ide" | "web";
+type AgentSurface = "cli" | "desktop" | "ide" | "plugin";
 
 const iconModules = import.meta.glob("../assets/agents/*.{png,svg,webp}", {
   eager: true,
@@ -16,7 +16,7 @@ const LOGOS = Object.fromEntries(
   Object.entries(iconModules).map(([path, url]) => [path.split("/").pop()!.replace(/\.[^.]+$/, ""), url])
 ) as Record<string, string>;
 const ICON_ALIASES: Record<string, string> = iconAliases;
-const SURFACE_VALUES = new Set<AgentSurface>(["cli", "desktop", "ide", "web"]);
+const SURFACE_VALUES = new Set<AgentSurface>(["cli", "desktop", "ide", "plugin"]);
 const AGENT_SURFACES: Record<string, string> = agentSurfaces;
 
 function resolvedLogoKey(id: string): string {
@@ -109,7 +109,8 @@ const AGENT_META: Record<string, { name: string; color: string }> = {
   "codebuddy-ide": { name: "CodeBuddy IDE", color: "#7257FF" },
   workbuddy: { name: "WorkBuddy", color: "#7257FF" },
   vscode: { name: "VS Code", color: "#0A7ACA" },
-  codex: { name: "Codex", color: "#10A37F" },
+  codex: { name: "Codex CLI", color: "#10A37F" },
+  "codex-desktop": { name: "Codex Desktop", color: "#10A37F" },
   zed: { name: "Zed", color: "#084CCF" },
   zcode: { name: "ZCode Desktop", color: "#356DFF" },
   windsurf: { name: "Windsurf", color: "#09B6A2" },
@@ -181,10 +182,11 @@ function AgentSurfaceBadge({ surface, size }: { surface: AgentSurface; size: num
             <path d="M5 2v8M6.75 4h2M6.75 6h2" />
           </>
         )}
-        {surface === "web" && (
+        {surface === "plugin" && (
           <>
-            <circle cx="6" cy="6" r="4.5" />
-            <path d="M1.75 6h8.5M6 1.75c1.35 1.25 2 2.67 2 4.25S7.35 9 6 10.25C4.65 9 4 7.58 4 6s.65-3 2-4.25Z" />
+            <path d="M4.25 1.75v2.1M6.75 1.75v2.1" />
+            <rect x="2.25" y="3.75" width="6.5" height="4.25" rx="1" />
+            <path d="M8.75 5.15H10.5M8.75 6.65H10.5" />
           </>
         )}
       </svg>

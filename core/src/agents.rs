@@ -68,6 +68,7 @@ const VERIFIED_SKILL_AGENT_IDS: &[&str] = &[
     "codebuddy-code",
     "codewhale",
     "codex",
+    "codex-desktop",
     "copilot-cli",
     "cortex-code",
     "crush",
@@ -1070,11 +1071,11 @@ mod tests {
     #[test]
     fn builtin_catalog_and_transport_metadata_load() {
         let a = builtin_agents();
-        assert_eq!(audited_agents().len(), 70);
+        assert_eq!(audited_agents().len(), 71);
         let catalog: BTreeMap<String, AgentDefinition> =
             serde_json::from_str(CATALOG_AGENTS_JSON).unwrap();
         assert_eq!(catalog.len(), 204);
-        assert_eq!(a.len(), 225);
+        assert_eq!(a.len(), 227);
         assert_eq!(a["claude-code"].key, "mcpServers");
         assert_eq!(a["codex"].format, "toml");
         assert_eq!(
@@ -1105,7 +1106,7 @@ mod tests {
         let agents = builtin_agents();
         let ide = &agents["amazon-q"];
         assert_eq!(ide.name.as_deref(), Some("Amazon Q Developer IDE"));
-        assert_eq!(ide.category.as_deref(), Some("ide"));
+        assert_eq!(ide.category.as_deref(), Some("plugin"));
         assert_eq!(ide.global.as_deref(), Some("~/.aws/amazonq/default.json"));
         assert_eq!(
             ide.docs.as_deref(),

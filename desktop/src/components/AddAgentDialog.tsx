@@ -20,10 +20,10 @@ const FORMATS = [
 ] as const;
 
 const CATEGORIES = [
-  { value: "coding-agent", labelKey: "agents.categoryCoding" },
   { value: "cli", labelKey: "agents.categoryCli" },
-  { value: "ide", labelKey: "agents.categoryIde" },
   { value: "desktop", labelKey: "agents.categoryDesktop" },
+  { value: "ide", labelKey: "agents.categoryIde" },
+  { value: "plugin", labelKey: "agents.categoryPlugin" },
 ] as const;
 
 const AGENT_ID_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -60,7 +60,7 @@ export function AddAgentDialog({
   const { t } = useTranslation();
   const [name, setName] = useState("");
   const [id, setId] = useState("");
-  const [category, setCategory] = useState("coding-agent");
+  const [category, setCategory] = useState("cli");
   const [activeCapability, setActiveCapability] = useState<CapabilityTab>("mcp");
   const [format, setFormat] = useState<"json" | "toml" | "yaml">("json");
   const [key, setKey] = useState("mcpServers");

@@ -6,6 +6,7 @@ export type LaunchTarget = { kind: "app"; path: string; args?: string[]; new_ins
 export interface AgentLaunchInfo {
   agent_id: string;
   name: string;
+  category: string;
   kind: "app" | "cli" | "web" | null;
   available: boolean;
   supported: boolean;

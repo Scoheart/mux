@@ -3467,7 +3467,7 @@ mod tests {
 
     #[test]
     fn shared_client_mcp_requires_a_closed_removal_plan() {
-        for agents in [["qoder-cli", "qoder-desktop"], ["kimi-code", "kimi-code-desktop"]] {
+        for agents in [["qoder-cli", "qoder-desktop"], ["kimi-code", "kimi-code-desktop"], ["codex", "codex-desktop"]] {
             let _home = TestHome::new("shared-client-removal");
             let key = "shared::stdio".to_string();
             mutate_settings(|settings| {

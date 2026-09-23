@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.210](https://github.com/Scoheart/mux/compare/v1.8.209...v1.8.210) (2026-09-23)
+
+### Changes
+
+* feat(agents): choose CLI, Desktop, IDE, or Plugin at creation (#196) ([1faba2e](https://github.com/Scoheart/mux/commit/1faba2e6c2195913542615a852b5c03255b7c724))
+
 ## [1.8.209](https://github.com/Scoheart/mux/compare/v1.8.208...v1.8.209) (2026-09-22)
 
 ### Changes

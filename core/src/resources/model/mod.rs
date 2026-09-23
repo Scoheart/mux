@@ -3230,7 +3230,7 @@ pub fn list_agents() -> Vec<ModelAgentView> {
         },
         ModelAgentView {
             id: "codex".into(),
-            name: "Codex".into(),
+            name: "Codex CLI".into(),
             mode: "managed".into(),
             storage_authority: ModelStorageAuthority::MuxMapping,
             installed: agent_installed(&["codex"], &[".codex"], &["/Applications/Codex.app"]),

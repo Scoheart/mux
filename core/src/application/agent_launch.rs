@@ -10,13 +10,13 @@ pub use crate::domain::agents::{LaunchPreferences, LaunchTarget};
 enum CatalogTarget {
     App { candidates: Vec<String>, host_name: Option<String> },
     Cli { candidates: Vec<String>, #[serde(default)] args: Vec<String> },
-    Web { url: String },
 }
 
 #[derive(Serialize)]
 pub struct LaunchInfo {
     pub agent_id: String,
     pub name: String,
+    pub category: String,
     pub kind: Option<String>,
     pub available: bool,
     pub supported: bool,
@@ -121,6 +121,31 @@ fn validate_target(target: &LaunchTarget) -> Result<(), String> {
     Ok(())
 }
 
+fn target_kind(target: &LaunchTarget) -> &'static str {
+    match target {
+        LaunchTarget::App { .. } => "app",
+        LaunchTarget::Cli { .. } => "cli",
+        LaunchTarget::Web { .. } => "web",
+    }
+}
+
+/// Launch mechanism is fixed by the Agent type chosen when it is added.
+/// Web is not a product type; legacy web targets are not launched or saved.
+fn required_launch_kind(category: &str) -> Option<&'static str> {
+    match category {
+        "cli" | "coding-agent" | "terminal" => Some("cli"),
+        "desktop" | "ide" | "plugin" | "ide-extension" => Some("app"),
+        _ => None,
+    }
+}
+
+fn compatible_target<'a>(category: &str, target: &'a LaunchTarget) -> Option<&'a LaunchTarget> {
+    match required_launch_kind(category) {
+        Some(kind) if target_kind(target) == kind => Some(target),
+        Some(_) | None => None,
+    }
+}
+
 fn resolve(target: &LaunchTarget) -> Option<LaunchTarget> {
     match target {
         LaunchTarget::App { path, args, new_instance, env } => validate_target(target).is_ok().then(|| LaunchTarget::App { path: expand(path).to_string_lossy().into_owned(), args: args.clone(), new_instance: *new_instance, env: env.clone() }),
@@ -132,36 +157,36 @@ fn resolve(target: &LaunchTarget) -> Option<LaunchTarget> {
 pub fn info(agent_id: &str) -> Result<LaunchInfo, String> {
     super::gate::read(|| {
         let name = require_agent(agent_id)?;
+        let category = crate::agents::load_agents().get(agent_id).and_then(|agent| agent.category.clone()).unwrap_or_else(|| "cli".into());
         let prefs = load_settings_strict().map_err(|e| e.to_string())?.agent_launch
             .and_then(|mut values| values.remove(agent_id)).unwrap_or_default();
         let catalog: BTreeMap<String, CatalogTarget> = serde_json::from_str(include_str!("../../../data/agent-launchers.json")).map_err(|e| e.to_string())?;
         let links: BTreeMap<String, serde_json::Value> = serde_json::from_str(include_str!("../../../data/agent-install-links.json")).map_err(|e| e.to_string())?;
         let mut host_name = None;
-        let mut kind = None;
-        let resolved_target = if let Some(target) = &prefs.target {
-            kind = Some(match target { LaunchTarget::App { .. } => "app", LaunchTarget::Cli { .. } => "cli", LaunchTarget::Web { .. } => "web" }.into());
+        let required = required_launch_kind(&category);
+        let configured_target = prefs.target.as_ref().and_then(|target| compatible_target(&category, target)).cloned();
+        let resolved_target = if let Some(target) = &configured_target {
             resolve(target)
         } else {
             match catalog.get(agent_id) {
-                Some(CatalogTarget::App { candidates, host_name: host }) => {
-                    kind = Some("app".into()); host_name = host.clone();
+                Some(CatalogTarget::App { candidates, host_name: host }) if required != Some("cli") => {
+                    host_name = host.clone();
                     application(candidates).map(|path| LaunchTarget::App { path: path.to_string_lossy().into_owned(), args: Vec::new(), new_instance: false, env: BTreeMap::new() })
                 }
-                Some(CatalogTarget::Cli { candidates, args }) => {
-                    kind = Some("cli".into());
+                Some(CatalogTarget::Cli { candidates, args }) if required != Some("app") => {
                     candidates.iter().find_map(|name| find_command(name)).map(|command| LaunchTarget::Cli { command: command.to_string_lossy().into_owned(), args: args.clone(), env: BTreeMap::new() })
                 }
-                Some(CatalogTarget::Web { url }) => { kind = Some("web".into()); resolve(&LaunchTarget::Web { url: url.clone() }) }
-                None => None,
+                _ => None,
             }
         };
+        let kind = required.map(str::to_string).or_else(|| resolved_target.as_ref().map(|target| target_kind(target).into()));
         let supported = cfg!(target_os = "macos");
         let directory = prefs.default_directory.clone().or(prefs.directory);
-        Ok(LaunchInfo { agent_id: agent_id.into(), name, kind, supported, host_name,
+        Ok(LaunchInfo { agent_id: agent_id.into(), name, category, kind, supported, host_name,
             available: supported && resolved_target.is_some(),
             install_url: links.get(agent_id).and_then(|v| v.get("url")).and_then(|v| v.as_str()).map(str::to_owned),
             directory_exists: directory.as_ref().is_some_and(|p| expand(p).is_dir()),
-            directory, default_directory: prefs.default_directory, configured_target: prefs.target, resolved_target,
+            directory, default_directory: prefs.default_directory, configured_target, resolved_target,
         })
     })
 }
@@ -180,7 +205,13 @@ pub fn configure_with_directory(agent_id: &str, target: Option<LaunchTarget>, de
     }).transpose()?;
     super::gate::write_independent(|| {
         require_agent(agent_id)?;
-        if let Some(target) = &target { validate_target(target)?; }
+        if let Some(target) = &target {
+            validate_target(target)?;
+            let category = crate::agents::load_agents().get(agent_id).and_then(|agent| agent.category.clone()).unwrap_or_else(|| "cli".into());
+            if compatible_target(&category, target).is_none() {
+                return Err("启动方式由添加 Agent 时的类型决定".into());
+            }
+        }
         mutate_settings_checked(|settings| {
             let preferences = settings.agent_launch.get_or_insert_default().entry(agent_id.into()).or_default();
             preferences.target = target;

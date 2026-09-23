@@ -36,7 +36,8 @@ Model 能力由 Rust Core 统一提供；MiniMax Code、Qoder IDE、Kimi Code CL
 | [Cline Desktop](https://cline.bot/desktop) | - | - | 只读目录 | - |
 | [CodeBuddy Code](https://www.codebuddy.ai/docs/cli/mcp) | JSON | `mcpServers` | `~/.codebuddy/.mcp.json` | stdio / http |
 | [CodeWhale](https://github.com/Hmbown/CodeWhale/blob/main/docs/MCP.md) | JSON | `servers` | `~/.codewhale/mcp.json` | stdio / http |
-| [Codex](https://developers.openai.com/codex/mcp) | TOML | `mcp_servers` | `~/.codex/config.toml` | stdio / http |
+| [Codex CLI](https://developers.openai.com/codex/mcp) | TOML | `mcp_servers` | `~/.codex/config.toml` | stdio / http |
+| [Codex Desktop](https://developers.openai.com/codex) | TOML | `mcp_servers` | `~/.codex/config.toml` | stdio / http |
 | [Continue](https://docs.continue.dev/customize/deep-dives/mcp) | YAML | `mcpServers` | `~/.continue/config.yaml` | stdio / http |
 | [GitHub Copilot CLI](https://docs.github.com/en/copilot/how-tos/use-copilot-agents/coding-agent/extend-coding-agent-with-mcp) | JSON | `mcpServers` | `~/.copilot/mcp-config.json` | stdio / http |
 | [Crush](https://github.com/charmbracelet/crush#model-context-protocol-mcp) | JSON | `mcp` | `~/.config/crush/crush.json` | stdio / http |
@@ -83,6 +84,8 @@ Model 能力由 Rust Core 统一提供；MiniMax Code、Qoder IDE、Kimi Code CL
 - **Devin / Cline Desktop / Freebuff**：产品提供 Agent 能力，但没有核验到稳定的用户级全局文件契约，因此只提供目录展示和启动入口，不提供配置写入。
 - **QoderWork**：用户自定义 MCP 保存在 `~/.qoderwork/mcp.json`，使用 `mcpServers`；MUX 不修改客户端数据目录中的内置 MCP。远程连接按官方导入格式写为 `streamable-http` 或 `sse`。
 - **Qoder IDE / CLI / Desktop**：三个独立入口。IDE（原 `qoder`）继续使用 `~/.qoder/mcp.json`；新 Desktop（`qoder-desktop`，0.1.x）与 CLI（`qoder-cli`）共用 `~/.qoder/settings.json`，修改同名 MCP 会影响两者。Desktop 0.1.8 的自定义 Models 可由 MUX 写入同文件的 `providers`，重启后在会话中选用；CLI 1.1.50+ 同样支持自动写入自定义 Models，并通过 `model.name` 切换当前模型；新版 Desktop Skills 的本地写入契约尚未核验。
+- **入口类型**：添加 Agent 时只选择 CLI、Desktop、IDE、Plugin。启动设置沿用这个类型，只改程序、参数和工作目录，不能再改成另一种入口。没有 Web 类型。
+- **Codex CLI / Desktop**：两个独立入口。Desktop 打开 `/Applications/ChatGPT.app`。两边共用 `~/.codex/config.toml` 与 `~/.agents/skills`。模型 writer 在 Codex CLI 上，写入同一份配置。
 - **Cursor IDE / CLI**：两个独立启动入口，但共用 `~/.cursor/mcp.json` 与 `~/.cursor/skills`；Cursor CLI 当前使用 `agent` 命令，MUX 同时兼容旧版 `cursor-agent`。因此 MCP 与 Skills 的物理文件影响会合并显示，启动与 Agent 身份仍保持分开；Models 和 API 凭据继续由 Cursor 自身管理。
 - **Claude Desktop / BoltAI**：列出的本地文件只原生支持 stdio。远程 MCP 分别由 Claude Connectors 或 BoltAI 的 `mcp-remote` 方案管理。
 - **Goose**：通用文档示例使用 `~/.config/goose/config.yaml`，当前 macOS 源码实际采用 `~/Library/Application Support/Block/goose/config/config.yaml`；MUX 按运行时代码定位。
@@ -92,7 +95,7 @@ Model 能力由 Rust Core 统一提供；MiniMax Code、Qoder IDE、Kimi Code CL
 
 ## Skills 能力
 
-Skills 路径与上表的 MCP 配置路径分别核验，不能互相推断。当前为 **49 个**具有稳定 user-level 契约的已审计 Agent 声明 Skills 能力；运行时只显示本机安装探针命中的 Agent。没有公开稳定用户级目录、只有项目级目录或仅提供 rules/prompts 的产品继续保持只读或不接入 Skills writer。
+Skills 路径与上表的 MCP 配置路径分别核验，不能互相推断。当前为 **53 个**具有稳定 user-level 契约的已审计 Agent 声明 Skills 能力；运行时只显示本机安装探针命中的 Agent。没有公开稳定用户级目录、只有项目级目录或仅提供 rules/prompts 的产品继续保持只读或不接入 Skills writer。
 
 Skills 分配按物理目录而不是 Agent 名称执行。Cursor IDE 与 Cursor CLI 共用 `~/.cursor/skills`，并可读取 `~/.agents/skills` 兼容目录；后者现在同时是 Codex、Goose、Warp 与 Zed 的首选目录，也是多个 Agent 的兼容读取目录，因此一次写入可能影响更多已安装产品。MUX 会在审阅页展示真实影响并归一化重复链接。链接指向同一份可写中央内容，消费者侧修改会形成中央 drift；路径矩阵、安装来源、后台安全校验和当前边界见 [用户级 Skills](/guide/skills#已核验的-agent-路径)。
 

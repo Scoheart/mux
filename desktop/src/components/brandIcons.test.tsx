@@ -16,6 +16,8 @@ it("distinguishes Claude and Qoder product surfaces", () => {
     ["claude-desktop", "Claude Desktop", "desktop"],
     ["qoder-cli", "Qoder CLI", "cli"],
     ["qoder", "Qoder IDE", "ide"],
+    ["codex", "Codex CLI", "cli"],
+    ["codex-desktop", "Codex Desktop", "desktop"],
   ] as const;
 
   for (const [id, name, surface] of cases) {
@@ -33,7 +35,6 @@ it("distinguishes Claude and Qoder product surfaces", () => {
 it("keeps unique, custom, and fallback Agent icons unbadged", () => {
   for (const [id, name] of [
     ["qoder-desktop", "Qoder Desktop"],
-    ["codex", "Codex"],
     ["cursor", "Cursor"],
     ["my-custom-agent", "My Custom Agent"],
   ]) {

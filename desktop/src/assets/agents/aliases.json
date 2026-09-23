@@ -3,6 +3,7 @@
   "claude-desktop": "claude",
   "cline-desktop": "cline",
   "codex": "openai",
+  "codex-desktop": "openai",
   "copilot-cli": "copilot",
   "cursor-cli": "cursor",
   "junie": "jetbrains",

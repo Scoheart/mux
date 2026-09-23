@@ -101,6 +101,12 @@
     ],
     "args": []
   },
+  "codex-desktop": {
+    "kind": "app",
+    "candidates": [
+      "ChatGPT"
+    ]
+  },
   "continue": {
     "kind": "app",
     "candidates": [
@@ -141,10 +147,6 @@
       "cursor-agent"
     ],
     "args": []
-  },
-  "devin": {
-    "kind": "web",
-    "url": "https://app.devin.ai/"
   },
   "dirac": {
     "kind": "cli",

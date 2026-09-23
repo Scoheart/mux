@@ -78,7 +78,7 @@ describe("AddAgentDialog", () => {
         enabled: true,
         builtin: false,
         name: "Acme Code",
-        category: "coding-agent",
+        category: "cli",
         evidence: "custom",
         verified_at: null,
         docs: null,

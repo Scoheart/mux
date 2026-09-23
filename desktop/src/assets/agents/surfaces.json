@@ -1,4 +1,6 @@
 {
+  "codex": "cli",
+  "codex-desktop": "desktop",
   "claude-code": "cli",
   "claude-desktop": "desktop",
   "cline-desktop": "desktop",
@@ -7,7 +9,7 @@
   "qoder-desktop": "desktop",
   "antigravity": "ide",
   "antigravity-cli": "cli",
-  "continue": "ide",
+  "continue": "plugin",
   "continue-cli": "cli",
   "trae-ide": "ide",
   "trae-cli": "cli",

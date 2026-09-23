@@ -30,7 +30,7 @@ export function createAgentLaunchDraft(info: AgentLaunchInfo): AgentLaunchDraft 
     appArgs: target?.kind === "app" ? (target.args ?? []).join("\n") : "", newInstance: target?.kind === "app" && Boolean(target.new_instance),
     command: target?.kind === "cli" ? target.command : "", args: target?.kind === "cli" ? target.args.join("\n") : "",
     url: "", resetDefault: false, directory: info.default_directory ?? "",
-    environment: formatLaunchEnvironment(target && target.kind !== "web" ? target.env : undefined) };
+    environment: formatLaunchEnvironment(target?.env) };
 }
 
 export function agentLaunchDraftTarget(draft: AgentLaunchDraft, info?: AgentLaunchInfo): LaunchTarget | null {

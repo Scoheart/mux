@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.211](https://github.com/Scoheart/mux/compare/v1.8.210...v1.8.211) (2026-09-23)
+
+### Changes
+
+* fix(desktop): launch draft typecheck (#198) ([de6f552](https://github.com/Scoheart/mux/commit/de6f5528a6327e6e2aee836d3aa72b93290e11aa))
+
 ## [1.8.210](https://github.com/Scoheart/mux/compare/v1.8.209...v1.8.210) (2026-09-23)
 
 ### Changes

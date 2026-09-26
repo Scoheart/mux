@@ -177,7 +177,7 @@ pub fn for_agent(agent_id: &str) -> Codec {
         "cursor" | "zed" | "kiro" | "junie" | "pi" => Codec::UrlInferred,
         "vscode" => Codec::VsCode,
         "codex" | "codex-desktop" => Codec::Codex,
-        "opencode" => Codec::OpenCode,
+        "opencode" | "opencode-desktop" => Codec::OpenCode,
         "gemini" => Codec::Gemini,
         "kimi-code" | "kimi-code-desktop" => Codec::Kimi,
         "windsurf" => Codec::Windsurf,

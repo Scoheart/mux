@@ -128,6 +128,7 @@ const AGENT_META: Record<string, { name: string; color: string }> = {
   "amazon-q": { name: "Amazon Q", color: "#FF9900" },
   "cline-desktop": { name: "Cline Desktop", color: "#27313B" },
   opencode: { name: "OpenCode", color: "#1F2937" },
+  "opencode-desktop": { name: "OpenCode Desktop", color: "#1F2937" },
   "copilot-cli": { name: "Copilot CLI", color: "#24292E" },
   cline: { name: "Cline", color: "#2563EB" },
   freebuff: { name: "Freebuff", color: "#111111" },

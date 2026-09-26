@@ -5,7 +5,7 @@
 **Configure MCP servers, reusable model endpoints, and user-level Agent Skills once, then let each Agent consume those central assets.**
 
 MUX is a central asset and Agent configuration manager for Claude Code, Claude
-Desktop, Codex, Cursor, QoderWork, OpenCode, and many other AI agents. MCPs, Model Profiles, and
+Desktop, Codex, Cursor, QoderWork, OpenCode CLI/Desktop, and many other AI agents. MCPs, Model Profiles, and
 Skills are created and maintained in their top-level libraries; each Agent then
 selects which compatible assets it should consume. MUX adapts that desired state
 to the Agent's native format while preserving unrelated settings.

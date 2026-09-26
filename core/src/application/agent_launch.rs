@@ -277,3 +277,21 @@ pub fn launch(agent_id: &str, directory: Option<String>) -> Result<LaunchReceipt
     }).is_ok()).unwrap_or(true);
     Ok(LaunchReceipt { directory_saved })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn opencode_desktop_discovers_user_app_without_a_cli_install() {
+        let home = crate::testenv::TestHome::new("opencode-desktop-launch");
+        let app = home.home.join("Applications/OpenCode.app");
+        fs::create_dir_all(app.join("Contents")).unwrap();
+        fs::write(app.join("Contents/Info.plist"), "fixture").unwrap();
+        let info = info("opencode-desktop").unwrap();
+        assert_eq!(info.category, "desktop");
+        assert_eq!(info.kind.as_deref(), Some("app"));
+        assert!(matches!(info.resolved_target, Some(LaunchTarget::App { path, .. }) if path == app.to_string_lossy()));
+        assert_eq!(info.install_url.as_deref(), Some("https://opencode.ai/download"));
+    }
+}

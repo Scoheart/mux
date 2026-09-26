@@ -1946,7 +1946,7 @@ pub fn default_config_paths(agent_id: &str) -> Option<Vec<String>> {
         "codex" => &["~/.codex/config.toml"],
         "grok-build" => &["~/.grok/config.toml"],
         "pi" => &["~/.pi/agent/models.json", "~/.pi/agent/settings.json"],
-        "opencode" => &["~/.config/opencode/opencode.json"],
+        "opencode" | "opencode-desktop" => &["~/.config/opencode/opencode.json"],
         "kilo-code" => &["~/.config/kilo/kilo.jsonc"],
         "qwen-code" => &["~/.qwen/settings.json"],
         "qoder-desktop" | "qoder-cli" => &["~/.qoder/settings.json"],
@@ -3081,6 +3081,7 @@ fn env_key_required_issue(agent_id: &str) -> Option<(&'static str, &'static str)
         "qoder-cli"
             | "grok-build"
             | "opencode"
+            | "opencode-desktop"
             | "kilo-code"
             | "qwen-code"
             | "crush"
@@ -3392,6 +3393,16 @@ pub fn list_agents() -> Vec<ModelAgentView> {
             "https://opencode.ai/docs/models/",
             "原生 provider/models 与 model；API Key 只写 {env:VAR} 引用。",
         ),
+        {
+            let mut view = managed_agent_view(
+                &settings, "opencode-desktop", "OpenCode Desktop", &[], &[],
+                "https://opencode.ai/docs/models/",
+                "与 OpenCode CLI 共用本机全局配置和默认模型；桌面端使用独立的 MUX 模型条目。重启本地服务后生效，远程服务需在对应主机配置。",
+            );
+            view.installed = crate::paths::system_probe_path("/Applications/OpenCode.app/Contents/Info.plist").is_file()
+                || home().join("Applications/OpenCode.app/Contents/Info.plist").is_file();
+            view
+        },
         managed_agent_view(
             &settings, "kilo-code", "Kilo Code CLI", &["kilo"], &[".config/kilo"],
             "https://kilo.ai/docs/code-with-ai/agents/custom-models",
@@ -3529,7 +3540,7 @@ fn managed_agent_view(
         default_delivery: Default::default(),
         available_deliveries: Vec::new(),
         supported_protocols: match id {
-            "opencode" | "kilo-code" => vec![
+            "opencode" | "opencode-desktop" | "kilo-code" => vec![
                 ModelProtocol::AnthropicMessages,
                 ModelProtocol::OpenaiResponses,
                 ModelProtocol::OpenaiCompletions,
@@ -3604,7 +3615,7 @@ pub(crate) fn observe_active_model_for_settings(
                 .map(str::to_string)
         }
         "claude-code" | "codex" => settings.model_selection(agent_id).active_profile_id,
-        "zcode" | "qoder-desktop" | "qoder-cli" | "opencode" | "kilo-code" | "qwen-code" | "crush" | "mistral-vibe" | "hermes"
+        "zcode" | "qoder-desktop" | "qoder-cli" | "opencode" | "opencode-desktop" | "kilo-code" | "qwen-code" | "crush" | "mistral-vibe" | "hermes"
         | "factory-droid" | "goose" => {
             return match adapters::observe_active(agent_id, &paths, &profiles) {
                 adapters::ObservedActiveModel::Managed(id) => ObservedActiveModel::Managed(id),
@@ -3730,7 +3741,7 @@ pub fn observe_profile(
             let settings = observe_prepared(prepare_pi_settings(&paths[1], &profile));
             combine_observed(models, settings)
         }
-        "zcode" | "qoder-desktop" | "qoder-cli" | "opencode" | "kilo-code" | "qwen-code" | "crush" | "mistral-vibe" | "hermes"
+        "zcode" | "qoder-desktop" | "qoder-cli" | "opencode" | "opencode-desktop" | "kilo-code" | "qwen-code" | "crush" | "mistral-vibe" | "hermes"
         | "factory-droid" | "goose" => Ok(adapters::observe_prepared_files(
             prepare_observed_native_files(agent_id, &paths, &profile, true, has_credential),
         )),
@@ -3760,7 +3771,7 @@ pub fn observe_profile_consumption(
     let absent = match agent_id {
         "grok-build" => cleared_toml_profile_absent(prepare_clear_grok_build(&paths[0], &profile)),
         "pi" => cleared_toml_profile_absent(prepare_clear_pi_models(&paths[0], &profile)),
-        "zcode" | "qoder-desktop" | "qoder-cli" | "opencode" | "kilo-code" | "qwen-code" | "crush" | "mistral-vibe" | "hermes"
+        "zcode" | "qoder-desktop" | "qoder-cli" | "opencode" | "opencode-desktop" | "kilo-code" | "qwen-code" | "crush" | "mistral-vibe" | "hermes"
         | "factory-droid" | "goose" => {
             adapters::cleared_profile_absent(adapters::prepare_clear(agent_id, &paths, &profile))
         }
@@ -3778,7 +3789,7 @@ pub fn observe_profile_consumption(
             &profile,
             pi_api_key_value(&profile, has_credential)?,
         )),
-        "zcode" | "qoder-desktop" | "qoder-cli" | "opencode" | "kilo-code" | "qwen-code" | "crush" | "mistral-vibe" | "hermes"
+        "zcode" | "qoder-desktop" | "qoder-cli" | "opencode" | "opencode-desktop" | "kilo-code" | "qwen-code" | "crush" | "mistral-vibe" | "hermes"
         | "factory-droid" | "goose" => Ok(adapters::observe_prepared_files(
             prepare_observed_native_files(agent_id, &paths, &profile, false, has_credential),
         )),
@@ -3808,7 +3819,7 @@ pub fn observe_external_model(agent_id: &str) -> Result<ExternalModelObservedSta
         "codex" => observe_external_codex(&paths[0]),
         "grok-build" => observe_external_grok_build(&paths[0]),
         "pi" => observe_external_pi(&paths[0], &paths[1]),
-        "zcode" | "qoder-desktop" | "qoder-cli" | "opencode" | "kilo-code" | "qwen-code" | "crush" | "mistral-vibe" | "hermes"
+        "zcode" | "qoder-desktop" | "qoder-cli" | "opencode" | "opencode-desktop" | "kilo-code" | "qwen-code" | "crush" | "mistral-vibe" | "hermes"
         | "factory-droid" | "goose" => Ok(adapters::observe_external(agent_id, &paths[0])),
         _ => Ok(ExternalModelObservedState::Absent),
     }
@@ -3988,7 +3999,7 @@ fn ensure_supported(agent_id: &str, protocol: &ModelProtocol) -> Result<(), Stri
         "claude-code" => matches!(protocol, ModelProtocol::AnthropicMessages),
         claude_desktop::AGENT_ID => matches!(protocol, ModelProtocol::AnthropicMessages),
         "codex" => matches!(protocol, ModelProtocol::OpenaiResponses),
-        "opencode" | "kilo-code" => true,
+        "opencode" | "opencode-desktop" | "kilo-code" => true,
         "grok-build" | "pi" | "factory-droid" => {
             !matches!(protocol, ModelProtocol::GeminiGenerateContent)
         }
@@ -4170,11 +4181,11 @@ pub(crate) fn apply_profile_consumption_with_credential_presence_target(
             active,
         )
         .map_err(Into::into),
-        "zcode" | "qoder-desktop" | "qoder-cli" | "opencode" | "kilo-code" => {
+        "zcode" | "qoder-desktop" | "qoder-cli" | "opencode" | "opencode-desktop" | "kilo-code" => {
             let prepared = adapters::prepare_apply(agent_id, &paths, &profile, active)?;
             match credential_route.as_ref() {
                 Some((source, credential::PreparedCredentialRoute::OpenCodeAuthStore))
-                    if agent_id == "opencode" =>
+                    if matches!(agent_id, "opencode" | "opencode-desktop") =>
                 {
                     let resolved = credential::resolve_source(
                         source,
@@ -4209,7 +4220,7 @@ pub(crate) fn apply_profile_consumption_with_credential_presence_target(
                             resolved.expose_for_delivery(),
                         )?,
                     );
-                    let files = if agent_id == "opencode" {
+                    let files = if matches!(agent_id, "opencode" | "opencode-desktop") {
                         let auth_path = home().join(".local/share/opencode/auth.json");
                         let auth_cleanup = open_code_auth::prepare_remove_auth(
                             &auth_path,
@@ -4329,7 +4340,7 @@ pub(crate) fn clear_all_configured_models_for_targets(
     agent_id: &str,
     reviewed_targets: &[String],
 ) -> Result<(), String> {
-    guard_shared_qoder_clear(&crate::settings::load_settings_strict().map_err(|error| error.to_string())?, agent_id)?;
+    guard_shared_model_clear(&crate::settings::load_settings_strict().map_err(|error| error.to_string())?, agent_id)?;
     let authority = model_agent_capability(agent_id)
         .ok_or_else(|| format!("unsupported model Agent: {agent_id}"))?
         .storage_authority;
@@ -4343,7 +4354,7 @@ pub(crate) fn clear_all_configured_models_for_targets(
     match agent_id {
         "pi" => clear_all_pi(&paths[0], &paths[1]),
         "grok-build" => clear_one_model_file(&paths[0], "grok-build", prepare_clear_all_grok_build),
-        "zcode" | "qoder-desktop" | "qoder-cli" | "opencode" | "kilo-code" | "qwen-code" | "crush" | "mistral-vibe" | "hermes"
+        "zcode" | "qoder-desktop" | "qoder-cli" | "opencode" | "opencode-desktop" | "kilo-code" | "qwen-code" | "crush" | "mistral-vibe" | "hermes"
         | "factory-droid" | "goose" => {
             let reviewed = reviewed_targets
                 .iter()
@@ -4388,32 +4399,35 @@ pub(crate) fn agent_has_configured_models(agent_id: &str) -> Result<bool, String
                 .as_deref()
                 .is_some_and(|value| value != content.as_str()))
         }
-        "zcode" | "qoder-desktop" | "qoder-cli" | "opencode" | "kilo-code" | "qwen-code" | "crush" | "mistral-vibe" | "hermes"
+        "zcode" | "qoder-desktop" | "qoder-cli" | "opencode" | "opencode-desktop" | "kilo-code" | "qwen-code" | "crush" | "mistral-vibe" | "hermes"
         | "factory-droid" | "goose" => adapters::has_configured_models(agent_id, &paths),
         _ => Ok(false),
     }
 }
 
-/// A reviewed clear-all includes external records, so shared Qoder registries
+/// A reviewed clear-all includes external records, so shared model registries
 /// cannot be emptied while the sibling Agent still consumes a managed model.
-fn guard_shared_qoder_clear(settings: &crate::settings::Settings, agent_id: &str) -> Result<(), String> {
+fn guard_shared_model_clear(settings: &crate::settings::Settings, agent_id: &str) -> Result<(), String> {
     let sibling = match agent_id {
         "qoder-cli" => "qoder-desktop",
         "qoder-desktop" => "qoder-cli",
+        "opencode" => "opencode-desktop",
+        "opencode-desktop" => "opencode",
         _ => return Ok(()),
     };
     if settings.model_selection(sibling).profiles.is_empty() { return Ok(()); }
     let targets = configured_path_strings_checked(settings, agent_id)?.unwrap_or_default();
     let sibling_targets = configured_path_strings_checked(settings, sibling)?.unwrap_or_default();
     if targets.iter().any(|path| sibling_targets.iter().any(|other| expand_tilde(path) == expand_tilde(other))) {
-        return Err(format!("qoder_shared_registry: {sibling} also uses this settings.json; remove individual models instead of clearing the shared registry"));
+        let code = if agent_id.starts_with("qoder-") { "qoder_shared_registry" } else { "opencode_shared_registry" };
+        return Err(format!("{code}: {sibling} also uses this model config; remove individual models instead of clearing the shared registry"));
     }
     Ok(())
 }
 
 pub(crate) fn clear_all_configured_model_paths(agent_id: &str) -> Result<Vec<String>, String> {
     let settings = crate::settings::load_settings_strict().map_err(|error| error.to_string())?;
-    guard_shared_qoder_clear(&settings, agent_id)?;
+    guard_shared_model_clear(&settings, agent_id)?;
     let paths = configured_path_strings_checked(&settings, agent_id)?
         .ok_or_else(|| format!("unsupported model Agent: {agent_id}"))?;
     if agent_id != "goose" {
@@ -4493,7 +4507,7 @@ pub(crate) fn clear_profile_consumption_target(
         )
         .map_err(ModelTargetError::from)?,
         "pi" => clear_pi(&paths[0], &paths[1], &profile, active).map_err(ModelTargetError::from)?,
-        "zcode" | "qoder-desktop" | "qoder-cli" | "opencode" | "kilo-code" | "qwen-code" | "crush" | "mistral-vibe" | "hermes"
+        "zcode" | "qoder-desktop" | "qoder-cli" | "opencode" | "opencode-desktop" | "kilo-code" | "qwen-code" | "crush" | "mistral-vibe" | "hermes"
         | "factory-droid" | "goose" => {
             commit_native_model_files(
                 agent_id,
@@ -4727,7 +4741,7 @@ fn commit_native_model_files(
     agent_id: &str,
     files: Vec<adapters::PreparedModelFile>,
 ) -> Result<(), String> {
-    if matches!(agent_id, "qoder-desktop" | "qoder-cli" | "zcode") {
+    if matches!(agent_id, "qoder-desktop" | "qoder-cli" | "zcode" | "opencode" | "opencode-desktop") {
         return commit_private_model_files(
             &files.into_iter().map(open_code_auth::PreparedAuthFile::from_model_file).collect::<Vec<_>>()
         );
@@ -5673,7 +5687,7 @@ fn prepare_observed_native_files(
     active: bool,
     has_credential: bool,
 ) -> Result<Vec<adapters::PreparedModelFile>, String> {
-    if matches!(agent_id, "zcode" | "qoder-desktop" | "qoder-cli" | "opencode" | "kilo-code") {
+    if matches!(agent_id, "zcode" | "qoder-desktop" | "qoder-cli" | "opencode" | "opencode-desktop" | "kilo-code") {
         if let Some((source, credential::PreparedCredentialRoute::Plaintext)) =
             credential_route_for(agent_id, profile, has_credential)?
         {
@@ -7809,12 +7823,12 @@ wire_api = "responses"
         let _home = TestHome::new("qoder-shared-clear");
         let mut settings = crate::settings::Settings::default();
         settings.model_assignments = Some(BTreeMap::from([("qoder-desktop".into(), "fixture".into())]));
-        assert!(guard_shared_qoder_clear(&settings, "qoder-cli").is_err());
+        assert!(guard_shared_model_clear(&settings, "qoder-cli").is_err());
         settings.agent_config_paths = Some(BTreeMap::from([("qoder-cli".into(), crate::settings::AgentConfigPathOverride {
             model_paths: Some(vec!["~/.qoder-cli-isolated/settings.json".into()]),
             ..Default::default()
         })]));
-        assert!(guard_shared_qoder_clear(&settings, "qoder-cli").is_ok());
+        assert!(guard_shared_model_clear(&settings, "qoder-cli").is_ok());
     }
 
     #[test]
@@ -8174,4 +8188,27 @@ url = "https://example.test/mcp"
         cleanup.unwrap();
         assert!(!credential_exists(&profile_id));
     }
+    #[test]
+    fn opencode_desktop_supports_models_and_guards_the_shared_registry() {
+        let _home = TestHome::new("opencode-desktop-capability");
+        let agents = list_agents();
+        let desktop = agents.iter().find(|agent| agent.id == "opencode-desktop").unwrap();
+        assert_eq!(desktop.mode, "managed");
+        assert!(desktop.supports_multiple && desktop.supports_global_selection);
+        assert_eq!(desktop.config_paths, vec!["~/.config/opencode/opencode.json"]);
+        assert_eq!(desktop.supported_protocols.len(), 4);
+        assert_eq!(credential::select_delivery("opencode-desktop", &ApiKeySource::MuxStore,
+            &crate::domain::assets::ApiKeyDelivery::Auto).unwrap(), credential::PreparedCredentialRoute::OpenCodeAuthStore);
+        for (agent, sibling) in [("opencode", "opencode-desktop"), ("opencode-desktop", "opencode")] {
+            let mut settings = crate::settings::Settings::default();
+            settings.model_assignments = Some(BTreeMap::from([(sibling.into(), "fixture".into())]));
+            assert!(guard_shared_model_clear(&settings, agent).unwrap_err().starts_with("opencode_shared_registry:"));
+            settings.agent_config_paths = Some(BTreeMap::from([(agent.into(), crate::settings::AgentConfigPathOverride {
+                model_paths: Some(vec!["~/.isolated/opencode.json".into()]),
+                ..Default::default()
+            })]));
+            assert!(guard_shared_model_clear(&settings, agent).is_ok());
+        }
+    }
+
 }

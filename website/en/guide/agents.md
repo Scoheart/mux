@@ -2,7 +2,7 @@
 
 MUX's agent data comes in two layers:
 
-- **Audited definitions**: 68 individually verified Agent definitions, 53 of which have a stable user-level global MCP config file that MUX can safely read and write; another ten are Skills-only targets, while Devin, Cline Desktop, CodeBuddy IDE, Freebuff, and WorkBuddy are read-only.
+- **Audited definitions**: `data/agents.json` contains individually verified configuration contracts. MCP writes require a confirmed global path and format; other Agents expose only their verified Skills or native configuration guidance.
 - **Client directory**: sourced from public MCP client directories and the official client matrix, used for discovery only. Its **204 entries** combine with the audited definitions into **223 unique Agent identities** after deduplication.
 
 For MCP capability, clients whose global file path, top-level key, and entry structure have not been confirmed never become writable MCP targets. Skills-only Agents appear only after their user-level directory contract is verified independently. This keeps expanding coverage without writing a generic JSON guess into an unknown product's config.
@@ -17,7 +17,7 @@ MUX currently exposes **15 Model targets**: 13 are managed, while MiniMax Code a
 
 The results below are based on official docs, official source, or signed application bundles through **2026-09-20**. Grok Build was verified against xAI's official documentation; MiniMax Code was verified from the official signed `3.0.51` macOS bundle.
 
-The table focuses on MCP contracts: it lists the 53 writable targets and retains Devin, Cline Desktop, and Freebuff as explicit read-only comparisons. See Skills capabilities below and [User-level Skills](/en/guide/skills#verified-agent-paths) for the Skills-only definitions.
+The table focuses on MCP contracts: it lists the verified writable targets and retains Devin, Cline Desktop, and Freebuff as explicit read-only comparisons. See Skills capabilities below and [User-level Skills](/en/guide/skills#verified-agent-paths) for the Skills-only definitions.
 
 The new Qoder Desktop MCP contract was verified against its official documentation on 2026-09-05.
 
@@ -59,6 +59,7 @@ The new Qoder Desktop MCP contract was verified against its official documentati
 | [MiniMax Code](https://agent.minimax.io/download) | JSON | `mcpServers` | `~/.mavis/mcp.json` | stdio / http |
 | [Mistral Vibe](https://docs.mistral.ai/vibe/code/cli/mcp-servers) | TOML | `mcp_servers` | `~/.vibe/config.toml` | stdio / http |
 | [OpenCode](https://opencode.ai/docs/mcp-servers/) | JSON | `mcp` | `~/.config/opencode/opencode.json` | stdio / http |
+| [OpenCode Desktop](https://opencode.ai/docs/mcp-servers/) | JSON | `mcp` | `~/.config/opencode/opencode.json` | stdio / http |
 | [OpenHands CLI](https://docs.openhands.dev/openhands/usage/cli/mcp-servers) | JSON | `mcpServers` | `~/.openhands/mcp.json` | stdio / http |
 | [Pi Coding Agent](https://github.com/nicobailon/pi-mcp-adapter) | JSON | `mcpServers` | `~/.pi/agent/mcp.json` | stdio / http |
 | [Qoder IDE](https://docs.qoder.com/user-guide/chat/model-context-protocol) | JSON | `mcpServers` | `~/.qoder/mcp.json` | stdio / http |
@@ -92,7 +93,7 @@ The new Qoder Desktop MCP contract was verified against its official documentati
 
 ## Skills capabilities
 
-Skills paths are verified separately from the MCP config paths in the table above; MUX never infers one from the other. MUX currently declares Skills capabilities for **53 audited Agents** with stable user-level contracts, and shows only Agents whose local installation probes succeed.
+Skills paths are verified separately from the MCP config paths in the table above; MUX never infers one from the other. MUX currently declares Skills capabilities for **54 audited Agents** with stable user-level contracts, and shows only Agents whose local installation probes succeed.
 
 Skills assignments operate on physical directories, not Agent names. Cursor IDE and Cursor CLI share `~/.cursor/skills` and may both read the `~/.agents/skills` compatibility directory; Gemini CLI, OpenCode, and GitHub Copilot CLI may also read that compatibility directory. An operation on Codex's preferred directory can therefore affect several installed Agents. MUX shows the real impact during review and normalizes duplicate links. See [User-level Skills](/en/guide/skills#verified-agent-paths) for the path matrix, installation sources, background safety checks, and current boundaries.
 
@@ -127,3 +128,7 @@ MUX currently manages only user-level global config and does not offer project-l
 Click `+` next to the desktop app's agent selector, or press `n` in the TUI's Agents screen, to add a custom JSON, TOML, or YAML global target. Custom targets use the standard map layout; only verified built-in targets enable product-specific field conversion. Built-in targets allow only overriding the path, to avoid accidentally turning an official schema into an incompatible format.
 
 Next → [FAQ](/en/guide/faq)
+
+## OpenCode Desktop
+
+OpenCode CLI and Desktop share their local global configuration and Skills directory. Desktop launches `OpenCode.app`; changing the global model affects both clients. Remote server configurations must be managed on the server.

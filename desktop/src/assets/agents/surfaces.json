@@ -18,5 +18,7 @@
   "codebuddy-ide": "ide",
   "workbuddy": "desktop",
   "qwenwork": "desktop",
-  "qwenwork-cn": "desktop"
+  "qwenwork-cn": "desktop",
+  "opencode-desktop": "desktop",
+  "opencode": "cli"
 }

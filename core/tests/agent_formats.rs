@@ -804,6 +804,7 @@ fn builtin_global_paths_match_current_product_docs() {
         ("minimax-code", "~/.mavis/mcp.json"),
         ("mistral-vibe", "~/.vibe/config.toml"),
         ("opencode", "~/.config/opencode/opencode.json"),
+        ("opencode-desktop", "~/.config/opencode/opencode.json"),
         ("openhands", "~/.openhands/mcp.json"),
         ("pi", "~/.pi/agent/mcp.json"),
         ("qoder", "~/.qoder/mcp.json"),
@@ -1598,4 +1599,35 @@ fn chatmcp_credential_bearing_files_are_external_managed_and_read_only() {
     assert!(adapter.remove(&path, &["docs".into()]).is_err());
     assert_eq!(std::fs::read_to_string(&path).unwrap(), original);
     let _ = std::fs::remove_file(path);
+}
+
+#[test]
+fn opencode_desktop_shares_cli_wire_format_without_owning_other_settings() {
+    let home = mux_core::testenv::TestHome::new("opencode-desktop-formats");
+    let agents = builtin_agents();
+    let desktop = &agents["opencode-desktop"];
+    let cli = &agents["opencode"];
+    assert_eq!(desktop.category.as_deref(), Some("desktop"));
+    assert_eq!(desktop.global, cli.global);
+    assert_eq!(desktop.skills.as_ref().unwrap().target_id, cli.skills.as_ref().unwrap().target_id);
+    assert_eq!(desktop.skills.as_ref().unwrap().global_dir, cli.skills.as_ref().unwrap().global_dir);
+    assert!(desktop.project.is_none());
+    let path = home.home.join("opencode.json");
+    std::fs::write(&path, fixture("opencode")).unwrap();
+    let adapter = get_agent_adapter_for(desktop, "opencode-desktop");
+    let config = http("https://updated.example.test/mcp");
+    adapter.upsert(&path, "remote-tools", &config).unwrap();
+    assert_eq!(adapter.read(&path)["remote-tools"], config);
+    let saved: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    let original: Value = serde_json::from_str(fixture("opencode")).unwrap();
+    assert_eq!(saved["model"], original["model"]);
+    assert_eq!(saved["mcp"]["local-tools"], original["mcp"]["local-tools"]);
+    assert_eq!(saved["mcp"]["remote-tools"]["oauth"], false);
+    adapter.remove(&path, &["remote-tools".into()]).unwrap();
+    assert!(!adapter.read(&path).contains_key("remote-tools"));
+    for invalid in [r#"{"mcp": []}"#, r#"{"mcp":{"remote-tools":{},"remote-tools":{}}}"#] {
+        std::fs::write(&path, invalid).unwrap();
+        assert!(adapter.upsert(&path, "remote-tools", &config).is_err());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), invalid);
+    }
 }

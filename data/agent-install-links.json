@@ -282,5 +282,9 @@
   "qwenwork-cn": {
     "url": "https://qwenwork.cn/download",
     "label": "官方下载"
+  },
+  "opencode-desktop": {
+    "url": "https://opencode.ai/download",
+    "label": "官方下载"
   }
 }

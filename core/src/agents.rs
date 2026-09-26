@@ -90,6 +90,7 @@ const VERIFIED_SKILL_AGENT_IDS: &[&str] = &[
     "mistral-vibe",
     "openclaw",
     "opencode",
+    "opencode-desktop",
     "openhands",
     "pi",
     "poolside",

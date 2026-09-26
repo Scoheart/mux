@@ -49,7 +49,7 @@ pub fn prepare_apply(
     active: bool,
 ) -> Result<Vec<PreparedModelFile>, String> {
     let prepared = match agent_id {
-        "opencode" | "kilo-code" => prepare_open_code(agent_id, &paths[0], profile, active, None)?,
+        "opencode" | "opencode-desktop" | "kilo-code" => prepare_open_code(agent_id, &paths[0], profile, active, None)?,
         "zcode" => zcode::prepare(&paths[0], profile, None)?,
         "qoder-desktop" | "qoder-cli" => qoder::prepare(agent_id, &paths[0], profile, active, None)?,
         "qwen-code" => prepare_qwen(&paths[0], profile, active)?,
@@ -70,7 +70,7 @@ pub fn prepare_apply_plaintext(
     active: bool,
     credential: &[u8],
 ) -> Result<PreparedModelFile, String> {
-    if !matches!(agent_id, "zcode" | "qoder-desktop" | "opencode" | "kilo-code") {
+    if !matches!(agent_id, "zcode" | "qoder-desktop" | "opencode" | "opencode-desktop" | "kilo-code") {
         return Err(format!(
             "credential_delivery_unsupported: {agent_id} plaintext adapter is not verified"
         ));
@@ -90,7 +90,7 @@ pub fn prepare_clear(
     profile: &ModelProfile,
 ) -> Result<Vec<PreparedModelFile>, String> {
     let prepared = match agent_id {
-        "opencode" | "kilo-code" => prepare_clear_open_code(agent_id, &paths[0], profile)?,
+        "opencode" | "opencode-desktop" | "kilo-code" => prepare_clear_open_code(agent_id, &paths[0], profile)?,
         "zcode" => zcode::clear(&paths[0], profile)?,
         "qoder-desktop" | "qoder-cli" => qoder::clear(agent_id, &paths[0], profile)?,
         "qwen-code" => prepare_clear_qwen(&paths[0], profile)?,
@@ -117,7 +117,7 @@ pub fn prepare_clear_all_for_targets(
     reviewed_targets: Option<&[PathBuf]>,
 ) -> Result<Vec<PreparedModelFile>, String> {
     match agent_id {
-        "opencode" | "kilo-code" => Ok(vec![prepare_clear_all_open_code(&paths[0])?]),
+        "opencode" | "opencode-desktop" | "kilo-code" => Ok(vec![prepare_clear_all_open_code(&paths[0])?]),
         "zcode" => Ok(vec![zcode::clear_all(&paths[0])?]),
         "qoder-desktop" | "qoder-cli" => Ok(vec![qoder::clear_all(&paths[0])?]),
         "qwen-code" => Ok(vec![prepare_clear_all_qwen(&paths[0])?]),
@@ -281,7 +281,7 @@ pub fn observe_external(
             .and_then(|root| root.to_serde_value())
             .and_then(|value| value.as_object().cloned())
             .is_some_and(|root| match agent_id {
-                "opencode" | "kilo-code" => {
+                "opencode" | "opencode-desktop" | "kilo-code" => {
                     root.get("model").and_then(Value::as_str).is_some()
                         || root
                             .get("provider")
@@ -335,7 +335,7 @@ pub fn observe_active(
             Err(_) => return ObservedActiveModel::Conflicted,
             Ok(root) => root.and_then(|root| root.pointer("/model/name").and_then(Value::as_str).map(str::to_string)),
         },
-        "opencode" | "kilo-code" => json_string(&paths[0], &["model"]),
+        "opencode" | "opencode-desktop" | "kilo-code" => json_string(&paths[0], &["model"]),
         "qwen-code" => json_string(&paths[0], &["model", "name"])
             .zip(json_string(
                 &paths[0],
@@ -362,7 +362,7 @@ pub fn observe_active(
     let matches: Vec<_> = profiles
         .values()
         .filter(|profile| match agent_id {
-            "qoder-cli" | "opencode" | "kilo-code" => {
+            "qoder-cli" | "opencode" | "opencode-desktop" | "kilo-code" => {
                 selected == format!("{}/{}", provider_id_for(agent_id, profile), profile.model)
                     || (agent_id == "opencode"
                         && selected == format!("{}/{}", provider_id(&profile.id), profile.model))
@@ -417,6 +417,8 @@ fn provider_id_for(agent_id: &str, profile: &ModelProfile) -> String {
         .unwrap_or_else(|| {
             if agent_id == "opencode" {
                 super::generated_open_code_provider_id(&crate::settings::load_settings(), profile)
+            } else if agent_id == "opencode-desktop" {
+                format!("mux_desktop_{}", &provider_id(&profile.id)[4..])
             } else if agent_id == "qoder-cli" {
                 format!("mux_cli_{}", &provider_id(&profile.id)[4..])
             } else {
@@ -770,7 +772,7 @@ fn prepare_clear_open_code(
             }
         }
         let selected = format!("{provider_id}/{}", profile.model);
-        let pointer_keys: &[&str] = if agent_id == "opencode" { &["model", "small_model"] } else { &["model"] };
+        let pointer_keys: &[&str] = if matches!(agent_id, "opencode" | "opencode-desktop") { &["model", "small_model"] } else { &["model"] };
         for key in pointer_keys {
             let value = object.get(key).and_then(|property| property.value())
                 .and_then(|value| value.to_serde_value());
@@ -2609,4 +2611,30 @@ other_policy: strict # keep policy
         assert!(files[1].content.is_none());
         fs::remove_dir_all(root).unwrap();
     }
+    #[test]
+    fn opencode_desktop_removal_preserves_cli_models_and_current_pointer() {
+        let home = crate::testenv::TestHome::new("opencode-desktop-models");
+        let path = home.home.join("opencode.json");
+        let managed = profile(ModelProtocol::OpenaiCompletions);
+        let paths = std::slice::from_ref(&path);
+        let desktop_id = native_provider_id("opencode-desktop", &managed);
+        let cli_id = native_provider_id("opencode", &managed);
+        assert_ne!(desktop_id, cli_id);
+        std::fs::write(&path, "{\n// user policy\n\"permission\": {\"edit\": \"ask\"}\n}").unwrap();
+        for (id, active) in [("opencode-desktop", false), ("opencode", true)] {
+            let prepared = prepare_apply(id, paths, &managed, active).unwrap();
+            std::fs::write(&path, prepared[0].content.as_ref().unwrap()).unwrap();
+        }
+        let before = read_jsonc(&path).unwrap().0.to_serde_value().unwrap();
+        let cleared = prepare_clear("opencode-desktop", paths, &managed).unwrap();
+        let content = cleared[0].content.as_ref().unwrap();
+        assert!(content.contains("// user policy"));
+        std::fs::write(&path, content).unwrap();
+        let after = read_jsonc(&path).unwrap().0.to_serde_value().unwrap();
+        assert!(after["provider"].get(&desktop_id).is_none());
+        assert_eq!(after["provider"][&cli_id], before["provider"][&cli_id]);
+        assert_eq!(after["model"], before["model"]);
+        assert_eq!(after["permission"], before["permission"]);
+    }
+
 }

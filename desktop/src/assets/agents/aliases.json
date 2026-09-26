@@ -13,5 +13,6 @@
   "trae-cli": "trae",
   "trae-ide": "trae",
   "zcode": "zcode",
-  "codebuddy-ide": "codebuddy-code"
+  "codebuddy-ide": "codebuddy-code",
+  "opencode-desktop": "opencode"
 }

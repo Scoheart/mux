@@ -34,7 +34,7 @@ MUX normalizes consumption by physical directory. Cursor IDE and Cursor CLI shar
 
 ## Verified Agent paths
 
-MUX declares verified user-level Skills support for **53 Agents**. It shows an Agent only when an installation probe succeeds and its capability data is verified; the existence of a shared directory alone does not prove that Agent is installed.
+MUX declares verified user-level Skills support for **54 Agents**. It shows an Agent only when an installation probe succeeds and its capability data is verified; the existence of a shared directory alone does not prove that Agent is installed.
 
 | Agent | Preferred user-level directory | Compatibility directories |
 |---|---|---|
@@ -64,7 +64,7 @@ MUX declares verified user-level Skills support for **53 Agents**. It shows an A
 | Kiro | `~/.kiro/skills` | — |
 | Minion Code | `~/.minion/skills` | `~/.claude/skills` |
 | Mistral Vibe | `~/.vibe/skills` | — |
-| OpenCode | `~/.config/opencode/skills` | `~/.claude/skills`, `~/.agents/skills` |
+| OpenCode CLI / Desktop | `~/.config/opencode/skills` | `~/.claude/skills`, `~/.agents/skills` |
 | OpenHands CLI | `~/.openhands/skills` | — |
 | Pi Coding Agent | `~/.pi/agent/skills` | `~/.agents/skills` |
 | Poolside | `~/.agents/skills` | — |

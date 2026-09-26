@@ -16,6 +16,8 @@ it("distinguishes Claude and Qoder product surfaces", () => {
     ["claude-desktop", "Claude Desktop", "desktop"],
     ["qoder-cli", "Qoder CLI", "cli"],
     ["qoder", "Qoder IDE", "ide"],
+    ["opencode", "OpenCode", "cli"],
+    ["opencode-desktop", "OpenCode Desktop", "desktop"],
     ["codex", "Codex CLI", "cli"],
     ["codex-desktop", "Codex Desktop", "desktop"],
   ] as const;

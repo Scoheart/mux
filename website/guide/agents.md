@@ -60,6 +60,7 @@ Model 能力由 Rust Core 统一提供；MiniMax Code、Qoder IDE、Kimi Code CL
 | [MiniMax Code](https://agent.minimax.io/download) | JSON | `mcpServers` | `~/.mavis/mcp.json` | stdio / http |
 | [Mistral Vibe](https://docs.mistral.ai/vibe/code/cli/mcp-servers) | TOML | `mcp_servers` | `~/.vibe/config.toml` | stdio / http |
 | [OpenCode](https://opencode.ai/docs/mcp-servers/) | JSON | `mcp` | `~/.config/opencode/opencode.json` | stdio / http |
+| [OpenCode Desktop](https://opencode.ai/docs/mcp-servers/) | JSON | `mcp` | `~/.config/opencode/opencode.json` | stdio / http |
 | [OpenHands CLI](https://docs.openhands.dev/openhands/usage/cli/mcp-servers) | JSON | `mcpServers` | `~/.openhands/mcp.json` | stdio / http |
 | [Pi Coding Agent](https://github.com/nicobailon/pi-mcp-adapter) | JSON | `mcpServers` | `~/.pi/agent/mcp.json` | stdio / http |
 | [Qoder IDE](https://docs.qoder.com/user-guide/chat/model-context-protocol) | JSON | `mcpServers` | `~/.qoder/mcp.json` | stdio / http |
@@ -95,7 +96,7 @@ Model 能力由 Rust Core 统一提供；MiniMax Code、Qoder IDE、Kimi Code CL
 
 ## Skills 能力
 
-Skills 路径与上表的 MCP 配置路径分别核验，不能互相推断。当前为 **53 个**具有稳定 user-level 契约的已审计 Agent 声明 Skills 能力；运行时只显示本机安装探针命中的 Agent。没有公开稳定用户级目录、只有项目级目录或仅提供 rules/prompts 的产品继续保持只读或不接入 Skills writer。
+Skills 路径与上表的 MCP 配置路径分别核验，不能互相推断。当前为 **54 个**具有稳定 user-level 契约的已审计 Agent 声明 Skills 能力；运行时只显示本机安装探针命中的 Agent。没有公开稳定用户级目录、只有项目级目录或仅提供 rules/prompts 的产品继续保持只读或不接入 Skills writer。
 
 Skills 分配按物理目录而不是 Agent 名称执行。Cursor IDE 与 Cursor CLI 共用 `~/.cursor/skills`，并可读取 `~/.agents/skills` 兼容目录；后者现在同时是 Codex、Goose、Warp 与 Zed 的首选目录，也是多个 Agent 的兼容读取目录，因此一次写入可能影响更多已安装产品。MUX 会在审阅页展示真实影响并归一化重复链接。链接指向同一份可写中央内容，消费者侧修改会形成中央 drift；路径矩阵、安装来源、后台安全校验和当前边界见 [用户级 Skills](/guide/skills#已核验的-agent-路径)。
 
@@ -138,3 +139,7 @@ MUX 当前只管理用户级全局配置，不提供项目级写入。
 用户级 Skills 为 `~/.kimi-code/skills`，也读取 `~/.agents/skills`。若客户端设置 `KIMI_CODE_HOME`，请在 MUX Agent 配置中同步修改 MCP 和 Skills 路径。MUX 不修改项目配置、插件目录、OAuth 凭据或会话。
 
 Models 提供原生配置引导：Desktop 在 Settings → Providers 添加，CLI 使用 `/provider`。两者默认共用 `~/.kimi-code/config.toml`；`api_key` 与 `providers.env` 都是明文值，不是环境变量引用，当前不自动导出 MUX Keychain 密钥。
+
+## OpenCode Desktop
+
+OpenCode CLI 与 Desktop 共用本机全局配置和 Skills 目录。Desktop 启动 `OpenCode.app`；修改全局默认模型会影响两端，远程服务配置需要在服务所在主机管理。

@@ -36,7 +36,7 @@ MUX 按物理目录归一化消费关系。Cursor IDE 与 Cursor CLI 共用 `~/.
 
 ## 已核验的 Agent 路径
 
-当前为以下 **53 个 Agent** 提供经过官方文档或官方源码核验的用户级 Skills 能力。MUX 只显示本机安装探针命中且能力资料已核验的 Agent；目录本身存在不等于对应 Agent 已安装。
+当前为以下 **54 个 Agent** 提供经过官方文档或官方源码核验的用户级 Skills 能力。MUX 只显示本机安装探针命中且能力资料已核验的 Agent；目录本身存在不等于对应 Agent 已安装。
 
 | Agent | 首选用户级目录 | 兼容读取目录 |
 |---|---|---|
@@ -66,7 +66,7 @@ MUX 按物理目录归一化消费关系。Cursor IDE 与 Cursor CLI 共用 `~/.
 | Kiro | `~/.kiro/skills` | — |
 | Minion Code | `~/.minion/skills` | `~/.claude/skills` |
 | Mistral Vibe | `~/.vibe/skills` | — |
-| OpenCode | `~/.config/opencode/skills` | `~/.claude/skills`、`~/.agents/skills` |
+| OpenCode CLI / Desktop | `~/.config/opencode/skills` | `~/.claude/skills`、`~/.agents/skills` |
 | OpenHands CLI | `~/.openhands/skills` | — |
 | Pi Coding Agent | `~/.pi/agent/skills` | `~/.agents/skills` |
 | Poolside | `~/.agents/skills` | — |

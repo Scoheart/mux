@@ -76,7 +76,7 @@ pub fn agent_capabilities(agent_id: &str) -> AgentCredentialCapabilities {
             capabilities.plaintext = true;
             capabilities.note = Some("ZCode requires explicit plaintext delivery to its private native config; central credentials remain in Keychain".into());
         }
-        "opencode" => {
+        "opencode" | "opencode-desktop" => {
             capabilities.native_sources = vec!["env".into(), "file".into()];
             capabilities.agent_store = true;
             capabilities.plaintext = true;
@@ -153,7 +153,7 @@ pub fn select_delivery(
     let capabilities = agent_capabilities(agent_id);
     match delivery {
         ApiKeyDelivery::AgentStore if capabilities.agent_store => match agent_id {
-            "opencode" => Ok(PreparedCredentialRoute::OpenCodeAuthStore),
+            "opencode" | "opencode-desktop" => Ok(PreparedCredentialRoute::OpenCodeAuthStore),
             "claude-desktop" => Ok(PreparedCredentialRoute::ClaudeDesktopProfile),
             _ => Err(unsupported_delivery(agent_id, "agent-store")),
         },
@@ -202,7 +202,7 @@ pub fn select_delivery(
             }
             if capabilities.agent_store {
                 return match agent_id {
-                    "opencode" => Ok(PreparedCredentialRoute::OpenCodeAuthStore),
+                    "opencode" | "opencode-desktop" => Ok(PreparedCredentialRoute::OpenCodeAuthStore),
                     "claude-desktop" => Ok(PreparedCredentialRoute::ClaudeDesktopProfile),
                     _ => Err(unsupported_delivery(agent_id, "auto")),
                 };

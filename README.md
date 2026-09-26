@@ -326,9 +326,9 @@ guide link. Detection checks declared executable/application probes, not configu
 directories; unavailable probes show an unknown state. Refocus MUX after installation to refresh detection. MUX opens the vendor page and does not run installers.
 
 CodeBuddy CLI (`codebuddy-code`), CodeBuddy IDE, and the two WorkBuddy editions
-are separate Agents. **WorkBuddy AI（海外版）** (`workbuddy`) uses
+are separate Agents. **海外 WorkBuddy AI** (`workbuddy`) uses
 `~/.workbuddy-ai/mcp.json` and `~/.workbuddy-ai/skills`, launching `WorkBuddy AI.app`.
-**WorkBuddy（中国版）** (`workbuddy-cn`) uses `~/.workbuddy/mcp.json` and
+**中国 WorkBuddy** (`workbuddy-cn`) uses `~/.workbuddy/mcp.json` and
 `~/.workbuddy/skills`, launching `WorkBuddy.app`. Both support stdio, HTTP, SSE,
 native MCP pause, and central Skill links. Their resources are assigned independently;
 existing overseas assignments stay intact. Models use each edition's native guide.

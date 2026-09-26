@@ -62,8 +62,8 @@ const SUPPLEMENTAL = {
   "sema4": ["Sema4.ai", "https://sema4.ai/docs/build-agents/mcp", "agent-platform"],
   "trae-agent": ["TRAE Agent", "https://github.com/bytedance/TRAE-agent", "cli"],
   "trae-ide": ["TRAE IDE", "https://docs.trae.ai/ide/model-context-protocol", "ide"],
-  "workbuddy": ["WorkBuddy AI（海外版）", "https://www.workbuddy.ai/docs/workbuddy/Overview", "desktop"],
-  "workbuddy-cn": ["WorkBuddy（中国版）", "https://www.workbuddy.cn/docs/workbuddy/Overview", "desktop"],
+  "workbuddy": ["海外 WorkBuddy AI", "https://www.workbuddy.ai/docs/workbuddy/Overview", "desktop"],
+  "workbuddy-cn": ["中国 WorkBuddy", "https://www.workbuddy.cn/docs/workbuddy/Overview", "desktop"],
   "visual-studio": ["Visual Studio", "https://learn.microsoft.com/en-us/visualstudio/ide/mcp-servers", "ide"],
 };
 

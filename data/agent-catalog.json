@@ -3483,7 +3483,7 @@
     "transports": []
   },
   "workbuddy": {
-    "name": "WorkBuddy AI（海外版）",
+    "name": "海外 WorkBuddy AI",
     "category": "desktop",
     "docs": "https://www.workbuddy.ai/docs/workbuddy/Overview",
     "note": "在 WorkBuddy 内管理连接器、模型和技能；用户级存储路径尚未核验。",

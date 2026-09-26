@@ -326,9 +326,10 @@ guide link. Detection checks declared executable/application probes, not configu
 directories; unavailable probes show an unknown state. Refocus MUX after installation to refresh detection. MUX opens the vendor page and does not run installers.
 
 CodeBuddy is listed as three products: CodeBuddy CLI (existing `codebuddy-code` ID),
-CodeBuddy IDE, and WorkBuddy. IDE and WorkBuddy currently provide official download
-and capability guides only. Their user-level writable storage contracts are not
-verified; MUX does not reuse CLI paths or write project-level Skills for them.
+CodeBuddy IDE, and WorkBuddy. WorkBuddy AI supports user-level MCP management in
+`~/.workbuddy-ai/mcp.json`, including stdio, HTTP, and SSE servers. User-level Skills are
+linked from the central library into `~/.workbuddy-ai/skills`. Models use native
+setup guides. CodeBuddy IDE remains guided-only; MUX does not reuse CLI paths for either desktop product. See [WorkBuddy integration](docs/workbuddy.md).
 
 ZCode Desktop 自定义模型接入与凭据交付说明见 [ZCode Models](docs/zcode-models.md)。
 

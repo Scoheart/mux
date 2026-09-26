@@ -111,6 +111,7 @@ const VERIFIED_SKILL_AGENT_IDS: &[&str] = &[
     "vt-code",
     "warp",
     "windsurf",
+    "workbuddy",
     "zcode",
     "zed",
     "zencoder",
@@ -372,9 +373,11 @@ fn migrated_builtin_global(
     // No audited writer means no path override. This keeps catalog-only targets
     // read-only even when old settings claimed a path for them.
     current.global.as_ref()?;
-    // QoderWork was read-only before its user-level contract was verified. Do
+    // These clients were read-only before their user-level contracts were verified. Do
     // not turn a stale guessed path into a writable override during promotion.
-    if id == "qoderwork" && (saved.format == "unknown" || saved.key.is_empty()) {
+    if matches!(id, "qoderwork" | "workbuddy")
+        && (saved.format == "unknown" || saved.key.is_empty())
+    {
         return current.global.clone();
     }
     let stale = matches!(
@@ -1129,6 +1132,11 @@ mod tests {
             .collect();
         assert_eq!(capability_ids, VERIFIED_SKILL_AGENT_IDS);
 
+        let workbuddy = agents["workbuddy"].skills.as_ref().unwrap();
+        assert_eq!(workbuddy.target_id, "workbuddy-ai-user");
+        assert_eq!(workbuddy.global_dir, "~/.workbuddy-ai/skills");
+        assert!(workbuddy.aliases.is_empty());
+
         let codex = agents["codex"].skills.as_ref().unwrap();
         assert_eq!(codex.target_id, "agents-user");
         assert_eq!(codex.global_dir, "~/.agents/skills");
@@ -1747,6 +1755,9 @@ mod tests {
         stored.get_mut("qoderwork").unwrap().global = Some("~/.custom/qoderwork.json".into());
         stored.get_mut("qoderwork").unwrap().format = "unknown".into();
         stored.get_mut("qoderwork").unwrap().key.clear();
+        stored.get_mut("workbuddy").unwrap().global = Some("~/.guessed/mcp.json".into());
+        stored.get_mut("workbuddy").unwrap().format = "unknown".into();
+        stored.get_mut("workbuddy").unwrap().key.clear();
         let custom = AgentDefinition {
             global: Some("~/.custom/mcp.json".into()),
             project: None,
@@ -1783,6 +1794,7 @@ mod tests {
             merged["qoderwork"].global.as_deref(),
             Some("~/.qoderwork/mcp.json")
         );
+        assert_eq!(merged["workbuddy"].global.as_deref(), Some("~/.workbuddy-ai/mcp.json"));
         assert_eq!(merged["custom"], custom);
     }
 

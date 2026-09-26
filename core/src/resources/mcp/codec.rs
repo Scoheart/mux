@@ -125,6 +125,7 @@ const HEADERS_FIELD: &[&str] = &["headers"];
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Codec {
     Standard,
+    WorkBuddy,
     ClaudeDesktop,
     ExplicitType,
     UrlInferred,
@@ -172,6 +173,7 @@ pub struct EntryPatch {
 
 pub fn for_agent(agent_id: &str) -> Codec {
     match agent_id {
+        "workbuddy" => Codec::WorkBuddy,
         "claude-desktop" => Codec::ClaudeDesktop,
         "claude-code" | "amazon-q" => Codec::ExplicitType,
         "cursor" | "zed" | "kiro" | "junie" | "pi" => Codec::UrlInferred,
@@ -196,6 +198,7 @@ pub fn for_agent(agent_id: &str) -> Codec {
 pub fn from_name(name: Option<&str>, agent_id: &str) -> Codec {
     match name {
         Some("standard") => Codec::Standard,
+        Some("workbuddy") => Codec::WorkBuddy,
         Some("claude_desktop") => Codec::ClaudeDesktop,
         Some("explicit_type") => Codec::ExplicitType,
         Some("url_inferred") => Codec::UrlInferred,
@@ -261,6 +264,7 @@ impl Codec {
             .as_object()
             .ok_or_else(|| "MCP entry is not an object".to_string())?;
         match self {
+            Codec::WorkBuddy => validate_active_field(object.get("disabled"), false, "disabled")?,
             Codec::QwenWork => {
                 validate_active_field(object.get("enabled"), true, "enabled")?;
                 if object.contains_key("_builtinId")
@@ -531,6 +535,13 @@ impl Codec {
                         "type".into(),
                         Value::String(if http.kind == "sse" { "sse" } else { "http" }.into()),
                     ));
+                    push_http_fields(&mut fields, http, "url", "headers");
+                }
+                Codec::WorkBuddy => {
+                    require_http_kind(http, "WorkBuddy", &["http", "streamable-http", "sse"])?;
+                    if http.kind == "sse" {
+                        fields.push(("type".into(), Value::String("sse".into())));
+                    }
                     push_http_fields(&mut fields, http, "url", "headers");
                 }
                 Codec::UrlInferred => push_http_fields(&mut fields, http, "url", "headers"),

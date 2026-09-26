@@ -23,6 +23,7 @@ fn temp_file(name: &str, extension: &str) -> PathBuf {
 fn fixture(name: &str) -> &'static str {
     match name {
         "kimi-code-desktop" => include_str!("fixtures/kimi-code-desktop.json"),
+        "workbuddy" => include_str!("fixtures/workbuddy.json"),
         "zcode" => include_str!("fixtures/zcode.json"),
         "antigravity-cli" => include_str!("fixtures/antigravity-cli.json"),
         "continue-cli" => include_str!("fixtures/continue-cli.yaml"),
@@ -38,6 +39,61 @@ fn fixture(name: &str) -> &'static str {
         "windsurf" => include_str!("fixtures/windsurf.json"),
         "cline" => include_str!("fixtures/cline.json"),
         _ => panic!("unknown fixture"),
+    }
+}
+
+#[test]
+fn workbuddy_roundtrip_preserves_policy_and_rejects_inactive_or_invalid_entries() {
+    let home = mux_core::testenv::TestHome::new("workbuddy-formats");
+    let path = home.home.join("mcp.json");
+    std::fs::write(&path, fixture("workbuddy")).unwrap();
+    let agents = builtin_agents();
+    let adapter = get_agent_adapter_for(&agents["workbuddy"], "workbuddy");
+    let original: Value = serde_json::from_str(fixture("workbuddy")).unwrap();
+    assert!(!adapter.read(&path).contains_key("paused"));
+    assert!(matches!(&adapter.read(&path)["legacy"], McpConfig::Http(config) if config.kind == "sse"));
+    #[cfg(unix)]
+    let inode = {
+        use std::os::unix::fs::MetadataExt;
+        std::fs::metadata(&path).unwrap().ino()
+    };
+    for kind in ["http", "streamable-http", "sse"] {
+        let config = McpConfig::Http(HttpConfig {
+            kind: kind.into(), url: "https://updated.example.test/mcp".into(),
+            headers: Some(HashMap::from([("X-Test".into(), "value".into())])),
+        });
+        adapter.upsert(&path, "docs", &config).unwrap();
+        let value: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(value["mcpServers"]["docs"]["type"].as_str(), (kind == "sse").then_some("sse"));
+        assert_eq!(adapter.read(&path)["docs"], normalize_with_codec(from_name(Some("workbuddy"), "workbuddy"), &config));
+        for field in ["timeout", "disabled", "disabledTools", "defer_loading", "description"] {
+            assert_eq!(value["mcpServers"]["docs"][field], original["mcpServers"]["docs"][field]);
+        }
+    }
+    let local = McpConfig::Stdio(StdioConfig {
+        command: "node".into(), args: Some(vec!["updated.mjs".into()]),
+        env: Some(HashMap::from([("MODE".into(), "safe".into())])), cwd: Some("/tmp/example".into()),
+    });
+    adapter.upsert(&path, "docs", &local).unwrap();
+    assert_eq!(adapter.read(&path)["docs"], local);
+    let before = std::fs::read(&path).unwrap();
+    assert!(adapter.upsert(&path, "paused", &http("https://example.test/mcp")).is_err());
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+    adapter.remove(&path, &["docs".into()]).unwrap();
+    let remaining: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    assert_eq!(remaining["x-workbuddy"], original["x-workbuddy"]);
+    for name in ["local", "legacy", "paused"] {
+        assert_eq!(remaining["mcpServers"][name], original["mcpServers"][name]);
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        assert_eq!(std::fs::metadata(&path).unwrap().ino(), inode);
+    }
+    for invalid in [r#"{"mcpServers": []}"#, r#"{"mcpServers":{"docs":{"disabled":"false","url":"https://example.test"}}}"#, r#"{"mcpServers":{"docs":{},"docs":{}}}"#, "{"] {
+        std::fs::write(&path, invalid).unwrap();
+        assert!(adapter.upsert(&path, "docs", &local).is_err());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), invalid);
     }
 }
 
@@ -827,6 +883,7 @@ fn builtin_global_paths_match_current_product_docs() {
             "~/Library/Application Support/Code/User/mcp.json",
         ),
         ("vt-code", "~/.vtcode/vtcode.toml"),
+        ("workbuddy", "~/.workbuddy-ai/mcp.json"),
         ("warp", "~/.warp/.mcp.json"),
         ("windsurf", "~/.codeium/windsurf/mcp_config.json"),
         ("zed", "~/.config/zed/settings.json"),
@@ -858,7 +915,7 @@ fn verified_and_catalog_definitions_have_auditable_boundaries() {
             .values()
             .filter(|item| item.global.is_some())
         .count(),
-        57
+        58
     );
     assert!(catalog.len() >= 170);
     for (id, definition) in verified {
@@ -868,6 +925,7 @@ fn verified_and_catalog_definitions_have_auditable_boundaries() {
                 definition.codec.as_deref(),
                 Some(
                     "standard"
+                        | "workbuddy"
                         | "claude_desktop"
                         | "explicit_type"
                         | "url_inferred"

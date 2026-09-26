@@ -13,6 +13,27 @@ use std::os::unix::fs::symlink;
 use support::skills::{assert_managed_link, MockGithub, SkillsFixture, FIXTURE_SHA};
 
 #[test]
+fn workbuddy_links_only_its_user_target_and_preserves_marketplace_metadata() {
+    let fixture = SkillsFixture::installed_agents(&["workbuddy"]);
+    let resolution = fixture.resolve_local(&["alpha"]);
+    let target = fixture.agent_target("workbuddy-ai-user", "alpha");
+    fs::create_dir_all(target.parent().unwrap()).unwrap();
+    let metadata = target.parent().unwrap().join("_bm_skillid_migration.json");
+    fs::write(&metadata, "{\"keep\":true}").unwrap();
+    let plan = plan_install(PlanInstallRequest {
+        resolution_id: resolution.operation_id,
+        skill_names: vec!["alpha".into()],
+        agent_ids: vec!["workbuddy".into()],
+        replace_conflicts: false,
+    }).unwrap();
+    assert_eq!(plan.targets.len(), 1);
+    assert_eq!(plan.targets[0].target_id, "workbuddy-ai-user");
+    commit_install(plan.confirmation()).unwrap();
+    assert_managed_link(target, fixture.central("alpha"));
+    assert_eq!(fs::read_to_string(metadata).unwrap(), "{\"keep\":true}");
+}
+
+#[test]
 fn install_plan_is_read_only_and_commit_installs_one_copy_with_minimal_links() {
     let fixture = SkillsFixture::installed_agents(&["codex", "cursor", "gemini"]);
     let resolution = fixture.resolve_local(&["alpha", "beta"]);

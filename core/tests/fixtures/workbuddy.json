@@ -1,0 +1,21 @@
+{
+  "x-workbuddy": { "keep": true },
+  "mcpServers": {
+    "docs": {
+      "url": "https://docs.example.test/mcp",
+      "timeout": 60,
+      "disabled": false,
+      "disabledTools": ["publish"],
+      "defer_loading": true,
+      "description": "Keep this policy"
+    },
+    "local": {
+      "command": "node",
+      "args": ["server.mjs"],
+      "env": { "MODE": "read-only" },
+      "cwd": "/tmp/workbuddy-example"
+    },
+    "legacy": { "type": "sse", "url": "https://legacy.example.test/sse" },
+    "paused": { "url": "https://paused.example.test/mcp", "disabled": true }
+  }
+}

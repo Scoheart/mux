@@ -45,6 +45,7 @@
 .mux-agent-hand-board { position: relative; width: 100%; height: 234px; margin: 5px 0 0; overflow: visible; }
 .mux-agent-hand-outgoing { position: absolute; inset: 0; z-index: 1; pointer-events: none; }
 .mux-agent-hand-outgoing * { pointer-events: none !important; }
+.mux-agent-hand-outgoing .mux-agent-hand-tile { transition: none; }
 .mux-agent-hand-card { position: absolute; top: 0; left: 0; transform-origin: center; z-index: calc(10 + var(--hand-order)); }
 .mux-agent-hand-card[data-highlighted], .mux-agent-hand-card[data-playing] { z-index: 100; }
 .mux-agent-hand-card[data-dealing] { pointer-events: none; }

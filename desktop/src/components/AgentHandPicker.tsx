@@ -12,6 +12,18 @@ import "./AgentHandPicker.css";
 
 type Group = "pinned" | "builtin" | "custom";
 type HandItem = { id: string; agent?: AgentInfo };
+type CardPose = { transform: string; opacity: string; tileTransform: string };
+type PageTurn = { direction: -1 | 1; origins: Map<string, CardPose> };
+const snapshotCard = (card: HTMLElement): CardPose => {
+  const style = getComputedStyle(card);
+  const tile = card.querySelector<HTMLElement>(".mux-agent-hand-tile");
+  return { transform: style.transform, opacity: style.opacity,
+    tileTransform: tile ? getComputedStyle(tile).transform : "none" };
+};
+const removeGhost = (ghost: HTMLElement) => {
+  ghost.getAnimations({ subtree: true }).forEach((motion) => motion.cancel());
+  ghost.remove();
+};
 const ADD_ID = "__mux_add_agent__";
 const reducedMotion = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 const pose = (x: number, y: number, angle = 0, scale = 1) => `translate3d(${x}px,${y}px,0) rotate(${angle}deg) scale(${scale})`;
@@ -54,7 +66,8 @@ export function AgentHandPicker({ agents: allAgents, pinnedIds, selectedAgentId,
   const mounted = useRef(true);
   const entered = useRef(false);
   const pageGhostsRef = useRef<HTMLDivElement>(null);
-  const pageTurn = useRef<-1 | 1 | null>(null);
+  const pageTurn = useRef<PageTurn | null>(null);
+  const pageMotions = useRef(new Set<Animation>());
   const keyboard = useRef(false);
   const focusFrame = useRef<number | null>(null);
 
@@ -105,38 +118,61 @@ export function AgentHandPicker({ agents: allAgents, pinnedIds, selectedAgentId,
     const next = Math.max(0, Math.min(pageCount - 1, requested));
     if (next === actualPage) return;
     const direction = next > actualPage ? 1 : -1;
-    clearPageGhosts();
-    // Keep only a visual copy of the outgoing hand. The real buttons update
-    // immediately, so rapid reversals never queue navigation or lock input.
+    const origins = new Map<string, CardPose>();
     const layer = pageGhostsRef.current;
     if (layer && !reducedMotion()) {
-      visible.forEach(({ id }, index) => {
+      const nextIds = new Set(items.slice(next * pageSize, (next + 1) * pageSize).map(({ id }) => id));
+      // Read every pose before inserting or cancelling anything. Interleaved
+      // style reads and DOM writes can force repeated layout work on WebKit.
+      const departing = visible.flatMap(({ id }, index) => {
         const card = cardRefs.current.get(id);
-        if (!card) return;
-        const style = getComputedStyle(card);
+        return card ? [{ id, index, card, ...snapshotCard(card) }] : [];
+      });
+      const returning = Array.from(layer.children).flatMap((node) => {
+        const ghost = node as HTMLElement;
+        const id = ghost.dataset.ghostId;
+        return id && nextIds.has(id) ? [{ id, ghost, ...snapshotCard(ghost) }] : [];
+      });
+      // A quick reversal picks the previous hand up where it is still flying,
+      // instead of erasing it and dealing a second copy from a fixed origin.
+      returning.forEach(({ id, ghost, ...origin }) => {
+        if (Number(origin.opacity) >= Number(origins.get(id)?.opacity ?? -1)) origins.set(id, origin);
+        removeGhost(ghost);
+      });
+      const fragment = document.createDocumentFragment();
+      const exits = departing.flatMap(({ id, card, index, ...origin }) => {
+        if (Number(origin.opacity) < .01) return [];
         const ghost = card.cloneNode(true) as HTMLElement;
         ghost.removeAttribute("data-hand-id");
         ghost.removeAttribute("data-dealing");
+        ghost.dataset.ghostId = id;
         ghost.setAttribute("inert", "");
+        ghost.style.willChange = "transform, opacity";
         ghost.querySelectorAll("[id]").forEach((node) => node.removeAttribute("id"));
         ghost.querySelectorAll<HTMLElement>("button").forEach((node) => { node.tabIndex = -1; });
         const tile = ghost.querySelector<HTMLElement>(".mux-agent-hand-tile");
-        const originalTile = card.querySelector<HTMLElement>(".mux-agent-hand-tile");
-        if (tile && originalTile) {
-          tile.style.transform = getComputedStyle(originalTile).transform;
-          tile.style.transition = "none";
-        }
-        layer.append(ghost);
-        const point = positions[index];
+        if (tile) tile.style.transform = origin.tileTransform;
+        fragment.append(ghost);
+        return [{ ghost, index, ...origin }];
+      });
+      layer.append(fragment);
+      exits.forEach(({ ghost, index, transform, opacity }) => {
+        const matrix = new DOMMatrixReadOnly(transform === "none" ? undefined : transform);
+        const rotation = Math.atan2(matrix.b, matrix.a) * 180 / Math.PI;
+        const scale = Math.hypot(matrix.a, matrix.b);
         const order = direction > 0 ? index : visible.length - index - 1;
         const motion = ghost.animate([
-          { transform: style.transform, opacity: style.opacity },
-          { transform: pose(point.x - direction * 120, point.y + 32, point.angle - direction * 14, .82), opacity: 0 },
-        ], { duration: 220, delay: order * 9, easing: "cubic-bezier(.4,0,.8,.3)", fill: "both" });
-        motion.onfinish = () => { motion.cancel(); ghost.remove(); };
+          { transform, opacity },
+          { transform: pose(matrix.e - direction * 80, matrix.f + 8, rotation - direction * 4, scale * .98), opacity: 0 },
+        ], { duration: 180, delay: order * 5, easing: "cubic-bezier(.22,.7,.36,1)", fill: "both" });
+        motion.onfinish = () => removeGhost(ghost);
       });
+      // Unrelated outgoing hands keep their short exit, including under rapid
+      // navigation. Each is removed on finish; no timers or navigation queue.
+    } else {
+      clearPageGhosts();
     }
-    pageTurn.current = direction;
+    pageTurn.current = { direction, origins };
     setPage(next);
     setHighlighted(null);
   };
@@ -203,39 +239,64 @@ export function AgentHandPicker({ agents: allAgents, pinnedIds, selectedAgentId,
     const bounds = board.getBoundingClientRect();
     const source = triggerRef.current?.getBoundingClientRect();
     const first = !entered.current;
-    const direction = pageTurn.current;
+    const turn = pageTurn.current;
+    const direction = turn?.direction;
     pageTurn.current = null;
     if (!direction) clearPageGhosts();
     const pile = pose(first && source ? source.left + source.width / 2 - bounds.left - cardWidth / 2 : width / 2 - cardWidth / 2,
       first && source ? source.top + source.height / 2 - bounds.top - cardHeight / 2 : 115, -10, .4);
     const deals: Animation[] = [];
+    const movingCards: HTMLElement[] = [];
     visible.forEach(({ id }, index) => {
       const card = cardRefs.current.get(id);
       if (!card || reducedMotion()) return;
       if (first) card.dataset.dealing = "true";
       const point = positions[index];
-      // A page turns like exchanging a hand of cards: a compact incoming fan
-      // spreads out in the navigation direction while the old hand leaves.
       if (!first && !direction) return;
       const order = direction === -1 ? visible.length - index - 1 : index;
       const travel = direction ?? 1;
       const centerX = width / 2 - cardWidth / 2;
+      const origin = turn?.origins.get(id);
+      // Keep most of the fan spread throughout the exchange. A short wave and
+      // early opacity settle avoid the old pile-up, blank beat and long tail.
       const frames = first
         ? [{ transform: pile, opacity: 0 }, { transform: card.style.transform, opacity: 1 }]
-        : [{ transform: pose(centerX + (point.x - centerX) * .3 + travel * Math.min(180, width * .24),
-          point.y + 28, point.angle * .35 + travel * 12, .86), opacity: 0 },
-          { transform: card.style.transform, opacity: 1 }];
+        : [{ transform: origin?.transform ?? pose(centerX + (point.x - centerX) * .88 + travel * 72,
+          point.y + 10, point.angle + travel * 4, .97), opacity: origin?.opacity ?? 0 },
+          { opacity: 1, offset: .3 }, { transform: card.style.transform, opacity: 1 }];
+      card.style.willChange = "transform, opacity";
+      movingCards.push(card);
       const motion = card.animate(frames, {
-        duration: first ? 250 : 360,
-        delay: first ? index * Math.min(28, 168 / Math.max(1, visible.length - 1)) : order * 14,
-        easing: "cubic-bezier(.2,.8,.2,1)", fill: "backwards",
+        duration: first ? 250 : 280,
+        delay: first ? index * Math.min(28, 168 / Math.max(1, visible.length - 1)) : origin ? 0 : order * 5,
+        easing: "cubic-bezier(.22,1,.36,1)", fill: "backwards",
       });
       deals.push(motion); motions.current.add(motion);
-      motion.onfinish = () => { delete card.dataset.dealing; motions.current.delete(motion); };
+      if (direction) pageMotions.current.add(motion);
+      const tile = card.querySelector<HTMLElement>(".mux-agent-hand-tile");
+      if (tile && origin && origin.tileTransform !== "none") {
+        const lift = tile.animate([{ transform: origin.tileTransform }, { transform: "none" }],
+          { duration: 280, easing: "cubic-bezier(.22,1,.36,1)" });
+        deals.push(lift); motions.current.add(lift);
+        lift.onfinish = () => { motions.current.delete(lift); };
+      }
+      const settled = () => {
+        motions.current.delete(motion);
+        pageMotions.current.delete(motion);
+        // A cancelled old flight may settle after another flight has started
+        // on this reused slot. Do not clear the new flight's compositor hint.
+        if (!card.getAnimations().some((flight) => flight.playState === "running")) {
+          delete card.dataset.dealing;
+          card.style.removeProperty("will-change");
+        }
+      };
+      motion.onfinish = settled;
+      motion.oncancel = settled;
     });
     entered.current = true;
     return () => {
-      deals.forEach((motion) => { motion.cancel(); motions.current.delete(motion); });
+      movingCards.forEach((card) => card.style.removeProperty("will-change"));
+      deals.forEach((motion) => { motion.cancel(); motions.current.delete(motion); pageMotions.current.delete(motion); });
       cardRefs.current.forEach((card) => { delete card.dataset.dealing; });
     };
     // Slot contents/layout can change without replaying the opening deal.
@@ -400,7 +461,7 @@ export function AgentHandPicker({ agents: allAgents, pinnedIds, selectedAgentId,
         disabled={actualPage === 0 || busy || saving || Boolean(replacement)} onClick={() => turnPage(actualPage - 1)}><ArrowLeftIcon className="w-5 h-5" /></button>}
       <div ref={boardRef} className="mux-agent-hand-board" style={{ height: Math.max(234, cardHeight + metrics.rise + 76) }} onPointerLeave={() => { if (!keyboard.current) setHighlighted(null); }}
         onPointerMove={(event) => {
-          if (busy || replacement || event.buttons !== 0 || (!event.movementX && !event.movementY)) return;
+          if (busy || replacement || pageMotions.current.size > 0 || event.buttons !== 0 || (!event.movementX && !event.movementY)) return;
           keyboard.current = false;
           // The raised, rotated card can extend into its neighbour's horizontal
           // lane. Keep its actual hit area (especially the pin) interactive.

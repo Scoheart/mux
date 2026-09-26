@@ -1,7 +1,7 @@
 import { RESOURCE_PRESENTATION } from "./resourcePresentation";
 import type { AssetCommandError, AssetOperationPlan, AssetRef, ConvergenceAction } from "../lib/types";
 import { assetIdentity } from "../lib/consumption";
-import { AgentGlyph } from "./brandIcons";
+import { AgentGlyph, agentName as resolveAgentName } from "./brandIcons";
 import { TrashIcon } from "./icons";
 import { DialogShell } from "./DialogShell";
 import { AssetSyncReviewDialog } from "./AssetSyncReviewDialog";
@@ -31,7 +31,7 @@ function displayAgentName(
   names: Record<string, string>,
 ) {
   if (id === currentId && currentName) return currentName;
-  return names[id] ?? readableIdentity(id);
+  return names[id] ?? resolveAgentName(id);
 }
 
 function assetLabel(asset: AssetRef, names: Record<string, string>) {
@@ -146,9 +146,9 @@ function warningCopy(warning: string) {
     model_owned_fields_drift: "该 Model 的托管字段已被外部修改",
     model_target_missing: "该 Model 的 Agent 配置缺失",
     model_credential_export_plaintext:
-      "将把所选 Provider 的 API Key 写入 Claude Desktop 的私有配置文件（权限 0600）",
+      `将把所选 Provider 的 API Key 写入 ${resolveAgentName("claude-desktop")} 的私有配置文件（权限 0600）`,
   };
-  return labels[reason] ? `${readableIdentity(agent)}：${labels[reason]}` : warning;
+  return labels[reason] ? `${resolveAgentName(agent)}：${labels[reason]}` : warning;
 }
 
 function modelStateLabel(state: { added: boolean; enabled: boolean; active: boolean }) {

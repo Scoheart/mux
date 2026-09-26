@@ -1,4 +1,4 @@
-# Kimi Code Desktop integration
+# Kimi Code integration
 
 Verified on 2026-09-17 against the official Desktop 1.0.1 macOS arm64 distribution.
 `kimi-code-desktop` is independent from the existing `kimi-code` CLI identity.

@@ -19,6 +19,8 @@
 
 ## 产品与验证
 
+- Agent 显示名使用核验过的实际 App 名称；CLI / 插件使用其正式产品名，不额外添加地区、版本或形态说明。同名产品保留独立 ID，用现有图标形态标记和类别区分；不得为消歧改名。名称权威在 `data/agents.json`（目录项在 `data/agent-catalog.json`），各能力页面与前端不得维护第二份名称表。
+
 - 资产操作不得以内嵌确认面板替换页面列表。普通添加/移除直接执行，失败使用全局通知；必要确认统一通过 `DialogShell` / `Modal` 挂到 `document.body`，覆盖整个应用，禁止局部弹窗或重复弹窗外壳。
 - 顶层为 `MCPs`、`Models`、`Skills` 中央资产库；Agent 页面统一显示已添加资产与中央选择器，多模型 Agent 还需区分“已添加 / 已启用 / 当前模型”，三类状态由 core 的 desired/observed inventory 提供。UI 保持不透明、克制，并覆盖 `1200x820` 与 `900x600`。
 - 用户要求本地启动验证时，`npm run tauri dev` 默认使用真实 `HOME` 与 `~/.mux`，从而验证同一套 MCP、Model、Skill 和 Agent 配置；不得用空白临时数据冒充本地启动。只有自动化测试继续隔离 `HOME`/`MUX_HOME`，或用户明确要求隔离环境时才覆盖这些路径。

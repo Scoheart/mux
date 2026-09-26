@@ -3187,7 +3187,7 @@ pub fn list_agents() -> Vec<ModelAgentView> {
     let mut agents = vec![
         ModelAgentView {
             id: "claude-code".into(),
-            name: "Claude Code".into(),
+            name: String::new(),
             mode: "managed".into(),
             storage_authority: ModelStorageAuthority::MuxMapping,
             installed: agent_installed(&["claude"], &[".claude"], &[]),
@@ -3209,7 +3209,7 @@ pub fn list_agents() -> Vec<ModelAgentView> {
         },
         ModelAgentView {
             id: claude_desktop::AGENT_ID.into(),
-            name: "Claude Desktop".into(),
+            name: String::new(),
             mode: "managed".into(),
             storage_authority: ModelStorageAuthority::MuxMapping,
             installed: agent_installed(&[], &[], &["/Applications/Claude.app"]),
@@ -3227,11 +3227,11 @@ pub fn list_agents() -> Vec<ModelAgentView> {
             default_delivery: Default::default(),
             available_deliveries: Vec::new(),
             supported_protocols: vec![ModelProtocol::AnthropicMessages],
-            note: "Exports the selected Provider credential into Claude Desktop's private Profile; restart Claude Desktop after applying.".into(),
+            note: "Exports the selected Provider credential into Claude's private Profile; restart Claude Desktop after applying.".into(),
         },
         ModelAgentView {
             id: "codex".into(),
-            name: "Codex CLI".into(),
+            name: String::new(),
             mode: "managed".into(),
             storage_authority: ModelStorageAuthority::MuxMapping,
             installed: agent_installed(&["codex"], &[".codex"], &["/Applications/Codex.app"]),
@@ -3253,7 +3253,7 @@ pub fn list_agents() -> Vec<ModelAgentView> {
         },
         ModelAgentView {
             id: "grok-build".into(),
-            name: "Grok Build".into(),
+            name: String::new(),
             mode: "managed".into(),
             storage_authority: ModelStorageAuthority::NativeRegistry,
             installed: agent_installed(&["grok"], &[".grok"], &[]),
@@ -3279,7 +3279,7 @@ pub fn list_agents() -> Vec<ModelAgentView> {
         },
         ModelAgentView {
             id: "pi".into(),
-            name: "Pi".into(),
+            name: String::new(),
             mode: "managed".into(),
             storage_authority: ModelStorageAuthority::NativeRegistry,
             installed: agent_installed(&["pi"], &[".pi/agent"], &[]),
@@ -3305,7 +3305,7 @@ pub fn list_agents() -> Vec<ModelAgentView> {
         },
         ModelAgentView {
             id: "minimax-code".into(),
-            name: "MiniMax Code".into(),
+            name: String::new(),
             mode: "guided".into(),
             storage_authority: ModelStorageAuthority::Guided,
             installed: agent_installed(
@@ -3335,7 +3335,7 @@ pub fn list_agents() -> Vec<ModelAgentView> {
         },
         ModelAgentView {
             id: "qoder".into(),
-            name: "Qoder IDE".into(),
+            name: String::new(),
             mode: "guided".into(),
             storage_authority: ModelStorageAuthority::Guided,
             installed: agent_installed(
@@ -3357,11 +3357,11 @@ pub fn list_agents() -> Vec<ModelAgentView> {
             default_delivery: Default::default(),
             available_deliveries: Vec::new(),
             supported_protocols: Vec::new(),
-            note: "请在 Qoder IDE Settings → Models 中添加和切换自定义模型。MUX 当前提供配置引导，不自动写入模型。".into(),
+            note: "请在 Qoder Settings → Models 中添加和切换自定义模型。MUX 当前提供配置引导，不自动写入模型。".into(),
         },
         {
             let mut view = managed_agent_view(
-                &settings, "zcode", "ZCode Desktop", &[], &[".zcode/v2"],
+                &settings, "zcode", &[], &[".zcode/v2"],
                 "https://zcode.z.ai/cn/docs/configuration",
                 "支持 ZCode 自定义 Chat Completions 多模型。添加后重启 ZCode，在会话中选择模型；API Key 仅按显式明文交付策略写入私有配置。",
             );
@@ -3373,7 +3373,7 @@ pub fn list_agents() -> Vec<ModelAgentView> {
         },
         {
             let mut view = managed_agent_view(
-                &settings, "qoder-desktop", "Qoder Desktop", &[], &[],
+                &settings, "qoder-desktop", &[], &[],
                 QODER_DESKTOP_DOCS,
                 "支持 Qoder Desktop 0.1.8 的自定义端点和多模型。添加后重启 Qoder，在会话中选择模型；API Key 按下方策略交付。与 Qoder CLI 共用 settings.json。",
             );
@@ -3384,18 +3384,18 @@ pub fn list_agents() -> Vec<ModelAgentView> {
             view
         },
         managed_agent_view(
-            &settings, "qoder-cli", "Qoder CLI", &["qoder", "qodercli"], &[],
+            &settings, "qoder-cli", &["qoder", "qodercli"], &[],
             QODER_CLI_DOCS,
             "支持 Qoder CLI 1.1.50 起的自定义端点、多模型和当前模型切换。重启 CLI 后生效；API Key 使用环境变量引用，启动 CLI 时须提供该变量。与 Desktop 共用 settings.json。",
         ),
         managed_agent_view(
-            &settings, "opencode", "OpenCode", &["opencode"], &[".config/opencode"],
+            &settings, "opencode", &["opencode"], &[".config/opencode"],
             "https://opencode.ai/docs/models/",
             "原生 provider/models 与 model；API Key 只写 {env:VAR} 引用。",
         ),
         {
             let mut view = managed_agent_view(
-                &settings, "opencode-desktop", "OpenCode Desktop", &[], &[],
+                &settings, "opencode-desktop", &[], &[],
                 "https://opencode.ai/docs/models/",
                 "与 OpenCode CLI 共用本机全局配置和默认模型；桌面端使用独立的 MUX 模型条目。重启本地服务后生效，远程服务需在对应主机配置。",
             );
@@ -3404,51 +3404,51 @@ pub fn list_agents() -> Vec<ModelAgentView> {
             view
         },
         managed_agent_view(
-            &settings, "kilo-code", "Kilo Code CLI", &["kilo"], &[".config/kilo"],
+            &settings, "kilo-code", &["kilo"], &[".config/kilo"],
             "https://kilo.ai/docs/code-with-ai/agents/custom-models",
             "原生 provider/models 与 model；API Key 只写 {env:VAR} 引用。",
         ),
         managed_agent_view(
-            &settings, "qwen-code", "Qwen Code", &["qwen"], &[".qwen"],
+            &settings, "qwen-code", &["qwen"], &[".qwen"],
             "https://qwenlm.github.io/qwen-code-docs/en/users/configuration/model-providers/",
             "原生 modelProviders；API Key 由 envKey 指向外部环境变量。",
         ),
         managed_agent_view(
-            &settings, "crush", "Crush", &["crush"], &[".config/crush"],
+            &settings, "crush", &["crush"], &[".config/crush"],
             "https://github.com/charmbracelet/crush",
             "原生 providers 与 models.large；不会改 small 等辅助槽位。",
         ),
         managed_agent_view(
-            &settings, "mistral-vibe", "Mistral Vibe", &["vibe"], &[".vibe"],
+            &settings, "mistral-vibe", &["vibe"], &[".vibe"],
             "https://docs.mistral.ai/vibe/code/cli/api-keys-profiles",
             "原生 providers/models 与 active_model；API Key 由 api_key_env_var 引用。",
         ),
         managed_agent_view(
-            &settings, "hermes", "Hermes Agent", &["hermes"], &[".hermes"],
+            &settings, "hermes", &["hermes"], &[".hermes"],
             "https://hermes-agent.nousresearch.com/docs/user-guide/configuring-models",
             "原生命名 custom provider、model_aliases 与主模型指针；辅助任务模型保持独立。",
         ),
         managed_agent_view(
-            &settings, "factory-droid", "Factory Droid", &["droid"], &[".factory"],
+            &settings, "factory-droid", &["droid"], &[".factory"],
             "https://docs.factory.ai/cli/byok/overview",
             "原生 customModels 与 model；API Key 只写 ${VAR} 引用。",
         ),
         managed_agent_view(
-            &settings, "goose", "Goose", &["goose"], &["Library/Application Support/Block/goose"],
+            &settings, "goose", &["goose"], &["Library/Application Support/Block/goose"],
             "https://block.github.io/goose/docs/getting-started/providers",
             "原生 providers/active_provider 与 declarative custom provider；密钥由外部环境变量提供。",
         ),
     ];
     // Both clients share native providers, but their api_key/env fields contain
     // literal credentials. Do not advertise an environment-reference writer.
-    for (id, name, commands, apps, docs, note) in [
+    for (id, commands, apps, docs, note) in [
         (
-            "kimi-code", "Kimi Code CLI", vec!["kimi"], vec![],
+            "kimi-code", vec!["kimi"], vec![],
             "https://www.kimi.com/code/docs/en/kimi-code-cli/configuration/providers.html",
             "请在 Kimi /provider 中配置模型。providers.env 保存的是凭据值，不是系统环境变量引用；MUX 不向此文件导出 Keychain 密钥。",
         ),
         (
-            "kimi-code-desktop", "Kimi Code Desktop", vec![],
+            "kimi-code-desktop", vec![],
             vec!["/Applications/Kimi Code.app", "~/Applications/Kimi Code.app"],
             "https://www.kimi.com/code/docs/en/kimi-code-desktop/getting-started.html",
             "请在 Kimi Settings → Providers 中配置模型，再从会话选择。与 CLI 共用 config.toml；当前凭据字段要求明文值，MUX 不自动写入。",
@@ -3457,7 +3457,7 @@ pub fn list_agents() -> Vec<ModelAgentView> {
         let (config_path, config_paths) = path_view(&settings, id);
         agents.push(ModelAgentView {
             id: id.into(),
-            name: name.into(),
+            name: String::new(),
             mode: "guided".into(),
             storage_authority: ModelStorageAuthority::Guided,
             installed: agent_installed(&commands, &[], &apps),
@@ -3483,7 +3483,12 @@ pub fn list_agents() -> Vec<ModelAgentView> {
             note: note.into(),
         });
     }
+    // Display identity belongs to the shared Agent catalog, not capability adapters.
+    let definitions = crate::agents::builtin_agents();
     for agent in &mut agents {
+        agent.name = definitions.get(&agent.id)
+            .and_then(|definition| definition.name.clone())
+            .unwrap_or_else(|| agent.id.clone());
         let selection = settings.model_selection(&agent.id);
         agent.default_delivery = selection.default_delivery.clone();
         agent.available_deliveries = credential::available_deliveries(&agent.id);
@@ -3507,7 +3512,6 @@ pub(crate) fn normalize_model_selection(agent_id: &str, selection: &mut crate::d
 fn managed_agent_view(
     settings: &crate::settings::Settings,
     id: &str,
-    name: &str,
     commands: &[&str],
     config_locations: &[&str],
     docs: &str,
@@ -3522,7 +3526,7 @@ fn managed_agent_view(
         .collect();
     ModelAgentView {
         id: id.into(),
-        name: name.into(),
+        name: String::new(),
         mode: "managed".into(),
         storage_authority: ModelStorageAuthority::NativeRegistry,
         installed: agent_installed(commands, config_locations, &[]),
@@ -4011,7 +4015,7 @@ fn ensure_supported(agent_id: &str, protocol: &ModelProtocol) -> Result<(), Stri
         "qoder-desktop" | "qoder-cli" => !matches!(protocol, ModelProtocol::GeminiGenerateContent),
         "qoder" => {
             return Err(format!(
-                "Qoder IDE custom models must be configured through Settings → Models; see {QODER_DOCS}"
+                "Qoder custom models must be configured through Settings → Models; see {QODER_DOCS}"
             ))
         }
         "minimax-code" => {
@@ -4154,7 +4158,7 @@ pub(crate) fn apply_profile_consumption_with_credential_presence_target(
                 .map(|(source, _)| source)
                 .ok_or_else(|| {
                     ModelTargetError::ConvergenceFailed(
-                        "credential_missing: Claude Desktop requires a configured API Key source"
+                        "credential_missing: Claude requires a configured API Key source"
                             .to_string(),
                     )
                 })?;
@@ -7778,7 +7782,7 @@ wire_api = "responses"
         let _home = TestHome::new("qoder-model-guides");
         let agents = list_agents();
         for (id, name, docs) in [
-            ("qoder", "Qoder IDE", QODER_DOCS),
+            ("qoder", "Qoder", QODER_DOCS),
         ] {
             let agent = agents.iter().find(|agent| agent.id == id).unwrap();
             assert_eq!(agent.name, name);

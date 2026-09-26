@@ -90,7 +90,7 @@ function hashText(hash: string | null) {
 }
 
 function agentNames(ids: string[]) {
-  return [...new Set(ids.map((id) => id === "gemini" ? "Gemini CLI" : agentName(id)))].join("、") || "无";
+  return [...new Set(ids.map((id) => agentName(id)))].join("、") || "无";
 }
 
 function RiskEvidence({ risk }: { risk: SkillRiskSummary }) {

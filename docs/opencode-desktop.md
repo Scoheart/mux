@@ -1,10 +1,10 @@
-# OpenCode Desktop integration
+# OpenCode integration
 
 Verified on 2026-09-26 against the official `anomalyco/opencode` release `v1.18.32` (tag object `545f51d26cc39a907d2867492d498d9607ea5fa4`).
 
 ## Identity and discovery
 
-- MUX identity: `opencode-desktop`, displayed as **OpenCode Desktop**, category `desktop`.
+- MUX identity: `opencode-desktop`, displayed as **OpenCode**, category `desktop`.
 - Existing `opencode` remains the CLI identity. Both use the OpenCode brand icon with distinct CLI/Desktop badges.
 - Official production application: `OpenCode.app`, bundle ID `ai.opencode.desktop`. MUX discovers `/Applications/OpenCode.app` or `~/Applications/OpenCode.app` and opens the installed app through the existing macOS launcher.
 - Download: https://opencode.ai/download. OpenCode Beta/Dev are separate upstream channels and are not automatically selected.

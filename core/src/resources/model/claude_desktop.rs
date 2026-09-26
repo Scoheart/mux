@@ -2347,7 +2347,7 @@ mod tests {
         let capability = model_agent_capability(AGENT_ID).unwrap();
 
         for agent in [&listed, &capability] {
-            assert_eq!(agent.name, "Claude Desktop");
+            assert_eq!(agent.name, "Claude");
             assert_eq!(agent.mode, "managed");
             assert_eq!(agent.storage_authority, ModelStorageAuthority::MuxMapping);
             assert_eq!(agent.config_paths, default_paths());

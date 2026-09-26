@@ -89,7 +89,7 @@ A one-click **Mux 精选 (curated collection)** subscribes you to a curated sour
 - **Reviewed propagation** — editing or deleting a central MCP or Model plans the central change together with every consumer. Ordinary central edits never overwrite drift; an exact convergence operation must resolve the affected relationship first.
 - **Safe, local writes** — MUX reads and edits only fields it owns. Existing files are backed up, prepared, and verified as one recoverable transaction; unrelated keys, comments, formatting, policy fields, permissions, and symlinks are preserved.
 - **Unified Agent consumption center** — each Agent page shows only desired central assets under MCPs, Model, and Skills, with a central picker for relationship changes and a separate read-only external section.
-- **Reusable model connections (preview)** — define one Provider Base URL, shared credential, and an editable Endpoint Path for every enabled protocol; Models then reference that connection with only their model ID and optional token limits. Native multi-model Agents can keep several Profiles installed, enable or disable each one, and choose exactly one current primary model; Claude Desktop, Claude Code, and Codex are managed single-Profile Model Agents. Claude Desktop accepts only Anthropic Messages-compatible Providers. Applying selects or creates one MUX-owned third-party inference Profile; the operation review discloses the selected Provider key export and that the key is written only to Claude's private `0600` Profile, and non-Claude route names automatically disable Claude Desktop model verification. Restart Claude Desktop after apply or clear. This is Model configuration, separate from Claude Desktop MCP support and Connectors.
+- **Reusable model connections (preview)** — define one Provider Base URL, shared credential, and an editable Endpoint Path for every enabled protocol; Models then reference that connection with only their model ID and optional token limits. Native multi-model Agents can keep several Profiles installed, enable or disable each one, and choose exactly one current primary model; Claude, Claude Code, and Codex are managed single-Profile Model Agents. Claude accepts only Anthropic Messages-compatible Providers. Applying selects or creates one MUX-owned third-party inference Profile; the operation review discloses the selected Provider key export and that the key is written only to Claude's private `0600` Profile, and non-Claude route names automatically disable Claude model verification. Restart Claude after apply or clear. This is Model configuration, separate from Claude MCP support and Connectors.
 - **User-level Skills in Desktop** — download a public GitHub repository or directly import a local folder or `.zip` / `.tar.gz` / `.tgz` / `.tar` archive without Git, Node.js, or `npx`; assign the central copy to Agents in a separate step.
 - **One proxy for MUX networking** — configure HTTP, SOCKS4/SOCKS4A, or SOCKS5 once for GitHub Skills, remote sources, CLI updates, and signed Desktop update checks; credentials are never stored in `settings.json`.
 - **CLI ⇄ Desktop on one application core** — both use the same bootstrap, Agent capability graph, revisioned MCP/Model/Skill snapshot, typed errors, and recoverable operation coordinator.
@@ -110,15 +110,15 @@ filtering, and shadowed-configuration screenshots.
 
 MUX keeps audited Agent contracts in `data/agents.json` and discovery-only records in `data/agent-catalog.json`. Only verified user-level MCP paths and native schemas are writable; other entries expose verified Skills or native setup guidance. MUX never guesses a path or writes a generic schema into discovery-only records.
 
-Audited targets include Claude Code/Desktop, Codex, Cursor, VS Code, Zed, Windsurf, Gemini CLI, Google Antigravity, Amazon Q, OpenCode, Grok Build, MiniMax Code, Copilot CLI, Cline, Cline Desktop, Freebuff, Continue, Goose, Hermes, Kimi Code CLI/Desktop, Qwen Code, Qoder IDE, Qoder Desktop, Qoder CLI, QoderWork, QwenWork (international and CN), Step Code, Mistral Vibe, Rovo Dev, Tabnine, LM Studio, and others. For MCP, Claude Desktop and BoltAI local files accept stdio only. Pi is explicitly labeled as a community `pi-mcp-adapter` target because Pi core does not ship MCP support. Devin, Cline Desktop, and Freebuff remain audited read-only records because no stable user-level global config file is documented.
+Audited targets include Claude Code/Desktop, Codex, Cursor, VS Code, Zed, Windsurf, Gemini CLI, Google Antigravity, Amazon Q, OpenCode, Grok Build, MiniMax Code, Copilot CLI, Cline, Cline Desktop, Freebuff, Continue, Goose, Hermes, Kimi Code CLI/Desktop, Qwen Code, Qoder, Qoder Desktop, Qoder CLI, QoderWork, QwenWork (international and CN), Step Code, Mistral Vibe, Rovo Dev, Tabnine, LM Studio, and others. For MCP, Claude and BoltAI local files accept stdio only. Pi is explicitly labeled as a community `pi-mcp-adapter` target because Pi core does not ship MCP support. Devin, Cline Desktop, and Freebuff remain audited read-only records because no stable user-level global config file is documented.
 
 Managed Model Profile configuration is available
-for Claude Desktop, Claude Code, Codex, Grok Build, Pi, OpenCode, Kilo Code CLI, Qwen Code,
-Crush, Mistral Vibe, Hermes Agent, Factory Droid, Goose, ZCode Desktop, Qoder Desktop 0.1.8, and Qoder CLI 1.1.50+.
+for Claude, Claude Code, Codex, Grok Build, Pi, OpenCode, Kilo Code CLI, Qwen Code,
+Crush, Mistral Vibe, Hermes Agent, Factory Droid, Goose, ZCode, Qoder Desktop 0.1.8, and Qoder CLI 1.1.50+.
 Qoder Desktop uses native custom providers in `~/.qoder/settings.json`; select the
 installed model in a Qoder conversation after restarting the app. Qoder CLI shares
 that registry and supports a global current model, with environment credential
-references. MiniMax Code, Qoder IDE, and Kimi Code CLI/Desktop remain guided targets.
+references. MiniMax Code, Qoder, and Kimi Code CLI/Desktop remain guided targets.
 
 Models use a shared Provider architecture: one Provider owns its name, type,
 single Base URL, enabled protocol Endpoint Paths, environment reference, and
@@ -325,19 +325,21 @@ Agent pages include an installation status and an official download or installat
 guide link. Detection checks declared executable/application probes, not configuration
 directories; unavailable probes show an unknown state. Refocus MUX after installation to refresh detection. MUX opens the vendor page and does not run installers.
 
-CodeBuddy CLI (`codebuddy-code`), CodeBuddy IDE, and the two WorkBuddy editions
-are separate Agents. **海外 WorkBuddy AI** (`workbuddy`) uses
+CodeBuddy CLI (`codebuddy-code`), CodeBuddy, and the two WorkBuddy editions
+are separate Agents. **WorkBuddy AI** (`workbuddy`) uses
 `~/.workbuddy-ai/mcp.json` and `~/.workbuddy-ai/skills`, launching `WorkBuddy AI.app`.
-**中国 WorkBuddy** (`workbuddy-cn`) uses `~/.workbuddy/mcp.json` and
+**WorkBuddy** (`workbuddy-cn`) uses `~/.workbuddy/mcp.json` and
 `~/.workbuddy/skills`, launching `WorkBuddy.app`. Both support stdio, HTTP, SSE,
 native MCP pause, and central Skill links. Their resources are assigned independently;
 existing overseas assignments stay intact. Models use each edition's native guide.
-CodeBuddy IDE remains guided-only. See [WorkBuddy integration](docs/workbuddy.md).
+CodeBuddy remains guided-only. See [WorkBuddy integration](docs/workbuddy.md).
 
-ZCode Desktop 自定义模型接入与凭据交付说明见 [ZCode Models](docs/zcode-models.md)。
+ZCode 自定义模型接入与凭据交付说明见 [ZCode Models](docs/zcode-models.md)。
 
 默认打开方式：顶部「设置」集中管理文件编辑器、Agent CLI 默认终端、外观、语言、网络及更新。默认终端支持已安装的 Terminal、iTerm2、Ghostty（1.3+）和 Warp，设置对所有 CLI Agent 生效。
 
-Kimi Code Desktop is a separate Agent (`kimi-code-desktop`) with its official app icon and launcher. It shares user-level MCP and Skills with Kimi Code CLI; Models currently open the native setup guide because provider credentials are literal config values. See [integration evidence and boundaries](docs/kimi-code-desktop.md).
+Kimi Code is a separate Agent (`kimi-code-desktop`) with its official app icon and launcher. It shares user-level MCP and Skills with Kimi Code CLI; Models currently open the native setup guide because provider credentials are literal config values. See [integration evidence and boundaries](docs/kimi-code-desktop.md).
 
-Codex Desktop (`codex-desktop`) opens ChatGPT.app and shares `~/.codex/config.toml` plus `~/.agents/skills` with Codex CLI. The model writer stays on Codex CLI. Agent types are CLI, Desktop, IDE, and Plugin; the launch form follows that type and does not switch among them.
+ChatGPT (`codex-desktop`) opens ChatGPT.app and shares `~/.codex/config.toml` plus `~/.agents/skills` with Codex CLI. The model writer stays on Codex CLI. Agent types are CLI, Desktop, IDE, and Plugin; the launch form follows that type and does not switch among them.
+
+Agent labels use the actual application name, or the official CLI/plugin product name. Region, version, and surface are not added to the name. Existing IDs and bindings stay stable; see the [name audit](docs/agent-name-audit.md).

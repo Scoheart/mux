@@ -1,4 +1,4 @@
-import { writeFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 
@@ -45,6 +45,7 @@ const ACP_ALIASES = {
 };
 
 const SUPPLEMENTAL = {
+  "cline-desktop": ["Cline", "https://cline.bot/desktop", "desktop"],
   "blackbox-cli": ["BLACKBOX CLI", "https://docs.blackbox.ai/blackbox-ai-1/blackbox-cli/mcp-server", "cli"],
   "chatgpt": ["ChatGPT", "https://help.openai.com/en/articles/11487775-connectors-in-chatgpt", "web"],
   "claude-ai": ["Claude.ai", "https://support.claude.com/en/articles/11175166-getting-started-with-custom-connectors-using-remote-mcp", "web"],
@@ -62,8 +63,8 @@ const SUPPLEMENTAL = {
   "sema4": ["Sema4.ai", "https://sema4.ai/docs/build-agents/mcp", "agent-platform"],
   "trae-agent": ["TRAE Agent", "https://github.com/bytedance/TRAE-agent", "cli"],
   "trae-ide": ["TRAE IDE", "https://docs.trae.ai/ide/model-context-protocol", "ide"],
-  "workbuddy": ["海外 WorkBuddy AI", "https://www.workbuddy.ai/docs/workbuddy/Overview", "desktop"],
-  "workbuddy-cn": ["中国 WorkBuddy", "https://www.workbuddy.cn/docs/workbuddy/Overview", "desktop"],
+  "workbuddy": ["WorkBuddy AI", "https://www.workbuddy.ai/docs/workbuddy/Overview", "desktop"],
+  "workbuddy-cn": ["WorkBuddy", "https://www.workbuddy.cn/docs/workbuddy/Overview", "desktop"],
   "visual-studio": ["Visual Studio", "https://learn.microsoft.com/en-us/visualstudio/ide/mcp-servers", "ide"],
 };
 
@@ -185,8 +186,12 @@ if (Object.keys(catalog).length < 180) {
   throw new Error(`catalog unexpectedly small: ${Object.keys(catalog).length}`);
 }
 
-const sorted = Object.fromEntries(Object.entries(catalog).sort(([a], [b]) => a.localeCompare(b)));
 const here = dirname(fileURLToPath(import.meta.url));
+const audited = JSON.parse(await readFile(resolve(here, "../data/agents.json"), "utf8"));
+for (const [id, definition] of Object.entries(audited)) {
+  if (catalog[id] && definition.name) catalog[id].name = definition.name;
+}
+const sorted = Object.fromEntries(Object.entries(catalog).sort(([a], [b]) => a.localeCompare(b)));
 await writeFile(resolve(here, "../data/agent-catalog.json"), `${JSON.stringify(sorted, null, 2)}\n`);
 console.log(JSON.stringify({
   entries: Object.keys(sorted).length,

@@ -425,7 +425,7 @@ it("explains Claude Desktop plaintext credential export in the shared Model revi
   expect(screen.getByText("Agent 变更")).toBeVisible();
   expect(screen.getByText("~/Library/Application Support/Claude/claude_desktop_config.json")).toBeVisible();
   expect(screen.getByText(
-    "Claude Desktop：将把所选 Provider 的 API Key 写入 Claude Desktop 的私有配置文件（权限 0600）",
+    "Claude：将把所选 Provider 的 API Key 写入 Claude 的私有配置文件（权限 0600）",
   )).toBeVisible();
   expect(screen.queryByText("claude-desktop: model_credential_export_plaintext")).not.toBeInTheDocument();
 });

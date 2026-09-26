@@ -21,5 +21,6 @@
   "qwenwork-cn": "desktop",
   "opencode-desktop": "desktop",
   "opencode": "cli",
-  "workbuddy-cn": "desktop"
+  "workbuddy-cn": "desktop",
+  "cline": "plugin"
 }

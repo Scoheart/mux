@@ -6,8 +6,8 @@ edition's native setup guide.
 
 | Edition | MUX ID | App | MCP | Skills | Official site |
 | --- | --- | --- | --- | --- | --- |
-| 海外 WorkBuddy AI | `workbuddy` | `WorkBuddy AI.app` | `~/.workbuddy-ai/mcp.json` | `~/.workbuddy-ai/skills` | https://www.workbuddy.ai/ |
-| 中国 WorkBuddy | `workbuddy-cn` | `WorkBuddy.app` | `~/.workbuddy/mcp.json` | `~/.workbuddy/skills` | https://www.workbuddy.cn/ |
+| WorkBuddy AI | `workbuddy` | `WorkBuddy AI.app` | `~/.workbuddy-ai/mcp.json` | `~/.workbuddy-ai/skills` | https://www.workbuddy.ai/ |
+| WorkBuddy | `workbuddy-cn` | `WorkBuddy.app` | `~/.workbuddy/mcp.json` | `~/.workbuddy/skills` | https://www.workbuddy.cn/ |
 
 The existing `workbuddy` ID and `workbuddy-ai-user` Skill target retain all
 overseas assignments. China uses the new `workbuddy-cn` ID and

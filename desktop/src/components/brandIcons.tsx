@@ -100,47 +100,52 @@ const FULL_BLEED = new Set<string>([
 const THEMED_MARKS = new Set<string>(["augment"]);
 const WIDE_TILES: Record<string, string> = { crush: "#654cff" };
 
-/** Human-readable product names + brand colour (colour used for the monogram fallback). */
-const AGENT_META: Record<string, { name: string; color: string }> = {
-  "claude-code": { name: "Claude Code", color: "#D97757" },
-  "claude-desktop": { name: "Claude Desktop", color: "#C15F3C" },
-  cursor: { name: "Cursor", color: "#111827" },
-  "cursor-cli": { name: "Cursor CLI", color: "#111827" },
-  "codebuddy-code": { name: "CodeBuddy CLI", color: "#7257FF" },
-  "codebuddy-ide": { name: "CodeBuddy IDE", color: "#7257FF" },
-  workbuddy: { name: "海外 WorkBuddy AI", color: "#7257FF" },
-  "workbuddy-cn": { name: "中国 WorkBuddy", color: "#7257FF" },
-  vscode: { name: "VS Code", color: "#0A7ACA" },
-  codex: { name: "Codex CLI", color: "#10A37F" },
-  "codex-desktop": { name: "Codex Desktop", color: "#10A37F" },
-  zed: { name: "Zed", color: "#084CCF" },
-  zcode: { name: "ZCode Desktop", color: "#356DFF" },
-  windsurf: { name: "Windsurf", color: "#09B6A2" },
-  "roo-code": { name: "Roo Code", color: "#6C47FF" },
-  gemini: { name: "Gemini", color: "#4285F4" },
-  "grok-build": { name: "Grok Build", color: "#111111" },
-  "minimax-code": { name: "MiniMax Code", color: "#75B9EA" },
-  qoder: { name: "Qoder IDE", color: "#6E56CF" },
-  "qoder-desktop": { name: "Qoder Desktop", color: "#11100E" },
-  "qoder-cli": { name: "Qoder CLI", color: "#6E56CF" },
-  qoderwork: { name: "QoderWork", color: "#25D959" },
-  devin: { name: "Devin", color: "#1F2937" },
-  kiro: { name: "Kiro", color: "#7C3AED" },
-  junie: { name: "Junie", color: "#E5484D" },
-  "amazon-q": { name: "Amazon Q", color: "#FF9900" },
-  "cline-desktop": { name: "Cline Desktop", color: "#27313B" },
-  opencode: { name: "OpenCode", color: "#1F2937" },
-  "opencode-desktop": { name: "OpenCode Desktop", color: "#1F2937" },
-  "copilot-cli": { name: "Copilot CLI", color: "#24292E" },
-  cline: { name: "Cline", color: "#2563EB" },
-  freebuff: { name: "Freebuff", color: "#111111" },
-  continue: { name: "Continue", color: "#111827" },
-  warp: { name: "Warp", color: "#00B4C6" },
-  pi: { name: "Pi", color: "#8B5CF6" },
+/** Brand colours only; Agent names come from the canonical data definitions. */
+const AGENT_COLORS: Record<string, string> = {
+  "claude-code": "#D97757",
+  "claude-desktop": "#C15F3C",
+  cursor: "#111827",
+  "cursor-cli": "#111827",
+  "codebuddy-code": "#7257FF",
+  "codebuddy-ide": "#7257FF",
+  workbuddy: "#7257FF",
+  "workbuddy-cn": "#7257FF",
+  vscode: "#0A7ACA",
+  codex: "#10A37F",
+  "codex-desktop": "#10A37F",
+  zed: "#084CCF",
+  zcode: "#356DFF",
+  windsurf: "#09B6A2",
+  "roo-code": "#6C47FF",
+  gemini: "#4285F4",
+  "grok-build": "#111111",
+  "minimax-code": "#75B9EA",
+  qoder: "#6E56CF",
+  "qoder-desktop": "#11100E",
+  "qoder-cli": "#6E56CF",
+  qoderwork: "#25D959",
+  devin: "#1F2937",
+  kiro: "#7C3AED",
+  junie: "#E5484D",
+  "amazon-q": "#FF9900",
+  "cline-desktop": "#27313B",
+  opencode: "#1F2937",
+  "opencode-desktop": "#1F2937",
+  "copilot-cli": "#24292E",
+  cline: "#2563EB",
+  freebuff: "#111111",
+  continue: "#111827",
+  warp: "#00B4C6",
+  pi: "#8B5CF6",
+};
+
+const AGENT_DEFINITIONS: Record<string, { name?: string }> = {
+  ...catalogAgents,
+  ...builtinAgents,
 };
 
 export function agentName(id: string, explicitName?: string): string {
-  return explicitName || AGENT_META[id]?.name || id;
+  return explicitName || AGENT_DEFINITIONS[id]?.name || id;
 }
 
 const FALLBACK_COLORS = ["#3568D4", "#16856B", "#B84A62", "#9A6618", "#5E55B8", "#277B91"];
@@ -203,7 +208,7 @@ function AgentSurfaceBadge({ surface, size }: { surface: AgentSurface; size: num
  */
 export function AgentGlyph({ id, name, size = 26 }: { id: string; name?: string; size?: number }) {
   const logo = LOGOS[resolvedLogoKey(id)];
-  const meta = AGENT_META[id];
+  const brandColor = AGENT_COLORS[id];
   const displayName = agentName(id, name);
   const radius = Math.round(size * 0.3);
   let baseGlyph: ReactNode;
@@ -269,7 +274,7 @@ export function AgentGlyph({ id, name, size = 26 }: { id: string; name?: string;
           width: size,
           height: size,
           borderRadius: radius,
-          background: meta?.color ?? fallbackColor(id),
+          background: brandColor ?? fallbackColor(id),
           fontSize: Math.round(size * 0.5),
         }}
       >

@@ -11,7 +11,7 @@ MUX 的 Agent 数据分为两层：
 
 消费关系可在 Agent 页面或统一 CLI 中管理：MCP 与 Skills 每个 Agent 可选择多个；原生多模型 Agent 可分配多个 Profile、最多一个 current，单模型 Agent 仍最多一个。中央资产详情只负责资产生命周期和只读影响范围，不反向修改 Agent。MUX 再把 Agent 文件或 Skill link 作为 observed state 对账；仅在 Agent 中发现的外部配置保持只读，扫描不会静默接管。检测到历史 MCP / Skill 时，可显式纳管并把中央资产与原有消费关系作为同一项可恢复事务导入。
 
-Model 能力由 Rust Core 统一提供；MiniMax Code、Qoder IDE、Kimi Code CLI/Desktop 保留为 guided target，其他已核验 writer 可管理中央 Model Profile。
+Model 能力由 Rust Core 统一提供；MiniMax Code、Qoder、Kimi Code CLI/Desktop 保留为 guided target，其他已核验 writer 可管理中央 Model Profile。
 
 ## 已核验列表
 
@@ -26,20 +26,20 @@ Model 能力由 Rust Core 统一提供；MiniMax Code、Qoder IDE、Kimi Code CL
 | [Agentkube](https://agentkube.mintlify.app/agents/mcp) | JSON | `mcpServers` | `~/.agentkube/mcp.json` | stdio / http |
 | [Amp](https://ampcode.com/manual#model-context-protocol-mcp) | JSON | `amp.mcpServers` | `~/.config/amp/settings.json` | stdio / http |
 | [Amazon Q Developer IDE](https://docs.aws.amazon.com/amazonq/latest/qdeveloper-ug/mcp-ide.html) | JSON | `mcpServers` | `~/.aws/amazonq/default.json` | stdio / http |
-| [Google Antigravity](https://antigravity.google/docs/mcp) | JSON | `mcpServers` | `~/.gemini/config/mcp_config.json` | stdio / http |
+| [Antigravity](https://antigravity.google/docs/mcp) | JSON | `mcpServers` | `~/.gemini/config/mcp_config.json` | stdio / http |
 | [Augment Code](https://docs.augmentcode.com/cli/integrations) | JSON | `mcpServers` | `~/.augment/settings.json` | stdio / http |
 | [BoltAI](https://docs.boltai.com/docs/plugins/mcp-servers) | JSON | `mcpServers` | `~/.boltai/mcp.json` | stdio |
 | [Claude Code](https://docs.anthropic.com/en/docs/claude-code/mcp) | JSON | `mcpServers` | `~/.claude.json` | stdio / http |
-| [Claude Desktop](https://modelcontextprotocol.io/quickstart/user) | JSON | `mcpServers` | `~/Library/Application Support/Claude/claude_desktop_config.json` | stdio |
+| [Claude](https://modelcontextprotocol.io/quickstart/user) | JSON | `mcpServers` | `~/Library/Application Support/Claude/claude_desktop_config.json` | stdio |
 | [ChatMCP](https://github.com/daodao97/chatmcp) | JSON | `mcpServers` | `~/Library/Application Support/ChatMcp/mcp_server.json` | stdio / http |
 | [Cline](https://docs.cline.bot/mcp/configuring-mcp-servers) | JSON | `mcpServers` | `~/.cline/data/settings/cline_mcp_settings.json` | stdio / http |
 | [Cline Desktop](https://cline.bot/desktop) | - | - | 只读目录 | - |
 | [CodeBuddy Code](https://www.codebuddy.ai/docs/cli/mcp) | JSON | `mcpServers` | `~/.codebuddy/.mcp.json` | stdio / http |
-| [海外 WorkBuddy AI](https://www.workbuddy.ai/docs/) | JSON | `mcpServers` | `~/.workbuddy-ai/mcp.json` | stdio / http / sse |
-| [中国 WorkBuddy](https://www.workbuddy.cn/docs/) | JSON | `mcpServers` | `~/.workbuddy/mcp.json` | stdio / http / sse |
+| [WorkBuddy AI](https://www.workbuddy.ai/docs/) | JSON | `mcpServers` | `~/.workbuddy-ai/mcp.json` | stdio / http / sse |
+| [WorkBuddy](https://www.workbuddy.cn/docs/) | JSON | `mcpServers` | `~/.workbuddy/mcp.json` | stdio / http / sse |
 | [CodeWhale](https://github.com/Hmbown/CodeWhale/blob/main/docs/MCP.md) | JSON | `servers` | `~/.codewhale/mcp.json` | stdio / http |
 | [Codex CLI](https://developers.openai.com/codex/mcp) | TOML | `mcp_servers` | `~/.codex/config.toml` | stdio / http |
-| [Codex Desktop](https://developers.openai.com/codex) | TOML | `mcp_servers` | `~/.codex/config.toml` | stdio / http |
+| [ChatGPT](https://developers.openai.com/codex) | TOML | `mcp_servers` | `~/.codex/config.toml` | stdio / http |
 | [Continue](https://docs.continue.dev/customize/deep-dives/mcp) | YAML | `mcpServers` | `~/.continue/config.yaml` | stdio / http |
 | [GitHub Copilot CLI](https://docs.github.com/en/copilot/how-tos/use-copilot-agents/coding-agent/extend-coding-agent-with-mcp) | JSON | `mcpServers` | `~/.copilot/mcp-config.json` | stdio / http |
 | [Crush](https://github.com/charmbracelet/crush#model-context-protocol-mcp) | JSON | `mcp` | `~/.config/crush/crush.json` | stdio / http |
@@ -56,17 +56,17 @@ Model 能力由 Rust Core 统一提供；MiniMax Code、Qoder IDE、Kimi Code CL
 | [JetBrains Junie](https://www.jetbrains.com/help/junie/model-context-protocol-mcp.html) | JSON | `mcpServers` | `~/.junie/mcp/mcp.json` | stdio / http |
 | [Kilo Code CLI](https://kilo.ai/docs/automate/mcp/using-in-kilo-code) | JSON | `mcp` | `~/.config/kilo/kilo.jsonc` | stdio / http |
 | [Kimi Code CLI](https://www.kimi.com/code/docs/en/kimi-code-cli/customization/mcp.html) | JSON | `mcpServers` | `~/.kimi-code/mcp.json` | stdio / http |
-| [Kimi Code Desktop](https://www.kimi.com/code/docs/en/kimi-code-desktop/getting-started.html) | JSON | `mcpServers` | `~/.kimi-code/mcp.json` | stdio / http / sse |
+| [Kimi Code](https://www.kimi.com/code/docs/en/kimi-code-desktop/getting-started.html) | JSON | `mcpServers` | `~/.kimi-code/mcp.json` | stdio / http / sse |
 | [Kiro](https://kiro.dev/docs/mcp/configuration/) | JSON | `mcpServers` | `~/.kiro/settings/mcp.json` | stdio / http |
 | [LM Studio](https://lmstudio.ai/docs/app/plugins/mcp) | JSON | `mcpServers` | `~/.lmstudio/mcp.json` | stdio / http |
 | [MiniMax Code](https://agent.minimax.io/download) | JSON | `mcpServers` | `~/.mavis/mcp.json` | stdio / http |
 | [Mistral Vibe](https://docs.mistral.ai/vibe/code/cli/mcp-servers) | TOML | `mcp_servers` | `~/.vibe/config.toml` | stdio / http |
 | [OpenCode](https://opencode.ai/docs/mcp-servers/) | JSON | `mcp` | `~/.config/opencode/opencode.json` | stdio / http |
-| [OpenCode Desktop](https://opencode.ai/docs/mcp-servers/) | JSON | `mcp` | `~/.config/opencode/opencode.json` | stdio / http |
+| [OpenCode](https://opencode.ai/docs/mcp-servers/) | JSON | `mcp` | `~/.config/opencode/opencode.json` | stdio / http |
 | [OpenHands CLI](https://docs.openhands.dev/openhands/usage/cli/mcp-servers) | JSON | `mcpServers` | `~/.openhands/mcp.json` | stdio / http |
 | [Pi Coding Agent](https://github.com/nicobailon/pi-mcp-adapter) | JSON | `mcpServers` | `~/.pi/agent/mcp.json` | stdio / http |
-| [Qoder IDE](https://docs.qoder.com/user-guide/chat/model-context-protocol) | JSON | `mcpServers` | `~/.qoder/mcp.json` | stdio / http |
-| [Qoder Desktop](https://docs.qoder.com/qoder/connectors) | JSON | `mcpServers` | `~/.qoder/settings.json` | stdio / http |
+| [Qoder](https://docs.qoder.com/user-guide/chat/model-context-protocol) | JSON | `mcpServers` | `~/.qoder/mcp.json` | stdio / http |
+| [Qoder](https://docs.qoder.com/qoder/connectors) | JSON | `mcpServers` | `~/.qoder/settings.json` | stdio / http |
 | [Qoder CLI](https://docs.qoder.com/en/cli/mcp-servers) | JSON | `mcpServers` | `~/.qoder/settings.json` | stdio / http |
 | [QoderWork](https://docs.qoder.com/qoderwork/connectors) | JSON | `mcpServers` | `~/.qoderwork/mcp.json` | stdio / http |
 | [Qwen Code](https://qwenlm.github.io/qwen-code-docs/en/users/features/mcp/) | JSON | `mcpServers` | `~/.qwen/settings.json` | stdio / http |
@@ -86,11 +86,11 @@ Model 能力由 Rust Core 统一提供；MiniMax Code、Qoder IDE、Kimi Code CL
 - **Pi**：Pi 核心不内置 MCP。MUX 的定义只适用于已安装社区 `pi-mcp-adapter` 的环境，因此界面明确标为社区扩展。
 - **Devin / Cline Desktop / Freebuff**：产品提供 Agent 能力，但没有核验到稳定的用户级全局文件契约，因此只提供目录展示和启动入口，不提供配置写入。
 - **QoderWork**：用户自定义 MCP 保存在 `~/.qoderwork/mcp.json`，使用 `mcpServers`；MUX 不修改客户端数据目录中的内置 MCP。远程连接按官方导入格式写为 `streamable-http` 或 `sse`。
-- **Qoder IDE / CLI / Desktop**：三个独立入口。IDE（原 `qoder`）继续使用 `~/.qoder/mcp.json`；新 Desktop（`qoder-desktop`，0.1.x）与 CLI（`qoder-cli`）共用 `~/.qoder/settings.json`，修改同名 MCP 会影响两者。Desktop 0.1.8 的自定义 Models 可由 MUX 写入同文件的 `providers`，重启后在会话中选用；CLI 1.1.50+ 同样支持自动写入自定义 Models，并通过 `model.name` 切换当前模型；新版 Desktop Skills 的本地写入契约尚未核验。
+- **Qoder / CLI / Desktop**：三个独立入口。IDE（原 `qoder`）继续使用 `~/.qoder/mcp.json`；新 Desktop（`qoder-desktop`，0.1.x）与 CLI（`qoder-cli`）共用 `~/.qoder/settings.json`，修改同名 MCP 会影响两者。Desktop 0.1.8 的自定义 Models 可由 MUX 写入同文件的 `providers`，重启后在会话中选用；CLI 1.1.50+ 同样支持自动写入自定义 Models，并通过 `model.name` 切换当前模型；新版 Desktop Skills 的本地写入契约尚未核验。
 - **入口类型**：添加 Agent 时只选择 CLI、Desktop、IDE、Plugin。启动设置沿用这个类型，只改程序、参数和工作目录，不能再改成另一种入口。没有 Web 类型。
 - **Codex CLI / Desktop**：两个独立入口。Desktop 打开 `/Applications/ChatGPT.app`。两边共用 `~/.codex/config.toml` 与 `~/.agents/skills`。模型 writer 在 Codex CLI 上，写入同一份配置。
 - **Cursor IDE / CLI**：两个独立启动入口，但共用 `~/.cursor/mcp.json` 与 `~/.cursor/skills`；Cursor CLI 当前使用 `agent` 命令，MUX 同时兼容旧版 `cursor-agent`。因此 MCP 与 Skills 的物理文件影响会合并显示，启动与 Agent 身份仍保持分开；Models 和 API 凭据继续由 Cursor 自身管理。
-- **Claude Desktop / BoltAI**：列出的本地文件只原生支持 stdio。远程 MCP 分别由 Claude Connectors 或 BoltAI 的 `mcp-remote` 方案管理。
+- **Claude / BoltAI**：列出的本地文件只原生支持 stdio。远程 MCP 分别由 Claude Connectors 或 BoltAI 的 `mcp-remote` 方案管理。
 - **Goose**：通用文档示例使用 `~/.config/goose/config.yaml`，当前 macOS 源码实际采用 `~/Library/Application Support/Block/goose/config/config.yaml`；MUX 按运行时代码定位。
 - **Grok Build**：MCP 与自定义模型共用 `~/.grok/config.toml`。MUX 分别局部管理 `mcp_servers`、`[models].default` 和独立的 MUX 模型表，支持三种官方 API backend，并保留其他模型、认证、超时、权限和工具策略。认证只写 `env_key` 变量名，不写密钥正文。
 - **Step Code**：2026-09-23 按阶跃星辰官方文档核验。MCP 只写 `~/.stepcode/config.toml` 的 `mcp_servers`，远程连接使用 `url` 与 `http_headers`，不写旧 SSE。`auth.json` 与 `models.json` 继续由 Step Code 管理。Skills 首选 `~/.stepcode/agent/skills`，并兼容读取 `~/.agents/skills`。启动使用 `~/.stepcode/bin/step`，不探测裸 `step` 命令。
@@ -134,7 +134,7 @@ MUX 当前只管理用户级全局配置，不提供项目级写入。
 
 下一步 → [常见问题](/guide/faq)
 
-## Kimi Code Desktop
+## Kimi Code
 
 2026-09-17 按官方文档与 Desktop 1.0.1 安装包核验。`kimi-code-desktop` 与 `kimi-code` 是独立身份，共用 MCP 文件和 Skills 目录；同一物理配置上的变更会影响两者，MUX 复用共享目标冲突保护。新增 MCP 后需创建新会话。
 
@@ -142,8 +142,8 @@ MUX 当前只管理用户级全局配置，不提供项目级写入。
 
 Models 提供原生配置引导：Desktop 在 Settings → Providers 添加，CLI 使用 `/provider`。两者默认共用 `~/.kimi-code/config.toml`；`api_key` 与 `providers.env` 都是明文值，不是环境变量引用，当前不自动导出 MUX Keychain 密钥。
 
-## OpenCode Desktop
+## OpenCode
 
 OpenCode CLI 与 Desktop 共用本机全局配置和 Skills 目录。Desktop 启动 `OpenCode.app`；修改全局默认模型会影响两端，远程服务配置需要在服务所在主机管理。
 
-海外 WorkBuddy AI 的用户级 Skills 位于 `~/.workbuddy-ai/skills`，中国 WorkBuddy 位于 `~/.workbuddy/skills`；两版独立分配资源，分别启动 WorkBuddy AI.app 和 WorkBuddy.app。MUX 通过中央库软链接分配 Skills，Models 使用各版原生配置指引。MCP 原生开关只修改 `disabled`，更新保留 `disabledTools`、`timeout` 与其他未知字段。
+WorkBuddy AI 的用户级 Skills 位于 `~/.workbuddy-ai/skills`，WorkBuddy 位于 `~/.workbuddy/skills`；两版独立分配资源，分别启动 WorkBuddy AI.app 和 WorkBuddy.app。MUX 通过中央库软链接分配 Skills，Models 使用各版原生配置指引。MCP 原生开关只修改 `disabled`，更新保留 `disabledTools`、`timeout` 与其他未知字段。

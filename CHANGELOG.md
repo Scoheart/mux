@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.219](https://github.com/Scoheart/mux/compare/v1.8.218...v1.8.219) (2026-09-26)
+
+### Changes
+
+* feat(desktop): improve keyboard and Computer Use accessibility ([0c38348](https://github.com/Scoheart/mux/commit/0c38348ae1d9cdcbed18a05fc5d15774ec2ce5fa))
+
 ## [1.8.218](https://github.com/Scoheart/mux/compare/v1.8.217...v1.8.218) (2026-09-26)
 
 ### Changes

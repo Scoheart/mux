@@ -77,3 +77,5 @@ Official assets retrieved 2026-09-07 (original bytes; ICO retained without conve
 - WorkBuddy: official favicon from https://download.codebuddy.ai/web/workbuddy/00aa368996ce0f8793afd87db1bcdf458d8ba952/assets/logo.svg (2026-09-08). CodeBuddy IDE shares the official CodeBuddy logo with CLI and uses the IDE surface marker.
 
 `kimi-code-desktop.png` is the unmodified `Contents/Resources/build/icon.png` from the official [Kimi Code Desktop arm64 installer](https://code.kimi.com/kimi-code/desktop/download/KimiCode-mac-arm64.dmg), version 1.0.1, retrieved 2026-09-17. DMG SHA-256: `a4fbecb10cda6518feb5a8d1e857e9f926629a1f66088e20f478d1319469ae0a`. It intentionally uses the new Desktop icon rather than the historical CLI asset.
+
+- WorkBuddy 中国版 (`workbuddy-cn`) 与海外版 (`workbuddy`) 共享官方 WorkBuddy 品牌图标；安装包 identity、launcher 与配置目标独立（2026-09-27）。

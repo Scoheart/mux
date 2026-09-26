@@ -81,7 +81,7 @@ const VERIFIED_SKILL_AGENT_IDS: &[&str] = &[
     "warp",
     "windsurf",
     "workbuddy",
-    "zed",
+    "workbuddy-cn",    "zed",
     "zencoder",
 ];
 const DEFAULT_SKILL_FIXTURE_AGENT_IDS: &[&str] = &[
@@ -148,6 +148,7 @@ impl SkillsFixture {
                 "qoder-cli" => home.home.join(".qoder"),
                 "qoderwork" => home.home.join(".qoderwork"),
                 "workbuddy" => home.home.join(".workbuddy-ai"),
+                "workbuddy-cn" => home.home.join(".workbuddy"),
                 "qwen-code" => home.home.join(".qwen"),
                 "qwenwork" => home.home.join(".qwenwork"),
                 "qwenwork-cn" => home.home.join(".qwenworkcn"),
@@ -600,6 +601,7 @@ fn primary_agent_for_target(target_id: &str) -> &'static str {
         "qoder-user" => "qoder-cli",
         "qoderwork-user" => "qoderwork",
         "workbuddy-ai-user" => "workbuddy",
+        "workbuddy-cn-user" => "workbuddy-cn",
         "qwen-user" => "qwen-code",
         "qwenwork-user" => "qwenwork",
         "qwenwork-cn-user" => "qwenwork-cn",

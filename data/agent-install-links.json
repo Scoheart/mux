@@ -275,6 +275,10 @@
     "url": "https://www.workbuddy.ai/docs/workbuddy/Quickstart",
     "label": "安装文档"
   },
+  "workbuddy-cn": {
+    "url": "https://www.workbuddy.cn/docs/workbuddy/Quickstart",
+    "label": "安装文档"
+  },
   "qwenwork": {
     "url": "https://qwenwork.ai/#download",
     "label": "官方下载"

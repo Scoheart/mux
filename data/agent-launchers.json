@@ -418,6 +418,12 @@
       "WorkBuddy AI"
     ]
   },
+  "workbuddy-cn": {
+    "kind": "app",
+    "candidates": [
+      "WorkBuddy"
+    ]
+  },
   "zcode": {
     "kind": "app",
     "candidates": [

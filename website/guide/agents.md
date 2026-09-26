@@ -35,7 +35,8 @@ Model 能力由 Rust Core 统一提供；MiniMax Code、Qoder IDE、Kimi Code CL
 | [Cline](https://docs.cline.bot/mcp/configuring-mcp-servers) | JSON | `mcpServers` | `~/.cline/data/settings/cline_mcp_settings.json` | stdio / http |
 | [Cline Desktop](https://cline.bot/desktop) | - | - | 只读目录 | - |
 | [CodeBuddy Code](https://www.codebuddy.ai/docs/cli/mcp) | JSON | `mcpServers` | `~/.codebuddy/.mcp.json` | stdio / http |
-| [WorkBuddy AI](https://www.workbuddy.ai/docs/) | JSON | `mcpServers` | `~/.workbuddy-ai/mcp.json` | stdio / http / sse |
+| [WorkBuddy AI（海外版）](https://www.workbuddy.ai/docs/) | JSON | `mcpServers` | `~/.workbuddy-ai/mcp.json` | stdio / http / sse |
+| [WorkBuddy（中国版）](https://www.workbuddy.cn/docs/) | JSON | `mcpServers` | `~/.workbuddy/mcp.json` | stdio / http / sse |
 | [CodeWhale](https://github.com/Hmbown/CodeWhale/blob/main/docs/MCP.md) | JSON | `servers` | `~/.codewhale/mcp.json` | stdio / http |
 | [Codex CLI](https://developers.openai.com/codex/mcp) | TOML | `mcp_servers` | `~/.codex/config.toml` | stdio / http |
 | [Codex Desktop](https://developers.openai.com/codex) | TOML | `mcp_servers` | `~/.codex/config.toml` | stdio / http |
@@ -145,4 +146,4 @@ Models 提供原生配置引导：Desktop 在 Settings → Providers 添加，CL
 
 OpenCode CLI 与 Desktop 共用本机全局配置和 Skills 目录。Desktop 启动 `OpenCode.app`；修改全局默认模型会影响两端，远程服务配置需要在服务所在主机管理。
 
-WorkBuddy AI 的用户级 Skills 位于 `~/.workbuddy-ai/skills`；MUX 通过中央库软链接分配，Models 使用原生配置指引。MCP 配置更新保留 `disabled`、`disabledTools`、`timeout` 与其他未知字段。
+WorkBuddy AI（海外版）的用户级 Skills 位于 `~/.workbuddy-ai/skills`，WorkBuddy（中国版）位于 `~/.workbuddy/skills`；两版独立分配资源，分别启动 WorkBuddy AI.app 和 WorkBuddy.app。MUX 通过中央库软链接分配 Skills，Models 使用各版原生配置指引。MCP 原生开关只修改 `disabled`，更新保留 `disabledTools`、`timeout` 与其他未知字段。

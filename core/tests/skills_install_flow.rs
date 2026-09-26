@@ -13,6 +13,24 @@ use std::os::unix::fs::symlink;
 use support::skills::{assert_managed_link, MockGithub, SkillsFixture, FIXTURE_SHA};
 
 #[test]
+fn workbuddy_editions_assign_distinct_user_skill_targets() {
+    let fixture = SkillsFixture::installed_agents(&["workbuddy", "workbuddy-cn"]);
+    let resolution = fixture.resolve_local(&["alpha"]);
+    let plan = plan_install(PlanInstallRequest {
+        resolution_id: resolution.operation_id,
+        skill_names: vec!["alpha".into()],
+        agent_ids: vec!["workbuddy".into(), "workbuddy-cn".into()],
+        replace_conflicts: false,
+    }).unwrap();
+    let targets = plan.targets.iter().map(|target| target.target_id.as_str()).collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(targets, std::collections::BTreeSet::from(["workbuddy-ai-user", "workbuddy-cn-user"]));
+    commit_install(plan.confirmation()).unwrap();
+    for target in ["workbuddy-ai-user", "workbuddy-cn-user"] {
+        assert_managed_link(fixture.agent_target(target, "alpha"), fixture.central("alpha"));
+    }
+}
+
+#[test]
 fn workbuddy_links_only_its_user_target_and_preserves_marketplace_metadata() {
     let fixture = SkillsFixture::installed_agents(&["workbuddy"]);
     let resolution = fixture.resolve_local(&["alpha"]);

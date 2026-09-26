@@ -112,6 +112,7 @@ const VERIFIED_SKILL_AGENT_IDS: &[&str] = &[
     "warp",
     "windsurf",
     "workbuddy",
+    "workbuddy-cn",
     "zcode",
     "zed",
     "zencoder",

@@ -43,6 +43,44 @@ fn fixture(name: &str) -> &'static str {
 }
 
 #[test]
+fn workbuddy_editions_keep_independent_paths_launchers_and_native_pause_state() {
+    let home = mux_core::testenv::TestHome::new("workbuddy-editions");
+    let agents = builtin_agents();
+    let launchers: Value = serde_json::from_str(include_str!("../../data/agent-launchers.json")).unwrap();
+    let mut paths = Vec::new();
+    for (id, directory, launcher, domain, target_id) in [
+        ("workbuddy", ".workbuddy-ai", "WorkBuddy AI", "www.workbuddy.ai", "workbuddy-ai-user"),
+        ("workbuddy-cn", ".workbuddy", "WorkBuddy", "www.workbuddy.cn", "workbuddy-cn-user"),
+    ] {
+        let agent = &agents[id];
+        assert_eq!(agent.global.as_deref(), Some(format!("~/{directory}/mcp.json").as_str()));
+        assert!(agent.project.is_none());
+        assert!(agent.docs.as_ref().unwrap().contains(domain));
+        assert_eq!(agent.skills.as_ref().unwrap().target_id, target_id);
+        assert_eq!(agent.skills.as_ref().unwrap().global_dir, format!("~/{directory}/skills"));
+        assert!(agent.skills.as_ref().unwrap().aliases.is_empty());
+        assert_eq!(launchers[id]["candidates"], serde_json::json!([launcher]));
+        let path = home.home.join(directory).join("mcp.json");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, fixture("workbuddy")).unwrap();
+        paths.push(path);
+    }
+    let overseas_before = std::fs::read(&paths[0]).unwrap();
+    let domestic = get_agent_adapter_for(&agents["workbuddy-cn"], "workbuddy-cn");
+    let config = http("https://cn.example.test/mcp");
+    domestic.upsert(&paths[1], "docs", &config).unwrap();
+    assert_eq!(domestic.read(&paths[1])["docs"], normalize_with_codec(from_name(Some("workbuddy"), "workbuddy-cn"), &config));
+    let snapshot = domestic.snapshot(&paths[1], "docs").unwrap().unwrap();
+    domestic.set_enabled(&paths[1], "docs", false, &snapshot).unwrap();
+    assert!(!domestic.read_with_enabled(&paths[1])["docs"].1);
+    assert_eq!(std::fs::read(&paths[0]).unwrap(), overseas_before);
+    let domestic_before = std::fs::read(&paths[1]).unwrap();
+    let overseas = get_agent_adapter_for(&agents["workbuddy"], "workbuddy");
+    overseas.remove(&paths[0], &["docs".into()]).unwrap();
+    assert_eq!(std::fs::read(&paths[1]).unwrap(), domestic_before);
+}
+
+#[test]
 fn workbuddy_roundtrip_preserves_policy_and_paused_state_and_rejects_invalid_entries() {
     let home = mux_core::testenv::TestHome::new("workbuddy-formats");
     let path = home.home.join("mcp.json");
@@ -887,6 +925,7 @@ fn builtin_global_paths_match_current_product_docs() {
         ),
         ("vt-code", "~/.vtcode/vtcode.toml"),
         ("workbuddy", "~/.workbuddy-ai/mcp.json"),
+        ("workbuddy-cn", "~/.workbuddy/mcp.json"),
         ("warp", "~/.warp/.mcp.json"),
         ("windsurf", "~/.codeium/windsurf/mcp_config.json"),
         ("zed", "~/.config/zed/settings.json"),
@@ -909,16 +948,16 @@ fn verified_and_catalog_definitions_have_auditable_boundaries() {
     let all_ids: std::collections::BTreeSet<_> =
         verified_ids.union(&catalog_ids).cloned().collect();
 
-    assert_eq!(verified.len(), 71);
+    assert_eq!(verified.len(), 72);
     assert_eq!(catalog.len(), 204);
     assert_eq!(verified_ids.intersection(&catalog_ids).count(), 48);
-    assert_eq!(all_ids.len(), 227);
+    assert_eq!(all_ids.len(), 228);
     assert_eq!(
         verified
             .values()
             .filter(|item| item.global.is_some())
         .count(),
-        58
+        59
     );
     assert!(catalog.len() >= 170);
     for (id, definition) in verified {

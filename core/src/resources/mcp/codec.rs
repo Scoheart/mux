@@ -173,7 +173,7 @@ pub struct EntryPatch {
 
 pub fn for_agent(agent_id: &str) -> Codec {
     match agent_id {
-        "workbuddy" => Codec::WorkBuddy,
+        "workbuddy" | "workbuddy-cn" => Codec::WorkBuddy,
         "claude-desktop" => Codec::ClaudeDesktop,
         "claude-code" | "amazon-q" => Codec::ExplicitType,
         "cursor" | "zed" | "kiro" | "junie" | "pi" => Codec::UrlInferred,

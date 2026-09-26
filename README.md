@@ -325,11 +325,14 @@ Agent pages include an installation status and an official download or installat
 guide link. Detection checks declared executable/application probes, not configuration
 directories; unavailable probes show an unknown state. Refocus MUX after installation to refresh detection. MUX opens the vendor page and does not run installers.
 
-CodeBuddy is listed as three products: CodeBuddy CLI (existing `codebuddy-code` ID),
-CodeBuddy IDE, and WorkBuddy. WorkBuddy AI supports user-level MCP management in
-`~/.workbuddy-ai/mcp.json`, including stdio, HTTP, and SSE servers. User-level Skills are
-linked from the central library into `~/.workbuddy-ai/skills`. Models use native
-setup guides. CodeBuddy IDE remains guided-only; MUX does not reuse CLI paths for either desktop product. See [WorkBuddy integration](docs/workbuddy.md).
+CodeBuddy CLI (`codebuddy-code`), CodeBuddy IDE, and the two WorkBuddy editions
+are separate Agents. **WorkBuddy AI（海外版）** (`workbuddy`) uses
+`~/.workbuddy-ai/mcp.json` and `~/.workbuddy-ai/skills`, launching `WorkBuddy AI.app`.
+**WorkBuddy（中国版）** (`workbuddy-cn`) uses `~/.workbuddy/mcp.json` and
+`~/.workbuddy/skills`, launching `WorkBuddy.app`. Both support stdio, HTTP, SSE,
+native MCP pause, and central Skill links. Their resources are assigned independently;
+existing overseas assignments stay intact. Models use each edition's native guide.
+CodeBuddy IDE remains guided-only. See [WorkBuddy integration](docs/workbuddy.md).
 
 ZCode Desktop 自定义模型接入与凭据交付说明见 [ZCode Models](docs/zcode-models.md)。
 

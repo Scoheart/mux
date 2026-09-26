@@ -1,14 +1,32 @@
-# WorkBuddy AI integration
+# WorkBuddy editions
 
-MUX manages user-level custom MCP servers for the international WorkBuddy AI
-desktop app (`WorkBuddy AI.app`) in `~/.workbuddy-ai/mcp.json` under `mcpServers`.
-User-level Skills are linked into `~/.workbuddy-ai/skills`; Models remain native guided setup. The domestic `.workbuddy` directory
-and CodeBuddy CLI configuration are separate targets and are not inferred.
+MUX exposes two independent desktop Agents. Both support user-level MCP under
+`mcpServers`, native MCP pause, and central Skill symlinks. Models use each
+edition's native setup guide.
+
+| Edition | MUX ID | App | MCP | Skills | Official site |
+| --- | --- | --- | --- | --- | --- |
+| WorkBuddy AI（海外版） | `workbuddy` | `WorkBuddy AI.app` | `~/.workbuddy-ai/mcp.json` | `~/.workbuddy-ai/skills` | https://www.workbuddy.ai/ |
+| WorkBuddy（中国版） | `workbuddy-cn` | `WorkBuddy.app` | `~/.workbuddy/mcp.json` | `~/.workbuddy/skills` | https://www.workbuddy.cn/ |
+
+The existing `workbuddy` ID and `workbuddy-ai-user` Skill target retain all
+overseas assignments. China uses the new `workbuddy-cn` ID and
+`workbuddy-cn-user` target. Neither edition aliases the other's directories or
+launcher. Adding China does not copy assignments, import external assets, or
+change either app's configuration.
 
 ## Evidence (2026-09-27)
 
 - Official documentation: https://www.workbuddy.ai/docs/workbuddy/Overview
 - Connector guide: https://www.workbuddy.ai/docs/workbuddy/From-Beginner-to-Expert-Guide/Function-Description/Connector
+- China documentation: https://www.workbuddy.cn/docs/workbuddy/Overview
+- China connector guide: https://www.workbuddy.cn/docs/workbuddy/From-Beginner-to-Expert-Guide/Function-Description/Connector
+- Both official 5.6.2 apps were inspected locally. China declares bundle ID
+  `com.tencent.workbuddy.mac`, `dataFolderName: .workbuddy`, and endpoint
+  `https://www.workbuddy.cn`; overseas declares bundle ID
+  `com.workbuddy.workbuddy-ai`, `.workbuddy-ai`, and `https://www.workbuddy.ai`.
+  The two packages implement the same `UserMcpFile`, `toTransport`, Skills root,
+  and directory-symlink scanning contract, so they share the codec only.
 - User-provided WorkBuddy AI 5.6.2 configuration editor shows the user-level path
   and an empty `mcpServers` object. The file may not exist until first save.
 - Read-only inspection of the installed official app's `app.asar` confirms

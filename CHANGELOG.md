@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.213](https://github.com/Scoheart/mux/compare/v1.8.212...v1.8.213) (2026-09-26)
+
+### Changes
+
+* fix(agents): use official WorkBuddy documentation domain ([3c00ceb](https://github.com/Scoheart/mux/commit/3c00ceb9df5d2a4d51844331115d543306df8936))
+
 ## [1.8.212](https://github.com/Scoheart/mux/compare/v1.8.211...v1.8.212) (2026-09-26)
 
 ### Changes

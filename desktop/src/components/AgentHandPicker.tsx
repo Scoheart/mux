@@ -53,7 +53,8 @@ export function AgentHandPicker({ agents: allAgents, pinnedIds, selectedAgentId,
   const lock = useRef(false);
   const mounted = useRef(true);
   const entered = useRef(false);
-  const previousPage = useRef(0);
+  const pageGhostsRef = useRef<HTMLDivElement>(null);
+  const pageTurn = useRef<-1 | 1 | null>(null);
   const keyboard = useRef(false);
   const focusFrame = useRef<number | null>(null);
 
@@ -71,9 +72,7 @@ export function AgentHandPicker({ agents: allAgents, pinnedIds, selectedAgentId,
   const pageCount = Math.max(1, Math.ceil(items.length / pageSize));
   const actualPage = Math.min(page, pageCount - 1);
   useHandTrackpadPaging(stageRef, pageCount > 1 && !busy && !saving && !replacement, (pages) => {
-    if (lock.current) return;
-    setPage((current) => Math.max(0, Math.min(pageCount - 1, Math.min(current, pageCount - 1) + pages)));
-    setHighlighted(null);
+    turnPage(actualPage + pages);
   });
   const visible = items.slice(actualPage * pageSize, (actualPage + 1) * pageSize);
   const handSpan = Math.min(viewportWidth * .6, width - 32);
@@ -95,10 +94,59 @@ export function AgentHandPicker({ agents: allAgents, pinnedIds, selectedAgentId,
   });
   const handKey = `${visible.map(({ id }) => id).join("\0")}:${width}:${viewportWidth}`;
 
+  const clearPageGhosts = (layer = pageGhostsRef.current) => {
+    if (!layer) return;
+    layer.getAnimations({ subtree: true }).forEach((motion) => motion.cancel());
+    layer.replaceChildren();
+  };
+
+  const turnPage = (requested: number) => {
+    if (lock.current || saving || replacement) return;
+    const next = Math.max(0, Math.min(pageCount - 1, requested));
+    if (next === actualPage) return;
+    const direction = next > actualPage ? 1 : -1;
+    clearPageGhosts();
+    // Keep only a visual copy of the outgoing hand. The real buttons update
+    // immediately, so rapid reversals never queue navigation or lock input.
+    const layer = pageGhostsRef.current;
+    if (layer && !reducedMotion()) {
+      visible.forEach(({ id }, index) => {
+        const card = cardRefs.current.get(id);
+        if (!card) return;
+        const style = getComputedStyle(card);
+        const ghost = card.cloneNode(true) as HTMLElement;
+        ghost.removeAttribute("data-hand-id");
+        ghost.removeAttribute("data-dealing");
+        ghost.setAttribute("inert", "");
+        ghost.querySelectorAll("[id]").forEach((node) => node.removeAttribute("id"));
+        ghost.querySelectorAll<HTMLElement>("button").forEach((node) => { node.tabIndex = -1; });
+        const tile = ghost.querySelector<HTMLElement>(".mux-agent-hand-tile");
+        const originalTile = card.querySelector<HTMLElement>(".mux-agent-hand-tile");
+        if (tile && originalTile) {
+          tile.style.transform = getComputedStyle(originalTile).transform;
+          tile.style.transition = "none";
+        }
+        layer.append(ghost);
+        const point = positions[index];
+        const order = direction > 0 ? index : visible.length - index - 1;
+        const motion = ghost.animate([
+          { transform: style.transform, opacity: style.opacity },
+          { transform: pose(point.x - direction * 120, point.y + 32, point.angle - direction * 14, .82), opacity: 0 },
+        ], { duration: 220, delay: order * 9, easing: "cubic-bezier(.4,0,.8,.3)", fill: "both" });
+        motion.onfinish = () => { motion.cancel(); ghost.remove(); };
+      });
+    }
+    pageTurn.current = direction;
+    setPage(next);
+    setHighlighted(null);
+  };
+
   useEffect(() => {
     mounted.current = true;
+    const ghostLayer = pageGhostsRef.current;
     return () => {
       mounted.current = false; entered.current = false;
+      clearPageGhosts(ghostLayer);
       if (focusFrame.current !== null) cancelAnimationFrame(focusFrame.current);
       motions.current.forEach((motion) => motion.cancel()); motions.current.clear();
     };
@@ -155,8 +203,9 @@ export function AgentHandPicker({ agents: allAgents, pinnedIds, selectedAgentId,
     const bounds = board.getBoundingClientRect();
     const source = triggerRef.current?.getBoundingClientRect();
     const first = !entered.current;
-    const pageDirection = actualPage < previousPage.current ? -1 : 1;
-    previousPage.current = actualPage;
+    const direction = pageTurn.current;
+    pageTurn.current = null;
+    if (!direction) clearPageGhosts();
     const pile = pose(first && source ? source.left + source.width / 2 - bounds.left - cardWidth / 2 : width / 2 - cardWidth / 2,
       first && source ? source.top + source.height / 2 - bounds.top - cardHeight / 2 : 115, -10, .4);
     const deals: Animation[] = [];
@@ -165,14 +214,20 @@ export function AgentHandPicker({ agents: allAgents, pinnedIds, selectedAgentId,
       if (!card || reducedMotion()) return;
       if (first) card.dataset.dealing = "true";
       const point = positions[index];
-      // Only opening deals from a pile. Paging keeps the hand in place and
-      // never disables its hit area or restarts a staggered entrance.
+      // A page turns like exchanging a hand of cards: a compact incoming fan
+      // spreads out in the navigation direction while the old hand leaves.
+      if (!first && !direction) return;
+      const order = direction === -1 ? visible.length - index - 1 : index;
+      const travel = direction ?? 1;
+      const centerX = width / 2 - cardWidth / 2;
       const frames = first
         ? [{ transform: pile, opacity: 0 }, { transform: card.style.transform, opacity: 1 }]
-        : [{ transform: pose(point.x + pageDirection * 24, point.y, point.angle) }, { transform: card.style.transform }];
+        : [{ transform: pose(centerX + (point.x - centerX) * .3 + travel * Math.min(180, width * .24),
+          point.y + 28, point.angle * .35 + travel * 12, .86), opacity: 0 },
+          { transform: card.style.transform, opacity: 1 }];
       const motion = card.animate(frames, {
-        duration: first ? 250 : 130,
-        delay: first ? index * Math.min(28, 168 / Math.max(1, visible.length - 1)) : 0,
+        duration: first ? 250 : 360,
+        delay: first ? index * Math.min(28, 168 / Math.max(1, visible.length - 1)) : order * 14,
         easing: "cubic-bezier(.2,.8,.2,1)", fill: "backwards",
       });
       deals.push(motion); motions.current.add(motion);
@@ -190,6 +245,7 @@ export function AgentHandPicker({ agents: allAgents, pinnedIds, selectedAgentId,
 
   const begin = () => {
     if (lock.current || saving) return false;
+    clearPageGhosts();
     lock.current = true; setBusy(true); setHighlighted(null); return true;
   };
   const finish = () => { lock.current = false; if (mounted.current) { setBusy(false); setPlaying(null); } };
@@ -341,7 +397,7 @@ export function AgentHandPicker({ agents: allAgents, pinnedIds, selectedAgentId,
       </div>
       <div ref={stageRef} className="mux-agent-hand-stage">
       {pageCount > 1 && <button type="button" className="mux-agent-hand-page mux-agent-hand-page-prev" aria-label="上一手 Agent" title="上一页"
-        disabled={actualPage === 0 || busy || saving || Boolean(replacement)} onClick={() => { setPage(actualPage - 1); setHighlighted(null); }}><ArrowLeftIcon className="w-5 h-5" /></button>}
+        disabled={actualPage === 0 || busy || saving || Boolean(replacement)} onClick={() => turnPage(actualPage - 1)}><ArrowLeftIcon className="w-5 h-5" /></button>}
       <div ref={boardRef} className="mux-agent-hand-board" style={{ height: Math.max(234, cardHeight + metrics.rise + 76) }} onPointerLeave={() => { if (!keyboard.current) setHighlighted(null); }}
         onPointerMove={(event) => {
           if (busy || replacement || event.buttons !== 0 || (!event.movementX && !event.movementY)) return;
@@ -363,6 +419,7 @@ export function AgentHandPicker({ agents: allAgents, pinnedIds, selectedAgentId,
           const point = positions[nearest];
           setHighlighted(point && distance < cardWidth * .65 && y > point.y - 32 && y < point.y + cardHeight + 5 ? visible[nearest].id : null);
         }}>
+        <div ref={pageGhostsRef} className="mux-agent-hand-outgoing" aria-hidden="true" />
         {visible.map(({ id, agent }, index) => <article key={`hand-slot-${index}`} ref={(node) => { if (node) cardRefs.current.set(id, node); else cardRefs.current.delete(id); }}
           data-hand-id={id} className="mux-agent-hand-card" data-highlighted={highlighted === id || undefined} data-playing={playing === id || undefined}
           data-new={!agent || undefined} style={{ width: cardWidth, height: cardHeight, transform: pose(positions[index].x, positions[index].y, positions[index].angle), "--hand-order": index } as CSSProperties}>
@@ -390,7 +447,7 @@ export function AgentHandPicker({ agents: allAgents, pinnedIds, selectedAgentId,
         {!visible.length && <p className="mux-agent-hand-empty">{query ? "未找到匹配的 Agent" : "点击卡片上的图钉，将常用 Agent 放到这里"}</p>}
       </div>
       {pageCount > 1 && <button type="button" className="mux-agent-hand-page mux-agent-hand-page-next" aria-label="下一手 Agent" title="下一页"
-        disabled={actualPage + 1 === pageCount || busy || saving || Boolean(replacement)} onClick={() => { setPage(actualPage + 1); setHighlighted(null); }}><ArrowLeftIcon className="w-5 h-5 rotate-180" /></button>}
+        disabled={actualPage + 1 === pageCount || busy || saving || Boolean(replacement)} onClick={() => turnPage(actualPage + 1)}><ArrowLeftIcon className="w-5 h-5 rotate-180" /></button>}
       </div>
       <div className="mux-agent-hand-pagination">
         {pageCount > 1 && <nav aria-label="Agent 分页">
@@ -398,7 +455,7 @@ export function AgentHandPicker({ agents: allAgents, pinnedIds, selectedAgentId,
             className="mux-agent-hand-dot" aria-label={`第 ${index + 1} 页，共 ${pageCount} 页`}
             aria-current={actualPage === index ? "page" : undefined} title={`第 ${index + 1} 页`}
             disabled={busy || saving || Boolean(replacement)}
-            onClick={() => { setPage(index); setHighlighted(null); }} />)}
+            onClick={() => turnPage(index)} />)}
         </nav>}
       </div>
       <div className="mux-agent-hand-footer">

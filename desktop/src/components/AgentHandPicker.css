@@ -43,6 +43,8 @@
 .mux-agent-hand-filters button[aria-pressed="true"] { background: var(--surface-selected); color: var(--color-blue); }
 .mux-agent-hand-stage { position: relative; overscroll-behavior-x: contain; }
 .mux-agent-hand-board { position: relative; width: 100%; height: 234px; margin: 5px 0 0; overflow: visible; }
+.mux-agent-hand-outgoing { position: absolute; inset: 0; z-index: 1; pointer-events: none; }
+.mux-agent-hand-outgoing * { pointer-events: none !important; }
 .mux-agent-hand-card { position: absolute; top: 0; left: 0; transform-origin: center; z-index: calc(10 + var(--hand-order)); }
 .mux-agent-hand-card[data-highlighted], .mux-agent-hand-card[data-playing] { z-index: 100; }
 .mux-agent-hand-card[data-dealing] { pointer-events: none; }
@@ -62,7 +64,7 @@
 .mux-agent-hand-pagination { display: flex; min-height: 24px; align-items: center; justify-content: center; }
 .mux-agent-hand-pagination > nav { display: flex; max-width: 100%; flex-wrap: wrap; justify-content: center; gap: 2px; }
 .mux-agent-hand-dot { display: grid; place-items: center; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 12px; background: transparent; cursor: pointer; touch-action: manipulation; }
-.mux-agent-hand-dot::after { content: ""; width: 6px; height: 6px; border-radius: 4px; background: var(--text-secondary); opacity: .3; }
+.mux-agent-hand-dot::after { content: ""; width: 6px; height: 6px; border-radius: 4px; background: var(--text-secondary); opacity: .3; transition: width .22s ease, opacity .22s ease, background .22s ease; }
 .mux-agent-hand-dot:hover:not(:disabled)::after { opacity: .65; }
 .mux-agent-hand-dot[aria-current="page"]::after { width: 18px; background: var(--color-blue); opacity: 1; }
 .mux-agent-hand-dot:disabled { cursor: default; }
@@ -92,6 +94,7 @@
   .mux-agent-hand-announcement { min-height: 18px; margin-top: 5px; }
 }
 @media (prefers-reduced-motion: reduce) {
+  .mux-agent-hand-outgoing { display: none; }
   .mux-agent-hand-search-content, .mux-agent-hand-search, .mux-agent-hand-return { animation: none; transition: none; }
   .mux-agent-hand-dot::after, .mux-agent-hand-tile, .mux-hand-dock .mux-pinned-agent, .mux-agent-hand-page, .mux-agent-hand-page > svg { transition: none; }
   .mux-agent-hand-page:hover:not(:disabled), .mux-agent-hand-page:active:not(:disabled) { transform: translateY(-50%); }

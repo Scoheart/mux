@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.214](https://github.com/Scoheart/mux/compare/v1.8.213...v1.8.214) (2026-09-26)
+
+### Changes
+
+* feat(workbuddy): manage native user MCP and Skills ([1027f6e](https://github.com/Scoheart/mux/commit/1027f6e039d462e2f3fece4df7e2f766bd6ec77f))
+
 ## [1.8.213](https://github.com/Scoheart/mux/compare/v1.8.212...v1.8.213) (2026-09-26)
 
 ### Changes

@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.222](https://github.com/Scoheart/mux/compare/v1.8.221...v1.8.222) (2026-09-26)
+
+### Changes
+
+* fix(agents): use actual app names across all surfaces ([f8aadd8](https://github.com/Scoheart/mux/commit/f8aadd82f39be45a84dfafcf403d38f982f96435))
+
 ## [1.8.221](https://github.com/Scoheart/mux/compare/v1.8.220...v1.8.221) (2026-09-26)
 
 ### Changes

@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.216](https://github.com/Scoheart/mux/compare/v1.8.215...v1.8.216) (2026-09-26)
+
+### Changes
+
+* fix(desktop): smooth interrupted Agent hand paging ([b568d51](https://github.com/Scoheart/mux/commit/b568d517754e868b161315726284fd19eb660f46))
+
 ## [1.8.215](https://github.com/Scoheart/mux/compare/v1.8.214...v1.8.215) (2026-09-26)
 
 ### Changes

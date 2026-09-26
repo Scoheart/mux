@@ -194,6 +194,10 @@ export function SearchBar({
       />
       <input
         type="search"
+        autoComplete="off"
+        autoCorrect="off"
+        autoCapitalize="none"
+        spellCheck={false}
         placeholder={placeholder}
         aria-label={ariaLabel ?? placeholder ?? "搜索"}
         data-modal-initial-focus={autoFocus || undefined}
@@ -315,6 +319,13 @@ function acquireElementInert(root: HTMLElement): () => void {
 export function acquireRootInert(): () => void {
   const root = document.getElementById("root");
   return root ? acquireElementInert(root) : () => undefined;
+}
+
+/** Keep names concise while distinguishing resources that share a display name. */
+export function pickerOptionLabels(options: ReadonlyArray<{ id: string; name: string }>): Map<string, string> {
+  const counts = new Map<string, number>();
+  for (const option of options) counts.set(option.name, (counts.get(option.name) ?? 0) + 1);
+  return new Map(options.map(({ id, name }) => [id, (counts.get(name) ?? 0) > 1 ? `${name}（${id}）` : name]));
 }
 
 /** Arrow keys move between candidates; Enter/Space still select explicitly. */

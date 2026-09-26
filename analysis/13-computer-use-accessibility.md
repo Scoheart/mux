@@ -28,12 +28,12 @@ flowchart LR
 | 发现 | 原因及影响 | 实现 |
 | --- | --- | --- |
 | 搜索框打开后失焦 | `SearchBar` 的原生 `autoFocus` 之后，Modal 下一帧又聚焦标题；需要额外点击搜索框 | `desktop/src/components/ui.tsx:173` 为自动聚焦搜索框声明初始焦点；Modal 统一选择可见焦点目标 |
-| 叠加弹窗留下可交互下层 | 之前只对 `#root` 设置 inert，挂到 body 的下层 portal 没被隔离 | `desktop/src/components/ui.tsx:243` 登记已挂载窗口，按 DOM 层级隔离非顶层 overlay；关闭后恢复原 inert 状态 |
-| 关闭后焦点恢复不可靠 | 在子控件自动聚焦之后才记录 opener，可能记录到即将卸载的输入框 | `desktop/src/components/ui.tsx:347` 在渲染时保存入口，卸载后仅向仍连接且属于当前层的入口恢复焦点 |
+| 叠加弹窗留下可交互下层 | 之前只对 `#root` 设置 inert，挂到 body 的下层 portal 没被隔离 | `desktop/src/components/ui.tsx:250` 登记已挂载窗口，按 DOM 层级隔离非顶层 overlay；关闭后恢复原 inert 状态 |
+| 关闭后焦点恢复不可靠 | 在子控件自动聚焦之后才记录 opener，可能记录到即将卸载的输入框 | `desktop/src/components/ui.tsx:358` 在渲染时保存入口，卸载后仅向仍连接且属于当前层的入口恢复焦点 |
 | Agent 需要手牌翻页定位 | 没有全局直接入口，选择还需等待装饰过渡 | `desktop/src/components/AgentNavigation.tsx:26` 增加 Cmd/Ctrl+K；`desktop/src/components/AgentHandPicker.tsx:342` 提供立即进入路径 |
 | 资源卡片多、动作重名 | 操作目标需要依赖位置和临近文字判断 | `desktop/src/components/AgentConsumptionPanel.tsx:38` 给收录、恢复等动作加资源名称及来源/目标；`:244` 增加当前资源筛选 |
 | 中央 MCP 同名项难区分 | 同名的不同来源共用相同可访问名称 | `desktop/src/components/RegistryView.tsx:506` 名称补充 transport 与来源，不包含 URL 或凭据 |
-| 候选列表缺少方向键约定 | 用户/Agent 需要逐个 Tab 或鼠标定位 | `desktop/src/components/ui.tsx:321` 共用候选导航；两个 picker 使用简短名称与单独描述 |
+| 候选列表缺少方向键约定 | 用户/Agent 需要逐个 Tab 或鼠标定位 | `desktop/src/components/ui.tsx:332` 共用候选导航；两个 picker 使用简短名称与单独描述 |
 | 通知易错过 | 成功/错误均很快消失且缺乏状态语义 | `desktop/src/components/Toast.tsx:20` 成功为 status，6 秒消失；失败为 alert，保留到明确关闭；清理卸载计时器 |
 
 ### Agent 快速入口
@@ -63,6 +63,8 @@ flowchart LR
 
 候选名称与描述分离，避免长描述成为控件主名称。该设计参考 [W3C Listbox Pattern](https://www.w3.org/WAI/ARIA/apg/patterns/listbox/) 对清晰选项名称、焦点和选择状态的区分。
 
+安装版验收发现仅保留名称仍不能区分同名、不同协议的 MCP。两个 picker 因此共用 `pickerOptionLabels`：只有重名时才附上资产 ID（例如 `firecrawl（firecrawl::http）`），基于完整候选列表生成，筛选前后标签保持一致。共享搜索框同时关闭自动纠正与拼写检查，避免把资源标识改成自然语言或弹出建议浮层。
+
 筛选不会改变“全部启用/停用/移除”的范围；这些按钮仍作用于当前能力下的完整列表，并走原有处理及必要确认。
 
 ## 给使用者和 Agent 的操作约定
@@ -90,3 +92,5 @@ flowchart LR
 新增 `desktop/src/components/ComputerUseAccessibility.test.tsx`，覆盖弹窗搜索焦点、下层隔离与恢复、禁用候选跳过、候选导航不自动提交、同名 Agent 歧义、输入法 Enter、编辑弹窗保护以及错误通知保留；原资源动作名称的用例同步调整，并补充资源筛选场景。
 
 按当前仓库极速交付规则，本次不执行自动化测试套件。交付经过生产编译、正式 Release 资产复验，并在安装版上验收实际快捷键与可访问性行为；对应运行结果在本次交付说明中记录。未把静态截图作为帧率或端到端耗时测试证据。
+
+v1.8.219 原生窗口中已验证：Cmd+K 自动聚焦搜索；输入 `opencode-desktop` 后 Enter 直接进入；添加 MCPs 自动聚焦搜索；搜索 `context7` 后 Down 仅聚焦，Enter 选中但未提交；Escape 取消；Cursor 的 Cmd+F 搜索将 6 项筛成 1 项。复验发现的同名候选与拼写建议问题由后续修正提交处理。

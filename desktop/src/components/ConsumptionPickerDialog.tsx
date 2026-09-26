@@ -3,7 +3,7 @@ import { useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { formatError } from "../lib/format";
 import { DialogShell } from "./DialogShell";
 import { RefreshIcon } from "./icons";
-import { navigatePickerOptions, SearchBar } from "./ui";
+import { navigatePickerOptions, pickerOptionLabels, SearchBar } from "./ui";
 
 export interface ConsumptionPickerOption {
   id: string;
@@ -41,6 +41,7 @@ export function ConsumptionPickerDialog({
   onClose(): void;
 }) {
   const pickerId = useId();
+  const optionLabels = useMemo(() => pickerOptionLabels(options), [options]);
   const [query, setQuery] = useState("");
   const [selectedIds, setSelectedIds] = useState(() => new Set<string>());
   const [busy, setBusy] = useState(false);
@@ -123,7 +124,7 @@ export function ConsumptionPickerDialog({
           <button
             key={option.id}
             data-picker-option
-            aria-label={option.name}
+            aria-label={optionLabels.get(option.id)}
             aria-describedby={option.description || option.reason ? `${pickerId}-${encodeURIComponent(option.id)}` : undefined}
             type="button"
             role={mode === "single" ? "option" : undefined}

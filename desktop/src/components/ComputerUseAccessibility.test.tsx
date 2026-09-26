@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DialogShell } from "./DialogShell";
 import { SearchBar } from "./ui";
 import { ResourcePickerDialog } from "./ResourcePickerDialog";
+import { ConsumptionPickerDialog } from "./ConsumptionPickerDialog";
 import { AgentNavigation } from "./AgentNavigation";
 import { ToastProvider, useToast } from "./Toast";
 import type { AgentInfo } from "../lib/types";
@@ -29,6 +30,16 @@ function Dialogs() {
 }
 
 describe("Computer Use interaction contract", () => {
+  it("distinguishes equal candidate names by asset ID and disables search correction", () => {
+    render(<ConsumptionPickerDialog title="添加 MCPs" subtitle="测试 Agent" mode="multiple"
+      actionLabel="添加" options={[{ id: "firecrawl::stdio", name: "firecrawl" }, { id: "firecrawl::http", name: "firecrawl" }]}
+      onSelect={vi.fn()} onClose={() => undefined} />);
+    expect(screen.getByRole("button", { name: "firecrawl（firecrawl::stdio）" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "firecrawl（firecrawl::http）" })).toBeEnabled();
+    expect(screen.getByRole("searchbox")).toHaveAttribute("spellcheck", "false");
+    expect(screen.getByRole("searchbox")).toHaveAttribute("autocorrect", "off");
+  });
+
   it("keeps search focus, makes the lower dialog inert, and restores its opener", async () => {
     render(<Dialogs />);
     await waitFor(() => expect(screen.getByRole("searchbox", { name: "搜索第一层" })).toHaveFocus());

@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.212](https://github.com/Scoheart/mux/compare/v1.8.211...v1.8.212) (2026-09-26)
+
+### Changes
+
+* feat(agents): integrate official OpenCode Desktop ([0bf5822](https://github.com/Scoheart/mux/commit/0bf58221cacd9d00679f1b60affe9351dffd6c58))
+
 ## [1.8.211](https://github.com/Scoheart/mux/compare/v1.8.210...v1.8.211) (2026-09-23)
 
 ### Changes

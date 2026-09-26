@@ -62,6 +62,7 @@ const SUPPLEMENTAL = {
   "sema4": ["Sema4.ai", "https://sema4.ai/docs/build-agents/mcp", "agent-platform"],
   "trae-agent": ["TRAE Agent", "https://github.com/bytedance/TRAE-agent", "cli"],
   "trae-ide": ["TRAE IDE", "https://docs.trae.ai/ide/model-context-protocol", "ide"],
+  "workbuddy": ["WorkBuddy", "https://www.workbuddy.ai/docs/workbuddy/Overview", "desktop"],
   "visual-studio": ["Visual Studio", "https://learn.microsoft.com/en-us/visualstudio/ide/mcp-servers", "ide"],
 };
 

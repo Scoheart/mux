@@ -3485,7 +3485,7 @@
   "workbuddy": {
     "name": "WorkBuddy",
     "category": "desktop",
-    "docs": "https://www.codebuddy.ai/docs/workbuddy/Overview",
+    "docs": "https://www.workbuddy.ai/docs/workbuddy/Overview",
     "note": "在 WorkBuddy 内管理连接器、模型和技能；用户级存储路径尚未核验。",
     "global": null,
     "project": null,

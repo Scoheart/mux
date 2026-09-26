@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.218](https://github.com/Scoheart/mux/compare/v1.8.217...v1.8.218) (2026-09-26)
+
+### Changes
+
+* feat(workbuddy): separate China and international apps ([5a733e1](https://github.com/Scoheart/mux/commit/5a733e10fa1a7449b5e52088531e173f3ecb73bd))
+
 ## [1.8.217](https://github.com/Scoheart/mux/compare/v1.8.216...v1.8.217) (2026-09-26)
 
 ### Changes

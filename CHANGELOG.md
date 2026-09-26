@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.215](https://github.com/Scoheart/mux/compare/v1.8.214...v1.8.215) (2026-09-26)
+
+### Changes
+
+* feat(desktop): animate Agent hand page transitions ([981c46d](https://github.com/Scoheart/mux/commit/981c46d00ea32bb4e62956ca9bd7dc7ac6852682))
+
 ## [1.8.214](https://github.com/Scoheart/mux/compare/v1.8.213...v1.8.214) (2026-09-26)
 
 ### Changes

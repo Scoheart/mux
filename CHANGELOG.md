@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.220](https://github.com/Scoheart/mux/compare/v1.8.219...v1.8.220) (2026-09-26)
+
+### Changes
+
+* fix(workbuddy): keep edition visible in compact labels ([013ce4a](https://github.com/Scoheart/mux/commit/013ce4a29743c6df5c571de7d585b496df289edb))
+
 ## [1.8.219](https://github.com/Scoheart/mux/compare/v1.8.218...v1.8.219) (2026-09-26)
 
 ### Changes

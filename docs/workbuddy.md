@@ -26,8 +26,11 @@ and CodeBuddy CLI configuration are separate targets and are not inferred.
 
 The WorkBuddy codec changes only connection fields. It preserves timeout,
 description, deferred loading, disabled tools, unknown fields, and sibling
-servers. Disabled entries are excluded from active observations and rejected
-for update; MUX does not silently re-enable them. Invalid disabled flags,
+servers. Paused entries remain visible as installed and disabled. The enable/disable
+actions change only the native `disabled` boolean, preserving the complete
+entry in place. Connection updates preserve its paused state; explicit desired
+state reconciliation applies the requested enable flag. Older MUX off-disk
+snapshots can still be restored when no live entry exists. Invalid disabled flags,
 malformed JSON, duplicate keys, and invalid MCP containers fail closed.
 
 Existing files use the shared JSON adapter and in-place safe writer, preserving

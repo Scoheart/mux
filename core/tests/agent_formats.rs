@@ -43,7 +43,7 @@ fn fixture(name: &str) -> &'static str {
 }
 
 #[test]
-fn workbuddy_roundtrip_preserves_policy_and_rejects_inactive_or_invalid_entries() {
+fn workbuddy_roundtrip_preserves_policy_and_paused_state_and_rejects_invalid_entries() {
     let home = mux_core::testenv::TestHome::new("workbuddy-formats");
     let path = home.home.join("mcp.json");
     std::fs::write(&path, fixture("workbuddy")).unwrap();
@@ -76,9 +76,12 @@ fn workbuddy_roundtrip_preserves_policy_and_rejects_inactive_or_invalid_entries(
     });
     adapter.upsert(&path, "docs", &local).unwrap();
     assert_eq!(adapter.read(&path)["docs"], local);
-    let before = std::fs::read(&path).unwrap();
-    assert!(adapter.upsert(&path, "paused", &http("https://example.test/mcp")).is_err());
-    assert_eq!(std::fs::read(&path).unwrap(), before);
+    adapter.upsert(&path, "paused", &McpConfig::Http(HttpConfig {
+        kind: "http".into(), url: "https://paused.example.test/mcp".into(), headers: None,
+    })).unwrap();
+    let paused: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    assert_eq!(paused["mcpServers"]["paused"]["disabled"], true);
+    assert!(!adapter.read(&path).contains_key("paused"));
     adapter.remove(&path, &["docs".into()]).unwrap();
     let remaining: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
     assert_eq!(remaining["x-workbuddy"], original["x-workbuddy"]);

@@ -45,19 +45,20 @@ pub fn collapse_home(path: &str) -> String {
     path.to_string()
 }
 
-fn read_section(
-    definition: &AgentDefinition,
-    agent_id: &str,
-    path: &Path,
-) -> BTreeMap<String, McpConfig> {
-    get_agent_adapter_for(definition, agent_id).read(path)
-}
-
 pub fn scan_agents(
     agents: &BTreeMap<String, AgentDefinition>,
     project_dir: Option<&Path>,
     scan_all: bool,
 ) -> Vec<ScannedMcp> {
+    scan_agents_with_enabled(agents, project_dir, scan_all).into_iter()
+        .filter_map(|(entry, enabled)| enabled.then_some(entry)).collect()
+}
+
+pub fn scan_agents_with_enabled(
+    agents: &BTreeMap<String, AgentDefinition>,
+    project_dir: Option<&Path>,
+    scan_all: bool,
+) -> Vec<(ScannedMcp, bool)> {
     let mut out = Vec::new();
     for (name, def) in agents {
         if !scan_all && !def.enabled {
@@ -65,26 +66,26 @@ pub fn scan_agents(
         }
         if let Some(g) = &def.global {
             let path = expand_tilde(g);
-            for (mcp_name, cfg) in read_section(def, name, &path) {
-                out.push(ScannedMcp {
+            for (mcp_name, (cfg, enabled)) in get_agent_adapter_for(def, name).read_with_enabled(&path) {
+                out.push((ScannedMcp {
                     name: mcp_name,
                     config: cfg,
                     agent: name.clone(),
                     scope: "global".into(),
                     file_path: path.display().to_string(),
-                });
+                }, enabled));
             }
         }
         if let (Some(proj), Some(base)) = (&def.project, project_dir) {
             let path = base.join(proj);
-            for (mcp_name, cfg) in read_section(def, name, &path) {
-                out.push(ScannedMcp {
+            for (mcp_name, (cfg, enabled)) in get_agent_adapter_for(def, name).read_with_enabled(&path) {
+                out.push((ScannedMcp {
                     name: mcp_name,
                     config: cfg,
                     agent: name.clone(),
                     scope: "project".into(),
                     file_path: path.display().to_string(),
-                });
+                }, enabled));
             }
         }
     }

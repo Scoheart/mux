@@ -259,12 +259,17 @@ pub fn normalize_with_codec(codec: Codec, config: &McpConfig) -> McpConfig {
 impl Codec {
     /// Reject an existing entry that the Agent explicitly marks inactive. MUX
     /// must not silently rewrite a disabled entry and present it as effective.
+    /// Native-toggle codecs validate the flag here and filter active reads separately.
     pub fn validate_existing_entry(self, value: &Value) -> Result<(), String> {
         let object = value
             .as_object()
             .ok_or_else(|| "MCP entry is not an object".to_string())?;
         match self {
-            Codec::WorkBuddy => validate_active_field(object.get("disabled"), false, "disabled")?,
+            Codec::WorkBuddy => {
+                if object.get("disabled").is_some_and(|value| !value.is_boolean()) {
+                    return Err("MCP entry switch 'disabled' is not a boolean".into());
+                }
+            },
             Codec::QwenWork => {
                 validate_active_field(object.get("enabled"), true, "enabled")?;
                 if object.contains_key("_builtinId")
@@ -289,13 +294,32 @@ impl Codec {
     }
 
     pub fn validate_update(self, value: &Value, config: &McpConfig) -> Result<(), String> {
-        self.validate_existing_entry(value)?;
+        if self == Codec::WorkBuddy {
+            self.decode_with_enabled(value).ok_or("invalid WorkBuddy MCP entry")?;
+        } else {
+            self.validate_existing_entry(value)?;
+        }
         let _ = config;
         Ok(())
     }
 
+    pub fn decode_with_enabled(self, value: &Value) -> Option<(McpConfig, bool)> {
+        if self != Codec::WorkBuddy {
+            return self.decode(value).map(|config| (config, true));
+        }
+        let disabled = match value.as_object()?.get("disabled") {
+            None => false,
+            Some(Value::Bool(disabled)) => *disabled,
+            _ => return None,
+        };
+        self.decode_flat(value).map(|config| (config, !disabled))
+    }
+
     pub fn decode(self, value: &Value) -> Option<McpConfig> {
         self.validate_existing_entry(value).ok()?;
+        if self == Codec::WorkBuddy && value.get("disabled") == Some(&Value::Bool(true)) {
+            return None;
+        }
         if self == Codec::Cline {
             if let Some(transport) = value.as_object().and_then(|object| object.get("transport")) {
                 return self.decode_flat(transport);

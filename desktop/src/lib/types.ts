@@ -292,7 +292,7 @@ export interface AgentConfigurationPatch {
 export interface InstalledMcp {
   name: string; agent: string; scope: string; file_path: string; transport: string;
   customized?: boolean;
-  /** Whether the server is active in the agent's config (true) or merely
+  /** Whether the server is active in the agent's config (true) or paused natively /
    *  remembered in MUX's disabled store (false). */
   enabled: boolean;
   observation_fingerprint: string;

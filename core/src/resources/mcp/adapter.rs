@@ -16,6 +16,15 @@ pub trait Adapter {
     /// (it stays on disk, it just isn't surfaced). A missing file, unparseable
     /// content, or absent key degrade gracefully to an empty map.
     fn read(&self, path: &Path) -> BTreeMap<String, McpConfig>;
+    /// Observe installed entries including an Agent's native paused state.
+    fn read_with_enabled(&self, path: &Path) -> BTreeMap<String, (McpConfig, bool)> {
+        self.read(path).into_iter().map(|(name, config)| (name, (config, true))).collect()
+    }
+    fn supports_native_enabled(&self) -> bool { false }
+    /// Change only the native state flag, bound to the complete observed entry.
+    fn set_enabled(&self, _path: &Path, _name: &str, _enabled: bool, _snapshot: &Value) -> Result<(), String> {
+        Err("Agent does not support a native MCP enabled flag".into())
+    }
     /// Insert or update a SINGLE server by name under `key`, leaving every other
     /// entry's raw on-disk representation untouched. Within an existing target,
     /// only codec-owned connection fields change; user policy fields survive.

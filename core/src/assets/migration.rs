@@ -12,7 +12,7 @@ use crate::paths::{local_sources_dir, settings_file};
 use crate::resources::mcp::disabled::load_disabled;
 use crate::resources::mcp::ops::scan_installed;
 use crate::resources::mcp::registry::read_registry;
-use crate::resources::mcp::scanner::scan_agents;
+use crate::resources::mcp::scanner::scan_agents_with_enabled;
 use crate::settings::load_settings_strict;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -251,18 +251,22 @@ pub fn plan_mcp_adoption(request: PlanMcpAdoptionRequest) -> Result<AssetOperati
 
 fn observed_configs() -> Vec<ObservedConfig> {
     let agents = load_agents();
-    let mut observed = scan_agents(&agents, None, true)
+    let mut observed = scan_agents_with_enabled(&agents, None, true)
         .into_iter()
-        .filter(|item| item.scope == "global")
-        .map(|item| ObservedConfig {
+        .filter(|(item, _)| item.scope == "global")
+        .map(|(item, enabled)| ObservedConfig {
             asset_key: format!("{}::{}", item.name, transport_of(&item.config)),
             agent_id: item.agent,
-            enabled: true,
+            enabled,
             config: item.config,
         })
         .collect::<Vec<_>>();
     for (agent_id, entries) in load_disabled() {
         for entry in entries.into_iter().filter(|entry| entry.scope == "global") {
+            if observed.iter().any(|item| item.agent_id == agent_id
+                && item.asset_key == format!("{}::{}", entry.name, entry.transport)) {
+                continue;
+            }
             observed.push(ObservedConfig {
                 asset_key: format!("{}::{}", entry.name, entry.transport),
                 agent_id: agent_id.clone(),

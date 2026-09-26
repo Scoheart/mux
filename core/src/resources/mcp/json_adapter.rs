@@ -310,6 +310,12 @@ impl JsonAdapter {
 
 impl Adapter for JsonAdapter {
     fn read(&self, path: &Path) -> BTreeMap<String, McpConfig> {
+        self.read_with_enabled(path).into_iter()
+            .filter_map(|(name, (config, enabled))| enabled.then_some((name, config)))
+            .collect()
+    }
+
+    fn read_with_enabled(&self, path: &Path) -> BTreeMap<String, (McpConfig, bool)> {
         let Ok((root, _)) = self.read_document(path) else {
             return BTreeMap::new();
         };
@@ -326,10 +332,40 @@ impl Adapter for JsonAdapter {
                 let name = property.name()?.decoded_value().ok()?;
                 property
                     .to_serde_value()
-                    .and_then(|value| self.codec.decode(&value))
+                    .and_then(|value| self.codec.decode_with_enabled(&value))
                     .map(|cfg| (name, cfg))
             })
             .collect()
+    }
+
+    fn supports_native_enabled(&self) -> bool {
+        self.codec == Codec::WorkBuddy
+    }
+
+    fn set_enabled(&self, path: &Path, name: &str, enabled: bool, snapshot: &Value) -> Result<(), String> {
+        if !self.supports_native_enabled() {
+            return Err("Agent does not support a native MCP enabled flag".into());
+        }
+        let (root, original) = self.read_document(path)?;
+        let object = root.object_value().ok_or("MCP root is not an object")?;
+        let section = self.section_object(object, path, false)?.ok_or("MCP section is missing")?;
+        Self::ensure_unique_keys(&section, path, &self.key)?;
+        let property = section.get(name).ok_or("MCP entry is missing")?;
+        let value = property.value().ok_or("MCP entry has no value")?;
+        Self::ensure_unique_nested_keys(&value, path, &format!("{}.{}", self.key, name))?;
+        let current = property.to_serde_value().ok_or("MCP entry is invalid")?;
+        if &current != snapshot {
+            return Err("MCP entry changed while MUX was preparing its enabled state".into());
+        }
+        let (_, current_enabled) = self.codec.decode_with_enabled(&current).ok_or("invalid WorkBuddy MCP entry")?;
+        if current_enabled == enabled { return Ok(()); }
+        let target = property.object_value().ok_or("MCP entry is not an object")?;
+        if let Some(flag) = target.get("disabled") {
+            flag.set_value(CstInputValue::Bool(!enabled));
+        } else {
+            target.append("disabled", CstInputValue::Bool(!enabled));
+        }
+        self.write_document(path, &root, original.as_deref())
     }
 
     fn upsert(&self, path: &Path, name: &str, cfg: &McpConfig) -> Result<(), String> {

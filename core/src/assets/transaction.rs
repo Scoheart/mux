@@ -2233,8 +2233,9 @@ fn reapply_mcp_consumers_for_agents(
                 .and_then(|records| records.get(agent_id))
                 .and_then(|records| records.get(key))
                 .is_none_or(|record| record.enabled);
-            if !enabled {
-                ops::disable(
+            if !enabled || ops::uses_native_enabled_state(agent_id) {
+                let set_enabled = if enabled { ops::enable } else { ops::disable };
+                set_enabled(
                     name,
                     transport,
                     "global",
@@ -2658,10 +2659,11 @@ fn apply_mcp(
         .into_iter()
         .map(|entry| entry.key())
         .collect();
-    let exact_observed: BTreeSet<(String, String)> = ops::scan_installed(None)
+    let exact_observed: BTreeMap<(String, String), bool> = ops::scan_installed(None)
         .into_iter()
-        .filter(|item| item.scope == "global" && item.enabled && !item.customized)
-        .map(|item| (item.agent, format!("{}::{}", item.name, item.transport)))
+        .filter(|item| item.scope == "global" && !item.customized
+            && (item.enabled || ops::uses_native_enabled_state(&item.agent)))
+        .map(|item| ((item.agent, format!("{}::{}", item.name, item.transport)), item.enabled))
         .collect();
     for agent_id in union_keys(before, after) {
         if blocked_agents.contains(agent_id) {
@@ -2683,7 +2685,7 @@ fn apply_mcp(
             for key in left.difference(&right) {
                 if release_orphaned_relationships
                     && (!central_keys.contains(key)
-                        || !exact_observed.contains(&(agent_id.clone(), key.clone())))
+                        || !exact_observed.contains_key(&(agent_id.clone(), key.clone())))
                 {
                     continue;
                 }
@@ -2701,7 +2703,11 @@ fn apply_mcp(
             // delta. This lets an ordinary add/update repair a prior local
             // target incident instead of preserving missing historical entries.
             for key in &right {
-                if exact_observed.contains(&(agent_id.clone(), key.clone())) {
+                let desired_enabled = settings.mcp_consumptions.as_ref()
+                    .and_then(|records| records.get(agent_id))
+                    .and_then(|records| records.get(key))
+                    .is_none_or(|record| record.enabled);
+                if exact_observed.get(&(agent_id.clone(), key.clone())) == Some(&desired_enabled) {
                     continue;
                 }
                 let (name, transport) = split_mcp_key(key)?;
@@ -2727,8 +2733,9 @@ fn apply_mcp(
                     .and_then(|records| records.get(agent_id))
                     .and_then(|records| records.get(key))
                     .is_none_or(|record| record.enabled);
-                if !enabled {
-                    ops::disable(
+                if !enabled || ops::uses_native_enabled_state(agent_id) {
+                    let set_enabled = if enabled { ops::enable } else { ops::disable };
+                    set_enabled(
                         name,
                         transport,
                         "global",

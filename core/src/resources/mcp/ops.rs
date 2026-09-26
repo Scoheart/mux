@@ -23,7 +23,7 @@ use crate::resources::mcp::registry::{
     delete_discovered_entry, delete_registry_entry, read_registry, write_discovered_entry,
     write_manual_entry,
 };
-use crate::resources::mcp::scanner::{expand_tilde, scan_agents};
+use crate::resources::mcp::scanner::{expand_tilde, scan_agents, scan_agents_with_enabled};
 use crate::safe_write::{acquire_settings_lock, SettingsLock};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
@@ -671,7 +671,7 @@ pub struct InstalledMcp {
     #[serde(default)]
     pub customized: bool,
     /// Whether this server is currently active in the agent's config file
-    /// (`true`) or merely remembered in MUX's disabled store (`false`).
+    /// (`true`) or paused natively / remembered in MUX's disabled store (`false`).
     #[serde(default)]
     pub enabled: bool,
     /// Secret-free digest of the exact observed entry. Consumers use it for
@@ -679,10 +679,10 @@ pub struct InstalledMcp {
     pub observation_fingerprint: String,
 }
 
-fn observation_fingerprint(config: &McpConfig) -> String {
+fn observation_fingerprint(config: &McpConfig, enabled: bool) -> String {
     // env/headers are HashMaps: their iteration order changes on every scan.
     // Bind observations to configuration content, not incidental key order.
-    let mut value = serde_json::to_value(config).expect("MCP configuration serializes");
+    let mut value = serde_json::to_value((config, enabled)).expect("MCP configuration serializes");
     value.sort_all_objects();
     let bytes = serde_json::to_vec(&value).expect("MCP configuration serializes");
     hex::encode(Sha256::digest(bytes))
@@ -705,10 +705,10 @@ pub fn scan_installed(project_dir: Option<&str>) -> Vec<InstalledMcp> {
         .collect();
     let agents = load_agents();
     let pd = project_dir.map(Path::new);
-    let mut out: Vec<InstalledMcp> = scan_agents(&agents, pd, true)
+    let mut out: Vec<InstalledMcp> = scan_agents_with_enabled(&agents, pd, true)
         .into_iter()
-        .map(|s| {
-            let observation_fingerprint = observation_fingerprint(&s.config);
+        .map(|(s, enabled)| {
+            let observation_fingerprint = observation_fingerprint(&s.config, enabled);
             let transport = transport_of(&s.config);
             let key = format!("{}::{}", s.name, transport);
             let customized = base_map
@@ -733,14 +733,14 @@ pub fn scan_installed(project_dir: Option<&str>) -> Vec<InstalledMcp> {
                 file_path: s.file_path,
                 transport: transport.to_string(),
                 customized,
-                enabled: true,
+                enabled,
                 observation_fingerprint,
             }
         })
         .collect();
     // Append MUX-remembered disabled servers so a UI can show an "off" row for a
     // server removed from the file but re-enable-able.
-    let active: HashSet<(String, String, String, String)> = out
+    let live: HashSet<(String, String, String, String)> = out
         .iter()
         .map(|i| {
             (
@@ -753,8 +753,8 @@ pub fn scan_installed(project_dir: Option<&str>) -> Vec<InstalledMcp> {
         .collect();
     for (agent, list) in load_disabled() {
         for d in list {
-            // Edge case: if somehow also present in the file, the active row wins.
-            if active.contains(&(
+            // A live native row, including a paused one, wins over a legacy snapshot.
+            if live.contains(&(
                 agent.clone(),
                 d.name.clone(),
                 d.transport.clone(),
@@ -763,7 +763,7 @@ pub fn scan_installed(project_dir: Option<&str>) -> Vec<InstalledMcp> {
                 continue;
             }
             let key = format!("{}::{}", d.name, d.transport);
-            let observation_fingerprint = observation_fingerprint(&d.config);
+            let observation_fingerprint = observation_fingerprint(&d.config, false);
             let customized = base_map
                 .get(&key)
                 .map(|base| {
@@ -876,7 +876,40 @@ pub fn forget_entry(name: &str, transport: &str) -> Result<(), Vec<String>> {
     Ok(())
 }
 
-/// Disable a server: durably snapshot its complete semantic entry, then remove it
+pub fn uses_native_enabled_state(agent_id: &str) -> bool {
+    load_agents().get(agent_id)
+        .is_some_and(|definition| get_agent_adapter_for(definition, agent_id).supports_native_enabled())
+}
+
+/// A present native entry is authoritative over any legacy off-disk snapshot.
+/// Return false only for unsupported Agents or missing entries (legacy restore).
+fn set_native_enabled_if_present(
+    agent_id: &str,
+    definition: &AgentDefinition,
+    name: &str,
+    transport: &str,
+    scope: &str,
+    project_dir: Option<&str>,
+    enabled: bool,
+    timestamp: &str,
+) -> Result<bool, String> {
+    let adapter = get_agent_adapter_for(definition, agent_id);
+    if !adapter.supports_native_enabled() { return Ok(false); }
+    let path = target_file(definition, scope, project_dir).ok_or("target config path is unavailable")?;
+    let Some(snapshot) = adapter.snapshot(&path, name)? else { return Ok(false); };
+    let codec = from_name(definition.codec.as_deref(), agent_id);
+    let (config, _) = codec.decode_with_enabled(&snapshot).ok_or("invalid native MCP entry")?;
+    if transport_of(&config) != transport {
+        return Err("MCP transport changed before enabled-state update".into());
+    }
+    backup(&path, &backups_dir(), timestamp, agent_id, scope)?;
+    adapter.set_enabled(&path, name, enabled, &snapshot)?;
+    purge(agent_id, name, transport, scope).map_err(|error| error.to_string())?;
+    Ok(true)
+}
+
+/// Disable a server using its native flag when available. Otherwise durably
+/// snapshot its complete semantic entry, then remove it
 /// from the Agent file. Saving first means a settings failure can never remove
 /// the only live copy. If removal later fails, the still-active entry wins in the
 /// UI and the retained snapshot makes a retry safe.
@@ -901,6 +934,11 @@ pub fn disable(
             errors.push(format!("{agent_id}: {scope} config path is unavailable"));
             continue;
         };
+        match set_native_enabled_if_present(agent_id, def, server_name, transport, scope, project_dir, false, &ts) {
+            Ok(true) => continue,
+            Ok(false) => {},
+            Err(error) => { errors.push(format!("{agent_id}: {error}")); continue; }
+        }
         // Snapshot the config currently installed for this (agent, name, transport, scope).
         let Some(found) = scanned.iter().find(|s| {
             s.agent == *agent_id
@@ -956,7 +994,7 @@ pub fn disable(
     }
 }
 
-/// Re-enable a previously disabled server: write its remembered config snapshot
+/// Re-enable a native paused entry in place, or write its remembered config snapshot
 /// back into the agent file, then drop it from the disabled store.
 pub fn enable(
     server_name: &str,
@@ -974,6 +1012,11 @@ pub fn enable(
             errors.push(format!("{agent_id}: unknown Agent"));
             continue;
         };
+        match set_native_enabled_if_present(agent_id, def, server_name, transport, scope, project_dir, true, &ts) {
+            Ok(true) => continue,
+            Ok(false) => {},
+            Err(error) => { errors.push(format!("{agent_id}: {error}")); continue; }
+        }
         let entry = load_disabled().get(agent_id).and_then(|list| {
             list.iter()
                 .find(|d| d.name == server_name && d.transport == transport && d.scope == scope)
@@ -1012,6 +1055,11 @@ pub fn enable(
         if let Err(errs) = result {
             push_apply_errors(&mut errors, errs);
             continue;
+        }
+        match set_native_enabled_if_present(agent_id, def, server_name, transport, scope, project_dir, true, &ts) {
+            Ok(true) => continue,
+            Ok(false) => {},
+            Err(error) => { errors.push(format!("{agent_id}: {error}")); continue; }
         }
         match remove_if_unchanged(agent_id, &entry) {
             Ok(true) => {}

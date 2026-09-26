@@ -63,6 +63,33 @@ fn named_mcp(name: &str, command: &str) -> RegistryEntry {
 }
 
 #[test]
+fn workbuddy_pause_survives_central_update_and_unassign_removes_the_entry() {
+    let home = TestHome::new("workbuddy-central-pause");
+    write_manual_entry(&mcp("old-server")).unwrap();
+    commit(plan_set_agent_consumption(PlanSetAgentConsumptionRequest {
+        agent_id: "workbuddy".into(),
+        selection: AgentConsumptionSelection::Mcp { asset_keys: vec!["local::stdio".into()] },
+    }).unwrap());
+    commit(plan_set_mcp_enabled(PlanSetMcpEnabledRequest {
+        agent_id: "workbuddy".into(), asset_key: "local::stdio".into(), enabled: false,
+    }).unwrap());
+    commit(plan_update_central_asset(PlanUpdateCentralAssetRequest {
+        draft: CentralAssetDraft::Mcp { existing_key: Some("local::stdio".into()), entry: Box::new(mcp("new-server")) },
+    }).unwrap());
+    let path = home.home.join(".workbuddy-ai/mcp.json");
+    let value: serde_json::Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+    assert_eq!(value["mcpServers"]["local"]["command"], "new-server");
+    assert_eq!(value["mcpServers"]["local"]["disabled"], true);
+    assert!(!mux_core::disabled::load_disabled().contains_key("workbuddy"));
+    commit(plan_set_agent_consumption(PlanSetAgentConsumptionRequest {
+        agent_id: "workbuddy".into(),
+        selection: AgentConsumptionSelection::Mcp { asset_keys: vec![] },
+    }).unwrap());
+    let value: serde_json::Value = serde_json::from_str(&fs::read_to_string(path).unwrap()).unwrap();
+    assert!(value["mcpServers"].get("local").is_none());
+}
+
+#[test]
 fn unrelated_mcp_drift_does_not_block_or_get_overwritten_by_central_update() {
     let home = TestHome::new("central-mcp-unrelated-drift");
     write_manual_entry(&named_mcp("alpha", "alpha-old")).unwrap();

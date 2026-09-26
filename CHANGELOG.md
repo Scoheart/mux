@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.217](https://github.com/Scoheart/mux/compare/v1.8.216...v1.8.217) (2026-09-26)
+
+### Changes
+
+* fix(workbuddy): use native MCP pause state ([76e0b9a](https://github.com/Scoheart/mux/commit/76e0b9ad16c07e7229956f6c70470d4c0410eed9))
+
 ## [1.8.216](https://github.com/Scoheart/mux/compare/v1.8.215...v1.8.216) (2026-09-26)
 
 ### Changes

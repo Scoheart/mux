@@ -122,17 +122,17 @@ it("renders effective and shadowed MCP rows and opens the existing Inspector", a
   expect(screen.getByRole("button", { name: "导入配置" })).toBeVisible();
   expect(screen.getByRole("button", { name: /全部来源.*2/ })).toBeVisible();
   await user.click(screen.getByRole("button", { name: /Team catalog.*1/ }));
-  expect(screen.getByRole("button", { name: "打开 MCP filesystem-old 详情" })).toBeVisible();
-  expect(screen.queryByRole("button", { name: "打开 MCP brave-search 详情" })).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: /^打开 MCP filesystem-old 详情 ·/ })).toBeVisible();
+  expect(screen.queryByRole("button", { name: /^打开 MCP brave-search 详情 ·/ })).not.toBeInTheDocument();
   await user.click(screen.getByRole("button", { name: /全部来源.*2/ }));
 
   await user.type(screen.getByPlaceholderText("搜索 MCP"), "not-present");
   expect(screen.getByText("没有匹配项")).toBeVisible();
   expect(screen.getByText("调整搜索或来源筛选后重试。")).toBeVisible();
   await user.click(screen.getByRole("button", { name: "清除筛选" }));
-  expect(screen.getByRole("button", { name: "打开 MCP brave-search 详情" })).toBeVisible();
-  expect(screen.getByRole("button", { name: "打开 MCP filesystem-old 详情" })).toBeVisible();
-  await user.click(screen.getByRole("button", { name: "打开 MCP brave-search 详情" }));
+  expect(screen.getByRole("button", { name: /^打开 MCP brave-search 详情 ·/ })).toBeVisible();
+  expect(screen.getByRole("button", { name: /^打开 MCP filesystem-old 详情 ·/ })).toBeVisible();
+  await user.click(screen.getByRole("button", { name: /^打开 MCP brave-search 详情 ·/ }));
   const inspector = await screen.findByRole("complementary", { name: "brave-search 详情" });
   expect(within(inspector).getByText("Web search")).toBeVisible();
   expect(within(inspector).getByText("https://mcp.example.test/search")).toBeVisible();

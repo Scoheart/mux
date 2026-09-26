@@ -1,10 +1,11 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { AgentInfo } from "../lib/types";
 import { buildAgentPickerSections, MAX_PINNED_AGENTS } from "../lib/pinnedAgents";
 import { usePinnedAgents } from "../hooks/usePinnedAgents";
 import { AgentGlyph, isAgentVisible, isAgentEntryVisible } from "./brandIcons";
 import { ChevronDownIcon, PackageIcon } from "./icons";
 import { PinnedAgentDock } from "./PinnedAgentDock";
+import { MODAL_DIALOG_SELECTOR } from "./ui";
 import { AgentHandPicker } from "./AgentHandPicker";
 
 export function AgentNavigation({ agents, selectedAgentId, onSelectAgent, onAddAgent }: {
@@ -22,6 +23,22 @@ export function AgentNavigation({ agents, selectedAgentId, onSelectAgent, onAddA
   const pinnedIds = useMemo(() => sections.pinned.map(({ id }) => id), [sections]);
   const available = useMemo(() => [...sections.pinned, ...sections.available], [sections]);
   const selected = available.find(({ id }) => id === selectedAgentId);
+  useEffect(() => {
+    const handleShortcut = (event: KeyboardEvent) => {
+      if (event.isComposing || event.repeat || event.altKey || !(event.metaKey || event.ctrlKey)
+        || event.key.toLowerCase() !== "k") return;
+      const modal = Array.from(document.querySelectorAll(MODAL_DIALOG_SELECTOR)).at(-1);
+      if (modal && (!open || modal.getAttribute("data-modal-layer") !== "agent-hand")) return;
+      event.preventDefault();
+      if (open) {
+        const search = modal?.querySelector<HTMLInputElement>('input[type="search"]');
+        search?.focus(); search?.select();
+      } else setOpen(true);
+    };
+    document.addEventListener("keydown", handleShortcut);
+    return () => document.removeEventListener("keydown", handleShortcut);
+  }, [open]);
+
   const saveVisiblePins = async (ids: string[]) => {
     const hidden = pinned.agentIds.filter((id) => {
       const agent = agents.find((entry) => entry.id === id);
@@ -49,7 +66,7 @@ export function AgentNavigation({ agents, selectedAgentId, onSelectAgent, onAddA
       <div className="mux-agent-picker-anchor">
         <button ref={triggerRef} type="button" className="mux-agent-picker-trigger" data-active={selected ? "true" : undefined}
           data-open={open ? "true" : undefined} aria-haspopup="dialog" aria-expanded={open}
-          aria-label={selected?.name ?? "选择 Agent"} title={selected?.name ?? "选择 Agent"} onClick={() => setOpen(true)}>
+          aria-label={selected ? `选择 Agent，当前：${selected.name}` : "选择 Agent"} aria-keyshortcuts="Meta+K Control+K" title="选择 Agent · ⌘K / Ctrl+K" onClick={() => setOpen(true)}>
           {selected ? <AgentGlyph id={selected.id} name={selected.name} size={24} /> : <PackageIcon className="w-5 h-5 flex-shrink-0" />}
           <span className="mux-agent-picker-trigger-name">{selected?.name ?? "选择 Agent"}</span>
           <ChevronDownIcon className="mux-agent-picker-chevron" />

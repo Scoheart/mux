@@ -12,7 +12,7 @@ import {
   TrashIcon,
 } from "./icons";
 import { ConsumptionStatus } from "./ConsumptionStatus";
-import { Switch } from "./ui";
+import { SearchBar, Switch } from "./ui";
 import { useTranslation } from "react-i18next";
 import { AgentResourceActions } from "./AgentResourcePanel";
 
@@ -36,10 +36,12 @@ function ConvergenceActionIcon({ action }: { action: ConvergenceAction }) {
 }
 
 function ConvergenceActions({
+  name,
   actions,
   disabled,
   onAction,
 }: {
+  name: string;
   actions: ConvergenceAction[];
   disabled: boolean;
   onAction(action: ConvergenceAction): void;
@@ -83,7 +85,7 @@ function ConvergenceActions({
         className="mux-convergence-action"
         data-primary="true"
         data-action={primary}
-        aria-label={label(primary)}
+        aria-label={`${label(primary)}：${name}`}
         title={label(primary)}
         disabled={disabled}
         onClick={() => onAction(primary)}
@@ -95,7 +97,7 @@ function ConvergenceActions({
           <button
             type="button"
             className="mux-convergence-action"
-            aria-label={t("observations.actions.more")}
+            aria-label={`${t("observations.actions.more")}：${name}`}
             title={t("observations.actions.more")}
             aria-haspopup="menu"
             aria-expanded={open}
@@ -112,6 +114,7 @@ function ConvergenceActions({
                   type="button"
                   role="menuitem"
                   data-action={action}
+                  aria-label={`${label(action)}：${name}`}
                   onClick={() => {
                     setOpen(false);
                     onAction(action);
@@ -162,7 +165,7 @@ function ConsumptionCardMenu({ name, onOpen, onRemove, removeDisabled, removeLab
       <MoreHorizontalIcon className="w-4 h-4" />
     </button>
     {open && <div role="menu" className="mux-consumption-card-menu-items" aria-label={`${name} 操作`}>
-      {onOpen && <button type="button" role="menuitem" onClick={() => { setOpen(false); onOpen(); }}><LinkIcon className="w-3.5 h-3.5" />查看详情</button>}
+      {onOpen && <button type="button" role="menuitem" aria-label={`查看 ${name} 详情`} onClick={() => { setOpen(false); onOpen(); }}><LinkIcon className="w-3.5 h-3.5" />查看详情</button>}
       {onRemove && <button type="button" role="menuitem" disabled={removeDisabled} aria-label={removeLabel} className="mux-consumption-remove" onClick={() => { setOpen(false); onRemove(); }}><TrashIcon className="w-3.5 h-3.5" />移除</button>}
     </div>}
   </div>;
@@ -241,12 +244,20 @@ export function AgentConsumptionPanel({
   emptyAction?: ReactNode;
   columns?: 2 | 3;
 }) {
+  const [query, setQuery] = useState("");
+  useEffect(() => setQuery(""), [domain]);
   const domainRows = rows.filter((item) => item.asset.domain === domain);
   const domainExternal = external.filter((item) => item.asset.domain === domain);
   const items = [
     ...domainRows.map((item) => ({ item, external: false })),
     ...(externalMode === "cards" ? domainExternal.map((item) => ({ item, external: true })) : []),
   ];
+
+  const needle = query.trim().toLocaleLowerCase();
+  const filtered = items.filter(({ item }) => {
+    const presentation = present(item.asset);
+    return !needle || `${presentation.name} ${presentation.description ?? ""} ${assetIdentity(item.asset)}`.toLocaleLowerCase().includes(needle);
+  });
 
   return (
     <section className="mux-agent-section mux-agent-resource-content mux-consumption-panel" aria-label={title}>
@@ -295,6 +306,10 @@ export function AgentConsumptionPanel({
         </div></AgentResourceActions>
       </div>
 
+      {items.length > 0 && <div className="mux-consumption-search">
+        <SearchBar value={query} onChange={setQuery} placeholder={`搜索当前 ${title}`} />
+        <span role="status" aria-live="polite">{query ? `${filtered.length} / ${items.length} 项` : `${items.length} 项`}</span>
+      </div>}
       {domain === "model" && description && <p className="mux-consumption-model-note">{description}</p>}
       {externalMode === "summary" && domainExternal.length > 0 && (
         <div className="mux-consumption-external" role="status">
@@ -323,9 +338,9 @@ export function AgentConsumptionPanel({
           {emptyDescription && <span>{emptyDescription}</span>}
           {emptyAction}
         </div>
-      ) : (
+      ) : filtered.length === 0 ? <p role="status" className="mux-consumption-empty">没有匹配的 {title}</p> : (
         <ul className="mux-consumption-list" data-columns={columns}>
-          {items.map(({ item, external: isExternal }) => {
+          {filtered.map(({ item, external: isExternal }) => {
             const presentation = present(item.asset);
             const presentationDescription = presentation.description?.trim();
             const enabled = typeof item.enabled === "boolean" ? item.enabled : null;
@@ -377,6 +392,7 @@ export function AgentConsumptionPanel({
                     <span className="mux-consumption-actions">
                       {onConverge && item.available_actions.length > 0 && (
                         <ConvergenceActions
+                          name={`${presentation.name}${item.asset.domain === "mcp" ? ` · ${item.asset.key.split("::").at(-1)}` : item.target?.target_id ? ` · ${item.target.target_id}` : ""}`}
                           actions={item.available_actions}
                           disabled={convergenceDisabled}
                           onAction={(action) => onConverge(item, action)}

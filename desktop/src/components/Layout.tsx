@@ -28,6 +28,7 @@ import { TerminalSelect } from "./TerminalSelect";
 import "./WorkspaceSettings.css";
 import { FileEditorSelect } from "./FileEditorSelect";
 import { ProxySettingsDialog } from "./ProxySettingsDialog";
+import { MODAL_DIALOG_SELECTOR } from "./ui";
 import { StartupSyncBar } from "./StartupSyncBar";
 import type { StartupSyncState } from "../hooks/useStartupSync";
 
@@ -75,6 +76,18 @@ export function Layout({
 
   useEffect(() => {
     getVersion().then(setVersion).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    const find = (event: KeyboardEvent) => {
+      if (event.isComposing || event.altKey || !(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== "f") return;
+      const modal = Array.from(document.querySelectorAll<HTMLElement>(MODAL_DIALOG_SELECTOR)).at(-1);
+      const search = (modal ?? document.querySelector("main"))?.querySelector<HTMLInputElement>('input[type="search"]:not(:disabled)');
+      if (!search || search.closest("[inert]")) return;
+      event.preventDefault(); search.focus(); search.select();
+    };
+    document.addEventListener("keydown", find);
+    return () => document.removeEventListener("keydown", find);
   }, []);
 
   const checkingUpdate = updater?.phase.kind === "checking";
@@ -134,11 +147,12 @@ export function Layout({
         </span>
 
         {/* Top-level resources (also the way back from an Agent view) */}
-        <div className="mux-seg mux-skill-seg flex-shrink-0">
+        <div className="mux-seg mux-skill-seg flex-shrink-0" role="navigation" aria-label="中央资源">
           {RESOURCE_CATEGORIES.map((resource) => <button
             key={resource.id}
             className="mux-seg-item"
             data-active={view.kind === resource.view ? "true" : undefined}
+            aria-pressed={view.kind === resource.view}
             onClick={{ models: onSelectModels, mcps: onSelectRegistry, skills: onSelectSkills }[resource.id]}
           >
             <span className="flex items-center gap-1.5">
@@ -170,7 +184,7 @@ export function Layout({
 
       {/* Content — transparent so the body's tinted backdrop shows through the
           glass surfaces. min-h-0 is critical for overflow to work. */}
-      <main className="flex-1 min-h-0 overflow-hidden" style={{ background: "transparent" }}>
+      <main aria-label={view.kind === "agent" ? `${agents.find((agent) => agent.id === view.id)?.name ?? view.id} 工作区` : `${view.kind === "registry" ? "MCPs" : view.kind === "models" ? "Models" : "Skills"} 资源库`} className="flex-1 min-h-0 overflow-hidden" style={{ background: "transparent" }}>
         {children}
       </main>
 

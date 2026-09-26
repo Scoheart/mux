@@ -1,4 +1,4 @@
-import { startTransition, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type RefObject } from "react";
+import { startTransition, useEffect, useLayoutEffect, useMemo, useId, useRef, useState, type CSSProperties, type RefObject } from "react";
 import type { AgentInfo } from "../lib/types";
 import { MAX_PINNED_AGENTS } from "../lib/pinnedAgents";
 import { agentHandMetrics } from "../lib/agentHandLayout";
@@ -41,6 +41,7 @@ export function AgentHandPicker({ agents: allAgents, pinnedIds, selectedAgentId,
   onAdd?: () => void;
   onClose(): void;
 }) {
+  const searchHintId = useId();
   const agents = useMemo(() => allAgents.filter(isAgentEntryVisible), [allAgents]);
   const [group, setGroup] = useState<Group>("builtin");
   const [query, setQuery] = useState("");
@@ -338,8 +339,9 @@ export function AgentHandPicker({ agents: allAgents, pinnedIds, selectedAgentId,
     await Promise.all(flights);
     if (mounted.current) onClose();
   };
-  const select = (id: string) => {
+  const select = (id: string, immediate = false) => {
     if (replacement || !begin()) return;
+    if (immediate) { onSelect(id); onClose(); return; }
     setClosing(true);
     const cards = freezeCards();
     const current = cards.find(({ card }) => card.dataset.handId === id);
@@ -445,7 +447,22 @@ export function AgentHandPicker({ agents: allAgents, pinnedIds, selectedAgentId,
       <div className="mux-agent-hand-toolbar">
         <label className="mux-agent-hand-search" data-active={selectedAgent ? "true" : undefined}>
           <span className="mux-agent-hand-search-content"><SearchIcon className="w-4 h-4" />
-          <input ref={searchRef} data-modal-initial-focus type="search" autoComplete="off" spellCheck={false} placeholder="搜索名称或 ID" aria-label="搜索 Agent"
+          <input ref={searchRef} data-modal-initial-focus type="search" autoComplete="off" spellCheck={false} placeholder="搜索名称或 ID" aria-label="搜索 Agent" aria-describedby={searchHintId}
+            onKeyDown={(event) => {
+              if (event.nativeEvent.isComposing || event.altKey || event.metaKey || event.ctrlKey) return;
+              if (event.key === "ArrowDown" && visible.length) {
+                event.preventDefault();
+                cardRefs.current.get(visible[0].id)?.querySelector<HTMLButtonElement>(".mux-agent-hand-select")?.focus();
+              }
+              if (event.key !== "Enter" || !query.trim()) return;
+              event.preventDefault();
+              const needle = query.trim().toLocaleLowerCase();
+              const idMatch = rows.find((agent) => agent.id.toLocaleLowerCase() === needle);
+              const nameMatches = rows.filter((agent) => agent.name.toLocaleLowerCase() === needle);
+              const match = idMatch ?? (nameMatches.length === 1 ? nameMatches[0] : rows.length === 1 ? rows[0] : undefined);
+              if (match) select(match.id, true);
+              else setAnnouncement(rows.length ? "有多个匹配项，请输入完整名称或 ID，或按向下键选择" : "未找到匹配的 Agent");
+            }}
             value={query} disabled={busy || saving} onChange={(event) => { setQuery(event.target.value); setPage(0); setReplacement(null); setAnnouncement(""); }} />
           </span>
           <span className="mux-agent-hand-return" aria-hidden="true">
@@ -456,6 +473,7 @@ export function AgentHandPicker({ agents: allAgents, pinnedIds, selectedAgentId,
         </label>
       </div>
       </div>
+      <p id={searchHintId} className="sr-only">输入完整名称或 ID，按 Enter 直接进入；向下键选择卡片。{query.trim() ? `找到 ${rows.length} 个 Agent。` : ""}</p>
       <div ref={stageRef} className="mux-agent-hand-stage">
       {pageCount > 1 && <button type="button" className="mux-agent-hand-page mux-agent-hand-page-prev" aria-label="上一手 Agent" title="上一页"
         disabled={actualPage === 0 || busy || saving || Boolean(replacement)} onClick={() => turnPage(actualPage - 1)}><ArrowLeftIcon className="w-5 h-5" /></button>}
@@ -486,7 +504,7 @@ export function AgentHandPicker({ agents: allAgents, pinnedIds, selectedAgentId,
           data-new={!agent || undefined} style={{ width: cardWidth, height: cardHeight, transform: pose(positions[index].x, positions[index].y, positions[index].angle), "--hand-order": index } as CSSProperties}>
           <div className="mux-agent-hand-tile">
             <button type="button" className="mux-agent-hand-select" disabled={busy || Boolean(replacement)}
-              title={agent?.name ?? "添加自定义 Agent"} aria-label={agent ? `进入 ${agent.name}` : "添加自定义 Agent"}
+              title={agent?.name ?? "添加自定义 Agent"} aria-label={agent ? `进入 ${agent.name}（${id}）` : "添加自定义 Agent"}
               onFocus={(event) => { if (event.currentTarget.matches(":focus-visible")) { keyboard.current = true; setHighlighted(id); } }}
               onBlur={() => { if (keyboard.current) setHighlighted(null); }}
               onKeyDown={(event) => {
@@ -495,7 +513,7 @@ export function AgentHandPicker({ agents: allAgents, pinnedIds, selectedAgentId,
                 const next = event.key === "Home" ? 0 : event.key === "End" ? visible.length - 1 : (index + (event.key === "ArrowLeft" ? -1 : 1) + visible.length) % visible.length;
                 cardRefs.current.get(visible[next].id)?.querySelector<HTMLButtonElement>(".mux-agent-hand-select")?.focus();
               }}
-              onClick={() => agent ? void select(id) : void add()}>
+              onClick={(event) => agent ? void select(id, event.detail === 0) : void add()}>
               {agent ? <AgentGlyph id={id} name={agent.name} size={30} /> : <PlusIcon className="w-7 h-7" />}
               <span><strong>{agent?.name ?? "添加 Agent"}</strong></span>
             </button>
@@ -513,7 +531,7 @@ export function AgentHandPicker({ agents: allAgents, pinnedIds, selectedAgentId,
       <div className="mux-agent-hand-pagination">
         {pageCount > 1 && <nav aria-label="Agent 分页">
           {Array.from({ length: pageCount }, (_, index) => <button key={index} type="button"
-            className="mux-agent-hand-dot" aria-label={`第 ${index + 1} 页，共 ${pageCount} 页`}
+            className="mux-agent-hand-dot" aria-label={`第 ${index + 1} 页，共 ${pageCount} 页${actualPage === index ? "，当前页" : ""}`}
             aria-current={actualPage === index ? "page" : undefined} title={`第 ${index + 1} 页`}
             disabled={busy || saving || Boolean(replacement)}
             onClick={() => turnPage(index)} />)}

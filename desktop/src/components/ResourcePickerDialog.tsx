@@ -1,8 +1,8 @@
-import { useMemo, useRef, useState, type ReactNode } from "react";
+import { useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { formatError } from "../lib/format";
 import { DialogShell } from "./DialogShell";
 import { RefreshIcon } from "./icons";
-import { SearchBar } from "./ui";
+import { navigatePickerOptions, SearchBar } from "./ui";
 
 export interface ResourcePickerOption {
   id: string;
@@ -28,6 +28,7 @@ export function ResourcePickerDialog({
   onAdd: (option: ResourcePickerOption) => Promise<unknown> | unknown;
   onClose: () => void;
 }) {
+  const pickerId = useId();
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -82,14 +83,17 @@ export function ResourcePickerDialog({
       }
     >
       <div className="mux-picker-search">
-        <SearchBar value={query} onChange={setQuery} placeholder="搜索资源" autoFocus />
+        <SearchBar value={query} onChange={setQuery} placeholder="搜索资源" autoFocus onKeyDown={navigatePickerOptions} />
       </div>
-      <div className="mux-picker-list" role="listbox" aria-label={title}>
+      <div className="mux-picker-list" onKeyDown={navigatePickerOptions} role="listbox" aria-label={title}>
         {filtered.length === 0 ? (
           <div className="mux-picker-empty">没有匹配项</div>
         ) : filtered.map((option) => (
           <button
             key={option.id}
+            data-picker-option
+            aria-label={option.name}
+            aria-describedby={option.description ? `${pickerId}-${encodeURIComponent(option.id)}` : undefined}
             type="button"
             role="option"
             aria-selected={selectedId === option.id}
@@ -101,7 +105,7 @@ export function ResourcePickerDialog({
             {option.avatar}
             <span className="mux-picker-option-copy">
               <strong>{option.name}</strong>
-              {option.description && <small>{option.description}</small>}
+              {option.description && <small id={`${pickerId}-${encodeURIComponent(option.id)}`}>{option.description}</small>}
             </span>
             {option.meta && <span className="mux-picker-option-meta">{option.meta}</span>}
           </button>

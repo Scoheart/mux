@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useCallback, useRef, ReactNode } from "react";
+import { createContext, useContext, useState, useCallback, useEffect, useRef, ReactNode } from "react";
 import { CheckIcon, XIcon } from "./icons";
 
 interface ToastItem {
@@ -20,14 +20,24 @@ export function useToast() {
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const nextId = useRef(0);
+  const timers = useRef(new Map<number, ReturnType<typeof setTimeout>>());
+  const dismiss = useCallback((id: number) => {
+    clearTimeout(timers.current.get(id));
+    timers.current.delete(id);
+    setToasts((current) => current.filter((toast) => toast.id !== id));
+  }, []);
+  useEffect(() => () => {
+    timers.current.forEach(clearTimeout);
+    timers.current.clear();
+  }, []);
 
   const show = useCallback(({ kind, msg }: { kind: "success" | "error"; msg: string }) => {
     const id = ++nextId.current;
     setToasts((prev) => [...prev, { id, kind, msg }]);
-    setTimeout(() => {
-      setToasts((prev) => prev.filter((t) => t.id !== id));
-    }, 3200);
-  }, []);
+    // Failures stay available for inspection; successful operations are quiet
+    // after a readable interval. Neither needs polling to infer completion.
+    if (kind === "success") timers.current.set(id, setTimeout(() => dismiss(id), 6000));
+  }, [dismiss]);
 
   return (
     <ToastContext.Provider value={{ show }}>
@@ -40,6 +50,8 @@ export function ToastProvider({ children }: { children: ReactNode }) {
         {toasts.map((t) => (
           <div
             key={t.id}
+            role={t.kind === "error" ? "alert" : "status"}
+            aria-atomic="true"
             className="flex items-center gap-2.5 px-4 py-3 rounded-mac text-sm font-medium"
             style={{
               background: "var(--glass-fill-strong)",
@@ -65,6 +77,8 @@ export function ToastProvider({ children }: { children: ReactNode }) {
               )}
             </div>
             <span>{t.msg}</span>
+            <button type="button" className="mux-icon-btn" aria-label={`关闭${t.kind === "error" ? "错误" : "成功"}通知 ${t.id}`}
+              title="关闭通知" onClick={() => dismiss(t.id)}><XIcon className="w-3.5 h-3.5" /></button>
           </div>
         ))}
       </div>

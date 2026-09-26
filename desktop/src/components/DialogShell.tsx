@@ -66,6 +66,7 @@ export function DialogShell({
       maxHeight="calc(100dvh - 32px)"
       borderRadius={borderRadius}
       ariaLabel={title}
+      busy={busy}
       layer={kind}
       onClose={requestClose}
     >

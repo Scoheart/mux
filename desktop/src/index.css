@@ -2675,3 +2675,8 @@ body {
 .mux-agent-install-actions[data-state="checking"] .mux-agent-install-dot { opacity: .4; }
 
 .mux-agent-guided-cards { margin-top: 14px; }
+
+/* Search lives above Agent cards so narrow toolbars keep their action targets. */
+.mux-consumption-search { display: flex; align-items: center; gap: 12px; margin: 0 0 14px; }
+.mux-consumption-search .mux-search { flex: 1; min-width: 0; max-width: 420px; }
+.mux-consumption-search > span { flex-shrink: 0; color: var(--text-secondary); font-size: 12px; }

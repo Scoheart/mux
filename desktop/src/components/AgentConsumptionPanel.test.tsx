@@ -225,14 +225,14 @@ describe("AgentConsumptionPanel", () => {
     expect(card).not.toBeNull();
     expect(within(card!).getByLabelText("外部已修改")).toBeVisible();
     expect(within(card!).queryByText("外部已修改")).not.toBeInTheDocument();
-    expect(within(card!).getByRole("button", { name: "恢复 MUX" })).toBeVisible();
-    expect(within(card!).queryByRole("button", { name: "收录 MUX" })).not.toBeInTheDocument();
-    expect(within(card!).queryByRole("button", { name: "解除管理" })).not.toBeInTheDocument();
+    expect(within(card!).getByRole("button", { name: /^恢复 MUX：/ })).toBeVisible();
+    expect(within(card!).queryByRole("button", { name: /^收录 MUX：/ })).not.toBeInTheDocument();
+    expect(within(card!).queryByRole("button", { name: /^解除管理：/ })).not.toBeInTheDocument();
 
-    await userEvent.click(within(card!).getByRole("button", { name: "更多处理方式" }));
-    expect(within(card!).getByRole("menuitem", { name: "收录 MUX" })).toBeVisible();
-    expect(within(card!).getByRole("menuitem", { name: "解除管理" })).toBeVisible();
-    await userEvent.click(within(card!).getByRole("menuitem", { name: "收录 MUX" }));
+    await userEvent.click(within(card!).getByRole("button", { name: /^更多处理方式：/ }));
+    expect(within(card!).getByRole("menuitem", { name: /^收录 MUX：/ })).toBeVisible();
+    expect(within(card!).getByRole("menuitem", { name: /^解除管理：/ })).toBeVisible();
+    await userEvent.click(within(card!).getByRole("menuitem", { name: /^收录 MUX：/ }));
     expect(onConverge).toHaveBeenCalledWith(changedRow, "adopt-observed");
   });
 
@@ -273,4 +273,17 @@ describe("AgentConsumptionPanel", () => {
     expect(screen.queryByText("dws")).not.toBeInTheDocument();
     expect(screen.getAllByRole("listitem")).toHaveLength(1);
   });
+});
+
+
+it("filters Agent resources while keeping resource-specific action names", async () => {
+  render(<AgentConsumptionPanel domain="mcp" title="MCPs" manageLabel="添加 MCPs"
+    rows={[]} external={[externalRow, { ...externalRow, asset: { domain: "mcp", key: "second::http" } }]}
+    externalMode="cards" present={(asset) => ({ name: asset.domain === "mcp" ? asset.key.split("::")[0] : "" })}
+    onManage={vi.fn()} onConverge={vi.fn()} />);
+  expect(screen.getByRole("button", { name: "收录 MUX：computer-use · stdio" })).toBeVisible();
+  expect(screen.getByRole("button", { name: "收录 MUX：second · http" })).toBeVisible();
+  await userEvent.type(screen.getByRole("searchbox", { name: "搜索当前 MCPs" }), "second");
+  expect(screen.queryByRole("button", { name: /收录 MUX：computer-use/ })).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "收录 MUX：second · http" })).toBeVisible();
 });

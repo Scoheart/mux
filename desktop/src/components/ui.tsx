@@ -1,4 +1,4 @@
-import { CSSProperties, ReactNode, useEffect, useRef } from "react";
+import { CSSProperties, ReactNode, type KeyboardEvent as ReactKeyboardEvent, useLayoutEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { SearchIcon, XIcon } from "./icons";
 import { transportLabel, transportOf } from "../lib/mcp";
@@ -176,12 +176,16 @@ export function SearchBar({
   placeholder,
   style,
   autoFocus,
+  ariaLabel,
+  onKeyDown,
 }: {
   value: string;
   onChange: (v: string) => void;
   placeholder?: string;
   style?: CSSProperties;
   autoFocus?: boolean;
+  ariaLabel?: string;
+  onKeyDown?: (event: ReactKeyboardEvent<HTMLInputElement>) => void;
 }) {
   return (
     <div className="mux-search" style={style}>
@@ -191,6 +195,9 @@ export function SearchBar({
       <input
         type="search"
         placeholder={placeholder}
+        aria-label={ariaLabel ?? placeholder ?? "搜索"}
+        data-modal-initial-focus={autoFocus || undefined}
+        onKeyDown={onKeyDown}
         value={value}
         autoFocus={autoFocus}
         onChange={(e) => onChange(e.target.value)}
@@ -236,9 +243,27 @@ const FOCUSABLE_SELECTOR = [
   '[tabindex]:not([tabindex="-1"])',
 ].join(",");
 
+const mountedDialogs = new Set<HTMLElement>();
+const hiddenModalLayers = new Map<HTMLElement, () => void>();
+
 function topmostModal(): HTMLElement | null {
-  const dialogs = document.querySelectorAll<HTMLElement>(MODAL_DIALOG_SELECTOR);
-  return dialogs.item(dialogs.length - 1);
+  return Array.from(document.querySelectorAll<HTMLElement>(MODAL_DIALOG_SELECTOR))
+    .filter((dialog) => mountedDialogs.has(dialog)).at(-1) ?? null;
+}
+
+function syncModalLayers(): void {
+  const top = topmostModal();
+  const hidden = new Set<HTMLElement>();
+  mountedDialogs.forEach((dialog) => {
+    const overlay = dialog.closest<HTMLElement>("[data-modal-overlay]");
+    if (dialog !== top && overlay) hidden.add(overlay);
+  });
+  hiddenModalLayers.forEach((release, overlay) => {
+    if (!hidden.has(overlay)) { release(); hiddenModalLayers.delete(overlay); }
+  });
+  hidden.forEach((overlay) => {
+    if (!hiddenModalLayers.has(overlay)) hiddenModalLayers.set(overlay, acquireElementInert(overlay));
+  });
 }
 
 function modalElementVisible(element: HTMLElement, dialog: HTMLElement): boolean {
@@ -258,10 +283,7 @@ function modalFocusableElements(dialog: HTMLElement): HTMLElement[] {
   );
 }
 
-export function acquireRootInert(): () => void {
-  const root = document.getElementById("root");
-  if (!root) return () => undefined;
-
+function acquireElementInert(root: HTMLElement): () => void {
   let state = inertRootStates.get(root);
   if (!state) {
     state = {
@@ -290,6 +312,28 @@ export function acquireRootInert(): () => void {
   };
 }
 
+export function acquireRootInert(): () => void {
+  const root = document.getElementById("root");
+  return root ? acquireElementInert(root) : () => undefined;
+}
+
+/** Arrow keys move between candidates; Enter/Space still select explicitly. */
+export function navigatePickerOptions(event: ReactKeyboardEvent<HTMLElement>): void {
+  if (event.nativeEvent.isComposing || event.altKey || event.metaKey || event.ctrlKey) return;
+  const search = event.target instanceof HTMLInputElement;
+  if (search && !["ArrowDown", "ArrowUp"].includes(event.key)) return;
+  if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
+  const dialog = event.currentTarget.closest(MODAL_DIALOG_SELECTOR);
+  const options = Array.from(dialog?.querySelectorAll<HTMLButtonElement>("[data-picker-option]:not(:disabled)") ?? []);
+  if (!options.length) return;
+  event.preventDefault();
+  const index = options.indexOf(document.activeElement as HTMLButtonElement);
+  const next = event.key === "Home" ? 0 : event.key === "End" ? options.length - 1
+    : index < 0 ? event.key === "ArrowUp" ? options.length - 1 : 0
+      : Math.max(0, Math.min(options.length - 1, index + (event.key === "ArrowDown" ? 1 : -1)));
+  options[next].focus();
+}
+
 /** Coordinate one Escape/Tab across independently mounted UI layers. */
 export function claimLayerKeyboardEvent(event: KeyboardEvent): void {
   handledLayerKeyboardEvents.add(event);
@@ -305,6 +349,7 @@ export function Modal({
   maxHeight = "82vh",
   borderRadius = "20px",
   ariaLabel = "对话框",
+  busy = false,
   layer,
   onClose,
   children,
@@ -313,24 +358,26 @@ export function Modal({
   maxHeight?: CSSProperties["maxHeight"];
   borderRadius?: CSSProperties["borderRadius"];
   ariaLabel?: string;
+  busy?: boolean;
   layer?: string;
   onClose: () => void;
   children: ReactNode;
 }) {
   const dialogRef = useRef<HTMLDivElement>(null);
+  const openerRef = useRef(document.activeElement instanceof HTMLElement ? document.activeElement : null);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const dialog = dialogRef.current;
     if (!dialog) return;
 
-    const activeElement = document.activeElement;
-    const opener = activeElement instanceof HTMLElement && activeElement.isConnected
-      ? activeElement
-      : null;
+    const opener = openerRef.current;
+    mountedDialogs.add(dialog);
+    syncModalLayers();
     const releaseRootInert = acquireRootInert();
     const focusFrame = requestAnimationFrame(() => {
+      if (topmostModal() !== dialog) return;
       const initialTarget =
         Array.from(dialog.querySelectorAll<HTMLElement>("[data-modal-initial-focus]"))
           .find((element) => modalElementVisible(element, dialog)) ??
@@ -372,6 +419,8 @@ export function Modal({
     return () => {
       cancelAnimationFrame(focusFrame);
       document.removeEventListener("keydown", handleKeyDown);
+      mountedDialogs.delete(dialog);
+      syncModalLayers();
       releaseRootInert();
       requestAnimationFrame(() => {
         if (!opener?.isConnected) return;
@@ -401,6 +450,7 @@ export function Modal({
         className="flex flex-col rounded-mac-lg overflow-hidden"
         role="dialog"
         aria-modal="true"
+        aria-busy={busy || undefined}
         aria-label={ariaLabel}
         data-modal-layer={layer}
         tabIndex={-1}

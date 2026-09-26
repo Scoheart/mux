@@ -503,7 +503,7 @@ function RegistryCard({
       className="mux-asset-list-row mux-mcp-list-row"
       data-selected={selected ? "true" : undefined}
       data-attention={item.in_effect ? undefined : "shadowed"}
-      aria-label={t("centralAssets.openMcpDetails", { name: entry.name })}
+      aria-label={`${t("centralAssets.openMcpDetails", { name: entry.name })} · ${transport} · ${source}`}
       aria-pressed={selected}
       onClick={onOpen}
     >

@@ -1,9 +1,9 @@
 import { ResourceIcon, type ResourceDomain } from "./resourcePresentation";
-import { useMemo, useRef, useState, type ReactNode } from "react";
+import { useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { formatError } from "../lib/format";
 import { DialogShell } from "./DialogShell";
 import { RefreshIcon } from "./icons";
-import { SearchBar } from "./ui";
+import { navigatePickerOptions, SearchBar } from "./ui";
 
 export interface ConsumptionPickerOption {
   id: string;
@@ -40,6 +40,7 @@ export function ConsumptionPickerDialog({
   onSelect(ids: string[]): Promise<unknown> | unknown;
   onClose(): void;
 }) {
+  const pickerId = useId();
   const [query, setQuery] = useState("");
   const [selectedIds, setSelectedIds] = useState(() => new Set<string>());
   const [busy, setBusy] = useState(false);
@@ -113,14 +114,17 @@ export function ConsumptionPickerDialog({
       }
     >
       <div className="mux-picker-search">
-        <SearchBar value={query} onChange={setQuery} placeholder={searchPlaceholder} autoFocus />
+        <SearchBar value={query} onChange={setQuery} placeholder={searchPlaceholder} autoFocus onKeyDown={navigatePickerOptions} />
       </div>
-      <div className="mux-picker-list" role={mode === "single" ? "listbox" : "group"} aria-label={title}>
+      <div className="mux-picker-list" onKeyDown={navigatePickerOptions} role={mode === "single" ? "listbox" : "group"} aria-label={title}>
         {filtered.length === 0 ? (
           <div className="mux-picker-empty">{emptyMessage}</div>
         ) : filtered.map((option) => (
           <button
             key={option.id}
+            data-picker-option
+            aria-label={option.name}
+            aria-describedby={option.description || option.reason ? `${pickerId}-${encodeURIComponent(option.id)}` : undefined}
             type="button"
             role={mode === "single" ? "option" : undefined}
             className="mux-picker-option mux-consumption-picker-option"
@@ -136,8 +140,8 @@ export function ConsumptionPickerDialog({
             {option.icon && <span className="mux-consumption-picker-icon">{option.icon}</span>}
             <span className="mux-picker-option-copy">
               <strong>{option.name}</strong>
-              <small>{option.description}</small>
-              {option.reason && <em>{option.reason}</em>}
+              <span id={`${pickerId}-${encodeURIComponent(option.id)}`}><small>{option.description}</small>
+              {option.reason && <em>{option.reason}</em>}</span>
             </span>
             {option.meta && <span className="mux-picker-option-meta">{option.meta}</span>}
           </button>

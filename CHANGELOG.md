@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.221](https://github.com/Scoheart/mux/compare/v1.8.220...v1.8.221) (2026-09-26)
+
+### Changes
+
+* fix(desktop): disambiguate resource picker targets ([6cb4ebb](https://github.com/Scoheart/mux/commit/6cb4ebb8619bddd6e17e318d29727d1593e14ef6))
+
 ## [1.8.220](https://github.com/Scoheart/mux/compare/v1.8.219...v1.8.220) (2026-09-26)
 
 ### Changes

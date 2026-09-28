@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.223](https://github.com/Scoheart/mux/compare/v1.8.222...v1.8.223) (2026-09-28)
+
+### Changes
+
+* feat(agents): add Factory desktop to MUX ([b74a3df](https://github.com/Scoheart/mux/commit/b74a3df6fb5427887f7ca62cfabcdb7c71ddcd07))
+
 ## [1.8.222](https://github.com/Scoheart/mux/compare/v1.8.221...v1.8.222) (2026-09-26)
 
 ### Changes

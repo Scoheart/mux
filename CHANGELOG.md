@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.224](https://github.com/Scoheart/mux/compare/v1.8.223...v1.8.224) (2026-09-28)
+
+### Changes
+
+* fix(desktop): show launch options inline ([810ff80](https://github.com/Scoheart/mux/commit/810ff808ebba1365aef944043a204af0ce2b846d))
+
 ## [1.8.223](https://github.com/Scoheart/mux/compare/v1.8.222...v1.8.223) (2026-09-28)
 
 ### Changes

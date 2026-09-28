@@ -90,5 +90,4 @@
 .mux-dialog-agent-config .mux-launch-path-input { align-items: center; gap: 0; border: 1px solid var(--border-hairline); border-radius: 9px; background: var(--surface-control); }
 .mux-dialog-agent-config .mux-launch-path-input > input { min-width: 0; width: 0; border: 0; background: transparent; box-shadow: none; }
 .mux-dialog-agent-config .mux-launch-path-input > button { flex-shrink: 0; border: 0; background: transparent; box-shadow: none; margin-right: 3px; padding: 7px; }
-.mux-dialog-agent-config .mux-launch-instance-option { padding-top: 12px; border-top: 1px solid var(--border-hairline); }
 @media (max-width: 520px) { .mux-agent-config-mcp { grid-template-columns: minmax(0, 1fr); } }

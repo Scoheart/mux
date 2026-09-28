@@ -3,7 +3,7 @@
 MUX's agent data comes in two layers:
 
 - **Audited definitions**: `data/agents.json` contains individually verified configuration contracts. MCP writes require a confirmed global path and format; other Agents expose only their verified Skills or native configuration guidance.
-- **Client directory**: sourced from public MCP client directories and the official client matrix, used for discovery only. Its **204 entries** combine with the audited definitions into **223 unique Agent identities** after deduplication.
+- **Client directory**: sourced from public MCP client directories and the official client matrix, used for discovery only. Its **204 entries** combine with the audited definitions into **230 unique Agent identities** after deduplication.
 
 For MCP capability, clients whose global file path, top-level key, and entry structure have not been confirmed never become writable MCP targets. Skills-only Agents appear only after their user-level directory contract is verified independently. This keeps expanding coverage without writing a generic JSON guess into an unknown product's config.
 
@@ -15,7 +15,7 @@ MUX currently exposes **15 Model targets**: 13 are managed, while MiniMax Code a
 
 ## Verified list
 
-The results below are based on official docs, official source, or signed application bundles through **2026-09-20**. Grok Build was verified against xAI's official documentation; MiniMax Code was verified from the official signed `3.0.51` macOS bundle.
+The results below are based on official docs, official source, or signed application bundles through **2026-09-28**. Grok Build was verified against xAI's official documentation; MiniMax Code was verified from the official signed `3.0.51` macOS bundle.
 
 The table focuses on MCP contracts: it lists the verified writable targets and retains Devin, Cline Desktop, and Freebuff as explicit read-only comparisons. See Skills capabilities below and [User-level Skills](/en/guide/skills#verified-agent-paths) for the Skills-only definitions.
 
@@ -44,6 +44,7 @@ The new Qoder Desktop MCP contract was verified against its official documentati
 | [Cursor](https://docs.cursor.com/context/model-context-protocol) | JSON | `mcpServers` | `~/.cursor/mcp.json` | stdio / http |
 | [Cursor CLI](https://cursor.com/docs/cli/overview) | JSON | `mcpServers` | `~/.cursor/mcp.json` | stdio / http |
 | [Devin](https://docs.devin.ai/work-with-devin/mcp) | - | - | discovery only | - |
+| [Factory](https://docs.factory.ai/harness/mcp) | JSON | `mcpServers` | `~/.factory/mcp.json` | stdio / http |
 | [Factory Droid](https://docs.factory.ai/cli/configuration/mcp) | JSON | `mcpServers` | `~/.factory/mcp.json` | stdio / http |
 | [Firebender](https://docs.firebender.com/context/mcp/overview) | JSON | `mcpServers` | `~/.firebender/firebender.json` | stdio / http |
 | [Freebuff](https://freebuff.com/) | - | - | discovery only | - |

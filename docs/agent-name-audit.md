@@ -118,6 +118,7 @@
 | `dolphin-mcp` | Dolphin-MCP | client | 保留来源目录名称 |
 | `eca-editor-code-assistant` | ECA - Editor Code Assistant | client | 保留来源目录名称 |
 | `emacs-mcp` | Emacs Mcp | client | 保留来源目录名称 |
+| `factory-desktop` | Factory | desktop | macOS 应用名为 Factory.app；独立于 Droid CLI 身份 |
 | `factory-droid` | Factory Droid | cli | 沿用已核验产品名 |
 | `fast-agent` | fast-agent | coding-agent | 保留来源目录名称 |
 | `firebender` | Firebender | desktop | 沿用已核验产品名 |

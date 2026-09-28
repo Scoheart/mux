@@ -75,6 +75,7 @@ const FULL_BLEED = new Set<string>([
   "codebuddy-code",
   "workbuddy",
   "workbuddy-cn",
+  "factory-desktop",
   "factory-droid",
   "firebender",
   "freebuff",

@@ -294,4 +294,17 @@ mod tests {
         assert!(matches!(info.resolved_target, Some(LaunchTarget::App { path, .. }) if path == app.to_string_lossy()));
         assert_eq!(info.install_url.as_deref(), Some("https://opencode.ai/download"));
     }
+
+    #[test]
+    fn factory_desktop_discovers_user_app_without_droid_cli() {
+        let home = crate::testenv::TestHome::new("factory-desktop-launch");
+        let app = home.home.join("Applications/Factory.app");
+        fs::create_dir_all(app.join("Contents")).unwrap();
+        fs::write(app.join("Contents/Info.plist"), "fixture").unwrap();
+        let info = info("factory-desktop").unwrap();
+        assert_eq!(info.category, "desktop");
+        assert_eq!(info.kind.as_deref(), Some("app"));
+        assert!(matches!(info.resolved_target, Some(LaunchTarget::App { path, .. }) if path == app.to_string_lossy()));
+        assert_eq!(info.install_url.as_deref(), Some("https://factory.com/product/desktop"));
+    }
 }

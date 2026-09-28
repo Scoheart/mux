@@ -20,6 +20,8 @@ it("distinguishes Claude and Qoder product surfaces", () => {
     ["opencode-desktop", "OpenCode Desktop", "desktop"],
     ["codex", "Codex CLI", "cli"],
     ["codex-desktop", "Codex Desktop", "desktop"],
+    ["factory-droid", "Factory Droid", "cli"],
+    ["factory-desktop", "Factory", "desktop"],
   ] as const;
 
   for (const [id, name, surface] of cases) {

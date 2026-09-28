@@ -16,6 +16,8 @@
   "zcode": "desktop",
   "codebuddy-code": "cli",
   "codebuddy-ide": "ide",
+  "factory-desktop": "desktop",
+  "factory-droid": "cli",
   "workbuddy": "desktop",
   "qwenwork": "desktop",
   "qwenwork-cn": "desktop",

@@ -606,7 +606,7 @@ fn every_writable_builtin_roundtrips_through_its_wire_format() {
         .values()
         .filter(|agent| agent.global.is_some())
         .count();
-    assert_eq!(writable, 56);
+    assert_eq!(writable, 61);
 
     for (agent_id, definition) in agents {
         if definition.global.is_none() {
@@ -883,6 +883,7 @@ fn builtin_global_paths_match_current_product_docs() {
         ("crush", "~/.config/crush/crush.json"),
         ("cursor", "~/.cursor/mcp.json"),
         ("cursor-cli", "~/.cursor/mcp.json"),
+        ("factory-desktop", "~/.factory/mcp.json"),
         ("factory-droid", "~/.factory/mcp.json"),
         ("firebender", "~/.firebender/firebender.json"),
         ("gemini", "~/.gemini/settings.json"),
@@ -948,16 +949,16 @@ fn verified_and_catalog_definitions_have_auditable_boundaries() {
     let all_ids: std::collections::BTreeSet<_> =
         verified_ids.union(&catalog_ids).cloned().collect();
 
-    assert_eq!(verified.len(), 72);
+    assert_eq!(verified.len(), 74);
     assert_eq!(catalog.len(), 204);
     assert_eq!(verified_ids.intersection(&catalog_ids).count(), 48);
-    assert_eq!(all_ids.len(), 228);
+    assert_eq!(all_ids.len(), 230);
     assert_eq!(
         verified
             .values()
             .filter(|item| item.global.is_some())
         .count(),
-        59
+        61
     );
     assert!(catalog.len() >= 170);
     for (id, definition) in verified {
@@ -968,6 +969,7 @@ fn verified_and_catalog_definitions_have_auditable_boundaries() {
                 Some(
                     "standard"
                         | "workbuddy"
+                        | "zcode"
                         | "claude_desktop"
                         | "explicit_type"
                         | "url_inferred"
@@ -1072,6 +1074,9 @@ fn verified_and_catalog_definitions_have_auditable_boundaries() {
         }
     }
     for (id, definition) in catalog {
+        if verified_ids.contains(&id) {
+            continue; // Audited definition takes precedence over its catalog copy.
+        }
         assert_eq!(definition.builtin, Some(true), "{id}");
         assert!(definition.global.is_none(), "{id}");
         assert_eq!(definition.format, "unknown", "{id}");

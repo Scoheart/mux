@@ -76,6 +76,7 @@ const VERIFIED_SKILL_AGENT_IDS: &[&str] = &[
     "cursor-cli",
     "dirac",
     "docker-agent",
+    "factory-desktop",
     "factory-droid",
     "firebender",
     "gemini",

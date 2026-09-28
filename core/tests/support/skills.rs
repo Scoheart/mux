@@ -48,6 +48,7 @@ const VERIFIED_SKILL_AGENT_IDS: &[&str] = &[
     "cursor-cli",
     "dirac",
     "docker-agent",
+    "factory-desktop",
     "factory-droid",
     "firebender",
     "gemini",
@@ -129,6 +130,7 @@ impl SkillsFixture {
                 }
                 "docker-agent" => home.home.join(".config/cagent"),
                 "dirac" => home.home.join(".dirac"),
+                "factory-desktop" => home.home.join("Applications/Factory.app"),
                 "factory-droid" => home.home.join(".factory"),
                 "firebender" => home.home.join(".firebender"),
                 "gemini" => home.home.join(".gemini"),

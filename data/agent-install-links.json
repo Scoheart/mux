@@ -99,6 +99,10 @@
     "url": "https://github.com/docker/docker-agent",
     "label": "安装文档"
   },
+  "factory-desktop": {
+    "url": "https://factory.com/product/desktop",
+    "label": "官方下载"
+  },
   "factory-droid": {
     "url": "https://docs.factory.ai/",
     "label": "安装文档"

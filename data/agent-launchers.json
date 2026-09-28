@@ -162,6 +162,12 @@
     ],
     "args": []
   },
+  "factory-desktop": {
+    "kind": "app",
+    "candidates": [
+      "Factory"
+    ]
+  },
   "factory-droid": {
     "kind": "cli",
     "candidates": [

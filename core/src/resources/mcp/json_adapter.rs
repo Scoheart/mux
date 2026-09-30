@@ -19,6 +19,10 @@ pub struct JsonAdapter {
     root_defaults: BTreeMap<String, Value>,
 }
 
+fn valid_pi_server_name(name: &str) -> bool {
+    !name.is_empty() && name.bytes().all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
+}
+
 impl JsonAdapter {
     pub fn new(key: &str) -> Self {
         Self::with_codec(key, Codec::Standard)
@@ -330,6 +334,9 @@ impl Adapter for JsonAdapter {
             .into_iter()
             .filter_map(|property| {
                 let name = property.name()?.decoded_value().ok()?;
+                if self.codec == Codec::Pi && !valid_pi_server_name(&name) {
+                    return None;
+                }
                 property
                     .to_serde_value()
                     .and_then(|value| self.codec.decode_with_enabled(&value))
@@ -339,7 +346,7 @@ impl Adapter for JsonAdapter {
     }
 
     fn supports_native_enabled(&self) -> bool {
-        self.codec == Codec::WorkBuddy
+        matches!(self.codec, Codec::WorkBuddy | Codec::Pi)
     }
 
     fn set_enabled(&self, path: &Path, name: &str, enabled: bool, snapshot: &Value) -> Result<(), String> {
@@ -357,18 +364,22 @@ impl Adapter for JsonAdapter {
         if &current != snapshot {
             return Err("MCP entry changed while MUX was preparing its enabled state".into());
         }
-        let (_, current_enabled) = self.codec.decode_with_enabled(&current).ok_or("invalid WorkBuddy MCP entry")?;
+        let (_, current_enabled) = self.codec.decode_with_enabled(&current).ok_or("invalid native MCP entry")?;
         if current_enabled == enabled { return Ok(()); }
         let target = property.object_value().ok_or("MCP entry is not an object")?;
-        if let Some(flag) = target.get("disabled") {
-            flag.set_value(CstInputValue::Bool(!enabled));
+        let (field, value) = if self.codec == Codec::Pi { ("enabled", enabled) } else { ("disabled", !enabled) };
+        if let Some(flag) = target.get(field) {
+            flag.set_value(CstInputValue::Bool(value));
         } else {
-            target.append("disabled", CstInputValue::Bool(!enabled));
+            target.append(field, CstInputValue::Bool(value));
         }
         self.write_document(path, &root, original.as_deref())
     }
 
     fn upsert(&self, path: &Path, name: &str, cfg: &McpConfig) -> Result<(), String> {
+        if self.codec == Codec::Pi && !valid_pi_server_name(name) {
+            return Err("Pi MCP server names may contain only letters, digits, underscores, and hyphens".into());
+        }
         let (root, original) = self.read_document(path)?;
         let object = root.object_value_or_create().ok_or_else(|| {
             format!(

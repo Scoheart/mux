@@ -64,7 +64,7 @@ Model 能力由 Rust Core 统一提供；MiniMax Code、Qoder、Kimi Code CLI/De
 | [OpenCode](https://opencode.ai/docs/mcp-servers/) | JSON | `mcp` | `~/.config/opencode/opencode.json` | stdio / http |
 | [OpenCode](https://opencode.ai/docs/mcp-servers/) | JSON | `mcp` | `~/.config/opencode/opencode.json` | stdio / http |
 | [OpenHands CLI](https://docs.openhands.dev/openhands/usage/cli/mcp-servers) | JSON | `mcpServers` | `~/.openhands/mcp.json` | stdio / http |
-| [Pi Coding Agent](https://github.com/nicobailon/pi-mcp-adapter) | JSON | `mcpServers` | `~/.pi/agent/mcp.json` | stdio / http |
+| [Pi Coding Agent](https://pi.dev/docs/latest/mcp) | JSON | `mcpServers` | `~/.pi/agent/mcp.json` | stdio / http |
 | [Qoder](https://docs.qoder.com/user-guide/chat/model-context-protocol) | JSON | `mcpServers` | `~/.qoder/mcp.json` | stdio / http |
 | [Qoder](https://docs.qoder.com/qoder/connectors) | JSON | `mcpServers` | `~/.qoder/settings.json` | stdio / http |
 | [Qoder CLI](https://docs.qoder.com/en/cli/mcp-servers) | JSON | `mcpServers` | `~/.qoder/settings.json` | stdio / http |
@@ -83,7 +83,7 @@ Model 能力由 Rust Core 统一提供；MiniMax Code、Qoder、Kimi Code CLI/De
 
 ### 需要特别区分的目标
 
-- **Pi**：Pi 核心不内置 MCP。MUX 的定义只适用于已安装社区 `pi-mcp-adapter` 的环境，因此界面明确标为社区扩展。
+- **Pi**：0.99.0 起原生支持 MCP，MUX 管理官方的用户级 `mcp.json`，识别并保留 `enabled`、工具暴露和超时等原生策略；不写项目级文件。低于 0.99.0 的 Pi 需要社区适配器；若适配器覆盖 `/mcp`，新版 Pi 会暂停使用内置 MCP，请先按 [官方说明](https://pi.dev/docs/latest/mcp) 处理。运行中的会话需 `/reload`。
 - **Devin / Cline Desktop / Freebuff**：产品提供 Agent 能力，但没有核验到稳定的用户级全局文件契约，因此只提供目录展示和启动入口，不提供配置写入。
 - **QoderWork**：用户自定义 MCP 保存在 `~/.qoderwork/mcp.json`，使用 `mcpServers`；MUX 不修改客户端数据目录中的内置 MCP。远程连接按官方导入格式写为 `streamable-http` 或 `sse`。
 - **Qoder / CLI / Desktop**：三个独立入口。IDE（原 `qoder`）继续使用 `~/.qoder/mcp.json`；新 Desktop（`qoder-desktop`，0.1.x）与 CLI（`qoder-cli`）共用 `~/.qoder/settings.json`，修改同名 MCP 会影响两者。Desktop 0.1.8 的自定义 Models 可由 MUX 写入同文件的 `providers`，重启后在会话中选用；CLI 1.1.50+ 同样支持自动写入自定义 Models，并通过 `model.name` 切换当前模型；新版 Desktop Skills 的本地写入契约尚未核验。

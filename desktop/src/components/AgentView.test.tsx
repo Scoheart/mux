@@ -347,8 +347,8 @@ it("toggles one or every managed MCP without opening the review panel", async ()
 it("keeps meaningful Agent badges while leaving builtin headers clean", () => {
   const communityAgent: AgentInfo = {
     ...skillsOnlyAgent,
-    id: "pi",
-    name: "Pi",
+    id: "community-agent",
+    name: "Community Agent",
     evidence: "community-extension",
   };
   const customAgent: AgentInfo = {

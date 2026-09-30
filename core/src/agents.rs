@@ -1096,15 +1096,14 @@ mod tests {
     }
 
     #[test]
-    fn pi_primary_name_does_not_expose_its_mcp_adapter_implementation() {
+    fn pi_uses_its_official_native_mcp_contract() {
         assert_eq!(
             audited_agents()["pi"].name.as_deref(),
             Some("Pi Coding Agent")
         );
-        assert!(audited_agents()["pi"]
-            .note
-            .as_deref()
-            .is_some_and(|note| note.contains("pi-mcp-adapter")));
+        assert_eq!(audited_agents()["pi"].evidence.as_deref(), Some("official"));
+        assert_eq!(audited_agents()["pi"].codec.as_deref(), Some("pi"));
+        assert_eq!(audited_agents()["pi"].docs.as_deref(), Some("https://pi.dev/docs/latest/mcp"));
     }
 
     #[test]

@@ -129,6 +129,7 @@ pub enum Codec {
     ClaudeDesktop,
     ExplicitType,
     UrlInferred,
+    Pi,
     VsCode,
     Codex,
     OpenCode,
@@ -176,7 +177,8 @@ pub fn for_agent(agent_id: &str) -> Codec {
         "workbuddy" | "workbuddy-cn" => Codec::WorkBuddy,
         "claude-desktop" => Codec::ClaudeDesktop,
         "claude-code" | "amazon-q" => Codec::ExplicitType,
-        "cursor" | "zed" | "kiro" | "junie" | "pi" => Codec::UrlInferred,
+        "cursor" | "zed" | "kiro" | "junie" => Codec::UrlInferred,
+        "pi" => Codec::Pi,
         "vscode" => Codec::VsCode,
         "codex" | "codex-desktop" => Codec::Codex,
         "opencode" | "opencode-desktop" => Codec::OpenCode,
@@ -202,6 +204,7 @@ pub fn from_name(name: Option<&str>, agent_id: &str) -> Codec {
         Some("claude_desktop") => Codec::ClaudeDesktop,
         Some("explicit_type") => Codec::ExplicitType,
         Some("url_inferred") => Codec::UrlInferred,
+        Some("pi") => Codec::Pi,
         Some("vscode") => Codec::VsCode,
         Some("codex") => Codec::Codex,
         Some("opencode") => Codec::OpenCode,
@@ -270,6 +273,16 @@ impl Codec {
                     return Err("MCP entry switch 'disabled' is not a boolean".into());
                 }
             },
+            Codec::Pi => {
+                if object.get("enabled").is_some_and(|value| !value.is_boolean()) {
+                    return Err("Pi MCP entry switch 'enabled' is not a boolean".into());
+                }
+                if object.get("type").is_some_and(|value| {
+                    !matches!(value.as_str(), Some("stdio" | "http" | "streamable-http"))
+                }) {
+                    return Err("Pi MCP supports stdio and Streamable HTTP, not legacy SSE".into());
+                }
+            },
             Codec::QwenWork => {
                 validate_active_field(object.get("enabled"), true, "enabled")?;
                 if object.contains_key("_builtinId")
@@ -304,20 +317,21 @@ impl Codec {
     }
 
     pub fn decode_with_enabled(self, value: &Value) -> Option<(McpConfig, bool)> {
-        if self != Codec::WorkBuddy {
-            return self.decode(value).map(|config| (config, true));
-        }
-        let disabled = match value.as_object()?.get("disabled") {
-            None => false,
-            Some(Value::Bool(disabled)) => *disabled,
-            _ => return None,
+        let enabled = match self {
+            Codec::WorkBuddy => !value.as_object()?.get("disabled")
+                .and_then(Value::as_bool).unwrap_or(false),
+            Codec::Pi => value.as_object()?.get("enabled")
+                .map(Value::as_bool).unwrap_or(Some(true))?,
+            _ => return self.decode(value).map(|config| (config, true)),
         };
-        self.decode_flat(value).map(|config| (config, !disabled))
+        self.validate_existing_entry(value).ok()?;
+        self.decode_flat(value).map(|config| (config, enabled))
     }
 
     pub fn decode(self, value: &Value) -> Option<McpConfig> {
         self.validate_existing_entry(value).ok()?;
-        if self == Codec::WorkBuddy && value.get("disabled") == Some(&Value::Bool(true)) {
+        if (self == Codec::WorkBuddy && value.get("disabled") == Some(&Value::Bool(true)))
+            || (self == Codec::Pi && value.get("enabled") == Some(&Value::Bool(false))) {
             return None;
         }
         if self == Codec::Cline {
@@ -569,6 +583,10 @@ impl Codec {
                     push_http_fields(&mut fields, http, "url", "headers");
                 }
                 Codec::UrlInferred => push_http_fields(&mut fields, http, "url", "headers"),
+                Codec::Pi => {
+                    require_http_kind(http, "Pi", &["http", "streamable-http"])?;
+                    push_http_fields(&mut fields, http, "url", "headers");
+                }
                 Codec::OpenCode => {
                     fields.push(("type".into(), Value::String("remote".into())));
                     push_http_fields(&mut fields, http, "url", "headers");

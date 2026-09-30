@@ -34,7 +34,7 @@ A catalog client is promoted into `data/agents.json` only after all of these are
 6. A codec test proves the exact on-disk shape.
 7. Round-trip tests prove that unrelated settings and Agent-owned policy fields survive.
 
-Community extensions are not presented as native support. The current example is Pi: Pi core does not ship MCP support, so the writable record is named `Pi Coding Agent (MCP Adapter)` and cites `pi-mcp-adapter`.
+Community extensions are not presented as native support. Pi 0.99.0 added built-in MCP support; its audited writable record now cites the official MCP documentation. Earlier Pi releases still need an extension to consume the same `mcp.json` path.
 
 ## Agent Skills capabilities
 

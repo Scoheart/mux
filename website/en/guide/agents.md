@@ -62,7 +62,7 @@ The new Qoder Desktop MCP contract was verified against its official documentati
 | [OpenCode](https://opencode.ai/docs/mcp-servers/) | JSON | `mcp` | `~/.config/opencode/opencode.json` | stdio / http |
 | [OpenCode Desktop](https://opencode.ai/docs/mcp-servers/) | JSON | `mcp` | `~/.config/opencode/opencode.json` | stdio / http |
 | [OpenHands CLI](https://docs.openhands.dev/openhands/usage/cli/mcp-servers) | JSON | `mcpServers` | `~/.openhands/mcp.json` | stdio / http |
-| [Pi Coding Agent](https://github.com/nicobailon/pi-mcp-adapter) | JSON | `mcpServers` | `~/.pi/agent/mcp.json` | stdio / http |
+| [Pi Coding Agent](https://pi.dev/docs/latest/mcp) | JSON | `mcpServers` | `~/.pi/agent/mcp.json` | stdio / http |
 | [Qoder IDE](https://docs.qoder.com/user-guide/chat/model-context-protocol) | JSON | `mcpServers` | `~/.qoder/mcp.json` | stdio / http |
 | [Qoder Desktop](https://docs.qoder.com/qoder/connectors) | JSON | `mcpServers` | `~/.qoder/settings.json` | stdio / http |
 | [Qoder CLI](https://docs.qoder.com/en/cli/mcp-servers) | JSON | `mcpServers` | `~/.qoder/settings.json` | stdio / http |
@@ -81,7 +81,7 @@ The new Qoder Desktop MCP contract was verified against its official documentati
 
 ### Targets that need special distinction
 
-- **Pi**: Pi's core does not include MCP. MUX's definition applies only to environments with the community `pi-mcp-adapter` installed, so the UI clearly labels it a community extension.
+- **Pi**: Pi 0.99.0+ supports MCP natively. MUX writes the official user-level `mcp.json`, observes `enabled`, and preserves Pi-owned exposure and timeout policy; it does not write project files. Earlier Pi releases need an MCP extension. An extension that overrides `/mcp` also replaces the built-in MCP session behavior; see the [official guide](https://pi.dev/docs/latest/mcp). Reload a running session after external changes.
 - **Qoder IDE / CLI / Desktop**: three separate entries. IDE (`qoder`) keeps `~/.qoder/mcp.json`; new Desktop (`qoder-desktop`, 0.1.x) and CLI (`qoder-cli`) share `~/.qoder/settings.json`, so edits to the same MCP entry affect both. Configure Desktop models in Settings → Models and CLI models in `/model`. The new Desktop Skills write contract has not been verified.
 - **Cursor IDE / CLI**: two separate launch identities share `~/.cursor/mcp.json` and `~/.cursor/skills`; the current CLI command is `agent`, with `cursor-agent` retained as a legacy fallback. MUX therefore merges their physical MCP/Skills impact while keeping their launch entries separate; Models and API credentials remain Cursor-managed.
 - **Step Code**: verified on 2026-09-23 against StepFun's official docs. MCP writes only the `mcp_servers` table in `~/.stepcode/config.toml`, using `url` and `http_headers` for remote servers and rejecting legacy SSE. `auth.json` and `models.json` stay managed by Step Code. Skills prefer `~/.stepcode/agent/skills` and also read `~/.agents/skills`. Launch uses `~/.stepcode/bin/step` and does not probe a bare `step` command.

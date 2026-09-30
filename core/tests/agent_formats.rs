@@ -139,6 +139,51 @@ fn workbuddy_roundtrip_preserves_policy_and_paused_state_and_rejects_invalid_ent
 }
 
 #[test]
+fn pi_native_mcp_preserves_policy_and_respects_enabled_state() {
+    let home = mux_core::testenv::TestHome::new("pi-native-mcp");
+    let path = home.home.join(".pi/agent/mcp.json");
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(&path, r#"{
+  "mcpServers": {
+    "invalid.name": {"command": "echo"},
+    "docs": {
+      "url": "https://docs.example.test/mcp",
+      "enabled": false,
+      "exposure": "direct",
+      "timeout": 90,
+      "toolExposure": {"delete_*": "hidden"}
+    }
+  },
+  "other": {"keep": true}
+}"#).unwrap();
+    let agents = builtin_agents();
+    let adapter = get_agent_adapter_for(&agents["pi"], "pi");
+    assert!(adapter.supports_native_enabled());
+    assert!(!adapter.read_with_enabled(&path).contains_key("invalid.name"));
+    assert_eq!(adapter.read_with_enabled(&path)["docs"].1, false);
+    assert!(!adapter.read(&path).contains_key("docs"));
+    let snapshot = adapter.snapshot(&path, "docs").unwrap().unwrap();
+    adapter.set_enabled(&path, "docs", true, &snapshot).unwrap();
+    assert_eq!(adapter.read_with_enabled(&path)["docs"].1, true);
+    assert!(adapter.set_enabled(&path, "docs", false, &snapshot).is_err());
+
+    adapter.upsert(&path, "docs", &http("https://updated.example.test/mcp")).unwrap();
+    let updated: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    assert_eq!(updated["mcpServers"]["docs"]["url"], "https://updated.example.test/mcp");
+    assert_eq!(updated["mcpServers"]["docs"]["enabled"], true);
+    assert_eq!(updated["mcpServers"]["docs"]["exposure"], "direct");
+    assert_eq!(updated["mcpServers"]["docs"]["timeout"], 90);
+    assert_eq!(updated["mcpServers"]["docs"]["toolExposure"]["delete_*"], "hidden");
+    assert_eq!(updated["other"]["keep"], true);
+    assert_eq!(updated["mcpServers"]["invalid.name"]["command"], "echo");
+
+    assert!(adapter.upsert(&path, "invalid.name", &http("https://example.test/mcp")).is_err());
+    assert!(adapter.upsert(&path, "legacy", &McpConfig::Http(HttpConfig {
+        kind: "sse".into(), url: "https://example.test/sse".into(), headers: None,
+    })).is_err());
+}
+
+#[test]
 fn kimi_desktop_and_cli_share_lossless_mcp_and_skill_contracts() {
     let home = mux_core::testenv::TestHome::new("kimi-desktop-formats");
     let agents = builtin_agents();
@@ -973,6 +1018,7 @@ fn verified_and_catalog_definitions_have_auditable_boundaries() {
                         | "claude_desktop"
                         | "explicit_type"
                         | "url_inferred"
+                        | "pi"
                         | "vscode"
                         | "codex"
                         | "opencode"

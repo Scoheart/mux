@@ -36,6 +36,7 @@
 .mux-agent-config-launch > h3 { margin: 0 0 13px; color: var(--text-primary); font-size: 12px; font-weight: 600; }
 .mux-agent-config-launch .mux-launch-settings { gap: 13px; }
 .mux-launch-install { order: -1; flex-shrink: 0; }
+.mux-launch-version { display: block; flex-shrink: 0; max-width: 152px; height: 30px; padding: 0 9px; border: 1px solid var(--border-hairline); border-radius: 7px; background: var(--surface-control); color: var(--text-secondary); font-size: 11px; line-height: 28px; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .mux-agent-overview-actions .mux-launch-install { height: 30px; padding: 0 9px; gap: 6px; border-radius: 7px; font-size: 11px; }
 .mux-launch-install-status { width: 5px; height: 5px; flex: 0 0 5px; border-radius: 50%; background: var(--text-tertiary); }
 .mux-launch-install-status[data-ready="true"] { background: var(--color-green); }

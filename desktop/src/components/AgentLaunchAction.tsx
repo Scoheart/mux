@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { getAgentLaunchInfo, type AgentLaunchInfo } from "../lib/agentLaunch";
+import { getAgentLaunchInfo, getAgentRuntimeVersion, type AgentLaunchInfo } from "../lib/agentLaunch";
 import { formatError } from "../lib/format";
 import { ChevronDownIcon, DownloadIcon, ExternalLinkIcon, FolderIcon, EditIcon, PlayIcon, RefreshIcon } from "./icons";
 import { useAgentLauncher } from "../lib/agentLauncherContext";
@@ -10,6 +10,7 @@ import installLinks from "../../../data/agent-install-links.json";
 export function AgentLaunchAction({ agentId, contextMenu = false, showLabel = false, onChosen, onConfigure }: { agentId: string; contextMenu?: boolean; showLabel?: boolean; onChosen?(): void; onConfigure?(): void }) {
   const launcher = useAgentLauncher();
   const [info, setInfo] = useState<AgentLaunchInfo | null>(null);
+  const [version, setVersion] = useState<string | null>(null);
   const [expanded, setExpanded] = useState(false);
   const [error, setError] = useState(false);
   const root = useRef<HTMLDivElement>(null);
@@ -17,9 +18,16 @@ export function AgentLaunchAction({ agentId, contextMenu = false, showLabel = fa
   const { show } = useToast();
   useEffect(() => {
     let active = true;
+    let request = 0;
     const refresh = () => {
-      void getAgentLaunchInfo(agentId).then((value) => { if (active) { setInfo(value); setError(false); } })
-        .catch(() => { if (active) setError(true); });
+      const current = ++request;
+      void getAgentLaunchInfo(agentId).then((value) => {
+        if (!active || current !== request) return;
+        setInfo(value); setVersion(null); setError(false);
+        if (value.available) void getAgentRuntimeVersion(agentId)
+          .then((found) => { if (active && current === request) setVersion(found); })
+          .catch(() => {});
+      }).catch(() => { if (active && current === request) { setVersion(null); setError(true); } });
     };
     refresh(); window.addEventListener("focus", refresh);
     return () => { active = false; window.removeEventListener("focus", refresh); };
@@ -41,6 +49,8 @@ export function AgentLaunchAction({ agentId, contextMenu = false, showLabel = fa
   const installUrl = info?.install_url ?? (installLinks as Record<string, { url: string }>)[agentId]?.url;
   const installationStatus = !info ? error ? "状态未知" : "检测中…" : ready ? "启动入口可用" : "未检测到启动程序";
   const canChooseDirectory = info?.kind === "cli" && info.available;
+  const installedPath = info?.resolved_target?.kind === "app" ? info.resolved_target.path
+    : info?.resolved_target?.kind === "cli" ? info.resolved_target.command : null;
   const showSetup = contextMenu || !onConfigure;
   const hasMenu = Boolean(canChooseDirectory || showSetup);
   const shortLabel = pending ? "稍候" : !info && error ? "重试" : info?.supported === false ? "不支持" : ready ? info?.host_name ?? "运行" : missing ? "安装" : "设置";
@@ -64,6 +74,11 @@ export function AgentLaunchAction({ agentId, contextMenu = false, showLabel = fa
       <EditIcon className="w-4 h-4" />启动设置…</button>}
   </>;
   return <>
+    {!contextMenu && info?.available && info.supported && <span className="mux-launch-version" role="status"
+      aria-label={`${info.host_name ?? info.name} 已安装${version ? `，版本 ${version}` : "，版本未知"}`}
+      title={`${info.host_name ?? info.name}${version ? ` · v${version}` : " · 已安装"}${installedPath ? `\n${installedPath}` : ""}`}>
+      {version ? `${info.host_name ? `${info.host_name} · ` : ""}v${version}` : "已安装"}
+    </span>}
     {!contextMenu && installUrl && <button type="button" className="mux-launch-install btn-secondary" onClick={openInstallation}
       title={`安装文档 · ${installationStatus}`} aria-label={`${info?.name ?? agentId} 安装文档，${installationStatus}`}>
       <DownloadIcon className="w-3.5 h-3.5" />安装文档

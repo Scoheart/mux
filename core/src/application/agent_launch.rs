@@ -1,7 +1,7 @@
 //! Agent runtime discovery and explicit user-initiated launch requests.
 use crate::settings::{load_settings_strict, mutate_settings_checked};
 use serde::{Deserialize, Serialize};
-use std::{collections::BTreeMap, fs, path::{Path, PathBuf}, process::Command};
+use std::{collections::BTreeMap, fs, io::Read, path::{Path, PathBuf}, process::{Command, Stdio}, time::{Duration, Instant}};
 
 pub use crate::domain::agents::{LaunchPreferences, LaunchTarget};
 
@@ -191,6 +191,68 @@ pub fn info(agent_id: &str) -> Result<LaunchInfo, String> {
     })
 }
 
+fn version_token(text: &str) -> Option<String> {
+    let pattern = regex::Regex::new(r"(?i)(?:^|[^a-z0-9])v?(\d+\.\d+(?:\.\d+){0,3}(?:[-+][a-z0-9.-]+)?)").ok()?;
+    pattern.captures(text)?.get(1).map(|value| value.as_str().to_string())
+}
+
+fn app_version(path: &str) -> Option<String> {
+    let app = Path::new(path);
+    if !app_exists(app) { return None; }
+    let plist = plist::Value::from_file(app.join("Contents/Info.plist")).ok()?;
+    let fields = plist.as_dictionary()?;
+    ["CFBundleShortVersionString", "CFBundleVersion"].into_iter()
+        .filter_map(|key| fields.get(key)?.as_string())
+        .find_map(version_token)
+}
+
+fn cli_version(path: &str) -> Option<String> {
+    let program = Path::new(path);
+    if !program.is_absolute() || !executable(program) { return None; }
+    let output_path = std::env::temp_dir().join(format!("mux-agent-version-{}", uuid::Uuid::new_v4()));
+    let mut output_file = fs::OpenOptions::new();
+    output_file.write(true).create_new(true);
+    #[cfg(unix)] {
+        use std::os::unix::fs::OpenOptionsExt;
+        output_file.mode(0o600);
+    }
+    let output_file = output_file.open(&output_path).ok()?;
+    let result = (|| {
+        let bin = program.parent()?;
+        let mut child = Command::new(program).arg("--version")
+            .env_clear()
+            .env("PATH", format!("{}:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin", bin.display()))
+            .stdin(Stdio::null()).stdout(Stdio::from(output_file)).stderr(Stdio::null())
+            .spawn().ok()?;
+        let deadline = Instant::now() + Duration::from_secs(2);
+        let success = loop {
+            match child.try_wait() {
+                Ok(Some(status)) => break status.success(),
+                Ok(None) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(20)),
+                _ => { let _ = child.kill(); let _ = child.wait(); break false; }
+            }
+        };
+        if !success { return None; }
+        let mut text = String::new();
+        fs::File::open(&output_path).ok()?.take(2048).read_to_string(&mut text).ok()?;
+        version_token(&text)
+    })();
+    let _ = fs::remove_file(output_path);
+    result
+}
+
+/// Inspect only the resolved official launcher. Custom CLI commands are never
+/// executed automatically; a missing version is distinct from not installed.
+pub fn runtime_version(agent_id: &str) -> Result<Option<String>, String> {
+    let launch = info(agent_id)?;
+    if !launch.available { return Ok(None); }
+    Ok(match launch.resolved_target.as_ref() {
+        Some(LaunchTarget::App { path, .. }) => app_version(path),
+        Some(LaunchTarget::Cli { command, .. }) if launch.configured_target.is_none() => cli_version(command),
+        _ => None,
+    })
+}
+
 pub fn configure(agent_id: &str, target: Option<LaunchTarget>) -> Result<LaunchInfo, String> {
     configure_with_directory(agent_id, target, None)
 }
@@ -281,6 +343,27 @@ pub fn launch(agent_id: &str, directory: Option<String>) -> Result<LaunchReceipt
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn version_discovery_reads_bundle_metadata_and_bounded_cli_output() {
+        let home = crate::testenv::TestHome::new("agent-version-discovery");
+        let app = home.home.join("Applications/Versioned.app");
+        fs::create_dir_all(app.join("Contents")).unwrap();
+        let mut fields = plist::Dictionary::new();
+        fields.insert("CFBundleShortVersionString".into(), plist::Value::String("v2.4.1".into()));
+        plist::to_file_xml(app.join("Contents/Info.plist"), &plist::Value::Dictionary(fields)).unwrap();
+        assert_eq!(app_version(&app.to_string_lossy()).as_deref(), Some("2.4.1"));
+        assert_eq!(version_token("Pi Coding Agent v0.99.0\n").as_deref(), Some("0.99.0"));
+        assert!(version_token("version unavailable").is_none());
+
+        let cli = home.home.join("versioned-agent");
+        fs::write(&cli, "#!/bin/sh\nprintf 'versioned-agent 3.2.1\\n'\n").unwrap();
+        #[cfg(unix)] {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&cli, fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        assert_eq!(cli_version(&cli.to_string_lossy()).as_deref(), Some("3.2.1"));
+    }
 
     #[test]
     fn opencode_desktop_discovers_user_app_without_a_cli_install() {

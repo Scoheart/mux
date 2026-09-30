@@ -83,6 +83,7 @@ Model 能力由 Rust Core 统一提供；MiniMax Code、Qoder、Kimi Code CLI/De
 
 ### 需要特别区分的目标
 
+- **已安装版本**：Agent 页面根据实际启动入口显示“已安装”和检测到的版本。macOS App 从应用包读取版本；内置 CLI 的默认命令使用限时 `--version` 探测。自定义 CLI 不会被自动执行以探测版本。IDE 插件如 Cline、Amazon Q 显示的是 VS Code 宿主版本；取不到版本时仍显示“已安装”。CLI 可用 `mux agent launch show <agent-id>` 查询同一版本字段。
 - **Pi**：0.99.0 起原生支持 MCP，MUX 管理官方的用户级 `mcp.json`，识别并保留 `enabled`、工具暴露和超时等原生策略；不写项目级文件。低于 0.99.0 的 Pi 需要社区适配器；若适配器覆盖 `/mcp`，新版 Pi 会暂停使用内置 MCP，请先按 [官方说明](https://pi.dev/docs/latest/mcp) 处理。运行中的会话需 `/reload`。
 - **Devin / Cline Desktop / Freebuff**：产品提供 Agent 能力，但没有核验到稳定的用户级全局文件契约，因此只提供目录展示和启动入口，不提供配置写入。
 - **QoderWork**：用户自定义 MCP 保存在 `~/.qoderwork/mcp.json`，使用 `mcpServers`；MUX 不修改客户端数据目录中的内置 MCP。远程连接按官方导入格式写为 `streamable-http` 或 `sse`。

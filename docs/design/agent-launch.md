@@ -41,9 +41,9 @@ no remaining run actions omit the dropdown arrow.
 - Missing runtime: offer the existing official installation link. No automatic installation.
 - Unmapped / custom Agent: configure an app path, executable plus separate arguments, or HTTP(S) URL. Saving these preferences never launches a process.
 
-Core owns the built-in launch catalog, executable/application discovery, validation, persisted preferences and launch orchestration. Tauri commands run blocking work off the UI thread. The UI uses a shared launcher provider for detail and context-menu actions. Launch state does not mutate MCPs, Models, Skills or credentials.
+Core owns the built-in launch catalog, executable/application discovery, validation, persisted preferences and launch orchestration. Tauri commands run blocking work off the UI thread. The UI uses a shared launcher provider for detail and context-menu actions. Launch state does not mutate MCPs, Models, Skills or credentials. Agent detail shows an installed-version badge from the resolved launch target: `.app` versions come from `Info.plist`, while audited default CLI commands may run `--version` with a cleared environment, bounded output, and a two-second deadline. Custom CLI commands are not probed. The separate version query lets the launch action become ready without waiting for a CLI process.
 
-Use exact process arguments for app/URL dispatch. CLI shell and AppleScript strings are encoded separately; commands, paths and arguments are treated as data. Never run discovery commands or install packages. Terminal actions happen only on a user click.
+Use exact process arguments for app/URL dispatch. CLI shell and AppleScript strings are encoded separately; commands, paths and arguments are treated as data. Runtime discovery only resolves paths; the limited version probe is the sole automatic CLI invocation. Never install packages during discovery. Terminal actions happen only on a user click.
 
 The macOS bundle declares the Apple Events automation entitlement and a Terminal usage description. On first CLI launch, macOS may ask the user to allow MUX to control the selected terminal. A successful dispatch confirms that the launch request was sent, not that the Agent has authenticated or initialized successfully.
 

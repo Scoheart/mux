@@ -34,6 +34,10 @@ that directory per Agent. The run dropdown lets CLI Agents use another directory
 with arguments, or website through **编辑配置**. Extension entries name the host editor they open. Missing
 built-in runtimes offer their official installation page. On the first CLI launch,
 macOS may ask for permission to let MUX control Terminal.
+Installed Agent pages show a detected version beside the launch controls. MUX
+reads macOS app bundle metadata or checks an audited default CLI with a bounded
+`--version` call; custom CLI commands are not executed for version detection.
+`mux agent launch show <agent-id>` exposes the same version in the CLI.
 
 Agent details use one workspace with a centered identity, compact launch and
 credential controls, and a single MCPs / Models / Skills tab bar. **配置** expands

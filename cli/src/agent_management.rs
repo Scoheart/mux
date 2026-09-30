@@ -80,6 +80,7 @@ fn safe_target(target: &LaunchTarget) -> serde_json::Value {
 fn safe_launch(info: &LaunchInfo) -> serde_json::Value {
     json!({"agent_id": info.agent_id, "name": info.name, "kind": info.kind,
         "supported": info.supported, "available": info.available, "install_url": info.install_url,
+        "version": agent_launch::runtime_version(&info.agent_id).ok().flatten(),
         "directory": info.directory.as_deref().map(safe_path),
         "default_directory": info.default_directory.as_deref().map(safe_path),
         "directory_exists": info.directory_exists,

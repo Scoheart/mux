@@ -19,5 +19,6 @@ export interface AgentLaunchInfo {
   resolved_target: LaunchTarget | null;
 }
 export const getAgentLaunchInfo = (agentId: string) => invoke<AgentLaunchInfo>("get_agent_launch_info", { agentId });
+export const getAgentRuntimeVersion = (agentId: string) => invoke<string | null>("get_agent_runtime_version", { agentId });
 export const configureAgentLaunch = (agentId: string, target: LaunchTarget | null, defaultDirectory?: string) => invoke<AgentLaunchInfo>("configure_agent_launch", { agentId, target, defaultDirectory });
 export const launchAgent = (agentId: string, directory: string | null) => invoke<{ directory_saved: boolean }>("launch_agent", { agentId, directory });

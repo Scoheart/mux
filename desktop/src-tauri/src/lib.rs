@@ -57,6 +57,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             trackpad_gestures::trackpad_gestures_available,
             agent_launch::get_agent_launch_info,
+            agent_launch::get_agent_runtime_version,
             agent_launch::configure_agent_launch,
             agent_launch::launch_agent,
             agent_launch::get_terminal_settings,

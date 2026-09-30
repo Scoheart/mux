@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.226](https://github.com/Scoheart/mux/compare/v1.8.225...v1.8.226) (2026-09-30)
+
+### Changes
+
+* feat(agents): show installed runtime versions ([8dfb99b](https://github.com/Scoheart/mux/commit/8dfb99baf5e051e4a259c8dffb47dac868b7ab29))
+
 ## [1.8.225](https://github.com/Scoheart/mux/compare/v1.8.224...v1.8.225) (2026-09-30)
 
 ### Changes

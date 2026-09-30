@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.225](https://github.com/Scoheart/mux/compare/v1.8.224...v1.8.225) (2026-09-30)
+
+### Changes
+
+* feat(pi): support native MCP configuration ([cad7b97](https://github.com/Scoheart/mux/commit/cad7b97b104505145be9c41b6693f0448a10949d))
+
 ## [1.8.224](https://github.com/Scoheart/mux/compare/v1.8.223...v1.8.224) (2026-09-28)
 
 ### Changes

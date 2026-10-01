@@ -359,3 +359,6 @@ Agent labels use the actual application name, or the official CLI/plugin product
 Request / Response 可查看 Headers、文本 Body 与 SSE，并复制或导出单条 / 整会话 JSON。记录保存于 `~/.mux/captures/`（或 `MUX_HOME/captures/`），目录 0700、文件 0600。常见认证头和令牌字段脱敏后才落盘；这不是任意正文的完整隐私审计。二进制正文不保存，单条正文最多 2 MiB，会话最多 5000 条 / 100 MiB。导出也是脱敏后的记录，不是原始网络包。
 
 第一版仅保证已验证的 HTTP / HTTPS 路径；不支持认证上游或 SOCKS。代理出口下 DNS 通过同一代理访问 Cloudflare DoH；解析失败不回退直连 DNS。无法通过 HTTP 上游的连接会失败。证书固定、UDP / QUIC、未触发功能、进程更新间隙均不能算作全量覆盖；更新范围会等待已有请求完成，等待期间新进程尚未纳入。停止会话或退出 MUX 会结束 MUX 启动的抓包器，不停止已有代理服务。
+
+
+网络扩展可能按系统顺序先接管连接。若已有 ProxyBridge 等目标应用代理规则，请在抓包期间只暂停目标规则并重建目标连接，完成后恢复原规则；MUX 不自动修改其他工具的规则。本机回环通信保留原出口，回环 HTTPS 不解密，避免破坏桌面 Agent 内部页面或 IPC；Agent 自身配置了本机代理 / 网关时，它的最终公网请求可能由其他进程发出，须单独核对拦截范围，不能按全量覆盖处理。

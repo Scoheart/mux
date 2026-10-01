@@ -2,6 +2,7 @@
 import asyncio
 import json
 import html
+import ipaddress
 import os
 import re
 import subprocess
@@ -144,6 +145,18 @@ def processes():
         ids = expanded
 
 
+def loopback(address):
+    if not address:
+        return False
+    host = address[0].strip('[]')
+    if host.lower() == 'localhost':
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
 class Capture:
     def __init__(self):
         self.count = 0
@@ -212,7 +225,14 @@ class Capture:
         finally:
             self.inflight.discard('dns:' + flow.id)
 
+    def tls_clienthello(self, data):
+        if loopback(data.context.server.address):
+            # Preserve the application's own TLS / IPC, including its certificate.
+            data.ignore_connection = True
+
     def server_connect(self, data):
+        if loopback(data.server.address):
+            return
         # Fail closed: unsupported protocols must not bypass the chosen proxy.
         if CONFIG['proxy_url']:
             proxy = urlsplit(CONFIG['proxy_url'])
@@ -222,7 +242,9 @@ class Capture:
 
     def requestheaders(self, flow):
         self.inflight.add(flow.id)
-        if CONFIG['proxy_url']:
+        if loopback((flow.request.host, flow.request.port)):
+            flow.server_conn.via = None
+        elif CONFIG['proxy_url']:
             proxy = urlsplit(CONFIG['proxy_url'])
             flow.server_conn.via = ('http', (proxy.hostname, proxy.port or 80))
         else:

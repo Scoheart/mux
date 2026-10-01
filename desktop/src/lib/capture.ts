@@ -1,6 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 export interface CaptureTarget { id: string; name: string; pids: number[]; agent_ids: string[] }
-export interface CaptureEnvironment { supported: boolean; engine: string | null; extension_enabled: boolean; certificate_present: boolean; certificate_trusted: boolean; targets: CaptureTarget[] }
+export interface CaptureEnvironment { supported: boolean; engine: string | null; extension_enabled: boolean; certificate_present: boolean; certificate_trusted: boolean; other_extensions: string[]; targets: CaptureTarget[] }
 export interface CaptureSession { id: string; agent_id: string; agent_name: string; target_id: string; target_name: string; pids: number[]; proxy_url: string | null; started_at: string }
 export interface CaptureStatus { state: string; message: string; pids: number[]; flow_count: number }
 export interface FlowSummary { id: string; method: string; url: string; status: number | null; started_at: number; duration_ms: number | null; error: string | null }

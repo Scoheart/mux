@@ -18,7 +18,7 @@ pub struct CaptureTarget { pub id: String, pub name: String, pub pids: Vec<u32>,
 #[derive(Clone, Serialize, Deserialize)]
 pub struct CaptureEnvironment {
     pub supported: bool, pub engine: Option<String>, pub extension_enabled: bool,
-    pub certificate_present: bool, pub certificate_trusted: bool, pub targets: Vec<CaptureTarget>,
+    pub certificate_present: bool, pub certificate_trusted: bool, pub other_extensions: Vec<String>, pub targets: Vec<CaptureTarget>,
 }
 #[derive(Clone, Serialize, Deserialize)]
 pub struct StartCapture { pub agent_id: String, pub target_id: String, pub egress: String, pub proxy_url: Option<String> }
@@ -136,10 +136,12 @@ fn targets() -> Vec<CaptureTarget> {
 
 pub fn environment() -> CaptureEnvironment {
     let supported = cfg!(target_os = "macos");
-    let extension_enabled = output("/usr/bin/systemextensionsctl", &["list"]).is_some_and(|s| s.lines().any(|l| l.contains("org.mitmproxy.macos-redirector.network-extension") && l.contains("activated enabled")));
+    let extensions = output("/usr/bin/systemextensionsctl", &["list"]).unwrap_or_default();
+    let extension_enabled = extensions.lines().any(|l| l.contains("org.mitmproxy.macos-redirector.network-extension") && l.contains("activated enabled"));
+    let other_extensions = [("com.interceptsuite.ProxyBridge.extension", "ProxyBridge"), ("com.progress-telerik.fiddler.fiddler-extension", "Fiddler Everywhere")].into_iter().filter(|(id, _)| extensions.lines().any(|line| line.contains(id) && line.contains("activated enabled"))).map(|(_, name)| name.to_owned()).collect();
     let ca = dirs::home_dir().unwrap_or_default().join(".mitmproxy/mitmproxy-ca-cert.pem");
     let certificate_trusted = ca.is_file() && Command::new("/usr/bin/security").args(["verify-cert", "-c"]).arg(&ca).stdout(Stdio::null()).stderr(Stdio::null()).status().is_ok_and(|s| s.success());
-    CaptureEnvironment { supported, engine: tool().map(|p| p.to_string_lossy().into_owned()), extension_enabled, certificate_present: ca.is_file(), certificate_trusted, targets: if supported { targets() } else { vec![] } }
+    CaptureEnvironment { supported, engine: tool().map(|p| p.to_string_lossy().into_owned()), extension_enabled, certificate_present: ca.is_file(), certificate_trusted, other_extensions, targets: if supported { targets() } else { vec![] } }
 }
 
 fn proxy(request: &StartCapture) -> Result<Option<String>, String> {

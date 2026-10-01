@@ -347,3 +347,15 @@ Kimi Code is a separate Agent (`kimi-code-desktop`) with its official app icon a
 ChatGPT (`codex-desktop`) opens ChatGPT.app and shares `~/.codex/config.toml` plus `~/.agents/skills` with Codex CLI. The model writer stays on Codex CLI. Agent types are CLI, Desktop, IDE, and Plugin; the launch form follows that type and does not switch among them.
 
 Agent labels use the actual application name, or the official CLI/plugin product name. Region, version, and surface are not added to the name. Existing IDs and bindings stay stable; see the [name audit](docs/agent-name-audit.md).
+
+
+### Agent 抓包（macOS）
+
+顶部「网络 → Agent 抓包」打开独立工作台；Agent 详情页的「抓包」按钮会预选当前 Agent。
+先启动 Agent，选择实际运行的应用或独立 CLI 进程，再指定直连、MUX 已配置的代理或任意无认证 HTTP 上游地址。抓包出口独立于 MUX 自身联网设置，指定代理后失败不回退直连。
+
+依赖本机官方 mitmproxy（`mitmdump`）。在系统设置「通用 → 登录项与扩展」启用 Mitmproxy Redirector 网络扩展，客户端还需信任 `~/.mitmproxy/mitmproxy-ca-cert.pem`。MUX 只检查状态，不自动安装证书或批准系统权限，也不自动重启 Agent。共享 Node / Python 进程不自动绑定；界面展示实际进程范围，用户须核对后开始。
+
+Request / Response 可查看 Headers、文本 Body 与 SSE，并复制或导出单条 / 整会话 JSON。记录保存于 `~/.mux/captures/`（或 `MUX_HOME/captures/`），目录 0700、文件 0600。常见认证头和令牌字段脱敏后才落盘；这不是任意正文的完整隐私审计。二进制正文不保存，单条正文最多 2 MiB，会话最多 5000 条 / 100 MiB。导出也是脱敏后的记录，不是原始网络包。
+
+第一版仅保证已验证的 HTTP / HTTPS 路径；不支持认证上游或 SOCKS。代理出口下 DNS 通过同一代理访问 Cloudflare DoH；解析失败不回退直连 DNS。无法通过 HTTP 上游的连接会失败。证书固定、UDP / QUIC、未触发功能、进程更新间隙均不能算作全量覆盖；更新范围会等待已有请求完成，等待期间新进程尚未纳入。停止会话或退出 MUX 会结束 MUX 启动的抓包器，不停止已有代理服务。

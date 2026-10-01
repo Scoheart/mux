@@ -1,0 +1,48 @@
+.mux-capture {height:100%;display:flex;flex-direction:column;gap:12px;padding:22px 24px;color:var(--text-primary);overflow:hidden;background:var(--surface-workspace)}
+.mux-capture-heading {display:flex;justify-content:space-between;align-items:center;gap:16px}
+.mux-capture-heading h1 {display:flex;align-items:center;gap:9px;font-size:19px;font-weight:650;margin:0}
+.mux-capture-heading p {font-size:12px;color:var(--text-secondary);margin:5px 0 0}
+.mux-capture-button {display:inline-flex;align-items:center;justify-content:center;gap:6px;border:1px solid var(--glass-border);background:var(--surface-quiet);border-radius:8px;padding:7px 11px;font-size:12px;white-space:nowrap;color:var(--text-primary);cursor:pointer}
+.mux-capture-button:disabled {opacity:.45;cursor:default}
+.mux-capture-primary {background:var(--surface-selected);border-color:var(--color-blue);font-weight:600;align-self:end}
+.mux-capture-controls {display:flex;align-items:end;gap:10px;flex-wrap:wrap}
+.mux-capture label {display:flex;flex-direction:column;gap:5px;font-size:11px;color:var(--text-secondary);min-width:0}
+.mux-capture input,.mux-capture select {background:var(--surface-quiet);color:var(--text-primary);border:1px solid var(--glass-border);border-radius:7px;font-size:12px;padding:7px 9px;min-width:0;max-width:100%}
+.mux-capture-controls label:nth-child(2) {flex:1;min-width:190px}
+.mux-capture-proxy {flex:1;min-width:210px}
+.mux-capture-health {display:flex;align-items:center;gap:7px;flex-wrap:wrap;font-size:12px}
+.mux-capture-scope {display:flex;flex-wrap:wrap;gap:7px 20px;font-size:11px;color:var(--text-secondary);overflow-wrap:anywhere}
+.mux-capture-warning {font-size:12px;padding:8px 10px;border-radius:7px;background:var(--surface-attention);margin:0;overflow-wrap:anywhere}
+.mux-capture-notes {font-size:11px;color:var(--text-secondary);flex-shrink:0}
+.mux-capture-notes summary {cursor:pointer}
+.mux-capture-notes p {line-height:1.55;margin:5px 0}
+.mux-capture-toolbar {display:flex;gap:9px;align-items:end;flex-shrink:0}
+.mux-capture-toolbar label {max-width:270px;flex:1}
+.mux-capture-toolbar input {flex:1}
+.mux-capture-workspace {flex:1;min-height:120px;display:grid;grid-template-columns:minmax(240px,35%) minmax(0,1fr);border:1px solid var(--glass-border);border-radius:10px;overflow:hidden}
+.mux-capture-list {overflow:auto;border-right:1px solid var(--glass-border);background:var(--surface-quiet)}
+.mux-capture-list-title {position:sticky;top:0;padding:9px 12px;font-size:12px;display:flex;justify-content:space-between;background:var(--surface-workspace);border-bottom:1px solid var(--glass-border);z-index:1}
+.mux-capture-row {content-visibility:auto;contain-intrinsic-size:auto 90px;display:block;width:100%;text-align:left;padding:10px 12px;border:0;border-bottom:1px solid var(--glass-border);background:transparent;color:var(--text-primary);cursor:pointer}
+.mux-capture-row:hover,.mux-capture-row[data-selected=true] {background:var(--surface-selected)}
+.mux-capture-row div {display:flex;gap:9px;align-items:center;font-size:11px;font-family:var(--font-mono)}
+.mux-capture-row time {margin-left:auto;color:var(--text-secondary);font-size:10px}
+.mux-capture-row strong {font-size:12px;font-weight:550;display:block;margin:4px 0;overflow-wrap:anywhere}
+.mux-capture-row code {font-size:11px;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--text-secondary)}
+.mux-capture-row small {display:block;font-size:10px;margin-top:4px;color:var(--text-secondary)}
+.mux-capture-row [data-error=true] {color:var(--color-red,#c33)}
+.mux-capture-detail {display:flex;flex-direction:column;min-width:0;min-height:0;background:var(--surface-workspace)}
+.mux-capture-detail-title {display:flex;align-items:start;gap:10px;padding:12px;border-bottom:1px solid var(--glass-border)}
+.mux-capture-detail-title code {font-size:11px;overflow-wrap:anywhere;flex:1}
+.mux-capture-tabs {display:flex;flex-wrap:wrap;gap:8px;padding:10px 12px;align-items:center}
+.mux-capture-tabs>.mux-capture-button {margin-left:auto}
+.mux-capture-detail-meta {padding:0 12px 8px;font-size:10px;color:var(--text-secondary)}
+.mux-capture-detail pre {flex:1;min-height:0;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;font:11px/1.65 var(--font-mono);margin:0;padding:12px;border-top:1px solid var(--glass-border)}
+.mux-capture-empty {padding:30px 18px;white-space:pre-line;color:var(--text-secondary);font-size:12px;line-height:1.7;margin:auto;text-align:center}
+.mux-capture :focus-visible {outline:2px solid var(--color-blue);outline-offset:2px}
+@media(max-width:950px) {.mux-capture {padding:16px;gap:9px}.mux-capture-controls {gap:7px}.mux-capture-toolbar label {max-width:210px}.mux-capture-detail-title {flex-wrap:wrap}.mux-capture-tabs {gap:5px}.mux-capture-workspace {grid-template-columns:32% minmax(0,1fr)}}
+
+.mux-capture-network-menu {position:relative;flex-shrink:0}
+.mux-capture-menu-backdrop {position:fixed;inset:0;z-index:110;background:transparent;border:0;cursor:default}
+.mux-capture-menu-items {position:absolute;right:0;top:calc(100% + 8px);z-index:111;min-width:160px;padding:5px;background:var(--surface-workspace);border:1px solid var(--glass-border);border-radius:10px;box-shadow:var(--shadow-sheet)}
+.mux-capture-menu-items button {width:100%;text-align:left;padding:9px 12px;font-size:12px;border:0;border-radius:6px;background:transparent;color:var(--text-primary);cursor:pointer}
+.mux-capture-menu-items button:hover {background:var(--surface-selected)}

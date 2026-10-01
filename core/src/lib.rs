@@ -76,3 +76,5 @@ pub mod consumption {
         pub use crate::domain::assets::*;
     }
 }
+
+pub mod capture;

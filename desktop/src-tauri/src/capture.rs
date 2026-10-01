@@ -1,0 +1,26 @@
+use mux_core::application::capture as core;
+use tauri_plugin_dialog::DialogExt;
+
+async fn worker<T: Send + 'static>(f: impl FnOnce() -> Result<T, String> + Send + 'static) -> Result<T, String> {
+    tauri::async_runtime::spawn_blocking(f).await.map_err(|_| "抓包后台任务失败。".to_owned())?
+}
+#[tauri::command]
+pub async fn capture_environment() -> Result<core::CaptureEnvironment, String> { worker(|| Ok(core::environment())).await }
+#[tauri::command]
+pub async fn capture_sessions() -> Result<Vec<core::CaptureSession>, String> { worker(core::sessions).await }
+#[tauri::command]
+pub async fn capture_snapshot(session_id: String) -> Result<core::CaptureSnapshot, String> { worker(move || core::snapshot(&session_id)).await }
+#[tauri::command]
+pub async fn capture_detail(session_id: String, flow_id: String) -> Result<core::CapturedFlow, String> { worker(move || core::detail(&session_id, &flow_id)).await }
+#[tauri::command]
+pub async fn capture_start(request: core::StartCapture) -> Result<core::CaptureSnapshot, String> { worker(move || core::start(request)).await }
+#[tauri::command]
+pub async fn capture_stop(session_id: String) -> Result<core::CaptureSnapshot, String> { worker(move || core::stop(&session_id)).await }
+#[tauri::command]
+pub async fn capture_export(app: tauri::AppHandle, session_id: String, flow_id: Option<String>) -> Result<Option<String>, String> {
+    let filename = if flow_id.is_some() { "mux-request-response.json" } else { "mux-capture-session.json" };
+    let picked = tauri::async_runtime::spawn_blocking(move || app.dialog().file().add_filter("抓包记录", &["json"]).set_file_name(filename).blocking_save_file()).await.map_err(|_| "无法打开导出窗口。".to_owned())?;
+    let Some(picked) = picked else { return Ok(None); };
+    let path = picked.into_path().map_err(|_| "导出位置无效。".to_owned())?;
+    worker(move || { core::export(&session_id, flow_id.as_deref(), &path)?; Ok(Some(path.to_string_lossy().into_owned())) }).await
+}

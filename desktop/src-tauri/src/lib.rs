@@ -1,5 +1,6 @@
 pub mod cli_tool;
 pub mod commands;
+mod capture;
 mod observation_watcher;
 mod file_editors;
 mod agent_launch;
@@ -139,6 +140,13 @@ pub fn run() {
             commands::set_mcp_builtin_icon,
             commands::import_mcp_icon_dialog,
             commands::reset_mcp_icon,
+            capture::capture_environment,
+            capture::capture_sessions,
+            capture::capture_snapshot,
+            capture::capture_detail,
+            capture::capture_start,
+            capture::capture_stop,
+            capture::capture_export,
             commands::get_proxy_settings,
             commands::set_proxy_settings,
             commands::add_agent,
@@ -152,6 +160,7 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app, event| {
+            if matches!(&event, tauri::RunEvent::Exit) { mux_core::capture::shutdown(); }
             #[cfg(target_os = "macos")]
             if matches!(&event, tauri::RunEvent::Exit) { trackpad_gestures::stop(); }
             if let tauri::RunEvent::Reopen {

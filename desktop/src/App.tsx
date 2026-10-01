@@ -58,6 +58,8 @@ const SkillsView = lazy(() =>
   })),
 );
 
+const CaptureView = lazy(() => import("./components/CaptureView").then(module => ({ default: module.CaptureView })));
+
 function ViewLoading() {
   return (
     <div className="mux-view-loading" role="status">
@@ -272,13 +274,14 @@ function App() {
       onSelectRegistry={() => setView({ kind: "registry" })}
       onSelectModels={() => setView({ kind: "models" })}
       onSelectSkills={() => setView({ kind: "skills" })}
+      onSelectCapture={() => setView({ kind: "capture" })}
       onSelectAgent={(id) => setView({ kind: "agent", id })}
       onAddAgent={() => setAddAgentOpen(true)}
       onRescan={() => refreshObservedTasks(ALL_OBSERVATION_TASK_IDS)}
       startupSync={startupSync}
     >
       <Suspense fallback={<ViewLoading />}>
-        {view.kind === "skills" ? (
+        {view.kind === "capture" ? (<CaptureView agents={agents} initialAgentId={view.agentId} muxProxy={networkSettings.settings.proxy_url} />) : view.kind === "skills" ? (
           <SkillsView
             state={skillsState}
             onOpenAgent={(id) => setView({ kind: "agent", id, tab: "skills" })}
@@ -300,6 +303,7 @@ function App() {
             initialTab={view.tab}
             externalModelCandidates={externalModelCandidates}
             onOpenResource={openResource}
+            onOpenCapture={(agentId) => setView({ kind: "capture", agentId })}
           />
         ) : (
           <RegistryView

@@ -26,6 +26,7 @@ import { DialogShell } from "./DialogShell";
 import { FormSelect } from "./FormSelect";
 import { TerminalSelect } from "./TerminalSelect";
 import "./WorkspaceSettings.css";
+import "./CaptureView.css";
 import { FileEditorSelect } from "./FileEditorSelect";
 import { ProxySettingsDialog } from "./ProxySettingsDialog";
 import { MODAL_DIALOG_SELECTOR } from "./ui";
@@ -39,6 +40,7 @@ interface LayoutProps {
   onSelectRegistry: () => void;
   onSelectModels: () => void;
   onSelectSkills: () => void;
+  onSelectCapture?: () => void;
   onSelectAgent: (id: string) => void;
   onAddAgent?: () => void;
   onRescan?: () => Promise<unknown> | void;
@@ -56,6 +58,7 @@ export function Layout({
   onSelectRegistry,
   onSelectModels,
   onSelectSkills,
+  onSelectCapture,
   onSelectAgent,
   onAddAgent,
   onRescan,
@@ -69,6 +72,7 @@ export function Layout({
   const [theme, setTheme] = useState<Theme>(getInitialTheme);
   const [version, setVersion] = useState("");
   const [proxySettingsOpen, setProxySettingsOpen] = useState(false);
+  const [networkOpen, setNetworkOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const toast = useToast();
   const { t } = useTranslation();
@@ -173,6 +177,13 @@ export function Layout({
           />
         </div>
 
+        <div className="mux-capture-network-menu">
+          <button type="button" className="mux-settings-trigger" aria-label="网络" title="网络" aria-expanded={networkOpen} onClick={() => setNetworkOpen(!networkOpen)}><NetworkIcon className="w-4 h-4" /><span>网络</span></button>
+          {networkOpen && <><button className="mux-capture-menu-backdrop" aria-label="关闭网络菜单" onClick={() => setNetworkOpen(false)} /><div className="mux-capture-menu-items">
+            <button onClick={() => { setNetworkOpen(false); setProxySettingsOpen(true); }}>代理设置</button>
+            <button onClick={() => { setNetworkOpen(false); onSelectCapture?.(); }}>Agent 抓包</button>
+          </div></>}
+        </div>
         <button type="button" className="mux-settings-trigger" aria-label="设置" title="设置"
           aria-haspopup="dialog" aria-expanded={settingsOpen} onClick={() => setSettingsOpen(true)}>
           <SlidersIcon className="w-4 h-4" /><span>设置</span>
@@ -184,7 +195,7 @@ export function Layout({
 
       {/* Content — transparent so the body's tinted backdrop shows through the
           glass surfaces. min-h-0 is critical for overflow to work. */}
-      <main aria-label={view.kind === "agent" ? `${agents.find((agent) => agent.id === view.id)?.name ?? view.id} 工作区` : `${view.kind === "registry" ? "MCPs" : view.kind === "models" ? "Models" : "Skills"} 资源库`} className="flex-1 min-h-0 overflow-hidden" style={{ background: "transparent" }}>
+      <main aria-label={view.kind === "capture" ? "Agent 抓包工作区" : view.kind === "agent" ? `${agents.find((agent) => agent.id === view.id)?.name ?? view.id} 工作区` : `${view.kind === "registry" ? "MCPs" : view.kind === "models" ? "Models" : "Skills"} 资源库`} className="flex-1 min-h-0 overflow-hidden" style={{ background: "transparent" }}>
         {children}
       </main>
 

@@ -1,4 +1,4 @@
-.mux-capture {height:100%;display:flex;flex-direction:column;gap:12px;padding:22px 24px;color:var(--text-primary);overflow:hidden;background:var(--surface-workspace)}
+.mux-capture {height:100%;display:flex;flex-direction:column;gap:12px;padding:22px 24px;color:var(--text-primary);overflow:auto;background:var(--surface-workspace)}
 .mux-capture-heading {display:flex;justify-content:space-between;align-items:center;gap:16px}
 .mux-capture-heading h1 {display:flex;align-items:center;gap:9px;font-size:19px;font-weight:650;margin:0}
 .mux-capture-heading p {font-size:12px;color:var(--text-secondary);margin:5px 0 0}
@@ -19,7 +19,7 @@
 .mux-capture-toolbar {display:flex;gap:9px;align-items:end;flex-shrink:0}
 .mux-capture-toolbar label {max-width:270px;flex:1}
 .mux-capture-toolbar input {flex:1}
-.mux-capture-workspace {flex:1;min-height:120px;display:grid;grid-template-columns:minmax(240px,35%) minmax(0,1fr);border:1px solid var(--glass-border);border-radius:10px;overflow:hidden}
+.mux-capture-workspace {flex:1;flex-shrink:0;min-height:180px;display:grid;grid-template-columns:minmax(240px,35%) minmax(0,1fr);border:1px solid var(--glass-border);border-radius:10px;overflow:hidden}
 .mux-capture-list {overflow:auto;border-right:1px solid var(--glass-border);background:var(--surface-quiet)}
 .mux-capture-list-title {position:sticky;top:0;padding:9px 12px;font-size:12px;display:flex;justify-content:space-between;background:var(--surface-workspace);border-bottom:1px solid var(--glass-border);z-index:1}
 .mux-capture-row {content-visibility:auto;contain-intrinsic-size:auto 90px;display:block;width:100%;text-align:left;padding:10px 12px;border:0;border-bottom:1px solid var(--glass-border);background:transparent;color:var(--text-primary);cursor:pointer}
@@ -46,3 +46,8 @@
 .mux-capture-menu-items {position:absolute;right:0;top:calc(100% + 8px);z-index:111;min-width:160px;padding:5px;background:var(--surface-workspace);border:1px solid var(--glass-border);border-radius:10px;box-shadow:var(--shadow-sheet)}
 .mux-capture-menu-items button {width:100%;text-align:left;padding:9px 12px;font-size:12px;border:0;border-radius:6px;background:transparent;color:var(--text-primary);cursor:pointer}
 .mux-capture-menu-items button:hover {background:var(--surface-selected)}
+
+.mux-capture-warning summary {cursor:pointer;font-weight:550}
+.mux-capture-warning p {margin:5px 0 0;line-height:1.5;max-height:72px;overflow:auto}
+.mux-capture-tabs .mux-seg-item[aria-pressed="false"] {background:transparent;color:var(--text-secondary)}
+.mux-capture-tabs .mux-seg-item[aria-pressed="true"] {background:var(--surface-selected);color:var(--color-blue)}

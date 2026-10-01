@@ -296,7 +296,7 @@ class Capture:
         if (ROOT / 'status.json').exists():
             previous = json.loads((ROOT / 'status.json').read_text())
             if previous['state'] == 'running':
-                self.status('stopped', previous.get('message', ''))
+                self.status('stopped')
 
 
 addons = [Capture()]

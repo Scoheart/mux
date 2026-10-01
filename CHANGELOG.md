@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.232](https://github.com/Scoheart/mux/compare/v1.8.231...v1.8.232) (2026-10-01)
+
+### Changes
+
+* feat(agents): add Capy desktop agent directory entry ([cba7b9a](https://github.com/Scoheart/mux/commit/cba7b9ab172be320d7a529ac83c130736fa0cd49))
+
 ## [1.8.231](https://github.com/Scoheart/mux/compare/v1.8.230...v1.8.231) (2026-10-01)
 
 ### Changes

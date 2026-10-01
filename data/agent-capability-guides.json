@@ -1,4 +1,9 @@
 {
+  "capy": {
+    "mcp": "https://docs.capy.ai/integrations/mcp",
+    "model": "https://docs.capy.ai/models-and-pricing",
+    "skill": "https://docs.capy.ai/skills"
+  },
   "codebuddy-ide": {
     "mcp": "https://www.codebuddy.ai/docs/ide/User-guide/MCP",
     "model": "https://www.codebuddy.ai/docs/ide/Features/models",

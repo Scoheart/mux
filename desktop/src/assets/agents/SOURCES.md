@@ -1,5 +1,9 @@
 # Agent icon sources
 
+## Capy — 2026-10-02
+
+- `capy.png`: the original 180px Apple touch icon from Capy's official site at <https://capy.ai/_marketing/favicon/apple-touch-icon.png>; its black tile and white mascot are retained unchanged. The official desktop download is <https://capy.ai/download/>.
+
 ## Step Code — 2026-09-23
 
 - `step-code.png`: the mascot region of the official Step Code README banner at <https://static-openapi.stepfun.com/resource/test.jpg> (pixels x=1070–1249 of the 1260×180 RGBA source). Pixels are unchanged; only the square mascot was cut out. It is not the StepFun provider mark.

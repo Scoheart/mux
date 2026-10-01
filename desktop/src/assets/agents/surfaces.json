@@ -1,5 +1,6 @@
 {
   "codex": "cli",
+  "capy": "desktop",
   "codex-desktop": "desktop",
   "claude-code": "cli",
   "claude-desktop": "desktop",

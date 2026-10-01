@@ -70,6 +70,7 @@ function visibleSurface(id: string): AgentSurface | null {
  *  render edge-to-edge instead of as a mark centered on a white tile. */
 const FULL_BLEED = new Set<string>([
   "boltai",
+  "capy",
   "cline",
   "cline-desktop",
   "codebuddy-code",

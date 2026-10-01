@@ -39,6 +39,12 @@
       "BoltAI"
     ]
   },
+  "capy": {
+    "kind": "app",
+    "candidates": [
+      "Capy"
+    ]
+  },
   "chatmcp": {
     "kind": "app",
     "candidates": [

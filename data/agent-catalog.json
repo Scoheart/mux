@@ -662,6 +662,23 @@
     "layout": "map",
     "transports": []
   },
+  "capy": {
+    "global": null,
+    "project": null,
+    "format": "unknown",
+    "key": "",
+    "enabled": true,
+    "builtin": true,
+    "name": "Capy",
+    "docs": "https://docs.capy.ai/welcome",
+    "note": "未确认稳定的用户级全局配置文件；MUX 仅展示，不写入。",
+    "category": "desktop",
+    "evidence": "official",
+    "verified_at": "2026-10-02",
+    "codec": "standard",
+    "layout": "map",
+    "transports": []
+  },
   "claude-code": {
     "global": null,
     "project": null,

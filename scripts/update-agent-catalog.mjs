@@ -47,6 +47,7 @@ const ACP_ALIASES = {
 const SUPPLEMENTAL = {
   "cline-desktop": ["Cline", "https://cline.bot/desktop", "desktop"],
   "blackbox-cli": ["BLACKBOX CLI", "https://docs.blackbox.ai/blackbox-ai-1/blackbox-cli/mcp-server", "cli"],
+  "capy": ["Capy", "https://docs.capy.ai/welcome", "desktop"],
   "chatgpt": ["ChatGPT", "https://help.openai.com/en/articles/11487775-connectors-in-chatgpt", "web"],
   "claude-ai": ["Claude.ai", "https://support.claude.com/en/articles/11175166-getting-started-with-custom-connectors-using-remote-mcp", "web"],
   "copilot-xcode": ["GitHub Copilot for Xcode", "https://docs.github.com/en/copilot/customizing-copilot/extending-copilot-chat-with-mcp", "ide"],

@@ -27,6 +27,10 @@
     "url": "https://docs.boltai.com/",
     "label": "安装文档"
   },
+  "capy": {
+    "url": "https://capy.ai/download",
+    "label": "官方下载"
+  },
   "claude-code": {
     "url": "https://code.claude.com/docs/en/quickstart",
     "label": "安装文档"

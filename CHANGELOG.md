@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.229](https://github.com/Scoheart/mux/compare/v1.8.228...v1.8.229) (2026-10-01)
+
+### Changes
+
+* fix(capture): keep diagnostics and response controls usable in compact windows ([9142259](https://github.com/Scoheart/mux/commit/914225931242b9b8207e6ae064b533006ebf57ca))
+
 ## [1.8.228](https://github.com/Scoheart/mux/compare/v1.8.227...v1.8.228) (2026-10-01)
 
 ### Changes

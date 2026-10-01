@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.230](https://github.com/Scoheart/mux/compare/v1.8.229...v1.8.230) (2026-10-01)
+
+### Changes
+
+* style(capture): refine the agent traffic workbench ([2fa6b3f](https://github.com/Scoheart/mux/commit/2fa6b3f6d254dbec3483dc232dbcc17e6d53e457))
+
 ## [1.8.229](https://github.com/Scoheart/mux/compare/v1.8.228...v1.8.229) (2026-10-01)
 
 ### Changes

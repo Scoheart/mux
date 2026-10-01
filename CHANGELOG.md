@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.231](https://github.com/Scoheart/mux/compare/v1.8.230...v1.8.231) (2026-10-01)
+
+### Changes
+
+* style(capture): simplify capture setup and traffic inspection ([e57f3db](https://github.com/Scoheart/mux/commit/e57f3dbaded2f018e5233ba39498f4f381bcd199))
+
 ## [1.8.230](https://github.com/Scoheart/mux/compare/v1.8.229...v1.8.230) (2026-10-01)
 
 ### Changes

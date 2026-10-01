@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.227](https://github.com/Scoheart/mux/compare/v1.8.226...v1.8.227) (2026-10-01)
+
+### Changes
+
+* feat(capture): add per-agent request and response workbench ([16e6785](https://github.com/Scoheart/mux/commit/16e67857a7ebf785eb85a87412bc559ee707ca6e))
+
 ## [1.8.226](https://github.com/Scoheart/mux/compare/v1.8.225...v1.8.226) (2026-09-30)
 
 ### Changes

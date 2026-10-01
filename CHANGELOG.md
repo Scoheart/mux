@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.228](https://github.com/Scoheart/mux/compare/v1.8.227...v1.8.228) (2026-10-01)
+
+### Changes
+
+* fix(capture): preserve agent loopback traffic and report competing filters ([decc2dc](https://github.com/Scoheart/mux/commit/decc2dcfdf7f16948e167539bb0d1f2b81b44870))
+
 ## [1.8.227](https://github.com/Scoheart/mux/compare/v1.8.226...v1.8.227) (2026-10-01)
 
 ### Changes

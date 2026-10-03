@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.234](https://github.com/Scoheart/mux/compare/v1.8.233...v1.8.234) (2026-10-03)
+
+### Changes
+
+* feat(traces): add local multi-agent session workbench ([5b5649b](https://github.com/Scoheart/mux/commit/5b5649bd588590052df1b8faf4bba3c2c8c2ea7f))
+
 ## [1.8.233](https://github.com/Scoheart/mux/compare/v1.8.232...v1.8.233) (2026-10-03)
 
 ### Changes

@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.8.233](https://github.com/Scoheart/mux/compare/v1.8.232...v1.8.233) (2026-10-03)
+
+### Changes
+
+* docs(agents): remove redundant Claude instruction entry ([c70b764](https://github.com/Scoheart/mux/commit/c70b764a25c3d206e4e22f5999879ce3cd46580e))
+* docs(agents): align delivery with root standing authorization ([41ec6ec](https://github.com/Scoheart/mux/commit/41ec6ec3ce8b777af457ff3ba66590bf5dc650a2))
+
 ## [1.8.232](https://github.com/Scoheart/mux/compare/v1.8.231...v1.8.232) (2026-10-01)
 
 ### Changes

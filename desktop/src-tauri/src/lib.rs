@@ -1,6 +1,7 @@
 pub mod cli_tool;
 pub mod commands;
 mod capture;
+mod traces;
 mod observation_watcher;
 mod file_editors;
 mod agent_launch;
@@ -140,6 +141,11 @@ pub fn run() {
             commands::set_mcp_builtin_icon,
             commands::import_mcp_icon_dialog,
             commands::reset_mcp_icon,
+            traces::trace_index,
+            traces::trace_page,
+            traces::trace_detail,
+            traces::trace_import,
+            traces::trace_export,
             capture::capture_environment,
             capture::capture_sessions,
             capture::capture_snapshot,

@@ -1,0 +1,6 @@
+[
+  {"id":"pi","agent_ids":["pi"],"format":"pi","roots":["~/.pi/agent/sessions/"],"extensions":["jsonl"],"filename_prefix":null},
+  {"id":"codex","agent_ids":["codex","codex-desktop"],"format":"codex","roots":["~/.codex/sessions/","~/.codex/archived_sessions/"],"extensions":["jsonl"],"filename_prefix":"rollout-"},
+  {"id":"claude-code","agent_ids":["claude-code"],"format":"claude","roots":["~/.claude/projects/"],"extensions":["jsonl"],"filename_prefix":null},
+  {"id":"gemini","agent_ids":["gemini"],"format":"gemini","roots":["~/.gemini/tmp/"],"extensions":["json","jsonl"],"filename_prefix":"session-"}
+]

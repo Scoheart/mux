@@ -68,3 +68,4 @@ impl MuxCore {
 }
 
 pub mod capture;
+pub mod traces;

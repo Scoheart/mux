@@ -59,6 +59,7 @@ const SkillsView = lazy(() =>
 );
 
 const CaptureView = lazy(() => import("./components/CaptureView").then(module => ({ default: module.CaptureView })));
+const TraceView = lazy(() => import("./components/TraceView").then(module => ({ default: module.TraceView })));
 
 function ViewLoading() {
   return (
@@ -275,13 +276,14 @@ function App() {
       onSelectModels={() => setView({ kind: "models" })}
       onSelectSkills={() => setView({ kind: "skills" })}
       onSelectCapture={() => setView({ kind: "capture" })}
+      onSelectTraces={() => setView({ kind: "traces" })}
       onSelectAgent={(id) => setView({ kind: "agent", id })}
       onAddAgent={() => setAddAgentOpen(true)}
       onRescan={() => refreshObservedTasks(ALL_OBSERVATION_TASK_IDS)}
       startupSync={startupSync}
     >
       <Suspense fallback={<ViewLoading />}>
-        {view.kind === "capture" ? (<CaptureView agents={agents} initialAgentId={view.agentId} muxProxy={networkSettings.settings.proxy_url} />) : view.kind === "skills" ? (
+        {view.kind === "traces" ? (<TraceView initialAgentId={view.agentId} />) : view.kind === "capture" ? (<CaptureView agents={agents} initialAgentId={view.agentId} muxProxy={networkSettings.settings.proxy_url} />) : view.kind === "skills" ? (
           <SkillsView
             state={skillsState}
             onOpenAgent={(id) => setView({ kind: "agent", id, tab: "skills" })}
@@ -304,6 +306,7 @@ function App() {
             externalModelCandidates={externalModelCandidates}
             onOpenResource={openResource}
             onOpenCapture={(agentId) => setView({ kind: "capture", agentId })}
+            onOpenTrace={(agentId) => setView({ kind: "traces", agentId })}
           />
         ) : (
           <RegistryView

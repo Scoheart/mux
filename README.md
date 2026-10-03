@@ -349,6 +349,16 @@ ChatGPT (`codex-desktop`) opens ChatGPT.app and shares `~/.codex/config.toml` pl
 Agent labels use the actual application name, or the official CLI/plugin product name. Region, version, and surface are not added to the name. Existing IDs and bindings stay stable; see the [name audit](docs/agent-name-audit.md).
 
 
+### Agent Trace（本地会话）
+
+顶部「Trace」或 Agent 详情页的「Trace」按钮打开只读会话工作台。它与「网络 → Agent 抓包」不同：直接读取已有会话文件，不拦截流量、启动 Agent 或修改原始日志。
+
+自动发现 Pi、Codex CLI / ChatGPT、Claude Code 和 Gemini CLI 的默认用户级会话目录。左侧按 Agent、项目和路径查找会话，中间按页查看用户、助理、工具与其他事件，右侧按需读取完整正文、原始调用 JSON 和按调用 ID 配对的返回 JSON。复制与导出当前记录均保留原始结构及元数据，仅常见凭据脱敏。
+
+其他 Agent 可选择其导出的 JSON / JSONL 文件导入；导入只登记本次 MUX 进程内的只读文件引用，不复制到中央资产库。无法识别的格式显示通用原始事件，不猜测角色或工具配对。搜索只覆盖已加载记录的摘要，不是全文 / 全历史搜索。
+
+系统与内部推理条目不展示。Pi 时间线包含历史分支，原始 ID / parentId 保留。JSONL 单条记录上限 8 MiB，按 60 条原始记录分页；JSON / Gemini 文档上限 32 MiB。文件变化、无效 JSON、超限和未配对返回明确提示，不静默截断。来源路径和适配器权威在 `data/trace-sources.json` 与 Rust Core。更多边界见 [Agent Trace](docs/agent-traces.md)。
+
 ### Agent 抓包（macOS）
 
 顶部「网络 → Agent 抓包」打开独立工作台；Agent 详情页的「抓包」按钮会预选当前 Agent。

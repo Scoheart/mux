@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import type { AgentInfo, ProxySettings, View } from "../lib/types";
 import {
   DownloadIcon,
+  DocumentIcon,
   LanguageIcon,
   MoonIcon,
   NetworkIcon,
@@ -41,6 +42,7 @@ interface LayoutProps {
   onSelectModels: () => void;
   onSelectSkills: () => void;
   onSelectCapture?: () => void;
+  onSelectTraces?: () => void;
   onSelectAgent: (id: string) => void;
   onAddAgent?: () => void;
   onRescan?: () => Promise<unknown> | void;
@@ -59,6 +61,7 @@ export function Layout({
   onSelectModels,
   onSelectSkills,
   onSelectCapture,
+  onSelectTraces,
   onSelectAgent,
   onAddAgent,
   onRescan,
@@ -177,6 +180,7 @@ export function Layout({
           />
         </div>
 
+        <button type="button" className="mux-settings-trigger" aria-label={t("trace.title")} title={t("trace.title")} aria-pressed={view.kind === "traces"} onClick={onSelectTraces}><DocumentIcon className="w-4 h-4" /><span>{t("trace.open")}</span></button>
         <div className="mux-capture-network-menu">
           <button type="button" className="mux-settings-trigger" aria-label="网络" title="网络" aria-expanded={networkOpen} onClick={() => setNetworkOpen(!networkOpen)}><NetworkIcon className="w-4 h-4" /><span>网络</span></button>
           {networkOpen && <><button className="mux-capture-menu-backdrop" aria-label="关闭网络菜单" onClick={() => setNetworkOpen(false)} /><div className="mux-capture-menu-items">
@@ -195,7 +199,7 @@ export function Layout({
 
       {/* Content — transparent so the body's tinted backdrop shows through the
           glass surfaces. min-h-0 is critical for overflow to work. */}
-      <main aria-label={view.kind === "capture" ? "Agent 抓包工作区" : view.kind === "agent" ? `${agents.find((agent) => agent.id === view.id)?.name ?? view.id} 工作区` : `${view.kind === "registry" ? "MCPs" : view.kind === "models" ? "Models" : "Skills"} 资源库`} className="flex-1 min-h-0 overflow-hidden" style={{ background: "transparent" }}>
+      <main aria-label={view.kind === "traces" ? t("trace.title") : view.kind === "capture" ? "Agent 抓包工作区" : view.kind === "agent" ? `${agents.find((agent) => agent.id === view.id)?.name ?? view.id} 工作区` : `${view.kind === "registry" ? "MCPs" : view.kind === "models" ? "Models" : "Skills"} 资源库`} className="flex-1 min-h-0 overflow-hidden" style={{ background: "transparent" }}>
         {children}
       </main>
 

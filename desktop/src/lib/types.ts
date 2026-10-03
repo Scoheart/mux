@@ -354,7 +354,8 @@ export type View =
   | { kind: "models"; intent?: Extract<ResourceNavigationIntent, { domain: "model" }> }
   | { kind: "skills"; intent?: SkillNavigationIntent }
   | { kind: "agent"; id: string; tab?: "skills" }
-  | { kind: "capture"; agentId?: string };
+  | { kind: "capture"; agentId?: string }
+  | { kind: "traces"; agentId?: string };
 
 /** A catalog source (mirrors Rust SourceView): a subscribed remote URL or a
  *  local file. Its servers are parsed under ~/.mux/assets/mcps/sources/. */

@@ -1,5 +1,6 @@
 import i18n from "i18next";
 import { initReactI18next } from "react-i18next";
+import { traceEnUS, traceZhCN } from "../lib/traceCopy";
 
 export type SupportedLocale = "zh-CN" | "en-US";
 export type LocalePreference = SupportedLocale | null;
@@ -9,6 +10,7 @@ export function systemLocale(): SupportedLocale {
 }
 
 const zhCN = {
+  trace: traceZhCN,
   syncReview: {
     title: "重新同步 MCPs", confirm: "重新同步", busy: "同步中…",
     destination: "同步到", description: "将用 MUX 中的配置覆盖所选 Agent 中的这份 MCP 配置。",
@@ -369,6 +371,7 @@ type TranslationShape<T> = {
 };
 
 const enUS: TranslationShape<typeof zhCN> = {
+  trace: traceEnUS,
   syncReview: {
     title: "Resync MCPs", confirm: "Resync", busy: "Syncing…",
     destination: "Sync to", description: "Replace this MCP configuration in the selected Agents with the MUX configuration.",

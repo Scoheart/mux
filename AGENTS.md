@@ -39,7 +39,7 @@
 
 在本独立仓执行 status、commit、tag 和 push；父仓不得跟踪其内部文件。提交使用 `<type>(<scope>): <summary>` 并在 body 解释原因。不要提交 `target/`、`dist/`、临时 App、截图或本机配置。
 
-MUX 功能提交有两条独立链路；发布前的用户选型确认遵守父仓 [`memory/USER.md`](../../../memory/USER.md) 的 MUX 发布规则，不能自行默认选型，也不是脏工作树的自动降级：
+MUX 交付授权与默认链路以父仓根 [`AGENTS.md — Standing Authorization`](../../../AGENTS.md#standing-authorization) 为准；按已授权链路执行，不重复询问，不因脏工作树或分叉切换链路：
 
 - 本地 commit & push：父仓 `mux-local-push`
 - Remote PR：父仓 `mux-remote-pr-delivery`
@@ -49,7 +49,7 @@ MUX 功能提交有两条独立链路；发布前的用户选型确认遵守父�
 
 - 永久使用 Direct Stable：普通功能提交落到 `main` 后，`direct-stable-release.yml` 只处理仍为当前 main head 的普通提交，自动递增 patch、提交 release metadata、创建 Draft，再创建不可变 Stable tag；自动 release commit 自身不会递归升版。
 - 自动 Quality 暂停。Direct Stable 在 tag/Draft 落地后从 `main` 显式派发唯一一次 macOS build，使发布构建连续复用 default-branch Rust cache。发布仍必须完成版本、签名、App/DMG、Updater、CLI、完整资产集合和 latest 语义版本顺序检查。
-- 不再维护日期窗口、Pre-release、Release Please PR 或 main PR Ruleset。Remote PR 是独立落地链路，不再自动触发 Quality。用户明确要求暂不发布时，本地链路停止 push；落地授权不覆盖无关改动、Stable tag 人工操作或 `/Applications/MUX.app` 替换。
+- 用户明确要求暂不发布时，本地链路停止 push。交付授权不覆盖无关改动或 Stable tag 人工操作；本机安装授权按父仓根 `AGENTS.md` 判断。
 - 功能提交不直接修改 `version.txt`、`CHANGELOG.md` 或 lockfile 版本；这些字段由自动 release commit 统一更新。npm lockfile 只能由 `release-version.mjs` 在无项目 `node_modules` 的临时目录更新；portable dependency closure 失败时不能绕过或手工补 JSON。
 - 不手工创建、移动或覆盖 Stable tag，不直接发布 Draft，不以 `--clobber` 修复正式资产。发布缺陷使用新的 main commit 生成下一 patch。
-- `RELEASE_PLEASE_TOKEN`、`COPILOT_PAT` 与 Tauri 签名材料只存在于 GitHub Secrets，不进入日志、fixture、文档或仓库。安装版替换仍需独立授权。
+- 发布凭据与 Tauri 签名材料只存在于 GitHub Secrets，不进入日志、fixture、文档或仓库。

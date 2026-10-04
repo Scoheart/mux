@@ -109,3 +109,41 @@ fn unknown_import_stays_raw_and_rejects_symlink_records() {
         assert!(traces::import(&alias).is_err());
     }
 }
+
+#[test]
+fn independent_pages_and_details_rebuild_credential_context() {
+    let home = TestHome::new("trace-cold-redaction");
+    let file = home.home.join("context.jsonl");
+    let short = "opaqueFixtureCredential";
+    let long = "opaqueFixtureCredentialTAIL_SHOULD_NOT_LEAK";
+    let mut records: Vec<_> = (0..65).map(|index| json!({"role":"assistant", "content":format!("fixture {index}")})).collect();
+    records[0]["title"] = json!(long);
+    records[0]["cwd"] = json!(format!("/fixture/{long}"));
+    records[39]["api_key"] = json!(short);
+    // A longer credential can be declared after its first echo on this page.
+    records[40]["content"] = json!(long);
+    records[49]["client-secret"] = json!(long);
+    records[61]["content"] = json!(format!("echo {short} and {long}"));
+    records[61]["kept"] = json!(true);
+    jsonl(&file, &records);
+    let session = traces::import(&file).unwrap();
+    let first = traces::page(&session.id, None).unwrap();
+    let encoded = serde_json::to_string(&first).unwrap();
+    assert!(!encoded.contains(short));
+    assert!(!encoded.contains("TAIL_SHOULD_NOT_LEAK"));
+    // Detail may be requested directly, without retaining the page's redactor.
+    let session = traces::import(&file).unwrap();
+    let early_detail = traces::detail(&session.id, &first.events[40].id, &first.revision).unwrap();
+    let encoded = serde_json::to_string(&early_detail).unwrap();
+    assert!(!encoded.contains(short));
+    assert!(!encoded.contains("TAIL_SHOULD_NOT_LEAK"));
+    let session = traces::import(&file).unwrap();
+    let next = traces::page(&session.id, first.next_cursor.as_deref()).unwrap();
+    assert!(!serde_json::to_string(&next).unwrap().contains(short));
+    let session = traces::import(&file).unwrap();
+    let detail = traces::detail(&session.id, &next.events[1].id, &next.revision).unwrap();
+    let encoded = serde_json::to_string(&detail).unwrap();
+    assert!(!encoded.contains(short));
+    assert!(!encoded.contains("TAIL_SHOULD_NOT_LEAK"));
+    assert_eq!(detail.raw["kept"], true);
+}

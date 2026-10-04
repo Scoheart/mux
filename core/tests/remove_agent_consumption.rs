@@ -759,6 +759,84 @@ fn skill_unassign_uses_recorded_target_after_agent_probe_disappears() {
 }
 
 #[test]
+fn skill_add_merges_shared_target_delta_and_preserves_other_consumers_and_disabled_state() {
+    let fixture = SkillsFixture::managed_on_targets("delta-x", &["claude-user"]);
+    fs::create_dir_all(fixture.home.home.join(".cline")).unwrap();
+    let y = fixture.central("delta-y");
+    support::skills::write_skill(&y, "delta-y", "Independent consumer fixture");
+    let y_hash = hash_tree(&y).unwrap();
+    mutate_settings(|settings| {
+        settings.managed_skills.get_or_insert_default().insert(
+            "delta-y".into(), support::skills::managed_record("delta-y", &y_hash));
+    }).unwrap();
+    for agent in ["codex", "cline"] {
+        commit(plan_ensure_agent_consumption(PlanEnsureAgentConsumptionRequest {
+            agent_id: agent.into(),
+            selection: AgentConsumptionSelection::Skill { names: vec!["delta-y".into()] },
+        }).unwrap());
+    }
+    commit(plan_set_skill_enabled(PlanSetSkillEnabledRequest {
+        target_id: None,
+        agent_id: "cline".into(), name: "delta-y".into(), enabled: false,
+    }).unwrap());
+    let y_before = load_settings().skill_consumptions.unwrap()["delta-y"].clone();
+    let original_x = fs::read_link(fixture.target("claude-user", "delta-x")).unwrap();
+    let redundant_cursor = fixture.target("cursor-user", "delta-x");
+
+    let plan = plan_ensure_agent_consumption(PlanEnsureAgentConsumptionRequest {
+        agent_id: "codex".into(),
+        selection: AgentConsumptionSelection::Skill { names: vec!["delta-x".into()] },
+    }).unwrap();
+    assert!(!plan.target_files.iter().any(|path| expand_tilde(path) == redundant_cursor));
+    commit(plan);
+    let settings = load_settings();
+    assert_eq!(settings.skill_assignments.as_ref().unwrap()["delta-x"],
+        BTreeSet::from(["claude-user".into(), "agents-user".into()]));
+    assert_eq!(settings.skill_assignments.as_ref().unwrap()["delta-y"],
+        BTreeSet::from(["cline-user".into(), "agents-user".into()]));
+    assert_eq!(settings.skill_consumptions.as_ref().unwrap()["delta-y"], y_before);
+    assert!(!y_before["cline-user"].enabled);
+    assert_eq!(fs::read_link(fixture.target("claude-user", "delta-x")).unwrap(), original_x);
+    assert!(fs::symlink_metadata(&redundant_cursor).is_err());
+    assert!(list_inventory().unwrap().target_incidents.is_empty());
+
+    commit(plan_remove_agent_consumption(PlanRemoveAgentConsumptionRequest {
+        agent_id: "codex".into(),
+        selection: AgentConsumptionSelection::Skill { names: vec!["delta-x".into()] },
+    }).unwrap());
+    let settings = load_settings();
+    assert_eq!(settings.skill_assignments.unwrap()["delta-x"], BTreeSet::from(["claude-user".into()]));
+    assert_eq!(settings.skill_consumptions.unwrap()["delta-y"], y_before);
+}
+
+#[test]
+fn final_skill_unassign_removes_its_link_after_every_target_agent_is_uninstalled() {
+    let fixture = SkillsFixture::managed_on_targets("last-uninstalled", &["agents-user"]);
+    let target = fixture.target("agents-user", "last-uninstalled");
+    for probe in [
+        ".claude", ".codex", ".copilot", ".gemini",
+        "Library/Application Support/Cursor", ".config/opencode",
+    ] {
+        fs::remove_dir_all(fixture.home.home.join(probe)).unwrap();
+    }
+    let prior = mux_core::resources::skill::list_inventory().unwrap();
+    assert!(prior.targets.iter().any(|target| target.target_id == "agents-user"));
+    assert!(fs::symlink_metadata(&target).unwrap().file_type().is_symlink());
+
+    commit(plan_remove_agent_consumption(PlanRemoveAgentConsumptionRequest {
+        agent_id: "codex".into(),
+        selection: AgentConsumptionSelection::Skill { names: vec!["last-uninstalled".into()] },
+    }).unwrap());
+
+    assert!(fs::symlink_metadata(&target).is_err());
+    assert!(fixture.central("last-uninstalled").is_dir());
+    assert_skill_settings_cleared("last-uninstalled");
+    assert!(list_inventory().unwrap().target_incidents.is_empty());
+    assert!(!mux_core::resources::skill::list_inventory().unwrap().targets.iter()
+        .any(|target| target.target_id == "agents-user"));
+}
+
+#[test]
 fn high_risk_skill_relationships_use_the_central_content_approval_once() {
     let fixture = SkillsFixture::managed("high-risk-relations");
     let central = fixture.central("high-risk-relations");
@@ -793,6 +871,7 @@ fn high_risk_skill_relationships_use_the_central_content_approval_once() {
     );
     commit(
         plan_set_skill_enabled(PlanSetSkillEnabledRequest {
+            target_id: None,
             agent_id: "codex".into(),
             name: "high-risk-relations".into(),
             enabled: false,
@@ -801,6 +880,7 @@ fn high_risk_skill_relationships_use_the_central_content_approval_once() {
     );
     commit(
         plan_set_skill_enabled(PlanSetSkillEnabledRequest {
+            target_id: None,
             agent_id: "codex".into(),
             name: "high-risk-relations".into(),
             enabled: true,

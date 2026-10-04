@@ -693,6 +693,13 @@ fn observation_fingerprint(config: &McpConfig, enabled: bool) -> String {
 /// servers are appended as `enabled:false` rows. Global-only unless a project dir
 /// is given.
 pub fn scan_installed(project_dir: Option<&str>) -> Vec<InstalledMcp> {
+    scan_installed_scoped(project_dir, &Default::default())
+}
+
+pub(crate) fn scan_installed_scoped(
+    project_dir: Option<&str>,
+    agent_ids: &std::collections::BTreeSet<String>,
+) -> Vec<InstalledMcp> {
     // (name::transport) -> base McpConfig, from read_registry (same source as
     // install) so each transport variant compares independently.
     let base_map: HashMap<String, McpConfig> = read_registry()
@@ -703,7 +710,8 @@ pub fn scan_installed(project_dir: Option<&str>) -> Vec<InstalledMcp> {
             Some((key, base))
         })
         .collect();
-    let agents = load_agents();
+    let mut agents = load_agents();
+    if !agent_ids.is_empty() { agents.retain(|id, _| agent_ids.contains(id)); }
     let pd = project_dir.map(Path::new);
     let mut out: Vec<InstalledMcp> = scan_agents_with_enabled(&agents, pd, true)
         .into_iter()
@@ -752,6 +760,7 @@ pub fn scan_installed(project_dir: Option<&str>) -> Vec<InstalledMcp> {
         })
         .collect();
     for (agent, list) in load_disabled() {
+        if !agent_ids.is_empty() && !agent_ids.contains(&agent) { continue; }
         for d in list {
             // A live native row, including a paused one, wins over a legacy snapshot.
             if live.contains(&(

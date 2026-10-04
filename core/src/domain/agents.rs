@@ -117,7 +117,12 @@ pub struct AgentCapabilitySet {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AgentCapabilityView {
     pub identity: AgentIdentityView,
+    /// Runtime evidence takes precedence; unknown runtimes use observed config.
     pub installed: bool,
+    #[serde(default)]
+    pub runtime_detected: Option<bool>,
+    #[serde(default)]
+    pub config_detected: bool,
     pub capabilities: AgentCapabilitySet,
 }
 
@@ -146,4 +151,3 @@ pub struct LaunchPreferences {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_directory: Option<String>,
 }
-

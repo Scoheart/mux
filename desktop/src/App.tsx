@@ -100,6 +100,12 @@ function App() {
   const [externalModelCandidates, setExternalModelCandidates] = useState<ModelAdoptionCandidate[]>([]);
   const [backendStatus, setBackendStatus] = useState<BackendStatus | null>(null);
   const nextResourceNavigationId = useRef(0);
+  const externalModelGeneration = useRef(0);
+  const [observationSubscription] = useState(() => {
+    let release!: () => void;
+    const ready = new Promise<void>((resolve) => { release = resolve; });
+    return { ready, release };
+  });
   const state = useInstallState({ autoLoad: false });
   const skillsState = useSkillsState({ autoLoad: false });
   const consumptionState = useConsumptionState({ autoLoad: false });
@@ -115,7 +121,9 @@ function App() {
     [consumptionState.agents, state.agents],
   );
   const refreshExternalModels = useCallback(async () => {
-    setExternalModelCandidates(await listModelAdoptionCandidates());
+    const generation = ++externalModelGeneration.current;
+    const candidates = await listModelAdoptionCandidates();
+    if (generation === externalModelGeneration.current) setExternalModelCandidates(candidates);
   }, []);
   const refreshResourceInventory = useCallback(async () => {
     // Start both hook generations now. A later mutation/read still supersedes
@@ -130,16 +138,17 @@ function App() {
   }, [consumptionState.refresh, skillsState.refreshSilently]);
   const foregroundStartupTasks = useMemo<StartupTask[]>(
     () => [
-      { id: "registry", label: "registry", run: state.refreshRegistry },
-      { id: "agents", label: "agents", run: state.refreshAgents },
-      { id: "agent-capabilities", label: "agent-capabilities", run: consumptionState.refreshAgents },
-      { id: "relationships", label: "relationships", run: refreshResourceInventory },
+      { id: "registry", label: "registry", run: async () => { await observationSubscription.ready; return state.refreshRegistry(); } },
+      { id: "agents", label: "agents", run: async () => { await observationSubscription.ready; return state.refreshAgents(); } },
+      { id: "agent-capabilities", label: "agent-capabilities", run: async () => { await observationSubscription.ready; return consumptionState.refreshAgents(); } },
+      { id: "relationships", label: "relationships", run: async () => { await observationSubscription.ready; return refreshResourceInventory(); } },
     ],
     [
       consumptionState.refreshAgents,
       refreshResourceInventory,
       state.refreshAgents,
       state.refreshRegistry,
+      observationSubscription,
     ],
   );
 
@@ -207,7 +216,6 @@ function App() {
   );
 
   useEffect(() => {
-    if (!startupSync.settled) return;
     let disposed = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
     let refreshing = false;
@@ -236,7 +244,16 @@ function App() {
     const unlisten = listen<ObservationChange>(
       "asset-observation-changed",
       (event) => schedule(taskIdsForObservation(event.payload)),
-    ).catch(() => undefined);
+    ).then((dispose) => {
+      // Subscribe before the first local snapshot. Events arriving during
+      // startup are already queued; update-server latency cannot disable them.
+      if (!disposed) observationSubscription.release();
+      return dispose;
+    }).catch(() => {
+      // A host without events still gets initial reads and the focus fallback.
+      if (!disposed) observationSubscription.release();
+      return undefined;
+    });
     const scheduleFocusFallback = () => {
       if (document.visibilityState !== "visible") return;
       const now = Date.now();
@@ -253,7 +270,7 @@ function App() {
       document.removeEventListener("visibilitychange", scheduleFocusFallback);
       void unlisten.then((dispose) => dispose?.());
     };
-  }, [refreshObservedTasks, startupSync.settled]);
+  }, [refreshObservedTasks, observationSubscription]);
 
   const openResource = useCallback((request: ResourceNavigationRequest) => {
     const id = ++nextResourceNavigationId.current;

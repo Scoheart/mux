@@ -149,6 +149,7 @@ pub fn run() {
             capture::capture_environment,
             capture::capture_sessions,
             capture::capture_snapshot,
+            capture::capture_delta,
             capture::capture_detail,
             capture::capture_start,
             capture::capture_stop,

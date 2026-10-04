@@ -254,190 +254,61 @@ describe("SkillReviewDialog", () => {
     expect(onCommitted).toHaveBeenCalledWith(inventory);
   });
 
-  it("binds the second high-risk confirmation to the exact core findings hash", async () => {
+  it("confirms known high risk once in the existing dialog using the original findings hash", async () => {
     const plan = highRiskPlan("findings-exact");
-    const inventory = skillsInventoryFixture();
-    const onCommit = vi
-      .fn()
-      .mockRejectedValueOnce({
-        code: "confirmation_required",
-        message: "请确认高风险证据。",
-        findings_hash: "findings-exact",
-      })
-      .mockResolvedValueOnce(inventory);
-
-    render(
-      <SkillReviewDialog
-        plan={plan}
-        onCommit={onCommit}
-        onClose={vi.fn()}
-        onCommitted={vi.fn()}
-        onRecoveryRequired={vi.fn()}
-      />,
-    );
-
-    await userEvent.click(screen.getByRole("button", { name: "确认安装" }));
-
-    const riskDialog = await screen.findByRole("dialog", {
-      name: "确认高风险覆盖",
-    });
-    const acknowledgment = screen.getByRole("checkbox", {
-      name: /我已了解/,
-    });
-    expect(acknowledgment).not.toBeChecked();
-    expect(
-      screen.getByRole("button", { name: "仍然安装" }),
-    ).toBeDisabled();
-
+    const onCommit = vi.fn().mockResolvedValue(skillsInventoryFixture());
+    render(<SkillReviewDialog plan={plan} onCommit={onCommit} onClose={vi.fn()}
+      onCommitted={vi.fn()} onRecoveryRequired={vi.fn()} />);
+    const dialog = screen.getByRole("dialog", { name: "确认 Skill 更改" });
+    const acknowledgment = within(dialog).getByRole("checkbox", { name: /我已了解/ });
+    const confirm = within(dialog).getByRole("button", { name: "仍然安装" });
+    expect(confirm).toBeDisabled();
+    expect(onCommit).not.toHaveBeenCalled();
     await userEvent.click(acknowledgment);
-    await userEvent.click(screen.getByRole("button", { name: "仍然安装" }));
-
-    expect(riskDialog).not.toBeInTheDocument();
-    expect(onCommit).toHaveBeenNthCalledWith(1, plan, null);
-    expect(onCommit).toHaveBeenNthCalledWith(2, plan, "findings-exact");
+    await userEvent.click(confirm);
+    await waitFor(() => expect(onCommit).toHaveBeenCalledOnce());
+    expect(onCommit).toHaveBeenCalledWith(plan, "findings-exact");
+    expect(screen.getAllByRole("dialog")).toHaveLength(1);
+    expect(screen.getByRole("dialog", { name: "确认 Skill 更改" })).toBe(dialog);
   });
 
-  it("closes only the nested risk confirmation on the first Escape", async () => {
-    const plan = highRiskPlan("findings-escape");
+  it("cancels the single risk review on one Escape without attempting a commit", () => {
     const onClose = vi.fn();
-    render(
-      <SkillReviewDialog
-        plan={plan}
-        onCommit={vi.fn().mockRejectedValue({
-          code: "confirmation_required",
-          message: "请确认高风险证据。",
-          findings_hash: "findings-escape",
-        })}
-        onClose={onClose}
-        onCommitted={vi.fn()}
-        onRecoveryRequired={vi.fn()}
-      />,
-    );
-
-    await userEvent.click(screen.getByRole("button", { name: "确认安装" }));
-    expect(await screen.findByRole("dialog", { name: "确认高风险覆盖" })).toBeVisible();
-
-    fireEvent.keyDown(document, { key: "Escape" });
-    expect(screen.queryByRole("dialog", { name: "确认高风险覆盖" })).not.toBeInTheDocument();
-    expect(screen.getByRole("dialog", { name: "确认 Skill 更改" })).toBeVisible();
-    expect(onClose).not.toHaveBeenCalled();
-
+    const onCommit = vi.fn();
+    render(<SkillReviewDialog plan={highRiskPlan("findings-escape")} onCommit={onCommit}
+      onClose={onClose} onCommitted={vi.fn()} onRecoveryRequired={vi.fn()} />);
     fireEvent.keyDown(document, { key: "Escape" });
     expect(onClose).toHaveBeenCalledOnce();
+    expect(onCommit).not.toHaveBeenCalled();
   });
 
-  it("shows a failed override inside the active risk dialog", async () => {
-    const plan = highRiskPlan("findings-override-error");
-    const onCommit = vi
-      .fn()
-      .mockRejectedValueOnce({
-        code: "confirmation_required",
-        message: "请确认高风险证据。",
-        findings_hash: "findings-override-error",
-      })
-      .mockRejectedValueOnce({
-        code: "conflict",
-        message: "目标在确认期间发生变化。",
-      });
-
-    render(
-      <SkillReviewDialog
-        plan={plan}
-        onCommit={onCommit}
-        onClose={vi.fn()}
-        onCommitted={vi.fn()}
-        onRecoveryRequired={vi.fn()}
-      />,
-    );
-
-    await userEvent.click(screen.getByRole("button", { name: "确认安装" }));
-    const riskDialog = await screen.findByRole("dialog", { name: "确认高风险覆盖" });
-    await userEvent.click(within(riskDialog).getByRole("checkbox", { name: /我已了解/ }));
-    await userEvent.click(within(riskDialog).getByRole("button", { name: "仍然安装" }));
-
-    expect(await within(riskDialog).findByRole("alert")).toHaveTextContent(
-      "目标在确认期间发生变化。",
-    );
+  it("keeps a failed risk-confirmed commit in the same dialog", async () => {
+    const onCommit = vi.fn().mockRejectedValue({ code: "conflict", message: "目标在确认期间发生变化。" });
+    render(<SkillReviewDialog plan={highRiskPlan("findings-error")} onCommit={onCommit}
+      onClose={vi.fn()} onCommitted={vi.fn()} onRecoveryRequired={vi.fn()} />);
+    const dialog = screen.getByRole("dialog", { name: "确认 Skill 更改" });
+    await userEvent.click(within(dialog).getByRole("checkbox", { name: /我已了解/ }));
+    await userEvent.click(within(dialog).getByRole("button", { name: "仍然安装" }));
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent("目标在确认期间发生变化。");
+    expect(screen.getAllByRole("dialog")).toHaveLength(1);
+    expect(onCommit).toHaveBeenCalledOnce();
   });
 
   it.each([
-    [
-      { code: "confirmation_required", message: "changed", findings_hash: "different-hash" },
-      "风险内容已变化，请重新操作。",
-    ],
-    [
-      { code: "plan_stale", message: "changed" },
-      "确认已过期，请重新操作。",
-    ],
-  ])("expires a nested review when the override response is stale", async (secondError, expectedMessage) => {
-    const plan = highRiskPlan("findings-nested-stale");
-    const onCommit = vi
-      .fn()
-      .mockRejectedValueOnce({
-        code: "confirmation_required",
-        message: "请确认高风险证据。",
-        findings_hash: "findings-nested-stale",
-      })
-      .mockRejectedValueOnce(secondError);
-
-    render(
-      <SkillReviewDialog
-        plan={plan}
-        onCommit={onCommit}
-        onClose={vi.fn()}
-        onCommitted={vi.fn()}
-        onRecoveryRequired={vi.fn()}
-      />,
-    );
-
-    await userEvent.click(screen.getByRole("button", { name: "确认安装" }));
-    const riskDialog = await screen.findByRole("dialog", { name: "确认高风险覆盖" });
-    await userEvent.click(within(riskDialog).getByRole("checkbox", { name: /我已了解/ }));
-    await userEvent.click(within(riskDialog).getByRole("button", { name: "仍然安装" }));
-
+    [{ code: "confirmation_required", findings_hash: undefined }, "风险确认信息不完整，请重新操作。"],
+    [{ code: "confirmation_required", findings_hash: "different-hash" }, "风险内容已变化，请重新操作。"],
+    [{ code: "plan_stale" }, "确认已过期，请重新操作。"],
+  ])("invalidates the same review when its confirmation no longer matches", async (error, expectedMessage) => {
+    const onCommit = vi.fn().mockRejectedValue(error);
+    render(<SkillReviewDialog plan={highRiskPlan("findings-expected")} onCommit={onCommit}
+      onClose={vi.fn()} onCommitted={vi.fn()} onRecoveryRequired={vi.fn()} />);
+    await userEvent.click(screen.getByRole("checkbox", { name: /我已了解/ }));
+    await userEvent.click(screen.getByRole("button", { name: "仍然安装" }));
     expect(await screen.findByText(expectedMessage)).toBeVisible();
-    expect(screen.queryByRole("dialog", { name: "确认高风险覆盖" })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "确认安装" })).toBeDisabled();
-    expect(onCommit).toHaveBeenCalledTimes(2);
+    expect(screen.getByRole("button", { name: "仍然安装" })).toBeDisabled();
+    expect(screen.getAllByRole("dialog")).toHaveLength(1);
+    expect(onCommit).toHaveBeenCalledOnce();
   });
-
-  it.each([
-    [
-      "missing",
-      undefined,
-      "风险确认信息不完整，请重新操作。",
-    ],
-    ["mismatched", "findings-other", "风险内容已变化，请重新操作。"],
-  ])(
-    "expires review when the confirmation hash is %s",
-    async (_case, findingsHash, expectedMessage) => {
-      const plan = highRiskPlan("findings-expected");
-      const onCommit = vi.fn().mockRejectedValue({
-        code: "confirmation_required",
-        message: "请确认高风险证据。",
-        findings_hash: findingsHash,
-      });
-
-      render(
-        <SkillReviewDialog
-          plan={plan}
-          onCommit={onCommit}
-          onClose={vi.fn()}
-          onCommitted={vi.fn()}
-          onRecoveryRequired={vi.fn()}
-        />,
-      );
-
-      await userEvent.click(screen.getByRole("button", { name: "确认安装" }));
-
-      expect(await screen.findByText(expectedMessage)).toBeVisible();
-      expect(
-        screen.queryByRole("dialog", { name: "确认高风险覆盖" }),
-      ).not.toBeInTheDocument();
-      expect(screen.getByRole("button", { name: "确认安装" })).toBeDisabled();
-      expect(onCommit).toHaveBeenCalledOnce();
-    },
-  );
 
   it("expires the review after a stale-plan response", async () => {
     const plan = sharedTargetPlanFixture();

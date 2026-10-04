@@ -59,6 +59,9 @@ struct TargetGraph {
 
 #[derive(Debug, Clone)]
 struct ItemMetadata {
+    // Observed central bytes may differ from the installed record. Exact
+    // managed links inherit this state; same-name external directories do not.
+    locally_modified: bool,
     description: String,
     content_kind: SkillContentKind,
     source: Option<SkillSource>,
@@ -165,6 +168,21 @@ pub fn list_skill_agent_capabilities() -> Result<Vec<SkillAgentCapabilityView>, 
         .values()
         .map(|agent| capability_view(&graph, agent))
         .collect())
+}
+
+/// All declared and canonical physical observation roots, including aliases
+/// without a primary Agent. Derived from the same verified graph as inventory.
+pub(crate) fn skill_observation_paths() -> Result<Vec<PathBuf>, SkillError> {
+    let paths = SkillsPaths::resolve_from_env()?;
+    let graph = build_target_graph(&paths, &strict_settings()?)?;
+    let mut roots = graph.targets.values().map(|target| target.canonical_root.clone()).collect::<BTreeSet<_>>();
+    for agent in graph.catalog_agents.values() {
+        for raw in std::iter::once(&agent.capability.global_dir)
+            .chain(agent.capability.aliases.iter().map(|alias| &alias.global_dir)) {
+            roots.insert(paths.expand_user(raw).ok_or_else(|| invalid_source("the Skills observation path is unavailable"))?);
+        }
+    }
+    Ok(roots.into_iter().collect())
 }
 
 fn capability_view(graph: &TargetGraph, agent: &CatalogSkillAgent) -> SkillAgentCapabilityView {
@@ -357,6 +375,29 @@ pub fn list_inventory() -> Result<SkillsInventory, SkillError> {
     Ok(inventory)
 }
 
+/// Limit expensive tree inspection to selected Agents' primary/alias roots.
+/// The graph remains complete so shared-directory affected Agent IDs are kept.
+pub(crate) fn list_inventory_for_agents(
+    settings: &Settings,
+    agent_ids: &BTreeSet<String>,
+) -> Result<SkillsInventory, SkillError> {
+    if agent_ids.is_empty() { return list_inventory_for_settings(settings); }
+    let paths = SkillsPaths::resolve_from_env()?;
+    let mut graph = build_target_graph(&paths, settings)?;
+    let selected_targets = graph.catalog_agents.values()
+        .filter(|agent| agent_ids.contains(&agent.id))
+        .flat_map(|agent| agent.declared_target_ids.iter().cloned()).collect::<BTreeSet<_>>();
+    graph.included_target_ids.retain(|target_id| selected_targets.contains(target_id));
+    graph.target_views.retain(|target| selected_targets.contains(&target.target_id));
+    let names = settings.skill_assignments.iter().flatten().filter_map(|(name, targets)| {
+        targets.iter().any(|target| graph.target_aliases.get(target).is_some_and(|canonical| selected_targets.contains(canonical)))
+            .then(|| name.clone())
+    }).collect::<BTreeSet<_>>();
+    let mut inventory = build_inventory_filtered(&paths, settings, &graph, Some(&names))?;
+    inventory.recovery_error = inventory_recovery_error()?;
+    Ok(inventory)
+}
+
 pub(crate) fn list_inventory_for_settings(
     settings: &Settings,
 ) -> Result<SkillsInventory, SkillError> {
@@ -422,6 +463,15 @@ fn build_inventory(
     settings: &Settings,
     graph: &TargetGraph,
 ) -> Result<SkillsInventory, SkillError> {
+    build_inventory_filtered(paths, settings, graph, None)
+}
+
+fn build_inventory_filtered(
+    paths: &SkillsPaths,
+    settings: &Settings,
+    graph: &TargetGraph,
+    central_names: Option<&BTreeSet<String>>,
+) -> Result<SkillsInventory, SkillError> {
     let mut items = Vec::new();
     let mut metadata_by_name = BTreeMap::new();
     let mut budget = InventoryBudget::default();
@@ -433,6 +483,7 @@ fn build_inventory(
         &mut budget,
         &mut items,
         &mut metadata_by_name,
+        central_names,
     )?;
     scan_targets(
         paths,
@@ -540,6 +591,7 @@ fn scan_central(
     budget: &mut InventoryBudget,
     items: &mut Vec<SkillInventoryItem>,
     metadata_by_name: &mut BTreeMap<String, ItemMetadata>,
+    selected_names: Option<&BTreeSet<String>>,
 ) -> Result<Option<AnchoredRoot>, SkillError> {
     let records = settings.managed_skills.as_ref();
     let central = open_optional_inventory_root(
@@ -556,14 +608,26 @@ fn scan_central(
         BTreeMap::new()
     };
 
+    if let Some(names) = selected_names { entries.retain(|name, _| names.contains(name)); }
+
     for (name, record) in records.into_iter().flatten() {
-        let states = match (central.as_ref(), entries.remove(name)) {
+        if selected_names.is_some_and(|names| !names.contains(name)) { continue; }
+        let (states, observed) = match (central.as_ref(), entries.remove(name)) {
             (Some(root), Some(entry_name)) => {
                 classify_managed_central(root, &entry_name, name, record, budget)?
             }
-            _ => BTreeSet::from([InventoryState::Missing]),
+            _ => (BTreeSet::from([InventoryState::Missing]), None),
         };
-        let metadata = metadata_from_record(record);
+        let mut metadata = metadata_from_record(record);
+        // Never offer the installed fingerprint as evidence for bytes that
+        // failed validation. Adoption must bind the actual observed candidate.
+        metadata.content_hash = observed.as_ref().map(|candidate| candidate.content_hash.clone());
+        metadata.locally_modified = states.contains(&InventoryState::LocallyModified);
+        if metadata.locally_modified { metadata.risk = None; }
+        if let Some(observed) = observed {
+            metadata.description = observed.manifest.description;
+            metadata.content_kind = classify_content(&observed.files);
+        }
         let item = make_item(
             name,
             SkillLocation::Central,
@@ -657,15 +721,26 @@ fn scan_targets(
                 "a verified Agent Skills target could not be read safely",
             )? {
                 seen.insert(name.clone());
-                let (states, external_summary) =
+                let (mut states, external_summary) =
                     classify_target_entry(paths, central, root, &name, &entry_name)?;
                 let readable = states.contains(&InventoryState::Assigned)
                     || external_summary.is_some();
-                let metadata = records
-                    .and_then(|records| records.get(&name))
-                    .map(metadata_from_record)
-                    .or_else(|| metadata_by_name.get(&name).cloned())
-                    .unwrap_or_else(|| metadata_from_external(external_summary));
+                let metadata = if states.contains(&InventoryState::Assigned) {
+                    metadata_by_name.get(&name).cloned().unwrap_or_else(|| {
+                        let mut metadata = records.and_then(|records| records.get(&name))
+                            .map(metadata_from_record).unwrap_or_else(|| metadata_from_external(None));
+                        // A scoped query may not hash unassigned central names.
+                        metadata.content_hash = None;
+                        metadata
+                    })
+                } else {
+                    // A same-name external directory or foreign link is not a
+                    // projection of the central record and has no such source.
+                    metadata_from_external(external_summary)
+                };
+                if states.contains(&InventoryState::Assigned) && metadata.locally_modified {
+                    states.insert(InventoryState::LocallyModified);
+                }
                 let mut item = make_item(
                     &name,
                     location.clone(),
@@ -758,7 +833,7 @@ fn classify_managed_central(
     name: &str,
     record: &ManagedSkillRecord,
     budget: &mut InventoryBudget,
-) -> Result<BTreeSet<InventoryState>, SkillError> {
+) -> Result<(BTreeSet<InventoryState>, Option<ValidatedSkill>), SkillError> {
     let directory = root.root_directory().map_err(|error| {
         sanitize_inventory_error(
             error,
@@ -780,12 +855,12 @@ fn classify_managed_central(
                     if validated.content_hash != record.content_hash {
                         states.insert(InventoryState::LocallyModified);
                     }
-                    Ok(states)
+                    Ok((states, Some(validated)))
                 }
                 Ok(_)
                 | Err(SkillError::InvalidManifest { .. })
                 | Err(SkillError::UnsafePath { .. }) => {
-                    Ok(BTreeSet::from([InventoryState::LocallyModified]))
+                    Ok((BTreeSet::from([InventoryState::LocallyModified]), None))
                 }
                 Err(error @ SkillError::LimitExceeded { .. }) => Err(error),
                 Err(error) => Err(sanitize_inventory_error(
@@ -794,8 +869,9 @@ fn classify_managed_central(
                 )),
             }
         }
-        AnchoredFileKind::Symlink => classify_link(root, entry_name, &identity, &entry_path, None),
-        _ => Ok(BTreeSet::from([InventoryState::LocallyModified])),
+        AnchoredFileKind::Symlink => classify_link(root, entry_name, &identity, &entry_path, None)
+            .map(|states| (states, None)),
+        _ => Ok((BTreeSet::from([InventoryState::LocallyModified]), None)),
     }
 }
 
@@ -1160,6 +1236,7 @@ fn make_item(
 
 fn metadata_from_record(record: &ManagedSkillRecord) -> ItemMetadata {
     ItemMetadata {
+        locally_modified: false,
         description: record.description.clone(),
         content_kind: record.content_kind.clone(),
         source: Some(record.source.clone()),
@@ -1174,6 +1251,7 @@ fn metadata_from_record(record: &ManagedSkillRecord) -> ItemMetadata {
 
 fn metadata_from_external(summary: Option<ExternalSummary>) -> ItemMetadata {
     ItemMetadata {
+        locally_modified: false,
         description: summary
             .as_ref()
             .map(|summary| summary.description.clone())
@@ -2069,6 +2147,25 @@ fn valid_name(value: &str) -> bool {
 mod tests {
     use super::*;
     use crate::testenv::TestHome;
+
+    #[test]
+    fn observation_roots_include_alias_only_directories_without_creating_them() {
+        let home = TestHome::new("skill-alias-watch-roots");
+        let mut definition = crate::agents::load_agents()["cursor"].clone();
+        let capability = definition.skills.as_mut().unwrap();
+        capability.target_id = "audit-primary".into();
+        capability.global_dir = "~/audit-primary/skills".into();
+        capability.aliases = vec![crate::domain::types::AgentSkillsDirectory {
+            target_id: "audit-alias".into(), global_dir: "~/audit-alias/skills".into(),
+        }];
+        crate::settings::mutate_settings(|settings| {
+            settings.agents.get_or_insert_default().insert("audit-agent".into(), definition);
+        }).unwrap();
+        let paths = skill_observation_paths().unwrap();
+        assert!(paths.contains(&home.home.join("audit-primary/skills")));
+        assert!(paths.contains(&home.home.join("audit-alias/skills")));
+        assert!(!home.home.join("audit-alias").exists());
+    }
 
     #[cfg(unix)]
     #[test]

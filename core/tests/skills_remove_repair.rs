@@ -169,6 +169,28 @@ fn remove_can_clear_a_missing_central_record_without_fabricating_backup() {
 }
 
 #[test]
+#[cfg(unix)]
+fn remove_missing_central_cleans_relative_managed_link_and_preserves_foreign_broken_link() {
+    let name = "relative-missing";
+    let fixture = SkillsFixture::managed_on_targets(name, &["claude-user"]);
+    let owned = fixture.target("claude-user", name);
+    fs::remove_file(&owned).unwrap();
+    symlink(format!("../../.mux/assets/skills/items/{name}"), &owned).unwrap();
+    let foreign = fixture.target("cursor-user", name);
+    fs::create_dir_all(foreign.parent().unwrap()).unwrap();
+    let foreign_destination = std::path::PathBuf::from(format!("../../foreign-missing/{name}"));
+    symlink(&foreign_destination, &foreign).unwrap();
+    fs::remove_dir_all(fixture.central(name)).unwrap();
+
+    let plan = plan_remove(PlanRemoveRequest { skill_name: name.into() }).unwrap();
+    assert_eq!(plan.targets.iter().map(|target| target.target_id.as_str()).collect::<Vec<_>>(), vec!["claude-user"]);
+    commit_remove(plan.confirmation()).unwrap();
+    assert!(fs::symlink_metadata(owned).is_err());
+    assert_eq!(fs::read_link(foreign).unwrap(), foreign_destination);
+    assert!(!load_settings().managed_skills.as_ref().is_some_and(|records| records.contains_key(name)));
+}
+
+#[test]
 fn remove_can_back_up_a_corrupted_managed_copy() {
     let fixture = SkillsFixture::managed("safe");
     fs::write(

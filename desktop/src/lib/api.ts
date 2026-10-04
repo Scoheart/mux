@@ -91,8 +91,9 @@ export const planSetSkillEnabled = (
   agentId: string,
   name: string,
   enabled: boolean,
+  targetId?: string,
 ) => invoke<AssetOperationPlan>("plan_set_skill_enabled", {
-  request: { agent_id: agentId, name, enabled },
+  request: { agent_id: agentId, name, enabled, ...(targetId ? { target_id: targetId } : {}) },
 });
 export const planSetModelEnabled = (
   agentId: string,

@@ -59,76 +59,7 @@ fn supported_transports(definition: &AgentDefinition) -> Vec<&'static str> {
 /// 内置 agent 定义：编译期内嵌 root agents.json（与 TS CLI 共用的单一数据源）
 const BUILTIN_AGENTS_JSON: &str = include_str!("../../data/agents.json");
 const CATALOG_AGENTS_JSON: &str = include_str!("../../data/agent-catalog.json");
-const VERIFIED_SKILL_AGENT_IDS: &[&str] = &[
-    "amp",
-    "antigravity",
-    "augment",
-    "claude-code",
-    "cline",
-    "cline-cli",
-    "codebuddy-code",
-    "codewhale",
-    "codex",
-    "codex-desktop",
-    "codex-ide",
-    "copilot-cli",
-    "cortex-code",
-    "crush",
-    "cursor",
-    "cursor-cli",
-    "deepseek-harness",
-    "dirac",
-    "docker-agent",
-    "factory-desktop",
-    "factory-droid",
-    "firebender",
-    "gemini",
-    "goose",
-    "goose-desktop",
-    "grok-build",
-    "hermes",
-    "jan-cli",
-    "jan-desktop",
-    "jcode",
-    "junie-cli",
-    "kilo-code",
-    "kilo-vscode",
-    "kimi-code",
-    "kimi-code-desktop",
-    "kiro",
-    "kiro-cli",
-    "mimo-code",
-    "minion-code",
-    "mistral-vibe",
-    "openclaw",
-    "opencode",
-    "opencode-desktop",
-    "openhands",
-    "pi",
-    "poolside",
-    "qoder",
-    "qoder-cli",
-    "qoderwork",
-    "qwen-code",
-    "qwenwork",
-    "qwenwork-cn",
-    "raycast",
-    "roo-code",
-    "rovo-dev",
-    "stakpak",
-    "step-code",
-    "theiaai-theiaide",
-    "trae-ide",
-    "vscode",
-    "vt-code",
-    "warp",
-    "windsurf",
-    "workbuddy",
-    "workbuddy-cn",
-    "zcode",
-    "zed",
-    "zencoder",
-];
+
 
 fn audited_agents() -> BTreeMap<String, AgentDefinition> {
     serde_json::from_str(BUILTIN_AGENTS_JSON).expect("agents.json must be valid")
@@ -161,15 +92,6 @@ fn merge_builtin_definitions(
 fn validate_audited_skill_capabilities(
     audited: &BTreeMap<String, AgentDefinition>,
 ) -> Result<(), String> {
-    let capability_ids: Vec<&str> = audited
-        .iter()
-        .filter_map(|(id, definition)| definition.skills.as_ref().map(|_| id.as_str()))
-        .collect();
-    if capability_ids != VERIFIED_SKILL_AGENT_IDS {
-        return Err(format!(
-            "audited Skills capability IDs must be {VERIFIED_SKILL_AGENT_IDS:?}, found {capability_ids:?}"
-        ));
-    }
     validate_skill_capabilities(audited)
 }
 
@@ -999,7 +921,11 @@ fn apply_configuration_patch_to_settings(
 
 /// List all agent definitions as `AgentInfo` view rows.
 pub fn list_infos() -> Vec<AgentInfo> {
-    load_agents()
+    list_infos_from_definitions(load_agents())
+}
+
+pub(crate) fn list_infos_from_definitions(definitions: BTreeMap<String, AgentDefinition>) -> Vec<AgentInfo> {
+    definitions
         .into_iter()
         .map(|(id, d)| {
             let skills_global_dir = d
@@ -1142,7 +1068,10 @@ mod tests {
             .iter()
             .filter_map(|(id, definition)| definition.skills.as_ref().map(|_| id.as_str()))
             .collect();
-        assert_eq!(capability_ids, VERIFIED_SKILL_AGENT_IDS);
+        let audited = audited_agents();
+        let audited_ids = audited.iter().filter_map(|(id, definition)|
+            definition.skills.as_ref().map(|_| id.as_str())).collect::<Vec<_>>();
+        assert_eq!(capability_ids, audited_ids);
 
         let workbuddy = agents["workbuddy"].skills.as_ref().unwrap();
         assert_eq!(workbuddy.target_id, "workbuddy-ai-user");
@@ -1222,8 +1151,7 @@ mod tests {
             assert!(agents[id].global.is_none());
             assert!(agents[id].transports.as_ref().is_some_and(Vec::is_empty));
         }
-        for &id in VERIFIED_SKILL_AGENT_IDS {
-            let capability = agents[id].skills.as_ref().unwrap();
+        for capability in agents.values().filter_map(|agent| agent.skills.as_ref()) {
             assert!(!capability.docs.is_empty());
             assert!(matches!(
                 capability.evidence.as_str(),

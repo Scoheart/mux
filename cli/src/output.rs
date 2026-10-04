@@ -7,6 +7,7 @@ pub struct CliError {
     pub code: String,
     pub message: String,
     pub details: Map<String, Value>,
+    safe_recovery: Map<String, Value>,
     json_safe: bool,
 }
 
@@ -16,6 +17,7 @@ impl CliError {
             code: code.into(),
             message: message.into(),
             details: Map::new(),
+            safe_recovery: Map::new(),
             json_safe: true,
         }
     }
@@ -28,6 +30,7 @@ impl CliError {
             code: code.into(),
             message: message.into(),
             details: Map::new(),
+            safe_recovery: Map::new(),
             json_safe: false,
         }
     }
@@ -59,6 +62,7 @@ impl CliError {
     }
 
     pub fn from_core(error: mux_core::domain::error::CoreError) -> Self {
+        let safe_recovery = error.automation_details().into_iter().collect();
         let mut details = Map::new();
         details.extend(error.details);
         if let Some(retry_at) = error.retry_at {
@@ -74,6 +78,7 @@ impl CliError {
             code: error.code,
             message: error.message,
             details,
+            safe_recovery,
             json_safe: false,
         }
     }
@@ -99,6 +104,7 @@ pub struct CommandOutput {
     pub changed: bool,
     pub data: Value,
     pub human: String,
+    backend: Option<Value>,
 }
 
 impl CommandOutput {
@@ -113,18 +119,52 @@ impl CommandOutput {
             changed,
             data,
             human: human.into(),
+            backend: None,
         }
     }
 
     pub fn envelope(&self) -> Value {
-        json!({
+        let mut envelope = json!({
             "schema_version": 1,
             "ok": true,
             "command": self.command,
             "changed": self.changed,
             "data": self.data,
-        })
+        });
+        if let Some(backend) = &self.backend { envelope["backend"] = backend.clone(); }
+        if self.command == "operation.review" { envelope["phase"] = json!("complete"); }
+        envelope
     }
+
+    pub fn with_backend(mut self, report: &mux_core::application::bootstrap::BootstrapReport) -> Self {
+        self.backend = Some(backend_projection(report));
+        self
+    }
+}
+
+/// Bootstrap messages can contain parser input or local paths. Expose only
+/// state, typed stages and capability, never raw startup diagnostics.
+pub fn backend_projection(report: &mux_core::application::bootstrap::BootstrapReport) -> Value {
+    use mux_core::application::BackendStatus;
+    let status = match mux_core::application::MuxCore::backend_status() {
+        BackendStatus::Starting => json!({"state": "starting"}),
+        BackendStatus::Ready => json!({"state": "ready"}),
+        BackendStatus::CapabilityUnavailable { capability, stage, code, .. } =>
+            json!({"state": "capability_unavailable", "capability": capability,
+                "stage": safe_identifier(&stage), "code": safe_identifier(&code)}),
+        BackendStatus::ReadOnly { stage, .. } =>
+            json!({"state": "read_only", "stage": safe_identifier(&stage)}),
+    };
+    json!({"status": status, "skill_updates_allowed": report.skill_updates_allowed,
+        "warnings": report.warnings.iter().map(|warning|
+            json!({"stage": warning.stage, "code": "bootstrap_warning"})).collect::<Vec<_>>()})
+}
+
+fn safe_identifier(value: &str) -> &str {
+    if !value.is_empty() && value.len() <= 80
+        && value.bytes().all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_') {
+        value
+    } else { "unknown" }
 }
 
 pub fn error_envelope(error: &CliError) -> Value {
@@ -136,8 +176,10 @@ pub fn error_envelope(error: &CliError) -> Value {
         format!("request failed ({})", error.code)
     };
     error_value.insert("message".into(), Value::String(message));
-    if error.json_safe && !error.details.is_empty() {
-        error_value.insert("details".into(), Value::Object(error.details.clone()));
+    let mut details = if error.json_safe { error.details.clone() } else { Map::new() };
+    details.extend(error.safe_recovery.clone());
+    if !details.is_empty() {
+        error_value.insert("details".into(), Value::Object(details));
     }
     json!({
         "schema_version": 1,
@@ -148,7 +190,9 @@ pub fn error_envelope(error: &CliError) -> Value {
 
 pub fn render_success(output: &CommandOutput, json_mode: bool) -> Result<(), CliError> {
     if json_mode {
-        let encoded = serde_json::to_string_pretty(&output.envelope())
+        let encoded = if output.command == "operation.review" {
+            serde_json::to_string(&output.envelope())
+        } else { serde_json::to_string_pretty(&output.envelope()) }
             .map_err(|error| CliError::private("serialization", error.to_string()))?;
         println!("{encoded}");
     } else if !output.human.is_empty() {
@@ -274,5 +318,29 @@ mod tests {
         assert!(!encoded.contains("/private/user"));
         assert!(!encoded.contains("DETAIL_SENTINEL"));
         assert!(error.to_string().contains("SECRET_SENTINEL"));
+    }
+
+    #[test]
+    fn core_recovery_metadata_survives_without_private_details() {
+        let mut error = mux_core::domain::error::CoreError::new("rate_limited", "PRIVATE_MESSAGE")
+            .with_detail("raw", "PRIVATE_DETAIL");
+        error.retry_at = Some("2026-10-05T12:30:00Z".into());
+        error.confirmation = Some(Box::new(mux_core::domain::error::CoreConfirmation {
+            kind: "skill_findings".into(), token: "a".repeat(64),
+        }));
+        let value = error_envelope(&CliError::from_core(error));
+        assert_eq!(value["error"]["details"]["retryable"], true);
+        assert_eq!(value["error"]["details"]["confirmation"]["token"], "a".repeat(64));
+        assert!(!value.to_string().contains("PRIVATE"));
+    }
+
+    #[test]
+    fn malformed_recovery_fields_are_not_exported() {
+        let mut error = mux_core::domain::error::CoreError::new("internal", "PRIVATE_MESSAGE");
+        error.retry_at = Some("PRIVATE_RETRY_VALUE".into());
+        error.confirmation = Some(Box::new(mux_core::domain::error::CoreConfirmation {
+            kind: "credential".into(), token: "PRIVATE_TOKEN".into(),
+        }));
+        assert!(!error_envelope(&CliError::from_core(error)).to_string().contains("PRIVATE"));
     }
 }

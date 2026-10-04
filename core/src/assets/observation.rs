@@ -61,11 +61,11 @@ pub fn observation_watch_targets() -> Vec<ObservationWatchTarget> {
             });
         }
     }
-    if let Ok(capabilities) = crate::resources::skill::list_skill_agent_capabilities() {
-        for capability in capabilities {
+    if let Ok(paths) = crate::resources::skill::skill_observation_paths() {
+        for path in paths {
             targets.insert(ObservationWatchTarget {
                 domain: ObservationDomain::Skill,
-                path: expand_tilde(&capability.global_dir),
+                path,
                 recursive: true,
             });
         }

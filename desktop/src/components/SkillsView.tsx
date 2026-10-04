@@ -128,8 +128,14 @@ export function SkillsView({
     ).map((row) => row.item);
   }, [searchIndex, activeSource, deferredQuery]);
   const selected = selectedIdentity
-    ? items.find((item) => item.identity === selectedIdentity) ?? null
+    ? state.inventory?.items.find((item) => item.identity === selectedIdentity) ?? null
     : null;
+  // External copies deliberately have no managed content fingerprint. A new
+  // inventory snapshot must invalidate their open detail even at the same path.
+  const unversionedDetailSnapshot = selected && selected.content_hash === null ? state.inventory : null;
+  const selectedCopies = useMemo(() => selected
+    ? (state.inventory?.items ?? []).filter((item) => item.name === selected.name)
+    : [], [selected?.name, state.inventory?.items]);
   useEffect(() => {
     if (source !== "all" && !selectedSource) setSource("all");
   }, [source, selectedSource]);
@@ -258,20 +264,20 @@ export function SkillsView({
       const routineUpdate = intent.kind === "update"
         && !intent.replaceLocalChanges
         && !plan.requires_risk_override
-        && plan.warnings.length === 0
         && plan.skills.every((skill) => !skill.existing_states.some((value) =>
           value === "locally_modified" || value === "conflicting_link" || value === "broken_link"))
         && plan.targets.every((target) => target.expected === "managed" || target.expected === "missing");
-      if (intent.kind === "import" || routineUpdate) {
-        const inventory = await commitLifecycle(
-          plan,
-          plan.requires_risk_override ? plan.findings_hash : null,
-        );
+      const routineRepair = intent.kind === "repair"
+        && !plan.requires_risk_override
+        && plan.skills.every((skill) => !skill.replace_existing)
+        && plan.targets.every((target) => target.expected === "managed" || target.expected === "missing" || target.expected === "broken");
+      if ((intent.kind === "import" && !plan.requires_risk_override) || routineUpdate || routineRepair) {
+        const inventory = await commitLifecycle(plan, null);
         if (lifecyclePlanRef.current?.operation_id === plan.operation_id) {
           lifecyclePlanRef.current = null;
         }
         if (mounted.current && lifecycleGeneration.current === generation) {
-          toast.show({ kind: "success", msg: routineUpdate ? "Skill 已更新。" : "Skill 已导入。" });
+          toast.show({ kind: "success", msg: routineUpdate ? "Skill 已更新。" : routineRepair ? "Skill 已修复。" : "Skill 已导入。" });
           const selectedName = selected?.name;
           if (
             selectedName &&
@@ -388,11 +394,11 @@ export function SkillsView({
   }, []);
   const cards = useMemo(() => filtered.map((item) => (
     <div role="listitem" key={item.identity}>
-      <SkillCard item={item} selected={item.identity === selectedIdentity}
+      <SkillCard item={item} selected={item.name === selected?.name}
         onOpen={() => openSkill(item.identity)} agentIds={consumers.get(item.name) ?? []}
         agentNames={agentNames} onOpenAgent={onOpenAgent} />
     </div>
-  )), [filtered, selectedIdentity, openSkill, consumers, agentNames, onOpenAgent]);
+  )), [filtered, selected?.name, openSkill, consumers, agentNames, onOpenAgent]);
 
   useEffect(() => {
     if (!recoveryError) return;
@@ -437,11 +443,11 @@ export function SkillsView({
   useEffect(() => {
     if (
       selectedIdentity &&
-      !filtered.some((item) => item.identity === selectedIdentity)
+      (!selected || !filtered.some((item) => item.name === selected.name))
     ) {
       closeInspector();
     }
-  }, [closeInspector, filtered, selectedIdentity]);
+  }, [closeInspector, filtered, selectedIdentity, selected?.name]);
 
   useEffect(() => {
     if (!selected) return;
@@ -472,7 +478,9 @@ export function SkillsView({
       active = false;
       if (detailGeneration.current === generation) detailGeneration.current += 1;
     };
-  }, [selected?.identity]);
+  }, [selected?.identity, selected?.content_hash, selected?.updated_at,
+    selected?.location.kind === "agent_target" ? selected.location.global_dir : null,
+    unversionedDetailSnapshot]);
 
   const checkUpdates = async () => {
     if (checkDisabled) return;
@@ -579,7 +587,9 @@ export function SkillsView({
           selected ? (
             <SkillInspector
               item={selected}
-              detail={detail}
+              copies={selectedCopies}
+              onSelectCopy={setSelectedIdentity}
+              detail={detail?.item.identity === selected.identity ? detail : null}
               loading={detailLoading}
               error={detailError}
               onClose={closeInspector}

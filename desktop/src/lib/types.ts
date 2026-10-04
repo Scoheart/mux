@@ -64,6 +64,8 @@ export interface AgentIdentityView {
 export interface AgentCapabilityView {
   identity: AgentIdentityView;
   installed: boolean;
+  runtime_detected?: boolean | null;
+  config_detected?: boolean;
   capabilities: {
     mcp?: {
       writable: boolean;
@@ -830,7 +832,7 @@ export type PlanOperationRequest =
     }
   | {
       operation: "set_skill_enabled";
-      request: { agent_id: string; name: string; enabled: boolean };
+      request: { agent_id: string; name: string; enabled: boolean; target_id?: string | null };
     }
   | {
       operation: "set_model_enabled";

@@ -79,8 +79,11 @@ pub mod sources {
     }
 
     pub fn subscribe(url: String, name: Option<String>) -> Result<SourceView, String> {
+        // Check readiness briefly; never hold the application gate during HTTP.
+        super::super::gate::write_for(CapabilityDomain::Mcp, || Ok::<(), String>(()))?;
+        let prepared = crate::resources::mcp::sources::probe_subscription(url, name)?;
         super::super::gate::write_for(CapabilityDomain::Mcp, || {
-            crate::resources::mcp::sources::subscribe(url, name)
+            crate::resources::mcp::sources::commit_subscription(prepared)
         })
     }
 
@@ -98,8 +101,12 @@ pub mod sources {
     }
 
     pub fn refresh(id: String) -> Result<SourceView, String> {
+        let prepared = super::super::gate::write_for(CapabilityDomain::Mcp, || {
+            crate::resources::mcp::sources::prepare_refresh(id)
+        })?;
+        let probed = crate::resources::mcp::sources::probe_refresh(prepared);
         super::super::gate::write_for(CapabilityDomain::Mcp, || {
-            crate::resources::mcp::sources::refresh(id)
+            crate::resources::mcp::sources::reconcile_refresh(probed)
         })
     }
 

@@ -297,12 +297,12 @@ it("commits MCP enabled-state changes without exposing a review plan", async () 
   expect(result.current.plan).toBeNull();
 });
 
-it("commits Skill enabled-state changes without exposing a review plan", async () => {
+it("binds a Skill enabled-state change to the selected physical target", async () => {
   const { result } = renderHook(() => useConsumptionState());
   await waitFor(() => expect(result.current.loading).toBe(false));
 
   await act(async () => {
-    await result.current.setSkillEnabled("codex", "review-changes", false);
+    await result.current.setSkillEnabled("codex", "review-changes", false, "agents-user");
   });
 
   expect(api.planOperation).toHaveBeenCalledWith({
@@ -311,6 +311,7 @@ it("commits Skill enabled-state changes without exposing a review plan", async (
       agent_id: "codex",
       name: "review-changes",
       enabled: false,
+      target_id: "agents-user",
     },
   });
   expect(api.commitOperation).toHaveBeenCalledOnce();

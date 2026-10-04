@@ -14,12 +14,14 @@ import * as api from "../lib/api";
 import { installWizardReducer } from "../lib/skills";
 import type {
   SkillCommandError,
+  OperationPlan,
   SkillSourceResolution,
   SkillsInventory,
 } from "../lib/types";
 import { FolderIcon, LinkIcon, PackageIcon } from "./icons";
 import { useToast } from "./Toast";
 import { DialogShell } from "./DialogShell";
+import { SkillReviewDialog } from "./SkillReviewDialog";
 
 export interface SkillInstallDialogProps {
   plan: SkillsState["plan"];
@@ -73,6 +75,7 @@ export function SkillInstallDialog({
   const [closing, setClosing] = useState(false);
   const [sourceError, setSourceError] = useState<SkillCommandError | null>(null);
   const [planError, setPlanError] = useState<SkillCommandError | null>(null);
+  const [reviewPlan, setReviewPlan] = useState<OperationPlan | null>(null);
   const mountedRef = useRef(true);
   const closedRef = useRef(false);
   const committedRef = useRef(false);
@@ -140,6 +143,7 @@ export function SkillInstallDialog({
 
   useEffect(() => {
     mountedRef.current = true;
+    closedRef.current = false;
     return () => {
       mountedRef.current = false;
       closedRef.current = true;
@@ -229,11 +233,15 @@ export function SkillInstallDialog({
     planGenerationRef.current += 1;
     if (resolution) await cancelOnce(resolution.operation_id, true);
     resolutionRef.current = null;
+    setReviewPlan(null);
     dispatch({ type: "reset" });
     setPlanError(null);
   };
 
   const commitInstall: SkillsState["commit"] = (plan, confirmation) => {
+    if (closedRef.current || !mountedRef.current || plan.operation_id !== resolutionRef.current?.operation_id) {
+      return Promise.reject({ code: "operation_unavailable", message: "操作失败，请重试。" } satisfies SkillCommandError);
+    }
     setCommitting(true);
     const pending = commit(plan, confirmation);
     commitPromiseRef.current = pending;
@@ -310,11 +318,14 @@ export function SkillInstallDialog({
         });
         return;
       }
+      if (nextPlan.requires_risk_override) {
+        // Retain this exact reviewed candidate. A download/import click is not
+        // authorization to bypass Core's findings confirmation.
+        setReviewPlan(nextPlan);
+        return;
+      }
       try {
-        const inventory = await commitInstall(
-          nextPlan,
-          nextPlan.requires_risk_override ? nextPlan.findings_hash : null,
-        );
+        const inventory = await commitInstall(nextPlan, null);
         if (mountedRef.current && !closedRef.current) finishInstall(inventory);
       } catch (reason) {
         if (!mountedRef.current || closedRef.current) return;
@@ -364,6 +375,16 @@ export function SkillInstallDialog({
     : selectedCount > 1
       ? `${actionVerb} ${selectedCount} 个 Skill`
       : `${actionVerb} Skill`;
+
+  if (reviewPlan) return (
+    <SkillReviewDialog
+      plan={reviewPlan}
+      onCommit={commitInstall}
+      onClose={closeDialog}
+      onCommitted={finishInstall}
+      onRecoveryRequired={enterRecovery}
+    />
+  );
 
   return (
     <DialogShell

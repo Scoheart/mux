@@ -536,7 +536,25 @@ pub fn list_views() -> Vec<SourceView> {
 
 /// Subscribe to a remote config URL: fetch, validate, cache it under
 /// `~/.mux/assets/mcps/sources/remote/<id>`, and register it as an enabled source.
+pub(crate) struct PreparedSubscription {
+    def: SourceDef,
+    path: PathBuf,
+    body: String,
+    entries: Vec<RegistryEntry>,
+}
+
 pub fn subscribe(url: String, name: Option<String>) -> Result<SourceView, String> {
+    commit_subscription(probe_subscription(url, name)?)
+}
+
+pub(crate) fn commit_subscription(prepared: PreparedSubscription) -> Result<SourceView, String> {
+    let PreparedSubscription { def, path, body, entries } = prepared;
+    let count = entries.len() as u32;
+    register_cached_source(&def, &path, &body, entries)?;
+    Ok(to_view(def, count))
+}
+
+pub(crate) fn probe_subscription(url: String, name: Option<String>) -> Result<PreparedSubscription, String> {
     let url = url.trim().to_string();
     if url.is_empty() {
         return Err("URL 不能为空".into());
@@ -557,8 +575,7 @@ pub fn subscribe(url: String, name: Option<String>) -> Result<SourceView, String
     if count == 0 {
         def.error = Some("未在该文件中发现 MCP server".into());
     }
-    register_cached_source(&def, &path, &body, entries)?;
-    Ok(to_view(def, count))
+    Ok(PreparedSubscription { def, path, body, entries })
 }
 
 /// Register a local config file as a source: read and validate it, then cache only
@@ -627,7 +644,23 @@ fn require_user_managed_source(id: &str) -> Result<(), String> {
 }
 
 /// Re-fetch (remote) or re-copy (local) a source's file and update its status.
+pub(crate) struct PreparedSourceRefresh {
+    original: SourceDef,
+    path: PathBuf,
+    previous: SourceFileSnapshot,
+    previous_entries: Vec<RegistryEntry>,
+}
+
+pub(crate) struct ProbedSourceRefresh {
+    prepared: PreparedSourceRefresh,
+    fetched: Result<String, String>,
+}
+
 pub fn refresh(id: String) -> Result<SourceView, String> {
+    reconcile_refresh(probe_refresh(prepare_refresh(id)?))
+}
+
+pub(crate) fn prepare_refresh(id: String) -> Result<PreparedSourceRefresh, String> {
     require_user_managed_source(&id)?;
     let settings = load_settings_strict().map_err(|error| error.to_string())?;
     let Some(original) = settings
@@ -638,11 +671,25 @@ pub fn refresh(id: String) -> Result<SourceView, String> {
     else {
         return Err("source 不存在".into());
     };
+    if original.kind == "remote" && original.url.is_none() { return Err("该来源缺少 URL".into()); }
+    let path = cached_path(&original).ok_or("无法确定缓存路径")?;
+    let previous = snapshot_source_file(&path)?;
+    let previous_entries = entries_from_snapshot(&original, &previous)?;
+
+    Ok(PreparedSourceRefresh { original, path, previous, previous_entries })
+}
+
+/// No global application or settings lock may span this fetch. The original
+/// source definition and cached bytes are revalidated during reconciliation.
+pub(crate) fn probe_refresh(prepared: PreparedSourceRefresh) -> ProbedSourceRefresh {
+    let original = &prepared.original;
     let curated = is_curated_source(&original);
     let fetched: Result<String, String> = match original.kind.as_str() {
         "remote" => {
-            let url = original.url.clone().ok_or("该来源缺少 URL")?;
-            fetch(&url)
+            match original.url.as_deref() {
+                Some(url) => fetch(url),
+                None => Err("该来源缺少 URL".into()),
+            }
         }
         "local" => match original.path.as_ref() {
             Some(p) => {
@@ -655,10 +702,13 @@ pub fn refresh(id: String) -> Result<SourceView, String> {
         _ => Err("不支持刷新该来源".into()),
     };
 
-    let path = cached_path(&original).ok_or("无法确定缓存路径")?;
-    let previous = snapshot_source_file(&path)?;
-    let previous_entries = entries_from_snapshot(&original, &previous)?;
+    ProbedSourceRefresh { prepared, fetched }
+}
 
+pub(crate) fn reconcile_refresh(probed: ProbedSourceRefresh) -> Result<SourceView, String> {
+    let ProbedSourceRefresh { prepared, fetched } = probed;
+    let PreparedSourceRefresh { original, path, previous, previous_entries } = prepared;
+    let curated = is_curated_source(&original);
     let body = match fetched {
         Ok(body) => body,
         Err(fetch_error) => {
@@ -886,6 +936,38 @@ mod tests {
                 );
         })
         .unwrap();
+    }
+
+    #[test]
+    fn refresh_rejects_a_source_changed_while_the_probe_was_outside_the_gate() {
+        let home = TestHome::new("src-refresh-definition-race");
+        let source = home.home.join("source.json");
+        write_local_source(&source, "v1");
+        let view = add_local(source.to_string_lossy().into_owned(), None).unwrap();
+        let prepared = prepare_refresh(view.id.clone()).unwrap();
+        write_local_source(&source, "v2");
+        let probed = probe_refresh(prepared);
+        set_enabled(view.id.clone(), false).unwrap();
+        assert!(reconcile_refresh(probed).is_err());
+        let current = load_settings().sources.unwrap().into_iter().find(|source| source.id == view.id).unwrap();
+        assert!(!current.enabled);
+        assert_eq!(source_entries(&current)[0].config.stdio.as_ref().unwrap().args.as_ref().unwrap(), &["v1"]);
+    }
+
+    #[test]
+    fn refresh_never_overwrites_cache_changed_during_the_unlocked_probe() {
+        let home = TestHome::new("src-refresh-cache-race");
+        let source = home.home.join("source.json");
+        write_local_source(&source, "v1");
+        let view = add_local(source.to_string_lossy().into_owned(), None).unwrap();
+        let prepared = prepare_refresh(view.id).unwrap();
+        let cache = prepared.path.clone();
+        write_local_source(&source, "v2");
+        let probed = probe_refresh(prepared);
+        let concurrent = "[]\n";
+        fs::write(&cache, concurrent).unwrap();
+        assert!(reconcile_refresh(probed).is_err());
+        assert_eq!(fs::read_to_string(cache).unwrap(), concurrent);
     }
 
     #[test]

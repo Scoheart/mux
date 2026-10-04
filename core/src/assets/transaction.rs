@@ -34,9 +34,8 @@ use crate::resources::model::{
     restore_credential_snapshot, save_profile, save_provider_bundle, ModelTargetError,
 };
 use crate::resources::skill::{
-    acquire_skills_lock, cancel_operation_in_asset_transaction, canonical_skill_assignments,
-    commit_assignment_in_asset_transaction, declared_targets_for_agents, normalize_agent_selection,
-    plan_assignment, reapply_assignment_safely, release_assignment_safely, PlanAssignmentRequest,
+    acquire_skills_lock, canonical_skill_assignments, declared_targets_for_agents, normalize_agent_selection,
+    reapply_assignment_safely, release_assignment_links_safely,
     SkillsOperationLock, SkillsPaths,
 };
 use crate::safe_write::{
@@ -109,6 +108,70 @@ fn mark_target_completed(plan: &AssetOperationPlan, agent_id: &str) -> Result<()
     mark_operation_state(&plan.operation_id, &target_completion_marker(Path::new(agent_id)), &bytes)
 }
 
+fn physical_completion_marker(directory: &Path) -> String {
+    format!("physical-{}", target_completion_marker(directory))
+}
+
+fn mark_physical_target_completed(
+    plan: &AssetOperationPlan,
+    directory: &Path,
+    paths: &[String],
+) -> Result<(), String> {
+    let states = load_transaction_write_states_with_private_paths(
+        &transaction_write_evidence_dir(&plan.operation_id), &BTreeSet::new())?;
+    let completed = paths.iter().map(|path| expand_tilde_path(path))
+        .map(|path| target_state_digest(states.get(&path)).map(|digest| (path, digest)))
+        .collect::<Result<BTreeMap<_, _>, _>>()?;
+    let bytes = serde_json::to_vec(&completed).map_err(|error| error.to_string())?;
+    mark_operation_state(&plan.operation_id, &physical_completion_marker(directory), &bytes)
+}
+
+fn completed_checkpoint_paths(
+    plan: &AssetOperationPlan,
+    marker: &str,
+    expected: BTreeSet<PathBuf>,
+    states: &BTreeMap<PathBuf, TransactionPathState>,
+) -> Result<BTreeSet<PathBuf>, String> {
+    if !operation_state_marker_exists(&plan.operation_id, marker)? { return Ok(BTreeSet::new()); }
+    let completed: BTreeMap<PathBuf, Vec<u8>> = serde_json::from_slice(
+        &fs::read(operation_root(&plan.operation_id).join(marker)).map_err(|error| error.to_string())?
+    ).map_err(|_| "target_recovery_required: invalid target completion record".to_string())?;
+    if completed.keys().cloned().collect::<BTreeSet<_>>() != expected {
+        return Err("target_recovery_required: completion target set changed".into());
+    }
+    for (path, digest) in &completed {
+        if *digest != target_state_digest(states.get(path))? { return Ok(BTreeSet::new()); }
+    }
+    Ok(expected)
+}
+
+fn checkpoint_completed_paths(
+    plan: &AssetOperationPlan,
+    states: &BTreeMap<PathBuf, TransactionPathState>,
+) -> Result<BTreeSet<PathBuf>, String> {
+    let mut completed_paths = BTreeSet::new();
+    for agent_id in &plan.affected_agent_ids {
+        let marker = target_completion_marker(Path::new(agent_id));
+        let expected = target_paths_for_agent(plan, agent_id).iter().map(|target| expand_tilde_path(target))
+            .filter(|path| !central_snapshot_path(path)).collect::<BTreeSet<_>>();
+        completed_paths.extend(completed_checkpoint_paths(plan, &marker, expected, states)?);
+    }
+    if matches!(plan.domain_plan, DomainPlan::Skill { .. }) {
+        let mut groups = BTreeMap::<PathBuf, BTreeSet<PathBuf>>::new();
+        for path in plan.target_files.iter().map(|path| expand_tilde_path(path)) {
+            if central_snapshot_path(&path) { continue; }
+            if let Some(parent) = path.parent() {
+                groups.entry(parent.to_path_buf()).or_default().insert(path);
+            }
+        }
+        for (directory, expected) in groups {
+            completed_paths.extend(completed_checkpoint_paths(
+                plan, &physical_completion_marker(&directory), expected, states)?);
+        }
+    }
+    Ok(completed_paths)
+}
+
 /// Restore only incomplete physical write sets. Central authority and completed
 /// target versions remain durable. Completion is bound to the final write state
 /// so a later partial write to the same shared file cannot reuse an old marker.
@@ -117,36 +180,30 @@ fn settle_checkpoint_targets(
     snapshots: Vec<PathSnapshot>,
     states: &BTreeMap<PathBuf, TransactionPathState>,
 ) -> Result<(), String> {
-    let mut completed_paths = BTreeSet::new();
-    for agent_id in &plan.affected_agent_ids {
-        let marker = target_completion_marker(Path::new(agent_id));
-        if !operation_state_marker_exists(&plan.operation_id, &marker)? { continue; }
-        let completed: BTreeMap<PathBuf, Vec<u8>> = serde_json::from_slice(
-            &fs::read(operation_root(&plan.operation_id).join(marker)).map_err(|error| error.to_string())?
-        ).map_err(|_| "target_recovery_required: invalid target completion record".to_string())?;
-        let expected = target_paths_for_agent(plan, agent_id).iter().map(|target| expand_tilde_path(target))
-            .filter(|path| !central_snapshot_path(path)).collect::<BTreeSet<_>>();
-        if completed.keys().cloned().collect::<BTreeSet<_>>() != expected {
-            return Err("target_recovery_required: completion target set changed".into());
-        }
-        let mut matches = true;
-        for (path, digest) in &completed {
-            matches &= *digest == target_state_digest(states.get(path))?;
-        }
-        if matches { completed_paths.extend(completed.into_keys()); }
-    }
+    let completed_paths = checkpoint_completed_paths(plan, states)?;
     let pending = snapshots.into_iter().filter(|snapshot| !central_snapshot_path(&snapshot.path)
         && !completed_paths.contains(&snapshot.path)).collect::<Vec<_>>();
-    let errors = restore_snapshots_if_unchanged(&pending, states);
-    if !errors.is_empty() {
-        return Err(format!("target_recovery_required: {}", errors.join("; ")));
-    }
     if !pending.is_empty() {
         let mut incomplete = plan.clone();
         incomplete.target_files.retain(|target| pending.iter().any(|snapshot| snapshot.path == expand_tilde_path(target)));
         incomplete.affected_agent_ids.retain(|agent_id| target_paths_for_agent(plan, agent_id).iter()
             .any(|target| incomplete.target_files.contains(target)));
         record_recovery_incidents(&incomplete)?;
+    }
+    let errors = if matches!(plan.domain_plan, DomainPlan::Skill { .. }) {
+        let mut groups = BTreeMap::<PathBuf, Vec<PathSnapshot>>::new();
+        for snapshot in pending {
+            let parent = snapshot.path.parent().ok_or_else(|| "target_recovery_required: Skill target has no parent".to_string())?;
+            groups.entry(parent.to_path_buf()).or_default().push(snapshot);
+        }
+        // A foreign edit blocks only its own physical directory. Keep the
+        // all-path preflight within each directory, and recover healthy peers.
+        groups.values().flat_map(|group| restore_snapshots_if_unchanged(group, states)).collect::<Vec<_>>()
+    } else {
+        restore_snapshots_if_unchanged(&pending, states)
+    };
+    if !errors.is_empty() {
+        return Err(format!("target_recovery_required: {}", errors.join("; ")));
     }
     Ok(())
 }
@@ -207,14 +264,6 @@ fn target_paths_for_agent(plan: &AssetOperationPlan, agent_id: &str) -> Vec<Stri
     }
     let settings = load_settings_strict().ok();
     let agents = crate::agents::load_agents();
-    let skill_targets = if matches!(&plan.domain_plan, DomainPlan::Skill { .. } | DomainPlan::AgentCapabilities { .. }) {
-        crate::resources::skill::list_inventory()
-            .ok()
-            .map(|inventory| inventory.targets)
-            .unwrap_or_default()
-    } else {
-        Vec::new()
-    };
     let mut matched = plan
         .target_files
         .iter()
@@ -238,18 +287,21 @@ fn target_paths_for_agent(plan: &AssetOperationPlan, agent_id: &str) -> Vec<Stri
                     })
                 }),
             DomainPlan::Skill { .. } | DomainPlan::AgentCapabilities { .. } => {
-                skill_targets.iter().any(|skill_target| {
-                    skill_target
-                        .affected_agent_ids
-                        .iter()
-                        .any(|id| id == agent_id)
-                        && target.starts_with(&skill_target.global_dir)
+                agents.get(agent_id).and_then(|agent| agent.skills.as_ref()).is_some_and(|capability| {
+                    let path = expand_tilde_path(target);
+                    let Some(parent) = path.parent() else { return false; };
+                    std::iter::once(&capability.global_dir).chain(capability.aliases.iter().map(|alias| &alias.global_dir))
+                        .any(|root| expand_tilde_path(root) == parent || {
+                            let declared = crate::resources::skill::canonical_skill_target_path(root).ok();
+                            let observed = crate::resources::skill::canonical_skill_target_path(&parent.to_string_lossy()).ok();
+                            declared.is_some() && declared == observed
+                        })
                 })
             }
         })
         .cloned()
         .collect::<Vec<_>>();
-    if matched.is_empty() {
+    if matched.is_empty() && !matches!(plan.domain_plan, DomainPlan::Skill { .. }) {
         matched = plan.target_files.clone();
     }
     matched.sort();
@@ -594,10 +646,10 @@ where
     let credential_backups = lifecycle_profile_ids(persisted.lifecycle.as_ref())
         .into_iter()
         .map(|profile_id| {
-            let credential = credential_snapshot(&profile_id).map(Zeroizing::new);
-            (profile_id, credential)
+            let credential = credential_snapshot(&profile_id)?.map(Zeroizing::new);
+            Ok((profile_id, credential))
         })
-        .collect::<Vec<_>>();
+        .collect::<Result<Vec<_>, String>>()?;
     for (profile_id, credential) in &credential_backups {
         persist_credential_rollback(
             &request.operation_id,
@@ -806,6 +858,16 @@ pub fn recover_pending_asset_operations() -> Result<Vec<String>, String> {
             continue;
         }
         let operation_id = entry.file_name().to_string_lossy().into_owned();
+        // An uncommitted plan can belong to a live Desktop confirmation while
+        // a separate CLI process bootstraps. Recover only abandoned plans.
+        let _abandoned_plan = if load_rollback_manifest(&operation_id)?.is_none() {
+            match super::lease::claim_abandoned(&operation_id)? {
+                Some(lease) => Some(lease),
+                None => continue,
+            }
+        } else {
+            None
+        };
         let persisted =
             load_operation(&operation_id).map_err(|error| format!("recovery_required: {error}"))?;
         if operation_should_pause_for_target_incident(&operation_id)? {
@@ -1052,8 +1114,18 @@ fn operation_commit_marker_exists(operation_id: &str) -> Result<bool, String> {
 }
 
 fn record_recovery_incidents(plan: &AssetOperationPlan) -> Result<(), String> {
-    for agent_id in &plan.affected_agent_ids {
-        record_target_incident(plan, agent_id, "target_recovery_required")?;
+    let mut pending = plan.clone();
+    if matches!(plan.domain_plan, DomainPlan::Skill { .. })
+        && operation_state_marker_exists(&plan.operation_id, CENTRAL_COMMITTED_MARKER)? {
+        let states = load_transaction_write_states_with_private_paths(
+            &transaction_write_evidence_dir(&plan.operation_id), &BTreeSet::new())?;
+        let completed = checkpoint_completed_paths(plan, &states)?;
+        pending.target_files.retain(|target| !completed.contains(&expand_tilde_path(target)));
+        pending.affected_agent_ids.retain(|agent| target_paths_for_agent(plan, agent).iter()
+            .any(|target| pending.target_files.contains(target)));
+    }
+    for agent_id in &pending.affected_agent_ids {
+        record_target_incident(&pending, agent_id, "target_recovery_required")?;
     }
     Ok(())
 }
@@ -2592,12 +2664,7 @@ fn apply_domain_plan(
             blocked_agents,
         ),
         DomainPlan::Skill { before, after } => apply_skill(
-            operation,
-            before,
-            after,
-            release_orphaned_relationships,
-            skills_lock,
-            blocked_agents,
+            operation, before, after, skills_lock, blocked_agents,
         )
         .map_err(ModelTargetError::from),
         DomainPlan::AgentCapabilities { .. } => Err(ModelTargetError::ConvergenceFailed(
@@ -2890,40 +2957,17 @@ fn apply_skill_enabled(
         })
         .map_err(|error| error.to_string())
     };
-    if affected_agent_ids
-        .iter()
-        .any(|agent_id| blocked_agents.contains(agent_id))
-    {
-        return persist_desired();
-    }
-    let result = (|| {
-        let assignment_plan = plan_assignment(PlanAssignmentRequest {
-            skill_name: name.to_string(),
-            agent_ids: affected_agent_ids.to_vec(),
-            enabled,
-        })
-        .map_err(|error| format!("{error:?}"))?;
-        if let Err(error) =
-            commit_assignment_in_asset_transaction(assignment_plan.confirmation(), skills_lock)
-        {
-            let _ =
-                cancel_operation_in_asset_transaction(&assignment_plan.operation_id, skills_lock);
-            return Err(format!("{error:?}"));
-        }
-        Ok::<_, String>(())
-    })();
-    // The Skill link engine also updates assignment settings. Normalize the
-    // central desired record after that physical attempt so a failed target
-    // still becomes pending convergence rather than losing user intent.
     persist_desired()?;
-    for agent_id in affected_agent_ids {
-        if result.is_ok() {
-            clear_target_incidents(operation, agent_id)?;
-        } else {
-            record_target_incident(operation, agent_id, "target_convergence_failed")?;
-        }
+    mark_central_committed(operation)?;
+    if affected_agent_ids.iter().any(|agent_id| blocked_agents.contains(agent_id)) {
+        return Ok(());
     }
-    Ok(())
+    let target = crate::resources::skill::list_inventory()
+        .map_err(|error| format!("{error:?}"))?.targets.into_iter()
+        .find(|target| target.target_id == target_id)
+        .ok_or_else(|| "skill_target_unavailable: the reviewed target is unavailable".to_string())?;
+    let result = reapply_assignment_safely(name, target_id, skills_lock);
+    record_skill_physical_result(operation, &target.global_dir, affected_agent_ids, result.is_ok())
 }
 
 fn apply_model(
@@ -3049,211 +3093,147 @@ fn apply_skill(
     operation: &AssetOperationPlan,
     before: &BTreeMap<String, Vec<String>>,
     after: &BTreeMap<String, Vec<String>>,
-    release_orphaned_relationships: bool,
     skills_lock: &SkillsOperationLock,
     blocked_agents: &BTreeSet<String>,
 ) -> Result<(), String> {
-    let mut removals = BTreeMap::<String, BTreeSet<String>>::new();
-    let mut additions = BTreeMap::<String, BTreeSet<String>>::new();
-    for agent_id in union_keys(before, after) {
-        let left: BTreeSet<String> = before
-            .get(agent_id)
-            .cloned()
-            .unwrap_or_default()
-            .into_iter()
-            .collect();
-        let right: BTreeSet<String> = after
-            .get(agent_id)
-            .cloned()
-            .unwrap_or_default()
-            .into_iter()
-            .collect();
-        for name in left.difference(&right) {
-            removals
-                .entry(name.clone())
-                .or_default()
-                .insert(agent_id.clone());
-        }
-        for name in right.difference(&left) {
-            additions
-                .entry(name.clone())
-                .or_default()
-                .insert(agent_id.clone());
-        }
-    }
-    for (name, agent_ids) in removals {
-        let settings = load_settings_strict().map_err(|error| error.to_string())?;
-        if release_orphaned_relationships {
-            let assignments =
-                canonical_skill_assignments(&settings).map_err(|error| format!("{error:?}"))?;
-            let assigned = assignments.get(&name).cloned().unwrap_or_default();
-            let declared =
-                declared_targets_for_agents(&agent_ids.iter().cloned().collect::<Vec<_>>())
-                    .map_err(|error| format!("{error:?}"))?;
-            let target_ids: BTreeSet<String> = assigned.intersection(&declared).cloned().collect();
-            for target_id in target_ids {
-                let target_agents = skill_target_agents(&target_id, &agent_ids);
-                if target_agents
-                    .iter()
-                    .any(|agent_id| blocked_agents.contains(agent_id))
-                {
-                    continue;
-                }
-                let result =
-                    release_assignment_safely(&name, &BTreeSet::from([target_id]), skills_lock)
-                        .map_err(|error| format!("{error:?}"));
-                record_skill_target_result(operation, &target_agents, result.is_ok())?;
+    let settings = load_settings_strict().map_err(|error| error.to_string())?;
+    let assignments = canonical_skill_assignments(&settings).map_err(|error| format!("{error:?}"))?;
+    let inventory = crate::resources::skill::list_inventory().map_err(|error| format!("{error:?}"))?;
+    let reviewed_paths = operation.target_files.iter().map(|path| expand_tilde_path(path)).collect::<BTreeSet<_>>();
+    let changed_names = union_keys(before, after).into_iter().flat_map(|agent| {
+        let left = before.get(agent).into_iter().flatten().cloned().collect::<BTreeSet<_>>();
+        let right = after.get(agent).into_iter().flatten().cloned().collect::<BTreeSet<_>>();
+        left.symmetric_difference(&right).cloned().collect::<Vec<_>>()
+    }).collect::<BTreeSet<_>>();
+    let mut groups = BTreeMap::<String, BTreeMap<String, bool>>::new();
+    // A domain plan contains only the affected Agent closure, not every
+    // consumer. Merge its physical delta into complete central authority.
+    for name in changed_names {
+        let assigned = assignments.get(&name).cloned().unwrap_or_default();
+        let removed_agents = before.iter().filter(|(agent, names)| names.contains(&name)
+            && !after.get(*agent).is_some_and(|names| names.contains(&name)))
+            .map(|(agent, _)| agent.clone()).collect::<Vec<_>>();
+        let desired_agents = after.iter().filter(|(_, names)| names.contains(&name))
+            .map(|(agent, _)| agent.clone()).collect::<Vec<_>>();
+        let declared = declared_targets_for_agents(&removed_agents).map_err(|error| format!("{error:?}"))?;
+        // Normalize the whole reviewed closure once. Normalizing each Agent
+        // separately invents redundant primary targets for shared aliases.
+        let desired = normalize_agent_selection(&desired_agents).map_err(|error| format!("{error:?}"))?
+            .into_iter().collect::<BTreeSet<_>>();
+        let removals = assigned.intersection(&declared).filter(|target| !desired.contains(*target))
+            .cloned().map(|target| (target, false));
+        let additions = desired.difference(&assigned).cloned().map(|target| (target, true));
+        for (target_id, enabled) in removals.chain(additions) {
+            let target = inventory.targets.iter().find(|target| target.target_id == target_id)
+                .ok_or_else(|| "skill_target_unavailable: the reviewed target is unavailable".to_string())?;
+            let path = expand_tilde_path(&target.global_dir).join(&name);
+            if !reviewed_paths.contains(&path) {
+                return Err("asset_operation_stale: Skill delta exceeds the reviewed physical write set".into());
             }
-        } else {
-            apply_skill_assignment(
-                operation,
-                &name,
-                agent_ids,
-                false,
-                skills_lock,
-                blocked_agents,
-            )?;
+            groups.entry(target_id).or_default().insert(name.clone(), enabled);
         }
     }
-    for (name, agent_ids) in additions {
-        apply_skill_assignment(
-            operation,
-            &name,
-            agent_ids,
-            true,
-            skills_lock,
-            blocked_agents,
-        )?;
+    // The reviewed write set also contains existing targets of changed Skills.
+    // They require no new link mutation, but must be checkpointed unchanged so
+    // a successful add on another target does not invent incidents for them.
+    for target in &inventory.targets {
+        let directory = expand_tilde_path(&target.global_dir);
+        if operation.target_files.iter().any(|path|
+            expand_tilde_path(path).parent() == Some(directory.as_path())) {
+            groups.entry(target.target_id.clone()).or_default();
+        }
     }
-    persist_skill_desired(before, after)?;
-    Ok(())
-}
-
-fn apply_skill_assignment(
-    operation: &AssetOperationPlan,
-    name: &str,
-    agent_ids: BTreeSet<String>,
-    enabled: bool,
-    skills_lock: &SkillsOperationLock,
-    blocked_agents: &BTreeSet<String>,
-) -> Result<(), String> {
-    let target_ids = normalize_agent_selection(&agent_ids.iter().cloned().collect::<Vec<_>>())
-        .map_err(|error| format!("{error:?}"))?;
-    for target_id in target_ids {
-        let target_agents = skill_target_agents(&target_id, &agent_ids);
-        if target_agents
-            .iter()
-            .any(|agent_id| blocked_agents.contains(agent_id))
-        {
+    persist_skill_desired(&groups)?;
+    mark_central_committed(operation)?;
+    for (target_id, changes) in groups {
+        let target = inventory.targets.iter().find(|target| target.target_id == target_id)
+            .ok_or_else(|| "skill_target_unavailable: the reviewed target is unavailable".to_string())?;
+        let agents = if target.affected_agent_ids.is_empty() { &target.primary_agent_ids } else { &target.affected_agent_ids };
+        if agents.iter().any(|agent| blocked_agents.contains(agent)) { continue; }
+        if changes.is_empty() {
+            // This target was captured only to bound the review. Preserve any
+            // earlier incident: checkpointing untouched bytes is not a repair.
+            let directory = expand_tilde_path(&target.global_dir);
+            let paths = operation.target_files.iter().filter(|path|
+                expand_tilde_path(path).parent() == Some(directory.as_path()))
+                .cloned().collect::<Vec<_>>();
+            mark_physical_target_completed(operation, &directory, &paths)?;
             continue;
         }
-        let result = (|| {
-            let plan = plan_assignment(PlanAssignmentRequest {
-                skill_name: name.to_string(),
-                agent_ids: target_agents.clone(),
-                enabled,
-            })
-            .map_err(|error| format!("{error:?}"))?;
-            if let Err(error) =
-                commit_assignment_in_asset_transaction(plan.confirmation(), skills_lock)
-            {
-                let _ = cancel_operation_in_asset_transaction(&plan.operation_id, skills_lock);
-                return Err(format!("{error:?}"));
+        let result = changes.into_iter().try_for_each(|(name, desired)| {
+            if desired {
+                reapply_assignment_safely(&name, &target_id, skills_lock).map(|_| ())
+            } else {
+                release_assignment_links_safely(&name, target, skills_lock).map(|_| ())
             }
-            Ok::<_, String>(())
-        })();
-        record_skill_target_result(operation, &target_agents, result.is_ok())?;
+        });
+        record_skill_physical_result(operation, &target.global_dir, agents, result.is_ok())?;
     }
     Ok(())
 }
 
-fn skill_target_agents(target_id: &str, fallback: &BTreeSet<String>) -> Vec<String> {
-    crate::resources::skill::list_inventory()
-        .ok()
-        .and_then(|inventory| {
-            inventory
-                .targets
-                .into_iter()
-                .find(|target| target.target_id == target_id)
-        })
-        .map(|target| {
-            if target.affected_agent_ids.is_empty() {
-                target.primary_agent_ids
-            } else {
-                target.affected_agent_ids
-            }
-        })
-        .filter(|agents| !agents.is_empty())
-        .unwrap_or_else(|| fallback.iter().cloned().collect())
-}
-
-fn record_skill_target_result(
+fn record_skill_physical_result(
     operation: &AssetOperationPlan,
+    global_dir: &str,
     agent_ids: &[String],
     success: bool,
 ) -> Result<(), String> {
-    for agent_id in agent_ids {
-        if success {
-            clear_target_incidents(operation, agent_id)?;
-        } else {
-            record_target_incident(operation, agent_id, "target_convergence_failed")?;
-        }
+    let directory = expand_tilde_path(global_dir);
+    let paths = operation.target_files.iter().filter(|path|
+        expand_tilde_path(path).parent() == Some(directory.as_path()))
+        .cloned().collect::<Vec<_>>();
+    if paths.is_empty() {
+        return Err("target_recovery_required: Skill target is outside the reviewed write set".into());
     }
-    Ok(())
+    let mut target_plan = operation.clone();
+    target_plan.target_files = paths.clone();
+    target_plan.affected_agent_ids = agent_ids.to_vec();
+    if success {
+        let ids = paths.iter().map(|path| incident_id(AssetCapability::Skill, path)).collect::<BTreeSet<_>>();
+        mutate_settings(|settings| {
+            if let Some(incidents) = settings.target_incidents.as_mut() {
+                incidents.retain(|id, _| !ids.contains(id));
+                if incidents.is_empty() { settings.target_incidents = None; }
+            }
+        }).map_err(|error| error.to_string())?;
+        mark_physical_target_completed(operation, &directory, &paths)
+    } else {
+        for agent_id in agent_ids {
+            record_target_incident(&target_plan, agent_id, "target_convergence_failed")?;
+        }
+        Ok(())
+    }
 }
 
 fn persist_skill_desired(
-    before: &BTreeMap<String, Vec<String>>,
-    after: &BTreeMap<String, Vec<String>>,
+    target_changes: &BTreeMap<String, BTreeMap<String, bool>>,
 ) -> Result<(), String> {
-    let touched = before
-        .values()
-        .flatten()
-        .cloned()
-        .chain(after.values().flatten().cloned())
-        .collect::<BTreeSet<_>>();
-    let mut desired = BTreeMap::new();
-    for name in touched {
-        let agents = after
-            .iter()
-            .filter(|(_, names)| names.contains(&name))
-            .map(|(agent_id, _)| agent_id.clone())
-            .collect::<Vec<_>>();
-        let target_ids = normalize_agent_selection(&agents)
-            .map_err(|error| format!("{error:?}"))?
-            .into_iter()
-            .collect::<BTreeSet<_>>();
-        desired.insert(name, target_ids);
-    }
     mutate_settings(|settings| {
         let assignments = settings.skill_assignments.get_or_insert_default();
         let consumptions = settings.skill_consumptions.get_or_insert_default();
-        for (name, target_ids) in desired {
-            if target_ids.is_empty() {
-                assignments.remove(&name);
-                consumptions.remove(&name);
-                continue;
+        for (target_id, changes) in target_changes {
+            for (name, desired) in changes {
+                if *desired {
+                    assignments.entry(name.clone()).or_default().insert(target_id.clone());
+                    consumptions.entry(name.clone()).or_default().entry(target_id.clone())
+                        .or_insert_with(|| SkillConsumptionRecord {
+                            name: name.clone(), target_id: target_id.clone(), enabled: true,
+                        });
+                } else {
+                    if let Some(targets) = assignments.get_mut(name) {
+                        targets.remove(target_id);
+                        if targets.is_empty() { assignments.remove(name); }
+                    }
+                    if let Some(records) = consumptions.get_mut(name) {
+                        records.remove(target_id);
+                        if records.is_empty() { consumptions.remove(name); }
+                    }
+                }
             }
-            assignments.insert(name.clone(), target_ids.clone());
-            let existing = consumptions.remove(&name).unwrap_or_default();
-            let mut records = BTreeMap::new();
-            for target_id in target_ids {
-                records.insert(
-                    target_id.clone(),
-                    existing
-                        .get(&target_id)
-                        .cloned()
-                        .unwrap_or(SkillConsumptionRecord {
-                            name: name.clone(),
-                            target_id,
-                            enabled: true,
-                        }),
-                );
-            }
-            consumptions.insert(name, records);
         }
-    })
-    .map_err(|error| error.to_string())
+        if assignments.is_empty() { settings.skill_assignments = None; }
+        if consumptions.is_empty() { settings.skill_consumptions = None; }
+    }).map_err(|error| error.to_string())
 }
 
 fn verify_postcondition(
@@ -4470,6 +4450,129 @@ mod tests {
     use crate::resources::model::save_profile;
     use crate::testenv::TestHome;
     use serde_json::Value;
+
+    #[test]
+    fn credential_read_failure_cannot_create_an_absent_rollback_snapshot() {
+        let _home = TestHome::new("credential-read-fail-closed");
+        save_profile(model("before"), Some("fixture-original-key".into())).unwrap();
+        let plan = plan_update_central_asset(PlanUpdateCentralAssetRequest {
+            draft: CentralAssetDraft::Model {
+                existing_id: Some("work".into()),
+                profile: Box::new(model("after")),
+                credential: None,
+            },
+        }).unwrap();
+        let before = fs::read(model_catalog_file()).unwrap();
+        let failure = crate::resources::model::set_test_credential_read_error();
+        let error = commit_asset_operation(AssetCommitRequest {
+            operation_id: plan.operation_id.clone(), candidate_hash: plan.candidate_hash,
+        }).unwrap_err();
+        assert!(error.starts_with("credential_read_failed:"));
+        assert_eq!(fs::read(model_catalog_file()).unwrap(), before);
+        assert!(load_rollback_manifest(&plan.operation_id).unwrap().is_none());
+        drop(failure);
+        assert_eq!(credential_snapshot("work").unwrap().unwrap(), b"fixture-original-key");
+        assert!(credential_rollback_snapshot(&plan.operation_id, "work").unwrap().is_none());
+        cancel_asset_operation(&plan.operation_id).unwrap();
+    }
+
+    #[test]
+    fn recovery_preserves_a_live_review_and_cleans_it_after_owner_exit() {
+        let _home = TestHome::new("asset-plan-owner-recovery");
+        save_profile(model("before"), None).unwrap();
+        let plan = plan_update_central_asset(PlanUpdateCentralAssetRequest {
+            draft: CentralAssetDraft::Model {
+                existing_id: Some("work".into()), profile: Box::new(model("after")), credential: None,
+            },
+        }).unwrap();
+        assert!(recover_pending_asset_operations().unwrap().is_empty());
+        assert!(load_operation(&plan.operation_id).is_ok());
+        super::super::lease::release(&plan.operation_id);
+        assert_eq!(recover_pending_asset_operations().unwrap(), vec![plan.operation_id.clone()]);
+        assert!(!operation_root(&plan.operation_id).exists());
+    }
+
+    #[test]
+    fn skill_recovery_isolates_foreign_edits_and_never_marks_completed_peers() {
+        let home = TestHome::new("skill-recovery-independent");
+        let completed = home.home.join("complete/skill");
+        let healthy = home.home.join("recoverable/skill");
+        let foreign = home.home.join("foreign/skill");
+        for path in [&completed, &healthy, &foreign] {
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(path, "before").unwrap();
+        }
+        mutate_settings(|settings| {
+            let overrides = settings.agent_config_paths.get_or_insert_default();
+            for (agent, path) in [("claude-code", &completed), ("cline", &healthy), ("codex", &foreign)] {
+                overrides.insert(agent.into(), crate::settings::AgentConfigPathOverride {
+                    skills_global_dir: Some(path.parent().unwrap().to_string_lossy().into_owned()),
+                    skills_alias_dirs: Some(Vec::new()), ..Default::default()
+                });
+            }
+        }).unwrap();
+        let paths = vec![settings_file(), completed.clone(), healthy.clone(), foreign.clone()];
+        let snapshots = paths.iter().map(|path| PathSnapshot::capture(path).unwrap()).collect::<Vec<_>>();
+        let mut plan = private_transaction_plan(paths[1..].iter().map(|path| path.to_string_lossy().into_owned()).collect());
+        plan.domain_plan = DomainPlan::Skill { before: BTreeMap::new(), after: BTreeMap::new() };
+        plan.affected_agent_ids = vec!["claude-code".into(), "cline".into(), "codex".into()];
+        persist_rollback_snapshots(&plan.operation_id, &snapshots).unwrap();
+        let tracker = begin_transaction_write_tracking(&transaction_write_evidence_dir(&plan.operation_id), &paths,
+            &parent_snapshots_for_snapshots(&snapshots)).unwrap();
+        mark_central_committed(&plan).unwrap();
+        crate::safe_write::write_if_unchanged(&completed, Some("before"), "complete").unwrap();
+        mark_physical_target_completed(&plan, completed.parent().unwrap(), &[completed.to_string_lossy().into_owned()]).unwrap();
+        for path in [&healthy, &foreign] {
+            crate::safe_write::write_if_unchanged(path, Some("before"), "partial").unwrap();
+        }
+        fs::write(&foreign, "external-edit").unwrap();
+        assert!(settle_checkpoint_targets(&plan, snapshots, &tracker.states()).is_err());
+        assert_eq!(fs::read(&completed).unwrap(), b"complete");
+        assert_eq!(fs::read(&healthy).unwrap(), b"before");
+        assert_eq!(fs::read(&foreign).unwrap(), b"external-edit");
+        // The outer startup error path receives the original complete plan.
+        record_recovery_incidents(&plan).unwrap();
+        let incidents = load_settings_strict().unwrap().target_incidents.unwrap();
+        assert!(!incidents.is_empty());
+        assert!(incidents.values().all(|incident| {
+            incident.target_path != completed.to_string_lossy()
+                && !incident.affected_agent_ids.contains(&"claude-code".to_string())
+        }));
+    }
+
+    #[test]
+    fn skill_checkpoints_preserve_a_complete_physical_target_and_restore_its_peer() {
+        let home = TestHome::new("skill-physical-checkpoints");
+        mutate_settings(|_| ()).unwrap();
+        let first = home.home.join("agent-a/one");
+        let sibling = home.home.join("agent-a/two");
+        let other = home.home.join("agent-b/one");
+        for path in [&first, &sibling, &other] {
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(path, b"before").unwrap();
+        }
+        let paths = vec![settings_file(), first.clone(), sibling.clone(), other.clone()];
+        let snapshots = paths.iter().map(|path| PathSnapshot::capture(path).unwrap()).collect::<Vec<_>>();
+        let mut plan = private_transaction_plan(paths[1..].iter().map(|path| path.to_string_lossy().into_owned()).collect());
+        plan.domain_plan = DomainPlan::Skill { before: BTreeMap::new(), after: BTreeMap::new() };
+        persist_rollback_snapshots(&plan.operation_id, &snapshots).unwrap();
+        let tracker = begin_transaction_write_tracking(&transaction_write_evidence_dir(&plan.operation_id), &paths,
+            &parent_snapshots_for_snapshots(&snapshots)).unwrap();
+        mutate_settings(|settings| settings.imported = Some("durable-intent".into())).unwrap();
+        mark_central_committed(&plan).unwrap();
+        for path in [&first, &sibling] {
+            crate::safe_write::write_if_unchanged(path, Some("before"), "complete").unwrap();
+        }
+        mark_physical_target_completed(&plan, first.parent().unwrap(), &[
+            first.to_string_lossy().into_owned(), sibling.to_string_lossy().into_owned(),
+        ]).unwrap();
+        crate::safe_write::write_if_unchanged(&other, Some("before"), "partial").unwrap();
+        settle_checkpoint_targets(&plan, snapshots, &tracker.states()).unwrap();
+        assert_eq!(fs::read(&first).unwrap(), b"complete");
+        assert_eq!(fs::read(&sibling).unwrap(), b"complete");
+        assert_eq!(fs::read(&other).unwrap(), b"before");
+        assert_eq!(load_settings_strict().unwrap().imported.as_deref(), Some("durable-intent"));
+    }
 
     #[test]
     fn qoder_cli_model_path_override_uses_private_snapshots() {
@@ -6432,7 +6535,7 @@ mod tests {
         .unwrap();
         let persisted = load_operation(&plan.operation_id).unwrap();
         let snapshots = vec![PathSnapshot::capture(&settings_file()).unwrap()];
-        let old_credential = credential_snapshot("work");
+        let old_credential = credential_snapshot("work").unwrap();
         persist_credential_rollback(&plan.operation_id, "work", old_credential.as_deref()).unwrap();
         persist_rollback_snapshots(&plan.operation_id, &snapshots).unwrap();
         let tracked_paths = snapshots
@@ -6449,11 +6552,11 @@ mod tests {
         apply_operation(&persisted, &skills_guard, &BTreeSet::new()).unwrap();
         drop(tracker);
         drop(skills_guard);
-        assert_eq!(credential_snapshot("work").unwrap(), b"old-secret");
+        assert_eq!(credential_snapshot("work").unwrap().unwrap(), b"old-secret");
 
         recover_pending_asset_operations().unwrap();
         assert_eq!(fs::read(settings_file()).unwrap(), settings_before);
-        assert_eq!(credential_snapshot("work").unwrap(), b"old-secret");
+        assert_eq!(credential_snapshot("work").unwrap().unwrap(), b"old-secret");
         assert!(!operation_root(&plan.operation_id).exists());
     }
 
@@ -6483,8 +6586,8 @@ mod tests {
         assert_eq!(profiles[&first.id].endpoint_path, "/v1/responses");
         assert_eq!(profiles[&second.id].base_url, "https://new.example.test");
         assert_eq!(profiles[&second.id].endpoint_path, "/anthropic/v1/messages");
-        assert_eq!(credential_snapshot(&first.id).unwrap(), b"new-secret");
-        assert_eq!(credential_snapshot(&second.id).unwrap(), b"new-secret");
+        assert_eq!(credential_snapshot(&first.id).unwrap().unwrap(), b"new-secret");
+        assert_eq!(credential_snapshot(&second.id).unwrap().unwrap(), b"new-secret");
     }
 
     #[test]
@@ -6691,7 +6794,7 @@ mod tests {
         let persisted = load_operation(&plan.operation_id).unwrap();
         let snapshots = vec![PathSnapshot::capture(&settings_file()).unwrap()];
         let subject = provider_credential_subject(&provider.id);
-        let old_credential = credential_snapshot(&subject);
+        let old_credential = credential_snapshot(&subject).unwrap();
         persist_credential_rollback(&plan.operation_id, &subject, old_credential.as_deref())
             .unwrap();
         persist_rollback_snapshots(&plan.operation_id, &snapshots).unwrap();
@@ -6706,13 +6809,13 @@ mod tests {
         apply_operation(&persisted, &skills_guard, &BTreeSet::new()).unwrap();
         drop(tracker);
         drop(skills_guard);
-        assert_eq!(credential_snapshot(&first.id).unwrap(), b"new-secret");
-        assert_eq!(credential_snapshot(&second.id).unwrap(), b"new-secret");
+        assert_eq!(credential_snapshot(&first.id).unwrap().unwrap(), b"new-secret");
+        assert_eq!(credential_snapshot(&second.id).unwrap().unwrap(), b"new-secret");
 
         recover_pending_asset_operations().unwrap();
         assert_eq!(fs::read(settings_file()).unwrap(), settings_before);
-        assert_eq!(credential_snapshot(&first.id).unwrap(), b"old-secret");
-        assert_eq!(credential_snapshot(&second.id).unwrap(), b"old-secret");
+        assert_eq!(credential_snapshot(&first.id).unwrap().unwrap(), b"old-secret");
+        assert_eq!(credential_snapshot(&second.id).unwrap().unwrap(), b"old-secret");
         assert!(!operation_root(&plan.operation_id).exists());
     }
 
@@ -6730,7 +6833,7 @@ mod tests {
         .unwrap();
         let persisted = load_operation(&plan.operation_id).unwrap();
         let snapshots = vec![PathSnapshot::capture(&settings_file()).unwrap()];
-        let old_credential = credential_snapshot("work");
+        let old_credential = credential_snapshot("work").unwrap();
         persist_credential_rollback(&plan.operation_id, "work", old_credential.as_deref()).unwrap();
         persist_rollback_snapshots(&plan.operation_id, &snapshots).unwrap();
         let skills_guard = acquire_asset_skills_lock().unwrap();
@@ -6740,7 +6843,7 @@ mod tests {
         drop(skills_guard);
 
         recover_pending_asset_operations().unwrap();
-        assert_eq!(credential_snapshot("work").unwrap(), b"old-secret");
+        assert_eq!(credential_snapshot("work").unwrap().unwrap(), b"old-secret");
         assert_eq!(
             load_settings_strict().unwrap().model_profiles.unwrap()["work"].model,
             "new-model"

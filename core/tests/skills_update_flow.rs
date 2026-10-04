@@ -546,3 +546,33 @@ fn update_stages_only_named_skill_and_requires_exact_high_risk_confirmation() {
     fs::write(&plan_path, document).unwrap();
     commit_update(plan.high_risk_confirmation()).unwrap();
 }
+
+#[test]
+fn metadata_checks_share_one_request_for_skills_from_the_same_repository_revision() {
+    let fixture = UpdateFixture::github_branch("main", OLD_SHA, NEW_SHA);
+    mutate_settings(|settings| {
+        let records = settings.managed_skills.as_mut().unwrap();
+        let mut second = records["review-changes"].clone();
+        second.name = "second-skill".into();
+        if let SkillSource::Github { subpath, .. } = &mut second.source { *subpath = "skills/second-skill".into(); }
+        records.insert(second.name.clone(), second);
+    }).unwrap();
+    let outcome = fixture.check(true);
+    assert_eq!(outcome.checked, 2);
+    assert_eq!(fixture.http_requests(), vec!["commit:main"]);
+    assert_eq!(outcome.available, vec!["review-changes", "second-skill"]);
+}
+
+#[test]
+fn a_fresh_revision_response_without_etag_drops_the_previous_validator() {
+    let fixture = UpdateFixture::github_branch("main", OLD_SHA, NEW_SHA);
+    mutate_settings(|settings| {
+        let update = &mut settings.managed_skills.as_mut().unwrap().get_mut("review-changes").unwrap().update;
+        update.etag = Some("\"old-representation\"".into());
+        update.resolved_revision = Some(OLD_SHA.into());
+    }).unwrap();
+    assert_eq!(fixture.check(true).checked, 1);
+    let update = &load_settings().managed_skills.unwrap()["review-changes"].update;
+    assert_eq!(update.resolved_revision.as_deref(), Some(NEW_SHA));
+    assert!(update.etag.is_none());
+}

@@ -185,14 +185,110 @@ beforeEach(() => {
   appMocks.agentViewProps.mockReset();
 });
 
+it("keeps one card but routes copy-specific actions to the real inventory identity", async () => {
+  const inventory = skillsInventoryFixture();
+  const central = { ...inventory.items[0], states: ["managed" as const], content_hash: "central-content" };
+  const external: SkillInventoryItem = { ...central, identity: "target:agents-user:review-changes",
+    location: { kind: "agent_target", target_id: "agents-user", global_dir: "~/.agents/skills" },
+    states: ["external"], source: null, content_hash: "external-content" };
+  const broken: SkillInventoryItem = { ...central, identity: "target:claude-user:review-changes",
+    location: { kind: "agent_target", target_id: "claude-user", global_dir: "~/.claude/skills" },
+    states: ["broken_link"], content_hash: null };
+  inventory.items = [central, external, broken];
+  vi.mocked(api.getSkillDetail).mockImplementation(async (identity) => ({
+    ...skillDetailFixture(), item: inventory.items.find((item) => item.identity === identity)!,
+  }));
+  const fixture = skillsStateFixture();
+  const plan = vi.fn(fixture.plan);
+  render(<SkillsView state={stateWith(inventory, { plan })} />);
+  expect(screen.getAllByRole("button", { name: "打开 Skill review-changes 详情" })).toHaveLength(1);
+  await userEvent.click(screen.getByRole("button", { name: "打开 Skill review-changes 详情" }));
+  const inspector = await screen.findByRole("complementary", { name: "review-changes 详情" });
+  expect(within(inspector).queryByRole("button", { name: "导入" })).not.toBeInTheDocument();
+  expect(within(inspector).queryByRole("button", { name: "修复" })).not.toBeInTheDocument();
+  await userEvent.click(within(inspector).getByRole("combobox", { name: "Skill 位置" }));
+  await userEvent.click(screen.getByRole("option", { name: "~/.agents/skills" }));
+  await waitFor(() => expect(api.getSkillDetail).toHaveBeenLastCalledWith(external.identity));
+  await userEvent.click(within(inspector).getByRole("checkbox", { name: "备份并替换同名中央副本" }));
+  expect(within(inspector).getByRole("checkbox", { name: "备份并替换同名中央副本" })).toBeChecked();
+  await userEvent.click(within(inspector).getByRole("combobox", { name: "Skill 位置" }));
+  await userEvent.click(screen.getByRole("option", { name: "~/.claude/skills" }));
+  expect(within(inspector).getByRole("button", { name: "修复" })).toBeVisible();
+  expect(within(inspector).queryByRole("button", { name: "导入" })).not.toBeInTheDocument();
+  await userEvent.click(within(inspector).getByRole("combobox", { name: "Skill 位置" }));
+  await userEvent.click(screen.getByRole("option", { name: "~/.agents/skills" }));
+  expect(within(inspector).getByRole("checkbox", { name: "备份并替换同名中央副本" })).not.toBeChecked();
+  await userEvent.click(within(inspector).getByRole("button", { name: "导入" }));
+  expect(plan).toHaveBeenCalledWith({ operation: "import_skill", request: { identity: external.identity, replace_conflicts: false } });
+});
+
+it("reloads the selected Skill body when its observed content changes at the same identity", async () => {
+  const inventory = skillsInventoryFixture();
+  const item = inventory.items[0];
+  vi.mocked(api.getSkillDetail).mockResolvedValueOnce({ ...skillDetailFixture(), item, skill_md: "first body" });
+  const view = render(<SkillsView state={stateWith(inventory)} />);
+  await userEvent.click(screen.getByRole("button", { name: `打开 Skill ${item.name} 详情` }));
+  await screen.findByText("first body");
+  const changed = { ...item, content_hash: "updated-content", updated_at: "2026-10-05T00:00:00Z" };
+  vi.mocked(api.getSkillDetail).mockResolvedValueOnce({ ...skillDetailFixture(), item: changed, skill_md: "updated body" });
+  view.rerender(<SkillsView state={stateWith({ ...inventory, items: inventory.items.map((value) => value.identity === item.identity ? changed : value) })} />);
+  await screen.findByText("updated body");
+  expect(screen.queryByText("first body")).not.toBeInTheDocument();
+  expect(api.getSkillDetail).toHaveBeenCalledTimes(2);
+});
+
+it("reloads an external copy after an inventory refresh without a managed hash or timestamp", async () => {
+  const inventory = skillsInventoryFixture();
+  const item: SkillInventoryItem = { ...inventory.items[0], states: ["external"], source: null,
+    content_hash: null, updated_at: null, identity: "target:agents-user:review-changes",
+    location: { kind: "agent_target", target_id: "agents-user", global_dir: "~/.agents/skills" } };
+  inventory.items = [item];
+  vi.mocked(api.getSkillDetail).mockResolvedValueOnce({ ...skillDetailFixture(), item, skill_md: "external first body" });
+  const view = render(<SkillsView state={stateWith(inventory)} />);
+  await userEvent.click(screen.getByRole("button", { name: `打开 Skill ${item.name} 详情` }));
+  await screen.findByText("external first body");
+  vi.mocked(api.getSkillDetail).mockResolvedValueOnce({ ...skillDetailFixture(), item, skill_md: "external updated body" });
+  view.rerender(<SkillsView state={stateWith({ ...inventory, items: [{ ...item }] })} />);
+  await screen.findByText("external updated body");
+  expect(screen.queryByText("external first body")).not.toBeInTheDocument();
+  expect(api.getSkillDetail).toHaveBeenCalledTimes(2);
+});
+
 afterEach(cleanup);
 
 describe("SkillsView", () => {
+  it("applies a metadata-only update without an informational confirmation dialog", async () => {
+    const inventory = skillsInventoryFixture();
+    const plan = { ...sharedTargetPlanFixture(), kind: "update" as const, targets: [],
+      warnings: ["Source revision changed; Skill content is unchanged."],
+      skills: sharedTargetPlanFixture().skills.map((skill) => ({ ...skill, existing_states: ["managed" as const], replace_existing: false, files: [] })) };
+    const commit = vi.fn().mockResolvedValue(inventory);
+    render(<SkillsView state={stateWith(inventory, { plan: vi.fn().mockResolvedValue(plan), commit })} />);
+    await userEvent.click(screen.getByRole("button", { name: "打开 Skill review-changes 详情" }));
+    await userEvent.click(screen.getByRole("button", { name: "更新" }));
+    await waitFor(() => expect(commit).toHaveBeenCalledWith(plan, null));
+    expect(screen.queryByRole("dialog", { name: "确认 Skill 更改" })).not.toBeInTheDocument();
+  });
+
+  it("repairs missing content without confirming again when no existing copy is overwritten", async () => {
+    const inventory = skillsInventoryFixture();
+    inventory.items[0] = { ...inventory.items[0], states: ["managed", "missing"] };
+    const plan = { ...sharedTargetPlanFixture(), kind: "repair" as const,
+      skills: sharedTargetPlanFixture().skills.map((skill) => ({ ...skill, replace_existing: false })) };
+    const commit = vi.fn().mockResolvedValue(inventory);
+    render(<SkillsView state={stateWith(inventory, { plan: vi.fn().mockResolvedValue(plan), commit })} />);
+    await userEvent.click(screen.getByRole("button", { name: "打开 Skill review-changes 详情" }));
+    await userEvent.click(screen.getByRole("button", { name: "修复" }));
+    await waitFor(() => expect(commit).toHaveBeenCalledWith(plan, null));
+    expect(screen.queryByRole("dialog", { name: "确认 Skill 更改" })).not.toBeInTheDocument();
+  });
+
   it("replaces the Skill Inspector with lifecycle confirmation instead of stacking dialogs", async () => {
     const user = userEvent.setup();
     const planned = {
       ...sharedTargetPlanFixture(),
       kind: "update" as const,
+      requires_risk_override: true,
     };
     const plan = vi.fn().mockResolvedValue(planned);
     render(<SkillsView state={stateWith(skillsInventoryFixture(), { plan })} />);

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { AgentInfo } from '../lib/types';
-import { captureDetail, captureEnvironment, captureExport, captureSessions, captureSnapshot, captureStart, captureStop, type CaptureEnvironment, type CaptureSession, type CaptureSnapshot, type CapturedFlow } from '../lib/capture';
+import { captureDetail, captureEnvironment, captureExport, captureSessions, captureDelta, mergeCaptureDelta, captureStart, captureStop, type CaptureEnvironment, type CaptureSession, type CaptureSnapshot, type CapturedFlow } from '../lib/capture';
 import { copyToClipboard } from '../lib/api';
 import { formatError } from '../lib/format';
 import { useToast } from './Toast';
@@ -31,17 +31,24 @@ export function CaptureView({ agents, initialAgentId, muxProxy }: { agents: Agen
   const [loading, setLoading] = useState(true);
   const epoch = useRef(0);
   const detailEpoch = useRef(0);
+  const revision = useRef<{ sessionId: string; value: string } | null>(null);
   const active = snapshot?.status.state === 'running' || snapshot?.status.state === 'starting';
   const [failure, setFailure] = useState('');
   const refresh = useCallback(async () => {
     const result = await Promise.all([captureEnvironment(), captureSessions()]);
     setEnvironment(result[0]); setSessions(result[1]); return result;
   }, []);
-  useEffect(() => { let disposed = false; void refresh().then(async ([, list]) => {
-    if (disposed) return;
-    if (!list.length && !disposed) setSettingsOpen(true);
-    if (list.length) { const current = await captureSnapshot(list[0].id); if (!disposed) setSnapshot(current); }
-  }).catch(error => { if (!disposed) setFailure(formatError(error)); }).finally(() => { if (!disposed) setLoading(false); });
+  useEffect(() => { let disposed = false; const generation = epoch.current; void refresh().then(async ([, list]) => {
+    if (disposed || generation !== epoch.current) return;
+    if (!list.length) setSettingsOpen(true);
+    if (list.length) {
+      const current = await captureDelta(list[0].id);
+      if (!disposed && generation === epoch.current) {
+        revision.current = { sessionId: current.session.id, value: current.revision };
+        setSnapshot(mergeCaptureDelta(null, current));
+      }
+    }
+  }).catch(error => { if (!disposed && generation === epoch.current) setFailure(formatError(error)); }).finally(() => { if (!disposed) setLoading(false); });
     return () => { disposed = true; epoch.current++; detailEpoch.current++; };
   }, [refresh]);
   useEffect(() => { if (initialAgentId) { setAgentId(initialAgentId); setSettingsOpen(true); } }, [initialAgentId]);
@@ -50,22 +57,34 @@ export function CaptureView({ agents, initialAgentId, muxProxy }: { agents: Agen
     setTargetId(suggested[0]?.id ?? '');
   }, [agentId, environment]);
   useEffect(() => {
-    if (!snapshot || !active) return;
+    if (!snapshot || !active || busy) return;
     const id = snapshot.session.id; const generation = epoch.current;
     let stopped = false; let timer: ReturnType<typeof setTimeout>;
     const poll = async () => {
-      try { const current = await captureSnapshot(id); if (!stopped && generation === epoch.current) { setSnapshot(current); setFailure(''); } }
-      catch (error) { if (!stopped) setFailure(formatError(error)); }
+      try {
+        const cursor = revision.current?.sessionId === id ? revision.current.value : null;
+        const current = await captureDelta(id, cursor);
+        if (!stopped && generation === epoch.current && current.session.id === id) {
+          revision.current = { sessionId: id, value: current.revision };
+          setSnapshot(previous => previous?.session.id === id ? mergeCaptureDelta(previous, current) : previous);
+          setFailure('');
+        }
+      }
+      catch (error) { if (!stopped && generation === epoch.current) setFailure(formatError(error)); }
       if (!stopped) timer = setTimeout(() => void poll(), 1500);
     };
     timer = setTimeout(() => void poll(), 1500);
     return () => { stopped = true; clearTimeout(timer); };
-  }, [snapshot?.session.id, active]);
+  }, [snapshot?.session.id, active, busy]);
   const perform = async (operation: () => Promise<void>) => { setBusy(true); try { await operation(); setFailure(''); } catch (error) { const message = formatError(error); setFailure(message); toast.show({ kind: 'error', msg: message }); } finally { setBusy(false); } };
   const selectSession = async (id: string) => {
-    const generation = ++epoch.current; detailEpoch.current++; setFlow(null); setFlowId('');
+    const generation = ++epoch.current; detailEpoch.current++; revision.current = null; setFlow(null); setFlowId('');
     if (!id) { setSnapshot(null); setSettingsOpen(true); return; }
-    const current = await captureSnapshot(id); if (generation === epoch.current) setSnapshot(current);
+    const current = await captureDelta(id);
+    if (generation === epoch.current) {
+      revision.current = { sessionId: id, value: current.revision };
+      setSnapshot(mergeCaptureDelta(null, current));
+    }
   };
   const selectFlow = async (id: string) => {
     if (!snapshot) return;
@@ -82,8 +101,15 @@ export function CaptureView({ agents, initialAgentId, muxProxy }: { agents: Agen
   return <div className="mux-capture">
     <header className="mux-capture-heading"><div><h1>Agent 抓包</h1><p>{settingsOpen && !active ? '选择目标 Agent 与出口' : snapshot ? `${snapshot.session.agent_name} · ${snapshot.session.target_name} · ${snapshot.session.proxy_url ?? '直连'}` : '查看 Agent 的请求与响应'}</p></div><div className="mux-capture-heading-actions"><button className="mux-capture-button" aria-expanded={settingsOpen} aria-controls="capture-settings" onClick={() => setSettingsOpen(value => !value)}>抓包设置</button>
       {!active && !settingsOpen ? <button className="mux-capture-button mux-capture-primary" onClick={() => setSettingsOpen(true)}>新建抓包</button> : <button className="mux-capture-button mux-capture-primary" disabled={!active && !canStart || busy} onClick={() => void perform(async () => {
-        if (active && snapshot) { setSnapshot(await captureStop(snapshot.session.id)); }
-        else { epoch.current++; detailEpoch.current++; setFlow(null); setFlowId(''); setSnapshot(await captureStart({ agent_id: agentId, target_id: targetId, egress, proxy_url: egress === 'custom' ? proxy : null })); setSettingsOpen(false); await refresh(); }
+        const generation = ++epoch.current; revision.current = null;
+        if (active && snapshot) {
+          const current = await captureStop(snapshot.session.id);
+          if (generation === epoch.current) setSnapshot(current);
+        } else {
+          detailEpoch.current++; setFlow(null); setFlowId('');
+          const current = await captureStart({ agent_id: agentId, target_id: targetId, egress, proxy_url: egress === 'custom' ? proxy : null });
+          if (generation === epoch.current) { setSnapshot(current); setSettingsOpen(false); await refresh(); }
+        }
       })}>{busy ? '处理中…' : active ? '停止抓包' : '开始抓包'}</button>}
     </div></header>
     {settingsOpen && <div id="capture-settings" className="mux-capture-config"><div className="mux-capture-config-heading"><strong>目标与出口</strong><button className="mux-capture-button mux-capture-refresh" disabled={busy || loading} onClick={() => void perform(async () => { await refresh(); })}><RefreshIcon className="w-3 h-3" />刷新</button></div><section className="mux-capture-controls" aria-label="抓包会话配置">

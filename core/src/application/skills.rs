@@ -123,15 +123,15 @@ pub fn cancel_operation(operation_id: &str) -> Result<(), SkillError> {
 }
 
 pub fn check_updates(manual: bool) -> Result<UpdateCheckOutcome, SkillError> {
+    let prepared = super::gate::mutate_for(CapabilityDomain::Skill, "skill_update_check", || {
+        crate::resources::skill::prepare_update_check(manual)
+    })?;
+    let probed = crate::resources::skill::probe_update_check(prepared, GithubEndpoints::production())?;
     super::gate::mutate_for(CapabilityDomain::Skill, "skill_update_check", || {
-        crate::resources::skill::check_updates(manual)
+        crate::resources::skill::reconcile_update_check(probed)
     })
 }
 
 pub fn check_updates_if_due() -> Result<UpdateCheckOutcome, SkillError> {
-    super::gate::mutate_for(
-        CapabilityDomain::Skill,
-        "skill_update_check",
-        crate::resources::skill::check_updates_if_due,
-    )
+    check_updates(false)
 }

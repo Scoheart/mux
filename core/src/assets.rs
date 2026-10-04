@@ -7,6 +7,7 @@
 pub mod compatibility;
 pub mod inventory;
 pub mod lifecycle;
+mod lease;
 pub mod migration;
 pub mod model_migration;
 pub mod observation;

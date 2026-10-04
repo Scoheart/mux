@@ -51,6 +51,7 @@ pub(crate) fn pending_payload(operation_id: &str) -> Option<PendingAssetPayload>
 }
 
 pub(crate) fn clear_pending_payload(operation_id: &str) {
+    super::lease::release(operation_id);
     PENDING_PAYLOADS
         .lock()
         .unwrap_or_else(|error| error.into_inner())
@@ -164,7 +165,7 @@ pub fn migrate_model_profiles_v2_if_needed() -> Result<bool, String> {
     // subjects are intentionally retained: an Agent file that still references
     // one is observed external state, not migration damage.
     for (old_id, new_id) in &id_map {
-        if let Some(credential) = credential_snapshot(old_id) {
+        if let Some(credential) = credential_snapshot(old_id)? {
             restore_credential_snapshot(new_id, Some(&credential))?;
         }
     }

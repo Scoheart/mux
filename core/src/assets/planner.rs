@@ -735,20 +735,27 @@ pub fn plan_set_skill_enabled(
     validate_agent_id(&request.agent_id)?;
     require_enabled_agent(&request.agent_id)?;
     let inventory = list_consumption_inventory()?;
-    let row = inventory
+    let rows = inventory
         .consumptions
         .iter()
-        .find(|item| {
+        .filter(|item| {
             item.agent_id == request.agent_id
                 && item.desired
                 && item.asset
                     == (AssetRef::Skill {
                         name: request.name.clone(),
                     })
-        })
-        .ok_or_else(|| {
-            "skill_consumption_missing: Skill is not assigned to this Agent".to_string()
-        })?;
+        }).collect::<Vec<_>>();
+    let row = if let Some(target_id) = &request.target_id {
+        rows.iter().copied().find(|row| row.target.as_ref().is_some_and(|target| &target.target_id == target_id))
+            .ok_or_else(|| "skill_consumption_missing: the selected Skill target is not assigned to this Agent".to_string())?
+    } else {
+        match rows.as_slice() {
+            [row] => *row,
+            [] => return Err("skill_consumption_missing: Skill is not assigned to this Agent".into()),
+            _ => return Err("skill_consumption_ambiguous: choose the physical target shown in Skill status".into()),
+        }
+    };
     let before = row
         .enabled
         .ok_or_else(|| "skill_consumption_unmanaged: Skill cannot be toggled".to_string())?;
@@ -1176,10 +1183,15 @@ pub fn plan_adopt_observed_skill(agent_id: &str, name: &str) -> Result<AssetOper
         .content_hash
         .clone()
         .ok_or_else(|| "skill_observation_stale: Skill content hash is unavailable".to_string())?;
-    record.risk = item
-        .risk
-        .clone()
-        .ok_or_else(|| "skill_observation_stale: Skill audit is unavailable".to_string())?;
+    // Inventory observes content without repeatedly auditing every managed
+    // tree. Adoption must audit the new bytes, never reuse the previous risk.
+    let central = crate::resources::skill::SkillsPaths::resolve_from_env()
+        .map_err(|error| format!("{error:?}"))?.central_skill(name);
+    record.risk = crate::resources::skill::audit_skill(&central)
+        .map_err(|error| format!("{error:?}"))?;
+    if hash_tree(&central).map_err(|error| format!("{error:?}"))? != record.content_hash {
+        return Err("skill_observation_stale: Skill content changed during adoption review".into());
+    }
     record.updated_at = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
 
     let inventory = list_consumption_inventory()?;
@@ -3375,6 +3387,7 @@ fn persist_operation(operation: &PersistedAssetOperation) -> Result<(), String> 
         fs::set_permissions(&path, fs::Permissions::from_mode(0o600))
             .map_err(|error| error.to_string())?;
     }
+    super::lease::retain(&operation.plan.operation_id)?;
     Ok(())
 }
 

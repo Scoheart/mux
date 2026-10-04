@@ -7,12 +7,14 @@ use serde_json::json;
 
 mod agent_management;
 mod command;
+mod diagnostics;
 mod input;
 mod model_management;
 mod mcp_preferences;
 mod network_management;
 mod preferences;
 mod output;
+mod operation_session;
 mod projection;
 mod review;
 mod skill_management;
@@ -130,10 +132,10 @@ fn run(cli: Cli) -> Result<(), CliError> {
 
     // Core gates each actual use case; the CLI must not maintain a second
     // capability-blocker policy based on command names.
-    bootstrap(cli.json);
+    let backend = bootstrap(cli.json);
 
     let is_upgrade = matches!(cli.command, Some(command::Command::Upgrade));
-    let output = dispatch(&cli)?;
+    let output = dispatch(&cli)?.with_backend(&backend);
     render_success(&output, cli.json)?;
 
     if !cli.json && !is_upgrade {
@@ -146,13 +148,14 @@ fn run(cli: Cli) -> Result<(), CliError> {
     Ok(())
 }
 
-fn bootstrap(json_mode: bool) {
+fn bootstrap(json_mode: bool) -> mux_core::application::bootstrap::BootstrapReport {
     let outcome = mux_core::application::MuxCore::bootstrap();
     if !json_mode {
         for warning in &outcome.warnings {
             eprintln!("MUX startup warning: {}", warning.message);
         }
     }
+    outcome
 }
 
 #[cfg(test)]

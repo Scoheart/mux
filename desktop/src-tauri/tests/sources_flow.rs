@@ -2,6 +2,7 @@
 // confirm its servers populate the catalog, toggle it off/on, and remove it.
 // HOME/MUX_HOME are redirected to a temp dir so ~/.mux stays isolated. No network.
 use std::fs;
+use tauri::async_runtime::block_on;
 
 use desktop_lib::commands::{
     add_builtin_collection, add_local_source, list_registry, remove_source, set_source_enabled,
@@ -24,17 +25,17 @@ fn local_source_flow_populates_toggles_and_removes() {
     .unwrap();
 
     // Empty catalog to start (no built-in base anymore).
-    assert_eq!(list_registry().len(), 0, "catalog should start empty");
+    assert_eq!(block_on(list_registry()).unwrap().len(), 0, "catalog should start empty");
 
     // Add it as a local source.
-    let view = add_local_source(cfg.display().to_string(), Some("团队配置".into()))
+    let view = block_on(add_local_source(cfg.display().to_string(), Some("团队配置".into())))
         .expect("add_local_source should succeed");
     assert_eq!(view.kind, "local");
     assert_eq!(view.server_count, 2);
     let id = view.id.clone();
 
     // Its two servers now populate the catalog, tagged with the source origin.
-    let cat = list_registry();
+    let cat = block_on(list_registry()).unwrap();
     assert_eq!(cat.len(), 2, "both servers should be in the catalog");
     assert!(cat.iter().all(|e| e
         .origin
@@ -65,26 +66,26 @@ fn local_source_flow_populates_toggles_and_removes() {
     assert!(!cached_text.contains("must-not-be-cached"));
 
     // Disabling the source removes its servers from the catalog…
-    set_source_enabled(id.clone(), false).unwrap();
+    block_on(set_source_enabled(id.clone(), false)).unwrap();
     assert_eq!(
-        list_registry().len(),
+        block_on(list_registry()).unwrap().len(),
         0,
         "disabled source contributes nothing"
     );
     // …and re-enabling brings them back.
-    set_source_enabled(id.clone(), true).unwrap();
-    assert_eq!(list_registry().len(), 2);
+    block_on(set_source_enabled(id.clone(), true)).unwrap();
+    assert_eq!(block_on(list_registry()).unwrap().len(), 2);
 
     // Removing the source deletes its cached file and empties the catalog.
-    remove_source(id.clone()).unwrap();
-    assert_eq!(list_registry().len(), 0);
+    block_on(remove_source(id.clone())).unwrap();
+    assert_eq!(block_on(list_registry()).unwrap().len(), 0);
     assert!(!cached.exists(), "cached file should be deleted on remove");
 
     // The opt-in curated collection is available as a local source (no network).
-    let curated = add_builtin_collection().expect("add_builtin_collection should succeed");
+    let curated = block_on(add_builtin_collection()).expect("add_builtin_collection should succeed");
     let expected = mux_core::registry::builtin_registry().len();
     assert_eq!(curated.kind, "local");
     assert_eq!(curated.name, "Mux 精选");
     assert_eq!(curated.server_count as usize, expected);
-    assert_eq!(list_registry().len(), expected);
+    assert_eq!(block_on(list_registry()).unwrap().len(), expected);
 }

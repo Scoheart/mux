@@ -7,6 +7,7 @@ pub use crate::assets::{
     PlanModelAdoptionRequest,
 };
 pub use crate::domain::assets::*;
+pub use crate::assets::inventory::InventoryScope;
 
 fn asset_capability(asset: &AssetRef) -> CapabilityDomain {
     match asset {
@@ -61,6 +62,12 @@ pub fn compatibility_for(agent_id: &str, asset: &AssetRef) -> Result<Compatibili
 /// migration and Model pointer reconciliation belong to [`super::bootstrap`].
 pub fn list_inventory() -> Result<ConsumptionInventory, String> {
     super::gate::read(crate::assets::list_consumption_inventory)
+}
+
+/// Query only the requested capabilities and physical Agent targets. Scoped
+/// revisions are read tokens and must not be passed to full convergence plans.
+pub fn list_inventory_scoped(scope: InventoryScope) -> Result<ConsumptionInventory, String> {
+    super::gate::read(|| crate::assets::inventory::list_consumption_inventory_scoped(&scope))
 }
 
 /// Both projections share one Skill scan, but retain independent failures so a

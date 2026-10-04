@@ -667,3 +667,70 @@ fn detail_recomputes_external_content_kind_from_the_full_safe_tree() {
         );
     }
 }
+
+#[test]
+fn modified_central_content_and_its_exact_links_expose_the_observed_fingerprint() {
+    let th = TestHome::new("inventory-observed-central");
+    fs::create_dir_all(th.home.join(".codex")).unwrap();
+    let central = th.home.join(".mux/assets/skills/items/observed");
+    write_skill(&central, "observed", "Original description");
+    let original = hash_tree(&central).unwrap();
+    mutate_settings(|settings| {
+        settings.managed_skills.get_or_insert_default().insert("observed".into(), managed_record("observed", &original));
+        settings.skill_assignments.get_or_insert_default().insert("observed".into(), ["agents-user".into()].into());
+    }).unwrap();
+    fs::create_dir_all(th.home.join(".agents/skills")).unwrap();
+    symlink(&central, th.home.join(".agents/skills/observed")).unwrap();
+    write_skill(&central, "observed", "Observed description");
+    let observed = hash_tree(&central).unwrap();
+    assert_ne!(original, observed);
+    let inventory = list_inventory().unwrap();
+    for identity in ["central:observed", "target:agents-user:observed"] {
+        let item = inventory.items.iter().find(|item| item.identity == identity).unwrap();
+        assert!(item.states.contains(&InventoryState::LocallyModified));
+        assert_eq!(item.content_hash.as_deref(), Some(observed.as_str()));
+        assert_eq!(item.description, "Observed description");
+        assert!(item.risk.is_none(), "the installed audit must not certify changed content");
+    }
+    let rows = mux_core::assets::list_consumption_inventory().unwrap();
+    let row = rows.consumptions.iter().find(|row| row.agent_id == "codex").unwrap();
+    assert_eq!(row.status, mux_core::domain::assets::ConsumptionStatus::ExternalChanged);
+    assert_eq!(row.reason.as_deref(), Some("skill_local_modification"));
+}
+
+#[test]
+fn invalid_central_bytes_cannot_reuse_the_installed_hash_for_adoption() {
+    let th = TestHome::new("inventory-invalid-central-fingerprint");
+    let central = th.home.join(".mux/assets/skills/items/invalid");
+    write_skill(&central, "invalid", "Valid before editing");
+    let original = hash_tree(&central).unwrap();
+    mutate_settings(|settings| {
+        settings.managed_skills.get_or_insert_default().insert("invalid".into(), managed_record("invalid", &original));
+    }).unwrap();
+    for bytes in [b"broken manifest".as_slice(), &[0xff, 0xfe][..]] {
+        fs::write(central.join("SKILL.md"), bytes).unwrap();
+        let inventory = list_inventory().unwrap();
+        let item = inventory.items.iter().find(|item| item.identity == "central:invalid").unwrap();
+        assert!(item.states.contains(&InventoryState::LocallyModified));
+        assert!(item.content_hash.is_none());
+        assert!(item.risk.is_none());
+    }
+}
+
+#[test]
+fn same_name_external_directory_never_inherits_central_provenance_or_hash() {
+    let th = TestHome::new("inventory-external-provenance");
+    fs::create_dir_all(th.home.join(".codex")).unwrap();
+    let central = th.home.join(".mux/assets/skills/items/same-name");
+    write_skill(&central, "same-name", "Central description");
+    let original = hash_tree(&central).unwrap();
+    mutate_settings(|settings| {
+        settings.managed_skills.get_or_insert_default().insert("same-name".into(), managed_record("same-name", &original));
+    }).unwrap();
+    write_skill(&th.home.join(".agents/skills/same-name"), "same-name", "External description");
+    let inventory = list_inventory().unwrap();
+    let item = inventory.items.iter().find(|item| item.identity == "target:agents-user:same-name").unwrap();
+    assert_eq!(item.description, "External description");
+    assert!(item.source.is_none() && item.content_hash.is_none() && item.risk.is_none());
+    assert!(item.states.contains(&InventoryState::External));
+}

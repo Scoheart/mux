@@ -76,12 +76,32 @@ static TEST_CREDENTIALS: LazyLock<Mutex<BTreeMap<String, Vec<u8>>>> =
 
 #[cfg(test)]
 thread_local! {
+    static TEST_CREDENTIAL_READ_ERROR: std::cell::RefCell<Option<String>> =
+        const { std::cell::RefCell::new(None) };
     static TEST_CREDENTIAL_DELETE_ERROR: std::cell::RefCell<Option<String>> =
         const { std::cell::RefCell::new(None) };
 }
 
 #[cfg(test)]
 pub(crate) struct TestCredentialDeleteErrorGuard;
+
+#[cfg(test)]
+pub(crate) struct TestCredentialReadErrorGuard;
+
+#[cfg(test)]
+impl Drop for TestCredentialReadErrorGuard {
+    fn drop(&mut self) {
+        TEST_CREDENTIAL_READ_ERROR.with(|slot| slot.borrow_mut().take());
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn set_test_credential_read_error() -> TestCredentialReadErrorGuard {
+    TEST_CREDENTIAL_READ_ERROR.with(|slot| {
+        *slot.borrow_mut() = Some("credential_read_failed: injected read failure".into());
+    });
+    TestCredentialReadErrorGuard
+}
 
 #[cfg(test)]
 impl Drop for TestCredentialDeleteErrorGuard {
@@ -1789,13 +1809,13 @@ fn materialize_profile_for_agent(
     Ok(materialized)
 }
 
-fn credential_fingerprint(profile_id: &str) -> Option<String> {
-    read_credential(profile_id).map(|credential| {
+fn credential_fingerprint(profile_id: &str) -> Result<Option<String>, String> {
+    Ok(read_credential_checked(profile_id)?.map(|credential| {
         Sha256::digest(credential)
             .iter()
             .map(|byte| format!("{byte:02x}"))
             .collect()
-    })
+    }))
 }
 
 /// Upgrade v2 Profile-local connection metadata into shared Provider
@@ -1841,7 +1861,7 @@ pub fn migrate_model_providers_v3_if_needed() -> Result<bool, String> {
             provider: profile.provider.clone(),
             origin: normalized_endpoint_origin(&profile.base_url),
             env_key: profile.env_key.clone(),
-            credential: credential_fingerprint(&profile.id),
+            credential: credential_fingerprint(&profile.id)?,
         };
         let existing_provider_id = groups.iter().find_map(|(candidate, provider_id)| {
             if candidate != &identity {
@@ -2004,13 +2024,12 @@ fn consolidate_provider_credentials() -> Result<bool, String> {
             .map(|(profile_id, _)| profile_id)
             .collect::<Vec<_>>();
         let provider_service = provider_keychain_service(&provider.id);
-        if !credential_service_exists(&provider_service) {
+        if !credential_service_exists_checked(&provider_service)? {
             let legacy_credentials = profile_ids
                 .iter()
-                .filter_map(|profile_id| {
-                    read_credential_service(&legacy_keychain_service(profile_id))
-                })
-                .collect::<BTreeSet<_>>();
+                .map(|profile_id| read_credential_service_checked(&legacy_keychain_service(profile_id)))
+                .collect::<Result<Vec<_>, _>>()?
+                .into_iter().flatten().collect::<BTreeSet<_>>();
             if legacy_credentials.len() > 1 {
                 return Err(format!(
                     "model_provider_credential_drift: Provider '{}' has conflicting legacy API Keys",
@@ -2514,15 +2533,19 @@ fn profile_credential_shell_command(profile: &ModelProfile) -> String {
 }
 
 #[cfg(target_os = "macos")]
-fn read_credential_service(service: &str) -> Option<Vec<u8>> {
+fn read_credential_service_checked(service: &str) -> Result<Option<Vec<u8>>, String> {
     #[cfg(any(test, debug_assertions))]
     {
         if std::env::var_os("MUX_TEST_PROBE_ROOT").is_some() {
-            return TEST_CREDENTIALS
+            #[cfg(test)]
+            if let Some(error) = TEST_CREDENTIAL_READ_ERROR.with(|slot| slot.borrow().clone()) {
+                return Err(error);
+            }
+            return Ok(TEST_CREDENTIALS
                 .lock()
                 .unwrap_or_else(|error| error.into_inner())
                 .get(&test_credential_key(service))
-                .cloned();
+                .cloned());
         }
     }
     let output = Command::new("/usr/bin/security")
@@ -2536,9 +2559,12 @@ fn read_credential_service(service: &str) -> Option<Vec<u8>> {
         ])
         .stderr(Stdio::null())
         .output()
-        .ok()?;
+        .map_err(|_| "credential_read_failed: could not start the Keychain helper".to_string())?;
+    if output.status.code() == Some(44) {
+        return Ok(None);
+    }
     if !output.status.success() {
-        return None;
+        return Err("credential_read_failed: Keychain did not authorize a reliable credential read".into());
     }
     let mut value = output.stdout;
     while value
@@ -2547,40 +2573,46 @@ fn read_credential_service(service: &str) -> Option<Vec<u8>> {
     {
         value.pop();
     }
-    Some(value)
+    Ok(Some(value))
 }
 
 #[cfg(not(target_os = "macos"))]
-fn read_credential_service(service: &str) -> Option<Vec<u8>> {
+fn read_credential_service_checked(service: &str) -> Result<Option<Vec<u8>>, String> {
     #[cfg(any(test, debug_assertions))]
     {
         if std::env::var_os("MUX_TEST_PROBE_ROOT").is_some() {
-            return TEST_CREDENTIALS
+            #[cfg(test)]
+            if let Some(error) = TEST_CREDENTIAL_READ_ERROR.with(|slot| slot.borrow().clone()) {
+                return Err(error);
+            }
+            return Ok(TEST_CREDENTIALS
                 .lock()
                 .unwrap_or_else(|error| error.into_inner())
                 .get(&test_credential_key(service))
-                .cloned();
+                .cloned());
         }
     }
     let _ = service;
-    None
+    Ok(None)
 }
 
-fn credential_service_exists(service: &str) -> bool {
+/// Authoritative metadata-only lookup. Bootstrap must not read every stored
+/// secret merely to decide whether a Provider needs credential migration.
+fn credential_service_exists_checked(service: &str) -> Result<bool, String> {
     // TestHome sets this marker specifically to isolate probes from the real
     // machine. Never consult the user's Keychain from a test process.
     #[cfg(any(test, debug_assertions))]
     {
         if std::env::var_os("MUX_TEST_PROBE_ROOT").is_some() {
-            return TEST_CREDENTIALS
+            return Ok(TEST_CREDENTIALS
                 .lock()
                 .unwrap_or_else(|error| error.into_inner())
-                .contains_key(&test_credential_key(service));
+                .contains_key(&test_credential_key(service)));
         }
     }
     #[cfg(target_os = "macos")]
     {
-        Command::new("/usr/bin/security")
+        let status = Command::new("/usr/bin/security")
             .args([
                 "find-generic-password",
                 "-s",
@@ -2591,10 +2623,18 @@ fn credential_service_exists(service: &str) -> bool {
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .status()
-            .is_ok_and(|status| status.success())
+            .map_err(|_| "credential_read_failed: could not start the Keychain helper".to_string())?;
+        if status.success() { Ok(true) }
+        else if status.code() == Some(44) { Ok(false) }
+        else { Err("credential_read_failed: Keychain credential presence could not be determined".into()) }
     }
     #[cfg(not(target_os = "macos"))]
-    false
+    Ok(false)
+}
+
+/// Presentation-only presence; mutation and migration use the checked result.
+fn credential_service_exists(service: &str) -> bool {
+    credential_service_exists_checked(service).unwrap_or(false)
 }
 
 #[cfg(target_os = "macos")]
@@ -2717,14 +2757,13 @@ fn delete_credential_service(service: &str) -> Result<(), String> {
     delete_credential_service_authoritative(service).map(|_| ())
 }
 
-fn read_credential(profile_id: &str) -> Option<Vec<u8>> {
+fn read_credential_checked(profile_id: &str) -> Result<Option<Vec<u8>>, String> {
     let service = keychain_service(profile_id);
-    read_credential_service(&service).or_else(|| {
-        let legacy = legacy_keychain_service(profile_id);
-        (legacy != service)
-            .then(|| read_credential_service(&legacy))
-            .flatten()
-    })
+    if let Some(value) = read_credential_service_checked(&service)? {
+        return Ok(Some(value));
+    }
+    let legacy = legacy_keychain_service(profile_id);
+    if legacy != service { read_credential_service_checked(&legacy) } else { Ok(None) }
 }
 
 fn credential_exists(profile_id: &str) -> bool {
@@ -3015,8 +3054,8 @@ pub(crate) fn save_provider_bundle(
     .map_err(|error| error.to_string())
 }
 
-pub(crate) fn credential_snapshot(profile_id: &str) -> Option<Vec<u8>> {
-    read_credential(profile_id)
+pub(crate) fn credential_snapshot(profile_id: &str) -> Result<Option<Vec<u8>>, String> {
+    read_credential_checked(profile_id)
 }
 
 fn credential_rollback_profile_id(operation_id: &str, profile_id: &str) -> String {
@@ -3032,7 +3071,7 @@ pub(crate) fn persist_credential_rollback(
     profile_id: &str,
     credential: Option<&[u8]>,
 ) -> Result<(), String> {
-    let mut payload = Vec::with_capacity(1 + credential.map_or(0, |value| value.len()));
+    let mut payload = Zeroizing::new(Vec::with_capacity(1 + credential.map_or(0, |value| value.len())));
     match credential {
         Some(value) => {
             payload.push(1);
@@ -3052,7 +3091,7 @@ pub(crate) fn credential_rollback_snapshot(
     operation_id: &str,
     profile_id: &str,
 ) -> Result<Option<Option<Vec<u8>>>, String> {
-    let Some(payload) = read_credential(&credential_rollback_profile_id(operation_id, profile_id))
+    let Some(payload) = read_credential_checked(&credential_rollback_profile_id(operation_id, profile_id))?
     else {
         return Ok(None);
     };
@@ -3188,7 +3227,7 @@ pub(crate) fn load_private_file_snapshot(
     expected_content_hash: &str,
 ) -> Result<Option<Zeroizing<Vec<u8>>>, String> {
     let subject = private_file_snapshot_subject(operation_id, path);
-    let Some(payload) = read_credential_service(&subject) else {
+    let Some(payload) = read_credential_service_checked(&subject)? else {
         return Ok(None);
     };
     let payload = Zeroizing::new(payload);
@@ -3287,7 +3326,7 @@ pub fn save_profile(profile: ModelProfile, credential: Option<String>) -> Result
     let provider_name = unique_provider_name(&settings, &profile.provider);
     let previous_credential = credential
         .as_ref()
-        .map(|_| read_credential_service(&credential_service));
+        .map(|_| read_credential_service_checked(&credential_service)).transpose()?;
     if let Some(value) = credential.as_deref() {
         if value.is_empty() {
             delete_credential_service(&credential_service)?;
@@ -3356,7 +3395,7 @@ pub fn save_profile(profile: ModelProfile, credential: Option<String>) -> Result
 pub fn delete_profile(profile_id: &str) -> Result<(), String> {
     let _settings_guard = mutation_lock()?;
     validate_profile_id(profile_id)?;
-    let previous_credential = read_credential_service(&legacy_keychain_service(profile_id));
+    let previous_credential = read_credential_service_checked(&legacy_keychain_service(profile_id))?;
     delete_credential_service(&legacy_keychain_service(profile_id))?;
     if let Err(error) = delete_profile_metadata(profile_id) {
         if let Some(credential) = previous_credential {
@@ -3441,7 +3480,7 @@ pub fn reveal_provider_credential(provider_id: &str) -> Result<String, String> {
         ));
     }
 
-    let credential = read_credential_service(&provider_keychain_service(provider_id))
+    let credential = read_credential_service_checked(&provider_keychain_service(provider_id))?
         .ok_or_else(|| {
             format!(
                 "model_provider_credential_missing: Provider '{provider_id}' has no API Key in Keychain"
@@ -4580,8 +4619,8 @@ pub(crate) fn apply_profile_consumption_with_credential_presence_target(
             let credential = credential::resolve_source(
                 source,
                 matches!(source, ApiKeySource::MuxStore)
-                    .then(|| read_credential(&profile.id))
-                    .flatten(),
+                    .then(|| read_credential_checked(&profile.id))
+                    .transpose()?.flatten(),
             )?;
             claude_desktop::apply(
                 &paths,
@@ -4609,8 +4648,8 @@ pub(crate) fn apply_profile_consumption_with_credential_presence_target(
                     let resolved = credential::resolve_source(
                         source,
                         matches!(source, ApiKeySource::MuxStore)
-                            .then(|| read_credential(&profile.id))
-                            .flatten(),
+                            .then(|| read_credential_checked(&profile.id))
+                            .transpose()?.flatten(),
                     )?;
                     let auth_path = home().join(".local/share/opencode/auth.json");
                     let auth = open_code_auth::prepare_auth(
@@ -4627,8 +4666,8 @@ pub(crate) fn apply_profile_consumption_with_credential_presence_target(
                     let resolved = credential::resolve_source(
                         source,
                         matches!(source, ApiKeySource::MuxStore)
-                            .then(|| read_credential(&profile.id))
-                            .flatten(),
+                            .then(|| read_credential_checked(&profile.id))
+                            .transpose()?.flatten(),
                     )?;
                     let private_model = open_code_auth::PreparedAuthFile::from_model_file(
                         adapters::prepare_apply_plaintext(
@@ -6084,8 +6123,8 @@ fn pi_api_key_value(
             let resolved = credential::resolve_source(
                 &source,
                 matches!(source, ApiKeySource::MuxStore)
-                    .then(|| read_credential(&profile.id))
-                    .flatten(),
+                    .then(|| read_credential_checked(&profile.id))
+                    .transpose()?.flatten(),
             )?;
             String::from_utf8(resolved.expose_for_delivery().to_vec())
                 .map(Some)
@@ -6113,8 +6152,8 @@ fn prepare_observed_native_files(
             let resolved = credential::resolve_source(
                 &source,
                 matches!(source, ApiKeySource::MuxStore)
-                    .then(|| read_credential(&profile.id))
-                    .flatten(),
+                    .then(|| read_credential_checked(&profile.id))
+                    .transpose()?.flatten(),
             )?;
             return Ok(vec![adapters::prepare_apply_plaintext(
                 agent_id,
@@ -6920,6 +6959,21 @@ mod tests {
         }
     }
 
+    #[test]
+    fn existing_provider_migration_never_reads_the_secret_value() {
+        let _home = TestHome::new("provider-presence-only");
+        let mut profile = responses_profile();
+        profile.provider_id = Some("presence-provider".into());
+        save_profile(profile, Some("fixture-provider-key".into())).unwrap();
+        let service = provider_keychain_service("presence-provider");
+        let value_read_failure = set_test_credential_read_error();
+        assert!(read_credential_service_checked(&service).is_err());
+        assert!(credential_service_exists_checked(&service).unwrap());
+        assert!(!consolidate_provider_credentials().unwrap());
+        drop(value_read_failure);
+        assert_eq!(read_credential_service_checked(&service).unwrap().unwrap(), b"fixture-provider-key");
+    }
+
     fn pi_profile(id: &str, model: &str, name: &str) -> ModelProfile {
         let mut profile = responses_profile();
         profile.id = id.into();
@@ -7304,15 +7358,15 @@ mod tests {
         assert_eq!(instances[0].model_count, 2);
         assert!(instances[0].credential_saved);
         assert_eq!(
-            read_credential_service(&provider_keychain_service(&provider.id)).unwrap(),
+            read_credential_service_checked(&provider_keychain_service(&provider.id)).unwrap().unwrap(),
             b"shared-secret"
         );
         assert_eq!(
-            read_credential_service(&legacy_keychain_service(&anthropic.id)).unwrap(),
+            read_credential_service_checked(&legacy_keychain_service(&anthropic.id)).unwrap().unwrap(),
             b"shared-secret"
         );
         assert_eq!(
-            read_credential_service(&legacy_keychain_service(&responses.id)).unwrap(),
+            read_credential_service_checked(&legacy_keychain_service(&responses.id)).unwrap().unwrap(),
             b"shared-secret"
         );
     }
@@ -7542,7 +7596,7 @@ mod tests {
             error.starts_with("model_provider_credential_drift:"),
             "{error}"
         );
-        assert!(read_credential_service(&provider_keychain_service("team-provider")).is_none());
+        assert!(read_credential_service_checked(&provider_keychain_service("team-provider")).unwrap().is_none());
     }
 
     #[test]
@@ -7575,18 +7629,18 @@ mod tests {
         save_profile(second.clone(), None).unwrap();
         let provider_service = provider_keychain_service(&provider.id);
         assert_eq!(
-            read_credential_service(&provider_service).unwrap(),
+            read_credential_service_checked(&provider_service).unwrap().unwrap(),
             b"shared-secret"
         );
-        assert!(read_credential_service(&legacy_keychain_service(&first.id)).is_none());
-        assert!(read_credential_service(&legacy_keychain_service(&second.id)).is_none());
+        assert!(read_credential_service_checked(&legacy_keychain_service(&first.id)).unwrap().is_none());
+        assert!(read_credential_service_checked(&legacy_keychain_service(&second.id)).unwrap().is_none());
         assert_eq!(security_command(&first.id), security_command(&second.id));
 
         delete_profile(&first.id).unwrap();
-        assert_eq!(credential_snapshot(&second.id).unwrap(), b"shared-secret");
+        assert_eq!(credential_snapshot(&second.id).unwrap().unwrap(), b"shared-secret");
         delete_profile(&second.id).unwrap();
         assert_eq!(
-            read_credential_service(&provider_service).unwrap(),
+            read_credential_service_checked(&provider_service).unwrap().unwrap(),
             b"shared-secret"
         );
         assert!(load_settings()
@@ -7594,7 +7648,7 @@ mod tests {
             .unwrap()
             .contains_key(&provider.id));
         delete_provider(&provider.id).unwrap();
-        assert!(read_credential_service(&provider_service).is_none());
+        assert!(read_credential_service_checked(&provider_service).unwrap().is_none());
     }
 
     #[test]
@@ -8525,7 +8579,7 @@ url = "https://example.test/mcp"
         let content_hash = hex::encode(Sha256::digest(sentinel));
 
         let subject = persist_private_file_snapshot(operation_id, &path, sentinel).unwrap();
-        let stored = read_credential_service(&subject).unwrap();
+        let stored = read_credential_service_checked(&subject).unwrap().unwrap();
         assert!(!stored
             .windows(b"PRIVATE-SNAPSHOT-SENTINEL".len())
             .any(|window| window == b"PRIVATE-SNAPSHOT-SENTINEL"));
@@ -8574,7 +8628,7 @@ url = "https://example.test/mcp"
         let sentinel = b"PRIVATE-SNAPSHOT-SENTINEL";
         let content_hash = hex::encode(Sha256::digest(sentinel));
         let first_subject = persist_private_file_snapshot(operation_id, &first, sentinel).unwrap();
-        let payload = read_credential_service(&first_subject).unwrap();
+        let payload = read_credential_service_checked(&first_subject).unwrap().unwrap();
         let second_subject = private_file_snapshot_subject(operation_id, &second);
         set_credential_service(&second_subject, &payload).unwrap();
 
@@ -8603,7 +8657,7 @@ url = "https://example.test/mcp"
         let profile_id = format!("mux-smoke-{}", std::process::id());
         let _ = delete_credential(&profile_id);
         set_credential(&profile_id, b"mux-smoke-value").unwrap();
-        let actual = read_credential(&profile_id);
+        let actual = read_credential_checked(&profile_id).unwrap();
         let helper = std::process::Command::new("/usr/bin/security")
             .args(&security_command(&profile_id)[1..])
             .output()

@@ -1,7 +1,7 @@
 //! Agent runtime discovery and explicit user-initiated launch requests.
 use crate::settings::{load_settings_strict, mutate_settings_checked};
 use serde::{Deserialize, Serialize};
-use std::{collections::BTreeMap, fs, io::Read, path::{Path, PathBuf}, process::{Command, Stdio}, time::{Duration, Instant}};
+use std::{collections::BTreeMap, fs, io::Read, path::{Path, PathBuf}, process::{Command, Stdio}, sync::{Arc, LazyLock, Mutex}, time::{Duration, Instant, SystemTime}};
 
 pub use crate::domain::agents::{LaunchPreferences, LaunchTarget};
 
@@ -19,6 +19,9 @@ pub struct LaunchInfo {
     pub category: String,
     pub kind: Option<String>,
     pub available: bool,
+    /// An official product runtime was found. A plugin host is not evidence
+    /// that its extension is installed; that remains unknown (`None`).
+    pub installed: Option<bool>,
     pub supported: bool,
     pub host_name: Option<String>,
     pub install_url: Option<String>,
@@ -27,6 +30,29 @@ pub struct LaunchInfo {
     pub directory_exists: bool,
     pub configured_target: Option<LaunchTarget>,
     pub resolved_target: Option<LaunchTarget>,
+}
+
+static LAUNCH_CATALOG: LazyLock<BTreeMap<String, CatalogTarget>> = LazyLock::new(|| {
+    serde_json::from_str(include_str!("../../../data/agent-launchers.json"))
+        .expect("embedded Agent launcher catalog must be valid")
+});
+
+/// Probe an already loaded definition without rereading or cloning the Agent
+/// catalog. Batch callers supply their shared query snapshot.
+pub(crate) fn official_runtime_detected(
+    agent_id: &str,
+    category: &str,
+    skill_probes: &[crate::domain::types::AgentInstallProbe],
+) -> Option<bool> {
+    // Opening VS Code/JetBrains does not prove that an extension is installed.
+    if matches!(category, "plugin" | "ide-extension") { return None; }
+    match LAUNCH_CATALOG.get(agent_id) {
+        Some(CatalogTarget::App { candidates, host_name: None }) => Some(application(candidates).is_some()),
+        Some(CatalogTarget::Cli { candidates, .. }) => Some(candidates.iter().any(|name| find_command(name).is_some())),
+        Some(CatalogTarget::App { host_name: Some(_), .. }) => None,
+        None if skill_probes.is_empty() => None,
+        None => crate::resources::skill::detect_agent_runtime(skill_probes),
+    }
 }
 
 fn require_agent(id: &str) -> Result<String, String> {
@@ -156,11 +182,13 @@ fn resolve(target: &LaunchTarget) -> Option<LaunchTarget> {
 
 pub fn info(agent_id: &str) -> Result<LaunchInfo, String> {
     super::gate::read(|| {
-        let name = require_agent(agent_id)?;
-        let category = crate::agents::load_agents().get(agent_id).and_then(|agent| agent.category.clone()).unwrap_or_else(|| "cli".into());
-        let prefs = load_settings_strict().map_err(|e| e.to_string())?.agent_launch
+        let settings = load_settings_strict().map_err(|e| e.to_string())?;
+        let definitions = crate::agents::load_agents_from_settings(&settings);
+        let definition = definitions.get(agent_id).ok_or("未找到该 Agent")?;
+        let name = definition.name.clone().unwrap_or_else(|| agent_id.into());
+        let category = definition.category.clone().unwrap_or_else(|| "cli".into());
+        let prefs = settings.agent_launch
             .and_then(|mut values| values.remove(agent_id)).unwrap_or_default();
-        let catalog: BTreeMap<String, CatalogTarget> = serde_json::from_str(include_str!("../../../data/agent-launchers.json")).map_err(|e| e.to_string())?;
         let links: BTreeMap<String, serde_json::Value> = serde_json::from_str(include_str!("../../../data/agent-install-links.json")).map_err(|e| e.to_string())?;
         let mut host_name = None;
         let required = required_launch_kind(&category);
@@ -168,7 +196,7 @@ pub fn info(agent_id: &str) -> Result<LaunchInfo, String> {
         let resolved_target = if let Some(target) = &configured_target {
             resolve(target)
         } else {
-            match catalog.get(agent_id) {
+            match LAUNCH_CATALOG.get(agent_id) {
                 Some(CatalogTarget::App { candidates, host_name: host }) if required != Some("cli") => {
                     host_name = host.clone();
                     application(candidates).map(|path| LaunchTarget::App { path: path.to_string_lossy().into_owned(), args: Vec::new(), new_instance: false, env: BTreeMap::new() })
@@ -182,7 +210,9 @@ pub fn info(agent_id: &str) -> Result<LaunchInfo, String> {
         let kind = required.map(str::to_string).or_else(|| resolved_target.as_ref().map(|target| target_kind(target).into()));
         let supported = cfg!(target_os = "macos");
         let directory = prefs.default_directory.clone().or(prefs.directory);
-        Ok(LaunchInfo { agent_id: agent_id.into(), name, category, kind, supported, host_name,
+        let installed = official_runtime_detected(agent_id, &category,
+            definition.skills.as_ref().map(|capability| capability.probes.as_slice()).unwrap_or_default());
+        Ok(LaunchInfo { agent_id: agent_id.into(), name, category, kind, supported, host_name, installed,
             available: supported && resolved_target.is_some(),
             install_url: links.get(agent_id).and_then(|v| v.get("url")).and_then(|v| v.as_str()).map(str::to_owned),
             directory_exists: directory.as_ref().is_some_and(|p| expand(p).is_dir()),
@@ -241,14 +271,50 @@ fn cli_version(path: &str) -> Option<String> {
     result
 }
 
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
+struct VersionIdentity {
+    path: PathBuf,
+    modified: Option<SystemTime>,
+    length: u64,
+}
+
+type VersionEntry = Arc<Mutex<Option<(Instant, Option<String>)>>>;
+static VERSION_CACHE: LazyLock<Mutex<BTreeMap<VersionIdentity, VersionEntry>>> =
+    LazyLock::new(|| Mutex::new(BTreeMap::new()));
+const VERSION_CACHE_TTL: Duration = Duration::from_secs(30);
+
+fn cached_version(path: &Path, read: impl FnOnce() -> Option<String>) -> Option<String> {
+    let metadata = fs::metadata(path).ok()?;
+    let identity = VersionIdentity {
+        path: fs::canonicalize(path).ok()?,
+        modified: metadata.modified().ok(),
+        length: metadata.len(),
+    };
+    let entry = {
+        let mut cache = VERSION_CACHE.lock().unwrap_or_else(|error| error.into_inner());
+        // Keep in-flight entries so concurrent requests always share one probe.
+        if cache.len() >= 128 {
+            cache.retain(|_, entry| Arc::strong_count(entry) > 1);
+        }
+        cache.entry(identity).or_insert_with(|| Arc::new(Mutex::new(None))).clone()
+    };
+    let mut cached = entry.lock().unwrap_or_else(|error| error.into_inner());
+    if let Some((checked_at, version)) = cached.as_ref() {
+        if checked_at.elapsed() < VERSION_CACHE_TTL { return version.clone(); }
+    }
+    let version = read();
+    *cached = Some((Instant::now(), version.clone()));
+    version
+}
+
 /// Inspect only the resolved official launcher. Custom CLI commands are never
 /// executed automatically; a missing version is distinct from not installed.
 pub fn runtime_version(agent_id: &str) -> Result<Option<String>, String> {
     let launch = info(agent_id)?;
     if !launch.available { return Ok(None); }
     Ok(match launch.resolved_target.as_ref() {
-        Some(LaunchTarget::App { path, .. }) => app_version(path),
-        Some(LaunchTarget::Cli { command, .. }) if launch.configured_target.is_none() => cli_version(command),
+        Some(LaunchTarget::App { path, .. }) => cached_version(&Path::new(path).join("Contents/Info.plist"), || app_version(path)),
+        Some(LaunchTarget::Cli { command, .. }) if launch.configured_target.is_none() => cached_version(Path::new(command), || cli_version(command)),
         _ => None,
     })
 }
@@ -343,6 +409,42 @@ pub fn launch(agent_id: &str, directory: Option<String>) -> Result<LaunchReceipt
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn version_cache_shares_probes_and_invalidates_changed_files() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let home = crate::testenv::TestHome::new("version-cache");
+        let path = home.home.join("version-fixture");
+        fs::write(&path, "first").unwrap();
+        let count = Arc::new(AtomicUsize::new(0));
+        std::thread::scope(|scope| {
+            for _ in 0..8 {
+                let count = count.clone();
+                let path = &path;
+                scope.spawn(move || {
+                    assert_eq!(cached_version(path, || {
+                        count.fetch_add(1, Ordering::SeqCst);
+                        Some("1.0.0".into())
+                    }).as_deref(), Some("1.0.0"));
+                });
+            }
+        });
+        assert_eq!(count.load(Ordering::SeqCst), 1);
+        fs::write(&path, "second version").unwrap();
+        assert_eq!(cached_version(&path, || Some("2.0.0".into())).as_deref(), Some("2.0.0"));
+    }
+
+    #[test]
+    fn plugin_host_does_not_prove_extension_installation() {
+        let home = crate::testenv::TestHome::new("plugin-host-runtime");
+        let app = home.home.join("Applications/Visual Studio Code.app");
+        fs::create_dir_all(app.join("Contents")).unwrap();
+        fs::write(app.join("Contents/Info.plist"), "fixture").unwrap();
+        let launch = info("codex-ide").unwrap();
+        assert!(launch.resolved_target.is_some());
+        assert_eq!(launch.installed, None);
+        assert_eq!(super::super::agents::runtime_detected("codex-ide"), None);
+    }
 
     #[test]
     fn version_discovery_reads_bundle_metadata_and_bounded_cli_output() {

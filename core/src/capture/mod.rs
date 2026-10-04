@@ -9,7 +9,10 @@ use std::sync::{LazyLock, Mutex};
 use std::time::{Duration, Instant};
 use uuid::Uuid;
 
+mod index;
+
 const ADDON: &str = include_str!("addon.py");
+const MAX_RECORD_BYTES: u64 = 20 * 1024 * 1024;
 static ACTIVE: LazyLock<Mutex<Option<Worker>>> = LazyLock::new(|| Mutex::new(None));
 struct Worker { session_id: String, child: Child }
 
@@ -32,6 +35,11 @@ pub struct CaptureState { pub state: String, pub message: String, pub pids: Vec<
 #[derive(Clone, Serialize, Deserialize)]
 pub struct CaptureSnapshot { pub session: CaptureSession, pub status: CaptureState, pub flows: Vec<FlowSummary> }
 #[derive(Clone, Serialize, Deserialize)]
+pub struct CaptureDelta {
+    pub session: CaptureSession, pub status: CaptureState, pub revision: String,
+    pub reset: bool, pub upserts: Vec<FlowSummary>, pub removed: Vec<String>,
+}
+#[derive(Clone, Serialize, Deserialize, PartialEq)]
 pub struct FlowSummary {
     pub id: String, pub method: String, pub url: String, pub status: Option<u16>,
     pub started_at: f64, pub duration_ms: Option<u64>, pub error: Option<String>,
@@ -73,9 +81,19 @@ fn private_write(path: &Path, content: &[u8]) -> Result<(), String> {
 }
 fn read_json<T: for<'a> Deserialize<'a>>(path: &Path) -> Result<T, String> {
     reject_symlink(path)?;
-    let mut file = fs::File::open(path).map_err(|_| "抓包记录不存在。".to_owned())?;
-    if file.metadata().map_err(|_| "无法读取抓包记录。".to_owned())?.len() > 20 * 1024 * 1024 { return Err("抓包记录超过读取上限。".into()); }
-    let mut bytes = Vec::new(); file.read_to_end(&mut bytes).map_err(|_| "无法读取抓包记录。".to_owned())?;
+    let mut options = OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)] {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags((rustix::fs::OFlags::NOFOLLOW | rustix::fs::OFlags::NONBLOCK).bits() as i32);
+    }
+    let file = options.open(path).map_err(|_| "抓包记录不存在或无法安全读取。".to_owned())?;
+    let metadata = file.metadata().map_err(|_| "无法读取抓包记录。".to_owned())?;
+    if !metadata.is_file() { return Err("抓包记录必须是普通文件。".into()); }
+    if metadata.len() > MAX_RECORD_BYTES { return Err("抓包记录超过读取上限。".into()); }
+    let mut bytes = Vec::new();
+    file.take(MAX_RECORD_BYTES + 1).read_to_end(&mut bytes).map_err(|_| "无法读取抓包记录。".to_owned())?;
+    if bytes.len() as u64 > MAX_RECORD_BYTES { return Err("抓包记录超过读取上限。".into()); }
     serde_json::from_slice(&bytes).map_err(|_| "抓包记录尚未写完或已经损坏。".into())
 }
 fn tool() -> Option<PathBuf> {
@@ -192,19 +210,52 @@ pub fn sessions() -> Result<Vec<CaptureSession>, String> {
     result.sort_by(|a: &CaptureSession, b| b.started_at.cmp(&a.started_at));
     Ok(result)
 }
-pub fn snapshot(id: &str) -> Result<CaptureSnapshot, String> {
+fn session_status(id: &str) -> Result<(PathBuf, CaptureSession, CaptureState), String> {
     let directory = session_dir(id)?;
     let session: CaptureSession = read_json(&directory.join("session.json"))?;
-    let mut status: CaptureState = read_json(&directory.join("status.json")).unwrap_or(CaptureState { state: "starting".into(), message: "正在启动抓包引擎…".into(), pids: session.pids.clone(), flow_count: 0 });
+    if session.id != id { return Err("抓包会话记录与目录不一致。".into()); }
+    let mut status: CaptureState = read_json(&directory.join("status.json")).unwrap_or(CaptureState {
+        state: "starting".into(), message: "正在启动抓包引擎…".into(), pids: session.pids.clone(), flow_count: 0,
+    });
     let mut active = ACTIVE.lock().map_err(|_| "抓包会话锁失败。".to_owned())?;
-    let live = if let Some(worker) = active.as_mut().filter(|w| w.session_id == id) { worker.child.try_wait().map_err(|_| "无法查询抓包进程。".to_owned())?.is_none() } else { false };
-    if !live && matches!(status.state.as_str(), "running" | "starting") { if status.state == "starting" { status.state = "failed".into(); status.message = "抓包引擎启动失败，请检查 mitmproxy 版本与网络扩展。".into(); } else { status.state = "stopped".into(); status.message = "抓包进程已结束；记录仍可查看。".into(); } }
-    let mut flows = vec![];
-    reject_symlink(&directory.join("summaries"))?;
-    for file in fs::read_dir(directory.join("summaries")).map_err(|_| "无法读取抓包请求。".to_owned())?.take(5000).flatten() { if file.path().extension().is_some_and(|e| e == "json") { if let Ok(flow) = read_json::<FlowSummary>(&file.path()) { flows.push(flow); } } }
-    flows.sort_by(|a, b| b.started_at.total_cmp(&a.started_at));
+    // Desktop liveness is local to this MUX instance. A stale persisted
+    // running state after a crash must not leave its Capture UI stuck active.
+    // Cross-process CLI readers use sessions/summaries/detail instead.
+    let live = if let Some(worker) = active.as_mut().filter(|worker| worker.session_id == id) {
+        worker.child.try_wait().map_err(|_| "无法查询抓包进程。".to_owned())?.is_none()
+    } else { false };
+    if !live && matches!(status.state.as_str(), "running" | "starting") {
+        if status.state == "starting" {
+            status.state = "failed".into(); status.message = "抓包引擎启动失败，请检查 mitmproxy 版本与网络扩展。".into();
+        } else {
+            status.state = "stopped".into(); status.message = "抓包进程已结束；记录仍可查看。".into();
+        }
+    }
+    Ok((directory, session, status))
+}
+
+/// Read historical summaries without inspecting or changing capture workers.
+pub fn summaries(id: &str) -> Result<Vec<FlowSummary>, String> {
+    let directory = session_dir(id)?;
+    let session: CaptureSession = read_json(&directory.join("session.json"))?;
+    if session.id != id { return Err("抓包会话记录与目录不一致。".into()); }
+    Ok(index::query(&directory, None)?.upserts)
+}
+
+/// Desktop view: worker liveness is relative to the current MUX instance.
+pub fn snapshot(id: &str) -> Result<CaptureSnapshot, String> {
+    let (directory, session, mut status) = session_status(id)?;
+    let flows = index::query(&directory, None)?.upserts;
     status.flow_count = flows.len();
     Ok(CaptureSnapshot { session, status, flows })
+}
+
+pub fn delta(id: &str, revision: Option<&str>) -> Result<CaptureDelta, String> {
+    let (directory, session, mut status) = session_status(id)?;
+    let changes = index::query(&directory, revision)?;
+    status.flow_count = changes.count;
+    Ok(CaptureDelta { session, status, revision: changes.revision, reset: changes.reset,
+        upserts: changes.upserts, removed: changes.removed })
 }
 pub fn detail(session_id: &str, flow_id: &str) -> Result<CapturedFlow, String> {
     Uuid::parse_str(flow_id).map_err(|_| "请求 ID 无效。".to_owned())?;
@@ -222,7 +273,8 @@ pub fn stop(id: &str) -> Result<CaptureSnapshot, String> {
         }
         active.take();
     }
-    drop(active); snapshot(id)
+    drop(active);
+    snapshot(id)
 }
 pub fn shutdown() { let id = ACTIVE.lock().ok().and_then(|a| a.as_ref().map(|w| w.session_id.clone())); if let Some(id) = id { let _ = stop(&id); } }
 pub fn export(session_id: &str, flow_id: Option<&str>, destination: &Path) -> Result<(), String> {

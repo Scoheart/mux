@@ -1,4 +1,5 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { StrictMode } from "react";
 import userEvent from "@testing-library/user-event";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
@@ -280,7 +281,7 @@ describe("SkillInstallDialog central asset intake", () => {
     expect(cancel).not.toHaveBeenCalled();
   });
 
-  it("downloads high-risk content directly with the plan-bound findings hash", async () => {
+  it("requires explicit risk review before committing the original installation plan", async () => {
     const user = userEvent.setup();
     const planned = highRiskPlan("high-risk");
     const plan = vi.fn().mockResolvedValue(planned);
@@ -290,8 +291,41 @@ describe("SkillInstallDialog central asset intake", () => {
 
     await user.click(screen.getByRole("button", { name: "下载 Skill" }));
 
-    await waitFor(() => expect(commit).toHaveBeenCalledWith(planned, "high-risk"));
-    expect(screen.queryByRole("dialog", { name: "确认 Skill 更改" })).not.toBeInTheDocument();
+    expect(await screen.findByRole("dialog", { name: "确认 Skill 更改" })).toBeVisible();
+    expect(commit).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "仍然安装" })).toBeDisabled();
+    await user.click(screen.getByRole("checkbox", { name: "我已了解高风险内容及其影响" }));
+    await user.click(screen.getByRole("button", { name: "仍然安装" }));
+    await waitFor(() => expect(commit).toHaveBeenLastCalledWith(planned, "high-risk"));
+    expect(commit).toHaveBeenCalledOnce();
+    expect(plan).toHaveBeenCalledOnce();
+  });
+
+  it("cleans up a reviewed installation when the review is cancelled", async () => {
+    const planned = highRiskPlan("cancel-risk");
+    const commit = vi.fn();
+    const cancel = vi.fn().mockResolvedValue(undefined);
+    const { props } = renderInstall({ plan: vi.fn().mockResolvedValue(planned), commit, cancel });
+    const user = userEvent.setup();
+    await resolveGithub(user);
+    await user.click(screen.getByRole("button", { name: "下载 Skill" }));
+    await screen.findByRole("dialog", { name: "确认 Skill 更改" });
+    await user.click(screen.getByRole("button", { name: "取消" }));
+    await waitFor(() => expect(cancel).toHaveBeenCalledWith(planned.operation_id));
+    expect(props.onClose).toHaveBeenCalledOnce();
+    expect(commit).not.toHaveBeenCalled();
+  });
+
+  it("accepts a source resolution after StrictMode replays mount effects", async () => {
+    const state = skillsStateFixture();
+    const cancel = vi.fn().mockResolvedValue(undefined);
+    render(<StrictMode><ToastProvider><SkillInstallDialog
+      plan={state.plan} commit={state.commit} cancel={cancel}
+      onClose={vi.fn()} onCommitted={vi.fn()} onRecoveryRequired={vi.fn()}
+    /></ToastProvider></StrictMode>);
+    await resolveGithub(userEvent.setup());
+    expect(screen.getByRole("checkbox", { name: "review-changes" })).toBeChecked();
+    expect(cancel).not.toHaveBeenCalled();
   });
 });
 
@@ -348,6 +382,23 @@ describe("Skills central lifecycle orchestration", () => {
     renderWorkspace(inventory);
     const inspector = await openInspector(inventory.items[0]);
     expect(within(inspector).queryByRole("switch")).not.toBeInTheDocument();
+  });
+
+  it("routes a high-risk external import into review without auto-confirming findings", async () => {
+    const inventory = skillsInventoryFixture();
+    const external: SkillInventoryItem = { ...inventory.items[1], name: "risk-copy", identity: "target:agents-user:risk-copy",
+      states: ["external"], source: null,
+      location: { kind: "agent_target", target_id: "agents-user", global_dir: "~/.agents/skills" } };
+    inventory.items = [external];
+    const planned = { ...highRiskPlan("import-risk"), kind: "import" as const };
+    const plan = vi.fn().mockResolvedValue(planned);
+    const commit = vi.fn();
+    renderWorkspace(inventory, { plan, commit });
+    const inspector = await openInspector(external);
+    await userEvent.click(within(inspector).getByRole("button", { name: "导入" }));
+    expect(await screen.findByRole("dialog", { name: "确认 Skill 更改" })).toBeVisible();
+    expect(commit).not.toHaveBeenCalled();
+    expect(plan).toHaveBeenCalledWith({ operation: "import_skill", request: { identity: external.identity, replace_conflicts: false } });
   });
 });
 

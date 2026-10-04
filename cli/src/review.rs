@@ -204,7 +204,7 @@ fn blocked_error(plan: &OperationPlan) -> Option<CliError> {
     }
 }
 
-fn cancel(plan: &OperationPlan) -> Result<(), CliError> {
+pub(crate) fn cancel(plan: &OperationPlan) -> Result<(), CliError> {
     MuxCore::cancel(cancel_request(plan)).map_err(CliError::from_core)
 }
 
@@ -219,7 +219,7 @@ fn cancel_request(plan: &OperationPlan) -> CancelOperationRequest {
     }
 }
 
-fn cancel_preserving(plan: &OperationPlan, mut error: CliError) -> CliError {
+pub(crate) fn cancel_preserving(plan: &OperationPlan, mut error: CliError) -> CliError {
     if let Err(cleanup_error) = cancel(plan) {
         error.details.insert(
             "cleanup_error".into(),
@@ -267,7 +267,7 @@ fn commit(plan: OperationPlan, accept_risk: bool) -> Result<OperationCommitResul
     .map_err(CliError::from_core)
 }
 
-fn commit_output(result: OperationCommitResult, operation_id: &str) -> Result<Value, CliError> {
+pub(crate) fn commit_output(result: OperationCommitResult, operation_id: &str) -> Result<Value, CliError> {
     match result {
         OperationCommitResult::Asset {
             inventory,
@@ -288,7 +288,7 @@ fn commit_output(result: OperationCommitResult, operation_id: &str) -> Result<Va
     }
 }
 
-fn plan_summary(plan: &OperationPlan) -> Value {
+pub(crate) fn plan_summary(plan: &OperationPlan) -> Value {
     match plan {
         OperationPlan::Asset { plan } => json!({
             "operation_id": plan.operation_id,

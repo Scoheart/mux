@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { open } from "@tauri-apps/plugin-dialog";
 import type { AgentLaunchInfo, LaunchTarget } from "../lib/agentLaunch";
 import { formatError } from "../lib/format";
@@ -62,13 +63,15 @@ export function AgentLaunchFields({ info, draft, disabled, onChange, onBusyChang
   info: AgentLaunchInfo; draft: AgentLaunchDraft; disabled: boolean;
   onChange(draft: AgentLaunchDraft): void; onBusyChange(busy: boolean): void; onError(message: string): void;
 }) {
+  const { t } = useTranslation();
+  const validation = draft.resetDefault ? null : parseLaunchEnvironment(draft.environment);
   const change = (patch: Partial<AgentLaunchDraft>) => onChange({ ...draft, resetDefault: false, ...patch });
   const browse = async () => {
     if (disabled) return;
     onBusyChange(true); onError("");
     try {
-      const value = await open({ title: draft.kind === "app" ? "选择 Agent 应用" : "选择可执行程序", multiple: false, directory: false,
-        ...(draft.kind === "app" ? { defaultPath: "/Applications", filters: [{ name: "应用程序", extensions: ["app"] }] } : {}) });
+      const value = await open({ title: draft.kind === "app" ? t("agentConfiguration.selectApp") : t("agentConfiguration.selectExecutable"), multiple: false, directory: false,
+        ...(draft.kind === "app" ? { defaultPath: "/Applications", filters: [{ name: t("agentConfiguration.applications"), extensions: ["app"] }] } : {}) });
       if (value) change(draft.kind === "app" ? { app: value } : { command: value });
     } catch (error) { onError(formatError(error)); }
     finally { onBusyChange(false); }
@@ -77,41 +80,41 @@ export function AgentLaunchFields({ info, draft, disabled, onChange, onBusyChang
     if (disabled) return;
     onBusyChange(true); onError("");
     try {
-      const value = await open({ title: "默认工作目录", directory: true, multiple: false,
+      const value = await open({ title: t("agentConfiguration.defaultDirectory"), directory: true, multiple: false,
         ...(draft.directory || info.directory ? { defaultPath: draft.directory || info.directory! } : {}) });
       if (value) change({ directory: value });
     } catch (error) { onError(formatError(error)); }
     finally { onBusyChange(false); }
   };
-  const appLabel = info.category === "plugin" ? "宿主应用" : info.category === "ide" ? "IDE" : "应用";
+  const appLabel = info.category === "plugin" ? t("agentConfiguration.hostApp") : info.category === "ide" ? "IDE" : t("agentConfiguration.app");
   return <fieldset className="mux-launch-settings mux-launch-fields" disabled={disabled}>
     <div className="mux-launch-field-modes">
       {(info.configured_target || agentLaunchDraftChanged(info, draft)) && <button type="button" className="mux-launch-reset"
-        onClick={() => onChange({ ...createAgentLaunchDraft(info), resetDefault: true, directory: "" })}>恢复默认</button>}
+        onClick={() => onChange({ ...createAgentLaunchDraft(info), resetDefault: true, directory: "" })}>{t("agentConfiguration.restoreDefault")}</button>}
     </div>
-    {draft.resetDefault ? <p className="mux-launch-hint">保存后使用 Agent 默认启动方式</p> : <>
-      <label>{draft.kind === "app" ? appLabel : "可执行程序"}<div className="mux-launch-path-input">
-          <input className="mux-dialog-input" value={draft.kind === "app" ? draft.app : draft.command} placeholder={draft.kind === "app" ? "选择 .app 应用" : "命令名称或程序路径"}
+    {draft.resetDefault ? <p className="mux-launch-hint">{t("agentConfiguration.defaultAfterSave")}</p> : <>
+      <label>{draft.kind === "app" ? appLabel : t("agentConfiguration.executable")}<div className="mux-launch-path-input">
+          <input className="mux-dialog-input" value={draft.kind === "app" ? draft.app : draft.command} placeholder={draft.kind === "app" ? t("agentConfiguration.appPlaceholder") : t("agentConfiguration.commandPlaceholder")}
             onChange={(event) => change(draft.kind === "app" ? { app: event.target.value } : { command: event.target.value })} />
-          <button type="button" className="btn-secondary" title="选择文件" aria-label="选择文件" onClick={() => void browse()}><FolderIcon className="w-4 h-4" /></button>
+          <button type="button" className="btn-secondary" title={t("agentConfiguration.selectFile")} aria-label={t("agentConfiguration.selectFile")} onClick={() => void browse()}><FolderIcon className="w-4 h-4" /></button>
         </div></label>
-      {draft.kind === "cli" && <label>默认工作目录<div className="mux-launch-path-input">
-        <input className="mux-dialog-input" value={draft.directory} placeholder="留空沿用上次目录" onChange={(event) => change({ directory: event.target.value })} />
-        <button type="button" className="btn-secondary" aria-label="选择默认工作目录" title="选择文件夹" onClick={() => void browseDirectory()}><FolderIcon className="w-4 h-4" /></button>
+      {draft.kind === "cli" && <label>{t("agentConfiguration.defaultDirectory")}<div className="mux-launch-path-input">
+        <input className="mux-dialog-input" value={draft.directory} placeholder={t("agentConfiguration.lastDirectory")} onChange={(event) => change({ directory: event.target.value })} />
+        <button type="button" className="btn-secondary" aria-label={t("agentConfiguration.selectDefaultDirectory")} title={t("agentConfiguration.selectFolder")} onClick={() => void browseDirectory()}><FolderIcon className="w-4 h-4" /></button>
       </div></label>}
-      <label><span className="mux-launch-label-line">启动参数 <span className="mux-launch-hint">每行一个参数</span></span>
+      <label><span className="mux-launch-label-line">{t("agentConfiguration.arguments")}<span className="mux-launch-hint">{t("agentConfiguration.onePerLine")}</span></span>
         <textarea className="mux-dialog-input mux-launch-arguments" rows={2} value={draft.kind === "app" ? draft.appArgs : draft.args}
           onChange={(event) => change(draft.kind === "app" ? { appArgs: event.target.value } : { args: event.target.value })} />
       </label>
-      <label><span className="mux-launch-label-line">环境变量 <span className="mux-launch-hint">每行 NAME=VALUE，可直接粘贴</span></span>
-        <textarea className="mux-dialog-input mux-launch-arguments mux-launch-environment-block" rows={6} spellCheck={false} aria-label="环境变量"
+      <label><span className="mux-launch-label-line">{t("agentConfiguration.environment")}<span className="mux-launch-hint">{t("agentConfiguration.environmentHint")}</span></span>
+        <textarea className="mux-dialog-input mux-launch-arguments mux-launch-environment-block" rows={6} spellCheck={false} aria-label={t("agentConfiguration.environment")}
           placeholder={"HTTP_PROXY=http://127.0.0.1:6789\nNO_PROXY=localhost,127.0.0.1"} value={draft.environment}
           onChange={(event) => change({ environment: event.target.value })} />
-        {environmentError(draft) && <p className="mux-launch-error" role="alert">{environmentError(draft)}</p>}
+        {validation?.errorCode && <p className="mux-launch-error" role="alert">{t(`agentConfiguration.environmentErrors.${validation.errorCode}`, { line: validation.line })}</p>}
       </label>
       {draft.kind === "app" && <div className="mux-launch-instance-option">
-        <div><span>新实例启动</span><p className="mux-launch-hint">另开进程接收参数，需应用支持。</p></div>
-        <Switch ariaLabel="新实例启动" checked={draft.newInstance} disabled={disabled} onChange={(value) => change({ newInstance: value })} />
+        <div><span>{t("agentConfiguration.newInstance")}</span><p className="mux-launch-hint">{t("agentConfiguration.newInstanceHint")}</p></div>
+        <Switch ariaLabel={t("agentConfiguration.newInstance")} checked={draft.newInstance} disabled={disabled} onChange={(value) => change({ newInstance: value })} />
       </div>}
     </>}
   </fieldset>;

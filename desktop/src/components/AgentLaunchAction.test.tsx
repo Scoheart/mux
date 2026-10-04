@@ -16,7 +16,7 @@ it("shows installed status immediately and adds the version when the separate pr
   let completeVersion!: (version: string | null) => void;
   vi.mocked(getAgentLaunchInfo).mockResolvedValue({
     agent_id: "pi", name: "Pi Coding Agent", category: "cli", kind: "cli",
-    available: true, supported: true, host_name: null, install_url: null,
+    available: true, installed: true, supported: true, host_name: null, install_url: null,
     directory: null, directory_exists: false, configured_target: null,
     resolved_target: { kind: "cli", command: "/usr/local/bin/pi", args: [] },
   });
@@ -31,4 +31,21 @@ it("shows installed status immediately and adds the version when the separate pr
   await act(async () => completeVersion("0.99.0"));
   expect(await screen.findByRole("status", { name: "Pi Coding Agent 已安装，版本 0.99.0" })).toHaveTextContent("v0.99.0");
   expect(screen.getByRole("status")).toHaveAttribute("title", expect.stringContaining("/usr/local/bin/pi"));
+  vi.mocked(getAgentRuntimeVersion).mockReturnValue(new Promise(() => {}));
+  await act(async () => { window.dispatchEvent(new Event("focus")); });
+  expect(screen.getByRole("status")).toHaveTextContent("v0.99.0");
+});
+
+it("does not start a version probe for an Agent context menu", async () => {
+  vi.mocked(getAgentLaunchInfo).mockResolvedValue({
+    agent_id: "pi", name: "Pi Coding Agent", category: "cli", kind: "cli",
+    available: true, installed: true, supported: true, host_name: null, install_url: null,
+    directory: null, directory_exists: false, configured_target: null,
+    resolved_target: { kind: "cli", command: "/usr/local/bin/pi", args: [] },
+  });
+  render(<AgentLauncherContext.Provider value={{
+    busyId: null, revision: 0, launch: vi.fn(), configure: vi.fn(), refresh: vi.fn(),
+  }}><AgentLaunchAction agentId="pi" contextMenu /></AgentLauncherContext.Provider>);
+  await waitFor(() => expect(screen.getByRole("menuitem", { name: "打开 Agent" })).toBeEnabled());
+  expect(getAgentRuntimeVersion).not.toHaveBeenCalled();
 });

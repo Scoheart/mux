@@ -25,6 +25,10 @@ mux settings {show,terminal,locale,pins}
 mux mcp icon {list,set,import,reset}
 mux network proxy {show,set,clear}
 mux discover [mcp|model|skill]
+mux status --agent <id> [--agent <id>] [--capability mcp|model|skill]
+mux operation {apply,review} --file request.json
+mux trace {list,show}
+mux capture {list,show}
 mux workspace
 mux upgrade
 ```
@@ -41,6 +45,54 @@ mux upgrade
 | `converge` | 对一个准确 observation 执行采用外部、恢复 MUX 或解除管理 |
 
 域专属命令表达真实差异：MCP 支持中央条目、来源和完整配置导出；Model 支持 Profile、共享 Provider、凭据交付方式与 current；Skill 支持来源解析、安装、导入、更新、删除和修复。这些命令调用 Desktop 使用的 Core 用例。
+
+## Agent 自动化与诊断
+
+单领域 `status` 在读取前裁剪范围；批量查询可以合并多个 Agent：
+
+```bash
+mux status --agent codex --agent opencode --capability mcp --json
+mux trace list --agent codex --limit 20 --json
+mux trace show SESSION_ID --json
+mux trace show SESSION_ID --event EVENT_ID --revision PAGE_REVISION --json
+mux trace show --file /path/to/session.jsonl --json
+mux capture list --agent codex --json
+mux capture show SESSION_ID --limit 100 --json
+mux capture show SESSION_ID --flow FLOW_ID --json
+```
+
+Trace 按 Core 的分页和脱敏规则读取，后续页使用 `--cursor`；事件详情必须绑定页面返回的 revision。CLI 每次调用重新建立可信会话定位，不接受把任意路径编码成 session ID。Capture 命令只读取已保存记录，不启动抓包，也不根据当前 CLI 进程去猜测桌面抓包会话是否仍在运行。
+
+Trace JSONL 每次读取会重建必要的凭据脱敏上下文。上下文与本次读取合计最多 32 MiB / 100000 条记录；损坏、未写完整或超限时会返回错误，避免在上下文缺失时输出正文。大文件可在 Agent 中导出较小的独立会话再读取。
+
+普通成功 JSON 附带 `backend.status` 和经过脱敏的启动警告阶段。可恢复错误保留合法的 `retry_at` 和 Skill 风险确认 hash，原始 parser 内容、路径及未知 details 仍不输出。Agent 安装状态区分 `runtime_detected`（运行时检测，未知为 null）与 `config_detected`（配置已存在）；插件宿主可启动并不代表插件已安装。
+
+### 审阅并执行同一份计划
+
+`--dry-run` 继续表示一次性预览。需要把计划交给人或另一个 Agent 审阅，再执行原计划时，使用保持进程存活的会话：
+
+```bash
+mux operation review --file request.json --json
+```
+
+`request.json` 使用 Core 的 `PlanOperationRequest`，例如：
+
+```json
+{
+  "operation": "set_mcp_enabled",
+  "request": {
+    "agent_id": "opencode",
+    "asset_key": "github::stdio",
+    "enabled": true
+  }
+}
+```
+
+有变更时，stdout 先输出一行 `phase: "review"` 的 JSON，其中 `data.plan` 是脱敏计划，`data.commit_decision` 是绑定当前 operation ID、candidate hash 和必要 findings hash 的完整确认模板。调用者完成审阅后，将该模板作为一行 JSON 写回同一进程的 stdin；或者写入 `{"action":"cancel"}`。输入 EOF 也会取消。确认内容不匹配、目标发生变化时，操作拒绝执行。
+
+stdout 的中间计划与最终结果均为单行 NDJSON；最终结果带 `phase: "complete"`。发生错误时 stderr 返回一个 JSON 错误文档，并以非零状态退出。`--file -`、`--yes`、`--dry-run`、`--accept-risk` 不适用于此会话：stdin 留给决定，风险确认由返回模板中的精确 findings hash 表达。没有变更时直接返回 complete，不等待决定。
+
+计划和秘密草稿留在原进程中，不为交接而写入明文凭据。退出进程会结束会话；已有 Skills 计划仍受其 24 小时过期规则约束，长时间等待后应重新审阅。若已有执行授权，可使用 `mux operation apply --file request.json --yes --json`，它复用普通命令的确认与风险检查。
 
 ## 外部变更与收敛
 
@@ -66,7 +118,7 @@ mux skill converge review-changes --agent codex detach
 | `restore` | 只把选中的准确关系恢复成 MUX desired state |
 | `detach` | 解除 MUX ownership；漂移或外部内容保留，并重新显示为外部观测 |
 
-每个 convergence 请求都绑定 `status` 返回的 inventory revision。计划生成后 core 会再扫描一次，提交时还会校验 candidate hash 与目标快照；现场变化会返回 `observation_stale`，不会把旧审阅应用到新配置。
+每个 convergence 计划都由 Core 绑定规划时的完整 inventory revision。计划生成后 Core 会再扫描一次，提交时还会校验 candidate hash 与目标快照；现场变化会返回 `observation_stale`。`status` 的范围快照 revision 只标识该范围的读取结果，不能用来替代完整写入计划的 revision。
 
 旧 `reapply`、顶层 `adopt` 和 `migration review/resolve` 命令已删除。明确的 convergence action 就是收敛意图，不再使用第二套漂移确认令牌。
 
@@ -98,6 +150,7 @@ JSON 状态中的 `capability_errors` 表示能力域局部不可用；`recovery
 | Agent | Agent ID | `claude-code`、`codex` |
 
 关系命令必须显式带一个 `--agent <id>`。`assign` / `unassign` 可在一次命令中处理多个准确资产 ID；`enable` / `disable` / `use` / `converge` 一次处理一个。
+同一 Agent 的同名 Skill 若出现在多个受管目录，`skill enable/disable` 还需用 `--target <target_id>` 指明 `status` 中的物理目标，防止开关命中另一份副本；单一目标可省略。
 MCP 的 `unassign --all` 审阅后清空该 Agent 的受管项、停用快照和外部项。Model 也支持 `unassign --all`，按 Core 声明的 storage authority 清空；原生注册表 Agent 包括外部模型。中央资产、Provider 和凭据保留；共享物理配置冲突由 Core 拒绝。
 
 ```bash

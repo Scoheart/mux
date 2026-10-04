@@ -15,6 +15,8 @@ pub fn safe_agent_view(agent: &mux_core::application::agents::AgentCapabilityVie
             "verified_at": agent.identity.verified_at,
         },
         "installed": agent.installed,
+        "runtime_detected": agent.runtime_detected,
+        "config_detected": agent.config_detected,
         "capabilities": {
             "mcp": agent.capabilities.mcp.as_ref().map(|mcp| json!({
                 "writable": mcp.writable,

@@ -6,10 +6,23 @@ import {
   skillsInventoryFixture,
 } from "../test/skillsFixtures";
 import { SkillInspector } from "./SkillInspector";
+import type { SkillInventoryItem } from "../lib/types";
 
 afterEach(cleanup);
 
 describe("SkillInspector", () => {
+  it("repairs the selected target copy without replacing the central copy", async () => {
+    const item: SkillInventoryItem = {
+      ...skillsInventoryFixture().items[0], identity: "target:claude-user:review-changes",
+      location: { kind: "agent_target", target_id: "claude-user", global_dir: "~/.claude/skills" },
+      states: ["broken_link"], content_hash: null,
+    };
+    const onPlan = vi.fn();
+    render(<SkillInspector item={item} detail={null} loading={false} error={null} onClose={vi.fn()} onPlan={onPlan} />);
+    await userEvent.click(screen.getByRole("button", { name: "修复" }));
+    expect(onPlan).toHaveBeenCalledWith({ kind: "repair", skillName: item.name, repair: { kind: "target", target_id: "claude-user" } });
+    expect(screen.queryByRole("button", { name: "移除" })).not.toBeInTheDocument();
+  });
   it("renders provenance, retained risk evidence, and hostile preview text inertly", () => {
     const item = {
       ...skillsInventoryFixture().items[0],

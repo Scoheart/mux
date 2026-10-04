@@ -204,6 +204,7 @@ fn skill_reapply_enforces_a_disabled_desired_relationship_without_deleting_forei
     let target = fixture.target("agents-user", "safe");
     let central = fixture.central("safe");
     let disable = plan_set_skill_enabled(PlanSetSkillEnabledRequest {
+        target_id: None,
         agent_id: "codex".into(),
         name: "safe".into(),
         enabled: false,
@@ -250,6 +251,7 @@ fn repeated_skill_enable_is_a_core_noop_even_when_the_link_is_missing() {
     let fixture = SkillsFixture::missing_managed_link("safe", "agents-user");
     let target = fixture.target("agents-user", "safe");
     let plan = plan_set_skill_enabled(PlanSetSkillEnabledRequest {
+        target_id: None,
         agent_id: "codex".into(),
         name: "safe".into(),
         enabled: true,

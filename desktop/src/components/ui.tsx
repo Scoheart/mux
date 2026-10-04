@@ -281,8 +281,14 @@ function modalElementVisible(element: HTMLElement, dialog: HTMLElement): boolean
   return true;
 }
 
-function modalFocusableElements(dialog: HTMLElement): HTMLElement[] {
-  return Array.from(dialog.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)).filter(
+function modalFocusableElements(dialog: HTMLElement, includeNotifications = true): HTMLElement[] {
+  const elements = Array.from(dialog.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR));
+  if (includeNotifications && topmostModal() === dialog) {
+    document.querySelectorAll<HTMLElement>("[data-toast-viewport]").forEach((viewport) => {
+      elements.push(...viewport.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR));
+    });
+  }
+  return elements.filter(
     (element) => element.tabIndex >= 0 && modalElementVisible(element, dialog),
   );
 }
@@ -393,7 +399,7 @@ export function Modal({
         Array.from(dialog.querySelectorAll<HTMLElement>("[data-modal-initial-focus]"))
           .find((element) => modalElementVisible(element, dialog)) ??
         dialog.querySelector<HTMLElement>("[data-modal-title]") ??
-        modalFocusableElements(dialog)[0] ??
+        modalFocusableElements(dialog, false)[0] ??
         dialog;
       initialTarget.focus({ preventScroll: true });
     });
@@ -417,13 +423,17 @@ export function Modal({
       const shouldWrap = event.shiftKey
         ? activeIndex <= 0
         : activeIndex === -1 || activeIndex === focusable.length - 1;
-      if (!shouldWrap) return;
+      const nextIndex = event.shiftKey ? activeIndex - 1 : activeIndex + 1;
+      const next = shouldWrap
+        ? event.shiftKey ? focusable.at(-1) ?? dialog : focusable[0] ?? dialog
+        : focusable[nextIndex];
+      // Toast portals may precede or follow this modal in document order.
+      // Explicitly bridge that boundary while leaving ordinary Tab native.
+      const crossesPortal = Boolean(active && !dialog.contains(active)) || Boolean(next && !dialog.contains(next));
+      if (!shouldWrap && !crossesPortal) return;
 
       claimLayerKeyboardEvent(event);
       event.preventDefault();
-      const next = event.shiftKey
-        ? focusable.at(-1) ?? dialog
-        : focusable[0] ?? dialog;
       next.focus();
     };
     document.addEventListener("keydown", handleKeyDown);

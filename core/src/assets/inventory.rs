@@ -2,13 +2,13 @@
 
 use super::compatibility::{compatibility_for, McpCompatibilityResolver};
 use super::model_migration::{
-    exact_managed_model_observations, list_model_adoption_candidates, ModelAdoptionStatus,
+    exact_managed_model_observations_scoped, list_model_adoption_candidates_scoped, ModelAdoptionStatus,
 };
 use super::types::{
     AssetCapability, AssetRef, CapabilityDiagnostic, ConsumptionInventory, ConsumptionStatus,
     ConsumptionTarget, ConsumptionView, ConvergenceAction, OwnershipState,
 };
-use crate::resources::mcp::ops::scan_installed;
+use crate::resources::mcp::ops::scan_installed_scoped;
 use crate::resources::model::{
     list_agents as list_model_agents, observe_active_model_for_settings, observe_external_model,
     observe_profile_consumption, ExternalModelObservedState, ModelObservedState,
@@ -22,6 +22,44 @@ use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 
+/// Read scope only: its revision identifies this projection and cannot replace
+/// the full-inventory observed_revision required by convergence write plans.
+/// Empty agent_ids includes every Agent; shared-target affected IDs remain intact.
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct InventoryScope {
+    pub capability: Option<AssetCapability>,
+    #[serde(default)]
+    pub agent_ids: BTreeSet<String>,
+}
+
+impl InventoryScope {
+    fn includes(&self, capability: AssetCapability) -> bool {
+        self.capability.is_none_or(|selected| selected == capability)
+    }
+
+    fn includes_agent(&self, agent_id: &str) -> bool {
+        self.agent_ids.is_empty() || self.agent_ids.contains(agent_id)
+    }
+}
+
+pub fn list_consumption_inventory_scoped(scope: &InventoryScope) -> Result<ConsumptionInventory, String> {
+    if scope == &InventoryScope::default() { return list_consumption_inventory(); }
+    if !scope.includes(AssetCapability::Skill) {
+        return list_consumption_inventory_inner(None, false, scope);
+    }
+    let skills = if scope.agent_ids.is_empty() {
+        list_skills_inventory()
+    } else {
+        let settings = load_settings_strict().map_err(|error| error.to_string())?;
+        crate::resources::skill::list_inventory_for_agents(&settings, &scope.agent_ids)
+    };
+    match skills {
+        Ok(skills) => list_consumption_inventory_inner(Some(&skills), false, scope),
+        Err(_) => list_consumption_inventory_inner(None, true, scope),
+    }
+}
+
 pub fn list_consumption_inventory() -> Result<ConsumptionInventory, String> {
     list_inventory_with_skills().1
 }
@@ -33,7 +71,7 @@ pub(crate) fn list_inventory_with_skills() -> (
     let skills = list_skills_inventory();
     let relationships = match &skills {
         Ok(skills) => list_consumption_inventory_with_skills(skills),
-        Err(_) => list_consumption_inventory_inner(None, true),
+        Err(_) => list_consumption_inventory_inner(None, true, &InventoryScope::default()),
     };
     (skills, relationships)
 }
@@ -44,12 +82,13 @@ pub(crate) fn list_inventory_with_skills() -> (
 pub fn list_consumption_inventory_with_skills(
     skills: &SkillsInventory,
 ) -> Result<ConsumptionInventory, String> {
-    list_consumption_inventory_inner(Some(skills), false)
+    list_consumption_inventory_inner(Some(skills), false, &InventoryScope::default())
 }
 
 fn list_consumption_inventory_inner(
     skills: Option<&SkillsInventory>,
     skills_unavailable: bool,
+    scope: &InventoryScope,
 ) -> Result<ConsumptionInventory, String> {
     let settings = load_settings_strict().map_err(|error| error.to_string())?;
     let mut inventory = ConsumptionInventory {
@@ -58,22 +97,20 @@ fn list_consumption_inventory_inner(
             .as_ref()
             .into_iter()
             .flat_map(|incidents| incidents.values())
+            .filter(|incident| scope.includes(incident.capability)
+                && (scope.agent_ids.is_empty() || incident.affected_agent_ids.iter().any(|id| scope.includes_agent(id))))
             .cloned()
             .collect(),
         ..Default::default()
     };
-    project_capability(
-        &mut inventory,
-        AssetCapability::Mcp,
-        "mcp_observation_unavailable",
-        |projection| project_mcps(&settings, projection),
-    );
-    project_capability(
-        &mut inventory,
-        AssetCapability::Model,
-        "model_observation_unavailable",
-        |projection| project_models(&settings, projection),
-    );
+    if scope.includes(AssetCapability::Mcp) {
+        project_capability(&mut inventory, AssetCapability::Mcp, "mcp_observation_unavailable",
+            |projection| project_mcps(&settings, projection, scope));
+    }
+    if scope.includes(AssetCapability::Model) {
+        project_capability(&mut inventory, AssetCapability::Model, "model_observation_unavailable",
+            |projection| project_models(&settings, projection, scope));
+    }
     if let Some(skills) = skills {
         project_capability(
             &mut inventory,
@@ -93,8 +130,15 @@ fn list_consumption_inventory_inner(
             code: "skill_inventory_unavailable".into(),
         });
     }
+    inventory.consumptions.retain(|row| scope.includes_agent(&row.agent_id));
+    inventory.external.retain(|row| scope.includes_agent(&row.agent_id));
     sort_inventory(&mut inventory);
     finalize_observation(&mut inventory);
+    if scope != &InventoryScope::default() {
+        let scoped = serde_json::to_vec(&("inventory-scope-v1", scope, &inventory.revision))
+            .map_err(|error| error.to_string())?;
+        inventory.revision = hex::encode(Sha256::digest(scoped));
+    }
     Ok(inventory)
 }
 
@@ -127,12 +171,14 @@ fn project_capability(
 fn project_mcps(
     settings: &crate::settings::Settings,
     inventory: &mut ConsumptionInventory,
+    scope: &InventoryScope,
 ) -> Result<(), String> {
-    let observed = scan_installed(None);
+    let observed = scan_installed_scoped(None, &scope.agent_ids);
     let mcp_compatibility = McpCompatibilityResolver::load();
     let mut consumed_observations = BTreeSet::new();
 
     for (agent_id, records) in settings.mcp_consumptions.iter().flatten() {
+        if !scope.includes_agent(agent_id) { continue; }
         for (map_key, record) in records {
             let asset = AssetRef::Mcp {
                 key: record.asset_key.clone(),
@@ -264,10 +310,11 @@ fn project_mcps(
 fn project_models(
     settings: &crate::settings::Settings,
     inventory: &mut ConsumptionInventory,
+    scope: &InventoryScope,
 ) -> Result<(), String> {
-    let model_agents = list_model_agents();
-    let adoption_candidates = list_model_adoption_candidates()?;
-    let exact_managed_observations = exact_managed_model_observations(settings)?;
+    let model_agents = list_model_agents().into_iter().filter(|agent| scope.includes_agent(&agent.id)).collect::<Vec<_>>();
+    let adoption_candidates = list_model_adoption_candidates_scoped(&scope.agent_ids)?;
+    let exact_managed_observations = exact_managed_model_observations_scoped(settings, &scope.agent_ids)?;
     let observation_fingerprints: BTreeMap<_, _> = model_agents
         .iter()
         .map(|agent| {
@@ -289,6 +336,7 @@ fn project_models(
                 .flatten()
                 .map(|(agent_id, _)| agent_id.clone()),
         )
+        .filter(|id| scope.includes_agent(id))
         .collect();
     let mut fallback_assigned_external = Vec::new();
     for agent_id in &assigned_agents {
@@ -723,7 +771,13 @@ fn project_skills(
                     } else {
                         ConsumptionStatus::ExternalChanged
                     },
-                    Some("skill_disabled_state_drift".into()),
+                    if physical.is_some_and(|item| item.states.contains(&InventoryState::Assigned)) {
+                        Some("skill_disabled_state_drift".into())
+                    } else {
+                        // A disabled relation does not turn an independent
+                        // directory or foreign link into a removable MUX link.
+                        physical_reason
+                    },
                 )
             };
             let agents = if target.affected_agent_ids.is_empty() {
@@ -845,6 +899,17 @@ fn finalize_observation(inventory: &mut ConsumptionInventory) {
             continue;
         }
         item.available_actions = match (&item.ownership, &item.status) {
+            (OwnershipState::Managed, ConsumptionStatus::ExternalChanged)
+                if matches!(item.asset, AssetRef::Skill { .. }) => {
+                // Offer only convergence paths the Skill planner can perform.
+                // Replacing an independent external copy belongs to explicit
+                // central import, not adoption of the central baseline.
+                match item.reason.as_deref() {
+                    Some("skill_local_modification") => vec![ConvergenceAction::AdoptObserved, ConvergenceAction::Detach],
+                    Some("skill_disabled_state_drift") => vec![ConvergenceAction::RestoreDesired, ConvergenceAction::Detach],
+                    _ => vec![ConvergenceAction::Detach],
+                }
+            }
             (OwnershipState::External, ConsumptionStatus::ExternalAdded) => {
                 vec![ConvergenceAction::AdoptObserved]
             }
@@ -878,6 +943,31 @@ fn finalize_observation(inventory: &mut ConsumptionInventory) {
 #[cfg(test)]
 mod projection_isolation_tests {
     use super::*;
+
+    #[test]
+    fn mcp_scope_skips_other_agent_inputs_and_has_its_own_revision() {
+        let home = crate::testenv::TestHome::new("inventory-agent-scope");
+        crate::settings::mutate_settings(|settings| {
+            let agents = settings.agents.get_or_insert_default();
+            for id in ["audit-one", "audit-two"] {
+                agents.insert(id.into(), crate::domain::types::AgentDefinition {
+                    global: Some(format!("~/{id}.json")), format: "json".into(), key: "mcpServers".into(),
+                    enabled: true, ..Default::default()
+                });
+            }
+        }).unwrap();
+        fs::write(home.home.join("audit-one.json"), r#"{"mcpServers":{"first":{"command":"one"}}}"#).unwrap();
+        fs::write(home.home.join("audit-two.json"), r#"{"mcpServers":{"second":{"command":"two"}}}"#).unwrap();
+        let scope = InventoryScope { capability: Some(AssetCapability::Mcp), agent_ids: BTreeSet::from(["audit-one".into()]) };
+        let before = list_consumption_inventory_scoped(&scope).unwrap();
+        assert_eq!(before.external.len(), 1);
+        assert_eq!(before.external[0].agent_id, "audit-one");
+        fs::write(home.home.join("audit-two.json"), r#"{"mcpServers":{"changed":{"command":"three"}}}"#).unwrap();
+        let after = list_consumption_inventory_scoped(&scope).unwrap();
+        assert_eq!(before.revision, after.revision);
+        let full = list_consumption_inventory().unwrap();
+        assert_ne!(full.revision, after.revision);
+    }
 
     #[test]
     fn a_failed_capability_discards_its_partial_projection_and_keeps_others() {

@@ -56,6 +56,7 @@ export interface ConsumptionState {
     agentId: string,
     name: string,
     enabled: boolean,
+    targetId?: string,
   ): Promise<ConsumptionInventory>;
   planModelEnabled(
     agentId: string,
@@ -293,9 +294,9 @@ export function useConsumptionState({ autoLoad = true }: { autoLoad?: boolean } 
   );
 
   const setSkillEnabled = useCallback(
-    (agentId: string, name: string, enabled: boolean) => executeImmediately({
+    (agentId: string, name: string, enabled: boolean, targetId?: string) => executeImmediately({
       operation: "set_skill_enabled",
-      request: { agent_id: agentId, name, enabled },
+      request: { agent_id: agentId, name, enabled, ...(targetId ? { target_id: targetId } : {}) },
     }),
     [executeImmediately],
   );

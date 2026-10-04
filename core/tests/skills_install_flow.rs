@@ -157,7 +157,7 @@ fn install_with_no_agents_is_central_only_and_duplicate_selections_are_rejected(
 }
 
 #[test]
-fn replacement_install_removes_prior_managed_links_not_in_the_desired_graph() {
+fn replacement_install_preserves_prior_managed_links_and_consumption() {
     let fixture = SkillsFixture::managed_on_targets("replace-safe", &["cursor-user"]);
     let old_hash = hash_tree(&fixture.central("replace-safe")).unwrap();
     let old_source = load_settings().managed_skills.unwrap()["replace-safe"]
@@ -190,13 +190,7 @@ fn replacement_install_removes_prior_managed_links_not_in_the_desired_graph() {
         wire["skills"][0]["existing_source"],
         serde_json::to_value(&plan.skills[0].existing_source).unwrap()
     );
-    assert_eq!(
-        plan.targets
-            .iter()
-            .map(|target| target.target_id.as_str())
-            .collect::<Vec<_>>(),
-        vec!["cursor-user"]
-    );
+    assert!(plan.targets.is_empty());
     let transient_backup = SkillsPaths::from_env()
         .unwrap()
         .backups_skills_dir()
@@ -207,16 +201,14 @@ fn replacement_install_removes_prior_managed_links_not_in_the_desired_graph() {
     commit_install(plan.confirmation()).unwrap();
     assert!(transient_backup.exists());
     assert_eq!(hash_tree(&transient_backup).unwrap(), old_hash);
-    assert!(fs::symlink_metadata(old_link).is_err());
-    assert!(!load_settings()
-        .skill_assignments
-        .as_ref()
-        .is_some_and(|assignments| assignments.contains_key("replace-safe")));
+    assert_managed_link(old_link, fixture.central("replace-safe"));
+    assert_eq!(load_settings().skill_assignments.unwrap()["replace-safe"],
+        ["cursor-user".into()].into());
     assert!(fixture.central("replace-safe").join("SKILL.md").exists());
 }
 
 #[test]
-fn central_only_reinstall_removes_unrecorded_exact_target_link() {
+fn central_only_reinstall_preserves_unrecorded_exact_target_link() {
     let fixture = SkillsFixture::managed("unrecorded-central");
     let cursor_link = fixture.target("cursor-user", "unrecorded-central");
     fs::create_dir_all(cursor_link.parent().unwrap()).unwrap();
@@ -231,19 +223,13 @@ fn central_only_reinstall_removes_unrecorded_exact_target_link() {
     })
     .unwrap();
 
-    assert_eq!(
-        plan.targets
-            .iter()
-            .map(|target| target.target_id.as_str())
-            .collect::<Vec<_>>(),
-        vec!["cursor-user"]
-    );
+    assert!(plan.targets.is_empty());
     commit_install(plan.confirmation()).unwrap();
-    assert!(fs::symlink_metadata(cursor_link).is_err());
+    assert_managed_link(cursor_link, fixture.central("unrecorded-central"));
 }
 
 #[test]
-fn reinstall_normalizes_unrecorded_exact_link_into_requested_agent_graph() {
+fn reinstall_adds_requested_target_without_removing_unrecorded_links() {
     let fixture = SkillsFixture::managed("unrecorded-normalized");
     let cursor_link = fixture.target("cursor-user", "unrecorded-normalized");
     fs::create_dir_all(cursor_link.parent().unwrap()).unwrap();
@@ -263,14 +249,42 @@ fn reinstall_normalizes_unrecorded_exact_link_into_requested_agent_graph() {
             .iter()
             .map(|target| target.target_id.as_str())
             .collect::<Vec<_>>(),
-        vec!["agents-user", "cursor-user"]
+        vec!["agents-user"]
     );
     commit_install(plan.confirmation()).unwrap();
     assert_managed_link(
         fixture.target("agents-user", "unrecorded-normalized"),
         fixture.central("unrecorded-normalized"),
     );
-    assert!(fs::symlink_metadata(cursor_link).is_err());
+    assert_managed_link(cursor_link, fixture.central("unrecorded-normalized"));
+}
+
+#[test]
+fn central_replacement_preserves_enabled_and_disabled_consumers() {
+    let name = "replace-consumers";
+    let fixture = SkillsFixture::managed_on_targets(name, &["claude-user", "cursor-user"]);
+    let disabled = fixture.target("cursor-user", name);
+    fs::remove_file(&disabled).unwrap();
+    mutate_settings(|settings| {
+        for (target, enabled) in [("claude-user", true), ("cursor-user", false)] {
+            settings.skill_consumptions.get_or_insert_default().entry(name.into()).or_default().insert(
+                target.into(), mux_core::domain::assets::SkillConsumptionRecord {
+                    name: name.into(), target_id: target.into(), enabled,
+                });
+        }
+    }).unwrap();
+    let before = load_settings();
+    let resolution = fixture.resolve_local(&[name]);
+    let plan = mux_core::skills::plan_asset_install(mux_core::skills::PlanSkillAssetInstallRequest {
+        resolution_id: resolution.operation_id, skill_names: vec![name.into()], replace_conflicts: true,
+    }).unwrap();
+    assert!(plan.targets.is_empty());
+    commit_install(plan.confirmation()).unwrap();
+    let after = load_settings();
+    assert_eq!(after.skill_assignments, before.skill_assignments);
+    assert_eq!(after.skill_consumptions, before.skill_consumptions);
+    assert_managed_link(fixture.target("claude-user", name), fixture.central(name));
+    assert!(fs::symlink_metadata(disabled).is_err());
 }
 
 #[test]

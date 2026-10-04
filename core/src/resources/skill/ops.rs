@@ -1,12 +1,12 @@
 use super::files::validate_staging_candidate;
 use super::inventory::{
-    canonical_skill_assignments, declared_targets_for_agents,
+    declared_targets_for_agents,
     normalize_agent_selection_with_required_target, normalize_assignment_enable,
 };
 use super::source::{load_staged_resolution, stage_private_candidate, stage_recorded_skill};
 use super::staging::StagingRoot;
 use super::transaction::{
-    acquire_skills_lock, lexical_absolute, validate_operation_id, write_skill_settings,
+    acquire_skills_lock, lexical_absolute, validate_operation_id,
     SkillsOperationLock,
 };
 use super::{
@@ -268,46 +268,6 @@ pub fn commit_assignment(request: SkillCommitRequest) -> Result<SkillsInventory,
     sanitize_result(commit_plan(request, SkillOperationKind::Assignment))
 }
 
-/// Commit a reviewed assignment as a child of the central Asset transaction.
-///
-/// The caller already owns the Skills lock and has installed an outer
-/// safe-write tracker covering every target. Link publication therefore uses
-/// the outer durable claim/evidence protocol directly; no nested Skills journal
-/// is created and there is no post-return ownership handoff window.
-pub(crate) fn commit_assignment_in_asset_transaction(
-    request: SkillCommitRequest,
-    _skills_lock: &SkillsOperationLock,
-) -> Result<Vec<PathBuf>, SkillError> {
-    validate_operation_id(&request.operation_id)?;
-    let paths = SkillsPaths::resolve_from_env()?;
-    let persisted = load_plan(&paths, &request.operation_id)?;
-    if persisted.plan.operation_id != request.operation_id
-        || persisted.plan.kind != SkillOperationKind::Assignment
-        || request.candidate_hash != persisted.plan.candidate_hash
-    {
-        return Err(stale_error(
-            "the reviewed Skills plan does not match this Asset commit",
-        ));
-    }
-    let rebuilt = rebuild_plan(&persisted).map_err(revalidation_error)?;
-    if rebuilt != persisted {
-        return Err(stale_error("the reviewed Skills plan is stale"));
-    }
-    let spec = transaction_spec(&paths, &rebuilt)?;
-    if !spec.directory_mutations.is_empty() {
-        return Err(invalid_source_error(
-            "an Asset assignment cannot mutate central Skill content",
-        ));
-    }
-    let changed = apply_asset_link_mutations(&spec.link_mutations)?;
-    write_skill_settings(&paths, &spec.settings_before, &spec.settings_after)?;
-    // This staging directory contains only a reviewed plan. The outer Asset
-    // journal is now the sole recovery authority, so a cleanup failure must not
-    // manufacture a second transaction owner.
-    let _ = remove_unjournaled_operation(&paths, &request.operation_id);
-    Ok(changed)
-}
-
 fn apply_asset_link_mutations(mutations: &[LinkMutation]) -> Result<Vec<PathBuf>, SkillError> {
     let mut changed = Vec::new();
     for mutation in mutations {
@@ -337,97 +297,53 @@ fn apply_asset_link_mutations(mutations: &[LinkMutation]) -> Result<Vec<PathBuf>
 /// ordinary files/directories and other links remain untouched and become external after
 /// settings ownership is cleared. The same path handles clean and orphaned
 /// unassigns, so drift cannot turn a reviewable removal into a commit-time trap.
-pub(crate) fn release_assignment_safely(
+pub(crate) fn release_assignment_links_safely(
     skill_name: &str,
-    target_ids: &BTreeSet<String>,
+    reviewed_target: &SkillTargetView,
     skills_lock: &SkillsOperationLock,
 ) -> Result<Vec<PathBuf>, SkillError> {
     ensure_recovery_clear()?;
     let paths = SkillsPaths::resolve_from_env()?;
-    let settings = load_settings_strict().map_err(|_| SkillError::Io {
-        message: "MUX settings could not be read safely".into(),
-        path: None,
-    })?;
     let central = paths.central_skill(skill_name);
-    let canonical = canonical_skill_assignments(&settings)?;
-    let assigned = canonical.get(skill_name).cloned().unwrap_or_default();
-    let removed_target_ids: BTreeSet<String> = assigned.intersection(target_ids).cloned().collect();
-    if removed_target_ids.is_empty() {
+    // Authority was already removed. Reuse the target captured by the outer
+    // reviewed transaction: an uninstalled Agent's final target disappears
+    // from the new inventory immediately after its last assignment is removed.
+    let path = target_path(&paths, reviewed_target, skill_name)?;
+    let metadata = match fs::symlink_metadata(&path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => return Err(io_error(&path, error)),
+    };
+    if !metadata.file_type().is_symlink() {
         return Ok(Vec::new());
     }
-    let inventory = list_inventory()?;
-    let targets = selected_target_views(
-        &inventory,
-        &removed_target_ids.iter().cloned().collect::<Vec<_>>(),
-    )?;
-    let mut link_mutations = Vec::new();
-    for target in &targets {
-        let path = target_path(&paths, target, skill_name)?;
-        let metadata = match fs::symlink_metadata(&path) {
-            Ok(metadata) => metadata,
-            Err(error) if error.kind() == ErrorKind::NotFound => continue,
-            Err(error) => return Err(io_error(&path, error)),
-        };
-        if !metadata.file_type().is_symlink() {
-            continue;
+    let raw_target = fs::read_link(&path).map_err(|error| io_error(&path, error))?;
+    let resolved = match fs::canonicalize(&path) {
+        Ok(resolved) => resolved,
+        Err(error) if error.kind() == ErrorKind::NotFound || is_symlink_loop(&error) => {
+            return Ok(Vec::new());
         }
-        let raw_target = fs::read_link(&path).map_err(|error| io_error(&path, error))?;
-        let resolved = match fs::canonicalize(&path) {
-            Ok(resolved) => resolved,
-            Err(error) if error.kind() == ErrorKind::NotFound || is_symlink_loop(&error) => {
-                continue;
-            }
-            Err(error) => return Err(io_error(&path, error)),
-        };
-        if fs::canonicalize(&central).ok().as_ref() != Some(&resolved) {
-            continue;
-        }
-        let expected = match fs::metadata(&path) {
-            Ok(_) => LinkState::ManagedSymlink { target: raw_target },
-            Err(error) if error.kind() == ErrorKind::NotFound || is_symlink_loop(&error) => {
-                LinkState::BrokenSymlink { target: raw_target }
-            }
-            Err(error) => return Err(io_error(&path, error)),
-        };
-        link_mutations.push(LinkMutation {
-            path,
-            expected,
-            desired_target: None,
-            backup: None,
-        });
-    }
-
-    let settings_before = snapshot_from_settings(&settings);
-    let mut settings_after = settings_before.clone();
-    let remaining: BTreeSet<String> = assigned.difference(&removed_target_ids).cloned().collect();
-    let assignments = settings_after.skill_assignments.get_or_insert_default();
-    if remaining.is_empty() {
-        assignments.remove(skill_name);
-    } else {
-        assignments.insert(skill_name.to_string(), remaining);
-    }
-    if assignments.is_empty() {
-        settings_after.skill_assignments = None;
-    }
-    reconcile_skill_consumptions(&mut settings_after);
-
-    let removed_paths: Vec<PathBuf> = link_mutations
-        .iter()
-        .map(|mutation| mutation.path.clone())
-        .collect();
-    let spec = TransactionSpec {
-        operation_id: Uuid::new_v4().hyphenated().to_string(),
-        order: TransactionOrder::LinksThenContent,
-        directory_mutations: Vec::new(),
-        link_mutations,
-        settings_before,
-        settings_after,
+        Err(error) => return Err(io_error(&path, error)),
     };
+    if fs::canonicalize(&central).ok().as_ref() != Some(&resolved) {
+        return Ok(Vec::new());
+    }
+    let expected = match fs::metadata(&path) {
+        Ok(_) => LinkState::ManagedSymlink { target: raw_target },
+        Err(error) if error.kind() == ErrorKind::NotFound || is_symlink_loop(&error) => {
+            LinkState::BrokenSymlink { target: raw_target }
+        }
+        Err(error) => return Err(io_error(&path, error)),
+    };
+    let link_mutations = [LinkMutation {
+        path,
+        expected,
+        desired_target: None,
+        backup: None,
+    }];
+
     let _ = skills_lock;
-    let changed = apply_asset_link_mutations(&spec.link_mutations)?;
-    write_skill_settings(&paths, &spec.settings_before, &spec.settings_after)?;
-    debug_assert!(changed.iter().all(|path| removed_paths.contains(path)));
-    Ok(changed)
+    apply_asset_link_mutations(&link_mutations)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -737,15 +653,6 @@ fn cancel_operation_inner(operation_id: &str) -> Result<(), SkillError> {
     cancel_operation_under_lock(&paths, operation_id)
 }
 
-pub(crate) fn cancel_operation_in_asset_transaction(
-    operation_id: &str,
-    _skills_lock: &SkillsOperationLock,
-) -> Result<(), SkillError> {
-    validate_operation_id(operation_id)?;
-    let paths = SkillsPaths::resolve_from_env()?;
-    cancel_operation_under_lock(&paths, operation_id)
-}
-
 fn cancel_operation_under_lock(paths: &SkillsPaths, operation_id: &str) -> Result<(), SkillError> {
     let journal = paths
         .journals_skills_dir()
@@ -790,13 +697,11 @@ fn build_install_plan(
     let desired_target_ids = normalize_agent_selection(&request.agent_ids)?
         .into_iter()
         .collect::<BTreeSet<_>>();
-    let mut touched_target_ids = desired_target_ids.clone();
-    for name in &selected_names {
-        touched_target_ids.extend(known_assigned_target_ids(&settings, &inventory, name));
-    }
-    let target_views = selected_target_views(
+    // Central replacement changes content, not existing consumption. Only
+    // explicitly requested new targets belong to this intake's write set.
+    let mut target_views = selected_target_views(
         &inventory,
-        &touched_target_ids.into_iter().collect::<Vec<_>>(),
+        &desired_target_ids.iter().cloned().collect::<Vec<_>>(),
     )?;
     let mut expected_central = Vec::new();
     let mut expected_links = Vec::new();
@@ -820,14 +725,13 @@ fn build_install_plan(
             content_hash: central_hash.clone(),
         });
         for target in &target_views {
+            if target_consumption_is_disabled(&settings, &name, &target.target_id) {
+                continue;
+            }
             let state = inspect_link(&target_path(&paths, target, &name)?, &central, &paths)?;
-            let desired_managed = desired_target_ids.contains(&target.target_id);
-            if desired_managed && is_link_conflict(&state) {
+            let desired_managed = true;
+            if is_link_conflict(&state) {
                 return conflict("an Agent Skill target conflicts with this install");
-            } else if !desired_managed && !is_safe_absent_transition(&state) {
-                return conflict(
-                    "a prior Agent Skill assignment is no longer an exact managed link",
-                );
             }
             expected_links.push(ExpectedLink {
                 skill_name: name.clone(),
@@ -857,6 +761,7 @@ fn build_install_plan(
         });
     }
 
+    target_views.retain(|target| expected_links.iter().any(|link| link.target_id == target.target_id));
     let targets = planned_targets(&target_views, &expected_links);
     let warnings = plan_warnings(&targets, &request.agent_ids);
     let plan = new_plan(
@@ -955,15 +860,9 @@ fn build_import_plan(
         normalize_agent_selection_with_required_target(&request.agent_ids, &source_target_id)?
             .into_iter()
             .collect::<BTreeSet<_>>();
-    let mut touched_target_ids = desired_target_ids.clone();
-    touched_target_ids.extend(known_assigned_target_ids(
-        &settings,
+    let mut target_views = selected_target_views(
         &inventory,
-        &source_name,
-    ));
-    let target_views = selected_target_views(
-        &inventory,
-        &touched_target_ids.into_iter().collect::<Vec<_>>(),
+        &desired_target_ids.iter().cloned().collect::<Vec<_>>(),
     )?;
     let central = paths.central_skill(&source_name);
     let central_hash = inspect_central(&central)?;
@@ -972,13 +871,15 @@ fn build_import_plan(
     }
     let mut expected_links = Vec::new();
     for target in &target_views {
+        let is_source = target.target_id == source_target_id;
+        let disabled = target_consumption_is_disabled(&settings, &source_name, &target.target_id);
+        if disabled && !is_source { continue; }
         let state = inspect_link(
             &target_path(&paths, target, &source_name)?,
             &central,
             &paths,
         )?;
-        let is_source = target.target_id == source_target_id;
-        let desired_managed = desired_target_ids.contains(&target.target_id);
+        let desired_managed = !disabled;
         if is_source && !matches!(state, LinkState::Directory { .. }) {
             return stale("the selected external Skill changed type after review");
         }
@@ -990,10 +891,6 @@ fn build_import_plan(
             if !identical_external {
                 return conflict_result("an Agent Skill target conflicts with this import");
             }
-        } else if !desired_managed && !is_safe_absent_transition(&state) {
-            return conflict_result(
-                "a prior Agent Skill assignment is no longer an exact managed link",
-            );
         }
         expected_links.push(ExpectedLink {
             skill_name: source_name.clone(),
@@ -1024,6 +921,7 @@ fn build_import_plan(
         replace_existing: central_hash.is_some(),
         content_hash: validated.content_hash,
     };
+    target_views.retain(|target| expected_links.iter().any(|link| link.target_id == target.target_id));
     let targets = planned_targets(&target_views, &expected_links);
     let warnings = plan_warnings(&targets, &request.agent_ids);
     let plan = new_plan(
@@ -1191,7 +1089,8 @@ fn build_update_plan(
             "the managed Skill has local changes that require explicit replacement",
         );
     }
-    if validated.content_hash == central_hash {
+    let content_unchanged = validated.content_hash == central_hash;
+    if content_unchanged && !matches!(record.source, SkillSource::Github { .. }) {
         return conflict_result("the staged Skill content is already installed");
     }
     let risk = audit_skill(candidate.path())?;
@@ -1204,7 +1103,7 @@ fn build_update_plan(
         files,
         risk,
         existing_states: existing_states(&inventory, &request.skill_name),
-        replace_existing: true,
+        replace_existing: !content_unchanged,
         content_hash: validated.content_hash,
     };
     let plan = new_plan(
@@ -1213,7 +1112,7 @@ fn build_update_plan(
         vec![skill],
         Vec::new(),
         settings_hash(&settings)?,
-        Vec::new(),
+        if content_unchanged { vec!["Source revision changed; Skill content is unchanged. Only the revision record will be updated.".into()] } else { Vec::new() },
     )?;
     finalize_plan(PersistedPlan {
         schema_version: PLAN_SCHEMA_VERSION,
@@ -1276,11 +1175,11 @@ fn build_remove_plan(
             Err(SkillError::Conflict { .. }) => continue,
             Err(error) => return Err(error),
         };
-        let exact = matches!(&state, LinkState::ManagedSymlink { .. })
-            || matches!(
-                &state,
-                LinkState::BrokenSymlink { target } if target == &central
-            );
+        let exact = match &state {
+            LinkState::ManagedSymlink { .. } => true,
+            LinkState::BrokenSymlink { target } => broken_link_targets_central(target, &path, &central)?,
+            _ => false,
+        };
         if exact {
             target_views.push(target.clone());
             expected_links.push(ExpectedLink {
@@ -1546,6 +1445,12 @@ fn known_assigned_target_ids(
         }
     }));
     target_ids
+}
+
+fn target_consumption_is_disabled(settings: &SkillSettingsSnapshot, name: &str, target_id: &str) -> bool {
+    assigned_target_ids(settings, name).contains(target_id)
+        && settings.skill_consumptions.as_ref().and_then(|skills| skills.get(name))
+            .and_then(|records| records.get(target_id)).is_some_and(|record| !record.enabled)
 }
 
 fn assigned_target_ids(settings: &SkillSettingsSnapshot, skill_name: &str) -> BTreeSet<String> {
@@ -1861,6 +1766,14 @@ fn transaction_spec(
     );
     if replacement_operation {
         for expected in &persisted.expected_central {
+            // A repository revision can advance without changing this Skill.
+            // The staged tree and installed hash were revalidated together;
+            // keep its inode and links intact while committing source metadata.
+            let unchanged_update = matches!(persisted.input, PersistedPlanInput::Update { .. })
+                && persisted.plan.skills.iter().any(|skill|
+                    skill.manifest.name == expected.skill_name
+                        && expected.content_hash.as_ref() == Some(&skill.content_hash));
+            if unchanged_update { continue; }
             let (backup, retain_backup) = match &persisted.input {
                 PersistedPlanInput::Update { backup_path, .. } => (
                     paths.expand_user(backup_path).ok_or_else(|| {
@@ -2056,10 +1969,8 @@ fn install_settings_after(
             .filter(|link| link.skill_name == skill.manifest.name && link.desired_managed)
             .map(|link| link.target_id.clone())
             .collect::<BTreeSet<_>>();
-        if desired_target_ids.is_empty() {
-            assignments.remove(&skill.manifest.name);
-        } else {
-            assignments.insert(skill.manifest.name.clone(), desired_target_ids.clone());
+        if !desired_target_ids.is_empty() {
+            assignments.entry(skill.manifest.name.clone()).or_default().extend(desired_target_ids.iter().cloned());
             enabled_targets.push((skill.manifest.name.clone(), desired_target_ids));
         }
     }
@@ -2969,6 +2880,65 @@ mod tests {
         .unwrap();
         commit_install(plan.confirmation()).unwrap();
         SkillsPaths::from_env().unwrap()
+    }
+
+    #[test]
+    fn github_revision_only_update_preserves_content_inode_and_disabled_consumption() {
+        let home = TestHome::new("github-metadata-update");
+        let name = "metadata-only";
+        let paths = install_assigned_fixture(&home, name);
+        let central = paths.central_skill(name);
+        let inode = fs::metadata(&central).unwrap().ino();
+        let link = home.home.join(".claude/skills").join(name);
+        fs::remove_file(&link).unwrap();
+        let old_sha = "1111111111111111111111111111111111111111";
+        let new_sha = "2222222222222222222222222222222222222222";
+        let source = SkillSource::Github {
+            owner: "acme".into(), repo: "skills".into(), subpath: format!("catalog/{name}"),
+            requested_ref: "main".into(), pinned: false,
+        };
+        crate::settings::mutate_settings(|settings| {
+            let record = settings.managed_skills.as_mut().unwrap().get_mut(name).unwrap();
+            record.source = source.clone();
+            record.resolved_revision = Some(old_sha.into());
+            record.update.available = true;
+            record.update.resolved_revision = Some(new_sha.into());
+            settings.skill_consumptions.as_mut().unwrap().get_mut(name).unwrap()
+                .get_mut("claude-user").unwrap().enabled = false;
+        }).unwrap();
+        let before = current_settings_snapshot().unwrap();
+        let mut resolution = resolve_source(SkillSourceInput::Local {
+            path: home.home.join("source").join(name).to_string_lossy().into_owned(),
+        }, GithubEndpoints::production()).unwrap();
+        resolution.source = source;
+        resolution.resolved_revision = Some(new_sha.into());
+        let operation = StagingRoot::open(&paths).unwrap().open_operation(&resolution.operation_id).unwrap();
+        operation.write_private_atomic("resolution.json", &serde_json::to_vec(&resolution).unwrap(), MAX_PLAN_BYTES).unwrap();
+        let persisted = build_update_plan(PlanUpdateRequest {
+            skill_name: name.into(), replace_local_changes: false,
+        }, resolution, format!("~/.mux/backups/skills/update-metadata/{name}")).unwrap();
+        assert!(!persisted.plan.skills[0].replace_existing);
+        assert!(persisted.plan.skills[0].files.is_empty());
+        assert!(!persisted.plan.warnings.is_empty());
+        let spec = transaction_spec(&paths, &persisted).unwrap();
+        assert!(spec.directory_mutations.is_empty());
+        assert!(spec.link_mutations.is_empty());
+        let manifest = central.join("SKILL.md");
+        let original = fs::read(&manifest).unwrap();
+        fs::write(&manifest, "---\nname: metadata-only\ndescription: Changed after review\n---\n").unwrap();
+        assert!(matches!(execute_transaction(spec), Err(SkillError::PlanStale { .. })));
+        fs::write(&manifest, original).unwrap();
+        persist_plan(&paths, &persisted).unwrap();
+        commit_update(persisted.plan.confirmation()).unwrap();
+        let after = current_settings_snapshot().unwrap();
+        let record = &after.managed_skills.as_ref().unwrap()[name];
+        assert_eq!(record.resolved_revision.as_deref(), Some(new_sha));
+        assert_eq!(record.update.resolved_revision.as_deref(), Some(new_sha));
+        assert!(!record.update.available);
+        assert_eq!(after.skill_assignments, before.skill_assignments);
+        assert_eq!(after.skill_consumptions, before.skill_consumptions);
+        assert_eq!(fs::metadata(central).unwrap().ino(), inode);
+        assert!(fs::symlink_metadata(link).is_err());
     }
 
     #[test]

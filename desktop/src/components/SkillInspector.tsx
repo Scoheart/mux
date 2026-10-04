@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import type {
   InventoryState,
   PlanRepairRequest,
@@ -15,6 +16,7 @@ import {
 import { SkillRiskBadge, skillSourceText } from "./SkillCard";
 import { AgentGlyph, agentName, isAgentVisible } from "./brandIcons";
 import { Avatar, Badge } from "./ui";
+import { FormSelect } from "./FormSelect";
 import {
   CalendarIcon,
   FolderIcon,
@@ -78,6 +80,8 @@ function shortDate(value: string | null) {
 
 export function SkillInspector({
   item,
+  copies = [],
+  onSelectCopy,
   detail,
   loading,
   error,
@@ -87,6 +91,8 @@ export function SkillInspector({
   readOnly = false,
 }: {
   item: SkillInventoryItem;
+  copies?: SkillInventoryItem[];
+  onSelectCopy?: (identity: string) => void;
   detail: SkillDetail | null;
   loading: boolean;
   error: SkillCommandError | null;
@@ -95,6 +101,7 @@ export function SkillInspector({
   planning?: boolean;
   readOnly?: boolean;
 }) {
+  const { t } = useTranslation();
   const [replaceConflicts, setReplaceConflicts] = useState(false);
   const visibleAgentIds = item.affected_agent_ids.filter(isAgentVisible);
   const [replaceLocalChanges, setReplaceLocalChanges] = useState(false);
@@ -219,6 +226,20 @@ export function SkillInspector({
       footer={footer}
     >
       <div className="mux-skill-detail-summary" key={item.identity}>
+        {copies.length > 1 && onSelectCopy && (
+          <FormSelect
+            ariaLabel={t("skillLibrary.copyLocation")}
+            value={item.identity}
+            options={copies.map((copy) => ({
+              value: copy.identity,
+              label: copy.location.kind === "central"
+                ? t("skillLibrary.centralCopy")
+                : copy.location.global_dir,
+            }))}
+            disabled={disabled}
+            onChange={onSelectCopy}
+          />
+        )}
         <p className="mux-skill-inspector-description">{item.description || "暂无说明"}</p>
         <div className="mux-skill-detail-source">
           <LinkIcon className="w-3.5 h-3.5" />

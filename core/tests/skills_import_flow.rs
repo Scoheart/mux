@@ -238,6 +238,38 @@ fn import_central_collision_requires_opt_in_and_retains_the_displaced_tree() {
 }
 
 #[test]
+fn replacing_import_preserves_other_enabled_and_disabled_consumers() {
+    let name = "import-preserve-consumers";
+    let fixture = SkillsFixture::managed_on_targets(name, &["agents-user", "cursor-user"]);
+    let disabled = fixture.target("cursor-user", name);
+    fs::remove_file(&disabled).unwrap();
+    mux_core::settings::mutate_settings(|settings| {
+        for (target, enabled) in [("agents-user", true), ("cursor-user", false)] {
+            settings.skill_consumptions.get_or_insert_default().entry(name.into()).or_default().insert(
+                target.into(), mux_core::domain::assets::SkillConsumptionRecord {
+                    name: name.into(), target_id: target.into(), enabled,
+                });
+        }
+    }).unwrap();
+    let before = load_settings().skill_consumptions.unwrap()[name].clone();
+    fixture.create_real_target("claude-user", name);
+    let request = fixture.import_request(name);
+    let plan = mux_core::skills::plan_asset_import(mux_core::skills::PlanSkillAssetImportRequest {
+        identity: request.identity, replace_conflicts: true,
+    }).unwrap();
+    assert_eq!(plan.targets.iter().map(|target| target.target_id.as_str()).collect::<Vec<_>>(), vec!["claude-user"]);
+    commit_import(plan.confirmation()).unwrap();
+    let after = load_settings();
+    assert_eq!(after.skill_assignments.unwrap()[name],
+        ["agents-user".into(), "cursor-user".into(), "claude-user".into()].into());
+    let consumers = &after.skill_consumptions.unwrap()[name];
+    for (target, record) in before { assert_eq!(consumers[&target], record); }
+    assert_managed_link(fixture.target("agents-user", name), fixture.central(name));
+    assert_managed_link(fixture.target("claude-user", name), fixture.central(name));
+    assert!(fs::symlink_metadata(disabled).is_err());
+}
+
+#[test]
 fn import_replacement_flag_never_overwrites_other_agent_targets() {
     for kind in ["directory", "unknown", "broken"] {
         let name = format!("import-{kind}-conflict");

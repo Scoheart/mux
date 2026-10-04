@@ -1297,6 +1297,7 @@ fn shared_skill_toggle_preserves_assignment_and_changes_the_physical_target_once
     let target = fixture.target("agents-user", "review-changes");
 
     let disable = plan_set_skill_enabled(PlanSetSkillEnabledRequest {
+        target_id: None,
         agent_id: "codex".into(),
         name: "review-changes".into(),
         enabled: false,
@@ -1372,6 +1373,7 @@ fn shared_skill_toggle_preserves_assignment_and_changes_the_physical_target_once
 
     commit(
         plan_set_skill_enabled(PlanSetSkillEnabledRequest {
+            target_id: None,
             agent_id: "cursor".into(),
             name: "review-changes".into(),
             enabled: true,

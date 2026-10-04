@@ -1,6 +1,7 @@
 import i18n from "i18next";
 import { initReactI18next } from "react-i18next";
 import { traceEnUS, traceZhCN } from "../lib/traceCopy";
+import { agentConfigurationEnUS, agentConfigurationZhCN } from "./agentConfigurationCopy";
 
 export type SupportedLocale = "zh-CN" | "en-US";
 export type LocalePreference = SupportedLocale | null;
@@ -10,6 +11,9 @@ export function systemLocale(): SupportedLocale {
 }
 
 const zhCN = {
+  agentConfiguration: agentConfigurationZhCN,
+  notifications: { close: "关闭通知", closeError: "关闭错误通知", closeSuccess: "关闭成功通知" },
+  agentRuntime: { installed: "已安装", hostAvailable: "宿主可用", entryAvailable: "启动入口可用", customEntry: "自定义启动入口", status: "{{name}} {{status}}，{{version}}", version: "版本 {{version}}", unknownVersion: "版本未知" },
   trace: traceZhCN,
   syncReview: {
     title: "重新同步 MCPs", confirm: "重新同步", busy: "同步中…",
@@ -31,6 +35,7 @@ const zhCN = {
     loading: "加载中…",
   },
   skillLibrary: {
+    copyLocation: "Skill 位置", centralCopy: "中央副本",
     sources: "来源", all: "全部 Skills", github: "GitHub", local: "本地文件夹",
     archive: "压缩包", imported: "导入副本", unknown: "来源未知",
     description: "按来源整理工作流与参考资料", searchSource: "搜索当前来源的 Skills…",
@@ -379,6 +384,9 @@ type TranslationShape<T> = {
 };
 
 const enUS: TranslationShape<typeof zhCN> = {
+  agentConfiguration: agentConfigurationEnUS,
+  notifications: { close: "Dismiss notification", closeError: "Dismiss error notification", closeSuccess: "Dismiss success notification" },
+  agentRuntime: { installed: "Installed", hostAvailable: "Host available", entryAvailable: "Launcher available", customEntry: "Custom launcher", status: "{{name}} {{status}}, {{version}}", version: "version {{version}}", unknownVersion: "version unknown" },
   trace: traceEnUS,
   syncReview: {
     title: "Resync MCPs", confirm: "Resync", busy: "Syncing…",
@@ -400,6 +408,7 @@ const enUS: TranslationShape<typeof zhCN> = {
     loading: "Loading…",
   },
   skillLibrary: {
+    copyLocation: "Skill location", centralCopy: "Central copy",
     sources: "Sources", all: "All Skills", github: "GitHub", local: "Local folders",
     archive: "Archives", imported: "Imported copies", unknown: "Unknown source",
     description: "Workflows and references organized by source", searchSource: "Search Skills in this source…",

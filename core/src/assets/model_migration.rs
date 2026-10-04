@@ -226,16 +226,17 @@ impl ExtractedModel {
 }
 
 pub fn list_model_adoption_candidates() -> Result<Vec<ModelAdoptionCandidate>, String> {
+    list_model_adoption_candidates_scoped(&BTreeSet::new())
+}
+
+pub(super) fn list_model_adoption_candidates_scoped(agent_ids: &BTreeSet<String>) -> Result<Vec<ModelAdoptionCandidate>, String> {
     let settings = load_settings_strict().map_err(|error| error.to_string())?;
     let settings_hash = hash_optional(fs::read(crate::paths::settings_file()).ok().as_deref());
     let mut candidates = Vec::new();
-    for extracted in extract_models(&settings)? {
+    for extracted in extract_models_scoped(&settings, agent_ids)? {
         let managed_profile_id = managed_profile_id(&settings, &extracted);
-        if managed_profile_id
-            .as_ref()
-            .is_some_and(|profile_id| managed_profile_matches(&settings, profile_id, &extracted))
-        {
-            continue;
+        if let Some(profile_id) = managed_profile_id.as_ref() {
+            if managed_profile_matches(&settings, profile_id, &extracted)? { continue; }
         }
         let (status, reason) = extracted.status();
         let target_hash = hash_target_paths(&extracted.target_paths);
@@ -288,15 +289,16 @@ pub fn list_model_adoption_candidates() -> Result<Vec<ModelAdoptionCandidate>, S
 /// Model writers intentionally own only one model entry, not the entire native
 /// provider container. Comparing extracted model identity avoids classifying
 /// unrelated sibling models or formatting differences as drift.
-pub(super) fn exact_managed_model_observations(
+pub(super) fn exact_managed_model_observations_scoped(
     settings: &Settings,
+    agent_ids: &BTreeSet<String>,
 ) -> Result<BTreeSet<(String, String)>, String> {
     let mut exact = BTreeSet::new();
-    for candidate in extract_models(settings)? {
+    for candidate in extract_models_scoped(settings, agent_ids)? {
         let Some(profile_id) = managed_profile_id(settings, &candidate) else {
             continue;
         };
-        if managed_profile_matches(settings, &profile_id, &candidate) {
+        if managed_profile_matches(settings, &profile_id, &candidate)? {
             exact.insert((candidate.agent_id, profile_id));
         }
     }
@@ -500,9 +502,13 @@ pub fn plan_model_adoption(
 }
 
 fn extract_models(settings: &Settings) -> Result<Vec<ExtractedModel>, String> {
+    extract_models_scoped(settings, &BTreeSet::new())
+}
+
+fn extract_models_scoped(settings: &Settings, agent_ids: &BTreeSet<String>) -> Result<Vec<ExtractedModel>, String> {
     let managed: BTreeSet<_> = list_agents()
         .into_iter()
-        .filter(|agent| agent.mode == "managed")
+        .filter(|agent| agent.mode == "managed" && (agent_ids.is_empty() || agent_ids.contains(&agent.id)))
         .map(|agent| agent.id)
         .collect();
     let mut extracted = Vec::new();
@@ -1523,31 +1529,24 @@ fn managed_profile_matches(
     settings: &Settings,
     profile_id: &str,
     candidate: &ExtractedModel,
-) -> bool {
-    settings
-        .model_profiles
-        .as_ref()
-        .and_then(|profiles| profiles.get(profile_id))
-        .is_some_and(|profile| {
-            normalized_url(&profile.base_url) == normalized_url(&candidate.base_url)
-                && profile.model == candidate.model
-                && profile.protocol == candidate.protocol
-                && managed_credential_identity(&candidate.agent_id, profile)
-                    == candidate.credential_identity()
-        })
+) -> Result<bool, String> {
+    let Some(profile) = settings.model_profiles.as_ref().and_then(|profiles| profiles.get(profile_id)) else {
+        return Ok(false);
+    };
+    if normalized_url(&profile.base_url) != normalized_url(&candidate.base_url)
+        || profile.model != candidate.model || profile.protocol != candidate.protocol {
+        return Ok(false);
+    }
+    Ok(managed_credential_identity(&candidate.agent_id, profile)? == candidate.credential_identity())
 }
 
-fn managed_credential_identity(agent_id: &str, profile: &ModelProfile) -> String {
+fn managed_credential_identity(agent_id: &str, profile: &ModelProfile) -> Result<String, String> {
     if matches!(agent_id, "claude-code" | "codex" | "pi") {
-        return crate::resources::model::credential_snapshot(&profile.id)
+        return Ok(crate::resources::model::credential_snapshot(&profile.id)?
             .map(|value| format!("literal:{}", hash(&value)))
-            .unwrap_or_else(|| "none".into());
+            .unwrap_or_else(|| "none".into()));
     }
-    profile
-        .env_key
-        .as_ref()
-        .map(|key| format!("env:{key}"))
-        .unwrap_or_else(|| "none".into())
+    Ok(profile.env_key.as_ref().map(|key| format!("env:{key}")).unwrap_or_else(|| "none".into()))
 }
 
 fn merge_literals(

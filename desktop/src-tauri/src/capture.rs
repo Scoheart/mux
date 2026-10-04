@@ -11,6 +11,10 @@ pub async fn capture_sessions() -> Result<Vec<core::CaptureSession>, String> { w
 #[tauri::command]
 pub async fn capture_snapshot(session_id: String) -> Result<core::CaptureSnapshot, String> { worker(move || core::snapshot(&session_id)).await }
 #[tauri::command]
+pub async fn capture_delta(session_id: String, revision: Option<String>) -> Result<core::CaptureDelta, String> {
+    worker(move || core::delta(&session_id, revision.as_deref())).await
+}
+#[tauri::command]
 pub async fn capture_detail(session_id: String, flow_id: String) -> Result<core::CapturedFlow, String> { worker(move || core::detail(&session_id, &flow_id)).await }
 #[tauri::command]
 pub async fn capture_start(request: core::StartCapture) -> Result<core::CaptureSnapshot, String> { worker(move || core::start(request)).await }

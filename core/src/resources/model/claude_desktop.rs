@@ -2160,7 +2160,7 @@ mod tests {
             .as_ref()
             .is_some_and(|providers| providers.contains_key("claude-desktop-provider")));
         assert_eq!(
-            credential_snapshot(&profile.id).as_deref(),
+            credential_snapshot(&profile.id).unwrap().as_deref(),
             Some(FAKE_CREDENTIAL.as_bytes())
         );
         let runtime = settings.model_agent_runtime_state(AGENT_ID).unwrap();

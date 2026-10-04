@@ -944,6 +944,7 @@ fn apply_transaction(
             write_journal(paths, spec, JournalPhase::ContentSwapped)?;
         }
     }
+    validate_metadata_only_content(spec, paths)?;
     write_skill_settings(paths, &spec.settings_before, &spec.settings_after)?;
     write_journal(paths, spec, JournalPhase::SettingsWritten)?;
     finish_successful_transaction(spec, paths)
@@ -1505,12 +1506,29 @@ fn validate_all_preconditions(
     paths: &SkillsPaths,
 ) -> Result<(), SkillError> {
     validate_settings_precondition(&spec.settings_before)?;
+    validate_metadata_only_content(spec, paths)?;
     for (index, mutation) in spec.directory_mutations.iter().enumerate() {
         validate_directory_precondition(spec, paths, mutation, index)?;
     }
     for mutation in &spec.link_mutations {
         validate_managed_link_review_precondition(spec, paths, mutation)?;
         validate_link_precondition(paths, mutation)?;
+    }
+    Ok(())
+}
+
+/// Updating a source revision without replacing a directory must still bind
+/// the approved metadata to the installed bytes under the transaction lock.
+fn validate_metadata_only_content(spec: &TransactionSpec, paths: &SkillsPaths) -> Result<(), SkillError> {
+    for (name, after) in spec.settings_after.managed_skills.iter().flatten() {
+        let before = spec.settings_before.managed_skills.as_ref().and_then(|records| records.get(name));
+        if before == Some(after) { continue; }
+        let central = paths.central_skill(name);
+        if spec.directory_mutations.iter().any(|mutation| mutation.destination == central) { continue; }
+        validate_central_destination(&central, paths)?;
+        if optional_directory_hash(&central)?.as_deref() != Some(after.content_hash.as_str()) {
+            return Err(stale("central Skill content changed before its metadata update"));
+        }
     }
     Ok(())
 }

@@ -44,6 +44,27 @@ impl CoreError {
         self.details.insert(key.into(), value.into());
         self
     }
+
+    /// The machine-readable recovery contract is separate from potentially
+    /// private diagnostics. Never copy arbitrary `details` into this projection.
+    pub fn automation_details(&self) -> BTreeMap<String, Value> {
+        let mut result = BTreeMap::new();
+        if let Some(time) = self.retry_at.as_deref()
+            .and_then(|value| chrono::DateTime::parse_from_rfc3339(value).ok())
+        {
+            result.insert("retry_at".into(), Value::String(time.to_rfc3339()));
+            result.insert("retryable".into(), Value::Bool(true));
+        }
+        if let Some(confirmation) = self.confirmation.as_ref().filter(|value| {
+            value.kind == "skill_findings" && value.token.len() == 64
+                && value.token.bytes().all(|byte| byte.is_ascii_hexdigit())
+        }) {
+            result.insert("confirmation".into(), serde_json::json!({
+                "kind": confirmation.kind, "token": confirmation.token,
+            }));
+        }
+        result
+    }
 }
 
 impl fmt::Display for CoreError {

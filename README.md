@@ -137,7 +137,7 @@ exactly instead of silently ignoring them.
 
 See the [complete audited matrix](website/guide/agents.md) and [catalog methodology](docs/agent-catalog.md). Every writable target's global path remains editable; paths inside the home directory are normalized to the portable `~/…` form.
 
-Skill consumption supports **45 separately verified user-level Agent capabilities** across CLI, IDE, and desktop products. Only capabilities detected on the current machine appear, and Agents sharing one physical compatibility directory are selected and reviewed as an inseparable impact group. Managed links expose one live central copy, so consumer-side edits are detected as central drift rather than isolated copies. See the [Skills guide](website/guide/skills.md).
+Skill consumption supports the audited user-level capabilities declared in `data/agents.json`, across CLI, IDE, and desktop products. `mux agent list --json` exposes the current capability matrix. Only capabilities detected on the current machine appear, and Agents sharing one physical compatibility directory are selected and reviewed as an inseparable impact group. Managed links expose one live central copy, so consumer-side edits are detected as central drift rather than isolated copies. See the [Skills guide](website/guide/skills.md).
 
 ---
 
@@ -188,6 +188,10 @@ mux agent launch {show,configure,reset}
 mux settings {show,terminal,locale,pins}
 mux network proxy {show,set,clear}
 mux discover [mcp|model|skill]
+mux status --agent <id> [--agent <id>] [--capability mcp|model|skill]
+mux operation {apply,review} --file request.json
+mux trace {list,show}
+mux capture {list,show}
 mux workspace
 mux upgrade
 ```

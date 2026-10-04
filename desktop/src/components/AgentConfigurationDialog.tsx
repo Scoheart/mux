@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { RESOURCE_CATEGORIES, ResourceIcon } from "./resourcePresentation";
 import { Fragment, useEffect, useId, useRef, useState, type ReactNode } from "react";
 import type {
@@ -28,11 +29,11 @@ import { openPath } from "@tauri-apps/plugin-opener";
 import { preferredFileEditor } from "./FileEditorSelect";
 
 function deliveryLabel(value: ApiKeyDelivery) {
-  if (value === "env") return "环境变量";
-  if (value === "command") return "命令";
-  if (value === "agent-store") return "Agent 凭据库";
-  if (value === "plaintext") return "明文配置";
-  return "自动适配";
+  if (value === "env") return "agentConfiguration.deliveryEnv";
+  if (value === "command") return "agentConfiguration.deliveryCommand";
+  if (value === "agent-store") return "agentConfiguration.deliveryStore";
+  if (value === "plaintext") return "agentConfiguration.deliveryPlaintext";
+  return "agentConfiguration.deliveryAuto";
 }
 
 function resolvedAgentDelivery(agent: ModelAgentView): ApiKeyDelivery {
@@ -58,6 +59,7 @@ export function AgentConfigurationDialog({
   onLaunchSaved?(): void;
   initialSection?: "paths" | "launch";
 }) {
+  const { t } = useTranslation();
   const [section, setSection] = useState<"launch" | "paths">(initialSection);
   const sectionId = useId();
   const sectionButtons = useRef<Array<HTMLButtonElement | null>>([]);
@@ -158,7 +160,7 @@ export function AgentConfigurationDialog({
       if (!configurationChanged) {
         await savePreferences();
         await onSaved();
-        toast.show({ kind: "success", msg: `${agent.name} 配置已更新。` });
+        toast.show({ kind: "success", msg: t("agentConfiguration.updated", { name: agent.name }) });
         onClose();
         return;
       }
@@ -175,7 +177,7 @@ export function AgentConfigurationDialog({
     } catch (error) {
       const message = formatError(error);
       setError(message);
-      toast.show({ kind: "error", msg: "无法保存配置：" + message });
+      toast.show({ kind: "error", msg: t("agentConfiguration.saveFailed", { error: message }) });
     } finally {
       setBusy(false);
     }
@@ -200,7 +202,7 @@ export function AgentConfigurationDialog({
       }
       if (!result.converged) {
         await onSaved();
-        throw new Error("MUX 已保存期望配置，但 Agent 文件尚未完成收敛；请在当前配置位置重试。");
+        throw new Error(t("agentConfiguration.convergencePending"));
       }
       configurationCommitted = true;
       setSavedConfiguration(reviewedConfiguration.current ?? JSON.stringify(configurationPatch()));
@@ -208,11 +210,11 @@ export function AgentConfigurationDialog({
       await savePreferences();
       launchCommitted = true;
       await onSaved();
-      toast.show({ kind: "success", msg: `${agent.name} 配置已更新。` });
+      toast.show({ kind: "success", msg: t("agentConfiguration.updated", { name: agent.name }) });
       onClose();
     } catch (commitError) {
       setError(configurationCommitted
-        ? `${launchCommitted ? "配置已保存，刷新失败" : "配置路径已保存，凭据或启动设置尚未全部保存，可重试"}：${formatError(commitError)}`
+        ? t(launchCommitted ? "agentConfiguration.refreshFailed" : "agentConfiguration.preferencesIncomplete", { error: formatError(commitError) })
         : formatError(commitError));
       if (configurationCommitted && !launchCommitted) {
         // Keep unsaved preferences so retry does not repeat committed changes.
@@ -256,21 +258,21 @@ export function AgentConfigurationDialog({
   if (confirmingPlaintext) {
     return (
       <DialogShell kind="review" size="sm" className="mux-plaintext-confirmation"
-        title="明文写入 API Key" subtitle={agent.name}
+        title={t("agentConfiguration.plaintextTitle")} subtitle={agent.name}
         onClose={() => setConfirmingPlaintext(false)}
         footerEnd={<>
-          <button type="button" className="btn-secondary" onClick={() => setConfirmingPlaintext(false)}>返回编辑</button>
+          <button type="button" className="btn-secondary" onClick={() => setConfirmingPlaintext(false)}>{t("agentConfiguration.backToEdit")}</button>
           <button type="button" className="btn-danger" onClick={() => {
             plaintextApproved.current = true;
             setConfirmingPlaintext(false);
             void save();
-          }}>确认明文写入</button>
+          }}>{t("agentConfiguration.confirmPlaintext")}</button>
         </>}
       >
         <div className="mux-plaintext-confirmation-body">
-          <strong>将把 Provider API Key 明文写入 {agent.name} 配置</strong>
+          <strong>{t("agentConfiguration.plaintextDescription", { name: agent.name })}</strong>
           <code>{modelPaths[0]?.trim() || modelAgent?.config_path}</code>
-          <span>仅对该 Agent 生效，文件权限将收紧为 0600。之后添加的 Model 都按此策略写入。</span>
+          <span>{t("agentConfiguration.plaintextScope")}</span>
         </div>
       </DialogShell>
     );
@@ -283,7 +285,7 @@ export function AgentConfigurationDialog({
         busy={busy || browsing}
         error={error}
         agentName={agent.name}
-        cancelLabel="返回编辑"
+        cancelLabel={t("agentConfiguration.backToEdit")}
         onCommit={commit}
         onCancel={cancelPlan}
       />
@@ -297,8 +299,8 @@ export function AgentConfigurationDialog({
       size="wide"
       title={agent.name}
       leading={<AgentGlyph id={agent.id} name={agent.name} size={32} />}
-      status={<div className="mux-agent-config-tabs" role="tablist" aria-label="配置分类">
-        {([['launch', '启动'], ['paths', '配置文件']] as const).map(([value, label], index) => <button
+      status={<div className="mux-agent-config-tabs" role="tablist" aria-label={t("agentConfiguration.tabs")}>
+        {([['launch', t('agentConfiguration.launch')], ['paths', t('agentConfiguration.paths')]] as const).map(([value, label], index) => <button
           key={value} ref={(node) => { sectionButtons.current[index] = node; }} type="button" role="tab"
           id={`${sectionId}-${value}-tab`} aria-controls={`${sectionId}-${value}-panel`} aria-selected={section === value}
           tabIndex={section === value ? 0 : -1} disabled={busy || browsing} onClick={() => setSection(value)}
@@ -308,17 +310,17 @@ export function AgentConfigurationDialog({
             const next = event.key === "Home" ? 0 : event.key === "End" ? 1 : 1 - index;
             setSection(next === 0 ? "launch" : "paths"); sectionButtons.current[next]?.focus();
           }}>
-          {label}{(value === "launch" ? launchChanged : configurationChanged || deliveryChanged) && <i aria-label="未保存" />}
+          {label}{(value === "launch" ? launchChanged : configurationChanged || deliveryChanged) && <i aria-label={t("agentConfiguration.unsaved")} />}
         </button>)}
       </div>}
       busy={busy || browsing}
       onClose={onClose}
-      footerStart={configurationChanged ? <span className="mux-agent-config-hint">配置路径变更将显示影响范围</span> : null}
+      footerStart={configurationChanged ? <span className="mux-agent-config-hint">{t("agentConfiguration.pathChangeHint")}</span> : null}
       footerEnd={(
         <>
-          <button type="button" className="btn-ghost" disabled={busy || browsing} onClick={onClose}>取消</button>
+          <button type="button" className="btn-ghost" disabled={busy || browsing} onClick={onClose}>{t("common.cancel")}</button>
           <button type="button" className="btn-primary" disabled={!canSubmit} onClick={() => void save()}>
-            {busy ? "保存中…" : configurationChanged ? "继续" : "保存"}
+            {busy ? t("common.saving") : configurationChanged ? t("agentConfiguration.continue") : t("common.save")}
           </button>
         </>
       )}
@@ -340,7 +342,7 @@ export function AgentConfigurationDialog({
           <ConfigField
             icon={<ResourceIcon domain="model" />}
             label={resource.label}
-            value="未接入"
+            value={t("agentConfiguration.unavailable")}
             disabled
           />
         )}
@@ -357,7 +359,7 @@ export function AgentConfigurationDialog({
             />
             <ConfigField
               icon={null}
-              label="配置键"
+              label={t("agentConfiguration.configKey")}
               value={mcpKey}
               onChange={setMcpKey}
             />
@@ -366,7 +368,7 @@ export function AgentConfigurationDialog({
           <ConfigField
             icon={<ResourceIcon domain="mcp" />}
             label={resource.label}
-            value="未接入"
+            value={t("agentConfiguration.unavailable")}
             disabled
           />
         )}
@@ -384,7 +386,7 @@ export function AgentConfigurationDialog({
               <button
                 type="button"
                 className="mux-agent-config-remove"
-                aria-label={`移除 Skills 目录 ${index + 1}`}
+                aria-label={t("agentConfiguration.removeSkillsDirectory", { index: index + 1 })}
                 onClick={() => setSkillsPaths((current) => current.filter((_, candidate) => candidate !== index))}
               >
                 <TrashIcon className="w-4 h-4" />
@@ -395,7 +397,7 @@ export function AgentConfigurationDialog({
           <ConfigField
             icon={<ResourceIcon domain="skill" />}
             label={resource.label}
-            value="未接入"
+            value={t("agentConfiguration.unavailable")}
             disabled
           />
         )}
@@ -405,30 +407,30 @@ export function AgentConfigurationDialog({
             className="mux-agent-config-add"
             onClick={() => setSkillsPaths((current) => [...current, ""])}
           >
-            <PlusIcon className="w-3.5 h-3.5" />添加 Skills 目录
+            <PlusIcon className="w-3.5 h-3.5" />{t("agentConfiguration.addSkillsDirectory")}
           </button>
         )}
           </>}
         </Fragment>)}
       </fieldset>
       {hasDelivery && (
-        <section className="mux-agent-config-credential" aria-label="凭据设置">
+        <section className="mux-agent-config-credential" aria-label={t("agentConfiguration.credentials")}>
           <div className="mux-agent-config-credential-row">
-            <span className="mux-agent-field-caption"><KeyIcon className="w-4 h-4" />凭据方式</span>
-            <FormSelect ariaLabel="凭据方式" value={delivery} disabled={busy || browsing}
-              options={(modelAgent?.available_deliveries ?? []).map((value) => ({ value, label: deliveryLabel(value) }))}
+            <span className="mux-agent-field-caption"><KeyIcon className="w-4 h-4" />{t("agentConfiguration.delivery")}</span>
+            <FormSelect ariaLabel={t("agentConfiguration.delivery")} value={delivery} disabled={busy || browsing}
+              options={(modelAgent?.available_deliveries ?? []).map((value) => ({ value, label: t(deliveryLabel(value)) }))}
               onChange={(value) => { setDelivery(value as ApiKeyDelivery); plaintextApproved.current = false; }} />
           </div>
         </section>
       )}
       </div>
       <div hidden={section !== "launch"} role="tabpanel" id={`${sectionId}-launch-panel`} aria-labelledby={`${sectionId}-launch-tab`}>
-      <section ref={launchSection} className="mux-agent-config-launch" aria-label="启动设置">
-        {launchLoading ? <p className="mux-launch-hint" role="status">读取中…</p>
+      <section ref={launchSection} className="mux-agent-config-launch" aria-label={t("agentConfiguration.launchSettings")}>
+        {launchLoading ? <p className="mux-launch-hint" role="status">{t("agentConfiguration.reading")}</p>
           : launchInfo && launchDraft ? <AgentLaunchFields info={launchInfo} draft={launchDraft} disabled={busy || browsing}
             onChange={setLaunchDraft} onBusyChange={setBrowsing} onError={setLaunchError} /> : null}
         {launchError && <div className="mux-launch-error" role="alert">{launchError}
-          {!launchInfo && <button type="button" className="btn-ghost" disabled={busy || browsing || launchLoading} onClick={() => setLaunchRequest((value) => value + 1)}>重试</button>}
+          {!launchInfo && <button type="button" className="btn-ghost" disabled={busy || browsing || launchLoading} onClick={() => setLaunchRequest((value) => value + 1)}>{t("common.retry")}</button>}
         </div>}
       </section>
       </div>
@@ -455,6 +457,7 @@ function ConfigField({
   openKind?: "file" | "folder";
 }) {
   const toast = useToast();
+  const { t } = useTranslation();
   const openLocation = async () => {
     try {
       const home = (await homeDir()).replace(/\/$/, "");
@@ -462,10 +465,10 @@ function ConfigField({
       const absolute = path === "~" ? home : path.startsWith("~/") ? `${home}/${path.slice(2)}` : path;
       const editor = openKind === "file" ? preferredFileEditor() : undefined;
       if (editor) await openPath(absolute, editor); else await openPath(absolute);
-    } catch (error) { toast.show({ kind: "error", msg: `无法打开：${formatError(error)}` }); }
+    } catch (error) { toast.show({ kind: "error", msg: t("agentConfiguration.openFailed", { error: formatError(error) }) }); }
   };
-  if (disabled && value === "未接入") return <div className="mux-agent-config-unavailable">
-    <span className="mux-agent-field-caption">{icon}{label}</span><span>未接入</span>
+  if (disabled) return <div className="mux-agent-config-unavailable">
+    <span className="mux-agent-field-caption">{icon}{label}</span><span>{t("agentConfiguration.unavailable")}</span>
   </div>;
   return (
     <label data-path-field={openKind || undefined} className="mux-agent-config-field" data-disabled={disabled || undefined}>
@@ -480,7 +483,7 @@ function ConfigField({
       />
       {(openKind || action) && <span className="mux-agent-config-field-actions">
         {openKind && <button type="button" className="mux-agent-config-remove" disabled={disabled || !value.trim()}
-          title={openKind === "file" ? "使用编辑器打开" : "打开文件夹"} aria-label={`打开 ${label}`}
+          title={t(openKind === "file" ? "agentConfiguration.openEditor" : "agentConfiguration.openFolder")} aria-label={t("agentConfiguration.openLabel", { label })}
           onClick={(event) => { event.preventDefault(); void openLocation(); }}><ExternalLinkIcon className="w-4 h-4" /></button>}
         {action}
       </span>}

@@ -10,7 +10,7 @@ use std::fs::{self, File};
 use std::fs::OpenOptions;
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, LazyLock, Mutex};
+use std::sync::{LazyLock, Mutex};
 use std::time::UNIX_EPOCH;
 
 const MAX_RECORD: u64 = 8 * 1024 * 1024;
@@ -18,6 +18,11 @@ const MAX_DOCUMENT: u64 = 32 * 1024 * 1024;
 const PAGE_RECORDS: usize = 60;
 const MAX_FILES: usize = 5000;
 const MAX_SCAN: usize = 25000;
+const MAX_REDACTION_BYTES: u64 = 32 * 1024 * 1024;
+const MAX_REDACTION_RECORDS: usize = 100_000;
+const MAX_SECRETS: usize = 4096;
+const MAX_SECRET_BYTES: usize = 64 * 1024;
+const MAX_TOTAL_SECRET_BYTES: usize = 1024 * 1024;
 
 #[derive(Clone, Deserialize)]
 struct Definition {
@@ -93,15 +98,14 @@ struct Locator {
     home: PathBuf,
     source: TraceSource,
     imported: bool,
-    secrets: Arc<Mutex<BTreeSet<String>>>,
 }
 static LOCATORS: LazyLock<Mutex<BTreeMap<String, Locator>>> = LazyLock::new(|| Mutex::new(BTreeMap::new()));
 static DEFINITIONS: LazyLock<Vec<Definition>> = LazyLock::new(|| serde_json::from_str(include_str!("../../../data/trace-sources.json")).expect("trace-sources.json must be valid"));
 static PASSWORD: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"(?i)(?:密码|口令|password|passphrase)\s*[:：=]?\s*(?:([0-9]{4,16})|["\x27`]([^"\x27`\r\n]{4,128})["\x27`])"#).unwrap());
-static QUERY_SECRET: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"(?i)([?&](?:code|state|token|access_token|refresh_token|id_token|payload|session_id|verifier_id)=)[^\s&#"'<>\\]+"#).unwrap());
+static QUERY_SECRET: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"(?i)([?&](?:code|state|token|access_token|refresh_token|id_token|payload|session_id|verifier_id)=)([^\s&#"'<>\\]+)"#).unwrap());
 static TOKEN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\b(?:sk-[A-Za-z0-9_-]{16,}|gh[pousr]_[A-Za-z0-9]{16,})\b").unwrap());
-static BEARER: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)(\bBearer\s+)[A-Za-z0-9_.~+/-]{16,}").unwrap());
-static ASSIGNMENT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"(?i)((?:["']?(?:api[-_]?key|access[-_]?token|refresh[-_]?token|client[-_]?secret|password|passphrase|authorization|cookie)["']?\s*[:=]\s*)["']?)[^\s,;"'<>}]{4,}"#).unwrap());
+static BEARER: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)(\bBearer\s+)([A-Za-z0-9_.~+/-]{4,})").unwrap());
+static ASSIGNMENT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"(?i)((?:["']?(?:api[-_]?key|access[-_]?token|refresh[-_]?token|client[-_]?secret|password|passphrase|authorization|cookie)["']?\s*[:=]\s*)["']?)([^\s,;"'<>}]{4,})"#).unwrap());
 
 fn home() -> Result<PathBuf, String> {
     let path = dirs::home_dir().ok_or_else(|| "无法确定用户目录。".to_owned())?;
@@ -182,8 +186,7 @@ fn read_line(reader: &mut BufReader<File>) -> Result<Option<(u64, Value)>, Strin
     };
     }
 }
-fn read_document(locator: &Locator) -> Result<Value, String> {
-    let file = open(locator)?;
+fn read_document(locator: &Locator, file: File) -> Result<Value, String> {
     if file.metadata().map_err(|_| "无法读取记录元数据。".to_owned())?.len() > MAX_DOCUMENT { return Err("JSON / Gemini 文档超过 32 MiB；未截断或加载。JSONL 流式格式可按页读取。".into()); }
     if locator.path.extension().and_then(|s| s.to_str()) == Some("json") {
         let document: Value = serde_json::from_reader(file.take(MAX_DOCUMENT + 1)).map_err(|_| "记录文档不是有效 JSON。".to_owned())?;
@@ -193,8 +196,9 @@ fn read_document(locator: &Locator) -> Result<Value, String> {
     // Gemini journals start with metadata, use $set checkpoints and append
     // message objects. Replace checkpoint messages rather than duplicating them.
     let mut reader = BufReader::new(file);
+    let mut budget = RedactionReadBudget::default();
     let mut document = json!({"messages": []});
-    while let Some((_, value)) = read_line(&mut reader)? {
+    while let Some((_, value)) = budget.read(&mut reader)? {
         if let Some(set) = value.get("$set").and_then(Value::as_object) {
             for (key, value) in set { document[key] = value.clone(); }
         } else if let Some(messages) = value.get("messages").and_then(Value::as_array) {
@@ -213,21 +217,64 @@ fn read_document(locator: &Locator) -> Result<Value, String> {
 fn document_mode(locator: &Locator) -> bool {
     locator.source.format == "gemini" || locator.path.extension().and_then(|s| s.to_str()) == Some("json")
 }
-#[derive(Clone)]
-struct Redactor { secrets: BTreeSet<String> }
+fn sensitive_key(key: &str) -> bool {
+    let normalized: String = key.chars().filter(|ch| !matches!(*ch, '-' | '_')).flat_map(char::to_lowercase).collect();
+    matches!(normalized.as_str(), "password" | "passwd" | "passphrase" | "token" | "secret" | "apikey" | "accesstoken" | "refreshtoken" | "idtoken" | "clientsecret" | "authorization" | "cookie" | "setcookie")
+}
+fn redaction_limit() -> String {
+    "redaction_context_limit: Trace redaction context exceeds its bounded read or credential budget; no content was returned".into()
+}
+#[derive(Clone, Default)]
+struct Redactor { secrets: BTreeSet<String>, secret_bytes: usize }
 impl Redactor {
-    fn new(locator: &Locator) -> Self { Self { secrets: locator.secrets.lock().map(|s| s.clone()).unwrap_or_default() } }
-    fn learn(&mut self, value: &Value) {
-        match value {
-            Value::String(s) => { for capture in PASSWORD.captures_iter(s) { for secret in capture.iter().skip(1).flatten() { self.secrets.insert(secret.as_str().to_owned()); } } }
-            Value::Array(values) => { for value in values { self.learn(value); } }
-            Value::Object(values) => { for value in values.values() { self.learn(value); } }
-            _ => {}
+    fn insert(&mut self, secret: &str) -> Result<(), String> {
+        if secret.is_empty() || self.secrets.contains(secret) { return Ok(()); }
+        if secret.len() > MAX_SECRET_BYTES || self.secrets.len() >= MAX_SECRETS
+            || self.secret_bytes.saturating_add(secret.len()) > MAX_TOTAL_SECRET_BYTES {
+            return Err(redaction_limit());
         }
+        self.secret_bytes += secret.len();
+        self.secrets.insert(secret.to_owned());
+        Ok(())
+    }
+    fn learn_sensitive_value(&mut self, value: &Value) -> Result<(), String> {
+        match value {
+            Value::String(text) => { self.insert(text)?; self.learn(value)?; },
+            Value::Number(number) => self.insert(&number.to_string())?,
+            Value::Array(values) => for value in values { self.learn_sensitive_value(value)?; },
+            Value::Object(values) => for value in values.values() { self.learn_sensitive_value(value)?; },
+            _ => {},
+        }
+        Ok(())
+    }
+    fn learn(&mut self, value: &Value) -> Result<(), String> {
+        match value {
+            Value::String(text) => {
+                for capture in PASSWORD.captures_iter(text) {
+                    for secret in capture.iter().skip(1).flatten() { self.insert(secret.as_str())?; }
+                }
+                for pattern in [&*ASSIGNMENT, &*BEARER, &*QUERY_SECRET] {
+                    for capture in pattern.captures_iter(text) {
+                        if let Some(secret) = capture.get(2) { self.insert(secret.as_str())?; }
+                    }
+                }
+            }
+            Value::Array(values) => for value in values { self.learn(value)?; },
+            Value::Object(values) => for (key, value) in values {
+                if sensitive_key(key) { self.learn_sensitive_value(value)?; }
+                else { self.learn(value)?; }
+            },
+            _ => {},
+        }
+        Ok(())
     }
     fn text(&self, text: &str) -> String {
+        // Longest values must win: replacing a short prefix first can expose
+        // the remaining suffix of a longer credential.
+        let mut secrets: Vec<_> = self.secrets.iter().collect();
+        secrets.sort_unstable_by(|a, b| b.len().cmp(&a.len()).then_with(|| a.cmp(b)));
         let mut text = text.to_owned();
-        for secret in &self.secrets { text = text.replace(secret, "[密码已脱敏]"); }
+        for secret in secrets { text = text.replace(secret, "[密码已脱敏]"); }
         text = QUERY_SECRET.replace_all(&text, "${1}[凭据已脱敏]").into_owned();
         text = TOKEN.replace_all(&text, "[令牌已脱敏]").into_owned();
         text = BEARER.replace_all(&text, "${1}[令牌已脱敏]").into_owned();
@@ -236,38 +283,74 @@ impl Redactor {
     fn value(&self, value: &Value) -> Value {
         match value {
             Value::String(text) => Value::String(self.text(text)),
+            Value::Number(number) if self.secrets.contains(&number.to_string()) => json!("[凭据已脱敏]"),
             Value::Array(values) => Value::Array(values.iter().map(|v| self.value(v)).collect()),
             Value::Object(values) => Value::Object(values.iter().map(|(key, value)| {
-                let sensitive = matches!(key.to_ascii_lowercase().as_str(), "password" | "passwd" | "passphrase" | "token" | "secret" | "api-key" | "access_token" | "refresh_token" | "id_token" | "api_key" | "apikey" | "client_secret" | "authorization" | "cookie" | "set-cookie");
-                let value = if sensitive && !value.is_null() { json!("[凭据已脱敏]") } else { self.value(value) };
-                (key.clone(), value)
+                let value = if sensitive_key(key) && !value.is_null() { json!("[凭据已脱敏]") } else { self.value(value) };
+                (self.text(key), value)
             }).collect()),
             _ => value.clone(),
         }
     }
-    fn remember(&self, locator: &Locator) { if let Ok(mut secrets) = locator.secrets.lock() { secrets.extend(self.secrets.iter().cloned()); } }
+}
+
+#[derive(Default)]
+struct RedactionReadBudget { records: usize }
+impl RedactionReadBudget {
+    fn read(&mut self, reader: &mut BufReader<File>) -> Result<Option<(u64, Value)>, String> {
+        let record = read_line(reader).map_err(|_| {
+            "redaction_context_incomplete: Trace context is invalid, unfinished or exceeds the record limit; no content was returned".to_owned()
+        })?;
+        if record.is_some() { self.records += 1; }
+        let position = reader.stream_position().map_err(|_| "无法定位脱敏上下文。".to_owned())?;
+        if position > MAX_REDACTION_BYTES || self.records > MAX_REDACTION_RECORDS { return Err(redaction_limit()); }
+        Ok(record)
+    }
+}
+
+/// Rebuild the context from the same open file before seeking to a page/event.
+/// It is deliberately independent of prior pages, locator cache or CLI process.
+fn context_reader(file: File, offset: u64, redactor: &mut Redactor) -> Result<(BufReader<File>, RedactionReadBudget), String> {
+    if offset > MAX_REDACTION_BYTES { return Err(redaction_limit()); }
+    let mut reader = BufReader::new(file);
+    let mut budget = RedactionReadBudget::default();
+    while reader.stream_position().map_err(|_| "无法定位脱敏上下文。".to_owned())? < offset {
+        let (record_offset, value) = budget.read(&mut reader)?.ok_or("redaction_context_incomplete: Requested Trace context is unavailable")?;
+        // A detail offset can follow blank lines skipped by read_line.
+        if record_offset == offset {
+            reader.seek(SeekFrom::Start(offset)).map_err(|_| "无法定位脱敏上下文。".to_owned())?;
+            break;
+        }
+        if record_offset > offset || reader.stream_position().map_err(|_| "无法定位脱敏上下文。".to_owned())? > offset {
+            return Err("分页游标不是完整记录边界。".into());
+        }
+        redactor.learn(&value)?;
+    }
+    Ok((reader, budget))
 }
 fn summary(locator: &Locator, id: String) -> Result<TraceSession, String> {
+    summary_with_context(locator, id, &Redactor::default())
+}
+fn summary_with_context(locator: &Locator, id: String, context: &Redactor) -> Result<TraceSession, String> {
     let file = open(locator)?;
     let metadata = file.metadata().map_err(|_| "无法读取会话元数据。".to_owned())?;
     let mut prefix = String::new();
     file.take(64 * 1024).read_to_string(&mut prefix).ok();
     let mut title = locator.path.file_stem().and_then(|s| s.to_str()).unwrap_or("Trace").to_owned();
     let mut project = None;
-    let mut redactor = Redactor::new(locator);
+    let mut redactor = context.clone();
     for line in prefix.lines().take(30) {
         let Ok(value) = serde_json::from_str::<Value>(line) else { continue; };
-        redactor.learn(&value);
+        redactor.learn(&value)?;
         let metadata = value.get("payload").unwrap_or(&value);
-        if let Some(cwd) = metadata.get("cwd").and_then(Value::as_str) { project = Some(redactor.text(cwd)); }
+        if let Some(cwd) = metadata.get("cwd").and_then(Value::as_str) { project = Some(cwd.to_owned()); }
         if value.get("type").and_then(Value::as_str) == Some("session_info") {
             if let Some(name) = value.get("name").and_then(Value::as_str) { title = name.to_owned(); }
         }
         if let Some(name) = value.get("title").and_then(Value::as_str) { title = name.to_owned(); }
     }
-    redactor.remember(locator);
     let modified: chrono::DateTime<chrono::Utc> = metadata.modified().unwrap_or(UNIX_EPOCH).into();
-    Ok(TraceSession { id, source_id: locator.source.id.clone(), agent_name: locator.source.name.clone(), format: locator.source.format.clone(), title: bounded_preview(&redactor.text(&title)), project, path: display_path(&locator.path, &locator.home), modified_at: modified.to_rfc3339(), bytes: metadata.len(), imported: locator.imported })
+    Ok(TraceSession { id, source_id: locator.source.id.clone(), agent_name: locator.source.name.clone(), format: locator.source.format.clone(), title: bounded_preview(&redactor.text(&title)), project: project.map(|value| redactor.text(&value)), path: redactor.text(&display_path(&locator.path, &locator.home)), modified_at: modified.to_rfc3339(), bytes: metadata.len(), imported: locator.imported })
 }
 fn register(path: PathBuf, source: TraceSource, imported: bool) -> Result<TraceSession, String> {
     let path = home_path(&path)?;
@@ -277,8 +360,7 @@ fn register(path: PathBuf, source: TraceSource, imported: bool) -> Result<TraceS
     if canonical != path { return Err("记录父目录包含符号链接；未读取。".into()); }
     let id = hex::encode(Sha256::digest(format!("{}:{}", source.id, canonical.display()).as_bytes()));
     let mut cache = LOCATORS.lock().map_err(|_| "Trace 索引不可用。".to_owned())?;
-    let secrets = cache.get(&id).filter(|l| l.home == home).map(|l| l.secrets.clone()).unwrap_or_default();
-    let locator = Locator { path: canonical, home, source, imported, secrets };
+    let locator = Locator { path: canonical, home, source, imported };
     let session = summary(&locator, id.clone())?;
     cache.insert(id, locator);
     Ok(session)
@@ -352,14 +434,14 @@ fn public_conversation(value: &Value) -> Value {
     value
 }
 fn string(value: &Value, key: &str) -> Option<String> { value.get(key).and_then(Value::as_str).map(str::to_owned) }
-fn emit(items: &mut Vec<Parsed>, offset: u64, kind: &str, timestamp: Option<String>, title: String, call_id: Option<String>, text: String, raw: Value, is_error: bool, redactor: &Redactor) {
-    let raw = redactor.value(&raw);
-    let text = redactor.text(&text);
-    items.push(Parsed { event: TraceEvent { id: format!("{offset}.{}", items.len()), kind: kind.into(), timestamp, title: redactor.text(&title), preview: bounded_preview(&text), call_id, is_error }, raw, text });
+fn emit(items: &mut Vec<Parsed>, offset: u64, kind: &str, timestamp: Option<String>, title: String, call_id: Option<String>, text: String, raw: Value, is_error: bool, _redactor: &Redactor) {
+    // Keep complete originals inside this read until the final redaction
+    // context is known. Early prefix replacement/truncation can expose suffixes.
+    items.push(Parsed { event: TraceEvent { id: format!("{offset}.{}", items.len()), kind: kind.into(), timestamp, title, preview: text.clone(), call_id, is_error }, raw, text });
 }
 fn redact_event(event: &mut TraceEvent, redactor: &Redactor) {
     event.title = redactor.text(&event.title);
-    event.preview = redactor.text(&event.preview);
+    event.preview = bounded_preview(&redactor.text(&event.preview));
     event.timestamp = event.timestamp.as_deref().map(|s| redactor.text(s));
     event.call_id = event.call_id.as_deref().map(|s| redactor.text(s));
 }
@@ -457,12 +539,11 @@ pub fn page(session_id: &str, cursor: Option<&str>) -> Result<TracePage, String>
     let file = open(&locator)?;
     let rev = revision(&file)?;
     let cursor = decode(cursor, &rev)?;
-    let session = summary(&locator, session_id.into())?;
-    let mut redactor = Redactor::new(&locator);
-    let mut warnings = Vec::new();
+    let mut redactor = Redactor::default();
+    let warnings = Vec::new();
     let (mut events, next_cursor): (Vec<TraceEvent>, Option<String>) = if document_mode(&locator) {
-        let document = read_document(&locator)?;
-        redactor.learn(&document);
+        let document = read_document(&locator, file)?;
+        redactor.learn(&document)?;
         let items = document_items(&document, &locator, &redactor);
         if cursor.index > items.len() { return Err("分页位置无效。".into()); }
         let end = (cursor.index + PAGE_RECORDS).min(items.len());
@@ -470,15 +551,13 @@ pub fn page(session_id: &str, cursor: Option<&str>) -> Result<TracePage, String>
         let next = if end < items.len() { Some(encode(&Cursor { offset: 0, index: end, revision: rev.clone() })?) } else { None };
         (events, next)
     } else {
-        let mut reader = BufReader::new(file);
-        reader.seek(SeekFrom::Start(cursor.offset)).map_err(|_| "分页位置无效。".to_owned())?;
+        let (mut reader, mut budget) = context_reader(file, cursor.offset, &mut redactor)?;
         let mut events = Vec::new();
         let mut complete = false;
         for _ in 0..PAGE_RECORDS {
-            match read_line(&mut reader) {
-                Ok(Some((offset, value))) => { redactor.learn(&value); events.extend(normalize(&value, &locator.source.format, offset, &redactor).into_iter().map(|i| i.event)); }
-                Ok(None) => { complete = true; break; }
-                Err(error) => { warnings.push(error); complete = true; break; }
+            match budget.read(&mut reader)? {
+                Some((offset, value)) => { redactor.learn(&value)?; events.extend(normalize(&value, &locator.source.format, offset, &redactor).into_iter().map(|i| i.event)); }
+                None => { complete = true; break; }
             }
         }
         let offset = reader.stream_position().map_err(|_| "无法读取分页位置。".to_owned())?;
@@ -487,7 +566,7 @@ pub fn page(session_id: &str, cursor: Option<&str>) -> Result<TracePage, String>
         (events, next)
     };
     for event in &mut events { redact_event(event, &redactor); }
-    redactor.remember(&locator);
+    let session = summary_with_context(&locator, session_id.into(), &redactor)?;
     if revision(&open(&locator)?)? != rev { return Err("记录在读取期间发生变化，请刷新；未返回混合快照。".into()); }
     Ok(TracePage { session, events, next_cursor, revision: rev, warnings })
 }
@@ -498,13 +577,13 @@ pub fn detail(session_id: &str, event_id: &str, expected_revision: &str) -> Resu
     let (offset, index) = event_id.split_once('.').ok_or("记录 ID 无效。")?;
     let offset: u64 = offset.parse().map_err(|_| "记录 ID 无效。")?;
     let index: usize = index.parse().map_err(|_| "记录 ID 无效。")?;
-    let mut redactor = Redactor::new(&locator);
+    let mut redactor = Redactor::default();
     let mut related = Vec::new();
     let mut pairing_note = None;
     let mut selected = if document_mode(&locator) {
         if offset != 0 { return Err("记录 ID 无效。".into()); }
-        let document = read_document(&locator)?;
-        redactor.learn(&document);
+        let document = read_document(&locator, file)?;
+        redactor.learn(&document)?;
         let mut items = document_items(&document, &locator, &redactor);
         if index >= items.len() { return Err("记录不存在。".into()); }
         let selected = items.remove(index);
@@ -513,28 +592,28 @@ pub fn detail(session_id: &str, event_id: &str, expected_revision: &str) -> Resu
         }
         selected
     } else {
-        let mut reader = BufReader::new(file);
-        reader.seek(SeekFrom::Start(offset)).map_err(|_| "记录位置无效。".to_owned())?;
-        let (_, value) = read_line(&mut reader)?.ok_or("记录不存在。")?;
-        redactor.learn(&value);
+        let (mut reader, mut budget) = context_reader(file, offset, &mut redactor)?;
+        let (actual_offset, value) = budget.read(&mut reader)?.ok_or("记录不存在。")?;
+        if actual_offset != offset { return Err("记录 ID 不是完整记录边界。".into()); }
+        redactor.learn(&value)?;
         let mut items = normalize(&value, &locator.source.format, offset, &redactor);
         if index >= items.len() { return Err("记录不存在。".into()); }
         let selected = items.remove(index);
-        if selected.event.kind == "tool_call" {
-            if let Some(id) = &selected.event.call_id {
-                for item in &items { if item.event.kind == "tool_result" && item.event.call_id.as_ref() == Some(id) { related.push(TraceRaw { label: "tool_result".into(), raw: item.raw.clone() }); } }
-                // Typical tools return in the following records. Bound the pairing
-                // scan without claiming that an unfound response does not exist.
-                if related.is_empty() {
-                    let start = reader.stream_position().map_err(|_| "无法定位返回记录。".to_owned())?;
-                    for _ in 0..1000 {
-                        if reader.stream_position().unwrap_or(start).saturating_sub(start) > 32 * 1024 * 1024 { break; }
-                        let record = match read_line(&mut reader) { Ok(Some(record)) => record, _ => break };
-                        redactor.learn(&record.1);
-                        for result in normalize(&record.1, &locator.source.format, record.0, &redactor) {
-                            if result.event.kind == "tool_result" && result.event.call_id.as_ref() == Some(id) { related.push(TraceRaw { label: "tool_result".into(), raw: result.raw }); }
-                        }
-                        if !related.is_empty() { break; }
+        let call_id = (selected.event.kind == "tool_call").then_some(selected.event.call_id.as_ref()).flatten();
+        if let Some(id) = call_id {
+            for item in &items { if item.event.kind == "tool_result" && item.event.call_id.as_ref() == Some(id) { related.push(TraceRaw { label: "tool_result".into(), raw: item.raw.clone() }); } }
+        }
+        // Any page containing this record can learn from up to 59 following
+        // records. Detail must learn at least that same context before output,
+        // even for a plain message or an already paired tool call.
+        for forward in 0..1000 {
+            if forward >= PAGE_RECORDS - 1 && (call_id.is_none() || !related.is_empty()) { break; }
+            let Some(record) = budget.read(&mut reader)? else { break; };
+            redactor.learn(&record.1)?;
+            if related.is_empty() {
+                if let Some(id) = call_id {
+                    for result in normalize(&record.1, &locator.source.format, record.0, &redactor) {
+                        if result.event.kind == "tool_result" && result.event.call_id.as_ref() == Some(id) { related.push(TraceRaw { label: "tool_result".into(), raw: result.raw }); }
                     }
                 }
             }
@@ -542,7 +621,6 @@ pub fn detail(session_id: &str, event_id: &str, expected_revision: &str) -> Resu
         selected
     };
     if selected.event.kind == "tool_call" && related.is_empty() { pairing_note = Some("在当前文件的配对范围内未找到返回（最多后续 1000 条 / 32 MiB）；可能仍在执行、返回被省略或在另一条分支。".into()); }
-    redactor.remember(&locator);
     if revision(&open(&locator)?)? != expected_revision { return Err("记录在读取期间发生变化，请刷新。".into()); }
     redact_event(&mut selected.event, &redactor);
     for item in &mut related { item.raw = redactor.value(&item.raw); }
@@ -555,4 +633,30 @@ pub fn export_detail(session_id: &str, event_id: &str, revision: &str, destinati
     // selection does not authorize silently replacing unrelated files.
     let mut file = open_path(destination, true)?;
     file.write_all(&bytes).and_then(|_| file.sync_all()).map_err(|_| "导出未完成，请检查所选文件。".to_owned())
+}
+
+#[cfg(test)]
+mod redaction_tests {
+    use super::*;
+
+    #[test]
+    fn learns_structured_assignment_and_bearer_values_with_bounds() {
+        let mut redactor = Redactor::default();
+        redactor.learn(&json!({"api_key":"opaque-fixture", "content":"api_key=assigned-fixture Bearer bearer-fixture"})).unwrap();
+        let text = redactor.text("opaque-fixture assigned-fixture bearer-fixture");
+        for value in ["opaque-fixture", "assigned-fixture", "bearer-fixture"] { assert!(!text.contains(value)); }
+        assert!(redactor.learn(&json!({"api_key":"x".repeat(MAX_SECRET_BYTES + 1)})).is_err());
+        let mut redactor = Redactor::default();
+        for index in 0..MAX_SECRETS { redactor.insert(&format!("bounded-{index}")).unwrap(); }
+        assert!(redactor.insert("overflow").unwrap_err().starts_with("redaction_context_limit:"));
+    }
+
+    #[test]
+    fn missing_or_excessive_prefix_context_fails_closed() {
+        let home = crate::testenv::TestHome::new("trace-invalid-context");
+        let path = home.home.join("broken.jsonl");
+        fs::write(&path, "{}\n{broken}\n{}\n").unwrap();
+        assert!(context_reader(File::open(&path).unwrap(), 12, &mut Redactor::default()).is_err());
+        assert!(context_reader(File::open(&path).unwrap(), MAX_REDACTION_BYTES + 1, &mut Redactor::default()).is_err());
+    }
 }

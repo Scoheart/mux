@@ -1,6 +1,7 @@
 // Pasting a config blob (e.g. a `mcpServers` JSON/YAML object) adds its servers to the
 // managed "manual" source.
 use desktop_lib::commands::list_registry;
+use tauri::async_runtime::block_on;
 
 fn import_pasted_config(text: String) -> mux_core::domain::error::CoreResult<Vec<String>> {
     tauri::async_runtime::block_on(desktop_lib::commands::import_pasted_config(text))
@@ -24,7 +25,7 @@ fn paste_import_recognizes_and_adds_manual_entries() {
     let added = import_pasted_config(text.into()).expect("paste import should succeed");
     assert_eq!(added, vec!["yunxiao".to_string()]);
 
-    let e = list_registry()
+    let e = block_on(list_registry()).unwrap()
         .into_iter()
         .find(|e| e.name == "yunxiao")
         .expect("yunxiao present");
@@ -46,7 +47,7 @@ fn paste_import_recognizes_and_adds_manual_entries() {
     let added = import_pasted_config(r#"{"git":{"command":"npx","args":["-y","git-mcp"]}}"#.into())
         .unwrap();
     assert_eq!(added, vec!["git".to_string()]);
-    assert!(list_registry().iter().any(|e| e.name == "git"));
+    assert!(block_on(list_registry()).unwrap().iter().any(|e| e.name == "git"));
 
     // 3) YAML maps use the same safe import path.
     let added = import_pasted_config(
@@ -60,7 +61,7 @@ fn paste_import_recognizes_and_adds_manual_entries() {
     )
     .unwrap();
     assert_eq!(added, vec!["docs".to_string()]);
-    let docs = list_registry()
+    let docs = block_on(list_registry()).unwrap()
         .into_iter()
         .find(|entry| entry.name == "docs")
         .expect("YAML entry present");

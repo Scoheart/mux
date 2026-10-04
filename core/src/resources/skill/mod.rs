@@ -23,6 +23,7 @@ pub use inventory::{
 };
 pub use manifest::*;
 pub use ops::*;
+pub(crate) use ops::release_assignment_links_safely;
 pub(crate) use ops::{assignment_reapply_state, reapply_assignment_safely, AssignmentReapplyState};
 pub use paths::*;
 pub use source::{resolve_source, GithubEndpoints};
@@ -39,3 +40,6 @@ pub use types::*;
 #[doc(hidden)]
 pub use update::check_updates_with;
 pub use update::{check_updates, check_updates_if_due};
+
+pub(crate) use update::{prepare_update_check, probe_update_check, reconcile_update_check};
+pub(crate) use inventory::{list_inventory_for_agents, skill_observation_paths};

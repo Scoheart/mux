@@ -53,7 +53,11 @@ pub fn list_capabilities() -> CoreResult<Vec<AgentCapabilityView>> {
 pub(crate) fn list_capabilities_with_skills(
     skill_capabilities: &[crate::resources::skill::SkillAgentCapabilityView],
 ) -> Vec<AgentCapabilityView> {
-    let infos = crate::agents::list_infos();
+    let definitions = crate::agents::load_agents();
+    let runtime_probes: BTreeMap<_, _> = definitions.iter().filter_map(|(id, definition)| {
+        definition.skills.as_ref().map(|capability| (id.clone(), capability.probes.clone()))
+    }).collect();
+    let infos = crate::agents::list_infos_from_definitions(definitions);
     let mut aliases = BTreeMap::new();
     let mut views = BTreeMap::new();
 
@@ -105,6 +109,8 @@ pub(crate) fn list_capabilities_with_skills(
                     verified_at: info.verified_at,
                 },
                 installed,
+                runtime_detected: None,
+                config_detected: false,
                 capabilities: AgentCapabilitySet {
                     mcp: mcp.map(|(_, capability)| capability),
                     ..AgentCapabilitySet::default()
@@ -129,6 +135,8 @@ pub(crate) fn list_capabilities_with_skills(
                     verified_at: None,
                 },
                 installed: false,
+                runtime_detected: None,
+                config_detected: false,
                 capabilities: AgentCapabilitySet::default(),
             });
         entry.installed |= model.installed;
@@ -162,6 +170,8 @@ pub(crate) fn list_capabilities_with_skills(
                     verified_at: None,
                 },
                 installed: false,
+                runtime_detected: None,
+                config_detected: false,
                 capabilities: AgentCapabilitySet::default(),
             });
         entry.installed |= skill.installed;
@@ -174,7 +184,19 @@ pub(crate) fn list_capabilities_with_skills(
         });
     }
 
-    views.into_values().collect()
+    views.into_values().map(|mut view| {
+        let config_exists = |path: &str| crate::resources::mcp::scanner::expand_tilde(path).exists();
+        view.config_detected = view.capabilities.mcp.as_ref()
+            .and_then(|mcp| mcp.config_path.as_deref()).is_some_and(config_exists)
+            || view.capabilities.model.as_ref().is_some_and(|model| model.config_paths.iter().any(|path| config_exists(path)))
+            || view.capabilities.skill.as_ref().is_some_and(|skill| {
+                config_exists(&skill.global_dir) || skill.alias_dirs.iter().any(|path| config_exists(path))
+            });
+        let probes = runtime_probes.get(&view.identity.id).map(Vec::as_slice).unwrap_or_default();
+        view.runtime_detected = super::agent_launch::official_runtime_detected(&view.identity.id, &view.identity.category, probes);
+        view.installed = view.runtime_detected.unwrap_or(view.config_detected);
+        view
+    }).collect()
 }
 
 pub fn get_configuration_patch(agent_id: &str) -> CoreResult<AgentConfigurationPatch> {
@@ -188,6 +210,19 @@ mod tests {
     use super::*;
     use crate::domain::types::{AgentInstallProbe, AgentSkillsCapability};
     use std::collections::BTreeSet;
+
+    #[test]
+    fn runtime_installation_does_not_require_a_configuration_file() {
+        let home = crate::testenv::TestHome::new("agent-runtime-without-config");
+        let contents = home.home.join("Applications/OpenCode.app/Contents");
+        std::fs::create_dir_all(&contents).unwrap();
+        std::fs::write(contents.join("Info.plist"), "fixture").unwrap();
+        let views = list_capabilities().unwrap();
+        let desktop = views.iter().find(|view| view.identity.id == "opencode-desktop").unwrap();
+        assert_eq!(desktop.runtime_detected, Some(true));
+        assert!(desktop.installed);
+        assert!(!desktop.config_detected);
+    }
 
     #[test]
     fn capability_projection_has_no_duplicate_agent_ids() {
@@ -293,7 +328,9 @@ mod tests {
 pub fn runtime_detected(agent_id: &str) -> Option<bool> {
     super::gate::read(|| {
         let definitions = crate::agents::load_agents();
-        let capability = definitions.get(agent_id)?.skills.as_ref()?;
-        crate::resources::skill::detect_agent_runtime(&capability.probes)
+        let definition = definitions.get(agent_id)?;
+        let category = definition.category.as_deref().unwrap_or("cli");
+        let probes = definition.skills.as_ref().map(|capability| capability.probes.as_slice()).unwrap_or_default();
+        super::agent_launch::official_runtime_detected(agent_id, category, probes)
     })
 }

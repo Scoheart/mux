@@ -314,7 +314,7 @@ body {
 .mux-icon-btn:disabled { opacity: .35; cursor: default; }
 .mux-icon-btn:disabled:hover { background: transparent; color: var(--color-gray-600); }
 .mux-toast-viewport {
-  position: fixed; top: 68px; right: 18px; z-index: 650;
+  position: fixed; top: 68px; right: 18px; z-index: 900;
   width: min(380px, calc(100vw - 36px)); pointer-events: none;
 }
 .mux-toast {

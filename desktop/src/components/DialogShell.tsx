@@ -1,6 +1,7 @@
 import type { CSSProperties, ReactNode } from "react";
 import { CheckIcon, EditIcon, SearchIcon, XIcon } from "./icons";
 import { Modal } from "./ui";
+import { useTranslation } from "react-i18next";
 
 export type DialogShellKind = "editor" | "picker" | "review";
 export type DialogShellSize = "sm" | "md" | "wide" | "lg";
@@ -29,7 +30,7 @@ export function DialogShell({
   subtitle,
   status,
   busy = false,
-  closeLabel = "关闭",
+  closeLabel,
   onClose,
   children,
   footerStart,
@@ -51,6 +52,7 @@ export function DialogShell({
   footerStart?: ReactNode;
   footerEnd?: ReactNode;
 }) {
+  const { t } = useTranslation();
   const requestClose = () => {
     if (!busy) onClose();
   };
@@ -87,8 +89,8 @@ export function DialogShell({
             className="mux-dialog-shell-close"
             onClick={requestClose}
             disabled={busy}
-            aria-label={closeLabel}
-            title={closeLabel}
+            aria-label={closeLabel ?? t("common.close")}
+            title={closeLabel ?? t("common.close")}
           >
             <XIcon className="w-4 h-4" />
           </button>

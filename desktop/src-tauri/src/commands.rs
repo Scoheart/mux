@@ -1150,7 +1150,7 @@ mod tests {
             "overrides": {}
         }))
         .unwrap();
-        let plan = preview_install(req).unwrap();
+        let plan = tauri::async_runtime::block_on(preview_install(req)).unwrap();
         assert_eq!(plan.len(), 1);
         assert_eq!(plan[0].agent, "claude-code");
         assert!(plan[0].file_path.ends_with(".claude.json"));

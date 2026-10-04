@@ -574,7 +574,7 @@ export function AgentView({
     const name = item.asset.name;
     setTogglingSkill({ name, enabled });
     try {
-      await consumptionState.setSkillEnabled(agentId, name, enabled);
+      await consumptionState.setSkillEnabled(agentId, name, enabled, item.target?.target_id);
       showToast({ kind: "success", msg: `${name} 已${enabled ? "启用" : "停用"}。` });
     } catch (error) {
       showToast({ kind: "error", msg: `${enabled ? "启用" : "停用"}失败：${formatError(error)}` });

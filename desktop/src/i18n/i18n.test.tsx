@@ -6,6 +6,9 @@ import { describe, expect, it } from "vitest";
 import { legacyEnglish, localizeLegacyText } from "./legacy";
 import i18n, { translationResources } from ".";
 import { LegacyLocalizationBridge } from "./LegacyLocalizationBridge";
+import { AgentLaunchFields, createAgentLaunchDraft } from "../components/AgentLaunchFields";
+import { DialogShell } from "../components/DialogShell";
+import type { AgentLaunchInfo } from "../lib/agentLaunch";
 
 function leafKeys(value: unknown, prefix = ""): string[] {
   if (!value || typeof value !== "object") return [prefix];
@@ -15,6 +18,26 @@ function leafKeys(value: unknown, prefix = ""): string[] {
 }
 
 describe("Desktop i18n contract", () => {
+  it("localizes a portaled launch editor and validation without a DOM translation bridge", async () => {
+    const info: AgentLaunchInfo = {
+      agent_id: "fixture", name: "Fixture", category: "cli", kind: "cli", available: true,
+      installed: true, supported: true, host_name: null, install_url: null, directory: null,
+      directory_exists: false, configured_target: null,
+      resolved_target: { kind: "cli", command: "/fixture/agent", args: [] },
+    };
+    await i18n.changeLanguage("en-US");
+    const view = render(<DialogShell kind="editor" title="Agent settings" onClose={() => {}}>
+      <AgentLaunchFields info={info} draft={{ ...createAgentLaunchDraft(info), environment: "invalid-line" }}
+        disabled={false} onChange={() => {}} onBusyChange={() => {}} onError={() => {}} />
+    </DialogShell>);
+    try {
+      expect(view.getByRole("button", { name: "Close" })).toBeVisible();
+      expect(view.getByRole("textbox", { name: "Environment variables" })).toBeVisible();
+      expect(view.getByRole("alert")).toHaveTextContent("Line 1 requires NAME=VALUE");
+      await i18n.changeLanguage("zh-CN");
+      await waitFor(() => expect(view.getByRole("button", { name: "关闭" })).toBeVisible());
+    } finally { view.unmount(); await i18n.changeLanguage("zh-CN"); }
+  });
   it("keeps zh-CN and en-US typed dictionaries structurally identical", () => {
     expect(leafKeys(translationResources["en-US"]).sort())
       .toEqual(leafKeys(translationResources["zh-CN"]).sort());

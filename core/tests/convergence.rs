@@ -429,6 +429,111 @@ fn malformed_model_input_does_not_block_an_unrelated_mcp_mutation() {
 }
 
 #[test]
+fn skill_adoption_accepts_observed_content_with_a_fresh_audit_and_preserves_links() {
+    let fixture = SkillsFixture::managed_on_targets("review-changes", &["claude-code-user"]);
+    let central = fixture.central("review-changes");
+    let target = fixture.target("claude-code-user", "review-changes");
+    let link_before = fs::read_link(&target).unwrap();
+    let content = "---\nname: review-changes\ndescription: Updated local fixture\n---\n\nReview a documented `sudo example` command; do not execute it.\n";
+    fs::write(central.join("SKILL.md"), content).unwrap();
+    let observed = mux_core::application::assets::list_inventory().unwrap();
+    let asset = AssetRef::Skill { name: "review-changes".into() };
+    let row = observed.consumptions.iter().find(|row|
+        row.agent_id == "claude-code" && row.asset == asset).unwrap();
+    assert_eq!(row.status, ConsumptionStatus::ExternalChanged);
+    assert_eq!(row.available_actions, vec![ConvergenceAction::AdoptObserved, ConvergenceAction::Detach]);
+    let inventory = commit(converge(&observed, "claude-code", asset.clone(),
+        ConvergenceAction::AdoptObserved).unwrap());
+    assert!(inventory.consumptions.iter().any(|row|
+        row.agent_id == "claude-code" && row.asset == asset && row.status == ConsumptionStatus::Synced));
+    let settings = mux_core::settings::load_settings();
+    let record = &settings.managed_skills.as_ref().unwrap()["review-changes"];
+    assert_eq!(record.description, "Updated local fixture");
+    assert_eq!(record.content_hash, mux_core::skills::hash_tree(&central).unwrap());
+    assert_eq!(record.risk.level, mux_core::skills::RiskLevel::High);
+    assert_eq!(fs::read_to_string(central.join("SKILL.md")).unwrap(), content);
+    assert_eq!(fs::read_link(&target).unwrap(), link_before);
+}
+
+#[test]
+fn skill_adoption_rejects_a_second_edit_after_review() {
+    let fixture = SkillsFixture::managed_on_targets("review-changes", &["claude-code-user"]);
+    let central = fixture.central("review-changes");
+    let content = "---\nname: review-changes\ndescription: First local edit\n---\n\nSynthetic content.\n";
+    fs::write(central.join("SKILL.md"), content).unwrap();
+    let observed = mux_core::application::assets::list_inventory().unwrap();
+    let OperationPlan::Asset { plan } = converge(&observed, "claude-code",
+        AssetRef::Skill { name: "review-changes".into() }, ConvergenceAction::AdoptObserved).unwrap()
+        else { panic!("expected an Asset adoption plan") };
+    let baseline = mux_core::settings::load_settings().managed_skills.unwrap()["review-changes"].clone();
+    fs::write(central.join("SKILL.md"), content.replace("First", "Second")).unwrap();
+    assert!(MuxCore::commit(CommitOperationRequest::Asset { request: AssetCommitRequest {
+        operation_id: plan.operation_id, candidate_hash: plan.candidate_hash,
+    }}).is_err());
+    assert_eq!(mux_core::settings::load_settings().managed_skills.unwrap()["review-changes"], baseline);
+    assert_managed_link(fixture.target("claude-code-user", "review-changes"), central);
+}
+
+#[test]
+fn an_independent_skill_copy_is_not_offered_central_baseline_adoption_or_destructive_restore() {
+    let fixture = SkillsFixture::managed_on_targets("review-changes", &["claude-code-user"]);
+    let target = fixture.target("claude-code-user", "review-changes");
+    fs::remove_file(&target).unwrap();
+    support::skills::write_skill(&target, "review-changes", "Independent local copy");
+    let observed = mux_core::application::assets::list_inventory().unwrap();
+    let row = observed.consumptions.iter().find(|row| row.agent_id == "claude-code"
+        && row.asset == (AssetRef::Skill { name: "review-changes".into() })).unwrap();
+    assert_eq!(row.status, ConsumptionStatus::ExternalChanged);
+    assert_eq!(row.reason.as_deref(), Some("skill_external_target"));
+    assert_eq!(row.available_actions, vec![ConvergenceAction::Detach]);
+}
+
+#[test]
+fn a_disabled_skill_relation_does_not_offer_restore_over_an_independent_directory() {
+    let fixture = SkillsFixture::managed_on_targets("review-changes", &["claude-code-user"]);
+    mux_core::settings::mutate_settings(|settings| {
+        settings.skill_consumptions.get_or_insert_default().entry("review-changes".into())
+            .or_default().insert("claude-code-user".into(), mux_core::domain::assets::SkillConsumptionRecord {
+                name: "review-changes".into(), target_id: "claude-code-user".into(), enabled: false,
+            });
+    }).unwrap();
+    let target = fixture.target("claude-code-user", "review-changes");
+    fs::remove_file(&target).unwrap();
+    support::skills::write_skill(&target, "review-changes", "Foreign copy on disabled relation");
+    let observed = mux_core::application::assets::list_inventory().unwrap();
+    let row = observed.consumptions.iter().find(|row| row.agent_id == "claude-code"
+        && row.asset == (AssetRef::Skill { name: "review-changes".into() })).unwrap();
+    assert_eq!(row.enabled, Some(false));
+    assert_eq!(row.reason.as_deref(), Some("skill_external_target"));
+    assert_eq!(row.available_actions, vec![ConvergenceAction::Detach]);
+}
+
+#[test]
+fn toggling_one_of_multiple_skill_targets_binds_the_selected_copy() {
+    let fixture = SkillsFixture::managed_on_targets("review-changes", &["claude-code-user", "opencode-user"]);
+    let observed = mux_core::application::assets::list_inventory().unwrap();
+    let selected_target = observed.consumptions.iter().find(|row| row.agent_id == "opencode"
+        && row.asset == (AssetRef::Skill { name: "review-changes".into() })
+        && row.target.as_ref().is_some_and(|target| target.global_dir == "~/.config/opencode/skills"))
+        .unwrap().target.as_ref().unwrap().target_id.clone();
+    assert!(MuxCore::plan(PlanOperationRequest::SetSkillEnabled(
+        mux_core::domain::assets::PlanSetSkillEnabledRequest {
+            agent_id: "opencode".into(), name: "review-changes".into(), enabled: false, target_id: None,
+        })).is_err());
+    let plan = MuxCore::plan(PlanOperationRequest::SetSkillEnabled(
+        mux_core::domain::assets::PlanSetSkillEnabledRequest {
+            agent_id: "opencode".into(), name: "review-changes".into(), enabled: false,
+            target_id: Some(selected_target.clone()),
+        })).unwrap();
+    let inventory = commit(plan);
+    assert!(inventory.consumptions.iter().any(|row| row.agent_id == "opencode"
+        && row.target.as_ref().is_some_and(|target| target.target_id == selected_target)
+        && row.enabled == Some(false)));
+    assert!(!fixture.target("opencode-user", "review-changes").exists());
+    assert_managed_link(fixture.target("claude-code-user", "review-changes"), fixture.central("review-changes"));
+}
+
+#[test]
 fn unavailable_skill_inventory_does_not_hide_or_block_mcp() {
     let home = TestHome::new("skill-domain-isolation");
     write_manual_entry(&mcp("isolated-server")).unwrap();

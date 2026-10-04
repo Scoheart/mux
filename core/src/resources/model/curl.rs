@@ -84,8 +84,8 @@ pub fn for_profile(profile_id: &str, include_api_key: bool) -> Result<String, St
     }
     let stored = if configured_source.as_ref().is_none_or(|source| matches!(source, ApiKeySource::MuxStore)) {
         if let Some(provider) = provider {
-            super::read_credential_service(&super::provider_keychain_service(&provider.id))
-        } else { super::read_credential(profile_id) }
+            super::read_credential_service_checked(&super::provider_keychain_service(&provider.id))?
+        } else { super::read_credential_checked(profile_id)? }
     } else { None };
     if configured_source.as_ref().is_none_or(|source| matches!(source, ApiKeySource::MuxStore))
         && stored.is_none() && *auth_requirement == AuthRequirement::Optional {

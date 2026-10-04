@@ -7,9 +7,27 @@ export interface FlowSummary { id: string; method: string; url: string; status: 
 export interface CapturedMessage { headers: [string, string][]; body: string; bytes: number; truncated: boolean; encoding: string }
 export interface CapturedFlow extends FlowSummary { request: CapturedMessage | null; response: CapturedMessage | null; request_http_version: string; response_http_version: string | null; proxy_url: string | null }
 export interface CaptureSnapshot { session: CaptureSession; status: CaptureStatus; flows: FlowSummary[] }
+export interface CaptureDelta { session: CaptureSession; status: CaptureStatus; revision: string; reset: boolean; upserts: FlowSummary[]; removed: string[] }
+
+/** Deltas remove stale IDs before upserting: an ID can be deleted and recreated
+ * between polls. Keep unchanged rows and arrays stable on idle refreshes. */
+export function mergeCaptureDelta(current: CaptureSnapshot | null, delta: CaptureDelta): CaptureSnapshot {
+  if (!delta.reset && current?.session.id === delta.session.id && !delta.upserts.length && !delta.removed.length) {
+    if (JSON.stringify(current.status) === JSON.stringify(delta.status)
+      && JSON.stringify(current.session) === JSON.stringify(delta.session)) return current;
+    return { session: delta.session, status: delta.status, flows: current.flows };
+  }
+  const flows = new Map<string, FlowSummary>(!delta.reset && current?.session.id === delta.session.id
+    ? current.flows.map(flow => [flow.id, flow]) : []);
+  for (const id of delta.removed) flows.delete(id);
+  for (const flow of delta.upserts) flows.set(flow.id, flow);
+  return { session: delta.session, status: delta.status,
+    flows: [...flows.values()].sort((left, right) => right.started_at - left.started_at || left.id.localeCompare(right.id)) };
+}
 export const captureEnvironment = () => invoke<CaptureEnvironment>('capture_environment');
 export const captureSessions = () => invoke<CaptureSession[]>('capture_sessions');
 export const captureSnapshot = (sessionId: string) => invoke<CaptureSnapshot>('capture_snapshot', { sessionId });
+export const captureDelta = (sessionId: string, revision: string | null = null) => invoke<CaptureDelta>('capture_delta', { sessionId, revision });
 export const captureDetail = (sessionId: string, flowId: string) => invoke<CapturedFlow>('capture_detail', { sessionId, flowId });
 export const captureStart = (request: { agent_id: string; target_id: string; egress: string; proxy_url: string | null }) => invoke<CaptureSnapshot>('capture_start', { request });
 export const captureStop = (sessionId: string) => invoke<CaptureSnapshot>('capture_stop', { sessionId });

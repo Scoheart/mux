@@ -9,6 +9,8 @@ use super::{
 };
 use crate::settings::{load_settings_strict, mutate_settings};
 use chrono::{DateTime, Duration, SecondsFormat, Utc};
+use std::collections::BTreeMap;
+use std::sync::{Arc, Mutex, OnceLock};
 
 const UPDATE_INTERVAL_HOURS: i64 = 24;
 
@@ -56,6 +58,33 @@ fn check_updates_with_reconcile_hook<F>(
 where
     F: FnOnce(),
 {
+    let prepared = prepare_update_check_at(manual, now)?;
+    let probed = probe_update_check(prepared, endpoints)?;
+    before_reconcile();
+    reconcile_update_check(probed)
+}
+
+/// Preparation snapshots metadata only. Callers release the application gate
+/// before probing sources and reacquire it only to reconcile these records.
+pub(crate) struct PreparedUpdateCheck {
+    now: String,
+    previous_checked_at: Option<String>,
+    records: Vec<(String, super::ManagedSkillRecord)>,
+    skipped: Option<UpdateCheckOutcome>,
+}
+
+pub(crate) struct ProbedUpdateCheck {
+    now: String,
+    previous_checked_at: Option<String>,
+    probes: Vec<Probe>,
+    skipped: Option<UpdateCheckOutcome>,
+}
+
+pub(crate) fn prepare_update_check(manual: bool) -> Result<PreparedUpdateCheck, SkillError> {
+    prepare_update_check_at(manual, &Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true))
+}
+
+fn prepare_update_check_at(manual: bool, now: &str) -> Result<PreparedUpdateCheck, SkillError> {
     let now_parsed = DateTime::parse_from_rfc3339(now).map_err(|_| SkillError::InvalidSource {
         message: "the update-check clock is not a valid RFC 3339 timestamp".into(),
     })?;
@@ -70,59 +99,81 @@ where
                 elapsed >= Duration::zero() && elapsed < Duration::hours(UPDATE_INTERVAL_HOURS)
             })
     {
-        return Ok(UpdateCheckOutcome {
+        return Ok(PreparedUpdateCheck { now: now.to_owned(), previous_checked_at: settings.skill_update_checked_at.clone(), records: Vec::new(), skipped: Some(UpdateCheckOutcome {
             performed: false,
             checked: 0,
             available: Vec::new(),
             skipped_pinned: Vec::new(),
             errors: Default::default(),
             checked_at: settings.skill_update_checked_at,
-        });
+        }) });
     }
 
-    let read_paths = SkillsPaths::resolve_from_env()?;
-    let probes = settings
-        .managed_skills
-        .unwrap_or_default()
-        .into_iter()
-        .map(|(name, record)| {
-            let result = match &record.source {
-                SkillSource::Github { pinned: true, .. } => {
-                    ProbeResult::Pinned(validate_pinned_github_record(
-                        &record.source,
-                        record.resolved_revision.as_deref(),
-                    ))
-                }
-                SkillSource::Imported { .. } => ProbeResult::Pinned(Ok(())),
-                SkillSource::Github { .. } => ProbeResult::Github(check_github_revision(
-                    &record.source,
-                    record.update.etag.as_deref(),
-                    &endpoints,
-                )),
-                SkillSource::Local { .. } => {
-                    ProbeResult::Local(local_source_hash(&read_paths, &record.source, &name))
-                }
-                SkillSource::Archive { .. } => ProbeResult::Local(archive_source_hash(
-                    &record.source,
-                    &name,
-                    endpoints.clone(),
-                )),
-            };
-            Probe {
-                name,
-                source: record.source,
-                resolved_revision: record.resolved_revision,
-                content_hash: record.content_hash,
-                update: record.update,
-                result,
-            }
-        })
-        .collect::<Vec<_>>();
+    Ok(PreparedUpdateCheck {
+        now: now.to_owned(),
+        previous_checked_at: settings.skill_update_checked_at,
+        records: settings.managed_skills.unwrap_or_default().into_iter().collect(),
+        skipped: None,
+    })
+}
 
+type GithubProbeKey = (String, String, String, Option<String>);
+type GithubProbeCell = Arc<OnceLock<Result<GithubRevisionStatus, SkillError>>>;
+
+pub(crate) fn probe_update_check(
+    prepared: PreparedUpdateCheck,
+    endpoints: GithubEndpoints,
+) -> Result<ProbedUpdateCheck, SkillError> {
+    if prepared.skipped.is_some() {
+        return Ok(ProbedUpdateCheck { now: prepared.now, previous_checked_at: prepared.previous_checked_at, probes: Vec::new(), skipped: prepared.skipped });
+    }
+    let read_paths = SkillsPaths::resolve_from_env()?;
+    // Skills in one repository often share a revision. One cell per request
+    // deduplicates those requests, including errors, without holding a mutex
+    // while waiting on the network. Conditional requests with different ETags
+    // remain separate so a 304 is never applied to a different cached state.
+    let github = Mutex::new(BTreeMap::<GithubProbeKey, GithubProbeCell>::new());
+    let probe = |(name, record): &(String, super::ManagedSkillRecord)| {
+        let result = match &record.source {
+            SkillSource::Github { pinned: true, .. } => ProbeResult::Pinned(
+                validate_pinned_github_record(&record.source, record.resolved_revision.as_deref())),
+            SkillSource::Imported { .. } => ProbeResult::Pinned(Ok(())),
+            SkillSource::Github { owner, repo, requested_ref, .. } => {
+                let result = validate_github_revision_source(&record.source).and_then(|_| {
+                    let key = (owner.clone(), repo.clone(), requested_ref.clone(), record.update.etag.clone());
+                    let cell = github.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+                        .entry(key).or_default().clone();
+                    cell.get_or_init(|| check_github_revision(&record.source, record.update.etag.as_deref(), &endpoints)).clone()
+                });
+                ProbeResult::Github(result)
+            }
+            SkillSource::Local { .. } => ProbeResult::Local(local_source_hash(&read_paths, &record.source, name)),
+            SkillSource::Archive { .. } => ProbeResult::Local(archive_source_hash(&record.source, name, endpoints.clone())),
+        };
+        Probe { name: name.clone(), source: record.source.clone(), resolved_revision: record.resolved_revision.clone(),
+            content_hash: record.content_hash.clone(), update: record.update.clone(), result }
+    };
+    const PROBE_CONCURRENCY: usize = 4;
+    let probes = std::thread::scope(|scope| {
+        let handles = prepared.records.chunks(prepared.records.len().div_ceil(PROBE_CONCURRENCY).max(1))
+            .map(|records| {
+                let probe = &probe;
+                scope.spawn(move || records.iter().map(probe).collect::<Vec<_>>())
+            }).collect::<Vec<_>>();
+        handles.into_iter().map(|handle| handle.join().map_err(|_| SkillError::Io {
+            message: "a Skills update probe could not complete".into(), path: None,
+        })).collect::<Result<Vec<_>, _>>().map(|batches| batches.into_iter().flatten().collect())
+    })?;
+    Ok(ProbedUpdateCheck { now: prepared.now, previous_checked_at: prepared.previous_checked_at, probes, skipped: None })
+}
+
+pub(crate) fn reconcile_update_check(probed: ProbedUpdateCheck) -> Result<UpdateCheckOutcome, SkillError> {
+    if let Some(skipped) = probed.skipped { return Ok(skipped); }
+    let now = probed.now.as_str();
+    let probes = probed.probes;
     // Network and local-tree reads above intentionally happen without the
     // cross-process operation lock. The lock only protects the short compare
     // and persist phase, where settings are re-read by mutate_settings.
-    before_reconcile();
     let paths = SkillsPaths::from_env()?;
     let _lock = acquire_skills_lock(&paths)?;
     let mut outcome = UpdateCheckOutcome {
@@ -135,8 +186,10 @@ where
     };
     mutate_settings(|current| {
         let records = current.managed_skills.get_or_insert_default();
+        let mut complete = records.len() == probes.len();
         for probe in probes {
             let Some(record) = records.get_mut(&probe.name) else {
+                complete = false;
                 continue;
             };
             if record.source != probe.source
@@ -144,6 +197,7 @@ where
                 || record.content_hash != probe.content_hash
                 || record.update != probe.update
             {
+                complete = false;
                 continue;
             }
             match probe.result {
@@ -168,7 +222,8 @@ where
                             record.update.available = available;
                             record.update.checked_at = Some(now.to_owned());
                             record.update.resolved_revision = Some(sha);
-                            record.update.etag = etag.or_else(|| record.update.etag.clone());
+                            // A fresh representation cannot reuse a validator for old bytes.
+                            record.update.etag = etag;
                             record.update.error = None;
                             record.update.retry_at = None;
                             if available {
@@ -210,7 +265,19 @@ where
                 }
             }
         }
-        current.skill_update_checked_at = Some(now.to_owned());
+        // A concurrent install/update must not be hidden for the next 24 h,
+        // and an older in-flight check must not move the global clock backwards.
+        let newer_check = current.skill_update_checked_at.as_deref()
+            .and_then(|value| DateTime::parse_from_rfc3339(value).ok())
+            .zip(DateTime::parse_from_rfc3339(now).ok())
+            .is_some_and(|(previous, checked)| previous > checked);
+        let clock_unchanged = current.skill_update_checked_at == probed.previous_checked_at;
+        // Correct a future timestamp from a clock rollback only when it is
+        // still the one preparation observed, never over a concurrent check.
+        if complete && (clock_unchanged || !newer_check) {
+            current.skill_update_checked_at = Some(now.to_owned());
+        }
+        outcome.checked_at = current.skill_update_checked_at.clone();
     })
     .map_err(settings_write_error)?;
 
@@ -383,6 +450,25 @@ mod tests {
         })
         .unwrap();
         home
+    }
+
+    #[test]
+    fn a_completed_check_corrects_an_unchanged_future_clock_without_rechecking_forever() {
+        let _home = local_probe_fixture("update-future-clock-recovery");
+        mutate_settings(|settings| settings.skill_update_checked_at = Some("2030-01-01T00:00:00Z".into())).unwrap();
+        let now = "2026-10-05T08:00:00Z";
+        assert!(check_updates_with(false, now, GithubEndpoints::production()).unwrap().performed);
+        assert_eq!(load_settings().skill_update_checked_at.as_deref(), Some(now));
+        assert!(!check_updates_with(false, now, GithubEndpoints::production()).unwrap().performed);
+    }
+
+    #[test]
+    fn an_inflight_check_does_not_roll_back_a_newer_global_clock() {
+        let _home = local_probe_fixture("update-concurrent-clock");
+        check_updates_with_reconcile_hook(true, "2026-10-05T08:00:00Z", GithubEndpoints::production(), || {
+            mutate_settings(|settings| settings.skill_update_checked_at = Some("2026-10-05T09:00:00Z".into())).unwrap();
+        }).unwrap();
+        assert_eq!(load_settings().skill_update_checked_at.as_deref(), Some("2026-10-05T09:00:00Z"));
     }
 
     #[test]

@@ -1,4 +1,4 @@
-use super::{full_request_url, provider_credential_subject, read_credential};
+use super::{full_request_url, provider_credential_subject, read_credential_checked};
 use crate::domain::types::{ApiKeySource, AuthRequirement, ModelProtocol, ModelProviderConfig};
 use serde::Serialize;
 use serde_json::Value;
@@ -80,7 +80,7 @@ pub(crate) fn prepare_provider_discovery(provider_id: &str) -> Result<ModelDisco
         .ok_or_else(|| format!("model_provider_not_found: Provider '{provider_id}' does not exist"))?;
     let stored_credential = if provider.auth_requirement != AuthRequirement::None
         && matches!(provider.api_key_source, None | Some(ApiKeySource::MuxStore)) {
-        read_credential(&provider_credential_subject(provider_id)).map(Zeroizing::new)
+        read_credential_checked(&provider_credential_subject(provider_id))?.map(Zeroizing::new)
     } else { None };
     Ok(ModelDiscoveryInput { provider, stored_credential })
 }

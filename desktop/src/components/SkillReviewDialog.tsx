@@ -268,12 +268,6 @@ export function SkillReviewDialog({
     void onClose();
   };
 
-  const closeRiskReview = () => {
-    if (commitInFlight.current) return;
-    setRiskHash(null);
-    setRiskAcknowledged(false);
-  };
-
   const submit = async (findingsConfirmation: string | null) => {
     if (commitInFlight.current) return;
     commitInFlight.current = true;
@@ -334,58 +328,10 @@ export function SkillReviewDialog({
     }
   };
 
-  const highRiskFindings = plan.skills.filter((skill) => skill.risk.level === "high");
+  const needsRiskAcknowledgment = plan.requires_risk_override || riskHash !== null;
   const assignmentTargetIds = new Set(assignmentContext?.targetIds ?? []);
   const assignmentTargets = plan.targets.filter((target) =>
     assignmentTargetIds.has(target.target_id),
-  );
-
-  if (riskHash) return (
-        <DialogShell
-          className="mux-dialog-skill-risk"
-          key="risk"
-          kind="review"
-          size="md"
-          title="确认高风险覆盖"
-          subtitle="以下证据来自当前待确认的更改。"
-          busy={busy}
-          onClose={closeRiskReview}
-          footerEnd={
-            <>
-              <button type="button" className="btn-ghost" disabled={busy} onClick={closeRiskReview}>返回</button>
-              <button
-                type="button"
-                className="btn-danger"
-                disabled={busy || !riskAcknowledged}
-                onClick={() => void submit(riskHash)}
-              >
-                {busy ? "正在提交…" : overrideLabels[plan.kind]}
-              </button>
-            </>
-          }
-        >
-          <div className="mux-skill-risk-dialog">
-            <div className="mux-skill-review-body">
-              {error && <p className="mux-skill-review-error" role="alert">{error.message}</p>}
-              {highRiskFindings.map((skill) => (
-                <section key={skill.manifest.name}>
-                  <h3>{skill.manifest.name}</h3>
-                  {skill.risk.findings.length > 0 && <RiskEvidence risk={skill.risk} />}
-                </section>
-              ))}
-              <label className="mux-skill-risk-acknowledgment">
-                <input
-                  type="checkbox"
-                  checked={riskAcknowledged}
-                  disabled={busy}
-                  onChange={(event) => setRiskAcknowledged(event.target.checked)}
-                />
-                <span>我已了解高风险内容及其影响</span>
-              </label>
-            </div>
-
-          </div>
-        </DialogShell>
   );
 
   return (
@@ -403,18 +349,18 @@ export function SkillReviewDialog({
           <button type="button" className="btn-ghost" disabled={busy} onClick={closeReview}>取消</button>
           <button
             type="button"
-            className="btn-primary"
-            disabled={busy || reviewExpired}
-            onClick={() => void submit(null)}
+            className={needsRiskAcknowledgment ? "btn-danger" : "btn-primary"}
+            disabled={busy || reviewExpired || needsRiskAcknowledgment && !riskAcknowledged}
+            onClick={() => void submit(needsRiskAcknowledgment ? plan.findings_hash : null)}
           >
-            {busy ? "正在提交…" : confirmLabels[plan.kind]}
+            {busy ? "正在提交…" : needsRiskAcknowledgment ? overrideLabels[plan.kind] : confirmLabels[plan.kind]}
           </button>
         </>
       }
     >
       <div className="mux-skill-review-dialog">
         <div className="mux-skill-review-body">
-          {error && !riskHash && <p className="mux-skill-review-error" role="alert">{error.message}</p>}
+          {error && <p className="mux-skill-review-error" role="alert">{error.message}</p>}
 
           <section className="mux-skill-review-section" aria-label="Skill 变更">
             {plan.skills.map((skill) => (
@@ -425,6 +371,14 @@ export function SkillReviewDialog({
               />
             ))}
           </section>
+
+          {needsRiskAcknowledgment && (
+            <label className="mux-skill-risk-acknowledgment">
+              <input type="checkbox" checked={riskAcknowledged} disabled={busy || reviewExpired}
+                onChange={(event) => setRiskAcknowledged(event.target.checked)} />
+              <span>我已了解高风险内容及其影响</span>
+            </label>
+          )}
 
           {plan.kind === "assignment" && assignmentContext && (
             <section

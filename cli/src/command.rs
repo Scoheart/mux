@@ -82,6 +82,28 @@ impl Cli {
 
 #[derive(Debug, Subcommand)]
 pub enum Command {
+    /// Inspect local conversation traces through Core's redacted readers.
+    Trace {
+        #[command(subcommand)]
+        command: crate::diagnostics::TraceCommand,
+    },
+    /// Inspect saved, redacted capture records without starting capture.
+    Capture {
+        #[command(subcommand)]
+        command: crate::diagnostics::CaptureCommand,
+    },
+    /// Query several Agents/capabilities in one scoped read. An empty scope means all.
+    Status {
+        #[arg(long = "agent", value_parser = parse_identity)]
+        agents: Vec<String>,
+        #[arg(long, value_enum)]
+        capability: Option<AssetDomain>,
+    },
+    /// Use typed operations, including a plan/commit session for automation.
+    Operation {
+        #[command(subcommand)]
+        command: crate::operation_session::OperationCommand,
+    },
     /// Inspect or change preferences shared with MUX Desktop.
     Settings {
         #[command(subcommand)]
@@ -341,6 +363,9 @@ pub enum SkillCommand {
         name: String,
         #[arg(long, required = true)]
         agent: String,
+        /// Physical target ID from status, required when the Skill has multiple copies.
+        #[arg(long, value_parser = parse_identity)]
+        target: Option<String>,
     },
     /// Disable an assigned Skill while retaining its assignment.
     Disable {
@@ -348,6 +373,9 @@ pub enum SkillCommand {
         name: String,
         #[arg(long, required = true)]
         agent: String,
+        /// Physical target ID from status, required when the Skill has multiple copies.
+        #[arg(long, value_parser = parse_identity)]
+        target: Option<String>,
     },
     /// Converge one observed Skill relationship: adopt, restore, or detach.
     Converge {
@@ -419,6 +447,19 @@ pub fn dispatch(cli: &Cli) -> Result<CommandOutput, CliError> {
         )
     })?;
     match command {
+        Command::Trace { command } => crate::diagnostics::trace(cli, command),
+        Command::Capture { command } => crate::diagnostics::captured(cli, command),
+        Command::Status { agents, capability } => {
+            cli.reject_mutation_options()?;
+            let inventory = mux_core::application::assets::list_inventory_scoped(
+                mux_core::application::assets::InventoryScope {
+                    capability: capability.map(core_capability),
+                    agent_ids: agents.iter().cloned().collect(),
+                },
+            ).map_err(CliError::from_legacy)?;
+            crate::output::query_output("status", safe_consumption_inventory(&inventory))
+        }
+        Command::Operation { command } => crate::operation_session::dispatch(cli, command),
         Command::Settings { command } => crate::preferences::dispatch(cli, command),
         Command::Mcp { command } => dispatch_mcp(cli, command),
         Command::Model { command } => dispatch_model(cli, command),
@@ -480,10 +521,10 @@ fn dispatch_mcp(cli: &Cli, command: &McpCommand) -> Result<CommandOutput, CliErr
             unassign(AssetDomain::Mcp, keys, *all, agent, cli.mutation_options())
         }
         McpCommand::Enable { key, agent } => {
-            set_enabled(AssetDomain::Mcp, key, agent, true, cli.mutation_options())
+            set_enabled(AssetDomain::Mcp, key, agent, true, None, cli.mutation_options())
         }
         McpCommand::Disable { key, agent } => {
-            set_enabled(AssetDomain::Mcp, key, agent, false, cli.mutation_options())
+            set_enabled(AssetDomain::Mcp, key, agent, false, None, cli.mutation_options())
         }
         McpCommand::Add {
             key,
@@ -559,6 +600,7 @@ fn dispatch_model(cli: &Cli, command: &ModelCommand) -> Result<CommandOutput, Cl
             profile_id,
             agent,
             true,
+            None,
             cli.mutation_options(),
         ),
         ModelCommand::Disable { profile_id, agent } => set_enabled(
@@ -566,6 +608,7 @@ fn dispatch_model(cli: &Cli, command: &ModelCommand) -> Result<CommandOutput, Cl
             profile_id,
             agent,
             false,
+            None,
             cli.mutation_options(),
         ),
         ModelCommand::Use { profile_id, agent } => {
@@ -616,18 +659,20 @@ fn dispatch_skill(cli: &Cli, command: &SkillCommand) -> Result<CommandOutput, Cl
             agent,
             cli.mutation_options(),
         ),
-        SkillCommand::Enable { name, agent } => set_enabled(
+        SkillCommand::Enable { name, agent, target } => set_enabled(
             AssetDomain::Skill,
             name,
             agent,
             true,
+            target.as_deref(),
             cli.mutation_options(),
         ),
-        SkillCommand::Disable { name, agent } => set_enabled(
+        SkillCommand::Disable { name, agent, target } => set_enabled(
             AssetDomain::Skill,
             name,
             agent,
             false,
+            target.as_deref(),
             cli.mutation_options(),
         ),
         SkillCommand::Converge {
@@ -802,8 +847,12 @@ fn status(
     if let Some(agent) = agent {
         require_agent_capability(agent, domain)?;
     }
-    let inventory =
-        mux_core::application::assets::list_inventory().map_err(CliError::from_legacy)?;
+    let inventory = mux_core::application::assets::list_inventory_scoped(
+        mux_core::application::assets::InventoryScope {
+            capability: Some(core_capability(domain)),
+            agent_ids: agent.into_iter().map(str::to_owned).collect(),
+        },
+    ).map_err(CliError::from_legacy)?;
     let revision = inventory.revision.clone();
     let observed_at = inventory.observed_at.clone();
     let capability_errors = inventory
@@ -875,6 +924,15 @@ fn status(
         }),
         human,
     ))
+}
+
+fn core_capability(domain: AssetDomain) -> mux_core::application::assets::AssetCapability {
+    use mux_core::application::assets::AssetCapability;
+    match domain {
+        AssetDomain::Mcp => AssetCapability::Mcp,
+        AssetDomain::Model => AssetCapability::Model,
+        AssetDomain::Skill => AssetCapability::Skill,
+    }
 }
 
 fn status_projection(
@@ -1023,6 +1081,7 @@ fn set_enabled(
     identity: &str,
     agent: &str,
     enabled: bool,
+    target_id: Option<&str>,
     options: MutationOptions,
 ) -> Result<CommandOutput, CliError> {
     options.validate()?;
@@ -1044,6 +1103,7 @@ fn set_enabled(
             agent_id: agent.to_string(),
             name: identity.to_string(),
             enabled,
+            target_id: target_id.map(str::to_string),
         }),
     };
     let plan = MuxCore::plan(request).map_err(CliError::from_core)?;

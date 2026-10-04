@@ -1354,7 +1354,21 @@ fn rate_limit_evidence(response: &ureq::http::Response<ureq::Body>) -> (bool, Op
     let reset = bounded_response_header(response, "X-RateLimit-Reset")
         .and_then(|value| github_reset_retry_at(&value));
     let rate_limited = remaining_zero || retry_after.is_some() || reset.is_some();
-    (rate_limited, reset.or(retry_after))
+    let retry_at = retry_after.as_deref().and_then(|value| github_retry_after_at(value, Utc::now()));
+    (rate_limited, reset.or(retry_at))
+}
+
+/// HTTP Retry-After is a delay in seconds or an HTTP date, never an opaque
+/// retry_at value. Return the same RFC3339 contract as X-RateLimit-Reset.
+fn github_retry_after_at(value: &str, now: chrono::DateTime<Utc>) -> Option<String> {
+    let retry = if !value.is_empty() && value.bytes().all(|byte| byte.is_ascii_digit()) {
+        let delay = value.parse::<i64>().ok().and_then(chrono::TimeDelta::try_seconds)?;
+        now.checked_add_signed(delay)?
+    } else {
+        chrono::DateTime::parse_from_rfc2822(value).ok()?.with_timezone(&Utc)
+    };
+    if !(0..=9999).contains(&retry.year()) { return None; }
+    Some(retry.to_rfc3339_opts(SecondsFormat::Secs, true))
 }
 
 fn github_reset_retry_at(value: &str) -> Option<String> {
@@ -2745,6 +2759,16 @@ mod tests {
     use tar::{Builder, EntryType, Header};
     use zip::write::SimpleFileOptions;
     use zip::ZipWriter;
+
+    #[test]
+    fn retry_after_is_a_machine_readable_time_and_rejects_overflow_or_private_text() {
+        let now = Utc.with_ymd_and_hms(2026, 10, 5, 8, 0, 0).unwrap();
+        assert_eq!(github_retry_after_at("120", now).as_deref(), Some("2026-10-05T08:02:00Z"));
+        assert_eq!(github_retry_after_at("Wed, 21 Oct 2015 07:28:00 GMT", now).as_deref(), Some("2015-10-21T07:28:00Z"));
+        for invalid in ["-1", "private-retry-value", "99999999999999999999999", "253402300800"] {
+            assert!(github_retry_after_at(invalid, now).is_none());
+        }
+    }
 
     #[cfg(unix)]
     #[test]

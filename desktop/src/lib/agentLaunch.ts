@@ -9,6 +9,7 @@ export interface AgentLaunchInfo {
   category: string;
   kind: "app" | "cli" | "web" | null;
   available: boolean;
+  installed?: boolean | null;
   supported: boolean;
   host_name: string | null;
   install_url: string | null;

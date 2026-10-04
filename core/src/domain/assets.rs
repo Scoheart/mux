@@ -630,6 +630,9 @@ pub struct PlanSetSkillEnabledRequest {
     pub agent_id: String,
     pub name: String,
     pub enabled: bool,
+    /// Required to disambiguate multiple physical copies for one Agent/name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

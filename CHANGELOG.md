@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.235](https://github.com/Scoheart/mux/compare/v1.8.234...v1.8.235) (2026-10-04)
+
+### Changes
+
+* feat(desktop): show queued notifications at top right ([0b63323](https://github.com/Scoheart/mux/commit/0b63323bb533d28f70b01cd188d0182b0c58ac8c))
+
 ## [1.8.234](https://github.com/Scoheart/mux/compare/v1.8.233...v1.8.234) (2026-10-03)
 
 ### Changes

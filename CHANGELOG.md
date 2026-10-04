@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.237](https://github.com/Scoheart/mux/compare/v1.8.236...v1.8.237) (2026-10-04)
+
+### Changes
+
+* refactor(models): link providers to credential portals ([77c5106](https://github.com/Scoheart/mux/commit/77c510643249656ffe1d5a8e628a9d4f56d1b273))
+
 ## [1.8.236](https://github.com/Scoheart/mux/compare/v1.8.235...v1.8.236) (2026-10-04)
 
 ### Changes

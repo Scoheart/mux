@@ -1,10 +1,35 @@
 # Provider Catalog sources
 
-## Clickable official documentation — 2026-09-21
+## Official credential portals — 2026-10-04
 
-`data/provider-docs.json` is the display-only documentation URL catalog for all 71 built-in Provider templates. Core serializes it as `docs_url`; custom connections have no vendor documentation link. It is independent of user-supplied API endpoints and never derives a website from a Base URL or includes credentials.
+`data/provider-links.json` is the single display-only link catalog for all 72 built-in Provider templates (73 templates including Custom). Each entry retains `docs_url` and adds a typed `portal` containing a credential-free HTTPS URL and one of `api-key`, `console`, or `setup`. Core validates coverage, known Provider IDs, URL schemes, and absence of embedded credentials before serializing it. Custom and unknown connections have no vendor link; no website is inferred from the user's Base URL.
 
-The desktop exposes the same link in the selected Provider banner, the Provider picker selection footer, and the Provider editor footer. Links open via the native system-browser opener without selecting a template or submitting a form; failures use the existing toast UI.
+The desktop's selected Provider banner, picker selection footer, and editor footer use the same core-provided portal: **Get API Key**, **Open console**, or **Setup guide**. The 44 key-page entries include API Tokens and Access Tokens; 25 account/region/subscription consoles are explicitly labeled as consoles, not promised as direct key pages. Ollama, LM Studio, and vLLM are local connection templates and retain setup guides rather than unrelated cloud account keys. URLs open with the native system-browser opener without selecting a template, submitting a form, generating a key, or modifying a saved connection. Opener failures use the existing toast UI.
+
+CLI Provider list/show/templates expose the same portal metadata. `mux model provider docs` and `docs_url` keep their documentation semantics. Portal metadata is not persisted in Provider instances, exported to Agent configuration, used for model discovery, or treated as an inference endpoint.
+
+Portal sources are the official key pages and linked quickstarts reviewed on this date. Login redirects and JavaScript-only shells confirm an account entry, not successful authenticated key creation. Stable console entries are used when an authenticated resource/team/plan selection prevents verification of a direct key route. Temporary OAuth URLs, guessed team IDs, referral codes, and credentials are never recorded.
+
+Notable evidence and mapping decisions:
+
+| Provider family | Official reference / observed entry | Decision |
+|---|---|---|
+| OpenRouter | [Account key page](https://openrouter.ai/workspaces/default/keys) | Use the current workspace key route; all models of a Provider use the same account entry. |
+| Mistral | [API key guide](https://docs.mistral.ai/admin/identity-access/api-keys) | Follow the guide's `admin.mistral.ai/plateforme/api-keys` link rather than a model documentation page. |
+| Anthropic | [Claude Platform keys](https://platform.claude.com/settings/keys) | Use the current Claude Platform account domain. |
+| Moonshot | [China keys](https://platform.moonshot.cn/console/api-keys), [Global keys](https://platform.moonshot.ai/console/api-keys) | Store the observed `platform.kimi.com` / `platform.kimi.ai` destinations separately. Kimi Code keeps its membership console. |
+| Alibaba | [Coding Plan](https://help.aliyun.com/zh/model-studio/coding-plan), [Token Plan CN](https://help.aliyun.com/zh/model-studio/token-plan-personal-quick-start), [Token Plan Global](https://www.alibabacloud.com/help/en/model-studio/token-plan-team-quickstart) | PAYG keys, Coding Plan, and Token Plan have distinct portals; retain China and international account separation. |
+| Xiaomi MiMo | [API integration FAQ](https://mimo.mi.com/docs/zh-CN/quick-start/faq/api-integration) | Official links enter the platform console. PAYG uses API Keys; regional Token Plans use the subscription's key, not the PAYG key. |
+| MiniMax | [Global access](https://platform.minimax.io/console/access), [Token Plan](https://platform.minimax.io/docs/token-plan/intro) | PAYG access and plan console remain distinct; preserve CN/Global account domains. |
+| StepFun | [Global plan quickstart](https://platform.stepfun.ai/docs/en/step-plan/quick-start), [China keys](https://platform.stepfun.com/interface-key) | The official quickstart links to `interface-key`; preserve each region. |
+| Tencent | [Coding Plan FAQ](https://cloud.tencent.com/document/product/1823/130103), [Global Token Plan](https://intl.cloud.tencent.com/document/product/1300/81315) | Use regional TokenHub consoles; Coding and Token Plan keys are separate subscription credentials. |
+| Baidu | [Plan entry](https://cloud.baidu.com/product/codingplan) | The official plan link opens `qianfan/resource/token-plan`; ordinary API keys use IAM. |
+| DigitalOcean | [Manage model access keys](https://docs.digitalocean.com/products/inference/how-to/manage-model-access-keys/) | Follow the official `model-studio/manage-keys` link, not an Agent endpoint key. |
+| Weights & Biases | [Official SDK](https://github.com/wandb/wandb) | The documented account settings entry redirects to `forge.coreweave.com/wandb/settings`. |
+| Token Harbor | [Official CLI connection guide](https://tokenharbor.ai/docs/connect) | Add the formerly missing template entry; the guide identifies `/dashboard/api-keys`. |
+| Routeway / Infron / APInex | [Routeway dashboard](https://routeway.ai/dashboard), [Infron quickstart](https://infron.ai/docs), [APInex platform](https://apinex.bond/) | Infron documents `/dashboard/apiKeys`; Routeway and APInex use official account consoles where a deeper key route could not be verified. |
+
+## Documentation references — 2026-09-21
 
 URLs were checked against the official pages on this date, using the existing source matrices and models.dev for discovery only. Regions and Coding/Token Plans retain their specific documentation. Direct requests to some vendors encountered network-policy or anti-bot pages; official page retrieval separately confirmed MiniMax CN, Kimi Code, Requesty, Together AI, Scaleway and StepFun Global. Network interception URLs are not stored in the catalog. MiMo Token Plan uses the current `/tokenplan/Token%20Plan/quick-access` route rather than the outdated `/price/tokenplan/quick-access` route.
 

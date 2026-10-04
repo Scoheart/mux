@@ -4,7 +4,7 @@ pub use crate::domain::assets::ApiKeyDelivery;
 pub use crate::domain::types::{ModelProfile, ModelProtocol};
 pub use crate::resources::model::credential::CredentialValidationView;
 pub use crate::resources::model::{
-    ModelAgentView, ModelProfileView, ModelProviderInstanceView, ModelProviderView,
+    ModelAgentView, ModelProfileView, ModelProviderInstanceView, ModelProviderView, ModelProviderPortalView,
     ProviderModelSummary,
 };
 
@@ -18,6 +18,10 @@ pub fn export_curl(profile_id: &str, include_api_key: bool) -> Result<String, St
 
 pub fn provider_docs_url(provider: &str) -> Option<&'static str> {
     crate::resources::model::provider_docs_url(provider)
+}
+
+pub fn provider_portal(provider: &str) -> Option<&'static ModelProviderPortalView> {
+    crate::resources::model::provider_portal(provider)
 }
 
 pub fn provider_documentation(id: &str) -> Result<Option<&'static str>, String> {

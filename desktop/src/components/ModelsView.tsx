@@ -579,7 +579,7 @@ export function ModelsView({
         {selectedProvider && (
           <ProviderBanner
             provider={selectedProvider}
-            docsUrl={providers.find((template) => template.id === selectedProvider.provider)?.docs_url}
+            portal={providers.find((template) => template.id === selectedProvider.provider)?.portal}
             onEdit={consumptionState ? () => setEditingProvider(selectedProvider) : undefined}
             onDelete={consumptionState ? async () => {
               try {
@@ -709,30 +709,35 @@ export function ModelsView({
   );
 }
 
-function ProviderDocsButton({ url }: { url?: string | null }) {
+function ProviderPortalButton({ portal }: { portal?: ModelProviderView["portal"] }) {
   const { t } = useTranslation();
   const toast = useToast();
-  if (!url || !url.startsWith("https://")) return null;
+  if (!portal || !portal.url.startsWith("https://")) return null;
+  const label = t({
+    "api-key": "models.getApiKey",
+    console: "models.openProviderConsole",
+    setup: "models.providerSetupGuide",
+  }[portal.kind]);
   return (
-    <button type="button" className="btn-ghost shrink-0 whitespace-nowrap" title={url}
-      aria-label={t("models.officialDocs")}
-      onClick={() => void openUrl(url).catch((error) => {
-        toast.show({ kind: "error", msg: t("models.openDocsFailed", { error: formatError(error) }) });
+    <button type="button" className="btn-ghost shrink-0 whitespace-nowrap" title={portal.url}
+      aria-label={label}
+      onClick={() => void openUrl(portal.url).catch((error) => {
+        toast.show({ kind: "error", msg: t("models.openProviderLinkFailed", { error: formatError(error) }) });
       })}>
       <ExternalLinkIcon className="w-4 h-4" />
-      {t("models.officialDocs")}
+      {label}
     </button>
   );
 }
 
 function ProviderBanner({
   provider,
-  docsUrl,
+  portal,
   onEdit,
   onDelete,
 }: {
   provider: ModelProviderInstanceView;
-  docsUrl?: string | null;
+  portal?: ModelProviderView["portal"];
   onEdit?: () => void;
   onDelete?: () => void;
 }) {
@@ -756,7 +761,7 @@ function ProviderBanner({
         </div>
       </div>
       <div className="flex items-center gap-2">
-        <ProviderDocsButton url={docsUrl} />
+        <ProviderPortalButton portal={portal} />
         <button className="btn-danger" type="button" disabled={!onDelete} onClick={onDelete}>
           <TrashIcon className="w-4 h-4" />
           {t("common.delete")}
@@ -1031,7 +1036,7 @@ function ProviderCatalogDialog({
         <span className="mux-provider-catalog-selection">
           <span aria-hidden="true">✓</span>
           <strong>{selected.name}</strong>
-          <ProviderDocsButton url={selected.docs_url} />
+          <ProviderPortalButton portal={selected.portal} />
         </span>
       ) : undefined}
       footerEnd={(
@@ -1766,7 +1771,7 @@ function ModelProviderDialog({
         : t("models.addProviderNamed", { name: dialogName })}
       busy={busy}
       onClose={onClose}
-      footerStart={template?.docs_url ? <ProviderDocsButton url={template.docs_url} /> : undefined}
+      footerStart={<ProviderPortalButton portal={template?.portal} />}
       footerEnd={(
         <>
           <button type="button" className="btn-secondary" disabled={busy} onClick={onClose}>

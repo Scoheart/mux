@@ -48,7 +48,7 @@ Claude Desktop 与 Claude Code 只接收 Anthropic Messages，Codex 只接收 Re
 ## 新建中央 Profile 并选择消费者
 
 1. 打开顶部 **Models**，点击 **添加 Provider**。
-2. 在居中的 Provider Catalog 中选择模板。Catalog 内置 OpenRouter、Anthropic、OpenAI、Google AI Studio、DeepSeek、Groq、SiliconFlow、Together AI、Fireworks AI、Cerebras、Ollama、LM Studio、vLLM 等常用入口；模板本身不会立刻写入配置。
+2. 在居中的 Provider Catalog 中选择模板。Catalog 内置 OpenRouter、Anthropic、OpenAI、Google AI Studio、DeepSeek、Groq、SiliconFlow、Together AI、Fireworks AI、Cerebras、Ollama、LM Studio、vLLM 等常用入口；模板本身不会立刻写入配置。选中模板后可点击 **获取 API Key**，在系统浏览器打开该平台的密钥页；需要选择账号、资源或套餐的平台显示 **打开控制台**，本地服务显示 **配置指南**。已有 Provider 和编辑表单使用同一个入口。地区与 Coding/Token Plan 按各自平台获取凭据，不要混用普通按量 API 的 Key。
 3. Provider 表单按顺序填写名称、类型、唯一 Base URL、API Key / 环境变量，再启用协议并编辑各自 Endpoint Path。每行会实时预览完整请求 URL，也可单独恢复模板默认 Path。保存后连接实例进入左侧 **My Providers**。
 4. 点击 **添加模型**，选择已保存的 Provider、协议与 Model ID；Model 表单只读显示最终请求 URL，不再重复输入 Base URL 或凭据。
 5. Model 保存到中央资产库后，进入对应 Agent 页的 Model 标签，或使用 `mux model assign` 增量分配兼容 Profile；需要切换 current 时单独使用 `mux model use`。若 Agent 现场被外部修改，使用 `mux model converge <profile-id> --agent <agent-id> <adopt|restore|detach>` 收敛一个准确 observation；重复 `assign` / `use` 不会隐式覆盖现场。

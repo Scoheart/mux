@@ -242,5 +242,6 @@ fn safe_provider(view: &ModelProviderInstanceView) -> Value {
         "credential_saved": view.credential_saved, "model_count": view.model_count,
         "model_discovery_supported": view.model_discovery_supported,
         "docs_url": models::provider_docs_url(&provider.provider),
+        "portal": models::provider_portal(&provider.provider),
     })
 }

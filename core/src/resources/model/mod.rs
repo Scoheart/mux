@@ -37,7 +37,7 @@ use crate::settings::{load_settings, mutate_settings};
 use jsonc_parser::cst::{CstInputValue, CstNode, CstObject, CstRootNode};
 use jsonc_parser::ParseOptions;
 use serde::ser::SerializeStruct;
-use serde::{Serialize, Serializer};
+use serde::{Deserialize, Serialize, Serializer};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
@@ -161,12 +161,55 @@ fn provider_setup(id: &str) -> Option<ModelProviderSetupView> {
     Some(ModelProviderSetupView { base_url_placeholder, hint })
 }
 
+/// Official account access metadata, separate from inference endpoints and
+/// stored credentials. A console is not advertised as a direct key page.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ModelProviderPortalView {
+    pub url: String,
+    pub kind: ModelProviderPortalKind,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ModelProviderPortalKind {
+    ApiKey,
+    Console,
+    Setup,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ModelProviderLinks {
+    docs_url: String,
+    portal: ModelProviderPortalView,
+}
+
+static PROVIDER_LINKS: LazyLock<BTreeMap<String, ModelProviderLinks>> = LazyLock::new(|| {
+    let links: BTreeMap<String, ModelProviderLinks> =
+        serde_json::from_str(include_str!("../../../../data/provider-links.json"))
+            .expect("provider link catalog must be valid");
+    for (id, entry) in &links {
+        assert!(MODEL_PROVIDERS.iter().any(|provider| provider.id == id.as_str() && provider.category != "custom"),
+            "unknown provider link: {id}");
+        for value in [&entry.docs_url, &entry.portal.url] {
+            let url = url::Url::parse(value).expect("provider links must be valid URLs");
+            assert!(url.scheme() == "https" && url.host_str().is_some()
+                && url.username().is_empty() && url.password().is_none(),
+                "provider links must be credential-free HTTPS URLs: {id}");
+        }
+    }
+    assert!(MODEL_PROVIDERS.iter().filter(|provider| provider.category != "custom")
+        .all(|provider| links.contains_key(provider.id)), "provider link catalog must cover every built-in template");
+    links
+});
+
 pub fn provider_docs_url(id: &str) -> Option<&'static str> {
-    static DOCS: LazyLock<BTreeMap<String, String>> = LazyLock::new(|| {
-        serde_json::from_str(include_str!("../../../../data/provider-docs.json"))
-            .expect("provider documentation catalog must be valid")
-    });
-    DOCS.get(id).map(String::as_str)
+    PROVIDER_LINKS.get(id).map(|links| links.docs_url.as_str())
+}
+
+pub fn provider_portal(id: &str) -> Option<&'static ModelProviderPortalView> {
+    PROVIDER_LINKS.get(id).map(|links| &links.portal)
 }
 
 impl Serialize for ModelProviderView {
@@ -176,10 +219,11 @@ impl Serialize for ModelProviderView {
     {
         let (base_url, protocols) =
             provider_template_connection(self).map_err(serde::ser::Error::custom)?;
-        let mut view = serializer.serialize_struct("ModelProviderView", 11)?;
+        let mut view = serializer.serialize_struct("ModelProviderView", 12)?;
         view.serialize_field("id", self.id)?;
         view.serialize_field("name", self.name)?;
         view.serialize_field("docs_url", &provider_docs_url(self.id))?;
+        view.serialize_field("portal", &provider_portal(self.id))?;
         view.serialize_field("default_base_url", &self.default_base_url)?;
         view.serialize_field("default_protocol", &self.default_protocol)?;
         view.serialize_field(

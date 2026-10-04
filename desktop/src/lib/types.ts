@@ -176,6 +176,11 @@ export interface ModelProviderView {
   name: string;
   /** Official, provider-specific documentation; absent for custom connections. */
   docs_url?: string | null;
+  /** Official key page, account console, or local setup guide supplied by core. */
+  portal?: {
+    url: string;
+    kind: "api-key" | "console" | "setup";
+  } | null;
   default_base_url: string | null;
   default_protocol: ModelProtocol;
   additional_endpoints: Array<{

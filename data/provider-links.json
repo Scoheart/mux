@@ -1,0 +1,506 @@
+{
+  "vercel-ai-gateway": {
+    "docs_url": "https://vercel.com/docs/ai-gateway",
+    "portal": {
+      "url": "https://vercel.com/d?title=AI+Gateway+API+Keys&to=%2F%5Bteam%5D%2F~%2Fai-gateway%2Fapi-keys",
+      "kind": "api-key"
+    }
+  },
+  "routeway": {
+    "docs_url": "https://docs.routeway.ai/",
+    "portal": {
+      "url": "https://routeway.ai/dashboard",
+      "kind": "console"
+    }
+  },
+  "infron": {
+    "docs_url": "https://infron.ai/docs",
+    "portal": {
+      "url": "https://infron.ai/dashboard/apiKeys",
+      "kind": "api-key"
+    }
+  },
+  "apinex": {
+    "docs_url": "https://apinex.bond/developers/models/chat",
+    "portal": {
+      "url": "https://apinex.bond/",
+      "kind": "console"
+    }
+  },
+  "tokenharbor": {
+    "docs_url": "https://tokenharbor.ai/docs/api/curl",
+    "portal": {
+      "url": "https://tokenharbor.ai/dashboard/api-keys",
+      "kind": "api-key"
+    }
+  },
+  "azure-openai": {
+    "docs_url": "https://learn.microsoft.com/en-us/azure/ai-foundry/openai/api-version-lifecycle?view=foundry-classic",
+    "portal": {
+      "url": "https://ai.azure.com/",
+      "kind": "console"
+    }
+  },
+  "amazon-bedrock-mantle": {
+    "docs_url": "https://docs.aws.amazon.com/bedrock/latest/userguide/bedrock-mantle.html",
+    "portal": {
+      "url": "https://console.aws.amazon.com/bedrock/home",
+      "kind": "console"
+    }
+  },
+  "cloudflare-workers-ai": {
+    "docs_url": "https://developers.cloudflare.com/workers-ai/",
+    "portal": {
+      "url": "https://dash.cloudflare.com/profile/api-tokens",
+      "kind": "api-key"
+    }
+  },
+  "deepinfra": {
+    "docs_url": "https://docs.deepinfra.com/",
+    "portal": {
+      "url": "https://deepinfra.com/dash/api_keys",
+      "kind": "api-key"
+    }
+  },
+  "sambanova": {
+    "docs_url": "https://docs.sambanova.ai/",
+    "portal": {
+      "url": "https://cloud.sambanova.ai/apis",
+      "kind": "api-key"
+    }
+  },
+  "perplexity": {
+    "docs_url": "https://docs.perplexity.ai/",
+    "portal": {
+      "url": "https://www.perplexity.ai/account/api/keys",
+      "kind": "api-key"
+    }
+  },
+  "volcengine": {
+    "docs_url": "https://www.volcengine.com/docs/82379/1330310",
+    "portal": {
+      "url": "https://console.volcengine.com/ark/region:ark%2Bcn-beijing/apiKey",
+      "kind": "api-key"
+    }
+  },
+  "volcengine-coding-plan": {
+    "docs_url": "https://www.volcengine.com/docs/82379/1928261",
+    "portal": {
+      "url": "https://console.volcengine.com/ark/",
+      "kind": "console"
+    }
+  },
+  "baidu-qianfan": {
+    "docs_url": "https://cloud.baidu.com/doc/qianfan-docs/s/qm8qxemze",
+    "portal": {
+      "url": "https://console.bce.baidu.com/iam/#/iam/apikey/list",
+      "kind": "api-key"
+    }
+  },
+  "baidu-qianfan-coding-plan": {
+    "docs_url": "https://cloud.baidu.com/doc/qianfan/s/imlg0beiu",
+    "portal": {
+      "url": "https://console.bce.baidu.com/qianfan/resource/token-plan",
+      "kind": "console"
+    }
+  },
+  "minimax": {
+    "docs_url": "https://platform.minimax.io/docs/guides/quickstart",
+    "portal": {
+      "url": "https://platform.minimax.io/console/access",
+      "kind": "api-key"
+    }
+  },
+  "minimax-cn": {
+    "docs_url": "https://platform.minimax.cn/docs/guides/quickstart-preparation",
+    "portal": {
+      "url": "https://platform.minimax.cn/console/",
+      "kind": "console"
+    }
+  },
+  "stepfun": {
+    "docs_url": "https://platform.stepfun.com/docs/zh/overview/concept",
+    "portal": {
+      "url": "https://platform.stepfun.com/interface-key",
+      "kind": "api-key"
+    }
+  },
+  "stepfun-global": {
+    "docs_url": "https://platform.stepfun.ai/docs/en/quickstart/overview",
+    "portal": {
+      "url": "https://platform.stepfun.ai/interface-key",
+      "kind": "api-key"
+    }
+  },
+  "zhipuai": {
+    "docs_url": "https://docs.bigmodel.cn/cn/guide/develop/http/introduction",
+    "portal": {
+      "url": "https://open.bigmodel.cn/usercenter/apikeys",
+      "kind": "api-key"
+    }
+  },
+  "moonshotai-cn": {
+    "docs_url": "https://platform.moonshot.cn/docs/api/chat",
+    "portal": {
+      "url": "https://platform.kimi.com/console/api-keys",
+      "kind": "api-key"
+    }
+  },
+  "alibaba-international": {
+    "docs_url": "https://www.alibabacloud.com/help/en/model-studio/compatibility-of-openai-with-dashscope",
+    "portal": {
+      "url": "https://bailian.console.alibabacloud.com/?apiKey=1",
+      "kind": "api-key"
+    }
+  },
+  "siliconflow-cn": {
+    "docs_url": "https://docs.siliconflow.cn/",
+    "portal": {
+      "url": "https://cloud.siliconflow.cn/account/ak",
+      "kind": "api-key"
+    }
+  },
+  "openrouter": {
+    "docs_url": "https://openrouter.ai/docs/quickstart",
+    "portal": {
+      "url": "https://openrouter.ai/workspaces/default/keys",
+      "kind": "api-key"
+    }
+  },
+  "anthropic": {
+    "docs_url": "https://platform.claude.com/docs/en/intro",
+    "portal": {
+      "url": "https://platform.claude.com/settings/keys",
+      "kind": "api-key"
+    }
+  },
+  "openai": {
+    "docs_url": "https://developers.openai.com/api/docs/",
+    "portal": {
+      "url": "https://platform.openai.com/api-keys",
+      "kind": "api-key"
+    }
+  },
+  "google": {
+    "docs_url": "https://ai.google.dev/gemini-api/docs/models",
+    "portal": {
+      "url": "https://aistudio.google.com/api-keys",
+      "kind": "api-key"
+    }
+  },
+  "xai": {
+    "docs_url": "https://docs.x.ai/",
+    "portal": {
+      "url": "https://console.x.ai/",
+      "kind": "console"
+    }
+  },
+  "mistral": {
+    "docs_url": "https://docs.mistral.ai/getting-started/models/",
+    "portal": {
+      "url": "https://admin.mistral.ai/plateforme/api-keys",
+      "kind": "api-key"
+    }
+  },
+  "cohere": {
+    "docs_url": "https://docs.cohere.com/docs/models",
+    "portal": {
+      "url": "https://dashboard.cohere.com/api-keys",
+      "kind": "api-key"
+    }
+  },
+  "deepseek": {
+    "docs_url": "https://api-docs.deepseek.com/",
+    "portal": {
+      "url": "https://platform.deepseek.com/api_keys",
+      "kind": "api-key"
+    }
+  },
+  "groq": {
+    "docs_url": "https://console.groq.com/docs/models",
+    "portal": {
+      "url": "https://console.groq.com/keys",
+      "kind": "api-key"
+    }
+  },
+  "alibaba": {
+    "docs_url": "https://help.aliyun.com/zh/model-studio/compatibility-of-openai-with-dashscope",
+    "portal": {
+      "url": "https://bailian.console.aliyun.com/?apiKey=1",
+      "kind": "api-key"
+    }
+  },
+  "alibaba-coding-plan-cn": {
+    "docs_url": "https://help.aliyun.com/zh/model-studio/coding-plan",
+    "portal": {
+      "url": "https://bailian.console.aliyun.com/cn-beijing/subscription/coding-plan",
+      "kind": "console"
+    }
+  },
+  "alibaba-coding-plan": {
+    "docs_url": "https://www.alibabacloud.com/help/en/model-studio/coding-plan",
+    "portal": {
+      "url": "https://modelstudio.console.alibabacloud.com/",
+      "kind": "console"
+    }
+  },
+  "alibaba-token-plan-cn": {
+    "docs_url": "https://help.aliyun.com/zh/model-studio/token-plan-personal-quick-start",
+    "portal": {
+      "url": "https://bailian.console.aliyun.com/cn-beijing/subscription/overview",
+      "kind": "console"
+    }
+  },
+  "alibaba-token-plan": {
+    "docs_url": "https://www.alibabacloud.com/help/en/model-studio/token-plan-quickstart",
+    "portal": {
+      "url": "https://modelstudio.console.alibabacloud.com/ap-southeast-1/subscription/overview",
+      "kind": "console"
+    }
+  },
+  "xiaomi": {
+    "docs_url": "https://mimo.mi.com/docs/en-US/quick-start/summary/first-api-call",
+    "portal": {
+      "url": "https://platform.xiaomimimo.com/",
+      "kind": "console"
+    }
+  },
+  "xiaomi-token-plan-cn": {
+    "docs_url": "https://mimo.mi.com/docs/zh-CN/tokenplan/Token%20Plan/quick-access",
+    "portal": {
+      "url": "https://platform.xiaomimimo.com/",
+      "kind": "console"
+    }
+  },
+  "xiaomi-token-plan-sgp": {
+    "docs_url": "https://mimo.mi.com/docs/en-US/tokenplan/Token%20Plan/quick-access",
+    "portal": {
+      "url": "https://platform.xiaomimimo.com/",
+      "kind": "console"
+    }
+  },
+  "xiaomi-token-plan-ams": {
+    "docs_url": "https://mimo.mi.com/docs/en-US/tokenplan/Token%20Plan/quick-access",
+    "portal": {
+      "url": "https://platform.xiaomimimo.com/",
+      "kind": "console"
+    }
+  },
+  "moonshotai": {
+    "docs_url": "https://platform.moonshot.ai/docs/api/chat",
+    "portal": {
+      "url": "https://platform.kimi.ai/console/api-keys",
+      "kind": "api-key"
+    }
+  },
+  "kimi-for-coding": {
+    "docs_url": "https://www.kimi.com/code/docs/en/",
+    "portal": {
+      "url": "https://www.kimi.com/code/console",
+      "kind": "console"
+    }
+  },
+  "zai": {
+    "docs_url": "https://docs.z.ai/",
+    "portal": {
+      "url": "https://z.ai/manage-apikey/apikey-list",
+      "kind": "api-key"
+    }
+  },
+  "zai-coding-plan": {
+    "docs_url": "https://docs.z.ai/devpack/overview",
+    "portal": {
+      "url": "https://z.ai/manage-apikey/apikey-list",
+      "kind": "api-key"
+    }
+  },
+  "zhipuai-coding-plan": {
+    "docs_url": "https://docs.bigmodel.cn/cn/coding-plan/overview",
+    "portal": {
+      "url": "https://open.bigmodel.cn/usercenter/apikeys",
+      "kind": "api-key"
+    }
+  },
+  "minimax-coding-plan": {
+    "docs_url": "https://platform.minimax.io/docs/token-plan/intro",
+    "portal": {
+      "url": "https://platform.minimax.io/console/plan",
+      "kind": "console"
+    }
+  },
+  "minimax-cn-coding-plan": {
+    "docs_url": "https://platform.minimax.cn/docs/token-plan/intro",
+    "portal": {
+      "url": "https://platform.minimax.cn/console/plan",
+      "kind": "console"
+    }
+  },
+  "stepfun-step-plan": {
+    "docs_url": "https://platform.stepfun.com/docs/zh/step-plan/integrations/reasoning-api",
+    "portal": {
+      "url": "https://platform.stepfun.com/interface-key",
+      "kind": "api-key"
+    }
+  },
+  "stepfun-ai-step-plan": {
+    "docs_url": "https://platform.stepfun.ai/docs/en/step-plan/integrations/reasoning-api",
+    "portal": {
+      "url": "https://platform.stepfun.ai/interface-key",
+      "kind": "api-key"
+    }
+  },
+  "tencent-coding-plan": {
+    "docs_url": "https://cloud.tencent.com/document/product/1772/128947",
+    "portal": {
+      "url": "https://console.cloud.tencent.com/tokenhub/",
+      "kind": "console"
+    }
+  },
+  "tencent-token-plan": {
+    "docs_url": "https://cloud.tencent.com/document/product/1823/130060",
+    "portal": {
+      "url": "https://console.cloud.tencent.com/tokenhub/",
+      "kind": "console"
+    }
+  },
+  "tencent-token-plan-global": {
+    "docs_url": "https://intl.cloud.tencent.com/document/product/1300/81315",
+    "portal": {
+      "url": "https://console.tencentcloud.com/tokenhub/",
+      "kind": "console"
+    }
+  },
+  "nvidia": {
+    "docs_url": "https://docs.api.nvidia.com/nim/",
+    "portal": {
+      "url": "https://build.nvidia.com/settings/api-keys",
+      "kind": "api-key"
+    }
+  },
+  "cerebras": {
+    "docs_url": "https://inference-docs.cerebras.ai/models/overview",
+    "portal": {
+      "url": "https://cloud.cerebras.ai/",
+      "kind": "console"
+    }
+  },
+  "siliconflow": {
+    "docs_url": "https://docs.siliconflow.com/",
+    "portal": {
+      "url": "https://cloud.siliconflow.com/",
+      "kind": "console"
+    }
+  },
+  "together": {
+    "docs_url": "https://docs.together.ai/",
+    "portal": {
+      "url": "https://api.together.ai/settings/api-keys",
+      "kind": "api-key"
+    }
+  },
+  "fireworks": {
+    "docs_url": "https://docs.fireworks.ai/",
+    "portal": {
+      "url": "https://app.fireworks.ai/settings/users/api-keys",
+      "kind": "api-key"
+    }
+  },
+  "poe": {
+    "docs_url": "https://creator.poe.com/docs/external-applications/openai-compatible-api",
+    "portal": {
+      "url": "https://poe.com/api/keys",
+      "kind": "api-key"
+    }
+  },
+  "huggingface": {
+    "docs_url": "https://huggingface.co/docs/inference-providers",
+    "portal": {
+      "url": "https://huggingface.co/settings/tokens",
+      "kind": "api-key"
+    }
+  },
+  "novita-ai": {
+    "docs_url": "https://novita.ai/docs/guides/introduction",
+    "portal": {
+      "url": "https://novita.ai/settings/key-management",
+      "kind": "api-key"
+    }
+  },
+  "qiniu-ai": {
+    "docs_url": "https://developer.qiniu.com/aitokenapi",
+    "portal": {
+      "url": "https://portal.qiniu.com/ai-inference/api-key",
+      "kind": "api-key"
+    }
+  },
+  "digitalocean": {
+    "docs_url": "https://docs.digitalocean.com/products/gradient-ai-platform/details/models/",
+    "portal": {
+      "url": "https://cloud.digitalocean.com/model-studio/manage-keys",
+      "kind": "api-key"
+    }
+  },
+  "modelscope": {
+    "docs_url": "https://modelscope.cn/docs/model-service/API-Inference/intro",
+    "portal": {
+      "url": "https://modelscope.cn/my/myaccesstoken",
+      "kind": "api-key"
+    }
+  },
+  "scaleway": {
+    "docs_url": "https://www.scaleway.com/en/docs/generative-apis/",
+    "portal": {
+      "url": "https://console.scaleway.com/iam/api-keys",
+      "kind": "api-key"
+    }
+  },
+  "nebius": {
+    "docs_url": "https://docs.tokenfactory.nebius.com/",
+    "portal": {
+      "url": "https://tokenfactory.nebius.com/settings/api-keys",
+      "kind": "api-key"
+    }
+  },
+  "requesty": {
+    "docs_url": "https://docs.requesty.ai/",
+    "portal": {
+      "url": "https://app.requesty.ai/api-keys",
+      "kind": "api-key"
+    }
+  },
+  "baseten": {
+    "docs_url": "https://docs.baseten.co/inference/model-apis/overview",
+    "portal": {
+      "url": "https://app.baseten.co/settings/api_keys",
+      "kind": "api-key"
+    }
+  },
+  "wandb": {
+    "docs_url": "https://docs.wandb.ai/inference",
+    "portal": {
+      "url": "https://forge.coreweave.com/wandb/settings",
+      "kind": "console"
+    }
+  },
+  "ollama": {
+    "docs_url": "https://docs.ollama.com/",
+    "portal": {
+      "url": "https://docs.ollama.com/openai",
+      "kind": "setup"
+    }
+  },
+  "lm-studio": {
+    "docs_url": "https://lmstudio.ai/docs/developer",
+    "portal": {
+      "url": "https://lmstudio.ai/docs/developer",
+      "kind": "setup"
+    }
+  },
+  "vllm": {
+    "docs_url": "https://docs.vllm.ai/en/latest/serving/openai_compatible_server/",
+    "portal": {
+      "url": "https://docs.vllm.ai/en/latest/serving/openai_compatible_server/",
+      "kind": "setup"
+    }
+  }
+}

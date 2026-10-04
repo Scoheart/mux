@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.9.0](https://github.com/Scoheart/mux/compare/v1.8.239...v1.9.0) (2026-10-04)
+
+### Changes
+
+* feat(integrations): expand providers and agent coverage ([55b4831](https://github.com/Scoheart/mux/commit/55b48317661068a7d3c3402f4d9e06d93c14e899))
+
 ## [1.8.239](https://github.com/Scoheart/mux/compare/v1.8.238...v1.8.239) (2026-10-04)
 
 ### Changes

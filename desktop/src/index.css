@@ -313,6 +313,36 @@ body {
 }
 .mux-icon-btn:disabled { opacity: .35; cursor: default; }
 .mux-icon-btn:disabled:hover { background: transparent; color: var(--color-gray-600); }
+.mux-toast-viewport {
+  position: fixed; top: 68px; right: 18px; z-index: 650;
+  width: min(380px, calc(100vw - 36px)); pointer-events: none;
+}
+.mux-toast {
+  display: flex; align-items: center; gap: 10px; min-height: 52px; padding: 10px 10px 10px 13px;
+  border: 1px solid var(--border-hairline); border-radius: 13px;
+  background: var(--surface-popover); box-shadow: var(--shadow-sheet);
+  color: var(--text-primary); font-size: 13px; font-weight: 550;
+  pointer-events: auto; animation: mux-toast-enter 220ms cubic-bezier(.2,.8,.2,1) both;
+}
+.mux-toast[data-leaving="true"] { animation: mux-toast-exit 180ms ease-in both; pointer-events: none; }
+.mux-toast-icon {
+  display: flex; flex: 0 0 20px; align-items: center; justify-content: center;
+  width: 20px; height: 20px; border-radius: 50%; background: var(--color-green);
+}
+.mux-toast-icon[data-kind="error"] { background: var(--color-red); }
+.mux-toast-message { flex: 1; min-width: 0; overflow-wrap: anywhere; line-height: 1.4; }
+.mux-toast-close { flex: 0 0 30px; }
+@keyframes mux-toast-enter {
+  from { opacity: 0; transform: translate3d(24px, -4px, 0) scale(.97); }
+  to { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
+}
+@keyframes mux-toast-exit {
+  from { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
+  to { opacity: 0; transform: translate3d(20px, -4px, 0) scale(.98); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .mux-toast, .mux-toast[data-leaving="true"] { animation: none; }
+}
 .mux-network-button { position: relative; }
 .mux-network-status-dot {
   position: absolute; top: 4px; right: 4px; width: 6px; height: 6px; border: 1.5px solid var(--surface-overlay); border-radius: 50%;

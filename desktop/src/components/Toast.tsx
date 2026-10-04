@@ -19,69 +19,50 @@ export function useToast() {
 
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<ToastItem[]>([]);
+  const [leaving, setLeaving] = useState(false);
   const nextId = useRef(0);
-  const timers = useRef(new Map<number, ReturnType<typeof setTimeout>>());
-  const dismiss = useCallback((id: number) => {
-    clearTimeout(timers.current.get(id));
-    timers.current.delete(id);
-    setToasts((current) => current.filter((toast) => toast.id !== id));
-  }, []);
-  useEffect(() => () => {
-    timers.current.forEach(clearTimeout);
-    timers.current.clear();
-  }, []);
+  const active = toasts[0];
+  const dismiss = useCallback(() => setLeaving(true), []);
 
   const show = useCallback(({ kind, msg }: { kind: "success" | "error"; msg: string }) => {
     const id = ++nextId.current;
-    setToasts((prev) => [...prev, { id, kind, msg }]);
-    // Failures stay available for inspection; successful operations are quiet
-    // after a readable interval. Neither needs polling to infer completion.
-    if (kind === "success") timers.current.set(id, setTimeout(() => dismiss(id), 6000));
-  }, [dismiss]);
+    // Repeated failures should not turn into a long sequence of identical cards.
+    setToasts((prev) => prev.some((toast) => toast.kind === kind && toast.msg === msg)
+      ? prev : [...prev, { id, kind, msg }]);
+  }, []);
+
+  useEffect(() => {
+    if (!active || leaving) return;
+    const timer = setTimeout(dismiss, active.kind === "error" ? 9000 : 6000);
+    return () => clearTimeout(timer);
+  }, [active?.id, active?.kind, leaving, dismiss]);
+
+  useEffect(() => {
+    if (!leaving) return;
+    const timer = setTimeout(() => {
+      setToasts((current) => current.slice(1));
+      setLeaving(false);
+    }, 180);
+    return () => clearTimeout(timer);
+  }, [leaving]);
 
   return (
     <ToastContext.Provider value={{ show }}>
       {children}
-      {/* Toast container */}
-      <div
-        className="fixed bottom-5 left-1/2 -translate-x-1/2 flex flex-col gap-2 z-50"
-        style={{ pointerEvents: "none" }}
-      >
-        {toasts.map((t) => (
-          <div
-            key={t.id}
-            role={t.kind === "error" ? "alert" : "status"}
-            aria-atomic="true"
-            className="flex items-center gap-2.5 px-4 py-3 rounded-mac text-sm font-medium"
-            style={{
-              background: "var(--glass-fill-strong)",
-              backdropFilter: "blur(var(--glass-blur)) saturate(var(--glass-saturate))",
-              WebkitBackdropFilter: "blur(var(--glass-blur)) saturate(var(--glass-saturate))",
-              border: "1px solid var(--glass-border)",
-              boxShadow: "var(--shadow-sheet), var(--glass-highlight)",
-              color: "var(--text-primary)",
-              pointerEvents: "auto",
-              minWidth: 220,
-            }}
-          >
-            <div
-              className="w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0"
-              style={{
-                background: t.kind === "success" ? "#34C759" : "#FF3B30",
-              }}
-            >
-              {t.kind === "success" ? (
-                <CheckIcon className="w-3 h-3 text-white" />
-              ) : (
-                <XIcon className="w-3 h-3 text-white" />
-              )}
+      {active && (
+        <div className="mux-toast-viewport">
+          <div key={active.id} className="mux-toast" data-leaving={leaving || undefined}
+            role={active.kind === "error" ? "alert" : "status"} aria-atomic="true">
+            <div className="mux-toast-icon" data-kind={active.kind}>
+              {active.kind === "success" ? <CheckIcon className="w-3 h-3 text-white" /> : <XIcon className="w-3 h-3 text-white" />}
             </div>
-            <span>{t.msg}</span>
-            <button type="button" className="mux-icon-btn" aria-label={`关闭${t.kind === "error" ? "错误" : "成功"}通知 ${t.id}`}
-              title="关闭通知" onClick={() => dismiss(t.id)}><XIcon className="w-3.5 h-3.5" /></button>
+            <span className="mux-toast-message">{active.msg}</span>
+            <button type="button" className="mux-icon-btn mux-toast-close"
+              aria-label={`关闭${active.kind === "error" ? "错误" : "成功"}通知`}
+              title="关闭通知" onClick={dismiss}><XIcon className="w-3.5 h-3.5" /></button>
           </div>
-        ))}
-      </div>
+        </div>
+      )}
     </ToastContext.Provider>
   );
 }

@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.10.0](https://github.com/Scoheart/mux/compare/v1.9.0...v1.10.0) (2026-10-04)
+
+### Changes
+
+* feat(mux): improve skill reliability and agent automation ([b0a0157](https://github.com/Scoheart/mux/commit/b0a01576cc58d26afa92fd7813bf55602a74df0d))
+
 ## [1.9.0](https://github.com/Scoheart/mux/compare/v1.8.239...v1.9.0) (2026-10-04)
 
 ### Changes

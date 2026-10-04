@@ -72,6 +72,10 @@ pub struct ModelProviderConfig {
     /// the Provider protocol endpoint.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model_catalog_url: Option<String>,
+    /// Optional account/key page for this connection; otherwise use the
+    /// built-in Provider template's portal.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub portal_url: Option<String>,
     /// Enabled protocols and their editable relative request paths.
     pub protocols: BTreeMap<ModelProtocol, ModelProviderProtocolConfig>,
     pub auth_requirement: AuthRequirement,
@@ -92,6 +96,8 @@ struct ModelProviderConfigWire {
     base_url: String,
     #[serde(default)]
     model_catalog_url: Option<String>,
+    #[serde(default)]
+    portal_url: Option<String>,
     #[serde(default)]
     protocols: BTreeMap<ModelProtocol, ModelProviderProtocolConfig>,
     /// Settings v3/v4 stored one protocol-client base URL per protocol.
@@ -143,6 +149,7 @@ impl<'de> Deserialize<'de> for ModelProviderConfig {
             provider: wire.provider,
             base_url,
             model_catalog_url: wire.model_catalog_url,
+            portal_url: wire.portal_url,
             protocols,
             auth_requirement,
             api_key_source,

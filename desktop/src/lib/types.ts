@@ -145,6 +145,8 @@ export interface ModelProviderConfig {
   base_url: string;
   /** Optional full endpoint used to discover this Provider's available models. */
   model_catalog_url?: string;
+  /** Optional account/key page override for this connection. */
+  portal_url?: string;
   protocols: Partial<Record<ModelProtocol, {
     endpoint_path: string;
   }>>;
@@ -155,6 +157,8 @@ export interface ModelProviderConfig {
 }
 
 export interface ModelProviderInstanceView extends ModelProviderConfig {
+  /** Effective portal resolved by core from the override or template. */
+  portal?: ModelProviderView["portal"];
   credential_saved: boolean;
   model_count: number;
   model_discovery_supported: boolean;

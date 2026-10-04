@@ -246,6 +246,20 @@ function normalizeModelCatalogUrl(value: string) {
   }
 }
 
+function normalizeProviderPortalUrl(value: string) {
+  const normalized = value.trim();
+  if (!normalized || /\s/.test(normalized)) return null;
+  try {
+    const url = new URL(normalized);
+    if (url.protocol !== "https:" || !url.hostname || url.username || url.password || url.hash) return null;
+    if ([...url.searchParams.keys()].some((name) =>
+      /^(key|api_key|apikey|token|access_token|secret|password|authorization|credential|sig|signature)$/i.test(name))) return null;
+    return normalized;
+  } catch {
+    return null;
+  }
+}
+
 function normalizeEndpointPath(value: string) {
   const trimmed = value.trim();
   if (
@@ -579,7 +593,7 @@ export function ModelsView({
         {selectedProvider && (
           <ProviderBanner
             provider={selectedProvider}
-            portal={providers.find((template) => template.id === selectedProvider.provider)?.portal}
+            portal={selectedProvider.portal}
             onEdit={consumptionState ? () => setEditingProvider(selectedProvider) : undefined}
             onDelete={consumptionState ? async () => {
               try {
@@ -1629,6 +1643,8 @@ function ModelProviderDialog({
     auth_requirement: initialAuthRequirement,
     api_key_source: initialSource,
   });
+  const defaultPortal = template?.portal;
+  const [portalUrl, setPortalUrl] = useState(initial?.portal_url ?? defaultPortal?.url ?? "");
   const [protocolPaths, setProtocolPaths] = useState<Record<ModelProtocol, string>>(
     Object.fromEntries(
       PROTOCOLS.map(({ id }) => [
@@ -1679,6 +1695,11 @@ function ModelProviderDialog({
   const normalizedModelCatalogUrl = draft.model_catalog_url
     ? normalizeModelCatalogUrl(draft.model_catalog_url) ?? undefined
     : undefined;
+  const normalizedPortalUrl = portalUrl.trim() ? normalizeProviderPortalUrl(portalUrl) : null;
+  const portal = normalizedPortalUrl
+    ? { url: normalizedPortalUrl, kind: defaultPortal?.kind ?? (initialAuthRequirement === "none" ? "setup" : "api-key") }
+    : undefined;
+  const portalCustomized = portalUrl.trim() !== (defaultPortal?.url ?? "");
   const protocolsValid = enabledProtocols.length > 0
     && enabledProtocols.every(({ id }) => {
       const path = draft.protocols[id]?.endpoint_path ?? "";
@@ -1706,6 +1727,7 @@ function ModelProviderDialog({
       && draft.provider.trim()
       && normalizedBaseUrl
       && (!draft.model_catalog_url || normalizedModelCatalogUrl)
+      && (!portalUrl.trim() || normalizedPortalUrl)
       && protocolsValid
       && sourceValid
       && !busy
@@ -1744,6 +1766,8 @@ function ModelProviderDialog({
         provider: draft.provider.trim(),
         base_url: normalizedBaseUrl!,
         model_catalog_url: normalizedModelCatalogUrl,
+        portal_url: normalizedPortalUrl && normalizedPortalUrl !== defaultPortal?.url
+          ? normalizedPortalUrl : undefined,
         protocols,
         auth_requirement: authRequirement,
         api_key_source: authRequirement === "none" ? undefined : apiKeySource,
@@ -1771,7 +1795,6 @@ function ModelProviderDialog({
         : t("models.addProviderNamed", { name: dialogName })}
       busy={busy}
       onClose={onClose}
-      footerStart={<ProviderPortalButton portal={template?.portal} />}
       footerEnd={(
         <>
           <button type="button" className="btn-secondary" disabled={busy} onClick={onClose}>
@@ -1861,6 +1884,37 @@ function ModelProviderDialog({
           )}
         </section>
         )}
+
+        <section className="mux-provider-form-section mux-provider-portal" aria-label={t("models.providerPortalUrl")}>
+          <div className="mux-provider-section-head">
+            <strong>{t("models.providerPortalUrl")}</strong>
+            <small>{defaultPortal
+              ? portalCustomized ? t("models.providerPortalCustom") : t("models.providerPortalDefault")
+              : t("models.providerPortalOptional")}</small>
+          </div>
+          <div className="mux-provider-portal-row">
+            <input
+              aria-label={t("models.providerPortalUrl")}
+              className="mux-model-field"
+              type="url"
+              value={portalUrl}
+              onChange={(event) => setPortalUrl(event.currentTarget.value)}
+              placeholder="https://provider.example.com/api-keys"
+              spellCheck={false}
+            />
+            <ProviderPortalButton portal={portal} />
+          </div>
+          <div className="mux-provider-portal-note">
+            {portalUrl.trim() && !normalizedPortalUrl
+              ? <small className="mux-provider-portal-error">{t("models.invalidProviderPortalUrl")}</small>
+              : <small>{t("models.providerPortalHelp")}</small>}
+            {portalCustomized && defaultPortal && (
+              <button type="button" className="mux-provider-portal-reset" onClick={() => setPortalUrl(defaultPortal.url)}>
+                {t("models.providerPortalReset")}
+              </button>
+            )}
+          </div>
+        </section>
 
         <section className="mux-provider-form-section">
           <label className="mux-provider-model-catalog-field">

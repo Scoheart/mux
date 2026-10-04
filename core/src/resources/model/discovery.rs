@@ -819,6 +819,7 @@ mod tests {
             provider: provider_type.into(),
             base_url: base_url.into(),
             model_catalog_url: None,
+            portal_url: None,
             protocols: BTreeMap::from([(
                 protocol,
                 ModelProviderProtocolConfig {

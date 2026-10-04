@@ -2468,6 +2468,16 @@ body {
   background: transparent; color: var(--text-primary); font: 12px/1 var(--font-sans);
 }
 .mux-provider-credential-input input:disabled { opacity: .5; cursor: not-allowed; }
+.mux-provider-portal { gap: 8px; }
+.mux-provider-portal-row { display: flex; min-width: 0; align-items: center; gap: 8px; }
+.mux-provider-portal-row .mux-model-field { min-width: 0; flex: 1; font-family: var(--font-mono); font-size: 11px; }
+.mux-provider-portal-row .btn-ghost { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; border: 1px solid var(--border-hairline); border-radius: 6px; }
+.mux-provider-portal-note { display: flex; min-height: 15px; align-items: center; justify-content: space-between; gap: 12px; }
+.mux-provider-portal-note small { color: var(--text-tertiary); font-size: 10px; line-height: 1.35; }
+.mux-provider-portal-note .mux-provider-portal-error { color: var(--color-red); }
+.mux-provider-portal-reset { padding: 0; border: 0; background: transparent; color: var(--color-blue); font-size: 10px; white-space: nowrap; cursor: pointer; }
+.mux-provider-portal-reset:hover { text-decoration: underline; }
+.mux-provider-portal-reset:focus-visible { outline: 2px solid var(--color-blue); outline-offset: 3px; }
 .mux-model-row-actions { display: flex; min-width: 126px; align-items: center; justify-content: flex-end; gap: 7px; }
 .mux-model-row-actions .mux-form-select { min-width: 118px; }
 .mux-model-row-actions .mux-form-select-trigger { height: 28px; font-size: 10px; }
@@ -2586,6 +2596,8 @@ body {
   .mux-model-form-grid,
   .mux-provider-basic-grid,
   .mux-provider-protocol-list { grid-template-columns: minmax(0, 1fr); }
+  .mux-provider-portal-row { flex-wrap: wrap; }
+  .mux-provider-portal-row .mux-model-field { flex-basis: 100%; }
 }
 
 @media (prefers-reduced-motion: reduce) {

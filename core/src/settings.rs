@@ -968,6 +968,7 @@ mod tests {
             provider: "custom".into(),
             base_url: "https://gateway.example.test".into(),
             model_catalog_url: None,
+            portal_url: None,
             protocols: BTreeMap::from([(
                 ModelProtocol::OpenaiResponses,
                 ModelProviderProtocolConfig {

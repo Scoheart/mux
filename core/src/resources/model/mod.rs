@@ -132,6 +132,7 @@ pub struct ModelProviderView {
 pub struct ModelProviderInstanceView {
     #[serde(flatten)]
     pub provider: ModelProviderConfig,
+    pub portal: Option<ModelProviderPortalView>,
     pub credential_saved: bool,
     pub model_count: usize,
     pub model_discovery_supported: bool,
@@ -210,6 +211,25 @@ pub fn provider_docs_url(id: &str) -> Option<&'static str> {
 
 pub fn provider_portal(id: &str) -> Option<&'static ModelProviderPortalView> {
     PROVIDER_LINKS.get(id).map(|links| &links.portal)
+}
+
+pub fn provider_instance_portal(provider: &ModelProviderConfig) -> Option<ModelProviderPortalView> {
+    let template = provider_portal(&provider.provider);
+    provider
+        .portal_url
+        .as_ref()
+        .and_then(|url| normalize_provider_portal_url(url).ok())
+        .map(|url| ModelProviderPortalView {
+            url,
+            kind: template.map(|portal| portal.kind.clone()).unwrap_or_else(|| {
+                if provider.auth_requirement == crate::domain::types::AuthRequirement::None {
+                    ModelProviderPortalKind::Setup
+                } else {
+                    ModelProviderPortalKind::ApiKey
+                }
+            }),
+        })
+        .or_else(|| template.cloned())
 }
 
 impl Serialize for ModelProviderView {
@@ -1006,6 +1026,7 @@ pub fn list_provider_instances() -> Vec<ModelProviderInstanceView> {
                 credential_saved: provider_credential_present(&provider.id),
                 model_count: model_counts.get(provider.id.as_str()).copied().unwrap_or_default(),
                 model_discovery_supported: discovery::provider_model_discovery_supported(&provider),
+                portal: provider_instance_portal(&provider),
                 provider,
             }
         })
@@ -1282,6 +1303,31 @@ pub fn normalize_model_catalog_url(model_catalog_url: &str) -> Result<String, St
     Ok(model_catalog_url.to_string())
 }
 
+pub fn normalize_provider_portal_url(portal_url: &str) -> Result<String, String> {
+    let portal_url = portal_url.trim();
+    if portal_url.is_empty() || portal_url.chars().any(char::is_whitespace) {
+        return Err("Provider portal URL cannot contain whitespace".into());
+    }
+    let parsed = url::Url::parse(portal_url)
+        .map_err(|error| format!("Provider portal URL must be a valid HTTPS URL: {error}"))?;
+    if parsed.scheme() != "https"
+        || parsed.host_str().is_none()
+        || !parsed.username().is_empty()
+        || parsed.password().is_some()
+        || parsed.fragment().is_some()
+    {
+        return Err("Provider portal URL must be an HTTPS URL without credentials or a fragment".into());
+    }
+    if parsed.query_pairs().any(|(name, _)| {
+        matches!(name.to_ascii_lowercase().as_str(),
+            "key" | "api_key" | "apikey" | "token" | "access_token" | "secret"
+            | "password" | "authorization" | "credential" | "sig" | "signature")
+    }) {
+        return Err("Provider portal URL must not contain credential query parameters".into());
+    }
+    Ok(portal_url.to_string())
+}
+
 pub fn normalize_endpoint_path(endpoint_path: &str) -> Result<String, String> {
     let endpoint_path = endpoint_path.trim();
     if endpoint_path.is_empty() {
@@ -1514,6 +1560,7 @@ pub fn migrate_model_providers_v3_if_needed() -> Result<bool, String> {
                         provider: profile.provider.clone(),
                         base_url: String::new(),
                         model_catalog_url: None,
+                        portal_url: None,
                         protocols: BTreeMap::new(),
                         auth_requirement: if profile.env_key.is_some() {
                             AuthRequirement::Required
@@ -2464,6 +2511,9 @@ pub(crate) fn validate_provider_config(provider: &ModelProviderConfig) -> Result
     if let Some(model_catalog_url) = provider.model_catalog_url.as_deref() {
         normalize_model_catalog_url(model_catalog_url)?;
     }
+    if let Some(portal_url) = provider.portal_url.as_deref() {
+        normalize_provider_portal_url(portal_url)?;
+    }
     if provider.protocols.is_empty() {
         return Err("Provider must enable at least one protocol".into());
     }
@@ -2534,6 +2584,9 @@ pub(crate) fn prepare_provider_draft(
     provider.model_catalog_url = provider
         .model_catalog_url
         .map(|value| normalize_model_catalog_url(&value))
+        .transpose()?;
+    provider.portal_url = provider.portal_url
+        .map(|value| normalize_provider_portal_url(&value))
         .transpose()?;
     provider.protocols = provider
         .protocols
@@ -2939,6 +2992,7 @@ pub fn save_profile(profile: ModelProfile, credential: Option<String>) -> Result
                         provider: profile.provider.clone(),
                         base_url: profile.base_url.clone(),
                         model_catalog_url: None,
+                        portal_url: None,
                         protocols: BTreeMap::new(),
                         auth_requirement: if profile.env_key.is_some() {
                             AuthRequirement::Required
@@ -6222,6 +6276,7 @@ mod tests {
             provider: "custom".into(),
             base_url: "https://gateway.example.test".into(),
             model_catalog_url: None,
+            portal_url: None,
             protocols: BTreeMap::from([(
                 ModelProtocol::OpenaiResponses,
                 protocol("/v1/responses"),
@@ -6252,6 +6307,7 @@ mod tests {
             provider: "custom".into(),
             base_url: "https://gateway.example.test/api/v2/".into(),
             model_catalog_url: None,
+            portal_url: None,
             protocols: BTreeMap::from([
                 (
                     ModelProtocol::AnthropicMessages,
@@ -6564,6 +6620,7 @@ mod tests {
             provider: "openrouter".into(),
             base_url: "https://openrouter.ai/api/v1".into(),
             model_catalog_url: None,
+            portal_url: None,
             protocols: BTreeMap::from([(ModelProtocol::OpenaiResponses, protocol("/responses"))]),
             auth_requirement: crate::domain::types::AuthRequirement::Optional,
             api_key_source: None,
@@ -7049,6 +7106,7 @@ mod tests {
             provider: "custom".into(),
             base_url: "https://gateway.example.test".into(),
             model_catalog_url: None,
+            portal_url: None,
             protocols: BTreeMap::from([
                 (ModelProtocol::OpenaiResponses, protocol("/v1/responses")),
                 (
@@ -7066,6 +7124,7 @@ mod tests {
             provider: "custom".into(),
             base_url: "https://gateway.example.test".into(),
             model_catalog_url: None,
+            portal_url: None,
             protocols: BTreeMap::from([(
                 ModelProtocol::AnthropicMessages,
                 protocol("/anthropic/v1/messages"),
@@ -7132,6 +7191,7 @@ mod tests {
             provider: "custom".into(),
             base_url: "https://gateway.example.test".into(),
             model_catalog_url: None,
+            portal_url: None,
             protocols: BTreeMap::from([
                 (ModelProtocol::OpenaiResponses, protocol("/v1/responses")),
                 (
@@ -7177,6 +7237,7 @@ mod tests {
             provider: "custom".into(),
             base_url: "https://gateway.example.test".into(),
             model_catalog_url: None,
+            portal_url: None,
             protocols: BTreeMap::from([
                 (ModelProtocol::OpenaiResponses, protocol("/v1/responses")),
                 (
@@ -7228,6 +7289,7 @@ mod tests {
             provider: "custom".into(),
             base_url: "https://gateway.example.test".into(),
             model_catalog_url: None,
+            portal_url: None,
             protocols: BTreeMap::from([(
                 ModelProtocol::OpenaiResponses,
                 protocol("/v1/responses"),
@@ -7279,6 +7341,7 @@ mod tests {
             provider: "custom".into(),
             base_url: "https://gateway.example.test".into(),
             model_catalog_url: None,
+            portal_url: None,
             protocols: BTreeMap::from([(
                 ModelProtocol::OpenaiResponses,
                 protocol("/v1/responses"),
@@ -7312,6 +7375,7 @@ mod tests {
             provider: "custom".into(),
             base_url: "https://first.example.test".into(),
             model_catalog_url: None,
+            portal_url: None,
             protocols: BTreeMap::from([(
                 ModelProtocol::OpenaiResponses,
                 protocol("/v1/responses"),
@@ -7326,6 +7390,7 @@ mod tests {
             provider: "openrouter".into(),
             base_url: "https://second.example.test".into(),
             model_catalog_url: None,
+            portal_url: None,
             protocols: BTreeMap::from([(
                 ModelProtocol::OpenaiResponses,
                 protocol("/v1/responses"),

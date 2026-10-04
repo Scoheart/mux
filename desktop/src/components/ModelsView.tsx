@@ -1857,8 +1857,7 @@ function ModelProviderDialog({
         </section>
         )}
 
-        <DialogDisclosure title={t("common.advancedSettings")} summary={t("models.protocolCount", { count: enabledProtocols.length })}
-          invalid={enabledProtocols.length === 0 || Boolean(draft.model_catalog_url && !normalizedModelCatalogUrl) || enabledProtocols.some((protocol) => !normalizeEndpointPath(protocolPaths[protocol.id]))}>
+        <section className="mux-provider-form-section">
           <label className="mux-provider-model-catalog-field">
             <span>{t("models.modelCatalogUrl")}</span>
             <input
@@ -1876,6 +1875,7 @@ function ModelProviderDialog({
               <small>{t("models.invalidModelCatalogUrl")}</small>
             )}
           </label>
+        </section>
         <section className="mux-provider-form-section mux-provider-protocols" aria-label={t("models.supportedProtocols")}>
           <div className="mux-provider-section-head">
             <strong>{t("models.protocolsShort")}</strong>
@@ -1979,7 +1979,6 @@ function ModelProviderDialog({
             )}
           </div>
         </section>
-        </DialogDisclosure>
       </div>
     </DialogShell>
   );

@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.238](https://github.com/Scoheart/mux/compare/v1.8.237...v1.8.238) (2026-10-04)
+
+### Changes
+
+* feat(models): make provider portal links editable ([06ba9f3](https://github.com/Scoheart/mux/commit/06ba9f30418d2f5d49c602a8c3ef8aee5d691ae2))
+
 ## [1.8.237](https://github.com/Scoheart/mux/compare/v1.8.236...v1.8.237) (2026-10-04)
 
 ### Changes

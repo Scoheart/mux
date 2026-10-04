@@ -145,7 +145,7 @@ Skill consumption supports **45 separately verified user-level Agent capabilitie
 
 Grab the **Desktop installer · Apple Silicon** asset from the latest stable [**Release**](../../releases/latest). The app checks that stable channel automatically and also exposes a manual **Check for updates** action. Installing the app makes its bundled `mux` CLI available through `~/.local/bin/mux` when that directory is on `PATH`.
 
-MUX uses a permanent direct Stable flow. A validated ordinary push to `main` creates the next patch release commit, Draft, and immutable version tag. Direct Stable then dispatches exactly one macOS Stable build from the resulting `main` commit; automated Quality is currently paused and is run manually when requested. There is no per-commit Pre-release or rolling Release PR. Stable publication still requires release provenance, version consistency, signing, App/DMG inspection, updater and CLI packaging, complete-asset validation, and semantic-version latest-channel ordering.
+MUX uses a direct Stable flow started by an explicit `workflow_dispatch` request on the current ordinary `main` commit. Select `patch` for fixes, `minor` for compatible new capabilities, or `major` for breaking changes. Ordinary commits and pushes do not publish a release. Direct Stable creates the release metadata commit, Draft, and immutable version tag, then dispatches exactly one macOS Stable build from the resulting `main` commit; automated Quality is currently paused and is run manually when requested. Stable publication still requires release provenance, version consistency, signing, App/DMG inspection, updater and CLI packaging, complete-asset validation, and semantic-version latest-channel ordering.
 
 Build from source:
 

@@ -1934,16 +1934,18 @@ function ModelProviderDialog({
             />
             <ProviderPortalButton portal={portal} />
           </div>
+          {((portalUrl.trim() && !normalizedPortalUrl) || (portalCustomized && defaultPortal)) && (
           <div className="mux-provider-portal-note">
-            {portalUrl.trim() && !normalizedPortalUrl
-              ? <small className="mux-provider-portal-error">{t("models.invalidProviderPortalUrl")}</small>
-              : <small>{t("models.providerPortalHelp")}</small>}
+            {portalUrl.trim() && !normalizedPortalUrl && (
+              <small className="mux-provider-portal-error">{t("models.invalidProviderPortalUrl")}</small>
+            )}
             {portalCustomized && defaultPortal && (
               <button type="button" className="mux-provider-portal-reset" onClick={() => setPortalUrl(defaultPortal.url)}>
                 {t("models.providerPortalReset")}
               </button>
             )}
           </div>
+          )}
         </section>
 
         <section className="mux-provider-form-section">

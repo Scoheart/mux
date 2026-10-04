@@ -86,23 +86,22 @@ test("quality validates only stable tags, PRs, schedules, and manual runs", asyn
   assert.match(monitor, /secrets\.COPILOT_PAT/);
 });
 
-test("one current main push creates one patch Draft and dispatches one main-scoped build", async () => {
+test("one explicit main release request creates one Draft and dispatches one main-scoped build", async () => {
   const workflow = await read(".github/workflows/direct-stable-release.yml");
 
-  assert.match(workflow, /push:\s*\n\s*branches:\s*\[main\]/);
+  assert.doesNotMatch(workflow, /\n  push:/);
   assert.match(workflow, /workflow_dispatch:/);
+  assert.match(workflow, /release_type:[\s\S]*required:\s*true/);
+  assert.match(workflow, /options:\s*\[patch, minor, major\]/);
+  assert.match(workflow, /test "\$GITHUB_REF" = "refs\/heads\/main"/);
   assert.match(workflow, /actions:\s*write/);
   assert.match(workflow, /cancel-in-progress:\s*false/);
-  assert.match(
-    workflow,
-    /!startsWith\(github\.event\.head_commit\.message, 'chore\(main\): release '/,
-  );
   assert.doesNotMatch(workflow, /fast-lane|ends_at|MUX_FAST_LANE_UNTIL/i);
   assert.match(workflow, /secrets\.RELEASE_PLEASE_TOKEN/);
   assert.match(workflow, /git rev-parse origin\/main/);
   assert.match(workflow, /current.*SOURCE_SHA/);
   assert.match(workflow, /commit_title.*chore\(main\): release/);
-  assert.match(workflow, /release-version\.mjs prepare-direct --source "\$SOURCE_SHA"/);
+  assert.match(workflow, /release-version\.mjs prepare-direct --source "\$SOURCE_SHA" --bump "\$RELEASE_TYPE"/);
   assert.match(workflow, /commit -m "chore\(main\): release \$version"/);
   assert.match(workflow, /git push origin HEAD:main/);
   assert.match(

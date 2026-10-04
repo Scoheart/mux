@@ -298,5 +298,57 @@
   "opencode-desktop": {
     "url": "https://opencode.ai/download",
     "label": "官方下载"
+  },
+  "anythingllm": {
+    "url": "https://anythingllm.com/desktop",
+    "label": "安装文档"
+  },
+  "cline-cli": {
+    "url": "https://github.com/cline/cline/tree/main/apps/cli",
+    "label": "安装文档"
+  },
+  "codex-ide": {
+    "url": "https://developers.openai.com/codex/ide/",
+    "label": "安装文档"
+  },
+  "deepseek-harness": {
+    "url": "https://www.deepseek.com/harness/en/",
+    "label": "安装文档"
+  },
+  "goose-desktop": {
+    "url": "https://goose-docs.ai/docs/getting-started/installation/",
+    "label": "安装文档"
+  },
+  "ibm-bob": {
+    "url": "https://bob.ibm.com/",
+    "label": "官方下载"
+  },
+  "jan-cli": {
+    "url": "https://www.jan.ai/docs/agent",
+    "label": "安装文档"
+  },
+  "jan-desktop": {
+    "url": "https://www.jan.ai/download",
+    "label": "安装文档"
+  },
+  "jcode": {
+    "url": "https://jcode.sh/docs",
+    "label": "安装文档"
+  },
+  "junie-cli": {
+    "url": "https://junie.jetbrains.com/docs/junie-cli.html",
+    "label": "安装文档"
+  },
+  "kilo-vscode": {
+    "url": "https://github.com/Kilo-Org/kilocode/tree/76bcfd40be616a72f4697b3041565f322245b462/packages/kilo-vscode",
+    "label": "安装文档"
+  },
+  "kiro-cli": {
+    "url": "https://kiro.dev/downloads/",
+    "label": "安装文档"
+  },
+  "mimo-code": {
+    "url": "https://github.com/XiaomiMiMo/MiMo-Code",
+    "label": "安装文档"
   }
 }

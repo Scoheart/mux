@@ -1,0 +1,35 @@
+{
+  "mcpServers": {
+    "local": {
+      "command": "node",
+      "args": [
+        "original.mjs"
+      ],
+      "env": {
+        "MODE": "fixture"
+      },
+      "anythingllm": {
+        "autoStart": true,
+        "suppressedTools": [
+          "delete"
+        ]
+      }
+    },
+    "remote": {
+      "type": "streamable",
+      "url": "https://original.example.test/mcp",
+      "headers": {
+        "X-Fixture": "original"
+      },
+      "anythingllm": {
+        "autoStart": true,
+        "suppressedTools": [
+          "delete"
+        ]
+      }
+    }
+  },
+  "ui": {
+    "keep": true
+  }
+}

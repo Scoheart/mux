@@ -56,7 +56,10 @@ pub(super) fn model_discovery_supported(provider_type: &str) -> bool {
     !matches!(provider_type,
         "github-models" | "azure-openai" | "perplexity" | "volcengine" | "volcengine-coding-plan"
         | "baidu-qianfan" | "baidu-qianfan-coding-plan" | "zhipuai"
-        | "stepfun" | "stepfun-global")
+        | "stepfun" | "stepfun-global"
+        | "featherless-ai" | "upstage" | "ai21" | "byteplus"
+        | "tencent-tokenhub-cn" | "tencent-tokenhub-global" | "iflytek-spark-x2" | "nscale" | "tinfoil-proxy"
+        | "infini-ai" | "302-ai" | "portkey" | "helicone")
 }
 
 pub(super) fn provider_model_discovery_supported(provider: &ModelProviderConfig) -> bool {
@@ -152,6 +155,23 @@ pub(crate) fn execute_provider_discovery(input: ModelDiscoveryInput) -> Result<V
 fn reviewed_discovery_spec(provider_type: &str) -> Option<DiscoverySpec> {
     let adapter = match provider_type {
         "openrouter"
+        | "ppio"
+        | "aihubmix"
+        | "opencode-zen"
+        | "opencode-go"
+        | "kilo-gateway"
+        | "nanogpt"
+        | "synthetic"
+        | "chutes"
+        | "venice"
+        | "friendli"
+        | "inference-net"
+        | "ovhcloud"
+        | "zenmux"
+        | "longcat"
+        | "io-net"
+        | "inception"
+        | "ollama-cloud"
         | "openai"
         | "xai"
         | "routeway"
@@ -218,6 +238,22 @@ fn reviewed_discovery_spec(provider_type: &str) -> Option<DiscoverySpec> {
     let credential = if matches!(
         provider_type,
         "openrouter"
+            | "ppio"
+            | "aihubmix"
+            | "opencode-zen"
+            | "opencode-go"
+            | "kilo-gateway"
+            | "nanogpt"
+            | "synthetic"
+            | "chutes"
+            | "venice"
+            | "friendli"
+            | "inference-net"
+            | "ovhcloud"
+            | "zenmux"
+            | "io-net"
+            | "inception"
+            | "ollama-cloud"
             | "alibaba-coding-plan-cn"
             | "alibaba-coding-plan"
             | "nvidia"

@@ -25,5 +25,22 @@
   "opencode-desktop": "desktop",
   "opencode": "cli",
   "workbuddy-cn": "desktop",
-  "cline": "plugin"
+  "cline": "plugin",
+  "anythingllm": "desktop",
+  "cline-cli": "cli",
+  "codex-ide": "plugin",
+  "deepseek-harness": "cli",
+  "goose": "cli",
+  "goose-desktop": "desktop",
+  "ibm-bob": "ide",
+  "jan-cli": "cli",
+  "jan-desktop": "desktop",
+  "jcode": "cli",
+  "junie": "plugin",
+  "junie-cli": "cli",
+  "kilo-code": "cli",
+  "kilo-vscode": "plugin",
+  "kiro": "ide",
+  "kiro-cli": "cli",
+  "mimo-code": "cli"
 }

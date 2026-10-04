@@ -83,3 +83,13 @@ Official assets retrieved 2026-09-07 (original bytes; ICO retained without conve
 `kimi-code-desktop.png` is the unmodified `Contents/Resources/build/icon.png` from the official [Kimi Code Desktop arm64 installer](https://code.kimi.com/kimi-code/desktop/download/KimiCode-mac-arm64.dmg), version 1.0.1, retrieved 2026-09-17. DMG SHA-256: `a4fbecb10cda6518feb5a8d1e857e9f926629a1f66088e20f478d1319469ae0a`. It intentionally uses the new Desktop icon rather than the historical CLI asset.
 
 - WorkBuddy 中国版 (`workbuddy-cn`) 与海外版 (`workbuddy`) 共享官方 WorkBuddy 品牌图标；安装包 identity、launcher 与配置目标独立（2026-09-27）。
+
+Official assets verified 2026-10-04 (original bytes):
+
+- `jcode.svg`: <https://jcode.sh/favicon.svg>, official site links to <https://github.com/1jehuang/jcode>; unrelated same-name repositories were excluded.
+- `ibm-bob.svg`: <https://bob.ibm.com/icon.svg?v=1>.
+- `anythingllm.png`: <https://anythingllm.com/icon.png?0a59f488e9ddf54c>.
+- `jan-desktop.png`: <https://github.com/janhq/jan/blob/14a720628f9592c8e60f7e081ef733076db8a6a9/src-tauri/icons/icon.png>; Jan Agent shares the official Jan icon.
+- `mimo-code.png`: official Xiaomi MiMo brand asset already recorded in `../providers/SOURCES.md`, copied unchanged. This is the vendor brand, not a claim of a separately verified Desktop app icon.
+- `deepseek-harness.png`: official DeepSeek brand asset already recorded in `../providers/SOURCES.md`, copied unchanged.
+- Cline CLI, Kiro CLI, Junie CLI, Goose Desktop, Kilo Code VS Code and Codex IDE reuse their verified brand icons; `surfaces.json` distinguishes the product surface.

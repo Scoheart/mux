@@ -15,7 +15,11 @@ Model 能力由 Rust Core 统一提供；MiniMax Code、Qoder、Kimi Code CLI/De
 
 ## 已核验列表
 
-以下结果基于截至 **2026-09-20** 的官方文档、官方源码或签名应用包；Grok Build 使用 xAI 官方文档核验，MiniMax Code 使用官方签名的 `3.0.51` macOS 应用包核验。
+2026-10-04 新增 Cline CLI、Kiro CLI、Junie CLI、Goose Desktop、Kilo Code VS Code、Codex IDE、MiMoCode、DeepSeek Harness、jcode、Jan Desktop / Jan Agent、AnythingLLM 与 IBM Bob。当前核验定义 88 个：73 个有 MCP 文件契约、68 个有用户级 Skills 目录，共享配置的产品形态分别计数。新入口开放 12 个 MCP 与 11 个 Skills 能力；DeepSeek Harness 当前仅分配 Skills，AnythingLLM 和 IBM Bob 当前仅管理 MCP。
+
+新身份不自动复制 Model writer。共享后端的 Models 继续通过已核验入口或客户端配置管理；CLI 与桌面是否能使用相同凭据仍需单独核验。发现目录中的产品不因已发布或支持 ACP 而自动升级为可写目标。
+
+以下结果基于截至 **2026-10-04** 的官方文档、官方源码或签名应用包；Grok Build 使用 xAI 官方文档核验，MiniMax Code 使用官方签名的 `3.0.51` macOS 应用包核验。
 
 下表聚焦 MCP 契约：列出已核验可写目标，并保留 Devin、Cline Desktop 与 Freebuff 作为明确的只读对照；Skills-only 定义见下方 Skills 能力与 [用户级 Skills](/guide/skills#已核验的-agent-路径)。
 
@@ -99,7 +103,7 @@ Model 能力由 Rust Core 统一提供；MiniMax Code、Qoder、Kimi Code CLI/De
 
 ## Skills 能力
 
-Skills 路径与上表的 MCP 配置路径分别核验，不能互相推断。当前为 **54 个**具有稳定 user-level 契约的已审计 Agent 声明 Skills 能力；运行时只显示本机安装探针命中的 Agent。没有公开稳定用户级目录、只有项目级目录或仅提供 rules/prompts 的产品继续保持只读或不接入 Skills writer。
+Skills 路径与上表的 MCP 配置路径分别核验，不能互相推断。当前为 **68 个**具有稳定 user-level 契约的已审计 Agent 声明 Skills 能力；运行时只显示本机安装探针命中的 Agent。没有公开稳定用户级目录、只有项目级目录或仅提供 rules/prompts 的产品继续保持只读或不接入 Skills writer。
 
 Skills 分配按物理目录而不是 Agent 名称执行。Cursor IDE 与 Cursor CLI 共用 `~/.cursor/skills`，并可读取 `~/.agents/skills` 兼容目录；后者现在同时是 Codex、Goose、Warp 与 Zed 的首选目录，也是多个 Agent 的兼容读取目录，因此一次写入可能影响更多已安装产品。MUX 会在审阅页展示真实影响并归一化重复链接。链接指向同一份可写中央内容，消费者侧修改会形成中央 drift；路径矩阵、安装来源、后台安全校验和当前边界见 [用户级 Skills](/guide/skills#已核验的-agent-路径)。
 

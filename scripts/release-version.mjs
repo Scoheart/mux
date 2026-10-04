@@ -77,12 +77,19 @@ export function readCargoPackageVersion(contents, path = "Cargo.toml") {
   return versions[0];
 }
 
-export function nextPatchVersion(version) {
+export function nextReleaseVersion(version, releaseType) {
   const match = version.match(/^(\d+)\.(\d+)\.(\d+)$/);
   if (!match) {
     throw new Error(`invalid semantic version: ${JSON.stringify(version)}`);
   }
-  return `${match[1]}.${match[2]}.${BigInt(match[3]) + 1n}`;
+  const index = ["major", "minor", "patch"].indexOf(releaseType);
+  if (index < 0) {
+    throw new Error("release type must be major, minor, or patch");
+  }
+  const parts = match.slice(1).map(BigInt);
+  parts[index] += 1n;
+  parts.fill(0n, index + 1);
+  return parts.join(".");
 }
 
 export function updateCargoPackageVersion(
@@ -482,7 +489,7 @@ function changelogCommits(root, previousVersion, sourceSha) {
   });
 }
 
-export async function prepareDirectRelease(root, sourceSha) {
+export async function prepareDirectRelease(root, sourceSha, releaseType) {
   if (!/^[0-9a-f]{40}$/.test(sourceSha)) {
     throw new Error("prepare-direct requires a full lowercase commit SHA");
   }
@@ -496,7 +503,7 @@ export async function prepareDirectRelease(root, sourceSha) {
   if (!SEMVER_PATTERN.test(previousVersion)) {
     throw new Error("version.txt must contain MAJOR.MINOR.PATCH");
   }
-  const version = nextPatchVersion(previousVersion);
+  const version = nextReleaseVersion(previousVersion, releaseType);
 
   for (const [relativePath, kind, fieldPath] of SOURCE_FIELDS) {
     const path = join(root, relativePath);
@@ -541,6 +548,7 @@ function parseArguments(argv) {
   let root = REPOSITORY_ROOT;
   let stableTag;
   let sourceSha;
+  let releaseType;
 
   for (let index = 0; index < args.length; index += 1) {
     if (args[index] === "--root" && args[index + 1]) {
@@ -549,15 +557,17 @@ function parseArguments(argv) {
       stableTag = args[++index];
     } else if (args[index] === "--source" && args[index + 1]) {
       sourceSha = args[++index];
+    } else if (args[index] === "--bump" && args[index + 1]) {
+      releaseType = args[++index];
     } else {
       throw new Error(`unknown argument: ${args[index]}`);
     }
   }
-  return { command, root, stableTag, sourceSha };
+  return { command, root, stableTag, sourceSha, releaseType };
 }
 
 async function main() {
-  const { command, root, stableTag, sourceSha } = parseArguments(
+  const { command, root, stableTag, sourceSha, releaseType } = parseArguments(
     process.argv.slice(2),
   );
   if (command === "check") {
@@ -569,7 +579,10 @@ async function main() {
     if (sourceSha === undefined) {
       throw new Error("prepare-direct requires --source");
     }
-    await prepareDirectRelease(root, sourceSha);
+    if (releaseType === undefined) {
+      throw new Error("prepare-direct requires --bump <patch|minor|major>");
+    }
+    await prepareDirectRelease(root, sourceSha, releaseType);
   } else {
     throw new Error(
       "usage: node scripts/release-version.mjs <check|refresh-locks|prepare-direct> [options]",

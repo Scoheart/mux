@@ -1,9 +1,13 @@
 name: Direct stable release
 
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
+    inputs:
+      release_type:
+        description: "Version scope: patch fixes, minor features, major breaking changes"
+        required: true
+        type: choice
+        options: [patch, minor, major]
 
 permissions:
   actions: write
@@ -16,7 +20,6 @@ concurrency:
 jobs:
   release:
     name: Prepare stable release
-    if: "${{ !startsWith(github.event.head_commit.message, 'chore(main): release ') }}"
     runs-on: ubuntu-latest
     steps:
       - name: Require the dedicated release token
@@ -24,20 +27,24 @@ jobs:
           RELEASE_PLEASE_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
         run: test -n "$RELEASE_PLEASE_TOKEN"
 
-      - name: Checkout the pushed commit
+      - name: Checkout the requested commit
         # actions/checkout v5.0.0
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           fetch-depth: 0
           token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
 
-      - name: Confirm this push is still the main head
+      - name: Confirm the request targets the current ordinary main commit
         id: head
         shell: bash
         env:
           SOURCE_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
+          test "$GITHUB_REF" = "refs/heads/main" || {
+            echo "Stable releases must be requested from main." >&2
+            exit 1
+          }
           git fetch origin main --no-tags
           current=$(git rev-parse origin/main)
           commit_title=$(git log -1 --format=%s "$SOURCE_SHA")
@@ -63,11 +70,12 @@ jobs:
         # dtolnay/rust-toolchain stable at implementation time
         uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
 
-      - name: Prepare the next patch release
+      - name: Prepare the requested stable release
         if: ${{ steps.head.outputs.ready == 'true' }}
         env:
           SOURCE_SHA: ${{ github.sha }}
-        run: node scripts/release-version.mjs prepare-direct --source "$SOURCE_SHA"
+          RELEASE_TYPE: ${{ inputs.release_type }}
+        run: node scripts/release-version.mjs prepare-direct --source "$SOURCE_SHA" --bump "$RELEASE_TYPE"
 
       - name: Commit and push the release metadata
         if: ${{ steps.head.outputs.ready == 'true' }}

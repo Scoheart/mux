@@ -65,15 +65,18 @@ const VERIFIED_SKILL_AGENT_IDS: &[&str] = &[
     "augment",
     "claude-code",
     "cline",
+    "cline-cli",
     "codebuddy-code",
     "codewhale",
     "codex",
     "codex-desktop",
+    "codex-ide",
     "copilot-cli",
     "cortex-code",
     "crush",
     "cursor",
     "cursor-cli",
+    "deepseek-harness",
     "dirac",
     "docker-agent",
     "factory-desktop",
@@ -81,12 +84,20 @@ const VERIFIED_SKILL_AGENT_IDS: &[&str] = &[
     "firebender",
     "gemini",
     "goose",
+    "goose-desktop",
     "grok-build",
     "hermes",
+    "jan-cli",
+    "jan-desktop",
+    "jcode",
+    "junie-cli",
     "kilo-code",
+    "kilo-vscode",
     "kimi-code",
     "kimi-code-desktop",
     "kiro",
+    "kiro-cli",
+    "mimo-code",
     "minion-code",
     "mistral-vibe",
     "openclaw",
@@ -1077,18 +1088,18 @@ mod tests {
     #[test]
     fn builtin_catalog_and_transport_metadata_load() {
         let a = builtin_agents();
-        assert_eq!(audited_agents().len(), 71);
+        assert_eq!(audited_agents().len(), 88);
         let catalog: BTreeMap<String, AgentDefinition> =
             serde_json::from_str(CATALOG_AGENTS_JSON).unwrap();
-        assert_eq!(catalog.len(), 204);
-        assert_eq!(a.len(), 227);
+        assert_eq!(catalog.len(), 246);
+        assert_eq!(a.len(), 271);
         assert_eq!(a["claude-code"].key, "mcpServers");
         assert_eq!(a["codex"].format, "toml");
         assert_eq!(
             a.iter()
                 .filter_map(|(id, definition)| definition.key_path.then_some(id.as_str()))
                 .collect::<Vec<_>>(),
-            vec!["amp"]
+            vec!["amp", "zcode"]
         );
         assert!(!definition_supports_transport(&a["claude-desktop"], "http"));
         assert!(definition_supports_transport(&a["claude-desktop"], "stdio"));

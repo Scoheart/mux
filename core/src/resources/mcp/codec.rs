@@ -133,6 +133,11 @@ pub enum Codec {
     VsCode,
     Codex,
     OpenCode,
+    MiMo,
+    Jcode,
+    Jan,
+    AnythingLlm,
+    IbmBob,
     Gemini,
     Windsurf,
     Qoder,
@@ -177,11 +182,17 @@ pub fn for_agent(agent_id: &str) -> Codec {
         "workbuddy" | "workbuddy-cn" => Codec::WorkBuddy,
         "claude-desktop" => Codec::ClaudeDesktop,
         "claude-code" | "amazon-q" => Codec::ExplicitType,
-        "cursor" | "zed" | "kiro" | "junie" => Codec::UrlInferred,
+        "cursor" | "zed" | "kiro" | "kiro-cli" | "junie" | "junie-cli" => Codec::UrlInferred,
         "pi" => Codec::Pi,
         "vscode" => Codec::VsCode,
-        "codex" | "codex-desktop" => Codec::Codex,
-        "opencode" | "opencode-desktop" => Codec::OpenCode,
+        "codex" | "codex-desktop" | "codex-ide" => Codec::Codex,
+        "opencode" | "opencode-desktop" | "kilo-vscode" => Codec::OpenCode,
+        "goose-desktop" => Codec::Goose,
+        "mimo-code" => Codec::MiMo,
+        "jcode" => Codec::Jcode,
+        "jan-desktop" | "jan-cli" => Codec::Jan,
+        "anythingllm" => Codec::AnythingLlm,
+        "ibm-bob" => Codec::IbmBob,
         "gemini" => Codec::Gemini,
         "kimi-code" | "kimi-code-desktop" => Codec::Kimi,
         "windsurf" => Codec::Windsurf,
@@ -190,7 +201,7 @@ pub fn for_agent(agent_id: &str) -> Codec {
         "qwenwork" | "qwenwork-cn" => Codec::QwenWork,
         "step-code" => Codec::StepCode,
         "copilot-cli" => Codec::Copilot,
-        "cline" => Codec::Cline,
+        "cline" | "cline-cli" => Codec::Cline,
         "roo-code" => Codec::Roo,
         "warp" => Codec::Warp,
         _ => Codec::Standard,
@@ -208,6 +219,11 @@ pub fn from_name(name: Option<&str>, agent_id: &str) -> Codec {
         Some("vscode") => Codec::VsCode,
         Some("codex") => Codec::Codex,
         Some("opencode") => Codec::OpenCode,
+        Some("mimo") => Codec::MiMo,
+        Some("jcode") => Codec::Jcode,
+        Some("jan") => Codec::Jan,
+        Some("anythingllm") => Codec::AnythingLlm,
+        Some("ibm_bob") => Codec::IbmBob,
         Some("gemini") => Codec::Gemini,
         Some("windsurf") => Codec::Windsurf,
         Some("qoder") => Codec::Qoder,
@@ -268,6 +284,25 @@ impl Codec {
             .as_object()
             .ok_or_else(|| "MCP entry is not an object".to_string())?;
         match self {
+            Codec::MiMo => validate_active_field(object.get("enabled"), true, "enabled")?,
+            Codec::Jcode => {
+                validate_active_field(object.get("enabled"), true, "enabled")?;
+                validate_active_field(object.get("disabled"), false, "disabled")?;
+            }
+            Codec::Jan => {
+                if object.get("active").is_some_and(|value| !value.is_boolean()) {
+                    return Err("Jan MCP entry switch 'active' is not a boolean".into());
+                }
+            }
+            Codec::AnythingLlm => {
+                if let Some(policy) = object.get("anythingllm") {
+                    let policy = policy.as_object().ok_or("AnythingLLM policy is not an object")?;
+                    validate_active_field(policy.get("autoStart"), true, "anythingllm.autoStart")?;
+                }
+            }
+            Codec::IbmBob if object.contains_key("httpURL") => {
+                return Err("Bob Shell MCP format must not be overwritten with the Bob IDE format".into());
+            }
             Codec::WorkBuddy => {
                 if object.get("disabled").is_some_and(|value| !value.is_boolean()) {
                     return Err("MCP entry switch 'disabled' is not a boolean".into());
@@ -322,6 +357,8 @@ impl Codec {
                 .and_then(Value::as_bool).unwrap_or(false),
             Codec::Pi => value.as_object()?.get("enabled")
                 .map(Value::as_bool).unwrap_or(Some(true))?,
+            Codec::Jan => value.as_object()?.get("active")
+                .map(Value::as_bool).unwrap_or(Some(true))?,
             _ => return self.decode(value).map(|config| (config, true)),
         };
         self.validate_existing_entry(value).ok()?;
@@ -331,7 +368,8 @@ impl Codec {
     pub fn decode(self, value: &Value) -> Option<McpConfig> {
         self.validate_existing_entry(value).ok()?;
         if (self == Codec::WorkBuddy && value.get("disabled") == Some(&Value::Bool(true)))
-            || (self == Codec::Pi && value.get("enabled") == Some(&Value::Bool(false))) {
+            || (self == Codec::Pi && value.get("enabled") == Some(&Value::Bool(false)))
+            || (self == Codec::Jan && value.get("active") == Some(&Value::Bool(false))) {
             return None;
         }
         if self == Codec::Cline {
@@ -358,7 +396,11 @@ impl Codec {
                 }));
             }
         }
-        if self == Codec::OpenCode {
+        if self == Codec::Jcode && (object.contains_key("url") || object.get("type")
+            .is_some_and(|value| !matches!(value.as_str(), Some("stdio")))) {
+            return None;
+        }
+        if matches!(self, Codec::OpenCode | Codec::MiMo) {
             if let Some(command) = object.get("command").and_then(Value::as_array) {
                 let mut command = command.iter().map(Value::as_str);
                 let executable = command.next()??.to_string();
@@ -418,6 +460,8 @@ impl Codec {
         };
         let kind = match (self, raw_kind) {
             (Codec::OpenCode, Some("remote")) => "http",
+            (Codec::MiMo, Some("remote")) => "http",
+            (Codec::AnythingLlm, Some("streamable")) => "streamable-http",
             (Codec::Cline, Some("streamableHttp")) => "streamable-http",
             (Codec::Goose, Some("streamable_http")) => "streamable-http",
             (_, Some("remote" | "http")) => "http",
@@ -445,7 +489,7 @@ impl Codec {
                         .into(),
                 );
             }
-            if self == Codec::StdioOnly {
+            if matches!(self, Codec::StdioOnly | Codec::Jcode) {
                 return Err(
                     "this Agent's file-based MCP configuration accepts stdio servers only".into(),
                 );
@@ -456,14 +500,20 @@ impl Codec {
         if self == Codec::ZCode {
             defaults.push(("enable".into(), Value::Bool(true)));
         }
+        if self == Codec::Jan {
+            defaults.push(("active".into(), Value::Bool(true)));
+        }
         let mut object_patches = Vec::new();
         match config {
             McpConfig::Stdio(stdio) => match self {
-                Codec::ExplicitType | Codec::ZCode | Codec::Qoder | Codec::QoderWork | Codec::QwenWork => {
+                Codec::ExplicitType | Codec::ZCode | Codec::Qoder | Codec::QoderWork | Codec::QwenWork | Codec::Jan => {
                     fields.push(("type".into(), Value::String("stdio".into())));
                     push_stdio_fields(&mut fields, stdio, "cwd");
                 }
-                Codec::OpenCode => {
+                Codec::OpenCode | Codec::MiMo => {
+                    if self == Codec::MiMo {
+                        reject_cwd(stdio, "MiMoCode")?;
+                    }
                     fields.push(("type".into(), Value::String("local".into())));
                     let mut command = vec![Value::String(stdio.command.clone())];
                     command.extend(
@@ -477,6 +527,10 @@ impl Codec {
                     fields.push(("command".into(), Value::Array(command)));
                     push_optional(&mut fields, "environment", &stdio.env);
                     push_optional(&mut fields, "cwd", &stdio.cwd);
+                }
+                Codec::Jcode => {
+                    reject_cwd(stdio, "jcode")?;
+                    push_stdio_fields(&mut fields, stdio, "cwd");
                 }
                 Codec::VsCode => {
                     fields.push(("type".into(), Value::String("stdio".into())));
@@ -568,7 +622,10 @@ impl Codec {
                 _ => push_stdio_fields(&mut fields, stdio, "cwd"),
             },
             McpConfig::Http(http) => match self {
-                Codec::ExplicitType | Codec::ZCode => {
+                Codec::ExplicitType | Codec::ZCode | Codec::Jan => {
+                    if self == Codec::Jan {
+                        require_http_kind(http, "Jan", &["http", "streamable-http"])?;
+                    }
                     fields.push((
                         "type".into(),
                         Value::String(if http.kind == "sse" { "sse" } else { "http" }.into()),
@@ -587,8 +644,26 @@ impl Codec {
                     require_http_kind(http, "Pi", &["http", "streamable-http"])?;
                     push_http_fields(&mut fields, http, "url", "headers");
                 }
-                Codec::OpenCode => {
+                Codec::OpenCode | Codec::MiMo => {
+                    if self == Codec::MiMo {
+                        require_http_kind(http, "MiMoCode", &["http", "streamable-http"])?;
+                    }
                     fields.push(("type".into(), Value::String("remote".into())));
+                    push_http_fields(&mut fields, http, "url", "headers");
+                }
+                Codec::AnythingLlm | Codec::IbmBob => {
+                    require_http_kind(http, "Agent", if self == Codec::IbmBob {
+                        &["http", "streamable-http"]
+                    } else {
+                        &["http", "streamable-http", "sse"]
+                    })?;
+                    fields.push(("type".into(), Value::String(if http.kind == "sse" {
+                        "sse"
+                    } else if self == Codec::AnythingLlm {
+                        "streamable"
+                    } else {
+                        "streamable-http"
+                    }.into())));
                     push_http_fields(&mut fields, http, "url", "headers");
                 }
                 Codec::Codex => push_http_fields(&mut fields, http, "url", "http_headers"),
@@ -813,7 +888,7 @@ impl Codec {
     fn controlled_fields(self) -> &'static [&'static str] {
         match self {
             Codec::Codex | Codec::StepCode => CODEX_FIELDS,
-            Codec::OpenCode => OPENCODE_FIELDS,
+            Codec::OpenCode | Codec::MiMo => OPENCODE_FIELDS,
             Codec::Gemini => GEMINI_FIELDS,
             Codec::Windsurf => WINDSURF_FIELDS,
             Codec::Cline => CLINE_FIELDS,

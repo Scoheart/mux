@@ -157,6 +157,7 @@ fn provider_setup(id: &str) -> Option<ModelProviderSetupView> {
         "azure-openai" => ("https://<resource>.openai.azure.com/openai/v1", "azure"),
         "amazon-bedrock-mantle" => ("https://bedrock-mantle.<region>.api.aws/v1", "bedrock"),
         "cloudflare-workers-ai" => ("https://api.cloudflare.com/client/v4/accounts/<account-id>/ai/v1", "cloudflare"),
+        "tinfoil-proxy" => ("http://127.0.0.1:3301/v1", "tinfoil"),
         _ => return None,
     };
     Some(ModelProviderSetupView { base_url_placeholder, hint })
@@ -306,9 +307,115 @@ fn provider_template_connection(
 }
 
 pub fn provider_additional_endpoints(id: &str) -> &'static [ModelProviderEndpointView] {
-    use ModelProtocol::{AnthropicMessages, OpenaiCompletions, OpenaiResponses};
+    use ModelProtocol::{AnthropicMessages, GeminiGenerateContent, OpenaiCompletions, OpenaiResponses};
 
     match id {
+        "infini-ai" => &[ModelProviderEndpointView {
+            protocol: AnthropicMessages,
+            base_url: "https://cloud.infini-ai.com/maas",
+        }],
+        "aihubmix" => &[
+            ModelProviderEndpointView {
+                protocol: OpenaiResponses,
+                base_url: "https://aihubmix.com/v1",
+            },
+            ModelProviderEndpointView {
+                protocol: AnthropicMessages,
+                base_url: "https://aihubmix.com",
+            },
+            ModelProviderEndpointView {
+                protocol: GeminiGenerateContent,
+                base_url: "https://aihubmix.com/v1beta",
+            },
+        ],
+        "opencode-zen" => &[
+            ModelProviderEndpointView {
+                protocol: OpenaiCompletions,
+                base_url: "https://opencode.ai/zen/v1",
+            },
+            ModelProviderEndpointView {
+                protocol: AnthropicMessages,
+                base_url: "https://opencode.ai/zen",
+            },
+        ],
+        "opencode-go" => &[
+            ModelProviderEndpointView {
+                protocol: OpenaiResponses,
+                base_url: "https://opencode.ai/zen/go/v1",
+            },
+            ModelProviderEndpointView {
+                protocol: AnthropicMessages,
+                base_url: "https://opencode.ai/zen/go",
+            },
+        ],
+        "nanogpt" => &[
+            ModelProviderEndpointView {
+                protocol: OpenaiResponses,
+                base_url: "https://api.nano-gpt.com/api/v1",
+            },
+            ModelProviderEndpointView {
+                protocol: AnthropicMessages,
+                base_url: "https://api.nano-gpt.com/api",
+            },
+        ],
+        "synthetic" => &[
+            ModelProviderEndpointView {
+                protocol: AnthropicMessages,
+                base_url: "https://api.synthetic.new/anthropic",
+            },
+        ],
+        "venice" => &[
+            ModelProviderEndpointView {
+                protocol: OpenaiResponses,
+                base_url: "https://api.venice.ai/api/v1",
+            },
+        ],
+        "ovhcloud" => &[
+            ModelProviderEndpointView {
+                protocol: OpenaiResponses,
+                base_url: "https://oai.endpoints.kepler.ai.cloud.ovh.net/v1",
+            },
+        ],
+        "upstage" => &[
+            ModelProviderEndpointView {
+                protocol: OpenaiResponses,
+                base_url: "https://api.upstage.ai/v1",
+            },
+        ],
+        "zenmux" => &[
+            ModelProviderEndpointView {
+                protocol: OpenaiResponses,
+                base_url: "https://zenmux.ai/api/v1",
+            },
+            ModelProviderEndpointView {
+                protocol: AnthropicMessages,
+                base_url: "https://zenmux.ai/api/anthropic",
+            },
+        ],
+        "byteplus" => &[
+            ModelProviderEndpointView {
+                protocol: OpenaiResponses,
+                base_url: "https://ark.ap-southeast.bytepluses.com/api/v3",
+            },
+        ],
+        "longcat" => &[
+            ModelProviderEndpointView {
+                protocol: AnthropicMessages,
+                base_url: "https://api.longcat.chat/anthropic",
+            },
+        ],
+        "iflytek-spark-x2" => &[
+            ModelProviderEndpointView {
+                protocol: AnthropicMessages,
+                base_url: "https://spark-api-open.xf-yun.com/anthropic/agent",
+            },
+        ],
+        "ollama-cloud" => &[
+            ModelProviderEndpointView {
+                protocol: OpenaiResponses,
+                base_url: "https://ollama.com/v1",
+            },
+        ],
         "vercel-ai-gateway" => &[ModelProviderEndpointView {
             protocol: OpenaiCompletions,
             base_url: "https://ai-gateway.vercel.sh/v1",
@@ -446,6 +553,216 @@ pub fn provider_additional_endpoints(id: &str) -> &'static [ModelProviderEndpoin
 // Plan-specific endpoints and their official references are audited in
 // `core/src/resources/model/PROVIDER_SOURCES.md`.
 const MODEL_PROVIDERS: &[ModelProviderView] = &[
+    ModelProviderView {
+        id: "portkey",
+        name: "Portkey",
+        default_base_url: Some("https://api.portkey.ai/v1"),
+        default_protocol: ModelProtocol::OpenaiCompletions,
+        category: "gateway",
+    },
+    ModelProviderView {
+        id: "helicone",
+        name: "Helicone AI Gateway",
+        default_base_url: Some("https://ai-gateway.helicone.ai"),
+        default_protocol: ModelProtocol::OpenaiCompletions,
+        category: "gateway",
+    },
+    ModelProviderView {
+        id: "ppio",
+        name: "PPIO",
+        default_base_url: Some("https://api.ppio.com/openai/v1"),
+        default_protocol: ModelProtocol::OpenaiCompletions,
+        category: "gateway",
+    },
+    ModelProviderView {
+        id: "infini-ai",
+        name: "Infini AI GenStudio",
+        default_base_url: Some("https://cloud.infini-ai.com/maas/v1"),
+        default_protocol: ModelProtocol::OpenaiCompletions,
+        category: "gateway",
+    },
+    ModelProviderView {
+        id: "aihubmix",
+        name: "AIHubMix",
+        default_base_url: Some("https://aihubmix.com/v1"),
+        default_protocol: ModelProtocol::OpenaiCompletions,
+        category: "gateway",
+    },
+    ModelProviderView {
+        id: "302-ai",
+        name: "302.AI",
+        default_base_url: Some("https://api.302ai.com/v1"),
+        default_protocol: ModelProtocol::OpenaiCompletions,
+        category: "gateway",
+    },
+    ModelProviderView {
+        id: "opencode-zen",
+        name: "OpenCode Zen",
+        default_base_url: Some("https://opencode.ai/zen/v1"),
+        default_protocol: ModelProtocol::OpenaiResponses,
+        category: "gateway",
+    },
+    ModelProviderView {
+        id: "opencode-go",
+        name: "OpenCode Go",
+        default_base_url: Some("https://opencode.ai/zen/go/v1"),
+        default_protocol: ModelProtocol::OpenaiCompletions,
+        category: "gateway",
+    },
+    ModelProviderView {
+        id: "kilo-gateway",
+        name: "Kilo Gateway",
+        default_base_url: Some("https://api.kilo.ai/api/gateway"),
+        default_protocol: ModelProtocol::OpenaiCompletions,
+        category: "gateway",
+    },
+    ModelProviderView {
+        id: "nanogpt",
+        name: "NanoGPT",
+        default_base_url: Some("https://api.nano-gpt.com/api/v1"),
+        default_protocol: ModelProtocol::OpenaiCompletions,
+        category: "gateway",
+    },
+    ModelProviderView {
+        id: "synthetic",
+        name: "Synthetic",
+        default_base_url: Some("https://api.synthetic.new/openai/v1"),
+        default_protocol: ModelProtocol::OpenaiCompletions,
+        category: "gateway",
+    },
+    ModelProviderView {
+        id: "chutes",
+        name: "Chutes",
+        default_base_url: Some("https://llm.chutes.ai/v1"),
+        default_protocol: ModelProtocol::OpenaiCompletions,
+        category: "gateway",
+    },
+    ModelProviderView {
+        id: "featherless-ai",
+        name: "Featherless AI",
+        default_base_url: Some("https://api.featherless.ai/v1"),
+        default_protocol: ModelProtocol::OpenaiCompletions,
+        category: "gateway",
+    },
+    ModelProviderView {
+        id: "venice",
+        name: "Venice",
+        default_base_url: Some("https://api.venice.ai/api/v1"),
+        default_protocol: ModelProtocol::OpenaiCompletions,
+        category: "gateway",
+    },
+    ModelProviderView {
+        id: "friendli",
+        name: "FriendliAI",
+        default_base_url: Some("https://api.friendli.ai/serverless/v1"),
+        default_protocol: ModelProtocol::OpenaiCompletions,
+        category: "gateway",
+    },
+    ModelProviderView {
+        id: "inference-net",
+        name: "Inference.net",
+        default_base_url: Some("https://api.inference.net/v1"),
+        default_protocol: ModelProtocol::OpenaiCompletions,
+        category: "gateway",
+    },
+    ModelProviderView {
+        id: "ovhcloud",
+        name: "OVHcloud AI Endpoints",
+        default_base_url: Some("https://oai.endpoints.kepler.ai.cloud.ovh.net/v1"),
+        default_protocol: ModelProtocol::OpenaiCompletions,
+        category: "gateway",
+    },
+    ModelProviderView {
+        id: "upstage",
+        name: "Upstage",
+        default_base_url: Some("https://api.upstage.ai/v1"),
+        default_protocol: ModelProtocol::OpenaiCompletions,
+        category: "official",
+    },
+    ModelProviderView {
+        id: "ai21",
+        name: "AI21 Labs",
+        default_base_url: Some("https://api.ai21.com/studio/v1"),
+        default_protocol: ModelProtocol::OpenaiCompletions,
+        category: "official",
+    },
+    ModelProviderView {
+        id: "zenmux",
+        name: "ZenMux",
+        default_base_url: Some("https://zenmux.ai/api/v1"),
+        default_protocol: ModelProtocol::OpenaiCompletions,
+        category: "gateway",
+    },
+    ModelProviderView {
+        id: "byteplus",
+        name: "BytePlus ModelArk",
+        default_base_url: Some("https://ark.ap-southeast.bytepluses.com/api/v3"),
+        default_protocol: ModelProtocol::OpenaiCompletions,
+        category: "official",
+    },
+    ModelProviderView {
+        id: "tencent-tokenhub-cn",
+        name: "Tencent TokenHub (China)",
+        default_base_url: Some("https://tokenhub.tencentmaas.com/v1"),
+        default_protocol: ModelProtocol::OpenaiCompletions,
+        category: "official",
+    },
+    ModelProviderView {
+        id: "tencent-tokenhub-global",
+        name: "Tencent TokenHub (Global)",
+        default_base_url: Some("https://tokenhub-intl.tencentcloudmaas.com/v1"),
+        default_protocol: ModelProtocol::OpenaiCompletions,
+        category: "official",
+    },
+    ModelProviderView {
+        id: "longcat",
+        name: "LongCat",
+        default_base_url: Some("https://api.longcat.chat/openai/v1"),
+        default_protocol: ModelProtocol::OpenaiCompletions,
+        category: "official",
+    },
+    ModelProviderView {
+        id: "iflytek-spark-x2",
+        name: "iFLYTEK Spark X2",
+        default_base_url: Some("https://spark-api-open.xf-yun.com/agent/v1"),
+        default_protocol: ModelProtocol::OpenaiCompletions,
+        category: "official",
+    },
+    ModelProviderView {
+        id: "nscale",
+        name: "Nscale",
+        default_base_url: Some("https://inference.api.nscale.com/v1"),
+        default_protocol: ModelProtocol::OpenaiCompletions,
+        category: "gateway",
+    },
+    ModelProviderView {
+        id: "io-net",
+        name: "io.net",
+        default_base_url: Some("https://api.intelligence.io.solutions/api/v1"),
+        default_protocol: ModelProtocol::OpenaiCompletions,
+        category: "gateway",
+    },
+    ModelProviderView {
+        id: "inception",
+        name: "Inception",
+        default_base_url: Some("https://api.inceptionlabs.ai/v1"),
+        default_protocol: ModelProtocol::OpenaiCompletions,
+        category: "official",
+    },
+    ModelProviderView {
+        id: "ollama-cloud",
+        name: "Ollama Cloud",
+        default_base_url: Some("https://ollama.com/v1"),
+        default_protocol: ModelProtocol::OpenaiCompletions,
+        category: "official",
+    },
+    ModelProviderView {
+        id: "tinfoil-proxy",
+        name: "Tinfoil Proxy",
+        default_base_url: Some("http://127.0.0.1:3301/v1"),
+        default_protocol: ModelProtocol::OpenaiCompletions,
+        category: "local",
+    },
     ModelProviderView {
         id: "vercel-ai-gateway",
         name: "Vercel AI Gateway",
@@ -6450,7 +6767,7 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(endpointless.iter().map(|p| p.id).collect::<BTreeSet<_>>(),
             BTreeSet::from(["azure-openai", "amazon-bedrock-mantle", "cloudflare-workers-ai", "custom"]));
-        assert_eq!(list_providers().len(), 73);
+        assert_eq!(list_providers().len(), 103);
         assert!(!list_providers().iter().any(|p| p.id == "github-models"));
         let openrouter = list_providers()
             .iter()

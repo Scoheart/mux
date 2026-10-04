@@ -30,5 +30,58 @@
     "mcp": "https://www.workbuddy.cn/docs/workbuddy/From-Beginner-to-Expert-Guide/Function-Description/Connector",
     "model": "https://www.workbuddy.cn/docs/workbuddy/From-Beginner-to-Expert-Guide/Function-Description/Model",
     "skill": "https://www.workbuddy.cn/docs/workbuddy/From-Beginner-to-Expert-Guide/Function-Description/Skills-Market"
+  },
+  "anythingllm": {
+    "mcp": "https://docs.anythingllm.com/mcp-compatibility/desktop"
+  },
+  "cline-cli": {
+    "mcp": "https://github.com/cline/cline/blob/39ff2359f7e08231281539696e48a166ce49270c/sdk/packages/shared/src/storage/paths.ts",
+    "skill": "https://docs.cline.bot/customization/skills"
+  },
+  "codex-ide": {
+    "mcp": "https://learn.chatgpt.com/docs/config-file/config-basic",
+    "skill": "https://developers.openai.com/codex/skills",
+    "model": "https://learn.chatgpt.com/docs/config-file/config-basic"
+  },
+  "deepseek-harness": {
+    "skill": "https://github.com/deepseek-ai/deepseek-harness/blob/5badb15009ae1756c3afe0ae0cef1faafc290ccc/packages/skill/skill-filesystem/README.md",
+    "mcp": "https://github.com/deepseek-ai/deepseek-harness/tree/master/packages/mcp/mcp-client"
+  },
+  "goose-desktop": {
+    "mcp": "https://github.com/aaif-goose/goose/blob/591edd47cf2cfea4957d720c607cf2a4def8673d/crates/goose/src/config/paths.rs",
+    "skill": "https://goose-docs.ai/docs/guides/context-engineering/using-skills/",
+    "model": "https://goose-docs.ai/docs/getting-started/providers/"
+  },
+  "ibm-bob": {
+    "mcp": "https://bob.ibm.com/docs/ide/configuration/mcp/mcp-in-bob"
+  },
+  "jan-cli": {
+    "mcp": "https://github.com/janhq/jan/blob/14a720628f9592c8e60f7e081ef733076db8a6a9/src-tauri/src/core/mcp/commands.rs",
+    "skill": "https://github.com/janhq/jan/blob/14a720628f9592c8e60f7e081ef733076db8a6a9/src-tauri/src/core/agent/skills.rs"
+  },
+  "jan-desktop": {
+    "mcp": "https://github.com/janhq/jan/blob/14a720628f9592c8e60f7e081ef733076db8a6a9/src-tauri/src/core/mcp/commands.rs",
+    "skill": "https://github.com/janhq/jan/blob/14a720628f9592c8e60f7e081ef733076db8a6a9/src-tauri/src/core/agent/skills.rs"
+  },
+  "jcode": {
+    "mcp": "https://github.com/1jehuang/jcode/blob/77f4f9d50bb41ae849da9ffaab7ea25e7815e096/crates/jcode-base/src/mcp/protocol.rs",
+    "skill": "https://github.com/1jehuang/jcode/blob/77f4f9d50bb41ae849da9ffaab7ea25e7815e096/crates/jcode-base/src/skill.rs"
+  },
+  "junie-cli": {
+    "mcp": "https://junie.jetbrains.com/docs/junie-cli-mcp-configuration.html",
+    "skill": "https://junie.jetbrains.com/docs/agent-skills.html"
+  },
+  "kilo-vscode": {
+    "mcp": "https://github.com/kilo-org/kilocode/blob/76bcfd40be616a72f4697b3041565f322245b462/packages/kilo-vscode/src/kilo-provider/config-file.ts",
+    "skill": "https://kilo.ai/docs/customize/skills",
+    "model": "https://github.com/Kilo-Org/kilocode/tree/76bcfd40be616a72f4697b3041565f322245b462/packages/kilo-vscode"
+  },
+  "kiro-cli": {
+    "mcp": "https://kiro.dev/docs/cli/chat/configuration/",
+    "skill": "https://kiro.dev/docs/skills/"
+  },
+  "mimo-code": {
+    "mcp": "https://github.com/XiaomiMiMo/MiMo-Code/blob/6babeb0b98f9b4818bddf04a4331edfee04dbf85/packages/cli/src/config/config.ts",
+    "skill": "https://github.com/XiaomiMiMo/MiMo-Code/blob/6babeb0b98f9b4818bddf04a4331edfee04dbf85/packages/cli/src/skill/index.ts"
   }
 }

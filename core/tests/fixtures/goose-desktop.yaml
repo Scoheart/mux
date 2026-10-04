@@ -1,0 +1,23 @@
+# Desktop and CLI share this file on macOS.
+active_provider: fixture-provider
+providers:
+  fixture-provider:
+    enabled: true
+    model: fixture-model
+extensions:
+  local:
+    name: local
+    type: stdio
+    cmd: node
+    args: [original.mjs]
+    envs: {MODE: fixture}
+    enabled: true
+    timeout: 90
+    description: Keep this description
+  remote:
+    name: remote
+    type: streamable_http
+    uri: https://original.example.test/mcp
+    headers: {X-Fixture: original}
+    enabled: true
+    timeout: 90

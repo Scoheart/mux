@@ -236,7 +236,7 @@ export function AgentGlyph({ id, name, size = 26 }: { id: string; name?: string;
           />
         </div>
       );
-    } else if (FULL_BLEED.has(id)) {
+    } else if (FULL_BLEED.has(id) || FULL_BLEED.has(resolvedLogoKey(id))) {
       // App-icon logos (own background) fill the badge; mark-only logos sit on a white tile.
       baseGlyph = (
         <img

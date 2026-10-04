@@ -201,7 +201,7 @@ export interface ModelProviderView {
   /** Display-only instructions for account/region-specific connections. */
   setup?: {
     base_url_placeholder: string;
-    hint: "azure" | "bedrock" | "cloudflare";
+    hint: "azure" | "bedrock" | "cloudflare" | "tinfoil";
   } | null;
 }
 

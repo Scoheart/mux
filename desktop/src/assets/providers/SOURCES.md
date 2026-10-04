@@ -54,3 +54,32 @@ Official assets retrieved 2026-09-07 (original bytes; ICO retained without conve
 - `vercel-ai-gateway.png`: <https://assets.vercel.com/image/upload/q_auto/front/favicon/vercel/apple-touch-icon-72x72.png> (linked by vercel.com).
 
 - `stepfun.png` — https://platform.stepfun.com/images/title-logo.png (official platform favicon, original bytes; 2026-09-07).
+
+## Provider expansion — 2026-10-04
+
+Official favicon assets served by vendor websites or linked by their documentation; original bytes retained. OpenCode Zen/Go and Kilo Gateway reuse the existing official Agent assets. Tencent TokenHub and Ollama Cloud reuse their vendor artwork.
+
+- `nanogpt.png` — <https://nano-gpt.com/favicon/android-chrome-192x192.png>
+- `synthetic.svg` — <https://synthetic.new/favicon.svg>
+- `chutes.png` — <https://chutes.ai/favicon.png>
+- `featherless-ai.png` — <https://cdn.prod.website-files.com/6979c6c70c21b50639123793/699d5e1583ded3bc406b6cca_Frame%202147256584.png>
+- `venice.png` — <https://venice.ai/favicon.png>
+- `friendli.svg` — <https://friendli.ai/favicon/favicon.svg>
+- `inference-net.svg` — <https://inference.net/favicon.svg>
+- `ovhcloud.svg` — <https://us.ovhcloud.com/icon.svg>
+- `upstage.ico` — <https://console.upstage.ai/assets/images/meta/favicon/favicon-256x256.ico>
+- `ai21.png` — <https://docs.ai21.com/mintlify-assets/_mintlify/favicons/ai21-demo/zc4uXZjknsciGHPW/_generated/favicon/android-chrome-192x192.png>
+- `zenmux.svg` — <https://cdn.marmot-cloud.com/storage/tbox-router/2025/08/18/mplTJpZ/big-logo.svg>
+- `byteplus.png` — <https://sf-bpcms.bytepluscdn.com/obj/byteplus-public-aiso/portal/assets/favicon.png>
+- `longcat.svg` — <https://s3plus.meituan.net/aigc-media-resources/longcat/yeqian-logo.svg>
+- `iflytek-spark-x2.ico` — <https://www.xfyun.cn/static/favicon.ico>
+- `nscale.png` — <https://docs.nscale.com/mintlify-assets/_mintlify/favicons/nscale/YopqSX4Z9VUm1t0s/_generated/favicon/android-chrome-192x192.png>
+- `io-net.svg` — <https://io.net/icons/favicon-source.svg>
+- `inception.png` — <https://docs.inceptionlabs.ai/mintlify-assets/_mintlify/favicons/inception/CR-PGfA5KwciZhoS/_generated/favicon/android-chrome-192x192.png>
+- `tinfoil.png` — <https://tinfoil.sh/icon-light.png>
+- `ppio.ico` — <https://ppio.com/favicon.ico>
+- `infini-ai.ico` — <https://www.infinigence-ai.com/favicon.ico>
+- `aihubmix.png` — <https://aihubmix.com/apple-touch-icon.png>
+- `302-ai.ico` — <https://302.ai/favicon.ico>
+- `portkey.png` — <https://framerusercontent.com/images/pkFK3AGXHirogqiN67JGtlnMVM.png>
+- `helicone.ico` — <https://www.helicone.ai/favicon.ico>

@@ -1,0 +1,10 @@
+{
+  // Model and permissions belong to MiMoCode.
+  "$schema": "https://mimo.xiaomi.com/mimocode/config.json",
+  "model": "fixture-provider/fixture-model",
+  "permission": {"bash": "ask"},
+  "mcp": {
+    "local": {"type": "local", "command": ["node", "original.mjs"], "environment": {"MODE": "fixture"}, "enabled": true, "sampling": "ask", "timeout": 9000},
+    "remote": {"type": "remote", "url": "https://original.example.test/mcp", "headers": {"X-Fixture": "original"}, "enabled": true, "sampling": "deny", "oauth": false, "timeout": 9000}
+  }
+}

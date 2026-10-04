@@ -459,5 +459,94 @@
     "candidates": [
       "OpenCode"
     ]
+  },
+  "anythingllm": {
+    "kind": "app",
+    "candidates": [
+      "AnythingLLM"
+    ]
+  },
+  "cline-cli": {
+    "kind": "cli",
+    "candidates": [
+      "cline"
+    ],
+    "args": []
+  },
+  "codex-ide": {
+    "kind": "app",
+    "candidates": [
+      "Visual Studio Code"
+    ],
+    "host_name": "VS Code"
+  },
+  "deepseek-harness": {
+    "kind": "cli",
+    "candidates": [
+      "dsh"
+    ],
+    "args": []
+  },
+  "goose-desktop": {
+    "kind": "app",
+    "candidates": [
+      "Goose",
+      "goose"
+    ]
+  },
+  "ibm-bob": {
+    "kind": "app",
+    "candidates": [
+      "IBM Bob",
+      "Bob"
+    ]
+  },
+  "jan-cli": {
+    "kind": "cli",
+    "candidates": [
+      "jan"
+    ],
+    "args": []
+  },
+  "jan-desktop": {
+    "kind": "app",
+    "candidates": [
+      "Jan"
+    ]
+  },
+  "jcode": {
+    "kind": "cli",
+    "candidates": [
+      "jcode"
+    ],
+    "args": []
+  },
+  "junie-cli": {
+    "kind": "cli",
+    "candidates": [
+      "junie"
+    ],
+    "args": []
+  },
+  "kilo-vscode": {
+    "kind": "app",
+    "candidates": [
+      "Visual Studio Code"
+    ],
+    "host_name": "VS Code"
+  },
+  "kiro-cli": {
+    "kind": "cli",
+    "candidates": [
+      "kiro-cli"
+    ],
+    "args": []
+  },
+  "mimo-code": {
+    "kind": "cli",
+    "candidates": [
+      "mimo"
+    ],
+    "args": []
   }
 }

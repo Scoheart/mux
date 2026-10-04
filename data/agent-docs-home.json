@@ -73,5 +73,18 @@
   "workbuddy-cn": "https://www.workbuddy.cn/docs/workbuddy/Overview",
   "qwenwork": "https://docs.qwenwork.ai/",
   "qwenwork-cn": "https://qwenwork.cn/docs/",
-  "opencode-desktop": "https://opencode.ai/docs/"
+  "opencode-desktop": "https://opencode.ai/docs/",
+  "anythingllm": "https://docs.anythingllm.com/mcp-compatibility/desktop",
+  "cline-cli": "https://github.com/cline/cline/blob/39ff2359f7e08231281539696e48a166ce49270c/sdk/packages/shared/src/storage/paths.ts",
+  "codex-ide": "https://learn.chatgpt.com/docs/config-file/config-basic",
+  "deepseek-harness": "https://github.com/deepseek-ai/deepseek-harness/blob/5badb15009ae1756c3afe0ae0cef1faafc290ccc/packages/skill/skill-filesystem/README.md",
+  "goose-desktop": "https://github.com/aaif-goose/goose/blob/591edd47cf2cfea4957d720c607cf2a4def8673d/crates/goose/src/config/paths.rs",
+  "ibm-bob": "https://bob.ibm.com/docs/ide/configuration/mcp/mcp-in-bob",
+  "jan-cli": "https://github.com/janhq/jan/blob/14a720628f9592c8e60f7e081ef733076db8a6a9/src-tauri/src/core/mcp/commands.rs",
+  "jan-desktop": "https://github.com/janhq/jan/blob/14a720628f9592c8e60f7e081ef733076db8a6a9/src-tauri/src/core/mcp/commands.rs",
+  "jcode": "https://github.com/1jehuang/jcode/blob/77f4f9d50bb41ae849da9ffaab7ea25e7815e096/crates/jcode-base/src/mcp/protocol.rs",
+  "junie-cli": "https://junie.jetbrains.com/docs/junie-cli-mcp-configuration.html",
+  "kilo-vscode": "https://github.com/kilo-org/kilocode/blob/76bcfd40be616a72f4697b3041565f322245b462/packages/kilo-vscode/src/kilo-provider/config-file.ts",
+  "kiro-cli": "https://kiro.dev/docs/cli/chat/configuration/",
+  "mimo-code": "https://github.com/XiaomiMiMo/MiMo-Code/blob/6babeb0b98f9b4818bddf04a4331edfee04dbf85/packages/cli/src/config/config.ts"
 }

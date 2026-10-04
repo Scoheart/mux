@@ -22,6 +22,16 @@ fn temp_file(name: &str, extension: &str) -> PathBuf {
 
 fn fixture(name: &str) -> &'static str {
     match name {
+        "mimo-code" => include_str!("fixtures/mimo-code.jsonc"),
+        "jcode" => include_str!("fixtures/jcode.json"),
+        "jan-desktop" | "jan-cli" => include_str!("fixtures/jan.json"),
+        "anythingllm" => include_str!("fixtures/anythingllm.json"),
+        "ibm-bob" => include_str!("fixtures/ibm-bob.json"),
+        "kiro-cli" | "junie-cli" => include_str!("fixtures/shared-surfaces.json"),
+        "goose-desktop" => include_str!("fixtures/goose-desktop.yaml"),
+        "cline-cli" => include_str!("fixtures/cline.json"),
+        "codex-ide" => include_str!("fixtures/codex.toml"),
+        "kilo-vscode" => include_str!("fixtures/opencode.json"),
         "kimi-code-desktop" => include_str!("fixtures/kimi-code-desktop.json"),
         "workbuddy" => include_str!("fixtures/workbuddy.json"),
         "zcode" => include_str!("fixtures/zcode.json"),
@@ -40,6 +50,113 @@ fn fixture(name: &str) -> &'static str {
         "cline" => include_str!("fixtures/cline.json"),
         _ => panic!("unknown fixture"),
     }
+}
+
+#[test]
+fn newly_audited_surfaces_preserve_non_connection_state_and_reject_unsafe_inputs() {
+    let home = mux_core::testenv::TestHome::new("agent-gap-formats");
+    let agents = builtin_agents();
+    for id in ["cline-cli", "kiro-cli", "junie-cli", "goose-desktop", "kilo-vscode",
+        "codex-ide", "mimo-code", "jcode", "jan-cli", "jan-desktop", "anythingllm", "ibm-bob"] {
+        let definition = &agents[id];
+        let path = home.home.join(format!("{id}.{}", definition.format));
+        let original = fixture(id);
+        std::fs::write(&path, original).unwrap();
+        let adapter = get_agent_adapter_for(definition, id);
+        let codec = from_name(definition.codec.as_deref(), id);
+        let initial = adapter.read(&path);
+        let (local_name, remote_name) = match id {
+            "cline-cli" => ("shared-local", "shared-http"),
+            "kilo-vscode" => ("local-tools", "remote-tools"),
+            "codex-ide" => ("local", "figma"),
+            _ => ("local", "remote"),
+        };
+        assert!(initial.contains_key(local_name), "{id}");
+        let local = McpConfig::Stdio(StdioConfig {
+            command: "bunx".into(), args: Some(vec!["updated-server".into()]),
+            env: Some(HashMap::from([("MODE".into(), "updated".into())])), cwd: None,
+        });
+        adapter.upsert(&path, local_name, &local).unwrap();
+        assert_eq!(adapter.read(&path)[local_name], normalize_with_codec(codec, &local), "{id}");
+        if id != "jcode" {
+            let remote = http("https://updated.example.test/mcp");
+            adapter.upsert(&path, remote_name, &remote).unwrap();
+            assert_eq!(adapter.read(&path)[remote_name], normalize_with_codec(codec, &remote), "{id}");
+        } else {
+            let before = std::fs::read(&path).unwrap();
+            assert!(adapter.upsert(&path, "remote", &http("https://unsupported.test/mcp")).is_err());
+            assert_eq!(std::fs::read(&path).unwrap(), before);
+        }
+        let after = std::fs::read_to_string(&path).unwrap();
+        for preserved in match id {
+            "mimo-code" => vec!["// Model and permissions belong to MiMoCode.", "fixture-provider/fixture-model", "\"sampling\": \"ask\"", "\"oauth\": false"],
+            "jcode" => vec!["\"shared\": false", "\"timeout_secs\": 90"],
+            "jan-cli" | "jan-desktop" => vec!["\"active\": false", "\"enableSmartToolRouting\": true"],
+            "anythingllm" => vec!["\"autoStart\": true", "\"suppressedTools\"", "\"delete\""],
+            "ibm-bob" => vec!["\"alwaysAllow\"", "\"timeout\": 90"],
+            "goose-desktop" => vec!["# Desktop and CLI share this file on macOS.", "active_provider: fixture-provider", "Keep this description"],
+            _ => Vec::new(),
+        } {
+            assert!(after.contains(preserved), "{id}: missing {preserved}");
+        }
+        adapter.remove(&path, &[local_name.into()]).unwrap();
+        assert!(!adapter.read(&path).contains_key(local_name), "{id}");
+        let malformed = match definition.format.as_str() {
+            "yaml" => "extensions: [\n",
+            "toml" => "[mcp_servers\n",
+            _ => "{",
+        };
+        std::fs::write(&path, malformed).unwrap();
+        assert!(adapter.upsert(&path, "local", &local).is_err(), "{id}");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), malformed, "{id}");
+    }
+}
+
+#[test]
+fn new_native_switch_and_shared_format_guards_fail_closed() {
+    let home = mux_core::testenv::TestHome::new("agent-gap-policy");
+    let agents = builtin_agents();
+    let jan_path = home.home.join("jan.json");
+    std::fs::write(&jan_path, fixture("jan-cli")).unwrap();
+    let jan = get_agent_adapter_for(&agents["jan-cli"], "jan-cli");
+    assert!(jan.supports_native_enabled());
+    assert!(!jan.read_with_enabled(&jan_path)["paused"].1);
+    let snapshot = jan.snapshot(&jan_path, "paused").unwrap().unwrap();
+    jan.set_enabled(&jan_path, "paused", true, &snapshot).unwrap();
+    assert!(jan.read_with_enabled(&jan_path)["paused"].1);
+    assert!(jan.set_enabled(&jan_path, "paused", false, &snapshot).is_err());
+
+    let local = McpConfig::Stdio(StdioConfig { command: "node".into(), args: None, env: None, cwd: None });
+    for (id, invalid) in [
+        ("jcode", r#"{"mcpServers":{"local":{"command":"original"}}}"#),
+        ("jcode", r#"{"servers":{"local":{"command":"original","enabled":false}}}"#),
+        ("mimo-code", r#"{"mcp":{"local":{"type":"local","command":["original"],"enabled":false}}}"#),
+        ("jan-cli", r#"{"mcpServers":{"local":{"command":"original","active":"true"}}}"#),
+        ("anythingllm", r#"{"mcpServers":{"local":{"command":"original","anythingllm":{"autoStart":false}}}}"#),
+        ("ibm-bob", r#"{"mcpServers":{"shell":{"httpURL":"https://shell.test/mcp"}}}"#),
+    ] {
+        let path = home.home.join(format!("{id}-policy.json"));
+        std::fs::write(&path, invalid).unwrap();
+        let adapter = get_agent_adapter_for(&agents[id], id);
+        assert!(adapter.upsert(&path, "local", &local).is_err(), "{id}");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), invalid, "{id}");
+    }
+    for id in ["mimo-code", "jcode"] {
+        let adapter = get_agent_adapter_for(&agents[id], id);
+        let path = home.home.join(format!("{id}-cwd.json"));
+        let mut unsupported = local.clone();
+        if let McpConfig::Stdio(config) = &mut unsupported { config.cwd = Some("/unsupported".into()); }
+        assert!(adapter.upsert(&path, "local", &unsupported).is_err());
+        assert!(!path.exists());
+    }
+    for (id, sibling) in [("kiro-cli", "kiro"), ("junie-cli", "junie"),
+        ("cline-cli", "cline"), ("goose-desktop", "goose"), ("kilo-vscode", "kilo-code"),
+        ("codex-ide", "codex"), ("jan-cli", "jan-desktop")] {
+        assert_eq!(agents[id].global, agents[sibling].global);
+        assert_eq!(agents[id].skills.as_ref().unwrap().target_id, agents[sibling].skills.as_ref().unwrap().target_id);
+    }
+    assert!(agents["deepseek-harness"].global.is_none());
+    assert_eq!(agents["deepseek-harness"].skills.as_ref().unwrap().global_dir, "~/.dsh/skills");
 }
 
 #[test]
@@ -651,7 +768,7 @@ fn every_writable_builtin_roundtrips_through_its_wire_format() {
         .values()
         .filter(|agent| agent.global.is_some())
         .count();
-    assert_eq!(writable, 61);
+    assert_eq!(writable, 73);
 
     for (agent_id, definition) in agents {
         if definition.global.is_none() {
@@ -675,7 +792,7 @@ fn every_writable_builtin_roundtrips_through_its_wire_format() {
             .any(|transport| transport == "http");
         let strict_stdio = matches!(
             codec,
-            mux_core::codec::Codec::AgentKube | mux_core::codec::Codec::ChatMcp
+            mux_core::codec::Codec::AgentKube | mux_core::codec::Codec::ChatMcp | mux_core::codec::Codec::MiMo | mux_core::codec::Codec::Jcode
         );
         let local = McpConfig::Stdio(StdioConfig {
             command: "npx".into(),
@@ -994,16 +1111,16 @@ fn verified_and_catalog_definitions_have_auditable_boundaries() {
     let all_ids: std::collections::BTreeSet<_> =
         verified_ids.union(&catalog_ids).cloned().collect();
 
-    assert_eq!(verified.len(), 74);
-    assert_eq!(catalog.len(), 204);
-    assert_eq!(verified_ids.intersection(&catalog_ids).count(), 48);
-    assert_eq!(all_ids.len(), 230);
+    assert_eq!(verified.len(), 88);
+    assert_eq!(catalog.len(), 246);
+    assert_eq!(verified_ids.intersection(&catalog_ids).count(), 63);
+    assert_eq!(all_ids.len(), 271);
     assert_eq!(
         verified
             .values()
             .filter(|item| item.global.is_some())
         .count(),
-        61
+        73
     );
     assert!(catalog.len() >= 170);
     for (id, definition) in verified {
@@ -1022,6 +1139,11 @@ fn verified_and_catalog_definitions_have_auditable_boundaries() {
                         | "vscode"
                         | "codex"
                         | "opencode"
+                        | "mimo"
+                        | "jcode"
+                        | "jan"
+                        | "anythingllm"
+                        | "ibm_bob"
                         | "gemini"
                         | "windsurf"
                         | "qoder"

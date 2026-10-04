@@ -1,0 +1,32 @@
+{
+  "mcpServers": {
+    "local": {
+      "command": "node",
+      "args": [
+        "original.mjs"
+      ],
+      "env": {
+        "MODE": "fixture"
+      },
+      "disabled": false,
+      "timeout": 90,
+      "autoApprove": [
+        "read"
+      ]
+    },
+    "remote": {
+      "url": "https://original.example.test/mcp",
+      "headers": {
+        "X-Fixture": "original"
+      },
+      "timeout": 90,
+      "autoApprove": [
+        "read"
+      ]
+    }
+  },
+  "ui": {
+    "theme": "system",
+    "keep": true
+  }
+}

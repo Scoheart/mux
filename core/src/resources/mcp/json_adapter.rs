@@ -67,6 +67,10 @@ impl JsonAdapter {
                 e
             )
         })?;
+        if self.codec == Codec::Jcode && self.key == "servers"
+            && root.object_value().is_some_and(|object| object.get("mcpServers").is_some()) {
+            return Err("jcode MCP uses a different map key in this file; set the actual key in MUX before writing".into());
+        }
         Ok((root, text))
     }
 
@@ -285,7 +289,8 @@ impl JsonAdapter {
         Value::Object(fields)
     }
 
-    /// ChatMCP stores OAuth material beside MCP connection metadata. A normal
+    /// Reject incompatible shared formats before any mutation. ChatMCP stores
+    /// OAuth material beside MCP connection metadata. A normal
     /// whole-file backup would copy those external credentials into MUX's
     /// backup area, so any credential-bearing entry makes the entire file
     /// read-only. The error deliberately reports only policy, never values.
@@ -294,16 +299,19 @@ impl JsonAdapter {
         section: &CstObject,
         path: &Path,
     ) -> Result<(), String> {
-        if self.codec != Codec::ChatMcp {
+        if !matches!(self.codec, Codec::ChatMcp | Codec::IbmBob) {
             return Ok(());
         }
         for property in section.properties() {
             let value = property.to_serde_value().ok_or_else(|| {
                 format!(
-                    "refusing to modify {}: ChatMCP MCP entry has no valid JSON value",
+                    "refusing to modify {}: MCP entry has no valid JSON value",
                     path.display()
                 )
             })?;
+            if self.codec == Codec::IbmBob && value.get("httpURL").is_none() {
+                continue;
+            }
             self.codec
                 .validate_existing_entry(&value)
                 .map_err(|reason| format!("refusing to modify {}: {reason}", path.display()))?;
@@ -346,7 +354,7 @@ impl Adapter for JsonAdapter {
     }
 
     fn supports_native_enabled(&self) -> bool {
-        matches!(self.codec, Codec::WorkBuddy | Codec::Pi)
+        matches!(self.codec, Codec::WorkBuddy | Codec::Pi | Codec::Jan)
     }
 
     fn set_enabled(&self, path: &Path, name: &str, enabled: bool, snapshot: &Value) -> Result<(), String> {
@@ -367,7 +375,11 @@ impl Adapter for JsonAdapter {
         let (_, current_enabled) = self.codec.decode_with_enabled(&current).ok_or("invalid native MCP entry")?;
         if current_enabled == enabled { return Ok(()); }
         let target = property.object_value().ok_or("MCP entry is not an object")?;
-        let (field, value) = if self.codec == Codec::Pi { ("enabled", enabled) } else { ("disabled", !enabled) };
+        let (field, value) = match self.codec {
+            Codec::Pi => ("enabled", enabled),
+            Codec::Jan => ("active", enabled),
+            _ => ("disabled", !enabled),
+        };
         if let Some(flag) = target.get(field) {
             flag.set_value(CstInputValue::Bool(value));
         } else {

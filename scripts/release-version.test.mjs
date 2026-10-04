@@ -6,7 +6,7 @@ import test from "node:test";
 
 import {
   collectVersionMismatches,
-  nextPatchVersion,
+  nextReleaseVersion,
   updateCargoPackageVersion,
   updateCargoLockPackageVersions,
 } from "./release-version.mjs";
@@ -97,10 +97,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
   );
 });
 
-test("increments only the patch component for a direct stable release", () => {
-  assert.equal(nextPatchVersion("1.8.5"), "1.8.6");
-  assert.equal(nextPatchVersion("12.0.99999999999999999999"), "12.0.100000000000000000000");
-  assert.throws(() => nextPatchVersion("v1.8.5"), /invalid semantic version/);
+test("uses the explicitly selected semantic release scope", () => {
+  assert.equal(nextReleaseVersion("1.8.239", "patch"), "1.8.240");
+  assert.equal(nextReleaseVersion("1.8.239", "minor"), "1.9.0");
+  assert.equal(nextReleaseVersion("1.8.239", "major"), "2.0.0");
+  assert.equal(nextReleaseVersion("12.0.99999999999999999999", "patch"), "12.0.100000000000000000000");
+  assert.throws(() => nextReleaseVersion("v1.8.5", "patch"), /invalid semantic version/);
+  for (const scope of [undefined, "", "auto", "toString"]) {
+    assert.throws(() => nextReleaseVersion("1.8.239", scope), /release type must be/);
+  }
 });
 
 test("updates only the Cargo package version", () => {

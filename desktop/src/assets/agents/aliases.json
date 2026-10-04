@@ -16,5 +16,12 @@
   "zcode": "zcode",
   "codebuddy-ide": "codebuddy-code",
   "opencode-desktop": "opencode",
-  "workbuddy-cn": "workbuddy"
+  "workbuddy-cn": "workbuddy",
+  "cline-cli": "cline",
+  "codex-ide": "openai",
+  "goose-desktop": "goose",
+  "jan-cli": "jan-desktop",
+  "junie-cli": "jetbrains",
+  "kilo-vscode": "kilo-code",
+  "kiro-cli": "kiro"
 }

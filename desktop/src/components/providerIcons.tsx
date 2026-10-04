@@ -1,4 +1,6 @@
 import minimaxIconUrl from "../assets/agents/minimax-code.png";
+import opencodeIconUrl from "../assets/agents/opencode.svg";
+import kiloIconUrl from "../assets/agents/kilo-code.svg";
 
 const providerIconModules = import.meta.glob("../assets/providers/*.{png,svg,webp,ico}", {
   eager: true,
@@ -8,9 +10,17 @@ const providerIconModules = import.meta.glob("../assets/providers/*.{png,svg,web
 
 const EXTRA_PROVIDER_LOGOS: Record<string, string> = {
   minimax: minimaxIconUrl,
+  opencode: opencodeIconUrl,
+  "kilo-gateway": kiloIconUrl,
 };
 
 const PROVIDER_ICON_ALIASES: Record<string, string> = {
+  "opencode-zen": "opencode",
+  "opencode-go": "opencode",
+  "tencent-tokenhub-cn": "tencent",
+  "tencent-tokenhub-global": "tencent",
+  "ollama-cloud": "ollama",
+  "tinfoil-proxy": "tinfoil",
   "minimax-cn": "minimax",
   "stepfun-global": "stepfun",
   "zhipuai": "zai",
@@ -46,6 +56,30 @@ const PROVIDER_LOGOS = Object.fromEntries(
 ) as Record<string, string>;
 
 export const NAMED_PROVIDER_ICON_IDS = [
+  "portkey",
+  "helicone",
+  "ppio",
+  "infini-ai",
+  "aihubmix",
+  "302-ai",
+  "nanogpt",
+  "synthetic",
+  "chutes",
+  "featherless-ai",
+  "venice",
+  "friendli",
+  "inference-net",
+  "ovhcloud",
+  "upstage",
+  "ai21",
+  "zenmux",
+  "byteplus",
+  "longcat",
+  "iflytek-spark-x2",
+  "nscale",
+  "io-net",
+  "inception",
+  "tinfoil",
   "azure-openai",
   "amazon-bedrock-mantle",
   "cloudflare-workers-ai",

@@ -1,0 +1,20 @@
+{
+  "servers": {
+    "local": {
+      "command": "node",
+      "args": [
+        "original.mjs"
+      ],
+      "env": {
+        "MODE": "fixture"
+      },
+      "shared": false,
+      "enabled": true,
+      "disabled": false,
+      "timeout_secs": 90
+    }
+  },
+  "ui": {
+    "keep": true
+  }
+}

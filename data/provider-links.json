@@ -1,4 +1,214 @@
 {
+  "portkey": {
+    "docs_url": "https://portkey.ai/docs/integrations/llms/openai",
+    "portal": {
+      "url": "https://portkey.ai/docs/integrations/llms/openai",
+      "kind": "setup"
+    }
+  },
+  "helicone": {
+    "docs_url": "https://docs.helicone.ai/getting-started/quick-start",
+    "portal": {
+      "url": "https://docs.helicone.ai/getting-started/quick-start",
+      "kind": "setup"
+    }
+  },
+  "ppio": {
+    "docs_url": "https://ppio.com/model/ppio-4b",
+    "portal": {
+      "url": "https://ppio.com/model/ppio-4b",
+      "kind": "setup"
+    }
+  },
+  "infini-ai": {
+    "docs_url": "https://docs.infini-ai.com/gen-studio/api/get-started/",
+    "portal": {
+      "url": "https://cloud.infini-ai.com/iam/secret/key",
+      "kind": "api-key"
+    }
+  },
+  "aihubmix": {
+    "docs_url": "https://aihubmix.com/developers",
+    "portal": {
+      "url": "https://console.aihubmix.com/",
+      "kind": "console"
+    }
+  },
+  "302-ai": {
+    "docs_url": "https://studio.302.ai/en/docs/features/model-providers/configuration",
+    "portal": {
+      "url": "https://doc.302.ai/",
+      "kind": "setup"
+    }
+  },
+  "opencode-zen": {
+    "docs_url": "https://opencode.ai/docs/zen/",
+    "portal": {
+      "url": "https://opencode.ai/auth",
+      "kind": "console"
+    }
+  },
+  "opencode-go": {
+    "docs_url": "https://opencode.ai/docs/go/",
+    "portal": {
+      "url": "https://opencode.ai/auth",
+      "kind": "console"
+    }
+  },
+  "kilo-gateway": {
+    "docs_url": "https://kilo.ai/docs/gateway",
+    "portal": {
+      "url": "https://app.kilo.ai/",
+      "kind": "console"
+    }
+  },
+  "nanogpt": {
+    "docs_url": "https://docs.nano-gpt.com/",
+    "portal": {
+      "url": "https://nano-gpt.com/support",
+      "kind": "setup"
+    }
+  },
+  "synthetic": {
+    "docs_url": "https://dev.synthetic.new/docs/api/overview",
+    "portal": {
+      "url": "https://dev.synthetic.new/docs/api/overview",
+      "kind": "api-key"
+    }
+  },
+  "chutes": {
+    "docs_url": "https://chutes.ai/docs/guides/starter-guide",
+    "portal": {
+      "url": "https://chutes.ai/app",
+      "kind": "console"
+    }
+  },
+  "featherless-ai": {
+    "docs_url": "https://featherless.ai/docs/quickstart-guide",
+    "portal": {
+      "url": "https://featherless.ai/dashboard",
+      "kind": "console"
+    }
+  },
+  "venice": {
+    "docs_url": "https://docs.venice.ai/",
+    "portal": {
+      "url": "https://venice.ai/settings/api",
+      "kind": "api-key"
+    }
+  },
+  "friendli": {
+    "docs_url": "https://friendli.ai/docs/guides/model-apis/quickstart",
+    "portal": {
+      "url": "https://friendli.ai/suite/~/setting/keys",
+      "kind": "api-key"
+    }
+  },
+  "inference-net": {
+    "docs_url": "https://docs.inference.net/api/api-quickstart",
+    "portal": {
+      "url": "https://docs.inference.net/api/api-quickstart",
+      "kind": "setup"
+    }
+  },
+  "ovhcloud": {
+    "docs_url": "https://docs.ovhcloud.com/en/guides/public-cloud/ai-machine-learning/ai-endpoints-getting-started",
+    "portal": {
+      "url": "https://www.ovh.com/manager/",
+      "kind": "console"
+    }
+  },
+  "upstage": {
+    "docs_url": "https://console.upstage.ai/api/chat",
+    "portal": {
+      "url": "https://console.upstage.ai/",
+      "kind": "console"
+    }
+  },
+  "ai21": {
+    "docs_url": "https://docs.ai21.com/reference/jamba-1-6-api-ref",
+    "portal": {
+      "url": "https://studio.ai21.com/",
+      "kind": "console"
+    }
+  },
+  "zenmux": {
+    "docs_url": "https://zenmux.ai/docs/guide/quickstart",
+    "portal": {
+      "url": "https://zenmux.ai/",
+      "kind": "console"
+    }
+  },
+  "byteplus": {
+    "docs_url": "https://docs.byteplus.com/en/docs/modelark/quick-start",
+    "portal": {
+      "url": "https://ai.byteplus.com/ark/region:ap-southeast-1/apikey",
+      "kind": "api-key"
+    }
+  },
+  "tencent-tokenhub-cn": {
+    "docs_url": "https://cloud.tencent.com/document/product/1823/131382",
+    "portal": {
+      "url": "https://console.cloud.tencent.com/tokenhub",
+      "kind": "console"
+    }
+  },
+  "tencent-tokenhub-global": {
+    "docs_url": "https://intl.cloud.tencent.com/document/product/1300/78939",
+    "portal": {
+      "url": "https://console.intl.cloud.tencent.com/tokenhub",
+      "kind": "console"
+    }
+  },
+  "longcat": {
+    "docs_url": "https://longcat.chat/platform/docs/APIDocs.html",
+    "portal": {
+      "url": "https://longcat.chat/platform",
+      "kind": "console"
+    }
+  },
+  "iflytek-spark-x2": {
+    "docs_url": "https://www.xfyun.cn/doc/spark/X2-Flash.html",
+    "portal": {
+      "url": "https://console.xfyun.cn/",
+      "kind": "console"
+    }
+  },
+  "nscale": {
+    "docs_url": "https://docs.nscale.com/api-reference/inference/create-chat-completion",
+    "portal": {
+      "url": "https://console.nscale.com/",
+      "kind": "console"
+    }
+  },
+  "io-net": {
+    "docs_url": "https://io.net/p/how-to-deploy-llama-3-on-io-net-step-by-step-guide",
+    "portal": {
+      "url": "https://ai.io.net/",
+      "kind": "console"
+    }
+  },
+  "inception": {
+    "docs_url": "https://docs.inceptionlabs.ai/get-started",
+    "portal": {
+      "url": "https://platform.inceptionlabs.ai/dashboard/api-keys",
+      "kind": "api-key"
+    }
+  },
+  "ollama-cloud": {
+    "docs_url": "https://docs.ollama.com/cloud",
+    "portal": {
+      "url": "https://ollama.com/settings/keys",
+      "kind": "api-key"
+    }
+  },
+  "tinfoil-proxy": {
+    "docs_url": "https://tinfoil.sh/coding-agents",
+    "portal": {
+      "url": "https://dash.tinfoil.sh/",
+      "kind": "console"
+    }
+  },
   "vercel-ai-gateway": {
     "docs_url": "https://vercel.com/docs/ai-gateway",
     "portal": {

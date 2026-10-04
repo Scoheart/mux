@@ -1,0 +1,28 @@
+{
+  "mcpServers": {
+    "local": {
+      "command": "node",
+      "args": [
+        "original.mjs"
+      ],
+      "alwaysAllow": [
+        "read"
+      ],
+      "timeout": 90
+    },
+    "remote": {
+      "type": "streamable-http",
+      "url": "https://original.example.test/mcp",
+      "headers": {
+        "X-Fixture": "original"
+      },
+      "alwaysAllow": [
+        "read"
+      ],
+      "timeout": 90
+    }
+  },
+  "ui": {
+    "keep": true
+  }
+}

@@ -1,0 +1,35 @@
+{
+  "mcpServers": {
+    "local": {
+      "type": "stdio",
+      "command": "node",
+      "args": [
+        "original.mjs"
+      ],
+      "env": {
+        "MODE": "fixture"
+      },
+      "active": true,
+      "official": false,
+      "timeout": 45
+    },
+    "remote": {
+      "type": "http",
+      "url": "https://original.example.test/mcp",
+      "headers": {
+        "X-Fixture": "original"
+      },
+      "active": true,
+      "timeout": 45
+    },
+    "paused": {
+      "command": "node",
+      "args": [
+        "paused.mjs"
+      ],
+      "active": false
+    }
+  },
+  "toolCallTimeoutSeconds": 30,
+  "enableSmartToolRouting": true
+}
